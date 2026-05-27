@@ -28,10 +28,41 @@ data/oxigraph_store/
 data/logs/
 
 # Experiments scratch (keep results, ignore heavy stores / venvs)
+.venv/
 experiments/phase05/**/*.venv/
-experiments/phase05/**/oxigraph_data/
-experiments/phase05/**/togopackage_data/
 experiments/phase05/**/__pycache__/
+
+# Oxigraph spike runtime store
+experiments/phase05/oxigraph/oxigraph_data/
+
+# togopackage spike runtime artefacts (config.yaml と sources/*.ttl は手で commit するが、
+# qlever index / sparqlist / grasp / tabulae / virtuoso / togomcp / logs は除外)
+experiments/phase05/togopackage/data/qlever/
+experiments/phase05/togopackage/data/virtuoso/
+experiments/phase05/togopackage/data/sparqlist/
+experiments/phase05/togopackage/data/grasp/
+experiments/phase05/togopackage/data/tabulae/
+experiments/phase05/togopackage/data/togomcp/
+experiments/phase05/togopackage/data/logs/
+experiments/phase05/togopackage/data/.duckdb/
+# auto-generated copies / manifests under sources/
+experiments/phase05/togopackage/data/sources/source_*.ttl
+experiments/phase05/togopackage/data/sources/source-manifest.json
+
+# morph-kgc spike intermediate / output artefacts (mapping.ttl と README は残す)
+experiments/phase05/morph-kgc/knowledge-graph*.nt
+experiments/phase05/morph-kgc/data/authors.jsonl
+experiments/phase05/morph-kgc/data/authors.json
+experiments/phase05/morph-kgc/data/papers_100.csv
+experiments/phase05/morph-kgc/run_json_attempt.log
+
+# Shared subset / generated Turtle (regeneratable; keep make_subset.py + csv_to_ttl.py)
+experiments/phase05/data/papers_100.csv
+experiments/phase05/data/papers_100.ttl
+
+# Same subset copied into spike dirs for path resolution
+experiments/phase05/togopackage/data/sources/papers_100.ttl
+experiments/phase05/togopackage/data/sources/papers_100_b.ttl
 
 # Env
 .env
