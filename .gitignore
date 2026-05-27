@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+.python-version
+
+# uv / pip
+.uv/
+
+# Type / lint caches
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Runtime data (do NOT commit datasets / generated stores)
+data/sources/
+data/qlever/
+data/oxigraph_store/
+data/logs/
+
+# Experiments scratch (keep results, ignore heavy stores / venvs)
+experiments/phase05/**/*.venv/
+experiments/phase05/**/oxigraph_data/
+experiments/phase05/**/togopackage_data/
+experiments/phase05/**/__pycache__/
+
+# Env
+.env
+.env.local
+
+# Build artefacts
+dist/
+build/
+*.egg
