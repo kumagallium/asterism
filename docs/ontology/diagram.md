@@ -58,19 +58,19 @@ classDiagram
         +prov:wasAssociatedWith (software agent)
     }
 
-    Paper "1" --> "0..n" Person : schema:author
-    Paper "1" --> "0..1" Periodical : schema:isPartOf
-    Sample "1" --> "1" Paper : sd:fromPaper
-    Sample "1" --> "0..n" Descriptor : sd:hasDescriptor
-    Curve "1" --> "1" Sample : sd:ofSample
-    Paper ..> IngestionActivity : prov:wasGeneratedBy
-    Sample ..> IngestionActivity : prov:wasGeneratedBy
-    Curve ..> IngestionActivity : prov:wasGeneratedBy
+    Paper "1" --> "0..n" Person : "schema:author"
+    Paper "1" --> "0..1" Periodical : "schema:isPartOf"
+    Sample "1" --> "1" Paper : "sd:fromPaper"
+    Sample "1" --> "0..n" Descriptor : "sd:hasDescriptor"
+    Curve "1" --> "1" Sample : "sd:ofSample"
+    Paper ..> IngestionActivity : "prov:wasGeneratedBy"
+    Sample ..> IngestionActivity : "prov:wasGeneratedBy"
+    Curve ..> IngestionActivity : "prov:wasGeneratedBy"
 
-    note for Paper "rdfs:subClassOf schema:ScholarlyArticle, prov:Entity"
-    note for Sample "rdfs:subClassOf prov:Entity"
-    note for Curve "rdfs:subClassOf prov:Entity\nx/y は方針 C: JSON literal + 集約値"
-    note for IngestionActivity "rdfs:subClassOf prov:Activity\n各 ingest 実行で 1 つ発行"
+    note for Paper "subClassOf schema:ScholarlyArticle, prov:Entity"
+    note for Sample "subClassOf prov:Entity"
+    note for Curve "subClassOf prov:Entity. x/y: JSON literal + aggregates"
+    note for IngestionActivity "subClassOf prov:Activity. One per ingest run"
 ```
 
 ## 補足: 配置と接頭辞の対応
