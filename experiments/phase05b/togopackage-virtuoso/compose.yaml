@@ -1,0 +1,17 @@
+# Phase 0.5b — togopackage (Virtuoso backend) spike
+#
+# Phase 0.5 で QLever のみを bench し撤退判定したが、Virtuoso 経路の検証が
+# 残っていた。ここでは Virtuoso 直結 (port 8890) と sparql-proxy 経由
+# (port 10005) の両方で UPDATE/QUERY を比較する。
+
+services:
+  togopackage:
+    image: ghcr.io/dbcls/togopackage:latest
+    container_name: csv2rdf_phase05b_togopackage_virtuoso
+    user: "${UID:-501}:${GID:-20}"
+    ports:
+      - "10005:10005"
+      - "7001:7001"
+      - "8890:8890"
+    volumes:
+      - ./data:/data

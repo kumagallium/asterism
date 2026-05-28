@@ -1,0 +1,96 @@
+== Virtuoso bench (read=direct, proxy, write=/sparql-auth)
+baseline ready: Q1 returned in 11.6ms status=200
+
+-- read latency via Virtuoso DIRECT (:8890/sparql) --
+  [direct] Q1_count: mean=14.94ms p95=16.13ms (fails=0)
+  [direct] Q2_papers: mean=21.61ms p95=25.68ms (fails=0)
+  [direct] Q3_titles: mean=26.48ms p95=33.65ms (fails=0)
+  [direct] Q4_authors_per_paper: mean=19.41ms p95=21.16ms (fails=0)
+  [direct] Q5_filter_year: mean=17.70ms p95=23.26ms (fails=0)
+
+-- read latency via sparql-proxy (:10005/sparql) --
+  [proxy] Q1_count: mean=25.57ms p95=35.78ms (fails=0)
+  [proxy] Q2_papers: mean=29.95ms p95=42.25ms (fails=0)
+  [proxy] Q3_titles: mean=25.84ms p95=34.13ms (fails=0)
+  [proxy] Q4_authors_per_paper: mean=25.48ms p95=27.27ms (fails=0)
+  [proxy] Q5_filter_year: mean=32.45ms p95=34.71ms (fails=0)
+
+-- INSERT DATA via /sparql-auth (dba digest), 5 iters --
+  iter 0: 19.36ms (HTTP 200)
+  iter 1: 4.12ms (HTTP 200)
+  iter 2: 3.73ms (HTTP 200)
+  iter 3: 3.77ms (HTTP 200)
+  iter 4: 6.45ms (HTTP 200)
+  -> mean=7.49ms p95=19.36ms
+
+== summary ==
+{
+  "queries_direct": [
+    {
+      "name": "Q1_count",
+      "mean_ms": 14.939027838408947,
+      "p95_ms": 16.12666668370366,
+      "fails": 0
+    },
+    {
+      "name": "Q2_papers",
+      "mean_ms": 21.605402696877718,
+      "p95_ms": 25.68199997767806,
+      "fails": 0
+    },
+    {
+      "name": "Q3_titles",
+      "mean_ms": 26.476652827113867,
+      "p95_ms": 33.64808298647404,
+      "fails": 0
+    },
+    {
+      "name": "Q4_authors_per_paper",
+      "mean_ms": 19.40763896952073,
+      "p95_ms": 21.15883305668831,
+      "fails": 0
+    },
+    {
+      "name": "Q5_filter_year",
+      "mean_ms": 17.704333489139874,
+      "p95_ms": 23.256541695445776,
+      "fails": 0
+    }
+  ],
+  "queries_proxy": [
+    {
+      "name": "Q1_count",
+      "mean_ms": 25.568097674598295,
+      "p95_ms": 35.77608382329345,
+      "fails": 0
+    },
+    {
+      "name": "Q2_papers",
+      "mean_ms": 29.946555538723867,
+      "p95_ms": 42.24966699257493,
+      "fails": 0
+    },
+    {
+      "name": "Q3_titles",
+      "mean_ms": 25.83855592335264,
+      "p95_ms": 34.13420915603638,
+      "fails": 0
+    },
+    {
+      "name": "Q4_authors_per_paper",
+      "mean_ms": 25.478374989082415,
+      "p95_ms": 27.273416984826326,
+      "fails": 0
+    },
+    {
+      "name": "Q5_filter_year",
+      "mean_ms": 32.44593025495609,
+      "p95_ms": 34.70862517133355,
+      "fails": 0
+    }
+  ],
+  "insert_data": {
+    "mean_ms": 7.485125120729208,
+    "p95_ms": 19.361541140824556
+  }
+}
