@@ -1,0 +1,210 @@
+@prefix rdf:     <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs:    <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl:     <http://www.w3.org/2002/07/owl#> .
+@prefix xsd:     <http://www.w3.org/2001/XMLSchema#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix schema:  <https://schema.org/> .
+@prefix bibo:    <http://purl.org/ontology/bibo/> .
+@prefix prov:    <http://www.w3.org/ns/prov#> .
+@prefix sd:      <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#> .
+
+# ============================================================================
+# Starrydata Ontology — Phase 1 TBox
+# ============================================================================
+# Phase 1 で csv2rdf-mcp が出力する RDF (ABox) を正規化するための後付け定義。
+# AI 向けの shape は data/togomcp/mie/starrydata.yaml の shape_expressions、
+# 人間向けの class diagram は docs/ontology/diagram.md を参照。
+#
+# Phase 2 で予定している拡張:
+#   - QUDT QuantityKind / Unit による propertyY / unitYString の正規化
+#   - EMMO / MatOnto / NCIT などの上位 ontology との rdfs:subClassOf
+#   - sd:DigitizationActivity (WebPlotDigitizer 由来情報)
+#   - sd:DataPoint (設計プラン §4 方針 A、x/y 配列の個別ノード化)
+# ============================================================================
+
+<https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology>
+    a owl:Ontology ;
+    rdfs:label "Starrydata Ontology"@en, "Starrydata オントロジー"@ja ;
+    rdfs:comment "Phase 1 ontology backing the csv2rdf-mcp project. Defines Paper / Sample / Curve / Descriptor / IngestionActivity classes and the properties linking them. Reuses schema.org, dcterms, bibo, PROV-O for cross-domain interoperability."@en ;
+    owl:versionInfo "0.1.0" ;
+    dcterms:creator <https://github.com/kumagallium> ;
+    dcterms:license <https://www.apache.org/licenses/LICENSE-2.0> .
+
+# ----------------------------------------------------------------------------
+# Classes
+# ----------------------------------------------------------------------------
+
+sd:Paper
+    a owl:Class ;
+    rdfs:label "Paper"@en, "論文"@ja ;
+    rdfs:comment "A scholarly article that contains digitized measurement data. Each row in starrydata_papers.csv becomes one sd:Paper instance."@en ;
+    rdfs:subClassOf schema:ScholarlyArticle , prov:Entity .
+
+sd:Sample
+    a owl:Class ;
+    rdfs:label "Sample"@en, "サンプル"@ja ;
+    rdfs:comment "A physical specimen prepared and measured in a paper. Carries a composition string and zero or more structured Descriptors."@en ;
+    rdfs:subClassOf prov:Entity .
+
+sd:Curve
+    a owl:Class ;
+    rdfs:label "Curve"@en, "測定カーブ"@ja ;
+    rdfs:comment "A measurement curve digitized from a figure in the source paper. Phase 1 keeps raw x/y arrays as JSON literals plus pre-computed aggregates (xMin/Max/yMin/Max/pointCount) for fast range filtering. See design-plan §4 方針 C."@en ;
+    rdfs:subClassOf prov:Entity .
+
+sd:Descriptor
+    a owl:Class ;
+    rdfs:label "Descriptor"@en, "ディスクリプター"@ja ;
+    rdfs:comment "Structured metadata extracted from the sample_info JSON column (MaterialFamily, Form, FabricationProcess, etc.). Entries with empty category/comment/extracted are dropped at ingest time."@en .
+
+sd:IngestionActivity
+    a owl:Class ;
+    rdfs:label "Ingestion Activity"@en, "投入アクティビティ"@ja ;
+    rdfs:comment "A single run of the csv2rdf-mcp ingester. Each Paper/Sample/Curve generated in the run carries prov:wasGeneratedBy → IngestionActivity for provenance traceability."@en ;
+    rdfs:subClassOf prov:Activity .
+
+# ----------------------------------------------------------------------------
+# Object properties
+# ----------------------------------------------------------------------------
+
+sd:fromPaper
+    a owl:ObjectProperty ;
+    rdfs:label "from paper"@en, "出典論文"@ja ;
+    rdfs:comment "Links a Sample to the Paper that reports it."@en ;
+    rdfs:domain sd:Sample ;
+    rdfs:range sd:Paper .
+
+sd:ofSample
+    a owl:ObjectProperty ;
+    rdfs:label "of sample"@en, "対象サンプル"@ja ;
+    rdfs:comment "Links a Curve to the Sample whose property it measures."@en ;
+    rdfs:domain sd:Curve ;
+    rdfs:range sd:Sample .
+
+sd:hasDescriptor
+    a owl:ObjectProperty ;
+    rdfs:label "has descriptor"@en, "ディスクリプターを持つ"@ja ;
+    rdfs:domain sd:Sample ;
+    rdfs:range sd:Descriptor .
+
+# ----------------------------------------------------------------------------
+# Datatype properties — Sample
+# ----------------------------------------------------------------------------
+
+sd:compositionString
+    a owl:DatatypeProperty ;
+    rdfs:label "composition (string)"@en, "組成式 (文字列)"@ja ;
+    rdfs:comment "Raw composition literal as reported in starrydata_samples.csv composition column (e.g. \"Bi2Te3\", \"Pb1Te1.01Na0.02\"). Phase 2 may add a structured sd:Composition class."@en ;
+    rdfs:domain sd:Sample ;
+    rdfs:range xsd:string .
+
+sd:compositionDetails
+    a owl:DatatypeProperty ;
+    rdfs:label "composition details"@en, "組成の詳細"@ja ;
+    rdfs:domain sd:Sample ;
+    rdfs:range xsd:string .
+
+# ----------------------------------------------------------------------------
+# Datatype properties — Descriptor
+# ----------------------------------------------------------------------------
+
+sd:descriptorName
+    a owl:DatatypeProperty ;
+    rdfs:label "descriptor name"@en, "ディスクリプター名"@ja ;
+    rdfs:comment "e.g. MaterialFamily, Form, FabricationProcess, ThermalMeasurement."@en ;
+    rdfs:domain sd:Descriptor ;
+    rdfs:range xsd:string .
+
+sd:descriptorCategory
+    a owl:DatatypeProperty ;
+    rdfs:domain sd:Descriptor ;
+    rdfs:range xsd:string .
+
+sd:descriptorComment
+    a owl:DatatypeProperty ;
+    rdfs:domain sd:Descriptor ;
+    rdfs:range xsd:string .
+
+sd:descriptorExtracted
+    a owl:DatatypeProperty ;
+    rdfs:domain sd:Descriptor ;
+    rdfs:range xsd:string .
+
+# ----------------------------------------------------------------------------
+# Datatype properties — Curve
+# ----------------------------------------------------------------------------
+
+sd:figureName
+    a owl:DatatypeProperty ;
+    rdfs:label "figure name"@en, "図番号"@ja ;
+    rdfs:comment "Figure label as printed in the source paper, e.g. \"6(b)\"."@en ;
+    rdfs:domain sd:Curve ;
+    rdfs:range xsd:string .
+
+sd:propertyX
+    a owl:DatatypeProperty ;
+    rdfs:label "x property"@en, "X 軸プロパティ"@ja ;
+    rdfs:comment "Phase 1 stores the raw label (e.g. \"Temperature\"). Phase 2 will normalize to a qudt:QuantityKind IRI."@en ;
+    rdfs:domain sd:Curve ;
+    rdfs:range xsd:string .
+
+sd:propertyY
+    a owl:DatatypeProperty ;
+    rdfs:label "y property"@en, "Y 軸プロパティ"@ja ;
+    rdfs:comment "Phase 1 stores the raw label (e.g. \"Seebeck coefficient\", \"Electrical conductivity\", \"ZT\"). Phase 2 will normalize to a qudt:QuantityKind IRI."@en ;
+    rdfs:domain sd:Curve ;
+    rdfs:range xsd:string .
+
+sd:unitXString
+    a owl:DatatypeProperty ;
+    rdfs:label "x unit (string)"@en ;
+    rdfs:comment "Phase 1 raw unit label (e.g. \"K\"). Phase 2 → qudt:Unit IRI."@en ;
+    rdfs:domain sd:Curve ;
+    rdfs:range xsd:string .
+
+sd:unitYString
+    a owl:DatatypeProperty ;
+    rdfs:label "y unit (string)"@en ;
+    rdfs:comment "Phase 1 raw unit label (e.g. \"V*K^(-1)\", \"S/cm\"). Phase 2 → qudt:Unit IRI."@en ;
+    rdfs:domain sd:Curve ;
+    rdfs:range xsd:string .
+
+sd:xValuesJSON
+    a owl:DatatypeProperty ;
+    rdfs:label "x values (JSON literal)"@en ;
+    rdfs:comment "Raw JSON-encoded array of x measurements (design-plan §4 方針 C). Pre-computed aggregates xMin/xMax/pointCount are emitted as sibling triples for fast range queries."@en ;
+    rdfs:domain sd:Curve ;
+    rdfs:range xsd:string .
+
+sd:yValuesJSON
+    a owl:DatatypeProperty ;
+    rdfs:label "y values (JSON literal)"@en ;
+    rdfs:domain sd:Curve ;
+    rdfs:range xsd:string .
+
+sd:xMin a owl:DatatypeProperty ; rdfs:label "x min"@en ; rdfs:domain sd:Curve ; rdfs:range xsd:double .
+sd:xMax a owl:DatatypeProperty ; rdfs:label "x max"@en ; rdfs:domain sd:Curve ; rdfs:range xsd:double .
+sd:yMin a owl:DatatypeProperty ; rdfs:label "y min"@en ; rdfs:domain sd:Curve ; rdfs:range xsd:double .
+sd:yMax a owl:DatatypeProperty ; rdfs:label "y max"@en ; rdfs:domain sd:Curve ; rdfs:range xsd:double .
+
+sd:pointCount
+    a owl:DatatypeProperty ;
+    rdfs:label "point count"@en ;
+    rdfs:comment "Number of (x,y) pairs in this curve (min(len(x), len(y)))."@en ;
+    rdfs:domain sd:Curve ;
+    rdfs:range xsd:integer .
+
+sd:comments
+    a owl:DatatypeProperty ;
+    rdfs:domain sd:Curve ;
+    rdfs:range xsd:string .
+
+# ----------------------------------------------------------------------------
+# Datatype properties — shared
+# ----------------------------------------------------------------------------
+
+sd:projectName
+    a owl:DatatypeProperty ;
+    rdfs:label "project name"@en, "プロジェクト名"@ja ;
+    rdfs:comment "starrydata curator が割り当てるタグ (\"ThermoelectricMaterials\", \"GeneralDB\" 等)。Paper と Curve の両方に付くことがある。"@ja ;
+    rdfs:range xsd:string .
