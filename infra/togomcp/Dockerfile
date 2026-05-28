@@ -39,7 +39,10 @@ RUN pip install "git+https://github.com/dbcls/togomcp.git@${TOGOMCP_REF}"
 COPY data/togomcp /data/togomcp
 
 # Oxigraph 起動待ち + TOGOMCP_DIR overlay 構築 entrypoint
-COPY --chmod=0755 infra/togomcp/entrypoint.sh /usr/local/bin/entrypoint.sh
+# NOTE: Crucible の deployer は BuildKit を使わない legacy builder なので
+# `COPY --chmod=...` 構文は不可。一段増えるが COPY + RUN chmod で互換性を取る。
+COPY infra/togomcp/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod 0755 /usr/local/bin/entrypoint.sh
 
 # 非 root で動かす
 RUN useradd --create-home --uid 1000 togomcp \
