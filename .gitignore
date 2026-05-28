@@ -64,6 +64,18 @@ experiments/phase05/data/papers_100.ttl
 experiments/phase05/togopackage/data/sources/papers_100.ttl
 experiments/phase05/togopackage/data/sources/papers_100_b.ttl
 
+# Phase 0.5b runtime artefacts
+experiments/phase05b/togopackage-virtuoso/data/virtuoso/
+experiments/phase05b/togopackage-virtuoso/data/sources/source_*.ttl
+experiments/phase05b/togopackage-virtuoso/data/sources/source-manifest.json
+experiments/phase05b/togopackage-virtuoso/data/sources/papers_100.ttl
+experiments/phase05b/togopackage-virtuoso/data/sparqlist/
+experiments/phase05b/togopackage-virtuoso/data/grasp/
+experiments/phase05b/togopackage-virtuoso/data/tabulae/
+experiments/phase05b/togopackage-virtuoso/data/togomcp/
+experiments/phase05b/togopackage-virtuoso/data/logs/
+experiments/phase05b/togopackage-virtuoso/data/.duckdb/
+
 # Env
 .env
 .env.local
