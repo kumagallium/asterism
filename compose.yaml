@@ -1,7 +1,7 @@
 # csv2rdf-mcp — Phase 1 compose
 #
 # Option B (Oxigraph + togomcp ハイブリッド) を local で立ち上げる最小構成。
-# docs/internal/option-b-architecture.md と整合。
+# docs/architecture/option-b.md と整合。
 #
 # 使い方:
 #   docker compose up -d --build

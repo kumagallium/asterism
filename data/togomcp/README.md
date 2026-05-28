@@ -33,4 +33,4 @@ Phase 1 段階の運用案 (どちらか選ぶ):
    ファイルをコピーしてバージョン管理する。プロビジョニングを `Makefile` に
    `make pull-togomcp-defaults` として用意する想定。Phase 2 で対応
 
-> 関連: [`docs/internal/option-b-architecture.md`](../../docs/internal/option-b-architecture.md) §3 / §7
+> 関連: [`docs/architecture/option-b.md`](../../docs/architecture/option-b.md) §3 / §7

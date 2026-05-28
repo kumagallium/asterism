@@ -2,7 +2,7 @@
 
 Phase 0.5 / 0.5b の結論として有力候補となった「**B 案: Oxigraph backend + togomcp standalone**」を Phase 1 で採用する前提で、依存関係と役割分担を明文化する。
 
-関連: [`phase05-decisions.md`](phase05-decisions.md) §7 / [`design-plan.md`](design-plan.md) §3, §6 / [`../../experiments/phase05b/togopackage-virtuoso/README.md`](../../experiments/phase05b/togopackage-virtuoso/README.md)
+関連: [`phase05-decisions.md`](phase05-decisions.md) §7 / [`../../experiments/phase05b/togopackage-virtuoso/README.md`](../../experiments/phase05b/togopackage-virtuoso/README.md)
 
 ---
 
@@ -186,7 +186,7 @@ cross_references: []
 architectural_notes: |
   Phase 1 では curve の x/y 配列は JSON literal + 集約値 (xMin/xMax/yMin/yMax)
   で保持。範囲クエリは集約値で当て、詳細取得は MCP ツール側で。詳しくは
-  design-plan.md §4。
+  docs/ontology/diagram.md と docs/ontology/starrydata.ttl を参照。
 
 data_statistics:
   papers: 56390
@@ -392,4 +392,4 @@ compose の healthcheck で SPARQL endpoint の生死を判定できない。代
 - **ShEx (Shape Expressions)**: RDF データの構造制約を書く W3C 標準 ([spec](https://shex.io/))
 - **PROV-O**: 来歴を RDF で表す W3C 標準 ([spec](https://www.w3.org/TR/prov-o/))
 - **SPARQL 1.1 Graph Store Protocol**: HTTP POST で Turtle を直接ストアに送り込む規約 ([spec](https://www.w3.org/TR/sparql11-http-rdf-update/))
-- **closed server**: ソブリン制約 ([`design-plan.md`](design-plan.md) §0) における「境界の内側」のサーバ。インターネットから直接アクセスされない self-hosted 環境
+- **closed server**: ソブリン制約 (本プロジェクトの基本前提) における「境界の内側」のサーバ。インターネットから直接アクセスされない self-hosted 環境

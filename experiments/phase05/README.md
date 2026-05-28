@@ -6,7 +6,7 @@
 - [`oxigraph/`](oxigraph) — `ghcr.io/oxigraph/oxigraph` を起動し、SPARQL 1.1 Update での部分追記を確認
 - [`morph-kgc/`](morph-kgc) — `morph-kgc` を pip install し、starrydata papers の JSON 埋め込み列を YARRRML で展開できるか試す
 
-成果物は各サブディレクトリ配下の `README.md` / `compose.yaml` / `run.log` 等に残し、最終結論は [`../../docs/internal/phase05-decisions.md`](../../docs/internal/phase05-decisions.md) にまとめる。
+成果物は各サブディレクトリ配下の `README.md` / `compose.yaml` / `run.log` 等に残し、最終結論は [`../../docs/architecture/phase05-decisions.md`](../../docs/architecture/phase05-decisions.md) にまとめる。
 
 ## 共通 subset
 

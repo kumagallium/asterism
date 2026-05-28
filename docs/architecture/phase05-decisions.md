@@ -95,14 +95,14 @@
 1. **Oxigraph の starrydata 全件性能未検証**: 100 papers (3,715 triples) では速いが、papers 56k + samples 144k + curves 233k 行を変換した Turtle (見積もり数 M triples、サイズ数百 MB) でも同じ p95 が出るかは Phase 1 で再ベンチ必須。Oxigraph 公式ベンチでは数億 triples 規模も走るが、自分の手で確認するまでは「快適」と断言しない。
 2. **curve の x/y 配列**: 設計プラン §4 で議論したとおり、Phase 1 では JSON literal + 集約値 (xMin/xMax/yMin/yMax/pointCount) で済ませる予定。Oxigraph の string literal は数 MB まで問題ないが、curves.csv 全件 (155 MB) を triple に展開した時の **store サイズ**は要監視。
 3. **MCP server を自作する負担**: togopackage の togomcp / sparqlist / grasp を捨てる代わりに、自作 MCP に最低限のツール (`sparql_query`, `list_predicates`, `schema_diagram`, `template_curve_fetch`) を実装する必要がある。設計プラン §10 Phase 2 で計上済み (2-3 日)。
-4. **IRI 永続化**: 本素振りでは `http://localhost/csv2rdf/...` をプレースホルダで使った。Phase 1 で **GitHub Pages URL に切り替える**判断 (`https://kumagallium.github.io/csv2rdf-mcp/...`) が必要。設計プラン §4.0 と整合させる。**注**: handoff §2 では owner を `m-kumagai` 想定で書かれていたが、本セッションで `kumagallium` に変更 ([`decisions.md`](decisions.md))。最終 IRI のホスト名は Phase 1 着手時に再確認する。
+4. **IRI 永続化**: 本素振りでは `http://localhost/csv2rdf/...` をプレースホルダで使った。Phase 1 で **GitHub Pages URL に切り替える**判断 (`https://kumagallium.github.io/csv2rdf-mcp/...`) が必要。最終 IRI のホスト名は Phase 1 着手時に再確認する。
 5. **Morph-KGC を完全に捨てたわけではない**: Phase 3 で汎用 CSV (JSON 列が無いプレーンな表) を扱うときに、`manifest.yaml` から RML/YARRRML を自動生成する経路が再浮上する可能性がある。
 
 ---
 
 ## 5. 設計プランへの修正提案
 
-Phase 1 の実装着手時に `docs/internal/design-plan.md` を以下のように改訂する (PR 内では本ドキュメントを変更ログとして残し、design-plan.md の実書き換えは別 PR で):
+Phase 1 の実装着手時に内部設計プランを以下のように改訂する (本ドキュメントを変更ログとして残し、設計プランの実書き換えは別途行う):
 
 - **§3「アーキテクチャ」**: 全体図とコンテナ表から togopackage を撤去し、Oxigraph + 自作 MCP に差し替え。
 - **§4「RDF スキーマ設計」**: 変更なし (PROV-O 中心の方針は維持)。ただし `csv_to_ttl.py` で確認した「**bnode を使わず IRI で命名**」方針を §4.1 か §5 に明記し、Oxigraph re-ingest の冪等性を保証する。

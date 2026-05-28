@@ -2,7 +2,7 @@
 
 Crucible ([`kumagallium/Crucible`](https://github.com/kumagallium/Crucible)) は GitHub URL を貼ると **build + deploy + SSE 公開**まで自動でやってくれる self-hosted AI ツール管理プラットフォーム。csv2rdf-mcp を Crucible に登録すると Graphium や Claude Code から discoverable な MCP サーバとして使えるようになる。
 
-設計プラン [§0 / §0.1](design-plan.md) で「Crucible は registry (proxy ではない)」と書いたが、Crucible 実装は **build と deploy も担当する**ため、本ドキュメントでは Crucible に登録される **togomcp 本体**と、外側で別途立ち上げる **Oxigraph** に役割を分けて運用する。
+本プロジェクトの基本前提では「Crucible は registry (proxy ではない)」だが、Crucible 実装は **build と deploy も担当する**ため、本ドキュメントでは Crucible に登録される **togomcp 本体**と、外側で別途立ち上げる **Oxigraph** に役割を分けて運用する。
 
 ## アーキテクチャ (Crucible 登録時)
 

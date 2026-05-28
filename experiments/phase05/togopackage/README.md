@@ -96,7 +96,7 @@ docker compose down -v
 
 togopackage の利点は **sparqlist / grasp / tabulae の同梱**にあるが、本プロジェクトの第一フェーズで必要なのは SPARQL endpoint + MCP のみ。**sparqlist / grasp / tabulae を必要に応じて後付け**でも csv2rdf-mcp のソブリン設計と整合する。
 
-## 結論 (詳細は [`../../../docs/internal/phase05-decisions.md`](../../../docs/internal/phase05-decisions.md))
+## 結論 (詳細は [`../../../docs/architecture/phase05-decisions.md`](../../../docs/architecture/phase05-decisions.md))
 
 - **採用継続は推奨しない**。主因は (1) LICENSE 不在による法的不確実性、(2) restart-rebuild 型の更新モデルが csv2rdf-mcp の auto-reindex ユースケースと相性が悪い、(3) image 2.16 GB の配布コスト。
 - **togomcp の MIE 書式と defaults/mie/ の例**は **資料として有用**。Phase 1 で csv2rdf-mcp が自作 MCP を書くときの schema_info / shape_expressions / sample_rdf_entries 構造の **設計参考**として残す価値あり。

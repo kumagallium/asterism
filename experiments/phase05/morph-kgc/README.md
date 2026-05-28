@@ -61,7 +61,7 @@ python -m morph_kgc config_authors.ini
   - starrydata は papers (author, issued, project_names) / samples (sample_info) / curves (x, y arrays) のすべてに JSON 列があり、**RML 単独で完結する経路がない**。
   - 一方で、starrydata 以外の "プレーンな CSV" (例: NIMS MDR の温度依存物性表のような) は RML/YARRRML で綺麗に書ける可能性が高い。
 
-## 結論 (詳細は [`../../../docs/internal/phase05-decisions.md`](../../../docs/internal/phase05-decisions.md))
+## 結論 (詳細は [`../../../docs/architecture/phase05-decisions.md`](../../../docs/architecture/phase05-decisions.md))
 
 - **Phase 1 の starrydata ingester は Python (rdflib) で書く**。`csv_to_ttl.py` がほぼそのまま叩き台になる。
 - **Morph-KGC は Phase 3 の汎用 CSV 対応で再評価**する。`manifest.yaml` ベースの schema 推論を Phase 3 で導入する際に、JSON 列を持たない平易な CSV であれば Morph-KGC + 生成 YARRRML が現実的な選択肢になる。

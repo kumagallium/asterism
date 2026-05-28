@@ -49,7 +49,7 @@ sd:Sample
 sd:Curve
     a owl:Class ;
     rdfs:label "Curve"@en, "測定カーブ"@ja ;
-    rdfs:comment "A measurement curve digitized from a figure in the source paper. Phase 1 keeps raw x/y arrays as JSON literals plus pre-computed aggregates (xMin/Max/yMin/Max/pointCount) for fast range filtering. See design-plan §4 方針 C."@en ;
+    rdfs:comment "A measurement curve digitized from a figure in the source paper. Phase 1 keeps raw x/y arrays as JSON literals plus pre-computed aggregates (xMin/Max/yMin/Max/pointCount) for fast range filtering. See x/y aggregate method (raw JSON literal + xMin/xMax/yMin/yMax/pointCount)."@en ;
     rdfs:subClassOf prov:Entity .
 
 sd:Descriptor
@@ -172,7 +172,7 @@ sd:unitYString
 sd:xValuesJSON
     a owl:DatatypeProperty ;
     rdfs:label "x values (JSON literal)"@en ;
-    rdfs:comment "Raw JSON-encoded array of x measurements (design-plan §4 方針 C). Pre-computed aggregates xMin/xMax/pointCount are emitted as sibling triples for fast range queries."@en ;
+    rdfs:comment "Raw JSON-encoded array of x measurements (x/y aggregate method (raw JSON literal + xMin/xMax/yMin/yMax/pointCount)). Pre-computed aggregates xMin/xMax/pointCount are emitted as sibling triples for fast range queries."@en ;
     rdfs:domain sd:Curve ;
     rdfs:range xsd:string .
 
