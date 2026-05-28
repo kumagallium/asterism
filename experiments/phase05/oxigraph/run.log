@@ -1,0 +1,57 @@
+== Oxigraph bench (endpoint=http://localhost:7878, ttl=/Users/masayakumagai/Documents/Claude/Projects/AI for Science/csv2rdf-mcp/experiments/phase05/data/papers_100.ttl)
+baseline triples: 0
+load: 0.317s, triples now: 3715 (delta 3715)
+
+-- query latency (3 warmup + 5 measured) --
+  Q1_count: mean=2.96ms p95=3.83ms
+  Q2_papers: mean=2.34ms p95=3.04ms
+  Q3_titles: mean=9.15ms p95=21.70ms
+  Q4_authors_per_paper: mean=4.05ms p95=10.46ms
+  Q5_filter_year: mean=2.00ms p95=2.80ms
+
+-- SPARQL 1.1 Update INSERT DATA --
+INSERT DATA: 2.35ms, triples now: 3717 (delta 2)
+
+-- re-POST same Turtle (incremental?) --
+re-load: 0.147s, triples now: 4017 (delta 300)
+  -> default graph に冪等 (set semantics) であれば delta=0、merge with bnode 重複なら +bnode 数, 完全追記なら +3715 になる
+
+== summary ==
+{
+  "initial_load_seconds": 0.3167554591782391,
+  "insert_data_ms": 2.3526251316070557,
+  "reload_same_ttl_seconds": 0.14676595898345113,
+  "queries": [
+    {
+      "name": "Q1_count",
+      "mean_ms": 2.9570000246167183,
+      "p95_ms": 3.8301669992506504
+    },
+    {
+      "name": "Q2_papers",
+      "mean_ms": 2.3377830162644386,
+      "p95_ms": 3.0388329178094864
+    },
+    {
+      "name": "Q3_titles",
+      "mean_ms": 9.146283194422722,
+      "p95_ms": 21.69762458652258
+    },
+    {
+      "name": "Q4_authors_per_paper",
+      "mean_ms": 4.04551662504673,
+      "p95_ms": 10.462167207151651
+    },
+    {
+      "name": "Q5_filter_year",
+      "mean_ms": 1.9964332692325115,
+      "p95_ms": 2.7964171022176743
+    }
+  ],
+  "triples": {
+    "baseline": 0,
+    "after_load": 3715,
+    "after_insert": 3717,
+    "after_reload": 4017
+  }
+}

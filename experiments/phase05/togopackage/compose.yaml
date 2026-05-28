@@ -1,0 +1,20 @@
+# Phase 0.5 — togopackage spike
+#
+# 起動: docker compose up -d
+# 確認: curl http://localhost:10005/  ;  POST http://localhost:10005/sparql
+# 停止: docker compose down
+#
+# 注意: source 追加 / config.yaml 変更時は restart が必要 (live reload なし)
+# 注意: macOS の host UID/GID は compose で渡しても anonymous mount 配下に書く
+
+services:
+  togopackage:
+    image: ghcr.io/dbcls/togopackage:latest
+    container_name: csv2rdf_phase05_togopackage
+    user: "${UID:-501}:${GID:-20}"
+    ports:
+      - "10005:10005"
+      - "7001:7001"
+      - "8890:8890"
+    volumes:
+      - ./data:/data

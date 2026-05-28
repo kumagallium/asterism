@@ -1,0 +1,10 @@
+# Phase 0.5b — togopackage with Virtuoso backend (fresh retry, default DBA password)
+
+sparql_backend: virtuoso
+mcp_server: togomcp
+
+source:
+  - name: starrydata-papers-subset
+    path: ./sources/papers_100.ttl
+    format: ttl
+    graph: http://localhost/csv2rdf/starrydata/graph/subset-a

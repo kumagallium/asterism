@@ -1,0 +1,86 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+.python-version
+
+# uv / pip
+.uv/
+
+# Type / lint caches
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Runtime data (do NOT commit datasets / generated stores)
+data/sources/
+data/qlever/
+data/oxigraph_store/
+data/logs/
+
+# Experiments scratch (keep results, ignore heavy stores / venvs)
+.venv/
+experiments/phase05/**/*.venv/
+experiments/phase05/**/__pycache__/
+
+# Oxigraph spike runtime store
+experiments/phase05/oxigraph/oxigraph_data/
+
+# togopackage spike runtime artefacts (config.yaml と sources/*.ttl は手で commit するが、
+# qlever index / sparqlist / grasp / tabulae / virtuoso / togomcp / logs は除外)
+experiments/phase05/togopackage/data/qlever/
+experiments/phase05/togopackage/data/virtuoso/
+experiments/phase05/togopackage/data/sparqlist/
+experiments/phase05/togopackage/data/grasp/
+experiments/phase05/togopackage/data/tabulae/
+experiments/phase05/togopackage/data/togomcp/
+experiments/phase05/togopackage/data/logs/
+experiments/phase05/togopackage/data/.duckdb/
+# auto-generated copies / manifests under sources/
+experiments/phase05/togopackage/data/sources/source_*.ttl
+experiments/phase05/togopackage/data/sources/source-manifest.json
+
+# morph-kgc spike intermediate / output artefacts (mapping.ttl と README は残す)
+experiments/phase05/morph-kgc/knowledge-graph*.nt
+experiments/phase05/morph-kgc/data/authors.jsonl
+experiments/phase05/morph-kgc/data/authors.json
+experiments/phase05/morph-kgc/data/papers_100.csv
+experiments/phase05/morph-kgc/run_json_attempt.log
+
+# Shared subset / generated Turtle (regeneratable; keep make_subset.py + csv_to_ttl.py)
+experiments/phase05/data/papers_100.csv
+experiments/phase05/data/papers_100.ttl
+
+# Same subset copied into spike dirs for path resolution
+experiments/phase05/togopackage/data/sources/papers_100.ttl
+experiments/phase05/togopackage/data/sources/papers_100_b.ttl
+
+# Phase 0.5b runtime artefacts
+experiments/phase05b/togopackage-virtuoso/data/virtuoso/
+experiments/phase05b/togopackage-virtuoso/data/sources/source_*.ttl
+experiments/phase05b/togopackage-virtuoso/data/sources/source-manifest.json
+experiments/phase05b/togopackage-virtuoso/data/sources/papers_100.ttl
+experiments/phase05b/togopackage-virtuoso/data/sparqlist/
+experiments/phase05b/togopackage-virtuoso/data/grasp/
+experiments/phase05b/togopackage-virtuoso/data/tabulae/
+experiments/phase05b/togopackage-virtuoso/data/togomcp/
+experiments/phase05b/togopackage-virtuoso/data/logs/
+experiments/phase05b/togopackage-virtuoso/data/.duckdb/
+
+# Env
+.env
+.env.local
+
+# Build artefacts
+dist/
+build/
+*.egg

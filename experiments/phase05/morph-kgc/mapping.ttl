@@ -1,0 +1,115 @@
+@prefix rr: <http://www.w3.org/ns/r2rml#> .
+@prefix rml: <http://semweb.mmlab.be/ns/rml#> .
+@prefix ql: <http://semweb.mmlab.be/ns/ql#> .
+@prefix sd: <http://localhost/csv2rdf/starrydata/ontology#> .
+@prefix sdr: <http://localhost/csv2rdf/starrydata/resource/> .
+@prefix schema: <https://schema.org/> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix bibo: <http://purl.org/ontology/bibo/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# ============================================================
+# Phase 0.5 — RML mapping for starrydata papers.csv (subset)
+#
+# 目的: handoff §4.3 で問われている
+#   「JSON 埋め込み列 (author, issued) を YARRRML/RML で展開できるか?」
+# への回答を得る。
+#
+# このマッピングは papers.csv の "プレーンな列" は宣言的に変換できることを示し、
+# 同時に "JSON 埋め込み列" は別途 pre-process が必要なことも明示する。
+# ============================================================
+
+<#PapersSource>
+    rml:source "data/papers_100.csv" ;
+    rml:referenceFormulation ql:CSV .
+
+# Paper Entity ----------------------------------------------------------------
+<#PapersMap>
+    rml:logicalSource <#PapersSource> ;
+    rr:subjectMap [
+        rr:template "http://localhost/csv2rdf/starrydata/resource/paper/{SID}" ;
+        rr:class sd:Paper ;
+        rr:class schema:ScholarlyArticle
+    ] ;
+    rr:predicateObjectMap [
+        rr:predicate dcterms:identifier ;
+        rr:objectMap [ rml:reference "SID" ]
+    ] ;
+    rr:predicateObjectMap [
+        rr:predicate schema:identifier ;
+        rr:objectMap [ rml:reference "DOI" ]
+    ] ;
+    rr:predicateObjectMap [
+        rr:predicate schema:url ;
+        rr:objectMap [ rml:reference "URL" ; rr:termType rr:IRI ]
+    ] ;
+    rr:predicateObjectMap [
+        rr:predicate schema:name ;
+        rr:objectMap [ rml:reference "title" ]
+    ] ;
+    rr:predicateObjectMap [
+        rr:predicate bibo:volume ;
+        rr:objectMap [ rml:reference "volume" ]
+    ] ;
+    rr:predicateObjectMap [
+        rr:predicate bibo:issue ;
+        rr:objectMap [ rml:reference "issue" ]
+    ] ;
+    rr:predicateObjectMap [
+        rr:predicate bibo:pages ;
+        rr:objectMap [ rml:reference "page" ]
+    ] ;
+    rr:predicateObjectMap [
+        rr:predicate schema:publisher ;
+        rr:objectMap [ rml:reference "publisher" ]
+    ] .
+
+# Periodical (container_title) -----------------------------------------------
+# container_title is a plain string — declarative mapping works.
+# IRI naming requires a slug; here we use the raw string as an opaque literal
+# in schema:name and avoid mint-ing an IRI to keep the spike minimal.
+<#PeriodicalMap>
+    rml:logicalSource <#PapersSource> ;
+    rr:subjectMap [
+        rr:template "http://localhost/csv2rdf/starrydata/resource/paper/{SID}/periodical" ;
+        rr:class schema:Periodical
+    ] ;
+    rr:predicateObjectMap [
+        rr:predicate schema:name ;
+        rr:objectMap [ rml:reference "container_title" ]
+    ] .
+
+<#PaperPeriodicalLink>
+    rml:logicalSource <#PapersSource> ;
+    rr:subjectMap [
+        rr:template "http://localhost/csv2rdf/starrydata/resource/paper/{SID}"
+    ] ;
+    rr:predicateObjectMap [
+        rr:predicate schema:isPartOf ;
+        rr:objectMap [
+            rr:template "http://localhost/csv2rdf/starrydata/resource/paper/{SID}/periodical" ;
+            rr:termType rr:IRI
+        ]
+    ] .
+
+# JSON-embedded columns: author / issued / project_names ---------------------
+# NOTE: starrydata の papers.csv は "author" 列に JSON 配列が文字列として入っている。
+# RML/YARRRML は **logical source レベル**で reference formulation を選ぶため、
+# CSV の中の "セル内 JSON" を直接ネスト iterate する書き方は **標準には無い**。
+# 取りうる解:
+#   (a) FnO (Function Ontology) 経由で JSON.parse を呼ぶ + 内部 iterator を構築
+#       → Morph-KGC は実験的サポートあり (rml-fnml) だが安定性は限定的
+#   (b) 前処理で papers.csv を papers.csv + authors.csv + issued.csv に分割
+#       → 結局 Python で前処理する必要があり、宣言的に閉じない
+#   (c) 完全に Python rdflib で書く (csv_to_ttl.py がやっている方式)
+#
+# このマッピングでは (a)(b) を見送り、**JSON 列は展開しない**ことで何が落ちるか
+# を明示する。Phase 0.5 の判断材料はそれで十分。
+
+# (issued から年だけでも取りたい場合の参考実装、ただし正規表現に依存し脆い)
+# rr:objectMap [
+#   rml:reference "issued" ;
+#   rr:datatype xsd:gYear ;
+#   # Morph-KGC は rml:reference の値を str として渡すので、文字列処理関数が要る。
+#   # FnO 経由でしか書けない (例: idlab-fn:string-replace)。
+# ]
