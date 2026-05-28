@@ -80,3 +80,19 @@ services:
     ports:
       - "8080:8080"
     restart: unless-stopped
+
+  csv2rdf-mcp:
+    # Phase 2 #3: self-built FastMCP server. Provides starrydata-specific
+    # tools (currently just template_curve_fetch) that complement togomcp's
+    # generic run_sparql. Connects to Oxigraph directly over mcp-net.
+    build:
+      context: .
+      dockerfile: infra/csv2rdf-mcp/Dockerfile
+    container_name: csv2rdf_self_mcp
+    depends_on:
+      - oxigraph
+    environment:
+      CSV2RDF_OXIGRAPH_URL: http://oxigraph:7878
+    ports:
+      - "8002:8002"   # FastMCP HTTP transport (path /mcp)
+    restart: unless-stopped

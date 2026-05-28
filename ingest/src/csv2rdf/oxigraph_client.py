@@ -116,11 +116,11 @@ class OxigraphClient:
         assert last_exc is not None
         raise last_exc
 
-    async def graph_triple_count(self, graph_iri: str) -> int:
-        """Return number of triples currently stored in ``graph_iri``."""
-        query = (
-            "SELECT (COUNT(*) AS ?c) WHERE { GRAPH <" + graph_iri + "> { ?s ?p ?o } }"
-        )
+    async def sparql_select(self, query: str) -> dict[str, object]:
+        """Run a SPARQL SELECT and return the parsed SPARQL-Results JSON.
+
+        Raises ``httpx.HTTPStatusError`` if Oxigraph returns non-2xx.
+        """
         r = await self._client.post(
             "/query",
             content=query,
@@ -130,8 +130,17 @@ class OxigraphClient:
             },
         )
         r.raise_for_status()
-        data = r.json()
-        bindings = data.get("results", {}).get("bindings", [])
+        # mypy: ``r.json()`` is typed as Any; explicit cast keeps callers honest.
+        return r.json()  # type: ignore[no-any-return]
+
+    async def graph_triple_count(self, graph_iri: str) -> int:
+        """Return number of triples currently stored in ``graph_iri``."""
+        query = (
+            "SELECT (COUNT(*) AS ?c) WHERE { GRAPH <" + graph_iri + "> { ?s ?p ?o } }"
+        )
+        data = await self.sparql_select(query)
+        results = data.get("results", {}) if isinstance(data, dict) else {}
+        bindings = results.get("bindings", []) if isinstance(results, dict) else []
         if not bindings:
             return 0
         return int(bindings[0]["c"]["value"])
