@@ -26,6 +26,8 @@ data/sources/
 data/qlever/
 data/oxigraph_store/
 data/logs/
+# Note: data/togomcp/ (MIE + endpoints.csv) IS committed — it is configuration,
+# not runtime data.
 
 # Experiments scratch (keep results, ignore heavy stores / venvs)
 .venv/
@@ -63,6 +65,9 @@ experiments/phase05/data/papers_100.ttl
 # Same subset copied into spike dirs for path resolution
 experiments/phase05/togopackage/data/sources/papers_100.ttl
 experiments/phase05/togopackage/data/sources/papers_100_b.ttl
+
+# Phase 1 smoke test artefacts (keep test_smoke.py and togomcp-data/, ignore venv)
+experiments/phase1-smoke-test/.venv/
 
 # Phase 0.5b runtime artefacts
 experiments/phase05b/togopackage-virtuoso/data/virtuoso/

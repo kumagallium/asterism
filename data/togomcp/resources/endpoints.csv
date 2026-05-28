@@ -1,0 +1,2 @@
+database,endpoint_url,endpoint_name,keyword_search_api
+starrydata,http://oxigraph:7878/query,oxigraph,sparql

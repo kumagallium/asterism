@@ -1,0 +1,61 @@
+# csv2rdf-mcp — Phase 1 compose
+#
+# Option B (Oxigraph + togomcp ハイブリッド) を local で立ち上げる最小構成。
+# docs/internal/option-b-architecture.md と整合。
+#
+# 使い方:
+#   docker compose up -d
+#   # ingester は host から CLI で実行 (Phase 1 段階では watcher 未実装):
+#   #   uv run --project ingest csv2rdf-starrydata-papers \
+#   #     /path/to/starrydata_papers.csv data/sources/rdf/starrydata/papers.ttl
+#   #   curl -X POST --data-binary @data/sources/rdf/starrydata/papers.ttl \
+#   #     -H 'Content-Type: text/turtle' http://localhost:7878/store?default
+#   # MCP client (Claude Desktop 等) は togomcp の stdio / HTTP に接続:
+#   #   togo-mcp-server     -> :8000 (HTTP)
+#   #   togo-mcp-local      -> stdio
+#   docker compose down -v
+
+services:
+
+  oxigraph:
+    image: ghcr.io/oxigraph/oxigraph:latest
+    container_name: csv2rdf_oxigraph
+    command: >
+      serve
+      --location /data
+      --bind 0.0.0.0:7878
+    ports:
+      - "7878:7878"   # SPARQL endpoint (read + write)
+    volumes:
+      - ./data/oxigraph_store:/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:7878/"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  togomcp:
+    # togomcp は dbcls/togomcp から pip install で取り込む。
+    # 公式 Dockerfile は github.com/dbcls/togomcp/Dockerfile (MIT)。
+    # 本イメージは csv2rdf-mcp 側で固定 tag を build / push する想定だが、
+    # Phase 1 段階では「公式 image が出るまでは pip install をローカルで」運用。
+    # Phase 2 で kumagallium/csv2rdf-togomcp:0.1.0 のような独自 tag を発行する。
+    image: ghcr.io/dbcls/togomcp:latest  # 公式 image があれば差し替え
+    container_name: csv2rdf_togomcp
+    depends_on:
+      oxigraph:
+        condition: service_healthy
+    environment:
+      # csv2rdf-mcp 側で書いた MIE / endpoints.csv を読ませる
+      TOGOMCP_DIR: /data/togomcp
+    volumes:
+      - ./data/togomcp:/data/togomcp:ro
+    ports:
+      - "8000:8000"   # togomcp HTTP transport (stdio で繋ぐ場合は不要)
+    restart: unless-stopped
+    # NOTE: 公式 image がまだ無い場合は以下のようにローカル build で代替:
+    #   build:
+    #     context: ./infra/togomcp
+    #     dockerfile: Dockerfile
+    # 詳しくは docs/internal/option-b-architecture.md §4
