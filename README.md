@@ -13,8 +13,10 @@ Designed to compose with [Crucible](https://github.com/) (MCP registry) and [Gra
 See:
 - [`docs/internal/design-plan.md`](docs/internal/design-plan.md) — full design (Japanese), source of truth
 - [`docs/internal/handoff-phase05.md`](docs/internal/handoff-phase05.md) — Phase 0.5 brief
-- [`docs/internal/phase05-decisions.md`](docs/internal/phase05-decisions.md) — adoption decisions (written at end of Phase 0.5)
+- [`docs/internal/phase05-decisions.md`](docs/internal/phase05-decisions.md) — adoption decisions (initial + §7 supplementary)
+- [`docs/internal/option-b-architecture.md`](docs/internal/option-b-architecture.md) — recommended Phase 1 architecture (Oxigraph + togomcp hybrid), role split with the DBCLS team
 - [`experiments/phase05/`](experiments/phase05) — spike code and logs for togopackage / Oxigraph / Morph-KGC
+- [`experiments/phase05b/`](experiments/phase05b) — supplementary spike (togopackage Virtuoso backend)
 
 ## Design principles
 
