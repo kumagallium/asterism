@@ -2,7 +2,7 @@
 
 Modules:
   - inspect: CSV inspection (column types, JSON detection, uniqueness stats)
-  - (future) propose: AI-driven schema proposal (rdf-config model.yaml output)
+  - propose: AI-driven schema proposal (rdf-config model.yaml output)
   - (future) validate: 8-trap validator (per ai-assisted-step0-workflow.md §6)
 """
 
@@ -14,12 +14,22 @@ from csv2rdf_step0.inspect import (
     inspect_csv,
     inspect_csv_set,
 )
+from csv2rdf_step0.propose import (
+    AnthropicLLMClient,
+    LLMClient,
+    SchemaProposal,
+    propose_schema,
+)
 
 __all__ = [
+    "AnthropicLLMClient",
     "CSVInspection",
     "ColumnSummary",
     "ForeignKeyCandidate",
+    "LLMClient",
+    "SchemaProposal",
     "UniquenessReport",
     "inspect_csv",
     "inspect_csv_set",
+    "propose_schema",
 ]

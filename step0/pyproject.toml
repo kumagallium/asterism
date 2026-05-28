@@ -15,6 +15,12 @@ dependencies = [
 pandas = [
     "pandas>=2.0",
 ]
+anthropic = [
+    # Required only for propose_schema with the default AnthropicLLMClient.
+    # Tests use a mock LLM and don't need this — keep it optional so step0
+    # stays installable in minimal CI.
+    "anthropic>=0.40",
+]
 dev = [
     "pytest>=8.0",
     "ruff>=0.6",
@@ -23,6 +29,7 @@ dev = [
 
 [project.scripts]
 csv2rdf-inspect = "csv2rdf_step0.inspect:_main"
+csv2rdf-propose = "csv2rdf_step0.propose:_main"
 
 [build-system]
 requires = ["hatchling"]
