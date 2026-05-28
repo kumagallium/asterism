@@ -1,36 +1,39 @@
 [project]
-name = "csv2rdf-ingest"
+name = "csv2rdf-api"
 version = "0.1.0"
-description = "CSV -> RDF ingester for csv2rdf-mcp (Phase 1)"
+description = "Upload API + watcher driver for csv2rdf-mcp (Phase 2)"
 requires-python = ">=3.11"
 readme = "../README.md"
 license = { text = "Apache-2.0" }
 dependencies = [
-    "rdflib>=7.0",
-    "httpx>=0.27",
-    "watchfiles>=0.22",
+    # csv2rdf-ingest is installed from sibling path; see README quickstart.
+    "csv2rdf-ingest",
+    "fastapi>=0.110",
+    "python-multipart>=0.0.9",
+    "uvicorn[standard]>=0.30",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
+    "httpx>=0.27",
     "ruff>=0.6",
     "mypy>=1.10",
 ]
 
 [project.scripts]
-csv2rdf-starrydata-papers = "csv2rdf.starrydata:_main"
-csv2rdf-starrydata-samples = "csv2rdf.starrydata:_main_samples"
-csv2rdf-starrydata-curves = "csv2rdf.starrydata:_main_curves"
-csv2rdf-watcher = "csv2rdf.watcher:_main"
+csv2rdf-api = "csv2rdf_api.main:_main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/csv2rdf"]
+packages = ["src/csv2rdf_api"]
+
+[tool.uv.sources]
+csv2rdf-ingest = { path = "../ingest", editable = true }
 
 [tool.ruff]
 target-version = "py311"
@@ -38,9 +41,6 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
-
-[tool.pytest.ini_options]
-asyncio_mode = "auto"
 
 [tool.mypy]
 strict = true

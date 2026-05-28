@@ -1,17 +1,18 @@
-# csv2rdf-mcp — Phase 1 compose
+# csv2rdf-mcp — Phase 2 compose
 #
-# Option B (Oxigraph + togomcp ハイブリッド) を local で立ち上げる最小構成。
-# docs/architecture/option-b.md と整合。
+# Option B (Oxigraph + togomcp ハイブリッド) + Phase 2 upload-api を local で
+# 立ち上げる構成。docs/architecture/option-b.md と整合。
 #
 # 使い方:
 #   docker compose up -d --build
-#   # ingester は host から CLI で実行 (Phase 1 段階では watcher 未実装):
-#   #   uv run --project ingest csv2rdf-starrydata-papers \
-#   #     /path/to/starrydata_papers.csv data/sources/rdf/starrydata/papers.ttl
-#   #   curl -X POST --data-binary @data/sources/rdf/starrydata/papers.ttl \
-#   #     -H 'Content-Type: text/turtle' http://localhost:7878/store?default
-#   # MCP client は togomcp の HTTP transport (8000) に接続するか、
-#   # togomcp standalone を host で起動して stdio で繋ぐ (Claude Desktop の場合は後者が標準):
+#   # CSV を drop すれば upload-api 内の watcher が拾って Oxigraph に投入する:
+#   #   cp /path/to/starrydata_papers.csv data/sources/csv/papers/
+#   #   # または HTTP upload:
+#   #   curl -F file=@papers.csv http://localhost:8080/upload/papers
+#   # ジョブ履歴:
+#   #   curl http://localhost:8080/jobs
+#   # MCP client は togomcp の HTTP transport (8000) に接続するか、togomcp standalone
+#   # を host で起動して stdio で繋ぐ (Claude Desktop の場合は後者が標準):
 #   #   uv pip install 'git+https://github.com/dbcls/togomcp.git'
 #   #   TOGOMCP_DIR=$(pwd)/data/togomcp togo-mcp-local
 #   docker compose down -v
@@ -56,4 +57,26 @@ services:
       - ./data/togomcp:/data/togomcp:ro
     ports:
       - "8000:8000"   # togomcp HTTP transport
+    restart: unless-stopped
+
+  upload-api:
+    # Phase 2: drop CSV -> auto reindex. FastAPI surface (POST /upload/{kind},
+    # GET /jobs, GET /health) + an in-process watcher that runs the matching
+    # starrydata ingester and POSTs the resulting Turtle to Oxigraph.
+    build:
+      context: .
+      dockerfile: infra/upload-api/Dockerfile
+    container_name: csv2rdf_upload_api
+    depends_on:
+      - oxigraph
+    environment:
+      CSV2RDF_OXIGRAPH_URL: http://oxigraph:7878
+      CSV2RDF_DROP_ROOT: /data/sources/csv
+      CSV2RDF_RDF_ROOT: /data/sources/rdf/starrydata
+      CSV2RDF_ERROR_ROOT: /data/sources/errors/starrydata
+      CSV2RDF_JOBS_LOG: /data/sources/jobs.jsonl
+    volumes:
+      - ./data/sources:/data/sources
+    ports:
+      - "8080:8080"
     restart: unless-stopped
