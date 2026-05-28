@@ -1,21 +1,23 @@
 # Self-built togomcp image for csv2rdf-mcp Phase 1+.
 #
-# 設計プラン §3 / option-b-architecture.md の Option B で togomcp は MIT な
-# Python パッケージ。**公式 Docker image はまだ存在しない**ため、Phase 1 段階
-# では自前で build して compose に組み込む。
+# **Build context は repo root** (compose.yaml と Crucible のサブディレクトリ
+# build 規約に合わせる)。Dockerfile を直接 docker build する場合も `docker
+# build -f infra/togomcp/Dockerfile .` のように root から指定する。
 #
-# 方針 (memory/csv2rdf_mcp_phase05_decision.md):
-# - togomcp の commit SHA を引数として固定 (TOGOMCP_REF)。手動で上げる
-#   ことで dbcls 側の breaking change を踏まない。
-# - 公式 image が出たらこの Dockerfile を消して compose.yaml の image: 行を
-#   切り替えるだけで済む。
-# - 配布: csv2rdf-mcp 側の ghcr.io/kumagallium/csv2rdf-togomcp:vX.Y.Z として
-#   将来 push する想定 (Phase 2)。それまでは compose の build: で都度 build。
+# Crucible 登録時:
+#   - github_url: https://github.com/kumagallium/csv2rdf-mcp
+#   - subdir: infra/togomcp  (Crucible は context=root, Dockerfile=subdir/Dockerfile
+#     を自動で指定する)
+#   - env_vars: OXIGRAPH_HOST=csv2rdf-oxigraph  などを必要に応じて
+#
+# 方針 (docs/internal/option-b-architecture.md §9):
+# - togomcp の commit SHA を ARG TOGOMCP_REF で固定 (dbcls 側の breaking change
+#   を踏まない)。手動 build:
+#     docker build --build-arg TOGOMCP_REF=<sha> -f infra/togomcp/Dockerfile -t togomcp .
+# - 公式 image が出たら本 Dockerfile を削除し compose.yaml の build: → image: に切り替え
 
 FROM python:3.11-slim AS base
 
-# togomcp commit to pin. Update via:
-#   docker compose build --build-arg TOGOMCP_REF=<new-sha> togomcp
 ARG TOGOMCP_REF=54ab0d0857bb31610276499076a62dff57448fbd
 
 ENV PYTHONUNBUFFERED=1 \
@@ -30,11 +32,18 @@ RUN apt-get update \
 # togomcp をピン留めしてインストール
 RUN pip install "git+https://github.com/dbcls/togomcp.git@${TOGOMCP_REF}"
 
-# Oxigraph が起動するまで待つ entrypoint
-COPY --chmod=0755 entrypoint.sh /usr/local/bin/entrypoint.sh
+# csv2rdf-mcp 側の MIE / endpoints.csv 差分を image に焼き込む。
+# Crucible は bind mount を使わない (deployer は `docker run -p ... image` のみ)。
+# 開発時の compose は `volumes: - ./data/togomcp:/data/togomcp:ro` で上書きすれば
+# host 側で MIE を編集 → 即反映できる。
+COPY data/togomcp /data/togomcp
 
-# 非 root で動かす (TOGOMCP_DIR は read-only bind mount のため UID は柔軟に)
-RUN useradd --create-home --uid 1000 togomcp
+# Oxigraph 起動待ち + TOGOMCP_DIR overlay 構築 entrypoint
+COPY --chmod=0755 infra/togomcp/entrypoint.sh /usr/local/bin/entrypoint.sh
+
+# 非 root で動かす
+RUN useradd --create-home --uid 1000 togomcp \
+    && chown -R togomcp:togomcp /data/togomcp
 USER togomcp
 WORKDIR /home/togomcp
 
@@ -42,5 +51,5 @@ EXPOSE 8000
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 # togo-mcp-server は HTTP transport (0.0.0.0:8000) で待ち受ける。
-# stdio が必要なら togo-mcp-local を直接呼び出す (`docker compose run togomcp togo-mcp-local`)。
+# stdio が必要なら `docker run --rm togomcp togo-mcp-local` 等で呼び出し可。
 CMD ["togo-mcp-server"]

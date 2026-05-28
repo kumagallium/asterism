@@ -39,8 +39,12 @@ services:
     # 自前 build する (infra/togomcp/Dockerfile)。pin した commit SHA は
     # Dockerfile の TOGOMCP_REF ARG で管理。公式 image が出たら build: を
     # image: ghcr.io/dbcls/togomcp:<tag> に置き換えるだけ。
+    # build context は repo root (Crucible の subdir build と統一)。
+    # 開発時の MIE 編集を即反映するため、image に焼き込んだ /data/togomcp は
+    # 下の volumes: で host 側のファイルにシャドウする。
     build:
-      context: ./infra/togomcp
+      context: .
+      dockerfile: infra/togomcp/Dockerfile
       # 任意で別の commit に上げたいときは:
       #   docker compose build --build-arg TOGOMCP_REF=<sha> togomcp
     container_name: csv2rdf_togomcp
