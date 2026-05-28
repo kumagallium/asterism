@@ -1,0 +1,17 @@
+# CI スケルトン。Phase 1 で ruff / mypy / pytest を有効化する。
+# Phase 0.5 では中身を埋めない (handoff §3.2)。
+
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  placeholder:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Placeholder
+        run: echo "Phase 0.5 — CI will be enabled in Phase 1"

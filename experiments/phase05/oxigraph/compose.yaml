@@ -1,0 +1,23 @@
+# Phase 0.5 — Oxigraph spike
+#
+# 起動: docker compose up -d
+# ロード: ../scripts/load_and_query_oxigraph.py を実行 (host から HTTP 越し)
+# 停止: docker compose down -v
+#
+# 設計プラン §11 致命的リスク 1 / handoff §4.2 の確認項目:
+# - SPARQL 1.1 Update (INSERT DATA) で部分追記が効くか
+# - 同じ subset の追加投入で「再構築不要」で済むか
+# - Docker image サイズと起動コスト
+
+services:
+  oxigraph:
+    image: ghcr.io/oxigraph/oxigraph:latest
+    container_name: csv2rdf_phase05_oxigraph
+    command: >
+      serve
+      --location /data
+      --bind 0.0.0.0:7878
+    ports:
+      - "7878:7878"
+    volumes:
+      - ./oxigraph_data:/data

@@ -1,0 +1,47 @@
+== togopackage bench (endpoint=http://localhost:10005/sparql)
+baseline COUNT: 3715 (59.33ms)
+
+-- query latency (3 warmup + 5 measured) --
+  Q1_count: mean=16.69ms p95=47.61ms
+  Q2_papers: mean=54.71ms p95=72.55ms
+  Q3_titles: mean=29.05ms p95=57.68ms
+  Q4_authors_per_paper: mean=18.15ms p95=48.29ms
+  Q5_filter_year: mean=26.77ms p95=55.45ms
+
+-- SPARQL UPDATE attempt (default QLever does NOT persist) --
+UPDATE status=415, body[:200]='Unsupported Media Type'
+COUNT after UPDATE attempt: 3715 (delta 0)
+
+== summary ==
+{
+  "baseline_count": 3715,
+  "after_update_count": 3715,
+  "update_status": 415,
+  "queries": [
+    {
+      "name": "Q1_count",
+      "mean_ms": 16.69287495315075,
+      "p95_ms": 47.613166738301516
+    },
+    {
+      "name": "Q2_papers",
+      "mean_ms": 54.709966480731964,
+      "p95_ms": 72.55424978211522
+    },
+    {
+      "name": "Q3_titles",
+      "mean_ms": 29.05160030350089,
+      "p95_ms": 57.6820420101285
+    },
+    {
+      "name": "Q4_authors_per_paper",
+      "mean_ms": 18.14786670729518,
+      "p95_ms": 48.291792161762714
+    },
+    {
+      "name": "Q5_filter_year",
+      "mean_ms": 26.765666529536247,
+      "p95_ms": 55.450750049203634
+    }
+  ]
+}
