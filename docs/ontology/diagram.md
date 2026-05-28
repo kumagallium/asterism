@@ -58,20 +58,34 @@ classDiagram
         +prov:wasAssociatedWith (software agent)
     }
 
-    Paper "1" --> "0..n" Person : schema:author
-    Paper "1" --> "0..1" Periodical : schema:isPartOf
-    Sample "1" --> "1" Paper : sd:fromPaper
-    Sample "1" --> "0..n" Descriptor : sd:hasDescriptor
-    Curve "1" --> "1" Sample : sd:ofSample
-    Paper ..> IngestionActivity : prov:wasGeneratedBy
-    Sample ..> IngestionActivity : prov:wasGeneratedBy
-    Curve ..> IngestionActivity : prov:wasGeneratedBy
+    Paper "1" --> "0..n" Person : author
+    Paper "1" --> "0..1" Periodical : isPartOf
+    Sample "1" --> "1" Paper : fromPaper
+    Sample "1" --> "0..n" Descriptor : hasDescriptor
+    Curve "1" --> "1" Sample : ofSample
+    Paper ..> IngestionActivity : wasGeneratedBy
+    Sample ..> IngestionActivity : wasGeneratedBy
+    Curve ..> IngestionActivity : wasGeneratedBy
 
-    note for Paper "rdfs:subClassOf schema:ScholarlyArticle, prov:Entity"
-    note for Sample "rdfs:subClassOf prov:Entity"
-    note for Curve "rdfs:subClassOf prov:Entity\nx/y は方針 C: JSON literal + 集約値"
-    note for IngestionActivity "rdfs:subClassOf prov:Activity\n各 ingest 実行で 1 つ発行"
+    note for Paper "subClassOf schema-ScholarlyArticle and prov-Entity"
+    note for Sample "subClassOf prov-Entity"
+    note for Curve "subClassOf prov-Entity. x and y are JSON literal plus aggregates"
+    note for IngestionActivity "subClassOf prov-Activity. One per ingest run"
 ```
+
+## 図中のラベルと正式プロパティ名の対応
+
+GitHub の Mermaid は label に `:` を含められないので、図中はプレフィックス無しの
+短い名前で表示している。正式な IRI 接頭辞は以下:
+
+| 図中ラベル | 正式プロパティ |
+|---|---|
+| `author` | `schema:author` |
+| `isPartOf` | `schema:isPartOf` |
+| `fromPaper` | `sd:fromPaper` |
+| `hasDescriptor` | `sd:hasDescriptor` |
+| `ofSample` | `sd:ofSample` |
+| `wasGeneratedBy` | `prov:wasGeneratedBy` |
 
 ## 補足: 配置と接頭辞の対応
 
