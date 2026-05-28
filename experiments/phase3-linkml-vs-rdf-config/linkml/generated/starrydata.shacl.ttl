@@ -1,0 +1,423 @@
+@prefix bibo: <http://purl.org/ontology/bibo/> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix schemaorg: <https://schema.org/> .
+@prefix sd: <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+sd:Curve a sh:NodeShape ;
+    rdfs:comment """A measurement curve digitized from a figure in the source paper. Phase 1
+keeps raw x/y arrays as JSON literals plus pre-computed aggregates
+(xMin/Max/yMin/Max/pointCount) for fast range filtering.
+""" ;
+    sh:closed true ;
+    sh:ignoredProperties ( rdf:type ) ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:description """Phase 1 stores the raw label (e.g. "Temperature"). Phase 2 will
+normalize to a qudt:QuantityKind IRI.
+""" ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 4 ;
+            sh:path sd:propertyX ],
+        [ sh:datatype xsd:double ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 13 ;
+            sh:path sd:yMax ],
+        [ sh:datatype xsd:double ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 12 ;
+            sh:path sd:yMin ],
+        [ sh:datatype xsd:string ;
+            sh:description "Figure label as printed in the source paper, e.g. \"6(b)\"." ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 2 ;
+            sh:path sd:figureName ],
+        [ sh:datatype xsd:double ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 11 ;
+            sh:path sd:xMax ],
+        [ sh:datatype xsd:string ;
+            sh:description """{SID}-{figure_id}-{sample_id} の三者複合キー。Phase 1 で
+(SID, figure_id, sample_id) が全件 100% ユニークと検証済。
+""" ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 0 ;
+            sh:path dcterms:identifier ],
+        [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 9 ;
+            sh:path sd:yValuesJSON ],
+        [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:minCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 1 ;
+            sh:path sd:rawFigureId ],
+        [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 18 ;
+            sh:path dcterms:modified ],
+        [ sh:class sd:IngestionActivity ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:IRI ;
+            sh:order 19 ;
+            sh:path prov:wasGeneratedBy ],
+        [ sh:datatype xsd:integer ;
+            sh:description "Number of (x,y) pairs in this curve (min(len(x), len(y)))." ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 14 ;
+            sh:path sd:pointCount ],
+        [ sh:datatype xsd:string ;
+            sh:description """Raw JSON-encoded array of x measurements (方針 C). Pre-computed
+aggregates xMin/xMax/pointCount are emitted as sibling slots.
+""" ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 8 ;
+            sh:path sd:xValuesJSON ],
+        [ sh:datatype xsd:string ;
+            sh:description "starrydata curator が割り当てる project tag (Paper / Curve 両方に付くことがある)" ;
+            sh:nodeKind sh:Literal ;
+            sh:order 16 ;
+            sh:path sd:projectName ],
+        [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 6 ;
+            sh:path sd:unitXString ],
+        [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 7 ;
+            sh:path sd:unitYString ],
+        [ sh:datatype xsd:double ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 10 ;
+            sh:path sd:xMin ],
+        [ sh:datatype xsd:string ;
+            sh:description """Curator 側の record timestamp (free-form 文字列)。ingestion 時刻ではない
+ことに注意 — ingestion 時刻は prov:wasGeneratedBy/prov:atTime 経由で取れる。
+""" ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 17 ;
+            sh:path dcterms:created ],
+        [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 15 ;
+            sh:path sd:comments ],
+        [ sh:class sd:Sample ;
+            sh:description "Curve が測定対象とした Sample" ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:IRI ;
+            sh:order 3 ;
+            sh:path sd:ofSample ],
+        [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 5 ;
+            sh:path sd:propertyY ] ;
+    sh:targetClass sd:Curve .
+
+sd:HasIngestionProvenance a sh:NodeShape ;
+    rdfs:comment """Marker mixin: any Paper/Sample/Curve gets prov:wasGeneratedBy pointing
+at the IngestionActivity that emitted it. Concrete classes inherit the
+`wasGeneratedBy` slot.
+""" ;
+    sh:closed false ;
+    sh:ignoredProperties ( rdf:type ) ;
+    sh:property [ sh:class sd:IngestionActivity ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:IRI ;
+            sh:order 0 ;
+            sh:path prov:wasGeneratedBy ] ;
+    sh:targetClass sd:HasIngestionProvenance .
+
+sd:Descriptor a sh:NodeShape ;
+    rdfs:comment """Structured metadata extracted from the sample_info JSON column
+(MaterialFamily, Form, FabricationProcess, etc.). Entries with empty
+category/comment/extracted are dropped at ingest time.
+""" ;
+    sh:closed true ;
+    sh:ignoredProperties ( rdf:type ) ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 4 ;
+            sh:path sd:descriptorExtracted ],
+        [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 2 ;
+            sh:path sd:descriptorCategory ],
+        [ sh:datatype xsd:string ;
+            sh:description "e.g. MaterialFamily, Form, FabricationProcess, ThermalMeasurement." ;
+            sh:maxCount 1 ;
+            sh:minCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 1 ;
+            sh:path sd:descriptorName ],
+        [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 3 ;
+            sh:path sd:descriptorComment ],
+        [ sh:datatype xsd:string ;
+            sh:description "{SID}-{sample_id}/{idx} の複合キー" ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 0 ;
+            sh:path dcterms:identifier ] ;
+    sh:targetClass sd:Descriptor .
+
+sd:Paper a sh:NodeShape ;
+    rdfs:comment """A scholarly article that contains digitized measurement data. Each row
+in starrydata_papers.csv becomes one sd:Paper instance.
+""" ;
+    sh:closed true ;
+    sh:ignoredProperties ( rdf:type ) ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:description "starrydata curator が割り当てる project tag (Paper / Curve 両方に付くことがある)" ;
+            sh:nodeKind sh:Literal ;
+            sh:order 11 ;
+            sh:path sd:projectName ],
+        [ sh:datatype xsd:string ;
+            sh:description "starrydata の Paper-level identifier。globally unique と仮定 (検証済)" ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 0 ;
+            sh:path dcterms:identifier ],
+        [ sh:datatype xsd:string ;
+            sh:description "DOI literal (raw 文字列、IRI 化はせず)" ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 1 ;
+            sh:path schemaorg:identifier ],
+        [ sh:class schemaorg:Person ;
+            sh:description "論文著者 (順序保持; ABox では index でユニーク化)" ;
+            sh:nodeKind sh:IRI ;
+            sh:order 6 ;
+            sh:path schemaorg:author ],
+        [ sh:class schemaorg:Periodical ;
+            sh:description "論文が属する Periodical (Journal)" ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:IRI ;
+            sh:order 5 ;
+            sh:path schemaorg:isPartOf ],
+        [ sh:datatype xsd:date ;
+            sh:description """論文の出版日 (xsd:date)。issued JSON 列を parse して 1 月 1 日補完で normalize。
+""" ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 4 ;
+            sh:path schemaorg:datePublished ],
+        [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 9 ;
+            sh:path bibo:issue ],
+        [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 8 ;
+            sh:path bibo:volume ],
+        [ sh:description "論文のリンク URL" ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:IRI ;
+            sh:order 2 ;
+            sh:path schemaorg:url ],
+        [ sh:datatype xsd:string ;
+            sh:description """Curator 側の record timestamp (free-form 文字列)。ingestion 時刻ではない
+ことに注意 — ingestion 時刻は prov:wasGeneratedBy/prov:atTime 経由で取れる。
+""" ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 12 ;
+            sh:path dcterms:created ],
+        [ sh:class sd:IngestionActivity ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:IRI ;
+            sh:order 13 ;
+            sh:path prov:wasGeneratedBy ],
+        [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 7 ;
+            sh:path schemaorg:publisher ],
+        [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 10 ;
+            sh:path bibo:pages ],
+        [ sh:datatype xsd:string ;
+            sh:description "論文タイトル" ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 3 ;
+            sh:path schemaorg:name ] ;
+    sh:targetClass sd:Paper .
+
+sd:Sample a sh:NodeShape ;
+    rdfs:comment """A physical specimen prepared and measured in a paper. Carries a
+composition string and zero or more structured Descriptors.
+""" ;
+    sh:closed true ;
+    sh:ignoredProperties ( rdf:type ) ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:description "starrydata の元 sample_id (paper を跨ぐと collide するので lookup 不可)" ;
+            sh:maxCount 1 ;
+            sh:minCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 1 ;
+            sh:path sd:rawSampleId ],
+        [ sh:datatype xsd:string ;
+            sh:description """Curator 側の record timestamp (free-form 文字列)。ingestion 時刻ではない
+ことに注意 — ingestion 時刻は prov:wasGeneratedBy/prov:atTime 経由で取れる。
+""" ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 7 ;
+            sh:path dcterms:created ],
+        [ sh:datatype xsd:string ;
+            sh:description "starrydata_samples.csv composition 列の raw 文字列 (e.g. \"Bi2Te3\")" ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 3 ;
+            sh:path sd:compositionString ],
+        [ sh:datatype xsd:string ;
+            sh:description """★ Phase 1 で観測した collision 対策: starrydata の sample_id は paper を
+跨ぐと重複するため、{SID}-{sample_id} の複合キーを id にする。元の
+sample_id は `rawSampleId` で残す。
+""" ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 0 ;
+            sh:path dcterms:identifier ],
+        [ sh:class sd:Descriptor ;
+            sh:nodeKind sh:IRI ;
+            sh:order 6 ;
+            sh:path sd:hasDescriptor ],
+        [ sh:class sd:Paper ;
+            sh:description "Sample が報告された Paper" ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:IRI ;
+            sh:order 5 ;
+            sh:path sd:fromPaper ],
+        [ sh:class sd:IngestionActivity ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:IRI ;
+            sh:order 9 ;
+            sh:path prov:wasGeneratedBy ],
+        [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 4 ;
+            sh:path sd:compositionDetails ],
+        [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 8 ;
+            sh:path dcterms:modified ],
+        [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 2 ;
+            sh:path schemaorg:name ] ;
+    sh:targetClass sd:Sample .
+
+schemaorg:Periodical a sh:NodeShape ;
+    rdfs:comment "A journal / book series the paper appears in." ;
+    sh:closed true ;
+    sh:ignoredProperties ( rdf:type ) ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 2 ;
+            sh:path schemaorg:alternateName ],
+        [ sh:datatype xsd:string ;
+            sh:description "lowercased / alphanumeric slug derived from container_title" ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 0 ;
+            sh:path dcterms:identifier ],
+        [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 1 ;
+            sh:path schemaorg:name ] ;
+    sh:targetClass schemaorg:Periodical .
+
+schemaorg:Person a sh:NodeShape ;
+    rdfs:comment "An author or other PROV-O agent linked to a paper." ;
+    sh:closed true ;
+    sh:ignoredProperties ( rdf:type ) ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:description "{SID}/{author_index} の複合キー" ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 0 ;
+            sh:path dcterms:identifier ],
+        [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 1 ;
+            sh:path schemaorg:givenName ],
+        [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 2 ;
+            sh:path schemaorg:familyName ] ;
+    sh:targetClass schemaorg:Person .
+
+sd:IngestionActivity a sh:NodeShape ;
+    rdfs:comment """A single run of the csv2rdf-mcp ingester. Each Paper/Sample/Curve
+generated in the run carries prov:wasGeneratedBy → IngestionActivity for
+provenance traceability.
+""" ;
+    sh:closed true ;
+    sh:ignoredProperties ( rdf:type ) ;
+    sh:property [ sh:datatype xsd:dateTime ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 2 ;
+            sh:path prov:endedAtTime ],
+        [ sh:description "入力 CSV ファイルの IRI (`sdr:source/<basename>`)" ;
+            sh:maxCount 1 ;
+            sh:minCount 1 ;
+            sh:nodeKind sh:IRI ;
+            sh:order 3 ;
+            sh:path prov:used ],
+        [ sh:datatype xsd:dateTime ;
+            sh:maxCount 1 ;
+            sh:minCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 1 ;
+            sh:path prov:atTime ],
+        [ sh:datatype xsd:string ;
+            sh:description "Run identifier (e.g. \"run-20260528T064500Z\")" ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:Literal ;
+            sh:order 0 ;
+            sh:path dcterms:identifier ],
+        [ sh:description "csv2rdf-mcp の GitHub URL (software agent IRI)" ;
+            sh:maxCount 1 ;
+            sh:nodeKind sh:IRI ;
+            sh:order 4 ;
+            sh:path prov:wasAssociatedWith ] ;
+    sh:targetClass sd:IngestionActivity .
+
+

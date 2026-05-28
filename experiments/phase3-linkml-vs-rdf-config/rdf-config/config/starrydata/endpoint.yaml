@@ -1,0 +1,2 @@
+endpoint:
+  - http://localhost:7878/query

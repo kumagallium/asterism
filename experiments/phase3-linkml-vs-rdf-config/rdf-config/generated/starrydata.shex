@@ -1,0 +1,88 @@
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX dcterms: <http://purl.org/dc/terms/>
+PREFIX bibo: <http://purl.org/ontology/bibo/>
+PREFIX prov: <http://www.w3.org/ns/prov#>
+PREFIX schema: <https://schema.org/>
+PREFIX sd: <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#>
+PREFIX sdr: <https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/>
+<PaperShape> {
+  a [ sd:Paper ] ;
+  dcterms:identifier xsd:string ;
+  schema:identifier xsd:string ? ;
+  schema:url IRI ? ;
+  schema:name xsd:string ? ;
+  schema:datePublished xsd:string ? ;
+  schema:isPartOf @<PeriodicalShape> ? ;
+  schema:author @<PersonShape> * ;
+  bibo:volume xsd:string ? ;
+  bibo:issue xsd:string ? ;
+  bibo:pages xsd:string ? ;
+  sd:projectName xsd:string * ;
+  dcterms:created xsd:string ? ;
+  prov:wasGeneratedBy @<IngestionActivityShape> ?
+}
+<SampleShape> {
+  a [ sd:Sample ] ;
+  dcterms:identifier xsd:string ;
+  sd:rawSampleId xsd:string ;
+  schema:name xsd:string ? ;
+  sd:compositionString xsd:string ? ;
+  sd:compositionDetails xsd:string ? ;
+  sd:fromPaper @<PaperShape> ;
+  sd:hasDescriptor @<DescriptorShape> * ;
+  dcterms:created xsd:string ? ;
+  dcterms:modified xsd:string ? ;
+  prov:wasGeneratedBy @<IngestionActivityShape> ?
+}
+<CurveShape> {
+  a [ sd:Curve ] ;
+  dcterms:identifier xsd:string ;
+  sd:rawFigureId xsd:string ;
+  sd:figureName xsd:string ? ;
+  sd:ofSample @<SampleShape> ? ;
+  sd:propertyX xsd:string ? ;
+  sd:propertyY xsd:string ? ;
+  sd:unitXString xsd:string ? ;
+  sd:unitYString xsd:string ? ;
+  sd:xValuesJSON xsd:string ? ;
+  sd:yValuesJSON xsd:string ? ;
+  sd:xMin xsd:float ? ;
+  sd:xMax xsd:float ? ;
+  sd:yMin xsd:float ? ;
+  sd:yMax xsd:float ? ;
+  sd:pointCount xsd:integer ? ;
+  sd:comments xsd:string ? ;
+  sd:projectName xsd:string * ;
+  dcterms:created xsd:string ? ;
+  dcterms:modified xsd:string ? ;
+  prov:wasGeneratedBy @<IngestionActivityShape> ?
+}
+<DescriptorShape> {
+  a [ sd:Descriptor ] ;
+  dcterms:identifier xsd:string ;
+  sd:descriptorName xsd:string ;
+  sd:descriptorCategory xsd:string ? ;
+  sd:descriptorComment xsd:string ? ;
+  sd:descriptorExtracted xsd:string ?
+}
+<IngestionActivityShape> {
+  a [ sd:IngestionActivity ] ;
+  dcterms:identifier xsd:string ;
+  prov:atTime xsd:string ;
+  prov:endedAtTime xsd:string ? ;
+  prov:used IRI ;
+  prov:wasAssociatedWith IRI ?
+}
+<PersonShape> {
+  a [ schema:Person ] ;
+  schema:givenName xsd:string ? ;
+  schema:familyName xsd:string ?
+}
+<PeriodicalShape> {
+  a [ schema:Periodical ] ;
+  schema:name xsd:string ? ;
+  schema:alternateName xsd:string ?
+}

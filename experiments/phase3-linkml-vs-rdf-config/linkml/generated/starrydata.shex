@@ -1,0 +1,157 @@
+# metamodel_version: 1.11.0
+# version: 0.1.0
+BASE <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#>
+PREFIX dcterms: <http://purl.org/dc/terms/>
+PREFIX prov: <http://www.w3.org/ns/prov#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX linkml: <https://w3id.org/linkml/>
+PREFIX schemaorg: <https://schema.org/>
+PREFIX bibo: <http://purl.org/ontology/bibo/>
+
+
+linkml:String xsd:string
+
+linkml:Integer xsd:integer
+
+linkml:Boolean xsd:boolean
+
+linkml:Float xsd:float
+
+linkml:Double xsd:double
+
+linkml:Decimal xsd:decimal
+
+linkml:Time xsd:time
+
+linkml:Date xsd:date
+
+linkml:Datetime xsd:dateTime
+
+linkml:DateOrDatetime linkml:DateOrDatetime
+
+linkml:Uriorcurie IRI
+
+linkml:Curie xsd:string
+
+linkml:Uri IRI
+
+linkml:Ncname xsd:string
+
+linkml:Objectidentifier IRI
+
+linkml:Nodeidentifier NONLITERAL
+
+linkml:Jsonpointer xsd:string
+
+linkml:Jsonpath xsd:string
+
+linkml:Sparqlpath xsd:string
+
+<Curve> CLOSED {
+    (  $<Curve_tes> (  &<HasIngestionProvenance_tes> ;
+          rdf:type [ <HasIngestionProvenance> ] ? ;
+          <rawFigureId> @linkml:String ;
+          <figureName> @linkml:String ? ;
+          <ofSample> @<Sample> ? ;
+          <propertyX> @linkml:String ? ;
+          <propertyY> @linkml:String ? ;
+          <unitXString> @linkml:String ? ;
+          <unitYString> @linkml:String ? ;
+          <xValuesJSON> @linkml:String ? ;
+          <yValuesJSON> @linkml:String ? ;
+          <xMin> @linkml:Double ? ;
+          <xMax> @linkml:Double ? ;
+          <yMin> @linkml:Double ? ;
+          <yMax> @linkml:Double ? ;
+          <pointCount> @linkml:Integer ? ;
+          <comments> @linkml:String ? ;
+          <projectName> @linkml:String * ;
+          dcterms:created @linkml:String ? ;
+          dcterms:modified @linkml:String ? ;
+          prov:wasGeneratedBy @<IngestionActivity> ?
+       ) ;
+       rdf:type [ <Curve> ]
+    )
+}
+
+<Descriptor> CLOSED {
+    (  $<Descriptor_tes> (  <descriptorName> @linkml:String ;
+          <descriptorCategory> @linkml:String ? ;
+          <descriptorComment> @linkml:String ? ;
+          <descriptorExtracted> @linkml:String ?
+       ) ;
+       rdf:type [ <Descriptor> ]
+    )
+}
+
+<HasIngestionProvenance> {
+    (  $<HasIngestionProvenance_tes> prov:wasGeneratedBy @<IngestionActivity> ? ;
+       rdf:type [ <HasIngestionProvenance> ] ?
+    )
+}
+
+<IngestionActivity> CLOSED {
+    (  $<IngestionActivity_tes> (  prov:atTime @linkml:Datetime ;
+          prov:endedAtTime @linkml:Datetime ? ;
+          prov:used @linkml:Uri ;
+          prov:wasAssociatedWith @linkml:Uri ?
+       ) ;
+       rdf:type [ <IngestionActivity> ]
+    )
+}
+
+<Paper> CLOSED {
+    (  $<Paper_tes> (  &<HasIngestionProvenance_tes> ;
+          rdf:type [ <HasIngestionProvenance> ] ? ;
+          schemaorg:identifier @linkml:String ? ;
+          schemaorg:url @linkml:Uri ? ;
+          schemaorg:name @linkml:String ? ;
+          schemaorg:datePublished @linkml:Date ? ;
+          schemaorg:isPartOf @<Periodical> ? ;
+          schemaorg:author @<Person> * ;
+          schemaorg:publisher @linkml:String ? ;
+          bibo:volume @linkml:String ? ;
+          bibo:issue @linkml:String ? ;
+          bibo:pages @linkml:String ? ;
+          <projectName> @linkml:String * ;
+          dcterms:created @linkml:String ? ;
+          prov:wasGeneratedBy @<IngestionActivity> ?
+       ) ;
+       rdf:type [ <Paper> ]
+    )
+}
+
+<Periodical> CLOSED {
+    (  $<Periodical_tes> (  schemaorg:name @linkml:String ? ;
+          schemaorg:alternateName @linkml:String ?
+       ) ;
+       rdf:type [ schemaorg:Periodical ]
+    )
+}
+
+<Person> CLOSED {
+    (  $<Person_tes> (  schemaorg:givenName @linkml:String ? ;
+          schemaorg:familyName @linkml:String ?
+       ) ;
+       rdf:type [ schemaorg:Person ]
+    )
+}
+
+<Sample> CLOSED {
+    (  $<Sample_tes> (  &<HasIngestionProvenance_tes> ;
+          rdf:type [ <HasIngestionProvenance> ] ? ;
+          <rawSampleId> @linkml:String ;
+          schemaorg:name @linkml:String ? ;
+          <compositionString> @linkml:String ? ;
+          <compositionDetails> @linkml:String ? ;
+          <fromPaper> @<Paper> ? ;
+          <hasDescriptor> @<Descriptor> * ;
+          dcterms:created @linkml:String ? ;
+          dcterms:modified @linkml:String ? ;
+          prov:wasGeneratedBy @<IngestionActivity> ?
+       ) ;
+       rdf:type [ <Sample> ]
+    )
+}
+

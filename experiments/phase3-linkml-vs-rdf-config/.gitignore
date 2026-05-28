@@ -1,0 +1,10 @@
+# Generated artifacts are committed (small, useful for review).
+# But the heavy tooling stays out:
+
+# LinkML venv
+linkml/.venv/
+linkml/generated/*.log
+
+# rdf-config cloned upstream (user re-clones per README)
+rdf-config/upstream/
+rdf-config/generated/*.log

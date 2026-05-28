@@ -1,0 +1,149 @@
+# starrydata model — rdf-config 形式 (Phase 1 starrydata.ttl の対応版)
+#
+# rdf-config は example-driven。各 Subject に対して **代表的な 1 インスタンス**
+# を書き、property の cardinality はマーカ (? / * / + / 無印) で示す。
+# 値の型は sample から推論される。
+#
+# Phase 1 starrydata.ttl との対応:
+# - sd:Paper       → Paper subject
+# - sd:Sample      → Sample subject
+# - sd:Curve       → Curve subject
+# - sd:Descriptor  → Descriptor subject
+# - sd:IngestionActivity → IngestionActivity subject
+# - schema:Person  → Person subject
+# - schema:Periodical → Periodical subject
+
+- Paper <https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/paper/6>:
+    - a: sd:Paper
+    - dcterms:identifier:
+        - sid: "6"
+    - schema:identifier?:
+        - doi: "10.1021/am405410e"
+    - schema:url?:
+        - paper_url: <http://dx.doi.org/10.1021/am405410e>
+    - schema:name?:
+        - title: "Some Thermoelectric Paper"
+    - schema:datePublished?:
+        - issued: "2014-04-15"
+    - schema:isPartOf?:
+        - periodical: Periodical
+    - schema:author*:
+        - author: Person
+    - bibo:volume?:
+        - volume: "47"
+    - bibo:issue?:
+        - issue: "4"
+    - bibo:pages?:
+        - pages: "1287-1295"
+    - sd:projectName*:
+        - paper_project: "ThermoelectricMaterials"
+    - dcterms:created?:
+        - paper_created_at: "Thu Jan 25 2018 13:56:56"
+    - prov:wasGeneratedBy?:
+        - paper_ingestion: IngestionActivity
+
+- Sample <https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/sample/6-113>:
+    - a: sd:Sample
+    - dcterms:identifier:
+        - sample_composite_key: "6-113"
+    - sd:rawSampleId:
+        - raw_sample_id: "113"
+    - schema:name?:
+        - sample_name: "Pb1.00025Zn0.02Te1.02I0.0005"
+    - sd:compositionString?:
+        - composition: "Pb1.00025Zn0.02Te1.02I0.0005"
+    - sd:compositionDetails?:
+        - composition_details: "Pb:Zn:Te:I = 1.00025:0.02:1.02:0.0005"
+    - sd:fromPaper:
+        - sample_paper: Paper
+    - sd:hasDescriptor*:
+        - sample_descriptor: Descriptor
+    - dcterms:created?:
+        - sample_created_at: "2018-01-25 13:56:56"
+    - dcterms:modified?:
+        - sample_modified_at: "2018-01-25 13:56:56"
+    - prov:wasGeneratedBy?:
+        - sample_ingestion: IngestionActivity
+
+- Curve <https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/curve/6-79-113>:
+    - a: sd:Curve
+    - dcterms:identifier:
+        - curve_composite_key: "6-79-113"
+    - sd:rawFigureId:
+        - raw_figure_id: "79"
+    - sd:figureName?:
+        - figure_name: "6(b)"
+    - sd:ofSample?:
+        - curve_sample: Sample
+    - sd:propertyX?:
+        - property_x: "Temperature"
+    - sd:propertyY?:
+        - property_y: "Seebeck coefficient"
+    - sd:unitXString?:
+        - unit_x: "K"
+    - sd:unitYString?:
+        - unit_y: "V*K^(-1)"
+    - sd:xValuesJSON?:
+        - x_values_json: "[299.86,324.87,650.02]"
+    - sd:yValuesJSON?:
+        - y_values_json: "[-0.000148,-0.000286]"
+    - sd:xMin?:
+        - x_min: 299.86
+    - sd:xMax?:
+        - x_max: 650.02
+    - sd:yMin?:
+        - y_min: -2.862406e-4
+    - sd:yMax?:
+        - y_max: -1.484452e-4
+    - sd:pointCount?:
+        - point_count: 15
+    - sd:comments?:
+        - curve_comments: "comment"
+    - sd:projectName*:
+        - curve_project: "ThermoelectricMaterials"
+    - dcterms:created?:
+        - curve_created_at: "2018-01-25 13:56:56"
+    - dcterms:modified?:
+        - curve_modified_at: "2018-01-25 13:56:56"
+    - prov:wasGeneratedBy?:
+        - curve_ingestion: IngestionActivity
+
+- Descriptor <https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/descriptor/6-113/0>:
+    - a: sd:Descriptor
+    - dcterms:identifier:
+        - descriptor_composite_key: "6-113/0"
+    - sd:descriptorName:
+        - descriptor_name: "MaterialFamily"
+    - sd:descriptorCategory?:
+        - descriptor_category: "PbTe"
+    - sd:descriptorComment?:
+        - descriptor_comment: "lightly Zn doped"
+    - sd:descriptorExtracted?:
+        - descriptor_extracted: "PbTe"
+
+- IngestionActivity <https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/ingestion/run-20260528T064500Z>:
+    - a: sd:IngestionActivity
+    - dcterms:identifier:
+        - run_id: "run-20260528T064500Z"
+    - prov:atTime:
+        - at_time: "2026-05-28T06:45:00Z"
+    - prov:endedAtTime?:
+        - ended_at_time: "2026-05-28T06:45:15Z"
+    - prov:used:
+        - source: <https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/source/starrydata_papers.csv>
+    - prov:wasAssociatedWith?:
+        - software_agent: <https://github.com/kumagallium/csv2rdf-mcp>
+
+- Person <https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/person/6/0>:
+    - a: schema:Person
+    - schema:givenName?:
+        - given_name: "Chong"
+    - schema:familyName?:
+        - family_name: "Xiao"
+
+- Periodical <https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/periodical/accounts-of-chemical-research>:
+    - a: schema:Periodical
+    - schema:name?:
+        - periodical_name: "Accounts of Chemical Research"
+    - schema:alternateName?:
+        - periodical_alternate_name: "Acc. Chem. Res."

@@ -1,0 +1,121 @@
+[35mPaper[0m [sd:Paper] (<https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/paper/6>)
+    |-- [33mdcterms:identifier[0m
+    |       `-- [36msid[0m ("6")
+    |-- [33mschema:identifier[0m ?
+    |       `-- [36mdoi[0m ("10.1021/am405410e")
+    |-- [33mschema:url[0m ?
+    |       `-- [36mpaper_url[0m (<http://dx.doi.org/10.1021/am405410e>)
+    |-- [33mschema:name[0m ?
+    |       `-- [36mtitle[0m ("Some Thermoelectric Paper")
+    |-- [33mschema:datePublished[0m ?
+    |       `-- [36missued[0m ("2014-04-15")
+    |-- [33mschema:isPartOf[0m ?
+    |       `-- [36mperiodical[0m ([35mPeriodical[0m)
+    |-- [33mschema:author[0m *
+    |       `-- [36mauthor[0m ([35mPerson[0m)
+    |-- [33mbibo:volume[0m ?
+    |       `-- [36mvolume[0m ("47")
+    |-- [33mbibo:issue[0m ?
+    |       `-- [36missue[0m ("4")
+    |-- [33mbibo:pages[0m ?
+    |       `-- [36mpages[0m ("1287-1295")
+    |-- [33msd:projectName[0m *
+    |       `-- [36mpaper_project[0m ("ThermoelectricMaterials")
+    |-- [33mdcterms:created[0m ?
+    |       `-- [36mpaper_created_at[0m ("Thu Jan 25 2018 13:56:56")
+    `-- [33mprov:wasGeneratedBy[0m ?
+            `-- [36mpaper_ingestion[0m ([35mIngestionActivity[0m)
+[35mSample[0m [sd:Sample] (<https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/sample/6-113>)
+    |-- [33mdcterms:identifier[0m
+    |       `-- [36msample_composite_key[0m ("6-113")
+    |-- [33msd:rawSampleId[0m
+    |       `-- [36mraw_sample_id[0m ("113")
+    |-- [33mschema:name[0m ?
+    |       `-- [36msample_name[0m ("Pb1.00025Zn0.02Te1.02I0.0005")
+    |-- [33msd:compositionString[0m ?
+    |       `-- [36mcomposition[0m ("Pb1.00025Zn0.02Te1.02I0.0005")
+    |-- [33msd:compositionDetails[0m ?
+    |       `-- [36mcomposition_details[0m ("Pb:Zn:Te:I = 1.00025:0.02:1.02:0.0005")
+    |-- [33msd:fromPaper[0m
+    |       `-- [36msample_paper[0m ([35mPaper[0m)
+    |-- [33msd:hasDescriptor[0m *
+    |       `-- [36msample_descriptor[0m ([35mDescriptor[0m)
+    |-- [33mdcterms:created[0m ?
+    |       `-- [36msample_created_at[0m ("2018-01-25 13:56:56")
+    |-- [33mdcterms:modified[0m ?
+    |       `-- [36msample_modified_at[0m ("2018-01-25 13:56:56")
+    `-- [33mprov:wasGeneratedBy[0m ?
+            `-- [36msample_ingestion[0m ([35mIngestionActivity[0m)
+[35mCurve[0m [sd:Curve] (<https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/curve/6-79-113>)
+    |-- [33mdcterms:identifier[0m
+    |       `-- [36mcurve_composite_key[0m ("6-79-113")
+    |-- [33msd:rawFigureId[0m
+    |       `-- [36mraw_figure_id[0m ("79")
+    |-- [33msd:figureName[0m ?
+    |       `-- [36mfigure_name[0m ("6(b)")
+    |-- [33msd:ofSample[0m ?
+    |       `-- [36mcurve_sample[0m ([35mSample[0m)
+    |-- [33msd:propertyX[0m ?
+    |       `-- [36mproperty_x[0m ("Temperature")
+    |-- [33msd:propertyY[0m ?
+    |       `-- [36mproperty_y[0m ("Seebeck coefficient")
+    |-- [33msd:unitXString[0m ?
+    |       `-- [36munit_x[0m ("K")
+    |-- [33msd:unitYString[0m ?
+    |       `-- [36munit_y[0m ("V*K^(-1)")
+    |-- [33msd:xValuesJSON[0m ?
+    |       `-- [36mx_values_json[0m ("[299.86,324.87,650.02]")
+    |-- [33msd:yValuesJSON[0m ?
+    |       `-- [36my_values_json[0m ("[-0.000148,-0.000286]")
+    |-- [33msd:xMin[0m ?
+    |       `-- [36mx_min[0m (299.86)
+    |-- [33msd:xMax[0m ?
+    |       `-- [36mx_max[0m (650.02)
+    |-- [33msd:yMin[0m ?
+    |       `-- [36my_min[0m (-0.0002862406)
+    |-- [33msd:yMax[0m ?
+    |       `-- [36my_max[0m (-0.0001484452)
+    |-- [33msd:pointCount[0m ?
+    |       `-- [36mpoint_count[0m (15)
+    |-- [33msd:comments[0m ?
+    |       `-- [36mcurve_comments[0m ("comment")
+    |-- [33msd:projectName[0m *
+    |       `-- [36mcurve_project[0m ("ThermoelectricMaterials")
+    |-- [33mdcterms:created[0m ?
+    |       `-- [36mcurve_created_at[0m ("2018-01-25 13:56:56")
+    |-- [33mdcterms:modified[0m ?
+    |       `-- [36mcurve_modified_at[0m ("2018-01-25 13:56:56")
+    `-- [33mprov:wasGeneratedBy[0m ?
+            `-- [36mcurve_ingestion[0m ([35mIngestionActivity[0m)
+[35mDescriptor[0m [sd:Descriptor] (<https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/descriptor/6-113/0>)
+    |-- [33mdcterms:identifier[0m
+    |       `-- [36mdescriptor_composite_key[0m ("6-113/0")
+    |-- [33msd:descriptorName[0m
+    |       `-- [36mdescriptor_name[0m ("MaterialFamily")
+    |-- [33msd:descriptorCategory[0m ?
+    |       `-- [36mdescriptor_category[0m ("PbTe")
+    |-- [33msd:descriptorComment[0m ?
+    |       `-- [36mdescriptor_comment[0m ("lightly Zn doped")
+    `-- [33msd:descriptorExtracted[0m ?
+            `-- [36mdescriptor_extracted[0m ("PbTe")
+[35mIngestionActivity[0m [sd:IngestionActivity] (<https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/ingestion/run-20260528T064500Z>)
+    |-- [33mdcterms:identifier[0m
+    |       `-- [36mrun_id[0m ("run-20260528T064500Z")
+    |-- [33mprov:atTime[0m
+    |       `-- [36mat_time[0m ("2026-05-28T06:45:00Z")
+    |-- [33mprov:endedAtTime[0m ?
+    |       `-- [36mended_at_time[0m ("2026-05-28T06:45:15Z")
+    |-- [33mprov:used[0m
+    |       `-- [36msource[0m (<https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/source/starrydata_papers.csv>)
+    `-- [33mprov:wasAssociatedWith[0m ?
+            `-- [36msoftware_agent[0m (<https://github.com/kumagallium/csv2rdf-mcp>)
+[35mPerson[0m [schema:Person] (<https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/person/6/0>)
+    |-- [33mschema:givenName[0m ?
+    |       `-- [36mgiven_name[0m ("Chong")
+    `-- [33mschema:familyName[0m ?
+            `-- [36mfamily_name[0m ("Xiao")
+[35mPeriodical[0m [schema:Periodical] (<https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/periodical/accounts-of-chemical-research>)
+    |-- [33mschema:name[0m ?
+    |       `-- [36mperiodical_name[0m ("Accounts of Chemical Research")
+    `-- [33mschema:alternateName[0m ?
+            `-- [36mperiodical_alternate_name[0m ("Acc. Chem. Res.")

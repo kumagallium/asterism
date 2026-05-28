@@ -1,0 +1,479 @@
+{
+    "$defs": {
+        "Curve": {
+            "additionalProperties": false,
+            "description": "A measurement curve digitized from a figure in the source paper. Phase 1\nkeeps raw x/y arrays as JSON literals plus pre-computed aggregates\n(xMin/Max/yMin/Max/pointCount) for fast range filtering.",
+            "properties": {
+                "comments": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "createdAt": {
+                    "description": "Curator \u5074\u306e record timestamp (free-form \u6587\u5b57\u5217)\u3002ingestion \u6642\u523b\u3067\u306f\u306a\u3044\n\u3053\u3068\u306b\u6ce8\u610f \u2014 ingestion \u6642\u523b\u306f prov:wasGeneratedBy/prov:atTime \u7d4c\u7531\u3067\u53d6\u308c\u308b\u3002\n",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "curveCompositeKey": {
+                    "description": "{SID}-{figure_id}-{sample_id} \u306e\u4e09\u8005\u8907\u5408\u30ad\u30fc\u3002Phase 1 \u3067\n(SID, figure_id, sample_id) \u304c\u5168\u4ef6 100% \u30e6\u30cb\u30fc\u30af\u3068\u691c\u8a3c\u6e08\u3002\n",
+                    "type": "string"
+                },
+                "figureName": {
+                    "description": "Figure label as printed in the source paper, e.g. \"6(b)\".",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "modifiedAt": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "ofSample": {
+                    "description": "Curve \u304c\u6e2c\u5b9a\u5bfe\u8c61\u3068\u3057\u305f Sample",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "pointCount": {
+                    "description": "Number of (x,y) pairs in this curve (min(len(x), len(y))).",
+                    "type": [
+                        "integer",
+                        "null"
+                    ]
+                },
+                "projectName": {
+                    "description": "starrydata curator \u304c\u5272\u308a\u5f53\u3066\u308b project tag (Paper / Curve \u4e21\u65b9\u306b\u4ed8\u304f\u3053\u3068\u304c\u3042\u308b)",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": [
+                        "array",
+                        "null"
+                    ]
+                },
+                "propertyX": {
+                    "description": "Phase 1 stores the raw label (e.g. \"Temperature\"). Phase 2 will\nnormalize to a qudt:QuantityKind IRI.\n",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "propertyY": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "rawFigureId": {
+                    "type": "string"
+                },
+                "unitXString": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "unitYString": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "wasGeneratedBy": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "xMax": {
+                    "type": [
+                        "number",
+                        "null"
+                    ]
+                },
+                "xMin": {
+                    "type": [
+                        "number",
+                        "null"
+                    ]
+                },
+                "xValuesJSON": {
+                    "description": "Raw JSON-encoded array of x measurements (\u65b9\u91dd C). Pre-computed\naggregates xMin/xMax/pointCount are emitted as sibling slots.\n",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "yMax": {
+                    "type": [
+                        "number",
+                        "null"
+                    ]
+                },
+                "yMin": {
+                    "type": [
+                        "number",
+                        "null"
+                    ]
+                },
+                "yValuesJSON": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                }
+            },
+            "required": [
+                "curveCompositeKey",
+                "rawFigureId"
+            ],
+            "title": "Curve",
+            "type": "object"
+        },
+        "Descriptor": {
+            "additionalProperties": false,
+            "description": "Structured metadata extracted from the sample_info JSON column\n(MaterialFamily, Form, FabricationProcess, etc.). Entries with empty\ncategory/comment/extracted are dropped at ingest time.",
+            "properties": {
+                "descriptorCategory": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "descriptorComment": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "descriptorCompositeKey": {
+                    "description": "{SID}-{sample_id}/{idx} \u306e\u8907\u5408\u30ad\u30fc",
+                    "type": "string"
+                },
+                "descriptorExtracted": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "descriptorName": {
+                    "description": "e.g. MaterialFamily, Form, FabricationProcess, ThermalMeasurement.",
+                    "type": "string"
+                }
+            },
+            "required": [
+                "descriptorCompositeKey",
+                "descriptorName"
+            ],
+            "title": "Descriptor",
+            "type": "object"
+        },
+        "HasIngestionProvenance": {
+            "additionalProperties": false,
+            "description": "Marker mixin: any Paper/Sample/Curve gets prov:wasGeneratedBy pointing\nat the IngestionActivity that emitted it. Concrete classes inherit the\n`wasGeneratedBy` slot.",
+            "properties": {
+                "wasGeneratedBy": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                }
+            },
+            "title": "HasIngestionProvenance",
+            "type": "object"
+        },
+        "IngestionActivity": {
+            "additionalProperties": false,
+            "description": "A single run of the csv2rdf-mcp ingester. Each Paper/Sample/Curve\ngenerated in the run carries prov:wasGeneratedBy \u2192 IngestionActivity for\nprovenance traceability.",
+            "properties": {
+                "atTime": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "endedAtTime": {
+                    "format": "date-time",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "runId": {
+                    "description": "Run identifier (e.g. \"run-20260528T064500Z\")",
+                    "type": "string"
+                },
+                "used": {
+                    "description": "\u5165\u529b CSV \u30d5\u30a1\u30a4\u30eb\u306e IRI (`sdr:source/<basename>`)",
+                    "format": "uri",
+                    "type": "string"
+                },
+                "wasAssociatedWith": {
+                    "description": "csv2rdf-mcp \u306e GitHub URL (software agent IRI)",
+                    "format": "uri",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                }
+            },
+            "required": [
+                "runId",
+                "atTime",
+                "used"
+            ],
+            "title": "IngestionActivity",
+            "type": "object"
+        },
+        "Paper": {
+            "additionalProperties": false,
+            "description": "A scholarly article that contains digitized measurement data. Each row\nin starrydata_papers.csv becomes one sd:Paper instance.",
+            "properties": {
+                "SID": {
+                    "description": "starrydata \u306e Paper-level identifier\u3002globally unique \u3068\u4eee\u5b9a (\u691c\u8a3c\u6e08)",
+                    "type": "string"
+                },
+                "author": {
+                    "description": "\u8ad6\u6587\u8457\u8005 (\u9806\u5e8f\u4fdd\u6301; ABox \u3067\u306f index \u3067\u30e6\u30cb\u30fc\u30af\u5316)",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": [
+                        "array",
+                        "null"
+                    ]
+                },
+                "createdAt": {
+                    "description": "Curator \u5074\u306e record timestamp (free-form \u6587\u5b57\u5217)\u3002ingestion \u6642\u523b\u3067\u306f\u306a\u3044\n\u3053\u3068\u306b\u6ce8\u610f \u2014 ingestion \u6642\u523b\u306f prov:wasGeneratedBy/prov:atTime \u7d4c\u7531\u3067\u53d6\u308c\u308b\u3002\n",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "datePublished": {
+                    "description": "\u8ad6\u6587\u306e\u51fa\u7248\u65e5 (xsd:date)\u3002issued JSON \u5217\u3092 parse \u3057\u3066 1 \u6708 1 \u65e5\u88dc\u5b8c\u3067 normalize\u3002\n",
+                    "format": "date",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "doi": {
+                    "description": "DOI literal (raw \u6587\u5b57\u5217\u3001IRI \u5316\u306f\u305b\u305a)",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "isPartOf": {
+                    "description": "\u8ad6\u6587\u304c\u5c5e\u3059\u308b Periodical (Journal)",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "issue": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "pages": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "projectName": {
+                    "description": "starrydata curator \u304c\u5272\u308a\u5f53\u3066\u308b project tag (Paper / Curve \u4e21\u65b9\u306b\u4ed8\u304f\u3053\u3068\u304c\u3042\u308b)",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": [
+                        "array",
+                        "null"
+                    ]
+                },
+                "publisher": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "title": {
+                    "description": "\u8ad6\u6587\u30bf\u30a4\u30c8\u30eb",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "url": {
+                    "description": "\u8ad6\u6587\u306e\u30ea\u30f3\u30af URL",
+                    "format": "uri",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "volume": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "wasGeneratedBy": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                }
+            },
+            "required": [
+                "SID"
+            ],
+            "title": "Paper",
+            "type": "object"
+        },
+        "Periodical": {
+            "additionalProperties": false,
+            "description": "A journal / book series the paper appears in.",
+            "properties": {
+                "alternateName": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "periodicalName": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "periodicalSlug": {
+                    "description": "lowercased / alphanumeric slug derived from container_title",
+                    "type": "string"
+                }
+            },
+            "required": [
+                "periodicalSlug"
+            ],
+            "title": "Periodical",
+            "type": "object"
+        },
+        "Person": {
+            "additionalProperties": false,
+            "description": "An author or other PROV-O agent linked to a paper.",
+            "properties": {
+                "familyName": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "givenName": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "personCompositeKey": {
+                    "description": "{SID}/{author_index} \u306e\u8907\u5408\u30ad\u30fc",
+                    "type": "string"
+                }
+            },
+            "required": [
+                "personCompositeKey"
+            ],
+            "title": "Person",
+            "type": "object"
+        },
+        "Sample": {
+            "additionalProperties": false,
+            "description": "A physical specimen prepared and measured in a paper. Carries a\ncomposition string and zero or more structured Descriptors.",
+            "properties": {
+                "compositionDetails": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "compositionString": {
+                    "description": "starrydata_samples.csv composition \u5217\u306e raw \u6587\u5b57\u5217 (e.g. \"Bi2Te3\")",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "createdAt": {
+                    "description": "Curator \u5074\u306e record timestamp (free-form \u6587\u5b57\u5217)\u3002ingestion \u6642\u523b\u3067\u306f\u306a\u3044\n\u3053\u3068\u306b\u6ce8\u610f \u2014 ingestion \u6642\u523b\u306f prov:wasGeneratedBy/prov:atTime \u7d4c\u7531\u3067\u53d6\u308c\u308b\u3002\n",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "fromPaper": {
+                    "description": "Sample \u304c\u5831\u544a\u3055\u308c\u305f Paper",
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "hasDescriptor": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": [
+                        "array",
+                        "null"
+                    ]
+                },
+                "modifiedAt": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "rawSampleId": {
+                    "description": "starrydata \u306e\u5143 sample_id (paper \u3092\u8de8\u3050\u3068 collide \u3059\u308b\u306e\u3067 lookup \u4e0d\u53ef)",
+                    "type": "string"
+                },
+                "sampleCompositeKey": {
+                    "description": "\u2605 Phase 1 \u3067\u89b3\u6e2c\u3057\u305f collision \u5bfe\u7b56: starrydata \u306e sample_id \u306f paper \u3092\n\u8de8\u3050\u3068\u91cd\u8907\u3059\u308b\u305f\u3081\u3001{SID}-{sample_id} \u306e\u8907\u5408\u30ad\u30fc\u3092 id \u306b\u3059\u308b\u3002\u5143\u306e\nsample_id \u306f `rawSampleId` \u3067\u6b8b\u3059\u3002\n",
+                    "type": "string"
+                },
+                "sampleName": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "wasGeneratedBy": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                }
+            },
+            "required": [
+                "sampleCompositeKey",
+                "rawSampleId"
+            ],
+            "title": "Sample",
+            "type": "object"
+        }
+    },
+    "$id": "https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology",
+    "$schema": "https://json-schema.org/draft/2019-09/schema",
+    "additionalProperties": true,
+    "metamodel_version": "1.11.0",
+    "title": "starrydata",
+    "type": "object",
+    "version": "0.1.0"
+}
+
