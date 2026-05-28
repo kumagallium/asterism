@@ -1,0 +1,133 @@
+schema_info:
+  title: Starrydata (Thermoelectric/Battery/Magnetic Materials, smoke-test subset)
+  description: |
+    Starrydata is a curated collection of measurement curves digitized from
+    materials science publications. This smoke-test subset contains 100 papers
+    only.
+
+    Entities: sd:Paper (academic articles), schema:Person (authors),
+    schema:Periodical (journals). Future phases will add sd:Sample and sd:Curve.
+  endpoint: http://localhost:7878/query
+  base_uri: http://localhost/csv2rdf/starrydata/ontology#
+  graphs:
+    - default
+  kw_search_tools: ["sparql"]
+  version:
+    mie_version: "1.1"
+    mie_created: "2026-05-28"
+    data_version: "smoke-test (100 papers)"
+    update_frequency: "manual"
+  license:
+    data_license: "Phase 0.5b smoke test only — not for distribution"
+    license_url: "https://example.invalid/smoke-test"
+  access:
+    rate_limiting: "none (self-hosted)"
+    max_query_timeout: "60 seconds"
+    backend: "Oxigraph"
+
+shape_expressions: |
+  PREFIX sd: <http://localhost/csv2rdf/starrydata/ontology#>
+  PREFIX schema: <https://schema.org/>
+  PREFIX dcterms: <http://purl.org/dc/terms/>
+  PREFIX bibo: <http://purl.org/ontology/bibo/>
+
+  <PaperShape> {
+    a [ sd:Paper ] ;
+    dcterms:identifier xsd:string ;
+    schema:identifier xsd:string ? ;
+    schema:url IRI ? ;
+    schema:name xsd:string ? ;
+    schema:datePublished xsd:date ? ;
+    schema:author @<PersonShape> * ;
+    schema:isPartOf @<PeriodicalShape> ? ;
+    bibo:volume xsd:string ? ;
+    bibo:issue xsd:string ? ;
+    bibo:pages xsd:string ?
+  }
+
+  <PersonShape> {
+    a [ schema:Person ] ;
+    schema:givenName xsd:string ? ;
+    schema:familyName xsd:string ?
+  }
+
+  <PeriodicalShape> {
+    a [ schema:Periodical ] ;
+    schema:name xsd:string
+  }
+
+sample_rdf_entries:
+  - title: "Paper SID-1 (Snyder 2014 thermoelectric review)"
+    description: "A canonical example with 5 authors and a journal periodical."
+    rdf: |
+      @prefix sd: <http://localhost/csv2rdf/starrydata/ontology#> .
+      @prefix sdr: <http://localhost/csv2rdf/starrydata/resource/> .
+      @prefix schema: <https://schema.org/> .
+      @prefix dcterms: <http://purl.org/dc/terms/> .
+
+      sdr:paper/1 a sd:Paper, schema:ScholarlyArticle ;
+        dcterms:identifier "1" ;
+        schema:identifier "10.1021/ar400290f" ;
+        schema:name "Decoupling Interrelated Parameters for Designing High Performance Thermoelectric Materials" ;
+        schema:datePublished "2014-04-15"^^<http://www.w3.org/2001/XMLSchema#date> ;
+        schema:author sdr:person/1/0, sdr:person/1/1 .
+
+      sdr:person/1/0 a schema:Person ; schema:givenName "Chong" ; schema:familyName "Xiao" .
+
+sparql_query_examples:
+  - title: "Count all papers"
+    description: "Smoke-test: should return 100."
+    query: |
+      PREFIX sd: <http://localhost/csv2rdf/starrydata/ontology#>
+      SELECT (COUNT(?p) AS ?n) WHERE { ?p a sd:Paper }
+
+  - title: "Papers with title and DOI"
+    description: "Returns IRIs with their title and DOI."
+    query: |
+      PREFIX sd: <http://localhost/csv2rdf/starrydata/ontology#>
+      PREFIX schema: <https://schema.org/>
+      SELECT ?paper ?title ?doi WHERE {
+        ?paper a sd:Paper ;
+               schema:name ?title ;
+               schema:identifier ?doi
+      }
+      LIMIT 5
+
+  - title: "Find papers by author family name"
+    description: "Reverse lookup from a Person to their Paper."
+    query: |
+      PREFIX sd: <http://localhost/csv2rdf/starrydata/ontology#>
+      PREFIX schema: <https://schema.org/>
+      SELECT ?paper ?title WHERE {
+        ?paper schema:author/schema:familyName "Snyder" ;
+               schema:name ?title
+      }
+      LIMIT 20
+
+cross_references:
+  - source_property: "schema:identifier"
+    target_db: "DOI"
+    description: "DOI for the paper, resolvable at https://doi.org/<DOI>"
+
+architectural_notes: |
+  - This MIE describes a Phase 1 smoke-test subset (100 papers only).
+  - Full Phase 1 will add sd:Sample (from samples.csv) and sd:Curve (from curves.csv).
+  - All IRIs use http://localhost/csv2rdf/starrydata/ as a Phase 1 placeholder host;
+    Phase 2 will move to GitHub Pages, Phase 3 to w3id.org/csv2rdf (design-plan §4.0).
+  - PROV-O integration (sd:IngestionActivity, sd:DigitizationActivity) will be added
+    in Phase 1 proper. The smoke test omits PROV for brevity.
+
+data_statistics:
+  papers: 100
+  samples: 0
+  curves: 0
+  triples: 3715
+
+anti_patterns: |
+  - Do not assume Sample or Curve exist in this subset — those tables are not yet ingested.
+  - Do not use blank nodes in additional ingest scripts; use IRI naming
+    (sdr:periodical/{slug}) so re-ingest is idempotent under Oxigraph set semantics.
+
+common_errors: |
+  - If you query with `GRAPH <...>` clauses, note that this subset uses the default
+    graph only (graphs: [default]). Named graphs are reserved for Phase 1 proper.
