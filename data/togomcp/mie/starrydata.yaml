@@ -26,6 +26,56 @@ schema_info:
   graphs:
     - default
   kw_search_tools: ["sparql"]
+  # NOTE: togomcp の rdf_portal.py (line 340 / 377) は schema_info.categories と
+  # keywords を find_databases / list_categories の対象として読む。AI が
+  # 「Seebeck」「Bi2Te3」「thermoelectric」「熱電」のいずれで聞いても starrydata
+  # にヒットするよう、ここに synonym を多めに登録する。
+  categories:
+    - materials
+    - materials-science
+    - physics
+    - thermoelectric
+    - battery
+    - magnetic
+    - measurement-curves
+    - provenance
+  keywords:
+    # English
+    - starrydata
+    - thermoelectric
+    - Seebeck
+    - Seebeck coefficient
+    - thermopower
+    - electrical conductivity
+    - thermal conductivity
+    - resistivity
+    - ZT
+    - figure of merit
+    - power factor
+    - battery
+    - magnetic
+    - magnetization
+    - susceptibility
+    - measurement curve
+    - digitized curve
+    - composition
+    - Bi2Te3
+    - PbTe
+    - SnSe
+    - Sb2Te3
+    - half-Heusler
+    - skutterudite
+    - clathrate
+    # 日本語 (AI が日本語クエリで検索するケース対応)
+    - 熱電
+    - 熱電材料
+    - ゼーベック係数
+    - 熱起電力
+    - 電池
+    - 磁性
+    - 物性値
+    - 測定カーブ
+    - 数値化曲線
   version:
     mie_version: "1.1"
     mie_created: "2026-05-28"
