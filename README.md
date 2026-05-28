@@ -15,6 +15,7 @@ See:
 - [`docs/internal/handoff-phase05.md`](docs/internal/handoff-phase05.md) — Phase 0.5 brief
 - [`docs/internal/phase05-decisions.md`](docs/internal/phase05-decisions.md) — adoption decisions (initial + §7 supplementary)
 - [`docs/internal/option-b-architecture.md`](docs/internal/option-b-architecture.md) — recommended Phase 1 architecture (Oxigraph + togomcp hybrid), role split with the DBCLS team
+- [`docs/internal/crucible-registration.md`](docs/internal/crucible-registration.md) — registering csv2rdf-mcp on Crucible (Oxigraph runs separately on `mcp-net`)
 - [`experiments/phase05/`](experiments/phase05) — spike code and logs for togopackage / Oxigraph / Morph-KGC
 - [`experiments/phase05b/`](experiments/phase05b) — supplementary spike (togopackage Virtuoso backend)
 
