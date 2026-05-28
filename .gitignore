@@ -66,8 +66,9 @@ experiments/phase05/data/papers_100.ttl
 experiments/phase05/togopackage/data/sources/papers_100.ttl
 experiments/phase05/togopackage/data/sources/papers_100_b.ttl
 
-# Phase 1 smoke test artefacts (keep test_smoke.py and togomcp-data/, ignore venv)
+# Phase 1 smoke test artefacts (keep scripts and togomcp-data/, ignore venv + subset)
 experiments/phase1-smoke-test/.venv/
+experiments/phase1-smoke-test/subset/
 
 # Phase 0.5b runtime artefacts
 experiments/phase05b/togopackage-virtuoso/data/virtuoso/
