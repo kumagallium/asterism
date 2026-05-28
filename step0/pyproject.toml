@@ -1,0 +1,43 @@
+[project]
+name = "csv2rdf-step0"
+version = "0.1.0"
+description = "AI-assisted Step 0 builder (CSV inspection + schema proposal) for csv2rdf-mcp Phase 3"
+requires-python = ">=3.11"
+readme = "../README.md"
+license = { text = "Apache-2.0" }
+dependencies = [
+    # No hard runtime deps; pandas is optional for users who want the
+    # faster groupby path. We default to stdlib `csv` + `collections.Counter`
+    # so the package stays installable without a heavy science stack.
+]
+
+[project.optional-dependencies]
+pandas = [
+    "pandas>=2.0",
+]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+    "mypy>=1.10",
+]
+
+[project.scripts]
+csv2rdf-inspect = "csv2rdf_step0.inspect:_main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/csv2rdf_step0"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.mypy]
+strict = true
+python_version = "3.11"
