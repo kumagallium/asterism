@@ -348,7 +348,45 @@ B (Oxigraph + togomcp) ──失敗 →   A (Oxigraph + 自作 MCP)
 
 ---
 
-## 9. 用語
+## 9. 自前で進める範囲 vs dbcls 待ちにする範囲
+
+開発エフォート分散は望ましいが、**dbcls 側の作業を待って開発がブロックされない
+こと**を優先する。以下の決定基準で運用する (2026-05-28 ユーザ確認):
+
+| 項目 | 方針 | 補足 |
+|---|---|---|
+| **togomcp の Docker image** | **自前 build** ([`infra/togomcp/Dockerfile`](../../infra/togomcp/Dockerfile)) | 公式 image が未公開。commit SHA を Dockerfile の `ARG TOGOMCP_REF` で pin して manual upgrade。公式 image が出たら `compose.yaml` の `build:` を `image:` に切り替えるだけ |
+| **togomcp 本体のバグ修正** | **必要時に fork → PR は async** | SHA pin で逃げられるので、Phase 1+ の即時 unblock を優先 |
+| **MIE Spec の進化** | **async、待たない** | v1.1 を使い続ければ機能停止しない。新セクションが必要になったときに dbcls 側で議論 |
+| **starrydata MIE を `dbcls/togomcp/mie/` に upstream PR** | **async、ユーザが async で実施** | 我々の repo 内 (`data/togomcp/mie/starrydata.yaml`) で動くので待ちにならない |
+| **連絡・打診** | **ユーザが async で実施** | チーム関係性はユーザ主導 |
+| **`dbcls/togopackage` LICENSE** | **無視** | togopackage 自体を採用していないため影響なし |
+| **rdf-config の改善** | **必要時に CLI として呼ぶだけ** | リポジトリには取り込まないので待ちにならない |
+
+### togomcp container の起動順序問題への対処
+
+Oxigraph image は scratch-like で `wget` / `curl` / `sh` を含まないため、
+compose の healthcheck で SPARQL endpoint の生死を判定できない。代わりに
+**togomcp container 側の ENTRYPOINT** ([`infra/togomcp/entrypoint.sh`](../../infra/togomcp/entrypoint.sh))
+で `oxigraph:7878` の TCP がオープンになるまで Python `socket.create_connection`
+で polling する。これで `depends_on` (start 順) のみ指定で済む。
+
+### `TOGOMCP_DIR` overlay 戦略
+
+`server.py` の `TOGOMCP_DIR` を完全に上書きすると、package 同梱の `docs/` や
+`resources/MIE_prompt.md` などのデフォルトファイルが読めなくなり、togomcp が
+500 を返す経路ができる。entrypoint で次の overlay を作って回避:
+
+1. `/data/togo_mcp/data/` (package デフォルト) を `${HOME}/togomcp-overlay/` に copy
+2. compose で bind mount された `/data/togomcp/` (我々の差分) を上に merge
+3. `endpoints.csv` だけは特例で「package 版 + 我々の追加行」を append で結合
+4. `TOGOMCP_DIR=${HOME}/togomcp-overlay` を export して togomcp 本体を exec
+
+これにより **csv2rdf-mcp の repo には差分の最小ファイルだけ** (本 PR では
+`data/togomcp/mie/starrydata.yaml` と `data/togomcp/resources/endpoints.csv`
+の 2 つ) を持てば動く。
+
+## 用語
 
 - **MIE (Metadata Interoperability Exchange)**: dbcls/togomcp の独自規格。「AI にデータベースの取り扱いを教える YAML」 ([spec](https://github.com/dbcls/togomcp/blob/main/docs/MIE_file_specs.md))
 - **ShEx (Shape Expressions)**: RDF データの構造制約を書く W3C 標準 ([spec](https://shex.io/))
