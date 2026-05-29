@@ -135,6 +135,60 @@ def test_t1_skipped_without_inputs() -> None:
     assert res.status == "skip"
 
 
+def test_t1_ignores_negative_iri_in_anti_patterns(tmp_path: Path) -> None:
+    """★ dogfood Finding 3: an IRI template documented in anti_patterns as a
+    BAD example must NOT trigger a T1 failure. Here the schema correctly uses
+    the composite (SID, sample_id) in shape_expressions, and anti_patterns
+    explicitly warns against the single-key form."""
+    csv = _write(
+        tmp_path / "samples.csv",
+        """
+        SID,sample_id
+        1,10
+        2,10
+        """,
+    )
+    mie = _write(
+        tmp_path / "mie.yaml",
+        """
+        shape_expressions: |
+          sdr:sample/{SID}-{sample_id}
+        anti_patterns: |
+          Do NOT mint sample IRIs as sdr:sample/{sample_id}. sample_id is
+          paper-scoped and collides across SIDs; use the composite key.
+        """,
+    )
+    res = _check_t1_uniqueness(
+        SchemaBundle(mie_yaml=mie, source_csvs=[csv], fk_hint_columns=["SID"])
+    )
+    # (SID, sample_id) is unique → pass. The single-key anti-pattern example
+    # must be excluded from the scan.
+    assert res.status == "pass", res.detail
+    # And the bad single-key tuple must not appear among the tested keys.
+    assert all("sample_id" not in r or "SID" in r for r in res.evidence)
+
+
+def test_t1_still_fails_on_real_single_key_declaration(tmp_path: Path) -> None:
+    """Regression guard: excluding anti_patterns must NOT mask a genuinely
+    bad single-key IRI declared in shape_expressions."""
+    csv = _write(
+        tmp_path / "samples.csv",
+        """
+        SID,sample_id
+        1,10
+        2,10
+        """,
+    )
+    mie = _write(
+        tmp_path / "mie.yaml",
+        "shape_expressions: |\n  sdr:sample/{sample_id}\n",  # genuinely wrong
+    )
+    res = _check_t1_uniqueness(
+        SchemaBundle(mie_yaml=mie, source_csvs=[csv], fk_hint_columns=["SID"])
+    )
+    assert res.status == "fail"
+
+
 # ----------------------------------------------------------------------------
 # T2: BOM handling
 # ----------------------------------------------------------------------------

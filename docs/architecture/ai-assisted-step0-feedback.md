@@ -58,6 +58,37 @@ proposal が **§7 MIE の sparql_query_examples 途中 (q5) で切れた**。`A
 
 ---
 
+## Round 2 — streaming 修正 + hint 注入後 (2026-05-29)
+
+Round 1 の Finding 1/2 への対策を入れて再 propose:
+- Finding 2 修正: `AnthropicLLMClient` を streaming 化 + max_tokens 32000
+- Finding 1 対策: domain hint に「sample_id / figure_id は paper を跨いで重複するので IRI は {SID} を含む複合キーにすること」を一行注入
+
+### 結果: 両対策が効いた
+
+- **Finding 2 解消**: proposal が §8 ingester まで完走 (664 行)。truncation なし。ingester は `utf-8-sig` 4 箇所 + 複合 IRI builder (`sample/{sid}-{sample_id}`, `curve/{sid}-{sample_id}-{figure_id}`) を持つ
+- **Finding 1 解消**: §2 IRI scheme で **Sample = `sdr:sample/{SID}-{sample_id}` (複合)**、Curve = 3-way 複合を選択。§5.1 に「`(sample_id)` は subset では unique だが **domain rule では paper を跨いで collide する** ので複合が安全な最小キー」と明記 → hint 注入で subset の誤信号を正しく上書きできた
+- materialize で 4 artifacts 全部出力 (ingester も)
+
+### ★ Finding 3 (validate の false positive、修正済): anti_patterns の負例 IRI を T1 が誤検知
+
+materialize した v2 MIE を全件 CSV で validate したら **T1 ✗ fail (`sdr:sample/{sample_id}` → 13,225 collisions)**。だが調べると、その `sdr:sample/{sample_id}` は MIE の **`anti_patterns` の中**の文だった:
+
+> Do NOT mint sample IRIs as `sdr:sample/{sample_id}`. In the full database sample_id is paper-scoped and collides across SIDs...
+
+つまり **proposal v2 は完全に正しい** (ingester・sample_rdf_entries・§2 全て複合キー、anti_patterns で単独キーを明示的に禁止)。validate の `_extract_composite_keys` が `anti_patterns` の「使うな」例から IRI template を抽出して collision 判定した **false positive**。
+
+**修正** (この PR): `_check_t1_uniqueness` は MIE を YAML parse して `anti_patterns` / `common_errors` セクションを除外してから IRI template を scan する。負例が T1 を誤って fail させなくなった (regression guard: shape_expressions に本当に単独キーを書いたら依然 fail する test 付き)。
+
+→ 修正後 v2 の validate: T1 ⚠ warn ("no composite templates in MIE") / T2-T5 pass / T6-T7 warn / T8 skip → **exit 0** (誤 fail が消えた)。
+
+### 残った heuristic 限界 (既知、未修正)
+
+- **T6 warn**: v2 の sample_rdf_entries は `- subject: sdr:sample/1-6027` 形式 (triple list) で、T6 が期待する `rdf: |` ブロック形式と違うため "no sdr IRIs" と warn。MIE entry の format 揺れに T6 を強くする余地あり
+- **T7 warn**: 設計根拠は proposal §5 に厚くあるが、materialized MIE の architectural_notes には literal "Why/Alt/Trade-offs" が無く warn。YAML-structured rationale parsing で改善可
+
+---
+
 ## 次の Round で試すこと
 
 1. **streaming 修正後に再 propose** — §8 ingester まで完走するか確認

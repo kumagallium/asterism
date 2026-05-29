@@ -132,6 +132,37 @@ def _extract_composite_keys(mie_text: str) -> list[tuple[str, ...]]:
     return list(seen)
 
 
+# Sections that document what NOT to do. IRI templates appearing here are
+# negative examples ("do not mint sdr:sample/{sample_id}"), so scanning them
+# for T1 produces false positives — exclude them.
+_NEGATIVE_SECTIONS = ("anti_patterns", "common_errors")
+
+
+def _mie_text_for_iri_scan(mie_path: Path) -> str:
+    """Return the MIE text with negative-example sections stripped.
+
+    A well-written MIE documents the *bad* single-key IRI in ``anti_patterns``
+    (e.g. "do NOT mint sdr:sample/{sample_id}"). Naively regexing the whole
+    file would extract that negative example and flag T1 — a false positive.
+    We drop ``anti_patterns`` / ``common_errors`` before scanning.
+
+    Falls back to the raw text if the YAML does not parse as a mapping.
+    """
+    raw = mie_path.read_text(encoding="utf-8")
+    try:
+        import yaml  # lazy
+
+        data = yaml.safe_load(raw)
+    except Exception:
+        return raw
+    if not isinstance(data, dict):
+        return raw
+    filtered = {k: v for k, v in data.items() if k not in _NEGATIVE_SECTIONS}
+    import yaml
+
+    return yaml.safe_dump(filtered, allow_unicode=True, sort_keys=False)
+
+
 def _check_t1_uniqueness(bundle: SchemaBundle) -> TrapResult:
     if not bundle.mie_yaml or not bundle.source_csvs:
         return TrapResult(
@@ -140,7 +171,9 @@ def _check_t1_uniqueness(bundle: SchemaBundle) -> TrapResult:
             "skip",
             "Need both mie_yaml and source_csvs to run.",
         )
-    mie_text = bundle.mie_yaml.read_text(encoding="utf-8")
+    # Scan everything EXCEPT anti_patterns / common_errors — those document
+    # negative examples and would cause false positives (see dogfood Finding 3).
+    mie_text = _mie_text_for_iri_scan(bundle.mie_yaml)
     keys = _extract_composite_keys(mie_text)
     if not keys:
         return TrapResult(
