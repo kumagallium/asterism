@@ -37,6 +37,12 @@ DEFAULT_ONTOLOGY = "https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontolog
 DEFAULT_RESOURCE = "https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/"
 SOFTWARE_AGENT_IRI = "https://github.com/kumagallium/csv2rdf-mcp"
 
+# Phase 2 #6: starrydata curves are digitized from published figures with
+# WebPlotDigitizer. We model that origin as a PROV SoftwareAgent so the
+# scientific provenance ("this curve was traced off a figure, not measured
+# in-house") is queryable. The homepage doubles as a stable identifier.
+WEBPLOTDIGITIZER_IRI = "https://automeris.io/WebPlotDigitizer"
+
 SCHEMA = Namespace("https://schema.org/")
 BIBO = Namespace("http://purl.org/ontology/bibo/")
 
@@ -110,6 +116,40 @@ def parse_issued(raw: str) -> str | None:
         return date(y, m or 1, d or 1).isoformat()
     except ValueError:
         return None
+
+
+# starrydata's created_at / updated_at are JavaScript Date.toString() output,
+# e.g. "Fri Sep 01 2017 18:19:39 GMT+0900 (Japan Standard Time)" — curated in
+# Japan, so the offset is usually +0900. We keep the raw local-time string on
+# dcterms:created for fidelity, but normalize prov:atTime to a **UTC** instant
+# so it is unambiguous and sorts correctly for any reader worldwide (a
+# timezone-offset xsd:dateTime is technically unambiguous too, but UTC removes
+# any "what is +0900?" doubt and avoids mixed offsets across rows).
+_TZ_NAME_SUFFIX = re.compile(r"\s*\([^)]*\)\s*$")  # " (Japan Standard Time)"
+
+
+def parse_curator_timestamp(raw: str) -> str | None:
+    """Parse a JS Date.toString() timestamp to a UTC ISO 8601 instant.
+
+    Returns e.g. ``"2017-09-01T09:19:39Z"`` for a ``GMT+0900`` input. Returns
+    ``None`` if the string can't be parsed OR carries no timezone — in the
+    latter case the instant is genuinely unknown, so we emit no prov:atTime
+    rather than fabricate one (the raw local string still lives on
+    dcterms:created).
+    """
+    if not raw:
+        return None
+    s = _TZ_NAME_SUFFIX.sub("", raw.strip())  # drop trailing "(...)" tz name
+    s = s.replace("GMT", "").strip()          # "GMT+0900" -> "+0900" for %z
+    try:
+        dt = datetime.strptime(s, "%a %b %d %Y %H:%M:%S %z")
+    except ValueError:
+        return None
+    # Normalize to a UTC instant. isoformat() yields the "+00:00" offset form;
+    # rdflib canonicalizes xsd:dateTime to that same form anyway (it rewrites a
+    # trailing "Z" to "+00:00"), so we emit "+00:00" directly for consistency
+    # between this helper and what actually lands in the graph / Oxigraph.
+    return dt.astimezone(UTC).isoformat()
 
 
 def parse_authors(raw: str) -> list[dict[str, str]]:
@@ -449,10 +489,31 @@ def _emit_curve(
     for project in parse_project_names(row.get("project_names", "")):
         g.add((curve, sd.projectName, Literal(project)))
 
-    if created := strip_quoted(row.get("created_at", "")):
+    created = strip_quoted(row.get("created_at", ""))
+    if created:
         g.add((curve, DCTERMS.created, Literal(created)))
     if updated := strip_quoted(row.get("updated_at", "")):
         g.add((curve, DCTERMS.modified, Literal(updated)))
+
+    # Phase 2 #6: scientific provenance. Each curve was digitized off a
+    # published figure with WebPlotDigitizer; model that as a distinct
+    # DigitizationActivity (separate from our IngestionActivity, which only
+    # records that *our pipeline* loaded the CSV). A curve is thus
+    # prov:wasGeneratedBy two activities — the original digitization and our
+    # ingestion — which is valid PROV-O.
+    digitization = sdr[f"digitization/{curve_key}"]
+    g.add((curve, PROV.wasGeneratedBy, digitization))
+    g.add((digitization, RDF.type, sd.DigitizationActivity))
+    g.add((digitization, RDF.type, PROV.Activity))
+    g.add((digitization, PROV.wasAssociatedWith, URIRef(WEBPLOTDIGITIZER_IRI)))
+    if created and (at_time := parse_curator_timestamp(created)):
+        g.add((digitization, PROV.atTime, Literal(at_time, datatype=XSD.dateTime)))
+    # The WebPlotDigitizer agent description is shared across all curves; the
+    # triples are IRI-keyed so Oxigraph set-semantics dedupes them on re-ingest.
+    agent = URIRef(WEBPLOTDIGITIZER_IRI)
+    g.add((agent, RDF.type, PROV.SoftwareAgent))
+    g.add((agent, SCHEMA.name, Literal("WebPlotDigitizer")))
+    g.add((agent, SCHEMA.url, URIRef(WEBPLOTDIGITIZER_IRI)))
 
     return True
 
