@@ -9,6 +9,7 @@ dependencies = [
     "rdflib>=7.0",
     "httpx>=0.27",
     "watchfiles>=0.22",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
@@ -31,6 +32,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/csv2rdf"]
+# Ship the curated QUDT map alongside the Python sources so importlib.resources
+# can read it at runtime (incl. inside the docker images).
+artifacts = ["src/csv2rdf/qudt_map.yaml"]
 
 [tool.ruff]
 target-version = "py311"

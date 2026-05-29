@@ -155,10 +155,14 @@ shape_expressions: |
     sd:rawFigureId xsd:string ;                # starrydata 内部の元 figure_id
     sd:figureName xsd:string ? ;
     sd:ofSample @<SampleShape> ? ;
-    sd:propertyX xsd:string ? ;
-    sd:propertyY xsd:string ? ;
-    sd:unitXString xsd:string ? ;               # Phase 1 では raw 文字列 / Phase 2 で QUDT
-    sd:unitYString xsd:string ? ;
+    sd:propertyX xsd:string ? ;                 # 人間可読ラベル (例 "Temperature")
+    sd:propertyY xsd:string ? ;                 # 人間可読ラベル (例 "Seebeck coefficient")
+    sd:propertyXQuantity IRI ? ;                # Phase 2: QUDT QuantityKind IRI (マップ時のみ)
+    sd:propertyYQuantity IRI ? ;                # 例 qudt:SeebeckCoefficient — "thermopower" も同一 IRI
+    sd:unitXString xsd:string ? ;               # raw 単位文字列 (例 "K")
+    sd:unitYString xsd:string ? ;               # raw 単位文字列 (例 "V*K^(-1)")
+    sd:unitX IRI ? ;                            # Phase 2: QUDT Unit IRI (マップ時のみ)
+    sd:unitY IRI ? ;                            # 例 qudt:V-PER-K
     sd:xValuesJSON xsd:string ? ;               # raw JSON array
     sd:yValuesJSON xsd:string ? ;
     sd:xMin xsd:double ? ;
@@ -218,7 +222,11 @@ sample_rdf_entries:
           sd:figureName "6(b)" ;
           sd:ofSample sdr:sample/6-113 ;
           sd:propertyX "Temperature" ; sd:propertyY "Seebeck coefficient" ;
+          sd:propertyXQuantity <http://qudt.org/vocab/quantitykind/Temperature> ;
+          sd:propertyYQuantity <http://qudt.org/vocab/quantitykind/SeebeckCoefficient> ;
           sd:unitXString "K" ; sd:unitYString "V*K^(-1)" ;
+          sd:unitX <http://qudt.org/vocab/unit/K> ;
+          sd:unitY <http://qudt.org/vocab/unit/V-PER-K> ;
           sd:xValuesJSON "[299.86,324.87,...,650.02]" ;
           sd:yValuesJSON "[-0.000148,...,-0.000286]" ;
           sd:xMin 299.86 ; sd:xMax 650.02 ;
@@ -281,6 +289,40 @@ sparql_query_examples:
       }
       ORDER BY DESC(ABS(?yMax)) LIMIT 10
 
+  - title: "Seebeck curves across naming variants (QUDT normalization)"
+    description: |
+      RECOMMENDED for cross-synonym search. starrydata uses several strings for
+      the same physical quantity — "Seebeck coefficient" (37k) AND "thermopower"
+      (~560). Filtering on sd:propertyY would miss the synonym. Phase 2 attaches
+      a canonical QUDT QuantityKind IRI (sd:propertyYQuantity), so one filter on
+      qudt:SeebeckCoefficient catches every naming variant. Prefer this over a
+      string filter whenever a QUDT IRI exists for the quantity.
+    query: |
+      PREFIX sd:   <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#>
+      PREFIX qk:   <http://qudt.org/vocab/quantitykind/>
+      SELECT ?curve ?labelY ?yMax WHERE {
+        ?curve sd:propertyYQuantity qk:SeebeckCoefficient ;
+               sd:propertyY ?labelY ;
+               sd:yMax ?yMax .
+      }
+      ORDER BY DESC(ABS(?yMax)) LIMIT 20
+
+  - title: "Curves by QUDT unit (e.g. everything measured in V/K)"
+    description: |
+      Unit strings vary too (ohm^(-1)*m^(-1) vs S*m^(-1) are both siemens/metre).
+      Phase 2 normalizes them to a QUDT Unit IRI (sd:unitY), so a single filter
+      on qudt-unit:V-PER-K returns all Seebeck-coefficient curves regardless of
+      how the unit was typed in the source.
+    query: |
+      PREFIX sd:   <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#>
+      PREFIX unit: <http://qudt.org/vocab/unit/>
+      SELECT ?curve ?labelY ?unitStr WHERE {
+        ?curve sd:unitY unit:V-PER-K ;
+               sd:propertyY ?labelY ;
+               sd:unitYString ?unitStr .
+      }
+      LIMIT 20
+
   - title: "Provenance: which ingestion run produced this curve?"
     description: |
       Backtrack from a sd:Curve to the sd:IngestionActivity that generated it,
@@ -302,17 +344,21 @@ cross_references:
     target_db: "DOI (Crossref / DOI Foundation)"
     description: |
       The DOI literal on sd:Paper resolves at https://doi.org/<value>.
-  - source_property: "sd:propertyX / sd:propertyY"
-    target_db: "QUDT (qudt.org) — Phase 2"
+  - source_property: "sd:propertyXQuantity / sd:propertyYQuantity"
+    target_db: "QUDT quantitykind:* (qudt.org)"
     description: |
-      Property labels are currently raw strings ("Temperature", "Seebeck
-      coefficient"). Phase 2 will map them to QUDT quantity-kind IRIs.
-  - source_property: "sd:unitXString / sd:unitYString"
-    target_db: "QUDT unit:* — Phase 2"
+      Phase 2: canonical QUDT QuantityKind IRIs attached additively next to the
+      raw label strings (sd:propertyX / sd:propertyY). Curated mapping covers the
+      common thermoelectric / battery / magnetic quantities; synonyms like
+      "Seebeck coefficient" and "thermopower" share qudt:SeebeckCoefficient.
+      Properties without a clean QUDT counterpart (ZT, Power factor, ...) keep
+      only the string form.
+  - source_property: "sd:unitX / sd:unitY"
+    target_db: "QUDT unit:* (qudt.org)"
     description: |
-      Units are kept as raw strings ("K", "V*K^(-1)"). A unit_map.yaml
-      (design-plan §4 "Unit normalization") will produce qudt:Unit IRIs
-      in Phase 2.
+      Phase 2: canonical QUDT Unit IRIs attached additively next to the raw
+      unit strings (sd:unitXString / sd:unitYString). Equivalent unit spellings
+      (ohm^(-1)*m^(-1) and S*m^(-1)) collapse to one IRI (qudt-unit:S-PER-M).
 
 architectural_notes: |
   - **IRI naming**: No blank nodes anywhere. Periodical, Author, Sample,

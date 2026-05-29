@@ -1,0 +1,64 @@
+# QUDT normalization map for starrydata properties (Phase 2 #2).
+#
+# Maps starrydata's free-text property names and unit strings to canonical
+# QUDT IRIs so AI clients can match synonyms ("Seebeck coefficient" /
+# "thermopower" / "熱起電力") via one stable identifier instead of brittle
+# string comparison.
+#
+# All IRIs below were verified to resolve (HTTP 200) against qudt.org on
+# 2026-05-29. The mapping is intentionally CURATED and partial: only entries
+# with a clean, dimensionally-correct QUDT counterpart are listed. Unmapped
+# properties keep their string form (sd:propertyY / sd:unitYString) and simply
+# get no QUDT IRI — which is fine, the normalization is additive.
+#
+# To extend: add a `string: QUDTLocalName` line. Quantity-kind lookups are
+# case-insensitive (keys here are lowercased); unit lookups are case-sensitive
+# (unit symbols like V vs v, K vs k, S vs s carry meaning) so keep unit keys
+# verbatim as starrydata emits them.
+#
+# Bases:
+#   quantity_kinds -> http://qudt.org/vocab/quantitykind/<value>
+#   units          -> http://qudt.org/vocab/unit/<value>
+
+quantity_kinds:
+  # --- thermoelectric ---
+  "seebeck coefficient": SeebeckCoefficient
+  "thermopower": SeebeckCoefficient            # synonym of Seebeck coefficient
+  "thermal conductivity": ThermalConductivity
+  "lattice thermal conductivity": ThermalConductivity
+  "electronic thermal conductivity": ThermalConductivity
+  "electrical conductivity": ElectricConductivity
+  "electrical resistivity": Resistivity
+  "resistivity": Resistivity                   # bare form; in TE context = electrical resistivity
+  # --- battery / electrical ---
+  "voltage": Voltage
+  # --- transport ---
+  "carrier mobility": Mobility
+  "hall mobility": Mobility
+  # --- magnetic ---
+  "magnetization": Magnetization               # volume magnetization (A/m); the
+                                               # mass/volume-normalized variants
+                                               # (emu/g etc.) are intentionally
+                                               # left unmapped — different dims.
+  # --- shared x-axis ---
+  "temperature": Temperature
+
+units:
+  # --- temperature ---
+  "K": K
+  "K^(-1)": PER-K
+  "1/K": PER-K
+  # --- thermoelectric ---
+  "V*K^(-1)": V-PER-K                          # Seebeck coefficient
+  "W*m^(-1)*K^(-1)": W-PER-M-K                 # thermal conductivity
+  "ohm*m": OHM-M                               # electrical resistivity
+  "ohm^(-1)*m^(-1)": S-PER-M                   # electrical conductivity
+  "S*m^(-1)": S-PER-M
+  # --- electrical / battery ---
+  "V": V
+  # --- magnetic ---
+  "T": T                                       # tesla (magnetic flux density)
+  "A/m": A-PER-M                               # magnetization (volume)
+  # --- misc ---
+  "m^(-3)": PER-M3                             # carrier concentration
+  "-": UNITLESS                                # dimensionless (ZT, etc.)

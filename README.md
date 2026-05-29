@@ -15,6 +15,7 @@ See:
 - [`docs/architecture/phase05-decisions.md`](docs/architecture/phase05-decisions.md) — backend / ingester adoption rationale (Oxigraph, Python rdflib)
 - [`docs/architecture/phase2-watcher.md`](docs/architecture/phase2-watcher.md) — Phase 2 watcher + upload API design
 - [`docs/architecture/phase2-template-curve-fetch.md`](docs/architecture/phase2-template-curve-fetch.md) — Phase 2 self-built MCP server (`template_curve_fetch`)
+- [`docs/architecture/phase2-qudt.md`](docs/architecture/phase2-qudt.md) — Phase 2 QUDT quantity/unit normalization (synonym unification)
 - [`docs/architecture/crucible-registration.md`](docs/architecture/crucible-registration.md) — registering csv2rdf-mcp on Crucible (Oxigraph runs separately on `mcp-net`)
 - [`docs/ontology/`](docs/ontology/) — Phase 1 ontology with Mermaid class diagram, RDFS/OWL TBox, and WebVOWL instructions for visual review
 - [`experiments/phase05/`](experiments/phase05) — spike code and logs for togopackage / Oxigraph / Morph-KGC

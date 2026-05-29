@@ -27,6 +27,8 @@ from typing import TextIO
 from rdflib import Graph, Literal, Namespace, URIRef
 from rdflib.namespace import DCTERMS, PROV, RDF, XSD
 
+from csv2rdf.qudt import quantity_kind_iri, unit_iri
+
 # ----------------------------------------------------------------------------
 # Default namespaces (design-plan §4 / §4.0)
 # ----------------------------------------------------------------------------
@@ -396,15 +398,34 @@ def _emit_curve(
 
     g.add((curve, sd.ofSample, sample_iri))
 
+    # Phase 1 string predicates are kept as-is for backward compatibility.
     for col_key, prop in (
         ("prop_x", sd.propertyX),
         ("prop_y", sd.propertyY),
-        ("unit_x", sd.unitXString),  # Phase 1 では QUDT マッピングせず raw 保持
+        ("unit_x", sd.unitXString),
         ("unit_y", sd.unitYString),
         ("comments", sd.comments),
     ):
         if value := strip_quoted(row.get(col_key, "")):
             g.add((curve, prop, Literal(value)))
+
+    # Phase 2 #2: additively attach canonical QUDT IRIs when a curated mapping
+    # exists. The string predicates above stay; these let AI clients pivot on a
+    # stable identifier so "Seebeck coefficient" and "thermopower" unify.
+    for col_key, prop in (
+        ("prop_x", sd.propertyXQuantity),
+        ("prop_y", sd.propertyYQuantity),
+    ):
+        value = strip_quoted(row.get(col_key, ""))
+        if value and (iri := quantity_kind_iri(value)):
+            g.add((curve, prop, URIRef(iri)))
+    for col_key, prop in (
+        ("unit_x", sd.unitX),
+        ("unit_y", sd.unitY),
+    ):
+        value = strip_quoted(row.get(col_key, ""))
+        if value and (iri := unit_iri(value)):
+            g.add((curve, prop, URIRef(iri)))
 
     # x / y 配列: JSON literal + 集約値
     x_raw = row.get("x", "")

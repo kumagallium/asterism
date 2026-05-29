@@ -22,6 +22,8 @@ from csv2rdf.starrydata import (
 SD = Namespace(DEFAULT_ONTOLOGY)
 SDR = Namespace(DEFAULT_RESOURCE)
 SCHEMA = Namespace("https://schema.org/")
+QK = Namespace("http://qudt.org/vocab/quantitykind/")
+QUNIT = Namespace("http://qudt.org/vocab/unit/")
 
 
 # ----------------------------------------------------------------------------
@@ -232,6 +234,39 @@ def test_ingest_curves_emits_basic_triples(curves_csv: Path, tmp_path: Path) -> 
     assert (c79, SD.propertyY, Literal("Seebeck coefficient")) in g
     assert (c79, SD.unitXString, Literal("K")) in g
     assert (c79, SD.unitYString, Literal("V*K^(-1)")) in g
+
+
+def test_curves_emit_qudt_iris_when_mapped(curves_csv: Path, tmp_path: Path) -> None:
+    """Phase 2 #2: mapped properties/units gain additive QUDT IRI triples,
+    while the original string predicates are preserved (backward compatible)."""
+    out = tmp_path / "curves.ttl"
+    ingest_curves(curves_csv, out, IngestConfig(emit_prov=False))
+    g = _load(out)
+    c79 = URIRef(DEFAULT_RESOURCE + "curve/6-79-113")
+
+    # QUDT quantity-kind IRIs (additive)
+    assert (c79, SD.propertyYQuantity, QK.SeebeckCoefficient) in g
+    assert (c79, SD.propertyXQuantity, QK.Temperature) in g
+    # QUDT unit IRIs (additive)
+    assert (c79, SD.unitY, QUNIT["V-PER-K"]) in g
+    assert (c79, SD.unitX, QUNIT.K) in g
+    # original string predicates still present
+    assert (c79, SD.propertyY, Literal("Seebeck coefficient")) in g
+    assert (c79, SD.unitYString, Literal("V*K^(-1)")) in g
+
+
+def test_curves_partial_qudt_mapping(curves_csv: Path, tmp_path: Path) -> None:
+    """Second fixture row: 'Resistivity' maps but 'ohm*cm' does not (only ohm*m
+    is in the curated map) — so quantity IRI is emitted, unit IRI is not."""
+    out = tmp_path / "curves.ttl"
+    ingest_curves(curves_csv, out, IngestConfig(emit_prov=False))
+    g = _load(out)
+    c80 = URIRef(DEFAULT_RESOURCE + "curve/7-80-114")
+    assert (c80, SD.propertyYQuantity, QK.Resistivity) in g
+    # ohm*cm is intentionally unmapped -> no unitY IRI at all for this curve
+    assert list(g.objects(c80, SD.unitY)) == []
+    # but the string form is retained
+    assert (c80, SD.unitYString, Literal("ohm*cm")) in g
 
 
 def test_curves_aggregates(curves_csv: Path, tmp_path: Path) -> None:
