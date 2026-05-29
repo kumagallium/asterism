@@ -14,6 +14,10 @@ from csv2rdf_step0.inspect import (
     inspect_csv,
     inspect_csv_set,
 )
+from csv2rdf_step0.materialize import (
+    MaterializeResult,
+    materialize_schema,
+)
 from csv2rdf_step0.propose import (
     AnthropicLLMClient,
     LLMClient,
@@ -37,6 +41,7 @@ __all__ = [
     "ColumnSummary",
     "ForeignKeyCandidate",
     "LLMClient",
+    "MaterializeResult",
     "RefinementResult",
     "SchemaBundle",
     "SchemaProposal",
@@ -45,6 +50,7 @@ __all__ = [
     "ValidationReport",
     "inspect_csv",
     "inspect_csv_set",
+    "materialize_schema",
     "propose_schema",
     "refine_schema",
     "validate_schema",

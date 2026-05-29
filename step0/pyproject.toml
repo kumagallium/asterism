@@ -36,6 +36,7 @@ dev = [
 
 [project.scripts]
 csv2rdf-inspect = "csv2rdf_step0.inspect:_main"
+csv2rdf-materialize = "csv2rdf_step0.materialize:_main"
 csv2rdf-propose = "csv2rdf_step0.propose:_main"
 csv2rdf-refine = "csv2rdf_step0.refine:_main"
 csv2rdf-ttl2mermaid = "csv2rdf_step0.ttl2mermaid:_main"
