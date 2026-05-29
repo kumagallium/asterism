@@ -245,7 +245,7 @@ sample_rdf_entries:
 
       sdr:digitization/6-79-113 a sd:DigitizationActivity, prov:Activity ;
           prov:wasAssociatedWith <https://automeris.io/WebPlotDigitizer> ;
-          prov:atTime "2017-09-01T18:19:39+09:00"^^xsd:dateTime .
+          prov:atTime "2017-09-01T09:19:39+00:00"^^xsd:dateTime .  # normalized to UTC (source was JST 18:19:39)
 
       <https://automeris.io/WebPlotDigitizer> a prov:SoftwareAgent ;
           schema:name "WebPlotDigitizer" ;

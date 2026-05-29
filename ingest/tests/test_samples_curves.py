@@ -298,7 +298,8 @@ def test_curves_digitization_attime_when_timestamp_parses(tmp_path: Path) -> Non
     at = list(g.objects(dig, PROV.atTime))
     assert len(at) == 1
     assert at[0].datatype == XSD.dateTime
-    assert str(at[0]).startswith("2017-09-01T18:19:39")
+    # normalized to UTC: 18:19:39 JST == 09:19:39 UTC
+    assert str(at[0]) == "2017-09-01T09:19:39+00:00"
 
 
 def test_curves_partial_qudt_mapping(curves_csv: Path, tmp_path: Path) -> None:

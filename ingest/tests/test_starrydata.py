@@ -70,16 +70,26 @@ def test_parse_issued_invalid_returns_none() -> None:
     assert parse_issued('{"date_parts":[[2026,2,30]]}') is None  # Feb 30 → ValueError
 
 
-def test_parse_curator_timestamp_jst() -> None:
-    # starrydata's JS Date.toString() with a GMT offset + descriptive tz name
+def test_parse_curator_timestamp_normalizes_jst_to_utc() -> None:
+    # JS Date.toString() with GMT+0900 → equivalent UTC instant
+    # (18:19:39 JST == 09:19:39 UTC), emitted in the "+00:00" UTC form
+    # (matches rdflib's xsd:dateTime canonicalization).
     out = parse_curator_timestamp(
         "Fri Sep 01 2017 18:19:39 GMT+0900 (Japan Standard Time)"
     )
-    assert out == "2017-09-01T18:19:39+09:00"
+    assert out == "2017-09-01T09:19:39+00:00"
 
 
-def test_parse_curator_timestamp_no_tz() -> None:
-    assert parse_curator_timestamp("Thu Jan 25 2018 13:56:56") == "2018-01-25T13:56:56"
+def test_parse_curator_timestamp_utc_input_stays_utc() -> None:
+    out = parse_curator_timestamp(
+        "Thu Jan 25 2018 13:56:56 GMT+0000 (Coordinated Universal Time)"
+    )
+    assert out == "2018-01-25T13:56:56+00:00"
+
+
+def test_parse_curator_timestamp_no_timezone_returns_none() -> None:
+    # No offset → instant is unknown → no prov:atTime (don't fabricate UTC).
+    assert parse_curator_timestamp("Thu Jan 25 2018 13:56:56") is None
 
 
 def test_parse_curator_timestamp_invalid_returns_none() -> None:

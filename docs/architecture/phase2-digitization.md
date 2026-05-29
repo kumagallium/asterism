@@ -50,12 +50,22 @@ Fri Sep 01 2017 18:19:39 GMT+0900 (Japan Standard Time)
 Phase 1 はこれをパース失敗の脆さを避けて**文字列のまま** `dcterms:created` に
 保持していた。Phase 2 #6 では:
 
-- **`dcterms:created` の生文字列はそのまま維持**(fidelity)
-- `prov:atTime` 用に `parse_curator_timestamp()` で **best-effort で ISO 8601 に
-  パース**。成功時だけ `xsd:dateTime` で emit、失敗時は単に付けない(graceful)。
+- **`dcterms:created` の生ローカル時刻文字列はそのまま維持**(fidelity / 人間可読)
+- `prov:atTime` は `parse_curator_timestamp()` で **UTC の瞬間に正規化**して emit
+  (`xsd:dateTime`、`+00:00` UTC 形式)。例: JST 18:19:39 → `2017-09-01T09:19:39+00:00`。
+  (`Z` を渡しても rdflib が `+00:00` に canonicalize するので最初から `+00:00` で揃える。)
+
+**なぜ UTC 正規化か**: オフセット付き xsd:dateTime(`+09:00`)も技術的には一意な
+瞬間なので比較は正しく動くが、UTC に揃えると「+0900 とは?」と考えさせず、行ごとの
+オフセット混在も避けられ、**世界中の読み手にとって曖昧さゼロ**になる。来歴イベント
+時刻の国際標準も UTC。
 
 パーサは末尾の `(Japan Standard Time)` を除去し `GMT+0900` → `+0900` に直して
-`%a %b %d %Y %H:%M:%S %z`(tz 無し fallback 付き)で解釈する。
+`%a %b %d %Y %H:%M:%S %z` で解釈 → `.astimezone(UTC)`。
+
+**タイムゾーン無しの入力は `None`(prov:atTime を出さない)**。瞬間を確定できないのに
+UTC と決めつけるのは捏造になるため。生のローカル文字列は `dcterms:created` に残る。
+(実データは全行 `GMT+0900` なのでこの分岐は実質発生しない。)
 
 ## クエリ例(MIE sparql_query_examples にも収録)
 
