@@ -66,6 +66,12 @@ sd:IngestionActivity
     rdfs:comment "A single run of the csv2rdf-mcp ingester. Each Paper/Sample/Curve generated in the run carries prov:wasGeneratedBy → IngestionActivity for provenance traceability."@en ;
     rdfs:subClassOf prov:Activity .
 
+sd:DigitizationActivity
+    a owl:Class ;
+    rdfs:label "Digitization Activity"@en, "デジタル化アクティビティ"@ja ;
+    rdfs:comment "The act of extracting a curve's data points from a published figure (e.g. with WebPlotDigitizer). Distinct from IngestionActivity: it records the *scientific* origin of the numbers, not our pipeline run. A Curve is prov:wasGeneratedBy both. prov:wasAssociatedWith points at the digitizer agent; prov:atTime carries the curator timestamp when parseable."@en ;
+    rdfs:subClassOf prov:Activity .
+
 # ----------------------------------------------------------------------------
 # Object properties
 # ----------------------------------------------------------------------------

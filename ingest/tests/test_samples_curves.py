@@ -255,6 +255,52 @@ def test_curves_emit_qudt_iris_when_mapped(curves_csv: Path, tmp_path: Path) -> 
     assert (c79, SD.unitYString, Literal("V*K^(-1)")) in g
 
 
+def test_curves_emit_digitization_activity(curves_csv: Path, tmp_path: Path) -> None:
+    """Phase 2 #6: every curve gets a DigitizationActivity linking it to
+    WebPlotDigitizer, in addition to the IngestionActivity."""
+    out = tmp_path / "curves.ttl"
+    ingest_curves(curves_csv, out, IngestConfig(emit_prov=False))
+    g = _load(out)
+    c79 = URIRef(DEFAULT_RESOURCE + "curve/6-79-113")
+    dig = URIRef(DEFAULT_RESOURCE + "digitization/6-79-113")
+    wpd = URIRef("https://automeris.io/WebPlotDigitizer")
+
+    assert (c79, PROV.wasGeneratedBy, dig) in g
+    assert (dig, RDF.type, SD.DigitizationActivity) in g
+    assert (dig, RDF.type, PROV.Activity) in g
+    assert (dig, PROV.wasAssociatedWith, wpd) in g
+    # the agent is described once, shared across curves
+    assert (wpd, RDF.type, PROV.SoftwareAgent) in g
+    assert (wpd, SCHEMA.name, Literal("WebPlotDigitizer")) in g
+
+
+def test_curves_digitization_attime_when_timestamp_parses(tmp_path: Path) -> None:
+    """prov:atTime is emitted (as xsd:dateTime) only when created_at parses."""
+    rows = [
+        {
+            "SID": "9", "DOI": "", "composition": "", "sample_id": "1",
+            "figure_id": "1", "figure_name": '"f"', "prop_x": '"Temperature"',
+            "prop_y": '"Seebeck coefficient"', "unit_x": '"K"', "unit_y": '"V*K^(-1)"',
+            "x": "[1,2]", "y": "[3,4]", "project_names": "[]", "comments": "",
+            "created_at": "Fri Sep 01 2017 18:19:39 GMT+0900 (Japan Standard Time)",
+            "updated_at": "",
+        },
+    ]
+    p = tmp_path / "c.csv"
+    with p.open("w", encoding="utf-8", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=list(rows[0].keys()))
+        w.writeheader()
+        w.writerows(rows)
+    out = tmp_path / "c.ttl"
+    ingest_curves(p, out, IngestConfig(emit_prov=False))
+    g = _load(out)
+    dig = URIRef(DEFAULT_RESOURCE + "digitization/9-1-1")
+    at = list(g.objects(dig, PROV.atTime))
+    assert len(at) == 1
+    assert at[0].datatype == XSD.dateTime
+    assert str(at[0]).startswith("2017-09-01T18:19:39")
+
+
 def test_curves_partial_qudt_mapping(curves_csv: Path, tmp_path: Path) -> None:
     """Second fixture row: 'Resistivity' maps but 'ohm*cm' does not (only ohm*m
     is in the curated map) — so quantity IRI is emitted, unit IRI is not."""
