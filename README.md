@@ -14,6 +14,7 @@ See:
 - [`docs/architecture/option-b.md`](docs/architecture/option-b.md) — Phase 1 architecture (Oxigraph + togomcp hybrid), role split with the DBCLS team
 - [`docs/architecture/phase05-decisions.md`](docs/architecture/phase05-decisions.md) — backend / ingester adoption rationale (Oxigraph, Python rdflib)
 - [`docs/architecture/phase2-watcher.md`](docs/architecture/phase2-watcher.md) — Phase 2 watcher + upload API design
+- [`docs/architecture/phase2-template-curve-fetch.md`](docs/architecture/phase2-template-curve-fetch.md) — Phase 2 self-built MCP server (`template_curve_fetch`)
 - [`docs/architecture/crucible-registration.md`](docs/architecture/crucible-registration.md) — registering csv2rdf-mcp on Crucible (Oxigraph runs separately on `mcp-net`)
 - [`docs/ontology/`](docs/ontology/) — Phase 1 ontology with Mermaid class diagram, RDFS/OWL TBox, and WebVOWL instructions for visual review
 - [`experiments/phase05/`](experiments/phase05) — spike code and logs for togopackage / Oxigraph / Morph-KGC
@@ -56,6 +57,20 @@ curl http://localhost:8080/jobs | jq
 # SPARQL directly against Oxigraph
 curl -G http://localhost:7878/query \
   --data-urlencode 'query=SELECT (COUNT(*) AS ?c) WHERE { ?s ?p ?o }'
+
+# Call template_curve_fetch (self-built MCP) for the raw x/y of one curve
+# (any MCP client works; here we use the python fastmcp Client)
+python -c "
+import asyncio
+from fastmcp import Client
+async def main():
+    async with Client('http://localhost:8002/mcp') as c:
+        r = await c.call_tool('template_curve_fetch', {
+            'curve_iri': 'https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/curve/1-1-1',
+        })
+        print(r.structured_content)
+asyncio.run(main())
+"
 ```
 
 ## License

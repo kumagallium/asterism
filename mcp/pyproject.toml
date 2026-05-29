@@ -1,0 +1,47 @@
+[project]
+name = "csv2rdf-mcp-tools"
+version = "0.1.0"
+description = "Self-built FastMCP server with starrydata-specific tools (Phase 2 #3)"
+requires-python = ">=3.11"
+readme = "../README.md"
+license = { text = "Apache-2.0" }
+dependencies = [
+    # csv2rdf-ingest gives us OxigraphClient; installed from sibling path.
+    "csv2rdf-ingest",
+    "fastmcp>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.6",
+    "mypy>=1.10",
+]
+
+[project.scripts]
+csv2rdf-mcp = "csv2rdf_mcp.server:_main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/csv2rdf_mcp"]
+
+[tool.uv.sources]
+csv2rdf-ingest = { path = "../ingest", editable = true }
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
+[tool.mypy]
+strict = true
+python_version = "3.11"
