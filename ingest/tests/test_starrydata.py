@@ -23,6 +23,7 @@ from csv2rdf.starrydata import (
     parse_authors,
     parse_curator_timestamp,
     parse_issued,
+    safe_url,
     slugify,
 )
 
@@ -96,6 +97,58 @@ def test_parse_curator_timestamp_invalid_returns_none() -> None:
     assert parse_curator_timestamp("") is None
     assert parse_curator_timestamp("not a date") is None
     assert parse_curator_timestamp("2018-01-25") is None  # ISO already, not JS form
+
+
+def test_safe_url_passthrough_for_clean_url() -> None:
+    assert safe_url("http://dx.doi.org/10.1021/ar400290f") == (
+        "http://dx.doi.org/10.1021/ar400290f"
+    )
+
+
+def test_safe_url_percent_encodes_angle_brackets() -> None:
+    # Legacy Wiley DOI URL with < > that would break Turtle serialization.
+    raw = "http://dx.doi.org/10.1002/(SICI)1521-396X(199910)175:2<683::AID-PSSA683>3.0.CO;2-3"
+    out = safe_url(raw)
+    assert out is not None
+    assert "<" not in out and ">" not in out
+    assert "%3C683" in out and "%3E3.0" in out
+
+
+def test_safe_url_empty_returns_none() -> None:
+    assert safe_url("") is None
+    assert safe_url("   ") is None
+
+
+def test_emit_paper_with_angle_bracket_url_serializes_cleanly(tmp_path: Path) -> None:
+    """Regression for the full-scale finding: a paper whose URL has < > must
+    still produce loadable Turtle (round-trips through rdflib parse)."""
+    import csv as _csv
+
+    from rdflib import Graph
+
+    rows = [
+        {
+            "SID": "1", "DOI": "10.1002/x",
+            "URL": "http://dx.doi.org/10.1002/(SICI)1521-396X(199910)175:2<683::AID-PSSA683>3.0.CO;2-3",
+            "issued": "", "author": "[]", "title": '"T"', "container_title": "",
+            "container_title_short": "", "volume": "", "issue": "", "page": "",
+            "ISSN": "", "publisher": "", "project_names": "[]", "created_at": "",
+        }
+    ]
+    csv_path = tmp_path / "p.csv"
+    with csv_path.open("w", encoding="utf-8", newline="") as fh:
+        w = _csv.DictWriter(fh, fieldnames=list(rows[0].keys()))
+        w.writeheader()
+        w.writerows(rows)
+    out = tmp_path / "p.ttl"
+    ingest_papers(csv_path, out, IngestConfig(emit_prov=False))
+    # The key assertion: the emitted Turtle re-parses without error.
+    g = Graph()
+    g.parse(out, format="turtle")
+    paper = URIRef(DEFAULT_RESOURCE + "paper/1")
+    urls = list(g.objects(paper, URIRef("https://schema.org/url")))
+    assert len(urls) == 1
+    assert "%3C683" in str(urls[0])
 
 
 def test_parse_authors_basic() -> None:

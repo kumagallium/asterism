@@ -19,6 +19,7 @@ See:
 - [`docs/architecture/phase2-digitization.md`](docs/architecture/phase2-digitization.md) — Phase 2 DigitizationActivity (WebPlotDigitizer provenance)
 - [`docs/architecture/crucible-registration.md`](docs/architecture/crucible-registration.md) — registering csv2rdf-mcp on Crucible (Oxigraph runs separately on `mcp-net`)
 - [`docs/ontology/`](docs/ontology/) — Phase 1 ontology with Mermaid class diagram, RDFS/OWL TBox, and WebVOWL instructions for visual review
+- [`experiments/phase2-fullscale/`](experiments/phase2-fullscale) — Phase 2 full-scale benchmark (12M triples): conversion / load / query latency + findings
 - [`experiments/phase05/`](experiments/phase05) — spike code and logs for togopackage / Oxigraph / Morph-KGC
 - [`experiments/phase05b/`](experiments/phase05b) — supplementary spike (togopackage Virtuoso backend)
 

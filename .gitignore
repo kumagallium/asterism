@@ -26,6 +26,9 @@ data/sources/
 data/qlever/
 data/oxigraph_store/
 data/logs/
+# Phase 2 #5 full-scale benchmark: generated TTLs / oxigraph store / logs are
+# large + regeneratable. Keep the scripts and RESULTS.md, ignore work/.
+experiments/phase2-fullscale/work/
 # Note: data/togomcp/ (MIE + endpoints.csv) IS committed — it is configuration,
 # not runtime data.
 

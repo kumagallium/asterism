@@ -254,6 +254,30 @@ def strip_quoted(value: str) -> str:
     return v
 
 
+# Characters that are illegal in an IRI and would make rdflib emit Turtle that
+# Oxigraph rejects. Full-scale starrydata has ~38 legacy Wiley DOI URLs like
+# "http://dx.doi.org/10.1002/(SICI)...175:2<683::AID-PSSA683>3.0.CO;2-3" with
+# angle brackets. We percent-encode them so the URL stays a valid, dereferenceable
+# IRI rather than dropping the triple or breaking serialization.
+_IRI_ILLEGAL = {
+    " ": "%20", '"': "%22", "<": "%3C", ">": "%3E", "{": "%7B", "}": "%7D",
+    "|": "%7C", "\\": "%5C", "^": "%5E", "`": "%60",
+}
+_IRI_ILLEGAL_RE = re.compile("[" + re.escape("".join(_IRI_ILLEGAL)) + "]")
+
+
+def safe_url(value: str) -> str | None:
+    """Return an IRI-safe URL (illegal chars percent-encoded), or None if empty.
+
+    Only the characters that are illegal in an IRI are encoded; the URL's
+    structure (scheme, slashes, already-encoded sequences) is left intact.
+    """
+    v = strip_quoted(value)
+    if not v:
+        return None
+    return _IRI_ILLEGAL_RE.sub(lambda m: _IRI_ILLEGAL[m.group()], v)
+
+
 # ----------------------------------------------------------------------------
 # Core: build_graph_for_paper
 # ----------------------------------------------------------------------------
@@ -282,7 +306,7 @@ def _emit_paper(
 
     if doi := row.get("DOI", "").strip():
         g.add((paper, SCHEMA.identifier, Literal(doi)))
-    if url := row.get("URL", "").strip():
+    if url := safe_url(row.get("URL", "")):
         g.add((paper, SCHEMA.url, URIRef(url)))
     if title := strip_quoted(row.get("title", "")):
         g.add((paper, SCHEMA.name, Literal(title)))

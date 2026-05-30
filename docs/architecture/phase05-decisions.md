@@ -92,8 +92,9 @@
 
 ## 4. 残ったリスク
 
-1. **Oxigraph の starrydata 全件性能未検証**: 100 papers (3,715 triples) では速いが、papers 56k + samples 144k + curves 233k 行を変換した Turtle (見積もり数 M triples、サイズ数百 MB) でも同じ p95 が出るかは Phase 1 で再ベンチ必須。Oxigraph 公式ベンチでは数億 triples 規模も走るが、自分の手で確認するまでは「快適」と断言しない。
-2. **curve の x/y 配列**: 設計プラン §4 で議論したとおり、Phase 1 では JSON literal + 集約値 (xMin/xMax/yMin/yMax/pointCount) で済ませる予定。Oxigraph の string literal は数 MB まで問題ないが、curves.csv 全件 (155 MB) を triple に展開した時の **store サイズ**は要監視。
+1. **Oxigraph の starrydata 全件性能未検証** → **✅ Phase 2 #5 で解消 (2026-05-29)**。全件 (394k 行 → **11,998,545 triples**) を変換・ロードし、代表クエリの latency を実測した ([`../../experiments/phase2-fullscale/RESULTS.md`](../../experiments/phase2-fullscale/RESULTS.md))。結論: AI が実際に使う絞り込み + LIMIT クエリは **5–21 ms** で interactive、全件集約は 0.2–5 s で許容範囲。**この規模では backend 変更不要**。QUDT も全件で機能 (qudt:SeebeckCoefficient = 37,983 件、"Seebeck coefficient" + "thermopower" を統合)。副産物として 2 つの知見: (a) rdflib 変換は ~14,800 triples/s (data-bound でなく rdflib-bound、必要なら N-Triples 直書きで 5–50× 余地)、(b) HTTP POST ロードは 18 分と遅く、初回バルクは Oxigraph の offline bulk loader 推奨。
+   - ⚠ 同時に発見: **watcher の named-graph 投入 vs MIE クエリ (GRAPH 句なし) の非互換** (RESULTS.md §5)。default graph クエリは named graph を見ないため `{ ?s ?p ?o }` が 0 を返す。要対応 (推奨: default graph にロード)。
+2. **curve の x/y 配列 / store サイズ** → **Phase 2 #5 で計測**。全件 store は **10 GB** (12M triples)。一般的な 1–2 GB より大きいのは、x/y を大きな JSON string literal で保持 (方針 C) し Oxigraph が literal を複数 index に格納するため。queryability とのトレードオフ。Phase 3 で「JSON literal を index しない / 配列を外部保管」を再検討する余地。
 3. **MCP server を自作する負担**: togopackage の togomcp / sparqlist / grasp を捨てる代わりに、自作 MCP に最低限のツール (`sparql_query`, `list_predicates`, `schema_diagram`, `template_curve_fetch`) を実装する必要がある。設計プラン §10 Phase 2 で計上済み (2-3 日)。
 4. **IRI 永続化**: 本素振りでは `http://localhost/csv2rdf/...` をプレースホルダで使った。Phase 1 で **GitHub Pages URL に切り替える**判断 (`https://kumagallium.github.io/csv2rdf-mcp/...`) が必要。最終 IRI のホスト名は Phase 1 着手時に再確認する。
 5. **Morph-KGC を完全に捨てたわけではない**: Phase 3 で汎用 CSV (JSON 列が無いプレーンな表) を扱うときに、`manifest.yaml` から RML/YARRRML を自動生成する経路が再浮上する可能性がある。
