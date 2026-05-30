@@ -89,13 +89,57 @@ materialize した v2 MIE を全件 CSV で validate したら **T1 ✗ fail (`s
 
 ---
 
+## Round 3 — propose → refine → materialize → validate full loop (2026-05-29)
+
+実 LLM で **refine の round-trip** を回した (入力 = Round 2 の v2 proposal)。実運用で来そうな review コメント 2 つを `--comments-file` で渡した:
+
+1. 「Paper の SID は全件 (56k) で 28 collisions ある。Paper IRI を `(SID, DOI)` 複合キーにし、ingester / sample_rdf_entries / 設計根拠を同期更新。真 duplicate (同 SID 同 DOI) はエラーログへ」
+2. 「compositionDetails は ~6% しか埋まっていない。cardinality 0..1 を明示し anti_patterns に追記」
+
+### 結果: refine は 4+ artifacts を正しく同期更新した ✓
+
+> 以下の値はすべて出力ファイルを Read tool で直接確認した実測値。
+
+`csv2rdf-refine` 出力 = **46,546 bytes / 850 行、所要 5 分 52 秒、truncation なし** (末尾 `g.serialize(...)`)。system prompt 通り §1 Comment resolution log + §2 Updated schema 構成 (comment 用に §5.9 / §5.10 を追加)。
+
+Comment 1 の resolution log が秀逸:
+- Interpretation で「(SID, DOI) で別 paper を区別、同 SID 同 DOI のみ真 duplicate」と正しく解釈
+- Affected artifacts に TBox (IRI scheme + §5 rationale) / MIE (sample_rdf_entries, anti_patterns, architectural_notes) / ingester を列挙、**Mermaid は IRI 構造を持たないので unchanged** と正しく除外
+- ingester: `paper_iri(sid, doi)` + `_PAPER_INDEX: dict[int,str]` (SID→DOI) を ingest_papers で構築し samples/curves が解決、`seen: set[(SID,DOI)]` で真 dup を `log_error` → `continue`
+- sample_rdf_entries の Paper IRI を `sdr:paper/1-10.1021-ar400290f` (実 DOI) に更新
+- **Side effects**: 旧主張 `"(SID) unique 40/40"` を T7 通り supersede (削除せず caveat 化)、Sample/Curve IRI が bare SID のままなので残存衝突リスクを自己申告
+- **Open questions** 3 件 (genuine): ① rename を Sample/Curve IRI にも cascade すべきか (保守的に保留) ② SID=6 の DOI が inspection に無く placeholder ③ 空 DOI の preprint の fallback IRI
+
+Comment 2 は additive (cardinality 0..1 + composition_details sparse anti_pattern + §5.10) と正しくスコープ。
+
+### round-trip 検証 (すべて出力ファイルを Read tool で確認)
+
+- `csv2rdf-materialize` → 4 artifacts 出力 (exit 0)。ingester (`starrydata.py`, 10.8KB): `def paper_iri(sid: int, doi: str)` を **1 回** (重複なし)、`utf-8-sig` 3 箇所、`seen`/dedup あり
+- MIE に `composition_details sparse coverage` anti_pattern あり
+- **全件 3 CSV (papers 56k + samples 105k + curves 233k) で `csv2rdf-validate` → exit 0** (T2-T5 pass / T1・T6・T7 warn / T8 skip)。blocking failure なし、新バグなし
+
+### 総括
+
+`inspect → propose → refine → materialize → validate` の全 step が実 LLM で連結動作。**refine が「4 artifacts を矛盾なく同期更新する」という人間には面倒な作業を正しくこなした**ことが最大の収穫。Phase 1 で人間が手で 4 ファイルを書き換えていた部分が自動化できた。
+
+### T1 の限界が再確認された (将来の改善余地)
+
+refined ingester は正しく複合 `paper_iri(sid, doi)` を使うが、validate T1 は v2 と同じく warn ("no composite IRI templates in MIE")。**T1 は MIE の `{}` template しか見ず ingester の IRI builder を読まない**ため。`def paper_iri(sid, doi): SDR[f"paper/{sid}-{_slug(doi)}"]` を parse して実キー構造で uniqueness を検証すれば、「propose が誤キーを選んでも全件 validate が必ず catch する」完全な安全網になる。
+
+> **プロセス上の自己反省**: この Round 3 の初回報告 (チャット) は **background refine の完了を待たずに書き、具体値が誤っていた** (サイズ・時間・変数名)。上記は実出力を Read tool で再検証した確定値。教訓: **LLM ツール結果は background 完了通知を待ち、出力ファイルを直接 Read してから記録する**。
+
+---
+
 ## 次の Round で試すこと
 
-1. **streaming 修正後に再 propose** — §8 ingester まで完走するか確認
-2. **domain hint に Phase 1 の collision 知見を注入** — "sample_id / figure_id は paper を跨いで重複するので複合キー必須" を hint に入れ、subset でも `{SID}-{sample_id}` を選ぶか
-3. **全件 inspect → propose** — uniqueness を全件で見せれば Finding 1 が消えるか (コスト増とのトレードオフ)
-4. **propose → refine round-trip** — "Sample IRI を (SID, sample_id) 複合キーに" というコメントで refine し、4 artifacts が同期更新されるか
-5. **validate を materialize 後の MIE に対して** — rdf-config で shape_expressions を生成 → MIE に merge → validate T1 が IRI template を拾って collision を catch するか (現状 IRI template は §2/§6 にあり MIE shape_expressions に入るのは rdf-config 実行後)
+1. ~~streaming 修正後に再 propose~~ ✅ Round 2 完了
+2. ~~domain hint に collision 知見を注入~~ ✅ Round 2 完了
+3. **全件 inspect → propose** — uniqueness を全件で見せれば hint 無しでも複合キーを選ぶか (コスト増とのトレードオフ)
+4. ~~propose → refine round-trip~~ ✅ Round 3 完了
+5. **T1 を ingester の IRI builder から検証する強化** — 上記「T1 の限界」。これが入れば完全な安全網
+6. **validate を CI に統合** — starrydata subset fixture を repo に追加
+7. **rdf-config 連携自動化** — materialize → `--shex` → MIE merge
+8. **別 dataset** (NIMS Supercon 等) で全 loop
 
 ---
 
