@@ -60,6 +60,22 @@ jobs:
         working-directory: step0
         run: uv run pytest tests/ -v
 
+      - name: Validate fixture bundle end-to-end (8-trap CLI)
+        working-directory: step0
+        # Runs csv2rdf-validate on the committed starrydata-min fixture. Exits
+        # non-zero if any required trap fails (incl. T1 key uniqueness recovered
+        # from the ingester), so a regression breaks the build without needing
+        # the full starrydata export or an API key.
+        run: |
+          uv run csv2rdf-validate \
+            --tbox tests/fixtures/starrydata_min/tbox.ttl \
+            --diagram tests/fixtures/starrydata_min/diagram.md \
+            --mie tests/fixtures/starrydata_min/mie.yaml \
+            --ingester tests/fixtures/starrydata_min/ingester.py \
+            --csv tests/fixtures/starrydata_min/papers.csv \
+            --csv tests/fixtures/starrydata_min/samples.csv \
+            --csv tests/fixtures/starrydata_min/curves.csv
+
   api:
     name: upload API tests (ruff + pytest)
     runs-on: ubuntu-latest

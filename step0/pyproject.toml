@@ -52,6 +52,9 @@ packages = ["src/csv2rdf_step0"]
 [tool.ruff]
 target-version = "py311"
 line-length = 100
+# Test fixtures are deliberately minimal sample bundles (e.g. a stub ingester
+# the validator parses); they are data, not shipped code, so skip linting them.
+extend-exclude = ["tests/fixtures"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]

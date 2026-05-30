@@ -1,0 +1,25 @@
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix sd:   <https://example.com/starrydata/ontology#> .
+
+# Minimal starrydata-shaped TBox used as a csv2rdf-validate CI fixture.
+# Deliberately bnode-free (T3): only named classes and object properties.
+
+sd:Paper a owl:Class ;
+    rdfs:label "Paper" .
+
+sd:Sample a owl:Class ;
+    rdfs:label "Sample" .
+
+sd:Curve a owl:Class ;
+    rdfs:label "Curve" .
+
+sd:fromPaper a owl:ObjectProperty ;
+    rdfs:label "from paper" ;
+    rdfs:domain sd:Sample ;
+    rdfs:range sd:Paper .
+
+sd:ofSample a owl:ObjectProperty ;
+    rdfs:label "of sample" ;
+    rdfs:domain sd:Curve ;
+    rdfs:range sd:Sample .
