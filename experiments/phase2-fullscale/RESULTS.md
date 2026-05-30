@@ -81,7 +81,15 @@ for the real query patterns. No backend change needed for this scale.
 unifying the "Seebeck coefficient" (37,370) and "thermopower" (559) string
 variants — synonym normalization works on the full dataset, in 21 ms.
 
-## 5. Finding: named-graph vs default-graph gap ⚠ (follow-up)
+## 5. Finding: named-graph vs default-graph gap ✅ (resolved)
+
+> **Resolved** by option (2) below: the watcher now POSTs into the **default
+> graph** by default (`WatcherConfig.use_default_graph=True`,
+> `OxigraphClient.post_turtle(..., graph_iri=None)` → `POST /store?default`).
+> The MIE already declared `graphs: [default]`, so its GRAPH-less
+> `sparql_query_examples` now return data. Per-kind named graphs remain
+> available as a legacy opt-in (`--named-graphs` / `CSV2RDF_USE_DEFAULT_GRAPH=0`).
+> The original analysis is kept below for context.
 
 The Phase 2 watcher loads each kind into a **named graph**
 (`sd:graph/{papers,samples,curves}`). SPARQL only sees named-graph triples

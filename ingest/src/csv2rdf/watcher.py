@@ -2,7 +2,7 @@
 
 Watches ``<drop_root>/{papers,samples,curves}/`` and, on every settled CSV
 write, runs the matching ingester, writes Turtle to ``<rdf_root>/{kind}/...``,
-and POSTs that Turtle into a named graph on Oxigraph.
+and POSTs that Turtle into the default graph on Oxigraph.
 
 Design notes
 ~~~~~~~~~~~~
@@ -24,9 +24,11 @@ Design notes
   triples (Oxigraph dedupes by set semantics on IRI-keyed triples) and adds
   exactly one new ``sd:IngestionActivity`` node. See
   ``docs/architecture/phase05-decisions.md`` §2.2.
-- **Per-kind named graph**. We POST each kind into its own graph IRI (see
-  the MIE YAML ``graphs:`` list). The graph IRIs are derived from the
-  resource namespace, so they move with the deployment.
+- **Default graph by default**. We POST every kind into Oxigraph's default
+  graph so GRAPH-less SPARQL — the MIE example queries and the Phase 1 smoke
+  tests — sees the data. ``WatcherConfig.use_default_graph=False`` opts back
+  into per-kind named graphs (graph IRIs derived from ``graph_prefix``); that
+  legacy mode then requires GRAPH-wrapped queries.
 """
 from __future__ import annotations
 
@@ -84,6 +86,9 @@ class WatcherConfig:
     graph_prefix: str = DEFAULT_GRAPH_PREFIX
     settle_s: float = DEFAULT_SETTLE_S
     ingest_config: IngestConfig = field(default_factory=IngestConfig)
+    # Post into Oxigraph's default graph so GRAPH-less SPARQL (MIE examples,
+    # Phase 1 smoke) sees the data. Set False to keep per-kind named graphs.
+    use_default_graph: bool = True
 
     def ensure_dirs(self) -> None:
         for kind in KINDS:
@@ -92,7 +97,14 @@ class WatcherConfig:
             (self.error_root / kind).mkdir(parents=True, exist_ok=True)
         self.jobs_log.parent.mkdir(parents=True, exist_ok=True)
 
+    def target_graph(self, kind: str) -> str | None:
+        """Graph IRI to POST ``kind`` into, or ``None`` for the default graph."""
+        if self.use_default_graph:
+            return None
+        return f"{self.graph_prefix}{kind}"
+
     def graph_iri(self, kind: str) -> str:
+        """Named graph IRI for ``kind`` (used by ``target_graph`` and tests)."""
         return f"{self.graph_prefix}{kind}"
 
 
@@ -197,7 +209,7 @@ async def process_csv(
         )
 
     try:
-        bytes_uploaded = await client.post_turtle(ttl_path, config.graph_iri(kind))
+        bytes_uploaded = await client.post_turtle(ttl_path, config.target_graph(kind))
     except Exception as exc:
         ended = datetime.now(UTC)
         return Job.from_stats(
@@ -363,6 +375,12 @@ def _main(argv: list[str] | None = None) -> int:
     p.add_argument("--jobs-log", type=Path, default=Path("data/sources/jobs.jsonl"))
     p.add_argument("--oxigraph-url", default="http://localhost:7878")
     p.add_argument("--graph-prefix", default=DEFAULT_GRAPH_PREFIX)
+    p.add_argument(
+        "--named-graphs",
+        action="store_true",
+        help="POST each kind into a per-kind named graph instead of the "
+        "default graph (legacy mode; requires GRAPH-wrapped SPARQL).",
+    )
     p.add_argument("--ontology", default=DEFAULT_ONTOLOGY)
     p.add_argument("--resource", default=DEFAULT_RESOURCE)
     p.add_argument("--settle-s", type=float, default=DEFAULT_SETTLE_S)
@@ -376,6 +394,7 @@ def _main(argv: list[str] | None = None) -> int:
         error_root=args.error_root,
         jobs_log=args.jobs_log,
         graph_prefix=args.graph_prefix,
+        use_default_graph=not args.named_graphs,
         settle_s=args.settle_s,
         ingest_config=IngestConfig(
             ontology_iri=args.ontology,

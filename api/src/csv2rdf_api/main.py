@@ -72,6 +72,11 @@ class Settings:
         self.jobs_log = Path(e.get("CSV2RDF_JOBS_LOG", "/data/sources/jobs.jsonl"))
         self.oxigraph_url = e.get("CSV2RDF_OXIGRAPH_URL", "http://oxigraph:7878")
         self.graph_prefix = e.get("CSV2RDF_GRAPH_PREFIX", DEFAULT_GRAPH_PREFIX)
+        # Default-graph load keeps GRAPH-less SPARQL (MIE examples) working.
+        # Set CSV2RDF_USE_DEFAULT_GRAPH=0 to opt back into per-kind named graphs.
+        self.use_default_graph = e.get(
+            "CSV2RDF_USE_DEFAULT_GRAPH", "1"
+        ).strip().lower() not in ("0", "false", "no")
         self.ontology_iri = e.get("CSV2RDF_ONTOLOGY_IRI", DEFAULT_ONTOLOGY)
         self.resource_iri = e.get("CSV2RDF_RESOURCE_IRI", DEFAULT_RESOURCE)
         self.settle_s = float(e.get("CSV2RDF_SETTLE_S", DEFAULT_SETTLE_S))
@@ -152,6 +157,7 @@ def build_app(
         error_root=cfg.error_root,
         jobs_log=cfg.jobs_log,
         graph_prefix=cfg.graph_prefix,
+        use_default_graph=cfg.use_default_graph,
         settle_s=cfg.settle_s,
         ingest_config=IngestConfig(
             ontology_iri=cfg.ontology_iri,

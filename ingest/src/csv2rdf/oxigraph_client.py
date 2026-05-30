@@ -2,10 +2,14 @@
 
 Used by the Phase 2 watcher / upload API:
 
-- ``POST /store?graph=<URI>`` with ``Content-Type: text/turtle`` puts a Turtle
-  payload into a named graph (SPARQL 1.1 Graph Store Protocol). Existing
-  IRI-keyed triples are deduplicated by Oxigraph's set semantics so re-running
-  the same ingest is safe (the only delta is a new ``sd:IngestionActivity``).
+- ``POST /store?default`` (or ``?graph=<URI>``) with ``Content-Type:
+  text/turtle`` puts a Turtle payload into the default graph (or a named
+  graph), per the SPARQL 1.1 Graph Store Protocol. We default to the *default
+  graph* so that GRAPH-less SPARQL — the MIE example queries and the Phase 1
+  smoke tests — see the data; passing a ``graph_iri`` opts into a named graph.
+  Existing IRI-keyed triples are deduplicated by Oxigraph's set semantics so
+  re-running the same ingest is safe (the only delta is a new
+  ``sd:IngestionActivity``).
 - ``ASK { ?s ?p ?o }`` is used for liveness.
 
 Retries: Oxigraph itself is usually local, so failures are typically "server
@@ -80,22 +84,36 @@ class OxigraphClient:
         except httpx.HTTPError:
             return False
 
-    async def post_turtle(self, turtle_path: Path | str, graph_iri: str) -> int:
-        """POST a Turtle file to ``graph_iri`` and return bytes uploaded.
+    async def post_turtle(
+        self, turtle_path: Path | str, graph_iri: str | None = None
+    ) -> int:
+        """POST a Turtle file and return bytes uploaded.
 
-        Raises ``httpx.HTTPError`` after exhausting retries.
+        ``graph_iri=None`` (the default) targets the default graph; a non-None
+        value targets that named graph. Raises ``httpx.HTTPError`` after
+        exhausting retries.
         """
         path = Path(turtle_path)
         payload = path.read_bytes()
         return await self.post_turtle_bytes(payload, graph_iri)
 
-    async def post_turtle_bytes(self, payload: bytes, graph_iri: str) -> int:
-        params = {"graph": graph_iri}
+    async def post_turtle_bytes(
+        self, payload: bytes, graph_iri: str | None = None
+    ) -> int:
+        # SPARQL 1.1 Graph Store Protocol indirect graph identification:
+        # ``?default`` (a valueless flag) targets the default graph, while
+        # ``?graph=<uri>`` targets a named graph.
+        if graph_iri is None:
+            url = "/store?default"
+            params: dict[str, str] | None = None
+        else:
+            url = "/store"
+            params = {"graph": graph_iri}
         last_exc: Exception | None = None
         for attempt in range(self.config.retries):
             try:
                 r = await self._client.post(
-                    "/store",
+                    url,
                     params=params,
                     content=payload,
                     headers={"Content-Type": "text/turtle; charset=utf-8"},

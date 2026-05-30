@@ -49,6 +49,7 @@ def _make_config(tmp: Path) -> WatcherConfig:
 def _make_client(captured: dict[str, object]) -> OxigraphClient:
     def handler(request: httpx.Request) -> httpx.Response:
         captured["graph_param"] = request.url.params.get("graph")
+        captured["query"] = request.url.query.decode()
         captured["body_len"] = len(bytes(request.content))
         return httpx.Response(204)
 
@@ -118,6 +119,23 @@ async def test_process_csv_writes_turtle_and_uploads(tmp_path: Path) -> None:
     assert ttl.exists()
     text = ttl.read_text(encoding="utf-8")
     assert "sd:Paper" in text or "Paper" in text
+    # Default config posts into the default graph (no ``graph`` param).
+    assert captured["graph_param"] is None
+    assert "default" in str(captured["query"])
+
+
+async def test_process_csv_named_graph_opt_in(tmp_path: Path) -> None:
+    cfg = _make_config(tmp_path)
+    cfg.use_default_graph = False  # legacy per-kind named graph
+    cfg.ensure_dirs()
+    csv_path = cfg.drop_root / "papers" / "tiny.csv"
+    csv_path.write_text(PAPER_CSV, encoding="utf-8")
+
+    captured: dict[str, object] = {}
+    async with _make_client(captured) as client:
+        job = await process_csv("papers", csv_path, cfg, client)
+
+    assert job.status == "ok"
     assert captured["graph_param"] == f"{DEFAULT_GRAPH_PREFIX}papers"
 
 

@@ -40,6 +40,28 @@ async def test_post_turtle_bytes_sends_correct_request() -> None:
     assert seen["body"] == payload
 
 
+async def test_post_turtle_bytes_default_graph() -> None:
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path
+        seen["query"] = request.url.query.decode()
+        seen["graph_param"] = request.url.params.get("graph")
+        return httpx.Response(204)
+
+    payload = b"@prefix ex: <#> . ex:a ex:b ex:c ."
+    async with _make_client(httpx.MockTransport(handler)) as client:
+        # No graph_iri -> default graph.
+        n = await client.post_turtle_bytes(payload)
+
+    assert n == len(payload)
+    assert seen["path"] == "/store"
+    # Default-graph indirect identification: a valueless ``default`` flag,
+    # and no ``graph`` parameter.
+    assert "default" in str(seen["query"])
+    assert seen["graph_param"] is None
+
+
 async def test_post_turtle_retries_then_succeeds() -> None:
     attempts = {"n": 0}
 

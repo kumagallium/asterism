@@ -27,7 +27,7 @@
 │     → POST Turtle to Oxigraph (SPARQL Graph Store Protocol)       │
 │     → append Job record to data/sources/jobs.jsonl               │
 └──────────────────────────────────────────────────────────────────┘
-              │ POST /store?graph=<kind>          │ READ data/sources/csv/<kind>/
+              │ POST /store?default               │ READ data/sources/csv/<kind>/
               ▼                                    │ WRITE data/sources/rdf/...
 ┌──────────────────────┐         ┌────────────────────────────────┐
 │ Oxigraph (Phase 1)   │         │ data/sources/ (bind mount)      │
@@ -58,15 +58,22 @@
 `data/sources/` は `.gitignore` 済 (runtime data として扱う)。compose で host
 の同名 dir を `:/data/sources` に bind mount する。
 
-## 名前付きグラフ
+## グラフ方針 (default graph)
 
-Phase 1 の MIE YAML が示す graphs に投入する:
+**default graph に投入する** (`POST /store?default`)。MIE YAML が
+`graphs: [default]` を宣言し、`sparql_query_examples` も GRAPH 句なしで書かれて
+いるため、default graph に載せると AI のクエリ・Phase 1 smoke test の双方が
+そのまま data を見られる (`{ ?s ?p ?o }` が 0 を返さない)。Phase 3 step0 が
+生成・ロードする RDF も default graph 前提で揃えている。
 
-- `https://kumagallium.github.io/csv2rdf-mcp/starrydata/graph/papers`
-- `.../graph/samples`
-- `.../graph/curves`
+per-kind 名前付きグラフ (legacy) が必要なら opt-in できる:
 
-prefix は env `CSV2RDF_GRAPH_PREFIX` で上書き可。
+- watcher CLI: `--named-graphs`
+- upload API: env `CSV2RDF_USE_DEFAULT_GRAPH=0`
+
+その場合の投入先 IRI は `CSV2RDF_GRAPH_PREFIX` (既定
+`https://kumagallium.github.io/csv2rdf-mcp/starrydata/graph/`) + `{papers,samples,curves}`。
+ただし named graph は GRAPH 句付きクエリを要求するため、MIE クエリ例とは非互換になる。
 
 ## 冪等性
 
@@ -130,7 +137,8 @@ RDF は壊れない。
 | `CSV2RDF_RDF_ROOT`     | `/data/sources/rdf/starrydata` | 生成 Turtle の出力先 |
 | `CSV2RDF_ERROR_ROOT`   | `/data/sources/errors/starrydata` | 行エラー jsonl の出力先 |
 | `CSV2RDF_JOBS_LOG`     | `/data/sources/jobs.jsonl` | ジョブ履歴 |
-| `CSV2RDF_GRAPH_PREFIX` | `https://kumagallium.github.io/csv2rdf-mcp/starrydata/graph/` | 名前付きグラフ prefix |
+| `CSV2RDF_USE_DEFAULT_GRAPH` | `1` | `1`=default graph 投入 (既定)。`0` で per-kind 名前付きグラフ (legacy) |
+| `CSV2RDF_GRAPH_PREFIX` | `https://kumagallium.github.io/csv2rdf-mcp/starrydata/graph/` | 名前付きグラフ prefix (`CSV2RDF_USE_DEFAULT_GRAPH=0` 時のみ有効) |
 | `CSV2RDF_SETTLE_S`     | `0.3` | watcher debounce 秒数 |
 
 ## Phase 2 で意図的に out of scope
