@@ -47,6 +47,10 @@ import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 
+# A resolution path is a set of (enclosing-function, identifier) pairs already
+# visited — the cycle guard that lets param resolution recurse across scopes.
+_Seen = frozenset[tuple[str | None, str]]
+
 # ----------------------------------------------------------------------------
 # Public result type
 # ----------------------------------------------------------------------------
@@ -117,12 +121,9 @@ _PASSTHROUGH_METHODS = frozenset(
 _PASSTHROUGH_FUNCS = frozenset({"str", "int", "float", "slug", "_slug"})
 
 
-def _slice_node(node: ast.Subscript) -> ast.AST:
-    """Return the subscript's slice expression (3.8 ``ast.Index`` tolerant)."""
-    sl = node.slice
-    if isinstance(sl, ast.Index):  # pragma: no cover - Python < 3.9
-        return sl.value
-    return sl
+def _slice_node(node: ast.Subscript) -> ast.expr:
+    """Return the subscript's slice expression (Python 3.9+ stores it directly)."""
+    return node.slice
 
 
 def _as_iri_fstring(node: ast.AST) -> tuple[str, ast.JoinedStr] | None:
@@ -294,7 +295,7 @@ class _ModuleCtx:
     # -- resolution -----------------------------------------------------------
 
     def resolve_name(
-        self, name: str, scope: _Scope, seen: frozenset[tuple[str | None, str]]
+        self, name: str, scope: _Scope, seen: _Seen
     ) -> _Res:
         key = (scope.func_name, name)
         if key in seen:
@@ -306,7 +307,7 @@ class _ModuleCtx:
             return self.resolve_param(scope.func_name, name, seen)
         return _Res.unknown(name)
 
-    def resolve_expr(self, node: ast.AST, scope: _Scope, seen: frozenset) -> _Res:
+    def resolve_expr(self, node: ast.AST, scope: _Scope, seen: _Seen) -> _Res:
         col = _csv_column_of(node)
         if col is not None:
             return _Res.column(col)
@@ -320,7 +321,7 @@ class _ModuleCtx:
             return self.resolve_name(node.id, scope, seen)
         return self.resolve_value(node, scope, seen)
 
-    def resolve_value(self, node: ast.AST, scope: _Scope, seen: frozenset) -> _Res:
+    def resolve_value(self, node: ast.AST, scope: _Scope, seen: _Seen) -> _Res:
         """Resolve one placeholder expression to its CSV column(s)."""
         col = _csv_column_of(node)
         if col is not None:
@@ -333,7 +334,7 @@ class _ModuleCtx:
             res.merge(self.resolve_name(n, scope, seen))
         return res
 
-    def resolve_param(self, func_name: str | None, param: str, seen: frozenset) -> _Res:
+    def resolve_param(self, func_name: str | None, param: str, seen: _Seen) -> _Res:
         scope = self.scopes.get(func_name or "")
         params = scope.params if scope else []
         idx = params.index(param) if param in params else None
