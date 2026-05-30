@@ -50,7 +50,7 @@ materials publications) as a provenance-rich knowledge graph.
 <h2>Downloads</h2>
 <table>
   <tr><th>Format</th><th>Link</th><th>Note</th></tr>
-  <tr><td>Turtle (RDFS/OWL TBox)</td><td><a href="ontology.ttl"><code>ontology.ttl</code></a></td><td>153 triples, en/ja labels</td></tr>
+  <tr><td>Turtle (RDFS/OWL TBox)</td><td><a href="ontology.ttl"><code>ontology.ttl</code></a></td><td>178 triples, en/ja labels</td></tr>
   <tr><td>WebVOWL (interactive)</td><td><a href="https://service.tib.eu/webvowl/#iri=https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology/ontology.ttl">Open in TIB WebVOWL</a> (fallback: upload <a href="ontology.ttl"><code>ontology.ttl</code></a> manually <a href="https://service.tib.eu/webvowl/">here</a>)</td><td>Interactive ontology visualisation</td></tr>
   <tr><td>Mermaid class diagram</td><td><a href="https://github.com/kumagallium/csv2rdf-mcp/blob/main/docs/ontology/diagram.md">GitHub renders it</a></td><td>Quick visual overview</td></tr>
 </table>
@@ -66,6 +66,7 @@ materials publications) as a provenance-rich knowledge graph.
     <tr><td id="Curve"><code>#Curve</code> <a class="anchor" href="#Curve">¶</a></td><td>Curve</td><td>A measurement curve digitised from a figure in the source paper. Subclass of <code>prov:Entity</code>. Phase 1 stores raw <code>x</code>/<code>y</code> arrays as JSON literals plus pre-computed aggregates (xMin/xMax/yMin/yMax/pointCount).</td></tr>
     <tr><td id="Descriptor"><code>#Descriptor</code> <a class="anchor" href="#Descriptor">¶</a></td><td>Descriptor</td><td>Structured metadata extracted from the <code>sample_info</code> column (MaterialFamily, Form, FabricationProcess, etc.).</td></tr>
     <tr><td id="IngestionActivity"><code>#IngestionActivity</code> <a class="anchor" href="#IngestionActivity">¶</a></td><td>Ingestion Activity</td><td>A single run of the csv2rdf-mcp ingester. Subclass of <code>prov:Activity</code>. Each Paper / Sample / Curve generated in the run carries <code>prov:wasGeneratedBy → IngestionActivity</code>.</td></tr>
+    <tr><td id="DigitizationActivity"><code>#DigitizationActivity</code> <a class="anchor" href="#DigitizationActivity">¶</a></td><td>Digitization Activity</td><td>The act of extracting a curve's data points from a published figure (e.g. with WebPlotDigitizer). Subclass of <code>prov:Activity</code>. Records the <em>scientific</em> origin of the numbers (distinct from the pipeline run); a Curve is <code>prov:wasGeneratedBy</code> both. <code>prov:atTime</code> carries the curator timestamp when parseable.</td></tr>
   </tbody>
 </table>
 
@@ -79,7 +80,10 @@ materials publications) as a provenance-rich knowledge graph.
     <tr><td><code>#ofSample</code></td><td>ObjectProperty</td><td>Curve → Sample</td></tr>
     <tr><td><code>#hasDescriptor</code></td><td>ObjectProperty</td><td>Sample → Descriptor</td></tr>
     <tr><td><code>#compositionString</code></td><td>DatatypeProperty</td><td>Sample → xsd:string</td></tr>
-    <tr><td><code>#propertyX</code> / <code>#propertyY</code></td><td>DatatypeProperty</td><td>Curve → xsd:string (Phase 2: <code>qudt:QuantityKind</code> IRI)</td></tr>
+    <tr><td><code>#propertyX</code> / <code>#propertyY</code></td><td>DatatypeProperty</td><td>Curve → xsd:string (raw label, e.g. <code>"Seebeck coefficient"</code>)</td></tr>
+    <tr><td><code>#propertyXQuantity</code> / <code>#propertyYQuantity</code></td><td>ObjectProperty</td><td>Curve → <code>qudt:QuantityKind</code> (canonical IRI, added additively when a curated mapping exists; unifies synonyms like <code>"thermopower"</code>)</td></tr>
+    <tr><td><code>#unitXString</code> / <code>#unitYString</code></td><td>DatatypeProperty</td><td>Curve → xsd:string (raw unit label, e.g. <code>"V*K^(-1)"</code>)</td></tr>
+    <tr><td><code>#unitX</code> / <code>#unitY</code></td><td>ObjectProperty</td><td>Curve → <code>qudt:Unit</code> (canonical IRI, added additively; equivalent spellings collapse to one)</td></tr>
     <tr><td><code>#xValuesJSON</code> / <code>#yValuesJSON</code></td><td>DatatypeProperty</td><td>Curve → xsd:string (raw JSON array)</td></tr>
     <tr><td><code>#xMin</code> / <code>#xMax</code> / <code>#yMin</code> / <code>#yMax</code></td><td>DatatypeProperty</td><td>Curve → xsd:double</td></tr>
     <tr><td><code>#pointCount</code></td><td>DatatypeProperty</td><td>Curve → xsd:integer</td></tr>
@@ -120,10 +124,10 @@ IRI strings can survive future host migrations.</p>
 <table>
   <thead><tr><th>Feature</th><th>Phase 1 (now)</th><th>Phase 2+</th></tr></thead>
   <tbody>
-    <tr><td>Class / property definitions</td><td>5 classes, 19+ properties (this page)</td><td>QUDT alignment, EMMO/MatOnto subclassOf</td></tr>
+    <tr><td>Class / property definitions</td><td>6 classes, 29 properties (this page)</td><td>EMMO/MatOnto subclassOf</td></tr>
     <tr><td>Instance dereference (<code>sdr:paper/61</code> etc.)</td><td><em>not dereferenceable</em> (404)</td><td>Dynamic service returning SPARQL DESCRIBE result</td></tr>
-    <tr><td>Unit / quantity normalisation</td><td>Raw string (<code>"Seebeck coefficient"</code>)</td><td><code>qudt:SeebeckCoefficient</code> IRI</td></tr>
-    <tr><td>Provenance of digitisation</td><td>Ingest activity only</td><td>+ <code>sd:DigitizationActivity</code> with WebPlotDigitizer attribution</td></tr>
+    <tr><td>Unit / quantity normalisation</td><td>Raw string (<code>"Seebeck coefficient"</code>)</td><td><code>qudt:SeebeckCoefficient</code> IRI <strong>(now live, additive)</strong></td></tr>
+    <tr><td>Provenance of digitisation</td><td>Ingest activity only</td><td>+ <code>sd:DigitizationActivity</code> with WebPlotDigitizer attribution <strong>(now live)</strong></td></tr>
     <tr><td>Curve data model</td><td>JSON literal + aggregates</td><td>Individual <code>sd:DataPoint</code> nodes for 2-D range queries</td></tr>
   </tbody>
 </table>
