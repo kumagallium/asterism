@@ -190,6 +190,169 @@ def test_t1_still_fails_on_real_single_key_declaration(tmp_path: Path) -> None:
 
 
 # ----------------------------------------------------------------------------
+# T1: ingester-builder safety net (dogfood Round 3 follow-up)
+# ----------------------------------------------------------------------------
+
+
+_COMPOSITE_INGESTER = """
+SDR = None
+def sample_iri(sid, sample_id):
+    return SDR[f"sample/{sid}-{sample_id}"]
+def emit(row, g):
+    return sample_iri(row["SID"], row["sample_id"])
+"""
+
+
+def test_t1_ingester_promotes_warn_to_pass(tmp_path: Path) -> None:
+    """★ Round 3 scenario: MIE carries no composite ``{}`` template (so the old
+    T1 only warned), but the ingester correctly mints the composite key. The
+    enhanced T1 reads the ingester and verifies (SID, sample_id) → pass."""
+    csv = _write(
+        tmp_path / "samples.csv",
+        """
+        SID,sample_id
+        1,10
+        2,10
+        """,
+    )
+    mie = _write(  # no sdr:<entity>/{...} template anywhere
+        tmp_path / "mie.yaml",
+        "schema_info:\n  title: T\nsample_rdf_entries: []\n",
+    )
+    ing = _write(tmp_path / "ingest.py", _COMPOSITE_INGESTER)
+    res = _check_t1_uniqueness(
+        SchemaBundle(mie_yaml=mie, ingester_py=ing, source_csvs=[csv])
+    )
+    assert res.status == "pass", res.detail
+    assert any("ingester" in e for e in res.evidence)
+
+
+def test_t1_ingester_catches_wrong_single_key_when_mie_looks_clean(tmp_path: Path) -> None:
+    """★ The safety net: the MIE shows a correct composite key, but the ingester
+    actually mints a single-key IRI. Full-CSV validate must FAIL on the ingester
+    key even though the MIE key passes."""
+    csv = _write(
+        tmp_path / "samples.csv",
+        """
+        SID,sample_id
+        1,10
+        2,10
+        """,
+    )
+    mie = _write(  # MIE looks correct (composite)
+        tmp_path / "mie.yaml",
+        "shape_expressions: |\n  sdr:sample/{SID}-{sample_id}\n",
+    )
+    ing = _write(  # but the ingester is wrong (single key)
+        tmp_path / "ingest.py",
+        """
+        SDR = None
+        def emit(row, g):
+            sample_id = row.get("sample_id", "").strip()
+            return SDR[f"sample/{sample_id}"]
+        """,
+    )
+    res = _check_t1_uniqueness(
+        SchemaBundle(mie_yaml=mie, ingester_py=ing, source_csvs=[csv])
+    )
+    assert res.status == "fail", res.detail
+    # The failing line is the single-key ingester one; the composite MIE one passes.
+    assert any("collisions" in e and "sample_id)" in e for e in res.evidence)
+
+
+def test_t1_ingester_only_bundle(tmp_path: Path) -> None:
+    """No MIE at all — T1 still verifies the ingester's composite key."""
+    csv = _write(
+        tmp_path / "samples.csv",
+        """
+        SID,sample_id
+        1,10
+        2,10
+        """,
+    )
+    ing = _write(tmp_path / "ingest.py", _COMPOSITE_INGESTER)
+    res = _check_t1_uniqueness(SchemaBundle(ingester_py=ing, source_csvs=[csv]))
+    assert res.status == "pass", res.detail
+
+
+def test_t1_loop_index_resource_does_not_false_fail(tmp_path: Path) -> None:
+    """A descriptor keyed by a loop index is only partially resolvable; it must
+    be reported in evidence but never cause a failure."""
+    csv = _write(
+        tmp_path / "samples.csv",
+        """
+        SID,sample_id
+        1,10
+        2,10
+        """,
+    )
+    ing = _write(
+        tmp_path / "ingest.py",
+        """
+        SDR = None
+        def emit(row, g):
+            sample_id = row.get("sample_id", "").strip()
+            paper_sid = row.get("SID", "").strip()
+            sample_key = f"{paper_sid}-{sample_id}"
+            sample = SDR[f"sample/{sample_key}"]
+            for i, d in enumerate(items):
+                descriptor = SDR[f"descriptor/{sample_key}/{i}"]
+        """,
+    )
+    res = _check_t1_uniqueness(SchemaBundle(ingester_py=ing, source_csvs=[csv]))
+    assert res.status == "pass", res.detail
+    assert any("descriptor" in e and "skipped" in e for e in res.evidence)
+
+
+def test_t1_entity_routes_key_to_matching_csv(tmp_path: Path) -> None:
+    """Regression: a single-column paper key (SID) is unique in papers.csv but
+    repeats by design in samples.csv. The entity must route it to papers.csv so
+    it PASSES — checking it against samples.csv would be a false positive."""
+    papers = _write(
+        tmp_path / "papers.csv",
+        """
+        SID,DOI
+        1,10.1/a
+        2,10.2/b
+        3,10.3/c
+        """,
+    )
+    samples = _write(
+        tmp_path / "samples.csv",
+        """
+        SID,sample_id
+        1,10
+        2,10
+        3,11
+        """,
+    )
+    ing = _write(
+        tmp_path / "ingest.py",
+        """
+        SDR = None
+        def emit_paper(row):
+            sid = row.get("SID", "").strip()
+            return SDR[f"paper/{sid}"]
+        def emit_sample(row):
+            sid = row.get("SID", "").strip()
+            sample_id = row.get("sample_id", "").strip()
+            return SDR[f"sample/{sid}-{sample_id}"]
+        """,
+    )
+    res = _check_t1_uniqueness(
+        SchemaBundle(ingester_py=ing, source_csvs=[samples, papers])
+    )
+    assert res.status == "pass", res.detail
+    assert any("papers.csv" in e and "sdr:paper" in e for e in res.evidence)
+
+
+def test_t1_skipped_with_csv_but_no_schema(tmp_path: Path) -> None:
+    csv = _write(tmp_path / "samples.csv", "SID,sample_id\n1,10\n")
+    res = _check_t1_uniqueness(SchemaBundle(source_csvs=[csv]))
+    assert res.status == "skip"
+
+
+# ----------------------------------------------------------------------------
 # T2: BOM handling
 # ----------------------------------------------------------------------------
 

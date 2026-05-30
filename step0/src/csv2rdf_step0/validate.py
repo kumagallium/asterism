@@ -6,9 +6,14 @@ the source CSVs) against the 8 traps from
 
 The 8 traps and how this module checks each:
 
-* **T1 ID uniqueness** — for each composite IRI pattern referenced in the MIE
-  (e.g. ``sdr:sample/{SID}-{sample_id}``), re-run :mod:`csv2rdf_step0.inspect`
-  on the source CSVs and confirm the key combination is globally unique.
+* **T1 ID uniqueness** — collect candidate IRI keys from *two* sources: the
+  composite IRI patterns in the MIE (e.g. ``sdr:sample/{SID}-{sample_id}``) **and**
+  the actual key columns recovered from the ingester's IRI builders
+  (:mod:`csv2rdf_step0.t1_ingester`). For each, re-run
+  :mod:`csv2rdf_step0.inspect` on the source CSVs and confirm the key combination
+  is globally unique. Reading the ingester is the safety net: if ``propose`` picks
+  the wrong key on a subset, a full-CSV validate catches it even when the MIE
+  looks clean (dogfood Round 3).
 * **T2 BOM** — grep the ingester for ``utf-8-sig``; check the source CSVs'
   first column name does not start with the BOM byte.
 * **T3 bnode-free** — parse the TBox TTL with rdflib and assert
@@ -43,6 +48,7 @@ from pathlib import Path
 from typing import Any
 
 from csv2rdf_step0.inspect import _check_uniqueness, _stream_rows
+from csv2rdf_step0.t1_ingester import extract_ingester_keys
 
 # ----------------------------------------------------------------------------
 # Report dataclasses
@@ -118,18 +124,32 @@ class SchemaBundle:
 #   sdr:curve/{SID}-{figure_id}-{sample_id}
 # We extract the placeholders ({SID}, {sample_id}, ...) and treat them as the
 # composite key columns to test for global uniqueness.
-_IRI_TEMPLATE = re.compile(r"sdr:[a-zA-Z_]+/((?:\{[A-Za-z_][A-Za-z0-9_]*\}[-/]?)+)")
+_IRI_TEMPLATE = re.compile(r"sdr:([a-zA-Z_]+)/((?:\{[A-Za-z_][A-Za-z0-9_]*\}[-/]?)+)")
 _PLACEHOLDER = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+def _extract_composite_keys_with_entity(mie_text: str) -> list[tuple[str, tuple[str, ...]]]:
+    """Pull every ``(entity, placeholder-tuple)`` pair from MIE-style text."""
+    seen: set[tuple[str, tuple[str, ...]]] = set()
+    out: list[tuple[str, tuple[str, ...]]] = []
+    for match in _IRI_TEMPLATE.finditer(mie_text):
+        entity = match.group(1)
+        placeholders = tuple(_PLACEHOLDER.findall(match.group(2)))
+        if placeholders and (entity, placeholders) not in seen:
+            seen.add((entity, placeholders))
+            out.append((entity, placeholders))
+    return out
 
 
 def _extract_composite_keys(mie_text: str) -> list[tuple[str, ...]]:
     """Pull every composite-IRI placeholder tuple from MIE-style text."""
     seen: set[tuple[str, ...]] = set()
-    for match in _IRI_TEMPLATE.finditer(mie_text):
-        placeholders = tuple(_PLACEHOLDER.findall(match.group(1)))
-        if placeholders and placeholders not in seen:
+    out: list[tuple[str, ...]] = []
+    for _entity, placeholders in _extract_composite_keys_with_entity(mie_text):
+        if placeholders not in seen:
             seen.add(placeholders)
-    return list(seen)
+            out.append(placeholders)
+    return out
 
 
 # Sections that document what NOT to do. IRI templates appearing here are
@@ -163,45 +183,155 @@ def _mie_text_for_iri_scan(mie_path: Path) -> str:
     return yaml.safe_dump(filtered, allow_unicode=True, sort_keys=False)
 
 
+def _source_columns(csvs: list[Path]) -> list[str]:
+    """Union of header column names across the source CSVs (first-seen order)."""
+    cols: list[str] = []
+    for path in csvs:
+        first = next(iter(_stream_rows(path)), None)
+        if first:
+            for c in first:
+                if c not in cols:
+                    cols.append(c)
+    return cols
+
+
+def _collect_t1_candidates(
+    bundle: SchemaBundle,
+) -> tuple[dict[tuple[str, tuple[str, ...]], list[str]], list[str]]:
+    """Gather candidate IRI keys from the MIE templates *and* the ingester.
+
+    Returns ``(candidates, notes)`` where ``candidates`` maps an
+    ``(entity, column-tuple)`` pair to the human-readable sources that produced
+    it, and ``notes`` records ingester keys that were only partially resolvable
+    (left out of the uniqueness check). The entity drives which source CSV the
+    key is checked against — a ``paper`` key belongs in ``papers.csv``, not in
+    ``samples.csv`` where its column happens to repeat by design.
+    """
+    candidates: dict[tuple[str, tuple[str, ...]], list[str]] = {}
+    notes: list[str] = []
+
+    def add(entity: str, cols: tuple[str, ...], label: str) -> None:
+        if not cols:
+            return
+        sources = candidates.setdefault((entity, cols), [])
+        if label not in sources:
+            sources.append(label)
+
+    if bundle.mie_yaml:
+        # Scan everything EXCEPT anti_patterns / common_errors — those document
+        # negative examples and would cause false positives (dogfood Finding 3).
+        mie_text = _mie_text_for_iri_scan(bundle.mie_yaml)
+        for entity, key in _extract_composite_keys_with_entity(mie_text):
+            add(entity, key, "MIE template")
+
+    if bundle.ingester_py:
+        columns = _source_columns(bundle.source_csvs)
+        try:
+            ikeys = extract_ingester_keys(
+                bundle.ingester_py.read_text(encoding="utf-8"), columns
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            notes.append(f"ingester parse failed: {exc}")
+            ikeys = []
+        for k in ikeys:
+            if k.fully_resolved:
+                add(k.entity, k.columns, f"ingester {k.func or '<module>'}() → sdr:{k.entity}")
+            elif k.columns or k.unresolved:
+                # Secondary resources (descriptor/{key}/{i}, ingestion/{run_id})
+                # carry an unresolvable placeholder; don't guess — just report.
+                notes.append(
+                    f"ingester sdr:{k.entity} ({k.func}): "
+                    f"resolved {list(k.columns)}, unresolved {list(k.unresolved)} — skipped"
+                )
+
+    return candidates, notes
+
+
+def _pick_csv_for_key(
+    entity: str,
+    key: tuple[str, ...],
+    csvs: list[Path],
+    rows_of: Any,
+) -> Path | None:
+    """Choose which source CSV to test ``key`` against.
+
+    Among CSVs that contain *all* of the key's columns, prefer one whose
+    filename matches ``entity`` (``paper`` → ``papers.csv``). This stops a
+    single-column key like ``(SID,)`` from being judged against the wrong file
+    where the column repeats legitimately. Falls back to the first match.
+    """
+    matching = [
+        p
+        for p in csvs
+        if (rows := rows_of(p)) and all(c in rows[0] for c in key)
+    ]
+    if not matching:
+        return None
+    ent = entity.lower().rstrip("s")
+    if ent:
+        for p in matching:
+            if ent in p.stem.lower().rstrip("s"):
+                return p
+    return matching[0]
+
+
 def _check_t1_uniqueness(bundle: SchemaBundle) -> TrapResult:
-    if not bundle.mie_yaml or not bundle.source_csvs:
+    if not bundle.source_csvs:
         return TrapResult(
             "T1",
             "ID uniqueness (composite key globally unique)",
             "skip",
-            "Need both mie_yaml and source_csvs to run.",
+            "Need source_csvs to run.",
         )
-    # Scan everything EXCEPT anti_patterns / common_errors — those document
-    # negative examples and would cause false positives (see dogfood Finding 3).
-    mie_text = _mie_text_for_iri_scan(bundle.mie_yaml)
-    keys = _extract_composite_keys(mie_text)
-    if not keys:
+    if not bundle.mie_yaml and not bundle.ingester_py:
+        return TrapResult(
+            "T1",
+            "ID uniqueness",
+            "skip",
+            "Need mie_yaml or ingester_py to derive IRI keys.",
+        )
+
+    candidates, notes = _collect_t1_candidates(bundle)
+    if not candidates:
+        detail = "No composite IRI templates found in MIE"
+        if bundle.ingester_py:
+            detail += " and no resolvable composite key in ingester"
         return TrapResult(
             "T1",
             "ID uniqueness",
             "warn",
-            "No composite IRI templates found in MIE (no sdr:<entity>/{...} patterns).",
+            detail + " (no sdr:<entity>/{...} patterns).",
+            evidence=notes,
         )
+
+    # Cache each CSV's rows — the same file backs several candidate keys.
+    row_cache: dict[Path, list[dict[str, str]]] = {}
+
+    def rows_of(path: Path) -> list[dict[str, str]]:
+        if path not in row_cache:
+            row_cache[path] = list(_stream_rows(path))
+        return row_cache[path]
 
     failures: list[str] = []
     passes: list[str] = []
-    for key in keys:
-        # Find which CSV contains all the columns in `key`
-        for csv_path in bundle.source_csvs:
-            rows = list(_stream_rows(csv_path))
-            if not rows or not all(c in rows[0] for c in key):
-                continue
-            report = _check_uniqueness(rows, key)
-            label = f"{csv_path.name}: ({', '.join(key)})"
-            if report.is_unique:
-                passes.append(f"{label} → 0 collisions ({report.total_rows_considered:,} rows)")
-            else:
-                failures.append(
-                    f"{label} → {report.collision_count:,} collisions "
-                    f"({report.distinct_tuples:,} of "
-                    f"{report.total_rows_considered:,} rows distinct)"
-                )
-            break  # tested in the matching CSV; don't double-count
+    for (entity, key), sources in candidates.items():
+        src = "; ".join(sources)
+        csv_path = _pick_csv_for_key(entity, key, bundle.source_csvs, rows_of)
+        if csv_path is None:
+            notes.append(
+                f"sdr:{entity} ({', '.join(key)}) [{src}] → no source CSV has all these columns"
+            )
+            continue
+        report = _check_uniqueness(rows_of(csv_path), key)
+        label = f"{csv_path.name}: sdr:{entity} ({', '.join(key)}) [{src}]"
+        if report.is_unique:
+            passes.append(f"{label} → 0 collisions ({report.total_rows_considered:,} rows)")
+        else:
+            failures.append(
+                f"{label} → {report.collision_count:,} collisions "
+                f"({report.distinct_tuples:,} of "
+                f"{report.total_rows_considered:,} rows distinct)"
+            )
 
     if failures:
         return TrapResult(
@@ -209,14 +339,22 @@ def _check_t1_uniqueness(bundle: SchemaBundle) -> TrapResult:
             "ID uniqueness",
             "fail",
             f"{len(failures)} composite key(s) collide in source CSVs.",
-            evidence=failures + passes,
+            evidence=failures + passes + notes,
+        )
+    if not passes:
+        return TrapResult(
+            "T1",
+            "ID uniqueness",
+            "warn",
+            "Derived IRI key(s) could not be matched to any source CSV's columns.",
+            evidence=notes,
         )
     return TrapResult(
         "T1",
         "ID uniqueness",
         "pass",
         f"All {len(passes)} composite key(s) globally unique.",
-        evidence=passes,
+        evidence=passes + notes,
     )
 
 

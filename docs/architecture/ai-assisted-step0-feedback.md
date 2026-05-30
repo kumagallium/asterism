@@ -130,13 +130,41 @@ refined ingester は正しく複合 `paper_iri(sid, doi)` を使うが、validat
 
 ---
 
+## T1 ingester-builder 検証強化 (実装、2026-05-30)
+
+Round 3 末尾で「将来の改善余地」とした **T1 を ingester の IRI builder から検証する強化** を実装した (`feat/phase3-validate-t1-ingester`)。これで「propose / refine が誤キーを選んでも全件 validate が必ず catch する」完全な安全網が入った。
+
+### 何をしたか
+
+新モジュール [`step0/src/csv2rdf_step0/t1_ingester.py`](../../step0/src/csv2rdf_step0/t1_ingester.py) が ingester を `ast` で parse し、**RDF entity ごとに IRI を構成する実際の CSV 列**を復元する。2 つの ingester スタイル両方に対応:
+
+1. **builder-function 形式** (LLM / proposal 出力) — `def sample_iri(sid, sample_id): return SDR[f"sample/{sid}-{sample_id}"]`。placeholder は関数引数なので **call site** (`sample_iri(row["SID"], row["sample_id"])`) から列を引き当て、無ければ **ヘッダ名の大文字小文字無視マッチ** (`sid`→`SID`) にフォールバック。`_slug(doi)` / `.strip()` / `str(...)` などの変換ラッパは透過。
+2. **inline 形式** (Phase 1 手書き `starrydata.py`) — `paper_sid = row.get("SID")` → `sample_key = f"{paper_sid}-{sample_id}"` → `sdr[f"sample/{sample_key}"]`。placeholder はローカル変数なので **代入を何 hop でも辿って** `row["COL"]` / `row.get("COL")` まで戻す。
+
+`validate.py` の `_check_t1_uniqueness` を、MIE template だけでなく **ingester 由来のキーも uniqueness 検証**するよう拡張。これで Round 3 の「ingester が正しい複合キーでも T1 は warn 止まり」が **warn → pass / fail** に変わる。
+
+### 設計上の罠を 2 つ自力で踏んで直した
+
+- **保守的な未解決扱い**: 二次リソース `descriptor/{sample_key}/{i}` の loop index `i` や `ingestion/{run_id}` の `run_id` は列に解決できない。これらを推測せず `unresolved` に記録し、**`fully_resolved` なキーだけ uniqueness にかける**。→ 二次リソースが偽陽性 fail を出さない。
+- **entity による CSV 選択** (実 CLI dogfood で発見した偽陽性): `sdr:paper/{SID}` の単独キーを、`SID` 列を持つ最初の CSV (= `samples.csv`、そこでは SID が設計上重複する) で検証すると **偽 fail** する。entity 名でマッチする CSV (`paper`→`papers.csv`) を優先選択するようにして解消。実 `starrydata.py` + クリーン CSV で `sdr:paper (SID)` が `papers.csv` に振られ pass することを確認した。
+
+### 検証
+
+- step0 全 test pass (96+ → **111**)。新規 unit test = 抽出器 9 件 (`test_t1_ingester.py`) + T1 統合 6 件 (`test_validate.py`)
+- 実 `ingest/src/csv2rdf/starrydata.py` を CLI `csv2rdf-validate --ingester` にかけ、`paper`/`sample`/`curve` の複合キーを正しく復元・検証することを end-to-end 確認
+- **副産物**: 実 starrydata.py の `sdr:paper/{SID}` が単独キーであることを T1 が自動で可視化した。残タスク「papers.csv の SID 28 collisions」(全件) はこの安全網が今後 catch する
+
+→ 「次の Round で試すこと」**項目 5 完了**。
+
+---
+
 ## 次の Round で試すこと
 
 1. ~~streaming 修正後に再 propose~~ ✅ Round 2 完了
 2. ~~domain hint に collision 知見を注入~~ ✅ Round 2 完了
 3. **全件 inspect → propose** — uniqueness を全件で見せれば hint 無しでも複合キーを選ぶか (コスト増とのトレードオフ)
 4. ~~propose → refine round-trip~~ ✅ Round 3 完了
-5. **T1 を ingester の IRI builder から検証する強化** — 上記「T1 の限界」。これが入れば完全な安全網
+5. ~~T1 を ingester の IRI builder から検証する強化~~ ✅ 実装完了 (2026-05-30、上記「T1 ingester-builder 検証強化」)
 6. **validate を CI に統合** — starrydata subset fixture を repo に追加
 7. **rdf-config 連携自動化** — materialize → `--shex` → MIE merge
 8. **別 dataset** (NIMS Supercon 等) で全 loop
