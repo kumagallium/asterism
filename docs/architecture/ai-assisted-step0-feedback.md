@@ -165,7 +165,7 @@ Round 3 末尾で「将来の改善余地」とした **T1 を ingester の IRI 
 3. **全件 inspect → propose** — uniqueness を全件で見せれば hint 無しでも複合キーを選ぶか (コスト増とのトレードオフ)
 4. ~~propose → refine round-trip~~ ✅ Round 3 完了
 5. ~~T1 を ingester の IRI builder から検証する強化~~ ✅ 実装完了 (2026-05-30、上記「T1 ingester-builder 検証強化」)
-6. **validate を CI に統合** — starrydata subset fixture を repo に追加
+6. ~~validate を CI に統合~~ ✅ 完了 (2026-05-30、PR #31)。`step0/tests/fixtures/starrydata_min/` の極小 bundle を commit し、pytest + CI step で 8 罠を end-to-end 検証 (API キー不要)
 7. **rdf-config 連携自動化** — materialize → `--shex` → MIE merge
 8. **別 dataset** (NIMS Supercon 等) で全 loop
 
