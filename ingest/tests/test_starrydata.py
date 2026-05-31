@@ -119,6 +119,19 @@ def test_safe_url_empty_returns_none() -> None:
     assert safe_url("   ") is None
 
 
+def test_safe_url_schemeless_returns_none() -> None:
+    # Full-scale finding: 19 papers carry URL="unknown", which must not become
+    # the invalid scheme-less IRI <unknown> (Oxigraph's bulk loader rejects it
+    # and drops the whole file). Other scheme-less placeholders behave the same.
+    assert safe_url("unknown") is None
+    assert safe_url("n/a") is None
+    assert safe_url("www.example.com") is None
+    assert safe_url("10.1021/ar400290f") is None  # bare DOI, no scheme
+    # Real schemes still pass through.
+    assert safe_url("https://example.org/x") == "https://example.org/x"
+    assert safe_url("ftp://host/f") == "ftp://host/f"
+
+
 def test_emit_paper_with_angle_bracket_url_serializes_cleanly(tmp_path: Path) -> None:
     """Regression for the full-scale finding: a paper whose URL has < > must
     still produce loadable Turtle (round-trips through rdflib parse)."""
