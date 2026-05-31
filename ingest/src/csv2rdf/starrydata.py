@@ -265,15 +265,25 @@ _IRI_ILLEGAL = {
 }
 _IRI_ILLEGAL_RE = re.compile("[" + re.escape("".join(_IRI_ILLEGAL)) + "]")
 
+# A usable schema:url must be an absolute IRI, i.e. start with an RFC 3986
+# scheme (``ALPHA *( ALPHA / DIGIT / "+" / "-" / "." ) ":"``). Starrydata has
+# placeholder URL values like "unknown" (19 papers at full scale) that would
+# otherwise be emitted as the scheme-less IRI ``<unknown>`` — invalid Turtle
+# that Oxigraph's bulk loader rejects, taking the whole file down with it.
+_URI_SCHEME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.\-]*:")
+
 
 def safe_url(value: str) -> str | None:
-    """Return an IRI-safe URL (illegal chars percent-encoded), or None if empty.
+    """Return an IRI-safe URL (illegal chars percent-encoded), or None.
 
-    Only the characters that are illegal in an IRI are encoded; the URL's
-    structure (scheme, slashes, already-encoded sequences) is left intact.
+    Returns None for empty values and for scheme-less placeholders (e.g.
+    "unknown") that are not absolute IRIs — we skip the triple rather than emit
+    an invalid IRI. Otherwise only the characters that are illegal in an IRI are
+    encoded; the URL's structure (scheme, slashes, already-encoded sequences) is
+    left intact.
     """
     v = strip_quoted(value)
-    if not v:
+    if not v or not _URI_SCHEME_RE.match(v):
         return None
     return _IRI_ILLEGAL_RE.sub(lambda m: _IRI_ILLEGAL[m.group()], v)
 
