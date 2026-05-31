@@ -178,3 +178,61 @@ def test_jobs_rejects_invalid_limit(
     with TestClient(app) as client:
         r = client.get("/jobs", params={"limit": 0})
         assert r.status_code == 400
+
+
+# ----------------------------------------------------------------------------
+# Phase 4 (M0): /api/inspect — step0 structure inspection, no LLM
+# ----------------------------------------------------------------------------
+
+
+def test_inspect_returns_markdown(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    app = build_app(
+        _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
+    )
+    with TestClient(app) as client:
+        r = client.post(
+            "/api/inspect",
+            files={"files": ("samples.csv", b"SID,sample_id\n1,10\n1,11\n2,10\n", "text/csv")},
+        )
+        assert r.status_code == 200
+        assert r.headers["content-type"].startswith("text/markdown")
+        body = r.text
+        assert "## CSV: samples.csv" in body
+        assert "sample_id" in body
+
+
+def test_inspect_multi_csv_with_fk(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    app = build_app(
+        _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
+    )
+    with TestClient(app) as client:
+        r = client.post(
+            "/api/inspect",
+            params={"fk": "SID"},
+            files=[
+                ("files", ("papers.csv", b"SID,DOI\n1,10.1/a\n2,10.2/b\n", "text/csv")),
+                ("files", ("samples.csv", b"SID,sample_id\n1,10\n2,11\n", "text/csv")),
+            ],
+        )
+        assert r.status_code == 200
+        body = r.text
+        assert "## CSV: papers.csv" in body
+        assert "## CSV: samples.csv" in body
+
+
+def test_inspect_rejects_unsafe_filename(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    app = build_app(
+        _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
+    )
+    with TestClient(app) as client:
+        r = client.post(
+            "/api/inspect",
+            files={"files": ("../../etc/passwd.csv", b"a,b\n1,2\n", "text/csv")},
+        )
+        assert r.status_code == 400

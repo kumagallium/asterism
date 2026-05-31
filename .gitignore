@@ -9,6 +9,8 @@ venv/
 
 # uv / pip
 .uv/
+# uv.lock は commit しない方針 (各パッケージは CI で `uv pip install -e` 都度解決)
+uv.lock
 
 # Type / lint caches
 .mypy_cache/
