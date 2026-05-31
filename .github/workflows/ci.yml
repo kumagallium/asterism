@@ -246,7 +246,10 @@ jobs:
 
       - name: Install deps
         working-directory: ui
-        run: npm ci
+        # npm install (not ci): the lock is generated on macOS and can miss
+        # Linux-only optional deps (e.g. @emnapi/*), which trips `npm ci`'s
+        # strict lock/package.json sync check. install tolerates that.
+        run: npm install --no-audit --no-fund
 
       - name: Lint
         working-directory: ui
