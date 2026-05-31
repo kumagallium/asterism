@@ -6,8 +6,10 @@ requires-python = ">=3.11"
 readme = "../README.md"
 license = { text = "Apache-2.0" }
 dependencies = [
-    # csv2rdf-ingest is installed from sibling path; see README quickstart.
+    # csv2rdf-ingest and csv2rdf-step0 are installed from sibling paths; see
+    # [tool.uv.sources] below. step0's inspect path is dependency-free.
     "csv2rdf-ingest",
+    "csv2rdf-step0",
     "fastapi>=0.110",
     "python-multipart>=0.0.9",
     "uvicorn[standard]>=0.30",
@@ -34,6 +36,7 @@ packages = ["src/csv2rdf_api"]
 
 [tool.uv.sources]
 csv2rdf-ingest = { path = "../ingest", editable = true }
+csv2rdf-step0 = { path = "../step0", editable = true }
 
 [tool.ruff]
 target-version = "py311"
@@ -41,6 +44,10 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI dependency markers are calls-in-defaults by design (not B008 bugs).
+extend-immutable-calls = ["fastapi.File", "fastapi.Query", "fastapi.Path", "fastapi.Depends"]
 
 [tool.mypy]
 strict = true

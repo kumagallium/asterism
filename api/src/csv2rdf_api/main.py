@@ -26,6 +26,7 @@ import json
 import logging
 import os
 import re
+import tempfile
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -40,7 +41,8 @@ from csv2rdf.watcher import (
     WatcherConfig,
     watch,
 )
-from fastapi import FastAPI, HTTPException, UploadFile
+from csv2rdf_step0.inspect import inspect_csv_set, render_markdown
+from fastapi import FastAPI, File, HTTPException, Query, Response, UploadFile
 from fastapi import Path as PathParam
 from fastapi.responses import JSONResponse
 
@@ -231,6 +233,33 @@ def build_app(
             raise HTTPException(400, "limit must be in [1, 500]")
         entries = _tail_jsonl(cfg.jobs_log, limit)
         return {"count": len(entries), "jobs": entries}
+
+    @app.post("/api/inspect")
+    async def inspect_csvs(
+        files: list[UploadFile] = File(..., description="CSV file(s) to inspect"),
+        fk: list[str] = Query(
+            default=[], description="Foreign-key hint column (repeatable, e.g. SID)"
+        ),
+    ) -> Response:
+        """Phase 4 (M0): run step0's structure inspection and return its Markdown.
+
+        No LLM and no API key — step0's inspect path is dependency-free. The
+        uploads are written to a throwaway temp dir, inspected, then discarded;
+        nothing is persisted (dataset persistence arrives in M1).
+        """
+        if not files:
+            raise HTTPException(400, "no files uploaded")
+        with tempfile.TemporaryDirectory() as td:
+            paths: list[Path] = []
+            for upload in files:
+                if upload.filename is None:
+                    raise HTTPException(400, "missing filename")
+                dest = Path(td) / _validate_name(upload.filename)
+                await _save_upload(upload, dest)
+                paths.append(dest)
+            inspections, fks = inspect_csv_set(paths, fk_hint_columns=fk or None)
+            markdown = render_markdown(inspections, fks)
+        return Response(content=markdown, media_type="text/markdown")
 
     return app
 
