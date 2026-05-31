@@ -230,3 +230,31 @@ jobs:
       - name: Stop Oxigraph
         if: always()
         run: docker stop oxigraph && docker rm oxigraph
+
+  ui:
+    name: ui (lint + build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install deps
+        working-directory: ui
+        # npm install (not ci): the lock is generated on macOS and can miss
+        # Linux-only optional deps (e.g. @emnapi/*), which trips `npm ci`'s
+        # strict lock/package.json sync check. install tolerates that.
+        run: npm install --no-audit --no-fund
+
+      - name: Lint
+        working-directory: ui
+        run: npm run lint
+
+      - name: Build (incl. tsc typecheck)
+        working-directory: ui
+        run: npm run build
