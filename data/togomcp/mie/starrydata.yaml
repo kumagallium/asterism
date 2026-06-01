@@ -307,6 +307,30 @@ sparql_query_examples:
       }
       ORDER BY DESC(ABS(?yMax)) LIMIT 10
 
+  - title: "Highest ZT (figure of merit) — material and paper"
+    description: |
+      ZT is a Curve sd:propertyY (label "ZT"; minor variants "Figure of merit Z"
+      / "Zt"), NOT a Sample attribute or Descriptor. The per-curve peak ZT is the
+      pre-computed aggregate sd:yMax. Join Curve -> Sample (sd:ofSample) ->
+      Paper (sd:fromPaper) to report the material (composition) and source paper.
+      DATA QUALITY: starrydata contains digitization / labeling errors with
+      physically impossible ZT (e.g. > 3.5, up to ~13000 from a mislabeled axis).
+      Real peak ZT tops out around 2.5-3.1 (e.g. SnSe, YbZn2Sb2). ALWAYS filter
+      out impossible values and present the answer as the highest *recorded* ZT,
+      noting that extreme values may be data errors rather than fabricating a
+      single "record" number.
+    query: |
+      PREFIX sd:     <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#>
+      PREFIX schema: <https://schema.org/>
+      SELECT ?zt ?comp ?title WHERE {
+        ?curve a sd:Curve ; sd:propertyY "ZT" ; sd:yMax ?zt ; sd:ofSample ?s .
+        ?s sd:fromPaper ?p .
+        OPTIONAL { ?s sd:compositionString ?comp }
+        OPTIONAL { ?p schema:name ?title }
+        FILTER(?zt <= 3.5)   # exclude digitization-error outliers
+      }
+      ORDER BY DESC(?zt) LIMIT 10
+
   - title: "Seebeck curves across naming variants (QUDT normalization)"
     description: |
       RECOMMENDED for cross-synonym search. starrydata uses several strings for
@@ -464,6 +488,11 @@ anti_patterns: |
     values are reused across papers. Always join Sample/Curve via their
     composite IRI (`sdr:sample/{SID}-{sample_id}` etc.) or via the
     `sd:fromPaper` / `sd:ofSample` object property.
+  - ZT / figure of merit is a Curve `sd:propertyY` (NOT a Descriptor and NOT a
+    Sample attribute). Rank by the per-curve aggregate `sd:yMax`, not by parsing
+    y[] arrays. Watch for physically impossible ZT outliers (digitization
+    errors, values > 3.5 up to ~13000) and filter them out — real peak ZT is
+    ~2.5-3.1. The same caution applies to any quantity's min/max.
 
 common_errors: |
   - **SP030 "Too many closing parentheses"** — only observed with the
