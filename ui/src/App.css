@@ -281,6 +281,108 @@
   }
 }
 
+/* ---- M2 ingest-history table + empty state ---- */
+.empty-state {
+  text-align: center;
+  padding: 3rem 1rem;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-lg);
+}
+.empty-title {
+  font-weight: 700;
+  color: var(--fg);
+  margin: 0 0 0.3rem;
+}
+.empty-sub {
+  font-size: 0.88rem;
+  margin: 0;
+}
+
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.jobs-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+}
+.jobs-table th,
+.jobs-table td {
+  text-align: left;
+  padding: 0.55rem 0.8rem;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.jobs-table th {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: var(--secondary);
+}
+.jobs-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.jobs-table tbody tr:hover {
+  background: var(--accent);
+}
+.jobs-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.job-kind {
+  font-weight: 600;
+}
+.job-status {
+  display: inline-block;
+  font-size: 0.74rem;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 0.08rem 0.5rem;
+}
+.job-status--ok {
+  color: var(--success-fg);
+  background: var(--success-bg);
+}
+.job-status--warn {
+  color: var(--warn-fg);
+  background: var(--warn-bg);
+}
+.job-status--error {
+  color: var(--error-fg);
+  background: var(--error-bg);
+}
+.job-status--muted {
+  color: var(--muted);
+  background: var(--secondary);
+}
+.job-error {
+  display: inline-block;
+  max-width: 18rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  margin-left: 0.4rem;
+  font-size: 0.76rem;
+  color: var(--error-fg);
+}
+.job-file {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.8rem;
+}
+.job-err-count {
+  color: var(--warn-fg);
+}
+.job-time {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
 /* ---- workbench stepper (U2) ---- */
 .data-source {
   display: flex;

@@ -55,6 +55,17 @@ export function GalleryIcon({ className }: IconProps) {
   )
 }
 
+/** Clock-with-arrow — ingest history. */
+export function HistoryIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className} aria-hidden="true">
+      <path d="M3 3v5h5" />
+      <path d="M3.05 11a9 9 0 1 1 .5 4" />
+      <path d="M12 7v5l3 2" />
+    </svg>
+  )
+}
+
 /** Brand mark — a tiny CSV→RDF node graph. */
 export function BrandMark({ className }: IconProps) {
   return (
