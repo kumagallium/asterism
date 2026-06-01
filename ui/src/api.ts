@@ -74,8 +74,54 @@ export async function proposeCsvs(
     throw new Error(`propose failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
   }
   const { job_id } = (await res.json()) as { job_id: string }
+  return subscribeJob(job_id, handlers)
+}
 
-  const es = new EventSource(`/api/jobs/${job_id}/stream`)
+/** Result payload carried by the SSE `done` event for a refine job. */
+export interface RefineResult {
+  refined_md: string
+  metadata: Record<string, unknown>
+}
+
+export interface RefineHandlers {
+  onStatus?: (message: string) => void
+  onDone: (result: RefineResult) => void
+  onError: (message: string) => void
+}
+
+/**
+ * Apply review comments to the current schema Markdown and subscribe to the
+ * resulting job's SSE stream. Reuses the same job/SSE machinery as propose.
+ */
+export async function refineSchema(
+  schemaMd: string,
+  comments: string[],
+  apiKey: string,
+  handlers: RefineHandlers,
+): Promise<() => void> {
+  const res = await fetch('/api/refine', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(apiKey ? { 'X-API-Key': apiKey } : {}),
+    },
+    body: JSON.stringify({ schema_md: schemaMd, comments }),
+  })
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '')
+    throw new Error(`refine failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
+  }
+  const { job_id } = (await res.json()) as { job_id: string }
+  return subscribeJob(job_id, handlers)
+}
+
+// Shared SSE subscription for propose/refine jobs. Returns a cleanup function
+// that closes the EventSource.
+function subscribeJob<T>(
+  jobId: string,
+  handlers: { onStatus?: (m: string) => void; onDone: (r: T) => void; onError: (m: string) => void },
+): () => void {
+  const es = new EventSource(`/api/jobs/${jobId}/stream`)
   const close = () => es.close()
 
   es.addEventListener('started', () => handlers.onStatus?.('started'))
@@ -85,7 +131,7 @@ export async function proposeCsvs(
   })
   es.addEventListener('done', (e) => {
     const data = JSON.parse((e as MessageEvent).data)
-    handlers.onDone(data.result as ProposeResult)
+    handlers.onDone(data.result as T)
     close()
   })
   es.addEventListener('error', (e) => {

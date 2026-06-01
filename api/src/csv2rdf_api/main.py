@@ -44,11 +44,20 @@ from csv2rdf.watcher import (
 )
 from csv2rdf_step0.inspect import inspect_csv_set, render_markdown
 from csv2rdf_step0.propose import AnthropicLLMClient, LLMClient, propose_schema
+from csv2rdf_step0.refine import refine_schema
 from fastapi import FastAPI, File, Form, Header, HTTPException, Query, Response, UploadFile
 from fastapi import Path as PathParam
 from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import BaseModel
 
 from csv2rdf_api.jobs import JobManager
+
+
+class RefineRequest(BaseModel):
+    """Body for POST /api/refine: the current schema + review comments."""
+
+    schema_md: str
+    comments: list[str]
 
 logger = logging.getLogger(__name__)
 
@@ -325,6 +334,33 @@ def build_app(
                 }
             finally:
                 shutil.rmtree(tmpdir, ignore_errors=True)
+
+        jobs: JobManager = app.state.jobs
+        job_id = jobs.start(work)
+        return JSONResponse({"job_id": job_id}, status_code=202)
+
+    @app.post("/api/refine")
+    async def refine(
+        body: RefineRequest,
+        x_api_key: str | None = Header(default=None),
+    ) -> JSONResponse:
+        """Phase 4 (M1c): start an async refine job; return its job_id.
+
+        Applies review comments to the current schema Markdown via the LLM and
+        streams lifecycle events from ``/api/jobs/{job_id}/stream``. Like
+        propose, the API key is used only for this run and never persisted (D7).
+        """
+        comments = [c for c in (body.comments or []) if c.strip()]
+        if not body.schema_md.strip():
+            raise HTTPException(400, "schema_md is required")
+        if not comments:
+            raise HTTPException(400, "at least one non-empty comment is required")
+
+        llm = make_llm(x_api_key)
+
+        def work() -> dict[str, object]:
+            result = refine_schema(body.schema_md, comments, llm=llm)
+            return {"refined_md": result.refined_md, "metadata": result.metadata}
 
         jobs: JobManager = app.state.jobs
         job_id = jobs.start(work)

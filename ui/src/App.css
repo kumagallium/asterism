@@ -199,6 +199,31 @@ textarea:focus {
   overflow-x: auto;
 }
 
+/* ---- refine box (M1c) ---- */
+.refine-box {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  align-items: flex-start;
+  margin-top: 1rem;
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--secondary);
+}
+
+.refine-box .domain-label {
+  width: 100%;
+  max-width: 100%;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.refine-box textarea {
+  width: 100%;
+  max-width: 100%;
+}
+
 /* ---- Ask view ---- */
 .demo-badge {
   display: inline-block;
