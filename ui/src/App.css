@@ -202,6 +202,85 @@
   font-size: 0.85rem;
 }
 
+/* ---- U3 polish: spinner, file input, responsive ---- */
+.spinner {
+  display: inline-block;
+  width: 0.85em;
+  height: 0.85em;
+  vertical-align: -0.1em;
+  margin-right: 0.4em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Custom file picker: hide the native input, use a styled label as a button. */
+.file-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--primary);
+  background: var(--secondary);
+  border: 1px solid var(--primary);
+  border-radius: var(--radius);
+  padding: 0.45rem 0.9rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background-color 0.15s,
+    box-shadow 0.15s;
+}
+.file-btn:hover {
+  background: var(--accent);
+  box-shadow: var(--shadow-1);
+}
+.file-btn input {
+  display: none;
+}
+.file-names {
+  font-size: 0.82rem;
+  color: var(--fg);
+  word-break: break-all;
+}
+.file-names.empty {
+  color: var(--muted);
+}
+
+/* Responsive: collapse the sidebar to an icon rail on narrow viewports. */
+@media (max-width: 820px) {
+  .sidebar {
+    width: 64px;
+    padding: 1rem 0.4rem;
+  }
+  .brand-text,
+  .side-nav-label,
+  .side-nav-item span:not(.side-nav-icon),
+  .sidebar-foot {
+    display: none;
+  }
+  .brand {
+    justify-content: center;
+    padding: 0.3rem 0;
+  }
+  .side-nav-item {
+    justify-content: center;
+    padding: 0.6rem 0;
+  }
+  .topbar,
+  .app-content {
+    padding-left: 1.1rem;
+    padding-right: 1.1rem;
+  }
+}
+
 /* ---- workbench stepper (U2) ---- */
 .data-source {
   display: flex;

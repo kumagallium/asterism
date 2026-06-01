@@ -72,7 +72,12 @@ export function GalleryView() {
       </div>
 
       {error && <pre className="error">{error}</pre>}
-      {!ontologies && !error && <p className="trace-loading">ギャラリーを読み込み中…</p>}
+      {!ontologies && !error && (
+        <p className="trace-loading">
+          <span className="spinner" />
+          ギャラリーを読み込み中…
+        </p>
+      )}
 
       {ontologies && (
         <section className="gallery-section">
