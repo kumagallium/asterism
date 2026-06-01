@@ -2,10 +2,11 @@ import { useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import './App.css'
-import { inspectCsvs, proposeCsvs, refineSchema } from './api'
+import { inspectCsvs, materializeSchema, proposeCsvs, refineSchema, type MaterializeResult } from './api'
 import { AskView } from './AskView'
 import type { Citation } from './demoApi'
 import { PRESET_HINTS } from './domainHints'
+import { MaterializePanel } from './MaterializePanel'
 import { ProposalView } from './ProposalView'
 import { ProvenanceTrace } from './ProvenanceTrace'
 
@@ -42,6 +43,10 @@ function App() {
   const [comment, setComment] = useState('')
   const [refining, setRefining] = useState(false)
   const refineCloseRef = useRef<(() => void) | null>(null)
+
+  // Materialize + validate (M1d).
+  const [materialized, setMaterialized] = useState<MaterializeResult | null>(null)
+  const [materializing, setMaterializing] = useState(false)
 
   const fks = () =>
     fk
@@ -97,6 +102,7 @@ function App() {
         onStatus: (m) => setStatus(m),
         onDone: (result) => {
           setProposal(result.proposal_md)
+          setMaterialized(null)
           setStatus('done')
           setProposing(false)
         },
@@ -125,6 +131,7 @@ function App() {
         onStatus: (m) => setStatus(m),
         onDone: (result) => {
           setProposal(result.refined_md)
+          setMaterialized(null)
           setComment('')
           setStatus('refined')
           setRefining(false)
@@ -139,6 +146,19 @@ function App() {
       setProposeErr(e instanceof Error ? e.message : String(e))
       setStatus('')
       setRefining(false)
+    }
+  }
+
+  async function onMaterialize() {
+    if (!proposal) return
+    setProposeErr('')
+    setMaterializing(true)
+    try {
+      setMaterialized(await materializeSchema(proposal))
+    } catch (e) {
+      setProposeErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setMaterializing(false)
     }
   }
 
@@ -264,10 +284,20 @@ function App() {
                     onChange={(e) => setComment(e.target.value)}
                   />
                 </label>
-                <button onClick={onRefine} disabled={refining || !apiKey || !comment.trim()}>
-                  {refining ? 'Refining…' : 'Refine (コメントを反映)'}
-                </button>
+                <div className="refine-actions">
+                  <button onClick={onRefine} disabled={refining || !apiKey || !comment.trim()}>
+                    {refining ? 'Refining…' : 'Refine (コメントを反映)'}
+                  </button>
+                  <button
+                    className="secondary-btn"
+                    onClick={onMaterialize}
+                    disabled={materializing}
+                  >
+                    {materializing ? 'Materializing…' : 'Materialize + 検証'}
+                  </button>
+                </div>
               </section>
+              {materialized && <MaterializePanel result={materialized} />}
             </>
           )}
         </>
