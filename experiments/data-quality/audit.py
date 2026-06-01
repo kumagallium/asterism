@@ -163,6 +163,73 @@ CHECKS: list[Check] = [
 } ORDER BY DESC(ABS(?y)) LIMIT 30""",
         cols=["y", "py", "fig"],
     ),
+    Check(
+        key="negative_nonneg_quantity",
+        title="Negative value for a non-negative quantity",
+        severity="impossible",
+        why="These quantities are physically >= 0: thermal/electrical "
+        "conductivity, resistivity, carrier concentration, power factor "
+        "(S^2*sigma). yMin < 0 is a sign/parse error. EXCLUDED to avoid false "
+        "positives: log()/ln() axes (legitimately negative when value < 1), "
+        "'coefficient' (e.g. Temperature Coefficient of Resistivity is "
+        "legitimately negative), mobility (Hall mobility sign convention), and "
+        "Seebeck/thermopower/Hall (sign is meaningful).",
+        count_query="""SELECT (COUNT(*) AS ?n) WHERE {
+  ?c a sd:Curve ; sd:propertyY ?py ; sd:yMin ?lo . FILTER(?lo < 0
+    && !CONTAINS(LCASE(STR(?py)),"log(") && !CONTAINS(LCASE(STR(?py)),"ln(")
+    && !CONTAINS(LCASE(STR(?py)),"coefficient") && (
+    CONTAINS(LCASE(STR(?py)),"thermal conductivity") ||
+    CONTAINS(LCASE(STR(?py)),"electrical conductivity") ||
+    CONTAINS(LCASE(STR(?py)),"resistivity") ||
+    CONTAINS(LCASE(STR(?py)),"carrier concentration") ||
+    CONTAINS(LCASE(STR(?py)),"carrier density") ||
+    CONTAINS(LCASE(STR(?py)),"power factor")))
+}""",
+        sample_query="""SELECT ?lo ?py ?fig WHERE {
+  ?c a sd:Curve ; sd:propertyY ?py ; sd:yMin ?lo . OPTIONAL { ?c sd:figureName ?fig }
+  FILTER(?lo < 0
+    && !CONTAINS(LCASE(STR(?py)),"log(") && !CONTAINS(LCASE(STR(?py)),"ln(")
+    && !CONTAINS(LCASE(STR(?py)),"coefficient") && (
+    CONTAINS(LCASE(STR(?py)),"thermal conductivity") ||
+    CONTAINS(LCASE(STR(?py)),"electrical conductivity") ||
+    CONTAINS(LCASE(STR(?py)),"resistivity") ||
+    CONTAINS(LCASE(STR(?py)),"carrier concentration") ||
+    CONTAINS(LCASE(STR(?py)),"carrier density") ||
+    CONTAINS(LCASE(STR(?py)),"power factor")))
+} ORDER BY ?lo LIMIT 30""",
+        cols=["lo", "py", "fig"],
+    ),
+    Check(
+        key="missing_propertyY",
+        title="Curve without a propertyY label",
+        severity="suspicious",
+        why="A curve with no sd:propertyY cannot be interpreted (we don't know "
+        "what quantity it measures). Likely an ingest/source gap.",
+        count_query="""SELECT (COUNT(*) AS ?n) WHERE {
+  ?c a sd:Curve . FILTER NOT EXISTS { ?c sd:propertyY ?py }
+}""",
+        sample_query="""SELECT ?id ?fig WHERE {
+  ?c a sd:Curve . OPTIONAL { ?c sd:figureName ?fig }
+  OPTIONAL { ?c <http://purl.org/dc/terms/identifier> ?id }
+  FILTER NOT EXISTS { ?c sd:propertyY ?py }
+} LIMIT 20""",
+        cols=["id", "fig"],
+    ),
+    Check(
+        key="missing_ymax",
+        title="Curve without a yMax aggregate",
+        severity="info",
+        why="No sd:yMax means peak/range queries silently skip the curve. May be "
+        "legitimate (empty y[]) but worth knowing the volume.",
+        count_query="""SELECT (COUNT(*) AS ?n) WHERE {
+  ?c a sd:Curve . FILTER NOT EXISTS { ?c sd:yMax ?y }
+}""",
+        sample_query="""SELECT ?py ?fig WHERE {
+  ?c a sd:Curve . OPTIONAL { ?c sd:propertyY ?py } OPTIONAL { ?c sd:figureName ?fig }
+  FILTER NOT EXISTS { ?c sd:yMax ?y }
+} LIMIT 20""",
+        cols=["py", "fig"],
+    ),
 ]
 
 

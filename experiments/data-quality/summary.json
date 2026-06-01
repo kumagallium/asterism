@@ -35,6 +35,21 @@
       "key": "absurd_magnitude",
       "severity": "impossible",
       "count": 1666
+    },
+    {
+      "key": "negative_nonneg_quantity",
+      "severity": "impossible",
+      "count": 1130
+    },
+    {
+      "key": "missing_propertyY",
+      "severity": "suspicious",
+      "count": 0
+    },
+    {
+      "key": "missing_ymax",
+      "severity": "info",
+      "count": 3871
     }
   ]
 }
