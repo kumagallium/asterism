@@ -6,11 +6,12 @@ import { inspectCsvs, materializeSchema, proposeCsvs, refineSchema, type Materia
 import { AskView } from './AskView'
 import type { Citation } from './demoApi'
 import { PRESET_HINTS } from './domainHints'
+import { GalleryView } from './GalleryView'
 import { MaterializePanel } from './MaterializePanel'
 import { ProposalView } from './ProposalView'
 import { ProvenanceTrace } from './ProvenanceTrace'
 
-type Tab = 'inspect' | 'propose' | 'ask'
+type Tab = 'inspect' | 'propose' | 'ask' | 'gallery'
 
 // D7: the user-brought API key lives only in sessionStorage (cleared when the
 // tab closes) and is sent as a per-request header. It is never persisted
@@ -202,9 +203,20 @@ function App() {
             </button>
           </div>
         </div>
+
+        <div className="tab-divider" aria-hidden="true" />
+
+        <div className="tab-group">
+          <span className="tab-group-label">③ 語彙・マッピングを俯瞰</span>
+          <div className="tab-group-tabs">
+            <button className={tab === 'gallery' ? 'active' : ''} onClick={() => setTab('gallery')}>
+              Gallery (語彙・マッピング)
+            </button>
+          </div>
+        </div>
       </nav>
 
-      {tab !== 'ask' && (
+      {(tab === 'inspect' || tab === 'propose') && (
         <section className="controls">
           <input
             type="file"
@@ -234,6 +246,8 @@ function App() {
       )}
 
       {tab === 'ask' && <AskView onTrace={setTraceCitation} />}
+
+      {tab === 'gallery' && <GalleryView />}
 
       {traceCitation && (
         <ProvenanceTrace citation={traceCitation} onClose={() => setTraceCitation(null)} />
