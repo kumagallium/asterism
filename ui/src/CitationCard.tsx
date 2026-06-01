@@ -1,4 +1,5 @@
 import type { Citation } from './demoApi'
+import { KIND_TO_CLASS } from './galleryApi'
 
 // Map a citation `kind` to a PROV-DM-ish accent color (see index.css tokens).
 // Data entities (curve/sample/paper) are green; process steps are blue.
@@ -18,43 +19,62 @@ function kindColor(kind: string): string {
 
 /**
  * A clickable citation chip-card: shows the entity kind, label, and a few key
- * fields. Clicking asks the parent to open the provenance trace (D2).
+ * fields. Clicking the card opens the provenance trace (D2). A separate "語彙"
+ * link (when the kind maps to a vocabulary class) jumps to the Gallery and
+ * highlights that class — connecting a grounded answer to the ontology that
+ * backs it (Ask⇄Gallery).
  */
 export function CitationCard({
   citation,
   onSelect,
+  onShowVocab,
 }: {
   citation: Citation
   onSelect?: (c: Citation) => void
+  onShowVocab?: (className: string) => void
 }) {
   const color = kindColor(citation.kind)
+  const vocabClass = KIND_TO_CLASS[citation.kind]
   return (
-    <button
-      type="button"
-      className="citation-card"
-      onClick={() => onSelect?.(citation)}
-      title="クリックで来歴トレースを表示"
-    >
-      <span className="citation-kind" style={{ backgroundColor: color }}>
-        {citation.kind}
-      </span>
-      <span className="citation-body">
-        <span className="citation-label">{citation.label || citation.kind || '(無題)'}</span>
-        <span className="citation-fields">
-          {/* Drop null/undefined/empty field values: real rows omit
-              composition/title/DOI, which arrive as null — don't render "null". */}
-          {Object.entries(citation.fields)
-            .filter(([, v]) => v !== null && v !== undefined && v !== '')
-            .map(([k, v]) => (
-              <span key={k} className="citation-field">
-                <span className="citation-field-key">{k}</span>
-                <span className="citation-field-val" title={String(v)}>
-                  {String(v)}
-                </span>
-              </span>
-            ))}
+    <div className="citation-card-wrap">
+      <button
+        type="button"
+        className="citation-card"
+        onClick={() => onSelect?.(citation)}
+        title="クリックで来歴トレースを表示"
+      >
+        <span className="citation-kind" style={{ backgroundColor: color }}>
+          {citation.kind}
         </span>
-      </span>
-    </button>
+        <span className="citation-body">
+          <span className="citation-label">{citation.label || citation.kind || '(無題)'}</span>
+          <span className="citation-fields">
+            {/* Drop null/undefined/empty field values: real rows omit
+                composition/title/DOI, which arrive as null — don't render "null". */}
+            {Object.entries(citation.fields)
+              .filter(([, v]) => v !== null && v !== undefined && v !== '')
+              .map(([k, v]) => (
+                <span key={k} className="citation-field">
+                  <span className="citation-field-key">{k}</span>
+                  <span className="citation-field-val" title={String(v)}>
+                    {String(v)}
+                  </span>
+                </span>
+              ))}
+          </span>
+        </span>
+      </button>
+
+      {vocabClass && onShowVocab && (
+        <button
+          type="button"
+          className="vocab-link"
+          onClick={() => onShowVocab(vocabClass)}
+          title={`Gallery で語彙クラス「${vocabClass}」を表示`}
+        >
+          語彙: {vocabClass} →
+        </button>
+      )}
+    </div>
   )
 }

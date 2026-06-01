@@ -20,7 +20,7 @@ import { Mermaid } from './Mermaid'
  * The Mappings gallery leads with each binding's PURPOSE tags — the
  * "purpose-scoped mapping" idea is the showcase for reviewers (handoff §1).
  */
-export function GalleryView() {
+export function GalleryView({ focusClass }: { focusClass?: string | null }) {
   const [ontologies, setOntologies] = useState<OntologyEntry[] | null>(null)
   const [mappings, setMappings] = useState<MappingEntry[] | null>(null)
   const [live, setLive] = useState<LiveDataset[]>([])
@@ -37,7 +37,12 @@ export function GalleryView() {
         setOntologies(onto)
         setMappings(maps)
         setLive(liveDatasets)
-        setSelectedId(onto[0]?.id ?? null)
+        // When arriving via an Ask citation, select the ontology that defines
+        // the focused class; otherwise the first one.
+        const focused = focusClass
+          ? onto.find((o) => o.classes.includes(focusClass))
+          : undefined
+        setSelectedId(focused?.id ?? onto[0]?.id ?? null)
       })
       .catch((e) => {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e))
@@ -45,7 +50,7 @@ export function GalleryView() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [focusClass])
 
   // Selection spans both the seeded fixtures and the live (materialized) drafts.
   const selected =
@@ -71,6 +76,13 @@ export function GalleryView() {
         </span>
       </div>
 
+      {focusClass && (
+        <div className="vocab-focus-banner">
+          Ask の引用に対応する語彙クラス：<strong>{focusClass}</strong>
+          <span className="vocab-focus-sub">この回答はこのクラスで型付けされたデータに基づきます。</span>
+        </div>
+      )}
+
       {error && <pre className="error">{error}</pre>}
       {!ontologies && !error && (
         <p className="trace-loading">
@@ -93,6 +105,7 @@ export function GalleryView() {
                 entry={o}
                 selected={o.id === selectedId}
                 onSelect={() => setSelectedId(o.id)}
+                highlightClass={focusClass ?? undefined}
               />
             ))}
           </div>
@@ -167,11 +180,13 @@ function OntologyCard({
   selected,
   onSelect,
   draft,
+  highlightClass,
 }: {
   entry: OntologyEntry
   selected: boolean
   onSelect: () => void
   draft?: boolean
+  highlightClass?: string
 }) {
   return (
     <button
@@ -193,7 +208,10 @@ function OntologyCard({
       </div>
       <div className="onto-card-classes">
         {entry.classes.map((c) => (
-          <span key={c} className="onto-class-chip">
+          <span
+            key={c}
+            className={`onto-class-chip${c === highlightClass ? ' onto-class-chip--focus' : ''}`}
+          >
             {c}
           </span>
         ))}
