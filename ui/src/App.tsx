@@ -3,12 +3,13 @@ import './App.css'
 import { AskView } from './AskView'
 import { isMockMode, type Citation } from './demoApi'
 import { GalleryView } from './GalleryView'
-import { AskIcon, BrandMark, GalleryIcon, HistoryIcon, ProposeIcon } from './icons'
+import { AskIcon, BrandMark, CodeIcon, GalleryIcon, HistoryIcon, ProposeIcon } from './icons'
 import { JobsView } from './JobsView'
 import { ProvenanceTrace } from './ProvenanceTrace'
+import { SparqlView } from './SparqlView'
 import { WorkbenchView } from './WorkbenchView'
 
-type Tab = 'workbench' | 'ask' | 'gallery' | 'jobs'
+type Tab = 'workbench' | 'ask' | 'gallery' | 'jobs' | 'sparql'
 
 // Sidebar navigation, grouped by lifecycle phase: the workbench (CSV→RDF, a
 // single stepped pipeline), consumption (Ask), and catalog (Gallery).
@@ -24,7 +25,13 @@ const NAV_SECTIONS: { label: string; items: NavItem[] }[] = [
   },
   { label: '活用 · 取り込み済みデータ', items: [{ id: 'ask', label: 'Ask（根拠付き回答）', icon: AskIcon }] },
   { label: 'カタログ', items: [{ id: 'gallery', label: 'Gallery（語彙・マッピング）', icon: GalleryIcon }] },
-  { label: '管理', items: [{ id: 'jobs', label: '取り込み履歴', icon: HistoryIcon }] },
+  {
+    label: '管理',
+    items: [
+      { id: 'jobs', label: '取り込み履歴', icon: HistoryIcon },
+      { id: 'sparql', label: 'SPARQL（上級）', icon: CodeIcon },
+    ],
+  },
 ]
 
 // Topbar context per view: an eyebrow (which phase) + a short title.
@@ -33,6 +40,7 @@ const VIEW_META: Record<Tab, { eyebrow: string; title: string }> = {
   ask: { eyebrow: '活用 · 取り込み済みデータ', title: 'Ask — 根拠付き回答' },
   gallery: { eyebrow: 'カタログ', title: 'Gallery — 語彙とマッピング' },
   jobs: { eyebrow: '管理', title: '取り込み履歴' },
+  sparql: { eyebrow: '管理 · 上級', title: 'SPARQL — 読み取り専用クエリ' },
 }
 
 function App() {
@@ -96,6 +104,7 @@ function App() {
           {tab === 'ask' && <AskView onTrace={setTraceCitation} />}
           {tab === 'gallery' && <GalleryView />}
           {tab === 'jobs' && <JobsView />}
+          {tab === 'sparql' && <SparqlView />}
         </main>
       </div>
 

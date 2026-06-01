@@ -532,6 +532,47 @@ def test_get_dataset_unknown_returns_404(
         assert client.get("/api/datasets/..%2f..%2fetc").status_code == 404
 
 
+def test_sparql_select_relays_results(tmp_path: Path) -> None:
+    """M3: /api/sparql forwards a read-only query and returns the JSON."""
+    rows = {
+        "head": {"vars": ["s"]},
+        "results": {"bindings": [{"s": {"type": "uri", "value": "urn:x"}}]},
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            text=json.dumps(rows),
+            headers={"content-type": "application/sparql-results+json"},
+        )
+
+    app = build_app(
+        _settings(tmp_path), oxigraph_client=_mock_client(handler), start_watcher=False
+    )
+    with TestClient(app) as client:
+        r = client.post("/api/sparql", json={"query": "SELECT ?s WHERE { ?s ?p ?o } LIMIT 1"})
+        assert r.status_code == 200
+        assert r.json()["results"]["bindings"][0]["s"]["value"] == "urn:x"
+
+
+def test_sparql_rejects_update_and_empty(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    app = build_app(
+        _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
+    )
+    with TestClient(app) as client:
+        assert client.post("/api/sparql", json={"query": "   "}).status_code == 400
+        # Update forms are rejected even though /query is read-only anyway.
+        assert (
+            client.post(
+                "/api/sparql",
+                json={"query": "INSERT DATA { <urn:a> <urn:b> <urn:c> }"},
+            ).status_code
+            == 400
+        )
+
+
 def test_job_stream_unknown_id(
     tmp_path: Path, healthy_client: OxigraphClient
 ) -> None:

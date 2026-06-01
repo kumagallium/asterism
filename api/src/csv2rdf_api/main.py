@@ -73,6 +73,20 @@ class MaterializeRequest(BaseModel):
     # the Gallery. Set false for a throwaway validation-only run.
     persist: bool = True
 
+
+class SparqlRequest(BaseModel):
+    """Body for POST /api/sparql: a read-only SPARQL query (escape hatch)."""
+
+    query: str
+
+
+# Update-form keywords. Oxigraph's /query endpoint is read-only regardless, but
+# we reject these up front so the escape hatch can never be mistaken for write
+# access and the user gets a clear message.
+_SPARQL_UPDATE = re.compile(
+    r"\b(insert|delete|load|clear|drop|create|add|move|copy)\b", re.IGNORECASE
+)
+
 logger = logging.getLogger(__name__)
 
 # Restrict uploaded filenames to a safe subset to avoid directory traversal
@@ -462,6 +476,28 @@ def build_app(
         if data is None:
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
         return data
+
+    @app.post("/api/sparql")
+    async def sparql(body: SparqlRequest) -> JSONResponse:
+        """Read-only SPARQL relay to Oxigraph (advanced escape hatch, ADR §5).
+
+        Forwards the query to Oxigraph's read-only ``/query`` endpoint and
+        returns the SPARQL-Results JSON. Update-form queries are rejected with a
+        clear message (the endpoint is read-only either way).
+        """
+        q = body.query.strip()
+        if not q:
+            raise HTTPException(400, "query is required")
+        # Strip line comments before the read-only check.
+        if _SPARQL_UPDATE.search(re.sub(r"#.*", "", q)):
+            raise HTTPException(
+                400, "読み取り専用です: UPDATE 系 (INSERT/DELETE 等) は実行できません"
+            )
+        client: OxigraphClient = app.state.client
+        try:
+            return JSONResponse(await client.sparql_select(q))
+        except Exception as exc:  # surface Oxigraph errors to the UI
+            raise HTTPException(502, f"SPARQL error: {exc}") from exc
 
     @app.get("/api/jobs/{job_id}/stream")
     async def job_stream(job_id: str) -> StreamingResponse:
