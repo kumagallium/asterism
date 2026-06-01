@@ -4,14 +4,44 @@ import remarkGfm from 'remark-gfm'
 import './App.css'
 import { inspectCsvs, materializeSchema, proposeCsvs, refineSchema, type MaterializeResult } from './api'
 import { AskView } from './AskView'
-import type { Citation } from './demoApi'
+import { isMockMode, type Citation } from './demoApi'
 import { PRESET_HINTS } from './domainHints'
 import { GalleryView } from './GalleryView'
+import { AskIcon, BrandMark, GalleryIcon, InspectIcon, ProposeIcon } from './icons'
 import { MaterializePanel } from './MaterializePanel'
 import { ProposalView } from './ProposalView'
 import { ProvenanceTrace } from './ProvenanceTrace'
 
 type Tab = 'inspect' | 'propose' | 'ask' | 'gallery'
+
+// Sidebar navigation model. Items are grouped by lifecycle phase so the
+// workbench (Inspect→Propose, one shared CSV), consumption (Ask), and catalog
+// (Gallery) read as distinct areas — the app-shell version of the phase
+// grouping we introduced for the old top tabs.
+interface NavItem {
+  id: Tab
+  label: string
+  icon: typeof InspectIcon
+}
+const NAV_SECTIONS: { label: string; items: NavItem[] }[] = [
+  {
+    label: 'ワークベンチ · CSV → RDF',
+    items: [
+      { id: 'inspect', label: 'Inspect（構造解析）', icon: InspectIcon },
+      { id: 'propose', label: 'Propose（AI 提案）', icon: ProposeIcon },
+    ],
+  },
+  { label: '活用 · 取り込み済みデータ', items: [{ id: 'ask', label: 'Ask（根拠付き回答）', icon: AskIcon }] },
+  { label: 'カタログ', items: [{ id: 'gallery', label: 'Gallery（語彙・マッピング）', icon: GalleryIcon }] },
+]
+
+// Topbar context per view: an eyebrow (which phase) + a short title.
+const VIEW_META: Record<Tab, { eyebrow: string; title: string }> = {
+  inspect: { eyebrow: 'ワークベンチ · CSV → RDF', title: 'Inspect — 構造解析' },
+  propose: { eyebrow: 'ワークベンチ · CSV → RDF', title: 'Propose — スキーマ提案 (AI)' },
+  ask: { eyebrow: '活用 · 取り込み済みデータ', title: 'Ask — 根拠付き回答' },
+  gallery: { eyebrow: 'カタログ', title: 'Gallery — 語彙とマッピング' },
+}
 
 // D7: the user-brought API key lives only in sessionStorage (cleared when the
 // tab closes) and is sent as a per-request header. It is never persisted
@@ -163,95 +193,90 @@ function App() {
     }
   }
 
+  const meta = VIEW_META[tab]
+
   return (
-    <main className="container">
-      <h1>csv2rdf-mcp — Step 0 Workbench</h1>
-
-      {/* Two-phase nav: the workbench (Inspect→Propose, a connected pipeline on
-          one shared CSV) vs. consumption (Ask, a separate phase that queries
-          already-ingested RDF). Grouping + numbering makes that relationship
-          legible — without it the three tabs read as unrelated peers. */}
-      <nav className="tabs">
-        <div className="tab-group">
-          <span className="tab-group-label">① CSV を RDF 化（ワークベンチ）</span>
-          <div className="tab-group-tabs">
-            <button
-              className={tab === 'inspect' ? 'active' : ''}
-              onClick={() => setTab('inspect')}
-            >
-              1. Inspect
-            </button>
-            <span className="tab-arrow" aria-hidden="true">
-              →
-            </span>
-            <button
-              className={tab === 'propose' ? 'active' : ''}
-              onClick={() => setTab('propose')}
-            >
-              2. Propose (AI)
-            </button>
-          </div>
+    <div className="app-shell">
+      <aside className="sidebar">
+        <div className="brand">
+          <span className="brand-mark">
+            <BrandMark />
+          </span>
+          <span className="brand-text">
+            <span className="brand-name">csv2rdf</span>
+            <span className="brand-tag">研究データ → RDF</span>
+          </span>
         </div>
 
-        <div className="tab-divider" aria-hidden="true" />
+        <nav className="side-nav">
+          {NAV_SECTIONS.map((sec) => (
+            <div className="side-nav-group" key={sec.label}>
+              <span className="side-nav-label">{sec.label}</span>
+              {sec.items.map((it) => {
+                const Icon = it.icon
+                return (
+                  <button
+                    key={it.id}
+                    type="button"
+                    className={`side-nav-item${tab === it.id ? ' active' : ''}`}
+                    onClick={() => setTab(it.id)}
+                  >
+                    <Icon className="side-nav-icon" />
+                    <span>{it.label}</span>
+                  </button>
+                )
+              })}
+            </div>
+          ))}
+        </nav>
 
-        <div className="tab-group">
-          <span className="tab-group-label">② RDF に問う（取り込み済みデータ）</span>
-          <div className="tab-group-tabs">
-            <button className={tab === 'ask' ? 'active' : ''} onClick={() => setTab('ask')}>
-              Ask (根拠付き回答)
-            </button>
-          </div>
+        <div className="sidebar-foot">
+          <span className={`status-dot ${isMockMode ? 'status-dot--mock' : 'status-dot--live'}`} />
+          {isMockMode ? 'Ask・Gallery: demo データ (mock)' : 'Ask・Gallery: live'}
         </div>
+      </aside>
 
-        <div className="tab-divider" aria-hidden="true" />
-
-        <div className="tab-group">
-          <span className="tab-group-label">③ 語彙・マッピングを俯瞰</span>
-          <div className="tab-group-tabs">
-            <button className={tab === 'gallery' ? 'active' : ''} onClick={() => setTab('gallery')}>
-              Gallery (語彙・マッピング)
-            </button>
+      <div className="app-main">
+        <header className="topbar">
+          <div className="topbar-titles">
+            <span className="topbar-eyebrow">{meta.eyebrow}</span>
+            <h1 className="topbar-title">{meta.title}</h1>
           </div>
-        </div>
-      </nav>
+        </header>
 
-      {(tab === 'inspect' || tab === 'propose') && (
-        <section className="controls">
-          <input
-            type="file"
-            accept=".csv"
-            multiple
-            onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
-          />
-          <label>
-            FK 列ヒント (カンマ区切り・任意)
-            <input
-              type="text"
-              value={fk}
-              placeholder="SID"
-              onChange={(e) => setFk(e.target.value)}
-            />
-          </label>
-          {files.length > 0 ? (
-            <span className="hint">
-              {files.length} file(s) selected — Inspect と Propose で同じ CSV を使います
-            </span>
-          ) : (
-            <span className="hint">
-              ここで選んだ CSV を Inspect（構造解析）→ Propose（スキーマ提案）で共有します
-            </span>
+        <main className="app-content">
+          {(tab === 'inspect' || tab === 'propose') && (
+            <section className="controls">
+              <input
+                type="file"
+                accept=".csv"
+                multiple
+                onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
+              />
+              <label>
+                FK 列ヒント (カンマ区切り・任意)
+                <input
+                  type="text"
+                  value={fk}
+                  placeholder="SID"
+                  onChange={(e) => setFk(e.target.value)}
+                />
+              </label>
+              {files.length > 0 ? (
+                <span className="hint">
+                  {files.length} file(s) selected — Inspect と Propose で同じ CSV を使います
+                </span>
+              ) : (
+                <span className="hint">
+                  ここで選んだ CSV を Inspect（構造解析）→ Propose（スキーマ提案）で共有します
+                </span>
+              )}
+            </section>
           )}
-        </section>
-      )}
 
-      {tab === 'ask' && <AskView onTrace={setTraceCitation} />}
+          {tab === 'ask' && <AskView onTrace={setTraceCitation} />}
 
-      {tab === 'gallery' && <GalleryView />}
-
-      {traceCitation && (
-        <ProvenanceTrace citation={traceCitation} onClose={() => setTraceCitation(null)} />
-      )}
+          {tab === 'gallery' && <GalleryView />}
 
       {tab === 'inspect' && (
         <>
@@ -350,7 +375,13 @@ function App() {
           )}
         </>
       )}
-    </main>
+        </main>
+      </div>
+
+      {traceCitation && (
+        <ProvenanceTrace citation={traceCitation} onClose={() => setTraceCitation(null)} />
+      )}
+    </div>
   )
 }
 
