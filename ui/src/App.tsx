@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import './App.css'
 import { inspectCsvs } from './api'
 
@@ -62,7 +63,7 @@ function App() {
       {error && <pre className="error">{error}</pre>}
       {markdown && (
         <section className="result">
-          <ReactMarkdown>{markdown}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdown}</ReactMarkdown>
         </section>
       )}
     </main>

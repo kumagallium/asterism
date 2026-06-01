@@ -8,7 +8,9 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      '/api': 'http://localhost:8080',
+      // 127.0.0.1 (not localhost): on macOS `localhost` may resolve to IPv6
+      // ::1 while the API listens on IPv4, which silently breaks the proxy.
+      '/api': 'http://127.0.0.1:8080',
     },
   },
 })
