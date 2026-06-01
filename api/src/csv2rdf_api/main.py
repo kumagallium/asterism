@@ -43,8 +43,10 @@ from csv2rdf.watcher import (
     watch,
 )
 from csv2rdf_step0.inspect import inspect_csv_set, render_markdown
+from csv2rdf_step0.materialize import materialize_schema
 from csv2rdf_step0.propose import AnthropicLLMClient, LLMClient, propose_schema
 from csv2rdf_step0.refine import refine_schema
+from csv2rdf_step0.validate import SchemaBundle, validate_schema
 from fastapi import FastAPI, File, Form, Header, HTTPException, Query, Response, UploadFile
 from fastapi import Path as PathParam
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -58,6 +60,13 @@ class RefineRequest(BaseModel):
 
     schema_md: str
     comments: list[str]
+
+
+class MaterializeRequest(BaseModel):
+    """Body for POST /api/materialize: the proposal/refine Markdown to split."""
+
+    proposal_md: str
+    dataset_name: str = "dataset"
 
 logger = logging.getLogger(__name__)
 
@@ -365,6 +374,53 @@ def build_app(
         jobs: JobManager = app.state.jobs
         job_id = jobs.start(work)
         return JSONResponse({"job_id": job_id}, status_code=202)
+
+    @app.post("/api/materialize")
+    async def materialize(body: MaterializeRequest) -> JSONResponse:
+        """Phase 4 (M1d): split a proposal into the 4 artifacts and validate.
+
+        Synchronous (no LLM): extracts diagram / rdf-config model / MIE /
+        ingester from the Markdown, then runs the 8-trap validator on the
+        extracted bundle. Source CSVs are not attached here, so CSV-dependent
+        traps (T1 / T6) report ``skip``; the structural traps (T2-T5 / T7)
+        run. Returns the artifact contents (for client-side download) plus the
+        trap report. The temp dir is removed before returning.
+        """
+        if not body.proposal_md.strip():
+            raise HTTPException(400, "proposal_md is required")
+
+        def run() -> dict[str, object]:
+            tmpdir = tempfile.mkdtemp(prefix="csv2rdf-materialize-")
+            try:
+                mat = materialize_schema(body.proposal_md, tmpdir, body.dataset_name, write=True)
+                paths = {k: Path(v) for k, v in mat.written_paths.items()}
+                report = validate_schema(
+                    SchemaBundle(
+                        diagram_md=paths.get("mermaid") or paths.get("diagram"),
+                        mie_yaml=paths.get("mie_yaml") or paths.get("mie"),
+                        ingester_py=paths.get("ingester_py") or paths.get("ingester"),
+                    )
+                )
+                return {
+                    "artifacts": {
+                        "diagram.md": mat.mermaid,
+                        "model.yaml": mat.rdf_config_model,
+                        "mie.yaml": mat.mie_yaml,
+                        "ingester.py": mat.ingester_py,
+                    },
+                    "complete": mat.complete,
+                    "warnings": mat.warnings,
+                    "traps": [
+                        {"id": r.trap_id, "name": r.name, "status": r.status, "detail": r.detail}
+                        for r in report.results
+                    ],
+                    "exit_code": report.exit_code(),
+                }
+            finally:
+                shutil.rmtree(tmpdir, ignore_errors=True)
+
+        result = await asyncio.to_thread(run)
+        return JSONResponse(result)
 
     @app.get("/api/jobs/{job_id}/stream")
     async def job_stream(job_id: str) -> StreamingResponse:

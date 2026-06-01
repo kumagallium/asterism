@@ -115,6 +115,42 @@ export async function refineSchema(
   return subscribeJob(job_id, handlers)
 }
 
+/** One trap result from the 8-trap validator. */
+export interface TrapResult {
+  id: string
+  name: string
+  status: 'pass' | 'fail' | 'warn' | 'skip'
+  detail: string
+}
+
+export interface MaterializeResult {
+  artifacts: Record<string, string | null> // filename -> contents
+  complete: boolean
+  warnings: string[]
+  traps: TrapResult[]
+  exit_code: number
+}
+
+/**
+ * Split a proposal Markdown into the 4 artifacts and run the 8-trap validator.
+ * Synchronous on the server (no LLM); returns artifact contents + trap report.
+ */
+export async function materializeSchema(
+  proposalMd: string,
+  datasetName = 'dataset',
+): Promise<MaterializeResult> {
+  const res = await fetch('/api/materialize', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ proposal_md: proposalMd, dataset_name: datasetName }),
+  })
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '')
+    throw new Error(`materialize failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
+  }
+  return (await res.json()) as MaterializeResult
+}
+
 // Shared SSE subscription for propose/refine jobs. Returns a cleanup function
 // that closes the EventSource.
 function subscribeJob<T>(

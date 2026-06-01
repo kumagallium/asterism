@@ -224,6 +224,136 @@ textarea:focus {
   max-width: 100%;
 }
 
+.refine-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.secondary-btn {
+  background: var(--surface);
+  color: var(--primary);
+  border: 1px solid var(--primary);
+}
+
+.secondary-btn:hover:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--primary);
+}
+
+/* ---- materialize + validate panel (M1d) ---- */
+.materialize-panel {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+  padding: 1rem 1.25rem 1.25rem;
+  margin-top: 1rem;
+}
+
+.artifact-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.artifact-btn {
+  background: var(--secondary);
+  color: var(--primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.4rem 0.8rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+.artifact-btn:hover:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--primary);
+}
+
+.materialize-warnings {
+  margin: 0.25rem 0 0.5rem;
+  padding-left: 1.2rem;
+  color: var(--warn-fg);
+  font-size: 0.82rem;
+}
+
+.trap-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0.4rem;
+}
+
+.trap {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  font-size: 0.8rem;
+}
+
+.trap-glyph {
+  font-weight: 700;
+}
+
+.trap-id {
+  font-weight: 700;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+.trap-name {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trap-pass {
+  background: var(--success-bg);
+  border-color: var(--success-border);
+}
+.trap-pass .trap-glyph {
+  color: var(--success-fg);
+}
+.trap-fail {
+  background: var(--error-bg);
+  border-color: var(--error-border);
+}
+.trap-fail .trap-glyph {
+  color: var(--error-fg);
+}
+.trap-warn {
+  background: var(--warn-bg);
+  border-color: var(--warn-border);
+}
+.trap-warn .trap-glyph {
+  color: var(--warn-fg);
+}
+.trap-skip {
+  background: var(--bg);
+}
+.trap-skip .trap-glyph {
+  color: var(--muted);
+}
+
+.trap-summary {
+  margin: 0.75rem 0 0;
+  font-size: 0.85rem;
+}
+.trap-ok {
+  color: var(--success-fg);
+  font-weight: 600;
+}
+.trap-bad {
+  color: var(--error-fg);
+  font-weight: 600;
+}
+
 /* ---- Ask view ---- */
 .demo-badge {
   display: inline-block;

@@ -406,6 +406,69 @@ def test_refine_rejects_empty_comments(
         assert r.status_code == 400
 
 
+_MATERIALIZE_MD = """## Schema proposal
+
+### Class diagram
+```mermaid
+classDiagram
+    class Sample
+    class Paper
+    Sample --> Paper : fromPaper
+```
+
+### MIE
+```yaml
+schema_info:
+  title: Demo
+  keywords: [thermoelectric, seebeck, zt, sample, paper]
+  categories: [materials]
+```
+
+### Ingester
+```python
+import csv
+def emit(path):
+    open(path, encoding="utf-8-sig")
+```
+"""
+
+
+def test_materialize_extracts_artifacts_and_validates(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    """M1d: /api/materialize splits the proposal and runs the 8-trap validator."""
+    app = build_app(
+        _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
+    )
+    with TestClient(app) as client:
+        r = client.post(
+            "/api/materialize",
+            json={"proposal_md": _MATERIALIZE_MD, "dataset_name": "demo"},
+        )
+        assert r.status_code == 200
+        body = r.json()
+        # diagram / mie / ingester extracted (no rdf-config model block here)
+        assert body["artifacts"]["diagram.md"]
+        assert body["artifacts"]["mie.yaml"]
+        assert body["artifacts"]["ingester.py"]
+        trap = {t["id"]: t["status"] for t in body["traps"]}
+        assert trap["T2"] == "pass"  # utf-8-sig in ingester
+        assert trap["T4"] == "pass"  # >=5 keywords
+        assert trap["T1"] == "skip"  # no source CSV attached
+        assert "exit_code" in body
+
+
+def test_materialize_rejects_empty(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    app = build_app(
+        _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
+    )
+    with TestClient(app) as client:
+        r = client.post("/api/materialize", json={"proposal_md": "   "})
+        assert r.status_code == 400
+
+
 def test_job_stream_unknown_id(
     tmp_path: Path, healthy_client: OxigraphClient
 ) -> None:
