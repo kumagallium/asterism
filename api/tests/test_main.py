@@ -360,6 +360,52 @@ def test_propose_error_surfaces_as_error_event(
         assert "boom from LLM" in err["message"]
 
 
+def test_refine_starts_job_and_streams_done(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    """M1c: POST /api/refine applies comments via the LLM and streams done."""
+    captured: dict[str, object] = {}
+    app = build_app(
+        _settings(tmp_path),
+        oxigraph_client=healthy_client,
+        start_watcher=False,
+        llm_factory=lambda key: _MockLLM(captured, key),
+    )
+    with TestClient(app) as client:
+        r = client.post(
+            "/api/refine",
+            json={
+                "schema_md": "## Proposed schema\n\nSample IRI = sdr:sample/{sample_id}",
+                "comments": ["use a composite (SID, sample_id) key"],
+            },
+            headers={"X-API-Key": "sk-user-test"},
+        )
+        assert r.status_code == 202
+        job_id = r.json()["job_id"]
+        events = _parse_sse(client.get(f"/api/jobs/{job_id}/stream").text)
+        names = [n for n, _ in events]
+        assert "done" in names
+        done = next(d for n, d in events if n == "done")
+        assert "refined_md" in done["result"]
+    # D7: key reached the client; the comment is in the user message.
+    assert captured["key"] == "sk-user-test"
+    assert "composite" in str(captured["user"])
+
+
+def test_refine_rejects_empty_comments(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    app = build_app(
+        _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
+    )
+    with TestClient(app) as client:
+        r = client.post(
+            "/api/refine",
+            json={"schema_md": "## x", "comments": ["  "]},
+        )
+        assert r.status_code == 400
+
+
 def test_job_stream_unknown_id(
     tmp_path: Path, healthy_client: OxigraphClient
 ) -> None:

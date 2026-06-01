@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import './App.css'
-import { inspectCsvs, proposeCsvs } from './api'
+import { inspectCsvs, proposeCsvs, refineSchema } from './api'
 import { AskView } from './AskView'
 import type { Citation } from './demoApi'
 import { PRESET_HINTS } from './domainHints'
@@ -37,6 +37,11 @@ function App() {
   const [proposeErr, setProposeErr] = useState('')
   const [proposing, setProposing] = useState(false)
   const closeRef = useRef<(() => void) | null>(null)
+
+  // Refine (M1c): review comments applied to the current proposal.
+  const [comment, setComment] = useState('')
+  const [refining, setRefining] = useState(false)
+  const refineCloseRef = useRef<(() => void) | null>(null)
 
   const fks = () =>
     fk
@@ -105,6 +110,35 @@ function App() {
       setProposeErr(e instanceof Error ? e.message : String(e))
       setStatus('')
       setProposing(false)
+    }
+  }
+
+  async function onRefine() {
+    const c = comment.trim()
+    if (!c || !proposal) return
+    setProposeErr('')
+    setStatus('refining…')
+    setRefining(true)
+    refineCloseRef.current?.()
+    try {
+      refineCloseRef.current = await refineSchema(proposal, [c], apiKey, {
+        onStatus: (m) => setStatus(m),
+        onDone: (result) => {
+          setProposal(result.refined_md)
+          setComment('')
+          setStatus('refined')
+          setRefining(false)
+        },
+        onError: (m) => {
+          setProposeErr(m)
+          setStatus('')
+          setRefining(false)
+        },
+      })
+    } catch (e) {
+      setProposeErr(e instanceof Error ? e.message : String(e))
+      setStatus('')
+      setRefining(false)
     }
   }
 
@@ -216,9 +250,25 @@ function App() {
           </section>
           {proposeErr && <pre className="error">{proposeErr}</pre>}
           {proposal && (
-            <section className="result">
-              <ProposalView markdown={proposal} />
-            </section>
+            <>
+              <section className="result">
+                <ProposalView markdown={proposal} />
+              </section>
+              <section className="refine-box">
+                <label className="domain-label">
+                  レビューコメント (この提案を直したい点を書いて再生成)
+                  <textarea
+                    value={comment}
+                    rows={2}
+                    placeholder="例: Sample IRI を (SID, sample_id) の複合キーにして。ingester と設計根拠も同期更新して。"
+                    onChange={(e) => setComment(e.target.value)}
+                  />
+                </label>
+                <button onClick={onRefine} disabled={refining || !apiKey || !comment.trim()}>
+                  {refining ? 'Refining…' : 'Refine (コメントを反映)'}
+                </button>
+              </section>
+            </>
           )}
         </>
       )}
