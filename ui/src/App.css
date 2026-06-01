@@ -53,11 +53,51 @@ h1 {
 }
 
 /* ---- tabs (top-level nav) ---- */
+/* The nav is split into labeled phase groups (authoring vs consumption) so the
+   workbench pipeline (Inspect→Propose) reads as connected and Ask reads as a
+   separate phase. align-items:flex-end keeps every tab's underline on the
+   shared bottom border despite the group labels sitting above. */
 .tabs {
   display: flex;
-  gap: 0.25rem;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.3rem 1.4rem;
   border-bottom: 1px solid var(--border);
   margin: 1.25rem 0 1.5rem;
+}
+
+.tab-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.tab-group-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--muted);
+  letter-spacing: 0.01em;
+  padding: 0 0.3rem;
+}
+
+.tab-group-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0.1rem;
+}
+
+.tab-arrow {
+  color: var(--muted);
+  font-size: 0.9rem;
+  padding: 0 0.1rem;
+  user-select: none;
+}
+
+.tab-divider {
+  align-self: stretch;
+  width: 1px;
+  background: var(--border);
+  margin-bottom: 0.45rem;
 }
 
 .tabs button {

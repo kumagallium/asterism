@@ -166,16 +166,42 @@ function App() {
     <main className="container">
       <h1>csv2rdf-mcp — Step 0 Workbench</h1>
 
+      {/* Two-phase nav: the workbench (Inspect→Propose, a connected pipeline on
+          one shared CSV) vs. consumption (Ask, a separate phase that queries
+          already-ingested RDF). Grouping + numbering makes that relationship
+          legible — without it the three tabs read as unrelated peers. */}
       <nav className="tabs">
-        <button className={tab === 'inspect' ? 'active' : ''} onClick={() => setTab('inspect')}>
-          Inspect
-        </button>
-        <button className={tab === 'propose' ? 'active' : ''} onClick={() => setTab('propose')}>
-          Propose (AI)
-        </button>
-        <button className={tab === 'ask' ? 'active' : ''} onClick={() => setTab('ask')}>
-          Ask (根拠付き回答)
-        </button>
+        <div className="tab-group">
+          <span className="tab-group-label">① CSV を RDF 化（ワークベンチ）</span>
+          <div className="tab-group-tabs">
+            <button
+              className={tab === 'inspect' ? 'active' : ''}
+              onClick={() => setTab('inspect')}
+            >
+              1. Inspect
+            </button>
+            <span className="tab-arrow" aria-hidden="true">
+              →
+            </span>
+            <button
+              className={tab === 'propose' ? 'active' : ''}
+              onClick={() => setTab('propose')}
+            >
+              2. Propose (AI)
+            </button>
+          </div>
+        </div>
+
+        <div className="tab-divider" aria-hidden="true" />
+
+        <div className="tab-group">
+          <span className="tab-group-label">② RDF に問う（取り込み済みデータ）</span>
+          <div className="tab-group-tabs">
+            <button className={tab === 'ask' ? 'active' : ''} onClick={() => setTab('ask')}>
+              Ask (根拠付き回答)
+            </button>
+          </div>
+        </div>
       </nav>
 
       {tab !== 'ask' && (
@@ -195,7 +221,15 @@ function App() {
               onChange={(e) => setFk(e.target.value)}
             />
           </label>
-          {files.length > 0 && <span className="hint">{files.length} file(s) selected</span>}
+          {files.length > 0 ? (
+            <span className="hint">
+              {files.length} file(s) selected — Inspect と Propose で同じ CSV を使います
+            </span>
+          ) : (
+            <span className="hint">
+              ここで選んだ CSV を Inspect（構造解析）→ Propose（スキーマ提案）で共有します
+            </span>
+          )}
         </section>
       )}
 
