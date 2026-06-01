@@ -6,6 +6,7 @@ import {
   type ProvenanceChain,
   type ProvenanceStep,
 } from './demoApi'
+import { KIND_TO_CLASS } from './galleryApi'
 
 // PROV-DM step coloring: data entities green, process activities blue.
 function stepColor(step: string): string {
@@ -40,9 +41,11 @@ const STEP_JA: Record<string, string> = {
 export function ProvenanceTrace({
   citation,
   onClose,
+  onShowVocab,
 }: {
   citation: Citation
   onClose: () => void
+  onShowVocab?: (className: string) => void
 }) {
   // One state object so the effect performs a single async-boundary update
   // (avoids synchronous setState calls inside the effect body).
@@ -107,7 +110,12 @@ export function ProvenanceTrace({
         {chain && chain.chain.length > 0 && (
           <ol className="trace-chain">
             {chain.chain.map((s, i) => (
-              <TraceNode key={`${s.step}:${s.iri}:${i}`} step={s} last={i === chain.chain.length - 1} />
+              <TraceNode
+                key={`${s.step}:${s.iri}:${i}`}
+                step={s}
+                last={i === chain.chain.length - 1}
+                onShowVocab={onShowVocab}
+              />
             ))}
           </ol>
         )}
@@ -120,8 +128,17 @@ export function ProvenanceTrace({
   )
 }
 
-function TraceNode({ step, last }: { step: ProvenanceStep; last: boolean }) {
+function TraceNode({
+  step,
+  last,
+  onShowVocab,
+}: {
+  step: ProvenanceStep
+  last: boolean
+  onShowVocab?: (className: string) => void
+}) {
   const color = stepColor(step.step)
+  const vocabClass = KIND_TO_CLASS[step.step]
   return (
     <li className="trace-node">
       <div className="trace-rail">
@@ -134,6 +151,16 @@ function TraceNode({ step, last }: { step: ProvenanceStep; last: boolean }) {
             {STEP_JA[step.step] ?? step.step}
           </span>
           <span className="trace-step-label">{step.label}</span>
+          {vocabClass && onShowVocab && (
+            <button
+              type="button"
+              className="vocab-link trace-vocab-link"
+              onClick={() => onShowVocab(vocabClass)}
+              title={`Gallery で語彙クラス「${vocabClass}」を表示`}
+            >
+              語彙 →
+            </button>
+          )}
         </div>
         <div className="trace-detail">{step.detail}</div>
         <div className="trace-iri" title={step.iri}>

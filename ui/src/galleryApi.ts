@@ -100,9 +100,13 @@ const ONTOLOGIES: OntologyEntry[] = [
     prefix: 'sd:',
     baseIri: 'https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#',
     description:
-      '材料測定データ (熱電・電池・磁性) の共有語彙。Paper / Sample / Curve を中心に、すべて prov:Entity として来歴を担保する。',
+      '材料測定データ (熱電・電池・磁性) の共有語彙。Paper / Sample / Curve を中心に、すべて prov:Entity として来歴を担保する。物性名・単位は生文字列に加えて QUDT IRI に正規化 (sd:propertyYQuantity → qudt:SeebeckCoefficient 等) し、表記ゆれを横断できる。',
     classes: ['Paper', 'Sample', 'Curve', 'Descriptor', 'IngestionActivity'],
     reuses: [
+      {
+        prefix: 'qudt:',
+        what: 'QuantityKind / Unit（"Seebeck coefficient"→qudt:SeebeckCoefficient、単位→QUDT。物性名・単位の共有語彙）',
+      },
       { prefix: 'schema:', what: 'Person / Periodical / 論文メタdata (schema.org)' },
       { prefix: 'prov:', what: 'Entity / Activity / Agent (PROV-O)' },
       { prefix: 'dcterms:', what: 'identifier / created / modified' },

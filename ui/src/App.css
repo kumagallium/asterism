@@ -1029,6 +1029,13 @@ textarea:focus {
   color: var(--muted);
 }
 
+.trace-vocab-link {
+  margin-left: auto;
+  align-self: center;
+  padding: 0.1rem 0.5rem;
+  font-size: 0.72rem;
+}
+
 .onto-class-chip--focus {
   background: var(--primary);
   color: var(--primary-fg);
