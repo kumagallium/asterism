@@ -1,5 +1,11 @@
 import { useEffect, useState } from 'react'
-import { provenance, type Citation, type ProvenanceChain, type ProvenanceStep } from './demoApi'
+import {
+  isMockMode,
+  provenance,
+  type Citation,
+  type ProvenanceChain,
+  type ProvenanceStep,
+} from './demoApi'
 
 // PROV-DM step coloring: data entities green, process activities blue.
 function stepColor(step: string): string {
@@ -77,7 +83,10 @@ export function ProvenanceTrace({
       <aside className="trace-drawer" onClick={(e) => e.stopPropagation()}>
         <header className="trace-header">
           <div>
-            <h2 className="trace-title">来歴トレース</h2>
+            <h2 className="trace-title">
+              来歴トレース
+              {isMockMode && <span className="demo-badge">demo データ (mock)</span>}
+            </h2>
             <p className="trace-sub">
               {citation.label} <span className="trace-kind">{citation.kind}</span>
             </p>
