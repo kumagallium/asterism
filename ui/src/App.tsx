@@ -125,7 +125,11 @@ function App() {
       </div>
 
       {traceCitation && (
-        <ProvenanceTrace citation={traceCitation} onClose={() => setTraceCitation(null)} />
+        <ProvenanceTrace
+          citation={traceCitation}
+          onClose={() => setTraceCitation(null)}
+          onShowVocab={showVocab}
+        />
       )}
     </div>
   )
