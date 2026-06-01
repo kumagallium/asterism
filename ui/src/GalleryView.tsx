@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 import {
+  getLiveDatasets,
   getMappings,
   getOntologies,
+  type LiveDataset,
   type MappingEntry,
   type OntologyEntry,
 } from './galleryApi'
@@ -21,16 +23,20 @@ import { Mermaid } from './Mermaid'
 export function GalleryView() {
   const [ontologies, setOntologies] = useState<OntologyEntry[] | null>(null)
   const [mappings, setMappings] = useState<MappingEntry[] | null>(null)
+  const [live, setLive] = useState<LiveDataset[]>([])
   const [error, setError] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
-    Promise.all([getOntologies(), getMappings()])
-      .then(([onto, maps]) => {
+    // getLiveDatasets is best-effort (resolves [] if the workbench API is
+    // absent), so it never blocks the fixtures from rendering.
+    Promise.all([getOntologies(), getMappings(), getLiveDatasets()])
+      .then(([onto, maps, liveDatasets]) => {
         if (cancelled) return
         setOntologies(onto)
         setMappings(maps)
+        setLive(liveDatasets)
         setSelectedId(onto[0]?.id ?? null)
       })
       .catch((e) => {
@@ -41,7 +47,11 @@ export function GalleryView() {
     }
   }, [])
 
-  const selected = ontologies?.find((o) => o.id === selectedId) ?? null
+  // Selection spans both the seeded fixtures and the live (materialized) drafts.
+  const selected =
+    ontologies?.find((o) => o.id === selectedId) ??
+    live.find((l) => l.ontology.id === selectedId)?.ontology ??
+    null
 
   return (
     <>
@@ -73,30 +83,36 @@ export function GalleryView() {
 
           <div className="onto-card-grid">
             {ontologies.map((o) => (
-              <button
+              <OntologyCard
                 key={o.id}
-                type="button"
-                className={`onto-card${o.id === selectedId ? ' active' : ''}`}
-                onClick={() => setSelectedId(o.id)}
-              >
-                <div className="onto-card-head">
-                  <span className="onto-card-name">{o.name}</span>
-                  <code className="onto-card-prefix">{o.prefix}</code>
-                </div>
-                <div className="onto-card-meta">
-                  <span className="onto-card-stat">{o.classes.length} クラス</span>
-                  <span className="onto-card-stat">{o.reuses.length} 語彙を再利用</span>
-                </div>
-                <div className="onto-card-classes">
-                  {o.classes.map((c) => (
-                    <span key={c} className="onto-class-chip">
-                      {c}
-                    </span>
-                  ))}
-                </div>
-              </button>
+                entry={o}
+                selected={o.id === selectedId}
+                onSelect={() => setSelectedId(o.id)}
+              />
             ))}
           </div>
+
+          {/* Live drafts: datasets materialized in the workbench (api V1a),
+              now surfacing in the catalog — the authoring→catalog loop. */}
+          {live.length > 0 && (
+            <div className="live-subsection">
+              <h3 className="gallery-subh">
+                ワークベンチで作成した設計（ドラフト）
+                <span className="gallery-count">{live.length}</span>
+              </h3>
+              <div className="onto-card-grid">
+                {live.map((l) => (
+                  <OntologyCard
+                    key={l.ontology.id}
+                    entry={l.ontology}
+                    selected={l.ontology.id === selectedId}
+                    onSelect={() => setSelectedId(l.ontology.id)}
+                    draft
+                  />
+                ))}
+              </div>
+            </div>
+          )}
 
           {selected && <OntologyDetail entry={selected} />}
         </section>
@@ -121,19 +137,76 @@ export function GalleryView() {
               <MappingCard key={m.id} entry={m} />
             ))}
           </div>
+
+          {live.length > 0 && (
+            <div className="live-subsection">
+              <h3 className="gallery-subh">
+                ワークベンチで作成したマッピング（ドラフト・未取り込み）
+                <span className="gallery-count">{live.length}</span>
+              </h3>
+              <div className="mapping-list">
+                {live.map((l) => (
+                  <MappingCard key={l.mapping.id} entry={l.mapping} draft />
+                ))}
+              </div>
+            </div>
+          )}
         </section>
       )}
     </>
   )
 }
 
-function MappingCard({ entry }: { entry: MappingEntry }) {
+function OntologyCard({
+  entry,
+  selected,
+  onSelect,
+  draft,
+}: {
+  entry: OntologyEntry
+  selected: boolean
+  onSelect: () => void
+  draft?: boolean
+}) {
+  return (
+    <button
+      type="button"
+      className={`onto-card${selected ? ' active' : ''}${draft ? ' onto-card--draft' : ''}`}
+      onClick={onSelect}
+    >
+      <div className="onto-card-head">
+        <span className="onto-card-name">{entry.name}</span>
+        {draft ? (
+          <span className="draft-tag">ドラフト</span>
+        ) : (
+          <code className="onto-card-prefix">{entry.prefix}</code>
+        )}
+      </div>
+      <div className="onto-card-meta">
+        <span className="onto-card-stat">{entry.classes.length} クラス</span>
+        {!draft && <span className="onto-card-stat">{entry.reuses.length} 語彙を再利用</span>}
+      </div>
+      <div className="onto-card-classes">
+        {entry.classes.map((c) => (
+          <span key={c} className="onto-class-chip">
+            {c}
+          </span>
+        ))}
+      </div>
+    </button>
+  )
+}
+
+function MappingCard({ entry, draft }: { entry: MappingEntry; draft?: boolean }) {
   const ARTIFACT_JA: Record<string, string> = { ingester: 'ingester', mie: 'MIE', shex: 'ShEx' }
   return (
-    <article className="mapping-card">
+    <article className={`mapping-card${draft ? ' mapping-card--draft' : ''}`}>
       <div className="mapping-card-head">
         <div>
-          <h3 className="mapping-card-name">{entry.name}</h3>
+          <h3 className="mapping-card-name">
+            {entry.name}
+            {draft && <span className="draft-tag">ドラフト・未取り込み</span>}
+          </h3>
           <span className="mapping-card-dataset">{entry.dataset}</span>
         </div>
         <span className="mapping-target" title={`${entry.targetOntologyName} へ束縛`}>
@@ -141,18 +214,22 @@ function MappingCard({ entry }: { entry: MappingEntry }) {
         </span>
       </div>
 
-      {/* Purpose tags lead — the showcase signal. */}
-      <div className="purpose-block">
-        <span className="purpose-label">目的（この束縛が応える問い）</span>
-        <div className="purpose-tags">
-          {entry.purposes.map((p) => (
-            <span key={p.tag} className="purpose-tag" title={p.detail}>
-              <span className="purpose-tag-name">{p.tag}</span>
-              <span className="purpose-tag-detail">{p.detail}</span>
-            </span>
-          ))}
+      {/* Purpose tags lead — the showcase signal. Drafts have none yet. */}
+      {entry.purposes.length > 0 ? (
+        <div className="purpose-block">
+          <span className="purpose-label">目的（この束縛が応える問い）</span>
+          <div className="purpose-tags">
+            {entry.purposes.map((p) => (
+              <span key={p.tag} className="purpose-tag" title={p.detail}>
+                <span className="purpose-tag-name">{p.tag}</span>
+                <span className="purpose-tag-detail">{p.detail}</span>
+              </span>
+            ))}
+          </div>
         </div>
-      </div>
+      ) : (
+        <p className="mapping-desc">{entry.description}</p>
+      )}
 
       <div className="mapping-artifacts">
         <span className="mapping-artifacts-label">構成物</span>
@@ -169,6 +246,9 @@ function MappingCard({ entry }: { entry: MappingEntry }) {
 }
 
 function OntologyDetail({ entry }: { entry: OntologyEntry }) {
+  // A draft (materialized but not promoted) TBox is local/disposable; the
+  // seeded shared vocabulary is high-risk. Reflect that in the badge.
+  const isDraft = entry.editRisk === 'low'
   return (
     <section className="onto-detail">
       <div className="onto-detail-head">
@@ -178,29 +258,42 @@ function OntologyDetail({ entry }: { entry: OntologyEntry }) {
             {entry.baseIri}
           </code>
         </div>
-        <span className="risk-badge risk-badge--high">
-          <span className="risk-dot risk-dot--high" />
-          共有 TBox — 壊すと下流全体に波及
-        </span>
+        {isDraft ? (
+          <span className="risk-badge risk-badge--low">
+            <span className="risk-dot risk-dot--low" />
+            ドラフト設計 — 共有語彙への昇格前
+          </span>
+        ) : (
+          <span className="risk-badge risk-badge--high">
+            <span className="risk-dot risk-dot--high" />
+            共有 TBox — 壊すと下流全体に波及
+          </span>
+        )}
       </div>
 
       <p className="onto-detail-desc">{entry.description}</p>
 
-      <div className="onto-reuse">
-        <span className="onto-reuse-label">再利用している語彙</span>
-        <div className="onto-reuse-list">
-          {entry.reuses.map((r) => (
-            <span key={r.prefix} className="onto-reuse-chip" title={r.what}>
-              <code>{r.prefix}</code>
-              <span className="onto-reuse-what">{r.what}</span>
-            </span>
-          ))}
+      {entry.reuses.length > 0 && (
+        <div className="onto-reuse">
+          <span className="onto-reuse-label">再利用している語彙</span>
+          <div className="onto-reuse-list">
+            {entry.reuses.map((r) => (
+              <span key={r.prefix} className="onto-reuse-chip" title={r.what}>
+                <code>{r.prefix}</code>
+                <span className="onto-reuse-what">{r.what}</span>
+              </span>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
-      <div className="onto-diagram">
-        <Mermaid chart={entry.mermaid} />
-      </div>
+      {entry.mermaid ? (
+        <div className="onto-diagram">
+          <Mermaid chart={entry.mermaid} />
+        </div>
+      ) : (
+        <p className="trace-loading">クラス図はありません。</p>
+      )}
     </section>
   )
 }
