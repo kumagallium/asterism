@@ -308,6 +308,28 @@ def test_propose_starts_job_and_streams_done(
     assert "sample_id" in str(captured["user"])
 
 
+def test_propose_without_domain_hint(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    """Domain hint is optional (案 A): propose must run with no `domain` field."""
+    captured: dict[str, object] = {}
+    app = build_app(
+        _settings(tmp_path),
+        oxigraph_client=healthy_client,
+        start_watcher=False,
+        llm_factory=lambda key: _MockLLM(captured, key),
+    )
+    with TestClient(app) as client:
+        r = client.post(
+            "/api/propose",
+            files={"files": ("s.csv", b"SID,sample_id\n1,10\n2,11\n", "text/csv")},
+        )
+        assert r.status_code == 202
+        job_id = r.json()["job_id"]
+        events = _parse_sse(client.get(f"/api/jobs/{job_id}/stream").text)
+        assert "done" in [n for n, _ in events]
+
+
 def test_propose_error_surfaces_as_error_event(
     tmp_path: Path, healthy_client: OxigraphClient
 ) -> None:

@@ -278,7 +278,10 @@ def build_app(
     @app.post("/api/propose")
     async def propose(
         files: list[UploadFile] = File(..., description="CSV file(s) to model"),
-        domain: str = Form(..., description="Domain hint (Markdown) for the schema proposal"),
+        domain: str = Form(
+            default="",
+            description="Domain hint (Markdown). Optional — improves quality but not required.",
+        ),
         fk: list[str] = Query(default=[], description="FK hint column (repeatable)"),
         x_api_key: str | None = Header(
             default=None,

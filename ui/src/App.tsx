@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import './App.css'
 import { inspectCsvs, proposeCsvs } from './api'
+import { PRESET_HINTS } from './domainHints'
 import { ProposalView } from './ProposalView'
 
 type Tab = 'inspect' | 'propose'
@@ -24,7 +25,8 @@ function App() {
 
   // Propose state
   const [apiKey, setApiKey] = useState(() => sessionStorage.getItem(API_KEY_STORAGE) ?? '')
-  const [domain, setDomain] = useState('')
+  const [presetIds, setPresetIds] = useState<Set<string>>(new Set())
+  const [domainFree, setDomainFree] = useState('')
   const [proposal, setProposal] = useState('')
   const [status, setStatus] = useState('')
   const [proposeErr, setProposeErr] = useState('')
@@ -55,6 +57,25 @@ function App() {
     sessionStorage.setItem(API_KEY_STORAGE, value)
   }
 
+  function togglePreset(id: string) {
+    setPresetIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  // Compose the domain hint from ticked presets + the free-text box. Both are
+  // optional (案 A): an empty hint is allowed.
+  function composedDomain(): string {
+    const lines = PRESET_HINTS.filter((h) => presetIds.has(h.id)).map((h) => `- ${h.text}`)
+    const parts = []
+    if (lines.length) parts.push(lines.join('\n'))
+    if (domainFree.trim()) parts.push(domainFree.trim())
+    return parts.join('\n\n')
+  }
+
   async function onPropose() {
     setProposeErr('')
     setProposal('')
@@ -62,7 +83,7 @@ function App() {
     setProposing(true)
     closeRef.current?.()
     try {
-      closeRef.current = await proposeCsvs(files, domain, fks(), apiKey, {
+      closeRef.current = await proposeCsvs(files, composedDomain(), fks(), apiKey, {
         onStatus: (m) => setStatus(m),
         onDone: (result) => {
           setProposal(result.proposal_md)
@@ -129,7 +150,7 @@ function App() {
       {tab === 'propose' && (
         <>
           <p className="subtitle">
-            CSV + ドメインヒントから、AI が TBox / Mermaid / MIE / ingester のスキーマ案を提案します。
+            CSV から、AI が TBox / Mermaid / MIE / ingester のスキーマ案を提案します。
             実行には Anthropic API キーが必要です (このタブ内のみ保持・サーバに保存されません)。
           </p>
           <section className="controls">
@@ -143,19 +164,31 @@ function App() {
                 autoComplete="off"
               />
             </label>
-            <label className="domain-label">
-              ドメインヒント (Markdown)
-              <textarea
-                value={domain}
-                rows={4}
-                placeholder="例: 熱電・電池・磁性の測定曲線。PROV-O 必須、bnode 不使用。sample_id は paper を跨ぐと重複する。"
-                onChange={(e) => setDomain(e.target.value)}
-              />
-            </label>
-            <button
-              onClick={onPropose}
-              disabled={proposing || files.length === 0 || !apiKey || !domain.trim()}
-            >
+
+            <fieldset className="hints">
+              <legend>ヒント (任意・当てはまるものにチェックすると精度が上がります)</legend>
+              {PRESET_HINTS.map((h) => (
+                <label key={h.id} className="hint-check">
+                  <input
+                    type="checkbox"
+                    checked={presetIds.has(h.id)}
+                    onChange={() => togglePreset(h.id)}
+                  />
+                  {h.label}
+                </label>
+              ))}
+              <label className="domain-label">
+                その他の補足 (自由記入・任意)
+                <textarea
+                  value={domainFree}
+                  rows={2}
+                  placeholder="例: Seebeck = thermopower = 熱起電力。図は WebPlotDigitizer で読み取った。"
+                  onChange={(e) => setDomainFree(e.target.value)}
+                />
+              </label>
+            </fieldset>
+
+            <button onClick={onPropose} disabled={proposing || files.length === 0 || !apiKey}>
               {proposing ? 'Proposing…' : 'Propose'}
             </button>
             {status && <span className="hint">status: {status}</span>}
