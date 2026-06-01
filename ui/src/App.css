@@ -99,6 +99,37 @@
   box-sizing: border-box;
 }
 
+.hints {
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  width: 100%;
+  max-width: 640px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  box-sizing: border-box;
+}
+
+.hints legend {
+  font-size: 0.85rem;
+  color: #666;
+  padding: 0 0.4rem;
+}
+
+.hint-check {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.hint-check input {
+  margin-top: 0.2rem;
+}
+
 .mermaid {
   margin: 1rem 0;
   overflow-x: auto;
