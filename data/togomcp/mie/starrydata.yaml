@@ -440,10 +440,14 @@ architectural_notes: |
     themselves will be preserved.
 
 data_statistics:
-  papers: "100 (Phase 1 smoke-test) / 56,390 (full starrydata)"
-  samples: "611 (Phase 1 smoke-test, aligned with papers_100) / 144,091 (full)"
-  curves: "2,457 (Phase 1 smoke-test, aligned) / 233,104 (full)"
-  triples_in_subset: 49449
+  # Verified against the deployed full dataset (default graph, 2026-06).
+  papers: "56,389 rows / 56,361 distinct sd:Paper (duplicate curator SIDs share a composite IRI)"
+  samples: "104,846 sd:Sample"
+  curves: "233,103 sd:Curve"
+  total_triples: "11,998,526 (full dataset, default graph)"
+  note: >-
+    Phase 1 smoke-test subset was 100 papers / 611 samples / 2,457 curves
+    (49,449 triples). Use the live COUNT queries for exact current figures.
 
 anti_patterns: |
   - Do NOT assume bnodes; the ingester is bnode-free by design.
@@ -471,3 +475,25 @@ common_errors: |
   - **BOM in starrydata CSVs** — samples.csv and curves.csv ship as UTF-8 BOM;
     the ingester opens them with `utf-8-sig` to handle this transparently.
     If you write a custom downstream tool, do the same.
+
+answer_grounding: |
+  Ground every answer in the ACTUAL run_sparql output. Do not answer from
+  prior expectations about the materials-science domain.
+
+  - Use the paper IRIs/IDs, titles, compositions, and counts EXACTLY as the
+    query returned them. Never invent, complete, or "round" papers, titles,
+    DOIs, or numbers. If you cannot point to a returned row, do not state it.
+  - If a query returns zero rows, answer "no matching results" — do NOT
+    substitute plausible-looking examples.
+  - Do NOT assume results are on-topic with the user's keyword. This dataset
+    mixes thermoelectric, battery, AND magnetic materials. For instance, the
+    papers with the most samples are magnetocaloric / manganite studies (e.g.
+    RFeO3, La–Ca–Mn–O), NOT thermoelectric ones — a "top papers by sample
+    count" answer must list whatever the query actually returned, even when it
+    looks off-topic. Fabricating an all-thermoelectric list is a known failure.
+  - Report the query you actually executed (verbatim), not a paraphrase. If you
+    applied a FILTER (e.g. title CONTAINS "thermoelectric"), LIMIT, or OFFSET,
+    state it exactly as in the SPARQL you ran — never describe a filter you did
+    not actually include.
+  - Prefer to show the returned rows directly (table/CSV) over re-describing
+    them from memory, which is where fabrication creeps in.
