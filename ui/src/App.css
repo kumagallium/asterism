@@ -198,3 +198,179 @@ textarea:focus {
   border-radius: var(--radius);
   overflow-x: auto;
 }
+
+/* ---- Ask view ---- */
+.demo-badge {
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 0.05rem 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--warn-fg);
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+  border-radius: 999px;
+  vertical-align: middle;
+}
+
+.ask-bar {
+  display: flex;
+  gap: 0.5rem;
+  margin: 1rem 0 0.75rem;
+}
+
+.ask-input {
+  flex: 1;
+  font-size: 1rem;
+  padding: 0.6rem 0.8rem;
+}
+
+.ask-bar button {
+  white-space: nowrap;
+}
+
+.ask-examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+}
+
+.example-chip {
+  background: var(--secondary);
+  color: var(--primary);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.3rem 0.8rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.example-chip:hover:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--primary);
+}
+
+.answer-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+  padding: 1.25rem 1.5rem;
+  margin-top: 0.5rem;
+}
+
+.answer-text {
+  font-size: 1.05rem;
+  line-height: 1.7;
+  margin: 0 0 1rem;
+}
+
+.section-h {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 1rem 0 0.5rem;
+}
+
+.citation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.citation-card {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  text-align: left;
+  color: var(--fg);
+  font-weight: 400;
+  transition:
+    box-shadow 0.2s,
+    border-color 0.2s;
+}
+
+.citation-card:hover:not(:disabled) {
+  background: var(--bg);
+  border-color: var(--primary);
+  box-shadow: var(--shadow-1);
+}
+
+.citation-kind {
+  display: flex;
+  align-items: center;
+  padding: 0 0.7rem;
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.citation-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.55rem 0.8rem;
+}
+
+.citation-label {
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+
+.citation-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.citation-field {
+  display: inline-flex;
+  gap: 0.25rem;
+  font-size: 0.78rem;
+  background: var(--secondary);
+  border-radius: 4px;
+  padding: 0.05rem 0.4rem;
+}
+
+.citation-field-key {
+  color: var(--muted);
+}
+
+.citation-field-val {
+  color: var(--fg);
+  font-weight: 500;
+}
+
+.notes-list {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.notes-list li {
+  font-size: 0.88rem;
+  color: var(--fg);
+  margin: 0.2rem 0;
+}
+
+.notes {
+  border-left: 3px solid var(--warn-border);
+  background: var(--warn-bg);
+  padding: 0.6rem 0.9rem;
+  border-radius: 0 var(--radius) var(--radius) 0;
+  margin-top: 1rem;
+}
+
+.notes .section-h {
+  margin-top: 0;
+  color: var(--warn-fg);
+}

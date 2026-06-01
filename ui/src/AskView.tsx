@@ -1,0 +1,108 @@
+import { useState } from 'react'
+import { CitationCard } from './CitationCard'
+import { ask, isMockMode, type AskResponse, type Citation } from './demoApi'
+
+const EXAMPLES = [
+  'ZT が最も高い熱電材料は？',
+  'SnSe を含む組成の試料は？',
+]
+
+/**
+ * Ask view: natural-language question -> grounded answer + clickable citation
+ * cards + data-quality notes. The answer is produced by the demo agent (core's
+ * consumption layer); this view only calls the contract. Clicking a citation
+ * surfaces its provenance trace (wired in D2 via onTrace).
+ */
+export function AskView({ onTrace }: { onTrace?: (c: Citation) => void }) {
+  const [question, setQuestion] = useState('')
+  const [result, setResult] = useState<AskResponse | null>(null)
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  async function run(q: string) {
+    const query = q.trim()
+    if (!query) return
+    setError('')
+    setResult(null)
+    setLoading(true)
+    try {
+      setResult(await ask(query))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <>
+      <p className="subtitle">
+        自然言語で問うと、取り込み済みデータに基づく<strong>根拠付きの回答</strong>と
+        <strong>引用</strong>・<strong>来歴</strong>が返ります。
+        {isMockMode && <span className="demo-badge">demo データ (mock)</span>}
+      </p>
+
+      <section className="ask-bar">
+        <input
+          type="text"
+          className="ask-input"
+          value={question}
+          placeholder="例: ZT が最も高い熱電材料は？"
+          onChange={(e) => setQuestion(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') run(question)
+          }}
+        />
+        <button onClick={() => run(question)} disabled={loading || !question.trim()}>
+          {loading ? 'Asking…' : 'Ask'}
+        </button>
+      </section>
+
+      <div className="ask-examples">
+        {EXAMPLES.map((ex) => (
+          <button
+            key={ex}
+            type="button"
+            className="example-chip"
+            onClick={() => {
+              setQuestion(ex)
+              run(ex)
+            }}
+          >
+            {ex}
+          </button>
+        ))}
+      </div>
+
+      {error && <pre className="error">{error}</pre>}
+
+      {result && (
+        <section className="answer-card">
+          <p className="answer-text">{result.answer}</p>
+
+          {result.citations.length > 0 && (
+            <div className="citations">
+              <h3 className="section-h">引用</h3>
+              <div className="citation-list">
+                {result.citations.map((c) => (
+                  <CitationCard key={c.iri} citation={c} onSelect={onTrace} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {result.notes.length > 0 && (
+            <div className="notes">
+              <h3 className="section-h">データ品質に関する注記</h3>
+              <ul className="notes-list">
+                {result.notes.map((n, i) => (
+                  <li key={i}>{n}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </section>
+      )}
+    </>
+  )
+}
