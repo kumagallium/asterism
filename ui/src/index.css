@@ -1,9 +1,52 @@
+/* Design tokens — shared "forest green" light theme used across the Crucible
+ * ecosystem UIs (registry + provnote). Adopted here so the Step 0 Workbench
+ * matches the rest of the suite. Provenance-chain colors follow PROV-DM. */
 :root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
+  /* Base */
+  --bg: #fafdf7; /* warm green-tinted off-white */
+  --surface: #ffffff; /* cards / panels */
+  --fg: #1a2e1d; /* deep green-black text */
+  --muted: #6b7f6e; /* secondary text */
+  --border: #d5e0d7; /* soft green-grey */
+
+  /* Brand */
+  --primary: #4b7a52; /* forest green */
+  --primary-fg: #ffffff;
+  --secondary: #f0f5ef; /* pale green */
+  --accent: #e8f0e8; /* hover / soft fill */
+
+  /* Semantic */
+  --success-fg: #2d4a32;
+  --success-bg: #edf5ee;
+  --success-border: #b8d4bb;
+  --error-fg: #991b1b;
+  --error-bg: #fef2f2;
+  --error-border: #fecaca;
+  --info-fg: #0369a1;
+  --info-bg: #f0f9ff;
+  --info-border: #bae6fd;
+  --warn-fg: #b45309;
+  --warn-bg: #fffbeb;
+  --warn-border: #fde68a;
+
+  /* PROV-DM provenance node colors (chain visualization) */
+  --prov-activity: #5b8fb9; /* blue — ingestion / digitization */
+  --prov-entity: #4b7a52; /* green — sample / curve / paper */
+  --prov-result: #c26356; /* terracotta */
+  --prov-parameter: #c08b3e; /* amber */
+
+  /* Shape & motion */
+  --radius: 10px;
+  --radius-lg: 12px;
+  --shadow-1: 0 1px 2px rgba(30, 20, 10, 0.05), 0 2px 6px rgba(30, 20, 10, 0.04);
+  --shadow-2: 0 2px 6px rgba(30, 20, 10, 0.06), 0 10px 30px rgba(30, 20, 10, 0.06);
+
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.6;
   font-weight: 400;
-  color: #213547;
-  background-color: #ffffff;
+  color: var(--fg);
+  background-color: var(--bg);
+  letter-spacing: 0.01em;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -16,20 +59,27 @@ body {
 }
 
 button {
-  border-radius: 6px;
-  border: 1px solid #ccc;
-  padding: 0.5em 1em;
-  font-size: 1em;
-  font-weight: 500;
-  background-color: #f5f5f5;
+  border-radius: var(--radius);
+  border: 1px solid var(--primary);
+  padding: 0.5em 1.1em;
+  font-size: 0.95em;
+  font-weight: 600;
+  font-family: inherit;
+  background-color: var(--primary);
+  color: var(--primary-fg);
   cursor: pointer;
+  transition:
+    background-color 0.2s,
+    border-color 0.2s,
+    box-shadow 0.2s;
 }
 
 button:hover:not(:disabled) {
-  border-color: #646cff;
+  background-color: #3f6845;
+  border-color: #3f6845;
 }
 
 button:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
 }

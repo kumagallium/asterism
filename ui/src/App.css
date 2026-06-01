@@ -1,19 +1,28 @@
 .container {
-  max-width: 960px;
+  max-width: 1040px;
   margin: 0 auto;
-  padding: 2rem 1.5rem;
+  padding: 2.5rem 1.5rem 4rem;
   text-align: left;
 }
 
+h1 {
+  font-size: 1.9rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin: 0 0 0.25rem;
+}
+
 .subtitle {
-  color: #666;
-  margin-top: -0.25rem;
+  color: var(--muted);
+  margin-top: 0;
+  margin-bottom: 0.5rem;
+  font-size: 0.95rem;
 }
 
 .controls {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.85rem;
   align-items: flex-start;
   margin: 1.5rem 0;
 }
@@ -21,53 +30,34 @@
 .controls label {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
-  font-size: 0.9rem;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--fg);
 }
 
 .hint {
-  color: #666;
+  color: var(--muted);
   font-size: 0.85rem;
+  font-weight: 400;
 }
 
 .error {
-  color: #c0392b;
+  color: var(--error-fg);
   white-space: pre-wrap;
-  background: #fdf0ef;
-  padding: 0.75rem;
-  border-radius: 4px;
+  background: var(--error-bg);
+  border: 1px solid var(--error-border);
+  padding: 0.75rem 0.9rem;
+  border-radius: var(--radius);
+  font-size: 0.85rem;
 }
 
-.result {
-  border-top: 1px solid #ddd;
-  margin-top: 1.5rem;
-  padding-top: 1rem;
-  overflow-x: auto;
-}
-
-.result table {
-  border-collapse: collapse;
-  margin: 0.5rem 0;
-}
-
-.result th,
-.result td {
-  border: 1px solid #ccc;
-  padding: 0.25rem 0.5rem;
-  text-align: left;
-}
-
-.result code {
-  background: #f0f0f0;
-  padding: 0.1rem 0.3rem;
-  border-radius: 3px;
-}
-
+/* ---- tabs (top-level nav) ---- */
 .tabs {
   display: flex;
   gap: 0.25rem;
-  border-bottom: 1px solid #ddd;
-  margin: 1rem 0;
+  border-bottom: 1px solid var(--border);
+  margin: 1.25rem 0 1.5rem;
 }
 
 .tabs button {
@@ -75,14 +65,42 @@
   border-bottom: 2px solid transparent;
   border-radius: 0;
   background: none;
-  padding: 0.5rem 1rem;
-  color: #666;
+  padding: 0.55rem 1rem;
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.tabs button:hover:not(.active) {
+  color: var(--fg);
+  background: none;
 }
 
 .tabs button.active {
-  color: #213547;
-  border-bottom-color: #646cff;
-  font-weight: 600;
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+}
+
+/* ---- inputs ---- */
+input[type='text'],
+input[type='password'],
+textarea {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 0.5rem 0.65rem;
+  font-family: inherit;
+  font-size: 0.9rem;
+  color: var(--fg);
+  box-sizing: border-box;
+}
+
+input[type='text']:focus,
+input[type='password']:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(75, 122, 82, 0.15);
 }
 
 .controls label.domain-label {
@@ -91,30 +109,31 @@
 }
 
 .controls textarea,
-.controls input[type='password'] {
+.controls input[type='password'],
+.controls input[type='text'] {
   width: 100%;
   max-width: 640px;
-  font-family: inherit;
-  padding: 0.4rem;
-  box-sizing: border-box;
 }
 
+/* ---- hint checklist (fieldset) ---- */
 .hints {
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  padding: 0.75rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 0.9rem 1.1rem;
   width: 100%;
   max-width: 640px;
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
+  gap: 0.5rem;
   box-sizing: border-box;
+  background: var(--surface);
 }
 
 .hints legend {
-  font-size: 0.85rem;
-  color: #666;
+  font-size: 0.8rem;
+  color: var(--muted);
   padding: 0 0.4rem;
+  font-weight: 600;
 }
 
 .hint-check {
@@ -122,12 +141,50 @@
   flex-direction: row;
   align-items: flex-start;
   gap: 0.5rem;
-  font-size: 0.9rem;
+  font-size: 0.88rem;
+  font-weight: 400;
   cursor: pointer;
 }
 
 .hint-check input {
-  margin-top: 0.2rem;
+  margin-top: 0.25rem;
+  accent-color: var(--primary);
+}
+
+/* ---- result panel (markdown render) ---- */
+.result {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+  margin-top: 1.5rem;
+  padding: 1.25rem 1.5rem;
+  overflow-x: auto;
+}
+
+.result table {
+  border-collapse: collapse;
+  margin: 0.5rem 0 1rem;
+  font-size: 0.88rem;
+}
+
+.result th,
+.result td {
+  border: 1px solid var(--border);
+  padding: 0.35rem 0.6rem;
+  text-align: left;
+}
+
+.result th {
+  background: var(--secondary);
+  font-weight: 600;
+}
+
+.result code {
+  background: var(--secondary);
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  font-size: 0.85em;
 }
 
 .mermaid {
@@ -136,8 +193,8 @@
 }
 
 .mermaid-fallback {
-  background: #f0f0f0;
+  background: var(--secondary);
   padding: 0.75rem;
-  border-radius: 4px;
+  border-radius: var(--radius);
   overflow-x: auto;
 }
