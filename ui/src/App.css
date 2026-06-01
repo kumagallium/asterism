@@ -281,6 +281,46 @@
   }
 }
 
+/* ---- M3 SPARQL editor ---- */
+.sparql-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+}
+.sparql-input {
+  width: 100%;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.84rem;
+  line-height: 1.5;
+  resize: vertical;
+  tab-size: 2;
+}
+.sparql-actions {
+  display: flex;
+  gap: 0.6rem;
+}
+.sparql-bool {
+  font-size: 1rem;
+  padding: 0.7rem 1rem;
+  background: var(--success-bg);
+  border: 1px solid var(--success-border);
+  border-radius: var(--radius);
+}
+.sparql-table .sparql-cell {
+  display: inline-block;
+  max-width: 30rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.8rem;
+}
+.sparql-table td {
+  white-space: normal;
+}
+
 /* ---- M2 ingest-history table + empty state ---- */
 .empty-state {
   text-align: center;

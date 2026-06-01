@@ -66,6 +66,16 @@ export function HistoryIcon({ className }: IconProps) {
   )
 }
 
+/** Angle brackets — raw query / SPARQL escape hatch. */
+export function CodeIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className} aria-hidden="true">
+      <path d="M8 6l-5 6 5 6" />
+      <path d="M16 6l5 6-5 6" />
+    </svg>
+  )
+}
+
 /** Brand mark — a tiny CSV→RDF node graph. */
 export function BrandMark({ className }: IconProps) {
   return (
