@@ -1,0 +1,55 @@
+{
+  "endpoint": "http://10.0.0.1:7878/query",
+  "checks": [
+    {
+      "key": "zt_impossible",
+      "severity": "impossible",
+      "count": 21
+    },
+    {
+      "key": "zt_suspicious",
+      "severity": "suspicious",
+      "count": 7
+    },
+    {
+      "key": "ymin_gt_ymax",
+      "severity": "impossible",
+      "count": 0
+    },
+    {
+      "key": "xmin_gt_xmax",
+      "severity": "impossible",
+      "count": 0
+    },
+    {
+      "key": "pointcount_nonpositive",
+      "severity": "impossible",
+      "count": 0
+    },
+    {
+      "key": "temp_below_abs_zero",
+      "severity": "impossible",
+      "count": 14
+    },
+    {
+      "key": "absurd_magnitude",
+      "severity": "impossible",
+      "count": 1666
+    },
+    {
+      "key": "negative_nonneg_quantity",
+      "severity": "impossible",
+      "count": 1130
+    },
+    {
+      "key": "missing_propertyY",
+      "severity": "suspicious",
+      "count": 0
+    },
+    {
+      "key": "missing_ymax",
+      "severity": "info",
+      "count": 3871
+    }
+  ]
+}
