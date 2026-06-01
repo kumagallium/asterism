@@ -39,14 +39,20 @@ export function CitationCard({
         {citation.kind}
       </span>
       <span className="citation-body">
-        <span className="citation-label">{citation.label}</span>
+        <span className="citation-label">{citation.label || citation.kind || '(無題)'}</span>
         <span className="citation-fields">
-          {Object.entries(citation.fields).map(([k, v]) => (
-            <span key={k} className="citation-field">
-              <span className="citation-field-key">{k}</span>
-              <span className="citation-field-val">{String(v)}</span>
-            </span>
-          ))}
+          {/* Drop null/undefined/empty field values: real rows omit
+              composition/title/DOI, which arrive as null — don't render "null". */}
+          {Object.entries(citation.fields)
+            .filter(([, v]) => v !== null && v !== undefined && v !== '')
+            .map(([k, v]) => (
+              <span key={k} className="citation-field">
+                <span className="citation-field-key">{k}</span>
+                <span className="citation-field-val" title={String(v)}>
+                  {String(v)}
+                </span>
+              </span>
+            ))}
         </span>
       </span>
     </button>

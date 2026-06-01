@@ -99,12 +99,16 @@ export function ProvenanceTrace({
         {loading && <p className="trace-loading">来歴を解決中…</p>}
         {error && <pre className="error">{error}</pre>}
 
-        {chain && (
+        {chain && chain.chain.length > 0 && (
           <ol className="trace-chain">
             {chain.chain.map((s, i) => (
-              <TraceNode key={s.iri} step={s} last={i === chain.chain.length - 1} />
+              <TraceNode key={`${s.step}:${s.iri}:${i}`} step={s} last={i === chain.chain.length - 1} />
             ))}
           </ol>
+        )}
+
+        {chain && chain.chain.length === 0 && !loading && !error && (
+          <p className="trace-loading">この項目に対する来歴は記録されていません。</p>
         )}
       </aside>
     </div>
