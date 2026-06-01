@@ -1,21 +1,30 @@
 // Client for the demo agent's grounded-answer surface.
 //
 // IMPORTANT (boundary): the runtime answer-generating LLM lives OUTSIDE the
-// csv2rdf core — in a separate "demo agent" (consumption layer). This module
-// only speaks the two HTTP contracts below; it contains NO answer-generation
-// logic. While the demo agent is built, a front-end mock returns fixtures so
-// the UI can be developed against the contract. Flip VITE_DEMO_MODE=live (and
-// point the proxy at the agent) to use the real endpoints unchanged.
+// csv2rdf core — in a separate "demo agent" (consumption layer) on its OWN
+// origin (:8090), distinct from the workbench API (:8080). This module only
+// speaks the two HTTP contracts below; it contains NO answer-generation logic.
+// While the demo agent is built, a front-end mock returns fixtures so the UI
+// can be developed against the contract. Flip VITE_DEMO_MODE=live to call the
+// real agent at VITE_DEMO_AGENT_URL (default http://localhost:8090).
 //
-//   POST /demo/ask           { question }                -> AskResponse
-//   GET  /demo/provenance?iri=<iri>                      -> ProvenanceChain
+//   POST {AGENT}/demo/ask        { question }            -> AskResponse
+//   GET  {AGENT}/demo/provenance?iri=<iri>               -> ProvenanceChain
+//
+// NB: /demo/* must NOT be routed through the workbench API (:8080); the agent
+// is a separate backend. That is why we use an absolute base URL here rather
+// than a same-origin path (which the Vite proxy would forward to :8080).
 //
 // The mock fixtures mirror the contract samples in the demo handoff.
 
 // ---- contract types (§3) -------------------------------------------------
 
+// Field values come from real RDF rows: a missing composition/title/DOI arrives
+// as null. Consumers must tolerate null/undefined (CitationCard skips them).
+export type CitationFieldValue = string | number | boolean | null | undefined
+
 export interface CitationField {
-  [key: string]: string | number
+  [key: string]: CitationFieldValue
 }
 
 export interface Citation {
@@ -47,6 +56,13 @@ export interface ProvenanceChain {
 
 const MODE = (import.meta.env.VITE_DEMO_MODE as string | undefined) ?? 'mock'
 const IS_MOCK = MODE !== 'live'
+
+// Absolute base URL of the demo agent (:8090 by default). Trailing slash
+// trimmed so `${AGENT_BASE}/demo/ask` is well-formed. Deliberately NOT a
+// same-origin path: the agent is a separate backend from the workbench API.
+const AGENT_BASE = (
+  (import.meta.env.VITE_DEMO_AGENT_URL as string | undefined) ?? 'http://localhost:8090'
+).replace(/\/+$/, '')
 
 // ---- fixtures (the 3 canonical demo questions) ----------------------------
 // Kept here so the UI renders end-to-end before the demo agent ships. Values
@@ -133,6 +149,51 @@ const PROVENANCE_FIXTURE: ProvenanceChain = {
   ],
 }
 
+// ---- response normalization (real-data edge cases) -----------------------
+// Real agent responses can omit fields or send nulls (empty citations/notes,
+// null composition/title, variable-length chains). Normalize at the boundary
+// so every consumer gets well-typed arrays and never crashes on a missing key.
+
+function asString(v: unknown): string {
+  return typeof v === 'string' ? v : ''
+}
+
+function normalizeCitation(raw: unknown): Citation {
+  const r = (raw ?? {}) as Record<string, unknown>
+  const fields = r.fields && typeof r.fields === 'object' ? (r.fields as CitationField) : {}
+  return {
+    iri: asString(r.iri),
+    kind: asString(r.kind),
+    label: asString(r.label),
+    fields,
+  }
+}
+
+function normalizeAsk(raw: unknown): AskResponse {
+  const r = (raw ?? {}) as Record<string, unknown>
+  return {
+    answer: asString(r.answer),
+    citations: Array.isArray(r.citations) ? r.citations.map(normalizeCitation) : [],
+    notes: Array.isArray(r.notes) ? r.notes.map(asString).filter(Boolean) : [],
+  }
+}
+
+function normalizeChain(raw: unknown, iri: string): ProvenanceChain {
+  const r = (raw ?? {}) as Record<string, unknown>
+  const chain = Array.isArray(r.chain)
+    ? r.chain.map((s): ProvenanceStep => {
+        const o = (s ?? {}) as Record<string, unknown>
+        return {
+          step: asString(o.step),
+          iri: asString(o.iri),
+          label: asString(o.label),
+          detail: asString(o.detail),
+        }
+      })
+    : []
+  return { iri: asString(r.iri) || iri, chain }
+}
+
 // ---- public API -----------------------------------------------------------
 
 /** Ask a natural-language question; get a grounded answer + citations + notes. */
@@ -142,7 +203,7 @@ export async function ask(question: string): Promise<AskResponse> {
     const hit = ASK_FIXTURES.find((f) => f.match(question))
     return hit ? hit.response : ASK_FALLBACK
   }
-  const res = await fetch('/demo/ask', {
+  const res = await fetch(`${AGENT_BASE}/demo/ask`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ question }),
@@ -151,7 +212,7 @@ export async function ask(question: string): Promise<AskResponse> {
     const detail = await res.text().catch(() => '')
     throw new Error(`ask failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
   }
-  return (await res.json()) as AskResponse
+  return normalizeAsk(await res.json())
 }
 
 /** Resolve the provenance chain (curve→sample→paper→digitization→ingestion) for an IRI. */
@@ -161,12 +222,12 @@ export async function provenance(iri: string): Promise<ProvenanceChain> {
     // The mock returns the canonical chain regardless of iri; live mode keys on it.
     return { ...PROVENANCE_FIXTURE, iri }
   }
-  const res = await fetch(`/demo/provenance?iri=${encodeURIComponent(iri)}`)
+  const res = await fetch(`${AGENT_BASE}/demo/provenance?iri=${encodeURIComponent(iri)}`)
   if (!res.ok) {
     const detail = await res.text().catch(() => '')
     throw new Error(`provenance failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
   }
-  return (await res.json()) as ProvenanceChain
+  return normalizeChain(await res.json(), iri)
 }
 
 /** True when serving fixtures (so the UI can show a "demo data" hint). */

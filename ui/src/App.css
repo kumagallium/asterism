@@ -475,6 +475,10 @@ textarea:focus {
   flex-direction: column;
   gap: 0.2rem;
   padding: 0.55rem 0.8rem;
+  /* min-width:0 lets the body (and its truncatable children) shrink below
+     content size inside the flex card, so long DOIs/IRIs ellipsis instead of
+     widening the card. */
+  min-width: 0;
 }
 
 .citation-label {
@@ -495,15 +499,28 @@ textarea:focus {
   background: var(--secondary);
   border-radius: 4px;
   padding: 0.05rem 0.4rem;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .citation-field-key {
   color: var(--muted);
+  flex: none;
 }
 
+/* Long values (DOIs, full IRIs, titles) are truncated with ellipsis; the full
+   value stays available via the title tooltip so the card never overflows.
+   min-width:0 makes the value shrink to the available card width (rather than a
+   fixed cap that could exceed a narrow card and hide the ellipsis); 22rem just
+   keeps it from sprawling on very wide screens. */
 .citation-field-val {
   color: var(--fg);
   font-weight: 500;
+  min-width: 0;
+  max-width: 22rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .notes-list {
