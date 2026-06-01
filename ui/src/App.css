@@ -202,6 +202,123 @@
   font-size: 0.85rem;
 }
 
+/* ---- workbench stepper (U2) ---- */
+.data-source {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.9rem 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin: 0.5rem 0 1.25rem;
+}
+.data-source-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.data-source-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 1rem;
+}
+.fk-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.stepper {
+  display: flex;
+  align-items: center;
+  list-style: none;
+  margin: 0 0 1.5rem;
+  padding: 0;
+}
+.stepper-item {
+  display: flex;
+  align-items: center;
+  flex: 1;
+}
+.step-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.9rem;
+  padding: 0.3rem 0.4rem;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+.step-btn:hover:not(.active) {
+  background: var(--accent);
+  color: var(--fg);
+}
+.step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.55rem;
+  height: 1.55rem;
+  flex: none;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+  background: var(--surface);
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+.step-btn.active {
+  color: var(--primary);
+}
+.step-btn.active .step-num {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--primary-fg);
+}
+.step-btn.done .step-num {
+  border-color: var(--primary);
+  background: var(--secondary);
+  color: var(--primary);
+}
+.step-connector {
+  flex: 1;
+  height: 1.5px;
+  background: var(--border);
+  margin: 0 0.5rem;
+  min-width: 1rem;
+}
+
+.step-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  align-items: flex-start;
+}
+.step-hint {
+  font-size: 0.9rem;
+  color: var(--muted);
+  margin: 0;
+}
+.step-guard {
+  font-size: 0.92rem;
+  color: var(--warn-fg);
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+  border-radius: var(--radius);
+  padding: 0.8rem 1rem;
+  margin: 0;
+}
+
 /* ---- inputs ---- */
 input[type='text'],
 input[type='password'],
