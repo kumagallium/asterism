@@ -1,15 +1,165 @@
-.container {
-  max-width: 1040px;
-  margin: 0 auto;
-  padding: 2.5rem 1.5rem 4rem;
-  text-align: left;
+/* ---- app shell (sidebar + topbar + scrolling content) ---- */
+.app-shell {
+  display: flex;
+  height: 100%;
+  background: var(--bg);
 }
 
-h1 {
-  font-size: 1.9rem;
+.sidebar {
+  flex: none;
+  width: 248px;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding: 1.1rem 0.85rem;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.3rem 0.5rem 0.6rem;
+}
+.brand-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius);
+  background: var(--secondary);
+  color: var(--primary);
+}
+.brand-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+.brand-name {
+  font-size: 1.1rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+.brand-tag {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.side-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+  flex: 1;
+}
+.side-nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.side-nav-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 0 0.6rem 0.25rem;
+}
+.side-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  text-align: left;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--fg);
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding: 0.5rem 0.6rem;
+  transition:
+    background-color 0.15s,
+    color 0.15s;
+}
+.side-nav-item:hover:not(.active) {
+  background: var(--accent);
+}
+.side-nav-item.active {
+  background: var(--primary);
+  color: var(--primary-fg);
+}
+.side-nav-icon {
+  flex: none;
+  opacity: 0.9;
+}
+
+.sidebar-foot {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.74rem;
+  color: var(--muted);
+  padding: 0.6rem;
+  border-top: 1px solid var(--border);
+}
+.status-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  flex: none;
+}
+.status-dot--mock {
+  background: var(--prov-parameter);
+}
+.status-dot--live {
+  background: var(--primary);
+}
+
+.app-main {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.1rem 2rem;
+  background: rgba(250, 253, 247, 0.85);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+}
+.topbar-eyebrow {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--primary);
+  margin-bottom: 0.15rem;
+}
+.topbar-title {
+  font-size: 1.4rem;
   font-weight: 800;
   letter-spacing: -0.02em;
-  margin: 0 0 0.25rem;
+  margin: 0;
+}
+
+.app-content {
+  flex: 1;
+  width: 100%;
+  max-width: 1040px;
+  padding: 1.75rem 2rem 4rem;
+  text-align: left;
 }
 
 .subtitle {
@@ -50,75 +200,6 @@ h1 {
   padding: 0.75rem 0.9rem;
   border-radius: var(--radius);
   font-size: 0.85rem;
-}
-
-/* ---- tabs (top-level nav) ---- */
-/* The nav is split into labeled phase groups (authoring vs consumption) so the
-   workbench pipeline (Inspect→Propose) reads as connected and Ask reads as a
-   separate phase. align-items:flex-end keeps every tab's underline on the
-   shared bottom border despite the group labels sitting above. */
-.tabs {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 0.3rem 1.4rem;
-  border-bottom: 1px solid var(--border);
-  margin: 1.25rem 0 1.5rem;
-}
-
-.tab-group {
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-}
-
-.tab-group-label {
-  font-size: 0.72rem;
-  font-weight: 700;
-  color: var(--muted);
-  letter-spacing: 0.01em;
-  padding: 0 0.3rem;
-}
-
-.tab-group-tabs {
-  display: flex;
-  align-items: center;
-  gap: 0.1rem;
-}
-
-.tab-arrow {
-  color: var(--muted);
-  font-size: 0.9rem;
-  padding: 0 0.1rem;
-  user-select: none;
-}
-
-.tab-divider {
-  align-self: stretch;
-  width: 1px;
-  background: var(--border);
-  margin-bottom: 0.45rem;
-}
-
-.tabs button {
-  border: none;
-  border-bottom: 2px solid transparent;
-  border-radius: 0;
-  background: none;
-  padding: 0.55rem 1rem;
-  color: var(--muted);
-  font-weight: 600;
-  font-size: 0.95rem;
-}
-
-.tabs button:hover:not(.active) {
-  color: var(--fg);
-  background: none;
-}
-
-.tabs button.active {
-  color: var(--primary);
-  border-bottom-color: var(--primary);
 }
 
 /* ---- inputs ---- */
