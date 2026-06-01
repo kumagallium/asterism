@@ -970,3 +970,148 @@ textarea:focus {
   border-top: 1px solid var(--border);
   padding-top: 0.9rem;
 }
+
+/* ---- M4b mappings gallery (purpose tags lead) ---- */
+.risk-badge--low {
+  color: var(--success-fg);
+  background: var(--success-bg);
+  border: 1px solid var(--success-border);
+}
+
+.gallery-section--mappings {
+  margin-top: 2.25rem;
+  padding-top: 1.5rem;
+  border-top: 1px dashed var(--border);
+}
+.gallery-note {
+  font-size: 0.88rem;
+  color: var(--muted);
+  margin: -0.4rem 0 1rem;
+}
+
+.mapping-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+.mapping-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1rem 1.15rem;
+  box-shadow: var(--shadow-1);
+}
+.mapping-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.mapping-card-name {
+  margin: 0;
+  font-size: 1.02rem;
+  font-weight: 700;
+}
+.mapping-card-dataset {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.mapping-target {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--primary);
+  background: var(--secondary);
+  border-radius: 999px;
+  padding: 0.2rem 0.6rem;
+  white-space: nowrap;
+}
+
+/* Purpose block: the prominent showcase. Tags are large primary pills. */
+.purpose-block {
+  margin: 0.9rem 0;
+  padding: 0.85rem 0.9rem;
+  background: var(--accent);
+  border: 1px solid var(--success-border);
+  border-radius: var(--radius);
+}
+.purpose-label {
+  display: block;
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: var(--primary);
+  text-transform: uppercase;
+  margin-bottom: 0.55rem;
+}
+.purpose-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.purpose-tag {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  background: var(--surface);
+  border: 1px solid var(--primary);
+  border-left: 4px solid var(--primary);
+  border-radius: 8px;
+  padding: 0.4rem 0.65rem;
+  max-width: 20rem;
+}
+.purpose-tag-name {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--primary);
+}
+.purpose-tag-detail {
+  font-size: 0.76rem;
+  color: var(--fg);
+  line-height: 1.4;
+}
+
+.mapping-artifacts {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.mapping-artifacts-label {
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+.mapping-artifact {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.artifact-kind {
+  flex: none;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #fff;
+  border-radius: 4px;
+  padding: 0.08rem 0.4rem;
+}
+.artifact-kind--ingester {
+  background: var(--prov-activity);
+}
+.artifact-kind--mie {
+  background: var(--prov-parameter);
+}
+.artifact-kind--shex {
+  background: var(--prov-result);
+}
+.artifact-name {
+  font-size: 0.78rem;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  color: var(--fg);
+}
+.artifact-summary {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
