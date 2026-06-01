@@ -30,6 +30,7 @@ import shutil
 import tempfile
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final
 
@@ -52,6 +53,7 @@ from fastapi import Path as PathParam
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
+from csv2rdf_api import registry
 from csv2rdf_api.jobs import JobManager
 
 
@@ -67,6 +69,9 @@ class MaterializeRequest(BaseModel):
 
     proposal_md: str
     dataset_name: str = "dataset"
+    # When true (default), persist the bundle to the registry so it shows up in
+    # the Gallery. Set false for a throwaway validation-only run.
+    persist: bool = True
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +99,11 @@ class Settings:
             e.get("CSV2RDF_ERROR_ROOT", "/data/sources/errors/starrydata")
         )
         self.jobs_log = Path(e.get("CSV2RDF_JOBS_LOG", "/data/sources/jobs.jsonl"))
+        # Where materialized schema bundles are persisted so the Gallery can
+        # list what has been built (authoring→catalog half of the lifecycle).
+        self.registry_root = Path(
+            e.get("CSV2RDF_REGISTRY_ROOT", "/data/sources/registry")
+        )
         self.oxigraph_url = e.get("CSV2RDF_OXIGRAPH_URL", "http://oxigraph:7878")
         self.graph_prefix = e.get("CSV2RDF_GRAPH_PREFIX", DEFAULT_GRAPH_PREFIX)
         # Default-graph load keeps GRAPH-less SPARQL (MIE examples) working.
@@ -401,26 +411,57 @@ def build_app(
                         ingester_py=paths.get("ingester_py") or paths.get("ingester"),
                     )
                 )
-                return {
-                    "artifacts": {
-                        "diagram.md": mat.mermaid,
-                        "model.yaml": mat.rdf_config_model,
-                        "mie.yaml": mat.mie_yaml,
-                        "ingester.py": mat.ingester_py,
-                    },
+                artifacts = {
+                    "diagram.md": mat.mermaid,
+                    "model.yaml": mat.rdf_config_model,
+                    "mie.yaml": mat.mie_yaml,
+                    "ingester.py": mat.ingester_py,
+                }
+                traps = [
+                    {"id": r.trap_id, "name": r.name, "status": r.status, "detail": r.detail}
+                    for r in report.results
+                ]
+                exit_code = report.exit_code()
+                result: dict[str, object] = {
+                    "artifacts": artifacts,
                     "complete": mat.complete,
                     "warnings": mat.warnings,
-                    "traps": [
-                        {"id": r.trap_id, "name": r.name, "status": r.status, "detail": r.detail}
-                        for r in report.results
-                    ],
-                    "exit_code": report.exit_code(),
+                    "traps": traps,
+                    "exit_code": exit_code,
                 }
+                # Persist so the bundle appears in the Gallery (authoring→catalog).
+                if body.persist:
+                    meta = registry.save_dataset(
+                        cfg.registry_root,
+                        body.dataset_name,
+                        artifacts,
+                        complete=mat.complete,
+                        warnings=mat.warnings,
+                        traps=traps,
+                        exit_code=exit_code,
+                        created_at=datetime.now(UTC).isoformat(),
+                    )
+                    result["dataset"] = meta
+                return result
             finally:
                 shutil.rmtree(tmpdir, ignore_errors=True)
 
         result = await asyncio.to_thread(run)
         return JSONResponse(result)
+
+    @app.get("/api/datasets")
+    async def list_datasets() -> dict[str, object]:
+        """List materialized datasets (newest first) for the Gallery."""
+        items = registry.list_datasets(cfg.registry_root)
+        return {"count": len(items), "datasets": items}
+
+    @app.get("/api/datasets/{dataset_id}")
+    async def get_dataset(dataset_id: str) -> dict[str, object]:
+        """Return one dataset's meta + artifact contents (for detail + download)."""
+        data = registry.load_dataset(cfg.registry_root, dataset_id)
+        if data is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        return data
 
     @app.get("/api/jobs/{job_id}/stream")
     async def job_stream(job_id: str) -> StreamingResponse:
