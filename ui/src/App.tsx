@@ -4,8 +4,10 @@ import remarkGfm from 'remark-gfm'
 import './App.css'
 import { inspectCsvs, proposeCsvs } from './api'
 import { AskView } from './AskView'
+import type { Citation } from './demoApi'
 import { PRESET_HINTS } from './domainHints'
 import { ProposalView } from './ProposalView'
+import { ProvenanceTrace } from './ProvenanceTrace'
 
 type Tab = 'inspect' | 'propose' | 'ask'
 
@@ -16,6 +18,8 @@ const API_KEY_STORAGE = 'csv2rdf.apiKey'
 
 function App() {
   const [tab, setTab] = useState<Tab>('inspect')
+  // Citation whose provenance trace is open (D2). null = drawer closed.
+  const [traceCitation, setTraceCitation] = useState<Citation | null>(null)
   const [files, setFiles] = useState<File[]>([])
   const [fk, setFk] = useState('')
 
@@ -141,7 +145,11 @@ function App() {
         </section>
       )}
 
-      {tab === 'ask' && <AskView />}
+      {tab === 'ask' && <AskView onTrace={setTraceCitation} />}
+
+      {traceCitation && (
+        <ProvenanceTrace citation={traceCitation} onClose={() => setTraceCitation(null)} />
+      )}
 
       {tab === 'inspect' && (
         <>
