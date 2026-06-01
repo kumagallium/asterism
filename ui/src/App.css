@@ -1196,3 +1196,38 @@ textarea:focus {
   font-size: 0.8rem;
   color: var(--muted);
 }
+
+/* ---- V1b: live (materialized) drafts in the gallery ---- */
+.live-subsection {
+  margin-top: 1.5rem;
+}
+.gallery-subh {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--fg);
+  margin: 0 0 0.7rem;
+}
+.draft-tag {
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--info-fg);
+  background: var(--info-bg);
+  border: 1px solid var(--info-border);
+  border-radius: 4px;
+  padding: 0.05rem 0.4rem;
+  margin-left: 0.45rem;
+  white-space: nowrap;
+}
+.onto-card--draft,
+.mapping-card--draft {
+  border-style: dashed;
+}
+.mapping-desc {
+  margin: 0.7rem 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}

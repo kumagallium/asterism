@@ -191,6 +191,111 @@ const MAPPINGS: MappingEntry[] = [
   },
 ]
 
+// ---- live datasets (materialized via the workbench, persisted to /api) ----
+// These are what closes the authoring→catalog loop: a dataset materialized in
+// the workbench is persisted (api V1a) and surfaces here. They are DRAFTS (a
+// freshly designed TBox + mapping), distinct from the seeded canonical
+// vocabulary above. The fetch is best-effort: if the workbench API is absent,
+// the gallery still renders the fixtures (no error).
+
+// Workbench API base. Same-origin by default (Vite proxies /api → :8080);
+// override with VITE_API_URL to point at a separately-hosted API.
+const API_BASE = ((import.meta.env.VITE_API_URL as string | undefined) ?? '').replace(/\/+$/, '')
+
+interface DatasetMeta {
+  id: string
+  name: string
+  created_at: string
+  classes?: string[]
+  class_count?: number
+  complete?: boolean
+  exit_code?: number
+  has_ingester?: boolean
+  has_mie?: boolean
+}
+
+/** A materialized dataset adapted to both gallery layers (ontology + mapping). */
+export interface LiveDataset {
+  meta: DatasetMeta
+  ontology: OntologyEntry
+  mapping: MappingEntry
+}
+
+function toOntology(meta: DatasetMeta, mermaid: string): OntologyEntry {
+  return {
+    id: `live-${meta.id}`,
+    name: meta.name,
+    prefix: '(draft)',
+    baseIri: meta.id,
+    description: `ワークベンチで materialize した設計（${meta.created_at.slice(0, 10)}）。共有語彙への昇格前のドラフト。`,
+    classes: meta.classes ?? [],
+    reuses: [],
+    mermaid,
+    // A draft TBox is local/disposable until promoted — low risk to edit.
+    editRisk: 'low',
+  }
+}
+
+function toMapping(meta: DatasetMeta): MappingEntry {
+  const artifacts: MappingArtifact[] = []
+  if (meta.has_ingester) {
+    artifacts.push({ kind: 'ingester', name: 'ingester.py', summary: '生成された取り込みスクリプト（未実行）' })
+  }
+  if (meta.has_mie) {
+    artifacts.push({ kind: 'mie', name: 'mie.yaml', summary: '生成された AI 探索メタ' })
+  }
+  return {
+    id: `live-${meta.id}`,
+    name: meta.name,
+    dataset: `materialize 済み（${meta.created_at.slice(0, 10)})`,
+    targetOntologyId: `live-${meta.id}`,
+    targetOntologyName: meta.name,
+    description: '目的タグは未設定（運用で付与）。生成 ingester は未実行＝まだ Oxigraph に投入されていない。',
+    purposes: [],
+    artifacts,
+    editRisk: 'low',
+  }
+}
+
+/**
+ * Fetch datasets the user has materialized. Best-effort: any failure (no API,
+ * network error, non-200) resolves to an empty list so the gallery degrades to
+ * fixtures rather than erroring.
+ */
+export async function getLiveDatasets(): Promise<LiveDataset[]> {
+  let metas: DatasetMeta[]
+  try {
+    const res = await fetch(`${API_BASE}/api/datasets`)
+    if (!res.ok) return []
+    const body = (await res.json()) as { datasets?: DatasetMeta[] }
+    metas = Array.isArray(body.datasets) ? body.datasets : []
+  } catch {
+    return []
+  }
+  // Pull each dataset's diagram for its Mermaid (best-effort per item).
+  return Promise.all(
+    metas.map(async (meta) => {
+      let mermaid = ''
+      try {
+        const res = await fetch(`${API_BASE}/api/datasets/${encodeURIComponent(meta.id)}`)
+        if (res.ok) {
+          const detail = (await res.json()) as { artifacts?: { 'diagram.md'?: string } }
+          mermaid = extractMermaid(detail.artifacts?.['diagram.md'] ?? '')
+        }
+      } catch {
+        // leave mermaid empty; the card still renders
+      }
+      return { meta, ontology: toOntology(meta, mermaid), mapping: toMapping(meta) }
+    }),
+  )
+}
+
+// Pull the ```mermaid fenced block out of a diagram.md (mirror of the api side).
+function extractMermaid(diagramMd: string): string {
+  const m = /```mermaid\s*\n([\s\S]*?)```/.exec(diagramMd)
+  return (m ? m[1] : diagramMd).trim()
+}
+
 // ---- public API (async so a live backend can drop in later) ---------------
 
 /** List the shared vocabularies (TBox layer). */
