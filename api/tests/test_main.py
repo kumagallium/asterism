@@ -23,6 +23,7 @@ def _settings(tmp: Path) -> Settings:
         "CSV2RDF_RDF_ROOT": str(tmp / "rdf"),
         "CSV2RDF_ERROR_ROOT": str(tmp / "errors"),
         "CSV2RDF_JOBS_LOG": str(tmp / "jobs.jsonl"),
+        "CSV2RDF_REGISTRY_ROOT": str(tmp / "registry"),
         "CSV2RDF_OXIGRAPH_URL": "http://test",
         "CSV2RDF_SETTLE_S": "0.0",
     }
@@ -467,6 +468,68 @@ def test_materialize_rejects_empty(
     with TestClient(app) as client:
         r = client.post("/api/materialize", json={"proposal_md": "   "})
         assert r.status_code == 400
+
+
+def test_materialize_persists_and_lists_dataset(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    """V1: materialize persists the bundle so it shows in the Gallery listing."""
+    app = build_app(
+        _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
+    )
+    with TestClient(app) as client:
+        # Registry starts empty.
+        assert client.get("/api/datasets").json() == {"count": 0, "datasets": []}
+
+        r = client.post(
+            "/api/materialize",
+            json={"proposal_md": _MATERIALIZE_MD, "dataset_name": "thermo"},
+        )
+        assert r.status_code == 200
+        meta = r.json()["dataset"]
+        assert meta["name"] == "thermo"
+        assert meta["id"].startswith("thermo-")
+        # class list extracted from the mermaid diagram
+        assert set(meta["classes"]) == {"Sample", "Paper"}
+        assert meta["class_count"] == 2
+
+        listing = client.get("/api/datasets").json()
+        assert listing["count"] == 1
+        assert listing["datasets"][0]["id"] == meta["id"]
+
+        # Detail returns the saved artifacts.
+        detail = client.get(f"/api/datasets/{meta['id']}").json()
+        assert detail["meta"]["id"] == meta["id"]
+        assert detail["artifacts"]["mie.yaml"]
+        assert "classDiagram" in detail["artifacts"]["diagram.md"]
+
+
+def test_materialize_persist_false_skips_registry(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    app = build_app(
+        _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
+    )
+    with TestClient(app) as client:
+        r = client.post(
+            "/api/materialize",
+            json={"proposal_md": _MATERIALIZE_MD, "persist": False},
+        )
+        assert r.status_code == 200
+        assert "dataset" not in r.json()
+        assert client.get("/api/datasets").json()["count"] == 0
+
+
+def test_get_dataset_unknown_returns_404(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    app = build_app(
+        _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
+    )
+    with TestClient(app) as client:
+        assert client.get("/api/datasets/nope-12345678").status_code == 404
+        # Path-traversal-ish id is rejected as not-found, never escapes root.
+        assert client.get("/api/datasets/..%2f..%2fetc").status_code == 404
 
 
 def test_job_stream_unknown_id(
