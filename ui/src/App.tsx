@@ -3,10 +3,11 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import './App.css'
 import { inspectCsvs, proposeCsvs } from './api'
+import { AskView } from './AskView'
 import { PRESET_HINTS } from './domainHints'
 import { ProposalView } from './ProposalView'
 
-type Tab = 'inspect' | 'propose'
+type Tab = 'inspect' | 'propose' | 'ask'
 
 // D7: the user-brought API key lives only in sessionStorage (cleared when the
 // tab closes) and is sent as a per-request header. It is never persisted
@@ -114,21 +115,33 @@ function App() {
         <button className={tab === 'propose' ? 'active' : ''} onClick={() => setTab('propose')}>
           Propose (AI)
         </button>
+        <button className={tab === 'ask' ? 'active' : ''} onClick={() => setTab('ask')}>
+          Ask (根拠付き回答)
+        </button>
       </nav>
 
-      <section className="controls">
-        <input
-          type="file"
-          accept=".csv"
-          multiple
-          onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
-        />
-        <label>
-          FK 列ヒント (カンマ区切り・任意)
-          <input type="text" value={fk} placeholder="SID" onChange={(e) => setFk(e.target.value)} />
-        </label>
-        {files.length > 0 && <span className="hint">{files.length} file(s) selected</span>}
-      </section>
+      {tab !== 'ask' && (
+        <section className="controls">
+          <input
+            type="file"
+            accept=".csv"
+            multiple
+            onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
+          />
+          <label>
+            FK 列ヒント (カンマ区切り・任意)
+            <input
+              type="text"
+              value={fk}
+              placeholder="SID"
+              onChange={(e) => setFk(e.target.value)}
+            />
+          </label>
+          {files.length > 0 && <span className="hint">{files.length} file(s) selected</span>}
+        </section>
+      )}
+
+      {tab === 'ask' && <AskView />}
 
       {tab === 'inspect' && (
         <>
