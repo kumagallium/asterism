@@ -47,6 +47,22 @@ function App() {
   const [tab, setTab] = useState<Tab>('workbench')
   // Citation whose provenance trace is open (D2). null = drawer closed.
   const [traceCitation, setTraceCitation] = useState<Citation | null>(null)
+  // Ask⇄Gallery link: a vocabulary class to focus/highlight in the Gallery when
+  // the user jumps there from an Ask citation. null = no focus.
+  const [galleryFocus, setGalleryFocus] = useState<string | null>(null)
+
+  // Jump from a grounded answer to the ontology class that backs it.
+  function showVocab(className: string) {
+    setGalleryFocus(className)
+    setTraceCitation(null)
+    setTab('gallery')
+  }
+
+  // Manual nav clears any pending vocabulary focus.
+  function navTo(id: Tab) {
+    setGalleryFocus(null)
+    setTab(id)
+  }
 
   const meta = VIEW_META[tab]
 
@@ -74,7 +90,7 @@ function App() {
                     key={it.id}
                     type="button"
                     className={`side-nav-item${tab === it.id ? ' active' : ''}`}
-                    onClick={() => setTab(it.id)}
+                    onClick={() => navTo(it.id)}
                   >
                     <Icon className="side-nav-icon" />
                     <span>{it.label}</span>
@@ -101,8 +117,8 @@ function App() {
 
         <main className="app-content">
           {tab === 'workbench' && <WorkbenchView />}
-          {tab === 'ask' && <AskView onTrace={setTraceCitation} />}
-          {tab === 'gallery' && <GalleryView />}
+          {tab === 'ask' && <AskView onTrace={setTraceCitation} onShowVocab={showVocab} />}
+          {tab === 'gallery' && <GalleryView focusClass={galleryFocus} />}
           {tab === 'jobs' && <JobsView />}
           {tab === 'sparql' && <SparqlView />}
         </main>

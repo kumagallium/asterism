@@ -13,7 +13,13 @@ const EXAMPLES = [
  * consumption layer); this view only calls the contract. Clicking a citation
  * surfaces its provenance trace (wired in D2 via onTrace).
  */
-export function AskView({ onTrace }: { onTrace?: (c: Citation) => void }) {
+export function AskView({
+  onTrace,
+  onShowVocab,
+}: {
+  onTrace?: (c: Citation) => void
+  onShowVocab?: (className: string) => void
+}) {
   const [question, setQuestion] = useState('')
   const [result, setResult] = useState<AskResponse | null>(null)
   const [error, setError] = useState('')
@@ -93,7 +99,12 @@ export function AskView({ onTrace }: { onTrace?: (c: Citation) => void }) {
               <h3 className="section-h">引用</h3>
               <div className="citation-list">
                 {result.citations.map((c) => (
-                  <CitationCard key={c.iri} citation={c} onSelect={onTrace} />
+                  <CitationCard
+                    key={c.iri}
+                    citation={c}
+                    onSelect={onTrace}
+                    onShowVocab={onShowVocab}
+                  />
                 ))}
               </div>
             </div>

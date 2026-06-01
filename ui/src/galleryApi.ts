@@ -20,6 +20,16 @@
 
 export type EditRisk = 'high' | 'low'
 
+// Maps an Ask citation/provenance `kind` to the vocabulary class it is typed
+// with, so the UI can link a grounded answer to the ontology that backs it.
+// Only kinds that correspond to a class in the seeded TBox are listed.
+export const KIND_TO_CLASS: Record<string, string> = {
+  curve: 'Curve',
+  sample: 'Sample',
+  paper: 'Paper',
+  ingestion: 'IngestionActivity',
+}
+
 // ---- ontology layer -------------------------------------------------------
 
 export interface OntologyEntry {
