@@ -26,8 +26,9 @@ import json
 import logging
 import os
 import re
+import shutil
 import tempfile
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Final
@@ -42,9 +43,12 @@ from csv2rdf.watcher import (
     watch,
 )
 from csv2rdf_step0.inspect import inspect_csv_set, render_markdown
-from fastapi import FastAPI, File, HTTPException, Query, Response, UploadFile
+from csv2rdf_step0.propose import AnthropicLLMClient, LLMClient, propose_schema
+from fastapi import FastAPI, File, Form, Header, HTTPException, Query, Response, UploadFile
 from fastapi import Path as PathParam
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
+
+from csv2rdf_api.jobs import JobManager
 
 logger = logging.getLogger(__name__)
 
@@ -151,8 +155,17 @@ def build_app(
     *,
     oxigraph_client: OxigraphClient | None = None,
     start_watcher: bool = True,
+    llm_factory: Callable[[str | None], LLMClient] | None = None,
 ) -> FastAPI:
+    """Build the FastAPI app.
+
+    ``llm_factory`` maps an optional user-brought API key to an
+    :class:`LLMClient` for one propose/refine run. Defaults to constructing an
+    :class:`AnthropicLLMClient` with that key. Tests inject a factory returning
+    a mock so no real key / network is needed.
+    """
     cfg = settings or Settings()
+    make_llm = llm_factory or (lambda key: AnthropicLLMClient(api_key=key))
     watcher_cfg = WatcherConfig(
         drop_root=cfg.drop_root,
         rdf_root=cfg.rdf_root,
@@ -182,6 +195,7 @@ def build_app(
         app.state.client = client
         app.state.watcher_cfg = watcher_cfg
         app.state.watcher_task = task
+        app.state.jobs = JobManager()
         try:
             yield
         finally:
@@ -260,6 +274,71 @@ def build_app(
             inspections, fks = inspect_csv_set(paths, fk_hint_columns=fk or None)
             markdown = render_markdown(inspections, fks)
         return Response(content=markdown, media_type="text/markdown")
+
+    @app.post("/api/propose")
+    async def propose(
+        files: list[UploadFile] = File(..., description="CSV file(s) to model"),
+        domain: str = Form(..., description="Domain hint (Markdown) for the schema proposal"),
+        fk: list[str] = Query(default=[], description="FK hint column (repeatable)"),
+        x_api_key: str | None = Header(
+            default=None,
+            description="User-brought Anthropic API key (D7: used for this run only, never stored)",
+        ),
+    ) -> JSONResponse:
+        """Phase 4 (M1a): start an async schema-proposal job; return its job_id.
+
+        The proposal call takes minutes, so we return immediately and stream
+        lifecycle events from ``GET /api/jobs/{job_id}/stream`` (SSE). The CSVs
+        are copied into a temp dir whose lifetime spans the job. The API key
+        (header ``X-API-Key``) is used only to build the LLM client for this run
+        and is never persisted (D7).
+        """
+        if not files:
+            raise HTTPException(400, "no files uploaded")
+
+        import tempfile as _tempfile
+
+        tmpdir = _tempfile.mkdtemp(prefix="csv2rdf-propose-")
+        paths: list[Path] = []
+        for upload in files:
+            if upload.filename is None:
+                raise HTTPException(400, "missing filename")
+            dest = Path(tmpdir) / _validate_name(upload.filename)
+            await _save_upload(upload, dest)
+            paths.append(dest)
+
+        llm = make_llm(x_api_key)
+        fk_cols = fk or None
+
+        def work() -> dict[str, object]:
+            try:
+                proposal = propose_schema(
+                    list(paths), domain, fk_hint_columns=fk_cols, llm=llm
+                )
+                return {
+                    "proposal_md": proposal.proposal_md,
+                    "inspection_md": proposal.csv_inspection_md,
+                    "metadata": proposal.metadata,
+                }
+            finally:
+                shutil.rmtree(tmpdir, ignore_errors=True)
+
+        jobs: JobManager = app.state.jobs
+        job_id = jobs.start(work)
+        return JSONResponse({"job_id": job_id}, status_code=202)
+
+    @app.get("/api/jobs/{job_id}/stream")
+    async def job_stream(job_id: str) -> StreamingResponse:
+        """Server-Sent Events for one job: replay past events then follow live."""
+        jobs: JobManager = app.state.jobs
+        return StreamingResponse(
+            jobs.stream(job_id),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",  # disable proxy buffering for SSE
+            },
+        )
 
     return app
 

@@ -210,11 +210,21 @@ class AnthropicLLMClient:
     model: str = "claude-opus-4-7"
     max_tokens: int = 32000
     effort: str = "xhigh"
+    api_key: str | None = None
+    """Explicit API key. If None, the SDK reads ``ANTHROPIC_API_KEY`` from the
+    environment. The Phase 4 UI passes a *user-brought* key here per request and
+    never persists it (design doc D7)."""
 
     def complete(self, system_prompt: str, user_message: str) -> str:
         import anthropic
 
-        client = anthropic.Anthropic()
+        # Pass api_key only when provided; otherwise the SDK falls back to the
+        # ANTHROPIC_API_KEY env var (the CLI / dogfood path).
+        client = (
+            anthropic.Anthropic(api_key=self.api_key)
+            if self.api_key
+            else anthropic.Anthropic()
+        )
         # Stream so large proposals complete without hitting the SDK's
         # non-streaming timeout guard. get_final_message() reassembles the
         # whole response for us.
