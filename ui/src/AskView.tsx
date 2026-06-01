@@ -37,8 +37,9 @@ export function AskView({ onTrace }: { onTrace?: (c: Citation) => void }) {
   return (
     <>
       <p className="subtitle">
-        自然言語で問うと、取り込み済みデータに基づく<strong>根拠付きの回答</strong>と
-        <strong>引用</strong>・<strong>来歴</strong>が返ります。
+        自然言語で問うと、<strong>取り込み済みの RDF</strong> に基づく
+        <strong>根拠付きの回答</strong>と<strong>引用</strong>・<strong>来歴</strong>が返ります。
+        左の Inspect/Propose（CSV→RDF 化）とは別フェーズで、ここではアップロードは行いません。
         {isMockMode && <span className="demo-badge">demo データ (mock)</span>}
       </p>
 
