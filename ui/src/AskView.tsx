@@ -55,7 +55,14 @@ export function AskView({ onTrace }: { onTrace?: (c: Citation) => void }) {
           }}
         />
         <button onClick={() => run(question)} disabled={loading || !question.trim()}>
-          {loading ? 'Asking…' : 'Ask'}
+          {loading ? (
+            <>
+              <span className="spinner" />
+              回答中…
+            </>
+          ) : (
+            'Ask'
+          )}
         </button>
       </section>
 

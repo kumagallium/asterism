@@ -96,7 +96,12 @@ export function ProvenanceTrace({
           </button>
         </header>
 
-        {loading && <p className="trace-loading">来歴を解決中…</p>}
+        {loading && (
+          <p className="trace-loading">
+            <span className="spinner" />
+            来歴を解決中…
+          </p>
+        )}
         {error && <pre className="error">{error}</pre>}
 
         {chain && chain.chain.length > 0 && (

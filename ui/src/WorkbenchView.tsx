@@ -1,4 +1,6 @@
 import { useRef, useState } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { inspectCsvs, materializeSchema, proposeCsvs, refineSchema, type MaterializeResult } from './api'
 import { PRESET_HINTS } from './domainHints'
 import { MaterializePanel } from './MaterializePanel'
@@ -185,12 +187,18 @@ export function WorkbenchView() {
       <section className="data-source">
         <span className="data-source-label">データソース</span>
         <div className="data-source-row">
-          <input
-            type="file"
-            accept=".csv"
-            multiple
-            onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
-          />
+          <label className="file-btn">
+            CSV を選択
+            <input
+              type="file"
+              accept=".csv"
+              multiple
+              onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
+            />
+          </label>
+          <span className={`file-names${files.length ? '' : ' empty'}`}>
+            {files.length ? files.map((f) => f.name).join('、') : 'ファイル未選択'}
+          </span>
           <label className="fk-field">
             <span>FK 列ヒント（任意）</span>
             <input
@@ -230,7 +238,14 @@ export function WorkbenchView() {
           <>
             <p className="step-hint">CSV の型 / JSON 列 / 一意性（複合キー）を解析します。LLM は使いません。</p>
             <button onClick={onInspect} disabled={inspecting || files.length === 0}>
-              {inspecting ? 'Inspecting…' : '構造を解析'}
+              {inspecting ? (
+                <>
+                  <span className="spinner" />
+                  解析中…
+                </>
+              ) : (
+                '構造を解析'
+              )}
             </button>
             {files.length === 0 && <span className="hint">先に CSV を選択してください。</span>}
             {inspectErr && <pre className="error">{inspectErr}</pre>}
@@ -284,7 +299,14 @@ export function WorkbenchView() {
               </fieldset>
 
               <button onClick={onPropose} disabled={proposing || files.length === 0 || !apiKey}>
-                {proposing ? 'Proposing…' : 'スキーマを提案'}
+                {proposing ? (
+                  <>
+                    <span className="spinner" />
+                    提案中…
+                  </>
+                ) : (
+                  'スキーマを提案'
+                )}
               </button>
               {status && <span className="hint">status: {status}</span>}
             </section>
@@ -313,7 +335,14 @@ export function WorkbenchView() {
                 </label>
                 <div className="refine-actions">
                   <button onClick={onRefine} disabled={refining || !apiKey || !comment.trim()}>
-                    {refining ? 'Refining…' : 'コメントを反映して再生成'}
+                    {refining ? (
+                      <>
+                        <span className="spinner" />
+                        再生成中…
+                      </>
+                    ) : (
+                      'コメントを反映して再生成'
+                    )}
                   </button>
                   {status && <span className="hint">status: {status}</span>}
                 </div>
@@ -334,7 +363,14 @@ export function WorkbenchView() {
                 スキーマを 4 つの artifact に分割し 8 罠を検証して<strong>カタログに保存</strong>します。
               </p>
               <button onClick={onMaterialize} disabled={materializing}>
-                {materializing ? 'Materializing…' : '確定してカタログに保存'}
+                {materializing ? (
+                  <>
+                    <span className="spinner" />
+                    保存中…
+                  </>
+                ) : (
+                  '確定してカタログに保存'
+                )}
               </button>
               {proposeErr && <pre className="error">{proposeErr}</pre>}
               {materialized && <MaterializePanel result={materialized} />}
