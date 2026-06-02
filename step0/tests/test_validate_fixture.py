@@ -2,7 +2,7 @@
 
 This is the regression net for `csv2rdf-validate`: the fixture under
 ``tests/fixtures/starrydata_min/`` is a tiny, correct, starrydata-shaped bundle
-that must pass all 8 traps. Running it in CI means any change that breaks a trap
+that must pass T1-T7 (T8/T9 are opt-in). Running it in CI means any change that breaks a trap
 checker - or the T1 ingester key recovery - fails the build, without needing the
 full starrydata export or an API key.
 """
@@ -40,10 +40,11 @@ def test_fixture_files_exist() -> None:
 def test_fixture_bundle_passes_all_traps() -> None:
     report = validate_schema(_bundle())
     status = {r.trap_id: r.status for r in report.results}
-    # T1-T7 must pass on a correct bundle; T8 is opt-in (no LLM in CI).
+    # T1-T7 must pass on a correct bundle; T8 (LLM) and T9 (no --rml) are opt-in.
     for trap in ("T1", "T2", "T3", "T4", "T5", "T6", "T7"):
         assert status[trap] == "pass", f"{trap} not pass: {status[trap]} - {report.results}"
     assert status["T8"] == "skip"
+    assert status["T9"] == "skip"  # fixture bundle carries no RML mapping
     assert report.exit_code() == 0
 
 

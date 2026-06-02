@@ -1,10 +1,12 @@
-"""Schema validator for csv2rdf-mcp Phase 3 (8-trap check).
+"""Schema validator for csv2rdf-mcp Phase 3 (trap checks T1-T9).
 
 Validates a schema bundle (TBox TTL + Mermaid + MIE YAML + ingester Python +
 the source CSVs) against the 8 traps from
-``docs/architecture/ai-assisted-step0-workflow.md`` §6.
+``docs/architecture/ai-assisted-step0-workflow.md`` §6, plus **T9** (Phase 5):
+the declarative RML mapping references only vetted Tier 0 functions — see
+``docs/architecture/step0-rml-emission.md`` §5.2.
 
-The 8 traps and how this module checks each:
+The traps and how this module checks each:
 
 * **T1 ID uniqueness** — collect candidate IRI keys from *two* sources: the
   composite IRI patterns in the MIE (e.g. ``sdr:sample/{SID}-{sample_id}``) **and**
@@ -59,7 +61,7 @@ from csv2rdf_step0.t1_ingester import extract_ingester_keys
 class TrapResult:
     """One trap check's outcome."""
 
-    trap_id: str  # "T1" through "T8"
+    trap_id: str  # "T1" through "T9"
     name: str
     status: str  # "pass" | "fail" | "warn" | "skip"
     detail: str  # human-readable explanation
@@ -111,6 +113,7 @@ class SchemaBundle:
     diagram_md: Path | None = None  # docs/ontology/diagram.md
     mie_yaml: Path | None = None  # data/togomcp/mie/{name}.yaml
     ingester_py: Path | None = None  # ingest/src/csv2rdf/{name}.py
+    rml_ttl: Path | None = None  # {name}-mapping.rml.ttl (declarative substrate, T9)
     source_csvs: list[Path] = field(default_factory=list)
     fk_hint_columns: list[str] = field(default_factory=list)
 
@@ -742,12 +745,72 @@ def _check_t8_hallucination(
 
 
 # ----------------------------------------------------------------------------
+# Trap T9: RML closed-set (declarative substrate) — step0-rml-emission.md §5.2
+# ----------------------------------------------------------------------------
+
+
+def _check_t9_rml_closed_set(
+    bundle: SchemaBundle,
+    *,
+    allowed_fn_iris: set[str] | None = None,
+) -> TrapResult:
+    """The declarative RML must reference only vetted Tier 0 functions (no new code).
+
+    Skips when no ``--rml`` is given, or when ``csv2rdf`` (the canonical function
+    registry) is not importable in this environment — like T8, enforcement is
+    best-effort and never blocks merely because a dependency is absent.
+    ``allowed_fn_iris`` may be injected (tests) instead of loading the registry.
+    """
+    name = "RML closed-set (Tier 0 only)"
+    if bundle.rml_ttl is None:
+        return TrapResult("T9", name, "skip", "No --rml provided.")
+    if not bundle.rml_ttl.exists():
+        return TrapResult("T9", name, "fail", f"RML file not found: {bundle.rml_ttl}")
+
+    from .rml_check import load_registry_fn_iris, referenced_function_iris
+
+    if allowed_fn_iris is None:
+        try:
+            allowed_fn_iris = load_registry_fn_iris()
+        except ImportError:
+            return TrapResult(
+                "T9", name, "skip",
+                "csv2rdf (ingest) not importable — install it to enforce the closed set.",
+            )
+
+    rml_text = bundle.rml_ttl.read_text(encoding="utf-8")
+    try:
+        used = referenced_function_iris(rml_text)
+    except ImportError:
+        return TrapResult("T9", name, "skip", "rdflib not installed — cannot parse RML.")
+    except Exception as exc:  # malformed Turtle
+        return TrapResult("T9", name, "fail", f"Could not parse RML Turtle: {exc}")
+
+    violations = sorted(used - allowed_fn_iris)
+    if violations:
+        return TrapResult(
+            "T9", name, "fail",
+            f"{len(violations)} function IRI(s) outside the vetted Tier 0 set.",
+            evidence=violations,
+        )
+    return TrapResult(
+        "T9", name, "pass",
+        f"All {len(used)} referenced function(s) are vetted Tier 0.",
+    )
+
+
+# ----------------------------------------------------------------------------
 # Public entry point
 # ----------------------------------------------------------------------------
 
 
-def validate_schema(bundle: SchemaBundle, *, llm: Any = None) -> ValidationReport:
-    """Run all 8 trap checks against ``bundle``. Returns a :class:`ValidationReport`."""
+def validate_schema(
+    bundle: SchemaBundle,
+    *,
+    llm: Any = None,
+    allowed_fn_iris: set[str] | None = None,
+) -> ValidationReport:
+    """Run all 9 trap checks against ``bundle``. Returns a :class:`ValidationReport`."""
     results = [
         _check_t1_uniqueness(bundle),
         _check_t2_bom(bundle),
@@ -757,12 +820,14 @@ def validate_schema(bundle: SchemaBundle, *, llm: Any = None) -> ValidationRepor
         _check_t6_fake_iri(bundle),
         _check_t7_rationale(bundle),
         _check_t8_hallucination(bundle, llm=llm),
+        _check_t9_rml_closed_set(bundle, allowed_fn_iris=allowed_fn_iris),
     ]
     bundle_paths = {
         "tbox_ttl": str(bundle.tbox_ttl) if bundle.tbox_ttl else "",
         "diagram_md": str(bundle.diagram_md) if bundle.diagram_md else "",
         "mie_yaml": str(bundle.mie_yaml) if bundle.mie_yaml else "",
         "ingester_py": str(bundle.ingester_py) if bundle.ingester_py else "",
+        "rml_ttl": str(bundle.rml_ttl) if bundle.rml_ttl else "",
         "source_csvs": ", ".join(str(p) for p in bundle.source_csvs),
     }
     return ValidationReport(results=results, bundle_paths=bundle_paths)
@@ -814,7 +879,8 @@ def _build_arg_parser():  # type: ignore[no-untyped-def]
     p = argparse.ArgumentParser(
         prog="csv2rdf-validate",
         description=(
-            "Run the 8-trap validator on a schema bundle (TBox / diagram / MIE / ingester / CSVs). "
+            "Run the trap validator (T1-T9) on a schema bundle "
+            "(TBox / diagram / MIE / ingester / RML / CSVs). "
             "Returns exit 0 if all required traps pass, else 1. Suitable for CI."
         ),
     )
@@ -822,6 +888,12 @@ def _build_arg_parser():  # type: ignore[no-untyped-def]
     p.add_argument("--diagram", type=Path, default=None, help="Mermaid diagram .md path")
     p.add_argument("--mie", type=Path, default=None, help="MIE YAML path")
     p.add_argument("--ingester", type=Path, default=None, help="Ingester .py path")
+    p.add_argument(
+        "--rml",
+        type=Path,
+        default=None,
+        help="Declarative RML mapping .ttl path (T9 closed-set check).",
+    )
     p.add_argument(
         "--csv", type=Path, action="append", default=[], help="Source CSV (repeatable)"
     )
@@ -842,6 +914,7 @@ def _main(argv: list[str] | None = None) -> int:
         diagram_md=args.diagram,
         mie_yaml=args.mie,
         ingester_py=args.ingester,
+        rml_ttl=args.rml,
         source_csvs=args.csv,
         fk_hint_columns=args.fk,
     )

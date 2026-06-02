@@ -1,4 +1,4 @@
-"""Tests for csv2rdf_step0.validate (8-trap validator)."""
+"""Tests for csv2rdf_step0.validate (trap validator T1-T9)."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -14,6 +14,7 @@ from csv2rdf_step0.validate import (
     _check_t6_fake_iri,
     _check_t7_rationale,
     _check_t8_hallucination,
+    _check_t9_rml_closed_set,
     _extract_composite_keys,
     render_report,
     validate_schema,
@@ -577,11 +578,11 @@ def test_t8_skipped_without_llm() -> None:
 # ----------------------------------------------------------------------------
 
 
-def test_validate_schema_returns_8_results(tmp_path: Path) -> None:
+def test_validate_schema_returns_9_results(tmp_path: Path) -> None:
     bundle = SchemaBundle()  # everything skips
     report = validate_schema(bundle)
-    assert len(report.results) == 8
-    assert {r.trap_id for r in report.results} == {f"T{i}" for i in range(1, 9)}
+    assert len(report.results) == 9
+    assert {r.trap_id for r in report.results} == {f"T{i}" for i in range(1, 10)}
     assert report.exit_code() == 0  # all skips, no failures
 
 
@@ -590,6 +591,71 @@ def test_validate_schema_exits_1_on_failure(tmp_path: Path) -> None:
     report = validate_schema(SchemaBundle(ingester_py=ing))
     assert report.exit_code() == 1
     assert any(r.trap_id == "T2" and r.status == "fail" for r in report.results)
+
+
+# ----------------------------------------------------------------------------
+# Trap T9: RML closed-set (declarative substrate). allowed_fn_iris is injected
+# so these tests don't need the csv2rdf (ingest) package installed.
+# ----------------------------------------------------------------------------
+
+_FN = "https://kumagallium.github.io/csv2rdf-mcp/fn/"
+
+_VALID_RML = (
+    "@prefix rr:   <http://www.w3.org/ns/r2rml#> .\n"
+    "@prefix rml:  <http://semweb.mmlab.be/ns/rml#> .\n"
+    "@prefix ql:   <http://semweb.mmlab.be/ns/ql#> .\n"
+    "@prefix rmlf: <http://w3id.org/rml/> .\n"
+    "@prefix fn:   <https://kumagallium.github.io/csv2rdf-mcp/fn/> .\n"
+    '<#M> a rr:TriplesMap ;\n'
+    '  rml:logicalSource [ rml:source "c.csv" ; rml:referenceFormulation ql:CSV ] ;\n'
+    '  rr:subjectMap [ rr:template "https://ex/{id}" ] ;\n'
+    "  rr:predicateObjectMap [ rr:predicate <https://ex/m> ; rr:objectMap [\n"
+    "      rmlf:functionExecution [ rmlf:function fn:float_array_max ;\n"
+    '        rmlf:input [ rmlf:parameter fn:p_value ;\n'
+    '          rmlf:inputValueMap [ rml:reference "y" ] ] ] ] ] .\n'
+)
+
+
+def test_t9_skips_without_rml() -> None:
+    assert _check_t9_rml_closed_set(SchemaBundle()).status == "skip"
+
+
+def test_t9_passes_when_all_functions_vetted(tmp_path: Path) -> None:
+    rml = _write(tmp_path / "m.rml.ttl", _VALID_RML)
+    allowed = {_FN + "float_array_max", _FN + "date_iso"}
+    r = _check_t9_rml_closed_set(SchemaBundle(rml_ttl=rml), allowed_fn_iris=allowed)
+    assert r.status == "pass", r.detail
+
+
+def test_t9_fails_on_out_of_set_function(tmp_path: Path) -> None:
+    rogue = _VALID_RML.replace("fn:float_array_max", "fn:run_shell")
+    rml = _write(tmp_path / "m.rml.ttl", rogue)
+    allowed = {_FN + "float_array_max"}
+    r = _check_t9_rml_closed_set(SchemaBundle(rml_ttl=rml), allowed_fn_iris=allowed)
+    assert r.status == "fail"
+    assert any("run_shell" in e for e in r.evidence)
+
+
+def test_t9_fails_on_malformed_turtle(tmp_path: Path) -> None:
+    rml = _write(tmp_path / "bad.rml.ttl", "<<<< definitely not turtle")
+    r = _check_t9_rml_closed_set(SchemaBundle(rml_ttl=rml), allowed_fn_iris=set())
+    assert r.status == "fail"
+    assert "parse" in r.detail.lower()
+
+
+def test_t9_fails_when_rml_file_missing(tmp_path: Path) -> None:
+    r = _check_t9_rml_closed_set(SchemaBundle(rml_ttl=tmp_path / "nope.ttl"))
+    assert r.status == "fail"
+
+
+def test_t9_flows_through_validate_schema(tmp_path: Path) -> None:
+    rml = _write(tmp_path / "m.rml.ttl", _VALID_RML)
+    report = validate_schema(
+        SchemaBundle(rml_ttl=rml), allowed_fn_iris={_FN + "float_array_max"}
+    )
+    t9 = next(r for r in report.results if r.trap_id == "T9")
+    assert t9.status == "pass"
+    assert report.exit_code() == 0
 
 
 def test_render_report_includes_glyphs_and_summary(tmp_path: Path) -> None:
