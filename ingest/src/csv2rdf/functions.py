@@ -35,10 +35,13 @@ from csv2rdf.starrydata import (
     slugify,
 )
 
-# FnO 名前空間。関数 IRI = FN + 関数名、パラメータ IRI = FN + "p_value"。
-# IRI はデータ同一性なので名前空間・関数名は安定させる(軽率に rename しない)。
+# FnO 名前空間。関数 IRI = FN + 関数名、単一入力のパラメータ IRI = FN + "p_value"。
+# 2 入力関数は p_value1 / p_value2 で区別する(RML の rmlf:parameter が指す先)。
+# IRI はデータ同一性なので名前空間・関数名・パラメータ名は安定させる(軽率に rename しない)。
 FN = "https://kumagallium.github.io/csv2rdf-mcp/fn/"
 P_VALUE = FN + "p_value"
+P_VALUE1 = FN + "p_value1"
+P_VALUE2 = FN + "p_value2"
 
 
 # ---- 検証済み関数(既存実装への薄い委譲。FnO 形 str -> str) -------------------
@@ -58,6 +61,16 @@ def float_array_min(value: str) -> str:
     """セル内 JSON 数値配列 → 最小値の文字列。空配列は ""(既存 ``parse_float_array``)。"""
     arr = parse_float_array(value)
     return str(min(arr)) if arr else ""
+
+
+def float_array_count(value1: str, value2: str) -> str:
+    """curve の x / y JSON 配列 → 有効データ点数 ``min(len(xs), len(ys))`` の文字列。
+
+    手続き経路 (``starrydata`` の curve 集約) と同じ定義。点数 0 は ""(トリプル無し)
+    で素通り (手続き経路の ``if point_count:`` 相当)。FnO は多入力可なので 2 入力で受ける。
+    """
+    n = min(len(parse_float_array(value1)), len(parse_float_array(value2)))
+    return str(n) if n else ""
 
 
 def iri_safe(value: str) -> str:
@@ -100,11 +113,17 @@ def _single(name: str, func: Callable[[str], str]) -> FunctionSpec:
     return FunctionSpec(name=name, func=func, params={"value": P_VALUE})
 
 
+def _pair(name: str, func: Callable[[str, str], str]) -> FunctionSpec:
+    """2 入力(value1, value2: str)の関数 spec。RML 側は p_value1 / p_value2 を指す。"""
+    return FunctionSpec(name=name, func=func, params={"value1": P_VALUE1, "value2": P_VALUE2})
+
+
 # 宣言マッピングが参照してよい関数の「閉じた集合」。ここに無いものは呼べない。
 REGISTRY: list[FunctionSpec] = [
     _single("date_iso", date_iso),
     _single("float_array_max", float_array_max),
     _single("float_array_min", float_array_min),
+    _pair("float_array_count", float_array_count),
     _single("iri_safe", iri_safe),
     _single("slug", slug),
     _single("qudt_quantity", qudt_quantity),
