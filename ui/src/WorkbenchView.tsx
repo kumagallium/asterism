@@ -1,7 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { inspectCsvs, materializeSchema, proposeCsvs, refineSchema, type MaterializeResult } from './api'
+import {
+  inspectCsvs,
+  materializeSchema,
+  proposeCsvs,
+  refineSchema,
+  resumeJob,
+  type MaterializeResult,
+  type ProposeResult,
+  type RefineResult,
+} from './api'
 import { PRESET_HINTS } from './domainHints'
 import { MaterializePanel } from './MaterializePanel'
 import { ProposalView } from './ProposalView'
@@ -28,6 +37,30 @@ const STEPS: { n: Step; label: string }[] = [
 // CSVs are not persisted — only the AI-generated outputs and the inputs that
 // produced them.
 const WB_STORAGE = 'csv2rdf.workbench'
+
+// In-flight LLM job (propose/refine). Persisted so a reload/crash/disconnect can
+// reconnect to the server's SSE replay and recover the (often $-costing) result.
+const JOB_STORAGE = 'csv2rdf.workbench.job'
+type JobKind = 'propose' | 'refine'
+
+function saveJob(jobId: string, kind: JobKind) {
+  try {
+    sessionStorage.setItem(JOB_STORAGE, JSON.stringify({ jobId, kind }))
+  } catch {
+    /* sessionStorage may be unavailable — non-fatal */
+  }
+}
+function clearJob() {
+  sessionStorage.removeItem(JOB_STORAGE)
+}
+function loadJob(): { jobId: string; kind: JobKind } | null {
+  try {
+    const raw = sessionStorage.getItem(JOB_STORAGE)
+    return raw ? (JSON.parse(raw) as { jobId: string; kind: JobKind }) : null
+  } catch {
+    return null
+  }
+}
 
 interface WorkbenchSnapshot {
   step: Step
@@ -110,6 +143,48 @@ export function WorkbenchView() {
     }
   }, [step, fk, markdown, domainFree, presetIds, proposal, materialized])
 
+  // Resume an in-flight propose/refine job after a reload/crash/disconnect: the
+  // server replays the job's events, so a result that completed while the UI was
+  // gone is recovered (and a still-running one keeps streaming). All setState is
+  // in the SSE callbacks (not the effect body) so the activity shows up without
+  // a synchronous mount-time update.
+  useEffect(() => {
+    const job = loadJob()
+    if (!job) return
+    const markActive = () => (job.kind === 'propose' ? setProposing(true) : setRefining(true))
+    const finish = () => {
+      setProposing(false)
+      setRefining(false)
+      clearJob()
+    }
+    const close = resumeJob(job.jobId, {
+      onStatus: (m) => {
+        markActive()
+        setStatus(m === 'done' ? '前回の結果を復元しました' : '前回のジョブに再接続中…')
+      },
+      onDone: (result) => {
+        if (job.kind === 'propose') {
+          const r = result as ProposeResult
+          setProposal(r.proposal_md)
+          setMarkdown(r.inspection_md)
+          setStep(2)
+        } else {
+          setProposal((result as RefineResult).refined_md)
+        }
+        setMaterialized(null)
+        setStatus('done')
+        finish()
+      },
+      onError: () => {
+        // Job no longer on the server (e.g. it was restarted) — drop quietly.
+        setStatus('')
+        finish()
+      },
+    })
+    return () => close()
+    // Mount-only: resume whatever job was persisted before this mount.
+  }, [])
+
   const fks = () =>
     fk
       .split(',')
@@ -166,6 +241,7 @@ export function WorkbenchView() {
     closeRef.current?.()
     try {
       closeRef.current = await proposeCsvs(files, composedDomain(), fks(), apiKey, {
+        onStart: (jobId) => saveJob(jobId, 'propose'),
         onStatus: (m) => setStatus(m),
         onDone: (result) => {
           setProposal(result.proposal_md)
@@ -174,12 +250,14 @@ export function WorkbenchView() {
           setMaterialized(null)
           setStatus('done')
           setProposing(false)
+          clearJob()
           setStep(2) // guide to review once a proposal exists
         },
         onError: (m) => {
           setProposeErr(m)
           setStatus('')
           setProposing(false)
+          clearJob()
         },
       })
     } catch (e) {
@@ -198,6 +276,7 @@ export function WorkbenchView() {
     refineCloseRef.current?.()
     try {
       refineCloseRef.current = await refineSchema(proposal, [c], apiKey, {
+        onStart: (jobId) => saveJob(jobId, 'refine'),
         onStatus: (m) => setStatus(m),
         onDone: (result) => {
           setProposal(result.refined_md)
@@ -205,11 +284,13 @@ export function WorkbenchView() {
           setComment('')
           setStatus('refined')
           setRefining(false)
+          clearJob()
         },
         onError: (m) => {
           setProposeErr(m)
           setStatus('')
           setRefining(false)
+          clearJob()
         },
       })
     } catch (e) {
