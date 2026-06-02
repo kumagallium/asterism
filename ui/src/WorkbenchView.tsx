@@ -232,6 +232,8 @@ export function WorkbenchView() {
     }
   }
 
+  // (JobProgress defined at module scope below.)
+
   function clearWorkbench() {
     setStep(1)
     setMarkdown('')
@@ -402,7 +404,7 @@ export function WorkbenchView() {
                   'スキーマを提案'
                 )}
               </button>
-              {status && <span className="hint">status: {status}</span>}
+              {proposing && <JobProgress label="AI がスキーマを設計中…" status={status} />}
             </section>
             {proposeErr && <pre className="error">{proposeErr}</pre>}
             {proposal && (
@@ -448,8 +450,8 @@ export function WorkbenchView() {
                       'コメントを反映して再生成'
                     )}
                   </button>
-                  {status && <span className="hint">status: {status}</span>}
                 </div>
+                {refining && <JobProgress label="AI がスキーマを再生成中…" status={status} />}
               </section>
               {proposeErr && <pre className="error">{proposeErr}</pre>}
               <section className="result">
@@ -484,5 +486,38 @@ export function WorkbenchView() {
           ))}
       </div>
     </>
+  )
+}
+
+/**
+ * Reassuring progress card for the long (1-6 min) LLM jobs. The backend streams
+ * lifecycle events (started/running) + a 15s keep-alive, not token-by-token
+ * text, so we can't show a real % — instead we show a live elapsed timer, an
+ * indeterminate animated bar, the expected duration, and the last status, so
+ * the user can see it's alive and roughly how long to wait.
+ */
+function JobProgress({ label, status }: { label: string; status: string }) {
+  const [elapsed, setElapsed] = useState(0)
+  useEffect(() => {
+    const start = Date.now()
+    const id = setInterval(() => setElapsed(Math.floor((Date.now() - start) / 1000)), 1000)
+    return () => clearInterval(id)
+  }, [])
+  const mm = Math.floor(elapsed / 60)
+  const ss = String(elapsed % 60).padStart(2, '0')
+  return (
+    <div className="job-progress" role="status" aria-live="polite">
+      <div className="job-progress-head">
+        <span className="spinner" />
+        {label}
+      </div>
+      <div className="job-progress-bar" aria-hidden="true">
+        <span />
+      </div>
+      <div className="job-progress-meta">
+        {mm}分{ss}秒経過 ・ 通常 1〜6 分 ・ 接続は維持されています
+        {status && status !== 'done' && status !== 'refined' ? ` ・ 状態: ${status}` : ''}
+      </div>
+    </div>
   )
 }
