@@ -1,0 +1,112 @@
+@prefix rdf:     <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs:    <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl:     <http://www.w3.org/2002/07/owl#> .
+@prefix xsd:     <http://www.w3.org/2001/XMLSchema#> .
+@prefix prov:    <http://www.w3.org/ns/prov#> .
+@prefix sd:      <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#> .
+
+# ============================================================================
+# Materials Project リンク — TBox 拡張案 (Phase 2 / PoC)
+# ============================================================================
+# docs/ontology/README.md「EMMO や Materials Project などの上位 ontology に
+# subclassOf を張る」の試作。canonical な docs/ontology/starrydata.ttl には
+# まだ取り込まず、この実験フォルダで提案形として定義する。
+#
+# 設計の核: 実サンプル(ドープ・非化学量論)と MP の計算相(純粋・規則構造)は別物。
+#   → owl:sameAs は使わない。sd:idealizedFrom は prov:wasDerivedFrom のサブプロパティ
+#     とし、「母相の理想構造を参照しているだけ」という弱い意味に留める。
+#
+# 外部オントロジーとの整合 (Phase 2 で owl:equivalentClass / subClassOf 化を検討):
+#   - sd:CrystalStructure       ~ CMSO (Computational Material Sample Ontology)
+#   - sd:PointDefect            ~ PODO (POint Defect Ontology)  ※ドープ=点欠陥
+#   - 上位は EMMO を想定
+#   atomRDF (pyscal) を使えば MP 構造から CMSO 準拠 RDF を自動生成できる。
+# ============================================================================
+
+# ---------------------------------------------------------------------------
+# Classes
+# ---------------------------------------------------------------------------
+sd:CrystalStructure
+    a owl:Class ;
+    rdfs:label "Crystal Structure"@en, "結晶構造"@ja ;
+    rdfs:comment "An idealized (pristine, stoichiometric) crystal structure of a host phase, sourced from a computational database such as Materials Project. NOT the real sample structure: dopants and microstructure are out of scope here."@en ;
+    rdfs:subClassOf prov:Entity ;
+    rdfs:seeAlso <https://atomrdf.pyscal.org/> .   # align with CMSO
+
+sd:PointDefect
+    a owl:Class ;
+    rdfs:label "Point Defect"@en, "点欠陥"@ja ;
+    rdfs:comment "A point defect (substitutional dopant / interstitial / vacancy) that represents the deviation of a real sample from its idealized host structure. Doping is modeled here as point defects."@en ;
+    rdfs:subClassOf prov:Entity ;
+    rdfs:seeAlso <https://atomrdf.pyscal.org/> .   # align with PODO
+
+sd:StructureMatchActivity
+    a owl:Class ;
+    rdfs:label "Structure Match Activity"@en, "構造突き合わせアクティビティ"@ja ;
+    rdfs:comment "The act of resolving a sample's host phase to an idealized crystal structure (e.g. by composition normalization + Materials Project lookup). Carries method, confidence, and the MP functional so the link is auditable. Mirrors sd:IngestionActivity / sd:DigitizationActivity."@en ;
+    rdfs:subClassOf prov:Activity .
+
+# ---------------------------------------------------------------------------
+# Object properties
+# ---------------------------------------------------------------------------
+sd:hasHostStructure
+    a owl:ObjectProperty ;
+    rdfs:label "has host structure"@en, "母相構造を持つ"@ja ;
+    rdfs:comment "Links a Sample to the idealized CrystalStructure of its host (parent) phase. Weak link: the sample is doped / non-stoichiometric, the structure is the pristine parent."@en ;
+    rdfs:domain sd:Sample ;
+    rdfs:range sd:CrystalStructure .
+
+sd:idealizedFrom
+    a owl:ObjectProperty ;
+    rdfs:label "idealized from"@en, "理想化の出所"@ja ;
+    rdfs:comment "The computational database entry (e.g. a Materials Project material IRI) this idealized structure was taken from. Deliberately a sub-property of prov:wasDerivedFrom, NOT owl:sameAs: the sample is not identical to the computed compound."@en ;
+    rdfs:subPropertyOf prov:wasDerivedFrom ;
+    rdfs:domain sd:CrystalStructure ;
+    rdfs:seeAlso <https://optimade.materialsproject.org/> .
+
+sd:hasPointDefect
+    a owl:ObjectProperty ;
+    rdfs:label "has point defect"@en, "点欠陥を持つ"@ja ;
+    rdfs:domain sd:Sample ;
+    rdfs:range sd:PointDefect .
+
+# ---------------------------------------------------------------------------
+# Datatype properties — CrystalStructure
+# ---------------------------------------------------------------------------
+sd:spaceGroupSymbol   a owl:DatatypeProperty ; rdfs:label "space group symbol"@en ;
+    rdfs:comment "Hermann-Mauguin symbol, e.g. \"Fm-3m\", \"R-3m\"."@en ;
+    rdfs:domain sd:CrystalStructure ; rdfs:range xsd:string .
+sd:spaceGroupNumber   a owl:DatatypeProperty ; rdfs:label "space group number"@en ;
+    rdfs:domain sd:CrystalStructure ; rdfs:range xsd:integer .
+sd:crystalSystem      a owl:DatatypeProperty ; rdfs:label "crystal system"@en ;
+    rdfs:domain sd:CrystalStructure ; rdfs:range xsd:string .
+sd:structurePrototype a owl:DatatypeProperty ; rdfs:label "structure prototype"@en ;
+    rdfs:comment "Structure type / prototype, e.g. \"rock salt (NaCl-type)\", \"tetradymite (Bi2Te3-type)\". More robust to doping than an exact mp-id."@en ;
+    rdfs:domain sd:CrystalStructure ; rdfs:range xsd:string .
+sd:reducedHostFormula a owl:DatatypeProperty ; rdfs:label "reduced host formula"@en ;
+    rdfs:domain sd:CrystalStructure ; rdfs:range xsd:string .
+sd:mpFunctional       a owl:DatatypeProperty ; rdfs:label "MP functional"@en ;
+    rdfs:comment "DFT functional behind the MP entry (e.g. \"GGA/GGA+U\", \"r2SCAN\"), or \"demo\" for the placeholder PoC table."@en ;
+    rdfs:domain sd:CrystalStructure ; rdfs:range xsd:string .
+sd:solidSolutionElement a owl:DatatypeProperty ; rdfs:label "solid solution element"@en ;
+    rdfs:comment "A non-dilute substituent sharing a site in the host (e.g. Se in Bi2(Te,Se)3)."@en ;
+    rdfs:domain sd:CrystalStructure ; rdfs:range xsd:string .
+
+# ---------------------------------------------------------------------------
+# Datatype properties — PointDefect
+# ---------------------------------------------------------------------------
+sd:dopantElement a owl:DatatypeProperty ; rdfs:label "dopant element"@en ;
+    rdfs:domain sd:PointDefect ; rdfs:range xsd:string .
+sd:siteAmount    a owl:DatatypeProperty ; rdfs:label "site amount (per formula)"@en ;
+    rdfs:comment "Amount of the dopant as written in the sample's composition formula (per-formula-unit, not normalized)."@en ;
+    rdfs:domain sd:PointDefect ; rdfs:range xsd:double .
+
+# ---------------------------------------------------------------------------
+# Datatype properties — StructureMatchActivity
+# ---------------------------------------------------------------------------
+sd:matchMethod     a owl:DatatypeProperty ; rdfs:label "match method"@en ;
+    rdfs:comment "How the host was resolved, e.g. \"MaterialFamily(curator) + composition diff\", \"composition-normalization\"."@en ;
+    rdfs:domain sd:StructureMatchActivity ; rdfs:range xsd:string .
+sd:matchConfidence a owl:DatatypeProperty ; rdfs:label "match confidence"@en ;
+    rdfs:comment "high / medium / unresolved. 'unresolved' attempts are emitted too, so coverage gaps stay queryable."@en ;
+    rdfs:domain sd:StructureMatchActivity ; rdfs:range xsd:string .

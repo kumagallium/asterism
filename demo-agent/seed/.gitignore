@@ -1,0 +1,5 @@
+# Generated demo seed, derived from the (licensed) starrydata dataset.
+# Keep it OUT of the repo; regenerate with scripts/make_demo_subset.py.
+# load.py (the loader) is source and stays tracked.
+/csv/
+*.ttl

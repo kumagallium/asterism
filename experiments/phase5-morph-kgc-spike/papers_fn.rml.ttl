@@ -1,0 +1,40 @@
+# Phase 5 spike (2) — 宣言的マッピング + FnO 関数（morph-kgc の新 RML-FNML 構文）。
+# papers の 'issued' を、検証済み関数 parse_date（udfs.py）で xsd:date に正規化する。
+# 基本部分は実証済みの classic RML（rml:source/reference）、関数部分は morph-kgc が
+# 解釈する新 RML 名前空間（rmlf:）で書く。
+@prefix rr:     <http://www.w3.org/ns/r2rml#> .
+@prefix rml:    <http://semweb.mmlab.be/ns/rml#> .
+@prefix ql:     <http://semweb.mmlab.be/ns/ql#> .
+@prefix rmlf:   <http://w3id.org/rml/> .
+@prefix fno:    <https://w3id.org/function/ontology#> .
+@prefix sd:     <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#> .
+@prefix schema: <https://schema.org/> .
+@prefix xsd:    <http://www.w3.org/2001/XMLSchema#> .
+@prefix fn:     <https://kumagallium.github.io/csv2rdf-mcp/fn/> .
+
+<#PaperMap> a rr:TriplesMap ;
+  rml:logicalSource [
+    rml:source "papers.csv" ;
+    rml:referenceFormulation ql:CSV
+  ] ;
+  rr:subjectMap [
+    rr:template "https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/paper/{SID}" ;
+    rr:class sd:Paper
+  ] ;
+  rr:predicateObjectMap [
+    rr:predicate schema:name ;
+    rr:objectMap [ rml:reference "title" ]
+  ] ;
+  rr:predicateObjectMap [
+    rr:predicate schema:datePublished ;
+    rr:objectMap [
+      rmlf:functionExecution [
+        rmlf:function fn:parse_date ;
+        rmlf:input [
+          rmlf:parameter fn:p_value ;
+          rmlf:inputValueMap [ rml:reference "issued" ]
+        ]
+      ] ;
+      rr:datatype xsd:date
+    ]
+  ] .

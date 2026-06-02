@@ -1,0 +1,39 @@
+# Demo overlay — adds the ARiSE grounded-answer demo (demo-agent + a one-shot
+# seed loader) ON TOP OF compose.yaml without editing it, so the UI session can
+# keep owning the base file (no merge conflict; this tree has no git).
+#
+# Usage:
+#   python scripts/make_demo_subset.py            # once: writes demo-agent/seed/*.ttl
+#   docker compose -f compose.yaml -f compose.demo.yaml up -d --build
+#   # ask a grounded question:
+#   curl -s localhost:8090/demo/ask -H 'content-type: application/json' \
+#     -d '{"question":"ZTが最も高い熱電材料は？"}' | jq
+#
+# See demo-agent/DEMO.md for the full runbook.
+
+services:
+  # One-shot: wait for Oxigraph, bulk-load the demo seed Turtle, then exit.
+  oxigraph-seed:
+    image: python:3.11-slim
+    container_name: csv2rdf_demo_seed
+    depends_on:
+      - oxigraph
+    volumes:
+      - ./demo-agent/seed:/seed:ro
+    command: ["python", "/seed/load.py", "http://oxigraph:7878", "/seed"]
+    restart: "no"
+
+  # The grounded-answer service (consuming layer; separate from csv2rdf core so
+  # the core query path stays Claude-free — ADR §1/§5). Deterministic answers.
+  demo-agent:
+    build:
+      context: .
+      dockerfile: demo-agent/Dockerfile
+    container_name: csv2rdf_demo_agent
+    depends_on:
+      - oxigraph
+    environment:
+      CSV2RDF_OXIGRAPH_URL: http://oxigraph:7878
+    ports:
+      - "8090:8090"
+    restart: unless-stopped
