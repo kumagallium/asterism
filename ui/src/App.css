@@ -837,9 +837,37 @@ textarea:focus {
   font-size: 0.82rem;
 }
 
+.trap-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1rem;
+  margin: 0.2rem 0 0.6rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.trap-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+/* Color the legend glyphs (combined class, since trap cards use a descendant
+   selector that doesn't match the glyph-on-same-element legend markup). */
+.trap-glyph.trap-pass {
+  color: var(--success-fg);
+}
+.trap-glyph.trap-skip {
+  color: var(--muted);
+}
+.trap-glyph.trap-warn {
+  color: var(--warn-fg);
+}
+.trap-glyph.trap-fail {
+  color: var(--error-fg);
+}
+
 .trap-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: 0.4rem;
 }
 
