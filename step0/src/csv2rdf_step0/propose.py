@@ -127,7 +127,35 @@ Python skeleton (`ingest/src/csv2rdf/{dataset}.py` template):
 - Error log path (jsonl)
 NOT a complete implementation — just the public API + helper signatures.
 
-## Self-check before responding (8 traps)
+### 9. RML declarative mapping (declarative substrate path)
+A single ` ```turtle ` block: an R2RML/RML mapping run by the **Morph-KGC
+substrate with NO generated code** (the safe, RCE-free path). One
+`rr:TriplesMap` per row type, prefixes/predicates matching §2/§3. Full spec:
+`docs/architecture/step0-rml-emission.md`.
+
+HARD RULES (a reviewer approves *column→predicate + which vetted function*, not code):
+- May reference ONLY these vetted **Tier 0** functions
+  (`@prefix fn: <https://kumagallium.github.io/csv2rdf-mcp/fn/>`). No other
+  function, no inline code, no new logic:
+  - `fn:date_iso` (value → `xsd:date`) — messy date → ISO 8601
+  - `fn:float_array_max` / `fn:float_array_min` (value → `xsd:double`)
+    — numeric JSON array → max / min
+  - `fn:float_array_count` (value1, value2 → `xsd:integer`)
+    — x,y arrays → `min(len)` = point count (2 inputs)
+  - `fn:qudt_quantity` / `fn:qudt_unit` (value → IRI)
+    — property name / unit → QUDT IRI (empty ⇒ triple skipped)
+  - `fn:iri_safe` (value → IRI) — URL → IRI-safe
+  - `fn:slug` (value → string) — string → IRI segment
+- Direct column: `rr:objectMap [ rml:reference "col" ]`. Composite IRI: `rr:template "…/{a}-{b}"`.
+- Function objectMap: `rmlf:functionExecution [ rmlf:function fn:NAME ;
+  rmlf:input [ rmlf:parameter fn:p_value ; rmlf:inputValueMap [ rml:reference "col" ] ] ]`.
+  2-input (`fn:float_array_count`): two `rmlf:input`, params `fn:p_value1` / `fn:p_value2`.
+- A column with **no matching function AND multi-valued / nested cell-JSON**
+  (authors, descriptors, project_names): DO NOT invent a function — emit the raw
+  string to a `…Raw` predicate and add a `# fallback: <col> not expanded` comment.
+  One unmapped column must never block the rest of the ingest.
+
+## Self-check before responding (quality traps)
 - [ ] T1: IRI scheme uses uniqueness statistics from inspection?
 - [ ] T2: ingester opens with utf-8-sig?
 - [ ] T3: zero blank nodes (no rdflib.BNode() calls)?
@@ -136,6 +164,8 @@ NOT a complete implementation — just the public API + helper signatures.
 - [ ] T6: sample_rdf_entries reference REAL row values from the inspection?
 - [ ] T7: every non-trivial design choice has Why / Alternatives / Trade-offs?
 - [ ] T8: domain-specific synonyms (jp / formulas / aliases) propagated to MIE keywords?
+- [ ] T9: §9 RML references ONLY `fn:*` Tier 0 functions (no other functions, no
+      code); unmappable multi-valued columns use the `…Raw` fallback?
 
 ## What you receive (user message)
 

@@ -117,10 +117,33 @@ def test_propose_schema_records_metadata(tmp_path: Path) -> None:
 # ----------------------------------------------------------------------------
 
 
-def test_system_prompt_embeds_8_trap_validators() -> None:
-    """The system prompt's self-check section must mention all 8 traps."""
-    for trap in ("T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8"):
+def test_system_prompt_embeds_trap_validators() -> None:
+    """The system prompt's self-check section must mention every trap (incl. T9 RML)."""
+    for trap in ("T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9"):
         assert trap in SYSTEM_PROMPT, f"trap {trap} missing from system prompt"
+
+
+def test_system_prompt_emits_rml_section_with_tier0_only() -> None:
+    """§9 must instruct a declarative RML block restricted to the Tier 0 functions."""
+    # A turtle RML artifact is requested under an RML-keyworded header.
+    assert "RML" in SYSTEM_PROMPT
+    assert "turtle" in SYSTEM_PROMPT
+    # Exactly the 8 vetted Tier 0 functions are advertised (closed set).
+    for fn in (
+        "fn:date_iso",
+        "fn:float_array_max",
+        "fn:float_array_min",
+        "fn:float_array_count",
+        "fn:qudt_quantity",
+        "fn:qudt_unit",
+        "fn:iri_safe",
+        "fn:slug",
+    ):
+        assert fn in SYSTEM_PROMPT, f"{fn} missing from §9 function table"
+    # The guardrails: Tier 0 only, raw-string fallback, no inline code.
+    assert "Tier 0" in SYSTEM_PROMPT
+    assert "fallback" in SYSTEM_PROMPT.lower()
+    assert "p_value1" in SYSTEM_PROMPT and "p_value2" in SYSTEM_PROMPT  # 2-input binding
 
 
 def test_system_prompt_mentions_rdf_config_output_format() -> None:
