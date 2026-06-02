@@ -1,0 +1,4 @@
+# 生成物・隔離 venv は commit しない (本体セッションの git status を汚さない)
+.venv/
+__pycache__/
+out/
