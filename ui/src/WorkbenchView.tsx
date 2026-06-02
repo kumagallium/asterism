@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { inspectCsvs, materializeSchema, proposeCsvs, refineSchema, type MaterializeResult } from './api'
@@ -18,6 +18,32 @@ const STEPS: { n: Step; label: string }[] = [
   { n: 4, label: '確定・保存' },
 ]
 
+// Persist the workbench's *generated artifacts* (not secrets) to sessionStorage
+// so switching tabs — or reloading — doesn't lose an expensive 5-6 min proposal.
+// sessionStorage (per-tab, cleared on tab close, never sent anywhere) matches
+// the API key's lifetime (D7). File objects can't be serialized, so the picked
+// CSVs are not persisted — only the AI-generated outputs and the inputs that
+// produced them.
+const WB_STORAGE = 'csv2rdf.workbench'
+
+interface WorkbenchSnapshot {
+  step: Step
+  fk: string
+  markdown: string
+  domainFree: string
+  presetIds: string[]
+  proposal: string
+  materialized: MaterializeResult | null
+}
+
+function loadSnapshot(): Partial<WorkbenchSnapshot> {
+  try {
+    return JSON.parse(sessionStorage.getItem(WB_STORAGE) ?? '{}') as Partial<WorkbenchSnapshot>
+  } catch {
+    return {}
+  }
+}
+
 /**
  * The workbench as an explicit step flow: data source → 1 Inspect → 2 Propose
  * → 3 Refine → 4 Materialize(=保存). Previously these were two flat tabs with
@@ -27,20 +53,23 @@ const STEPS: { n: Step; label: string }[] = [
  * persists the bundle to the registry so it appears in the Gallery.
  */
 export function WorkbenchView() {
-  const [step, setStep] = useState<Step>(1)
+  // Restore generated artifacts saved before a tab switch / reload (once).
+  const [snap] = useState(loadSnapshot)
+
+  const [step, setStep] = useState<Step>(snap.step ?? 1)
   const [files, setFiles] = useState<File[]>([])
-  const [fk, setFk] = useState('')
+  const [fk, setFk] = useState(snap.fk ?? '')
 
   // Inspect
-  const [markdown, setMarkdown] = useState('')
+  const [markdown, setMarkdown] = useState(snap.markdown ?? '')
   const [inspectErr, setInspectErr] = useState('')
   const [inspecting, setInspecting] = useState(false)
 
   // Propose
   const [apiKey, setApiKey] = useState(() => sessionStorage.getItem(API_KEY_STORAGE) ?? '')
-  const [presetIds, setPresetIds] = useState<Set<string>>(new Set())
-  const [domainFree, setDomainFree] = useState('')
-  const [proposal, setProposal] = useState('')
+  const [presetIds, setPresetIds] = useState<Set<string>>(() => new Set(snap.presetIds ?? []))
+  const [domainFree, setDomainFree] = useState(snap.domainFree ?? '')
+  const [proposal, setProposal] = useState(snap.proposal ?? '')
   const [status, setStatus] = useState('')
   const [proposeErr, setProposeErr] = useState('')
   const [proposing, setProposing] = useState(false)
@@ -52,8 +81,28 @@ export function WorkbenchView() {
   const refineCloseRef = useRef<(() => void) | null>(null)
 
   // Materialize
-  const [materialized, setMaterialized] = useState<MaterializeResult | null>(null)
+  const [materialized, setMaterialized] = useState<MaterializeResult | null>(
+    snap.materialized ?? null,
+  )
   const [materializing, setMaterializing] = useState(false)
+
+  // Persist artifacts whenever they change (cheap; sessionStorage only).
+  useEffect(() => {
+    const snapshot: WorkbenchSnapshot = {
+      step,
+      fk,
+      markdown,
+      domainFree,
+      presetIds: [...presetIds],
+      proposal,
+      materialized,
+    }
+    try {
+      sessionStorage.setItem(WB_STORAGE, JSON.stringify(snapshot))
+    } catch {
+      // sessionStorage may be unavailable (private mode quota) — non-fatal.
+    }
+  }, [step, fk, markdown, domainFree, presetIds, proposal, materialized])
 
   const fks = () =>
     fk
@@ -168,6 +217,18 @@ export function WorkbenchView() {
     }
   }
 
+  function clearWorkbench() {
+    setStep(1)
+    setMarkdown('')
+    setInspectErr('')
+    setProposal('')
+    setProposeErr('')
+    setComment('')
+    setMaterialized(null)
+    setStatus('')
+    sessionStorage.removeItem(WB_STORAGE)
+  }
+
   // Completion drives the ✓ marks. Refine (3) is optional, so it has none.
   const done: Record<Step, boolean> = {
     1: markdown !== '',
@@ -175,6 +236,10 @@ export function WorkbenchView() {
     3: false,
     4: materialized !== null,
   }
+  // Artifacts that were restored from a previous session (proposal exists but
+  // the File objects, which can't be persisted, are gone).
+  const restored = proposal !== '' && files.length === 0
+  const hasArtifacts = markdown !== '' || proposal !== '' || materialized !== null
 
   return (
     <>
@@ -182,6 +247,19 @@ export function WorkbenchView() {
         CSV をアップロードし、構造解析 → AI スキーマ提案 → レビュー → 確定・保存 の順に進めます。
         確定するとカタログ（Gallery）に保存されます。
       </p>
+
+      {hasArtifacts && (
+        <div className="wb-restore-row">
+          {restored && (
+            <span className="wb-restore-note">
+              前回の作業を復元しました（再実行する場合のみ CSV を選び直してください）。
+            </span>
+          )}
+          <button type="button" className="secondary-btn wb-clear-btn" onClick={clearWorkbench}>
+            ワークベンチをクリア
+          </button>
+        </div>
+      )}
 
       {/* Persistent data source: the CSV is shared across every step. */}
       <section className="data-source">
