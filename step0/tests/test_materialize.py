@@ -190,6 +190,59 @@ def test_materialize_tolerates_varied_header_wording(tmp_path: Path) -> None:
 
 
 # ----------------------------------------------------------------------------
+# Optional RML (declarative mapping) artifact — #14 / step0-rml-emission.md
+# ----------------------------------------------------------------------------
+
+# A proposal that also carries the optional declarative RML mapping block.
+_PROPOSAL_WITH_RML = _PROPOSAL + dedent(
+    """
+
+    ### 9. RML (declarative mapping)
+
+    ```turtle
+    @prefix rr:  <http://www.w3.org/ns/r2rml#> .
+    @prefix rml: <http://semweb.mmlab.be/ns/rml#> .
+    @prefix ql:  <http://semweb.mmlab.be/ns/ql#> .
+    <#PaperMap> a rr:TriplesMap ;
+      rml:logicalSource [ rml:source "papers.csv" ; rml:referenceFormulation ql:CSV ] ;
+      rr:subjectMap [ rr:template "https://example.com/r/paper/{SID}" ] .
+    ```
+    """
+)
+
+
+def test_rml_block_extracted_and_written(tmp_path: Path) -> None:
+    result = materialize_schema(_PROPOSAL_WITH_RML, tmp_path, "mydata")
+    assert result.rml_ttl is not None
+    assert "rr:TriplesMap" in result.rml_ttl
+    assert "papers.csv" in result.rml_ttl
+    # written to {name}-mapping.rml.ttl
+    p = tmp_path / "mydata-mapping.rml.ttl"
+    assert p.exists()
+    assert "rr:TriplesMap" in p.read_text(encoding="utf-8")
+    assert result.written_paths["rml_ttl"] == str(p)
+    # the 4 core artifacts are still extracted alongside it
+    assert result.complete
+
+
+def test_rml_absent_is_not_a_warning_and_not_required(tmp_path: Path) -> None:
+    """Older proposals carry no RML block: absence must be silent and non-gating."""
+    result = materialize_schema(_PROPOSAL, tmp_path, "example")
+    assert result.rml_ttl is None
+    assert result.complete  # RML excluded from completeness
+    assert not result.warnings  # no spurious "missing RML" warning
+    assert not (tmp_path / "example-mapping.rml.ttl").exists()
+
+
+def test_rml_extract_counts_turtle_block() -> None:
+    blocks = extract_code_blocks(_PROPOSAL_WITH_RML)
+    langs = [b.language for b in blocks]
+    assert langs == ["mermaid", "yaml", "yaml", "python", "turtle"]
+    turtle = next(b for b in blocks if b.language == "turtle")
+    assert "RML" in turtle.header
+
+
+# ----------------------------------------------------------------------------
 # Round-trip determinism
 # ----------------------------------------------------------------------------
 
