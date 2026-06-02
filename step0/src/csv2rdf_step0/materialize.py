@@ -16,6 +16,12 @@ splits the blocks into files on disk:
   the shape_expressions are filled in afterward by running rdf-config)
 * The ``python`` block under the "Ingester" section →
   ``{out}/{name}.py``
+* (optional) The ``turtle`` block under the "RML" / "declarative mapping"
+  section → ``{out}/{name}-mapping.rml.ttl`` — the declarative substrate path
+  (Morph-KGC + ``csv2rdf.functions``). See
+  ``docs/architecture/step0-rml-emission.md``. This block is *additive*: it is
+  absent from older proposals, so its absence is not a warning and does not
+  affect :attr:`MaterializeResult.complete` (the 4 core artifacts).
 
 No LLM call — pure text extraction, so it's fully testable and CI-safe.
 
@@ -110,6 +116,7 @@ _MERMAID_HEADERS = ("class hierarchy", "mermaid", "diagram")
 _MODEL_HEADERS = ("rdf-config", "model.yaml")
 _MIE_HEADERS = ("mie",)
 _INGESTER_HEADERS = ("ingester", "ingest")
+_RML_HEADERS = ("rml", "declarative mapping", "宣言マッピング")
 
 
 @dataclass
@@ -120,12 +127,18 @@ class MaterializeResult:
     rdf_config_model: str | None = None
     mie_yaml: str | None = None
     ingester_py: str | None = None
+    rml_ttl: str | None = None  # optional declarative-mapping artifact (additive)
     written_paths: dict[str, str] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
 
     @property
     def complete(self) -> bool:
-        """True iff all 4 artifacts were extracted."""
+        """True iff all 4 *core* artifacts were extracted.
+
+        The optional RML mapping (:attr:`rml_ttl`) is deliberately excluded:
+        it is additive and absent from older proposals, so it must not gate
+        completeness.
+        """
         return all(
             x is not None
             for x in (self.mermaid, self.rdf_config_model, self.mie_yaml, self.ingester_py)
@@ -220,7 +233,14 @@ def materialize_schema(
         blocks, header_keywords=_INGESTER_HEADERS, language_prefs=("python", "py")
     )
 
+    # Optional declarative-mapping artifact. Turtle is unambiguous in a proposal
+    # (only the RML block uses it), so a lone turtle block routes by language.
+    result.rml_ttl = _pick_block(
+        blocks, header_keywords=_RML_HEADERS, language_prefs=("turtle", "ttl")
+    )
+
     # ----- warnings -----
+    # Note: rml_ttl is intentionally NOT warned-on when absent — it is additive.
     if result.mermaid is None:
         result.warnings.append("No Mermaid block found (Class hierarchy section).")
     if result.rdf_config_model is None:
@@ -254,6 +274,10 @@ def materialize_schema(
             p = out / f"{dataset_name}.py"
             p.write_text(result.ingester_py + "\n", encoding="utf-8")
             result.written_paths["ingester_py"] = str(p)
+        if result.rml_ttl is not None:
+            p = out / f"{dataset_name}-mapping.rml.ttl"
+            p.write_text(result.rml_ttl + "\n", encoding="utf-8")
+            result.written_paths["rml_ttl"] = str(p)
 
     return result
 
@@ -304,6 +328,7 @@ def _main(argv: list[str] | None = None) -> int:
             ("rdf_config_model", result.rdf_config_model is not None),
             ("mie_yaml", result.mie_yaml is not None),
             ("ingester_py", result.ingester_py is not None),
+            ("rml_ttl (optional)", result.rml_ttl is not None),
         ):
             sys.stdout.write(f"  {'✓' if present else '✗'} {name}\n")
     else:
