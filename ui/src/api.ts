@@ -33,6 +33,9 @@ export interface ProposeResult {
 
 /** Callbacks for the lifecycle events streamed while a propose job runs. */
 export interface ProposeHandlers {
+  /** Fired with the server job_id once the POST is accepted — persist it so the
+   *  job can be resumed (replayed) after a reload/crash/disconnect. */
+  onStart?: (jobId: string) => void
   onStatus?: (message: string) => void
   onDone: (result: ProposeResult) => void
   onError: (message: string) => void
@@ -74,6 +77,7 @@ export async function proposeCsvs(
     throw new Error(`propose failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
   }
   const { job_id } = (await res.json()) as { job_id: string }
+  handlers.onStart?.(job_id)
   return subscribeJob(job_id, handlers)
 }
 
@@ -84,6 +88,7 @@ export interface RefineResult {
 }
 
 export interface RefineHandlers {
+  onStart?: (jobId: string) => void
   onStatus?: (message: string) => void
   onDone: (result: RefineResult) => void
   onError: (message: string) => void
@@ -112,7 +117,25 @@ export async function refineSchema(
     throw new Error(`refine failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
   }
   const { job_id } = (await res.json()) as { job_id: string }
+  handlers.onStart?.(job_id)
   return subscribeJob(job_id, handlers)
+}
+
+/** Handlers for resuming an existing job by id (result shape is job-dependent). */
+export interface ResumeHandlers {
+  onStatus?: (message: string) => void
+  onDone: (result: unknown) => void
+  onError: (message: string) => void
+}
+
+/**
+ * Re-subscribe to an already-started job's SSE stream (no new POST). The server
+ * JobManager replays started/running/done(/error), so a job that finished while
+ * the UI was gone is recovered, and a still-running one keeps streaming. Returns
+ * a cleanup function that closes the EventSource.
+ */
+export function resumeJob(jobId: string, handlers: ResumeHandlers): () => void {
+  return subscribeJob(jobId, handlers)
 }
 
 /** One trap result from the 8-trap validator. */
