@@ -1,0 +1,2 @@
+# seed CSV は make_demo_subset.py が生成（ライセンス元データはリポジトリ外）
+*.csv
