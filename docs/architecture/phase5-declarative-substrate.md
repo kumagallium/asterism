@@ -1,7 +1,7 @@
 # Phase 5 土台 — ソース非依存の宣言的 substrate（option 2 の設計）
 
 決定: 2026-06-01 / 設計セッション（core）
-status: 設計確定中（feasibility 実証済み・cross-dataset join 実証済み・関数ライブラリ v0 は実装待ち）
+status: 設計確定（feasibility・cross-dataset join・関数ライブラリ v0・設計→Ask 連結 すべて実証ずみ。core への commit は CC 待ち）
 
 本書は [`ingestion-execution-safety.md`](ingestion-execution-safety.md) の **option 2**（生成コードなしで安全に多数ソースを RDF 化する）の設計を確定する。2 本のスレッド（Morph-KGC スパイク・MP 連結 PoC）が収束し、実データの cross-dataset クエリで妥当性を確認した。
 
@@ -63,31 +63,91 @@ starrydata（実験・CSV）と MP（計算・API）を同じ `sdr:sample/{SID}-
 
 結果（実データ・抜粋）: **Bi2Te3 母相 → ZT 0.91（3 sample）/ PbTe 母相 → Seebeck 12 sample**。どちらのソース単独でも答えられない問いが、共有 IRI 経由で通る。これが「成長 ＝ 既存語彙で繋がる」の実体。
 
-## 4. 関数ライブラリ v0（次の実装 ＝ step 3）
+## 4. 関数ライブラリ v0（実装・検証ずみ）
+
+`csv2rdf/functions.py`（Cowork 準備＋検証ずみ・CC commit 待ち）。宣言経路が参照してよい**閉じた集合**。各々 `starrydata` / `qudt` の既存実装へ薄く委譲（単一の真実源）。FnO は文字列を渡すので全部 `str -> str`、該当なしは `""`。`register(udf)` 1 行で Morph-KGC に全登録。
 
 | 関数 | 由来 | 役割 |
 |---|---|---|
-| `parse_date` | starrydata | 独自日付 → xsd:date / dateTime |
-| `qudt_iri` | starrydata | 物性 / 単位の文字列 → QUDT IRI |
-| `sanitize_iri` | starrydata | IRI 不正文字の処理・非絶対 IRI の skip |
-| `normalize_host` | MP PoC | 組成 → 母相（ドープ・非化学量論を剥がす） |
+| `date_iso` | starrydata | 独自日付 → xsd:date |
+| `float_array_max` / `float_array_min` | starrydata | セル内 JSON 数値配列 → 最大 / 最小 |
+| `iri_safe` | starrydata | IRI 不正文字の処理・非絶対 IRI の skip |
+| `slug` | starrydata | IRI セグメント用 slug |
+| `qudt_quantity` / `qudt_unit` | starrydata | 物性 / 単位の文字列 → QUDT IRI |
 
-各関数は呼び出しを PROV Activity として記録（`StructureMatchActivity` 流）。これが v0。新規ソースで不足が出たら人間が追加。
+検証: 単体 6/6 ＋ **設計→Ask の e2e**（このライブラリを参照する RML → Morph-KGC → 6686 triples → Ask が根拠+来歴付き回答。手続き型 ingester と同形・値一致）。検証コード `../../experiments/phase5-morph-kgc-spike/e2e/`。
 
-## 5. 境界・関連
+PROV について: セル変換（Tier 0）は粒度が細かすぎるので個別 PROV は持たない。PROV は取り込み / 突き合わせ Activity 級（§2c）で記録する。意味的に重い *linker*（次項 `normalize_host` 等）は別途 PROV（`StructureMatchActivity` 流）を持つ。
+
+**`normalize_host`（MP PoC）は v0 外** — 2 入力・構造化返り値で「セル変換」と毛色が違うため、MP 連結昇格時に *linker 関数*（Tier 1 的、PROV つき）として別途入れる。
+
+## 5. 関数ライブラリの統治とスケール
+
+関数ライブラリ（§2b, §4）を「無限に膨らむ保守負債」にしない統治。原則は *関数は有界に保ち、可変性はデータへ逃がす*。
+
+### 5.1 何が有界で、何が膨らむか
+
+- **関数 = フォーマット級プリミティブ**（日付・数値・配列・IRI・単位…の *表現* を解釈/変換）。種類はデータセット数でなく *フォーマット数* で決まり、大きいが有界・低成長（FnO/GREL コアが数十関数で足りるのと同じ）。データセットが 100 増えてもフォーマットの種類はほぼ増えない。
+- **膨らむものは関数の外へ**: 列の意味 → 各データセットの **RML マッピング**（その都度レビュー、共有ライブラリに入れない）。語彙の同義 → **語彙テーブル**（`qudt_map.yaml` 等。*コードでなくデータ*）。長い裾 → **パラメータ化プリミティブ**（`lookup(table)` / `regex_extract(pattern)` / `template`）で固有性を *データ/設定* に吸収する（regex は ReDoS を一度ガード）。
+
+### 5.2 二層モデル
+
+| | Tier 0（コア） | Tier 1（デプロイ局所） |
+|---|---|---|
+| 性質 | 汎用・全デプロイ信頼・curated | データセット / 組織固有 |
+| 所有 | メンテナ | デプロイのスチュワード（技術担当） |
+| 影響範囲 | グローバル | そのデプロイのマッピング内に閉じる |
+| AI 参照 | 自由 | スチュワードがレビューした範囲のみ |
+
+Tier 1 → Tier 0 の昇格は「複数デプロイが同じものを求めた（観測された汎用性）」ときだけ。増加は需要駆動で漸近する。precedent: FnO/GREL ＋ UDF、dbt core macro ＋ project macro、SQL 組込み ＋ UDF。
+
+### 5.3 WASM の位置づけ（保留）
+
+脅威は 3 軸 — **ホスト隔離**（WASM ◎）/ **意味的正しさ**（WASM 無力。サンドボックス内でも誤値を吐く・列を取り違える）/ **監査可能性**（むしろ悪化。名前付き関数 vs 不透明 blob を来歴が指す）。来歴・科学的真正性のシステムでは後二者が支配的で、閉じたライブラリは *隔離* でなく *正しさ＋監査* のために在る。WASM は束縛していない変数を最適化してしまう。
+
+→ **WASM は Tier 0 を置換しない。** 将来サードパーティ拡張の生態系が出来たときの *Tier 1 の隔離手段* として棚に置く（pure 変換なら WASM と vetted 関数の差は capability でなく「誰がどの言語で書いたか」のみ）。今は導入しない — ランタイムが信頼基盤に 1 つ増える・文字列 ABI marshalling・決定性の規律（time/random import 禁止＝結局 pure）・Morph-KGC 橋、の重さが今の規模に見合わない。
+
+### 5.4 オンボーディングは UDF 著述を要求しない
+
+解くべきは「UDF を書きやすく」でなく「オンボーディングが UDF を *要求しない*」こと。受動的エンドユーザーに関数を書かせず段階的に逃がす:
+
+1. 通常路（8 割）— AI が「列→述語」マッピングを提案、ユーザーは *承認のみ*（Tier 0 で足りる、著述ゼロ）。
+2. 語彙のばらつき — 表に書くだけ（コードでなくデータ入力）。
+3. 真に固有な変換（稀）— AI が関数を *下書き* し「実サンプル N 行でこう出る」入出力表を提示。ユーザーは *出力の妥当性* を見る（コードを読まない・影響は 1 データセット 1 列に閉じる）。
+4. それも無理 — **その列は生文字列で素通り＋フラグ。**
+
+> 離脱は「UDF が面倒」より「1 列のせいで全部入らない」で起きる。**未対応変換 → 生文字列フォールバック** を不変条件にし、オンボーディングを絶対に止めない。
+
+### 5.5 クローズド運用でのスケール
+
+本 substrate はクローズド / private 運用（機密データ・オンプレ）を想定する。するとメンテナは「各デプロイが何の関数を欲しているか」を観測できず、public issue も機密起点だと記述自体が不可能。よって *メンテナの全知* でなく *デプロイの自律* でスケールする:
+
+- **ローカル拡張名前空間（主機構）** — `fn-local:` 等、スチュワードが所有・レビュー・昇格する独自の関数空間。保守コストはデプロイ数に対して O(1)。
+- **厚いベースライン＋パラメータ化プリミティブ**（§5.1）で未対応率を下げ、そもそも観測の必要を減らす。
+- **ローカル "未対応変換" ログ** — フォールバックした事象をデプロイ内に記録。見るのはスチュワードで、メンテナではない。フィードバックループを既定でローカルに置く。
+- **機密を漏らさない上流路** — 共有は *データでなく関数*（pure 変換は普通非機密。動機データを伏せたまま関数だけ寄贈できる）。機密度が高い相談は private/NDA 窓口、public issue は非機密のフォーマット欠落に限定。
+
+人物像: これに当たって動けるのは *受動的な研究者* でなく *デプロイのスチュワード*（技術者）。末端は承認のみ、ローカル関数を育てるのは管理者ロール。スチュワードがレビューする限り AI 任意コード自動実行の懸念も戻らない。
+
+トレードオフ: クローズド運用は構造的にメンテナへの信号を減らす（privacy の代償・完全には消せない）。設計目標はループを *必須にしない* こと — 信号欠如が痛むのを *ロードマップ把握* に留め、*顧客の使用可否* に及ばせない。
+
+## 6. 境界・関連
 
 - これは **core（substrate）の仕事**。UI は取り込みエンジンを作らない。
 - [`ingestion-execution-safety.md`](ingestion-execution-safety.md) の option 2 の設計本体。
 - [`ontology-mapping-boundary-and-provenance.md`](ontology-mapping-boundary-and-provenance.md) の engine-vs-content の engine 側。
 - 検証コード: `../../experiments/phase5-morph-kgc-spike/`（宣言マッピング）, `../../experiments/mp-linking-poc/`（科学ロジック + PROV）。
 
-## 6. 残課題
+## 7. 残課題
 
-- [ ] 関数ライブラリ v0 を実装（上表）＋ 各関数の PROV 記録。
-- [ ] MP の structure facts を宣言的 RML に乗せ替え（API JSON → RDF）。
+- [x] 関数ライブラリ v0 を実装・検証（`functions.py`, 単体 6/6 + 設計→Ask e2e）。CC commit 待ち。
+- [ ] step0 が宣言 RML を出力（Tier 0 のみ参照可・未対応列は生文字列フォールバック）。
+- [ ] MP の structure facts を宣言的 RML に乗せ替え（API JSON → RDF）＋ `normalize_host` を linker 関数として昇格（PROV つき）。
 - [ ] ソース型アダプタ（CSV / JSON-API）の最小抽象を定義。
 - [ ] cross-dataset クエリを Ask の intent（母相構造 × 物性）に追加。
+- [ ] ローカル拡張名前空間（`fn-local:`）＋ 未対応変換ログ（§5.5）。クローズド運用の自律スケール用。
 
-## 7. 更新ログ
+## 8. 更新ログ
 
 - 2026-06-01: 初版。2 スレッド収束 + cross-dataset join 実証を受けて、ソース非依存の substrate として確定。CSV に縛らない方針を明記。
+- 2026-06-02: 関数ライブラリ v0 を実装・検証（`functions.py`）＋ 設計→Ask の e2e 連結を実証（§4）。関数ライブラリの統治を §5 に追加 — 有界性（関数=フォーマット級・可変性はデータへ）、Tier 0/1、WASM は Tier 1 隔離手段として保留、オンボーディングは UDF 著述を要求しない（未対応は生文字列フォールバック）、クローズド運用はローカル自律で O(1) スケール。
