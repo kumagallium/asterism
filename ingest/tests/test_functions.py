@@ -9,8 +9,11 @@ from __future__ import annotations
 from csv2rdf.functions import (
     FN,
     P_VALUE,
+    P_VALUE1,
+    P_VALUE2,
     REGISTRY,
     date_iso,
+    float_array_count,
     float_array_max,
     float_array_min,
     iri_safe,
@@ -39,6 +42,17 @@ def test_float_array_max_min_concrete() -> None:
     assert float_array_max("garbage") == ""
 
 
+def test_float_array_count_concrete() -> None:
+    # 点数 = min(len(xs), len(ys))。手続き経路と同じ定義。
+    assert float_array_count("[1, 2, 3]", "[10, 20, 30]") == "3"
+    assert float_array_count("[1, 2, 3, 4]", "[10, 20]") == "2"  # 短い方に合わせる
+    assert float_array_count("[1, null, 3]", "[10, 20, 30]") == "2"  # 壊れ要素は除外
+    # 片方でも有効点が無ければ 0 点 → "" (トリプル無し)
+    assert float_array_count("[]", "[10, 20]") == ""
+    assert float_array_count("[1, 2]", "garbage") == ""
+    assert float_array_count("", "") == ""
+
+
 def test_slug_concrete() -> None:
     assert slug("Hello World!") == "hello-world"
     assert slug("") == "unknown"
@@ -60,11 +74,15 @@ def test_delegation_and_empty_contract() -> None:
 def test_registry_is_closed_and_unique() -> None:
     names = [s.name for s in REGISTRY]
     assert len(names) == len(set(names)), "関数名は一意(IRI 衝突防止)"
-    assert len(REGISTRY) == 7
+    assert len(REGISTRY) == 8
+    single = {"value": P_VALUE}
+    pair = {"value1": P_VALUE1, "value2": P_VALUE2}
     for spec in REGISTRY:
         assert spec.fun_id == FN + spec.name
-        assert spec.params == {"value": P_VALUE}
+        assert spec.params in (single, pair)
         assert callable(spec.func)
+    # 2 入力は float_array_count のみ。それ以外は単一入力。
+    assert {s.name for s in REGISTRY if s.params == pair} == {"float_array_count"}
 
 
 def test_register_binds_every_function() -> None:
@@ -79,8 +97,10 @@ def test_register_binds_every_function() -> None:
         return deco
 
     specs = register(fake_udf)
-    assert len(seen) == len(specs) == 7
+    assert len(seen) == len(specs) == 8
     for (kwargs, fn), spec in zip(seen, REGISTRY, strict=True):
         assert kwargs["fun_id"] == FN + spec.name
-        assert kwargs["value"] == P_VALUE
+        # 各パラメータ名 → IRI が udf に渡る(単一は value、2 入力は value1/value2)。
+        for arg_name, iri in spec.params.items():
+            assert kwargs[arg_name] == iri
         assert callable(fn)

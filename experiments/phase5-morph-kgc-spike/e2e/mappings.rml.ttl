@@ -39,4 +39,9 @@
   rr:predicateObjectMap [ rr:predicate sd:yMax ; rr:objectMap [
       rmlf:functionExecution [ rmlf:function fn:float_array_max ;
         rmlf:input [ rmlf:parameter fn:p_value ; rmlf:inputValueMap [ rml:reference "y" ] ] ] ;
-      rr:datatype xsd:double ] ] .
+      rr:datatype xsd:double ] ] ;
+  rr:predicateObjectMap [ rr:predicate sd:pointCount ; rr:objectMap [
+      rmlf:functionExecution [ rmlf:function fn:float_array_count ;
+        rmlf:input [ rmlf:parameter fn:p_value1 ; rmlf:inputValueMap [ rml:reference "x" ] ] ;
+        rmlf:input [ rmlf:parameter fn:p_value2 ; rmlf:inputValueMap [ rml:reference "y" ] ] ] ;
+      rr:datatype xsd:integer ] ] .
