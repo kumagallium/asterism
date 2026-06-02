@@ -13,6 +13,7 @@ The HTTP transport is what compose / Crucible / Dify connect to (port 8002
 by default). The stdio transport is for Claude Desktop / Cline / Cursor
 local users who spawn the server as a subprocess.
 """
+
 from __future__ import annotations
 
 import logging
@@ -22,7 +23,13 @@ from typing import Final
 from csv2rdf.oxigraph_client import OxigraphClient, OxigraphConfig
 from fastmcp import FastMCP
 
-from csv2rdf_mcp.tools import CurveNotFoundError, template_curve_fetch
+from csv2rdf_mcp.tools import (
+    CurveNotFoundError,
+    property_ranking,
+    provenance_of,
+    sample_search,
+    template_curve_fetch,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -89,9 +96,7 @@ def build_server(
     ) -> dict[str, object]:
         client = get_client()
         try:
-            return await template_curve_fetch(
-                curve_iri, client, max_points=max_points
-            )
+            return await template_curve_fetch(curve_iri, client, max_points=max_points)
         except CurveNotFoundError as exc:
             return {
                 "iri": str(exc),
@@ -104,6 +109,68 @@ def build_server(
                 "found": False,
                 "error": str(exc),
             }
+
+    @mcp.tool(
+        name="sample_search",
+        description=(
+            "Find starrydata samples by composition substring (e.g. 'Bi2Te3') "
+            "and/or by a measured property label (e.g. only samples that have a "
+            "'ZT' curve). Returns sample IRIs + composition + source paper. Use "
+            "this to locate materials before fetching their curves."
+        ),
+    )
+    async def _sample_search(
+        composition: str | None = None,
+        property_y: str | None = None,
+        limit: int = 20,
+    ) -> dict[str, object]:
+        return await sample_search(
+            get_client(),
+            composition=composition,
+            property_y=property_y,
+            limit=limit,
+        )
+
+    @mcp.tool(
+        name="property_ranking",
+        description=(
+            "Rank starrydata curves by their per-curve peak value (sd:yMax) for "
+            "a property label such as 'ZT' or 'Seebeck coefficient'. Pass "
+            "max_plausible (e.g. 3.5 for ZT) to exclude digitization-error "
+            "outliers; the count of excluded curves is returned so you can "
+            "report the highest *recorded* value honestly instead of inventing "
+            "a record. Returns curve/sample/paper IRIs + composition."
+        ),
+    )
+    async def _property_ranking(
+        property_y: str,
+        top_n: int = 10,
+        max_plausible: float | None = None,
+    ) -> dict[str, object]:
+        try:
+            return await property_ranking(
+                get_client(),
+                property_y=property_y,
+                top_n=top_n,
+                max_plausible=max_plausible,
+            )
+        except ValueError as exc:
+            return {"property_y": property_y, "error": str(exc)}
+
+    @mcp.tool(
+        name="provenance_of",
+        description=(
+            "Return the PROV chain behind a starrydata entity IRI (curve, "
+            "sample, or paper): curve -> sample -> paper -> digitization -> "
+            "ingestion. Use this to show where a cited number came from "
+            "(which figure was digitized, from which paper, when ingested)."
+        ),
+    )
+    async def _provenance_of(iri: str) -> dict[str, object]:
+        try:
+            return await provenance_of(iri, get_client())
+        except ValueError as exc:
+            return {"iri": iri, "found": False, "error": str(exc)}
 
     return mcp
 

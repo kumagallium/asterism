@@ -4,6 +4,7 @@ We test the tool body directly (no FastMCP transport involved) because the
 SPARQL parsing logic is the interesting part. ``test_server.py`` covers the
 wiring into FastMCP separately.
 """
+
 from __future__ import annotations
 
 import json
@@ -13,7 +14,14 @@ import pytest
 from csv2rdf.oxigraph_client import OxigraphClient, OxigraphConfig
 from csv2rdf.starrydata import DEFAULT_ONTOLOGY, DEFAULT_RESOURCE
 
-from csv2rdf_mcp.tools import CurveNotFoundError, _decode_array, template_curve_fetch
+from csv2rdf_mcp.tools import (
+    CurveNotFoundError,
+    _decode_array,
+    property_ranking,
+    provenance_of,
+    sample_search,
+    template_curve_fetch,
+)
 
 SD = DEFAULT_ONTOLOGY
 SDR = DEFAULT_RESOURCE
@@ -53,9 +61,7 @@ def _uri_binding(p: str, iri: str) -> dict:
 
 
 def _make_client(handler) -> OxigraphClient:
-    inner = httpx.AsyncClient(
-        transport=httpx.MockTransport(handler), base_url="http://test"
-    )
+    inner = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://test")
     return OxigraphClient(OxigraphConfig(base_url="http://test"), client=inner)
 
 
@@ -211,3 +217,175 @@ async def test_template_curve_fetch_handles_malformed_arrays_gracefully() -> Non
         result = await template_curve_fetch(CURVE_IRI, client)
     assert result["x"] == []
     assert result["y"] == [1.0, 2.0]
+
+
+# ----------------------------------------------------------------------------
+# typed query tools: sample_search / property_ranking / provenance_of
+# ----------------------------------------------------------------------------
+
+
+def _rows(rows: list[dict], vars_: list[str]) -> httpx.Response:
+    body = {"head": {"vars": vars_}, "results": {"bindings": rows}}
+    return httpx.Response(
+        200,
+        text=json.dumps(body),
+        headers={"content-type": "application/sparql-results+json"},
+    )
+
+
+def _u(iri: str) -> dict:
+    return {"type": "uri", "value": iri}
+
+
+def _l(value: str) -> dict:
+    return {"type": "literal", "value": value}
+
+
+async def test_sample_search_composition_filter() -> None:
+    captured: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["q"] = request.content.decode()
+        return _rows(
+            [
+                {
+                    "sample": _u(f"{SDR}sample/1-1"),
+                    "comp": _l("Bi2Te3"),
+                    "name": _l("sample 1-1"),
+                    "paper": _u(f"{SDR}paper/1"),
+                    "title": _l("A paper"),
+                }
+            ],
+            ["sample", "comp", "name", "paper", "title"],
+        )
+
+    async with _make_client(handler) as client:
+        out = await sample_search(client, composition="Bi2Te3", limit=5)
+
+    assert "CONTAINS(LCASE(STR(?comp))" in captured["q"]
+    assert "bi2te3" in captured["q"]  # lowercased for the filter
+    assert "LIMIT 5" in captured["q"]
+    assert out["count"] == 1
+    assert out["results"][0]["sample_iri"] == f"{SDR}sample/1-1"
+    assert out["results"][0]["composition"] == "Bi2Te3"
+    assert out["results"][0]["title"] == "A paper"
+
+
+async def test_sample_search_with_property_filter_joins_curve() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = request.content.decode()
+        assert 'sd:propertyY "ZT"' in body
+        assert "?c sd:ofSample ?sample" in body
+        return _rows([], ["sample", "comp", "name", "paper", "title"])
+
+    async with _make_client(handler) as client:
+        out = await sample_search(client, composition="SnSe", property_y="ZT")
+    assert out["count"] == 0
+
+
+async def test_property_ranking_excludes_implausible_and_counts() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = request.content.decode()
+        if "COUNT(?curve)" in body:
+            assert "?ymax > 3.5" in body
+            return _rows([{"n": _l("7")}], ["n"])
+        assert 'sd:propertyY "ZT"' in body
+        assert "?ymax <= 3.5" in body
+        assert "ORDER BY DESC(?ymax)" in body
+        return _rows(
+            [
+                {
+                    "curve": _u(f"{SDR}curve/1-2-3"),
+                    "ymax": _l("2.6"),
+                    "s": _u(f"{SDR}sample/1-2"),
+                    "comp": _l("SnSe"),
+                    "p": _u(f"{SDR}paper/1"),
+                    "title": _l("SnSe paper"),
+                }
+            ],
+            ["curve", "ymax", "s", "comp", "p", "title"],
+        )
+
+    async with _make_client(handler) as client:
+        out = await property_ranking(client, property_y="ZT", top_n=10, max_plausible=3.5)
+
+    assert out["excluded_implausible"] == 7
+    assert out["results"][0]["curve_iri"] == f"{SDR}curve/1-2-3"
+    assert out["results"][0]["value"] == 2.6
+    assert out["results"][0]["composition"] == "SnSe"
+
+
+async def test_property_ranking_requires_property_y() -> None:
+    async with _make_client(lambda r: _rows([], [])) as client:
+        with pytest.raises(ValueError):
+            await property_ranking(client, property_y="")
+
+
+async def test_provenance_of_curve_builds_full_chain() -> None:
+    curve = f"{SDR}curve/1-2-3"
+    sample = f"{SDR}sample/1-2"
+    paper = f"{SDR}paper/1"
+    dig = f"{SDR}digitization/xyz"
+    ing = f"{SDR}ingestion/abc"
+    base = {
+        "etype": _u(f"{SD}Curve"),
+        "fig": _l("Fig.3"),
+        "py": _l("ZT"),
+        "ymax": _l("2.6"),
+        "sample": _u(sample),
+        "scomp": _l("SnSe"),
+        "sname": _l("SnSe sample"),
+        "paper": _u(paper),
+        "ptitle": _l("SnSe paper"),
+        "pid": _l("10.1/xyz"),
+    }
+    vars_ = [
+        "etype",
+        "fig",
+        "py",
+        "ymax",
+        "ecomp",
+        "ename",
+        "sample",
+        "scomp",
+        "sname",
+        "paper",
+        "ptitle",
+        "pid",
+        "act",
+        "atype",
+        "atime",
+    ]
+    row_dig = dict(
+        base,
+        act=_u(dig),
+        atype=_u(f"{SD}DigitizationActivity"),
+        atime=_l("2020-01-01T00:00:00Z"),
+    )
+    row_ing = dict(
+        base,
+        act=_u(ing),
+        atype=_u(f"{SD}IngestionActivity"),
+        atime=_l("2026-05-01T00:00:00Z"),
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert curve in request.content.decode()
+        return _rows([row_dig, row_ing], vars_)
+
+    async with _make_client(handler) as client:
+        out = await provenance_of(curve, client)
+
+    assert out["found"] is True
+    steps = [s["step"] for s in out["chain"]]
+    assert steps == ["curve", "sample", "paper", "digitization", "ingestion"]
+    assert out["chain"][1]["iri"] == sample
+    assert out["chain"][1]["label"] == "SnSe"
+    assert out["chain"][2]["iri"] == paper
+    assert out["chain"][3]["iri"] == dig
+
+
+async def test_provenance_of_rejects_non_http_iri() -> None:
+    async with _make_client(lambda r: _rows([], [])) as client:
+        with pytest.raises(ValueError, match="full http"):
+            await provenance_of("not-an-iri", client)
