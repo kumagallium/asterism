@@ -10,12 +10,15 @@ import { ProposalView } from './ProposalView'
 // tab closes) and is sent as a per-request header. It is never persisted.
 const API_KEY_STORAGE = 'csv2rdf.apiKey'
 
-type Step = 1 | 2 | 3 | 4
+// Inspect is NOT a step: Propose re-runs the deterministic inspection itself,
+// so a separate Inspect gate is redundant. It's available on demand from the
+// data-source panel ("構造を見る"), and the inspection Propose actually used is
+// shown inline with the proposal.
+type Step = 1 | 2 | 3
 const STEPS: { n: Step; label: string }[] = [
-  { n: 1, label: '構造解析' },
-  { n: 2, label: 'スキーマ提案' },
-  { n: 3, label: 'レビュー' },
-  { n: 4, label: '確定・保存' },
+  { n: 1, label: 'スキーマ提案' },
+  { n: 2, label: 'レビュー' },
+  { n: 3, label: '確定・保存' },
 ]
 
 // Persist the workbench's *generated artifacts* (not secrets) to sessionStorage
@@ -60,10 +63,13 @@ export function WorkbenchView() {
   const [files, setFiles] = useState<File[]>([])
   const [fk, setFk] = useState(snap.fk ?? '')
 
-  // Inspect
+  // Inspect (on-demand "構造を見る", not a step). `markdown` holds the structure
+  // analysis — set either by the on-demand button or by Propose (which returns
+  // the inspection it used).
   const [markdown, setMarkdown] = useState(snap.markdown ?? '')
   const [inspectErr, setInspectErr] = useState('')
   const [inspecting, setInspecting] = useState(false)
+  const [showInspect, setShowInspect] = useState(false)
 
   // Propose
   const [apiKey, setApiKey] = useState(() => sessionStorage.getItem(API_KEY_STORAGE) ?? '')
@@ -123,6 +129,13 @@ export function WorkbenchView() {
     }
   }
 
+  // "構造を見る": reveal the on-demand inspection (run it if not done yet).
+  function onToggleInspect() {
+    const next = !showInspect
+    setShowInspect(next)
+    if (next && !markdown && files.length > 0) onInspect()
+  }
+
   function onApiKeyChange(value: string) {
     setApiKey(value)
     sessionStorage.setItem(API_KEY_STORAGE, value)
@@ -156,10 +169,12 @@ export function WorkbenchView() {
         onStatus: (m) => setStatus(m),
         onDone: (result) => {
           setProposal(result.proposal_md)
+          // Surface the inspection Propose actually used (no separate step).
+          setMarkdown(result.inspection_md)
           setMaterialized(null)
           setStatus('done')
           setProposing(false)
-          setStep(3) // guide to review once a proposal exists
+          setStep(2) // guide to review once a proposal exists
         },
         onError: (m) => {
           setProposeErr(m)
@@ -229,12 +244,11 @@ export function WorkbenchView() {
     sessionStorage.removeItem(WB_STORAGE)
   }
 
-  // Completion drives the ✓ marks. Refine (3) is optional, so it has none.
+  // Completion drives the ✓ marks. Refine (2) is optional, so it has none.
   const done: Record<Step, boolean> = {
-    1: markdown !== '',
-    2: proposal !== '',
-    3: false,
-    4: materialized !== null,
+    1: proposal !== '',
+    2: false,
+    3: materialized !== null,
   }
   // Artifacts that were restored from a previous session (proposal exists but
   // the File objects, which can't be persisted, are gone).
@@ -244,8 +258,9 @@ export function WorkbenchView() {
   return (
     <>
       <p className="subtitle">
-        CSV をアップロードし、構造解析 → AI スキーマ提案 → レビュー → 確定・保存 の順に進めます。
-        確定するとカタログ（Gallery）に保存されます。
+        CSV をアップロードし、AI スキーマ提案 → レビュー → 確定・保存 の順に進めます。
+        確定するとカタログ（Gallery）に保存されます。構造解析は Propose が内部で実行するので、
+        確認したいときだけ「構造を見る」を押してください。
       </p>
 
       {hasArtifacts && (
@@ -287,11 +302,35 @@ export function WorkbenchView() {
             />
           </label>
         </div>
-        <span className="hint">
-          {files.length > 0
-            ? `${files.length} file(s) selected — 全ステップで同じ CSV を使います`
-            : 'ここで選んだ CSV を全ステップで共有します'}
-        </span>
+        <div className="data-source-foot">
+          <span className="hint">
+            {files.length > 0
+              ? `${files.length} file(s) selected — 全ステップで同じ CSV を使います`
+              : 'ここで選んだ CSV を全ステップで共有します'}
+          </span>
+          {files.length > 0 && (
+            <button type="button" className="secondary-btn inspect-toggle" onClick={onToggleInspect}>
+              {showInspect ? '構造解析を隠す' : '構造を見る（任意・LLM 不要）'}
+            </button>
+          )}
+        </div>
+
+        {showInspect && (
+          <div className="inspect-inline">
+            {inspecting && (
+              <p className="trace-loading">
+                <span className="spinner" />
+                解析中…
+              </p>
+            )}
+            {inspectErr && <pre className="error">{inspectErr}</pre>}
+            {markdown && (
+              <section className="result">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdown}</ReactMarkdown>
+              </section>
+            )}
+          </div>
+        )}
       </section>
 
       {/* Stepper */}
@@ -313,29 +352,6 @@ export function WorkbenchView() {
 
       <div className="step-body">
         {step === 1 && (
-          <>
-            <p className="step-hint">CSV の型 / JSON 列 / 一意性（複合キー）を解析します。LLM は使いません。</p>
-            <button onClick={onInspect} disabled={inspecting || files.length === 0}>
-              {inspecting ? (
-                <>
-                  <span className="spinner" />
-                  解析中…
-                </>
-              ) : (
-                '構造を解析'
-              )}
-            </button>
-            {files.length === 0 && <span className="hint">先に CSV を選択してください。</span>}
-            {inspectErr && <pre className="error">{inspectErr}</pre>}
-            {markdown && (
-              <section className="result">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdown}</ReactMarkdown>
-              </section>
-            )}
-          </>
-        )}
-
-        {step === 2 && (
           <>
             <p className="step-hint">
               AI が TBox / Mermaid / MIE / ingester のスキーマ案を提案します。Anthropic API
@@ -390,14 +406,24 @@ export function WorkbenchView() {
             </section>
             {proposeErr && <pre className="error">{proposeErr}</pre>}
             {proposal && (
-              <section className="result">
-                <ProposalView markdown={proposal} />
-              </section>
+              <>
+                <section className="result">
+                  <ProposalView markdown={proposal} />
+                </section>
+                {markdown && (
+                  <details className="inspect-details">
+                    <summary>この提案が使った構造解析を表示</summary>
+                    <section className="result">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdown}</ReactMarkdown>
+                    </section>
+                  </details>
+                )}
+              </>
             )}
           </>
         )}
 
-        {step === 3 &&
+        {step === 2 &&
           (proposal ? (
             <>
               <p className="step-hint">提案を確認し、直したい点をコメントすると AI が再生成します（任意）。</p>
@@ -434,7 +460,7 @@ export function WorkbenchView() {
             <p className="step-guard">先に「スキーマ提案」でスキーマを生成してください。</p>
           ))}
 
-        {step === 4 &&
+        {step === 3 &&
           (proposal ? (
             <>
               <p className="step-hint">
