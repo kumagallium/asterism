@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import {
   type AlignmentReport,
+  type DatasetStage,
+  datasetStage,
   getAlignment,
   getLiveDatasets,
   getMappings,
@@ -9,6 +11,7 @@ import {
   type MappingEntry,
   type OntologyEntry,
   promoteDataset,
+  STAGE_INFO,
 } from './galleryApi'
 import { Mermaid } from './Mermaid'
 
@@ -162,13 +165,13 @@ export function GalleryView({ focusClass }: { focusClass?: string | null }) {
           {live.length > 0 && (
             <div className="live-subsection">
               <h3 className="gallery-subh">
-                ワークベンチで作成したマッピング（ドラフト・未取り込み）
+                ワークベンチで作成したマッピング
                 <span className="gallery-count">{live.length}</span>
               </h3>
               <div className="mapping-list">
                 {live.map((l) => (
                   <div key={l.mapping.id}>
-                    <MappingCard entry={l.mapping} draft />
+                    <MappingCard entry={l.mapping} stage={datasetStage(l.meta)} />
                     <PromoteControl meta={l.meta} />
                   </div>
                 ))}
@@ -226,20 +229,21 @@ function OntologyCard({
   )
 }
 
-function MappingCard({ entry, draft }: { entry: MappingEntry; draft?: boolean }) {
+function MappingCard({ entry, stage }: { entry: MappingEntry; stage?: DatasetStage }) {
   const ARTIFACT_JA: Record<string, string> = {
     ingester: 'ingester',
     mie: 'MIE',
     shex: 'ShEx',
     mapping: 'RML',
   }
+  const info = stage ? STAGE_INFO[stage] : null
   return (
-    <article className={`mapping-card${draft ? ' mapping-card--draft' : ''}`}>
+    <article className={`mapping-card${stage ? ' mapping-card--draft' : ''}`}>
       <div className="mapping-card-head">
         <div>
           <h3 className="mapping-card-name">
             {entry.name}
-            {draft && <span className="draft-tag">ドラフト・未取り込み</span>}
+            {info && <span className={`stage-tag stage-tag--${info.tone}`}>{info.badge}</span>}
           </h3>
           <span className="mapping-card-dataset">{entry.dataset}</span>
         </div>
@@ -353,7 +357,7 @@ function PromoteControl({ meta }: { meta: LiveDataset['meta'] }) {
   if (promoted !== null) {
     return (
       <p className="promote-ok">
-        ✓ canonical へ昇格済み（{promoted} triples）。Ask が引用できます。
+        ✓ 共有データに昇格済み（{promoted} 件）。Ask が引用できます（正式グラフ＝canonical）。
       </p>
     )
   }
@@ -382,29 +386,29 @@ function PromoteControl({ meta }: { meta: LiveDataset['meta'] }) {
   return (
     <div className="promote-control">
       <p className="promote-note">
-        canonical（Ask の引用面）へ昇格すると、この draft の三つ組が共有グラフに移ります。
-        昇格前に語彙の差分（既存の再利用か新規か）を確認できます。
+        「共有データに昇格」すると、下書きグラフのこのデータが <strong>Ask が引用する正式グラフ
+        （canonical）</strong> に移ります。昇格前に、使っている語彙が既存の再利用か新規かを確認できます。
       </p>
       {alignment ? (
         <div className="alignment-summary">
           <span>
-            述語: 再利用 {alignment.predicates.reuse.length} / 新規{' '}
-            {alignment.predicates.new.length} ／ クラス: 再利用{' '}
+            述語: 既存の再利用 {alignment.predicates.reuse.length} / 新規{' '}
+            {alignment.predicates.new.length} ／ クラス: 既存の再利用{' '}
             {alignment.classes.reuse.length} / 新規 {alignment.classes.new.length}
           </span>
           {alignment.predicates.new.length > 0 && (
             <p className="alignment-new">
-              新規述語（既存語彙に無い）: {alignment.predicates.new.map(shortIri).join('、')}
+              新規の述語（既存語彙に無い）: {alignment.predicates.new.map(shortIri).join('、')}
             </p>
           )}
         </div>
       ) : (
         <button type="button" onClick={preview}>
-          語彙の差分を確認
+          語彙の差分を確認（昇格前チェック）
         </button>
       )}
       <button type="button" className="promote-btn" onClick={promote} disabled={busy}>
-        {busy ? '昇格中…' : 'canonical へ昇格'}
+        {busy ? '昇格中…' : '共有データに昇格（Ask で使えるように）'}
       </button>
       {err && <p className="promote-err">昇格に失敗しました: {err}</p>}
     </div>

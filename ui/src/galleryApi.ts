@@ -288,16 +288,34 @@ function toOntology(meta: DatasetMeta, mermaid: string): OntologyEntry {
   }
 }
 
+/** The lifecycle stage of a workbench-built dataset (Phase 5 #15). */
+export type DatasetStage = 'design' | 'ingested' | 'promoted'
+
+export function datasetStage(meta: { ingested?: boolean; promoted?: boolean }): DatasetStage {
+  if (meta.promoted) return 'promoted'
+  if (meta.ingested) return 'ingested'
+  return 'design'
+}
+
+/** Short Japanese label + plain description for each lifecycle stage. */
+export const STAGE_INFO: Record<DatasetStage, { badge: string; tone: 'design' | 'ingested' | 'promoted' }> = {
+  design: { badge: '設計のみ（未取り込み）', tone: 'design' },
+  ingested: { badge: '下書きに取り込み済み', tone: 'ingested' },
+  promoted: { badge: '共有データ（Ask 利用可）', tone: 'promoted' },
+}
+
 function toMapping(meta: DatasetMeta): MappingEntry {
+  const stage = datasetStage(meta)
+  const n = meta.triples_promoted ?? meta.triple_count ?? '?'
   const artifacts: MappingArtifact[] = []
   if (meta.has_rml) {
-    artifacts.push({
-      kind: 'mapping',
-      name: 'mapping.rml.ttl',
-      summary: meta.ingested
-        ? `宣言 RML（draft グラフに投入済み・${meta.triple_count ?? '?'} triples）`
-        : '宣言 RML（未投入。ワークベンチの人間ゲートで投入可能）',
-    })
+    const rmlSummary =
+      stage === 'promoted'
+        ? `宣言 RML（共有データに取り込み済み・${n} 件）`
+        : stage === 'ingested'
+          ? `宣言 RML（下書きグラフに取り込み済み・${n} 件）`
+          : '宣言 RML（未取り込み。ワークベンチの人間ゲートで取り込める）'
+    artifacts.push({ kind: 'mapping', name: 'mapping.rml.ttl', summary: rmlSummary })
   }
   if (meta.has_ingester) {
     artifacts.push({ kind: 'ingester', name: 'ingester.py', summary: '生成された取り込みスクリプト（未実行）' })
@@ -305,16 +323,19 @@ function toMapping(meta: DatasetMeta): MappingEntry {
   if (meta.has_mie) {
     artifacts.push({ kind: 'mie', name: 'mie.yaml', summary: '生成された AI 探索メタ' })
   }
-  const status = meta.ingested
-    ? `宣言 RML を draft グラフに投入済み（${meta.triple_count ?? '?'} triples）。Ask の引用面（canonical）への昇格は別ゲート。`
-    : '未投入＝まだ Oxigraph に入っていない。宣言 RML があればワークベンチの人間ゲートで draft グラフへ投入できる。'
+  const description =
+    stage === 'promoted'
+      ? `共有データ（Ask が引用する正式グラフ）に取り込み済み・${n} 件。SPARQL で問い合わせ可能。`
+      : stage === 'ingested'
+        ? `下書きグラフに取り込み済み・${n} 件。確認できたら「共有データに昇格」すると Ask の引用対象になる。`
+        : '設計のみ＝まだ RDF を生成していない。宣言 RML があればワークベンチの人間ゲートで取り込める。'
   return {
     id: `live-${meta.id}`,
     name: meta.name,
-    dataset: `materialize 済み（${meta.created_at.slice(0, 10)})`,
+    dataset: `設計を保存（${meta.created_at.slice(0, 10)}）`,
     targetOntologyId: `live-${meta.id}`,
     targetOntologyName: meta.name,
-    description: `目的タグは未設定（運用で付与）。${status}`,
+    description,
     purposes: [],
     artifacts,
     editRisk: 'low',
