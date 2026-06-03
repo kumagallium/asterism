@@ -236,14 +236,21 @@ function subscribeJob<T>(
     close()
   })
   es.addEventListener('error', (e) => {
-    // Distinguish a server-sent `error` event (has data) from a transport drop.
     const msg = (e as MessageEvent).data
     if (msg) {
+      // A server-sent `error` event: the job genuinely failed. Fatal.
       handlers.onError(JSON.parse(msg).message ?? 'unknown error')
-    } else {
+      close()
+    } else if (es.readyState === EventSource.CLOSED) {
+      // The browser gave up reconnecting — a real, permanent loss.
       handlers.onError('connection lost')
+      close()
     }
-    close()
+    // Otherwise readyState === CONNECTING: a *transient* drop (common on
+    // long-lived SSE through a dev proxy during a multi-minute LLM call). Do
+    // NOT close — let EventSource auto-reconnect. The server's JobManager
+    // replays started/running/done on reconnect, so the in-flight job (and its
+    // result) is recovered without losing progress or clearing the saved job.
   })
 
   return close
