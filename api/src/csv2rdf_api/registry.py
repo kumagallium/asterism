@@ -7,11 +7,13 @@ product wants. This module closes the *authoring→catalog* half cheaply: each
 materialized bundle is saved under ``registry_root/<dataset_id>/`` so the
 Gallery can list what has actually been built.
 
-Deliberately NOT in scope here (gated to Phase 5 — design doc D8b/D4):
-running the generated ingester to load triples into Oxigraph. Executing
-generated code without review is an RCE risk; the catalog→ask linkage on
-freshly-built data is the separate, safe-ingestion problem. So a registered
-dataset is a *design* (TBox + mapping artifacts), not yet ingested data.
+A registered dataset is a *design* (TBox + mapping artifacts), not yet ingested
+data. Loading triples is the separate, human-gated step (Phase 5 #15): rather
+than run the generated *ingester.py* (executing AI-authored code = RCE risk), the
+safe path runs the persisted declarative *mapping.rml.ttl* through the Morph-KGC
+substrate into an isolated draft graph (see
+``docs/architecture/phase5-workbench-materialize-gate.md``). ``mark_ingested``
+records that outcome on the dataset's meta.
 """
 
 from __future__ import annotations
@@ -27,6 +29,9 @@ _ARTIFACT_FILES = {
     "model.yaml": "model.yaml",
     "mie.yaml": "mie.yaml",
     "ingester.py": "ingester.py",
+    # The declarative RML mapping (Phase 5). Persisted so the human-gated
+    # substrate ingest (POST /api/datasets/{id}/ingest) can run it later.
+    "mapping.rml.ttl": "mapping.rml.ttl",
 }
 _META_FILE = "meta.json"
 
@@ -87,10 +92,41 @@ def save_dataset(
         "traps": traps,
         "classes": classes,
         "class_count": len(classes),
-        "has_ingester": bool(artifacts.get("ingester.py", "").strip()),
-        "has_mie": bool(artifacts.get("mie.yaml", "").strip()),
+        "has_ingester": bool((artifacts.get("ingester.py") or "").strip()),
+        "has_mie": bool((artifacts.get("mie.yaml") or "").strip()),
+        # Phase 5: whether a declarative RML mapping is present (ingestable), and
+        # whether it has been ingested into a draft graph yet.
+        "has_rml": bool((artifacts.get("mapping.rml.ttl") or "").strip()),
+        "ingested": False,
     }
     (dest / _META_FILE).write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    return meta
+
+
+def mark_ingested(
+    root: Path,
+    dataset_id: str,
+    *,
+    graph_iri: str,
+    triple_count: int,
+    ingested_at: str,
+) -> dict | None:
+    """Record that ``dataset_id`` was ingested into ``graph_iri`` (a draft graph).
+
+    Updates the dataset's ``meta.json`` in place and returns the new meta, or
+    ``None`` if the id is unsafe / the dataset does not exist.
+    """
+    if not re.fullmatch(r"[a-z0-9-]{1,128}", dataset_id):
+        return None
+    meta_path = root / dataset_id / _META_FILE
+    if not meta_path.is_file():
+        return None
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    meta["ingested"] = True
+    meta["graph_iri"] = graph_iri
+    meta["triple_count"] = triple_count
+    meta["ingested_at"] = ingested_at
+    meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     return meta
 
 
