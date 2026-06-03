@@ -198,9 +198,9 @@ def test_llm_escape_fires_when_typed_path_empty(monkeypatch) -> None:
 
     assert "Widget" in body["answer"]
     assert body["citations"][0]["iri"] == f"{_EX}w1"
-    # The model's query is disclosed, and it was actually executed + fed back.
+    # The model's query is disclosed via the dedicated `sparql` field (UI panel),
+    # and it was actually executed + fed back to the model.
     assert select in body["sparql"]
-    assert any("使用した SPARQL" in n for n in body["notes"])
     fed_back = json.dumps(fake.calls[1]["messages"], ensure_ascii=False)
     assert "alpha" in fed_back  # the real rows reached the model on turn 2
 
