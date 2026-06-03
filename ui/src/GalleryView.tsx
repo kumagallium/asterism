@@ -221,7 +221,12 @@ function OntologyCard({
 }
 
 function MappingCard({ entry, draft }: { entry: MappingEntry; draft?: boolean }) {
-  const ARTIFACT_JA: Record<string, string> = { ingester: 'ingester', mie: 'MIE', shex: 'ShEx' }
+  const ARTIFACT_JA: Record<string, string> = {
+    ingester: 'ingester',
+    mie: 'MIE',
+    shex: 'ShEx',
+    mapping: 'RML',
+  }
   return (
     <article className={`mapping-card${draft ? ' mapping-card--draft' : ''}`}>
       <div className="mapping-card-head">
