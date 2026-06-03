@@ -11,6 +11,7 @@ Run: pytest demo-agent/test_app.py
 from __future__ import annotations
 
 import json
+import re
 
 import rdflib
 from fastapi.testclient import TestClient
@@ -82,3 +83,38 @@ def test_provenance_real_endpoint(monkeypatch) -> None:
 
 def test_health_reports_mode() -> None:
     assert TestClient(demo.app).get("/health").json()["mode"] in {"mock", "real"}
+
+
+# --- #18 schema-agnostic foundation endpoints (real mode) ------------------
+
+
+def test_schema_endpoint_introspects_vocabulary(monkeypatch) -> None:
+    client = _real_client(monkeypatch)
+    body = client.get("/demo/schema").json()
+    class_names = {re.split(r"[/#]", c["iri"])[-1] for c in body["classes"]}
+    # The fixture has Curve / Sample / Paper plus the activity classes.
+    assert {"Curve", "Sample", "Paper"} <= class_names
+    pred_iris = {p["iri"] for p in body["predicates"]}
+    assert f"{SD}propertyY" in pred_iris
+    # Every class carries a (possibly empty) predicate shape.
+    assert all("predicates" in s for s in body["class_shapes"])
+
+
+def test_sparql_endpoint_runs_select(monkeypatch) -> None:
+    client = _real_client(monkeypatch)
+    q = (
+        f"SELECT ?c ?y WHERE {{ ?c <{SD}propertyY> \"ZT\" ; "
+        f"<{SD}yMax> ?y }} ORDER BY DESC(?y)"
+    )
+    body = client.post("/demo/sparql", json={"query": q}).json()
+    assert body["columns"] == ["c", "y"]
+    assert body["count"] == 2  # curve 1-1-1 and the 13000 outlier
+    assert body["rows"][0]["y"]["value"].startswith("13000")
+
+
+def test_sparql_endpoint_rejects_update(monkeypatch) -> None:
+    client = _real_client(monkeypatch)
+    body = client.post(
+        "/demo/sparql", json={"query": "DELETE WHERE { ?s ?p ?o }"}
+    ).json()
+    assert "error" in body and body["rows"] == []

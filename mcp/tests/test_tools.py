@@ -16,10 +16,13 @@ from asterism.starrydata import DEFAULT_ONTOLOGY, DEFAULT_RESOURCE
 
 from asterism_mcp.tools import (
     CurveNotFoundError,
+    SparqlNotReadOnlyError,
     _decode_array,
     property_ranking,
     provenance_of,
     sample_search,
+    schema_summary,
+    sparql_query,
     template_curve_fetch,
 )
 
@@ -389,3 +392,143 @@ async def test_provenance_of_rejects_non_http_iri() -> None:
     async with _make_client(lambda r: _rows([], [])) as client:
         with pytest.raises(ValueError, match="full http"):
             await provenance_of("not-an-iri", client)
+
+
+# ----------------------------------------------------------------------------
+# #18 schema_summary — schema-agnostic vocabulary introspection
+# ----------------------------------------------------------------------------
+
+
+async def test_schema_summary_collects_classes_predicates_and_shapes() -> None:
+    cls_a = "https://example.org/Widget"
+    cls_b = "https://example.org/Gadget"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = request.content.decode()
+        # Per-class shape query: pins the class IRI then groups predicates.
+        if f"<{cls_a}> ; ?p ?o" in body:
+            return _rows(
+                [{"p": _u("https://example.org/name"), "n": _l("5")}], ["p", "n"]
+            )
+        if f"<{cls_b}> ; ?p ?o" in body:
+            return _rows(
+                [{"p": _u("https://example.org/size"), "n": _l("2")}], ["p", "n"]
+            )
+        # Classes query (?s a ?cls).
+        if "?s a ?cls" in body:
+            assert "ORDER BY DESC(?n)" in body
+            return _rows(
+                [
+                    {"cls": _u(cls_a), "n": _l("5")},
+                    {"cls": _u(cls_b), "n": _l("2")},
+                ],
+                ["cls", "n"],
+            )
+        # Predicates query (?s ?p ?o).
+        return _rows(
+            [
+                {"p": _u("https://example.org/name"), "n": _l("7")},
+                {"p": _u("https://example.org/size"), "n": _l("2")},
+            ],
+            ["p", "n"],
+        )
+
+    async with _make_client(handler) as client:
+        out = await schema_summary(client)
+
+    assert [c["iri"] for c in out["classes"]] == [cls_a, cls_b]
+    assert out["classes"][0]["count"] == 5
+    assert {p["iri"] for p in out["predicates"]} == {
+        "https://example.org/name",
+        "https://example.org/size",
+    }
+    shapes = {s["class"]: s["predicates"] for s in out["class_shapes"]}
+    assert shapes[cls_a][0]["iri"] == "https://example.org/name"
+    assert shapes[cls_b][0]["iri"] == "https://example.org/size"
+
+
+async def test_schema_summary_scopes_to_named_graph() -> None:
+    graph = "https://kumagallium.github.io/asterism/graph/draft/d1"
+    captured: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request.content.decode())
+        return _rows([], ["cls", "n"])
+
+    async with _make_client(handler) as client:
+        out = await schema_summary(client, graph=graph)
+
+    assert out["graph"] == graph
+    # Both the classes and predicates queries must be scoped to the named graph.
+    assert any(f"GRAPH <{graph}>" in q for q in captured)
+    assert out["classes"] == [] and out["class_shapes"] == []
+
+
+# ----------------------------------------------------------------------------
+# #18 sparql_query — read-only generic SELECT/ASK
+# ----------------------------------------------------------------------------
+
+
+async def test_sparql_query_flattens_select_rows() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return _rows(
+            [
+                {"s": _u("https://example.org/a"), "label": _l("alpha")},
+                {"s": _u("https://example.org/b"), "label": _l("beta")},
+            ],
+            ["s", "label"],
+        )
+
+    async with _make_client(handler) as client:
+        out = await sparql_query("SELECT ?s ?label WHERE { ?s ?p ?label }", client)
+
+    assert out["columns"] == ["s", "label"]
+    assert out["count"] == 2
+    assert out["truncated"] is False
+    assert out["rows"][0]["s"]["value"] == "https://example.org/a"
+    assert out["rows"][0]["s"]["type"] == "uri"
+    assert out["rows"][1]["label"]["value"] == "beta"
+
+
+async def test_sparql_query_truncates_at_max_rows() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return _rows(
+            [{"s": _u(f"https://example.org/{i}")} for i in range(5)], ["s"]
+        )
+
+    async with _make_client(handler) as client:
+        out = await sparql_query("SELECT ?s WHERE { ?s ?p ?o }", client, max_rows=2)
+
+    assert out["count"] == 2
+    assert out["truncated"] is True
+
+
+async def test_sparql_query_handles_ask() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = {"head": {}, "boolean": True}
+        return httpx.Response(
+            200,
+            text=json.dumps(body),
+            headers={"content-type": "application/sparql-results+json"},
+        )
+
+    async with _make_client(handler) as client:
+        out = await sparql_query("ASK { ?s ?p ?o }", client)
+
+    assert out["boolean"] is True
+    assert out["rows"] == []
+
+
+async def test_sparql_query_rejects_update_forms() -> None:
+    async with _make_client(lambda r: _rows([], [])) as client:
+        with pytest.raises(SparqlNotReadOnlyError):
+            await sparql_query("DELETE WHERE { ?s ?p ?o }", client)
+        # Comment-smuggling must not slip an update past the guard.
+        with pytest.raises(SparqlNotReadOnlyError):
+            await sparql_query("# harmless\nINSERT DATA { <a> <b> <c> }", client)
+
+
+async def test_sparql_query_rejects_empty() -> None:
+    async with _make_client(lambda r: _rows([], [])) as client:
+        with pytest.raises(ValueError):
+            await sparql_query("   ", client)

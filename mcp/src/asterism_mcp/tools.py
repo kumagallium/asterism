@@ -23,6 +23,7 @@ Currently exposed:
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Final
 
 from asterism.oxigraph_client import OxigraphClient
@@ -526,3 +527,208 @@ async def provenance_of(
     chain.extend(acts)
 
     return {"iri": iri, "found": True, "chain": chain}
+
+
+# ============================================================================
+# #18 generic Ask layer — schema-independent foundation (LLM-free)
+# ============================================================================
+# Everything above is starrydata-shaped (sd:Curve, sd:propertyY, ...). When a
+# user designs their OWN schema in step0 and promotes data, those typed tools
+# cannot see it. The two tools below are deliberately schema-AGNOSTIC: they
+# introspect whatever vocabulary actually lives in the store and run arbitrary
+# read-only SELECT/ASK, so an agent can answer questions over a graph it was
+# never specialized for. Per docs/architecture/.../§5 these stay in core, fully
+# deterministic and Claude-free; the LLM NL->SPARQL escape is layered ON TOP of
+# them in a later increment (the schema_summary output is exactly the context
+# that escape will ground on).
+
+
+class SparqlNotReadOnlyError(Exception):
+    """Raised when ``sparql_query`` is handed an update-form query."""
+
+
+# Update-form keywords. Oxigraph's /query endpoint is read-only regardless, but
+# we reject these up front (mirroring api ``POST /api/sparql``) so a generic
+# tool can never be mistaken for write access and the caller gets a clear error.
+_SPARQL_UPDATE: Final = re.compile(
+    r"\b(insert|delete|load|clear|drop|create|add|move|copy)\b", re.IGNORECASE
+)
+
+
+def _strip_comments(query: str) -> str:
+    """Drop ``#`` line comments so the read-only check can't be smuggled past."""
+    return re.sub(r"#.*", "", query)
+
+
+def _graph_clause(graph: str | None, body: str) -> str:
+    """Wrap ``body`` in ``GRAPH <graph> { ... }`` when a named graph is given.
+
+    ``graph=None`` queries the default (canonical) graph — the promote step
+    MOVEs drafts into the default graph, so that is the right target for Ask.
+    """
+    if not graph:
+        return body
+    safe = graph.replace("<", "").replace(">", "")
+    return f"GRAPH <{safe}> {{ {body} }}"
+
+
+async def schema_summary(
+    client: OxigraphClient,
+    *,
+    graph: str | None = None,
+    max_classes: int = 50,
+    max_predicates: int = 100,
+    predicates_per_class: int = 25,
+) -> dict[str, Any]:
+    """Introspect the vocabulary actually present in the store (schema-agnostic).
+
+    Surfaces the classes, predicates, and per-class predicate "shapes" of
+    whatever data is loaded — no starrydata assumptions — so an agent (or a
+    later NL->SPARQL step) can write correct queries against a user-designed
+    schema it has never seen. Counts come straight from the triples, so they
+    double as a coarse data-quality signal (e.g. a predicate used 3 times vs
+    30 000).
+
+    Args:
+        graph: named graph IRI to inspect, or None for the default (canonical)
+            graph. Promotion MOVEs drafts into the default graph, so None is
+            the right target for asking about canonical data.
+        max_classes: cap on returned classes (clamped 1..500), by instance count.
+        max_predicates: cap on returned predicates (clamped 1..500), by usage.
+        predicates_per_class: cap on predicates listed per class (clamped 1..200).
+
+    Returns ``{graph, classes, predicates, class_shapes}`` where:
+
+    - ``classes``: ``[{iri, count}]`` — ``?s a ?cls`` instance counts, desc.
+    - ``predicates``: ``[{iri, count}]`` — all predicate usages, desc.
+    - ``class_shapes``: ``[{class, predicates: [{iri, count}]}]`` — for each
+      class, the predicates used on its instances (the implicit shape).
+    """
+    max_classes = max(1, min(int(max_classes), 500))
+    max_predicates = max(1, min(int(max_predicates), 500))
+    predicates_per_class = max(1, min(int(predicates_per_class), 200))
+
+    classes_q = (
+        "SELECT ?cls (COUNT(DISTINCT ?s) AS ?n) WHERE { "
+        + _graph_clause(graph, "?s a ?cls .")
+        + " } GROUP BY ?cls ORDER BY DESC(?n) LIMIT "
+        + str(max_classes)
+    )
+    preds_q = (
+        "SELECT ?p (COUNT(*) AS ?n) WHERE { "
+        + _graph_clause(graph, "?s ?p ?o .")
+        + " } GROUP BY ?p ORDER BY DESC(?n) LIMIT "
+        + str(max_predicates)
+    )
+
+    classes = [
+        {"iri": _cell(r, "cls"), "count": int(float(_cell(r, "n") or 0))}
+        for r in _bindings(await client.sparql_select(classes_q))
+        if _cell(r, "cls")
+    ]
+    predicates = [
+        {"iri": _cell(r, "p"), "count": int(float(_cell(r, "n") or 0))}
+        for r in _bindings(await client.sparql_select(preds_q))
+        if _cell(r, "p")
+    ]
+
+    # Per-class shapes: one bounded query per class keeps each result small and
+    # avoids a single giant GROUP BY that the store may truncate unpredictably.
+    class_shapes: list[dict[str, Any]] = []
+    for cls in classes:
+        cls_iri = str(cls["iri"]).replace("<", "").replace(">", "")
+        shape_q = (
+            "SELECT ?p (COUNT(*) AS ?n) WHERE { "
+            + _graph_clause(graph, f"?s a <{cls_iri}> ; ?p ?o .")
+            + " } GROUP BY ?p ORDER BY DESC(?n) LIMIT "
+            + str(predicates_per_class)
+        )
+        shape = [
+            {"iri": _cell(r, "p"), "count": int(float(_cell(r, "n") or 0))}
+            for r in _bindings(await client.sparql_select(shape_q))
+            if _cell(r, "p")
+        ]
+        class_shapes.append({"class": cls["iri"], "predicates": shape})
+
+    return {
+        "graph": graph,
+        "classes": classes,
+        "predicates": predicates,
+        "class_shapes": class_shapes,
+    }
+
+
+def _flatten_cell(node: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Flatten a SPARQL-Results binding cell to ``{value, type, datatype?, lang?}``."""
+    if not node:
+        return None
+    out: dict[str, Any] = {"value": node.get("value"), "type": node.get("type")}
+    if "datatype" in node:
+        out["datatype"] = node["datatype"]
+    if "xml:lang" in node:
+        out["lang"] = node["xml:lang"]
+    return out
+
+
+async def sparql_query(
+    query: str,
+    client: OxigraphClient,
+    *,
+    max_rows: int = 200,
+) -> dict[str, Any]:
+    """Run an arbitrary read-only SPARQL SELECT/ASK and return flat rows.
+
+    The schema-agnostic escape hatch: once :func:`schema_summary` has revealed
+    the vocabulary, this executes any SELECT/ASK against it. Update-form queries
+    (INSERT/DELETE/MOVE/...) are rejected — this is read-only by contract, same
+    as api ``POST /api/sparql``.
+
+    Args:
+        query: a SPARQL 1.1 SELECT or ASK query string.
+        max_rows: cap on returned rows (clamped 1..2000). ``truncated`` reports
+            whether the cap cut results so the caller never mistakes a capped
+            answer for the whole set.
+
+    Returns ``{columns, rows, count, truncated}`` for SELECT (each row maps a
+    var name to ``{value, type, datatype?, lang?}`` or None), or
+    ``{boolean, columns: [], rows: [], count: 0, truncated: false}`` for ASK.
+
+    Raises:
+        ValueError: empty query.
+        SparqlNotReadOnlyError: the query contains an update-form keyword.
+    """
+    q = (query or "").strip()
+    if not q:
+        raise ValueError("query is required")
+    if _SPARQL_UPDATE.search(_strip_comments(q)):
+        raise SparqlNotReadOnlyError(
+            "read-only: update-form queries (INSERT/DELETE/...) are not allowed"
+        )
+    max_rows = max(1, min(int(max_rows), 2000))
+
+    raw = await client.sparql_select(q)
+
+    # ASK returns {"head": {}, "boolean": true/false} — no bindings.
+    if isinstance(raw, dict) and "boolean" in raw:
+        return {
+            "boolean": bool(raw["boolean"]),
+            "columns": [],
+            "rows": [],
+            "count": 0,
+            "truncated": False,
+        }
+
+    head = raw.get("head", {}) if isinstance(raw, dict) else {}
+    columns = head.get("vars", []) if isinstance(head, dict) else []
+    bindings = _bindings(raw)
+    truncated = len(bindings) > max_rows
+    rows = [
+        {var: _flatten_cell(r.get(var)) for var in columns}
+        for r in bindings[:max_rows]
+    ]
+    return {
+        "columns": columns,
+        "rows": rows,
+        "count": len(rows),
+        "truncated": truncated,
+    }

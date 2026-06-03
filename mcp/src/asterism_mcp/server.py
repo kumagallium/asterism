@@ -25,9 +25,12 @@ from fastmcp import FastMCP
 
 from asterism_mcp.tools import (
     CurveNotFoundError,
+    SparqlNotReadOnlyError,
     property_ranking,
     provenance_of,
     sample_search,
+    schema_summary,
+    sparql_query,
     template_curve_fetch,
 )
 
@@ -171,6 +174,50 @@ def build_server(
             return await provenance_of(iri, get_client())
         except ValueError as exc:
             return {"iri": iri, "found": False, "error": str(exc)}
+
+    # ----- #18 generic Ask layer: schema-agnostic foundation (LLM-free) -----
+
+    @mcp.tool(
+        name="schema_summary",
+        description=(
+            "Introspect the vocabulary ACTUALLY present in the store — classes, "
+            "predicates, and per-class predicate shapes, with usage counts — "
+            "making NO starrydata assumptions. Use this FIRST when answering "
+            "questions over a user-designed schema you have not seen, so you can "
+            "write correct sparql_query calls instead of guessing predicate "
+            "names. graph=None inspects the default (canonical) graph."
+        ),
+    )
+    async def _schema_summary(
+        graph: str | None = None,
+        max_classes: int = 50,
+        max_predicates: int = 100,
+        predicates_per_class: int = 25,
+    ) -> dict[str, object]:
+        return await schema_summary(
+            get_client(),
+            graph=graph,
+            max_classes=max_classes,
+            max_predicates=max_predicates,
+            predicates_per_class=predicates_per_class,
+        )
+
+    @mcp.tool(
+        name="sparql_query",
+        description=(
+            "Run an arbitrary READ-ONLY SPARQL SELECT/ASK against the store and "
+            "get back flat rows ({columns, rows, count, truncated}). The "
+            "schema-agnostic escape hatch: pair it with schema_summary (call "
+            "that first to learn the vocabulary) to answer questions over any "
+            "graph, including user-designed schemas. Update-form queries "
+            "(INSERT/DELETE/...) are rejected — read-only by contract."
+        ),
+    )
+    async def _sparql_query(query: str, max_rows: int = 200) -> dict[str, object]:
+        try:
+            return await sparql_query(query, get_client(), max_rows=max_rows)
+        except (ValueError, SparqlNotReadOnlyError) as exc:
+            return {"error": str(exc), "columns": [], "rows": [], "count": 0}
 
     return mcp
 

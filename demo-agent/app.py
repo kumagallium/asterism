@@ -52,6 +52,11 @@ class AskRequest(BaseModel):
     question: str
 
 
+class SparqlRequest(BaseModel):
+    query: str
+    max_rows: int = 200
+
+
 # ---------------------------------------------------------------------------
 # mock fixtures (used when CSV2RDF_OXIGRAPH_URL is unset)
 # ---------------------------------------------------------------------------
@@ -254,6 +259,54 @@ async def provenance(iri: str) -> dict:
     from asterism_mcp.tools import provenance_of
 
     return await provenance_of(iri, _client())
+
+
+# ---------------------------------------------------------------------------
+# #18 generic Ask layer — schema-agnostic foundation (LLM-free)
+# ---------------------------------------------------------------------------
+# /demo/ask above routes deterministically into the starrydata-shaped tools, so
+# it cannot answer over a user-designed schema. The two endpoints below expose
+# the schema-AGNOSTIC core tools (asterism_mcp.tools.schema_summary /
+# sparql_query) straight through — no LLM, no starrydata assumptions. They are
+# the foundation the NL->SPARQL escape will sit on next: a future /demo/ask can
+# call schema_summary to learn the vocabulary, have an LLM draft a SELECT, then
+# run it via the same sparql_query path — without changing this contract.
+
+_SCHEMA_FIXTURE = {
+    "graph": None,
+    "classes": [
+        {"iri": f"{_RES.rsplit('/resource/', 1)[0]}/Curve", "count": 3},
+        {"iri": f"{_RES.rsplit('/resource/', 1)[0]}/Sample", "count": 2},
+    ],
+    "predicates": [
+        {"iri": "https://kumagallium.github.io/asterism/starrydata/propertyY", "count": 3},
+        {"iri": "https://kumagallium.github.io/asterism/starrydata/yMax", "count": 3},
+    ],
+    "class_shapes": [],
+}
+
+
+@app.get("/demo/schema")
+async def schema(graph: str | None = None) -> dict:
+    """Schema-agnostic vocabulary introspection (classes/predicates/shapes)."""
+    if not _REAL:
+        return _SCHEMA_FIXTURE
+    from asterism_mcp.tools import schema_summary
+
+    return await schema_summary(_client(), graph=graph)
+
+
+@app.post("/demo/sparql")
+async def sparql(req: SparqlRequest) -> dict:
+    """Read-only SPARQL SELECT/ASK passthrough (schema-agnostic escape hatch)."""
+    if not _REAL:
+        return {"columns": [], "rows": [], "count": 0, "truncated": False, "mode": "mock"}
+    from asterism_mcp.tools import SparqlNotReadOnlyError, sparql_query
+
+    try:
+        return await sparql_query(req.query, _client(), max_rows=req.max_rows)
+    except (ValueError, SparqlNotReadOnlyError) as exc:
+        return {"error": str(exc), "columns": [], "rows": [], "count": 0}
 
 
 @app.get("/health")
