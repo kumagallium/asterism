@@ -13,6 +13,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Declarative substrate (Phase 5 #15): run approved RML through Morph-KGC.
+# Optional so the core ingester stays installable without the substrate stack.
+substrate = [
+    "morph-kgc>=2.6",
+]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
