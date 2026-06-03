@@ -21,7 +21,8 @@
 | 14 | step0 が宣言 RML を出力 | ✅ **完了**（#74-77: propose §RML 生成→materialize 抽出→`rml_check`→validate T9 閉集合検証） | CC | `architecture/step0-rml-emission.md` |
 | 15 | ワークベンチ materialize（人間ゲート） | ✅ **S1-S4 完了**（#78-80 + 本PR）。substrate→投入 API→UI ゲート→draft→canonical 昇格+alignment。**実 Oxigraph で実投入・昇格を検証ずみ** | CC(UI) | `architecture/phase5-workbench-materialize-gate.md` |
 | 18 | **汎用クエリ/Ask 層**（最小=SPARQL tool → NL→SPARQL、スキーマ非依存） | ✅ **完了（実 LLM dogfood 実証済）**。土台(LLM-free)=MCP `schema_summary`＋`sparql_query`＋demo-agent `/demo/schema`・`/demo/sparql`。escape=`/demo/ask` を**型付き優先＋自動フォールバック**化（引用ゼロ→LLM が schema_summary 接地で read-only SPARQL→`sparql_query` 実行→接地回答＋引用＋使用SPARQL 開示）。UX=Ask-view にキー欄＋「使用した SPARQL」開示パネル。**dogfood: 実 Oxigraph に非 starrydata スキーマ(材料硬さ lab:)を投入→実 LLM が schema 内省→正しい SPARQL 生成→最硬 WC-Co を実 IRI 引用付きで回答（2026-06-03）** | core 設計→CC | — |
-| 19 | **UI 一般化**（非CSVソース追加・mapping・ソース間リンク） | 未 | CC(UI)+core | — |
+| 20 | **オントロジー/canonical ライフサイクル + starrydata 脱結合**（層整理・CRUD/版・core から starrydata を example へ降格・typed ツール一般化） | 🟠 **設計中（ADR ドラフト・要ユーザー確定 4 件）** | core 設計→CC | `architecture/ontology-canonical-lifecycle.md` |
+| 19 | **UI 一般化**（非CSVソース追加・mapping・ソース間リンク） | 未（#20 の P2 と接続: 2個目の非 starrydata dataset 投入） | CC(UI)+core | — |
 | — | linker（MP→RML化＋`normalize_host` 昇格 / MatPROV 連結候補） | MP 実証済・RML化未 | core | `experiments/mp-linking-poc/` |
 | 10 | 来歴トレース表示＋データ品質の見せ場（表示 UI） | 一部（tool 済・UI 未） | CC(UI) | — |
 | — | 統治・スケール（`fn-local` 名前空間・未対応変換ログ） | 設計済・未実装 | later | 同上 §5.5 |
@@ -29,7 +30,9 @@
 ## 直近の一手（順）
 
 1. ~~関数ライブラリ v0 / #14 step0 RML 出力 / #15 materialize 人間ゲート~~ ✅ 完了。
-2. ~~**#18 汎用クエリ層**（土台 + escape + Ask-view UX + 実 LLM dogfood）~~ ✅ **完了**。新オントロジー Ask の鍵が揃った。次の候補=#19 UI 一般化（非CSVソース）、UI 全体の品質改善（別タスク化済）、不完全 refine ガード（中・別件）。
+2. ~~**#18 汎用クエリ層**（土台 + escape + Ask-view UX + 実 LLM dogfood）~~ ✅ **完了**。新オントロジー Ask の鍵が揃った。
+3. **#20 オントロジー/canonical ライフサイクル + starrydata 脱結合**（ADR `ontology-canonical-lifecycle.md` ドラフト済）。**要ユーザー確定 4 件**（TBox graph 投影先 / 版・retract 方針 / starrydata 降格段階 / typed ツール一般化 a vs b）→ 確定後 P1-P4 実装。北極星「starrydata に閉じない」への本丸。
+4. 候補=#19 UI 一般化（#20 P2 と接続）、UI 全体の品質改善（別タスク化済）、不完全 refine ガード（中・別件）。
 3. #15 運用化: 本番 compose の api イメージに `asterism-ingest[substrate]`（morph-kgc）を入れる（現 docker api は morph-kgc 無し）。実 LLM dogfood（propose §RML の安定性）。
 4. #19 UI 一般化（非CSVソース・mapping・ソース間リンク）。
 
@@ -49,6 +52,7 @@
 - 2026-06-02: 初版。Phase 5（設計→Ask 連結）実証＋関数ライブラリ v0 を受けて、汎用化（汎用 Ask・UI 一般化）まで含む実行状態を集約。
 - 2026-06-02: `csv2rdf-mcp` → **Asterism** 改名決定（IRI 名前空間ごと一度で・実行は CC、spec=`handoff_to_claude_code_rename_to_asterism.md`）。
 - 2026-06-03: **#14 完了・#15 S1-S4 完了**。宣言経路（propose §RML→materialize→T9）＋人間ゲート（draft 隔離投入→alignment→canonical 昇格）が一通り揃い、**実 Oxigraph で実投入・昇格まで検証**。残: #18 汎用 Ask 層、#15 運用化（本番 api に morph-kgc）、実 LLM dogfood。改名着地後に Asterism 名で実装した（#14/#15 の旧 csv2rdf commit は改名に内包済み）。
+- 2026-06-03: **#20 起案 — ADR `ontology-canonical-lifecycle.md`（ドラフト）**。開発者の3疑問（オントロジー vs canonical のレイヤー／starrydata 特化への懸念／CRUD ライフサイクル不明）を受け、(1) 2軸固定（TBox/ABox レイヤー × draft/canonical 状態）、(2) TBox の居場所（content ファイル一次＋昇格時に ontology graph へ任意投影・Ask は ABox 逆算 baseline 維持）、(3) ライフサイクル明文化（再昇格・retract・delete・版＝IRI 不変＋dataset version）、(4) **starrydata を core 既定→`datasets/starrydata/` example へ降格**（北極星「starrydata に閉じない」）、(5) typed ツールの per-ontology 一般化（content 宣言 a 主／生成 b 補助）を設計。要ユーザー確定 4 件。前提 ADR（ontology-mapping-boundary・workbench-materialize-gate）と整合。
 - 2026-06-03: **#18 完了 — 実 LLM dogfood 実証**。実 Oxigraph(:7878) の default graph に**非 starrydata の材料硬さスキーマ**(`lab:Specimen`/`lab:Measurement`/`lab:hardnessHV`/`lab:ofSpecimen` ＋ 4 specimens) を投入。demo-agent を real 起動(api/.venv に `asterism_mcp` 追加)。LLM-free 経路をライブ確認(`/demo/schema` が lab クラスを内省、`/demo/sparql` が硬さランキングを返す、`/demo/ask` キー無し→型付き該当ゼロでフォールスルー＋ヒント)。**実 LLM escape(実 Anthropic キー)**: 「最も硬い材料は？」→ 型付きフォールスルー → LLM が schema 内省 → 正しい read-only SPARQL(`?m a lab:Measurement; lab:ofSpecimen ?s; lab:hardnessHV ?hv. ?s rdfs:label ?l ORDER BY DESC(?hv)`) 生成・実行 → **最硬 WC-Co(2200 HV) を実 IRI `lab:spec-wc` 引用付きで回答＋比較表**。生成 SPARQL は `sparql` フィールドで開示。スキーマ非依存の汎用 Ask が実環境で一周。
 - 2026-06-03: **#18 Ask-view UX 仕上げ**。Ask 画面に (1) 一般質問用の任意 API キー欄（workbench と共通の sessionStorage `asterism.apiKey`・非保存、型付き定番質問はキー不要と明示）＋(2) 「使用した SPARQL」開示パネル（escape が生成した read-only クエリを `<details>` で表示・「読み取り専用」タグ）。backend は使用 SPARQL を `notes` 重複させず `sparql` フィールド専用に整理。`ask(question, apiKey?)` がキーを送出。mock モードで実ブラウザ確認済（escape 例→回答＋引用＋SPARQL パネル、ZT 型付き例→パネル無し、横溢れ無し・console エラー無し）。残=実 LLM dogfood のみ。
 - 2026-06-03: **#18 LLM NL→SPARQL escape を実装**（土台に続く後半）。demo-agent `/demo/ask` を「**型付き(starrydata)優先 → 引用ゼロなら自動フォールバック**」化。escape = `schema_summary` で実在語彙を接地 → Anthropic tool-use ループ（`run_sparql`→`sparql_query` read-only 経由・1回以上の自己修正可・最終 `submit_answer` を tool_choice で強制）→ 接地回答＋引用＋**使用 SPARQL 開示**（`notes`＋`sparql` フィールド）。キー = api と同じ user-brought per-request（`X-API-Key`・非保存）。UI `ask()` は workbench の sessionStorage キーを自動再利用（新 UI 面なし）。core API は Claude-free 維持（escape は消費層のみ）。テスト = fake Anthropic を注入し rdflib 実 SPARQL で fallback/実行/結果フィードバック/キー無しヒント/型付き短絡を検証（demo-agent 9 緑、mcp 29 緑、ui build/lint 緑）。残 = Ask-view の UX 仕上げ（一般質問のキー欄・SPARQL 開示パネル）＋実 LLM dogfood。
