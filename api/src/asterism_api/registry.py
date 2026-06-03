@@ -130,6 +130,36 @@ def mark_ingested(
     return meta
 
 
+def mark_promoted(
+    root: Path,
+    dataset_id: str,
+    *,
+    triples_promoted: int,
+    alignment: dict,
+    promoted_at: str,
+) -> dict | None:
+    """Record that ``dataset_id``'s draft graph was promoted into the canonical graph.
+
+    The draft named graph no longer exists after promotion (its triples moved to
+    the default/canonical graph), so we clear ``ingested``/``graph_iri`` and set
+    ``promoted``. Returns the new meta, or ``None`` if id is unsafe / absent.
+    """
+    if not re.fullmatch(r"[a-z0-9-]{1,128}", dataset_id):
+        return None
+    meta_path = root / dataset_id / _META_FILE
+    if not meta_path.is_file():
+        return None
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    meta["promoted"] = True
+    meta["ingested"] = False  # draft graph consumed by the MOVE
+    meta["graph_iri"] = None
+    meta["triples_promoted"] = triples_promoted
+    meta["alignment"] = alignment
+    meta["promoted_at"] = promoted_at
+    meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    return meta
+
+
 def list_datasets(root: Path) -> list[dict]:
     """Return every dataset's meta, newest first. Missing root -> empty list."""
     if not root.is_dir():

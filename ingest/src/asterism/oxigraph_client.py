@@ -151,6 +151,20 @@ class OxigraphClient:
         # mypy: ``r.json()`` is typed as Any; explicit cast keeps callers honest.
         return r.json()  # type: ignore[no-any-return]
 
+    async def sparql_update(self, update: str) -> None:
+        """Run a SPARQL 1.1 Update (INSERT/DELETE/MOVE/...) against ``/update``.
+
+        Internal write path — NOT the read-only ``/api/sparql`` relay. Used by the
+        human-gated promote (#15 S4) to MOVE a draft graph into the canonical
+        (default) graph. Raises ``httpx.HTTPStatusError`` on non-2xx.
+        """
+        r = await self._client.post(
+            "/update",
+            content=update,
+            headers={"Content-Type": "application/sparql-update"},
+        )
+        r.raise_for_status()
+
     async def graph_triple_count(self, graph_iri: str) -> int:
         """Return number of triples currently stored in ``graph_iri``."""
         query = (

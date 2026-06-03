@@ -17,9 +17,9 @@
 | # | ワークストリーム | 状態 | 担当 | 参照 |
 |---|---|---|---|---|
 | — | substrate（ソース非依存の宣言的取り込み: RML+Morph-KGC） | 実証済み | core/CC | `architecture/phase5-declarative-substrate.md` |
-| — | 関数ライブラリ v0（`functions.py`・閉じた検証済み集合） | 実装・検証ずみ / **commit 待ち** | CC | 同上 §4 |
-| 14 | step0 が宣言 RML を出力 | 仕様済・未実装 | CC | `architecture/step0-rml-emission.md` |
-| 15 | ワークベンチ materialize（人間ゲート） | 未 | CC(UI) | — |
+| — | 関数ライブラリ v0（`functions.py`・閉じた検証済み集合） | ✅ main 入り（#73）。Tier0=8 関数（+2入力 `float_array_count`） | CC | 同上 §4 |
+| 14 | step0 が宣言 RML を出力 | ✅ **完了**（#74-77: propose §RML 生成→materialize 抽出→`rml_check`→validate T9 閉集合検証） | CC | `architecture/step0-rml-emission.md` |
+| 15 | ワークベンチ materialize（人間ゲート） | ✅ **S1-S4 完了**（#78-80 + 本PR）。substrate→投入 API→UI ゲート→draft→canonical 昇格+alignment。**実 Oxigraph で実投入・昇格を検証ずみ** | CC(UI) | `architecture/phase5-workbench-materialize-gate.md` |
 | 18 | **汎用クエリ/Ask 層**（最小=SPARQL tool → NL→SPARQL、スキーマ非依存） | 未（**新オントロジー Ask の鍵**。現状 MCP は starrydata 形4ツールのみ） | core 設計→CC | — |
 | 19 | **UI 一般化**（非CSVソース追加・mapping・ソース間リンク） | 未 | CC(UI)+core | — |
 | — | linker（MP→RML化＋`normalize_host` 昇格 / MatPROV 連結候補） | MP 実証済・RML化未 | core | `experiments/mp-linking-poc/` |
@@ -28,10 +28,10 @@
 
 ## 直近の一手（順）
 
-1. 関数ライブラリ v0 ＋ e2e ＋ docs を main へ commit（`handoff_to_claude_code_phase5_design_to_ask.md`）。
-2. #14 step0 が RML 出力（仕様あり）。
-3. #15 materialize 人間ゲート。
-4. #18 汎用クエリ層（まず SPARQL passthrough tool から）。
+1. ~~関数ライブラリ v0 / #14 step0 RML 出力 / #15 materialize 人間ゲート~~ ✅ 完了。
+2. **#18 汎用クエリ層**（まず SPARQL passthrough tool → NL→SPARQL）。新オントロジー Ask の鍵。
+3. #15 運用化: 本番 compose の api イメージに `asterism-ingest[substrate]`（morph-kgc）を入れる（現 docker api は morph-kgc 無し）。実 LLM dogfood（propose §RML の安定性）。
+4. #19 UI 一般化（非CSVソース・mapping・ソース間リンク）。
 
 ## 確定事項（恒久）
 
@@ -48,3 +48,4 @@
 
 - 2026-06-02: 初版。Phase 5（設計→Ask 連結）実証＋関数ライブラリ v0 を受けて、汎用化（汎用 Ask・UI 一般化）まで含む実行状態を集約。
 - 2026-06-02: `csv2rdf-mcp` → **Asterism** 改名決定（IRI 名前空間ごと一度で・実行は CC、spec=`handoff_to_claude_code_rename_to_asterism.md`）。
+- 2026-06-03: **#14 完了・#15 S1-S4 完了**。宣言経路（propose §RML→materialize→T9）＋人間ゲート（draft 隔離投入→alignment→canonical 昇格）が一通り揃い、**実 Oxigraph で実投入・昇格まで検証**。残: #18 汎用 Ask 層、#15 運用化（本番 api に morph-kgc）、実 LLM dogfood。改名着地後に Asterism 名で実装した（#14/#15 の旧 csv2rdf commit は改名に内包済み）。

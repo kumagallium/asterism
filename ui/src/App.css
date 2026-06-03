@@ -1818,3 +1818,46 @@ textarea:focus {
 .artifact-kind--mapping {
   background: var(--accent);
 }
+
+/* ---- Promote gate (Phase 5 #15 S4) ---- */
+.promote-control {
+  margin: 0.5rem 0 1rem;
+  padding: 0.8rem;
+  border: 1px dashed var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+.promote-note {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin: 0;
+  line-height: 1.5;
+}
+.alignment-summary {
+  font-size: 0.82rem;
+  color: var(--fg);
+}
+.alignment-new {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin: 0.3rem 0 0;
+  word-break: break-word;
+}
+.promote-btn {
+  align-self: flex-start;
+}
+.promote-ok {
+  margin: 0.5rem 0 1rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--success-fg);
+}
+.promote-err {
+  font-size: 0.82rem;
+  color: var(--error-fg);
+  margin: 0;
+}

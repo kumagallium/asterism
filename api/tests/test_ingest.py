@@ -174,3 +174,93 @@ def test_ingest_without_morph_kgc_returns_501(tmp_path: Path, monkeypatch) -> No
         assert r.status_code == 501
         assert "morph-kgc" in r.json()["detail"]
     assert oxi.store_calls == []
+
+
+# ---- promotion: draft -> canonical (#15 S4) ---------------------------------
+
+
+class _PromoteOxi:
+    """Oxigraph fake for promote/alignment: canned SELECTs + records /update."""
+
+    def __init__(self) -> None:
+        self.updates: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/update":
+                body = request.content.decode()
+                self.updates.append(body)
+                return httpx.Response(204)
+            # /query: alignment SELECTs and the promote COUNT
+            q = request.content.decode()
+            if "COUNT" in q:
+                rows = [{"c": {"value": "1640"}}]
+            elif "GRAPH" in q:  # draft predicates/classes
+                rows = [{"x": {"type": "uri", "value": "https://ex#draftProp"}}]
+            else:  # canonical predicates/classes (empty)
+                rows = []
+            return httpx.Response(
+                200,
+                text=json.dumps({"results": {"bindings": rows}}),
+                headers={"content-type": "application/sparql-results+json"},
+            )
+
+        inner = httpx.AsyncClient(
+            transport=httpx.MockTransport(handler), base_url="http://test"
+        )
+        self.client = OxigraphClient(OxigraphConfig(base_url="http://test"), client=inner)
+
+
+def _ingested_dataset(tmp: Path) -> str:
+    dataset_id = _save_dataset_with_rml(tmp)
+    registry.mark_ingested(
+        tmp / "registry",
+        dataset_id,
+        graph_iri=f"https://kumagallium.github.io/asterism/starrydata/graph/draft/{dataset_id}",
+        triple_count=1640,
+        ingested_at="2026-06-03T00:10:00+00:00",
+    )
+    return dataset_id
+
+
+def test_alignment_preview_classifies_draft(tmp_path: Path) -> None:
+    dataset_id = _ingested_dataset(tmp_path)
+    oxi = _PromoteOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app) as client:
+        r = client.get(f"/api/datasets/{dataset_id}/alignment")
+        assert r.status_code == 200, r.text
+        al = r.json()["alignment"]
+        # draft uses a predicate not in (empty) canonical -> New
+        assert al["predicates"]["new"] == ["https://ex#draftProp"]
+        assert al["predicates"]["reuse"] == []
+
+
+def test_promote_moves_to_canonical_and_marks_meta(tmp_path: Path) -> None:
+    dataset_id = _ingested_dataset(tmp_path)
+    oxi = _PromoteOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app) as client:
+        r = client.post(f"/api/datasets/{dataset_id}/promote")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["promoted"] is True
+        assert body["canonical_graph"] == "default"
+        assert body["triples_promoted"] == 1640
+        assert body["dataset"]["promoted"] is True
+        assert body["dataset"]["ingested"] is False  # draft consumed
+    # A MOVE ... TO DEFAULT was issued.
+    assert any("MOVE GRAPH" in u and "TO DEFAULT" in u for u in oxi.updates)
+    # Meta on disk reflects promotion.
+    meta = json.loads((tmp_path / "registry" / dataset_id / "meta.json").read_text())
+    assert meta["promoted"] is True
+    assert meta["triples_promoted"] == 1640
+
+
+def test_promote_requires_ingested_draft(tmp_path: Path) -> None:
+    dataset_id = _save_dataset_with_rml(tmp_path)  # has RML but never ingested
+    oxi = _PromoteOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app) as client:
+        r = client.post(f"/api/datasets/{dataset_id}/promote")
+        assert r.status_code == 400
+    assert oxi.updates == []  # nothing moved
