@@ -49,3 +49,4 @@
 - 2026-06-02: 初版。Phase 5（設計→Ask 連結）実証＋関数ライブラリ v0 を受けて、汎用化（汎用 Ask・UI 一般化）まで含む実行状態を集約。
 - 2026-06-02: `csv2rdf-mcp` → **Asterism** 改名決定（IRI 名前空間ごと一度で・実行は CC、spec=`handoff_to_claude_code_rename_to_asterism.md`）。
 - 2026-06-03: **#14 完了・#15 S1-S4 完了**。宣言経路（propose §RML→materialize→T9）＋人間ゲート（draft 隔離投入→alignment→canonical 昇格）が一通り揃い、**実 Oxigraph で実投入・昇格まで検証**。残: #18 汎用 Ask 層、#15 運用化（本番 api に morph-kgc）、実 LLM dogfood。改名着地後に Asterism 名で実装した（#14/#15 の旧 csv2rdf commit は改名に内包済み）。
+- 2026-06-03: **実環境ドッグフードで4バグ発見・修正**（実データ＋実 LLM＋実ブラウザで propose→materialize→ingest→promote を通した）。#85 SSE 一時切断で進捗ロスト（EventSource 自動再接続を殺していた）／#86 AI 生成 RML の FnO 名前空間ずれ（旧 fnml# → 新 w3id.org/rml に正規化＋propose §9 で明示＋ingest 500→422）／#87 Gallery のライフサイクル状態表示＋昇格ラベル平易化。**未対応: refine が大スキーマで出力省略（不完全 refine ガード要）**。**重要な気づき: 昇格データを Ask で問えない＝Ask ツールが starrydata 専用形＝#18 汎用 Ask 層が本筋の次の一手**（ユーザーが体験して確認）。
