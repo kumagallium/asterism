@@ -175,3 +175,20 @@ async def test_promote_moves_draft_to_default() -> None:
     moved = await promote_draft_to_canonical(fake, iri)
     assert moved == 1640
     assert fake.updates == [f"MOVE GRAPH <{iri}> TO DEFAULT"]
+
+
+# ---- FnO namespace normalization (#15 ingest robustness) ---------------------
+
+
+def test_normalize_fno_namespace_rewrites_old_to_new() -> None:
+    from asterism.substrate import normalize_fno_namespace
+    old = '@prefix rmlf: <http://semweb.mmlab.be/ns/fnml#> .\n<#M> rmlf:function fn:x .'
+    out = normalize_fno_namespace(old)
+    assert "http://w3id.org/rml/" in out
+    assert "semweb.mmlab.be/ns/fnml" not in out
+
+
+def test_normalize_fno_namespace_noop_for_new() -> None:
+    from asterism.substrate import normalize_fno_namespace
+    rml = '@prefix rmlf: <http://w3id.org/rml/> .'
+    assert normalize_fno_namespace(rml) == rml

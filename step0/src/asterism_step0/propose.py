@@ -133,6 +133,18 @@ substrate with NO generated code** (the safe, RCE-free path). One
 `rr:TriplesMap` per row type, prefixes/predicates matching §2/§3. Full spec:
 `docs/architecture/step0-rml-emission.md`.
 
+Declare these prefixes **verbatim** at the top of the block (the function-execution
+vocab MUST use the `http://w3id.org/rml/` namespace — Morph-KGC does NOT support
+the old `http://semweb.mmlab.be/ns/fnml#`):
+```
+@prefix rr:   <http://www.w3.org/ns/r2rml#> .
+@prefix rml:  <http://semweb.mmlab.be/ns/rml#> .
+@prefix ql:   <http://semweb.mmlab.be/ns/ql#> .
+@prefix rmlf: <http://w3id.org/rml/> .
+@prefix fn:   <https://kumagallium.github.io/asterism/fn/> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+```
+
 HARD RULES (a reviewer approves *column→predicate + which vetted function*, not code):
 - May reference ONLY these vetted **Tier 0** functions
   (`@prefix fn: <https://kumagallium.github.io/asterism/fn/>`). No other

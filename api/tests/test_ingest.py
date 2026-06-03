@@ -264,3 +264,24 @@ def test_promote_requires_ingested_draft(tmp_path: Path) -> None:
         r = client.post(f"/api/datasets/{dataset_id}/promote")
         assert r.status_code == 400
     assert oxi.updates == []  # nothing moved
+
+
+def test_ingest_morph_kgc_error_returns_422(tmp_path: Path, monkeypatch) -> None:
+    # A Morph-KGC failure on malformed/unsupported RML must surface as 422
+    # (user-data error) with the cause — not an opaque 500.
+    dataset_id = _save_dataset_with_rml(tmp_path)
+
+    def _boom(*_a, **_k):
+        raise KeyError("object")
+
+    monkeypatch.setattr(substrate, "materialize_to_graph", _boom)
+    oxi = _RecordingOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app) as client:
+        r = client.post(
+            f"/api/datasets/{dataset_id}/ingest",
+            files={"files": ("papers.csv", b"SID\n1\n", "text/csv")},
+        )
+        assert r.status_code == 422
+        assert "KeyError" in r.json()["detail"]
+    assert oxi.store_calls == []  # nothing loaded

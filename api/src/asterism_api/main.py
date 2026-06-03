@@ -522,6 +522,14 @@ def build_app(
                 )
             except RuntimeError as exc:  # morph-kgc not installed (optional extra)
                 raise HTTPException(501, str(exc)) from exc
+            except Exception as exc:  # Morph-KGC could not run this mapping
+                # User-data error (malformed/unsupported RML, column mismatch, …)
+                # — surface it as 422 with the cause, not an opaque 500.
+                raise HTTPException(
+                    422,
+                    "宣言マッピングを substrate で実行できませんでした: "
+                    f"{type(exc).__name__}: {exc}",
+                ) from exc
             triple_count = await substrate.ingest_graph_to_oxigraph(
                 graph, client, graph_iri
             )
