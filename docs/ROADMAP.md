@@ -20,7 +20,7 @@
 | — | 関数ライブラリ v0（`functions.py`・閉じた検証済み集合） | ✅ main 入り（#73）。Tier0=8 関数（+2入力 `float_array_count`） | CC | 同上 §4 |
 | 14 | step0 が宣言 RML を出力 | ✅ **完了**（#74-77: propose §RML 生成→materialize 抽出→`rml_check`→validate T9 閉集合検証） | CC | `architecture/step0-rml-emission.md` |
 | 15 | ワークベンチ materialize（人間ゲート） | ✅ **S1-S4 完了**（#78-80 + 本PR）。substrate→投入 API→UI ゲート→draft→canonical 昇格+alignment。**実 Oxigraph で実投入・昇格を検証ずみ** | CC(UI) | `architecture/phase5-workbench-materialize-gate.md` |
-| 18 | **汎用クエリ/Ask 層**（最小=SPARQL tool → NL→SPARQL、スキーマ非依存） | 🟡 **土台 完了**（決定論・LLM-free）。MCP に `schema_summary`（語彙内省: class/predicate/per-class shape）＋`sparql_query`（read-only SELECT/ASK passthrough）を追加＋demo-agent に `/demo/schema`・`/demo/sparql` 配線。残=**LLM NL→SPARQL escape**（次増分: schema_summary を context に SELECT を起こし sparql_query 経路で実行） | core 設計→CC | — |
+| 18 | **汎用クエリ/Ask 層**（最小=SPARQL tool → NL→SPARQL、スキーマ非依存） | 🟢 **土台＋escape 完了**。土台(LLM-free)=MCP `schema_summary`＋`sparql_query`＋demo-agent `/demo/schema`・`/demo/sparql`。escape=demo-agent `/demo/ask` を**型付き優先＋自動フォールバック**化（型ツールが引用ゼロ→LLM が schema_summary 接地で read-only SPARQL を起こし `sparql_query` で実行→接地回答＋引用＋使用SPARQL 開示）。UI `ask()` は workbench の持ち込みキーを再利用。残=Ask-view の UX（キー欄・SPARQL 開示パネル）＋実 LLM dogfood | core 設計→CC | — |
 | 19 | **UI 一般化**（非CSVソース追加・mapping・ソース間リンク） | 未 | CC(UI)+core | — |
 | — | linker（MP→RML化＋`normalize_host` 昇格 / MatPROV 連結候補） | MP 実証済・RML化未 | core | `experiments/mp-linking-poc/` |
 | 10 | 来歴トレース表示＋データ品質の見せ場（表示 UI） | 一部（tool 済・UI 未） | CC(UI) | — |
@@ -29,7 +29,7 @@
 ## 直近の一手（順）
 
 1. ~~関数ライブラリ v0 / #14 step0 RML 出力 / #15 materialize 人間ゲート~~ ✅ 完了。
-2. **#18 汎用クエリ層**: ~~土台（schema_summary + sparql_query, LLM-free）~~ ✅。次=**LLM NL→SPARQL escape**（決定論土台→LLM escape の段階式: ユーザー方針 2026-06-03）。escape は consuming 層（demo-agent `/demo/ask`）に置き、core API は Claude-free 維持。
+2. **#18 汎用クエリ層**: ~~土台（schema_summary + sparql_query, LLM-free）~~ ✅ ＋ ~~LLM NL→SPARQL escape（型付き優先＋自動フォールバック・demo-agent `/demo/ask`・core は Claude-free 維持）~~ ✅。次=Ask-view の UX 仕上げ（一般質問のキー欄・SPARQL 開示パネル）＋実 LLM dogfood。
 3. #15 運用化: 本番 compose の api イメージに `asterism-ingest[substrate]`（morph-kgc）を入れる（現 docker api は morph-kgc 無し）。実 LLM dogfood（propose §RML の安定性）。
 4. #19 UI 一般化（非CSVソース・mapping・ソース間リンク）。
 
@@ -49,5 +49,6 @@
 - 2026-06-02: 初版。Phase 5（設計→Ask 連結）実証＋関数ライブラリ v0 を受けて、汎用化（汎用 Ask・UI 一般化）まで含む実行状態を集約。
 - 2026-06-02: `csv2rdf-mcp` → **Asterism** 改名決定（IRI 名前空間ごと一度で・実行は CC、spec=`handoff_to_claude_code_rename_to_asterism.md`）。
 - 2026-06-03: **#14 完了・#15 S1-S4 完了**。宣言経路（propose §RML→materialize→T9）＋人間ゲート（draft 隔離投入→alignment→canonical 昇格）が一通り揃い、**実 Oxigraph で実投入・昇格まで検証**。残: #18 汎用 Ask 層、#15 運用化（本番 api に morph-kgc）、実 LLM dogfood。改名着地後に Asterism 名で実装した（#14/#15 の旧 csv2rdf commit は改名に内包済み）。
+- 2026-06-03: **#18 LLM NL→SPARQL escape を実装**（土台に続く後半）。demo-agent `/demo/ask` を「**型付き(starrydata)優先 → 引用ゼロなら自動フォールバック**」化。escape = `schema_summary` で実在語彙を接地 → Anthropic tool-use ループ（`run_sparql`→`sparql_query` read-only 経由・1回以上の自己修正可・最終 `submit_answer` を tool_choice で強制）→ 接地回答＋引用＋**使用 SPARQL 開示**（`notes`＋`sparql` フィールド）。キー = api と同じ user-brought per-request（`X-API-Key`・非保存）。UI `ask()` は workbench の sessionStorage キーを自動再利用（新 UI 面なし）。core API は Claude-free 維持（escape は消費層のみ）。テスト = fake Anthropic を注入し rdflib 実 SPARQL で fallback/実行/結果フィードバック/キー無しヒント/型付き短絡を検証（demo-agent 9 緑、mcp 29 緑、ui build/lint 緑）。残 = Ask-view の UX 仕上げ（一般質問のキー欄・SPARQL 開示パネル）＋実 LLM dogfood。
 - 2026-06-03: **#18 汎用 Ask 層の土台（LLM-free）を実装**。方針 = product_direction（決定論・型付き主役／探索 LLM は escape／Ask は LLM-free／後から探索拡張可）に沿い、ユーザー判断で「**決定論土台→LLM escape の段階式**・初回は土台のみ」。実装: `asterism_mcp.tools` に (1) `schema_summary`（store の実在語彙＝class/predicate/per-class shape を usage count 付きで内省、starrydata 非依存）＋(2) `sparql_query`（read-only SELECT/ASK、update 形は `_SPARQL_UPDATE` で拒否＝api `/api/sparql` と同契約、結果を `{columns,rows,count,truncated}` に平坦化）。MCP server に両登録。consuming 層 demo-agent に `/demo/schema`・`/demo/sparql` を passthrough 配線（mock/real 両対応、LLM 不在）。テスト = MockTransport 単体 + rdflib 実 SPARQL 統合（mcp 29 / demo-agent 6 緑、ruff 緑）。残 = **LLM NL→SPARQL escape**（schema_summary を context に SELECT を起こし sparql_query で実行）を demo-agent `/demo/ask` に。core API は Claude-free 維持。
 - 2026-06-03: **実環境ドッグフードで4バグ発見・修正**（実データ＋実 LLM＋実ブラウザで propose→materialize→ingest→promote を通した）。#85 SSE 一時切断で進捗ロスト（EventSource 自動再接続を殺していた）／#86 AI 生成 RML の FnO 名前空間ずれ（旧 fnml# → 新 w3id.org/rml に正規化＋propose §9 で明示＋ingest 500→422）／#87 Gallery のライフサイクル状態表示＋昇格ラベル平易化。**未対応: refine が大スキーマで出力省略（不完全 refine ガード要）**。**重要な気づき: 昇格データを Ask で問えない＝Ask ツールが starrydata 専用形＝#18 汎用 Ask 層が本筋の次の一手**（ユーザーが体験して確認）。

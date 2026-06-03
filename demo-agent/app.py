@@ -25,16 +25,23 @@ Run (real):  CSV2RDF_OXIGRAPH_URL=http://localhost:7878 uvicorn app:app --port 8
 
 from __future__ import annotations
 
+import asyncio
+import json
 import os
 import re
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 _OXIGRAPH_URL = os.environ.get("CSV2RDF_OXIGRAPH_URL")
 _REAL = bool(_OXIGRAPH_URL)
 _RES = "https://kumagallium.github.io/asterism/starrydata/resource/"
+
+# #18 LLM NL->SPARQL escape config. Model is overridable for cost tuning; the
+# escape only fires when the deterministic typed path finds nothing (see ask()).
+_ASK_MODEL = os.environ.get("ASTERISM_ASK_MODEL", "claude-sonnet-4-6")
+_ASK_MAX_STEPS = 5  # max run_sparql tool calls before we force an answer
 
 app = FastAPI(title=f"asterism demo-agent ({'real' if _REAL else 'mock'})")
 
@@ -230,18 +237,227 @@ def _compose_search(comp: str | None, res: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# #18 LLM NL->SPARQL escape (consuming layer only — core stays Claude-free)
+# ---------------------------------------------------------------------------
+# When the typed path finds nothing (e.g. a user-designed schema the typed tools
+# were never specialized for), an LLM introspects the live vocabulary via
+# schema_summary, writes a READ-ONLY SPARQL query, runs it through sparql_query
+# (which enforces read-only), inspects the rows, and composes a grounded answer
+# with citations. This is the "exploration is an escape hatch" path from the
+# product direction: deterministic-and-typed is primary, the LLM only enters
+# when typed answers run out, and it can only call the same read-only tools.
+
+_RUN_SPARQL_TOOL = {
+    "name": "run_sparql",
+    "description": (
+        "Run a READ-ONLY SPARQL SELECT/ASK against the store and get back "
+        "{columns, rows, count, truncated} (or {error}). Use the EXACT class/"
+        "predicate IRIs from the schema in the system prompt, wrapped in <>. "
+        "Update-form queries are rejected."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {"query": {"type": "string"}},
+        "required": ["query"],
+    },
+}
+
+_SUBMIT_ANSWER_TOOL = {
+    "name": "submit_answer",
+    "description": (
+        "Submit the final grounded answer once you have the data you need. "
+        "Cite the IRIs that actually appear in your query results — never "
+        "invent values or IRIs."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "answer": {
+                "type": "string",
+                "description": "Concise answer in Japanese, grounded in the rows.",
+            },
+            "citations": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "iri": {"type": "string"},
+                        "kind": {"type": "string"},
+                        "label": {"type": "string"},
+                    },
+                    "required": ["iri"],
+                },
+            },
+            "notes": {"type": "array", "items": {"type": "string"}},
+        },
+        "required": ["answer"],
+    },
+}
+
+_ASK_SYSTEM = """\
+You answer questions over an RDF graph by writing READ-ONLY SPARQL and grounding \
+your answer in the actual results. Make NO assumptions about the vocabulary \
+beyond the schema below — it lists the classes, predicates, and per-class \
+predicate shapes that ACTUALLY exist in the store, with usage counts.
+
+Rules:
+- Use ONLY IRIs that appear in the schema, written as full IRIs in <>.
+- Always SELECT enough to cite (include the subject IRI). Add LIMIT (<=50).
+- Call run_sparql to execute. If it returns an error, read it and try again \
+(at most a few times); do not give up after one failure.
+- When you have the data, call submit_answer with a concise Japanese answer and \
+citations whose IRIs literally appear in your results. Never fabricate values.
+- If the data genuinely cannot answer the question, say so honestly.
+
+Schema (classes / predicates / per-class shapes with counts):
+%s
+"""
+
+
+def _anthropic_client(api_key: str):
+    """Build an Anthropic client. Overridable via ``_state['anthropic_factory']``
+    so tests can inject a fake without a network call or a real key."""
+    factory = _state.get("anthropic_factory")
+    if factory is not None:
+        return factory(api_key)
+    import anthropic
+
+    return anthropic.Anthropic(api_key=api_key)
+
+
+def _render_schema(schema: dict) -> str:
+    """Compact text rendering of schema_summary for the system prompt."""
+    lines: list[str] = ["Classes:"]
+    for c in schema.get("classes", []):
+        lines.append(f"  <{c['iri']}>  (instances: {c['count']})")
+    lines.append("Per-class predicates (shape):")
+    for s in schema.get("class_shapes", []):
+        preds = ", ".join(f"<{p['iri']}>" for p in s.get("predicates", []))
+        lines.append(f"  <{s['class']}>: {preds}")
+    return "\n".join(lines)
+
+
+def _blocks_to_dicts(content: list) -> list[dict]:
+    """Reconstruct assistant content blocks as plain dicts to send back."""
+    out: list[dict] = []
+    for b in content:
+        if getattr(b, "type", None) == "text":
+            out.append({"type": "text", "text": b.text})
+        elif getattr(b, "type", None) == "tool_use":
+            out.append(
+                {"type": "tool_use", "id": b.id, "name": b.name, "input": b.input}
+            )
+    return out
+
+
+async def _llm_sparql_answer(question: str, api_key: str) -> dict:
+    """Schema-grounded LLM agent: introspect → write SPARQL → run → answer.
+
+    Returns the same ``{answer, citations, notes}`` contract as the typed path,
+    plus a ``sparql`` list of the queries actually run (disclosure: the user can
+    see and verify how the answer was derived). All queries go through the
+    read-only ``sparql_query`` guard, so the LLM cannot mutate the store.
+    """
+    from asterism_mcp.tools import schema_summary, sparql_query
+
+    client = _client()
+    schema = await schema_summary(
+        client, max_classes=40, max_predicates=80, predicates_per_class=15
+    )
+    system = _ASK_SYSTEM % _render_schema(schema)
+    tools = [_RUN_SPARQL_TOOL, _SUBMIT_ANSWER_TOOL]
+    messages: list[dict] = [{"role": "user", "content": question}]
+    used_sparql: list[str] = []
+    anthropic = _anthropic_client(api_key)
+
+    for step in range(_ASK_MAX_STEPS):
+        # Force the final answer on the last step so we never loop forever.
+        force_final = step == _ASK_MAX_STEPS - 1
+        kwargs = {
+            "model": _ASK_MODEL,
+            "max_tokens": 2000,
+            "system": system,
+            "tools": tools,
+            "messages": messages,
+        }
+        if force_final:
+            kwargs["tool_choice"] = {"type": "tool", "name": "submit_answer"}
+        resp = await asyncio.to_thread(anthropic.messages.create, **kwargs)
+
+        tool_uses = [b for b in resp.content if getattr(b, "type", None) == "tool_use"]
+        submit = next((b for b in tool_uses if b.name == "submit_answer"), None)
+        if submit is not None:
+            data = submit.input or {}
+            notes = list(data.get("notes") or [])
+            if used_sparql:
+                notes.append("使用した SPARQL: " + " ⏎ ".join(used_sparql))
+            return {
+                "answer": data.get("answer", ""),
+                "citations": data.get("citations") or [],
+                "notes": notes,
+                "sparql": used_sparql,
+            }
+
+        if not tool_uses:
+            # The model replied with text but no tool call — surface that text.
+            text = " ".join(b.text for b in resp.content if getattr(b, "type", None) == "text")
+            return {
+                "answer": text or "回答を生成できませんでした。",
+                "citations": [],
+                "notes": ["使用した SPARQL: " + " ⏎ ".join(used_sparql)] if used_sparql else [],
+                "sparql": used_sparql,
+            }
+
+        # Execute every run_sparql call and feed the results back.
+        messages.append({"role": "assistant", "content": _blocks_to_dicts(resp.content)})
+        tool_results: list[dict] = []
+        for tu in tool_uses:
+            if tu.name == "run_sparql":
+                q = (tu.input or {}).get("query", "")
+                used_sparql.append(q)
+                try:
+                    result = await sparql_query(q, client, max_rows=50)
+                except Exception as exc:  # never let a bad query kill the loop
+                    result = {"error": str(exc)}
+                tool_results.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": tu.id,
+                        "content": json.dumps(result, ensure_ascii=False),
+                    }
+                )
+            else:
+                tool_results.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": tu.id,
+                        "content": "unknown tool",
+                        "is_error": True,
+                    }
+                )
+        messages.append({"role": "user", "content": tool_results})
+
+    # Exhausted steps without a submit_answer (should be rare given force_final).
+    return {
+        "answer": "回答を生成できませんでした（試行回数の上限に達しました）。",
+        "citations": [],
+        "notes": ["使用した SPARQL: " + " ⏎ ".join(used_sparql)] if used_sparql else [],
+        "sparql": used_sparql,
+    }
+
+
+# ---------------------------------------------------------------------------
 # endpoints
 # ---------------------------------------------------------------------------
 
 
-@app.post("/demo/ask")
-async def ask(req: AskRequest) -> dict:
-    if not _REAL:
-        # MOCK: same grounded fixture regardless of question.
-        return _ASK_FIXTURE
+async def _typed_answer(question: str) -> dict:
+    """The deterministic starrydata-shaped path (no LLM). May return no citations
+    when the question/schema does not fit the typed tools — that is the signal to
+    fall through to the LLM escape."""
     from asterism_mcp.tools import property_ranking, sample_search
 
-    kind, arg, mp = _route(req.question)
+    kind, arg, mp = _route(question)
     if kind == "rank" and arg:
         rank = await property_ranking(
             _client(), property_y=arg, top_n=10, max_plausible=mp
@@ -249,6 +465,36 @@ async def ask(req: AskRequest) -> dict:
         return _compose_rank(rank)
     res = await sample_search(_client(), composition=arg, limit=20)
     return _compose_search(arg, res)
+
+
+@app.post("/demo/ask")
+async def ask(
+    req: AskRequest,
+    x_api_key: str | None = Header(default=None),
+) -> dict:
+    if not _REAL:
+        # MOCK: same grounded fixture regardless of question.
+        return _ASK_FIXTURE
+
+    # 1. Deterministic typed path first (LLM-free, fast, reproducible). This is
+    #    the main act per product direction; it only fits the starrydata schema.
+    typed = await _typed_answer(req.question)
+    if typed.get("citations"):
+        return typed
+
+    # 2. Escape: the typed tools found nothing — the data may use a schema they
+    #    were never specialized for. If the caller brought an API key, let an LLM
+    #    introspect the schema and write a read-only SPARQL query to answer.
+    if x_api_key:
+        return await _llm_sparql_answer(req.question, x_api_key)
+
+    # 3. No key, nothing typed: hand back the empty typed answer with a hint so
+    #    the user knows the general (LLM) path needs a key.
+    typed.setdefault("notes", []).append(
+        "型付きツールで該当が見つかりませんでした。任意スキーマへの一般的な質問には "
+        "API キーが必要です（スキーマを内省して SPARQL を生成します）。"
+    )
+    return typed
 
 
 @app.get("/demo/provenance")

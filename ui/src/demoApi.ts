@@ -196,16 +196,26 @@ function normalizeChain(raw: unknown, iri: string): ProvenanceChain {
 
 // ---- public API -----------------------------------------------------------
 
-/** Ask a natural-language question; get a grounded answer + citations + notes. */
-export async function ask(question: string): Promise<AskResponse> {
+/** Ask a natural-language question; get a grounded answer + citations + notes.
+ *
+ * The deterministic typed path needs no key. When it finds nothing (e.g. a
+ * user-designed schema), the agent falls back to an LLM that writes read-only
+ * SPARQL — that path needs a key. We reuse the workbench's user-brought key
+ * (sessionStorage, never persisted) so a question over a freshly-designed
+ * schema "just works" without a second key prompt. */
+export async function ask(question: string, apiKey?: string): Promise<AskResponse> {
   if (IS_MOCK) {
     await delay(450) // feel of a real call
     const hit = ASK_FIXTURES.find((f) => f.match(question))
     return hit ? hit.response : ASK_FALLBACK
   }
+  const key = apiKey ?? sessionStorage.getItem('asterism.apiKey') ?? ''
   const res = await fetch(`${AGENT_BASE}/demo/ask`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(key ? { 'X-API-Key': key } : {}),
+    },
     body: JSON.stringify({ question }),
   })
   if (!res.ok) {
