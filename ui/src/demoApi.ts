@@ -38,6 +38,10 @@ export interface AskResponse {
   answer: string
   citations: Citation[]
   notes: string[]
+  // Read-only SPARQL the agent ran to derive the answer. Empty for the typed
+  // (starrydata) path; populated when the LLM escape writes queries over a
+  // user-designed schema. Disclosed in the UI so the answer is verifiable.
+  sparql: string[]
 }
 
 export interface ProvenanceStep {
@@ -94,6 +98,7 @@ const ASK_FIXTURES: { match: (q: string) => boolean; response: AskResponse }[] =
         },
       ],
       notes: ['物理的にあり得ない ZT（>3.5）はデータ誤りの可能性として除外した'],
+      sparql: [],
     },
   },
   {
@@ -117,6 +122,28 @@ const ASK_FIXTURES: { match: (q: string) => boolean; response: AskResponse }[] =
         },
       ],
       notes: [],
+      sparql: [],
+    },
+  },
+  {
+    // (3) general / user-designed schema — exercises the LLM SPARQL escape, so
+    // the answer comes with the read-only query it ran (disclosure panel).
+    match: (q) => /sparql|スキーマ|クエリ|一般|どんな|新しい|widget/i.test(q),
+    response: {
+      answer:
+        '新しく設計したスキーマには Widget クラスが 2 件あり、それぞれ name を持ちます（alpha, beta）。型付きツールに該当が無かったため、スキーマを内省して下の SPARQL を生成・実行しました。',
+      citations: [
+        {
+          iri: 'https://example.org/w1',
+          kind: 'Widget',
+          label: 'alpha',
+          fields: { name: 'alpha' },
+        },
+      ],
+      notes: [],
+      sparql: [
+        'SELECT ?w ?n WHERE {\n  ?w a <https://example.org/Widget> ;\n     <https://example.org/name> ?n\n} LIMIT 50',
+      ],
     },
   },
 ]
@@ -126,6 +153,7 @@ const ASK_FALLBACK: AskResponse = {
     'この質問に対する根拠付き回答のデモ fixture は未登録です。ZT ランキング・組成検索の例をお試しください。',
   citations: [],
   notes: ['mock モード: 質問に一致する fixture がありません'],
+  sparql: [],
 }
 
 const PROVENANCE_FIXTURE: ProvenanceChain = {
@@ -175,6 +203,7 @@ function normalizeAsk(raw: unknown): AskResponse {
     answer: asString(r.answer),
     citations: Array.isArray(r.citations) ? r.citations.map(normalizeCitation) : [],
     notes: Array.isArray(r.notes) ? r.notes.map(asString).filter(Boolean) : [],
+    sparql: Array.isArray(r.sparql) ? r.sparql.map(asString).filter(Boolean) : [],
   }
 }
 

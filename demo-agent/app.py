@@ -388,13 +388,12 @@ async def _llm_sparql_answer(question: str, api_key: str) -> dict:
         submit = next((b for b in tool_uses if b.name == "submit_answer"), None)
         if submit is not None:
             data = submit.input or {}
-            notes = list(data.get("notes") or [])
-            if used_sparql:
-                notes.append("使用した SPARQL: " + " ⏎ ".join(used_sparql))
+            # The queries are disclosed via the dedicated ``sparql`` field (the UI
+            # renders them in a panel); we no longer stuff them into ``notes``.
             return {
                 "answer": data.get("answer", ""),
                 "citations": data.get("citations") or [],
-                "notes": notes,
+                "notes": list(data.get("notes") or []),
                 "sparql": used_sparql,
             }
 
@@ -404,7 +403,7 @@ async def _llm_sparql_answer(question: str, api_key: str) -> dict:
             return {
                 "answer": text or "回答を生成できませんでした。",
                 "citations": [],
-                "notes": ["使用した SPARQL: " + " ⏎ ".join(used_sparql)] if used_sparql else [],
+                "notes": [],
                 "sparql": used_sparql,
             }
 
@@ -441,7 +440,7 @@ async def _llm_sparql_answer(question: str, api_key: str) -> dict:
     return {
         "answer": "回答を生成できませんでした（試行回数の上限に達しました）。",
         "citations": [],
-        "notes": ["使用した SPARQL: " + " ⏎ ".join(used_sparql)] if used_sparql else [],
+        "notes": [],
         "sparql": used_sparql,
     }
 
