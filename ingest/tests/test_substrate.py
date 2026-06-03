@@ -16,9 +16,12 @@ import rdflib
 from asterism.substrate import (
     GRAPH_BASE,
     absolutize_rml_sources,
+    alignment_report,
+    classify_alignment,
     draft_graph_iri,
     ingest_graph_to_oxigraph,
     materialize_to_graph,
+    promote_draft_to_canonical,
     run_substrate_ingest,
 )
 
@@ -115,3 +118,60 @@ async def test_run_substrate_ingest_validates_id_before_work() -> None:
     with pytest.raises(ValueError, match="unsafe dataset_id"):
         await run_substrate_ingest("rml...", "/data", fake, "../escape")
     assert fake.calls == []  # nothing was posted
+
+
+# ---- promotion: draft -> canonical (#15 S4) ---------------------------------
+
+
+def test_classify_alignment_splits_reuse_and_new() -> None:
+    draft = {"https://schema.org/name", "https://ex/asterism#customProp"}
+    canonical = {"https://schema.org/name", "http://purl.org/dc/terms/identifier"}
+    out = classify_alignment(draft, canonical)
+    assert out["reuse"] == ["https://schema.org/name"]  # already in canonical
+    assert out["new"] == ["https://ex/asterism#customProp"]  # not yet
+
+
+class _FakeSparql:
+    """Fake OxigraphClient: canned predicate/class sets + records updates."""
+
+    def __init__(self, draft_preds, canon_preds, draft_classes, canon_classes, draft_n=0):
+        self._sets = {
+            ("graph", "p"): draft_preds,
+            ("default", "p"): canon_preds,
+            ("graph", "c"): draft_classes,
+            ("default", "c"): canon_classes,
+        }
+        self._draft_n = draft_n
+        self.updates: list[str] = []
+
+    async def sparql_select(self, query: str) -> dict:
+        if "COUNT" in query:
+            return {"results": {"bindings": [{"c": {"value": str(self._draft_n)}}]}}
+        scope = "graph" if "GRAPH" in query else "default"
+        kind = "c" if "?s a ?x" in query else "p"
+        vals = self._sets[(scope, kind)]
+        return {"results": {"bindings": [{"x": {"type": "uri", "value": v}} for v in vals]}}
+
+    async def sparql_update(self, update: str) -> None:
+        self.updates.append(update)
+
+
+async def test_alignment_report_classifies_predicates_and_classes() -> None:
+    fake = _FakeSparql(
+        draft_preds={"https://schema.org/name", "https://ex#new"},
+        canon_preds={"https://schema.org/name"},
+        draft_classes={"https://ex#Curve"},
+        canon_classes=set(),
+    )
+    rep = await alignment_report(fake, draft_graph_iri("ds1"))
+    assert rep["predicates"]["reuse"] == ["https://schema.org/name"]
+    assert rep["predicates"]["new"] == ["https://ex#new"]
+    assert rep["classes"]["new"] == ["https://ex#Curve"]  # canonical empty -> all new
+
+
+async def test_promote_moves_draft_to_default() -> None:
+    fake = _FakeSparql(set(), set(), set(), set(), draft_n=1640)
+    iri = draft_graph_iri("ds1")
+    moved = await promote_draft_to_canonical(fake, iri)
+    assert moved == 1640
+    assert fake.updates == [f"MOVE GRAPH <{iri}> TO DEFAULT"]

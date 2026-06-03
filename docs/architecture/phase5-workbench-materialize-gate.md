@@ -59,7 +59,7 @@ Phase 4 で「ワークベンチで設計したもの → Gallery → Ask」が*
 - ✅ **S1 substrate コア**（本コミット）: `asterism.substrate` = `draft_graph_iri` / `absolutize_rml_sources`（thread-safe）/ `materialize_to_graph`（Morph-KGC ラップ・optional dep・閉集合 udfs 登録）/ `ingest_graph_to_oxigraph`（Graph Store Protocol で draft graph 投入）/ `run_substrate_ingest`（一気通貫）。morph-kgc 非依存の部分は単体テスト済、Morph-KGC 実行は spike が実証。
 - ⬜ **S2 CSV 永続化 + api エンドポイント**: materialize 時に CSV をワークスペースに保存（現状 tmpdir 破棄）。`POST /api/datasets/{id}/ingest`（②投入）= persist 済み CSV + RML → `run_substrate_ingest` を `to_thread` で。draft graph IRI と triple count を返す。
 - ⬜ **S3 UI ゲート**: MaterializePanel に RML プレビュー + 「投入」承認ボタン。Gallery に draft/ingested ステータス。投入後に Ask が（昇格すれば）見えることを導線で明示。
-- ⬜ **S4 昇格 + alignment**: draft → canonical 昇格アクション。Reuse/Align/Extend/New の提案と人間 vet。
+- ✅ **S4 昇格 + alignment**: `asterism.substrate` に `alignment_report`（draft の述語/クラスを canonical=default graph と照合し Reuse/New に分類）/ `promote_draft_to_canonical`（`MOVE GRAPH <draft> TO DEFAULT`）。api `GET /api/datasets/{id}/alignment`（昇格前プレビュー）+ `POST /api/datasets/{id}/promote`。Gallery の draft カードに「語彙の差分を確認」+「canonical へ昇格」。`OxigraphClient.sparql_update` 追加。**実 Oxigraph で MOVE・隔離解消を検証**。Align/Extend（同義写像・TBox 拡張）は人間 vet に委ねる（Reuse/New を機械提示）。
 
 ## 5. 制約（守る）
 

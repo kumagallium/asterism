@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react'
 import {
+  type AlignmentReport,
+  getAlignment,
   getLiveDatasets,
   getMappings,
   getOntologies,
   type LiveDataset,
   type MappingEntry,
   type OntologyEntry,
+  promoteDataset,
 } from './galleryApi'
 import { Mermaid } from './Mermaid'
 
@@ -164,7 +167,10 @@ export function GalleryView({ focusClass }: { focusClass?: string | null }) {
               </h3>
               <div className="mapping-list">
                 {live.map((l) => (
-                  <MappingCard key={l.mapping.id} entry={l.mapping} draft />
+                  <div key={l.mapping.id}>
+                    <MappingCard entry={l.mapping} draft />
+                    <PromoteControl meta={l.meta} />
+                  </div>
                 ))}
               </div>
             </div>
@@ -323,5 +329,84 @@ function OntologyDetail({ entry }: { entry: OntologyEntry }) {
         <p className="trace-loading">クラス図はありません。</p>
       )}
     </section>
+  )
+}
+
+function shortIri(iri: string): string {
+  const m = iri.split(/[#/]/).filter(Boolean)
+  return m.length ? m[m.length - 1] : iri
+}
+
+/**
+ * The S4 human gate: review the draft's vocabulary alignment (Reuse vs New)
+ * against the canonical graph, then promote (MOVE draft → canonical) so Ask can
+ * cite it. Only shown for ingested-but-not-yet-promoted drafts.
+ */
+function PromoteControl({ meta }: { meta: LiveDataset['meta'] }) {
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const [alignment, setAlignment] = useState<AlignmentReport | null>(null)
+  const [promoted, setPromoted] = useState<number | null>(
+    meta.promoted ? (meta.triples_promoted ?? 0) : null,
+  )
+
+  if (promoted !== null) {
+    return (
+      <p className="promote-ok">
+        ✓ canonical へ昇格済み（{promoted} triples）。Ask が引用できます。
+      </p>
+    )
+  }
+  if (!meta.ingested) return null // nothing to promote until ingested
+
+  async function preview() {
+    setErr('')
+    try {
+      setAlignment(await getAlignment(meta.id))
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e))
+    }
+  }
+  async function promote() {
+    setBusy(true)
+    setErr('')
+    try {
+      setPromoted((await promoteDataset(meta.id)).triples_promoted)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="promote-control">
+      <p className="promote-note">
+        canonical（Ask の引用面）へ昇格すると、この draft の三つ組が共有グラフに移ります。
+        昇格前に語彙の差分（既存の再利用か新規か）を確認できます。
+      </p>
+      {alignment ? (
+        <div className="alignment-summary">
+          <span>
+            述語: 再利用 {alignment.predicates.reuse.length} / 新規{' '}
+            {alignment.predicates.new.length} ／ クラス: 再利用{' '}
+            {alignment.classes.reuse.length} / 新規 {alignment.classes.new.length}
+          </span>
+          {alignment.predicates.new.length > 0 && (
+            <p className="alignment-new">
+              新規述語（既存語彙に無い）: {alignment.predicates.new.map(shortIri).join('、')}
+            </p>
+          )}
+        </div>
+      ) : (
+        <button type="button" onClick={preview}>
+          語彙の差分を確認
+        </button>
+      )}
+      <button type="button" className="promote-btn" onClick={promote} disabled={busy}>
+        {busy ? '昇格中…' : 'canonical へ昇格'}
+      </button>
+      {err && <p className="promote-err">昇格に失敗しました: {err}</p>}
+    </div>
   )
 }

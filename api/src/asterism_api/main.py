@@ -545,6 +545,59 @@ def build_app(
             }
         )
 
+    @app.get("/api/datasets/{dataset_id}/alignment")
+    async def dataset_alignment(dataset_id: str) -> JSONResponse:
+        """Preview the Reuse/New alignment of a dataset's draft graph vs canonical.
+
+        What the human reviews *before* promoting (#15 S4): which predicates and
+        classes the draft uses are already in the canonical (default) graph
+        (Reuse) vs not yet (New). Read-only.
+        """
+        data = registry.load_dataset(cfg.registry_root, dataset_id)
+        if data is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        if not data["meta"].get("ingested"):
+            raise HTTPException(400, "dataset has no draft graph (not ingested)")
+        client: OxigraphClient = app.state.client
+        graph_iri = substrate.draft_graph_iri(dataset_id)
+        report = await substrate.alignment_report(client, graph_iri)
+        return JSONResponse({"dataset_id": dataset_id, "alignment": report})
+
+    @app.post("/api/datasets/{dataset_id}/promote")
+    async def promote_dataset(dataset_id: str) -> JSONResponse:
+        """Phase 5 (#15 S4): human-gated promotion of a draft graph to canonical.
+
+        MOVEs the draft named graph into the canonical (default) graph so Ask can
+        cite it. The alignment report (Reuse vs New) is recorded on the dataset's
+        meta. The draft graph is consumed by the move.
+        """
+        data = registry.load_dataset(cfg.registry_root, dataset_id)
+        if data is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        if not data["meta"].get("ingested"):
+            raise HTTPException(400, "dataset has no draft graph to promote (not ingested)")
+        client: OxigraphClient = app.state.client
+        graph_iri = substrate.draft_graph_iri(dataset_id)
+        alignment = await substrate.alignment_report(client, graph_iri)
+        triples_promoted = await substrate.promote_draft_to_canonical(client, graph_iri)
+        meta = registry.mark_promoted(
+            cfg.registry_root,
+            dataset_id,
+            triples_promoted=triples_promoted,
+            alignment=alignment,
+            promoted_at=datetime.now(UTC).isoformat(),
+        )
+        return JSONResponse(
+            {
+                "dataset_id": dataset_id,
+                "promoted": True,
+                "canonical_graph": "default",
+                "triples_promoted": triples_promoted,
+                "alignment": alignment,
+                "dataset": meta,
+            }
+        )
+
     @app.post("/api/sparql")
     async def sparql(body: SparqlRequest) -> JSONResponse:
         """Read-only SPARQL relay to Oxigraph (advanced escape hatch, ADR §5).

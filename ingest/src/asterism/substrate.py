@@ -144,3 +144,80 @@ async def run_substrate_ingest(
     graph = materialize_to_graph(rml_ttl, csv_dir, udfs_path=udfs_path)
     triple_count = await ingest_graph_to_oxigraph(graph, client, graph_iri)
     return {"graph_iri": graph_iri, "triple_count": triple_count}
+
+
+# ----------------------------------------------------------------------------
+# Promotion: draft -> canonical (#15 S4)
+# ----------------------------------------------------------------------------
+#
+# "Canonical" is the *default graph* — where Ask's GRAPH-less queries (and the
+# MCP tools' GRAPH ?g UNION default) read citable facts. Promotion MOVEs a draft
+# named graph into the default graph after a human reviews the alignment report,
+# so unreviewed vocabulary never silently becomes a citable fact (D2).
+
+
+class SupportsSparql(Protocol):
+    """The slice of OxigraphClient needed for alignment + promotion."""
+
+    async def sparql_select(self, query: str) -> dict: ...
+    async def sparql_update(self, update: str) -> None: ...
+
+
+def classify_alignment(draft: set[str], canonical: set[str]) -> dict[str, list[str]]:
+    """Split draft terms into Reuse (already in canonical) vs New (not).
+
+    Pure — the alignment heuristic, testable without a store. ``Align``/``Extend``
+    (synonym mapping / TBox extension) need ontology knowledge and are left to the
+    human reviewer; Reuse-vs-New is the concrete, mechanical signal we can give.
+    """
+    return {
+        "reuse": sorted(draft & canonical),
+        "new": sorted(draft - canonical),
+    }
+
+
+async def _distinct_iris(client: SupportsSparql, where: str) -> set[str]:
+    data = await client.sparql_select(f"SELECT DISTINCT ?x WHERE {{ {where} }}")
+    results = data.get("results", {}) if isinstance(data, dict) else {}
+    out: set[str] = set()
+    for b in results.get("bindings", []):
+        v = b.get("x", {})
+        if v.get("type") == "uri":
+            out.add(v["value"])
+    return out
+
+
+async def alignment_report(client: SupportsSparql, draft_iri: str) -> dict[str, object]:
+    """Compare a draft graph's predicates + classes against the canonical (default) graph.
+
+    Returns ``{"predicates": {reuse, new}, "classes": {reuse, new}}`` — what the
+    human reviews before promoting (the Reuse/Align/Extend/New decision; here we
+    surface Reuse vs New mechanically).
+    """
+    g = f"<{draft_iri}>"
+    draft_preds = await _distinct_iris(client, f"GRAPH {g} {{ ?s ?x ?o }}")
+    canon_preds = await _distinct_iris(client, "?s ?x ?o")
+    draft_classes = await _distinct_iris(client, f"GRAPH {g} {{ ?s a ?x }}")
+    canon_classes = await _distinct_iris(client, "?s a ?x")
+    return {
+        "predicates": classify_alignment(draft_preds, canon_preds),
+        "classes": classify_alignment(draft_classes, canon_classes),
+    }
+
+
+async def promote_draft_to_canonical(client: SupportsSparql, draft_iri: str) -> int:
+    """MOVE the draft graph into the canonical (default) graph. Returns triples moved.
+
+    After this the draft named graph no longer exists; its triples are in the
+    default graph (so Ask cites them). Idempotent re-promote is a no-op (the draft
+    graph is already empty/gone).
+    """
+    count = 0
+    data = await client.sparql_select(
+        f"SELECT (COUNT(*) AS ?c) WHERE {{ GRAPH <{draft_iri}> {{ ?s ?p ?o }} }}"
+    )
+    bindings = data.get("results", {}).get("bindings", []) if isinstance(data, dict) else []
+    if bindings:
+        count = int(bindings[0]["c"]["value"])
+    await client.sparql_update(f"MOVE GRAPH <{draft_iri}> TO DEFAULT")
+    return count

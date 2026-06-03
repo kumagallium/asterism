@@ -231,6 +231,39 @@ interface DatasetMeta {
   ingested?: boolean
   triple_count?: number
   graph_iri?: string
+  // S4: whether the draft was promoted into the canonical (default) graph.
+  promoted?: boolean
+  triples_promoted?: number
+}
+
+/** Reuse/New split of a draft's predicates + classes vs the canonical graph. */
+export interface AlignmentReport {
+  predicates: { reuse: string[]; new: string[] }
+  classes: { reuse: string[]; new: string[] }
+}
+
+/** Preview which draft terms are Reuse (in canonical) vs New, before promoting. */
+export async function getAlignment(datasetId: string): Promise<AlignmentReport> {
+  const res = await fetch(`${API_BASE}/api/datasets/${encodeURIComponent(datasetId)}/alignment`)
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '')
+    throw new Error(`alignment failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
+  }
+  return ((await res.json()) as { alignment: AlignmentReport }).alignment
+}
+
+/** Human-gated promotion: MOVE the draft graph into canonical so Ask can cite it. */
+export async function promoteDataset(
+  datasetId: string,
+): Promise<{ triples_promoted: number; alignment: AlignmentReport }> {
+  const res = await fetch(`${API_BASE}/api/datasets/${encodeURIComponent(datasetId)}/promote`, {
+    method: 'POST',
+  })
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '')
+    throw new Error(`promote failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
+  }
+  return (await res.json()) as { triples_promoted: number; alignment: AlignmentReport }
 }
 
 /** A materialized dataset adapted to both gallery layers (ontology + mapping). */
