@@ -35,6 +35,15 @@ _DATASET_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 # *relative* sources to absolute paths under the dataset's CSV dir. Thread-safe.
 _RML_SOURCE = re.compile(r'(rml:source\s+")([^"]+)(")')
 
+# Morph-KGC's FnO function-execution vocab (functionExecution / function / input
+# / parameter / inputValueMap) lives at the *new* RML namespace below. AI-authored
+# RML sometimes declares its function prefix against the *old* FnO namespace URI,
+# which Morph-KGC silently ignores (the function objectMaps then yield no object →
+# a cryptic ``KeyError: 'object'`` at materialize). We normalize the URI so RML
+# written against either namespace works.
+_FNO_OLD_NS = "http://semweb.mmlab.be/ns/fnml#"
+_FNO_NEW_NS = "http://w3id.org/rml/"
+
 # Default UDF-registration file shipped with the package. Morph-KGC loads it by
 # path and registers the closed Tier 0 set via asterism.functions.register.
 _DEFAULT_UDFS = Path(__file__).with_name("substrate_udfs.py")
@@ -74,6 +83,14 @@ def absolutize_rml_sources(rml_ttl: str, csv_dir: Path | str) -> str:
     return _RML_SOURCE.sub(repl, rml_ttl)
 
 
+def normalize_fno_namespace(rml_ttl: str) -> str:
+    """Rewrite the old FnO namespace URI to the Morph-KGC-supported RML one.
+
+    No-op for RML already written against ``http://w3id.org/rml/``.
+    """
+    return rml_ttl.replace(_FNO_OLD_NS, _FNO_NEW_NS)
+
+
 def materialize_to_graph(
     rml_ttl: str,
     csv_dir: Path | str,
@@ -98,7 +115,8 @@ def materialize_to_graph(
     work = Path(work_dir) if work_dir else Path(tempfile.mkdtemp(prefix="c2r-substrate-"))
     work.mkdir(parents=True, exist_ok=True)
     mapping_file = work / "mappings.rml.ttl"
-    mapping_file.write_text(absolutize_rml_sources(rml_ttl, csv_dir), encoding="utf-8")
+    prepared = normalize_fno_namespace(absolutize_rml_sources(rml_ttl, csv_dir))
+    mapping_file.write_text(prepared, encoding="utf-8")
 
     config = (
         "[CONFIGURATION]\n"

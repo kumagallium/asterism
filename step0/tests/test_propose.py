@@ -206,3 +206,11 @@ def test_anthropic_client_lazy_imports_anthropic() -> None:
 
     assert hasattr(propose, "AnthropicLLMClient")
     assert hasattr(propose, "propose_schema")
+
+
+def test_system_prompt_pins_morph_kgc_fno_namespace() -> None:
+    """§9 must pin the FnO function-execution vocab to the Morph-KGC-supported
+    namespace (the old fnml# namespace produces a silent materialize failure)."""
+    assert "http://w3id.org/rml/" in SYSTEM_PROMPT
+    # And explicitly warn against the old one.
+    assert "semweb.mmlab.be/ns/fnml" in SYSTEM_PROMPT
