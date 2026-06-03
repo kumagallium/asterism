@@ -10,7 +10,7 @@
 services:
   togopackage:
     image: ghcr.io/dbcls/togopackage:latest
-    container_name: csv2rdf_phase05_togopackage
+    container_name: asterism_phase05_togopackage
     user: "${UID:-501}:${GID:-20}"
     ports:
       - "10005:10005"

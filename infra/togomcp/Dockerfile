@@ -1,14 +1,14 @@
-# Self-built togomcp image for csv2rdf-mcp Phase 1+.
+# Self-built togomcp image for asterism Phase 1+.
 #
 # **Build context は repo root** (compose.yaml と Crucible のサブディレクトリ
 # build 規約に合わせる)。Dockerfile を直接 docker build する場合も `docker
 # build -f infra/togomcp/Dockerfile .` のように root から指定する。
 #
 # Crucible 登録時:
-#   - github_url: https://github.com/kumagallium/csv2rdf-mcp
+#   - github_url: https://github.com/kumagallium/asterism
 #   - subdir: infra/togomcp  (Crucible は context=root, Dockerfile=subdir/Dockerfile
 #     を自動で指定する)
-#   - env_vars: OXIGRAPH_HOST=csv2rdf-oxigraph  などを必要に応じて
+#   - env_vars: OXIGRAPH_HOST=asterism-oxigraph  などを必要に応じて
 #
 # 方針 (docs/internal/option-b-architecture.md §9):
 # - togomcp の commit SHA を ARG TOGOMCP_REF で固定 (dbcls 側の breaking change
@@ -32,7 +32,7 @@ RUN apt-get update \
 # togomcp をピン留めしてインストール
 RUN pip install "git+https://github.com/dbcls/togomcp.git@${TOGOMCP_REF}"
 
-# csv2rdf-mcp 側の MIE / endpoints.csv 差分を image に焼き込む。
+# asterism 側の MIE / endpoints.csv 差分を image に焼き込む。
 # Crucible は bind mount を使わない (deployer は `docker run -p ... image` のみ)。
 # 開発時の compose は `volumes: - ./data/togomcp:/data/togomcp:ro` で上書きすれば
 # host 側で MIE を編集 → 即反映できる。

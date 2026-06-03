@@ -74,7 +74,7 @@ function App() {
             <BrandMark />
           </span>
           <span className="brand-text">
-            <span className="brand-name">csv2rdf</span>
+            <span className="brand-name">asterism</span>
             <span className="brand-tag">研究データ → RDF</span>
           </span>
         </div>

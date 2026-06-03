@@ -38,7 +38,7 @@ _MAP_RESOURCE: Final[str] = "qudt_map.yaml"
 @functools.lru_cache(maxsize=1)
 def _load_map() -> dict[str, dict[str, str]]:
     text = (
-        importlib.resources.files("csv2rdf")
+        importlib.resources.files("asterism")
         .joinpath(_MAP_RESOURCE)
         .read_text(encoding="utf-8")
     )

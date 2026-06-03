@@ -1,14 +1,14 @@
 # demo-agent (ARiSE grounded-answer demo)
 
 A thin **consuming layer** that powers the demo's "Ask → grounded answer +
-citations + provenance" screen. It is intentionally **separate from csv2rdf
+citations + provenance" screen. It is intentionally **separate from asterism
 core**: the runtime LLM call must not live in the Claude-free core API
 (see [`../docs/architecture/ontology-mapping-boundary-and-provenance.md`](../docs/architecture/ontology-mapping-boundary-and-provenance.md) §1/§5).
 
 ## Status
 
 **Mock.** `app.py` returns fixtures so the UI can build against a stable
-contract. The real version will call the csv2rdf typed MCP tools
+contract. The real version will call the asterism typed MCP tools
 (`sample_search` / `property_ranking` / `provenance_of`) plus an LLM.
 
 ## Contract

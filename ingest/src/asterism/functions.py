@@ -8,7 +8,7 @@
 新しいコードを混ぜ込めない — これが「生成コードを毎回レビューする」負担を
 「閉じた関数集合を一度レビューする」負担へ置き換える肝。
 
-各関数は ``csv2rdf.starrydata`` / ``csv2rdf.qudt`` の既存実装へ薄く委譲するだけで、
+各関数は ``asterism.starrydata`` / ``asterism.qudt`` の既存実装へ薄く委譲するだけで、
 ロジックを二重化しない(単一の真実源)。FnO は文字列を受け渡すので、ここでは
 すべて ``str -> str`` 形にし、「該当なし」は空文字 ``""`` で表す
 (手続き経路の ``None`` 相当。空文字の objectMap は substrate 側で出力しない)。
@@ -18,7 +18,7 @@ Morph-KGC への登録
 Morph-KGC は ``udfs.py`` を読み込むとき ``udf`` デコレータをそのモジュール名前空間へ
 注入する。薄い ``udfs.py`` 側で次の 1 行を書けばライブラリ全体が登録される::
 
-    from csv2rdf.functions import register
+    from asterism.functions import register
     register(udf)  # noqa: F821  ← udf は Morph-KGC が注入
 """
 
@@ -27,8 +27,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from csv2rdf.qudt import quantity_kind_iri, unit_iri
-from csv2rdf.starrydata import (
+from asterism.qudt import quantity_kind_iri, unit_iri
+from asterism.starrydata import (
     parse_float_array,
     parse_issued,
     safe_url,
@@ -38,7 +38,7 @@ from csv2rdf.starrydata import (
 # FnO 名前空間。関数 IRI = FN + 関数名、単一入力のパラメータ IRI = FN + "p_value"。
 # 2 入力関数は p_value1 / p_value2 で区別する(RML の rmlf:parameter が指す先)。
 # IRI はデータ同一性なので名前空間・関数名・パラメータ名は安定させる(軽率に rename しない)。
-FN = "https://kumagallium.github.io/csv2rdf-mcp/fn/"
+FN = "https://kumagallium.github.io/asterism/fn/"
 P_VALUE = FN + "p_value"
 P_VALUE1 = FN + "p_value1"
 P_VALUE2 = FN + "p_value2"

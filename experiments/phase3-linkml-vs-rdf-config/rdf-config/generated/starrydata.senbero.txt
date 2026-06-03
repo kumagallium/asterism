@@ -1,4 +1,4 @@
-[35mPaper[0m [sd:Paper] (<https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/paper/6>)
+[35mPaper[0m [sd:Paper] (<https://kumagallium.github.io/asterism/starrydata/resource/paper/6>)
     |-- [33mdcterms:identifier[0m
     |       `-- [36msid[0m ("6")
     |-- [33mschema:identifier[0m ?
@@ -25,7 +25,7 @@
     |       `-- [36mpaper_created_at[0m ("Thu Jan 25 2018 13:56:56")
     `-- [33mprov:wasGeneratedBy[0m ?
             `-- [36mpaper_ingestion[0m ([35mIngestionActivity[0m)
-[35mSample[0m [sd:Sample] (<https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/sample/6-113>)
+[35mSample[0m [sd:Sample] (<https://kumagallium.github.io/asterism/starrydata/resource/sample/6-113>)
     |-- [33mdcterms:identifier[0m
     |       `-- [36msample_composite_key[0m ("6-113")
     |-- [33msd:rawSampleId[0m
@@ -46,7 +46,7 @@
     |       `-- [36msample_modified_at[0m ("2018-01-25 13:56:56")
     `-- [33mprov:wasGeneratedBy[0m ?
             `-- [36msample_ingestion[0m ([35mIngestionActivity[0m)
-[35mCurve[0m [sd:Curve] (<https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/curve/6-79-113>)
+[35mCurve[0m [sd:Curve] (<https://kumagallium.github.io/asterism/starrydata/resource/curve/6-79-113>)
     |-- [33mdcterms:identifier[0m
     |       `-- [36mcurve_composite_key[0m ("6-79-113")
     |-- [33msd:rawFigureId[0m
@@ -87,7 +87,7 @@
     |       `-- [36mcurve_modified_at[0m ("2018-01-25 13:56:56")
     `-- [33mprov:wasGeneratedBy[0m ?
             `-- [36mcurve_ingestion[0m ([35mIngestionActivity[0m)
-[35mDescriptor[0m [sd:Descriptor] (<https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/descriptor/6-113/0>)
+[35mDescriptor[0m [sd:Descriptor] (<https://kumagallium.github.io/asterism/starrydata/resource/descriptor/6-113/0>)
     |-- [33mdcterms:identifier[0m
     |       `-- [36mdescriptor_composite_key[0m ("6-113/0")
     |-- [33msd:descriptorName[0m
@@ -98,7 +98,7 @@
     |       `-- [36mdescriptor_comment[0m ("lightly Zn doped")
     `-- [33msd:descriptorExtracted[0m ?
             `-- [36mdescriptor_extracted[0m ("PbTe")
-[35mIngestionActivity[0m [sd:IngestionActivity] (<https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/ingestion/run-20260528T064500Z>)
+[35mIngestionActivity[0m [sd:IngestionActivity] (<https://kumagallium.github.io/asterism/starrydata/resource/ingestion/run-20260528T064500Z>)
     |-- [33mdcterms:identifier[0m
     |       `-- [36mrun_id[0m ("run-20260528T064500Z")
     |-- [33mprov:atTime[0m
@@ -106,15 +106,15 @@
     |-- [33mprov:endedAtTime[0m ?
     |       `-- [36mended_at_time[0m ("2026-05-28T06:45:15Z")
     |-- [33mprov:used[0m
-    |       `-- [36msource[0m (<https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/source/starrydata_papers.csv>)
+    |       `-- [36msource[0m (<https://kumagallium.github.io/asterism/starrydata/resource/source/starrydata_papers.csv>)
     `-- [33mprov:wasAssociatedWith[0m ?
-            `-- [36msoftware_agent[0m (<https://github.com/kumagallium/csv2rdf-mcp>)
-[35mPerson[0m [schema:Person] (<https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/person/6/0>)
+            `-- [36msoftware_agent[0m (<https://github.com/kumagallium/asterism>)
+[35mPerson[0m [schema:Person] (<https://kumagallium.github.io/asterism/starrydata/resource/person/6/0>)
     |-- [33mschema:givenName[0m ?
     |       `-- [36mgiven_name[0m ("Chong")
     `-- [33mschema:familyName[0m ?
             `-- [36mfamily_name[0m ("Xiao")
-[35mPeriodical[0m [schema:Periodical] (<https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/periodical/accounts-of-chemical-research>)
+[35mPeriodical[0m [schema:Periodical] (<https://kumagallium.github.io/asterism/starrydata/resource/periodical/accounts-of-chemical-research>)
     |-- [33mschema:name[0m ?
     |       `-- [36mperiodical_name[0m ("Accounts of Chemical Research")
     `-- [33mschema:alternateName[0m ?

@@ -17,7 +17,7 @@ import { ProposalView } from './ProposalView'
 
 // D7: the user-brought API key lives only in sessionStorage (cleared when the
 // tab closes) and is sent as a per-request header. It is never persisted.
-const API_KEY_STORAGE = 'csv2rdf.apiKey'
+const API_KEY_STORAGE = 'asterism.apiKey'
 
 // Inspect is NOT a step: Propose re-runs the deterministic inspection itself,
 // so a separate Inspect gate is redundant. It's available on demand from the
@@ -36,11 +36,11 @@ const STEPS: { n: Step; label: string }[] = [
 // the API key's lifetime (D7). File objects can't be serialized, so the picked
 // CSVs are not persisted — only the AI-generated outputs and the inputs that
 // produced them.
-const WB_STORAGE = 'csv2rdf.workbench'
+const WB_STORAGE = 'asterism.workbench'
 
 // In-flight LLM job (propose/refine). Persisted so a reload/crash/disconnect can
 // reconnect to the server's SSE replay and recover the (often $-costing) result.
-const JOB_STORAGE = 'csv2rdf.workbench.job'
+const JOB_STORAGE = 'asterism.workbench.job'
 type JobKind = 'propose' | 'refine'
 
 function saveJob(jobId: string, kind: JobKind) {

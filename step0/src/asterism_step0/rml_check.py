@@ -7,17 +7,17 @@ every ``rmlf:function`` object must be one of the allowed Tier 0 function IRIs.
 See ``docs/architecture/step0-rml-emission.md`` §5.2.
 
 Design: the core check is a **pure function** that takes the allowed IRI set as
-an argument, so it is fully testable without importing the ``csv2rdf`` (ingest)
+an argument, so it is fully testable without importing the ``asterism`` (ingest)
 package. :func:`load_registry_fn_iris` is a best-effort bridge that derives the
-canonical set from ``csv2rdf.functions.REGISTRY`` when that package is available
+canonical set from ``asterism.functions.REGISTRY`` when that package is available
 (e.g. in CI / the monorepo) — keeping a single source of truth.
 """
 from __future__ import annotations
 
 import sys
 
-# FnO namespace shared with ``csv2rdf.functions.FN`` (data identity — keep stable).
-FN_NAMESPACE = "https://kumagallium.github.io/csv2rdf-mcp/fn/"
+# FnO namespace shared with ``asterism.functions.FN`` (data identity — keep stable).
+FN_NAMESPACE = "https://kumagallium.github.io/asterism/fn/"
 # The R2RML-FnO predicate naming the function to execute (``rmlf:function``).
 RMLF_FUNCTION = "http://w3id.org/rml/function"
 
@@ -48,38 +48,38 @@ def closed_set_violations(rml_ttl: str, allowed_fn_iris: set[str]) -> list[str]:
 
 
 def load_registry_fn_iris() -> set[str]:
-    """Best-effort: derive the allowed function IRI set from ``csv2rdf.functions``.
+    """Best-effort: derive the allowed function IRI set from ``asterism.functions``.
 
     Returns ``{FN + name for each REGISTRY spec}``. Raises ``ImportError`` when the
-    ``csv2rdf`` (ingest) package is not importable in the current environment —
+    ``asterism`` (ingest) package is not importable in the current environment —
     callers should treat that as "T9 skipped" (like the opt-in T8), not a failure.
     """
-    from csv2rdf.functions import REGISTRY  # type: ignore[import-not-found]
+    from asterism.functions import REGISTRY  # type: ignore[import-not-found]
 
     return {spec.fun_id for spec in REGISTRY}
 
 
 def check_rml_closed_set(rml_ttl: str) -> list[str]:
-    """Convenience: check ``rml_ttl`` against the live ``csv2rdf.functions`` REGISTRY.
+    """Convenience: check ``rml_ttl`` against the live ``asterism.functions`` REGISTRY.
 
     Returns the list of out-of-set function IRIs (empty ⇒ pass). Propagates
-    ``ImportError`` if ``csv2rdf`` is unavailable (caller decides skip vs fail).
+    ``ImportError`` if ``asterism`` is unavailable (caller decides skip vs fail).
     """
     return closed_set_violations(rml_ttl, load_registry_fn_iris())
 
 
 def _main(argv: list[str] | None = None) -> int:
-    """``python -m csv2rdf_step0.rml_check <mapping.rml.ttl>`` → exit 1 on violations."""
+    """``python -m asterism_step0.rml_check <mapping.rml.ttl>`` → exit 1 on violations."""
     args = list(sys.argv[1:] if argv is None else argv)
     if not args:
-        sys.stderr.write("usage: python -m csv2rdf_step0.rml_check <mapping.rml.ttl>\n")
+        sys.stderr.write("usage: python -m asterism_step0.rml_check <mapping.rml.ttl>\n")
         return 2
     with open(args[0], encoding="utf-8") as f:
         rml_ttl = f.read()
     try:
         violations = check_rml_closed_set(rml_ttl)
     except ImportError:
-        sys.stderr.write("T9 skipped: csv2rdf (ingest) not importable in this env.\n")
+        sys.stderr.write("T9 skipped: asterism (ingest) not importable in this env.\n")
         return 0
     if violations:
         sys.stderr.write("T9 FAIL — RML references out-of-set functions:\n")

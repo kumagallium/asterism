@@ -1,4 +1,4 @@
-// Thin client for the csv2rdf-api surface (inspect + propose/SSE).
+// Thin client for the asterism-api surface (inspect + propose/SSE).
 
 /**
  * POST the given CSV files to /api/inspect and return the inspection Markdown.

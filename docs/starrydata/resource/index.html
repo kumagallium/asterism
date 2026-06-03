@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Starrydata Resource IRIs — csv2rdf-mcp</title>
+<title>Starrydata Resource IRIs — asterism</title>
 <style>
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; color: #1f2933; max-width: 800px; margin: 0 auto; padding: 2rem 1.25rem; line-height: 1.6; }
   h1 { border-bottom: 2px solid #4B7A52; padding-bottom: 0.3rem; }
@@ -20,12 +20,12 @@
 entities (papers, samples, curves, descriptors, periodicals, persons,
 ingestion activities). The full IRI of a single resource has the form:</p>
 
-<pre>https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/{type}/{id}
+<pre>https://kumagallium.github.io/asterism/starrydata/resource/{type}/{id}
 
 # Examples
-https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/paper/61
-https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/sample/61-25267
-https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/curve/61-20485-25275</pre>
+https://kumagallium.github.io/asterism/starrydata/resource/paper/61
+https://kumagallium.github.io/asterism/starrydata/resource/sample/61-25267
+https://kumagallium.github.io/asterism/starrydata/resource/curve/61-20485-25275</pre>
 
 <h2>Dereferencing status</h2>
 
@@ -42,8 +42,8 @@ for humans, content-negotiated).</p>
 
 <ul>
   <li><strong>Public hosted SPARQL endpoint</strong>: <em>(none yet — Phase 1 deployments are self-hosted on closed servers per the sovereignty-first design)</em></li>
-  <li><strong>Run locally</strong>: <code>docker compose up -d --build</code> on the <a href="https://github.com/kumagallium/csv2rdf-mcp">csv2rdf-mcp</a> repository, then POST a Turtle file to <code>http://localhost:7878/store?default</code></li>
-  <li><strong>Query via MCP</strong>: register the togomcp container in any MCP-aware AI client (Claude Code, Cursor, Dify) — see the <a href="https://github.com/kumagallium/csv2rdf-mcp/blob/main/docs/architecture/crucible-registration.md">Crucible registration recipe</a></li>
+  <li><strong>Run locally</strong>: <code>docker compose up -d --build</code> on the <a href="https://github.com/kumagallium/asterism">asterism</a> repository, then POST a Turtle file to <code>http://localhost:7878/store?default</code></li>
+  <li><strong>Query via MCP</strong>: register the togomcp container in any MCP-aware AI client (Claude Code, Cursor, Dify) — see the <a href="https://github.com/kumagallium/asterism/blob/main/docs/architecture/crucible-registration.md">Crucible registration recipe</a></li>
 </ul>
 
 <p>For the ontology definitions, see

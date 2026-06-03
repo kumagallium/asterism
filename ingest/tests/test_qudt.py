@@ -1,7 +1,7 @@
 """QUDT normalization lookup tests."""
 from __future__ import annotations
 
-from csv2rdf.qudt import (
+from asterism.qudt import (
     QUANTITY_KIND_BASE,
     UNIT_BASE,
     quantity_kind_iri,

@@ -1,7 +1,7 @@
 // Client for the demo agent's grounded-answer surface.
 //
 // IMPORTANT (boundary): the runtime answer-generating LLM lives OUTSIDE the
-// csv2rdf core — in a separate "demo agent" (consumption layer) on its OWN
+// asterism core — in a separate "demo agent" (consumption layer) on its OWN
 // origin (:8090), distinct from the workbench API (:8080). This module only
 // speaks the two HTTP contracts below; it contains NO answer-generation logic.
 // While the demo agent is built, a front-end mock returns fixtures so the UI

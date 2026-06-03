@@ -48,15 +48,15 @@ from rdflib import Graph, Literal, Namespace, URIRef
 from rdflib.namespace import DCTERMS, PROV, RDF, RDFS, XSD
 
 # ---------------------------------------------------------------------------
-# Namespaces — 既存 ingester (ingest/src/csv2rdf/starrydata.py) と一致させる
+# Namespaces — 既存 ingester (ingest/src/asterism/starrydata.py) と一致させる
 # ---------------------------------------------------------------------------
-SD = Namespace("https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#")
-SDR = Namespace("https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/")
+SD = Namespace("https://kumagallium.github.io/asterism/starrydata/ontology#")
+SDR = Namespace("https://kumagallium.github.io/asterism/starrydata/resource/")
 SCHEMA = Namespace("https://schema.org/")
 # Materials Project の material ページ (dereferenceable IRI として使う)
 MP = Namespace("https://next-gen.materialsproject.org/materials/")
 # このPoC を表す PROV SoftwareAgent
-POC_AGENT = "https://github.com/kumagallium/csv2rdf-mcp#mp-linking-poc"
+POC_AGENT = "https://github.com/kumagallium/asterism#mp-linking-poc"
 
 DOPANT_THRESHOLD = 0.06  # 原子分率がこれ未満の「余り元素」は点欠陥(ドーパント)とみなす
 
@@ -455,7 +455,7 @@ def run(csv_path: Path, out_path: Path, limit: int, mode: str) -> RunStats:
     bind_prefixes(g)
     # PoC エージェントの最小記述
     g.add((URIRef(POC_AGENT), RDF.type, PROV.SoftwareAgent))
-    g.add((URIRef(POC_AGENT), SCHEMA.name, Literal("csv2rdf-mcp mp-linking PoC")))
+    g.add((URIRef(POC_AGENT), SCHEMA.name, Literal("asterism mp-linking PoC")))
 
     api_key = os.environ.get("MP_API_KEY", "") if mode == "live" else ""
     _LIVE_CACHE.clear()  # run ごとに MP 問い合わせキャッシュをリセット

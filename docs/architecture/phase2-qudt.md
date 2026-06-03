@@ -42,8 +42,8 @@ prefixes:
 
 ## キュレーション・マップ
 
-`ingest/src/csv2rdf/qudt_map.yaml` が単一の真実源。材料屋が PR で拡張できるよう
-YAML にした。`ingest/src/csv2rdf/qudt.py` が `importlib.resources` で読み、
+`ingest/src/asterism/qudt_map.yaml` が単一の真実源。材料屋が PR で拡張できるよう
+YAML にした。`ingest/src/asterism/qudt.py` が `importlib.resources` で読み、
 `quantity_kind_iri()` / `unit_iri()` を提供する。
 
 ルックアップ規則:
@@ -70,7 +70,7 @@ electronic), `ElectricConductivity`, `Resistivity`, `Voltage`, `Mobility`
 
 ```sparql
 # Seebeck を表記ゆれ込みで全部拾う(thermopower も含む)
-PREFIX sd: <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#>
+PREFIX sd: <https://kumagallium.github.io/asterism/starrydata/ontology#>
 PREFIX qk: <http://qudt.org/vocab/quantitykind/>
 SELECT ?curve ?labelY ?yMax WHERE {
   ?curve sd:propertyYQuantity qk:SeebeckCoefficient ;
@@ -86,9 +86,9 @@ SELECT ?curve ?labelY ?yMax WHERE {
 
 | ファイル | 変更 |
 |---|---|
-| `ingest/src/csv2rdf/qudt_map.yaml` | 新規:キュレーション・マップ |
-| `ingest/src/csv2rdf/qudt.py` | 新規:ローダ + lookup |
-| `ingest/src/csv2rdf/starrydata.py` | `_emit_curve` に QUDT IRI の additive emit |
+| `ingest/src/asterism/qudt_map.yaml` | 新規:キュレーション・マップ |
+| `ingest/src/asterism/qudt.py` | 新規:ローダ + lookup |
+| `ingest/src/asterism/starrydata.py` | `_emit_curve` に QUDT IRI の additive emit |
 | `ingest/pyproject.toml` | `pyyaml` 依存追加 + wheel に yaml を artifacts 同梱 |
 | `data/togomcp/mie/starrydata.yaml` | CurveShape / sample / sparql 例 / cross_references |
 | `docs/ontology/starrydata.ttl` | 4 つの owl:ObjectProperty 定義 + qudt prefix |

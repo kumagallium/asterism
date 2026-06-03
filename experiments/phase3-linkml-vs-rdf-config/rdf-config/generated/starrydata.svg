@@ -21,7 +21,7 @@
     </g>
     <g transform='translate(-0.5 -0.5)'>
       <text x='58' y='48' class='st3 st4'>
-        &lt;https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/paper/6&gt;
+        &lt;https://kumagallium.github.io/asterism/starrydata/resource/paper/6&gt;
       </text>
     </g>
     <g transform='translate(-0.5 -0.5)'>
@@ -404,7 +404,7 @@
     </g>
     <g transform='translate(-0.5 -0.5)'>
       <text x='58' y='1028' class='st3 st4'>
-        &lt;https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/sample/6-113&gt;
+        &lt;https://kumagallium.github.io/asterism/starrydata/resource/sample/6-113&gt;
       </text>
     </g>
     <g transform='translate(-0.5 -0.5)'>
@@ -710,7 +710,7 @@
     </g>
     <g transform='translate(-0.5 -0.5)'>
       <text x='58' y='1798' class='st3 st4'>
-        &lt;https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/curve/6-79-113&gt;
+        &lt;https://kumagallium.github.io/asterism/starrydata/resource/curve/6-79-113&gt;
       </text>
     </g>
     <g transform='translate(-0.5 -0.5)'>
@@ -1251,7 +1251,7 @@
     </g>
     <g transform='translate(-0.5 -0.5)'>
       <text x='58' y='3268' class='st3 st4'>
-        &lt;https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/descriptor/6-113/0&gt;
+        &lt;https://kumagallium.github.io/asterism/starrydata/resource/descriptor/6-113/0&gt;
       </text>
     </g>
     <g transform='translate(-0.5 -0.5)'>
@@ -1422,7 +1422,7 @@
     </g>
     <g transform='translate(-0.5 -0.5)'>
       <text x='58' y='3688' class='st3 st4'>
-        &lt;https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/ingestion/run-20260528T064500Z&gt;
+        &lt;https://kumagallium.github.io/asterism/starrydata/resource/ingestion/run-20260528T064500Z&gt;
       </text>
     </g>
     <g transform='translate(-0.5 -0.5)'>
@@ -1550,7 +1550,7 @@
     </g>
     <g transform='translate(-0.5 -0.5)'>
       <text x='478' y='3968' class='st3 st4'>
-        &lt;https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/source/starrydata_papers.csv&gt;
+        &lt;https://kumagallium.github.io/asterism/starrydata/resource/source/starrydata_papers.csv&gt;
       </text>
     </g>
     <g transform='translate(-0.5 -0.5)'>
@@ -1579,7 +1579,7 @@
     </g>
     <g transform='translate(-0.5 -0.5)'>
       <text x='478' y='4038' class='st3 st4'>
-        &lt;https://github.com/kumagallium/csv2rdf-mcp&gt;
+        &lt;https://github.com/kumagallium/asterism&gt;
       </text>
     </g>
     <g transform='translate(-0.5 -0.5)'>
@@ -1603,7 +1603,7 @@
     </g>
     <g transform='translate(-0.5 -0.5)'>
       <text x='58' y='4108' class='st3 st4'>
-        &lt;https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/person/6/0&gt;
+        &lt;https://kumagallium.github.io/asterism/starrydata/resource/person/6/0&gt;
       </text>
     </g>
     <g transform='translate(-0.5 -0.5)'>
@@ -1702,7 +1702,7 @@
     </g>
     <g transform='translate(-0.5 -0.5)'>
       <text x='58' y='4318' class='st3 st4'>
-        &lt;https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/periodical/accounts-of-chemical-research&gt;
+        &lt;https://kumagallium.github.io/asterism/starrydata/resource/periodical/accounts-of-chemical-research&gt;
       </text>
     </g>
     <g transform='translate(-0.5 -0.5)'>
@@ -1820,11 +1820,11 @@
       schema: &lt;https://schema.org/&gt;
     </text>
     <text x='60' y='4658' font-size='12px' class='st3'>
-      sd: &lt;https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#&gt;
+      sd: &lt;https://kumagallium.github.io/asterism/starrydata/ontology#&gt;
     </text>
     <text x='60' y='4674' font-size='12px' class='st3'>
       sdr:
-      &lt;https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/&gt;
+      &lt;https://kumagallium.github.io/asterism/starrydata/resource/&gt;
     </text>
     <rect x='50' y='4490' width='434' height='198' fill='none' stroke='#000000' stroke-width='1'/>
   </g>

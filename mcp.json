@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
-  "name": "csv2rdf-mcp",
-  "display_name": "csv2rdf-mcp (Materials Knowledge Graph)",
+  "name": "asterism",
+  "display_name": "Asterism (Materials Knowledge Graph)",
   "description": "Materials science measurement curves (starrydata: thermoelectric, battery, magnetic) as a SPARQL/MCP knowledge graph. Backed by Oxigraph + togomcp (Option B hybrid). PROV-O first-class.",
   "version": "0.1.0",
   "author": "kumagallium",
@@ -9,7 +9,7 @@
   "health_check": "/mcp",
   "dify": {
     "auto_register": true,
-    "label": "csv2rdf-mcp",
+    "label": "asterism",
     "icon": "🧪",
     "icon_background": "#EDF5EE"
   },

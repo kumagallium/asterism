@@ -27,7 +27,7 @@ import shutil
 import sys
 from pathlib import Path
 
-# csv2rdf は 3.11 の datetime.UTC を使う。3.10 環境向けの無害なシム。
+# asterism は 3.11 の datetime.UTC を使う。3.10 環境向けの無害なシム。
 if not hasattr(_dt, "UTC"):
     _dt.UTC = _dt.timezone.utc  # type: ignore[attr-defined]  # noqa: UP017  shim は 3.10 用
 
@@ -41,7 +41,7 @@ for p in ("ingest/src", "mcp/src", "demo-agent"):
 import app as demo  # noqa: E402  demo-agent/app.py(_route / _compose_rank)
 import morph_kgc  # noqa: E402
 import rdflib  # noqa: E402
-from csv2rdf_mcp.tools import property_ranking, provenance_of  # noqa: E402
+from asterism_mcp.tools import property_ranking, provenance_of  # noqa: E402
 
 
 class LocalClient:

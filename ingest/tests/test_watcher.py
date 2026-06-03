@@ -16,8 +16,8 @@ import httpx
 import pytest
 from watchfiles import Change
 
-from csv2rdf.oxigraph_client import OxigraphClient, OxigraphConfig
-from csv2rdf.watcher import (
+from asterism.oxigraph_client import OxigraphClient, OxigraphConfig
+from asterism.watcher import (
     DEFAULT_GRAPH_PREFIX,
     Job,
     WatcherConfig,

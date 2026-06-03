@@ -117,7 +117,7 @@ SPARQL simple.
 Full-scale papers contain **38 legacy Wiley DOI URLs** with angle brackets, e.g.
 `http://dx.doi.org/10.1002/(SICI)1521-396X(199910)175:2<683::AID-PSSA683>3.0.CO;2-3`.
 These made rdflib emit invalid Turtle (`schema:url` as a malformed IRI) that
-Oxigraph would reject. Fixed in `ingest/src/csv2rdf/starrydata.py::safe_url` by
+Oxigraph would reject. Fixed in `ingest/src/asterism/starrydata.py::safe_url` by
 percent-encoding IRI-illegal characters; regression test added. The 100-paper
 Phase 1 subset never contained these — a concrete example of full-scale
 benchmarking catching a latent robustness bug.

@@ -11,10 +11,10 @@ from pathlib import Path
 
 import httpx
 import pytest
-from csv2rdf.oxigraph_client import OxigraphClient, OxigraphConfig
+from asterism.oxigraph_client import OxigraphClient, OxigraphConfig
 from fastapi.testclient import TestClient
 
-from csv2rdf_api.main import Settings, build_app
+from asterism_api.main import Settings, build_app
 
 
 def _settings(tmp: Path) -> Settings:

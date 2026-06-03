@@ -66,4 +66,4 @@ The UI (owned by the Claude Code session) renders these same `/demo/ask` and
   An LLM can later be slotted into `app._compose_*` for free-form questions
   without changing the `/demo/*` contract.
 - **Boundary**: the answer generation lives here (consuming layer), never in
-  the Claude-free csv2rdf core (ADR §1/§5).
+  the Claude-free asterism core (ADR §1/§5).

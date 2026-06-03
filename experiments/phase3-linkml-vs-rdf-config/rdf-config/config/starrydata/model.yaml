@@ -13,7 +13,7 @@
 # - schema:Person  → Person subject
 # - schema:Periodical → Periodical subject
 
-- Paper <https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/paper/6>:
+- Paper <https://kumagallium.github.io/asterism/starrydata/resource/paper/6>:
     - a: sd:Paper
     - dcterms:identifier:
         - sid: "6"
@@ -42,7 +42,7 @@
     - prov:wasGeneratedBy?:
         - paper_ingestion: IngestionActivity
 
-- Sample <https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/sample/6-113>:
+- Sample <https://kumagallium.github.io/asterism/starrydata/resource/sample/6-113>:
     - a: sd:Sample
     - dcterms:identifier:
         - sample_composite_key: "6-113"
@@ -65,7 +65,7 @@
     - prov:wasGeneratedBy?:
         - sample_ingestion: IngestionActivity
 
-- Curve <https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/curve/6-79-113>:
+- Curve <https://kumagallium.github.io/asterism/starrydata/resource/curve/6-79-113>:
     - a: sd:Curve
     - dcterms:identifier:
         - curve_composite_key: "6-79-113"
@@ -108,7 +108,7 @@
     - prov:wasGeneratedBy?:
         - curve_ingestion: IngestionActivity
 
-- Descriptor <https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/descriptor/6-113/0>:
+- Descriptor <https://kumagallium.github.io/asterism/starrydata/resource/descriptor/6-113/0>:
     - a: sd:Descriptor
     - dcterms:identifier:
         - descriptor_composite_key: "6-113/0"
@@ -121,7 +121,7 @@
     - sd:descriptorExtracted?:
         - descriptor_extracted: "PbTe"
 
-- IngestionActivity <https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/ingestion/run-20260528T064500Z>:
+- IngestionActivity <https://kumagallium.github.io/asterism/starrydata/resource/ingestion/run-20260528T064500Z>:
     - a: sd:IngestionActivity
     - dcterms:identifier:
         - run_id: "run-20260528T064500Z"
@@ -130,18 +130,18 @@
     - prov:endedAtTime?:
         - ended_at_time: "2026-05-28T06:45:15Z"
     - prov:used:
-        - source: <https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/source/starrydata_papers.csv>
+        - source: <https://kumagallium.github.io/asterism/starrydata/resource/source/starrydata_papers.csv>
     - prov:wasAssociatedWith?:
-        - software_agent: <https://github.com/kumagallium/csv2rdf-mcp>
+        - software_agent: <https://github.com/kumagallium/asterism>
 
-- Person <https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/person/6/0>:
+- Person <https://kumagallium.github.io/asterism/starrydata/resource/person/6/0>:
     - a: schema:Person
     - schema:givenName?:
         - given_name: "Chong"
     - schema:familyName?:
         - family_name: "Xiao"
 
-- Periodical <https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/periodical/accounts-of-chemical-research>:
+- Periodical <https://kumagallium.github.io/asterism/starrydata/resource/periodical/accounts-of-chemical-research>:
     - a: schema:Periodical
     - schema:name?:
         - periodical_name: "Accounts of Chemical Research"

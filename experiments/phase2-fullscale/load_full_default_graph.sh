@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Full-dataset ingest into the DEFAULT graph of a *running* csv2rdf stack.
+# Full-dataset ingest into the DEFAULT graph of a *running* asterism stack.
 #
 # This is the production counterpart to run_oxigraph_bench.sh. The bench script
 # loads each kind into a NAMED graph on a throwaway Oxigraph at :7900 — which,
@@ -24,8 +24,8 @@
 #
 # Usage
 #   DATASET=/path/to/starrydata_dataset \
-#   STORE=/path/to/csv2rdf-mcp/data/oxigraph_store \
-#   COMPOSE_FILE=/path/to/csv2rdf-mcp/compose.yaml \
+#   STORE=/path/to/asterism/data/oxigraph_store \
+#   COMPOSE_FILE=/path/to/asterism/compose.yaml \
 #   OXI_SERVICE=oxigraph \
 #   WORK=/path/to/scratch/work \
 #   bash load_full_default_graph.sh

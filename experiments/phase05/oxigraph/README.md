@@ -6,7 +6,7 @@
 
 - image: `ghcr.io/oxigraph/oxigraph:latest`
 - image size: **53.6 MB**
-- container: `csv2rdf_phase05_oxigraph` (port 7878)
+- container: `asterism_phase05_oxigraph` (port 7878)
 - 入力: `../data/papers_100.ttl` (3,715 triples, 100 papers の subset)
 
 ## 実行手順

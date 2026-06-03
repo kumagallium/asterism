@@ -2,7 +2,7 @@
 # Generation date: 2026-05-28T18:09:17
 # Schema: starrydata
 #
-# id: https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology
+# id: https://kumagallium.github.io/asterism/starrydata/ontology
 # description: LinkML rewrite of docs/ontology/starrydata.ttl for Phase 3 evaluation. The
 #   goal is to determine whether a single model.yaml can replace the four hand-
 #   authored artifacts (TBox / Mermaid / MIE shape_expressions / Python class
@@ -80,8 +80,8 @@ DCTERMS = CurieNamespace('dcterms', 'http://purl.org/dc/terms/')
 LINKML = CurieNamespace('linkml', 'https://w3id.org/linkml/')
 PROV = CurieNamespace('prov', 'http://www.w3.org/ns/prov#')
 SCHEMAORG = CurieNamespace('schemaorg', 'https://schema.org/')
-SD = CurieNamespace('sd', 'https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#')
-SDR = CurieNamespace('sdr', 'https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/')
+SD = CurieNamespace('sd', 'https://kumagallium.github.io/asterism/starrydata/ontology#')
+SDR = CurieNamespace('sdr', 'https://kumagallium.github.io/asterism/starrydata/resource/')
 XSD = CurieNamespace('xsd', 'http://www.w3.org/2001/XMLSchema#')
 DEFAULT_ = SD
 
@@ -408,7 +408,7 @@ class Descriptor(YAMLRoot):
 @dataclass(repr=False)
 class IngestionActivity(YAMLRoot):
     """
-    A single run of the csv2rdf-mcp ingester. Each Paper/Sample/Curve
+    A single run of the asterism ingester. Each Paper/Sample/Curve
     generated in the run carries prov:wasGeneratedBy → IngestionActivity for
     provenance traceability.
     """

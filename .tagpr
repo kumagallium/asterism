@@ -1,5 +1,5 @@
 # tagpr 設定 — https://github.com/Songmu/tagpr
-# Graphium(provnote) の運用に倣う。csv2rdf は Python マルチパッケージなので、
+# Graphium(provnote) の運用に倣う。asterism は Python マルチパッケージなので、
 # versionFile はルートの VERSION（単一の真実源）。Tauri 固有の command は付けない。
 [tagpr]
 versionFile = VERSION

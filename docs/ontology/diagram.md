@@ -1,7 +1,7 @@
 # Starrydata Ontology — class diagram
 
-Phase 1 で `csv2rdf-starrydata-{papers,samples,curves}` ingester が出す triple
-の構造。`sd:` 接頭辞は `https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#`。
+Phase 1 で `asterism-starrydata-{papers,samples,curves}` ingester が出す triple
+の構造。`sd:` 接頭辞は `https://kumagallium.github.io/asterism/starrydata/ontology#`。
 
 ```mermaid
 classDiagram
@@ -91,7 +91,7 @@ GitHub の Mermaid は label に `:` を含められないので、図中はプ�
 
 | Prefix | URI | クラスの所属 |
 |---|---|---|
-| `sd:` | `https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#` | Paper / Sample / Curve / Descriptor / IngestionActivity |
+| `sd:` | `https://kumagallium.github.io/asterism/starrydata/ontology#` | Paper / Sample / Curve / Descriptor / IngestionActivity |
 | `schema:` | `https://schema.org/` | Person / Periodical (reuse) |
 | `prov:` | `http://www.w3.org/ns/prov#` | Activity / Entity / Agent (supertype) |
 | `dcterms:` | `http://purl.org/dc/terms/` | identifier / created / modified (property reuse) |

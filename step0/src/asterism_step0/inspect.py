@@ -632,7 +632,7 @@ def _build_arg_parser():  # type: ignore[no-untyped-def]
     import argparse
 
     p = argparse.ArgumentParser(
-        prog="csv2rdf-inspect",
+        prog="asterism-inspect",
         description=(
             "Inspect one or more CSVs and emit the Markdown body that the "
             "Step 3 schema-proposal prompt expects."

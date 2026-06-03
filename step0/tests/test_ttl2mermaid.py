@@ -1,4 +1,4 @@
-"""Tests for csv2rdf_step0.ttl2mermaid."""
+"""Tests for asterism_step0.ttl2mermaid."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -6,7 +6,7 @@ from textwrap import dedent
 
 import pytest
 
-from csv2rdf_step0.ttl2mermaid import (
+from asterism_step0.ttl2mermaid import (
     _main,
     _short_label,
     build_graph,

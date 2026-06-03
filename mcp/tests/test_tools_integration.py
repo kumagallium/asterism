@@ -15,9 +15,9 @@ from __future__ import annotations
 import json
 
 import rdflib
-from csv2rdf.starrydata import DEFAULT_ONTOLOGY, DEFAULT_RESOURCE
+from asterism.starrydata import DEFAULT_ONTOLOGY, DEFAULT_RESOURCE
 
-from csv2rdf_mcp.tools import property_ranking, provenance_of, sample_search
+from asterism_mcp.tools import property_ranking, provenance_of, sample_search
 
 SD = DEFAULT_ONTOLOGY
 SDR = DEFAULT_RESOURCE

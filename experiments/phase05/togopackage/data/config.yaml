@@ -10,8 +10,8 @@ source:
   - name: starrydata-papers-subset-a
     path: ./sources/papers_100.ttl
     format: ttl
-    graph: http://localhost/csv2rdf/starrydata/graph/subset-a
+    graph: http://localhost/asterism/starrydata/graph/subset-a
   - name: starrydata-papers-subset-b
     path: ./sources/papers_100_b.ttl
     format: ttl
-    graph: http://localhost/csv2rdf/starrydata/graph/subset-b
+    graph: http://localhost/asterism/starrydata/graph/subset-b

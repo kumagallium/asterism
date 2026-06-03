@@ -7,4 +7,4 @@ source:
   - name: starrydata-papers-subset
     path: ./sources/papers_100.ttl
     format: ttl
-    graph: http://localhost/csv2rdf/starrydata/graph/subset-a
+    graph: http://localhost/asterism/starrydata/graph/subset-a

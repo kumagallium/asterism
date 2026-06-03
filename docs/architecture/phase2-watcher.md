@@ -72,7 +72,7 @@ per-kind 名前付きグラフ (legacy) が必要なら opt-in できる:
 - upload API: env `CSV2RDF_USE_DEFAULT_GRAPH=0`
 
 その場合の投入先 IRI は `CSV2RDF_GRAPH_PREFIX` (既定
-`https://kumagallium.github.io/csv2rdf-mcp/starrydata/graph/`) + `{papers,samples,curves}`。
+`https://kumagallium.github.io/asterism/starrydata/graph/`) + `{papers,samples,curves}`。
 ただし named graph は GRAPH 句付きクエリを要求するため、MIE クエリ例とは非互換になる。
 
 ## 冪等性
@@ -138,7 +138,7 @@ RDF は壊れない。
 | `CSV2RDF_ERROR_ROOT`   | `/data/sources/errors/starrydata` | 行エラー jsonl の出力先 |
 | `CSV2RDF_JOBS_LOG`     | `/data/sources/jobs.jsonl` | ジョブ履歴 |
 | `CSV2RDF_USE_DEFAULT_GRAPH` | `1` | `1`=default graph 投入 (既定)。`0` で per-kind 名前付きグラフ (legacy) |
-| `CSV2RDF_GRAPH_PREFIX` | `https://kumagallium.github.io/csv2rdf-mcp/starrydata/graph/` | 名前付きグラフ prefix (`CSV2RDF_USE_DEFAULT_GRAPH=0` 時のみ有効) |
+| `CSV2RDF_GRAPH_PREFIX` | `https://kumagallium.github.io/asterism/starrydata/graph/` | 名前付きグラフ prefix (`CSV2RDF_USE_DEFAULT_GRAPH=0` 時のみ有効) |
 | `CSV2RDF_SETTLE_S`     | `0.3` | watcher debounce 秒数 |
 
 ## Phase 2 で意図的に out of scope
@@ -150,5 +150,5 @@ RDF は壊れない。
 
 ## 撤退路
 
-upload-api が機能停止しても、ingester の CLI (`csv2rdf-starrydata-*`) と
+upload-api が機能停止しても、ingester の CLI (`asterism-starrydata-*`) と
 Oxigraph 単体は Phase 1 と同じく稼働する。

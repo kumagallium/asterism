@@ -1,4 +1,4 @@
-"""Schema refinement (Step 5) for csv2rdf-mcp Phase 3.
+"""Schema refinement (Step 5) for asterism Phase 3.
 
 Given (a) the current schema proposal and (b) human review comments, this
 module asks the LLM to **synchronously update all 4 artifacts** (TBox /
@@ -8,13 +8,13 @@ Mermaid / MIE / ingester) and return:
      interpreted it, what it changed, and any side effects (e.g. renaming
      ``Sample`` → ``Specimen`` propagates to the ingester's emitter name).
   2. **Updated schema** — the full Markdown document in the same shape
-     :mod:`csv2rdf_step0.propose` emits (so the output can be re-fed to
+     :mod:`asterism_step0.propose` emits (so the output can be re-fed to
      refine again, validate, or materialize).
 
 This is Step 5 of the workflow in
 ``docs/architecture/ai-assisted-step0-workflow.md``. The LLM call uses the
-same :class:`LLMClient` Protocol as :mod:`csv2rdf_step0.propose` — pass the
-default :class:`csv2rdf_step0.propose.AnthropicLLMClient` for real calls, a
+same :class:`LLMClient` Protocol as :mod:`asterism_step0.propose` — pass the
+default :class:`asterism_step0.propose.AnthropicLLMClient` for real calls, a
 mock for tests.
 
 The system prompt is byte-stable and large (cacheable), so repeated
@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from csv2rdf_step0.propose import AnthropicLLMClient, LLMClient
+from asterism_step0.propose import AnthropicLLMClient, LLMClient
 
 # ----------------------------------------------------------------------------
 # System prompt — frozen, cacheable
@@ -164,7 +164,7 @@ def refine_schema(
 
     Args:
         current_schema_md: A schema proposal Markdown — typically the
-            output of :func:`csv2rdf_step0.propose.propose_schema` (or a
+            output of :func:`asterism_step0.propose.propose_schema` (or a
             prior refine call's ``refined_md``, for multi-round iteration).
         comments: A list of human review comments. Order is preserved in
             the user message (numbered 1, 2, 3...) and in the LLM's
@@ -205,7 +205,7 @@ def _build_arg_parser():  # type: ignore[no-untyped-def]
     import argparse
 
     p = argparse.ArgumentParser(
-        prog="csv2rdf-refine",
+        prog="asterism-refine",
         description=(
             "Apply review comments to an existing schema proposal via the LLM. "
             "Requires ANTHROPIC_API_KEY."
@@ -214,7 +214,7 @@ def _build_arg_parser():  # type: ignore[no-untyped-def]
     p.add_argument(
         "schema",
         type=Path,
-        help="Path to the current proposal Markdown (from csv2rdf-propose).",
+        help="Path to the current proposal Markdown (from asterism-propose).",
     )
     p.add_argument(
         "--comment",

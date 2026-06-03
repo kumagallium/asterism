@@ -1,4 +1,4 @@
-"""Tests for csv2rdf_step0.propose.
+"""Tests for asterism_step0.propose.
 
 These exercise the prompt-building / orchestration layer without making real
 LLM calls. The :class:`LLMClient` protocol is mocked so the tests are
@@ -17,7 +17,7 @@ from __future__ import annotations
 from pathlib import Path
 from textwrap import dedent
 
-from csv2rdf_step0.propose import (
+from asterism_step0.propose import (
     SYSTEM_PROMPT,
     AnthropicLLMClient,
     LLMClient,
@@ -199,10 +199,10 @@ def test_anthropic_client_lazy_imports_anthropic() -> None:
     """The propose module must be importable without anthropic installed.
 
     We don't have anthropic installed in this venv; if the import wasn't lazy,
-    `import csv2rdf_step0.propose` would have failed at test collection time.
+    `import asterism_step0.propose` would have failed at test collection time.
     Getting here proves it stayed lazy.
     """
-    from csv2rdf_step0 import propose
+    from asterism_step0 import propose
 
     assert hasattr(propose, "AnthropicLLMClient")
     assert hasattr(propose, "propose_schema")

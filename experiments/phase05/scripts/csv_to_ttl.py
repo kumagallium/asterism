@@ -6,7 +6,7 @@
 - sd:Paper / schema:author / schema:datePublished / dcterms:identifier (SID) を生成
 - authors の JSON は schema:Person のリストに展開 (氏名のみ。affiliation は無視)
 - issued の JSON ({"date_parts": [[YYYY, MM, DD]]}) は xsd:date に変換 (best effort)
-- IRI のホストは Phase 1 で確定。spike では http://localhost/csv2rdf/ をプレースホルダ
+- IRI のホストは Phase 1 で確定。spike では http://localhost/asterism/ をプレースホルダ
 - 失敗行は stderr に WARN を出すだけで処理続行
 
 依存:
@@ -26,8 +26,8 @@ from pathlib import Path
 from rdflib import Graph, Literal, Namespace, URIRef
 from rdflib.namespace import DCTERMS, RDF, XSD
 
-SD = Namespace("http://localhost/csv2rdf/starrydata/ontology#")
-SDR = Namespace("http://localhost/csv2rdf/starrydata/resource/")
+SD = Namespace("http://localhost/asterism/starrydata/ontology#")
+SDR = Namespace("http://localhost/asterism/starrydata/resource/")
 SCHEMA = Namespace("https://schema.org/")
 BIBO = Namespace("http://purl.org/ontology/bibo/")
 

@@ -1,7 +1,7 @@
 """Materialize a schema proposal Markdown into individual artifact files.
 
-This is the deterministic "Step 6" of the workflow: :mod:`csv2rdf_step0.propose`
-and :mod:`csv2rdf_step0.refine` emit a single Markdown document with fenced
+This is the deterministic "Step 6" of the workflow: :mod:`asterism_step0.propose`
+and :mod:`asterism_step0.refine` emit a single Markdown document with fenced
 code blocks for each artifact. ``materialize_schema`` parses that document and
 splits the blocks into files on disk:
 
@@ -18,7 +18,7 @@ splits the blocks into files on disk:
   ``{out}/{name}.py``
 * (optional) The ``turtle`` block under the "RML" / "declarative mapping"
   section → ``{out}/{name}-mapping.rml.ttl`` — the declarative substrate path
-  (Morph-KGC + ``csv2rdf.functions``). See
+  (Morph-KGC + ``asterism.functions``). See
   ``docs/architecture/step0-rml-emission.md``. This block is *additive*: it is
   absent from older proposals, so its absence is not a warning and does not
   affect :attr:`MaterializeResult.complete` (the 4 core artifacts).
@@ -289,13 +289,13 @@ def materialize_schema(
 
 def _build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog="csv2rdf-materialize",
+        prog="asterism-materialize",
         description=(
             "Split a propose/refine schema Markdown into individual artifact "
             "files (diagram.md / {name}-model.yaml / {name}-mie.yaml / {name}.py)."
         ),
     )
-    p.add_argument("proposal", type=Path, help="Proposal Markdown (from csv2rdf-propose/refine)")
+    p.add_argument("proposal", type=Path, help="Proposal Markdown (from asterism-propose/refine)")
     p.add_argument("--name", required=True, help="Dataset name (used in output filenames)")
     p.add_argument(
         "--output-dir",

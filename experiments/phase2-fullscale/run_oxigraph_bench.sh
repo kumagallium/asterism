@@ -14,7 +14,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 WORK="${HERE}/work"
 STORE="${WORK}/oxigraph_store"
 PORT=7900
-GRAPH_BASE="https://kumagallium.github.io/csv2rdf-mcp/starrydata/graph"
+GRAPH_BASE="https://kumagallium.github.io/asterism/starrydata/graph"
 NAME=phase2bench_oxigraph
 
 rm -rf "${STORE}"; mkdir -p "${STORE}"

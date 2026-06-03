@@ -22,7 +22,7 @@ schema_info:
     produced this curve?".
 
   endpoint: http://localhost:7878/query
-  base_uri: https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#
+  base_uri: https://kumagallium.github.io/asterism/starrydata/ontology#
   graphs:
     - default
   kw_search_tools: ["sparql"]
@@ -90,8 +90,8 @@ schema_info:
     backend: "Oxigraph 0.4+"
 
 shape_expressions: |
-  PREFIX sd:      <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#>
-  PREFIX sdr:     <https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/>
+  PREFIX sd:      <https://kumagallium.github.io/asterism/starrydata/ontology#>
+  PREFIX sdr:     <https://kumagallium.github.io/asterism/starrydata/resource/>
   PREFIX schema:  <https://schema.org/>
   PREFIX dcterms: <http://purl.org/dc/terms/>
   PREFIX bibo:    <http://purl.org/ontology/bibo/>
@@ -200,8 +200,8 @@ sample_rdf_entries:
       curve plotting Temperature vs Seebeck coefficient. The curve carries both
       the raw JSON arrays and pre-computed aggregates.
     rdf: |
-      @prefix sd:      <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#> .
-      @prefix sdr:     <https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/> .
+      @prefix sd:      <https://kumagallium.github.io/asterism/starrydata/ontology#> .
+      @prefix sdr:     <https://kumagallium.github.io/asterism/starrydata/resource/> .
       @prefix schema:  <https://schema.org/> .
       @prefix dcterms: <http://purl.org/dc/terms/> .
       @prefix prov:    <http://www.w3.org/ns/prov#> .
@@ -255,7 +255,7 @@ sparql_query_examples:
   - title: "Count papers / samples / curves"
     description: "Sanity check after ingest."
     query: |
-      PREFIX sd: <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#>
+      PREFIX sd: <https://kumagallium.github.io/asterism/starrydata/ontology#>
       SELECT
         (COUNT(DISTINCT ?paper) AS ?papers)
         (COUNT(DISTINCT ?sample) AS ?samples)
@@ -271,7 +271,7 @@ sparql_query_examples:
       Find papers with the most samples. Useful for spotting comprehensive
       studies. Replace LIMIT to adjust.
     query: |
-      PREFIX sd: <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#>
+      PREFIX sd: <https://kumagallium.github.io/asterism/starrydata/ontology#>
       PREFIX schema: <https://schema.org/>
       SELECT ?paper ?title (COUNT(?sample) AS ?nSamples) WHERE {
         ?sample a sd:Sample ; sd:fromPaper ?paper .
@@ -284,7 +284,7 @@ sparql_query_examples:
       Composition is stored as a literal string. CONTAINS(LCASE(...))
       is the recommended pattern; full-text indexing is future work.
     query: |
-      PREFIX sd: <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#>
+      PREFIX sd: <https://kumagallium.github.io/asterism/starrydata/ontology#>
       PREFIX schema: <https://schema.org/>
       SELECT ?sample ?name ?comp WHERE {
         ?sample a sd:Sample ;
@@ -299,7 +299,7 @@ sparql_query_examples:
       Uses the pre-computed sd:yMax aggregate so we never need to parse
       sd:yValuesJSON. Replace propertyY filter for other quantities.
     query: |
-      PREFIX sd: <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#>
+      PREFIX sd: <https://kumagallium.github.io/asterism/starrydata/ontology#>
       SELECT ?curve ?figure ?yMax WHERE {
         ?curve sd:propertyY "Seebeck coefficient" ;
                sd:yMax ?yMax ;
@@ -320,7 +320,7 @@ sparql_query_examples:
       noting that extreme values may be data errors rather than fabricating a
       single "record" number.
     query: |
-      PREFIX sd:     <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#>
+      PREFIX sd:     <https://kumagallium.github.io/asterism/starrydata/ontology#>
       PREFIX schema: <https://schema.org/>
       SELECT ?zt ?comp ?title WHERE {
         ?curve a sd:Curve ; sd:propertyY "ZT" ; sd:yMax ?zt ; sd:ofSample ?s .
@@ -340,7 +340,7 @@ sparql_query_examples:
       qudt:SeebeckCoefficient catches every naming variant. Prefer this over a
       string filter whenever a QUDT IRI exists for the quantity.
     query: |
-      PREFIX sd:   <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#>
+      PREFIX sd:   <https://kumagallium.github.io/asterism/starrydata/ontology#>
       PREFIX qk:   <http://qudt.org/vocab/quantitykind/>
       SELECT ?curve ?labelY ?yMax WHERE {
         ?curve sd:propertyYQuantity qk:SeebeckCoefficient ;
@@ -356,7 +356,7 @@ sparql_query_examples:
       on qudt-unit:V-PER-K returns all Seebeck-coefficient curves regardless of
       how the unit was typed in the source.
     query: |
-      PREFIX sd:   <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#>
+      PREFIX sd:   <https://kumagallium.github.io/asterism/starrydata/ontology#>
       PREFIX unit: <http://qudt.org/vocab/unit/>
       SELECT ?curve ?labelY ?unitStr WHERE {
         ?curve sd:unitY unit:V-PER-K ;
@@ -373,7 +373,7 @@ sparql_query_examples:
       activity type to disambiguate.
     query: |
       PREFIX prov: <http://www.w3.org/ns/prov#>
-      PREFIX sd:   <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#>
+      PREFIX sd:   <https://kumagallium.github.io/asterism/starrydata/ontology#>
       SELECT ?curve ?activity ?atTime ?endedAtTime ?agent WHERE {
         ?curve a sd:Curve ;
                prov:wasGeneratedBy ?activity .
@@ -392,7 +392,7 @@ sparql_query_examples:
       were traced off a published figure, not measured in-house.
     query: |
       PREFIX prov:   <http://www.w3.org/ns/prov#>
-      PREFIX sd:     <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#>
+      PREFIX sd:     <https://kumagallium.github.io/asterism/starrydata/ontology#>
       PREFIX schema: <https://schema.org/>
       SELECT ?curve ?digitizedAt ?tool ?toolName WHERE {
         ?curve a sd:Curve ;
@@ -459,7 +459,7 @@ architectural_notes: |
     by aggregates alone — clients must fetch the curve and parse the JSON
     array (a future MCP tool `template_curve_fetch` will encapsulate this).
   - **Host migration**: Phase 1 uses
-    `https://kumagallium.github.io/csv2rdf-mcp/...` as the IRI prefix. Phase 2
+    `https://kumagallium.github.io/asterism/...` as the IRI prefix. Phase 2
     plans to switch to w3id.org redirect (design-plan §4.0); the IRI strings
     themselves will be preserved.
 

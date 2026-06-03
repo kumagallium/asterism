@@ -54,7 +54,7 @@ async def main() -> int:
             {
                 "database": "starrydata",
                 "sparql_query": (
-                    "PREFIX sd: <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#>\n"
+                    "PREFIX sd: <https://kumagallium.github.io/asterism/starrydata/ontology#>\n"
                     "PREFIX schema: <https://schema.org/>\n"
                     "SELECT ?sample ?comp WHERE {\n"
                     "  ?sample a sd:Sample ; sd:compositionString ?comp .\n"

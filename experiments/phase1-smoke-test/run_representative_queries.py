@@ -19,14 +19,14 @@ QUERIES = [
     (
         "Q1 papers count",
         """
-        PREFIX sd: <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#>
+        PREFIX sd: <https://kumagallium.github.io/asterism/starrydata/ontology#>
         SELECT (COUNT(?p) AS ?n) WHERE { ?p a sd:Paper }
         """,
     ),
     (
         "Q2 samples per paper top-3",
         """
-        PREFIX sd: <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#>
+        PREFIX sd: <https://kumagallium.github.io/asterism/starrydata/ontology#>
         PREFIX schema: <https://schema.org/>
         SELECT ?paper ?title (COUNT(?sample) AS ?nSamples) WHERE {
             ?sample a sd:Sample ; sd:fromPaper ?paper .
@@ -38,7 +38,7 @@ QUERIES = [
     (
         "Q3 Bi2Te3-like samples and their curves",
         """
-        PREFIX sd: <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#>
+        PREFIX sd: <https://kumagallium.github.io/asterism/starrydata/ontology#>
         PREFIX schema: <https://schema.org/>
         SELECT ?sample ?name ?comp ?curve ?propY WHERE {
             ?sample a sd:Sample ;
@@ -53,7 +53,7 @@ QUERIES = [
     (
         "Q4 Seebeck curves with largest |yMax|",
         """
-        PREFIX sd: <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#>
+        PREFIX sd: <https://kumagallium.github.io/asterism/starrydata/ontology#>
         SELECT ?curve ?yMax ?fig WHERE {
             ?curve sd:propertyY "Seebeck coefficient" ;
                    sd:yMax ?yMax ;
@@ -66,7 +66,7 @@ QUERIES = [
         "Q5 PROV-O ingestion run summary",
         """
         PREFIX prov: <http://www.w3.org/ns/prov#>
-        PREFIX sd:   <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#>
+        PREFIX sd:   <https://kumagallium.github.io/asterism/starrydata/ontology#>
         SELECT ?activity ?startedAt ?endedAt (COUNT(?entity) AS ?nGenerated) WHERE {
             ?activity a sd:IngestionActivity ;
                       prov:atTime ?startedAt .

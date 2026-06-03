@@ -62,12 +62,12 @@ jobs:
 
       - name: Validate fixture bundle end-to-end (8-trap CLI)
         working-directory: step0
-        # Runs csv2rdf-validate on the committed starrydata-min fixture. Exits
+        # Runs asterism-validate on the committed starrydata-min fixture. Exits
         # non-zero if any required trap fails (incl. T1 key uniqueness recovered
         # from the ingester), so a regression breaks the build without needing
         # the full starrydata export or an API key.
         run: |
-          uv run csv2rdf-validate \
+          uv run asterism-validate \
             --tbox tests/fixtures/starrydata_min/tbox.ttl \
             --diagram tests/fixtures/starrydata_min/diagram.md \
             --mie tests/fixtures/starrydata_min/mie.yaml \
@@ -104,7 +104,7 @@ jobs:
         run: uv run pytest tests/ -v
 
   mcp:
-    name: csv2rdf-mcp tools (ruff + pytest)
+    name: asterism tools (ruff + pytest)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -182,7 +182,7 @@ jobs:
         working-directory: experiments/phase1-smoke-test
         run: |
           . .venv/bin/activate
-          csv2rdf-starrydata-papers --no-prov subset/papers_100.csv subset/papers.ttl
+          asterism-starrydata-papers --no-prov subset/papers_100.csv subset/papers.ttl
           curl -sf -X POST -H 'Content-Type: application/sparql-update' \
             --data 'DROP DEFAULT' http://localhost:7878/update
           curl -sf -X POST --data-binary @subset/papers.ttl \

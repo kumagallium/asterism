@@ -1,4 +1,4 @@
-"""Tests for csv2rdf.substrate (declarative-substrate ingestion, #15).
+"""Tests for asterism.substrate (declarative-substrate ingestion, #15).
 
 The Morph-KGC step needs the optional ``substrate`` extra + real CSVs, so it is
 not exercised here; these tests cover the parts that do not depend on it: the
@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 import rdflib
 
-from csv2rdf.substrate import (
+from asterism.substrate import (
     GRAPH_BASE,
     absolutize_rml_sources,
     draft_graph_iri,

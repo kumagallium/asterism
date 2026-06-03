@@ -9,7 +9,7 @@ import pytest
 from rdflib import BNode, Graph, Literal, Namespace, URIRef
 from rdflib.namespace import DCTERMS, PROV, RDF, XSD
 
-from csv2rdf.starrydata import (
+from asterism.starrydata import (
     DEFAULT_ONTOLOGY,
     DEFAULT_RESOURCE,
     IngestConfig,

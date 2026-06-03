@@ -1,30 +1,30 @@
 """Phase 5 関数ライブラリ v0 — Morph-KGC が FnO 経由で呼ぶ検証済み関数。
 
 設計: docs/architecture/phase5-declarative-substrate.md §2(b)。
-宣言的マッピングで書けない少数の変換だけをここに集約する。各関数は csv2rdf の
+宣言的マッピングで書けない少数の変換だけをここに集約する。各関数は asterism の
 **既存 vetted 実装を薄く露出するだけ**（単一の真実源・ロジック重複なし）。
 新しい変換が要るソースは、人間がここに 1 行足す。per-dataset の codegen は無い。
 
 morph-kgc は本ファイルを読み、`@udf` デコレータを注入して exec する
 （morph_kgc/fnml/fnml_executer.py の load_udfs）。よって `udf` は import しない。
 
-NOTE(spike): 本体 csv2rdf を import するため cwd 基準で ../../ingest/src を path に足す。
-production では関数ライブラリ自体を csv2rdf パッケージ内に置くので、この hack は消える。
+NOTE(spike): 本体 asterism を import するため cwd 基準で ../../ingest/src を path に足す。
+production では関数ライブラリ自体を asterism パッケージ内に置くので、この hack は消える。
 """
 
 import datetime as _dt
 import os
 import sys
 
-if not hasattr(_dt, "UTC"):  # csv2rdf.starrydata は py3.11 の datetime.UTC を使う
+if not hasattr(_dt, "UTC"):  # asterism.starrydata は py3.11 の datetime.UTC を使う
     _dt.UTC = _dt.timezone.utc
 sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "..", "..", "ingest", "src")))
 
-from csv2rdf.qudt import quantity_kind_iri, unit_iri  # noqa: E402  既存 vetted 実装
-from csv2rdf.starrydata import parse_issued, safe_url  # noqa: E402
+from asterism.qudt import quantity_kind_iri, unit_iri  # noqa: E402  既存 vetted 実装
+from asterism.starrydata import parse_issued, safe_url  # noqa: E402
 
 # 関数・パラメータの IRI namespace（RML 側から FnO で参照する）
-FN = "https://kumagallium.github.io/csv2rdf-mcp/fn/"
+FN = "https://kumagallium.github.io/asterism/fn/"
 
 
 @udf(fun_id=FN + "parse_date", value=FN + "p_value")  # noqa: F821  (udf is injected by morph-kgc)

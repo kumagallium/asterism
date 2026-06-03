@@ -4,7 +4,7 @@ import { useState } from 'react'
 // proxy by default; VITE_API_URL overrides for separate hosting).
 const API_BASE = ((import.meta.env.VITE_API_URL as string | undefined) ?? '').replace(/\/+$/, '')
 
-const EXAMPLE = `PREFIX sd: <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#>
+const EXAMPLE = `PREFIX sd: <https://kumagallium.github.io/asterism/starrydata/ontology#>
 SELECT ?sample ?comp WHERE {
   ?sample a sd:Sample ;
           sd:compositionString ?comp .

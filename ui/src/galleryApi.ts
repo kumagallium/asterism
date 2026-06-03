@@ -98,7 +98,7 @@ const ONTOLOGIES: OntologyEntry[] = [
     id: 'starrydata',
     name: 'Starrydata Ontology',
     prefix: 'sd:',
-    baseIri: 'https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#',
+    baseIri: 'https://kumagallium.github.io/asterism/starrydata/ontology#',
     description:
       '材料測定データ (熱電・電池・磁性) の共有語彙。Paper / Sample / Curve を中心に、すべて prov:Entity として来歴を担保する。物性名・単位は生文字列に加えて QUDT IRI に正規化 (sd:propertyYQuantity → qudt:SeebeckCoefficient 等) し、表記ゆれを横断できる。',
     classes: ['Paper', 'Sample', 'Curve', 'Descriptor', 'IngestionActivity'],

@@ -7,7 +7,7 @@
 services:
   togopackage:
     image: ghcr.io/dbcls/togopackage:latest
-    container_name: csv2rdf_phase05b_togopackage_virtuoso
+    container_name: asterism_phase05b_togopackage_virtuoso
     user: "${UID:-501}:${GID:-20}"
     ports:
       - "10005:10005"

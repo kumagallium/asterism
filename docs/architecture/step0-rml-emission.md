@@ -5,15 +5,15 @@ status: 仕様（Cowork 前さばき）→ 実装は CC（step0 ロジック）
 
 ## 0. 目的と人間ゲート
 
-step0 の propose が、手続き型 `ingester.py`（任意 Python）に代えて**宣言的 RML マッピング**を出力する。人間が承認するのは *列→述語の対応＋ Tier 0 関数への参照* であって、コードではない。承認された RML を substrate（Morph-KGC ＋ `csv2rdf.functions`）が実行する。
+step0 の propose が、手続き型 `ingester.py`（任意 Python）に代えて**宣言的 RML マッピング**を出力する。人間が承認するのは *列→述語の対応＋ Tier 0 関数への参照* であって、コードではない。承認された RML を substrate（Morph-KGC ＋ `asterism.functions`）が実行する。
 
 - レビュー面 = 「どの列がどの述語に／呼ぶ関数は適切か」。`e2e/mappings.rml.ttl` が雛形（全体 ~40 行）。
-- RML が参照してよい関数は **Tier 0（`csv2rdf.functions` の REGISTRY）だけ**。新コードは混ざらない。
+- RML が参照してよい関数は **Tier 0（`asterism.functions` の REGISTRY）だけ**。新コードは混ざらない。
 - 当てる関数が無い列は **生文字列で素通り＋フラグ**（ADR §5.4）。1 列の不明が取り込み全体を止めない。
 
 ## 1. RML の形（雛形）
 
-語彙: `rr:`(R2RML) / `rml:`(logicalSource, reference) / `ql:CSV` / `rmlf:`(`http://w3id.org/rml/`, FnO 実行) / `fn:`(`https://kumagallium.github.io/csv2rdf-mcp/fn/`)。1 TriplesMap = 1 行種別（paper/sample/curve）。複合 IRI は `rr:template`、関数列は `rmlf:functionExecution`。具体は `experiments/phase5-morph-kgc-spike/e2e/mappings.rml.ttl`。
+語彙: `rr:`(R2RML) / `rml:`(logicalSource, reference) / `ql:CSV` / `rmlf:`(`http://w3id.org/rml/`, FnO 実行) / `fn:`(`https://kumagallium.github.io/asterism/fn/`)。1 TriplesMap = 1 行種別（paper/sample/curve）。複合 IRI は `rr:template`、関数列は `rmlf:functionExecution`。具体は `experiments/phase5-morph-kgc-spike/e2e/mappings.rml.ttl`。
 
 ## 2. 既存 ingester 出力 ↔ RML 対応表
 
@@ -93,7 +93,7 @@ starrydata はこれらを**セル内 JSON**（1 セルに複数）で持つ。R
 ## 5. 検証ハーネス（step0 出力の RML に対し）
 
 1. **構文**: RML が Turtle として parse できる。
-2. **閉集合**: `rmlf:function` の IRI が全て `csv2rdf.functions.REGISTRY` 内（範囲外参照を CI で落とす）。
+2. **閉集合**: `rmlf:function` の IRI が全て `asterism.functions.REGISTRY` 内（範囲外参照を CI で落とす）。
 3. **実行**: サンプル数行で Morph-KGC materialize がエラー無く通る。
 4. **parity**: 同じ入力に対し、生成 RML の述語集合が手続き型 ingester の述語集合と一致（fallback 列・来歴配線・多値を除外した上で diff = 0）。`e2e/` の比較に倣う。
 

@@ -2,8 +2,8 @@
 FROM python:3.11-slim
 WORKDIR /app
 
-# Install the in-repo csv2rdf packages so real mode can import the typed tools
-# (csv2rdf_mcp.tools) + the Oxigraph client (csv2rdf.oxigraph_client), plus the
+# Install the in-repo asterism packages so real mode can import the typed tools
+# (asterism_mcp.tools) + the Oxigraph client (asterism.oxigraph_client), plus the
 # web deps. mcp pulls fastmcp; that is fine inside this consuming container.
 COPY ingest /src/ingest
 COPY mcp /src/mcp

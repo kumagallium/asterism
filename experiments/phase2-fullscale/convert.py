@@ -22,7 +22,7 @@ import json
 import time
 from pathlib import Path
 
-from csv2rdf.starrydata import IngestConfig, ingest_curves, ingest_papers, ingest_samples
+from asterism.starrydata import IngestConfig, ingest_curves, ingest_papers, ingest_samples
 
 _INGESTERS = {
     "papers": ingest_papers,

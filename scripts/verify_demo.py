@@ -2,7 +2,7 @@
 """Verify the demo end to end against the REAL generated seed — no Docker.
 
 Loads ``demo-agent/seed/*.ttl`` into an in-memory rdflib graph, then drives the
-demo-agent's own routing + the csv2rdf typed tools over it: the exact path the
+demo-agent's own routing + the asterism typed tools over it: the exact path the
 live stack runs, minus HTTP/containers. Proves the demo questions produce
 grounded answers + a provenance chain on real ingested data.
 
@@ -24,7 +24,7 @@ for _p in ("ingest/src", "mcp/src", "demo-agent"):
 import app as demo  # demo-agent/app.py  # noqa: E402
 import rdflib  # noqa: E402
 
-from csv2rdf_mcp.tools import (  # noqa: E402
+from asterism_mcp.tools import (  # noqa: E402
     property_ranking,
     provenance_of,
     sample_search,

@@ -1,4 +1,4 @@
-== Oxigraph bench (endpoint=http://localhost:7878, ttl=/Users/masayakumagai/Documents/Claude/Projects/AI for Science/csv2rdf-mcp/experiments/phase05/data/papers_100.ttl)
+== Oxigraph bench (endpoint=http://localhost:7878, ttl=/Users/masayakumagai/Documents/Claude/Projects/AI for Science/asterism/experiments/phase05/data/papers_100.ttl)
 baseline triples: 0
 load: 0.317s, triples now: 3715 (delta 3715)
 

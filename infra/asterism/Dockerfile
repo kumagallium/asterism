@@ -1,12 +1,12 @@
-# csv2rdf-mcp self-built FastMCP server image (Phase 2 #3).
+# asterism self-built FastMCP server image (Phase 2 #3).
 #
 # Bundles the FastMCP tools server (template_curve_fetch + future starrydata-
-# specific tools) into a single Python process. Both csv2rdf-ingest (for the
-# OxigraphClient) and csv2rdf-mcp-tools live in this monorepo, so build
+# specific tools) into a single Python process. Both asterism-ingest (for the
+# OxigraphClient) and asterism-mcp-tools live in this monorepo, so build
 # context MUST be the repo root.
 #
 # Build:
-#   docker build -f infra/csv2rdf-mcp/Dockerfile -t csv2rdf-mcp .
+#   docker build -f infra/asterism/Dockerfile -t asterism .
 #
 # Crucible compatibility: legacy docker builder (no BuildKit). We use
 # ``COPY`` + ``RUN chmod`` instead of ``COPY --chmod`` for the same reason
@@ -21,7 +21,7 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # Install sibling packages in dependency order: ingest first, then mcp tools
-# (which depends on csv2rdf-ingest). Both pyproject.toml reference
+# (which depends on asterism-ingest). Both pyproject.toml reference
 # ``readme = "../README.md"`` so /app/README.md must exist at build time.
 COPY README.md /app/README.md
 COPY ingest/pyproject.toml /app/ingest/pyproject.toml
@@ -39,5 +39,5 @@ WORKDIR /root
 
 EXPOSE 8002
 
-# csv2rdf-mcp's CLI defaults to HTTP transport on 0.0.0.0:8002.
-CMD ["csv2rdf-mcp", "--host", "0.0.0.0", "--port", "8002"]
+# asterism's CLI defaults to HTTP transport on 0.0.0.0:8002.
+CMD ["asterism", "--host", "0.0.0.0", "--port", "8002"]

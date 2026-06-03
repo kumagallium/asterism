@@ -7,10 +7,10 @@
 @prefix ql:     <http://semweb.mmlab.be/ns/ql#> .
 @prefix rmlf:   <http://w3id.org/rml/> .
 @prefix fno:    <https://w3id.org/function/ontology#> .
-@prefix sd:     <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#> .
+@prefix sd:     <https://kumagallium.github.io/asterism/starrydata/ontology#> .
 @prefix schema: <https://schema.org/> .
 @prefix xsd:    <http://www.w3.org/2001/XMLSchema#> .
-@prefix fn:     <https://kumagallium.github.io/csv2rdf-mcp/fn/> .
+@prefix fn:     <https://kumagallium.github.io/asterism/fn/> .
 
 <#PaperMap> a rr:TriplesMap ;
   rml:logicalSource [
@@ -18,7 +18,7 @@
     rml:referenceFormulation ql:CSV
   ] ;
   rr:subjectMap [
-    rr:template "https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/paper/{SID}" ;
+    rr:template "https://kumagallium.github.io/asterism/starrydata/resource/paper/{SID}" ;
     rr:class sd:Paper
   ] ;
   rr:predicateObjectMap [

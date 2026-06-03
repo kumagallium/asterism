@@ -12,7 +12,7 @@
 services:
   oxigraph:
     image: ghcr.io/oxigraph/oxigraph:latest
-    container_name: csv2rdf_phase05_oxigraph
+    container_name: asterism_phase05_oxigraph
     command: >
       serve
       --location /data

@@ -2,7 +2,7 @@
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix sd:   <https://example.com/starrydata/ontology#> .
 
-# Minimal starrydata-shaped TBox used as a csv2rdf-validate CI fixture.
+# Minimal starrydata-shaped TBox used as a asterism-validate CI fixture.
 # Deliberately bnode-free (T3): only named classes and object properties.
 
 sd:Paper a owl:Class ;

@@ -6,5 +6,5 @@ dcterms: <http://purl.org/dc/terms/>
 bibo: <http://purl.org/ontology/bibo/>
 prov: <http://www.w3.org/ns/prov#>
 schema: <https://schema.org/>
-sd: <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#>
-sdr: <https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/>
+sd: <https://kumagallium.github.io/asterism/starrydata/ontology#>
+sdr: <https://kumagallium.github.io/asterism/starrydata/resource/>

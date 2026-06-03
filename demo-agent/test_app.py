@@ -16,8 +16,8 @@ import rdflib
 from fastapi.testclient import TestClient
 
 import app as demo
-from csv2rdf.starrydata import DEFAULT_ONTOLOGY as SD
-from csv2rdf.starrydata import DEFAULT_RESOURCE as SDR
+from asterism.starrydata import DEFAULT_ONTOLOGY as SD
+from asterism.starrydata import DEFAULT_RESOURCE as SDR
 
 _TTL = f"""
 @prefix sd: <{SD}> .

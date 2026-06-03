@@ -1,6 +1,6 @@
 """demo-agent for the ARiSE grounded-answer demo.
 
-Consuming layer, deliberately OUTSIDE csv2rdf core: the runtime answer
+Consuming layer, deliberately OUTSIDE asterism core: the runtime answer
 generation must not live in the Claude-free core API (see
 docs/architecture/ontology-mapping-boundary-and-provenance.md §1/§5).
 
@@ -9,7 +9,7 @@ Two modes:
 - **mock** (default): returns fixtures so the UI can build against the
   contract with zero backend deps.
 - **real**: set ``CSV2RDF_OXIGRAPH_URL`` to query a live Oxigraph through the
-  csv2rdf typed MCP tools (sample_search / property_ranking / provenance_of)
+  asterism typed MCP tools (sample_search / property_ranking / provenance_of)
   and compose a grounded answer *deterministically* — no LLM, fully
   reproducible, which is exactly the sovereignty/reproducibility story the
   demo wants. An LLM can be slotted into the ``_compose_*`` helpers later for
@@ -34,9 +34,9 @@ from pydantic import BaseModel
 
 _OXIGRAPH_URL = os.environ.get("CSV2RDF_OXIGRAPH_URL")
 _REAL = bool(_OXIGRAPH_URL)
-_RES = "https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/"
+_RES = "https://kumagallium.github.io/asterism/starrydata/resource/"
 
-app = FastAPI(title=f"csv2rdf demo-agent ({'real' if _REAL else 'mock'})")
+app = FastAPI(title=f"asterism demo-agent ({'real' if _REAL else 'mock'})")
 
 # Dev-only CORS so the Vite UI (different port) can call us. Tighten before any
 # non-local deployment.
@@ -125,7 +125,7 @@ _state: dict = {}
 def _client():
     c = _state.get("client")
     if c is None:
-        from csv2rdf.oxigraph_client import OxigraphClient, OxigraphConfig
+        from asterism.oxigraph_client import OxigraphClient, OxigraphConfig
 
         c = OxigraphClient(OxigraphConfig(base_url=_OXIGRAPH_URL))
         _state["client"] = c
@@ -234,7 +234,7 @@ async def ask(req: AskRequest) -> dict:
     if not _REAL:
         # MOCK: same grounded fixture regardless of question.
         return _ASK_FIXTURE
-    from csv2rdf_mcp.tools import property_ranking, sample_search
+    from asterism_mcp.tools import property_ranking, sample_search
 
     kind, arg, mp = _route(req.question)
     if kind == "rank" and arg:
@@ -251,7 +251,7 @@ async def provenance(iri: str) -> dict:
     if not _REAL:
         chain = _PROV_FIXTURE.get(iri) or _PROV_FIXTURE[f"{_RES}curve/1-2-3"]
         return {"iri": iri, "chain": chain}
-    from csv2rdf_mcp.tools import provenance_of
+    from asterism_mcp.tools import provenance_of
 
     return await provenance_of(iri, _client())
 

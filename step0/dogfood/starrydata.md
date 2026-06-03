@@ -1,10 +1,10 @@
-# Dogfood report — `csv2rdf-inspect` on the full starrydata CSVs
+# Dogfood report — `asterism-inspect` on the full starrydata CSVs
 
 Date: 2026-05-28
 Command:
 
 ```bash
-csv2rdf-inspect \
+asterism-inspect \
     starrydata_papers.csv \
     starrydata_samples.csv \
     starrydata_curves.csv \
@@ -35,7 +35,7 @@ Runtime on macOS Darwin 25.3.0 (Apple Silicon): ~30 s (whole-file in-memory anal
 
 ### ⚠ Finding 1: papers.csv `SID` has 28 collisions
 
-Phase 1 [`starrydata.py::_emit_paper`](../../ingest/src/csv2rdf/starrydata.py) mints the Paper IRI as `sdr:paper/{SID}`. The dogfood data shows **`SID` has 28 collisions in the full papers.csv**.
+Phase 1 [`starrydata.py::_emit_paper`](../../ingest/src/asterism/starrydata.py) mints the Paper IRI as `sdr:paper/{SID}`. The dogfood data shows **`SID` has 28 collisions in the full papers.csv**.
 
 Drilling down:
 - `(SID)`: 28 collisions (28 SIDs reused)
