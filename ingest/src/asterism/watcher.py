@@ -43,8 +43,8 @@ from typing import Final
 
 from watchfiles import Change, awatch
 
-from csv2rdf.oxigraph_client import OxigraphClient
-from csv2rdf.starrydata import (
+from asterism.oxigraph_client import OxigraphClient
+from asterism.starrydata import (
     DEFAULT_ONTOLOGY,
     DEFAULT_RESOURCE,
     IngestConfig,
@@ -68,7 +68,7 @@ _INGESTERS = {
 
 DEFAULT_SETTLE_S: Final[float] = 0.3
 DEFAULT_GRAPH_PREFIX: Final[str] = (
-    "https://kumagallium.github.io/csv2rdf-mcp/starrydata/graph/"
+    "https://kumagallium.github.io/asterism/starrydata/graph/"
 )
 
 
@@ -364,7 +364,7 @@ def _main(argv: list[str] | None = None) -> int:
     import argparse
 
     p = argparse.ArgumentParser(
-        prog="csv2rdf-watcher",
+        prog="asterism-watcher",
         description="Watch a drop directory and ingest CSVs into Oxigraph.",
     )
     p.add_argument("--drop-root", type=Path, default=Path("data/sources/csv"))
@@ -402,7 +402,7 @@ def _main(argv: list[str] | None = None) -> int:
         ),
     )
 
-    from csv2rdf.oxigraph_client import OxigraphConfig
+    from asterism.oxigraph_client import OxigraphConfig
 
     async def runner() -> None:
         async with OxigraphClient(OxigraphConfig(base_url=args.oxigraph_url)) as client:

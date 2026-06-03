@@ -1,4 +1,4 @@
-"""関数ライブラリ v0(csv2rdf.functions)の単体テスト。
+"""関数ライブラリ v0(asterism.functions)の単体テスト。
 
 各関数は既存 vetted 実装への薄い委譲なので、ここでは (1) 中核変換の具体値、
 (2) 委譲先と空文字契約の一致、(3) FnO 登録メタデータの健全性を確認する。
@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from csv2rdf.functions import (
+from asterism.functions import (
     FN,
     P_VALUE,
     P_VALUE1,
@@ -22,8 +22,8 @@ from csv2rdf.functions import (
     register,
     slug,
 )
-from csv2rdf.qudt import quantity_kind_iri, unit_iri
-from csv2rdf.starrydata import safe_url
+from asterism.qudt import quantity_kind_iri, unit_iri
+from asterism.starrydata import safe_url
 
 
 def test_date_iso_concrete() -> None:

@@ -1,7 +1,7 @@
-"""Tool implementations exposed by the csv2rdf-mcp self-built server.
+"""Tool implementations exposed by the asterism self-built server.
 
 Each tool here is a regular async function that takes simple inputs and
-returns a JSON-serializable dict. The :mod:`csv2rdf_mcp.server` module
+returns a JSON-serializable dict. The :mod:`asterism_mcp.server` module
 wraps these with FastMCP's ``@mcp.tool`` decorator and adds the network
 plumbing.
 
@@ -25,8 +25,8 @@ from __future__ import annotations
 import json
 from typing import Any, Final
 
-from csv2rdf.oxigraph_client import OxigraphClient
-from csv2rdf.starrydata import DEFAULT_ONTOLOGY
+from asterism.oxigraph_client import OxigraphClient
+from asterism.starrydata import DEFAULT_ONTOLOGY
 
 # ----------------------------------------------------------------------------
 # Predicate -> output-key mapping for template_curve_fetch
@@ -108,7 +108,7 @@ async def template_curve_fetch(
 
     Args:
         curve_iri: Full IRI of the curve, e.g.
-            ``https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/curve/1-1-1``.
+            ``https://kumagallium.github.io/asterism/starrydata/resource/curve/1-1-1``.
         client: :class:`OxigraphClient` used to issue the SPARQL query.
         max_points: If provided, the returned ``x``/``y`` are truncated to
             this many leading points. ``None`` (default) returns the full
@@ -184,7 +184,7 @@ async def template_curve_fetch(
 def _decode_array(raw: str | None) -> list[float]:
     """Parse a JSON-literal array into list[float], silently dropping garbage.
 
-    Mirrors :func:`csv2rdf.starrydata.parse_float_array` so the round-trip
+    Mirrors :func:`asterism.starrydata.parse_float_array` so the round-trip
     (CSV -> Turtle literal -> Oxigraph -> back to Python list) is
     consistent. We re-implement here rather than re-export to keep
     mcp/tools.py honest about its inputs (Oxigraph string literals, not raw

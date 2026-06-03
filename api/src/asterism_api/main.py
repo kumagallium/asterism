@@ -1,4 +1,4 @@
-"""FastAPI upload + status surface for csv2rdf-mcp Phase 2.
+"""FastAPI upload + status surface for asterism Phase 2.
 
 Endpoints
 ~~~~~~~~~
@@ -34,28 +34,28 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final
 
-from csv2rdf import substrate
-from csv2rdf.oxigraph_client import OxigraphClient, OxigraphConfig
-from csv2rdf.starrydata import DEFAULT_ONTOLOGY, DEFAULT_RESOURCE, IngestConfig
-from csv2rdf.watcher import (
+from asterism import substrate
+from asterism.oxigraph_client import OxigraphClient, OxigraphConfig
+from asterism.starrydata import DEFAULT_ONTOLOGY, DEFAULT_RESOURCE, IngestConfig
+from asterism.watcher import (
     DEFAULT_GRAPH_PREFIX,
     DEFAULT_SETTLE_S,
     KINDS,
     WatcherConfig,
     watch,
 )
-from csv2rdf_step0.inspect import inspect_csv_set, render_markdown
-from csv2rdf_step0.materialize import materialize_schema
-from csv2rdf_step0.propose import AnthropicLLMClient, LLMClient, propose_schema
-from csv2rdf_step0.refine import refine_schema
-from csv2rdf_step0.validate import SchemaBundle, validate_schema
+from asterism_step0.inspect import inspect_csv_set, render_markdown
+from asterism_step0.materialize import materialize_schema
+from asterism_step0.propose import AnthropicLLMClient, LLMClient, propose_schema
+from asterism_step0.refine import refine_schema
+from asterism_step0.validate import SchemaBundle, validate_schema
 from fastapi import FastAPI, File, Form, Header, HTTPException, Query, Response, UploadFile
 from fastapi import Path as PathParam
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
-from csv2rdf_api import registry
-from csv2rdf_api.jobs import JobManager
+from asterism_api import registry
+from asterism_api.jobs import JobManager
 
 
 class RefineRequest(BaseModel):
@@ -233,7 +233,7 @@ def build_app(
         task: asyncio.Task[None] | None = None
         if start_watcher:
             task = asyncio.create_task(
-                watch(watcher_cfg, client, stop_event=stop), name="csv2rdf-watcher"
+                watch(watcher_cfg, client, stop_event=stop), name="asterism-watcher"
             )
         app.state.client = client
         app.state.watcher_cfg = watcher_cfg
@@ -252,7 +252,7 @@ def build_app(
                 await client.aclose()
 
     app = FastAPI(
-        title="csv2rdf-mcp upload API",
+        title="Asterism upload API",
         version="0.1.0",
         lifespan=lifespan,
     )
@@ -344,7 +344,7 @@ def build_app(
 
         import tempfile as _tempfile
 
-        tmpdir = _tempfile.mkdtemp(prefix="csv2rdf-propose-")
+        tmpdir = _tempfile.mkdtemp(prefix="asterism-propose-")
         paths: list[Path] = []
         for upload in files:
             if upload.filename is None:
@@ -415,7 +415,7 @@ def build_app(
             raise HTTPException(400, "proposal_md is required")
 
         def run() -> dict[str, object]:
-            tmpdir = tempfile.mkdtemp(prefix="csv2rdf-materialize-")
+            tmpdir = tempfile.mkdtemp(prefix="asterism-materialize-")
             try:
                 mat = materialize_schema(body.proposal_md, tmpdir, body.dataset_name, write=True)
                 paths = {k: Path(v) for k, v in mat.written_paths.items()}
@@ -506,7 +506,7 @@ def build_app(
         if not files:
             raise HTTPException(400, "no CSV files uploaded")
 
-        tmpdir = Path(tempfile.mkdtemp(prefix="csv2rdf-ingest-"))
+        tmpdir = Path(tempfile.mkdtemp(prefix="asterism-ingest-"))
         try:
             for upload in files:
                 if upload.filename is None:
@@ -597,7 +597,7 @@ def _main(argv: list[str] | None = None) -> int:
 
     import uvicorn
 
-    p = argparse.ArgumentParser(prog="csv2rdf-api")
+    p = argparse.ArgumentParser(prog="asterism-api")
     p.add_argument("--host", default=_DEFAULT_HOST)
     p.add_argument("--port", type=int, default=_DEFAULT_PORT)
     p.add_argument("--log-level", default="info")
@@ -605,7 +605,7 @@ def _main(argv: list[str] | None = None) -> int:
 
     logging.basicConfig(level=args.log_level.upper(), format="%(asctime)s %(message)s")
     uvicorn.run(
-        "csv2rdf_api.main:build_app",
+        "asterism_api.main:build_app",
         host=args.host,
         port=args.port,
         log_level=args.log_level,

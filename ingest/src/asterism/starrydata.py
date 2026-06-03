@@ -4,7 +4,7 @@ Phase 0.5 で書いた experiments/phase05/scripts/csv_to_ttl.py を本実装版
 
 - **blank node 排除**: Phase 0.5 で `schema:Periodical` を bnode にしていた。
   Phase 0.5 oxigraph 素振り §4.4 の通り、bnode は re-ingest 時に重複するため
-  csv2rdf-mcp の auto-reindex フローと相性が悪い。Phase 1 では
+  asterism の auto-reindex フローと相性が悪い。Phase 1 では
   `sdr:periodical/{slug}` のような IRI に統一する。
 - **PROV-O IngestionActivity**: 設計プラン §4 / option-b-architecture.md §3 に
   従い、各 ingest 実行で 1 つの `sd:IngestionActivity` を発行し、生成する全
@@ -27,15 +27,15 @@ from typing import TextIO
 from rdflib import Graph, Literal, Namespace, URIRef
 from rdflib.namespace import DCTERMS, PROV, RDF, XSD
 
-from csv2rdf.qudt import quantity_kind_iri, unit_iri
+from asterism.qudt import quantity_kind_iri, unit_iri
 
 # ----------------------------------------------------------------------------
 # Default namespaces (design-plan §4 / §4.0)
 # ----------------------------------------------------------------------------
 
-DEFAULT_ONTOLOGY = "https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#"
-DEFAULT_RESOURCE = "https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/"
-SOFTWARE_AGENT_IRI = "https://github.com/kumagallium/csv2rdf-mcp"
+DEFAULT_ONTOLOGY = "https://kumagallium.github.io/asterism/starrydata/ontology#"
+DEFAULT_RESOURCE = "https://kumagallium.github.io/asterism/starrydata/resource/"
+SOFTWARE_AGENT_IRI = "https://github.com/kumagallium/asterism"
 
 # Phase 2 #6: starrydata curves are digitized from published figures with
 # WebPlotDigitizer. We model that origin as a PROV SoftwareAgent so the
@@ -797,7 +797,7 @@ def _make_arg_parser(kind: str):
     import argparse
 
     p = argparse.ArgumentParser(
-        prog=f"csv2rdf-starrydata-{kind}",
+        prog=f"asterism-starrydata-{kind}",
         description=f"Ingest starrydata {kind}.csv into a Turtle file.",
     )
     p.add_argument("csv", type=Path, help=f"Path to starrydata_{kind}.csv")

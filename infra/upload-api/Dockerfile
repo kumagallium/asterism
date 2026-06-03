@@ -1,11 +1,11 @@
-# Self-built csv2rdf-mcp upload API image (Phase 2).
+# Self-built asterism upload API image (Phase 2).
 #
 # Bundles the FastAPI service + the watcher loop into a single Python process.
 # Both packages live in the monorepo (api/ + ingest/), so build context MUST be
 # the repo root.
 #
 # Build:
-#   docker build -f infra/upload-api/Dockerfile -t csv2rdf-upload-api .
+#   docker build -f infra/upload-api/Dockerfile -t asterism-upload-api .
 #
 # Crucible compatibility: legacy docker builder (no BuildKit). We use
 # ``COPY`` + ``RUN chmod`` instead of ``COPY --chmod`` for the same reason
@@ -20,9 +20,9 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # Install the sibling packages in dependency order: ingest first, then api
-# (which depends on csv2rdf-ingest). The api/pyproject.toml uses
+# (which depends on asterism-ingest). The api/pyproject.toml uses
 # ``[tool.uv.sources]`` for local dev under uv; pip relies on the fact that
-# csv2rdf-ingest is already installed when it resolves the api package.
+# asterism-ingest is already installed when it resolves the api package.
 #
 # Both pyproject.toml files reference ``readme = "../README.md"`` so hatchling
 # needs to find /app/README.md during build.
@@ -45,5 +45,5 @@ WORKDIR /root
 
 EXPOSE 8080
 
-# csv2rdf-api invokes uvicorn with the factory-mode app builder.
-CMD ["csv2rdf-api", "--host", "0.0.0.0", "--port", "8080"]
+# asterism-api invokes uvicorn with the factory-mode app builder.
+CMD ["asterism-api", "--host", "0.0.0.0", "--port", "8080"]

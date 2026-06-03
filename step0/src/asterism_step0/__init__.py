@@ -1,4 +1,4 @@
-"""AI-assisted Step 0 tools for csv2rdf-mcp Phase 3.
+"""AI-assisted Step 0 tools for asterism Phase 3.
 
 Modules:
   - inspect: CSV inspection (column types, JSON detection, uniqueness stats)
@@ -6,7 +6,7 @@ Modules:
   - (future) validate: 8-trap validator (per ai-assisted-step0-workflow.md §6)
 """
 
-from csv2rdf_step0.inspect import (
+from asterism_step0.inspect import (
     ColumnSummary,
     CSVInspection,
     ForeignKeyCandidate,
@@ -14,21 +14,21 @@ from csv2rdf_step0.inspect import (
     inspect_csv,
     inspect_csv_set,
 )
-from csv2rdf_step0.materialize import (
+from asterism_step0.materialize import (
     MaterializeResult,
     materialize_schema,
 )
-from csv2rdf_step0.propose import (
+from asterism_step0.propose import (
     AnthropicLLMClient,
     LLMClient,
     SchemaProposal,
     propose_schema,
 )
-from csv2rdf_step0.refine import (
+from asterism_step0.refine import (
     RefinementResult,
     refine_schema,
 )
-from csv2rdf_step0.validate import (
+from asterism_step0.validate import (
     SchemaBundle,
     TrapResult,
     ValidationReport,

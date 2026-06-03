@@ -6,8 +6,8 @@ PREFIX dcterms: <http://purl.org/dc/terms/>
 PREFIX bibo: <http://purl.org/ontology/bibo/>
 PREFIX prov: <http://www.w3.org/ns/prov#>
 PREFIX schema: <https://schema.org/>
-PREFIX sd: <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#>
-PREFIX sdr: <https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/>
+PREFIX sd: <https://kumagallium.github.io/asterism/starrydata/ontology#>
+PREFIX sdr: <https://kumagallium.github.io/asterism/starrydata/resource/>
 <PaperShape> {
   a [ sd:Paper ] ;
   dcterms:identifier xsd:string ;

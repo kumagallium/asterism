@@ -47,7 +47,7 @@
 
 - **起動**: `ghcr.io/oxigraph/oxigraph` を pull → `serve --location /data --bind 0.0.0.0:7878` で即座にリッスン。
 - **Turtle 投入**: HTTP `POST /store?default Content-Type: text/turtle` で 3,715 triples を **0.32 秒**でロード。
-- **SPARQL 1.1 Update**: `INSERT DATA` が **2.35 ms** で完了。これは csv2rdf-mcp の「CSV 1 行追加 → 数秒で検索可能」というユースケースに完全に合致する。
+- **SPARQL 1.1 Update**: `INSERT DATA` が **2.35 ms** で完了。これは asterism の「CSV 1 行追加 → 数秒で検索可能」というユースケースに完全に合致する。
 - **同じ Turtle 再投入**: **IRI で識別される triple は冪等** (set semantics)。blank node のみ重複した (100 paper × 3 triples = 300 増加)。**Phase 1 の ingester は bnode を使わず IRI で命名**すれば、watcher による re-ingest が安全。
 - **検索性能**: 100 papers サイズでは LIMIT 100 のクエリが <22 ms p95。starrydata 全件での再計測は Phase 1 で実施。
 - **資料・LICENSE**: Apache-2.0、Rust 単一バイナリ、Docker image 53.6 MB、SPARQL 1.1 Query / Update / Protocol / Graph Store 完全準拠。
@@ -68,22 +68,22 @@
 
 ### 3.1 なぜ Oxigraph か (3 つの観点)
 
-1. **追記コストの非対称性**: csv2rdf-mcp の核は「CSV を放り込めば検索可能になる」自動再インデックスフロー (設計プラン §1 成功基準 4)。Oxigraph は SPARQL 1.1 Update を 2-3 ms で消化し、Turtle re-load も既存 IRI を set semantics で冪等にする。一方 QLever は static index 前提で、starrydata 全件規模ではフルリビルドが分単位 (handoff §11 致命的リスク 1)。**ユースケースとアーキテクチャが正面衝突**するため Oxigraph を採用する以外に合理的選択肢が無い。
+1. **追記コストの非対称性**: asterism の核は「CSV を放り込めば検索可能になる」自動再インデックスフロー (設計プラン §1 成功基準 4)。Oxigraph は SPARQL 1.1 Update を 2-3 ms で消化し、Turtle re-load も既存 IRI を set semantics で冪等にする。一方 QLever は static index 前提で、starrydata 全件規模ではフルリビルドが分単位 (handoff §11 致命的リスク 1)。**ユースケースとアーキテクチャが正面衝突**するため Oxigraph を採用する以外に合理的選択肢が無い。
 
-2. **配布性とソブリン哲学の整合**: csv2rdf-mcp は self-hostable / closed server / personal-lab-org の階層運用 (設計プラン §0.1) を前提にしている。Oxigraph は **53.6 MB の単一バイナリ Docker image** で、個人 PC から研究室サーバまで均一に転がせる。togopackage の 2.16 GB は personal scope では実用上重い (40 倍)。
+2. **配布性とソブリン哲学の整合**: asterism は self-hostable / closed server / personal-lab-org の階層運用 (設計プラン §0.1) を前提にしている。Oxigraph は **53.6 MB の単一バイナリ Docker image** で、個人 PC から研究室サーバまで均一に転がせる。togopackage の 2.16 GB は personal scope では実用上重い (40 倍)。
 
-3. **LICENSE と運用の透明性**: Oxigraph は Apache-2.0。togopackage は wrapper repo に LICENSE が無く、再配布権が暗黙。csv2rdf-mcp を Apache-2.0 として OSS 公開する以上、依存先のライセンスは明示的であることが必須。
+3. **LICENSE と運用の透明性**: Oxigraph は Apache-2.0。togopackage は wrapper repo に LICENSE が無く、再配布権が暗黙。asterism を Apache-2.0 として OSS 公開する以上、依存先のライセンスは明示的であることが必須。
 
 ### 3.2 なぜ Python rdflib ingester か (特に JSON 列対応の体感)
 
 - starrydata の 3 つの CSV すべてに JSON 埋め込み列がある (papers: `author` / `issued` / `project_names`、samples: `sample_info`、curves: `x` / `y`)。
 - Morph-KGC + YARRRML は **JSON 埋め込み列**の宣言的展開を直接サポートしない。FnO 経由は Morph-KGC のサポートが不安定 (`KeyError`)。前処理で CSV→JSON 分割すれば動くが、Python 前処理が必須なら最初から Python rdflib で書いた方が **コード量・デバッグ容易性・テスタビリティ**で勝る。
-- `experiments/phase05/scripts/csv_to_ttl.py` (134 行) が **すべての papers 列**を 3,715 triples に変換できることを確認済み。これを叩き台にして `ingest/src/csv2rdf/starrydata.py` を Phase 1 で書ける。
+- `experiments/phase05/scripts/csv_to_ttl.py` (134 行) が **すべての papers 列**を 3,715 triples に変換できることを確認済み。これを叩き台にして `ingest/src/asterism/starrydata.py` を Phase 1 で書ける。
 
 ### 3.3 togopackage を切る判断、その代わりに使うもの
 
 - **sparql_backend**: Oxigraph に統一。
-- **mcp_server**: 自作 (薄い proxy + csv2rdf-mcp に固有のツール)。
+- **mcp_server**: 自作 (薄い proxy + asterism に固有のツール)。
 - **sparqlist (SPARQL テンプレート機構)**: 現時点では不要。Phase 2 で必要になったら独立に導入する (MIT、git submodule か Docker compose の追加サービスとして)。
 - **grasp (GraphQL)**: 不要。MCP 経由のツール提供で代替。
 - **togomcp の MIE 書式**: **資料として保持**。Phase 2 で自作 MCP を書くときに `schema_info` / `shape_expressions` / `sample_rdf_entries` / `tools` の構造を借用 (例 chebi.yaml は [`experiments/phase05/togopackage/mie_sample_chebi.yaml`](../../experiments/phase05/togopackage/mie_sample_chebi.yaml) に保存済み)。
@@ -96,7 +96,7 @@
    - ⚠→✅ 同時に発見した **watcher の named-graph 投入 vs MIE クエリ (GRAPH 句なし) の非互換** (RESULTS.md §5) は **解消 (2026-05-30)**。watcher を **default graph 投入**に変更 (`POST /store?default`、`WatcherConfig.use_default_graph=True` 既定)。MIE は元から `graphs: [default]` を宣言しており、これで GRAPH 句なしの `sparql_query_examples` が data を返す。Phase 3 step0 が生成・ロードする RDF も default graph で統一。per-kind named graph は legacy opt-in として温存 (`--named-graphs` / `CSV2RDF_USE_DEFAULT_GRAPH=0`)。
 2. **curve の x/y 配列 / store サイズ** → **Phase 2 #5 で計測**。全件 store は **10 GB** (12M triples)。一般的な 1–2 GB より大きいのは、x/y を大きな JSON string literal で保持 (方針 C) し Oxigraph が literal を複数 index に格納するため。queryability とのトレードオフ。Phase 3 で「JSON literal を index しない / 配列を外部保管」を再検討する余地。
 3. **MCP server を自作する負担**: togopackage の togomcp / sparqlist / grasp を捨てる代わりに、自作 MCP に最低限のツール (`sparql_query`, `list_predicates`, `schema_diagram`, `template_curve_fetch`) を実装する必要がある。設計プラン §10 Phase 2 で計上済み (2-3 日)。
-4. **IRI 永続化**: 本素振りでは `http://localhost/csv2rdf/...` をプレースホルダで使った。Phase 1 で **GitHub Pages URL に切り替える**判断 (`https://kumagallium.github.io/csv2rdf-mcp/...`) が必要。最終 IRI のホスト名は Phase 1 着手時に再確認する。
+4. **IRI 永続化**: 本素振りでは `http://localhost/asterism/...` をプレースホルダで使った。Phase 1 で **GitHub Pages URL に切り替える**判断 (`https://kumagallium.github.io/asterism/...`) が必要。最終 IRI のホスト名は Phase 1 着手時に再確認する。
 5. **Morph-KGC を完全に捨てたわけではない**: Phase 3 で汎用 CSV (JSON 列が無いプレーンな表) を扱うときに、`manifest.yaml` から RML/YARRRML を自動生成する経路が再浮上する可能性がある。
 
 ---
@@ -124,10 +124,10 @@ Phase 1 の実装着手時に内部設計プランを以下のように改訂す
 
 ## 6. 次の Phase 1 への申し送り
 
-1. **着手順序**: papers ingester (`ingest/src/csv2rdf/starrydata.py::ingest_papers`) から。`experiments/phase05/scripts/csv_to_ttl.py` を叩き台にして、JSON 列の展開ロジックを **bnode 排除版**に書き直す。
+1. **着手順序**: papers ingester (`ingest/src/asterism/starrydata.py::ingest_papers`) から。`experiments/phase05/scripts/csv_to_ttl.py` を叩き台にして、JSON 列の展開ロジックを **bnode 排除版**に書き直す。
 2. **コンテナ構成**: `compose.yaml` を最小構成で書く (Oxigraph + 自作 MCP のみ)。upload_api / ingest watcher は Phase 1 後半。
 3. **ベンチ環境**: Phase 0.5 で書いた `scripts/bench_oxigraph.py` を Phase 1 でも使い回せる形に refactor (各 dataset に対して `pytest -m bench` で走る形が望ましい)。
-4. **IRI 確定**: 設計プラン §4.0 を踏襲し GitHub Pages を Phase 1 で立てる (`kumagallium.github.io/csv2rdf-mcp/...`)。w3id.org への PR は Phase 2 以降。
+4. **IRI 確定**: 設計プラン §4.0 を踏襲し GitHub Pages を Phase 1 で立てる (`kumagallium.github.io/asterism/...`)。w3id.org への PR は Phase 2 以降。
 5. **rdf-config の扱い**: いまは依存しない。Phase 2 で ShEx 検証が欲しくなったら **CLI から呼ぶだけ**で済ませる (リポジトリには取り込まない)。
 
 ---
@@ -145,7 +145,7 @@ Phase 1 の実装着手時に内部設計プランを以下のように改訂す
 | **Virtuoso :8890/sparql-auth + dba digest** | **HTTP 200**、INSERT DATA mean 7.45 ms |
 | container restart 後の永続性 | 残る (Virtuoso checkpoint で保持) |
 
-→ Phase 0.5 で「致命的」と書いた "live UPDATE 不可" は **解消**。csv2rdf-mcp の write tool だけが `/sparql-auth` を使い、read は sparql-proxy 経由でフィルタを通す役割分担が成立する。
+→ Phase 0.5 で「致命的」と書いた "live UPDATE 不可" は **解消**。asterism の write tool だけが `/sparql-auth` を使い、read は sparql-proxy 経由でフィルタを通す役割分担が成立する。
 
 ### 7.2 残った理由 3, 4 の重み
 

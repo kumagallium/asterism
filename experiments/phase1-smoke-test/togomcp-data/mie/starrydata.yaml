@@ -8,7 +8,7 @@ schema_info:
     Entities: sd:Paper (academic articles), schema:Person (authors),
     schema:Periodical (journals). Future phases will add sd:Sample and sd:Curve.
   endpoint: http://localhost:7878/query
-  base_uri: http://localhost/csv2rdf/starrydata/ontology#
+  base_uri: http://localhost/asterism/starrydata/ontology#
   graphs:
     - default
   kw_search_tools: ["sparql"]
@@ -26,7 +26,7 @@ schema_info:
     backend: "Oxigraph"
 
 shape_expressions: |
-  PREFIX sd: <http://localhost/csv2rdf/starrydata/ontology#>
+  PREFIX sd: <http://localhost/asterism/starrydata/ontology#>
   PREFIX schema: <https://schema.org/>
   PREFIX dcterms: <http://purl.org/dc/terms/>
   PREFIX bibo: <http://purl.org/ontology/bibo/>
@@ -60,8 +60,8 @@ sample_rdf_entries:
   - title: "Paper SID-1 (Snyder 2014 thermoelectric review)"
     description: "A canonical example with 5 authors and a journal periodical."
     rdf: |
-      @prefix sd: <http://localhost/csv2rdf/starrydata/ontology#> .
-      @prefix sdr: <http://localhost/csv2rdf/starrydata/resource/> .
+      @prefix sd: <http://localhost/asterism/starrydata/ontology#> .
+      @prefix sdr: <http://localhost/asterism/starrydata/resource/> .
       @prefix schema: <https://schema.org/> .
       @prefix dcterms: <http://purl.org/dc/terms/> .
 
@@ -78,13 +78,13 @@ sparql_query_examples:
   - title: "Count all papers"
     description: "Smoke-test: should return 100."
     query: |
-      PREFIX sd: <http://localhost/csv2rdf/starrydata/ontology#>
+      PREFIX sd: <http://localhost/asterism/starrydata/ontology#>
       SELECT (COUNT(?p) AS ?n) WHERE { ?p a sd:Paper }
 
   - title: "Papers with title and DOI"
     description: "Returns IRIs with their title and DOI."
     query: |
-      PREFIX sd: <http://localhost/csv2rdf/starrydata/ontology#>
+      PREFIX sd: <http://localhost/asterism/starrydata/ontology#>
       PREFIX schema: <https://schema.org/>
       SELECT ?paper ?title ?doi WHERE {
         ?paper a sd:Paper ;
@@ -96,7 +96,7 @@ sparql_query_examples:
   - title: "Find papers by author family name"
     description: "Reverse lookup from a Person to their Paper."
     query: |
-      PREFIX sd: <http://localhost/csv2rdf/starrydata/ontology#>
+      PREFIX sd: <http://localhost/asterism/starrydata/ontology#>
       PREFIX schema: <https://schema.org/>
       SELECT ?paper ?title WHERE {
         ?paper schema:author/schema:familyName "Snyder" ;
@@ -112,8 +112,8 @@ cross_references:
 architectural_notes: |
   - This MIE describes a Phase 1 smoke-test subset (100 papers only).
   - Full Phase 1 will add sd:Sample (from samples.csv) and sd:Curve (from curves.csv).
-  - All IRIs use http://localhost/csv2rdf/starrydata/ as a Phase 1 placeholder host;
-    Phase 2 will move to GitHub Pages, Phase 3 to w3id.org/csv2rdf (design-plan §4.0).
+  - All IRIs use http://localhost/asterism/starrydata/ as a Phase 1 placeholder host;
+    Phase 2 will move to GitHub Pages, Phase 3 to w3id.org/asterism (design-plan §4.0).
   - PROV-O integration (sd:IngestionActivity, sd:DigitizationActivity) will be added
     in Phase 1 proper. The smoke test omits PROV for brevity.
 

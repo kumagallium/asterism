@@ -7,7 +7,7 @@ status: 設計確定（決定事項あり）→ 実装は段階的（backend →
 
 Phase 4 で「ワークベンチで設計したもの → Gallery → Ask」が**未結線**だった。#14 で step0 が宣言 RML を出せるようになった（propose §RML 生成 → materialize 抽出 → T9 閉集合検証）。#15 は、**人間が承認した RML を実際に実行して RDF を生成し Oxigraph に載せ、Ask が消費する**ところまでを繋ぎ、authoring → catalog → consumption のループを閉じる。
 
-実行は宣言経路のみ（Morph-KGC が RML を解釈）。生成コードは走らない＝RCE 面なし。呼べる関数は閉じた Tier 0 集合（`csv2rdf.functions`）だけで、step0 の T9 がそれを検証済み。
+実行は宣言経路のみ（Morph-KGC が RML を解釈）。生成コードは走らない＝RCE 面なし。呼べる関数は閉じた Tier 0 集合（`asterism.functions`）だけで、step0 の T9 がそれを検証済み。
 
 ## 1. 決定事項
 
@@ -56,7 +56,7 @@ Phase 4 で「ワークベンチで設計したもの → Gallery → Ask」が*
 
 ## 4. 実装の分割（段階）
 
-- ✅ **S1 substrate コア**（本コミット）: `csv2rdf.substrate` = `draft_graph_iri` / `absolutize_rml_sources`（thread-safe）/ `materialize_to_graph`（Morph-KGC ラップ・optional dep・閉集合 udfs 登録）/ `ingest_graph_to_oxigraph`（Graph Store Protocol で draft graph 投入）/ `run_substrate_ingest`（一気通貫）。morph-kgc 非依存の部分は単体テスト済、Morph-KGC 実行は spike が実証。
+- ✅ **S1 substrate コア**（本コミット）: `asterism.substrate` = `draft_graph_iri` / `absolutize_rml_sources`（thread-safe）/ `materialize_to_graph`（Morph-KGC ラップ・optional dep・閉集合 udfs 登録）/ `ingest_graph_to_oxigraph`（Graph Store Protocol で draft graph 投入）/ `run_substrate_ingest`（一気通貫）。morph-kgc 非依存の部分は単体テスト済、Morph-KGC 実行は spike が実証。
 - ⬜ **S2 CSV 永続化 + api エンドポイント**: materialize 時に CSV をワークスペースに保存（現状 tmpdir 破棄）。`POST /api/datasets/{id}/ingest`（②投入）= persist 済み CSV + RML → `run_substrate_ingest` を `to_thread` で。draft graph IRI と triple count を返す。
 - ⬜ **S3 UI ゲート**: MaterializePanel に RML プレビュー + 「投入」承認ボタン。Gallery に draft/ingested ステータス。投入後に Ask が（昇格すれば）見えることを導線で明示。
 - ⬜ **S4 昇格 + alignment**: draft → canonical 昇格アクション。Reuse/Align/Extend/New の提案と人間 vet。

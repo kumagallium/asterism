@@ -1,9 +1,9 @@
-"""Tests for csv2rdf_step0.t1_ingester (ingester IRI-builder key recovery)."""
+"""Tests for asterism_step0.t1_ingester (ingester IRI-builder key recovery)."""
 from __future__ import annotations
 
 from textwrap import dedent
 
-from csv2rdf_step0.t1_ingester import IngesterKey, extract_ingester_keys
+from asterism_step0.t1_ingester import IngesterKey, extract_ingester_keys
 
 
 def _keys(src: str, columns: list[str] | None = None) -> dict[str, IngesterKey]:

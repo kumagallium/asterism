@@ -1,12 +1,12 @@
-"""Tests for csv2rdf_step0.refine."""
+"""Tests for asterism_step0.refine."""
 from __future__ import annotations
 
 from pathlib import Path
 
 import pytest
 
-from csv2rdf_step0.propose import LLMClient
-from csv2rdf_step0.refine import (
+from asterism_step0.propose import LLMClient
+from asterism_step0.refine import (
     SYSTEM_PROMPT,
     RefinementResult,
     _read_comments_file,

@@ -41,7 +41,7 @@ python experiments/phase5-morph-kgc-spike/e2e/e2e_design_to_ask.py
 
 ## このスパイクが示す「次に製品化すべきもの」
 
-1. **関数ライブラリ v0 を core（`csv2rdf`）へ昇格** — `parse_date` / `json_array_max` ほか
+1. **関数ライブラリ v0 を core（`asterism`）へ昇格** — `parse_date` / `json_array_max` ほか
    （`sanitize_iri` / `qudt_quantity_iri` / `qudt_unit_iri` / MP PoC の `normalize_host`）を
    1 つの検証済みモジュールに集約。手続き経路と宣言経路が同じ関数を共有する。
 2. **step0 が RML を出力** — 設計ステップが Python ingester に加えて（最終的には代わりに）

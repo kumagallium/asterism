@@ -1,10 +1,10 @@
-"""Tests for csv2rdf_step0.materialize."""
+"""Tests for asterism_step0.materialize."""
 from __future__ import annotations
 
 from pathlib import Path
 from textwrap import dedent
 
-from csv2rdf_step0.materialize import (
+from asterism_step0.materialize import (
     extract_code_blocks,
     materialize_schema,
 )

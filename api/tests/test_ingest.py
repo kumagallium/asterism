@@ -13,12 +13,12 @@ from pathlib import Path
 
 import httpx
 import rdflib
-from csv2rdf import substrate
-from csv2rdf.oxigraph_client import OxigraphClient, OxigraphConfig
+from asterism import substrate
+from asterism.oxigraph_client import OxigraphClient, OxigraphConfig
 from fastapi.testclient import TestClient
 
-from csv2rdf_api import registry
-from csv2rdf_api.main import Settings, build_app
+from asterism_api import registry
+from asterism_api.main import Settings, build_app
 
 
 def _settings(tmp: Path) -> Settings:

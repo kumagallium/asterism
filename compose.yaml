@@ -1,4 +1,4 @@
-# csv2rdf-mcp — Phase 2 compose
+# asterism — Phase 2 compose
 #
 # Option B (Oxigraph + togomcp ハイブリッド) + Phase 2 upload-api を local で
 # 立ち上げる構成。docs/architecture/option-b.md と整合。
@@ -21,7 +21,7 @@ services:
 
   oxigraph:
     image: ghcr.io/oxigraph/oxigraph:latest
-    container_name: csv2rdf_oxigraph
+    container_name: asterism_oxigraph
     command: >
       serve
       --location /data
@@ -36,7 +36,7 @@ services:
     restart: unless-stopped
 
   togomcp:
-    # dbcls/togomcp の公式 Docker image はまだ無いので csv2rdf-mcp 側で
+    # dbcls/togomcp の公式 Docker image はまだ無いので asterism 側で
     # 自前 build する (infra/togomcp/Dockerfile)。pin した commit SHA は
     # Dockerfile の TOGOMCP_REF ARG で管理。公式 image が出たら build: を
     # image: ghcr.io/dbcls/togomcp:<tag> に置き換えるだけ。
@@ -48,7 +48,7 @@ services:
       dockerfile: infra/togomcp/Dockerfile
       # 任意で別の commit に上げたいときは:
       #   docker compose build --build-arg TOGOMCP_REF=<sha> togomcp
-    container_name: csv2rdf_togomcp
+    container_name: asterism_togomcp
     depends_on:
       - oxigraph
     environment:
@@ -66,7 +66,7 @@ services:
     build:
       context: .
       dockerfile: infra/upload-api/Dockerfile
-    container_name: csv2rdf_upload_api
+    container_name: asterism_upload_api
     depends_on:
       - oxigraph
     environment:
@@ -84,14 +84,14 @@ services:
       - "${CSV2RDF_UPLOAD_API_PORT:-8080}:8080"
     restart: unless-stopped
 
-  csv2rdf-mcp:
+  asterism:
     # Phase 2 #3: self-built FastMCP server. Provides starrydata-specific
     # tools (currently just template_curve_fetch) that complement togomcp's
     # generic run_sparql. Connects to Oxigraph directly over mcp-net.
     build:
       context: .
-      dockerfile: infra/csv2rdf-mcp/Dockerfile
-    container_name: csv2rdf_self_mcp
+      dockerfile: infra/asterism/Dockerfile
+    container_name: asterism_self_mcp
     depends_on:
       - oxigraph
     environment:

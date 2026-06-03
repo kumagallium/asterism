@@ -8,10 +8,10 @@ from __future__ import annotations
 import json
 
 import httpx
-from csv2rdf.oxigraph_client import OxigraphClient, OxigraphConfig
-from csv2rdf.starrydata import DEFAULT_ONTOLOGY, DEFAULT_RESOURCE
+from asterism.oxigraph_client import OxigraphClient, OxigraphConfig
+from asterism.starrydata import DEFAULT_ONTOLOGY, DEFAULT_RESOURCE
 
-from csv2rdf_mcp.server import Settings, build_server
+from asterism_mcp.server import Settings, build_server
 
 SD = DEFAULT_ONTOLOGY
 SDR = DEFAULT_RESOURCE

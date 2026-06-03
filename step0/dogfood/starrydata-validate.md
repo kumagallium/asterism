@@ -1,14 +1,14 @@
-# Dogfood report — `csv2rdf-validate` on Phase 1 starrydata artifacts
+# Dogfood report — `asterism-validate` on Phase 1 starrydata artifacts
 
 Date: 2026-05-29
 Command:
 
 ```bash
-csv2rdf-validate \
+asterism-validate \
     --tbox docs/ontology/starrydata.ttl \
     --diagram docs/ontology/diagram.md \
     --mie data/togomcp/mie/starrydata.yaml \
-    --ingester ingest/src/csv2rdf/starrydata.py \
+    --ingester ingest/src/asterism/starrydata.py \
     --csv starrydata_papers.csv \
     --csv starrydata_samples.csv \
     --csv starrydata_curves.csv \
@@ -32,7 +32,7 @@ Result: **exit 0** (6 pass / 1 warn / 1 skip), runtime ~10 s.
 
 - **T1 full-scale**: re-verified that Phase 1's composite IRI design ([design-rationale §1](../../docs/architecture/design-rationale.md#1-iri-命名--複合キー-composite-iri)) holds across all 104,846 samples and 233,103 curves — `(SID, sample_id)` and `(SID, sample_id, figure_id)` produce zero collisions
 - **T3 full-scale**: the Phase 1 ingester (600+ lines) and TBox (153 triples) genuinely contain zero blank nodes — `design-rationale §2` claim holds
-- **T5 regression-blocker**: the [Mermaid colon-escape fix from PR #6](https://github.com/kumagallium/csv2rdf-mcp/pull/6) is now CI-protected — if future edits reintroduce `:` in a relation label, validate fails
+- **T5 regression-blocker**: the [Mermaid colon-escape fix from PR #6](https://github.com/kumagallium/asterism/pull/6) is now CI-protected — if future edits reintroduce `:` in a relation label, validate fails
 
 ## Known limitations surfaced
 
@@ -44,7 +44,7 @@ Result: **exit 0** (6 pass / 1 warn / 1 skip), runtime ~10 s.
 This documents the *Why* / *Alternatives considered* / *Trade-offs* in prose without using those literal English words. The validator's keyword-substring heuristic misses this and flags `warn`. The schema is fine — the validator's bar is loose by design (heuristic, not enforced). A future improvement: parse YAML structure (e.g. `- decision:` / `why:` / `alternatives:`) instead of grepping the prose blob.
 
 ### T1 only validates MIE-declared composites
-T1 extracts IRI templates from MIE `shape_expressions` (`sdr:sample/{SID}-{sample_id}` etc.). The Phase 1 MIE declares composite keys for Sample and Curve, but **not** for Paper — so T1 doesn't notice the 28 collisions on papers.csv `SID` that the [follow-up task](https://github.com/kumagallium/csv2rdf-mcp/) is investigating.
+T1 extracts IRI templates from MIE `shape_expressions` (`sdr:sample/{SID}-{sample_id}` etc.). The Phase 1 MIE declares composite keys for Sample and Curve, but **not** for Paper — so T1 doesn't notice the 28 collisions on papers.csv `SID` that the [follow-up task](https://github.com/kumagallium/asterism/) is investigating.
 
 Possible fix (not in this PR): also extract IRI templates from ingester source (`sdr[f"paper/{sid}"]` → infer `sdr:paper/{SID}`). Tracking as a follow-up.
 
@@ -64,7 +64,7 @@ All 6 of these were Phase 1 incidents. The validator now turns them into determi
 
 ## Next steps
 
-1. Add `csv2rdf-validate` as an optional CI job (needs the source CSVs — currently local-only)
+1. Add `asterism-validate` as an optional CI job (needs the source CSVs — currently local-only)
 2. Improve T7 to YAML-structured rationale (or rephrase Phase 1 prose to include the literal keywords)
 3. Improve T1 to also extract IRI templates from ingester source (catches the papers.csv SID issue from MIE-incomplete schemas)
 4. Implement T8 hallucination test once we have a curated NL question fixture

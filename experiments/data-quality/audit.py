@@ -24,7 +24,7 @@ import urllib.request
 from dataclasses import dataclass, field
 
 PREFIXES = """
-PREFIX sd: <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#>
+PREFIX sd: <https://kumagallium.github.io/asterism/starrydata/ontology#>
 PREFIX schema: <https://schema.org/>
 """
 

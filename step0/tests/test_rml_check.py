@@ -1,11 +1,11 @@
-"""Tests for csv2rdf_step0.rml_check (T9 — RML closed-set guardrail)."""
+"""Tests for asterism_step0.rml_check (T9 — RML closed-set guardrail)."""
 from __future__ import annotations
 
 from textwrap import dedent
 
 import pytest
 
-from csv2rdf_step0.rml_check import (
+from asterism_step0.rml_check import (
     FN_NAMESPACE,
     closed_set_violations,
     referenced_function_iris,
@@ -20,7 +20,7 @@ _RML = dedent(
     @prefix rml:  <http://semweb.mmlab.be/ns/rml#> .
     @prefix ql:   <http://semweb.mmlab.be/ns/ql#> .
     @prefix rmlf: <http://w3id.org/rml/> .
-    @prefix fn:   <https://kumagallium.github.io/csv2rdf-mcp/fn/> .
+    @prefix fn:   <https://kumagallium.github.io/asterism/fn/> .
     @prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
 
     <#CurveMap> a rr:TriplesMap ;

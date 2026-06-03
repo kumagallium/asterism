@@ -1,8 +1,8 @@
 @prefix rr: <http://www.w3.org/ns/r2rml#> .
 @prefix rml: <http://semweb.mmlab.be/ns/rml#> .
 @prefix ql: <http://semweb.mmlab.be/ns/ql#> .
-@prefix sd: <http://localhost/csv2rdf/starrydata/ontology#> .
-@prefix sdr: <http://localhost/csv2rdf/starrydata/resource/> .
+@prefix sd: <http://localhost/asterism/starrydata/ontology#> .
+@prefix sdr: <http://localhost/asterism/starrydata/resource/> .
 @prefix schema: <https://schema.org/> .
 @prefix dcterms: <http://purl.org/dc/terms/> .
 @prefix bibo: <http://purl.org/ontology/bibo/> .
@@ -27,7 +27,7 @@
 <#PapersMap>
     rml:logicalSource <#PapersSource> ;
     rr:subjectMap [
-        rr:template "http://localhost/csv2rdf/starrydata/resource/paper/{SID}" ;
+        rr:template "http://localhost/asterism/starrydata/resource/paper/{SID}" ;
         rr:class sd:Paper ;
         rr:class schema:ScholarlyArticle
     ] ;
@@ -71,7 +71,7 @@
 <#PeriodicalMap>
     rml:logicalSource <#PapersSource> ;
     rr:subjectMap [
-        rr:template "http://localhost/csv2rdf/starrydata/resource/paper/{SID}/periodical" ;
+        rr:template "http://localhost/asterism/starrydata/resource/paper/{SID}/periodical" ;
         rr:class schema:Periodical
     ] ;
     rr:predicateObjectMap [
@@ -82,12 +82,12 @@
 <#PaperPeriodicalLink>
     rml:logicalSource <#PapersSource> ;
     rr:subjectMap [
-        rr:template "http://localhost/csv2rdf/starrydata/resource/paper/{SID}"
+        rr:template "http://localhost/asterism/starrydata/resource/paper/{SID}"
     ] ;
     rr:predicateObjectMap [
         rr:predicate schema:isPartOf ;
         rr:objectMap [
-            rr:template "http://localhost/csv2rdf/starrydata/resource/paper/{SID}/periodical" ;
+            rr:template "http://localhost/asterism/starrydata/resource/paper/{SID}/periodical" ;
             rr:termType rr:IRI
         ]
     ] .

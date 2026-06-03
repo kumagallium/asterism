@@ -1,7 +1,7 @@
-"""FastMCP server entry point for csv2rdf-mcp self-built tools.
+"""FastMCP server entry point for asterism self-built tools.
 
 We keep this module thin on purpose: tool *bodies* live in
-:mod:`csv2rdf_mcp.tools` and stay testable without a transport. This file
+:mod:`asterism_mcp.tools` and stay testable without a transport. This file
 only:
 
 1. Reads environment-driven config (Oxigraph URL).
@@ -20,10 +20,10 @@ import logging
 import os
 from typing import Final
 
-from csv2rdf.oxigraph_client import OxigraphClient, OxigraphConfig
+from asterism.oxigraph_client import OxigraphClient, OxigraphConfig
 from fastmcp import FastMCP
 
-from csv2rdf_mcp.tools import (
+from asterism_mcp.tools import (
     CurveNotFoundError,
     property_ranking,
     provenance_of,
@@ -64,7 +64,7 @@ def build_server(
     ``settings`` on first use.
     """
     cfg = settings or Settings()
-    mcp: FastMCP = FastMCP(name="csv2rdf-mcp-tools")
+    mcp: FastMCP = FastMCP(name="asterism-mcp-tools")
 
     # FastMCP runs each tool call through asyncio anyway; keeping the
     # client at module scope on the server lets us share the HTTPX pool
@@ -187,8 +187,8 @@ def _main(argv: list[str] | None = None) -> int:
     import argparse
 
     p = argparse.ArgumentParser(
-        prog="csv2rdf-mcp",
-        description="csv2rdf-mcp self-built FastMCP tools server.",
+        prog="asterism",
+        description="asterism self-built FastMCP tools server.",
     )
     p.add_argument(
         "--transport",

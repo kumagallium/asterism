@@ -3,7 +3,7 @@
 
 Selects the first N papers (by SID) that actually have a ``ZT`` curve — so the
 demo's headline question ("highest ZT") always has data — then filters samples
-+ curves to those SIDs and runs the real csv2rdf ingester to produce the Turtle
++ curves to those SIDs and runs the real asterism ingester to produce the Turtle
 the demo loads into Oxigraph.
 
 Licensed source data stays OUT of the repo: everything is written under
@@ -24,7 +24,7 @@ from pathlib import Path
 _REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO / "ingest" / "src"))
 
-from csv2rdf.starrydata import (  # noqa: E402
+from asterism.starrydata import (  # noqa: E402
     ingest_curves,
     ingest_papers,
     ingest_samples,

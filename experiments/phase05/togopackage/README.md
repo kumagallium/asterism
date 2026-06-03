@@ -6,7 +6,7 @@
 
 - image: `ghcr.io/dbcls/togopackage:latest` (digest: d0a12f7f5eec)
 - image size: **2.16 GB**
-- container: `csv2rdf_phase05_togopackage` (ports 10005 / 7001 / 8890)
+- container: `asterism_phase05_togopackage` (ports 10005 / 7001 / 8890)
 - 入力: `../data/papers_100.ttl` (3,715 triples)
 
 ## 実行手順
@@ -69,7 +69,7 @@ docker compose down -v
 - [x] **reload / 部分再インデックス API**: **存在しない**。`config.yaml` か source files を変更 → `docker compose restart` → `/togo/runtime/setup/qlever.sh` が input_hash を計算し変化があれば QLever index を **フルリビルド**する設計 (README "Generated Artifacts" 節)。
   - 100 papers / 3,715 triples では restart wallclock 4 秒。
   - **starrydata 全件 (~2-5M triples) では分単位** になる見込み (handoff §11 致命的リスク 1)。
-  - watcher で CSV を取り込んで自動再インデックスする csv2rdf-mcp のユースケース (Quickstart "drop file → 自動再インデックス") とは相性が悪い。
+  - watcher で CSV を取り込んで自動再インデックスする asterism のユースケース (Quickstart "drop file → 自動再インデックス") とは相性が悪い。
 - [x] **MIE YAML 書式**: `togo-mcp-admin` コマンドは見つからないが、`/togo/defaults/togomcp/mie/*.yaml` に **完成された参考実装 20+ 個** がある (chebi.yaml = 627 行)。構造:
   - `schema_info`: title / description / endpoint / base_uri / graphs / version / license / access
   - `shape_expressions`: ShEx 定義
@@ -77,14 +77,14 @@ docker compose down -v
   - `tools`: sparql_query テンプレ
   → Phase 1 で starrydata 用 MIE を書くなら chebi.yaml をコピペベースで叩き台にできる (本ディレクトリの [`mie_sample_chebi.yaml`](mie_sample_chebi.yaml) を参照)。
 - [x] **LICENSE ファイル**: **無い** (handoff §11.3 の警告そのもの)。`GET /repos/dbcls/togopackage/license` → 404。vendor の submodule (sparql-proxy, sparqlist, grasp, togomcp, rdf-config) は **すべて MIT**。togopackage wrapper 本体は LICENSE 不在のため、**Apache-2.0 として再配布する権利が不明**。
-  - イメージを単純に `docker pull` して使うだけならグレー (利用権の暗黙黙認に依存) だが、`compose.yaml` や config テンプレを csv2rdf-mcp 側でフォークして公開する場合は確実に問題になる。
+  - イメージを単純に `docker pull` して使うだけならグレー (利用権の暗黙黙認に依存) だが、`compose.yaml` や config テンプレを asterism 側でフォークして公開する場合は確実に問題になる。
   - 設計プラン §11 致命的リスク 3 の「LICENSE 確認次第で依存を切る」判断が現実化。
 
 ## SPARQL UPDATE が通らない件の補足
 
 - sparql-proxy は GET / POST application/sparql-query を許可するが、POST application/sparql-update は **無条件で 415** を返す (read-only proxy 設計)。
 - QLever 側で `PERSIST_UPDATES: true` を立てれば直接 7001 ポートに対しては update が通るが、その場合も restart で失われない保証はなく、togopackage の入力差分検出 (`.loaded-input-hash`) との整合性も崩れる。
-- csv2rdf-mcp は **CSV を canonical source** にして毎回 RDF 再生成→投入する設計 (handoff / 設計プラン §5) なので、SPARQL UPDATE は本質的に必要ない。だが「subset を 1 行だけ追加した時の延長時間」を最小化する観点では restart 型は不利。
+- asterism は **CSV を canonical source** にして毎回 RDF 再生成→投入する設計 (handoff / 設計プラン §5) なので、SPARQL UPDATE は本質的に必要ない。だが「subset を 1 行だけ追加した時の延長時間」を最小化する観点では restart 型は不利。
 
 ## バックエンドだけ差し替える選択肢
 
@@ -94,10 +94,10 @@ docker compose down -v
 [upload_api] → [ingest: Python rdflib] → Turtle → [Oxigraph] → [自作 MCP (薄い proxy)]
 ```
 
-togopackage の利点は **sparqlist / grasp / tabulae の同梱**にあるが、本プロジェクトの第一フェーズで必要なのは SPARQL endpoint + MCP のみ。**sparqlist / grasp / tabulae を必要に応じて後付け**でも csv2rdf-mcp のソブリン設計と整合する。
+togopackage の利点は **sparqlist / grasp / tabulae の同梱**にあるが、本プロジェクトの第一フェーズで必要なのは SPARQL endpoint + MCP のみ。**sparqlist / grasp / tabulae を必要に応じて後付け**でも asterism のソブリン設計と整合する。
 
 ## 結論 (詳細は [`../../../docs/architecture/phase05-decisions.md`](../../../docs/architecture/phase05-decisions.md))
 
-- **採用継続は推奨しない**。主因は (1) LICENSE 不在による法的不確実性、(2) restart-rebuild 型の更新モデルが csv2rdf-mcp の auto-reindex ユースケースと相性が悪い、(3) image 2.16 GB の配布コスト。
-- **togomcp の MIE 書式と defaults/mie/ の例**は **資料として有用**。Phase 1 で csv2rdf-mcp が自作 MCP を書くときの schema_info / shape_expressions / sample_rdf_entries 構造の **設計参考**として残す価値あり。
+- **採用継続は推奨しない**。主因は (1) LICENSE 不在による法的不確実性、(2) restart-rebuild 型の更新モデルが asterism の auto-reindex ユースケースと相性が悪い、(3) image 2.16 GB の配布コスト。
+- **togomcp の MIE 書式と defaults/mie/ の例**は **資料として有用**。Phase 1 で asterism が自作 MCP を書くときの schema_info / shape_expressions / sample_rdf_entries 構造の **設計参考**として残す価値あり。
 - **sparqlist の SPARQL テンプレート機構**は将来 (Phase 2 以降) で必要になったら **独立に導入**できる (MIT)。togopackage 全体を抱える必要はない。

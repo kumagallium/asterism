@@ -26,22 +26,22 @@ PROXY = "http://localhost:10005/sparql"
 WRITE_URL = "http://localhost:8890/sparql-auth"
 DBA_USER = "dba"
 DBA_PASSWORD = "dba"
-GRAPH = "http://localhost/csv2rdf/starrydata/graph/subset-a"
+GRAPH = "http://localhost/asterism/starrydata/graph/subset-a"
 
 QUERIES = {
     "Q1_count": f"SELECT (COUNT(*) AS ?c) WHERE {{ GRAPH <{GRAPH}> {{ ?s ?p ?o }} }}",
     "Q2_papers": (
-        "PREFIX sd: <http://localhost/csv2rdf/starrydata/ontology#>\n"
+        "PREFIX sd: <http://localhost/asterism/starrydata/ontology#>\n"
         f"SELECT ?p WHERE {{ GRAPH <{GRAPH}> {{ ?p a sd:Paper }} }} LIMIT 100"
     ),
     "Q3_titles": (
         "PREFIX schema: <https://schema.org/>\n"
-        "PREFIX sd: <http://localhost/csv2rdf/starrydata/ontology#>\n"
+        "PREFIX sd: <http://localhost/asterism/starrydata/ontology#>\n"
         f"SELECT ?p ?t WHERE {{ GRAPH <{GRAPH}> {{ ?p a sd:Paper ; schema:name ?t }} }} LIMIT 100"
     ),
     "Q4_authors_per_paper": (
         "PREFIX schema: <https://schema.org/>\n"
-        "PREFIX sd: <http://localhost/csv2rdf/starrydata/ontology#>\n"
+        "PREFIX sd: <http://localhost/asterism/starrydata/ontology#>\n"
         f"SELECT ?p (COUNT(?a) AS ?n) WHERE {{ GRAPH <{GRAPH}> {{ ?p a sd:Paper ; schema:author ?a }} }} "
         "GROUP BY ?p ORDER BY DESC(?n) LIMIT 20"
     ),
@@ -52,7 +52,7 @@ QUERIES = {
     # 同じセマンティクスを STR ベースの比較で書き直して回避する。
     "Q5_filter_year": (
         "PREFIX schema: <https://schema.org/>\n"
-        "PREFIX sd: <http://localhost/csv2rdf/starrydata/ontology#>\n"
+        "PREFIX sd: <http://localhost/asterism/starrydata/ontology#>\n"
         f"SELECT ?p ?d WHERE {{ GRAPH <{GRAPH}> {{ ?p a sd:Paper ; schema:datePublished ?d . "
         "FILTER ( STR(?d) >= \"2015-01-01\" ) } } LIMIT 50"
     ),
@@ -145,8 +145,8 @@ def main() -> int:
     for i in range(5):
         u = (
             f"INSERT DATA {{ GRAPH <{GRAPH}> {{ "
-            f"<http://localhost/csv2rdf/starrydata/resource/paper/bench-v-{i}> a "
-            "<http://localhost/csv2rdf/starrydata/ontology#Paper> }}"
+            f"<http://localhost/asterism/starrydata/resource/paper/bench-v-{i}> a "
+            "<http://localhost/asterism/starrydata/ontology#Paper> }}"
         )
         dt, status = update_dba(u)
         ts_upd.append(dt)

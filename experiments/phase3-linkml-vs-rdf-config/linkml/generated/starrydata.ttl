@@ -3,11 +3,11 @@
 @prefix pav: <http://purl.org/pav/> .
 @prefix prov: <http://www.w3.org/ns/prov#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
-@prefix sd: <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#> .
+@prefix sd: <https://kumagallium.github.io/asterism/starrydata/ontology#> .
 @prefix skos: <http://www.w3.org/2004/02/skos/core#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
-<https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology.owl.ttl> a owl:Ontology ;
+<https://kumagallium.github.io/asterism/starrydata/ontology.owl.ttl> a owl:Ontology ;
     rdfs:label "starrydata" ;
     dcterms:license "https://www.apache.org/licenses/LICENSE-2.0" ;
     dcterms:title "Starrydata Ontology (LinkML rewrite)" ;
@@ -203,7 +203,7 @@ keeps raw x/y arrays as JSON literals plus pre-computed aggregates
 """ ;
     skos:exactMatch prov:Entity,
         sd:Curve ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:Periodical a owl:Class ;
     rdfs:label "Periodical" ;
@@ -236,7 +236,7 @@ sd:Periodical a owl:Class ;
             owl:onProperty sd:periodicalSlug ] ;
     skos:definition "A journal / book series the paper appears in." ;
     skos:exactMatch <http://schema.org/Periodical> ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:Person a owl:Class ;
     rdfs:label "Person" ;
@@ -270,18 +270,18 @@ sd:Person a owl:Class ;
     skos:definition "An author or other PROV-O agent linked to a paper." ;
     skos:exactMatch <http://schema.org/Person>,
         prov:Agent ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:author a owl:ObjectProperty ;
     rdfs:label "author" ;
     rdfs:range sd:Person ;
     skos:definition "論文著者 (順序保持; ABox では index でユニーク化)" ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:hasDescriptor a owl:ObjectProperty ;
     rdfs:label "hasDescriptor" ;
     rdfs:range sd:Descriptor ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:Descriptor a owl:Class ;
     rdfs:label "Descriptor" ;
@@ -335,7 +335,7 @@ sd:Descriptor a owl:Class ;
 category/comment/extracted are dropped at ingest time.
 """ ;
     skos:exactMatch sd:Descriptor ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:HasIngestionProvenance a owl:Class ;
     rdfs:label "HasIngestionProvenance" ;
@@ -352,7 +352,7 @@ sd:HasIngestionProvenance a owl:Class ;
 at the IngestionActivity that emitted it. Concrete classes inherit the
 `wasGeneratedBy` slot.
 """ ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:IngestionActivity a owl:Class ;
     rdfs:label "IngestionActivity" ;
@@ -401,13 +401,13 @@ sd:IngestionActivity a owl:Class ;
         [ a owl:Restriction ;
             owl:allValuesFrom xsd:string ;
             owl:onProperty sd:runId ] ;
-    skos:definition """A single run of the csv2rdf-mcp ingester. Each Paper/Sample/Curve
+    skos:definition """A single run of the asterism ingester. Each Paper/Sample/Curve
 generated in the run carries prov:wasGeneratedBy → IngestionActivity for
 provenance traceability.
 """ ;
     skos:exactMatch prov:Activity,
         sd:IngestionActivity ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:Paper a owl:Class ;
     rdfs:label "Paper" ;
@@ -529,13 +529,13 @@ in starrydata_papers.csv becomes one sd:Paper instance.
     skos:exactMatch <http://schema.org/ScholarlyArticle>,
         prov:Entity,
         sd:Paper ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:SID a owl:DatatypeProperty ;
     rdfs:label "SID" ;
     rdfs:range xsd:string ;
     skos:definition "starrydata paper identifier (SID 列の値)" ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:Sample a owl:Class ;
     rdfs:label "Sample" ;
@@ -623,148 +623,148 @@ composition string and zero or more structured Descriptors.
 """ ;
     skos:exactMatch prov:Entity,
         sd:Sample ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:alternateName a owl:DatatypeProperty ;
     rdfs:label "alternateName" ;
     rdfs:range xsd:string ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:atTime a owl:DatatypeProperty ;
     rdfs:label "atTime" ;
     rdfs:range xsd:dateTime ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:comments a owl:DatatypeProperty ;
     rdfs:label "comments" ;
     rdfs:range xsd:string ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:compositionDetails a owl:DatatypeProperty ;
     rdfs:label "compositionDetails" ;
     rdfs:range xsd:string ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:compositionString a owl:DatatypeProperty ;
     rdfs:label "compositionString" ;
     rdfs:range xsd:string ;
     skos:definition "starrydata_samples.csv composition 列の raw 文字列 (e.g. \"Bi2Te3\")" ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:curveCompositeKey a owl:DatatypeProperty ;
     rdfs:label "curveCompositeKey" ;
     rdfs:range xsd:string ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:datePublished a owl:DatatypeProperty ;
     rdfs:label "datePublished" ;
     rdfs:range xsd:date ;
     skos:definition """論文の出版日 (xsd:date)。issued JSON 列を parse して 1 月 1 日補完で normalize。
 """ ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:descriptorCategory a owl:DatatypeProperty ;
     rdfs:label "descriptorCategory" ;
     rdfs:range xsd:string ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:descriptorComment a owl:DatatypeProperty ;
     rdfs:label "descriptorComment" ;
     rdfs:range xsd:string ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:descriptorCompositeKey a owl:DatatypeProperty ;
     rdfs:label "descriptorCompositeKey" ;
     rdfs:range xsd:string ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:descriptorExtracted a owl:DatatypeProperty ;
     rdfs:label "descriptorExtracted" ;
     rdfs:range xsd:string ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:descriptorName a owl:DatatypeProperty ;
     rdfs:label "descriptorName" ;
     rdfs:range xsd:string ;
     skos:definition "e.g. MaterialFamily, Form, FabricationProcess, ThermalMeasurement." ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:doi a owl:DatatypeProperty ;
     rdfs:label "doi" ;
     rdfs:range xsd:string ;
     skos:definition "DOI literal (raw 文字列、IRI 化はせず)" ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:endedAtTime a owl:DatatypeProperty ;
     rdfs:label "endedAtTime" ;
     rdfs:range xsd:dateTime ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:familyName a owl:DatatypeProperty ;
     rdfs:label "familyName" ;
     rdfs:range xsd:string ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:figureName a owl:DatatypeProperty ;
     rdfs:label "figureName" ;
     rdfs:range xsd:string ;
     skos:definition "Figure label as printed in the source paper, e.g. \"6(b)\"." ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:fromPaper a owl:ObjectProperty ;
     rdfs:label "fromPaper" ;
     rdfs:range sd:Paper ;
     skos:definition "Sample が報告された Paper" ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:givenName a owl:DatatypeProperty ;
     rdfs:label "givenName" ;
     rdfs:range xsd:string ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:isPartOf a owl:ObjectProperty ;
     rdfs:label "isPartOf" ;
     rdfs:range sd:Periodical ;
     skos:definition "論文が属する Periodical (Journal)" ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:issue a owl:DatatypeProperty ;
     rdfs:label "issue" ;
     rdfs:range xsd:string ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:ofSample a owl:ObjectProperty ;
     rdfs:label "ofSample" ;
     rdfs:range sd:Sample ;
     skos:definition "Curve が測定対象とした Sample" ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:pages a owl:DatatypeProperty ;
     rdfs:label "pages" ;
     rdfs:range xsd:string ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:periodicalName a owl:DatatypeProperty ;
     rdfs:label "periodicalName" ;
     rdfs:range xsd:string ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:periodicalSlug a owl:DatatypeProperty ;
     rdfs:label "periodicalSlug" ;
     rdfs:range xsd:string ;
     skos:definition "lowercased / alphanumeric slug derived from container_title" ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:personCompositeKey a owl:DatatypeProperty ;
     rdfs:label "personCompositeKey" ;
     rdfs:range xsd:string ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:pointCount a owl:DatatypeProperty ;
     rdfs:label "pointCount" ;
     rdfs:range xsd:integer ;
     skos:definition "Number of (x,y) pairs in this curve (min(len(x), len(y)))." ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:propertyX a owl:DatatypeProperty ;
     rdfs:label "propertyX" ;
@@ -772,98 +772,98 @@ sd:propertyX a owl:DatatypeProperty ;
     skos:definition """Phase 1 stores the raw label (e.g. "Temperature"). Phase 2 will
 normalize to a qudt:QuantityKind IRI.
 """ ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:propertyY a owl:DatatypeProperty ;
     rdfs:label "propertyY" ;
     rdfs:range xsd:string ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:publisher a owl:DatatypeProperty ;
     rdfs:label "publisher" ;
     rdfs:range xsd:string ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:rawFigureId a owl:DatatypeProperty ;
     rdfs:label "rawFigureId" ;
     rdfs:range xsd:string ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:rawSampleId a owl:DatatypeProperty ;
     rdfs:label "rawSampleId" ;
     rdfs:range xsd:string ;
     skos:definition "starrydata の元 sample_id (paper を跨ぐと collide するので lookup 不可)" ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:runId a owl:DatatypeProperty ;
     rdfs:label "runId" ;
     rdfs:range xsd:string ;
     skos:definition "Run identifier (e.g. \"run-20260528T064500Z\")" ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:sampleCompositeKey a owl:DatatypeProperty ;
     rdfs:label "sampleCompositeKey" ;
     rdfs:range xsd:string ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:sampleName a owl:DatatypeProperty ;
     rdfs:label "sampleName" ;
     rdfs:range xsd:string ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:title a owl:DatatypeProperty ;
     rdfs:label "title" ;
     rdfs:range xsd:string ;
     skos:definition "論文タイトル" ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:unitXString a owl:DatatypeProperty ;
     rdfs:label "unitXString" ;
     rdfs:range xsd:string ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:unitYString a owl:DatatypeProperty ;
     rdfs:label "unitYString" ;
     rdfs:range xsd:string ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:url a owl:DatatypeProperty ;
     rdfs:label "url" ;
     rdfs:range xsd:anyURI ;
     skos:definition "論文のリンク URL" ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:used a owl:DatatypeProperty ;
     rdfs:label "used" ;
     rdfs:range xsd:anyURI ;
     skos:definition "入力 CSV ファイルの IRI (`sdr:source/<basename>`)" ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:volume a owl:DatatypeProperty ;
     rdfs:label "volume" ;
     rdfs:range xsd:string ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:wasAssociatedWith a owl:DatatypeProperty ;
     rdfs:label "wasAssociatedWith" ;
     rdfs:range xsd:anyURI ;
-    skos:definition "csv2rdf-mcp の GitHub URL (software agent IRI)" ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:definition "asterism の GitHub URL (software agent IRI)" ;
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:wasGeneratedBy a owl:ObjectProperty ;
     rdfs:label "wasGeneratedBy" ;
     rdfs:range sd:IngestionActivity ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:xMax a owl:DatatypeProperty ;
     rdfs:label "xMax" ;
     rdfs:range xsd:double ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:xMin a owl:DatatypeProperty ;
     rdfs:label "xMin" ;
     rdfs:range xsd:double ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:xValuesJSON a owl:DatatypeProperty ;
     rdfs:label "xValuesJSON" ;
@@ -871,33 +871,33 @@ sd:xValuesJSON a owl:DatatypeProperty ;
     skos:definition """Raw JSON-encoded array of x measurements (方針 C). Pre-computed
 aggregates xMin/xMax/pointCount are emitted as sibling slots.
 """ ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:yMax a owl:DatatypeProperty ;
     rdfs:label "yMax" ;
     rdfs:range xsd:double ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:yMin a owl:DatatypeProperty ;
     rdfs:label "yMin" ;
     rdfs:range xsd:double ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:yValuesJSON a owl:DatatypeProperty ;
     rdfs:label "yValuesJSON" ;
     rdfs:range xsd:string ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:projectName a owl:DatatypeProperty ;
     rdfs:label "projectName" ;
     rdfs:range xsd:string ;
     skos:definition "starrydata curator が割り当てる project tag (Paper / Curve 両方に付くことがある)" ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:modifiedAt a owl:DatatypeProperty ;
     rdfs:label "modifiedAt" ;
     rdfs:range xsd:string ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 sd:createdAt a owl:DatatypeProperty ;
     rdfs:label "createdAt" ;
@@ -905,6 +905,6 @@ sd:createdAt a owl:DatatypeProperty ;
     skos:definition """Curator 側の record timestamp (free-form 文字列)。ingestion 時刻ではない
 ことに注意 — ingestion 時刻は prov:wasGeneratedBy/prov:atTime 経由で取れる。
 """ ;
-    skos:inScheme <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology> .
+    skos:inScheme <https://kumagallium.github.io/asterism/starrydata/ontology> .
 
 

@@ -6,7 +6,7 @@ import json
 import httpx
 import pytest
 
-from csv2rdf.oxigraph_client import OxigraphClient, OxigraphConfig
+from asterism.oxigraph_client import OxigraphClient, OxigraphConfig
 
 GRAPH = "https://example.org/g/papers"
 

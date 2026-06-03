@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Starrydata Ontology — csv2rdf-mcp</title>
+<title>Starrydata Ontology — asterism</title>
 <link rel="alternate" type="text/turtle" href="ontology.ttl" />
 <style>
   :root {
@@ -41,7 +41,7 @@
 
 <p>
 This namespace defines classes and properties used by the
-<a href="https://github.com/kumagallium/csv2rdf-mcp"><code>csv2rdf-mcp</code></a>
+<a href="https://github.com/kumagallium/asterism"><code>asterism</code></a>
 project to represent the <a href="https://www.starrydata2.org/">Starrydata</a>
 dataset (digitised measurement curves from thermoelectric, battery, and magnetic
 materials publications) as a provenance-rich knowledge graph.
@@ -51,8 +51,8 @@ materials publications) as a provenance-rich knowledge graph.
 <table>
   <tr><th>Format</th><th>Link</th><th>Note</th></tr>
   <tr><td>Turtle (RDFS/OWL TBox)</td><td><a href="ontology.ttl"><code>ontology.ttl</code></a></td><td>178 triples, en/ja labels</td></tr>
-  <tr><td>WebVOWL (interactive)</td><td><a href="https://service.tib.eu/webvowl/#iri=https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology/ontology.ttl">Open in TIB WebVOWL</a> (fallback: upload <a href="ontology.ttl"><code>ontology.ttl</code></a> manually <a href="https://service.tib.eu/webvowl/">here</a>)</td><td>Interactive ontology visualisation</td></tr>
-  <tr><td>Mermaid class diagram</td><td><a href="https://github.com/kumagallium/csv2rdf-mcp/blob/main/docs/ontology/diagram.md">GitHub renders it</a></td><td>Quick visual overview</td></tr>
+  <tr><td>WebVOWL (interactive)</td><td><a href="https://service.tib.eu/webvowl/#iri=https://kumagallium.github.io/asterism/starrydata/ontology/ontology.ttl">Open in TIB WebVOWL</a> (fallback: upload <a href="ontology.ttl"><code>ontology.ttl</code></a> manually <a href="https://service.tib.eu/webvowl/">here</a>)</td><td>Interactive ontology visualisation</td></tr>
+  <tr><td>Mermaid class diagram</td><td><a href="https://github.com/kumagallium/asterism/blob/main/docs/ontology/diagram.md">GitHub renders it</a></td><td>Quick visual overview</td></tr>
 </table>
 
 <h2>Classes</h2>
@@ -65,7 +65,7 @@ materials publications) as a provenance-rich knowledge graph.
     <tr><td id="Sample"><code>#Sample</code> <a class="anchor" href="#Sample">¶</a></td><td>Sample</td><td>A physical specimen prepared and measured in a paper. Subclass of <code>prov:Entity</code>.</td></tr>
     <tr><td id="Curve"><code>#Curve</code> <a class="anchor" href="#Curve">¶</a></td><td>Curve</td><td>A measurement curve digitised from a figure in the source paper. Subclass of <code>prov:Entity</code>. Phase 1 stores raw <code>x</code>/<code>y</code> arrays as JSON literals plus pre-computed aggregates (xMin/xMax/yMin/yMax/pointCount).</td></tr>
     <tr><td id="Descriptor"><code>#Descriptor</code> <a class="anchor" href="#Descriptor">¶</a></td><td>Descriptor</td><td>Structured metadata extracted from the <code>sample_info</code> column (MaterialFamily, Form, FabricationProcess, etc.).</td></tr>
-    <tr><td id="IngestionActivity"><code>#IngestionActivity</code> <a class="anchor" href="#IngestionActivity">¶</a></td><td>Ingestion Activity</td><td>A single run of the csv2rdf-mcp ingester. Subclass of <code>prov:Activity</code>. Each Paper / Sample / Curve generated in the run carries <code>prov:wasGeneratedBy → IngestionActivity</code>.</td></tr>
+    <tr><td id="IngestionActivity"><code>#IngestionActivity</code> <a class="anchor" href="#IngestionActivity">¶</a></td><td>Ingestion Activity</td><td>A single run of the asterism ingester. Subclass of <code>prov:Activity</code>. Each Paper / Sample / Curve generated in the run carries <code>prov:wasGeneratedBy → IngestionActivity</code>.</td></tr>
     <tr><td id="DigitizationActivity"><code>#DigitizationActivity</code> <a class="anchor" href="#DigitizationActivity">¶</a></td><td>Digitization Activity</td><td>The act of extracting a curve's data points from a published figure (e.g. with WebPlotDigitizer). Subclass of <code>prov:Activity</code>. Records the <em>scientific</em> origin of the numbers (distinct from the pipeline run); a Curve is <code>prov:wasGeneratedBy</code> both. <code>prov:atTime</code> carries the curator timestamp when parseable.</td></tr>
   </tbody>
 </table>
@@ -95,7 +95,7 @@ materials publications) as a provenance-rich knowledge graph.
 Complete definitions — with <code>rdfs:label</code> / <code>rdfs:comment</code> in
 en and ja — are in <a href="ontology.ttl"><code>ontology.ttl</code></a>. The
 formal shape grammar (ShEx) is shipped alongside the data in
-<a href="https://github.com/kumagallium/csv2rdf-mcp/blob/main/data/togomcp/mie/starrydata.yaml"><code>data/togomcp/mie/starrydata.yaml</code></a>.
+<a href="https://github.com/kumagallium/asterism/blob/main/data/togomcp/mie/starrydata.yaml"><code>data/togomcp/mie/starrydata.yaml</code></a>.
 </p>
 
 <h2>IRI design</h2>
@@ -106,8 +106,8 @@ IRIs as composite keys so that the raw <code>sample_id</code> / <code>figure_id<
 columns of Starrydata — which are <strong>not globally unique</strong> (collide
 across papers) — never collapse separate measurements into a single resource:</p>
 
-<pre>sd:   https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#
-sdr:  https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/
+<pre>sd:   https://kumagallium.github.io/asterism/starrydata/ontology#
+sdr:  https://kumagallium.github.io/asterism/starrydata/resource/
 
 sdr:paper/{SID}
 sdr:sample/{SID}-{sample_id}
@@ -117,7 +117,7 @@ sdr:periodical/{slug-of-journal-name}
 sdr:person/{SID}/{author-idx}
 sdr:ingestion/run-{timestamp}</pre>
 
-<p>Phase 2 will redirect <code>https://w3id.org/csv2rdf/...</code> here so the
+<p>Phase 2 will redirect <code>https://w3id.org/asterism/...</code> here so the
 IRI strings can survive future host migrations.</p>
 
 <h2>Phase 1 vs Phase 2+</h2>
@@ -135,15 +135,15 @@ IRI strings can survive future host migrations.</p>
 <h2>Citing</h2>
 <p>
 If you use this ontology, please cite the Starrydata project (see
-<a href="https://github.com/kumagallium/csv2rdf-mcp">repository README</a>
+<a href="https://github.com/kumagallium/asterism">repository README</a>
 for the current citation form). This page is part of
-<code>csv2rdf-mcp</code>, Apache-2.0.
+<code>asterism</code>, Apache-2.0.
 </p>
 
 <p class="small">Last updated: see
-<a href="https://github.com/kumagallium/csv2rdf-mcp/commits/main/docs/starrydata/ontology">git history</a>.
+<a href="https://github.com/kumagallium/asterism/commits/main/docs/starrydata/ontology">git history</a>.
 For issues or contributions, file at
-<a href="https://github.com/kumagallium/csv2rdf-mcp/issues">github.com/kumagallium/csv2rdf-mcp/issues</a>.</p>
+<a href="https://github.com/kumagallium/asterism/issues">github.com/kumagallium/asterism/issues</a>.</p>
 
 </body>
 </html>

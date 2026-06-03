@@ -1,4 +1,4 @@
-"""Minimal starrydata-shaped ingester — a csv2rdf-validate CI fixture.
+"""Minimal starrydata-shaped ingester — a asterism-validate CI fixture.
 
 Not a real ingester: it only emits enough triples to exercise the 8-trap
 validator end-to-end. The IRI builders use the *composite* keys the validator

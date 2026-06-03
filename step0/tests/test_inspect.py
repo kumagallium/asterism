@@ -1,4 +1,4 @@
-"""Tests for csv2rdf_step0.inspect.
+"""Tests for asterism_step0.inspect.
 
 These cover the deterministic CSV inspection pipeline:
   - column type inference (int / float / date / json / string)
@@ -14,7 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 from textwrap import dedent
 
-from csv2rdf_step0.inspect import (
+from asterism_step0.inspect import (
     inspect_csv,
     inspect_csv_set,
     render_markdown,

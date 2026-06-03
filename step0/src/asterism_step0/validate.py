@@ -1,4 +1,4 @@
-"""Schema validator for csv2rdf-mcp Phase 3 (trap checks T1-T9).
+"""Schema validator for asterism Phase 3 (trap checks T1-T9).
 
 Validates a schema bundle (TBox TTL + Mermaid + MIE YAML + ingester Python +
 the source CSVs) against the 8 traps from
@@ -11,8 +11,8 @@ The traps and how this module checks each:
 * **T1 ID uniqueness** — collect candidate IRI keys from *two* sources: the
   composite IRI patterns in the MIE (e.g. ``sdr:sample/{SID}-{sample_id}``) **and**
   the actual key columns recovered from the ingester's IRI builders
-  (:mod:`csv2rdf_step0.t1_ingester`). For each, re-run
-  :mod:`csv2rdf_step0.inspect` on the source CSVs and confirm the key combination
+  (:mod:`asterism_step0.t1_ingester`). For each, re-run
+  :mod:`asterism_step0.inspect` on the source CSVs and confirm the key combination
   is globally unique. Reading the ingester is the safety net: if ``propose`` picks
   the wrong key on a subset, a full-CSV validate catches it even when the MIE
   looks clean (dogfood Round 3).
@@ -37,10 +37,10 @@ The traps and how this module checks each:
   the connected MCP tool surface. Compare the LLM's answers against SPARQL
   ground truth. Returns a soft pass/warn — flaky by nature.
 
-Return shape: :class:`ValidationReport`. The CLI ``csv2rdf-validate`` returns
+Return shape: :class:`ValidationReport`. The CLI ``asterism-validate`` returns
 exit code 0 if all required (non-skipped) traps pass, else 1 — suitable for
 CI integration on PRs that touch ``docs/ontology/``, ``data/togomcp/mie/``,
-or ``ingest/src/csv2rdf/``.
+or ``ingest/src/asterism/``.
 """
 from __future__ import annotations
 
@@ -49,8 +49,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from csv2rdf_step0.inspect import _check_uniqueness, _stream_rows
-from csv2rdf_step0.t1_ingester import extract_ingester_keys
+from asterism_step0.inspect import _check_uniqueness, _stream_rows
+from asterism_step0.t1_ingester import extract_ingester_keys
 
 # ----------------------------------------------------------------------------
 # Report dataclasses
@@ -112,7 +112,7 @@ class SchemaBundle:
     tbox_ttl: Path | None = None  # docs/ontology/{name}.ttl
     diagram_md: Path | None = None  # docs/ontology/diagram.md
     mie_yaml: Path | None = None  # data/togomcp/mie/{name}.yaml
-    ingester_py: Path | None = None  # ingest/src/csv2rdf/{name}.py
+    ingester_py: Path | None = None  # ingest/src/asterism/{name}.py
     rml_ttl: Path | None = None  # {name}-mapping.rml.ttl (declarative substrate, T9)
     source_csvs: list[Path] = field(default_factory=list)
     fk_hint_columns: list[str] = field(default_factory=list)
@@ -725,7 +725,7 @@ def _check_t8_hallucination(
 ) -> TrapResult:
     """Skip by default; needs an LLM client + curated NL questions.
 
-    Real impl belongs in a separate module that wires :class:`csv2rdf_step0.propose.LLMClient`
+    Real impl belongs in a separate module that wires :class:`asterism_step0.propose.LLMClient`
     to ``find_databases`` / ``run_sparql`` via the MCP transport. Here we
     just provide the slot so the CLI can opt in once the harness exists.
     """
@@ -756,7 +756,7 @@ def _check_t9_rml_closed_set(
 ) -> TrapResult:
     """The declarative RML must reference only vetted Tier 0 functions (no new code).
 
-    Skips when no ``--rml`` is given, or when ``csv2rdf`` (the canonical function
+    Skips when no ``--rml`` is given, or when ``asterism`` (the canonical function
     registry) is not importable in this environment — like T8, enforcement is
     best-effort and never blocks merely because a dependency is absent.
     ``allowed_fn_iris`` may be injected (tests) instead of loading the registry.
@@ -775,7 +775,7 @@ def _check_t9_rml_closed_set(
         except ImportError:
             return TrapResult(
                 "T9", name, "skip",
-                "csv2rdf (ingest) not importable — install it to enforce the closed set.",
+                "asterism (ingest) not importable — install it to enforce the closed set.",
             )
 
     rml_text = bundle.rml_ttl.read_text(encoding="utf-8")
@@ -877,7 +877,7 @@ def _build_arg_parser():  # type: ignore[no-untyped-def]
     import argparse
 
     p = argparse.ArgumentParser(
-        prog="csv2rdf-validate",
+        prog="asterism-validate",
         description=(
             "Run the trap validator (T1-T9) on a schema bundle "
             "(TBox / diagram / MIE / ingester / RML / CSVs). "

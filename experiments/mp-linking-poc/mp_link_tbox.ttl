@@ -3,7 +3,7 @@
 @prefix owl:     <http://www.w3.org/2002/07/owl#> .
 @prefix xsd:     <http://www.w3.org/2001/XMLSchema#> .
 @prefix prov:    <http://www.w3.org/ns/prov#> .
-@prefix sd:      <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#> .
+@prefix sd:      <https://kumagallium.github.io/asterism/starrydata/ontology#> .
 
 # ============================================================================
 # Materials Project リンク — TBox 拡張案 (Phase 2 / PoC)

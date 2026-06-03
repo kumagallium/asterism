@@ -14,7 +14,7 @@
               │ MCP (stdio or HTTP)
               ▼
 ┌─────────────────────────────────────┐   ┌──────────────────────────┐
-│  togomcp (Phase 1)                   │   │  csv2rdf-mcp (Phase 2 #3) │
+│  togomcp (Phase 1)                   │   │  asterism (Phase 2 #3) │
 │   run_sparql, get_MIE_file 等        │   │   template_curve_fetch    │
 │   汎用                                │   │   starrydata 専用         │
 └─────────────────────────────────────┘   └──────────────────────────┘
@@ -31,7 +31,7 @@
 mcp/
 ├── pyproject.toml
 ├── src/
-│   └── csv2rdf_mcp/
+│   └── asterism_mcp/
 │       ├── __init__.py
 │       ├── server.py        # FastMCP wiring + CLI (HTTP/stdio transport)
 │       └── tools.py         # template_curve_fetch 本体 (テスト容易性のため分離)
@@ -43,7 +43,7 @@ mcp/
 ## tool: `template_curve_fetch`
 
 入力:
-- `curve_iri: str` — フル IRI、例: `https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/curve/1-1-1`
+- `curve_iri: str` — フル IRI、例: `https://kumagallium.github.io/asterism/starrydata/resource/curve/1-1-1`
 - `max_points: int | None = None` — 先頭 N 点だけ返す (preview 用、None なら全件)
 
 出力 (dict):
@@ -76,8 +76,8 @@ SELECT ?p ?o WHERE {
 
 | 用途 | コマンド | port |
 |---|---|---|
-| compose / Crucible / Dify | `csv2rdf-mcp --transport http` (default) | 8002 (/mcp) |
-| Claude Desktop / Cline / Cursor | `csv2rdf-mcp --transport stdio` | n/a |
+| compose / Crucible / Dify | `asterism --transport http` (default) | 8002 (/mcp) |
+| Claude Desktop / Cline / Cursor | `asterism --transport stdio` | n/a |
 
 stdio は FastMCP の標準動作で、サブプロセスとして起動された場合に使う。
 

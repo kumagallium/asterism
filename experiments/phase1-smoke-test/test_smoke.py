@@ -96,7 +96,7 @@ async def main() -> int:
             {
                 "database": "starrydata",
                 "sparql_query": (
-                    "PREFIX sd: <http://localhost/csv2rdf/starrydata/ontology#>\n"
+                    "PREFIX sd: <http://localhost/asterism/starrydata/ontology#>\n"
                     "PREFIX schema: <https://schema.org/>\n"
                     "SELECT ?p ?t WHERE { ?p a sd:Paper ; schema:name ?t } LIMIT 3"
                 ),

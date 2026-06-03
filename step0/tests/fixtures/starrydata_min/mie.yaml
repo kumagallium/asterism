@@ -2,7 +2,7 @@ schema_info:
   title: Starrydata Minimal Fixture
   description: >-
     A tiny starrydata-shaped schema bundle committed to the repo so the 8-trap
-    csv2rdf-validate checker runs end-to-end in CI without any external data.
+    asterism-validate checker runs end-to-end in CI without any external data.
   base_uri: https://example.com/starrydata/
   keywords:
     - thermoelectric

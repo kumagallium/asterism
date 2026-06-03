@@ -17,7 +17,7 @@ status: 設計確定（feasibility・cross-dataset join・関数ライブラリ 
 ### 名前と IRI（汎化との関係）
 
 - **engine は汎化する**（ソース非依存）。MP が API 由来で既に CSV 前提を破っている。
-- **IRI namespace（`.../csv2rdf-mcp/...`）と repo 名は当面据え置く。** IRI はデータの同一性で、変えると既存 RDF が壊れる（破壊的変更）。`csv2rdf-mcp` という文字列は「CSV だけ」を主張するものではなく、安定した namespace に過ぎない。**汎化に IRI 変更は不要。**
+- **IRI namespace（`.../asterism/...`）と repo 名は当面据え置く。** IRI はデータの同一性で、変えると既存 RDF が壊れる（破壊的変更）。`asterism` という文字列は「CSV だけ」を主張するものではなく、安定した namespace に過ぎない。**汎化に IRI 変更は不要。**
 - リネームは将来の positioning 判断（移行計画つき）として分離する。今やる必要はない。
 
 ## 1. 収束した 2 スレッド
@@ -65,7 +65,7 @@ starrydata（実験・CSV）と MP（計算・API）を同じ `sdr:sample/{SID}-
 
 ## 4. 関数ライブラリ v0（実装・検証ずみ）
 
-`csv2rdf/functions.py`（Cowork 準備＋検証ずみ・CC commit 待ち）。宣言経路が参照してよい**閉じた集合**。各々 `starrydata` / `qudt` の既存実装へ薄く委譲（単一の真実源）。FnO は文字列を渡すので全部 `str -> str`、該当なしは `""`。`register(udf)` 1 行で Morph-KGC に全登録。
+`asterism/functions.py`（Cowork 準備＋検証ずみ・CC commit 待ち）。宣言経路が参照してよい**閉じた集合**。各々 `starrydata` / `qudt` の既存実装へ薄く委譲（単一の真実源）。FnO は文字列を渡すので全部 `str -> str`、該当なしは `""`。`register(udf)` 1 行で Morph-KGC に全登録。
 
 | 関数 | 由来 | 役割 |
 |---|---|---|

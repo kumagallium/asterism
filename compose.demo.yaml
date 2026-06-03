@@ -15,7 +15,7 @@ services:
   # One-shot: wait for Oxigraph, bulk-load the demo seed Turtle, then exit.
   oxigraph-seed:
     image: python:3.11-slim
-    container_name: csv2rdf_demo_seed
+    container_name: asterism_demo_seed
     depends_on:
       - oxigraph
     volumes:
@@ -23,13 +23,13 @@ services:
     command: ["python", "/seed/load.py", "http://oxigraph:7878", "/seed"]
     restart: "no"
 
-  # The grounded-answer service (consuming layer; separate from csv2rdf core so
+  # The grounded-answer service (consuming layer; separate from asterism core so
   # the core query path stays Claude-free — ADR §1/§5). Deterministic answers.
   demo-agent:
     build:
       context: .
       dockerfile: demo-agent/Dockerfile
-    container_name: csv2rdf_demo_agent
+    container_name: asterism_demo_agent
     depends_on:
       - oxigraph
     environment:

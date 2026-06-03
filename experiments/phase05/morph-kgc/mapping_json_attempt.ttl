@@ -4,7 +4,7 @@
 @prefix fnml: <http://semweb.mmlab.be/ns/fnml#> .
 @prefix fno: <https://w3id.org/function/ontology#> .
 @prefix grel: <http://users.ugent.be/~bjdmeest/function/grel.ttl#> .
-@prefix sd: <http://localhost/csv2rdf/starrydata/ontology#> .
+@prefix sd: <http://localhost/asterism/starrydata/ontology#> .
 @prefix schema: <https://schema.org/> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
@@ -33,7 +33,7 @@
 <#PaperYearMap>
     rml:logicalSource <#PapersSource> ;
     rr:subjectMap [
-        rr:template "http://localhost/csv2rdf/starrydata/resource/paper/{SID}"
+        rr:template "http://localhost/asterism/starrydata/resource/paper/{SID}"
     ] ;
     rr:predicateObjectMap [
         rr:predicate schema:datePublished ;

@@ -191,7 +191,7 @@
         },
         "IngestionActivity": {
             "additionalProperties": false,
-            "description": "A single run of the csv2rdf-mcp ingester. Each Paper/Sample/Curve\ngenerated in the run carries prov:wasGeneratedBy \u2192 IngestionActivity for\nprovenance traceability.",
+            "description": "A single run of the asterism ingester. Each Paper/Sample/Curve\ngenerated in the run carries prov:wasGeneratedBy \u2192 IngestionActivity for\nprovenance traceability.",
             "properties": {
                 "atTime": {
                     "format": "date-time",
@@ -214,7 +214,7 @@
                     "type": "string"
                 },
                 "wasAssociatedWith": {
-                    "description": "csv2rdf-mcp \u306e GitHub URL (software agent IRI)",
+                    "description": "asterism \u306e GitHub URL (software agent IRI)",
                     "format": "uri",
                     "type": [
                         "string",
@@ -468,7 +468,7 @@
             "type": "object"
         }
     },
-    "$id": "https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology",
+    "$id": "https://kumagallium.github.io/asterism/starrydata/ontology",
     "$schema": "https://json-schema.org/draft/2019-09/schema",
     "additionalProperties": true,
     "metamodel_version": "1.11.0",

@@ -7,7 +7,7 @@
 @prefix rr:      <http://www.w3.org/ns/r2rml#> .
 @prefix rml:     <http://semweb.mmlab.be/ns/rml#> .
 @prefix ql:      <http://semweb.mmlab.be/ns/ql#> .
-@prefix sd:      <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#> .
+@prefix sd:      <https://kumagallium.github.io/asterism/starrydata/ontology#> .
 @prefix schema:  <https://schema.org/> .
 @prefix dcterms: <http://purl.org/dc/terms/> .
 
@@ -17,7 +17,7 @@
     rml:referenceFormulation ql:CSV
   ] ;
   rr:subjectMap [
-    rr:template "https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/paper/{SID}" ;
+    rr:template "https://kumagallium.github.io/asterism/starrydata/resource/paper/{SID}" ;
     rr:class sd:Paper
   ] ;
   rr:predicateObjectMap [

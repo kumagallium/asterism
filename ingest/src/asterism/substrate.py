@@ -14,9 +14,9 @@ draft graph to canonical (including ontology alignment / merge) is a separate,
 later gate.
 
 No generated code runs: Morph-KGC interprets the declarative mapping, and the
-only functions it may call are the closed Tier 0 set in :mod:`csv2rdf.functions`
+only functions it may call are the closed Tier 0 set in :mod:`asterism.functions`
 (enforced upstream by step0's T9 closed-set check). ``morph-kgc`` is an optional
-dependency — install with ``pip install 'csv2rdf-ingest[substrate]'``.
+dependency — install with ``pip install 'asterism-ingest[substrate]'``.
 """
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ from typing import Protocol
 
 # Draft graphs live under /graph/draft/<id>, trivially distinguishable from the
 # canonical per-kind graphs (.../graph/curves, .../graph/papers, ...).
-GRAPH_BASE = "https://kumagallium.github.io/csv2rdf-mcp/starrydata/graph/"
+GRAPH_BASE = "https://kumagallium.github.io/asterism/starrydata/graph/"
 _DATASET_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 # rml:source is resolved relative to the CWD by Morph-KGC. Rather than chdir
@@ -36,12 +36,12 @@ _DATASET_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 _RML_SOURCE = re.compile(r'(rml:source\s+")([^"]+)(")')
 
 # Default UDF-registration file shipped with the package. Morph-KGC loads it by
-# path and registers the closed Tier 0 set via csv2rdf.functions.register.
+# path and registers the closed Tier 0 set via asterism.functions.register.
 _DEFAULT_UDFS = Path(__file__).with_name("substrate_udfs.py")
 
 
 class SupportsTurtlePost(Protocol):
-    """The slice of :class:`csv2rdf.oxigraph_client.OxigraphClient` we need."""
+    """The slice of :class:`asterism.oxigraph_client.OxigraphClient` we need."""
 
     async def post_turtle_bytes(self, payload: bytes, graph_iri: str | None = None) -> int: ...
 
@@ -91,7 +91,7 @@ def materialize_to_graph(
     except ImportError as exc:  # optional dependency
         raise RuntimeError(
             "morph-kgc is required for substrate ingestion; "
-            "install with: pip install 'csv2rdf-ingest[substrate]'"
+            "install with: pip install 'asterism-ingest[substrate]'"
         ) from exc
 
     udfs = Path(udfs_path) if udfs_path else _DEFAULT_UDFS

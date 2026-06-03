@@ -1,7 +1,7 @@
 @prefix rr: <http://www.w3.org/ns/r2rml#> .
 @prefix rml: <http://semweb.mmlab.be/ns/rml#> .
 @prefix ql: <http://semweb.mmlab.be/ns/ql#> .
-@prefix sd: <http://localhost/csv2rdf/starrydata/ontology#> .
+@prefix sd: <http://localhost/asterism/starrydata/ontology#> .
 @prefix schema: <https://schema.org/> .
 
 # 前処理で authors.jsonl を生成しておく前提。
@@ -16,7 +16,7 @@
 <#PersonMap>
     rml:logicalSource <#AuthorSource> ;
     rr:subjectMap [
-        rr:template "http://localhost/csv2rdf/starrydata/resource/person/{sid}/{idx}" ;
+        rr:template "http://localhost/asterism/starrydata/resource/person/{sid}/{idx}" ;
         rr:class schema:Person
     ] ;
     rr:predicateObjectMap [
@@ -31,12 +31,12 @@
 <#PaperAuthorLink>
     rml:logicalSource <#AuthorSource> ;
     rr:subjectMap [
-        rr:template "http://localhost/csv2rdf/starrydata/resource/paper/{sid}"
+        rr:template "http://localhost/asterism/starrydata/resource/paper/{sid}"
     ] ;
     rr:predicateObjectMap [
         rr:predicate schema:author ;
         rr:objectMap [
-            rr:template "http://localhost/csv2rdf/starrydata/resource/person/{sid}/{idx}" ;
+            rr:template "http://localhost/asterism/starrydata/resource/person/{sid}/{idx}" ;
             rr:termType rr:IRI
         ]
     ] .

@@ -1,6 +1,6 @@
 """End-to-end validate against the committed starrydata-min fixture (CI gate).
 
-This is the regression net for `csv2rdf-validate`: the fixture under
+This is the regression net for `asterism-validate`: the fixture under
 ``tests/fixtures/starrydata_min/`` is a tiny, correct, starrydata-shaped bundle
 that must pass T1-T7 (T8/T9 are opt-in). Running it in CI means any change that breaks a trap
 checker - or the T1 ingester key recovery - fails the build, without needing the
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from csv2rdf_step0.validate import SchemaBundle, validate_schema
+from asterism_step0.validate import SchemaBundle, validate_schema
 
 FIXTURE = Path(__file__).parent / "fixtures" / "starrydata_min"
 

@@ -87,23 +87,23 @@ def count() -> int:
 QUERIES = {
     "Q1_count": "SELECT (COUNT(*) AS ?c) WHERE { ?s ?p ?o }",
     "Q2_papers": (
-        "PREFIX sd: <http://localhost/csv2rdf/starrydata/ontology#>\n"
+        "PREFIX sd: <http://localhost/asterism/starrydata/ontology#>\n"
         "SELECT ?p WHERE { ?p a sd:Paper } LIMIT 100"
     ),
     "Q3_titles": (
         "PREFIX schema: <https://schema.org/>\n"
-        "SELECT ?p ?t WHERE { ?p a <http://localhost/csv2rdf/starrydata/ontology#Paper> ; "
+        "SELECT ?p ?t WHERE { ?p a <http://localhost/asterism/starrydata/ontology#Paper> ; "
         "schema:name ?t } LIMIT 100"
     ),
     "Q4_authors_per_paper": (
         "PREFIX schema: <https://schema.org/>\n"
-        "PREFIX sd: <http://localhost/csv2rdf/starrydata/ontology#>\n"
+        "PREFIX sd: <http://localhost/asterism/starrydata/ontology#>\n"
         "SELECT ?p (COUNT(?a) AS ?n) WHERE { ?p a sd:Paper ; schema:author ?a } "
         "GROUP BY ?p ORDER BY DESC(?n) LIMIT 20"
     ),
     "Q5_filter_year": (
         "PREFIX schema: <https://schema.org/>\n"
-        "PREFIX sd: <http://localhost/csv2rdf/starrydata/ontology#>\n"
+        "PREFIX sd: <http://localhost/asterism/starrydata/ontology#>\n"
         "SELECT ?p ?d WHERE { ?p a sd:Paper ; schema:datePublished ?d "
         "FILTER (?d >= \"2015-01-01\"^^<http://www.w3.org/2001/XMLSchema#date>) } LIMIT 50"
     ),
@@ -136,8 +136,8 @@ def main() -> int:
     # 追記 (INSERT DATA)
     print("\n-- SPARQL 1.1 Update INSERT DATA --")
     dt_upd = update(
-        "PREFIX sd: <http://localhost/csv2rdf/starrydata/ontology#>\n"
-        "INSERT DATA { <http://localhost/csv2rdf/starrydata/resource/paper/spike-1> "
+        "PREFIX sd: <http://localhost/asterism/starrydata/ontology#>\n"
+        "INSERT DATA { <http://localhost/asterism/starrydata/resource/paper/spike-1> "
         "a sd:Paper ; <https://schema.org/name> \"INSERTED VIA SPARQL UPDATE\" }"
     )
     n2 = count()

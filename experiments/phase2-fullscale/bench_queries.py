@@ -18,7 +18,7 @@ import time
 import urllib.request
 from urllib.parse import urlencode
 
-SD = "https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#"
+SD = "https://kumagallium.github.io/asterism/starrydata/ontology#"
 
 # NOTE: the Phase 2 watcher loads each kind into a NAMED graph
 # (sd:graph/{papers,samples,curves}). SPARQL only sees named-graph triples via

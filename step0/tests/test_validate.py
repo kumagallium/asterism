@@ -1,10 +1,10 @@
-"""Tests for csv2rdf_step0.validate (trap validator T1-T9)."""
+"""Tests for asterism_step0.validate (trap validator T1-T9)."""
 from __future__ import annotations
 
 from pathlib import Path
 from textwrap import dedent
 
-from csv2rdf_step0.validate import (
+from asterism_step0.validate import (
     SchemaBundle,
     _check_t1_uniqueness,
     _check_t2_bom,
@@ -595,17 +595,17 @@ def test_validate_schema_exits_1_on_failure(tmp_path: Path) -> None:
 
 # ----------------------------------------------------------------------------
 # Trap T9: RML closed-set (declarative substrate). allowed_fn_iris is injected
-# so these tests don't need the csv2rdf (ingest) package installed.
+# so these tests don't need the asterism (ingest) package installed.
 # ----------------------------------------------------------------------------
 
-_FN = "https://kumagallium.github.io/csv2rdf-mcp/fn/"
+_FN = "https://kumagallium.github.io/asterism/fn/"
 
 _VALID_RML = (
     "@prefix rr:   <http://www.w3.org/ns/r2rml#> .\n"
     "@prefix rml:  <http://semweb.mmlab.be/ns/rml#> .\n"
     "@prefix ql:   <http://semweb.mmlab.be/ns/ql#> .\n"
     "@prefix rmlf: <http://w3id.org/rml/> .\n"
-    "@prefix fn:   <https://kumagallium.github.io/csv2rdf-mcp/fn/> .\n"
+    "@prefix fn:   <https://kumagallium.github.io/asterism/fn/> .\n"
     '<#M> a rr:TriplesMap ;\n'
     '  rml:logicalSource [ rml:source "c.csv" ; rml:referenceFormulation ql:CSV ] ;\n'
     '  rr:subjectMap [ rr:template "https://ex/{id}" ] ;\n'

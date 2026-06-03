@@ -1,4 +1,4 @@
-"""Tests for csv2rdf_mcp.tools — drive the SPARQL client with httpx.MockTransport.
+"""Tests for asterism_mcp.tools — drive the SPARQL client with httpx.MockTransport.
 
 We test the tool body directly (no FastMCP transport involved) because the
 SPARQL parsing logic is the interesting part. ``test_server.py`` covers the
@@ -11,10 +11,10 @@ import json
 
 import httpx
 import pytest
-from csv2rdf.oxigraph_client import OxigraphClient, OxigraphConfig
-from csv2rdf.starrydata import DEFAULT_ONTOLOGY, DEFAULT_RESOURCE
+from asterism.oxigraph_client import OxigraphClient, OxigraphConfig
+from asterism.starrydata import DEFAULT_ONTOLOGY, DEFAULT_RESOURCE
 
-from csv2rdf_mcp.tools import (
+from asterism_mcp.tools import (
     CurveNotFoundError,
     _decode_array,
     property_ranking,
@@ -208,7 +208,7 @@ async def test_template_curve_fetch_rejects_non_http_iri() -> None:
 
 async def test_template_curve_fetch_handles_malformed_arrays_gracefully() -> None:
     # If the literal isn't valid JSON, we degrade to empty list (matches the
-    # ingester's tolerance, see csv2rdf.starrydata.parse_float_array).
+    # ingester's tolerance, see asterism.starrydata.parse_float_array).
     bindings = [
         _binding(f"{SD}xValuesJSON", "not-json"),
         _binding(f"{SD}yValuesJSON", "[1, 2]"),

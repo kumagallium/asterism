@@ -1,7 +1,7 @@
-# Graphium(provnote) の .github/workflows/tagpr.yml を csv2rdf 用に簡素化。
+# Graphium(provnote) の .github/workflows/tagpr.yml を asterism 用に簡素化。
 # main への push ごとに「次リリースの PR」を自動で維持/更新し、その PR を merge すると
 # VERSION を bump して vX.Y.Z タグ + CHANGELOG を切る。
-# Tauri ビルドのトリガーは csv2rdf には不要なので外した（必要なら PyPI publish 等を後で追加）。
+# Tauri ビルドのトリガーは asterism には不要なので外した（必要なら PyPI publish 等を後で追加）。
 name: tagpr
 
 on:

@@ -5,15 +5,15 @@
 @prefix rml:    <http://semweb.mmlab.be/ns/rml#> .
 @prefix ql:     <http://semweb.mmlab.be/ns/ql#> .
 @prefix rmlf:   <http://w3id.org/rml/> .
-@prefix sd:     <https://kumagallium.github.io/csv2rdf-mcp/starrydata/ontology#> .
+@prefix sd:     <https://kumagallium.github.io/asterism/starrydata/ontology#> .
 @prefix schema: <https://schema.org/> .
 @prefix dcterms:<http://purl.org/dc/terms/> .
 @prefix xsd:    <http://www.w3.org/2001/XMLSchema#> .
-@prefix fn:     <https://kumagallium.github.io/csv2rdf-mcp/fn/> .
+@prefix fn:     <https://kumagallium.github.io/asterism/fn/> .
 
 <#PaperMap> a rr:TriplesMap ;
   rml:logicalSource [ rml:source "papers.csv" ; rml:referenceFormulation ql:CSV ] ;
-  rr:subjectMap [ rr:template "https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/paper/{SID}" ; rr:class sd:Paper ] ;
+  rr:subjectMap [ rr:template "https://kumagallium.github.io/asterism/starrydata/resource/paper/{SID}" ; rr:class sd:Paper ] ;
   rr:predicateObjectMap [ rr:predicate schema:name ; rr:objectMap [ rml:reference "title" ] ] ;
   rr:predicateObjectMap [ rr:predicate dcterms:identifier ; rr:objectMap [ rml:reference "DOI" ] ] ;
   rr:predicateObjectMap [ rr:predicate schema:datePublished ; rr:objectMap [
@@ -23,19 +23,19 @@
 
 <#SampleMap> a rr:TriplesMap ;
   rml:logicalSource [ rml:source "samples.csv" ; rml:referenceFormulation ql:CSV ] ;
-  rr:subjectMap [ rr:template "https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/sample/{SID}-{sample_id}" ; rr:class sd:Sample ] ;
+  rr:subjectMap [ rr:template "https://kumagallium.github.io/asterism/starrydata/resource/sample/{SID}-{sample_id}" ; rr:class sd:Sample ] ;
   rr:predicateObjectMap [ rr:predicate sd:compositionString ; rr:objectMap [ rml:reference "composition" ] ] ;
   rr:predicateObjectMap [ rr:predicate schema:name ; rr:objectMap [ rml:reference "sample_name" ] ] ;
   rr:predicateObjectMap [ rr:predicate sd:fromPaper ; rr:objectMap [
-      rr:template "https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/paper/{SID}" ; rr:termType rr:IRI ] ] .
+      rr:template "https://kumagallium.github.io/asterism/starrydata/resource/paper/{SID}" ; rr:termType rr:IRI ] ] .
 
 <#CurveMap> a rr:TriplesMap ;
   rml:logicalSource [ rml:source "curves.csv" ; rml:referenceFormulation ql:CSV ] ;
-  rr:subjectMap [ rr:template "https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/curve/{SID}-{figure_id}-{sample_id}" ; rr:class sd:Curve ] ;
+  rr:subjectMap [ rr:template "https://kumagallium.github.io/asterism/starrydata/resource/curve/{SID}-{figure_id}-{sample_id}" ; rr:class sd:Curve ] ;
   rr:predicateObjectMap [ rr:predicate sd:propertyY ; rr:objectMap [ rml:reference "prop_y" ] ] ;
   rr:predicateObjectMap [ rr:predicate sd:figureName ; rr:objectMap [ rml:reference "figure_name" ] ] ;
   rr:predicateObjectMap [ rr:predicate sd:ofSample ; rr:objectMap [
-      rr:template "https://kumagallium.github.io/csv2rdf-mcp/starrydata/resource/sample/{SID}-{sample_id}" ; rr:termType rr:IRI ] ] ;
+      rr:template "https://kumagallium.github.io/asterism/starrydata/resource/sample/{SID}-{sample_id}" ; rr:termType rr:IRI ] ] ;
   rr:predicateObjectMap [ rr:predicate sd:yMax ; rr:objectMap [
       rmlf:functionExecution [ rmlf:function fn:float_array_max ;
         rmlf:input [ rmlf:parameter fn:p_value ; rmlf:inputValueMap [ rml:reference "y" ] ] ] ;

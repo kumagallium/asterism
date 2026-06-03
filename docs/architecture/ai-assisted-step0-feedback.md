@@ -11,7 +11,7 @@
 | 項目 | 値 |
 |---|---|
 | dataset | starrydata 先頭 40 papers の subset (papers 40 / samples 194 / curves 693 行, FK 整合) |
-| tool | `csv2rdf-propose` (Opus 4.7, adaptive thinking, effort=xhigh, prompt cache) |
+| tool | `asterism-propose` (Opus 4.7, adaptive thinking, effort=xhigh, prompt cache) |
 | domain hint | "熱電・電池・磁性の測定曲線。PROV-O 必須、bnode 不使用。Seebeck=thermopower=熱起電力=ゼーベック係数。" |
 | 入力 | inspection Markdown ~13KB + domain hint |
 | 出力 | 8 セクション構成の proposal Markdown (但し §7 途中で truncate — Finding 2) |
@@ -41,8 +41,8 @@ proposal は **§5.2 で Sample IRI = `sdr:sample/{sample_id}` (sample_id 単独
 つまり LLM は T1 を意識して「これは subset 前提、全件で再検証せよ」と明示した。これは [workflow §7](ai-assisted-step0-workflow.md#7-人間の必須介入ポイント-never-skip) 「IRI uniqueness の最終確認は全件で」の原則が **実証された**形。
 
 **教訓・運用ルール**:
-- **IRI uniqueness を決める列は、subset でなく全件で inspect すること**。propose は subset で品質を見てよいが、IRI key の最終決定前に `csv2rdf-inspect <full csv> --fk ...` で collision 0 を確認する
-- subset で propose → 全件で `csv2rdf-validate` (T1) すれば自動で catch できる。今回 `(sample_id)` を全件でチェックして 13,225 collisions を確認 → validate ワークフローが機能することも実証
+- **IRI uniqueness を決める列は、subset でなく全件で inspect すること**。propose は subset で品質を見てよいが、IRI key の最終決定前に `asterism-inspect <full csv> --fk ...` で collision 0 を確認する
+- subset で propose → 全件で `asterism-validate` (T1) すれば自動で catch できる。今回 `(sample_id)` を全件でチェックして 13,225 collisions を確認 → validate ワークフローが機能することも実証
 - propose の domain hint に「sample_id は paper を跨ぐと重複する」と書けば、LLM は subset を見ても複合キーを選べる (= Phase 1 の知見を hint で前倒し注入できる)
 
 ### ★ Finding 2 (コードバグ、修正済): max_tokens=16000 非ストリーミングで truncate
@@ -53,8 +53,8 @@ proposal が **§7 MIE の sparql_query_examples 途中 (q5) で切れた**。`A
 
 ### Round-trip 検証
 
-- `csv2rdf-materialize` で proposal Markdown → diagram.md / model.yaml / mie.yaml に分割成功 (ingester だけ truncate で欠落 — Finding 2)
-- `csv2rdf-inspect` を全件 samples.csv にかけて Finding 1 を定量確認
+- `asterism-materialize` で proposal Markdown → diagram.md / model.yaml / mie.yaml に分割成功 (ingester だけ truncate で欠落 — Finding 2)
+- `asterism-inspect` を全件 samples.csv にかけて Finding 1 を定量確認
 
 ---
 
@@ -100,7 +100,7 @@ materialize した v2 MIE を全件 CSV で validate したら **T1 ✗ fail (`s
 
 > 以下の値はすべて出力ファイルを Read tool で直接確認した実測値。
 
-`csv2rdf-refine` 出力 = **46,546 bytes / 850 行、所要 5 分 52 秒、truncation なし** (末尾 `g.serialize(...)`)。system prompt 通り §1 Comment resolution log + §2 Updated schema 構成 (comment 用に §5.9 / §5.10 を追加)。
+`asterism-refine` 出力 = **46,546 bytes / 850 行、所要 5 分 52 秒、truncation なし** (末尾 `g.serialize(...)`)。system prompt 通り §1 Comment resolution log + §2 Updated schema 構成 (comment 用に §5.9 / §5.10 を追加)。
 
 Comment 1 の resolution log が秀逸:
 - Interpretation で「(SID, DOI) で別 paper を区別、同 SID 同 DOI のみ真 duplicate」と正しく解釈
@@ -114,9 +114,9 @@ Comment 2 は additive (cardinality 0..1 + composition_details sparse anti_patte
 
 ### round-trip 検証 (すべて出力ファイルを Read tool で確認)
 
-- `csv2rdf-materialize` → 4 artifacts 出力 (exit 0)。ingester (`starrydata.py`, 10.8KB): `def paper_iri(sid: int, doi: str)` を **1 回** (重複なし)、`utf-8-sig` 3 箇所、`seen`/dedup あり
+- `asterism-materialize` → 4 artifacts 出力 (exit 0)。ingester (`starrydata.py`, 10.8KB): `def paper_iri(sid: int, doi: str)` を **1 回** (重複なし)、`utf-8-sig` 3 箇所、`seen`/dedup あり
 - MIE に `composition_details sparse coverage` anti_pattern あり
-- **全件 3 CSV (papers 56k + samples 105k + curves 233k) で `csv2rdf-validate` → exit 0** (T2-T5 pass / T1・T6・T7 warn / T8 skip)。blocking failure なし、新バグなし
+- **全件 3 CSV (papers 56k + samples 105k + curves 233k) で `asterism-validate` → exit 0** (T2-T5 pass / T1・T6・T7 warn / T8 skip)。blocking failure なし、新バグなし
 
 ### 総括
 
@@ -136,7 +136,7 @@ Round 3 末尾で「将来の改善余地」とした **T1 を ingester の IRI 
 
 ### 何をしたか
 
-新モジュール [`step0/src/csv2rdf_step0/t1_ingester.py`](../../step0/src/csv2rdf_step0/t1_ingester.py) が ingester を `ast` で parse し、**RDF entity ごとに IRI を構成する実際の CSV 列**を復元する。2 つの ingester スタイル両方に対応:
+新モジュール [`step0/src/asterism_step0/t1_ingester.py`](../../step0/src/asterism_step0/t1_ingester.py) が ingester を `ast` で parse し、**RDF entity ごとに IRI を構成する実際の CSV 列**を復元する。2 つの ingester スタイル両方に対応:
 
 1. **builder-function 形式** (LLM / proposal 出力) — `def sample_iri(sid, sample_id): return SDR[f"sample/{sid}-{sample_id}"]`。placeholder は関数引数なので **call site** (`sample_iri(row["SID"], row["sample_id"])`) から列を引き当て、無ければ **ヘッダ名の大文字小文字無視マッチ** (`sid`→`SID`) にフォールバック。`_slug(doi)` / `.strip()` / `str(...)` などの変換ラッパは透過。
 2. **inline 形式** (Phase 1 手書き `starrydata.py`) — `paper_sid = row.get("SID")` → `sample_key = f"{paper_sid}-{sample_id}"` → `sdr[f"sample/{sample_key}"]`。placeholder はローカル変数なので **代入を何 hop でも辿って** `row["COL"]` / `row.get("COL")` まで戻す。
@@ -151,7 +151,7 @@ Round 3 末尾で「将来の改善余地」とした **T1 を ingester の IRI 
 ### 検証
 
 - step0 全 test pass (96+ → **111**)。新規 unit test = 抽出器 9 件 (`test_t1_ingester.py`) + T1 統合 6 件 (`test_validate.py`)
-- 実 `ingest/src/csv2rdf/starrydata.py` を CLI `csv2rdf-validate --ingester` にかけ、`paper`/`sample`/`curve` の複合キーを正しく復元・検証することを end-to-end 確認
+- 実 `ingest/src/asterism/starrydata.py` を CLI `asterism-validate --ingester` にかけ、`paper`/`sample`/`curve` の複合キーを正しく復元・検証することを end-to-end 確認
 - **副産物**: 実 starrydata.py の `sdr:paper/{SID}` が単独キーであることを T1 が自動で可視化した。残タスク「papers.csv の SID 28 collisions」(全件) はこの安全網が今後 catch する
 
 → 「次の Round で試すこと」**項目 5 完了**。

@@ -43,7 +43,7 @@ Phase 3 で auto-gen ツールが満たすべき要件:
 | **A. ShEx 生成が Phase 1 MIE と互換** | ★★★ | togomcp が読む `shape_expressions` block への drop-in |
 | **B. OWL TBox 生成** | ★★ | `docs/ontology/{name}.ttl` の維持コストを下げる |
 | **C. Mermaid / 図 自動生成** | ★★ | `docs/ontology/diagram.md` の同期コストを下げる |
-| **D. Python class scaffold** | ★ | `ingest/src/csv2rdf/{name}.py` の skeleton |
+| **D. Python class scaffold** | ★ | `ingest/src/asterism/{name}.py` の skeleton |
 | **E. SHACL 生成** | ✗ | Oxigraph で使わないため |
 | **F. JSON Schema** | ✗ | 現状ユースケース無し |
 | **G. SPARQL example の auto-gen** | ★ | MIE の `sparql_query_examples` への補強 |
@@ -215,7 +215,7 @@ Phase 3 で `propose_schema` が CSV を見て **Python class を出すべきか
 - [ ] rdf-config に `xsd:date` / `xsd:dateTime` を **明示する syntax** が無いか調査 (model.yaml で `^^xsd:date` を書こうとしたら parse error になった)
 - [ ] LinkML の `skip_vacuous_min_zero_cardinality_axioms=True` (将来 default) で bnode 数がどれだけ減るか
 - [ ] LinkML の `gen-graphviz` を試して `docs/ontology/diagram.md` の代替になるか
-- [ ] rdf-config の `--grasp-ns` / `--stanza` は csv2rdf-mcp で使うか (現状 GraphQL / TogoStanza は使わないが)
+- [ ] rdf-config の `--grasp-ns` / `--stanza` は asterism で使うか (現状 GraphQL / TogoStanza は使わないが)
 - [ ] LinkML / rdf-config 両方を **starrydata 以外の dataset** (例: NIMS Supercon CSV) に適用して再評価 (Phase 3 #4 dogfooding と兼ねる)
 - [ ] **Step 5 (Schema refinement)** で「コメントを受けて model.yaml を update する」フローが実装しやすいか — rdf-config は構造が小さいので AI が更新しやすそう、LinkML は YAML が大きく field 数も多いので AI が部分編集しやすいか要検証
 

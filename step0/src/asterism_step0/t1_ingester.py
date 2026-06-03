@@ -8,7 +8,7 @@ MIE. This module parses the ingester with :mod:`ast` and recovers, **per RDF
 entity, the actual CSV columns that compose its IRI** — so full-CSV uniqueness
 validation runs against what the ingester *does*, not just what the MIE
 *documents*. If ``propose`` picks the wrong key on a subset, a full-CSV
-``csv2rdf-validate`` now catches it from the ingester even when the MIE looks
+``asterism-validate`` now catches it from the ingester even when the MIE looks
 clean.
 
 Two ingester styles are supported (both seen in real dogfood output):
