@@ -34,6 +34,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final
 
+from csv2rdf import substrate
 from csv2rdf.oxigraph_client import OxigraphClient, OxigraphConfig
 from csv2rdf.starrydata import DEFAULT_ONTOLOGY, DEFAULT_RESOURCE, IngestConfig
 from csv2rdf.watcher import (
@@ -430,6 +431,9 @@ def build_app(
                     "model.yaml": mat.rdf_config_model,
                     "mie.yaml": mat.mie_yaml,
                     "ingester.py": mat.ingester_py,
+                    # Phase 5: the declarative RML mapping (may be None/absent on
+                    # older proposals — persisted so the human-gated ingest can run it).
+                    "mapping.rml.ttl": mat.rml_ttl,
                 }
                 traps = [
                     {"id": r.trap_id, "name": r.name, "status": r.status, "detail": r.detail}
@@ -476,6 +480,70 @@ def build_app(
         if data is None:
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
         return data
+
+    @app.post("/api/datasets/{dataset_id}/ingest")
+    async def ingest_dataset(
+        dataset_id: str,
+        files: list[UploadFile] = File(..., description="Source CSV(s) the RML maps"),
+    ) -> JSONResponse:
+        """Phase 5 (#15): human-gated ingest of a dataset's approved RML mapping.
+
+        Runs the dataset's persisted ``mapping.rml.ttl`` through the Morph-KGC
+        substrate on the uploaded CSVs (NO generated code — only the closed Tier 0
+        functions) and loads the result into an **isolated draft named graph**.
+        Ask cites the canonical graph by default, so draft data is not a citable
+        fact until separately promoted. This is the explicit second gate after
+        ``materialize`` (which only saves the RML draft).
+        """
+        data = registry.load_dataset(cfg.registry_root, dataset_id)
+        if data is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        rml_ttl = str(data["artifacts"].get("mapping.rml.ttl", "") or "")
+        if not rml_ttl.strip():
+            raise HTTPException(
+                400, "this dataset has no declarative RML mapping to ingest"
+            )
+        if not files:
+            raise HTTPException(400, "no CSV files uploaded")
+
+        tmpdir = Path(tempfile.mkdtemp(prefix="csv2rdf-ingest-"))
+        try:
+            for upload in files:
+                if upload.filename is None:
+                    raise HTTPException(400, "missing filename")
+                await _save_upload(upload, tmpdir / _validate_name(upload.filename))
+
+            graph_iri = substrate.draft_graph_iri(dataset_id)
+            client: OxigraphClient = app.state.client
+            try:
+                # Morph-KGC is CPU-bound and blocking — run it off the event loop.
+                graph = await asyncio.to_thread(
+                    substrate.materialize_to_graph, rml_ttl, tmpdir
+                )
+            except RuntimeError as exc:  # morph-kgc not installed (optional extra)
+                raise HTTPException(501, str(exc)) from exc
+            triple_count = await substrate.ingest_graph_to_oxigraph(
+                graph, client, graph_iri
+            )
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+        meta = registry.mark_ingested(
+            cfg.registry_root,
+            dataset_id,
+            graph_iri=graph_iri,
+            triple_count=triple_count,
+            ingested_at=datetime.now(UTC).isoformat(),
+        )
+        return JSONResponse(
+            {
+                "dataset_id": dataset_id,
+                "graph_iri": graph_iri,
+                "graph_kind": "draft",
+                "triple_count": triple_count,
+                "dataset": meta,
+            }
+        )
 
     @app.post("/api/sparql")
     async def sparql(body: SparqlRequest) -> JSONResponse:
