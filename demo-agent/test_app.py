@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import re
+import types
 
 import rdflib
 from fastapi.testclient import TestClient
@@ -118,3 +119,114 @@ def test_sparql_endpoint_rejects_update(monkeypatch) -> None:
         "/demo/sparql", json={"query": "DELETE WHERE { ?s ?p ?o }"}
     ).json()
     assert "error" in body and body["rows"] == []
+
+
+# --- #18 LLM NL->SPARQL escape (auto-fallback) ------------------------------
+
+_EX = "https://example.org/"
+_CUSTOM_TTL = f"""
+@prefix ex: <{_EX}> .
+ex:w1 a ex:Widget ; ex:name "alpha" .
+ex:w2 a ex:Widget ; ex:name "beta" .
+"""
+
+
+def _block(**kw) -> types.SimpleNamespace:
+    return types.SimpleNamespace(**kw)
+
+
+class _FakeMessages:
+    def __init__(self, outer: "_FakeAnthropic") -> None:
+        self._outer = outer
+
+    def create(self, **kwargs):
+        self._outer.calls.append(kwargs)
+        resp = self._outer.scripted[self._outer.i]
+        self._outer.i += 1
+        return resp
+
+
+class _FakeAnthropic:
+    """Scripts a fixed sequence of Messages API responses, records every call."""
+
+    def __init__(self, scripted: list) -> None:
+        self.scripted = scripted
+        self.i = 0
+        self.calls: list[dict] = []
+        self.messages = _FakeMessages(self)
+
+
+def _custom_schema_client(monkeypatch, fake: _FakeAnthropic) -> TestClient:
+    g = rdflib.Graph()
+    g.parse(data=_CUSTOM_TTL, format="turtle")
+    demo._state["client"] = _LocalClient(g)
+    monkeypatch.setattr(demo, "_REAL", True)
+    monkeypatch.setitem(demo._state, "anthropic_factory", lambda _key: fake)
+    return TestClient(demo.app)
+
+
+def test_llm_escape_fires_when_typed_path_empty(monkeypatch) -> None:
+    # Typed tools look for sd:Sample etc., absent in this custom schema → the
+    # escape must engage, run the model's SPARQL on the real graph, and answer.
+    select = (
+        f"SELECT ?w ?n WHERE {{ ?w a <{_EX}Widget> ; <{_EX}name> ?n }}"
+    )
+    fake = _FakeAnthropic(
+        [
+            _block(content=[_block(type="tool_use", id="t1", name="run_sparql", input={"query": select})]),
+            _block(
+                content=[
+                    _block(
+                        type="tool_use",
+                        id="t2",
+                        name="submit_answer",
+                        input={
+                            "answer": "Widget は 2 件あります（alpha, beta）。",
+                            "citations": [{"iri": f"{_EX}w1", "kind": "Widget", "label": "alpha"}],
+                        },
+                    )
+                ]
+            ),
+        ]
+    )
+    client = _custom_schema_client(monkeypatch, fake)
+
+    body = client.post(
+        "/demo/ask", json={"question": "Widget は何件ありますか？"},
+        headers={"X-API-Key": "sk-test"},
+    ).json()
+
+    assert "Widget" in body["answer"]
+    assert body["citations"][0]["iri"] == f"{_EX}w1"
+    # The model's query is disclosed, and it was actually executed + fed back.
+    assert select in body["sparql"]
+    assert any("使用した SPARQL" in n for n in body["notes"])
+    fed_back = json.dumps(fake.calls[1]["messages"], ensure_ascii=False)
+    assert "alpha" in fed_back  # the real rows reached the model on turn 2
+
+
+def test_llm_escape_requires_key(monkeypatch) -> None:
+    # Same empty-typed-path situation, but no API key → no LLM, just a hint.
+    fake = _FakeAnthropic([])
+    client = _custom_schema_client(monkeypatch, fake)
+    body = client.post("/demo/ask", json={"question": "Widget は何件？"}).json()
+    assert fake.calls == []  # the LLM was never invoked
+    assert any("API キー" in n for n in body["notes"])
+
+
+def test_typed_path_still_short_circuits_without_llm(monkeypatch) -> None:
+    # Starrydata fixture + a ZT question → typed path answers; LLM untouched even
+    # when a key is present.
+    g = rdflib.Graph()
+    g.parse(data=_TTL, format="turtle")
+    demo._state["client"] = _LocalClient(g)
+    monkeypatch.setattr(demo, "_REAL", True)
+    fake = _FakeAnthropic([])
+    monkeypatch.setitem(demo._state, "anthropic_factory", lambda _key: fake)
+    client = TestClient(demo.app)
+    body = client.post(
+        "/demo/ask", json={"question": "ZTが最も高い材料は？"},
+        headers={"X-API-Key": "sk-test"},
+    ).json()
+    assert "ZT" in body["answer"]
+    assert fake.calls == []  # typed path won; no escape
