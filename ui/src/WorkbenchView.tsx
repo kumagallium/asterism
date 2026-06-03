@@ -560,7 +560,7 @@ export function WorkbenchView() {
                 )}
               </button>
               {proposeErr && <pre className="error">{proposeErr}</pre>}
-              {materialized && <MaterializePanel result={materialized} />}
+              {materialized && <MaterializePanel result={materialized} csvFiles={files} />}
             </>
           ) : (
             <p className="step-guard">先に「スキーマ提案」でスキーマを生成してください。</p>

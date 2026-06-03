@@ -146,12 +146,54 @@ export interface TrapResult {
   detail: string
 }
 
+/** Registry meta for a persisted dataset (subset the workbench needs). */
+export interface DatasetMeta {
+  id: string
+  name: string
+  has_rml?: boolean
+  ingested?: boolean
+  graph_iri?: string
+  triple_count?: number
+}
+
 export interface MaterializeResult {
   artifacts: Record<string, string | null> // filename -> contents
   complete: boolean
   warnings: string[]
   traps: TrapResult[]
   exit_code: number
+  /** Present when the bundle was persisted to the registry (the default). */
+  dataset?: DatasetMeta
+}
+
+/** Result of the human-gated substrate ingest. */
+export interface IngestResult {
+  dataset_id: string
+  graph_iri: string
+  graph_kind: string
+  triple_count: number
+  dataset: DatasetMeta
+}
+
+/**
+ * Human gate (Phase 5 #15): run a dataset's approved RML through the Morph-KGC
+ * substrate on the given CSVs and load the result into an isolated draft graph.
+ * The CSVs are the same ones used to design the schema (held in workbench state).
+ */
+export async function ingestDataset(datasetId: string, files: File[]): Promise<IngestResult> {
+  const form = new FormData()
+  for (const file of files) {
+    form.append('files', file)
+  }
+  const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/ingest`, {
+    method: 'POST',
+    body: form,
+  })
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '')
+    throw new Error(`ingest failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
+  }
+  return (await res.json()) as IngestResult
 }
 
 /**

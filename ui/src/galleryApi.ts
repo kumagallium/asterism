@@ -120,7 +120,7 @@ const ONTOLOGIES: OntologyEntry[] = [
 
 // ---- mapping layer --------------------------------------------------------
 
-export type MappingArtifactKind = 'ingester' | 'mie' | 'shex'
+export type MappingArtifactKind = 'ingester' | 'mie' | 'shex' | 'mapping'
 
 export interface MappingArtifact {
   kind: MappingArtifactKind
@@ -226,6 +226,11 @@ interface DatasetMeta {
   exit_code?: number
   has_ingester?: boolean
   has_mie?: boolean
+  // Phase 5: declarative RML presence + draft-graph ingest status.
+  has_rml?: boolean
+  ingested?: boolean
+  triple_count?: number
+  graph_iri?: string
 }
 
 /** A materialized dataset adapted to both gallery layers (ontology + mapping). */
@@ -252,19 +257,31 @@ function toOntology(meta: DatasetMeta, mermaid: string): OntologyEntry {
 
 function toMapping(meta: DatasetMeta): MappingEntry {
   const artifacts: MappingArtifact[] = []
+  if (meta.has_rml) {
+    artifacts.push({
+      kind: 'mapping',
+      name: 'mapping.rml.ttl',
+      summary: meta.ingested
+        ? `宣言 RML（draft グラフに投入済み・${meta.triple_count ?? '?'} triples）`
+        : '宣言 RML（未投入。ワークベンチの人間ゲートで投入可能）',
+    })
+  }
   if (meta.has_ingester) {
     artifacts.push({ kind: 'ingester', name: 'ingester.py', summary: '生成された取り込みスクリプト（未実行）' })
   }
   if (meta.has_mie) {
     artifacts.push({ kind: 'mie', name: 'mie.yaml', summary: '生成された AI 探索メタ' })
   }
+  const status = meta.ingested
+    ? `宣言 RML を draft グラフに投入済み（${meta.triple_count ?? '?'} triples）。Ask の引用面（canonical）への昇格は別ゲート。`
+    : '未投入＝まだ Oxigraph に入っていない。宣言 RML があればワークベンチの人間ゲートで draft グラフへ投入できる。'
   return {
     id: `live-${meta.id}`,
     name: meta.name,
     dataset: `materialize 済み（${meta.created_at.slice(0, 10)})`,
     targetOntologyId: `live-${meta.id}`,
     targetOntologyName: meta.name,
-    description: '目的タグは未設定（運用で付与）。生成 ingester は未実行＝まだ Oxigraph に投入されていない。',
+    description: `目的タグは未設定（運用で付与）。${status}`,
     purposes: [],
     artifacts,
     editRisk: 'low',
