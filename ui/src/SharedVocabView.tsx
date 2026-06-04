@@ -122,8 +122,13 @@ export function SharedVocabView({ onBack }: { onBack?: () => void }) {
                 {schema.classes.length} クラス · {schema.predicates.length} 述語
               </span>
             </div>
-            <LiveTermList title="クラス" terms={schema.classes} />
-            <div className="ds-subhead">主な述語</div>
+            <p className="vocab-live-note">
+              右端の数字＝実データ中の件数。<strong>クラスはインスタンス数</strong>（その型のものが何件あるか）、
+              <strong>述語は使用回数</strong>（そのプロパティを使うトリプル数）。
+            </p>
+            <div className="ds-subhead">クラス（インスタンス数）</div>
+            <LiveTermList title="" terms={schema.classes} />
+            <div className="ds-subhead">主な述語（使用回数）</div>
             <LiveTermList title="" terms={schema.predicates} limit={15} />
             {reuses.length > 0 && (
               <>
