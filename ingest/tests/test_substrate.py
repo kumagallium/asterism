@@ -287,6 +287,75 @@ async def test_tombstone_deleted_marks_control() -> None:
     assert STATUS_PREDICATE in u and '"deleted"' in u
 
 
+# ---- FROM-merge cross-dataset read (#20 P3) ---------------------------------
+
+
+def test_canonical_from_clauses_builds_from_block() -> None:
+    from asterism.substrate import canonical_from_clauses
+
+    assert canonical_from_clauses([]) == ""
+    out = canonical_from_clauses(["https://ex/a", "https://ex/b"])
+    assert out == "FROM <https://ex/a>\nFROM <https://ex/b>\n"
+
+
+async def test_canonical_graphs_lists_sorted_excluding_retracted() -> None:
+    from asterism.substrate import canonical_graphs
+
+    g_a = canonical_graph_iri("a")
+    g_b = canonical_graph_iri("b")
+
+    class _Fake:
+        async def sparql_select(self, query: str) -> dict:
+            # The enumeration filters by canonical prefix + NOT EXISTS retracted;
+            # we just return a fixed active set to check parsing/shape.
+            assert "STRSTARTS" in query and "FILTER NOT EXISTS" in query
+            return {
+                "results": {
+                    "bindings": [
+                        {"g": {"type": "uri", "value": g_a}},
+                        {"g": {"type": "uri", "value": g_b}},
+                    ]
+                }
+            }
+
+    assert await canonical_graphs(_Fake()) == [g_a, g_b]
+
+
+async def test_migrate_default_to_canonical_moves_default() -> None:
+    from asterism.substrate import migrate_default_to_canonical
+
+    fake = _FakeSparql(set(), set(), set(), set())
+    target = canonical_graph_iri("legacy")
+    await migrate_default_to_canonical(fake, target)
+    assert fake.updates == [f"MOVE DEFAULT TO GRAPH <{target}>"]
+
+
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+def test_from_merge_enables_cross_dataset_join() -> None:
+    """The point of FROM-merge: a join whose two facts live in DIFFERENT canonical
+    graphs resolves once the graphs are merged via FROM (cross-dataset linking)."""
+    from asterism.substrate import canonical_from_clauses, canonical_graph_iri
+
+    ds = rdflib.Dataset()
+    ex = rdflib.Namespace("https://ex/")
+    g_a = rdflib.URIRef(canonical_graph_iri("a"))
+    g_b = rdflib.URIRef(canonical_graph_iri("b"))
+    ds.graph(g_a).add((ex.sample1, ex.madeOf, ex.bismuth))  # dataset A
+    ds.graph(g_b).add((ex.bismuth, rdflib.RDFS.label, rdflib.Literal("Bismuth")))  # dataset B
+
+    body = "WHERE { ?s <https://ex/madeOf> ?e . ?e rdfs:label ?l }"
+    prefix = "PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>\n"
+
+    # Without FROM (default graph only), the cross-graph join finds nothing.
+    none = list(ds.query(prefix + "SELECT ?l " + body))
+    assert none == []
+
+    # With FROM over both canonical graphs, the join across A and B resolves.
+    frm = canonical_from_clauses([str(g_a), str(g_b)])
+    rows = list(ds.query(prefix + "SELECT ?l " + frm + body))
+    assert len(rows) == 1 and str(rows[0][0]) == "Bismuth"
+
+
 # ---- FnO namespace normalization (#15 ingest robustness) ---------------------
 
 
