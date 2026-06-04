@@ -37,9 +37,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/asterism"]
-# Ship the curated QUDT map alongside the Python sources so importlib.resources
-# can read it at runtime (incl. inside the docker images).
-artifacts = ["src/asterism/qudt_map.yaml"]
+# The QUDT map is no longer a package artifact: it is starrydata content, now the
+# single source of truth at datasets/starrydata/qudt_map.yaml, read via the
+# dataset loader at runtime (#20 P2-2b). The docker images bundle datasets/.
 
 [tool.ruff]
 target-version = "py311"
