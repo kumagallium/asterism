@@ -1,14 +1,45 @@
-import { BIND_INFO, SHARED_VOCAB, VOCAB_USERS, type BindStrategy } from './datasetsApi'
-import { ActivityIcon, ArrowIcon, LinkIcon } from './icons'
+import { useEffect, useState } from 'react'
+import { type CatalogDataset, getCatalogDatasets, getOntologies, type OntologyEntry } from './galleryApi'
+import { ArrowIcon, LayersIcon, LinkIcon } from './icons'
+
+const STATUS_LABEL: Record<CatalogDataset['statusKind'], string> = {
+  pub: '公開済み',
+  draft: '下書き',
+  design: '設計中',
+}
 
 /**
  * Shared vocabulary board (design_handoff_asterism_ux #6). The answer to "if
  * datasets are primary, do ontology/mapping disappear?" — No: the vocabulary
- * stays first-class, it is just SHARED across datasets. Shows the shared classes,
- * which datasets use them and HOW they bind in (4 strategies), and why edits
- * ripple downstream.
+ * stays first-class, it is just SHARED across datasets.
+ *
+ * Real data: the shared vocabulary IS the committed canonical ontology
+ * (getOntologies); the datasets that bind to it are the real catalog datasets.
+ * No fabricated classes/usage.
  */
 export function SharedVocabView({ onBack }: { onBack?: () => void }) {
+  const [onto, setOnto] = useState<OntologyEntry | null>(null)
+  const [datasets, setDatasets] = useState<CatalogDataset[]>([])
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    Promise.all([getOntologies(), getCatalogDatasets()])
+      .then(([os, ds]) => {
+        if (cancelled) return
+        setOnto(os[0] ?? null)
+        setDatasets(ds)
+        setLoaded(true)
+      })
+      .catch(() => !cancelled && setLoaded(true))
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Datasets other than the canonical itself are the consumers of the vocabulary.
+  const consumers = datasets.filter((d) => d.id !== onto?.id)
+
   return (
     <div className="vocab">
       {onBack && (
@@ -32,88 +63,95 @@ export function SharedVocabView({ onBack }: { onBack?: () => void }) {
         </div>
       </div>
 
-      <div className="vocab-grid">
-        {/* shared classes */}
-        <div className="card vocab-classes">
-          <div className="vocab-card-head">
-            <h3 className="card-h">共有クラス</h3>
-            <span className="vocab-card-meta">
-              {SHARED_VOCAB.classes.length} · {SHARED_VOCAB.name} {SHARED_VOCAB.version}
-            </span>
-          </div>
-          <div className="vocab-class-list">
-            {SHARED_VOCAB.classes.map((c) => (
-              <div key={c.en} className="vocab-class">
-                <div className="vocab-class-body">
-                  <div className="vocab-class-title">
-                    <span className="vocab-class-ja">{c.ja}</span>
-                    <code className="vocab-class-en">{c.en}</code>
-                  </div>
-                  <div className="vocab-class-desc">{c.desc}</div>
-                </div>
-                <span className="vocab-class-users">
-                  <span className="mono-strong">{c.users}</span> 利用
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
+      {!loaded && (
+        <p className="loading-row">
+          <span className="spinner" />
+          読み込み中…
+        </p>
+      )}
 
-        {/* who uses it + how */}
-        <div className="card vocab-users">
-          <div className="vocab-card-head">
-            <h3 className="card-h">どのデータが、どう使っているか</h3>
-            <span className="vocab-legend">
-              {(Object.keys(BIND_INFO) as BindStrategy[]).map((k) => (
-                <BindChip key={k} strat={k} />
-              ))}
-            </span>
-          </div>
-          <div className="vocab-user-list">
-            {VOCAB_USERS.map((u) => (
-              <div key={u.name} className="vocab-user">
-                <div className="vocab-user-head">
-                  <span className="vocab-user-icon">
-                    <LinkIcon size={14} />
-                  </span>
-                  <span className="vocab-user-name">{u.name}</span>
-                  <span className="vocab-user-src">{u.src}</span>
+      {loaded && !onto && (
+        <p className="ds-empty-note">共有オントロジーがまだありません。</p>
+      )}
+
+      {onto && (
+        <div className="vocab-grid">
+          {/* shared classes (canonical ontology) */}
+          <div className="card vocab-classes">
+            <div className="vocab-card-head">
+              <h3 className="card-h">共有クラス</h3>
+              <span className="vocab-card-meta">
+                {onto.classes.length} · {onto.prefix}
+              </span>
+            </div>
+            <div className="vocab-class-list">
+              {onto.classes.map((c) => (
+                <div key={c} className="vocab-class">
+                  <div className="vocab-class-body">
+                    <div className="vocab-class-title">
+                      <code className="vocab-class-en">{c}</code>
+                    </div>
+                  </div>
                 </div>
-                <div className="vocab-user-binds">
-                  {u.binds.map((b) => (
-                    <span key={b.cls} className="vocab-bind">
-                      <span className="vocab-bind-cls">{b.cls}</span>
-                      <BindChip strat={b.strat} />
+              ))}
+            </div>
+            {onto.reuses.length > 0 && (
+              <>
+                <div className="ds-subhead">再利用している語彙</div>
+                <div className="ds-reuse-list">
+                  {onto.reuses.map((r) => (
+                    <span key={r.prefix} className="reuse-chip" title={r.what}>
+                      <code>{r.prefix}</code>
+                      <span className="reuse-chip-what">{r.what}</span>
                     </span>
                   ))}
                 </div>
-              </div>
-            ))}
+              </>
+            )}
+          </div>
 
-            <div className="vocab-caution">
-              <span className="vocab-caution-icon">
-                <ActivityIcon size={16} />
-              </span>
-              <div>
-                <strong>なぜ「要注意」？</strong>{' '}
-                共有クラスを書き換えると、それを使う <span className="mono-strong">{VOCAB_USERS.length}</span>{' '}
-                データセットすべての検索・回答に波及します。変更は<strong>影響範囲のプレビュー</strong>
-                を見てから確定します。
+          {/* datasets that bind to this vocabulary */}
+          <div className="card vocab-users">
+            <div className="vocab-card-head">
+              <h3 className="card-h">このオントロジーを使うデータセット</h3>
+              <span className="vocab-card-meta">{consumers.length}</span>
+            </div>
+            <div className="vocab-user-list">
+              {consumers.length === 0 && (
+                <p className="ds-empty-note">
+                  まだ他のデータセットはこの語彙に紐づいていません。ワークベンチで設計を保存すると、
+                  共有語彙との差分（再利用 / 新規）を「取り込みルール」タブで確認できます。
+                </p>
+              )}
+              {consumers.map((u) => (
+                <div key={u.id} className="vocab-user">
+                  <div className="vocab-user-head">
+                    <span className="vocab-user-icon">
+                      <LayersIcon size={14} />
+                    </span>
+                    <span className="vocab-user-name">{u.name}</span>
+                    <span className={`status-pill status-pill--${u.statusKind}`}>
+                      {STATUS_LABEL[u.statusKind]}
+                    </span>
+                    <span className="vocab-user-src">{u.classes.length} クラス</span>
+                  </div>
+                </div>
+              ))}
+
+              <div className="vocab-caution">
+                <span className="vocab-caution-icon">
+                  <LinkIcon size={16} />
+                </span>
+                <div>
+                  <strong>なぜ「要注意」？</strong>{' '}
+                  共有クラスを書き換えると、それを使うデータセットすべての検索・回答に波及します。
+                  変更は<strong>影響範囲のプレビュー</strong>を見てから確定します。
+                </div>
               </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
-  )
-}
-
-function BindChip({ strat }: { strat: BindStrategy }) {
-  const b = BIND_INFO[strat]
-  return (
-    <span className={`bind-chip bind-chip--${b.tone}`}>
-      {b.label}
-      <span className="bind-chip-en">{b.en}</span>
-    </span>
   )
 }

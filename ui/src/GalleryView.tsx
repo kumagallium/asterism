@@ -1,99 +1,29 @@
 import { useEffect, useState } from 'react'
 import {
-  DATASETS,
-  SHARED_VOCAB,
-  STATUS_LABEL,
-  type DatasetArtifact,
-  type DatasetCount,
-  type DatasetEntry,
-  type DatasetReuse,
-  type DatasetRule,
-  type DatasetStatusKind,
-} from './datasetsApi'
-import {
   type AlignmentReport,
-  datasetStage,
+  type CatalogDataset,
+  type CatalogStatusKind,
   getAlignment,
-  getLiveDatasets,
+  getCatalogDatasets,
   type LiveDataset,
   promoteDataset,
-  STARRYDATA_MERMAID,
 } from './galleryApi'
 import { ArrowIcon, LinkIcon, SearchIcon } from './icons'
 import { Mermaid } from './Mermaid'
 
-// A unified view-model so the dataset list + detail render demo fixtures and
-// real materialized drafts the same way. Live drafts keep their backend handle
-// so the promote (S4 human-gate) flow stays intact.
-interface CatalogDataset {
-  id: string
-  name: string
-  sub: string
-  statusKind: DatasetStatusKind
-  counts: DatasetCount[]
-  purposes: string[]
-  classes: { ja?: string; en: string }[]
-  reuses: DatasetReuse[]
-  rules: DatasetRule[]
-  artifacts: DatasetArtifact[]
-  mermaid?: string
-  demo: boolean
-  live?: LiveDataset
-}
-
-function fromDemo(d: DatasetEntry): CatalogDataset {
-  return {
-    id: d.id,
-    name: d.name,
-    sub: d.sub,
-    statusKind: d.status,
-    counts: d.counts,
-    purposes: d.purposes,
-    classes: d.classes,
-    reuses: d.reuses,
-    rules: d.rules,
-    artifacts: d.artifacts,
-    // The headline dataset shows its real committed TBox diagram.
-    mermaid: d.id === 'starrydata' ? STARRYDATA_MERMAID : undefined,
-    demo: true,
-  }
-}
-
-function fromLive(l: LiveDataset): CatalogDataset {
-  const stage = datasetStage(l.meta)
-  const statusKind: DatasetStatusKind =
-    stage === 'promoted' ? 'pub' : stage === 'ingested' ? 'draft' : 'design'
-  const n = l.meta.triples_promoted ?? l.meta.triple_count
-  return {
-    id: l.ontology.id,
-    name: l.meta.name,
-    sub: `設計を保存 · ${l.meta.created_at.slice(0, 10)}`,
-    statusKind,
-    counts: [
-      { value: n != null ? n.toLocaleString() : '—', label: '事実' },
-      { value: String(l.ontology.classes.length), label: 'クラス' },
-    ],
-    purposes: [],
-    classes: l.ontology.classes.map((c) => ({ en: c })),
-    reuses: l.ontology.reuses.map((r) => ({ prefix: r.prefix, what: r.what })),
-    rules: [],
-    artifacts: l.mapping.artifacts.map((a) => ({
-      kind: a.kind === 'ingester' ? 'CODE' : a.kind.toUpperCase(),
-      name: a.name,
-      detail: a.summary,
-    })),
-    mermaid: l.ontology.mermaid || undefined,
-    demo: false,
-    live: l,
-  }
+const STATUS_LABEL: Record<CatalogStatusKind, string> = {
+  pub: '公開済み',
+  draft: '下書き',
+  design: '設計中',
 }
 
 /**
  * Catalog — datasets are the entry point (design_handoff_asterism_ux #5). Each
  * dataset HAS a 設計図 (vocabulary) and 取り込みルール (mapping), shown as two tabs
- * inside the dataset; the SHARED vocabulary is promoted to its own board (the
- * gateway band at the bottom). Demo datasets illustrate the IA (badged); real
- * materialized drafts surface here too and keep their promote (human-gate) flow.
+ * inside the dataset; the SHARED vocabulary is the gateway band at the bottom.
+ *
+ * All datasets are REAL: the committed canonical ontology+mapping and the
+ * workbench-materialized drafts (getCatalogDatasets). No demo placeholders.
  */
 export function GalleryView({
   focusClass,
@@ -102,47 +32,38 @@ export function GalleryView({
   focusClass?: string | null
   onOpenVocab?: () => void
 }) {
-  const [live, setLive] = useState<LiveDataset[]>([])
-  const [loaded, setLoaded] = useState(false)
-  // User's explicit pick (null = follow focus / first). Reset when focus changes.
+  const [datasets, setDatasets] = useState<CatalogDataset[] | null>(null)
+  const [error, setError] = useState('')
   const [picked, setPicked] = useState<string | null>(null)
   const [seenFocus, setSeenFocus] = useState<string | null | undefined>(focusClass)
   const [tab, setTab] = useState<'design' | 'rules'>('design')
 
   useEffect(() => {
     let cancelled = false
-    // Best-effort: resolves [] when the workbench API is absent.
-    getLiveDatasets()
-      .then((l) => {
-        if (!cancelled) {
-          setLive(l)
-          setLoaded(true)
-        }
+    getCatalogDatasets()
+      .then((d) => {
+        if (!cancelled) setDatasets(d)
       })
-      .catch(() => {
-        if (!cancelled) setLoaded(true)
+      .catch((e) => {
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e))
       })
     return () => {
       cancelled = true
     }
   }, [])
 
-  const datasets: CatalogDataset[] = [...DATASETS.map(fromDemo), ...live.map(fromLive)]
-
   // Reset the explicit pick when arriving with a new Ask focus (setState during
-  // render — the React-recommended "adjust state on prop change" pattern, which
-  // avoids a cascading setState-in-effect).
+  // render — the "adjust state on prop change" pattern; avoids effect cascades).
   if (focusClass !== seenFocus) {
     setSeenFocus(focusClass)
     setPicked(null)
   }
 
-  // Selection: user pick → focused class's dataset → first.
-  const focused = focusClass
-    ? datasets.find((d) => d.classes.some((c) => c.en === focusClass))
-    : undefined
-  const selected =
-    datasets.find((d) => d.id === picked) ?? focused ?? datasets[0] ?? null
+  const list = datasets ?? []
+  const focused = focusClass ? list.find((d) => d.classes.includes(focusClass)) : undefined
+  const selected = list.find((d) => d.id === picked) ?? focused ?? list[0] ?? null
+  // The shared vocabulary = the canonical ontology (a dataset with no draft handle).
+  const canonical = list.find((d) => !d.live)
 
   return (
     <div className="catalog">
@@ -158,54 +79,71 @@ export function GalleryView({
         </div>
       )}
 
-      <div className="catalog-grid">
-        {/* dataset list */}
-        <div className="catalog-list">
-          <div className="catalog-list-head">
-            <h3 className="card-h">データセット</h3>
-            <span className="catalog-count">{datasets.length}</span>
+      {error && <pre className="error">{error}</pre>}
+
+      {!datasets && !error && (
+        <p className="loading-row">
+          <span className="spinner" />
+          カタログを読み込み中…
+        </p>
+      )}
+
+      {datasets && datasets.length === 0 && (
+        <div className="state-block">
+          <span className="state-icon state-icon--primary">
+            <SearchIcon size={26} />
+          </span>
+          <p className="state-title">まだデータセットがありません</p>
+          <p className="state-sub">「データを追加」でデータを取り込むと、ここに並びます。</p>
+        </div>
+      )}
+
+      {datasets && datasets.length > 0 && (
+        <div className="catalog-grid">
+          <div className="catalog-list">
+            <div className="catalog-list-head">
+              <h3 className="card-h">データセット</h3>
+              <span className="catalog-count">{datasets.length}</span>
+            </div>
+            {datasets.map((d) => (
+              <DatasetListCard
+                key={d.id}
+                dataset={d}
+                active={d.id === selected?.id}
+                onSelect={() => setPicked(d.id)}
+              />
+            ))}
           </div>
-          {datasets.map((d) => (
-            <DatasetListCard
-              key={d.id}
-              dataset={d}
-              active={d.id === selected?.id}
-              onSelect={() => setPicked(d.id)}
-            />
-          ))}
-          {!loaded && (
-            <p className="loading-row">
-              <span className="spinner" />
-              読み込み中…
-            </p>
+
+          {selected && (
+            <DatasetDetail dataset={selected} tab={tab} onTab={setTab} highlight={focusClass} />
           )}
         </div>
+      )}
 
-        {/* dataset detail */}
-        {selected && <DatasetDetail dataset={selected} tab={tab} onTab={setTab} highlight={focusClass} />}
-      </div>
-
-      {/* shared vocabulary gateway */}
-      <button type="button" className="shared-band" onClick={onOpenVocab}>
-        <span className="shared-band-icon">
-          <LinkIcon size={19} />
-        </span>
-        <span className="shared-band-body">
-          <span className="shared-band-title">
-            共有の語彙 <span className="shared-band-en">shared vocabulary</span>
-            <span className="shared-band-warn">変更は全体に影響 · 要注意</span>
+      {/* shared vocabulary gateway (= the canonical ontology) */}
+      {canonical && (
+        <button type="button" className="shared-band" onClick={onOpenVocab}>
+          <span className="shared-band-icon">
+            <LinkIcon size={19} />
           </span>
-          <span className="shared-band-sub">
-            複数のデータセットが共通で使う設計図。揃えておくと<strong>横断して検索・比較</strong>できます。
+          <span className="shared-band-body">
+            <span className="shared-band-title">
+              共有の語彙 <span className="shared-band-en">shared vocabulary</span>
+              <span className="shared-band-warn">変更は全体に影響 · 要注意</span>
+            </span>
+            <span className="shared-band-sub">
+              複数のデータセットが共通で使う設計図。揃えておくと<strong>横断して検索・比較</strong>できます。
+            </span>
           </span>
-        </span>
-        <span className="shared-band-cta">
-          <span className="shared-band-users">
-            <span className="mono-strong">{SHARED_VOCAB.classes.length}</span> クラスを共有
+          <span className="shared-band-cta">
+            <span className="shared-band-users">
+              <span className="mono-strong">{canonical.classes.length}</span> クラスを共有
+            </span>
+            開く <ArrowIcon size={14} />
           </span>
-          開く <ArrowIcon size={14} />
-        </span>
-      </button>
+        </button>
+      )}
     </div>
   )
 }
@@ -227,10 +165,7 @@ function DatasetListCard({
           {STATUS_LABEL[dataset.statusKind]}
         </span>
       </div>
-      <div className="ds-card-sub">
-        {dataset.sub}
-        {dataset.demo && <span className="ds-card-demo">demo</span>}
-      </div>
+      <div className="ds-card-sub">{dataset.sub}</div>
       <div className="ds-card-counts">
         {dataset.counts.map((c) => (
           <span className="ds-row-count" key={c.label}>
@@ -285,8 +220,8 @@ function DatasetDetail({
           </div>
           <div className="ds-purpose-tags">
             {dataset.purposes.map((p) => (
-              <span key={p} className="purpose-pill">
-                {p}
+              <span key={p.tag} className="purpose-pill" title={p.detail}>
+                {p.tag}
               </span>
             ))}
           </div>
@@ -297,19 +232,19 @@ function DatasetDetail({
         <div className="ds-tab-body">
           <div className="ds-section-head">
             <span className="ds-section-title">設計図（中身の構造）</span>
-            <span className="ds-section-note">{dataset.classes.length} クラス · すべて出どころ付き</span>
+            <span className="ds-section-note">{dataset.classes.length} クラス</span>
           </div>
-          <div className="ds-classes">
-            {dataset.classes.map((c) => (
-              <span
-                key={c.en}
-                className={`class-chip${c.en === highlight ? ' onto-class-chip--focus' : ''}`}
-              >
-                {c.ja && <span className="class-chip-ja">{c.ja}</span>}
-                <code className="class-chip-en">{c.en}</code>
-              </span>
-            ))}
-          </div>
+          {dataset.classes.length > 0 ? (
+            <div className="ds-classes">
+              {dataset.classes.map((c) => (
+                <span key={c} className={`class-chip${c === highlight ? ' onto-class-chip--focus' : ''}`}>
+                  <code className="class-chip-en">{c}</code>
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="ds-empty-note">クラス情報はありません。</p>
+          )}
 
           {dataset.mermaid && (
             <details className="ds-diagram-details">
@@ -337,40 +272,9 @@ function DatasetDetail({
       ) : (
         <div className="ds-tab-body">
           <div className="ds-section-head">
-            <span className="ds-section-title">取り込みルール（項目の対応）</span>
+            <span className="ds-section-title">取り込みルール（生成物）</span>
           </div>
-          {dataset.rules.length > 0 ? (
-            <table className="rule-table">
-              <thead>
-                <tr>
-                  <th>ソース項目</th>
-                  <th></th>
-                  <th>つなぐ先</th>
-                  <th>変換</th>
-                </tr>
-              </thead>
-              <tbody>
-                {dataset.rules.map((r) => (
-                  <tr key={r.source}>
-                    <td className="rule-source">{r.source}</td>
-                    <td className="rule-arrow">
-                      <ArrowIcon size={13} />
-                    </td>
-                    <td className="rule-target">{r.target}</td>
-                    <td>
-                      <span className="rule-convert">{r.convert}</span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <p className="ds-empty-note">
-              この設計の項目対応表はまだありません。生成物（下）を確認してください。
-            </p>
-          )}
-
-          {dataset.artifacts.length > 0 && (
+          {dataset.artifacts.length > 0 ? (
             <div className="ds-artifacts">
               {dataset.artifacts.map((a) => (
                 <div key={a.name} className="ds-artifact">
@@ -380,6 +284,8 @@ function DatasetDetail({
                 </div>
               ))}
             </div>
+          ) : (
+            <p className="ds-empty-note">取り込みルールの生成物はまだありません。</p>
           )}
 
           {/* Real materialized drafts keep the S4 promote human-gate. */}
