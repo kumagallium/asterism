@@ -7,10 +7,19 @@ same physical quantity but three different strings.
 
 This module maps those strings to canonical QUDT IRIs
 (`http://qudt.org/vocab/quantitykind/...` and `.../unit/...`) using a curated
-table in ``qudt_map.yaml``. The ingester then emits *additional* IRI-valued
-triples alongside the existing string ones, so the change is backward
-compatible — existing queries keep working, and new queries can pivot on the
-stable IRI.
+table. The ingester then emits *additional* IRI-valued triples alongside the
+existing string ones, so the change is backward compatible — existing queries
+keep working, and new queries can pivot on the stable IRI.
+
+The lookup *engine* (this module) is domain-neutral and stays in core. The
+curated synonym *table* is starrydata's content, so it lives at
+``datasets/starrydata/qudt_map.yaml`` and is the single source of truth, read via
+the generic dataset loader (#20 P2-2b, ADR ontology-canonical-lifecycle §4). When
+the datasets/ tree is unreachable (a wheel-only install with no content), the
+table is simply empty and every lookup returns ``None`` — QUDT normalization is
+disabled rather than erroring. Per-dataset QUDT maps (the table is currently
+keyed by convention to ``starrydata``) generalize alongside per-dataset typed
+tools in P4.
 
 Lookups:
 
@@ -24,25 +33,39 @@ Unmapped inputs return ``None`` (the caller then emits no QUDT triple).
 from __future__ import annotations
 
 import functools
-import importlib.resources
+import logging
 from typing import Final
 
 import yaml
 
+from asterism.datasets import datasets_root
+
+logger = logging.getLogger(__name__)
+
 QUANTITY_KIND_BASE: Final[str] = "http://qudt.org/vocab/quantitykind/"
 UNIT_BASE: Final[str] = "http://qudt.org/vocab/unit/"
 
+# The curated table is starrydata's content. Today it is keyed by convention to
+# the ``starrydata`` dataset; per-dataset QUDT maps generalize in P4.
+_MAP_DATASET: Final[str] = "starrydata"
 _MAP_RESOURCE: Final[str] = "qudt_map.yaml"
+
+_EMPTY_MAP: Final[dict[str, dict[str, str]]] = {"quantity_kinds": {}, "units": {}}
 
 
 @functools.lru_cache(maxsize=1)
 def _load_map() -> dict[str, dict[str, str]]:
-    text = (
-        importlib.resources.files("asterism")
-        .joinpath(_MAP_RESOURCE)
-        .read_text(encoding="utf-8")
-    )
-    data = yaml.safe_load(text) or {}
+    root = datasets_root()
+    path = root / _MAP_DATASET / _MAP_RESOURCE if root is not None else None
+    if path is None or not path.is_file():
+        logger.warning(
+            "qudt_map.yaml not found under datasets/%s/ (datasets_root=%s); "
+            "QUDT normalization disabled",
+            _MAP_DATASET,
+            root,
+        )
+        return _EMPTY_MAP
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     quantity_kinds = data.get("quantity_kinds") or {}
     units = data.get("units") or {}
     # Normalize quantity-kind keys to lowercase once at load time so lookups
