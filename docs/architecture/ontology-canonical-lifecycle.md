@@ -152,6 +152,12 @@ status: **合意済み**（2026-06-03 ユーザー確定）— 旧 `要決定` 4
 4. **delete**（draft/all＋force＋tombstone 痕跡）。✅ **完了（PR #109）**: `DELETE /api/datasets/{id}?force=`。promoted（引用可能 canonical あり）は **`force=true` 必須**（既定は 409＋retract 誘導）、design/draft のみは自由削除。実行＝draft graph DROP＋（promoted なら）canonical graph DROP＋control に `deleted` tombstone（宙ぶらりん引用に痕跡）＋registry dir 削除。substrate `drop_graph`(DROP SILENT)/`tombstone_deleted`、registry `delete_dataset`。
 5. **ontology graph 投影**＋`schema_summary` の TBox 補強。⬜ 未（additive・step 1 と独立に可能）。
 
+#### 横断参照（cross-dataset link）= FROM-merge への進化（#20 P3「1+2」）
+
+per-dataset canonical graph ＋ GRAPH-union 読み取りでは、**1つの join が2つの別 canonical graph に跨ると繋がらない**（`GRAPH ?g { A . B }` は ?g を群全体で1つに束縛＝同一 graph 内のみ）。北極星「様々なデータを共通オントロジーで紐付けて横断取得」を満たすには、canonical graph 群を **`FROM` で1つの query dataset に合体**する（`SELECT … FROM <c1> FROM <c2> … WHERE { GRAPH-less }`）。**実 Oxigraph＋rdflib で「FROM 無し＝0件／FROM 有り＝跨ぎ結合成立」を実証**。`FROM` は実 default graph を置換するので、legacy/seed を canonical graph へ一度移行（`migrate_default_to_canonical`）してから合体対象に含める。retracted は FROM リストから除外。
+- 🟡 **基盤 着地（PR #110・未配線）**: `canonical_graphs(client)`（canonical 列挙・retracted 除外・sorted）／`canonical_from_clauses(graphs)`／`migrate_default_to_canonical(client, target)`／`LEGACY_DATASET_ID`。
+- ⬜ **残（次 PR）**: read tool＋汎用 escape（`sparql_query`／LLM 生成）を FROM-merge 経由に切替＋default→`canonical/legacy` 移行＋seed/smoke を named graph 投入に。これで cross-dataset 横断が実際に効く。
+
 #### この設計の `要決定`（実装着手前にユーザー確認したい点）
 
 1. **per-dataset canonical graph 化と既存 default データの移行**を今 P3 でやるか（推奨 yes＝lifecycle の前提）。

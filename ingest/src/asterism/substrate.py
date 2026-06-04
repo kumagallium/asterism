@@ -240,10 +240,15 @@ def classify_alignment(draft: set[str], canonical: set[str]) -> dict[str, list[s
 # (``<canonical/{id}> asterism:status "retracted"``) drops that graph from every
 # Ask read (#20 P3 step3). The IRIs stay resolvable for citations; they just
 # leave the citable corpus until reinstated.
-_RETRACTED_EXCLUSION: str = (
-    f"FILTER NOT EXISTS {{ GRAPH <{CONTROL_GRAPH_IRI}> {{ "
-    f'?__cg <{STATUS_PREDICATE}> "{STATUS_RETRACTED}" }} }}'
-)
+def _retracted_exclusion_for_var(graph_var: str) -> str:
+    """``FILTER NOT EXISTS`` that drops ``graph_var`` if it is retracted."""
+    return (
+        f"FILTER NOT EXISTS {{ GRAPH <{CONTROL_GRAPH_IRI}> {{ "
+        f'{graph_var} <{STATUS_PREDICATE}> "{STATUS_RETRACTED}" }} }}'
+    )
+
+
+_RETRACTED_EXCLUSION: str = _retracted_exclusion_for_var("?__cg")
 
 
 def canonical_scope_where(body: str) -> str:
@@ -378,3 +383,68 @@ async def tombstone_deleted(
         f'<{canonical_iri}> <{STATUS_PREDICATE}> "{STATUS_DELETED}" ; '
         f'<{INVALIDATED_PREDICATE}> "{deleted_at}"^^<{_XSD_DATETIME}> }} }}'
     )
+
+
+# ----------------------------------------------------------------------------
+# Cross-dataset read: FROM-merge over canonical graphs (#20 P3 step "1+2")
+# ----------------------------------------------------------------------------
+#
+# The GRAPH-union scope (canonical_scope_where) reads every canonical graph, but a
+# single join whose two triples live in DIFFERENT canonical graphs will NOT match
+# (``GRAPH ?g { A . B }`` binds one ?g for the whole group). To link data ACROSS
+# datasets through a shared ontology, we instead MERGE the canonical graphs into
+# one query dataset via ``FROM`` clauses: ``SELECT ... FROM <c1> FROM <c2> WHERE
+# {GRAPH-less}`` — verified on Oxigraph (FROM merges named graphs into the query's
+# default graph, so plain patterns join across them). FROM replaces the real
+# default graph, so legacy/seed data must first be migrated into a canonical graph
+# (migrate_default_to_canonical) for the merge to cover it. Retracted graphs are
+# simply omitted from the FROM list. These helpers are introduced unused; the
+# read-path switch + migration land in the follow-up PR.
+
+# Reserved canonical graph that legacy default-graph data migrates into, so the
+# FROM-merge covers it. "legacy" is IRI-safe and unlikely to collide with a real
+# dataset id (which are slug-uuid).
+LEGACY_DATASET_ID: str = "legacy"
+
+
+async def canonical_graphs(client: SupportsSparql) -> list[str]:
+    """List the canonical named graphs to read, sorted, EXCLUDING retracted ones.
+
+    Used to build the FROM-merge dataset for cross-dataset queries. Deterministic
+    order (sorted) keeps generated queries stable/cacheable.
+    """
+    q = (
+        "SELECT DISTINCT ?g WHERE { "
+        "GRAPH ?g { ?s ?p ?o } "
+        f'FILTER(STRSTARTS(STR(?g), "{CANONICAL_GRAPH_BASE}")) '
+        f"{_retracted_exclusion_for_var('?g')} "
+        "} ORDER BY ?g"
+    )
+    data = await client.sparql_select(q)
+    results = data.get("results", {}) if isinstance(data, dict) else {}
+    out: list[str] = []
+    for b in results.get("bindings", []):
+        v = b.get("g", {})
+        if v.get("type") == "uri":
+            out.append(v["value"])
+    return out
+
+
+def canonical_from_clauses(graphs: list[str]) -> str:
+    """Build the ``FROM <g>`` block that merges ``graphs`` into the query dataset.
+
+    Empty list -> empty string (the query then reads the real default graph, which
+    is the safe pre-migration behaviour).
+    """
+    return "".join(f"FROM <{g}>\n" for g in graphs)
+
+
+async def migrate_default_to_canonical(
+    client: SupportsSparql, target_iri: str
+) -> None:
+    """One-time: MOVE the real default graph's triples into a canonical named graph.
+
+    Required so the FROM-merge read (which excludes the real default graph) still
+    covers legacy / seed / pre-P3 data. ``MOVE`` empties the default graph.
+    """
+    await client.sparql_update(f"MOVE DEFAULT TO GRAPH <{target_iri}>")
