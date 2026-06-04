@@ -1,0 +1,107 @@
+# Typed query tools for the **starrydata** vocabulary, declared as CONTENT (#20 P4).
+#
+# Each entry is a named, parameterized, read-only SPARQL operation an AI agent
+# calls instead of writing raw SPARQL (the deterministic / typed path of
+# product_direction). The trust model is the same as the Tier 0 function library:
+# a human vets the query template here; nothing is generated at runtime. The
+# engine (`asterism.query_tools`) binds caller arguments into the {{placeholders}}
+# *safely* (type-checked + escaped) and runs the result through the canonical
+# FROM-merge — so these tools see exactly what Ask sees, across datasets.
+#
+# A non-starrydata dataset declares its OWN query_tools.yaml next to its
+# dataset.toml; the engine itself knows no vocabulary. This is what lets the
+# typed path generalize beyond starrydata (ADR ontology-canonical-lifecycle §5a).
+#
+# Placeholder syntax:
+#   {{name}}            scalar, replaced by the type-safe serialization of the arg
+#   {{#name}}...{{/name}}   kept only when the arg is provided (optional block)
+#   {{^name}}...{{/name}}   kept only when the arg is NOT provided (inverse)
+
+tools:
+  - name: property_ranking
+    title: "Rank materials by the peak value of a property"
+    description: >
+      Rank curves by their per-curve peak value (sd:yMax) for a given property
+      label (e.g. "ZT"), joining Curve -> Sample -> Paper to report the material
+      composition and source paper. Pass max_plausible to exclude
+      digitization/labeling outliers (e.g. ZT > 3.5) so the answer stays honest
+      about data quality.
+    parameters:
+      - name: property_y
+        type: string
+        required: true
+        description: 'the sd:propertyY label, e.g. "ZT" or "Seebeck coefficient"'
+      - name: top_n
+        type: integer
+        default: 10
+        minimum: 1
+        maximum: 100
+        description: number of top curves to return
+      - name: max_plausible
+        type: number
+        required: false
+        description: only curves with yMax <= this value rank (data-quality guard)
+    query: |
+      PREFIX sd: <https://kumagallium.github.io/asterism/starrydata/ontology#>
+      PREFIX schema: <https://schema.org/>
+      SELECT ?curve ?ymax ?s ?comp ?p ?title
+      WHERE {
+        ?curve a sd:Curve ; sd:propertyY {{property_y}} ; sd:yMax ?ymax ; sd:ofSample ?s .
+        ?s sd:fromPaper ?p .
+        OPTIONAL { ?s sd:compositionString ?comp }
+        OPTIONAL { ?p schema:name ?title }
+        {{#max_plausible}}FILTER(?ymax <= {{max_plausible}}){{/max_plausible}}
+      }
+      ORDER BY DESC(?ymax)
+      LIMIT {{top_n}}
+    result:
+      item:
+        curve_iri: curve
+        value: { var: ymax, number: true }
+        sample_iri: s
+        composition: comp
+        paper_iri: p
+        title: title
+
+  - name: sample_search
+    title: "Find samples by composition and/or measured property"
+    description: >
+      Find samples whose composition contains a substring (case-insensitive)
+      and/or that have at least one curve measuring a given property. Returns the
+      sample, its composition/name, and source paper.
+    parameters:
+      - name: composition
+        type: string
+        required: false
+        description: 'case-insensitive substring of sd:compositionString, e.g. "Bi2Te3"'
+      - name: property_y
+        type: string
+        required: false
+        description: 'restrict to samples with a curve of this sd:propertyY, e.g. "ZT"'
+      - name: limit
+        type: integer
+        default: 20
+        minimum: 1
+        maximum: 200
+        description: max samples returned
+    query: |
+      PREFIX sd: <https://kumagallium.github.io/asterism/starrydata/ontology#>
+      PREFIX schema: <https://schema.org/>
+      SELECT DISTINCT ?sample ?comp ?name ?paper ?title
+      WHERE {
+        ?sample a sd:Sample .
+        {{#composition}}?sample sd:compositionString ?comp .
+        FILTER(CONTAINS(LCASE(STR(?comp)), LCASE({{composition}}))){{/composition}}
+        {{^composition}}OPTIONAL { ?sample sd:compositionString ?comp }{{/composition}}
+        {{#property_y}}?c sd:ofSample ?sample ; sd:propertyY {{property_y}} .{{/property_y}}
+        OPTIONAL { ?sample schema:name ?name }
+        OPTIONAL { ?sample sd:fromPaper ?paper . OPTIONAL { ?paper schema:name ?title } }
+      }
+      LIMIT {{limit}}
+    result:
+      item:
+        sample_iri: sample
+        composition: comp
+        name: name
+        paper_iri: paper
+        title: title
