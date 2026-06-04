@@ -148,6 +148,16 @@ export function SearchIcon(p: IconProps) {
   )
 }
 
+/** Stacked layers — a dataset. */
+export function LayersIcon(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M12 3l9 5-9 5-9-5z" />
+      <path d="M3 13l9 5 9-5" />
+    </Icon>
+  )
+}
+
 /** Link — shared vocabulary. */
 export function LinkIcon(p: IconProps) {
   return (

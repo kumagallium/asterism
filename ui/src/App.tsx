@@ -3,6 +3,7 @@ import './App.css'
 import { AskView } from './AskView'
 import { isMockMode } from './demoApi'
 import { GalleryView } from './GalleryView'
+import { HomeView } from './HomeView'
 import {
   ActivityIcon,
   AddIcon,
@@ -10,17 +11,18 @@ import {
   BrandMark,
   CatalogIcon,
   CodeIcon,
+  HomeIcon,
 } from './icons'
 import { JobsView } from './JobsView'
 import { SparqlView } from './SparqlView'
 import { WorkbenchView } from './WorkbenchView'
 
-type Tab = 'workbench' | 'ask' | 'gallery' | 'jobs' | 'sparql'
+type Tab = 'home' | 'workbench' | 'ask' | 'gallery' | 'jobs' | 'sparql'
 
 // New IA (design_handoff_asterism_ux): plain-language, verb-led nav that mirrors
-// the user's mental model — つくる (入れる) → つかう (問う/見渡す) → 管理. The
-// pipeline-internal nouns (RDF / SPARQL) are demoted: SPARQL sits apart at the
-// foot as a developer escape hatch. ホーム・共有の語彙 arrive in Phase 2.
+// the user's mental model — ホーム → つくる (入れる) → つかう (問う/見渡す) → 管理.
+// The pipeline-internal nouns (RDF / SPARQL) are demoted: SPARQL sits apart at
+// the foot as a developer escape hatch.
 interface NavItem {
   id: Tab
   label: string
@@ -28,6 +30,7 @@ interface NavItem {
   icon: typeof AddIcon
 }
 const NAV_SECTIONS: { heading: string; items: NavItem[] }[] = [
+  { heading: '', items: [{ id: 'home', label: 'ホーム', en: 'Home', icon: HomeIcon }] },
   { heading: 'つくる', items: [{ id: 'workbench', label: 'データを追加', en: 'Add data', icon: AddIcon }] },
   {
     heading: 'つかう',
@@ -41,6 +44,7 @@ const NAV_SECTIONS: { heading: string; items: NavItem[] }[] = [
 
 // Topbar context per view: eyebrow (which phase, amber) + title + a short sub.
 const VIEW_META: Record<Tab, { eyebrow: string; title: string; sub: string }> = {
+  home: { eyebrow: 'はじめに', title: 'ホーム', sub: '今ある「つながったデータ」と次の一手' },
   workbench: { eyebrow: 'つくる', title: 'データを追加', sub: 'CSV から、AI と一緒に知識グラフを作る' },
   ask: { eyebrow: 'つかう', title: '質問する', sub: '取り込んだデータに、根拠つきで答える' },
   gallery: { eyebrow: 'つかう', title: 'カタログ', sub: '作ったデータの中身を見渡す' },
@@ -49,7 +53,7 @@ const VIEW_META: Record<Tab, { eyebrow: string; title: string; sub: string }> = 
 }
 
 function App() {
-  const [tab, setTab] = useState<Tab>('workbench')
+  const [tab, setTab] = useState<Tab>('home')
   // Ask⇄Gallery link: a vocabulary class to focus/highlight in the Gallery when
   // the user jumps there from an Ask citation. null = no focus.
   const [galleryFocus, setGalleryFocus] = useState<string | null>(null)
@@ -83,8 +87,8 @@ function App() {
 
         <nav className="side-nav">
           {NAV_SECTIONS.map((sec) => (
-            <div className="side-nav-group" key={sec.heading}>
-              <span className="side-nav-label">{sec.heading}</span>
+            <div className="side-nav-group" key={sec.heading || 'home'}>
+              {sec.heading && <span className="side-nav-label">{sec.heading}</span>}
               {sec.items.map((it) => {
                 const Icon = it.icon
                 return (
@@ -131,6 +135,7 @@ function App() {
         </header>
 
         <main className="app-content">
+          {tab === 'home' && <HomeView onNavigate={navTo} />}
           {tab === 'workbench' && <WorkbenchView />}
           {tab === 'ask' && <AskView onShowVocab={showVocab} />}
           {tab === 'gallery' && <GalleryView focusClass={galleryFocus} />}
