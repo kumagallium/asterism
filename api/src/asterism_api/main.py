@@ -678,6 +678,43 @@ def build_app(
             {"dataset_id": dataset_id, "status": "active", "dataset": meta}
         )
 
+    @app.delete("/api/datasets/{dataset_id}")
+    async def delete_dataset_endpoint(
+        dataset_id: str, force: bool = Query(False)
+    ) -> JSONResponse:
+        """#20 P3 step4: hard-delete a dataset (registry + its graphs).
+
+        A *promoted* dataset has citable canonical data, so deleting it can break
+        existing citations — that requires explicit ``?force=true``; the safe
+        default for those is ``retract``. A design / draft-only dataset (never
+        promoted) is removed freely. A canonical DROP leaves a ``deleted``
+        tombstone in the control graph so dangling citations get a clear answer.
+        """
+        data = registry.load_dataset(cfg.registry_root, dataset_id)
+        if data is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        meta = data["meta"]
+        promoted = bool(meta.get("promoted"))
+        if promoted and not force:
+            raise HTTPException(
+                409,
+                "promoted dataset has citable canonical data; retract it instead, "
+                "or pass ?force=true to hard-delete (breaks existing citations).",
+            )
+        client: OxigraphClient = app.state.client
+        if meta.get("ingested"):
+            await substrate.drop_graph(client, substrate.draft_graph_iri(dataset_id))
+        if promoted:
+            canonical_iri = substrate.canonical_graph_iri(dataset_id)
+            await substrate.drop_graph(client, canonical_iri)
+            await substrate.tombstone_deleted(
+                client, canonical_iri, deleted_at=datetime.now(UTC).isoformat()
+            )
+        registry.delete_dataset(cfg.registry_root, dataset_id)
+        return JSONResponse(
+            {"dataset_id": dataset_id, "deleted": True, "was_promoted": promoted}
+        )
+
     @app.post("/api/sparql")
     async def sparql(body: SparqlRequest) -> JSONResponse:
         """Read-only SPARQL relay to Oxigraph (advanced escape hatch, ADR §5).

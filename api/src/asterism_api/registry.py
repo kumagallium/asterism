@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import uuid
 from pathlib import Path
 
@@ -207,6 +208,21 @@ def mark_reinstated(root: Path, dataset_id: str, *, reinstated_at: str) -> dict 
     return _update_meta(
         root, dataset_id, {"status": "active", "reinstated_at": reinstated_at}
     )
+
+
+def delete_dataset(root: Path, dataset_id: str) -> bool:
+    """Remove a dataset's registry directory entirely (#20 P3 step4).
+
+    Returns True if it existed and was removed, False if the id is unsafe or
+    absent. The caller is responsible for dropping the dataset's graphs first.
+    """
+    if not re.fullmatch(r"[a-z0-9-]{1,128}", dataset_id):
+        return False
+    dest = root / dataset_id
+    if not (dest / _META_FILE).is_file():
+        return False
+    shutil.rmtree(dest)
+    return True
 
 
 def list_datasets(root: Path) -> list[dict]:
