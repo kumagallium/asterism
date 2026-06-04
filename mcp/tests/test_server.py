@@ -84,3 +84,67 @@ async def test_server_tool_returns_payload_when_curve_exists() -> None:
     assert body["property_x"] == "Temperature"
     assert body["x"] == [1.0, 2.0, 3.0]
     assert body["y"] == [10.0, 20.0, 30.0]
+
+
+# ---- #20 P4-2: content-declared query tools registered dynamically ----------
+
+
+def _rows_response(bindings: list[dict], variables: list[str]) -> httpx.Response:
+    return httpx.Response(
+        200,
+        text=json.dumps({"head": {"vars": variables}, "results": {"bindings": bindings}}),
+        headers={"content-type": "application/sparql-results+json"},
+    )
+
+
+async def test_declared_query_tools_registered_with_typed_schema() -> None:
+    mcp = build_server(
+        Settings({}), oxigraph_client=_mock_client(lambda r: _rows_response([], ["g"]))
+    )
+    tools = {t.name: t for t in await mcp.list_tools()}
+    # starrydata's content tools are exposed (no longer hardcoded in server.py).
+    assert "property_ranking" in tools and "sample_search" in tools
+    schema = tools["property_ranking"].to_mcp_tool().inputSchema
+    assert schema["required"] == ["property_y"]  # required param surfaced
+    assert schema["properties"]["top_n"]["default"] == 10  # default surfaced
+    assert "max_plausible" in schema["properties"]  # optional param present
+
+
+async def test_declared_property_ranking_call_round_trip() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        q = request.content.decode()
+        if "SELECT DISTINCT ?g" in q:  # canonical-graph enumeration -> none
+            return _rows_response([], ["g"])
+        row = {
+            "curve": {"type": "uri", "value": f"{SDR}curve/1"},
+            "ymax": {"type": "literal", "value": "2.6"},
+            "s": {"type": "uri", "value": f"{SDR}sample/1"},
+            "comp": {"type": "literal", "value": "SnSe"},
+            "p": {"type": "uri", "value": f"{SDR}paper/1"},
+            "title": {"type": "literal", "value": "A paper"},
+        }
+        return _rows_response([row], ["curve", "ymax", "s", "comp", "p", "title"])
+
+    mcp = build_server(Settings({}), oxigraph_client=_mock_client(handler))
+    result = await mcp.call_tool("property_ranking", {"property_y": "ZT", "max_plausible": 3.5})
+    body = result.structured_content
+    assert body["tool"] == "property_ranking"
+    assert body["count"] == 1
+    assert body["items"][0]["curve_iri"] == f"{SDR}curve/1"
+    assert body["items"][0]["value"] == 2.6  # number-coerced per result mapping
+
+
+async def test_declared_tool_name_collision_is_prefixed(tmp_path, monkeypatch) -> None:
+    # Two datasets declaring the same tool name -> the second is {dataset}_-prefixed.
+    doc = "tools:\n  - name: dup\n    query: 'SELECT ?s WHERE { ?s ?p ?o }'\n"
+    for ds in ("alpha", "beta"):
+        (tmp_path / ds).mkdir()
+        (tmp_path / ds / "query_tools.yaml").write_text(doc, encoding="utf-8")
+    monkeypatch.setenv("ASTERISM_DATASETS_ROOT", str(tmp_path))
+
+    mcp = build_server(
+        Settings({}), oxigraph_client=_mock_client(lambda r: _rows_response([], ["g"]))
+    )
+    names = {t.name for t in await mcp.list_tools()}
+    assert "dup" in names  # first dataset keeps the bare name
+    assert "beta_dup" in names  # second is prefixed to avoid the collision

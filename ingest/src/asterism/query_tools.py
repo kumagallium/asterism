@@ -203,6 +203,25 @@ def load_query_tools(name: str, root: Path | str | None = None) -> list[QueryToo
     return parse_query_tools(data)
 
 
+def available_datasets(root: Path | str | None = None) -> list[str]:
+    """Names of datasets that ship a ``query_tools.yaml`` (sorted), or ``[]``."""
+    base = Path(root) if root is not None else datasets_root()
+    if base is None or not base.is_dir():
+        return []
+    return sorted(
+        p.name for p in base.iterdir() if (p / "query_tools.yaml").is_file()
+    )
+
+
+def load_all_query_tools(root: Path | str | None = None) -> dict[str, list[QueryTool]]:
+    """Map every dataset with declared tools to its :class:`QueryTool`s.
+
+    The MCP surface is the union over all datasets (each reads the same
+    cross-dataset canonical scope), so the server registers all of these.
+    """
+    return {name: load_query_tools(name, root) for name in available_datasets(root)}
+
+
 # ----------------------------------------------------------------------------
 # Safe parameter binding
 # ----------------------------------------------------------------------------

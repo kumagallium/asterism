@@ -16,19 +16,27 @@ local users who spawn the server as a subprocess.
 
 from __future__ import annotations
 
+import inspect
 import logging
 import os
-from typing import Final
+from typing import Annotated, Final, Literal
 
 from asterism.oxigraph_client import OxigraphClient, OxigraphConfig
+from asterism.query_tools import (
+    QueryTool,
+    QueryToolError,
+    ToolParam,
+    load_all_query_tools,
+    run_query_tool,
+)
 from fastmcp import FastMCP
+from fastmcp.tools import Tool
+from pydantic import Field
 
 from asterism_mcp.tools import (
     CurveNotFoundError,
     SparqlNotReadOnlyError,
-    property_ranking,
     provenance_of,
-    sample_search,
     schema_summary,
     sparql_query,
     template_curve_fetch,
@@ -113,52 +121,12 @@ def build_server(
                 "error": str(exc),
             }
 
-    @mcp.tool(
-        name="sample_search",
-        description=(
-            "Find starrydata samples by composition substring (e.g. 'Bi2Te3') "
-            "and/or by a measured property label (e.g. only samples that have a "
-            "'ZT' curve). Returns sample IRIs + composition + source paper. Use "
-            "this to locate materials before fetching their curves."
-        ),
-    )
-    async def _sample_search(
-        composition: str | None = None,
-        property_y: str | None = None,
-        limit: int = 20,
-    ) -> dict[str, object]:
-        return await sample_search(
-            get_client(),
-            composition=composition,
-            property_y=property_y,
-            limit=limit,
-        )
-
-    @mcp.tool(
-        name="property_ranking",
-        description=(
-            "Rank starrydata curves by their per-curve peak value (sd:yMax) for "
-            "a property label such as 'ZT' or 'Seebeck coefficient'. Pass "
-            "max_plausible (e.g. 3.5 for ZT) to exclude digitization-error "
-            "outliers; the count of excluded curves is returned so you can "
-            "report the highest *recorded* value honestly instead of inventing "
-            "a record. Returns curve/sample/paper IRIs + composition."
-        ),
-    )
-    async def _property_ranking(
-        property_y: str,
-        top_n: int = 10,
-        max_plausible: float | None = None,
-    ) -> dict[str, object]:
-        try:
-            return await property_ranking(
-                get_client(),
-                property_y=property_y,
-                top_n=top_n,
-                max_plausible=max_plausible,
-            )
-        except ValueError as exc:
-            return {"property_y": property_y, "error": str(exc)}
+    # #20 P4-2: sample_search / property_ranking are no longer registered here as
+    # hardcoded tools — they are declared as CONTENT in
+    # datasets/starrydata/query_tools.yaml and registered dynamically below
+    # (``_register_declared_query_tools``), so any dataset gets the same typed
+    # surface by shipping its own query_tools.yaml. The hardcoded bodies remain in
+    # asterism_mcp.tools (kept by the equivalence test that pins content==hardcoded).
 
     @mcp.tool(
         name="provenance_of",
@@ -219,7 +187,90 @@ def build_server(
         except (ValueError, SparqlNotReadOnlyError) as exc:
             return {"error": str(exc), "columns": [], "rows": [], "count": 0}
 
+    # ----- #20 P4-2: per-dataset typed tools declared as content -----
+    _register_declared_query_tools(mcp, get_client)
+
     return mcp
+
+
+# ----------------------------------------------------------------------------
+# #20 P4-2: register content-declared query tools as typed FastMCP tools
+# ----------------------------------------------------------------------------
+#
+# Each dataset's datasets/{name}/query_tools.yaml declares named, parameterized,
+# read-only SPARQL operations (the typed path, generalized beyond starrydata).
+# We turn each into a real FastMCP tool whose input schema is SYNTHESIZED from
+# the declared parameters (so an agent sees property_ranking(property_y, top_n,
+# max_plausible), not a generic dict). No code is generated: the handler is a
+# fixed closure over the declared QueryTool, and we only set its __signature__.
+
+_PY_TYPE: Final[dict[str, type]] = {"integer": int, "number": float}
+
+
+def _param_annotation(p: ToolParam) -> object:
+    """Base Python annotation for a declared parameter (enum -> Literal)."""
+    if p.type == "enum" and p.enum:
+        return Literal[tuple(p.enum)]  # type: ignore[misc]
+    return _PY_TYPE.get(p.type, str)
+
+
+def _make_query_tool_handler(tool: QueryTool, get_client):
+    """An async handler with a signature synthesized from ``tool``'s parameters."""
+
+    async def handler(**kwargs: object) -> dict[str, object]:
+        # Drop unset optionals so the engine applies declared defaults / OPTIONAL.
+        args = {k: v for k, v in kwargs.items() if v is not None}
+        try:
+            return await run_query_tool(get_client(), tool, args)
+        except QueryToolError as exc:
+            return {"tool": tool.name, "error": str(exc), "count": 0, "items": []}
+
+    sig_params: list[inspect.Parameter] = []
+    annotations: dict[str, object] = {}
+    for p in tool.params:
+        base = _param_annotation(p)
+        if p.required:
+            ann = Annotated[base, Field(description=p.description)]
+            default: object = inspect.Parameter.empty
+        elif p.default is not None:
+            ann = Annotated[base, Field(description=p.description)]
+            default = p.default
+        else:
+            ann = Annotated[base | None, Field(description=p.description)]
+            default = None
+        sig_params.append(
+            inspect.Parameter(
+                p.name, inspect.Parameter.KEYWORD_ONLY, default=default, annotation=ann
+            )
+        )
+        annotations[p.name] = ann
+    annotations["return"] = dict
+    handler.__signature__ = inspect.Signature(sig_params)  # type: ignore[attr-defined]
+    handler.__annotations__ = annotations
+    handler.__name__ = tool.name
+    handler.__doc__ = tool.description or tool.title
+    return handler
+
+
+def _register_declared_query_tools(mcp: FastMCP, get_client) -> None:
+    """Register every dataset's declared query tools as typed FastMCP tools.
+
+    Tool names are the declared names; if two datasets declare the same name the
+    later one is prefixed with ``{dataset}_`` to avoid a collision. Names already
+    taken by a hardcoded tool are likewise prefixed (defensive).
+    """
+    taken = {"template_curve_fetch", "provenance_of", "schema_summary", "sparql_query"}
+    for dataset, tools in load_all_query_tools().items():
+        for tool in tools:
+            name = tool.name if tool.name not in taken else f"{dataset}_{tool.name}"
+            taken.add(name)
+            mcp.add_tool(
+                Tool.from_function(
+                    _make_query_tool_handler(tool, get_client),
+                    name=name,
+                    description=tool.description or tool.title,
+                )
+            )
 
 
 # ----------------------------------------------------------------------------
