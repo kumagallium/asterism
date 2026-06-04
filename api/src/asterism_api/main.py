@@ -244,6 +244,22 @@ def build_app(
         client = oxigraph_client or OxigraphClient(
             OxigraphConfig(base_url=cfg.oxigraph_url)
         )
+        # #20 FROM-merge: Ask reads a cross-dataset FROM-merge over the canonical
+        # graphs, which excludes the raw default graph. Relocate any pre-existing
+        # default-graph data (legacy / seed loaded before this change) into
+        # canonical/legacy once, so it stays visible. Idempotent + merge-safe
+        # (ADD then CLEAR DEFAULT), so running on every startup is harmless.
+        try:
+            legacy_iri = substrate.canonical_graph_iri(substrate.LEGACY_DATASET_ID)
+            moved = await substrate.migrate_default_to_canonical(client, legacy_iri)
+            if moved:
+                logger.info(
+                    "migrated %d default-graph triples into %s (FROM-merge scope)",
+                    moved,
+                    legacy_iri,
+                )
+        except Exception:  # never block startup on the migration
+            logger.exception("default->canonical/legacy migration failed (continuing)")
         stop = asyncio.Event()
         task: asyncio.Task[None] | None = None
         if start_watcher:
@@ -722,6 +738,13 @@ def build_app(
         Forwards the query to Oxigraph's read-only ``/query`` endpoint and
         returns the SPARQL-Results JSON. Update-form queries are rejected with a
         clear message (the endpoint is read-only either way).
+
+        #20 FROM-merge: a query that does not declare its own dataset is rewritten
+        to read the canonical FROM-merge (every non-retracted canonical graph),
+        matching what Ask sees — so plain queries keep working after legacy data
+        moves out of the default graph. A power user can still target a specific
+        graph (e.g. a draft) by writing an explicit ``FROM`` / ``FROM NAMED``,
+        which is respected as-is.
         """
         q = body.query.strip()
         if not q:
@@ -733,7 +756,8 @@ def build_app(
             )
         client: OxigraphClient = app.state.client
         try:
-            return JSONResponse(await client.sparql_select(q))
+            effective = await substrate.canonical_merge_query(client, q)
+            return JSONResponse(await client.sparql_select(effective))
         except Exception as exc:  # surface Oxigraph errors to the UI
             raise HTTPException(502, f"SPARQL error: {exc}") from exc
 

@@ -156,7 +156,8 @@ status: **合意済み**（2026-06-03 ユーザー確定）— 旧 `要決定` 4
 
 per-dataset canonical graph ＋ GRAPH-union 読み取りでは、**1つの join が2つの別 canonical graph に跨ると繋がらない**（`GRAPH ?g { A . B }` は ?g を群全体で1つに束縛＝同一 graph 内のみ）。北極星「様々なデータを共通オントロジーで紐付けて横断取得」を満たすには、canonical graph 群を **`FROM` で1つの query dataset に合体**する（`SELECT … FROM <c1> FROM <c2> … WHERE { GRAPH-less }`）。**実 Oxigraph＋rdflib で「FROM 無し＝0件／FROM 有り＝跨ぎ結合成立」を実証**。`FROM` は実 default graph を置換するので、legacy/seed を canonical graph へ一度移行（`migrate_default_to_canonical`）してから合体対象に含める。retracted は FROM リストから除外。
 - 🟡 **基盤 着地（PR #110・未配線）**: `canonical_graphs(client)`（canonical 列挙・retracted 除外・sorted）／`canonical_from_clauses(graphs)`／`migrate_default_to_canonical(client, target)`／`LEGACY_DATASET_ID`。
-- ⬜ **残（次 PR）**: read tool＋汎用 escape（`sparql_query`／LLM 生成）を FROM-merge 経由に切替＋default→`canonical/legacy` 移行＋seed/smoke を named graph 投入に。これで cross-dataset 横断が実際に効く。
+- ✅ **配線 完了（FROM-merge wiring）**: 全 read tool（`schema_summary` graph=None／`sample_search`／`property_ranking`／`provenance_of`／`template_curve_fetch`）が GRAPH-union 廃止＝plain body＋注入 `FROM <canonical/*>`。汎用 escape（mcp `sparql_query`＋api `/api/sparql`）は共有 `substrate.canonical_merge_query()` で `FROM`＋`FROM NAMED` 注入（plain は跨ぎ結合・`GRAPH ?g` は canonical 限定＝draft 非漏洩／自前 `FROM` は尊重）。escape は実行クエリを `effective_query` で開示（demo-agent Ask 開示パネルも反映）。**raw default graph を vacate**: seed→`canonical/legacy`・watcher 既定→`canonical/legacy`・api 起動時に既存 default を `canonical/legacy` へ一度移行（ADD+CLEAR＝冪等・merge-safe）。canonical graph 不在時は FROM 空＝real default 読取（移行前も安全）。**実 Oxigraph(:7878) read-only で FROM+FROM NAMED の clause 形を実機確認**（draft 7.3M を stand-in に merged read 成立）＋**rdflib で cross-dataset JOIN（A の sample→B の paper title）成立**を実証。
+- ⬜ **残**: per-read の canonical 列挙 round-trip のキャッシュ（必要時）。CI smoke（togomcp 直 default 経路）は asterism read tool 非経由のため不変。
 
 #### この設計の `要決定`（実装着手前にユーザー確認したい点）
 

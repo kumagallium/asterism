@@ -205,6 +205,47 @@ def test_llm_escape_fires_when_typed_path_empty(monkeypatch) -> None:
     assert "alpha" in fed_back  # the real rows reached the model on turn 2
 
 
+def test_llm_escape_discloses_from_merged_query(monkeypatch) -> None:
+    # When the data lives in a canonical named graph, the escape's SELECT is
+    # rewritten to read the cross-dataset FROM-merge (#20); the disclosure must
+    # show that effective query (with FROM), not the raw model SELECT.
+    from asterism.substrate import LEGACY_DATASET_ID, canonical_graph_iri
+
+    legacy = canonical_graph_iri(LEGACY_DATASET_ID)
+    ds = rdflib.ConjunctiveGraph()
+    ds.get_context(rdflib.URIRef(legacy)).parse(data=_CUSTOM_TTL, format="turtle")
+    demo._state["client"] = _LocalClient(ds)
+    monkeypatch.setattr(demo, "_REAL", True)
+
+    select = f"SELECT ?w ?n WHERE {{ ?w a <{_EX}Widget> ; <{_EX}name> ?n }}"
+    fake = _FakeAnthropic(
+        [
+            _block(content=[_block(type="tool_use", id="t1", name="run_sparql", input={"query": select})]),
+            _block(
+                content=[
+                    _block(
+                        type="tool_use",
+                        id="t2",
+                        name="submit_answer",
+                        input={"answer": "Widget は 2 件です。", "citations": []},
+                    )
+                ]
+            ),
+        ]
+    )
+    monkeypatch.setitem(demo._state, "anthropic_factory", lambda _key: fake)
+    body = TestClient(demo.app).post(
+        "/demo/ask", json={"question": "Widget は何件？"}, headers={"X-API-Key": "sk-test"}
+    ).json()
+
+    assert "Widget" in body["answer"]
+    assert any(f"FROM <{legacy}>" in s for s in body["sparql"])  # effective query disclosed
+    assert select not in body["sparql"]  # the raw SELECT was rewritten
+    # The FROM-merged query actually returned the rows (fed back to the model).
+    fed_back = json.dumps(fake.calls[1]["messages"], ensure_ascii=False)
+    assert "alpha" in fed_back
+
+
 def test_llm_escape_requires_key(monkeypatch) -> None:
     # Same empty-typed-path situation, but no API key → no LLM, just a hint.
     fake = _FakeAnthropic([])

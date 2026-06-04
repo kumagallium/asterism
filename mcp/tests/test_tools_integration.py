@@ -19,7 +19,7 @@ import rdflib
 from asterism.starrydata import DEFAULT_ONTOLOGY, DEFAULT_RESOURCE
 from asterism.substrate import canonical_graph_iri, draft_graph_iri
 
-from asterism_mcp.tools import property_ranking, provenance_of, sample_search
+from asterism_mcp.tools import property_ranking, provenance_of, sample_search, sparql_query
 
 SD = DEFAULT_ONTOLOGY
 SDR = DEFAULT_RESOURCE
@@ -182,3 +182,72 @@ async def test_retracted_canonical_graph_excluded_from_ask() -> None:
     comps = {r["composition"] for r in (await sample_search(_C()))["results"]}
     assert "ActiveComp" in comps  # active canonical graph is read
     assert "RetractedComp" not in comps  # retracted canonical graph is excluded
+
+
+# ---- #20 FROM-merge: the cross-dataset JOIN this whole change exists for -------
+
+
+def _cross_dataset_ds() -> rdflib.Dataset:
+    """A sample in dataset A links (sd:fromPaper) to a paper in dataset B.
+
+    Under the old GRAPH-union scope this join could not resolve (the two triples
+    live in different named graphs); FROM-merge merges both canonical graphs into
+    one query dataset so the join across them succeeds.
+    """
+    ds = rdflib.Dataset()
+    sd = rdflib.Namespace(SD)
+    schema = rdflib.Namespace("https://schema.org/")
+    ga = ds.graph(rdflib.URIRef(canonical_graph_iri("a")))
+    gb = ds.graph(rdflib.URIRef(canonical_graph_iri("b")))
+    sample = rdflib.URIRef("https://ex/sample/1")
+    paper = rdflib.URIRef("https://ex/paper/1")
+    ga.add((sample, rdflib.RDF.type, sd.Sample))
+    ga.add((sample, sd.compositionString, rdflib.Literal("SnSe")))
+    ga.add((sample, sd.fromPaper, paper))  # link points into dataset B
+    gb.add((paper, schema.name, rdflib.Literal("Shared paper")))  # lives in dataset B
+    return ds
+
+
+def _ds_client(ds: rdflib.Dataset):
+    class _C:
+        async def sparql_select(self, query: str) -> dict:
+            raw = ds.query(query).serialize(format="json")
+            return json.loads(raw.decode() if isinstance(raw, bytes) else raw)
+
+    return _C()
+
+
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+async def test_sample_search_joins_across_datasets() -> None:
+    out = await sample_search(_ds_client(_cross_dataset_ds()), composition="SnSe")
+    assert out["count"] == 1
+    # The paper title lives in a DIFFERENT canonical graph; FROM-merge resolves it.
+    assert out["results"][0]["title"] == "Shared paper"
+    assert out["results"][0]["paper_iri"] == "https://ex/paper/1"
+
+
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+async def test_sparql_query_escape_joins_across_datasets_and_discloses() -> None:
+    q = (
+        "SELECT ?title WHERE { "
+        f"?s <{SD}fromPaper> ?p . ?p <https://schema.org/name> ?title }}"
+    )
+    out = await sparql_query(q, _ds_client(_cross_dataset_ds()))
+    assert out["count"] == 1
+    assert out["rows"][0]["title"]["value"] == "Shared paper"
+    # The executed (FROM-injected) query is disclosed for transparency.
+    assert "FROM <" in out["effective_query"]
+    assert canonical_graph_iri("a") in out["effective_query"]
+
+
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+async def test_sparql_query_escape_respects_explicit_from() -> None:
+    # A query that scopes itself to ONE dataset is left untouched -> no B title.
+    ds = _cross_dataset_ds()
+    q = (
+        f"SELECT ?p FROM <{canonical_graph_iri('a')}> "
+        f"WHERE {{ ?s <{SD}fromPaper> ?p }}"
+    )
+    out = await sparql_query(q, _ds_client(ds))
+    assert out["count"] == 1  # the link triple is in A
+    assert "effective_query" not in out  # not rewritten

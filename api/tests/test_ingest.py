@@ -192,7 +192,11 @@ class _PromoteOxi:
                 return httpx.Response(204)
             # /query: alignment SELECTs and the promote COUNT
             q = request.content.decode()
-            if "COUNT" in q:
+            if "COUNT" in q and "GRAPH" not in q:
+                # The #20 FROM-merge startup migration's default-graph count.
+                # Default graph is empty in these tests -> migration is a no-op.
+                rows = [{"c": {"value": "0"}}]
+            elif "COUNT" in q:
                 rows = [{"c": {"value": "1640"}}]
             elif "?__cg" in q:  # canonical-scope side (default + canonical/*) — empty
                 rows = []
