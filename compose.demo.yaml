@@ -3,7 +3,7 @@
 # keep owning the base file (no merge conflict; this tree has no git).
 #
 # Usage:
-#   python scripts/make_demo_subset.py            # once: writes demo-agent/seed/*.ttl
+#   python scripts/make_demo_subset.py            # once: writes datasets/starrydata/seed/*.ttl
 #   docker compose -f compose.yaml -f compose.demo.yaml up -d --build
 #   # ask a grounded question:
 #   curl -s localhost:8090/demo/ask -H 'content-type: application/json' \
@@ -19,7 +19,7 @@ services:
     depends_on:
       - oxigraph
     volumes:
-      - ./demo-agent/seed:/seed:ro
+      - ./datasets/starrydata/seed:/seed:ro
     command: ["python", "/seed/load.py", "http://oxigraph:7878", "/seed"]
     restart: "no"
 

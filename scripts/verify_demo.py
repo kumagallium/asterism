@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Verify the demo end to end against the REAL generated seed — no Docker.
 
-Loads ``demo-agent/seed/*.ttl`` into an in-memory rdflib graph, then drives the
+Loads ``datasets/starrydata/seed/*.ttl`` into an in-memory rdflib graph, then drives the
 demo-agent's own routing + the asterism typed tools over it: the exact path the
 live stack runs, minus HTTP/containers. Proves the demo questions produce
 grounded answers + a provenance chain on real ingested data.
@@ -30,7 +30,7 @@ from asterism_mcp.tools import (  # noqa: E402
     sample_search,
 )
 
-SEED = _REPO / "demo-agent" / "seed"
+SEED = _REPO / "datasets" / "starrydata" / "seed"
 
 
 class _LocalClient:
