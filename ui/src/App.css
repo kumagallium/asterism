@@ -1655,212 +1655,15 @@ textarea:focus {
 /* ---- M4 gallery (ontologies vs mappings) ---- */
 /* Edit-risk is the core signal: high = amber "handle with care" (shared TBox),
    low = green "safe/disposable" (dataset-local mapping). */
-.risk-dot {
-  display: inline-block;
-  width: 0.55rem;
-  height: 0.55rem;
-  border-radius: 50%;
-  flex: none;
-}
-.risk-dot--high {
-  background: var(--warn-fg);
-}
-.risk-dot--low {
-  background: var(--primary);
-}
-
-.risk-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: 0.74rem;
-  font-weight: 600;
-  padding: 0.18rem 0.55rem;
-  border-radius: 999px;
-}
-.risk-badge--high {
-  color: var(--warn-fg);
-  background: var(--warn-bg);
-  border: 1px solid var(--warn-border);
-}
-
-.layer-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem;
-  margin: 0.5rem 0 1.25rem;
-}
-.layer-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: var(--fg);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 0.3rem 0.7rem;
-}
-.soon-tag {
-  font-size: 0.68rem;
-  font-weight: 700;
-  color: var(--muted);
-  background: var(--secondary);
-  border-radius: 4px;
-  padding: 0.05rem 0.35rem;
-  margin-left: 0.15rem;
-}
-
-.gallery-section {
-  margin-top: 0.5rem;
-}
-.gallery-h {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 1.1rem;
-  font-weight: 700;
-  margin: 0 0 0.9rem;
-}
-.gallery-count {
-  font-size: 0.8rem;
-  font-weight: 700;
-  color: var(--muted);
-  background: var(--secondary);
-  border-radius: 999px;
-  padding: 0.05rem 0.5rem;
-}
-.gallery-h .risk-badge {
-  margin-left: auto;
-}
-
-.onto-card-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 0.75rem;
-}
-.onto-card {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  text-align: left;
-  padding: 0.85rem 0.95rem;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--fg);
-  font-weight: 400;
-  transition:
-    box-shadow 0.2s,
-    border-color 0.2s;
-}
-.onto-card:hover:not(:disabled) {
-  border-color: var(--primary);
-  box-shadow: var(--shadow-1);
-}
 .onto-card.active {
   border-color: var(--primary);
   box-shadow: 0 0 0 2px rgba(75, 122, 82, 0.18);
-}
-.onto-card-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.5rem;
-}
-.onto-card-name {
-  font-weight: 700;
-  font-size: 0.96rem;
-}
-.onto-card-prefix {
-  font-size: 0.78rem;
-  color: var(--primary);
-  font-family: var(--font-mono);
-}
-.onto-card-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-}
-.onto-card-stat {
-  font-size: 0.76rem;
-  color: var(--muted);
-}
-.onto-card-classes {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem;
 }
 .onto-class-chip {
   font-size: 0.74rem;
   background: var(--secondary);
   border-radius: 4px;
   padding: 0.05rem 0.4rem;
-  color: var(--fg);
-}
-
-.onto-detail {
-  margin-top: 1rem;
-  padding: 1.1rem 1.2rem;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-1);
-}
-.onto-detail-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-  flex-wrap: wrap;
-}
-.onto-detail-name {
-  margin: 0;
-  font-size: 1.05rem;
-  font-weight: 700;
-}
-.onto-detail-iri {
-  font-size: 0.74rem;
-  color: var(--muted);
-  font-family: var(--font-mono);
-  word-break: break-all;
-}
-.onto-detail-desc {
-  margin: 0.7rem 0 0.9rem;
-  font-size: 0.9rem;
-  color: var(--fg);
-}
-.onto-reuse {
-  margin-bottom: 1rem;
-}
-.onto-reuse-label {
-  display: block;
-  font-size: 0.78rem;
-  font-weight: 700;
-  color: var(--muted);
-  margin-bottom: 0.4rem;
-}
-.onto-reuse-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-}
-.onto-reuse-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: 0.78rem;
-  background: var(--success-bg);
-  border: 1px solid var(--success-border);
-  border-radius: 6px;
-  padding: 0.12rem 0.45rem;
-}
-.onto-reuse-chip code {
-  color: var(--success-fg);
-  font-weight: 700;
-}
-.onto-reuse-what {
   color: var(--fg);
 }
 .onto-diagram {
@@ -1870,78 +1673,8 @@ textarea:focus {
 }
 
 /* ---- M4b mappings gallery (purpose tags lead) ---- */
-.risk-badge--low {
-  color: var(--success-fg);
-  background: var(--success-bg);
-  border: 1px solid var(--success-border);
-}
-
-.gallery-section--mappings {
-  margin-top: 2.25rem;
-  padding-top: 1.5rem;
-  border-top: 1px dashed var(--border);
-}
-.gallery-note {
-  font-size: 0.88rem;
-  color: var(--muted);
-  margin: -0.4rem 0 1rem;
-}
-
-.mapping-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.9rem;
-}
-.mapping-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 1rem 1.15rem;
-  box-shadow: var(--shadow-1);
-}
-.mapping-card-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-  flex-wrap: wrap;
-}
-.mapping-card-name {
-  margin: 0;
-  font-size: 1.02rem;
-  font-weight: 700;
-}
-.mapping-card-dataset {
-  font-size: 0.8rem;
-  color: var(--muted);
-}
-.mapping-target {
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--primary);
-  background: var(--secondary);
-  border-radius: 999px;
-  padding: 0.2rem 0.6rem;
-  white-space: nowrap;
-}
 
 /* Purpose block: the prominent showcase. Tags are large primary pills. */
-.purpose-block {
-  margin: 0.9rem 0;
-  padding: 0.85rem 0.9rem;
-  background: var(--primary-soft);
-  border: 1px solid var(--success-border);
-  border-radius: var(--radius);
-}
-.purpose-label {
-  display: block;
-  font-size: 0.74rem;
-  font-weight: 800;
-  letter-spacing: 0.02em;
-  color: var(--primary);
-  text-transform: uppercase;
-  margin-bottom: 0.55rem;
-}
 .purpose-tags {
   display: flex;
   flex-wrap: wrap;
@@ -1958,33 +1691,6 @@ textarea:focus {
   padding: 0.4rem 0.65rem;
   max-width: 20rem;
 }
-.purpose-tag-name {
-  font-size: 0.9rem;
-  font-weight: 700;
-  color: var(--primary);
-}
-.purpose-tag-detail {
-  font-size: 0.76rem;
-  color: var(--fg);
-  line-height: 1.4;
-}
-
-.mapping-artifacts {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-}
-.mapping-artifacts-label {
-  font-size: 0.74rem;
-  font-weight: 700;
-  color: var(--muted);
-}
-.mapping-artifact {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
 .artifact-kind {
   flex: none;
   font-size: 0.68rem;
@@ -1995,85 +1701,14 @@ textarea:focus {
   border-radius: 4px;
   padding: 0.08rem 0.4rem;
 }
-.artifact-kind--ingester {
-  background: var(--prov-activity);
-}
-.artifact-kind--mie {
-  background: var(--prov-parameter);
-}
-.artifact-kind--shex {
-  background: var(--prov-result);
-}
 .artifact-name {
   font-size: 0.78rem;
   font-family: var(--font-mono);
   color: var(--fg);
 }
-.artifact-summary {
-  font-size: 0.8rem;
-  color: var(--muted);
-}
 
 /* ---- V1b: live (materialized) drafts in the gallery ---- */
-.live-subsection {
-  margin-top: 1.5rem;
-}
-.gallery-subh {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.92rem;
-  font-weight: 700;
-  color: var(--fg);
-  margin: 0 0 0.7rem;
-}
-.draft-tag {
-  font-size: 0.66rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  color: var(--info-fg);
-  background: var(--info-bg);
-  border: 1px solid var(--info-border);
-  border-radius: 4px;
-  padding: 0.05rem 0.4rem;
-  margin-left: 0.45rem;
-  white-space: nowrap;
-}
 /* Lifecycle stage badge: design → ingested → promoted */
-.stage-tag {
-  font-size: 0.66rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  border-radius: 4px;
-  padding: 0.05rem 0.4rem;
-  margin-left: 0.45rem;
-  white-space: nowrap;
-  border: 1px solid transparent;
-}
-.stage-tag--design {
-  color: var(--info-fg);
-  background: var(--info-bg);
-  border-color: var(--info-border);
-}
-.stage-tag--ingested {
-  color: #8a5a00;
-  background: #fdf3e0;
-  border-color: #f0d9a8;
-}
-.stage-tag--promoted {
-  color: var(--success-fg);
-  background: var(--success-bg);
-  border-color: var(--success-border);
-}
-.onto-card--draft,
-.mapping-card--draft {
-  border-style: dashed;
-}
-.mapping-desc {
-  margin: 0.7rem 0;
-  font-size: 0.85rem;
-  color: var(--muted);
-}
 
 /* ---- Ingest gate (Phase 5 #15) ---- */
 .ingest-gate {
@@ -2133,9 +1768,6 @@ textarea:focus {
   font-size: 0.74rem;
   line-height: 1.5;
   white-space: pre;
-}
-.artifact-kind--mapping {
-  background: var(--primary-soft);
 }
 
 /* ---- Promote gate (Phase 5 #15 S4) ---- */
@@ -2706,15 +2338,6 @@ textarea:focus {
   align-items: center;
   gap: 0.4rem;
 }
-.ds-card-demo {
-  font-family: var(--font-ui);
-  font-size: 0.62rem;
-  font-weight: 700;
-  color: var(--accent);
-  background: var(--accent-soft);
-  border-radius: 999px;
-  padding: 0.02rem 0.4rem;
-}
 .ds-card-counts {
   display: flex;
   flex-wrap: wrap;
@@ -2834,10 +2457,6 @@ textarea:focus {
   padding: 0.3rem 0.6rem;
   box-shadow: var(--shadow-soft);
 }
-.class-chip-ja {
-  font-size: 0.8rem;
-  font-weight: 700;
-}
 .class-chip-en {
   font-family: var(--font-mono);
   font-size: 0.7rem;
@@ -2884,45 +2503,6 @@ textarea:focus {
 }
 .reuse-chip-what {
   color: var(--muted);
-}
-
-.rule-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-.rule-table th {
-  text-align: left;
-  font-family: var(--font-mono);
-  font-size: 0.66rem;
-  font-weight: 600;
-  color: var(--faint);
-  padding: 0 0.6rem 0.4rem;
-}
-.rule-table td {
-  padding: 0.5rem 0.6rem;
-  border-top: 1px solid var(--border);
-  font-size: 0.8rem;
-}
-.rule-source {
-  font-family: var(--font-mono);
-  font-size: 0.76rem;
-}
-.rule-arrow {
-  color: var(--faint);
-  text-align: center;
-  width: 1.5rem;
-}
-.rule-target {
-  font-weight: 600;
-  color: var(--entity);
-}
-.rule-convert {
-  font-family: var(--font-mono);
-  font-size: 0.7rem;
-  color: var(--activity);
-  background: var(--activity-soft);
-  border-radius: 999px;
-  padding: 0.1rem 0.5rem;
 }
 .ds-empty-note {
   font-size: 0.82rem;
@@ -3138,62 +2718,10 @@ textarea:focus {
   align-items: baseline;
   gap: 0.45rem;
 }
-.vocab-class-ja {
-  font-size: 0.84rem;
-  font-weight: 700;
-}
 .vocab-class-en {
   font-family: var(--font-mono);
   font-size: 0.7rem;
   color: var(--faint);
-}
-.vocab-class-desc {
-  font-size: 0.76rem;
-  color: var(--muted);
-  margin-top: 0.1rem;
-}
-.vocab-class-users {
-  font-size: 0.74rem;
-  color: var(--muted);
-  flex: none;
-}
-
-.vocab-legend {
-  margin-left: auto;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-}
-.bind-chip {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 0.3rem;
-  font-size: 0.72rem;
-  font-weight: 700;
-  border-radius: 999px;
-  padding: 0.15rem 0.55rem;
-}
-.bind-chip-en {
-  font-family: var(--font-mono);
-  font-size: 0.58rem;
-  font-weight: 500;
-  opacity: 0.75;
-}
-.bind-chip--reuse {
-  color: var(--entity);
-  background: var(--entity-soft);
-}
-.bind-chip--extend {
-  color: var(--activity);
-  background: var(--activity-soft);
-}
-.bind-chip--map {
-  color: var(--accent);
-  background: var(--accent-soft);
-}
-.bind-chip--new {
-  color: var(--muted);
-  background: var(--surface-alt);
 }
 
 .vocab-user-list {
@@ -3233,25 +2761,6 @@ textarea:focus {
   font-size: 0.68rem;
   color: var(--faint);
 }
-.vocab-user-binds {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-top: 0.6rem;
-}
-.vocab-bind {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  background: var(--surface-alt);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 0.2rem 0.4rem 0.2rem 0.65rem;
-}
-.vocab-bind-cls {
-  font-size: 0.78rem;
-  font-weight: 600;
-}
 .vocab-caution {
   display: flex;
   align-items: flex-start;
@@ -3273,8 +2782,5 @@ textarea:focus {
 @media (max-width: 820px) {
   .vocab-grid {
     grid-template-columns: 1fr;
-  }
-  .vocab-legend {
-    margin-left: 0;
   }
 }
