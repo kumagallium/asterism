@@ -27,6 +27,7 @@ from typing import TextIO
 from rdflib import Graph, Literal, Namespace, URIRef
 from rdflib.namespace import DCTERMS, PROV, RDF, XSD
 
+from asterism.datasets import load_dataset
 from asterism.qudt import quantity_kind_iri, unit_iri
 
 # #20 P2: domain-neutral text/parse/IRI helpers moved to asterism.text. Re-export
@@ -44,9 +45,27 @@ from asterism.text import (
 # Default namespaces (design-plan §4 / §4.0)
 # ----------------------------------------------------------------------------
 
-DEFAULT_ONTOLOGY = "https://kumagallium.github.io/asterism/starrydata/ontology#"
-DEFAULT_RESOURCE = "https://kumagallium.github.io/asterism/starrydata/resource/"
-SOFTWARE_AGENT_IRI = "https://github.com/kumagallium/asterism"
+# #20 P2: starrydata's identity is declared as content in
+# datasets/starrydata/dataset.toml and read via the generic dataset loader.
+# The literals here are an engine-embedded fallback for installs without the
+# datasets/ tree; the descriptor is the source of truth when present. A contract
+# test (test_datasets.py) asserts these stay in sync.
+_DESC = load_dataset("starrydata")
+DEFAULT_ONTOLOGY = (
+    _DESC.ontology_iri
+    if _DESC
+    else "https://kumagallium.github.io/asterism/starrydata/ontology#"
+)
+DEFAULT_RESOURCE = (
+    _DESC.resource_iri
+    if _DESC
+    else "https://kumagallium.github.io/asterism/starrydata/resource/"
+)
+SOFTWARE_AGENT_IRI = (
+    _DESC.software_agent_iri
+    if _DESC and _DESC.software_agent_iri
+    else "https://github.com/kumagallium/asterism"
+)
 
 # Phase 2 #6: starrydata curves are digitized from published figures with
 # WebPlotDigitizer. We model that origin as a PROV SoftwareAgent so the
