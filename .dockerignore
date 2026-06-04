@@ -1,0 +1,8 @@
+# Build-context excludes for all images (build context is the repo root).
+#
+# The images bundle datasets/ (identity descriptors + the QUDT map) as the
+# engine's source of truth (#20 P2-2b). But a dataset's *seed* is generated,
+# licensed data derived from the source — keep it out of images: it bloats them
+# and must not be redistributed. The seed loader (load.py) is source and stays.
+datasets/*/seed/csv/
+datasets/*/seed/*.ttl

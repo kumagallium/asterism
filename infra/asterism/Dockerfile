@@ -32,6 +32,12 @@ COPY mcp/src /app/mcp/src
 RUN pip install /app/ingest \
     && pip install /app/mcp
 
+# #20 P2-2b: ship the dataset content (identity descriptors + the QUDT map) so the
+# engine reads its source of truth from datasets/ in prod, not embedded fallbacks.
+# .dockerignore keeps generated/licensed seed artifacts (csv, *.ttl) out of the image.
+COPY datasets /app/datasets
+ENV ASTERISM_DATASETS_ROOT=/app/datasets
+
 # Closed-server / mcp-net deployment — running as root is acceptable for
 # Phase 2; tightening to a non-root user is tracked alongside the upload-api
 # Phase 3 follow-up.
