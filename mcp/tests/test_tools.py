@@ -63,8 +63,38 @@ def _uri_binding(p: str, iri: str) -> dict:
     }
 
 
-def _make_client(handler) -> OxigraphClient:
-    inner = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://test")
+def _is_canonical_enum(body: str) -> bool:
+    """True for the canonical-graph enumeration that every read tool now issues
+    first (#20 FROM-merge). Tests answer it with an empty set so the FROM block is
+    empty and the tool query under test is built without any FROM clauses."""
+    return "SELECT DISTINCT ?g" in body and "STRSTARTS(STR(?g)" in body
+
+
+def _make_client(handler, *, canonical_graphs: list[str] | None = None) -> OxigraphClient:
+    """Wrap ``handler`` so the canonical-graph enumeration is auto-answered.
+
+    By default the enumeration returns no canonical graphs (FROM block empty);
+    pass ``canonical_graphs`` to simulate a populated cross-dataset corpus.
+    """
+    graphs = canonical_graphs or []
+
+    def wrapped(request: httpx.Request) -> httpx.Response:
+        if _is_canonical_enum(request.content.decode()):
+            return httpx.Response(
+                200,
+                text=json.dumps(
+                    {
+                        "head": {"vars": ["g"]},
+                        "results": {
+                            "bindings": [{"g": {"type": "uri", "value": g}} for g in graphs]
+                        },
+                    }
+                ),
+                headers={"content-type": "application/sparql-results+json"},
+            )
+        return handler(request)
+
+    inner = httpx.AsyncClient(transport=httpx.MockTransport(wrapped), base_url="http://test")
     return OxigraphClient(OxigraphConfig(base_url="http://test"), client=inner)
 
 
@@ -272,6 +302,50 @@ async def test_sample_search_composition_filter() -> None:
     assert out["results"][0]["sample_iri"] == f"{SDR}sample/1-1"
     assert out["results"][0]["composition"] == "Bi2Te3"
     assert out["results"][0]["title"] == "A paper"
+
+
+async def test_sample_search_injects_from_when_canonical_graphs_exist() -> None:
+    # With a populated cross-dataset corpus, the typed query carries FROM clauses
+    # so plain patterns join across the merged canonical graphs (#20 FROM-merge).
+    from asterism.substrate import canonical_graph_iri
+
+    g_a = canonical_graph_iri("a")
+    g_b = canonical_graph_iri("b")
+    captured: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["q"] = request.content.decode()
+        return _rows([], ["sample", "comp", "name", "paper", "title"])
+
+    async with _make_client(handler, canonical_graphs=[g_a, g_b]) as client:
+        await sample_search(client, composition="SnSe")
+
+    assert f"FROM <{g_a}>" in captured["q"]
+    assert f"FROM <{g_b}>" in captured["q"]
+    # Typed tools don't use GRAPH, so no FROM NAMED is emitted for them.
+    assert "FROM NAMED" not in captured["q"]
+
+
+async def test_sparql_query_escape_injects_from_and_from_named() -> None:
+    from asterism.substrate import canonical_graph_iri
+
+    g_a = canonical_graph_iri("a")
+    captured: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["q"] = request.content.decode()
+        return httpx.Response(
+            200,
+            text=json.dumps({"head": {"vars": ["s"]}, "results": {"bindings": []}}),
+            headers={"content-type": "application/sparql-results+json"},
+        )
+
+    async with _make_client(handler, canonical_graphs=[g_a]) as client:
+        out = await sparql_query("SELECT ?s WHERE { ?s ?p ?o }", client)
+
+    assert f"FROM <{g_a}>" in captured["q"]
+    assert f"FROM NAMED <{g_a}>" in captured["q"]  # escape supports GRAPH ?g
+    assert out["effective_query"] == captured["q"]
 
 
 async def test_sample_search_with_property_filter_joins_curve() -> None:

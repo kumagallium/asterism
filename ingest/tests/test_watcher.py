@@ -119,9 +119,11 @@ async def test_process_csv_writes_turtle_and_uploads(tmp_path: Path) -> None:
     assert ttl.exists()
     text = ttl.read_text(encoding="utf-8")
     assert "sd:Paper" in text or "Paper" in text
-    # Default config posts into the default graph (no ``graph`` param).
-    assert captured["graph_param"] is None
-    assert "default" in str(captured["query"])
+    # #20 FROM-merge: default config posts into the canonical/legacy named graph
+    # (so the cross-dataset read, which excludes the raw default graph, sees it).
+    from asterism.substrate import LEGACY_DATASET_ID, canonical_graph_iri
+
+    assert captured["graph_param"] == canonical_graph_iri(LEGACY_DATASET_ID)
 
 
 async def test_process_csv_named_graph_opt_in(tmp_path: Path) -> None:

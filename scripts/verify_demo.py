@@ -24,6 +24,7 @@ for _p in ("ingest/src", "mcp/src", "demo-agent"):
 import app as demo  # demo-agent/app.py  # noqa: E402
 import rdflib  # noqa: E402
 
+from asterism.substrate import LEGACY_DATASET_ID, canonical_graph_iri  # noqa: E402
 from asterism_mcp.tools import (  # noqa: E402
     property_ranking,
     provenance_of,
@@ -34,7 +35,7 @@ SEED = _REPO / "datasets" / "starrydata" / "seed"
 
 
 class _LocalClient:
-    def __init__(self, graph: rdflib.Graph) -> None:
+    def __init__(self, graph: rdflib.ConjunctiveGraph) -> None:
         self._g = graph
 
     async def sparql_select(self, query: str) -> dict:
@@ -44,14 +45,18 @@ class _LocalClient:
         return json.loads(raw)
 
 
-def _load_graph() -> rdflib.Graph:
+def _load_graph() -> rdflib.ConjunctiveGraph:
+    # Mirror the live stack: the seed is loaded into the canonical/legacy NAMED
+    # graph (see datasets/starrydata/seed/load.py), and the typed tools read it
+    # via the cross-dataset FROM-merge — exactly the #20 read path.
     ttls = sorted(SEED.glob("*.ttl"))
     if not ttls:
         raise SystemExit("no seed found — run scripts/make_demo_subset.py first")
-    g = rdflib.Graph()
+    ds = rdflib.ConjunctiveGraph()
+    legacy = ds.get_context(rdflib.URIRef(canonical_graph_iri(LEGACY_DATASET_ID)))
     for t in ttls:
-        g.parse(t, format="turtle")
-    return g
+        legacy.parse(t, format="turtle")
+    return ds
 
 
 async def _amain() -> int:

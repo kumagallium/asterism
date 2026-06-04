@@ -2,7 +2,7 @@
 
 Watches ``<drop_root>/{papers,samples,curves}/`` and, on every settled CSV
 write, runs the matching ingester, writes Turtle to ``<rdf_root>/{kind}/...``,
-and POSTs that Turtle into the default graph on Oxigraph.
+and POSTs that Turtle into the ``canonical/legacy`` graph on Oxigraph.
 
 Design notes
 ~~~~~~~~~~~~
@@ -24,11 +24,13 @@ Design notes
   triples (Oxigraph dedupes by set semantics on IRI-keyed triples) and adds
   exactly one new ``sd:IngestionActivity`` node. See
   ``docs/architecture/phase05-decisions.md`` §2.2.
-- **Default graph by default**. We POST every kind into Oxigraph's default
-  graph so GRAPH-less SPARQL — the MIE example queries and the Phase 1 smoke
-  tests — sees the data. ``WatcherConfig.use_default_graph=False`` opts back
+- **canonical/legacy graph by default**. We POST every kind into the
+  ``canonical/legacy`` named graph so the FROM-merge read (which merges the
+  canonical graphs and excludes the raw default graph) sees this legacy
+  auto-ingest output. ``WatcherConfig.use_default_graph=False`` opts back
   into per-kind named graphs (graph IRIs derived from ``graph_prefix``); that
-  legacy mode then requires GRAPH-wrapped queries.
+  legacy mode sits outside the canonical scope and requires GRAPH-wrapped
+  queries.
 """
 from __future__ import annotations
 
@@ -52,6 +54,7 @@ from asterism.starrydata import (
     ingest_papers,
     ingest_samples,
 )
+from asterism.substrate import LEGACY_DATASET_ID, canonical_graph_iri
 
 logger = logging.getLogger(__name__)
 
@@ -101,8 +104,9 @@ class WatcherConfig:
     graph_prefix: str = DEFAULT_GRAPH_PREFIX
     settle_s: float = DEFAULT_SETTLE_S
     ingest_config: IngestConfig = field(default_factory=IngestConfig)
-    # Post into Oxigraph's default graph so GRAPH-less SPARQL (MIE examples,
-    # Phase 1 smoke) sees the data. Set False to keep per-kind named graphs.
+    # Post into the canonical/legacy named graph so the FROM-merge read sees this
+    # auto-ingest output (the raw default graph is outside the canonical scope).
+    # Set False to keep the older per-kind named graphs (outside the scope).
     use_default_graph: bool = True
 
     def ensure_dirs(self) -> None:
@@ -113,9 +117,19 @@ class WatcherConfig:
         self.jobs_log.parent.mkdir(parents=True, exist_ok=True)
 
     def target_graph(self, kind: str) -> str | None:
-        """Graph IRI to POST ``kind`` into, or ``None`` for the default graph."""
+        """Graph IRI to POST ``kind`` into.
+
+        #20 FROM-merge: the default-mode target is the **canonical/legacy** named
+        graph, not the raw default graph. Ask reads via a FROM-merge over the
+        canonical graphs, which (by construction) excludes the real default graph;
+        landing watcher output in ``canonical/legacy`` keeps this legacy
+        auto-ingest path citable exactly as before (it was default==canonical),
+        now visible to the cross-dataset read. ``use_default_graph=False`` keeps
+        the older per-kind named graphs (those are NOT under the canonical prefix,
+        so they stay outside the citable scope — an explicit legacy opt-out).
+        """
         if self.use_default_graph:
-            return None
+            return canonical_graph_iri(LEGACY_DATASET_ID)
         return f"{self.graph_prefix}{kind}"
 
     def graph_iri(self, kind: str) -> str:

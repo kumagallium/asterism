@@ -413,10 +413,14 @@ async def _llm_sparql_answer(question: str, api_key: str) -> dict:
         for tu in tool_uses:
             if tu.name == "run_sparql":
                 q = (tu.input or {}).get("query", "")
-                used_sparql.append(q)
                 try:
                     result = await sparql_query(q, client, max_rows=50)
+                    # Disclose the query that ACTUALLY ran: sparql_query rewrites a
+                    # plain SELECT to read the cross-dataset canonical FROM-merge
+                    # (#20), so the user sees the real, reproducible query string.
+                    used_sparql.append(result.get("effective_query") or q)
                 except Exception as exc:  # never let a bad query kill the loop
+                    used_sparql.append(q)
                     result = {"error": str(exc)}
                 tool_results.append(
                     {

@@ -430,21 +430,141 @@ async def canonical_graphs(client: SupportsSparql) -> list[str]:
     return out
 
 
-def canonical_from_clauses(graphs: list[str]) -> str:
-    """Build the ``FROM <g>`` block that merges ``graphs`` into the query dataset.
+def canonical_from_clauses(graphs: list[str], *, named: bool = False) -> str:
+    """Build the dataset clause that merges ``graphs`` into the query dataset.
+
+    ``FROM <g>`` for each graph merges them into the query's default graph so
+    GRAPH-less patterns join across datasets. With ``named=True`` we *also* emit a
+    ``FROM NAMED <g>`` for each, so a query that uses ``GRAPH ?g { ... }`` still
+    resolves — but only over the canonical graphs (draft / control / ontology are
+    never listed, so explicit-GRAPH escape queries cannot reach unreviewed data).
 
     Empty list -> empty string (the query then reads the real default graph, which
     is the safe pre-migration behaviour).
     """
-    return "".join(f"FROM <{g}>\n" for g in graphs)
+    out = "".join(f"FROM <{g}>\n" for g in graphs)
+    if named:
+        out += "".join(f"FROM NAMED <{g}>\n" for g in graphs)
+    return out
+
+
+# Reject queries that already declare their own RDF dataset: a ``FROM`` means the
+# caller scoped the read deliberately, so we respect it and inject nothing.
+_HAS_DATASET_CLAUSE: re.Pattern[str] = re.compile(r"\bfrom\b", re.IGNORECASE)
+_WHERE_KEYWORD: re.Pattern[str] = re.compile(r"\bWHERE\b", re.IGNORECASE)
+
+
+def _scan_view(query: str) -> str:
+    """A same-length copy of ``query`` with comments, string literals, and IRIs
+    blanked to spaces, so keyword/brace scans never trip on a ``FROM`` / ``WHERE``
+    / ``{`` that lives inside a literal or ``<...>`` IRI. Character positions are
+    preserved 1:1 so a match index maps straight back to the original query.
+    """
+    out = list(query)
+    i, n = 0, len(query)
+    while i < n:
+        ch = query[i]
+        if ch == "#":  # line comment to end of line
+            while i < n and query[i] != "\n":
+                out[i] = " "
+                i += 1
+        elif ch == "<":  # IRI ref: <...> (no '>' or whitespace inside)
+            j = i + 1
+            while j < n and query[j] not in ">\n":
+                j += 1
+            if j < n and query[j] == ">":
+                for k in range(i, j + 1):
+                    out[k] = " "
+                i = j + 1
+            else:  # not a closed IRI (e.g. a '<' operator) — leave it
+                i += 1
+        elif ch in "\"'":  # string literal: "...", '...', """...""", '''...'''
+            triple = query[i : i + 3] in ('"""', "'''")
+            quote = ch * 3 if triple else ch
+            j = i + len(quote)
+            while j < n:
+                if query[j] == "\\":  # escaped char
+                    j += 2
+                    continue
+                if query[j : j + len(quote)] == quote:
+                    j += len(quote)
+                    break
+                j += 1
+            for k in range(i, min(j, n)):
+                out[k] = " "
+            i = j
+        else:
+            i += 1
+    return "".join(out)
+
+
+def insert_dataset_clause(query: str, clause: str) -> str:
+    """Insert a dataset clause (``FROM``/``FROM NAMED`` block) before the WHERE.
+
+    Per the SPARQL grammar the ``DatasetClause*`` sits after the SELECT/ASK
+    projection (and any PREFIX decls) and before the ``WhereClause`` — which is
+    the ``WHERE`` keyword if present, otherwise the opening ``{`` of the group
+    graph pattern. We insert at whichever of those comes first. Returns the query
+    unchanged if it has no group pattern (nothing to scope). The scan ignores
+    text inside comments / literals / IRIs (see :func:`_scan_view`).
+    """
+    view = _scan_view(query)
+    m_where = _WHERE_KEYWORD.search(view)
+    brace = view.find("{")
+    if m_where is not None and (brace == -1 or m_where.start() < brace):
+        idx = m_where.start()
+    elif brace != -1:
+        idx = brace
+    else:
+        return query
+    return f"{query[:idx]}{clause}{query[idx:]}"
+
+
+async def canonical_merge_query(client: SupportsSparql, query: str) -> str:
+    """Rewrite a read-only SELECT/ASK to read the cross-dataset canonical scope.
+
+    Injects ``FROM <c>`` + ``FROM NAMED <c>`` over every non-retracted canonical
+    graph so GRAPH-less patterns join ACROSS datasets through shared vocabulary,
+    and an explicit ``GRAPH ?g`` stays scoped to canonical graphs (never reaches
+    draft / control / ontology data). No-ops when the query already declares its
+    own ``FROM`` (caller scoped it) or when no canonical graphs exist yet (the
+    query then reads the real default graph — safe pre-migration behaviour).
+
+    Returns the (possibly unchanged) query; callers disclose this as the effective
+    query actually executed, so the FROM-merge is visible and reproducible.
+    """
+    if _HAS_DATASET_CLAUSE.search(_scan_view(query)):
+        return query
+    clause = canonical_from_clauses(await canonical_graphs(client), named=True)
+    if not clause:
+        return query
+    return insert_dataset_clause(query, clause)
 
 
 async def migrate_default_to_canonical(
     client: SupportsSparql, target_iri: str
-) -> None:
-    """One-time: MOVE the real default graph's triples into a canonical named graph.
+) -> int:
+    """Move the real default graph's triples into a canonical named graph.
 
     Required so the FROM-merge read (which excludes the real default graph) still
-    covers legacy / seed / pre-P3 data. ``MOVE`` empties the default graph.
+    covers legacy / seed / pre-P3 data parked in the default graph. Implemented as
+    ``ADD DEFAULT TO GRAPH`` (merge — set semantics, never replaces the target)
+    followed by ``CLEAR DEFAULT``, so it is **idempotent and safe to run on every
+    startup**: a second run finds the default graph empty and is a no-op, and a
+    target that already holds data is merged into, not clobbered (unlike ``MOVE``).
+
+    Returns the number of triples that were in the default graph before the move
+    (0 = nothing to migrate).
     """
-    await client.sparql_update(f"MOVE DEFAULT TO GRAPH <{target_iri}>")
+    count = 0
+    data = await client.sparql_select("SELECT (COUNT(*) AS ?c) WHERE { ?s ?p ?o }")
+    bindings = data.get("results", {}).get("bindings", []) if isinstance(data, dict) else []
+    if bindings:
+        try:
+            count = int(bindings[0].get("c", {}).get("value", 0))
+        except (TypeError, ValueError):
+            count = 0
+    if count:
+        await client.sparql_update(f"ADD DEFAULT TO GRAPH <{target_iri}>")
+        await client.sparql_update("CLEAR DEFAULT")
+    return count

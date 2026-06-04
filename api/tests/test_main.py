@@ -578,6 +578,65 @@ def test_sparql_rejects_update_and_empty(
         )
 
 
+def test_sparql_injects_from_merge_when_canonical_graphs_exist(tmp_path: Path) -> None:
+    """#20: a plain /api/sparql query is rewritten to read the canonical FROM-merge."""
+    from asterism.substrate import canonical_graph_iri
+
+    g = canonical_graph_iri("a")
+    seen: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        q = request.content.decode()
+        if "SELECT DISTINCT ?g" in q and "STRSTARTS(STR(?g)" in q:  # enumeration
+            rows = [{"g": {"type": "uri", "value": g}}]
+        elif "COUNT" in q and "GRAPH" not in q:  # startup migration default-count
+            rows = [{"c": {"value": "0"}}]
+        else:
+            seen["relay"] = q  # the rewritten relay query
+            rows = []
+        return httpx.Response(
+            200,
+            text=json.dumps({"head": {"vars": ["g", "c"]}, "results": {"bindings": rows}}),
+            headers={"content-type": "application/sparql-results+json"},
+        )
+
+    app = build_app(
+        _settings(tmp_path), oxigraph_client=_mock_client(handler), start_watcher=False
+    )
+    with TestClient(app) as client:
+        r = client.post("/api/sparql", json={"query": "SELECT ?s WHERE { ?s ?p ?o }"})
+        assert r.status_code == 200
+    assert f"FROM <{g}>" in seen["relay"]  # cross-dataset scope injected
+
+
+def test_startup_migrates_default_into_canonical_legacy(tmp_path: Path) -> None:
+    """#20: pre-existing default-graph data is moved into canonical/legacy on boot."""
+    from asterism.substrate import canonical_graph_iri
+
+    updates: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/update":
+            updates.append(request.content.decode())
+            return httpx.Response(204)
+        q = request.content.decode()
+        # migration default-count -> non-empty so it triggers ADD + CLEAR
+        rows = [{"c": {"value": "76"}}] if ("COUNT" in q and "GRAPH" not in q) else []
+        return httpx.Response(
+            200,
+            text=json.dumps({"head": {"vars": ["c"]}, "results": {"bindings": rows}}),
+            headers={"content-type": "application/sparql-results+json"},
+        )
+
+    app = build_app(
+        _settings(tmp_path), oxigraph_client=_mock_client(handler), start_watcher=False
+    )
+    with TestClient(app):
+        pass  # lifespan startup runs the migration
+    legacy = canonical_graph_iri("legacy")
+    assert updates == [f"ADD DEFAULT TO GRAPH <{legacy}>", "CLEAR DEFAULT"]
+
+
 def test_job_stream_unknown_id(
     tmp_path: Path, healthy_client: OxigraphClient
 ) -> None:

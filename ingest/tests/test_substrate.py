@@ -298,6 +298,19 @@ def test_canonical_from_clauses_builds_from_block() -> None:
     assert out == "FROM <https://ex/a>\nFROM <https://ex/b>\n"
 
 
+def test_canonical_from_clauses_named_adds_from_named() -> None:
+    # The escape path also emits FROM NAMED so a `GRAPH ?g {}` query resolves over
+    # the canonical graphs (and ONLY those — never draft/control/ontology).
+    from asterism.substrate import canonical_from_clauses
+
+    assert canonical_from_clauses([], named=True) == ""
+    out = canonical_from_clauses(["https://ex/a", "https://ex/b"], named=True)
+    assert out == (
+        "FROM <https://ex/a>\nFROM <https://ex/b>\n"
+        "FROM NAMED <https://ex/a>\nFROM NAMED <https://ex/b>\n"
+    )
+
+
 async def test_canonical_graphs_lists_sorted_excluding_retracted() -> None:
     from asterism.substrate import canonical_graphs
 
@@ -321,13 +334,110 @@ async def test_canonical_graphs_lists_sorted_excluding_retracted() -> None:
     assert await canonical_graphs(_Fake()) == [g_a, g_b]
 
 
-async def test_migrate_default_to_canonical_moves_default() -> None:
+async def test_migrate_default_to_canonical_merges_then_clears() -> None:
+    # Merge-safe + idempotent: ADD (never replaces the target) then CLEAR DEFAULT.
     from asterism.substrate import migrate_default_to_canonical
 
-    fake = _FakeSparql(set(), set(), set(), set())
+    fake = _FakeSparql(set(), set(), set(), set(), draft_n=76)
     target = canonical_graph_iri("legacy")
-    await migrate_default_to_canonical(fake, target)
-    assert fake.updates == [f"MOVE DEFAULT TO GRAPH <{target}>"]
+    moved = await migrate_default_to_canonical(fake, target)
+    assert moved == 76
+    assert fake.updates == [f"ADD DEFAULT TO GRAPH <{target}>", "CLEAR DEFAULT"]
+
+
+async def test_migrate_default_to_canonical_is_noop_when_default_empty() -> None:
+    from asterism.substrate import migrate_default_to_canonical
+
+    fake = _FakeSparql(set(), set(), set(), set(), draft_n=0)
+    moved = await migrate_default_to_canonical(fake, canonical_graph_iri("legacy"))
+    assert moved == 0
+    assert fake.updates == []  # nothing written -> safe to run on every startup
+
+
+def test_insert_dataset_clause_before_where_keyword() -> None:
+    from asterism.substrate import insert_dataset_clause
+
+    out = insert_dataset_clause("SELECT ?s WHERE { ?s ?p ?o }", "FROM <https://ex/a>\n")
+    assert out == "SELECT ?s FROM <https://ex/a>\nWHERE { ?s ?p ?o }"
+
+
+def test_insert_dataset_clause_before_brace_when_no_where_keyword() -> None:
+    from asterism.substrate import insert_dataset_clause
+
+    out = insert_dataset_clause("SELECT ?s { ?s ?p ?o }", "FROM <https://ex/a>\n")
+    assert out == "SELECT ?s FROM <https://ex/a>\n{ ?s ?p ?o }"
+
+
+def test_insert_dataset_clause_uses_outer_where_not_subquery() -> None:
+    # The first `{` precedes a nested sub-SELECT's WHERE, so we must insert before
+    # the brace (the outer group), not before the subquery's WHERE keyword.
+    from asterism.substrate import insert_dataset_clause
+
+    q = "SELECT ?s { { SELECT ?s WHERE { ?s ?p ?o } } }"
+    out = insert_dataset_clause(q, "FROM <https://ex/a>\n")
+    assert out == "SELECT ?s FROM <https://ex/a>\n{ { SELECT ?s WHERE { ?s ?p ?o } } }"
+
+
+def test_insert_dataset_clause_ignores_from_brace_where_in_literals() -> None:
+    # A literal containing '{' / the word WHERE must NOT be mistaken for the
+    # group pattern; insertion still lands before the real WHERE.
+    from asterism.substrate import insert_dataset_clause
+
+    body = '{ ?s ?p ?o FILTER(CONTAINS(?o, "a { WHERE b")) }'
+    out = insert_dataset_clause(f"SELECT ?s WHERE {body}", "FROM <https://ex/a>\n")
+    assert out == f"SELECT ?s FROM <https://ex/a>\nWHERE {body}"
+
+
+async def test_canonical_merge_query_respects_from_only_outside_literals() -> None:
+    # "from" inside a string literal is NOT a dataset clause -> still injected.
+    from asterism.substrate import canonical_graph_iri, canonical_merge_query
+
+    g = canonical_graph_iri("a")
+
+    class _Fake:
+        async def sparql_select(self, query: str) -> dict:
+            return {"results": {"bindings": [{"g": {"type": "uri", "value": g}}]}}
+
+    q = 'SELECT ?s WHERE { ?s ?p ?o FILTER(CONTAINS(?o, "from")) }'
+    out = await canonical_merge_query(_Fake(), q)
+    assert f"FROM <{g}>" in out  # injected despite the "from" literal
+
+
+async def test_canonical_merge_query_injects_from_and_from_named() -> None:
+    from asterism.substrate import canonical_graph_iri, canonical_merge_query
+
+    g = canonical_graph_iri("a")
+
+    class _Fake:
+        async def sparql_select(self, query: str) -> dict:
+            return {"results": {"bindings": [{"g": {"type": "uri", "value": g}}]}}
+
+    out = await canonical_merge_query(_Fake(), "SELECT ?s WHERE { ?s ?p ?o }")
+    assert out == f"SELECT ?s FROM <{g}>\nFROM NAMED <{g}>\nWHERE {{ ?s ?p ?o }}"
+
+
+async def test_canonical_merge_query_respects_explicit_from() -> None:
+    # A query that already declares a dataset is left untouched (caller scoped it).
+    from asterism.substrate import canonical_merge_query
+
+    class _Boom:
+        async def sparql_select(self, query: str) -> dict:
+            raise AssertionError("must not enumerate when query has its own FROM")
+
+    q = "SELECT ?s FROM <https://ex/x> WHERE { ?s ?p ?o }"
+    assert await canonical_merge_query(_Boom(), q) == q
+
+
+async def test_canonical_merge_query_noop_without_canonical_graphs() -> None:
+    # No canonical graphs yet -> no FROM injected -> reads the real default graph.
+    from asterism.substrate import canonical_merge_query
+
+    class _Empty:
+        async def sparql_select(self, query: str) -> dict:
+            return {"results": {"bindings": []}}
+
+    q = "SELECT ?s WHERE { ?s ?p ?o }"
+    assert await canonical_merge_query(_Empty(), q) == q
 
 
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")

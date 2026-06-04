@@ -28,7 +28,11 @@ from typing import Any, Final
 
 from asterism.datasets import load_dataset
 from asterism.oxigraph_client import OxigraphClient
-from asterism.substrate import canonical_scope_where
+from asterism.substrate import (
+    canonical_from_clauses,
+    canonical_graphs,
+    canonical_merge_query,
+)
 
 # ----------------------------------------------------------------------------
 # Predicate -> output-key mapping for template_curve_fetch
@@ -91,30 +95,48 @@ def _parse_value(key: str, raw: str) -> Any:
 
 
 # ----------------------------------------------------------------------------
-# Canonical read scope (#20 P3)
+# Canonical read scope = cross-dataset FROM-merge (#20 P3)
 # ----------------------------------------------------------------------------
 #
-# Every Ask read spans the **canonical scope**: the default graph (legacy / seed /
-# pre-migration data) UNION every per-dataset canonical named graph
-# (.../asterism/graph/canonical/{id}), MINUS any that are retracted (tombstoned in
-# the control graph). Draft / control / ontology graphs are excluded by the
-# canonical-prefix filter, so unreviewed drafts never leak into Ask.
+# Every Ask read spans the **canonical scope**: every non-retracted per-dataset
+# canonical named graph (.../asterism/graph/canonical/{id}), merged into the
+# query's default graph via ``FROM`` clauses. Merging (rather than the earlier
+# GRAPH-union) is what lets a single join span TWO datasets — the whole point of
+# "link various data through a shared ontology and query across it". Draft /
+# control / ontology graphs are never in the FROM list, so unreviewed drafts
+# never leak into Ask. Legacy / seed data lives in ``canonical/legacy`` (writers
+# relocated + a one-time startup migration), so it is covered too.
 #
-# The scope pattern is defined ONCE in ``asterism.substrate.canonical_scope_where``
-# and imported here so Ask reads, the curve fetch, and promotion's alignment all
-# use byte-for-byte the same scope (no drift, incl. the retraction exclusion).
+# When no canonical graph exists yet the FROM block is empty and the query reads
+# the real default graph — the safe pre-migration behaviour.
 
 
-def _canonical_scope(body: str) -> str:
-    """Wrap a GRAPH-less group pattern to read the canonical scope (#20 P3)."""
-    return canonical_scope_where(body)
+async def _from_merge(client: OxigraphClient) -> str:
+    """The ``FROM <canonical/*>`` block scoping a read to the cross-dataset corpus.
+
+    One round-trip enumerates the canonical graphs (excluding retracted); the
+    cost is accepted per read (cache later if it shows up). Empty string when no
+    canonical graphs exist (reads the real default graph).
+    """
+    return canonical_from_clauses(await canonical_graphs(client))
 
 
-def _build_query(curve_iri: str) -> str:
-    # Read the curve from the canonical scope (default graph + canonical named
-    # graphs); draft graphs are excluded so an unreviewed curve never surfaces.
+def _scoped_select(projection: str, body: str, from_block: str, tail: str = "") -> str:
+    """Assemble ``<projection>\\n<FROM block>WHERE { <body> }<tail>``.
+
+    ``projection`` carries any PREFIX decls + the SELECT clause; ``from_block`` is
+    the canonical FROM-merge (possibly empty); ``tail`` carries GROUP BY / ORDER
+    BY / LIMIT. The body is a plain GRAPH-less pattern read over the merged
+    canonical default graph.
+    """
+    return f"{projection}\n{from_block}WHERE {{ {body} }}{tail}"
+
+
+def _build_query(curve_iri: str, from_block: str) -> str:
+    # Read the curve from the canonical FROM-merge; draft graphs are not in the
+    # merge so an unreviewed curve never surfaces.
     safe = curve_iri.replace("<", "").replace(">", "")
-    return "SELECT ?p ?o WHERE {\n  " + _canonical_scope("<" + safe + "> ?p ?o") + "\n}"
+    return _scoped_select("SELECT ?p ?o", f"<{safe}> ?p ?o", from_block)
 
 
 # ----------------------------------------------------------------------------
@@ -158,7 +180,7 @@ async def template_curve_fetch(
     if not curve_iri or not curve_iri.startswith(("http://", "https://")):
         raise ValueError(f"curve_iri must be a full http(s) IRI, got {curve_iri!r}")
 
-    query = _build_query(curve_iri)
+    query = _build_query(curve_iri, await _from_merge(client))
     raw = await client.sparql_select(query)
 
     # Oxigraph returns bindings as a list of dicts mapping varname -> value dict.
@@ -317,12 +339,11 @@ async def sample_search(
     where.append(
         "OPTIONAL { ?sample sd:fromPaper ?paper . OPTIONAL { ?paper schema:name ?title } }"
     )
-    query = (
-        _PREFIXES
-        + "SELECT DISTINCT ?sample ?comp ?name ?paper ?title WHERE {\n  "
-        + _canonical_scope("\n  ".join(where))
-        + "\n} LIMIT "
-        + str(limit)
+    query = _scoped_select(
+        _PREFIXES + "SELECT DISTINCT ?sample ?comp ?name ?paper ?title",
+        "\n  ".join(where),
+        await _from_merge(client),
+        tail=" LIMIT " + str(limit),
     )
     raw = await client.sparql_select(query)
     results = [
@@ -386,12 +407,12 @@ async def property_ranking(
         + "  OPTIONAL { ?p schema:name ?title }\n"
         + plausible_filter
     )
-    query = (
-        _PREFIXES
-        + "SELECT ?curve ?ymax ?s ?comp ?p ?title WHERE {\n  "
-        + _canonical_scope(rank_body)
-        + "\n} ORDER BY DESC(?ymax) LIMIT "
-        + str(top_n)
+    from_block = await _from_merge(client)
+    query = _scoped_select(
+        _PREFIXES + "SELECT ?curve ?ymax ?s ?comp ?p ?title",
+        rank_body,
+        from_block,
+        tail=" ORDER BY DESC(?ymax) LIMIT " + str(top_n),
     )
     raw = await client.sparql_select(query)
     results = [
@@ -411,11 +432,8 @@ async def property_ranking(
             f'  ?curve a sd:Curve ; sd:propertyY "{esc_py}" ; sd:yMax ?ymax .\n'
             + f"  FILTER(?ymax > {float(max_plausible)})\n"
         )
-        count_q = (
-            _PREFIXES
-            + "SELECT (COUNT(?curve) AS ?n) WHERE {\n  "
-            + _canonical_scope(count_body)
-            + "\n}"
+        count_q = _scoped_select(
+            _PREFIXES + "SELECT (COUNT(?curve) AS ?n)", count_body, from_block
         )
         cb = _bindings(await client.sparql_select(count_q))
         if cb:
@@ -455,8 +473,8 @@ async def provenance_of(
         raise ValueError(f"iri must be a full http(s) IRI, got {iri!r}")
     safe = iri.replace("<", "").replace(">", "")
     # The body is an all-OPTIONAL walk off ?e. A required anchor (?e has at least
-    # one triple) keeps the canonical-scope union from emitting a phantom empty
-    # row for every canonical graph that does NOT contain the entity (#20 P3).
+    # one triple) makes a non-existent IRI yield zero rows -> found=False; without
+    # it the BIND alone would always emit one row (#20 P3).
     prov_body = (
         f"  BIND(<{safe}> AS ?e)\n"
         + "  ?e ?__anchor_p ?__anchor_o .\n"
@@ -483,12 +501,12 @@ async def provenance_of(
         + "    OPTIONAL { ?act prov:atTime ?atime }\n"
         + "  }\n"
     )
-    query = (
+    query = _scoped_select(
         _PREFIXES
         + "SELECT ?etype ?fig ?py ?ymax ?ecomp ?ename ?sample ?scomp ?sname "
-        + "?paper ?ptitle ?pid ?act ?atype ?atime WHERE {\n  "
-        + _canonical_scope(prov_body)
-        + "\n}"
+        + "?paper ?ptitle ?pid ?act ?atype ?atime",
+        prov_body,
+        await _from_merge(client),
     )
     rows = _bindings(await client.sparql_select(query))
     if not rows:
@@ -596,16 +614,16 @@ def _strip_comments(query: str) -> str:
     return re.sub(r"#.*", "", query)
 
 
-def _graph_clause(graph: str | None, body: str) -> str:
-    """Wrap ``body`` for the target graph.
+def _graph_pattern(graph: str | None, body: str) -> str:
+    """The WHERE-inner pattern for ``body``.
 
-    ``graph=<iri>`` inspects exactly that named graph (e.g. a draft graph).
-    ``graph=None`` reads the **canonical scope** — the default graph plus every
-    per-dataset canonical named graph (drafts excluded) — so Ask sees citable
-    facts wherever promotion put them (#20 P3).
+    ``graph=<iri>`` inspects exactly that named graph (e.g. a draft graph), so the
+    body is GRAPH-wrapped. ``graph=None`` reads the **canonical scope**, where the
+    cross-dataset FROM-merge is added at the query level (see ``_from_merge``) and
+    the body stays a plain GRAPH-less pattern.
     """
     if not graph:
-        return _canonical_scope(body)
+        return body
     safe = graph.replace("<", "").replace(">", "")
     return f"GRAPH <{safe}> {{ {body} }}"
 
@@ -646,17 +664,20 @@ async def schema_summary(
     max_predicates = max(1, min(int(max_predicates), 500))
     predicates_per_class = max(1, min(int(predicates_per_class), 200))
 
-    classes_q = (
-        "SELECT ?cls (COUNT(DISTINCT ?s) AS ?n) WHERE { "
-        + _graph_clause(graph, "?s a ?cls .")
-        + " } GROUP BY ?cls ORDER BY DESC(?n) LIMIT "
-        + str(max_classes)
+    # graph=None reads the cross-dataset canonical FROM-merge; an explicit graph
+    # reads that one named graph directly (no FROM).
+    from_block = "" if graph else await _from_merge(client)
+    classes_q = _scoped_select(
+        "SELECT ?cls (COUNT(DISTINCT ?s) AS ?n)",
+        _graph_pattern(graph, "?s a ?cls ."),
+        from_block,
+        tail=" GROUP BY ?cls ORDER BY DESC(?n) LIMIT " + str(max_classes),
     )
-    preds_q = (
-        "SELECT ?p (COUNT(*) AS ?n) WHERE { "
-        + _graph_clause(graph, "?s ?p ?o .")
-        + " } GROUP BY ?p ORDER BY DESC(?n) LIMIT "
-        + str(max_predicates)
+    preds_q = _scoped_select(
+        "SELECT ?p (COUNT(*) AS ?n)",
+        _graph_pattern(graph, "?s ?p ?o ."),
+        from_block,
+        tail=" GROUP BY ?p ORDER BY DESC(?n) LIMIT " + str(max_predicates),
     )
 
     classes = [
@@ -675,11 +696,11 @@ async def schema_summary(
     class_shapes: list[dict[str, Any]] = []
     for cls in classes:
         cls_iri = str(cls["iri"]).replace("<", "").replace(">", "")
-        shape_q = (
-            "SELECT ?p (COUNT(*) AS ?n) WHERE { "
-            + _graph_clause(graph, f"?s a <{cls_iri}> ; ?p ?o .")
-            + " } GROUP BY ?p ORDER BY DESC(?n) LIMIT "
-            + str(predicates_per_class)
+        shape_q = _scoped_select(
+            "SELECT ?p (COUNT(*) AS ?n)",
+            _graph_pattern(graph, f"?s a <{cls_iri}> ; ?p ?o ."),
+            from_block,
+            tail=" GROUP BY ?p ORDER BY DESC(?n) LIMIT " + str(predicates_per_class),
         )
         shape = [
             {"iri": _cell(r, "p"), "count": int(float(_cell(r, "n") or 0))}
@@ -721,6 +742,13 @@ async def sparql_query(
     (INSERT/DELETE/MOVE/...) are rejected — this is read-only by contract, same
     as api ``POST /api/sparql``.
 
+    Cross-dataset scope: the query is rewritten to read the canonical FROM-merge
+    (``FROM`` + ``FROM NAMED`` over every non-retracted canonical graph) so plain
+    patterns join ACROSS datasets through shared vocabulary, unless it already
+    declares its own ``FROM`` (then it is left as-is). When the rewrite changes
+    the query, the executed form is returned in ``effective_query`` so the caller
+    can disclose exactly what ran.
+
     Args:
         query: a SPARQL 1.1 SELECT or ASK query string.
         max_rows: cap on returned rows (clamped 1..2000). ``truncated`` reports
@@ -730,6 +758,7 @@ async def sparql_query(
     Returns ``{columns, rows, count, truncated}`` for SELECT (each row maps a
     var name to ``{value, type, datatype?, lang?}`` or None), or
     ``{boolean, columns: [], rows: [], count: 0, truncated: false}`` for ASK.
+    Adds ``effective_query`` when the cross-dataset rewrite changed the query.
 
     Raises:
         ValueError: empty query.
@@ -744,7 +773,9 @@ async def sparql_query(
         )
     max_rows = max(1, min(int(max_rows), 2000))
 
-    raw = await client.sparql_select(q)
+    effective = await canonical_merge_query(client, q)
+    extra = {"effective_query": effective} if effective != q else {}
+    raw = await client.sparql_select(effective)
 
     # ASK returns {"head": {}, "boolean": true/false} — no bindings.
     if isinstance(raw, dict) and "boolean" in raw:
@@ -754,6 +785,7 @@ async def sparql_query(
             "rows": [],
             "count": 0,
             "truncated": False,
+            **extra,
         }
 
     head = raw.get("head", {}) if isinstance(raw, dict) else {}
@@ -769,4 +801,5 @@ async def sparql_query(
         "rows": rows,
         "count": len(rows),
         "truncated": truncated,
+        **extra,
     }
