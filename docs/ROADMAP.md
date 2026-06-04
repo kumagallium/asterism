@@ -4,7 +4,7 @@
 >
 > **このリポジトリで作業するセッション（Claude Code / Cowork / 人）は、開始時に本書を読み、作業後に状態を更新すること。** 手順は [`CLAUDE.md`](../CLAUDE.md) 参照。
 
-最終更新: 2026-06-03
+最終更新: 2026-06-04
 
 ## 北極星
 
@@ -23,6 +23,7 @@
 | 18 | **汎用クエリ/Ask 層**（最小=SPARQL tool → NL→SPARQL、スキーマ非依存） | ✅ **完了（実 LLM dogfood 実証済）**。土台(LLM-free)=MCP `schema_summary`＋`sparql_query`＋demo-agent `/demo/schema`・`/demo/sparql`。escape=`/demo/ask` を**型付き優先＋自動フォールバック**化（引用ゼロ→LLM が schema_summary 接地で read-only SPARQL→`sparql_query` 実行→接地回答＋引用＋使用SPARQL 開示）。UX=Ask-view にキー欄＋「使用した SPARQL」開示パネル。**dogfood: 実 Oxigraph に非 starrydata スキーマ(材料硬さ lab:)を投入→実 LLM が schema 内省→正しい SPARQL 生成→最硬 WC-Co を実 IRI 引用付きで回答（2026-06-03）** | core 設計→CC | — |
 | 20 | **オントロジー/canonical ライフサイクル + starrydata 脱結合**（層整理・CRUD/版・core から starrydata を example へ降格・typed ツール一般化） | 🟡 **ADR 合意済・P2 進行中**。P2-1=汎用ヘルパを `asterism.text` へ抽出（Tier0 core が starrydata module 非依存）。**P2-2a**=starrydata identity を `datasets/starrydata/dataset.toml` に宣言＋汎用ローダ `asterism.datasets`＋`DEFAULT_*` を descriptor 由来に（将来 dataset は toml を置くだけ・engine 非ハードコード、contract test）。ingest 98/mcp 29/demo 9 緑。残=P2-2b（api/mcp の定数 import 撤去・seed/QUDT/watcher を datasets/ へ物理移動） | core 設計→CC | `architecture/ontology-canonical-lifecycle.md` |
 | 19 | **UI 一般化**（非CSVソース追加・mapping・ソース間リンク） | 未（#20 の P2 と接続: 2個目の非 starrydata dataset 投入） | CC(UI)+core | — |
+| — | **UI プロダクト品質化（forest 再設計）** | 🟡 **Phase 1 着地（PR 進行中）**。基盤（forest トークン/Google Fonts/タイポ/border-box）＋新IA骨格（つくる/つかう/管理・SPARQL 降格・3星ブランド）＋Ask 全面刷新（2カラム・来歴を常設右パネル化・引用カード）＋アクティビティ restyle＋共通アトム/状態(skeleton/empty/error)。**契約不変・表示のみ**。残=**Phase 2**（ホーム/共有の語彙/カタログ データセット主役化/データ追加3ステップ化・非CSVソースは見た目のみ） | CC(UI) | `design/asterism-ux/` |
 | — | linker（MP→RML化＋`normalize_host` 昇格 / MatPROV 連結候補） | MP 実証済・RML化未 | core | `experiments/mp-linking-poc/` |
 | 10 | 来歴トレース表示＋データ品質の見せ場（表示 UI） | 一部（tool 済・UI 未） | CC(UI) | — |
 | — | 統治・スケール（`fn-local` 名前空間・未対応変換ログ） | 設計済・未実装 | later | 同上 §5.5 |
@@ -32,7 +33,7 @@
 1. ~~関数ライブラリ v0 / #14 step0 RML 出力 / #15 materialize 人間ゲート~~ ✅ 完了。
 2. ~~**#18 汎用クエリ層**（土台 + escape + Ask-view UX + 実 LLM dogfood）~~ ✅ **完了**。新オントロジー Ask の鍵が揃った。
 3. **#20 オントロジー/canonical ライフサイクル + starrydata 脱結合**（ADR `ontology-canonical-lifecycle.md` ドラフト済）。**要ユーザー確定 4 件**（TBox graph 投影先 / 版・retract 方針 / starrydata 降格段階 / typed ツール一般化 a vs b）→ 確定後 P1-P4 実装。北極星「starrydata に閉じない」への本丸。
-4. 候補=#19 UI 一般化（#20 P2 と接続）、UI 全体の品質改善（別タスク化済）、不完全 refine ガード（中・別件）。
+4. 候補=#19 UI 一般化（#20 P2 と接続）、**UI プロダクト品質化 Phase 2**（ホーム/共有の語彙/カタログ再構成/データ追加3ステップ化 — Phase 1 は着地済）、不完全 refine ガード（中・別件）。
 3. #15 運用化: 本番 compose の api イメージに `asterism-ingest[substrate]`（morph-kgc）を入れる（現 docker api は morph-kgc 無し）。実 LLM dogfood（propose §RML の安定性）。
 4. #19 UI 一般化（非CSVソース・mapping・ソース間リンク）。
 
@@ -48,6 +49,8 @@
 - 線形・限定の作業（例: Asterism 改名 change-set）は通常実行で十分。
 
 ## 更新 log
+
+- 2026-06-04: **UI プロダクト品質化 Phase 1 着地（forest 再設計）**。デザインハンドオフ `docs/design/asterism-ux/`（forest 方向採用）を既存 `ui`（React+TS+Vite）の流儀で実装。段階方針（Phase 1=基盤+Ask+アクティビティ、Phase 2=新規画面+データ追加3ステップ化）をユーザー確定。Phase 1 内容: (1) **基盤** = forest 改訂トークン（surfaceAlt/faint/borderStrong/primarySoft/**accent=amber**/entity/activity/radius 13-8-18/shadow）を `index.css` に集約・旧トークンは後方互換 alias、Google Fonts（Hanken Grotesk/Zen Kaku Gothic New/Noto Sans JP/IBM Plex Mono）、**universal box-sizing:border-box**（mobile 横溢れ修正）。(2) **新IA骨格** = 動詞主導ナビ（つくる→データを追加／つかう→質問する・カタログ／管理→アクティビティ）・SPARQL を最下部「開発者向け」へ降格・3星ブランドマーク・eyebrow(amber)/title/sub ヘッダ・グラフ稼働インジケータ。(3) **Ask 全面刷新** = 2カラム（質問+回答／**来歴トレースを常設右パネル化**＝旧ドロワー廃止）・回答カード（根拠バッジ+display本文）・引用カード（色帯+kind+出どころ）・データ品質メモ(amber)・SPARQL 開示(activity)。(4) **アクティビティ** restyle（意味色 成功=entity）。(5) **共通アトム/状態** = Btn kinds/Card/Term/skeleton(shimmer)/空/エラー。**契約不変・純表示**（`ask`/`provenance`/`galleryApi` 等そのまま）。build/lint 緑、mock プレビューで desktop/mobile 実ブラウザ確認（横溢れ無し・console エラー無し）。残=Phase 2（ホーム/共有の語彙/カタログ データセット主役化/データ追加3ステップ化・非CSVソースは見た目のみ）。
 
 - 2026-06-02: 初版。Phase 5（設計→Ask 連結）実証＋関数ライブラリ v0 を受けて、汎用化（汎用 Ask・UI 一般化）まで含む実行状態を集約。
 - 2026-06-02: `csv2rdf-mcp` → **Asterism** 改名決定（IRI 名前空間ごと一度で・実行は CC、spec=`handoff_to_claude_code_rename_to_asterism.md`）。

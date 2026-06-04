@@ -48,13 +48,12 @@ export function JobsView() {
   return (
     <>
       <p className="subtitle">
-        取り込み（ingest）の履歴です。CSV が監視ディレクトリに入るたびに 1 行記録されます。
-        ワークベンチの設計カタログ（Gallery）とは別物 — こちらは「いつ何が Oxigraph に
-        取り込まれたか」を示します。
+        データを取り込んだ記録です。CSV が取り込まれるたびに 1 行ずつ増え、
+        「いつ・何が・どれだけ」取り込まれたかを確認できます。
       </p>
 
       {!jobs && (
-        <p className="trace-loading">
+        <p className="loading-row">
           <span className="spinner" />
           履歴を読み込み中…
         </p>
@@ -62,9 +61,9 @@ export function JobsView() {
 
       {jobs && jobs.length === 0 && (
         <div className="empty-state">
-          <p className="empty-title">取り込み履歴はまだありません</p>
+          <p className="empty-title">まだ取り込み記録はありません</p>
           <p className="empty-sub">
-            取り込みパイプライン（watcher）が動いて CSV を処理すると、ここに記録が並びます。
+            「データを追加」でデータを取り込むと、ここに記録が並びます。
           </p>
         </div>
       )}

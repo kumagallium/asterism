@@ -1,52 +1,55 @@
 import { useState } from 'react'
 import './App.css'
 import { AskView } from './AskView'
-import { isMockMode, type Citation } from './demoApi'
+import { isMockMode } from './demoApi'
 import { GalleryView } from './GalleryView'
-import { AskIcon, BrandMark, CodeIcon, GalleryIcon, HistoryIcon, ProposeIcon } from './icons'
+import {
+  ActivityIcon,
+  AddIcon,
+  AskIcon,
+  BrandMark,
+  CatalogIcon,
+  CodeIcon,
+} from './icons'
 import { JobsView } from './JobsView'
-import { ProvenanceTrace } from './ProvenanceTrace'
 import { SparqlView } from './SparqlView'
 import { WorkbenchView } from './WorkbenchView'
 
 type Tab = 'workbench' | 'ask' | 'gallery' | 'jobs' | 'sparql'
 
-// Sidebar navigation, grouped by lifecycle phase: the workbench (CSV→RDF, a
-// single stepped pipeline), consumption (Ask), and catalog (Gallery).
+// New IA (design_handoff_asterism_ux): plain-language, verb-led nav that mirrors
+// the user's mental model — つくる (入れる) → つかう (問う/見渡す) → 管理. The
+// pipeline-internal nouns (RDF / SPARQL) are demoted: SPARQL sits apart at the
+// foot as a developer escape hatch. ホーム・共有の語彙 arrive in Phase 2.
 interface NavItem {
   id: Tab
   label: string
-  icon: typeof ProposeIcon
+  en: string
+  icon: typeof AddIcon
 }
-const NAV_SECTIONS: { label: string; items: NavItem[] }[] = [
+const NAV_SECTIONS: { heading: string; items: NavItem[] }[] = [
+  { heading: 'つくる', items: [{ id: 'workbench', label: 'データを追加', en: 'Add data', icon: AddIcon }] },
   {
-    label: 'ワークベンチ · CSV → RDF',
-    items: [{ id: 'workbench', label: 'ワークベンチ（設計）', icon: ProposeIcon }],
-  },
-  { label: '活用 · 取り込み済みデータ', items: [{ id: 'ask', label: 'Ask（根拠付き回答）', icon: AskIcon }] },
-  { label: 'カタログ', items: [{ id: 'gallery', label: 'Gallery（語彙・マッピング）', icon: GalleryIcon }] },
-  {
-    label: '管理',
+    heading: 'つかう',
     items: [
-      { id: 'jobs', label: '取り込み履歴', icon: HistoryIcon },
-      { id: 'sparql', label: 'SPARQL（上級）', icon: CodeIcon },
+      { id: 'ask', label: '質問する', en: 'Ask', icon: AskIcon },
+      { id: 'gallery', label: 'カタログ', en: 'Catalog', icon: CatalogIcon },
     ],
   },
+  { heading: '管理', items: [{ id: 'jobs', label: 'アクティビティ', en: 'Activity', icon: ActivityIcon }] },
 ]
 
-// Topbar context per view: an eyebrow (which phase) + a short title.
-const VIEW_META: Record<Tab, { eyebrow: string; title: string }> = {
-  workbench: { eyebrow: 'ワークベンチ · CSV → RDF', title: 'ワークベンチ — CSV を RDF 化' },
-  ask: { eyebrow: '活用 · 取り込み済みデータ', title: 'Ask — 根拠付き回答' },
-  gallery: { eyebrow: 'カタログ', title: 'Gallery — 語彙とマッピング' },
-  jobs: { eyebrow: '管理', title: '取り込み履歴' },
-  sparql: { eyebrow: '管理 · 上級', title: 'SPARQL — 読み取り専用クエリ' },
+// Topbar context per view: eyebrow (which phase, amber) + title + a short sub.
+const VIEW_META: Record<Tab, { eyebrow: string; title: string; sub: string }> = {
+  workbench: { eyebrow: 'つくる', title: 'データを追加', sub: 'CSV から、AI と一緒に知識グラフを作る' },
+  ask: { eyebrow: 'つかう', title: '質問する', sub: '取り込んだデータに、根拠つきで答える' },
+  gallery: { eyebrow: 'つかう', title: 'カタログ', sub: '作ったデータの中身を見渡す' },
+  jobs: { eyebrow: '管理', title: 'アクティビティ', sub: 'いつ・何が取り込まれたか' },
+  sparql: { eyebrow: '管理 · 開発者向け', title: 'SPARQL', sub: '読み取り専用クエリ' },
 }
 
 function App() {
   const [tab, setTab] = useState<Tab>('workbench')
-  // Citation whose provenance trace is open (D2). null = drawer closed.
-  const [traceCitation, setTraceCitation] = useState<Citation | null>(null)
   // Ask⇄Gallery link: a vocabulary class to focus/highlight in the Gallery when
   // the user jumps there from an Ask citation. null = no focus.
   const [galleryFocus, setGalleryFocus] = useState<string | null>(null)
@@ -54,7 +57,6 @@ function App() {
   // Jump from a grounded answer to the ontology class that backs it.
   function showVocab(className: string) {
     setGalleryFocus(className)
-    setTraceCitation(null)
     setTab('gallery')
   }
 
@@ -75,14 +77,14 @@ function App() {
           </span>
           <span className="brand-text">
             <span className="brand-name">asterism</span>
-            <span className="brand-tag">研究データ → RDF</span>
+            <span className="brand-tag">研究データ → つながったデータ</span>
           </span>
         </div>
 
         <nav className="side-nav">
           {NAV_SECTIONS.map((sec) => (
-            <div className="side-nav-group" key={sec.label}>
-              <span className="side-nav-label">{sec.label}</span>
+            <div className="side-nav-group" key={sec.heading}>
+              <span className="side-nav-label">{sec.heading}</span>
               {sec.items.map((it) => {
                 const Icon = it.icon
                 return (
@@ -93,7 +95,8 @@ function App() {
                     onClick={() => navTo(it.id)}
                   >
                     <Icon className="side-nav-icon" />
-                    <span>{it.label}</span>
+                    <span className="side-nav-text">{it.label}</span>
+                    <span className="side-nav-en">{it.en}</span>
                   </button>
                 )
               })}
@@ -102,8 +105,19 @@ function App() {
         </nav>
 
         <div className="sidebar-foot">
-          <span className={`status-dot ${isMockMode ? 'status-dot--mock' : 'status-dot--live'}`} />
-          {isMockMode ? 'Ask・Gallery: demo データ (mock)' : 'Ask・Gallery: live'}
+          <button
+            type="button"
+            className={`side-nav-item side-nav-dev${tab === 'sparql' ? ' active' : ''}`}
+            onClick={() => navTo('sparql')}
+          >
+            <CodeIcon className="side-nav-icon" />
+            <span className="side-nav-text">SPARQL</span>
+            <span className="side-nav-en">開発者向け</span>
+          </button>
+          <div className="graph-status">
+            <span className={`status-dot ${isMockMode ? 'status-dot--mock' : 'status-dot--live'}`} />
+            {isMockMode ? 'Ask・カタログ: demo データ (mock)' : 'グラフ稼働中'}
+          </div>
         </div>
       </aside>
 
@@ -113,24 +127,17 @@ function App() {
             <span className="topbar-eyebrow">{meta.eyebrow}</span>
             <h1 className="topbar-title">{meta.title}</h1>
           </div>
+          <span className="topbar-sub">{meta.sub}</span>
         </header>
 
         <main className="app-content">
           {tab === 'workbench' && <WorkbenchView />}
-          {tab === 'ask' && <AskView onTrace={setTraceCitation} onShowVocab={showVocab} />}
+          {tab === 'ask' && <AskView onShowVocab={showVocab} />}
           {tab === 'gallery' && <GalleryView focusClass={galleryFocus} />}
           {tab === 'jobs' && <JobsView />}
           {tab === 'sparql' && <SparqlView />}
         </main>
       </div>
-
-      {traceCitation && (
-        <ProvenanceTrace
-          citation={traceCitation}
-          onClose={() => setTraceCitation(null)}
-          onShowVocab={showVocab}
-        />
-      )}
     </div>
   )
 }
