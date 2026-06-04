@@ -28,6 +28,7 @@ from typing import Any, Final
 
 from asterism.datasets import load_dataset
 from asterism.oxigraph_client import OxigraphClient
+from asterism.substrate import CANONICAL_GRAPH_BASE
 
 # ----------------------------------------------------------------------------
 # Predicate -> output-key mapping for template_curve_fetch
@@ -89,18 +90,44 @@ def _parse_value(key: str, raw: str) -> Any:
     return raw
 
 
-def _build_query(curve_iri: str) -> str:
-    # We bind ``GRAPH ?g`` so the query works whether triples live in the
-    # default graph (Phase 0.5 / smoke tests) or a named graph
-    # (Phase 2 upload-api which targets ``sd:graph/curves``).
-    safe = curve_iri.replace("<", "").replace(">", "")
+# ----------------------------------------------------------------------------
+# Canonical read scope (#20 P3)
+# ----------------------------------------------------------------------------
+#
+# "Canonical" used to mean exactly the default graph (promote MOVEd drafts into
+# it). P3 moves promoted data into per-dataset *canonical named graphs*
+# (.../asterism/graph/canonical/{id}). To read citable facts regardless of where
+# they live — and to keep working before/after that migration — every Ask read
+# spans the default graph (legacy / seed / pre-migration data) UNION every
+# canonical named graph. Draft / control / ontology graphs are EXCLUDED by the
+# canonical-prefix filter, so unreviewed drafts never leak into Ask.
+#
+# This is behaviour-preserving today: no canonical named graphs exist yet (the
+# promote-target flip is a follow-up), so only the default-graph branch matches.
+
+_CANON_BASE: Final[str] = CANONICAL_GRAPH_BASE.replace("<", "").replace(">", "")
+_CANON_GVAR: Final[str] = "?__cg"
+
+
+def _canonical_scope(body: str) -> str:
+    """Wrap a GRAPH-less group pattern to read the canonical scope.
+
+    ``{ body } UNION { GRAPH ?__cg { body } FILTER(canonical prefix) }`` — the
+    default graph plus every per-dataset canonical named graph, drafts excluded.
+    """
     return (
-        "SELECT ?p ?o WHERE {\n"
-        "  { GRAPH ?g { <" + safe + "> ?p ?o } }\n"
+        "{ " + body + " }\n"
         "  UNION\n"
-        "  { <" + safe + "> ?p ?o }\n"
-        "}"
+        "  { GRAPH " + _CANON_GVAR + " { " + body + " } "
+        f'FILTER(STRSTARTS(STR({_CANON_GVAR}), "{_CANON_BASE}")) }}'
     )
+
+
+def _build_query(curve_iri: str) -> str:
+    # Read the curve from the canonical scope (default graph + canonical named
+    # graphs); draft graphs are excluded so an unreviewed curve never surfaces.
+    safe = curve_iri.replace("<", "").replace(">", "")
+    return "SELECT ?p ?o WHERE {\n  " + _canonical_scope("<" + safe + "> ?p ?o") + "\n}"
 
 
 # ----------------------------------------------------------------------------
@@ -306,7 +333,7 @@ async def sample_search(
     query = (
         _PREFIXES
         + "SELECT DISTINCT ?sample ?comp ?name ?paper ?title WHERE {\n  "
-        + "\n  ".join(where)
+        + _canonical_scope("\n  ".join(where))
         + "\n} LIMIT "
         + str(limit)
     )
@@ -364,16 +391,19 @@ async def property_ranking(
     plausible_filter = (
         f"  FILTER(?ymax <= {float(max_plausible)})\n" if max_plausible is not None else ""
     )
-    query = (
-        _PREFIXES
-        + "SELECT ?curve ?ymax ?s ?comp ?p ?title WHERE {\n"
-        + f'  ?curve a sd:Curve ; sd:propertyY "{esc_py}" ;'
+    rank_body = (
+        f'  ?curve a sd:Curve ; sd:propertyY "{esc_py}" ;'
         + " sd:yMax ?ymax ; sd:ofSample ?s .\n"
         + "  ?s sd:fromPaper ?p .\n"
         + "  OPTIONAL { ?s sd:compositionString ?comp }\n"
         + "  OPTIONAL { ?p schema:name ?title }\n"
         + plausible_filter
-        + "} ORDER BY DESC(?ymax) LIMIT "
+    )
+    query = (
+        _PREFIXES
+        + "SELECT ?curve ?ymax ?s ?comp ?p ?title WHERE {\n  "
+        + _canonical_scope(rank_body)
+        + "\n} ORDER BY DESC(?ymax) LIMIT "
         + str(top_n)
     )
     raw = await client.sparql_select(query)
@@ -390,12 +420,15 @@ async def property_ranking(
     ]
     excluded = 0
     if max_plausible is not None:
+        count_body = (
+            f'  ?curve a sd:Curve ; sd:propertyY "{esc_py}" ; sd:yMax ?ymax .\n'
+            + f"  FILTER(?ymax > {float(max_plausible)})\n"
+        )
         count_q = (
             _PREFIXES
-            + "SELECT (COUNT(?curve) AS ?n) WHERE {\n"
-            + f'  ?curve a sd:Curve ; sd:propertyY "{esc_py}" ; sd:yMax ?ymax .\n'
-            + f"  FILTER(?ymax > {float(max_plausible)})\n"
-            + "}"
+            + "SELECT (COUNT(?curve) AS ?n) WHERE {\n  "
+            + _canonical_scope(count_body)
+            + "\n}"
         )
         cb = _bindings(await client.sparql_select(count_q))
         if cb:
@@ -434,11 +467,12 @@ async def provenance_of(
     if not iri or not iri.startswith(("http://", "https://")):
         raise ValueError(f"iri must be a full http(s) IRI, got {iri!r}")
     safe = iri.replace("<", "").replace(">", "")
-    query = (
-        _PREFIXES
-        + "SELECT ?etype ?fig ?py ?ymax ?ecomp ?ename ?sample ?scomp ?sname "
-        + "?paper ?ptitle ?pid ?act ?atype ?atime WHERE {\n"
-        + f"  BIND(<{safe}> AS ?e)\n"
+    # The body is an all-OPTIONAL walk off ?e. A required anchor (?e has at least
+    # one triple) keeps the canonical-scope union from emitting a phantom empty
+    # row for every canonical graph that does NOT contain the entity (#20 P3).
+    prov_body = (
+        f"  BIND(<{safe}> AS ?e)\n"
+        + "  ?e ?__anchor_p ?__anchor_o .\n"
         + f'  OPTIONAL {{ ?e a ?etype . FILTER(STRSTARTS(STR(?etype), "{SD}")) }}\n'
         + "  OPTIONAL { ?e sd:figureName ?fig }\n"
         + "  OPTIONAL { ?e sd:propertyY ?py }\n"
@@ -461,7 +495,13 @@ async def provenance_of(
         + f'    OPTIONAL {{ ?act a ?atype . FILTER(STRSTARTS(STR(?atype), "{SD}")) }}\n'
         + "    OPTIONAL { ?act prov:atTime ?atime }\n"
         + "  }\n"
-        + "}"
+    )
+    query = (
+        _PREFIXES
+        + "SELECT ?etype ?fig ?py ?ymax ?ecomp ?ename ?sample ?scomp ?sname "
+        + "?paper ?ptitle ?pid ?act ?atype ?atime WHERE {\n  "
+        + _canonical_scope(prov_body)
+        + "\n}"
     )
     rows = _bindings(await client.sparql_select(query))
     if not rows:
@@ -570,13 +610,15 @@ def _strip_comments(query: str) -> str:
 
 
 def _graph_clause(graph: str | None, body: str) -> str:
-    """Wrap ``body`` in ``GRAPH <graph> { ... }`` when a named graph is given.
+    """Wrap ``body`` for the target graph.
 
-    ``graph=None`` queries the default (canonical) graph — the promote step
-    MOVEs drafts into the default graph, so that is the right target for Ask.
+    ``graph=<iri>`` inspects exactly that named graph (e.g. a draft graph).
+    ``graph=None`` reads the **canonical scope** — the default graph plus every
+    per-dataset canonical named graph (drafts excluded) — so Ask sees citable
+    facts wherever promotion put them (#20 P3).
     """
     if not graph:
-        return body
+        return _canonical_scope(body)
     safe = graph.replace("<", "").replace(">", "")
     return f"GRAPH <{safe}> {{ {body} }}"
 
