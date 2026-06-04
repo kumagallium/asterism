@@ -178,9 +178,9 @@ class _FakeSparql:
     async def sparql_select(self, query: str) -> dict:
         if "COUNT" in query:
             return {"results": {"bindings": [{"c": {"value": str(self._draft_n)}}]}}
-        # Draft side names a graph literally (``GRAPH <...draft/...>``); the
-        # canonical side is the canonical-scope UNION (``GRAPH ?__cg ... FILTER``).
-        scope = "graph" if "GRAPH <" in query else "default"
+        # The canonical-scope side binds ``?__cg`` (UNION over canonical graphs,
+        # incl. a control-graph NOT EXISTS); the draft side names a graph literally.
+        scope = "default" if "?__cg" in query else "graph"
         kind = "c" if "?s a ?x" in query else "p"
         vals = self._sets[(scope, kind)]
         return {"results": {"bindings": [{"x": {"type": "uri", "value": v}} for v in vals]}}
@@ -211,6 +211,56 @@ async def test_promote_moves_draft_to_canonical_graph() -> None:
     moved = await promote_draft_to_canonical(fake, draft, canon)
     assert moved == 1640
     assert fake.updates == [f"MOVE GRAPH <{draft}> TO GRAPH <{canon}>"]
+
+
+# ---- retract / reinstate (#20 P3 step3) -------------------------------------
+
+
+def test_canonical_scope_where_excludes_retracted() -> None:
+    from asterism.substrate import (
+        CONTROL_GRAPH_IRI,
+        STATUS_PREDICATE,
+        canonical_scope_where,
+    )
+
+    sql = canonical_scope_where("?s ?p ?o")
+    # default branch + canonical named-graph branch
+    assert "{ ?s ?p ?o }" in sql and "GRAPH ?__cg" in sql
+    # retracted canonical graphs are filtered out via the control graph
+    assert "FILTER NOT EXISTS" in sql
+    assert CONTROL_GRAPH_IRI in sql
+    assert STATUS_PREDICATE in sql and "retracted" in sql
+
+
+async def test_retract_canonical_writes_tombstone() -> None:
+    from asterism.substrate import (
+        CONTROL_GRAPH_IRI,
+        STATUS_PREDICATE,
+        retract_canonical,
+    )
+
+    fake = _FakeSparql(set(), set(), set(), set())
+    canon = canonical_graph_iri("ds1")
+    await retract_canonical(fake, canon, invalidated_at="2026-06-04T00:00:00")
+    assert len(fake.updates) == 1
+    u = fake.updates[0]
+    # clears any prior control triples, then inserts the retracted status marker
+    assert "DELETE WHERE" in u and "INSERT DATA" in u
+    assert CONTROL_GRAPH_IRI in u and canon in u
+    assert STATUS_PREDICATE in u and '"retracted"' in u
+
+
+async def test_reinstate_canonical_clears_tombstone() -> None:
+    from asterism.substrate import CONTROL_GRAPH_IRI, reinstate_canonical
+
+    fake = _FakeSparql(set(), set(), set(), set())
+    canon = canonical_graph_iri("ds1")
+    await reinstate_canonical(fake, canon)
+    assert len(fake.updates) == 1
+    u = fake.updates[0]
+    assert u.startswith("DELETE WHERE")
+    assert CONTROL_GRAPH_IRI in u and canon in u
+    assert "INSERT" not in u  # reinstate only removes the marker
 
 
 # ---- FnO namespace normalization (#15 ingest robustness) ---------------------

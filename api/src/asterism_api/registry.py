@@ -178,6 +178,37 @@ def mark_promoted(
     return meta
 
 
+def _update_meta(root: Path, dataset_id: str, changes: dict) -> dict | None:
+    """Load a dataset's meta, apply ``changes``, persist, and return it (or None)."""
+    if not re.fullmatch(r"[a-z0-9-]{1,128}", dataset_id):
+        return None
+    meta_path = root / dataset_id / _META_FILE
+    if not meta_path.is_file():
+        return None
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    meta.update(changes)
+    meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    return meta
+
+
+def mark_retracted(root: Path, dataset_id: str, *, retracted_at: str) -> dict | None:
+    """Record that ``dataset_id``'s canonical graph was retracted (#20 P3 step3).
+
+    Tombstone semantics: the data stays (IRIs keep resolving) but it leaves the
+    citable corpus until reinstated. Returns the new meta, or None if absent.
+    """
+    return _update_meta(
+        root, dataset_id, {"status": "retracted", "retracted_at": retracted_at}
+    )
+
+
+def mark_reinstated(root: Path, dataset_id: str, *, reinstated_at: str) -> dict | None:
+    """Clear a retract tombstone: the dataset is canonical (active) again."""
+    return _update_meta(
+        root, dataset_id, {"status": "active", "reinstated_at": reinstated_at}
+    )
+
+
 def list_datasets(root: Path) -> list[dict]:
     """Return every dataset's meta, newest first. Missing root -> empty list."""
     if not root.is_dir():
