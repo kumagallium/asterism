@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Asterism — 引用できる事実デモ (サーバ・AI 不要)</title>
+    <meta
+      name="description"
+      content="Starrydata の熱電材料データを、サーバも AI も使わずブラウザ内 SPARQL で決定論的に問う。結果・引用 IRI・使った SPARQL・来歴トレースを開示。"
+    />
+    <link
+      rel="preconnect"
+      href="https://fonts.googleapis.com"
+    />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600;700&family=IBM+Plex+Mono:wght@400;600&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <span class="brand-dot">✦</span>
+        <span class="brand-name">Asterism</span>
+        <span class="brand-sub">引用できる事実デモ</span>
+        <a class="gh" href="https://github.com/kumagallium/asterism">GitHub ↗</a>
+      </div>
+    </header>
+
+    <main class="wrap">
+      <section class="hero">
+        <div class="hero-grid">
+          <div class="hero-main">
+            <div class="eyebrow">ASTERISM · 引用できる事実レイヤー</div>
+            <h1>散らばったデータを、<br />繋いで引用できる事実に。</h1>
+            <p>
+              <b>Asterism</b> は、散らばった構造化データ（CSV・JSON・API）を、信頼でき・
+              <b>引用でき</b>・再現できる RDF に変換し、<b>共有オントロジー</b>で繋いで、
+              SPARQL と MCP で AI からも問える共有基盤です。スキーマ設計や自由質問では
+              AI（LLM）も使いますが、<b>事実の層は決定論的</b>で、すべての値が出典まで辿れます。
+            </p>
+            <p>
+              このページは Asterism の核を、<b>Starrydata の熱電材料データの小さなサブセットに
+              限定して</b>体験できるデモです。<b>このデモ自体はサーバも AI も使わず</b>、
+              ブラウザ内の SPARQL エンジン（oxigraph-wasm）だけで動きます。
+            </p>
+            <div id="engine-pill" class="engine-pill">
+              <span class="led"></span><span id="engine-text">エンジンを初期化中…</span>
+            </div>
+          </div>
+          <aside class="hero-aside" aria-label="Asterism の流れ">
+            <div class="flow-title">Asterism の流れ</div>
+            <ol class="flow">
+              <li><span class="flow-k">入力</span>構造化データ（CSV / JSON / API）</li>
+              <li><span class="flow-k">変換</span>宣言的に RDF 化＋共有オントロジーで接続</li>
+              <li><span class="flow-k">蓄積</span>型付きの関係＋来歴(PROV)を持つグラフ</li>
+              <li><span class="flow-k">問う</span>SPARQL / MCP（AI からも）</li>
+              <li class="flow-out">
+                <span class="flow-k">答え</span>引用できる IRI・来歴・使った SPARQL を開示
+              </li>
+            </ol>
+          </aside>
+        </div>
+      </section>
+
+      <!-- what makes Asterism different from a plain database -->
+      <section class="why">
+        <h2>ふつうのデータベースとの違い — データが「繋がって」いる</h2>
+        <p class="why-lead">
+          Asterism はデータを表のセルではなく、<b>型付きの関係</b>と <b>来歴（PROV）</b>を持つ
+          <b>グラフ</b>として扱います。そのため、このデモでは次の 3 つが実際に確かめられます。
+        </p>
+        <div class="why-grid">
+          <div class="why-pt">
+            <b>来歴で引用できる</b>
+            <span>
+              どの数値も <code>curve → sample → paper → digitization → ingestion</code>
+              と辿り、原典（DOI）まで来歴を示せる。<em>→ 下の「来歴トレース」</em>
+            </span>
+          </div>
+          <div class="why-pt">
+            <b>IRI で一意に参照</b>
+            <span>
+              各事実がグローバルに一意な IRI を持ち、そのまま引用・参照に使える。
+              <em>→ 各カードの引用 IRI</em>
+            </span>
+          </div>
+          <div class="why-pt">
+            <b>作り直さずに横断結合</b>
+            <span>
+              同じ共有オントロジーを使う別データベース（Materials Project）と、データを統合用に
+              <b>移し替え・作り直しせず</b>同じ語彙のまま結合できる。<em>→ 下の「横断結合」カード</em>
+            </span>
+          </div>
+        </div>
+      </section>
+
+      <!-- 1. ZT ranking -->
+      <section class="card" id="ranking-card">
+        <h2>ZT が最も高い熱電材料 <span class="tool">property_ranking</span></h2>
+        <p class="lead">
+          各曲線のピーク値 <code>sd:yMax</code> で降順ランキング。物理的にあり得ない値
+          （ZT &gt; 3.5）は除外し、除外件数を正直に表示します。行をクリックすると来歴を辿れます。
+        </p>
+        <div id="ranking-body" class="empty">読み込み中…</div>
+        <div id="ranking-note"></div>
+        <details class="sparql">
+          <summary>使った SPARQL を見る</summary>
+          <pre id="ranking-sparql"></pre>
+        </details>
+      </section>
+
+      <!-- 2. provenance + plot -->
+      <section class="card" id="prov-card">
+        <h2>来歴トレース <span class="tool">provenance_of</span></h2>
+        <p class="lead">
+          curve → sample → paper → digitization → ingestion。この数値がどの論文の・
+          どの図から・いつデジタイズされ・いつ取り込まれたかを辿ります。
+        </p>
+        <div class="prov-grid">
+          <div id="prov-body" class="empty">上のランキングの行をクリックしてください。</div>
+          <div id="plot-body"></div>
+        </div>
+        <details class="sparql">
+          <summary>使った SPARQL を見る</summary>
+          <pre id="prov-sparql"></pre>
+        </details>
+      </section>
+
+      <!-- 3. composition search -->
+      <section class="card" id="search-card">
+        <h2>組成で探す <span class="tool">sample_search</span></h2>
+        <p class="lead">
+          <code>sd:compositionString</code> の部分一致（大文字小文字を無視）でサンプルを検索します。
+        </p>
+        <div class="search-row">
+          <input id="search-input" type="text" placeholder="例: Ba8Ga16" />
+          <button class="btn" id="search-btn">検索</button>
+        </div>
+        <div class="chips" id="search-chips"></div>
+        <div id="search-body" class="empty">読み込み中…</div>
+        <details class="sparql">
+          <summary>使った SPARQL を見る</summary>
+          <pre id="search-sparql"></pre>
+        </details>
+      </section>
+
+      <!-- 4. cross-dataset: starrydata × Materials Project -->
+      <section class="card" id="cross-card" style="display: none">
+        <h2>横断結合 — Starrydata × Materials Project <span class="tool">cross-graph</span></h2>
+        <p class="lead">
+          <b>文献の測定値（starrydata）</b>と <b>計算された結晶構造（Materials Project）</b>という
+          <b>別々の 2 つのデータ</b>を、<b>同じ <code>sample</code> IRI</b> を結合キーに、
+          データを移し替えず <b>1 つの SPARQL</b> で繋ぎます（別々の名前付きグラフを跨いで結合）。
+          各行の「結合の仕組み」で<b>オントロジー的にどう繋いだか</b>（述語・来歴）を開けます。
+        </p>
+        <div id="cross-body" class="empty">読み込み中…</div>
+        <div id="cross-note"></div>
+        <details class="sparql">
+          <summary>使った SPARQL を見る（2 グラフ結合）</summary>
+          <pre id="cross-sparql"></pre>
+        </details>
+      </section>
+
+      <footer class="foot">
+        <p>
+          データ: <a href="https://www.starrydata2.org/">Starrydata</a> の最小公開サブセット
+          （<span id="meta-counts"></span>）＋
+          <a href="https://next-gen.materialsproject.org/">Materials Project</a>
+          の母相結晶構造（CC-BY 4.0・最小事実のみ・<span id="meta-mp"></span>）。
+          出典・帰属・ライセンス・再生成手順は
+          <a href="./data/PROVENANCE.md">data/PROVENANCE.md</a>。
+        </p>
+        <p>
+          SPARQL エンジン: <a href="https://github.com/oxigraph/oxigraph">Oxigraph</a> (wasm) ／
+          設計:
+          <a
+            href="https://github.com/kumagallium/asterism/blob/main/docs/architecture/static-citable-facts-demo.md"
+            >static-citable-facts-demo.md</a
+          >。本番の typed ツールと同一の SPARQL を実行しています。
+        </p>
+      </footer>
+    </main>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
