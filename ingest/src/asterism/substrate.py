@@ -234,6 +234,21 @@ def classify_alignment(draft: set[str], canonical: set[str]) -> dict[str, list[s
     }
 
 
+def _canonical_where(body: str) -> str:
+    """A WHERE group reading the **canonical scope** (#20 P3).
+
+    ``{ body } UNION { GRAPH ?__cg { body } FILTER(canonical prefix) }`` — the
+    default graph (legacy / seed / pre-migration data) plus every per-dataset
+    canonical named graph; draft / control / ontology graphs are excluded by the
+    prefix filter. Mirrors ``asterism_mcp.tools._canonical_scope`` so alignment
+    compares a draft against exactly what Ask treats as canonical.
+    """
+    return (
+        "{ " + body + " } UNION { GRAPH ?__cg { " + body + " } "
+        f'FILTER(STRSTARTS(STR(?__cg), "{CANONICAL_GRAPH_BASE}")) }}'
+    )
+
+
 async def _distinct_iris(client: SupportsSparql, where: str) -> set[str]:
     data = await client.sparql_select(f"SELECT DISTINCT ?x WHERE {{ {where} }}")
     results = data.get("results", {}) if isinstance(data, dict) else {}
@@ -246,29 +261,35 @@ async def _distinct_iris(client: SupportsSparql, where: str) -> set[str]:
 
 
 async def alignment_report(client: SupportsSparql, draft_iri: str) -> dict[str, object]:
-    """Compare a draft graph's predicates + classes against the canonical (default) graph.
+    """Compare a draft graph's predicates + classes against the canonical scope.
 
     Returns ``{"predicates": {reuse, new}, "classes": {reuse, new}}`` — what the
     human reviews before promoting (the Reuse/Align/Extend/New decision; here we
-    surface Reuse vs New mechanically).
+    surface Reuse vs New mechanically). The canonical side spans the default graph
+    plus every per-dataset canonical named graph (#20 P3), so Reuse reflects the
+    whole citable corpus the draft is being merged into.
     """
     g = f"<{draft_iri}>"
     draft_preds = await _distinct_iris(client, f"GRAPH {g} {{ ?s ?x ?o }}")
-    canon_preds = await _distinct_iris(client, "?s ?x ?o")
+    canon_preds = await _distinct_iris(client, _canonical_where("?s ?x ?o"))
     draft_classes = await _distinct_iris(client, f"GRAPH {g} {{ ?s a ?x }}")
-    canon_classes = await _distinct_iris(client, "?s a ?x")
+    canon_classes = await _distinct_iris(client, _canonical_where("?s a ?x"))
     return {
         "predicates": classify_alignment(draft_preds, canon_preds),
         "classes": classify_alignment(draft_classes, canon_classes),
     }
 
 
-async def promote_draft_to_canonical(client: SupportsSparql, draft_iri: str) -> int:
-    """MOVE the draft graph into the canonical (default) graph. Returns triples moved.
+async def promote_draft_to_canonical(
+    client: SupportsSparql, draft_iri: str, canonical_iri: str
+) -> int:
+    """MOVE the draft graph into the dataset's **canonical named graph** (#20 P3).
 
-    After this the draft named graph no longer exists; its triples are in the
-    default graph (so Ask cites them). Idempotent re-promote is a no-op (the draft
-    graph is already empty/gone).
+    Returns the triples moved. ``MOVE`` replaces the destination, so a re-promote
+    cleanly swaps in the new version (stale triples from a prior version do not
+    linger — that is why canonical is per-dataset, ADR §3.1). After this the draft
+    named graph no longer exists; Ask reads ``canonical_iri`` via the canonical
+    scope. An empty/absent draft makes this a no-op.
     """
     count = 0
     data = await client.sparql_select(
@@ -277,5 +298,5 @@ async def promote_draft_to_canonical(client: SupportsSparql, draft_iri: str) -> 
     bindings = data.get("results", {}).get("bindings", []) if isinstance(data, dict) else []
     if bindings:
         count = int(bindings[0]["c"]["value"])
-    await client.sparql_update(f"MOVE GRAPH <{draft_iri}> TO DEFAULT")
+    await client.sparql_update(f"MOVE GRAPH <{draft_iri}> TO GRAPH <{canonical_iri}>")
     return count
