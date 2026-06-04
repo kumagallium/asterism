@@ -32,8 +32,9 @@
 
 1. ~~関数ライブラリ v0 / #14 step0 RML 出力 / #15 materialize 人間ゲート~~ ✅ 完了。
 2. ~~**#18 汎用クエリ層**（土台 + escape + Ask-view UX + 実 LLM dogfood）~~ ✅ **完了**。新オントロジー Ask の鍵が揃った。
-3. **#20 オントロジー/canonical ライフサイクル + starrydata 脱結合**（ADR `ontology-canonical-lifecycle.md` ドラフト済）。**要ユーザー確定 4 件**（TBox graph 投影先 / 版・retract 方針 / starrydata 降格段階 / typed ツール一般化 a vs b）→ 確定後 P1-P4 実装。北極星「starrydata に閉じない」への本丸。
-4. 候補=#19 UI 一般化（#20 P2 と接続）、**UI プロダクト品質化 Phase 2**（ホーム/共有の語彙/カタログ再構成/データ追加3ステップ化 — Phase 1 は着地済）、不完全 refine ガード（中・別件）。
+3. ~~**#20 starrydata 脱結合 P2**（ヘルパ抽出 / identity descriptor / 定数 import 撤去 / datasets/ image 同梱 / QUDT 表 content 化 / seed 移動）~~ ✅ **P2 全完了**（PR #94-99）。~~不完全 refine ガード~~ ✅ **完了**（PR #101）。
+4. **次の本丸＝#20 P3**（ライフサイクル CRUD/版: 再昇格・**retract=tombstone**・delete・dataset version ＋ §2 ontology named graph 投影）。citable-facts 方針に直結（引用安定性を壊さず撤回）。**P4**=per-dataset typed ツール＋QUDT 表一般化。**並行**=2個目の非 starrydata dataset 投入で P2 を実証（#19 接続）。
+5. 候補=#19 UI 一般化 / **UI 品質化 Phase 2**（着地済 PR #100・残=非CSV実接続）。UI は活発 WIP のためバックエンド作業と分離。
 3. #15 運用化: 本番 compose の api イメージに `asterism-ingest[substrate]`（morph-kgc）を入れる（現 docker api は morph-kgc 無し）。実 LLM dogfood（propose §RML の安定性）。
 4. #19 UI 一般化（非CSVソース・mapping・ソース間リンク）。
 
@@ -50,6 +51,7 @@
 
 ## 更新 log
 
+- 2026-06-04: **不完全 refine 出力ガード（PR #101・別件バグ修正）**。大スキーマで refine が出力上限で途中停止し model.yaml/MIE/ingester/RML ブロックを落とす→切り詰め schema が次工程に流れ materialize で artifact 欠落していた既知バグを修正。`refine_schema` が入力 vs 出力で materialize 抽出可能な artifact 集合を比較し truncation を検出、`RefinementResult.effective_schema_md`（不完全なら**前の完全版を保持**）＋`complete`/`missing_artifacts`/`warnings` を追加。CLI=不完全時に前の完全版を `--output` へ・生出力を `.incomplete.md` 退避。api `/api/refine` は guard フィールドを後方互換で返却（UI 配線は WIP のため追って）。step0 135/api 33 緑。
 - 2026-06-04: **#20 P2-2b 完了 — starrydata 物理移動・定数 import 撤去（プロダクト理想版）**。方針=ユーザー確定「実装コスト度外視・プロダクトの理想で設計」（恒久方針として memory 化）＝engine/content の完全分離＋**content が本番の唯一の正**。3 PR（依存順・各 CI green でマージ）: **#97** = api `Settings`/mcp `tools.py`/`watcher.py` が `asterism.starrydata` の `DEFAULT_*` 定数 import をやめ汎用ローダ `load_dataset("starrydata")` 経由（env override 維持・wheel-only fallback）＋**3 image（upload-api/asterism-mcp/demo-agent）に `COPY datasets`＋`ASTERISM_DATASETS_ROOT`**（本番でも descriptor・QUDT 表が live）＋`.dockerignore` で生成 seed 除外。**#98** = QUDT 表 `qudt_map.yaml` を `datasets/starrydata/` の唯一の正へ（**engine `qudt.py` は core 据え置き**＝`functions.py` Tier0 が既に core engine として import／ローダ経由読み込み・不在時は警告＋空 map で graceful degrade／pkg `artifacts` 同梱コピー廃止）。**#99** = seed（`load.py`/.gitignore）を `demo-agent/seed/`→`datasets/starrydata/seed/` へ物理移動＋参照（compose.demo.yaml/make_demo_subset.py/verify_demo.py/DEMO.md）更新、watcher の graph/ontology/resource 既定を descriptor 由来に。設計判断: typed 4 ツール（`sd:` 前提）と QUDT 表の per-dataset 化は **P4**（typed ツール一般化と合流）。ingest 100/mcp 29/api 33/demo-agent 9 緑。残=P3（CRUD/版・ontology graph 投影）・P4・並行で2個目の非 starrydata dataset 投入（#19）。
 - 2026-06-04: **UI プロダクト品質化 Phase 1 着地（forest 再設計）**。デザインハンドオフ `docs/design/asterism-ux/`（forest 方向採用）を既存 `ui`（React+TS+Vite）の流儀で実装。段階方針（Phase 1=基盤+Ask+アクティビティ、Phase 2=新規画面+データ追加3ステップ化）をユーザー確定。Phase 1 内容: (1) **基盤** = forest 改訂トークン（surfaceAlt/faint/borderStrong/primarySoft/**accent=amber**/entity/activity/radius 13-8-18/shadow）を `index.css` に集約・旧トークンは後方互換 alias、Google Fonts（Hanken Grotesk/Zen Kaku Gothic New/Noto Sans JP/IBM Plex Mono）、**universal box-sizing:border-box**（mobile 横溢れ修正）。(2) **新IA骨格** = 動詞主導ナビ（つくる→データを追加／つかう→質問する・カタログ／管理→アクティビティ）・SPARQL を最下部「開発者向け」へ降格・3星ブランドマーク・eyebrow(amber)/title/sub ヘッダ・グラフ稼働インジケータ。(3) **Ask 全面刷新** = 2カラム（質問+回答／**来歴トレースを常設右パネル化**＝旧ドロワー廃止）・回答カード（根拠バッジ+display本文）・引用カード（色帯+kind+出どころ）・データ品質メモ(amber)・SPARQL 開示(activity)。(4) **アクティビティ** restyle（意味色 成功=entity）。(5) **共通アトム/状態** = Btn kinds/Card/Term/skeleton(shimmer)/空/エラー。**契約不変・純表示**（`ask`/`provenance`/`galleryApi` 等そのまま）。build/lint 緑、mock プレビューで desktop/mobile 実ブラウザ確認（横溢れ無し・console エラー無し）。残=Phase 2（ホーム/共有の語彙/カタログ データセット主役化/データ追加3ステップ化・非CSVソースは見た目のみ）。
 
