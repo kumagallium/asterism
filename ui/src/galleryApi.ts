@@ -48,7 +48,7 @@ export interface OntologyEntry {
 }
 
 // The canonical starrydata TBox (docs/ontology/diagram.md + starrydata.ttl).
-const STARRYDATA_MERMAID = `classDiagram
+export const STARRYDATA_MERMAID = `classDiagram
     direction LR
 
     class Paper {
