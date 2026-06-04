@@ -22,11 +22,45 @@ refinement rounds within a single session hit the prompt cache.
 """
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from asterism_step0.materialize import materialize_schema
 from asterism_step0.propose import AnthropicLLMClient, LLMClient
+
+# ----------------------------------------------------------------------------
+# Incomplete-output guard
+# ----------------------------------------------------------------------------
+#
+# Large schemas can push the LLM past its output budget, so a refine round may
+# stop mid-document (e.g. after §2.5) and drop whole artifact blocks — the
+# model.yaml / MIE / ingester / RML fences never appear. Feeding that truncated
+# Markdown forward as the new "current schema" then silently loses artifacts at
+# materialize time. The guard below detects the loss by comparing which artifacts
+# materialize can extract from the input vs. from the refined output; when the
+# refine dropped an artifact the input had, we keep the previous complete schema
+# (see RefinementResult.effective_schema_md) and surface a warning instead.
+
+# Human-readable name per MaterializeResult artifact attribute.
+_ARTIFACT_LABELS: dict[str, str] = {
+    "mermaid": "Mermaid diagram",
+    "rdf_config_model": "rdf-config model.yaml",
+    "mie_yaml": "MIE YAML",
+    "ingester_py": "ingester Python",
+    "rml_ttl": "RML mapping",
+}
+
+
+def _artifacts_present(schema_md: str) -> set[str]:
+    """Return the set of artifact attrs materialize can extract from ``schema_md``.
+
+    Pure extraction (``write=False``): no files touched. Used to compare the
+    input schema against the refined output for the truncation guard.
+    """
+    res = materialize_schema(schema_md, ".", "guard", write=False)
+    return {attr for attr in _ARTIFACT_LABELS if getattr(res, attr) is not None}
 
 # ----------------------------------------------------------------------------
 # System prompt — frozen, cacheable
@@ -148,10 +182,30 @@ class RefinementResult:
     """The review comments (numbered in the order received)."""
 
     refined_md: str
-    """The LLM's full output: resolution log + updated schema."""
+    """The LLM's full (possibly truncated) output: resolution log + updated schema."""
+
+    complete: bool = True
+    """False when the refine dropped an artifact the input had (likely truncated)."""
+
+    missing_artifacts: list[str] = field(default_factory=list)
+    """Human-readable names of artifacts present in the input but lost in ``refined_md``."""
+
+    warnings: list[str] = field(default_factory=list)
+    """Guard warnings (e.g. incomplete output). Empty when the refine is clean."""
 
     metadata: dict[str, Any] = field(default_factory=dict)
     """Optional: model name, token usage, latency, etc."""
+
+    @property
+    def effective_schema_md(self) -> str:
+        """The schema safe to feed downstream (materialize / another refine).
+
+        When the refine is :attr:`complete`, this is the refined output. When it
+        is incomplete (truncated), it falls back to the input schema so the
+        caller keeps the previous complete version instead of propagating a
+        schema with missing artifact blocks.
+        """
+        return self.refined_md if self.complete else self.current_schema_md
 
 
 def refine_schema(
@@ -188,10 +242,28 @@ def refine_schema(
     )
     refined = llm.complete(SYSTEM_PROMPT, user_message)
 
+    # Truncation guard: if the refined output lost an artifact the input had,
+    # the round was likely cut off mid-document. Keep the previous complete
+    # schema (effective_schema_md) and warn rather than propagating a partial.
+    lost = _artifacts_present(current_schema_md) - _artifacts_present(refined)
+    missing_labels = sorted(_ARTIFACT_LABELS[a] for a in lost)
+    warnings: list[str] = []
+    if missing_labels:
+        warnings.append(
+            "Refine output is incomplete — these artifacts were present in the "
+            f"input but missing from the refined schema: {', '.join(missing_labels)}. "
+            "The output was likely truncated (large schema or too many comments). "
+            "Keeping the previous complete schema; re-run refine with fewer "
+            "comments or a smaller schema."
+        )
+
     return RefinementResult(
         current_schema_md=current_schema_md,
         comments=list(comments),
         refined_md=refined,
+        complete=not missing_labels,
+        missing_artifacts=missing_labels,
+        warnings=warnings,
         metadata={"llm_class": type(llm).__name__},
     )
 
@@ -276,11 +348,25 @@ def _main(argv: list[str] | None = None) -> int:
     llm = AnthropicLLMClient(model=args.model, effort=args.effort)
     result = refine_schema(schema_md, comments, llm=llm)
 
+    for w in result.warnings:
+        sys.stderr.write(f"warning: {w}\n")
+
     if args.output is None:
+        # stdout: print the raw output so the (possibly truncated) resolution
+        # log is visible; the guard warning already went to stderr.
         print(result.refined_md)
     else:
         args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(result.refined_md, encoding="utf-8")
+        # When incomplete, write the previous complete schema so the pipeline
+        # keeps a usable document, and park the truncated output beside it.
+        args.output.write_text(result.effective_schema_md, encoding="utf-8")
+        if not result.complete:
+            sidecar = args.output.with_suffix(args.output.suffix + ".incomplete.md")
+            sidecar.write_text(result.refined_md, encoding="utf-8")
+            sys.stderr.write(
+                f"warning: kept the previous schema at {args.output}; "
+                f"the truncated refine output is at {sidecar} for inspection.\n"
+            )
     return 0
 
 

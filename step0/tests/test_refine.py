@@ -9,9 +9,84 @@ from asterism_step0.propose import LLMClient
 from asterism_step0.refine import (
     SYSTEM_PROMPT,
     RefinementResult,
+    _main,
     _read_comments_file,
     refine_schema,
 )
+
+# ----------------------------------------------------------------------------
+# Schema fixtures for the truncation guard
+# ----------------------------------------------------------------------------
+
+# A minimal but materialize-complete schema: all 4 core artifacts + the optional
+# RML block, each under a header materialize recognizes.
+_COMPLETE_SCHEMA = """\
+## Class hierarchy
+
+```mermaid
+classDiagram
+  class Sample
+```
+
+## rdf-config model.yaml
+
+```yaml
+Sample:
+  - id: xsd:string
+```
+
+## MIE extras
+
+```yaml
+schema_info:
+  name: test
+```
+
+## Ingester sketch
+
+```python
+def ingest() -> None:
+    pass
+```
+
+## RML declarative mapping
+
+```turtle
+@prefix rml: <http://w3id.org/rml/> .
+```
+"""
+
+# A truncated refine output: the document was cut off after the MIE block, so the
+# ingester Python and RML turtle fences never appear.
+_TRUNCATED_OUTPUT = """\
+### 1. Comment resolution log
+
+- Comment: rename Sample
+- Action: renamed
+
+### 2. Updated schema
+
+## Class hierarchy
+
+```mermaid
+classDiagram
+  class Specimen
+```
+
+## rdf-config model.yaml
+
+```yaml
+Specimen:
+  - id: xsd:string
+```
+
+## MIE extras
+
+```yaml
+schema_info:
+  name: test
+```
+"""
 
 # ----------------------------------------------------------------------------
 # Mock LLM (same shape as test_propose's _RecordingLLM)
@@ -80,6 +155,91 @@ def test_refine_schema_strips_comment_whitespace() -> None:
     msg = mock.user_messages[0]
     assert "1. trim me" in msg
     assert "2. and me" in msg
+
+
+# ----------------------------------------------------------------------------
+# Truncation guard (incomplete refine output)
+# ----------------------------------------------------------------------------
+
+
+def test_refine_complete_output_passes_guard() -> None:
+    """A refine that keeps all artifacts is complete; effective == refined."""
+    mock = _RecordingLLM(canned=_COMPLETE_SCHEMA)
+    result = refine_schema(_COMPLETE_SCHEMA, ["c"], llm=mock)
+    assert result.complete is True
+    assert result.missing_artifacts == []
+    assert result.warnings == []
+    assert result.effective_schema_md == result.refined_md
+
+
+def test_refine_truncated_output_is_flagged_and_keeps_previous() -> None:
+    """A truncated refine (lost ingester + RML) keeps the previous complete schema."""
+    mock = _RecordingLLM(canned=_TRUNCATED_OUTPUT)
+    result = refine_schema(_COMPLETE_SCHEMA, ["rename Sample"], llm=mock)
+    assert result.complete is False
+    # Both dropped artifacts are reported by their human-readable names.
+    assert "ingester Python" in result.missing_artifacts
+    assert "RML mapping" in result.missing_artifacts
+    assert len(result.warnings) == 1 and "incomplete" in result.warnings[0]
+    # The raw (truncated) output is preserved for inspection...
+    assert result.refined_md == _TRUNCATED_OUTPUT
+    # ...but the schema safe to feed downstream is the previous complete one.
+    assert result.effective_schema_md == _COMPLETE_SCHEMA
+
+
+def test_refine_no_blocks_is_not_a_false_positive() -> None:
+    """Prose-only input + prose-only output must not be flagged as truncated."""
+    mock = _RecordingLLM(canned="### 1. log\nno code here")
+    result = refine_schema("# Current\njust prose", ["c"], llm=mock)
+    assert result.complete is True
+    assert result.missing_artifacts == []
+
+
+def test_refine_guard_is_relative_to_input() -> None:
+    """An artifact absent from the input too is not counted as 'lost'."""
+    # Input without an ingester block; refined also omits it but adds the rest.
+    input_no_ingester = _COMPLETE_SCHEMA.replace(
+        "## Ingester sketch\n\n```python\ndef ingest() -> None:\n    pass\n```\n\n", ""
+    )
+    mock = _RecordingLLM(canned=input_no_ingester)
+    result = refine_schema(input_no_ingester, ["c"], llm=mock)
+    assert result.complete is True
+    assert "ingester Python" not in result.missing_artifacts
+
+
+# ----------------------------------------------------------------------------
+# CLI guard behavior
+# ----------------------------------------------------------------------------
+
+
+def test_cli_incomplete_writes_previous_and_sidecar(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """asterism-refine keeps the previous schema at --output and parks the raw."""
+    import asterism_step0.refine as refine_mod
+
+    class _FakeAnthropic:
+        def __init__(self, *a: object, **k: object) -> None:
+            pass
+
+        def complete(self, system_prompt: str, user_message: str) -> str:
+            return _TRUNCATED_OUTPUT
+
+    monkeypatch.setattr(refine_mod, "AnthropicLLMClient", _FakeAnthropic)
+
+    schema = tmp_path / "schema.md"
+    schema.write_text(_COMPLETE_SCHEMA, encoding="utf-8")
+    out = tmp_path / "refined.md"
+
+    rc = _main([str(schema), "--comment", "rename Sample", "--output", str(out)])
+
+    assert rc == 0
+    # Output holds the previous complete schema (not the truncated one).
+    assert out.read_text(encoding="utf-8") == _COMPLETE_SCHEMA
+    # The truncated output is parked beside it for inspection.
+    sidecar = tmp_path / "refined.md.incomplete.md"
+    assert sidecar.exists()
+    assert sidecar.read_text(encoding="utf-8") == _TRUNCATED_OUTPUT
 
 
 # ----------------------------------------------------------------------------
