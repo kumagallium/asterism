@@ -263,6 +263,30 @@ async def test_reinstate_canonical_clears_tombstone() -> None:
     assert "INSERT" not in u  # reinstate only removes the marker
 
 
+# ---- delete (#20 P3 step4) --------------------------------------------------
+
+
+async def test_drop_graph_issues_drop_silent() -> None:
+    from asterism.substrate import drop_graph
+
+    fake = _FakeSparql(set(), set(), set(), set())
+    canon = canonical_graph_iri("ds1")
+    await drop_graph(fake, canon)
+    assert fake.updates == [f"DROP SILENT GRAPH <{canon}>"]
+
+
+async def test_tombstone_deleted_marks_control() -> None:
+    from asterism.substrate import CONTROL_GRAPH_IRI, STATUS_PREDICATE, tombstone_deleted
+
+    fake = _FakeSparql(set(), set(), set(), set())
+    canon = canonical_graph_iri("ds1")
+    await tombstone_deleted(fake, canon, deleted_at="2026-06-04T00:00:00")
+    u = fake.updates[0]
+    assert "DELETE WHERE" in u and "INSERT DATA" in u
+    assert CONTROL_GRAPH_IRI in u and canon in u
+    assert STATUS_PREDICATE in u and '"deleted"' in u
+
+
 # ---- FnO namespace normalization (#15 ingest robustness) ---------------------
 
 

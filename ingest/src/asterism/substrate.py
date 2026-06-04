@@ -350,3 +350,31 @@ async def reinstate_canonical(client: SupportsSparql, canonical_iri: str) -> Non
     await client.sparql_update(
         f"DELETE WHERE {{ GRAPH <{CONTROL_GRAPH_IRI}> {{ <{canonical_iri}> ?p ?o }} }}"
     )
+
+
+# ----------------------------------------------------------------------------
+# Delete (#20 P3 step4) — hard removal; canonical delete is gated upstream
+# ----------------------------------------------------------------------------
+
+
+async def drop_graph(client: SupportsSparql, graph_iri: str) -> None:
+    """Physically remove a named graph (``DROP SILENT GRAPH``). SILENT = no error
+    if it does not exist (idempotent)."""
+    await client.sparql_update(f"DROP SILENT GRAPH <{graph_iri}>")
+
+
+async def tombstone_deleted(
+    client: SupportsSparql, canonical_iri: str, *, deleted_at: str
+) -> None:
+    """Leave a ``deleted`` marker in the control graph after a canonical DROP.
+
+    The triples are gone, but the marker lets a dangling citation get a clear
+    "this was deleted" answer instead of silence (ADR §3.1). Replaces any prior
+    control triples (e.g. a retract marker) for the graph.
+    """
+    await client.sparql_update(
+        f"DELETE WHERE {{ GRAPH <{CONTROL_GRAPH_IRI}> {{ <{canonical_iri}> ?p ?o }} }} ;"
+        f"INSERT DATA {{ GRAPH <{CONTROL_GRAPH_IRI}> {{ "
+        f'<{canonical_iri}> <{STATUS_PREDICATE}> "{STATUS_DELETED}" ; '
+        f'<{INVALIDATED_PREDICATE}> "{deleted_at}"^^<{_XSD_DATETIME}> }} }}'
+    )

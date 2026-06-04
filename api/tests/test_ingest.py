@@ -349,3 +349,53 @@ def test_retract_requires_promoted(tmp_path: Path) -> None:
         r = client.post(f"/api/datasets/{dataset_id}/retract")
         assert r.status_code == 400
     assert oxi.updates == []  # nothing tombstoned
+
+
+def test_delete_draft_only_dataset_no_force(tmp_path: Path) -> None:
+    """A never-promoted (design/draft) dataset deletes freely; registry dir removed."""
+    dataset_id = _ingested_dataset(tmp_path)  # ingested draft, not promoted
+    oxi = _PromoteOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app) as client:
+        r = client.delete(f"/api/datasets/{dataset_id}")
+        assert r.status_code == 200, r.text
+        assert r.json()["deleted"] is True
+        assert r.json()["was_promoted"] is False
+    # draft graph dropped, registry dir gone
+    assert any("DROP SILENT GRAPH" in u and "draft/" in u for u in oxi.updates)
+    assert not (tmp_path / "registry" / dataset_id).exists()
+
+
+def test_delete_promoted_requires_force(tmp_path: Path) -> None:
+    dataset_id = _ingested_dataset(tmp_path)
+    oxi = _PromoteOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app) as client:
+        assert client.post(f"/api/datasets/{dataset_id}/promote").status_code == 200
+        r = client.delete(f"/api/datasets/{dataset_id}")  # no force
+        assert r.status_code == 409
+    # nothing dropped, registry dir still present
+    assert not any("DROP SILENT GRAPH" in u for u in oxi.updates)
+    assert (tmp_path / "registry" / dataset_id).exists()
+
+
+def test_delete_promoted_with_force_drops_canonical_and_tombstones(tmp_path: Path) -> None:
+    dataset_id = _ingested_dataset(tmp_path)
+    oxi = _PromoteOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    canon = f"https://kumagallium.github.io/asterism/graph/canonical/{dataset_id}"
+    with TestClient(app) as client:
+        assert client.post(f"/api/datasets/{dataset_id}/promote").status_code == 200
+        r = client.delete(f"/api/datasets/{dataset_id}?force=true")
+        assert r.status_code == 200, r.text
+        assert r.json()["deleted"] is True and r.json()["was_promoted"] is True
+    assert any("DROP SILENT GRAPH" in u and canon in u for u in oxi.updates)
+    assert any("INSERT DATA" in u and '"deleted"' in u and canon in u for u in oxi.updates)
+    assert not (tmp_path / "registry" / dataset_id).exists()
+
+
+def test_delete_unknown_dataset_404(tmp_path: Path) -> None:
+    oxi = _PromoteOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app) as client:
+        assert client.delete("/api/datasets/nope-00000000").status_code == 404
