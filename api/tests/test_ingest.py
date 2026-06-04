@@ -254,6 +254,31 @@ def test_promote_moves_to_canonical_and_marks_meta(tmp_path: Path) -> None:
     meta = json.loads((tmp_path / "registry" / dataset_id / "meta.json").read_text())
     assert meta["promoted"] is True
     assert meta["triples_promoted"] == 1640
+    # #20 P3: first promotion is version 1 with one entry in the version log.
+    assert meta["version"] == 1
+    assert len(meta["versions"]) == 1
+    assert meta["versions"][0]["version"] == 1
+    assert meta["versions"][0]["triples_promoted"] == 1640
+
+
+def test_mark_promoted_bumps_version_on_repromote(tmp_path: Path) -> None:
+    """#20 P3: re-promoting the same dataset bumps a monotonic version + logs it."""
+    dataset_id = _save_dataset_with_rml(tmp_path)
+    root = tmp_path / "registry"
+    align = {"predicates": {"reuse": [], "new": []}, "classes": {"reuse": [], "new": []}}
+
+    m1 = registry.mark_promoted(
+        root, dataset_id, triples_promoted=100, alignment=align, promoted_at="2026-01-01T00:00:00"
+    )
+    assert m1 is not None and m1["version"] == 1 and len(m1["versions"]) == 1
+
+    m2 = registry.mark_promoted(
+        root, dataset_id, triples_promoted=120, alignment=align, promoted_at="2026-01-02T00:00:00"
+    )
+    assert m2 is not None and m2["version"] == 2
+    # Append-only log keeps both promotions, in order.
+    assert [v["version"] for v in m2["versions"]] == [1, 2]
+    assert m2["versions"][1]["triples_promoted"] == 120
 
 
 def test_promote_requires_ingested_draft(tmp_path: Path) -> None:

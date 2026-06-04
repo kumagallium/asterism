@@ -156,6 +156,20 @@ def mark_promoted(
     meta["triples_promoted"] = triples_promoted
     meta["alignment"] = alignment
     meta["promoted_at"] = promoted_at
+    # #20 P3: dataset versioning. IRIs stay immutable (ADR §3 確定②); each
+    # (re-)promotion bumps a monotonic version and appends to an append-only log
+    # so the catalog can show promotion history and a re-promote is traceable.
+    # Point-in-time triple snapshots are deliberately NOT kept (要決定② = no):
+    # the log + the reproducible registry bundle are the version record.
+    meta["version"] = int(meta.get("version", 0)) + 1
+    meta.setdefault("versions", []).append(
+        {
+            "version": meta["version"],
+            "promoted_at": promoted_at,
+            "triples_promoted": triples_promoted,
+            "alignment": alignment,
+        }
+    )
     meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     return meta
 
