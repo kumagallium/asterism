@@ -1,0 +1,17 @@
+# Declared identity of the **starrydata** example dataset (#20 P2).
+#
+# Per ADR docs/architecture/ontology-canonical-lifecycle.md §4: starrydata is one
+# dataset among many, NOT a core default. Its namespaces are declared here as
+# *content*; the engine reads them via asterism.datasets.load_dataset(). The
+# matching literals in asterism.starrydata are an embedded fallback for installs
+# without this datasets/ tree — this file is the source of truth when present.
+#
+# IRIs are data identity: do not rename casually (前提 ADR / IRI 不変).
+
+name = "starrydata"
+description = "Thermoelectric materials data from Starrydata (papers / samples / curves)."
+
+ontology_iri = "https://kumagallium.github.io/asterism/starrydata/ontology#"
+resource_iri = "https://kumagallium.github.io/asterism/starrydata/resource/"
+graph_base = "https://kumagallium.github.io/asterism/starrydata/graph/"
+software_agent_iri = "https://github.com/kumagallium/asterism"
