@@ -14,13 +14,17 @@ import pytest
 import rdflib
 
 from asterism.substrate import (
+    CANONICAL_GRAPH_BASE,
     GRAPH_BASE,
+    ONTOLOGY_GRAPH_BASE,
     absolutize_rml_sources,
     alignment_report,
+    canonical_graph_iri,
     classify_alignment,
     draft_graph_iri,
     ingest_graph_to_oxigraph,
     materialize_to_graph,
+    ontology_graph_iri,
     promote_draft_to_canonical,
     run_substrate_ingest,
 )
@@ -36,6 +40,33 @@ def test_draft_graph_iri_rejects_unsafe_id() -> None:
     for bad in ("../escape", "a b", "x/y", "", "<inject>"):
         with pytest.raises(ValueError, match="unsafe dataset_id"):
             draft_graph_iri(bad)
+
+
+# ---- #20 P3 lifecycle graph IRIs (dataset-neutral namespace) ----------------
+
+
+def test_canonical_graph_iri_scheme() -> None:
+    assert canonical_graph_iri("ds1") == CANONICAL_GRAPH_BASE + "ds1"
+    # Lifecycle graphs are dataset-neutral, NOT under the starrydata GRAPH_BASE.
+    assert "/starrydata/" not in canonical_graph_iri("ds1")
+
+
+def test_ontology_graph_iri_scheme() -> None:
+    assert ontology_graph_iri("ds1") == ONTOLOGY_GRAPH_BASE + "ds1"
+
+
+def test_lifecycle_graph_iris_reject_unsafe_id() -> None:
+    for fn in (canonical_graph_iri, ontology_graph_iri):
+        for bad in ("../escape", "a b", "x/y", "", "<inject>"):
+            with pytest.raises(ValueError, match="unsafe dataset_id"):
+                fn(bad)
+
+
+def test_canonical_and_draft_graphs_are_distinguishable_by_prefix() -> None:
+    # The read-model flip (P3 step 2) relies on filtering canonical graphs by
+    # prefix to exclude draft graphs from Ask.
+    assert canonical_graph_iri("ds1").startswith(CANONICAL_GRAPH_BASE)
+    assert not draft_graph_iri("ds1").startswith(CANONICAL_GRAPH_BASE)
 
 
 # ---- rml:source absolutization (thread-safe alternative to chdir) -----------

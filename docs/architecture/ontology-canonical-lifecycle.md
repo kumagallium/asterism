@@ -142,11 +142,11 @@ status: **合意済み**（2026-06-03 ユーザー確定）— 旧 `要決定` 4
 
 #### 段階（P3 内のサブステップ・各 PR CI green）
 
-1. **canonical を per-dataset graph 化**（promote 先変更＋読み取り UNION＋既存 default の移行）。これが他全部の土台。
-2. **version モデル**（registry 版ログ＋meta `version`＋control 語彙）。
-3. **retract/reinstate**（tombstone＋読み取り除外）。
-4. **delete**（draft/all＋force＋tombstone 痕跡）。
-5. **ontology graph 投影**＋`schema_summary` の TBox 補強。
+1. **canonical を per-dataset graph 化**（promote 先変更＋読み取り UNION＋既存 default の移行）。これが他全部の土台。⬜ **未**（高リスク＝読み取り経路を全 read tool で変更・実 Oxigraph 検証が要る。実装の発見: `schema_summary`/typed 4 ツール/`template_curve_fetch` は GRAPH-less＝default graph 前提。BIND/集約/OPTIONAL を含む WHERE を素朴に UNION 包むと semantics が崩れる→`FROM <canonical/{id}>` 注入 等の慎重な方式が必要。実機確認込みの専用 PR で。）
+2. **version モデル**（registry 版ログ＋meta `version`＋control 語彙）。✅ **着地（PR #105）**: `mark_promoted` が monotonic `version` を bump し append-only `versions` ログを記録（再昇格で +1・点的版は持たない＝要決定②）。promote API が `version` を返す。substrate に lifecycle graph IRI ヘルパ（`canonical_graph_iri`/`ontology_graph_iri`・dataset-neutral 名前空間 `…/asterism/graph/`）＋control 語彙定数を追加（step 1/3/4 で使用・現状は未配線で挙動不変）。
+3. **retract/reinstate**（tombstone＋読み取り除外）。⬜ 未（step 1 の per-dataset graph に依存）。
+4. **delete**（draft/all＋force＋tombstone 痕跡）。⬜ 未（step 1 に依存）。
+5. **ontology graph 投影**＋`schema_summary` の TBox 補強。⬜ 未（additive・step 1 と独立に可能）。
 
 #### この設計の `要決定`（実装着手前にユーザー確認したい点）
 

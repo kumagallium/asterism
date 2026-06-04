@@ -627,6 +627,8 @@ def build_app(
                 "canonical_graph": "default",
                 "triples_promoted": triples_promoted,
                 "alignment": alignment,
+                # #20 P3: monotonic dataset version (bumped on each re-promote).
+                "version": meta.get("version") if meta else None,
                 "dataset": meta,
             }
         )

@@ -66,6 +66,46 @@ def draft_graph_iri(dataset_id: str) -> str:
     return f"{GRAPH_BASE}draft/{dataset_id}"
 
 
+# ----------------------------------------------------------------------------
+# #20 P3: lifecycle graph layout (introduced ahead of the read-model flip)
+# ----------------------------------------------------------------------------
+#
+# canonical / ontology / control graphs span *all* datasets, so they live under a
+# dataset-neutral graph namespace — distinct from the starrydata-flavored
+# ``GRAPH_BASE`` used by the legacy per-kind + draft graphs. Graph IRIs are
+# storage containers, NOT data identity (entity IRIs stay immutable), so this
+# neutral scheme is safe to introduce. These helpers are defined now so the IRI
+# scheme is fixed; the promote target change + read-path flip land in P3 step 2.
+#
+# Per ADR §3.1: per-dataset canonical graph makes retract / re-promote / delete
+# clean graph-scoped operations; control graph holds tombstones (retract /
+# delete markers); ontology graph holds the projected TBox (§2).
+LIFECYCLE_GRAPH_BASE: str = "https://kumagallium.github.io/asterism/graph/"
+CANONICAL_GRAPH_BASE: str = LIFECYCLE_GRAPH_BASE + "canonical/"
+ONTOLOGY_GRAPH_BASE: str = LIFECYCLE_GRAPH_BASE + "ontology/"
+CONTROL_GRAPH_IRI: str = LIFECYCLE_GRAPH_BASE + "control"
+
+# Control vocabulary (asterism: namespace) for the lifecycle status of a dataset.
+ASTERISM_NS: str = "https://kumagallium.github.io/asterism/vocab#"
+STATUS_ACTIVE: str = "active"
+STATUS_RETRACTED: str = "retracted"
+STATUS_DELETED: str = "deleted"
+
+
+def canonical_graph_iri(dataset_id: str) -> str:
+    """Per-dataset canonical (citable) named graph IRI."""
+    if not _DATASET_ID.match(dataset_id):
+        raise ValueError(f"unsafe dataset_id for graph IRI: {dataset_id!r}")
+    return f"{CANONICAL_GRAPH_BASE}{dataset_id}"
+
+
+def ontology_graph_iri(dataset_id: str) -> str:
+    """Per-dataset ontology (projected TBox) named graph IRI (§2)."""
+    if not _DATASET_ID.match(dataset_id):
+        raise ValueError(f"unsafe dataset_id for graph IRI: {dataset_id!r}")
+    return f"{ONTOLOGY_GRAPH_BASE}{dataset_id}"
+
+
 def absolutize_rml_sources(rml_ttl: str, csv_dir: Path | str) -> str:
     """Rewrite relative ``rml:source "name"`` to absolute paths under ``csv_dir``.
 
