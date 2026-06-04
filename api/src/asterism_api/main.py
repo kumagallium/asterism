@@ -35,8 +35,9 @@ from pathlib import Path
 from typing import Final
 
 from asterism import substrate
+from asterism.datasets import load_dataset
 from asterism.oxigraph_client import OxigraphClient, OxigraphConfig
-from asterism.starrydata import DEFAULT_ONTOLOGY, DEFAULT_RESOURCE, IngestConfig
+from asterism.starrydata import IngestConfig
 from asterism.watcher import (
     DEFAULT_GRAPH_PREFIX,
     DEFAULT_SETTLE_S,
@@ -90,6 +91,20 @@ _SPARQL_UPDATE = re.compile(
 
 logger = logging.getLogger(__name__)
 
+# #20 P2-2b: starrydata's identity (ontology / resource IRIs) is content declared
+# in datasets/starrydata/dataset.toml, read via the generic dataset loader — the
+# api no longer imports starrydata constants. The descriptor is the source of
+# truth (live in prod because the image bundles datasets/); the literals below
+# are a defensive fallback for a wheel-only install without the datasets/ tree.
+# Env overrides (CSV2RDF_ONTOLOGY_IRI / CSV2RDF_RESOURCE_IRI) still win.
+_SD = load_dataset("starrydata")
+_DEFAULT_ONTOLOGY = (
+    _SD.ontology_iri if _SD else "https://kumagallium.github.io/asterism/starrydata/ontology#"
+)
+_DEFAULT_RESOURCE = (
+    _SD.resource_iri if _SD else "https://kumagallium.github.io/asterism/starrydata/resource/"
+)
+
 # Restrict uploaded filenames to a safe subset to avoid directory traversal
 # (``..`` segments, absolute paths, NULs). We also reject names without a
 # ``.csv`` suffix so the watcher's ``_classify`` actually fires.
@@ -126,8 +141,8 @@ class Settings:
         self.use_default_graph = e.get(
             "CSV2RDF_USE_DEFAULT_GRAPH", "1"
         ).strip().lower() not in ("0", "false", "no")
-        self.ontology_iri = e.get("CSV2RDF_ONTOLOGY_IRI", DEFAULT_ONTOLOGY)
-        self.resource_iri = e.get("CSV2RDF_RESOURCE_IRI", DEFAULT_RESOURCE)
+        self.ontology_iri = e.get("CSV2RDF_ONTOLOGY_IRI", _DEFAULT_ONTOLOGY)
+        self.resource_iri = e.get("CSV2RDF_RESOURCE_IRI", _DEFAULT_RESOURCE)
         self.settle_s = float(e.get("CSV2RDF_SETTLE_S", DEFAULT_SETTLE_S))
 
 
