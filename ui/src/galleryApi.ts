@@ -48,7 +48,7 @@ export interface OntologyEntry {
 }
 
 // The canonical starrydata TBox (docs/ontology/diagram.md + starrydata.ttl).
-const STARRYDATA_MERMAID = `classDiagram
+export const STARRYDATA_MERMAID = `classDiagram
     direction LR
 
     class Paper {
@@ -379,6 +379,135 @@ export async function getLiveDatasets(): Promise<LiveDataset[]> {
 function extractMermaid(diagramMd: string): string {
   const m = /```mermaid\s*\n([\s\S]*?)```/.exec(diagramMd)
   return (m ? m[1] : diagramMd).trim()
+}
+
+// ---- dataset-centric catalog (real data) ----------------------------------
+// The redesigned Catalog/Home/Shared-vocab screens are dataset-first. To stay
+// truthful (no fabricated datasets/counts), datasets come ONLY from real
+// sources: the committed canonical ontology+mapping (captured above from
+// docs/ontology + the ingester/MIE) and the workbench-materialized drafts
+// (fetched live from /api/datasets). No demo placeholders.
+
+export type CatalogStatusKind = 'pub' | 'draft' | 'design'
+
+export interface CatalogDataset {
+  id: string
+  name: string
+  sub: string
+  statusKind: CatalogStatusKind
+  counts: { value: string; label: string }[]
+  purposes: { tag: string; detail: string }[]
+  classes: string[]
+  reuses: { prefix: string; what: string }[]
+  artifacts: { kind: string; name: string; detail: string }[]
+  mermaid?: string
+  /** Present for materialized drafts; carries the backend handle for promote. */
+  live?: LiveDataset
+}
+
+const ARTIFACT_KIND_LABEL: Record<MappingArtifactKind, string> = {
+  ingester: 'CODE',
+  mie: 'MIE',
+  shex: 'ShEx',
+  mapping: 'RML',
+}
+
+function canonicalToCatalog(o: OntologyEntry, mapping?: MappingEntry): CatalogDataset {
+  return {
+    id: o.id,
+    name: o.name,
+    sub: `${o.prefix} · 共有オントロジー`,
+    statusKind: 'pub',
+    counts: [
+      { value: String(o.classes.length), label: 'クラス' },
+      { value: String(o.reuses.length), label: '再利用語彙' },
+    ],
+    purposes: mapping?.purposes ?? [],
+    classes: o.classes,
+    reuses: o.reuses,
+    artifacts: (mapping?.artifacts ?? []).map((a) => ({
+      kind: ARTIFACT_KIND_LABEL[a.kind],
+      name: a.name,
+      detail: a.summary,
+    })),
+    mermaid: o.mermaid,
+  }
+}
+
+function liveToCatalog(l: LiveDataset): CatalogDataset {
+  const stage = datasetStage(l.meta)
+  const statusKind: CatalogStatusKind =
+    stage === 'promoted' ? 'pub' : stage === 'ingested' ? 'draft' : 'design'
+  const n = l.meta.triples_promoted ?? l.meta.triple_count
+  const counts = [{ value: String(l.ontology.classes.length), label: 'クラス' }]
+  if (n != null) counts.unshift({ value: n.toLocaleString(), label: '事実' })
+  return {
+    id: l.ontology.id,
+    name: l.meta.name,
+    sub: `設計を保存 · ${l.meta.created_at.slice(0, 10)}`,
+    statusKind,
+    counts,
+    purposes: [],
+    classes: l.ontology.classes,
+    reuses: l.ontology.reuses,
+    artifacts: l.mapping.artifacts.map((a) => ({
+      kind: ARTIFACT_KIND_LABEL[a.kind],
+      name: a.name,
+      detail: a.summary,
+    })),
+    mermaid: l.ontology.mermaid || undefined,
+    live: l,
+  }
+}
+
+/** All catalogued datasets: canonical ontologies + materialized drafts. Real. */
+export async function getCatalogDatasets(): Promise<CatalogDataset[]> {
+  const [ontos, maps, live] = await Promise.all([getOntologies(), getMappings(), getLiveDatasets()])
+  const canonical = ontos.map((o) =>
+    canonicalToCatalog(
+      o,
+      maps.find((m) => m.targetOntologyId === o.id),
+    ),
+  )
+  return [...canonical, ...live.map(liveToCatalog)]
+}
+
+// Run a scalar-returning SPARQL aggregate against the read-only endpoint.
+// Best-effort: any failure (no API, empty store, parse error) resolves to null
+// so the UI shows "—" rather than a fabricated number.
+async function sparqlScalar(query: string): Promise<number | null> {
+  try {
+    const res = await fetch(`${API_BASE}/api/sparql`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query }),
+    })
+    if (!res.ok) return null
+    const json = (await res.json()) as {
+      results?: { bindings?: Array<Record<string, { value?: string }>> }
+    }
+    const row = json.results?.bindings?.[0]
+    const first = row ? Object.values(row)[0]?.value : undefined
+    if (first == null) return null
+    const n = Number(first)
+    return Number.isFinite(n) ? n : null
+  } catch {
+    return null
+  }
+}
+
+/** Graph-wide stats for Home, measured from the store (null when unavailable). */
+export async function getGraphStats(): Promise<{
+  facts: number | null
+  classes: number | null
+  datasets: number
+}> {
+  const [facts, classes, datasets] = await Promise.all([
+    sparqlScalar('SELECT (COUNT(*) AS ?n) WHERE { ?s ?p ?o }'),
+    sparqlScalar('SELECT (COUNT(DISTINCT ?c) AS ?n) WHERE { ?s a ?c }'),
+    getCatalogDatasets().then((d) => d.length),
+  ])
+  return { facts, classes, datasets }
 }
 
 // ---- public API (async so a live backend can drop in later) ---------------

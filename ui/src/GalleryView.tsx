@@ -1,54 +1,48 @@
 import { useEffect, useState } from 'react'
 import {
   type AlignmentReport,
-  type DatasetStage,
-  datasetStage,
+  type CatalogDataset,
+  type CatalogStatusKind,
   getAlignment,
-  getLiveDatasets,
-  getMappings,
-  getOntologies,
+  getCatalogDatasets,
   type LiveDataset,
-  type MappingEntry,
-  type OntologyEntry,
   promoteDataset,
-  STAGE_INFO,
 } from './galleryApi'
+import { ArrowIcon, LinkIcon, SearchIcon } from './icons'
 import { Mermaid } from './Mermaid'
 
+const STATUS_LABEL: Record<CatalogStatusKind, string> = {
+  pub: '公開済み',
+  draft: '下書き',
+  design: '設計中',
+}
+
 /**
- * M4 gallery: an overview of the assets that have been built. The two layers
- * are presented as visually distinct so their edit-risk differs at a glance
- * (design doc §6.6/D8):
+ * Catalog — datasets are the entry point (design_handoff_asterism_ux #5). Each
+ * dataset HAS a 設計図 (vocabulary) and 取り込みルール (mapping), shown as two tabs
+ * inside the dataset; the SHARED vocabulary is the gateway band at the bottom.
  *
- *   - Ontologies (shared TBox): high blast radius — edit with care.
- *   - Mappings (dataset bindings, purpose-tagged): local & disposable.
- *
- * The Mappings gallery leads with each binding's PURPOSE tags — the
- * "purpose-scoped mapping" idea is the showcase for reviewers (handoff §1).
+ * All datasets are REAL: the committed canonical ontology+mapping and the
+ * workbench-materialized drafts (getCatalogDatasets). No demo placeholders.
  */
-export function GalleryView({ focusClass }: { focusClass?: string | null }) {
-  const [ontologies, setOntologies] = useState<OntologyEntry[] | null>(null)
-  const [mappings, setMappings] = useState<MappingEntry[] | null>(null)
-  const [live, setLive] = useState<LiveDataset[]>([])
+export function GalleryView({
+  focusClass,
+  onOpenVocab,
+}: {
+  focusClass?: string | null
+  onOpenVocab?: () => void
+}) {
+  const [datasets, setDatasets] = useState<CatalogDataset[] | null>(null)
   const [error, setError] = useState('')
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [picked, setPicked] = useState<string | null>(null)
+  const [seenFocus, setSeenFocus] = useState<string | null | undefined>(focusClass)
+  const [tab, setTab] = useState<'design' | 'rules'>('design')
 
   useEffect(() => {
     let cancelled = false
-    // getLiveDatasets is best-effort (resolves [] if the workbench API is
-    // absent), so it never blocks the fixtures from rendering.
-    Promise.all([getOntologies(), getMappings(), getLiveDatasets()])
-      .then(([onto, maps, liveDatasets]) => {
-        if (cancelled) return
-        setOntologies(onto)
-        setMappings(maps)
-        setLive(liveDatasets)
-        // When arriving via an Ask citation, select the ontology that defines
-        // the focused class; otherwise the first one.
-        const focused = focusClass
-          ? onto.find((o) => o.classes.includes(focusClass))
-          : undefined
-        setSelectedId(focused?.id ?? onto[0]?.id ?? null)
+    getCatalogDatasets()
+      .then((d) => {
+        if (!cancelled) setDatasets(d)
       })
       .catch((e) => {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e))
@@ -56,31 +50,27 @@ export function GalleryView({ focusClass }: { focusClass?: string | null }) {
     return () => {
       cancelled = true
     }
-  }, [focusClass])
+  }, [])
 
-  // Selection spans both the seeded fixtures and the live (materialized) drafts.
-  const selected =
-    ontologies?.find((o) => o.id === selectedId) ??
-    live.find((l) => l.ontology.id === selectedId)?.ontology ??
-    null
+  // Reset the explicit pick when arriving with a new Ask focus (setState during
+  // render — the "adjust state on prop change" pattern; avoids effect cascades).
+  if (focusClass !== seenFocus) {
+    setSeenFocus(focusClass)
+    setPicked(null)
+  }
+
+  const list = datasets ?? []
+  const focused = focusClass ? list.find((d) => d.classes.includes(focusClass)) : undefined
+  const selected = list.find((d) => d.id === picked) ?? focused ?? list[0] ?? null
+  // The shared vocabulary = the canonical ontology (a dataset with no draft handle).
+  const canonical = list.find((d) => !d.live)
 
   return (
-    <>
-      <p className="subtitle">
-        作成した<strong>語彙（オントロジー）</strong>と<strong>マッピング</strong>を俯瞰します。
-        2 つは性質が異なります — 語彙は<strong>共有資産</strong>で変更が下流全体に波及（要注意）、
-        マッピングは<strong>dataset ごとの束縛</strong>で局所・使い捨て。
+    <div className="catalog">
+      <p className="catalog-intro">
+        作った<strong>データセット</strong>が主役です。各データセットは「<strong>設計図（語彙）</strong>」と
+        「<strong>取り込みルール</strong>」を持ちます。共通で使う語彙は下にまとめています。
       </p>
-
-      {/* Layer legend: makes the edit-risk contrast explicit before the cards. */}
-      <div className="layer-legend">
-        <span className="layer-chip layer-chip--ontology">
-          <span className="risk-dot risk-dot--high" /> Ontologies（共有 TBox・変更注意）
-        </span>
-        <span className="layer-chip layer-chip--mapping">
-          <span className="risk-dot risk-dot--low" /> Mappings（局所・使い捨て）
-        </span>
-      </div>
 
       {focusClass && (
         <div className="vocab-focus-banner">
@@ -90,138 +80,96 @@ export function GalleryView({ focusClass }: { focusClass?: string | null }) {
       )}
 
       {error && <pre className="error">{error}</pre>}
-      {!ontologies && !error && (
-        <p className="trace-loading">
+
+      {!datasets && !error && (
+        <p className="loading-row">
           <span className="spinner" />
-          ギャラリーを読み込み中…
+          カタログを読み込み中…
         </p>
       )}
 
-      {ontologies && (
-        <section className="gallery-section">
-          <h2 className="gallery-h">
-            Ontologies <span className="gallery-count">{ontologies.length}</span>
-            <span className="risk-badge risk-badge--high">共有資産・変更注意</span>
-          </h2>
+      {datasets && datasets.length === 0 && (
+        <div className="state-block">
+          <span className="state-icon state-icon--primary">
+            <SearchIcon size={26} />
+          </span>
+          <p className="state-title">まだデータセットがありません</p>
+          <p className="state-sub">「データを追加」でデータを取り込むと、ここに並びます。</p>
+        </div>
+      )}
 
-          <div className="onto-card-grid">
-            {ontologies.map((o) => (
-              <OntologyCard
-                key={o.id}
-                entry={o}
-                selected={o.id === selectedId}
-                onSelect={() => setSelectedId(o.id)}
-                highlightClass={focusClass ?? undefined}
+      {datasets && datasets.length > 0 && (
+        <div className="catalog-grid">
+          <div className="catalog-list">
+            <div className="catalog-list-head">
+              <h3 className="card-h">データセット</h3>
+              <span className="catalog-count">{datasets.length}</span>
+            </div>
+            {datasets.map((d) => (
+              <DatasetListCard
+                key={d.id}
+                dataset={d}
+                active={d.id === selected?.id}
+                onSelect={() => setPicked(d.id)}
               />
             ))}
           </div>
 
-          {/* Live drafts: datasets materialized in the workbench (api V1a),
-              now surfacing in the catalog — the authoring→catalog loop. */}
-          {live.length > 0 && (
-            <div className="live-subsection">
-              <h3 className="gallery-subh">
-                ワークベンチで作成した設計（ドラフト）
-                <span className="gallery-count">{live.length}</span>
-              </h3>
-              <div className="onto-card-grid">
-                {live.map((l) => (
-                  <OntologyCard
-                    key={l.ontology.id}
-                    entry={l.ontology}
-                    selected={l.ontology.id === selectedId}
-                    onSelect={() => setSelectedId(l.ontology.id)}
-                    draft
-                  />
-                ))}
-              </div>
-            </div>
+          {selected && (
+            <DatasetDetail dataset={selected} tab={tab} onTab={setTab} highlight={focusClass} />
           )}
-
-          {selected && <OntologyDetail entry={selected} />}
-        </section>
+        </div>
       )}
 
-      {mappings && (
-        <section className="gallery-section gallery-section--mappings">
-          <h2 className="gallery-h">
-            Mappings <span className="gallery-count">{mappings.length}</span>
-            <span className="risk-badge risk-badge--low">
-              <span className="risk-dot risk-dot--low" />
-              局所・使い捨て — 安全に編集可
+      {/* shared vocabulary gateway (= the canonical ontology) */}
+      {canonical && (
+        <button type="button" className="shared-band" onClick={onOpenVocab}>
+          <span className="shared-band-icon">
+            <LinkIcon size={19} />
+          </span>
+          <span className="shared-band-body">
+            <span className="shared-band-title">
+              共有の語彙 <span className="shared-band-en">shared vocabulary</span>
+              <span className="shared-band-warn">変更は全体に影響 · 要注意</span>
             </span>
-          </h2>
-          <p className="gallery-note">
-            各マッピングは「どの<strong>目的（問い）</strong>に応えるための束縛か」を
-            <strong>目的タグ</strong>で示します。語彙（共有資産）と違い、目的ごとに増やして構いません。
-          </p>
-
-          <div className="mapping-list">
-            {mappings.map((m) => (
-              <MappingCard key={m.id} entry={m} />
-            ))}
-          </div>
-
-          {live.length > 0 && (
-            <div className="live-subsection">
-              <h3 className="gallery-subh">
-                ワークベンチで作成したマッピング
-                <span className="gallery-count">{live.length}</span>
-              </h3>
-              <div className="mapping-list">
-                {live.map((l) => (
-                  <div key={l.mapping.id}>
-                    <MappingCard entry={l.mapping} stage={datasetStage(l.meta)} />
-                    <PromoteControl meta={l.meta} />
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </section>
+            <span className="shared-band-sub">
+              複数のデータセットが共通で使う設計図。揃えておくと<strong>横断して検索・比較</strong>できます。
+            </span>
+          </span>
+          <span className="shared-band-cta">
+            <span className="shared-band-users">
+              <span className="mono-strong">{canonical.classes.length}</span> クラスを共有
+            </span>
+            開く <ArrowIcon size={14} />
+          </span>
+        </button>
       )}
-    </>
+    </div>
   )
 }
 
-function OntologyCard({
-  entry,
-  selected,
+function DatasetListCard({
+  dataset,
+  active,
   onSelect,
-  draft,
-  highlightClass,
 }: {
-  entry: OntologyEntry
-  selected: boolean
+  dataset: CatalogDataset
+  active: boolean
   onSelect: () => void
-  draft?: boolean
-  highlightClass?: string
 }) {
   return (
-    <button
-      type="button"
-      className={`onto-card${selected ? ' active' : ''}${draft ? ' onto-card--draft' : ''}`}
-      onClick={onSelect}
-    >
-      <div className="onto-card-head">
-        <span className="onto-card-name">{entry.name}</span>
-        {draft ? (
-          <span className="draft-tag">ドラフト</span>
-        ) : (
-          <code className="onto-card-prefix">{entry.prefix}</code>
-        )}
+    <button type="button" className={`ds-card${active ? ' active' : ''}`} onClick={onSelect}>
+      <div className="ds-card-head">
+        <span className="ds-card-name">{dataset.name}</span>
+        <span className={`status-pill status-pill--${dataset.statusKind}`}>
+          {STATUS_LABEL[dataset.statusKind]}
+        </span>
       </div>
-      <div className="onto-card-meta">
-        <span className="onto-card-stat">{entry.classes.length} クラス</span>
-        {!draft && <span className="onto-card-stat">{entry.reuses.length} 語彙を再利用</span>}
-      </div>
-      <div className="onto-card-classes">
-        {entry.classes.map((c) => (
-          <span
-            key={c}
-            className={`onto-class-chip${c === highlightClass ? ' onto-class-chip--focus' : ''}`}
-          >
-            {c}
+      <div className="ds-card-sub">{dataset.sub}</div>
+      <div className="ds-card-counts">
+        {dataset.counts.map((c) => (
+          <span className="ds-row-count" key={c.label}>
+            <span className="ds-row-count-val">{c.value}</span> {c.label}
           </span>
         ))}
       </div>
@@ -229,110 +177,122 @@ function OntologyCard({
   )
 }
 
-function MappingCard({ entry, stage }: { entry: MappingEntry; stage?: DatasetStage }) {
-  const ARTIFACT_JA: Record<string, string> = {
-    ingester: 'ingester',
-    mie: 'MIE',
-    shex: 'ShEx',
-    mapping: 'RML',
-  }
-  const info = stage ? STAGE_INFO[stage] : null
+function DatasetDetail({
+  dataset,
+  tab,
+  onTab,
+  highlight,
+}: {
+  dataset: CatalogDataset
+  tab: 'design' | 'rules'
+  onTab: (t: 'design' | 'rules') => void
+  highlight?: string | null
+}) {
   return (
-    <article className={`mapping-card${stage ? ' mapping-card--draft' : ''}`}>
-      <div className="mapping-card-head">
-        <div>
-          <h3 className="mapping-card-name">
-            {entry.name}
-            {info && <span className={`stage-tag stage-tag--${info.tone}`}>{info.badge}</span>}
-          </h3>
-          <span className="mapping-card-dataset">{entry.dataset}</span>
-        </div>
-        <span className="mapping-target" title={`${entry.targetOntologyName} へ束縛`}>
-          → {entry.targetOntologyName}
+    <div className="ds-detail card">
+      <div className="ds-detail-head">
+        <h2 className="ds-detail-name">{dataset.name}</h2>
+        <span className={`status-pill status-pill--${dataset.statusKind}`}>
+          {STATUS_LABEL[dataset.statusKind]}
         </span>
-      </div>
-
-      {/* Purpose tags lead — the showcase signal. Drafts have none yet. */}
-      {entry.purposes.length > 0 ? (
-        <div className="purpose-block">
-          <span className="purpose-label">目的（この束縛が応える問い）</span>
-          <div className="purpose-tags">
-            {entry.purposes.map((p) => (
-              <span key={p.tag} className="purpose-tag" title={p.detail}>
-                <span className="purpose-tag-name">{p.tag}</span>
-                <span className="purpose-tag-detail">{p.detail}</span>
-              </span>
-            ))}
-          </div>
+        <div className="ds-tabs">
+          <button
+            type="button"
+            className={`ds-tab${tab === 'design' ? ' active' : ''}`}
+            onClick={() => onTab('design')}
+          >
+            設計図 <span className="ds-tab-en">ontology</span>
+          </button>
+          <button
+            type="button"
+            className={`ds-tab${tab === 'rules' ? ' active' : ''}`}
+            onClick={() => onTab('rules')}
+          >
+            取り込みルール <span className="ds-tab-en">mapping</span>
+          </button>
         </div>
-      ) : (
-        <p className="mapping-desc">{entry.description}</p>
-      )}
+      </div>
 
-      <div className="mapping-artifacts">
-        <span className="mapping-artifacts-label">構成物</span>
-        {entry.artifacts.map((a) => (
-          <div key={a.name} className="mapping-artifact">
-            <span className={`artifact-kind artifact-kind--${a.kind}`}>{ARTIFACT_JA[a.kind]}</span>
-            <code className="artifact-name">{a.name}</code>
-            <span className="artifact-summary">{a.summary}</span>
+      {dataset.purposes.length > 0 && (
+        <div className="ds-purposes">
+          <div className="ds-purposes-label">
+            <SearchIcon size={13} /> このデータが答えられる問い
           </div>
-        ))}
-      </div>
-    </article>
-  )
-}
-
-function OntologyDetail({ entry }: { entry: OntologyEntry }) {
-  // A draft (materialized but not promoted) TBox is local/disposable; the
-  // seeded shared vocabulary is high-risk. Reflect that in the badge.
-  const isDraft = entry.editRisk === 'low'
-  return (
-    <section className="onto-detail">
-      <div className="onto-detail-head">
-        <div>
-          <h3 className="onto-detail-name">{entry.name}</h3>
-          <code className="onto-detail-iri" title={entry.baseIri}>
-            {entry.baseIri}
-          </code>
-        </div>
-        {isDraft ? (
-          <span className="risk-badge risk-badge--low">
-            <span className="risk-dot risk-dot--low" />
-            ドラフト設計 — 共有語彙への昇格前
-          </span>
-        ) : (
-          <span className="risk-badge risk-badge--high">
-            <span className="risk-dot risk-dot--high" />
-            共有 TBox — 壊すと下流全体に波及
-          </span>
-        )}
-      </div>
-
-      <p className="onto-detail-desc">{entry.description}</p>
-
-      {entry.reuses.length > 0 && (
-        <div className="onto-reuse">
-          <span className="onto-reuse-label">再利用している語彙</span>
-          <div className="onto-reuse-list">
-            {entry.reuses.map((r) => (
-              <span key={r.prefix} className="onto-reuse-chip" title={r.what}>
-                <code>{r.prefix}</code>
-                <span className="onto-reuse-what">{r.what}</span>
+          <div className="ds-purpose-tags">
+            {dataset.purposes.map((p) => (
+              <span key={p.tag} className="purpose-pill" title={p.detail}>
+                {p.tag}
               </span>
             ))}
           </div>
         </div>
       )}
 
-      {entry.mermaid ? (
-        <div className="onto-diagram">
-          <Mermaid chart={entry.mermaid} />
+      {tab === 'design' ? (
+        <div className="ds-tab-body">
+          <div className="ds-section-head">
+            <span className="ds-section-title">設計図（中身の構造）</span>
+            <span className="ds-section-note">{dataset.classes.length} クラス</span>
+          </div>
+          {dataset.classes.length > 0 ? (
+            <div className="ds-classes">
+              {dataset.classes.map((c) => (
+                <span key={c} className={`class-chip${c === highlight ? ' onto-class-chip--focus' : ''}`}>
+                  <code className="class-chip-en">{c}</code>
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="ds-empty-note">クラス情報はありません。</p>
+          )}
+
+          {dataset.mermaid && (
+            <details className="ds-diagram-details">
+              <summary>クラス図を見る</summary>
+              <div className="onto-diagram">
+                <Mermaid chart={dataset.mermaid} />
+              </div>
+            </details>
+          )}
+
+          {dataset.reuses.length > 0 && (
+            <>
+              <div className="ds-subhead">他から借りている語彙（再発明しない）</div>
+              <div className="ds-reuse-list">
+                {dataset.reuses.map((r) => (
+                  <span key={r.prefix} className="reuse-chip" title={r.what}>
+                    <code>{r.prefix}</code>
+                    <span className="reuse-chip-what">{r.what}</span>
+                  </span>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       ) : (
-        <p className="trace-loading">クラス図はありません。</p>
+        <div className="ds-tab-body">
+          <div className="ds-section-head">
+            <span className="ds-section-title">取り込みルール（生成物）</span>
+          </div>
+          {dataset.artifacts.length > 0 ? (
+            <div className="ds-artifacts">
+              {dataset.artifacts.map((a) => (
+                <div key={a.name} className="ds-artifact">
+                  <span className="ds-artifact-kind">{a.kind}</span>
+                  <code className="ds-artifact-name">{a.name}</code>
+                  <span className="ds-artifact-detail">{a.detail}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="ds-empty-note">取り込みルールの生成物はまだありません。</p>
+          )}
+
+          {/* Real materialized drafts keep the S4 promote human-gate. */}
+          {dataset.live && <PromoteControl meta={dataset.live.meta} />}
+        </div>
       )}
-    </section>
+    </div>
   )
 }
 
@@ -361,7 +321,7 @@ function PromoteControl({ meta }: { meta: LiveDataset['meta'] }) {
       </p>
     )
   }
-  if (!meta.ingested) return null // nothing to promote until ingested
+  if (!meta.ingested) return null
 
   async function preview() {
     setErr('')
@@ -392,9 +352,8 @@ function PromoteControl({ meta }: { meta: LiveDataset['meta'] }) {
       {alignment ? (
         <div className="alignment-summary">
           <span>
-            述語: 既存の再利用 {alignment.predicates.reuse.length} / 新規{' '}
-            {alignment.predicates.new.length} ／ クラス: 既存の再利用{' '}
-            {alignment.classes.reuse.length} / 新規 {alignment.classes.new.length}
+            述語: 既存の再利用 {alignment.predicates.reuse.length} / 新規 {alignment.predicates.new.length}{' '}
+            ／ クラス: 既存の再利用 {alignment.classes.reuse.length} / 新規 {alignment.classes.new.length}
           </span>
           {alignment.predicates.new.length > 0 && (
             <p className="alignment-new">
@@ -403,7 +362,7 @@ function PromoteControl({ meta }: { meta: LiveDataset['meta'] }) {
           )}
         </div>
       ) : (
-        <button type="button" onClick={preview}>
+        <button type="button" className="btn btn--ghost btn--sm" onClick={preview}>
           語彙の差分を確認（昇格前チェック）
         </button>
       )}
