@@ -12,11 +12,11 @@ without editing `compose.yaml`.
 
 Builds a small, real subset from your local starrydata dataset via the actual
 ingester. Licensed source data stays out of the repo (everything lands under
-`demo-agent/seed/`, which should be gitignored).
+`datasets/starrydata/seed/`, which should be gitignored).
 
 ```bash
 python scripts/make_demo_subset.py --src ../starrydata_dataset --n-papers 40
-# -> demo-agent/seed/{papers,samples,curves}.ttl
+# -> datasets/starrydata/seed/{papers,samples,curves}.ttl
 ```
 
 To showcase the **data-quality exclusion** (the AI dropping a physically
