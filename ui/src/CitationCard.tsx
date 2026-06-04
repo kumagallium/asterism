@@ -1,35 +1,39 @@
 import type { Citation } from './demoApi'
 import { KIND_TO_CLASS } from './galleryApi'
+import { TraceIcon } from './icons'
 
-// Map a citation `kind` to a PROV-DM-ish accent color (see index.css tokens).
+// Map a citation `kind` to a PROV-DM accent color (see index.css tokens).
 // Data entities (curve/sample/paper) are green; process steps are blue.
 function kindColor(kind: string): string {
   switch (kind) {
     case 'curve':
     case 'sample':
     case 'paper':
-      return 'var(--prov-entity)'
+      return 'var(--entity)'
     case 'digitization':
     case 'ingestion':
-      return 'var(--prov-activity)'
+      return 'var(--activity)'
     default:
       return 'var(--muted)'
   }
 }
 
 /**
- * A clickable citation chip-card: shows the entity kind, label, and a few key
- * fields. Clicking the card opens the provenance trace (D2). A separate "語彙"
- * link (when the kind maps to a vocabulary class) jumps to the Gallery and
+ * A clickable citation chip-card: a colored kind bar, the entity kind + label,
+ * and a few key fields. Clicking selects the card, which loads its provenance
+ * into the always-on trace panel beside the answer (Ask). A separate "語彙"
+ * link (when the kind maps to a vocabulary class) jumps to the Catalog and
  * highlights that class — connecting a grounded answer to the ontology that
- * backs it (Ask⇄Gallery).
+ * backs it (Ask⇄Catalog).
  */
 export function CitationCard({
   citation,
+  selected,
   onSelect,
   onShowVocab,
 }: {
   citation: Citation
+  selected?: boolean
   onSelect?: (c: Citation) => void
   onShowVocab?: (className: string) => void
 }) {
@@ -39,15 +43,21 @@ export function CitationCard({
     <div className="citation-card-wrap">
       <button
         type="button"
-        className="citation-card"
+        className={`citation-card${selected ? ' selected' : ''}`}
         onClick={() => onSelect?.(citation)}
-        title="クリックで来歴トレースを表示"
+        title="クリックで出どころ（来歴）を表示"
       >
-        <span className="citation-kind" style={{ backgroundColor: color }}>
-          {citation.kind}
-        </span>
+        <span className="citation-bar" style={{ backgroundColor: color }} />
         <span className="citation-body">
-          <span className="citation-label">{citation.label || citation.kind || '(無題)'}</span>
+          <span className="citation-head">
+            <span className="citation-kind" style={{ backgroundColor: color }}>
+              {citation.kind}
+            </span>
+            <span className="citation-label">{citation.label || citation.kind || '(無題)'}</span>
+            <span className="citation-trace-hint">
+              <TraceIcon size={13} /> 出どころ
+            </span>
+          </span>
           <span className="citation-fields">
             {/* Drop null/undefined/empty field values: real rows omit
                 composition/title/DOI, which arrive as null — don't render "null". */}
@@ -70,7 +80,7 @@ export function CitationCard({
           type="button"
           className="vocab-link"
           onClick={() => onShowVocab(vocabClass)}
-          title={`Gallery で語彙クラス「${vocabClass}」を表示`}
+          title={`カタログで語彙クラス「${vocabClass}」を表示`}
         >
           語彙: {vocabClass} →
         </button>

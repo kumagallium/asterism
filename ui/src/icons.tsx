@@ -1,101 +1,183 @@
-// Small inline stroke icons (no icon-library dependency). 20×20, inherit
-// currentColor so they take the nav item's text color.
+// Small inline stroke icons (no icon-library dependency). 24×24 viewBox,
+// inherit currentColor so they take the surrounding text color. Matches the
+// forest design kit (design_handoff_asterism_ux/prototype/kit.jsx).
 
-type IconProps = { className?: string }
+import type { ReactNode } from 'react'
 
-const base = {
-  width: 18,
-  height: 18,
-  viewBox: '0 0 24 24',
-  fill: 'none',
-  stroke: 'currentColor',
-  strokeWidth: 1.8,
-  strokeLinecap: 'round' as const,
-  strokeLinejoin: 'round' as const,
-}
+type IconProps = { className?: string; size?: number }
 
-/** Magnifier — inspect / structural analysis. */
-export function InspectIcon({ className }: IconProps) {
-  return (
-    <svg {...base} className={className} aria-hidden="true">
-      <circle cx="11" cy="11" r="7" />
-      <line x1="21" y1="21" x2="16.65" y2="16.65" />
-    </svg>
-  )
-}
-
-/** Sparkle — AI proposal. */
-export function ProposeIcon({ className }: IconProps) {
-  return (
-    <svg {...base} className={className} aria-hidden="true">
-      <path d="M12 3l1.8 4.9L18.7 9.7 13.8 11.5 12 16.4 10.2 11.5 5.3 9.7 10.2 7.9z" />
-      <path d="M19 15l.7 1.9 1.9.7-1.9.7-.7 1.9-.7-1.9-1.9-.7 1.9-.7z" />
-    </svg>
-  )
-}
-
-/** Chat bubble — grounded question/answer. */
-export function AskIcon({ className }: IconProps) {
-  return (
-    <svg {...base} className={className} aria-hidden="true">
-      <path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.4 8.6 8.6 0 0 1-3.9-.9L3 20.5l1.5-4.4a8.4 8.4 0 0 1-1-4.1A8.4 8.4 0 0 1 12.5 3 8.4 8.4 0 0 1 21 11.5z" />
-    </svg>
-  )
-}
-
-/** Grid — gallery / catalog. */
-export function GalleryIcon({ className }: IconProps) {
-  return (
-    <svg {...base} className={className} aria-hidden="true">
-      <rect x="3" y="3" width="7" height="7" rx="1.5" />
-      <rect x="14" y="3" width="7" height="7" rx="1.5" />
-      <rect x="3" y="14" width="7" height="7" rx="1.5" />
-      <rect x="14" y="14" width="7" height="7" rx="1.5" />
-    </svg>
-  )
-}
-
-/** Clock-with-arrow — ingest history. */
-export function HistoryIcon({ className }: IconProps) {
-  return (
-    <svg {...base} className={className} aria-hidden="true">
-      <path d="M3 3v5h5" />
-      <path d="M3.05 11a9 9 0 1 1 .5 4" />
-      <path d="M12 7v5l3 2" />
-    </svg>
-  )
-}
-
-/** Angle brackets — raw query / SPARQL escape hatch. */
-export function CodeIcon({ className }: IconProps) {
-  return (
-    <svg {...base} className={className} aria-hidden="true">
-      <path d="M8 6l-5 6 5 6" />
-      <path d="M16 6l5 6-5 6" />
-    </svg>
-  )
-}
-
-/** Brand mark — a tiny CSV→RDF node graph. */
-export function BrandMark({ className }: IconProps) {
+function Icon({
+  className,
+  size = 18,
+  sw = 1.7,
+  children,
+}: IconProps & { sw?: number; children: ReactNode }) {
   return (
     <svg
-      width={26}
-      height={26}
+      width={size}
+      height={size}
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth={1.8}
+      strokeWidth={sw}
       strokeLinecap="round"
       strokeLinejoin="round"
       className={className}
       aria-hidden="true"
     >
-      <circle cx="5" cy="6" r="2.4" />
-      <circle cx="5" cy="18" r="2.4" />
-      <circle cx="19" cy="12" r="2.4" />
-      <line x1="7.2" y1="7.1" x2="16.9" y2="11" />
-      <line x1="7.2" y1="16.9" x2="16.9" y2="13" />
+      {children}
+    </svg>
+  )
+}
+
+/** House — home / orientation. */
+export function HomeIcon(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M4 11l8-7 8 7" />
+      <path d="M6 10v9h12v-9" />
+    </Icon>
+  )
+}
+
+/** Plus — add data. */
+export function AddIcon(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M12 5v14M5 12h14" />
+    </Icon>
+  )
+}
+
+/** Chat bubble — grounded question/answer. */
+export function AskIcon(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M21 11.5a8.4 8.4 0 0 1-12.4 7.4L3 20.5l1.5-4.4A8.4 8.4 0 1 1 21 11.5z" />
+    </Icon>
+  )
+}
+
+/** 2×2 grid — catalog. */
+export function CatalogIcon(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <rect x="3.5" y="3.5" width="7" height="7" rx="1.5" />
+      <rect x="13.5" y="3.5" width="7" height="7" rx="1.5" />
+      <rect x="3.5" y="13.5" width="7" height="7" rx="1.5" />
+      <rect x="13.5" y="13.5" width="7" height="7" rx="1.5" />
+    </Icon>
+  )
+}
+
+/** Clock-with-arc — activity / ingest history. */
+export function ActivityIcon(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M3 3v5h5" />
+      <path d="M3.5 11a9 9 0 1 1 .5 4" />
+      <path d="M12 7v5l3 2" />
+    </Icon>
+  )
+}
+
+/** Angle brackets — raw query / SPARQL (developer). */
+export function CodeIcon(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M8 6l-5 6 5 6M16 6l5 6-5 6" />
+    </Icon>
+  )
+}
+
+/** Sparkle — AI proposal / regenerate. */
+export function SparkIcon(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M12 3l1.7 4.9L18.6 9.6 13.7 11.4 12 16.3 10.3 11.4 5.4 9.6 10.3 7.9z" />
+      <path d="M19 15l.6 1.8 1.8.6-1.8.6-.6 1.8-.6-1.8-1.8-.6 1.8-.6z" />
+    </Icon>
+  )
+}
+
+/** Check. */
+export function CheckIcon(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M4 12l5 5L20 6" />
+    </Icon>
+  )
+}
+
+/** Right arrow. */
+export function ArrowIcon(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M5 12h14M13 6l6 6-6 6" />
+    </Icon>
+  )
+}
+
+/** Chevron right. */
+export function ChevronIcon(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M9 6l6 6-6 6" />
+    </Icon>
+  )
+}
+
+/** Two linked nodes — provenance trace. */
+export function TraceIcon(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <circle cx="6" cy="6" r="2.4" />
+      <circle cx="18" cy="18" r="2.4" />
+      <path d="M8 8l8 8" />
+    </Icon>
+  )
+}
+
+/** Magnifier — inspect / search. */
+export function SearchIcon(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <circle cx="11" cy="11" r="7" />
+      <path d="M21 21l-4.3-4.3" />
+    </Icon>
+  )
+}
+
+/** Link — shared vocabulary. */
+export function LinkIcon(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M9 15l6-6" />
+      <path d="M11 6l1-1a4 4 0 0 1 6 6l-1 1" />
+      <path d="M13 18l-1 1a4 4 0 0 1-6-6l1-1" />
+    </Icon>
+  )
+}
+
+/** Solid dot — small marker. */
+export function DotIcon({ className, size = 12 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" className={className} aria-hidden="true">
+      <circle cx="12" cy="12" r="5" fill="currentColor" />
+    </svg>
+  )
+}
+
+/** Brand mark — three stars connected (the asterism). */
+export function BrandMark({ className, size = 26 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+      <line x1="5" y1="7" x2="18" y2="12" stroke="var(--border-strong)" strokeWidth="1.4" />
+      <line x1="5" y1="7" x2="9" y2="19" stroke="var(--border-strong)" strokeWidth="1.4" />
+      <line x1="18" y1="12" x2="9" y2="19" stroke="var(--border-strong)" strokeWidth="1.4" />
+      <circle cx="5" cy="7" r="2.4" fill="currentColor" />
+      <circle cx="18" cy="12" r="2.4" fill="currentColor" />
+      <circle cx="9" cy="19" r="2.4" fill="currentColor" />
     </svg>
   )
 }
