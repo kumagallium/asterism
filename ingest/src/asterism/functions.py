@@ -28,7 +28,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from asterism.qudt import quantity_kind_iri, unit_iri
-from asterism.starrydata import (
+from asterism.text import (
     parse_float_array,
     parse_issued,
     safe_url,
