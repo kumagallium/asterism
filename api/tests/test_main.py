@@ -388,6 +388,11 @@ def test_refine_starts_job_and_streams_done(
         assert "done" in names
         done = next(d for n, d in events if n == "done")
         assert "refined_md" in done["result"]
+        # Truncation guard fields are surfaced; a prose-only schema loses no
+        # artifacts, so the refine is complete with no warnings.
+        assert done["result"]["complete"] is True
+        assert done["result"]["warnings"] == []
+        assert "effective_schema_md" in done["result"]
     # D7: key reached the client; the comment is in the user message.
     assert captured["key"] == "sk-user-test"
     assert "composite" in str(captured["user"])

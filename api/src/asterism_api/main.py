@@ -409,7 +409,17 @@ def build_app(
 
         def work() -> dict[str, object]:
             result = refine_schema(body.schema_md, comments, llm=llm)
-            return {"refined_md": result.refined_md, "metadata": result.metadata}
+            # Surface the truncation guard: `refined_md` stays the raw output for
+            # transparency; `effective_schema_md` is what's safe to materialize
+            # next (the previous complete schema when the refine was truncated).
+            return {
+                "refined_md": result.refined_md,
+                "effective_schema_md": result.effective_schema_md,
+                "complete": result.complete,
+                "missing_artifacts": result.missing_artifacts,
+                "warnings": result.warnings,
+                "metadata": result.metadata,
+            }
 
         jobs: JobManager = app.state.jobs
         job_id = jobs.start(work)
