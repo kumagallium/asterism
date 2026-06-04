@@ -29,10 +29,13 @@ from typing import Any, Final
 from asterism.datasets import load_dataset
 from asterism.oxigraph_client import OxigraphClient
 from asterism.substrate import (
+    ONTOLOGY_GRAPH_BASE,
     canonical_from_clauses,
     canonical_graphs,
     canonical_merge_query,
 )
+
+_RDFS_LABEL: Final[str] = "http://www.w3.org/2000/01/rdf-schema#label"
 
 # ----------------------------------------------------------------------------
 # Predicate -> output-key mapping for template_curve_fetch
@@ -709,12 +712,55 @@ async def schema_summary(
         ]
         class_shapes.append({"class": cls["iri"], "predicates": shape})
 
+    # #20 step5: enrich ABox-derived vocabulary with TBox labels from the
+    # projected ontology graph(s). Only for the canonical scope (graph=None); an
+    # explicit graph is inspected as-is. Invariant: no ontology graph -> no labels,
+    # so schema_summary still works purely from ABox introspection (ADR §2).
+    if graph is None:
+        labels = await _ontology_labels(client)
+        if labels:
+            _attach_labels(classes, labels)
+            _attach_labels(predicates, labels)
+            for shape in class_shapes:
+                _attach_label_value(shape, "class", labels)
+                _attach_labels(shape["predicates"], labels)
+
     return {
         "graph": graph,
         "classes": classes,
         "predicates": predicates,
         "class_shapes": class_shapes,
     }
+
+
+async def _ontology_labels(client: OxigraphClient) -> dict[str, str]:
+    """``term IRI -> rdfs:label`` from the projected ontology graph(s) (#20 step5).
+
+    Reads named graphs under the ontology prefix directly (these are deliberately
+    NOT in the canonical scope — TBox is separate from citable ABox). Empty dict
+    when no ontology graph exists, so callers degrade to label-free output.
+    """
+    q = (
+        "SELECT ?t ?l WHERE { GRAPH ?g { ?t <" + _RDFS_LABEL + "> ?l } "
+        f'FILTER(STRSTARTS(STR(?g), "{ONTOLOGY_GRAPH_BASE}")) }}'
+    )
+    out: dict[str, str] = {}
+    for r in _bindings(await client.sparql_select(q)):
+        term, label = _cell(r, "t"), _cell(r, "l")
+        if term and label and term not in out:
+            out[term] = label
+    return out
+
+
+def _attach_labels(items: list[dict[str, Any]], labels: dict[str, str]) -> None:
+    for item in items:
+        _attach_label_value(item, "iri", labels)
+
+
+def _attach_label_value(item: dict[str, Any], key: str, labels: dict[str, str]) -> None:
+    label = labels.get(str(item.get(key)))
+    if label:
+        item["label"] = label
 
 
 def _flatten_cell(node: dict[str, Any] | None) -> dict[str, Any] | None:

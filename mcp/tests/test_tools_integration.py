@@ -17,9 +17,15 @@ import json
 import pytest
 import rdflib
 from asterism.starrydata import DEFAULT_ONTOLOGY, DEFAULT_RESOURCE
-from asterism.substrate import canonical_graph_iri, draft_graph_iri
+from asterism.substrate import canonical_graph_iri, draft_graph_iri, ontology_graph_iri
 
-from asterism_mcp.tools import property_ranking, provenance_of, sample_search, sparql_query
+from asterism_mcp.tools import (
+    property_ranking,
+    provenance_of,
+    sample_search,
+    schema_summary,
+    sparql_query,
+)
 
 SD = DEFAULT_ONTOLOGY
 SDR = DEFAULT_RESOURCE
@@ -208,7 +214,18 @@ def _cross_dataset_ds() -> rdflib.Dataset:
     return ds
 
 
-def _ds_client(ds: rdflib.Dataset):
+def _ds_from(graphs: dict[str, str]) -> rdflib.Dataset:
+    """Build a Dataset from a ``{graph_iri: turtle}`` mapping."""
+    ds = rdflib.Dataset()
+    for giri, ttl in graphs.items():
+        ds.graph(rdflib.URIRef(giri)).parse(data=ttl, format="turtle")
+    return ds
+
+
+def _ds_client(ds):
+    if isinstance(ds, dict):
+        ds = _ds_from(ds)
+
     class _C:
         async def sparql_select(self, query: str) -> dict:
             raw = ds.query(query).serialize(format="json")
@@ -251,3 +268,40 @@ async def test_sparql_query_escape_respects_explicit_from() -> None:
     out = await sparql_query(q, _ds_client(ds))
     assert out["count"] == 1  # the link triple is in A
     assert "effective_query" not in out  # not rewritten
+
+
+# ---- #20 step5: schema_summary enriches with TBox labels from ontology graph --
+
+
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+async def test_schema_summary_enriches_with_ontology_labels() -> None:
+    abox = f"""
+    @prefix sd: <{SD}> .
+    <https://ex/s/1> a sd:Sample ; sd:fromPaper <https://ex/p/1> .
+    """
+    # Projected TBox lives in a separate ontology graph (NOT canonical scope).
+    tbox = f"""
+    @prefix sd: <{SD}> .
+    @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+    sd:Sample rdfs:label "Sample" .
+    sd:fromPaper rdfs:label "from paper" .
+    """
+    out = await schema_summary(
+        _ds_client({canonical_graph_iri("ds1"): abox, ontology_graph_iri("ds1"): tbox})
+    )
+    cls = next(c for c in out["classes"] if c["iri"] == f"{SD}Sample")
+    assert cls["label"] == "Sample"  # class label from the ontology graph
+    pred = next(p for p in out["predicates"] if p["iri"] == f"{SD}fromPaper")
+    assert pred["label"] == "from paper"  # predicate label from the ontology graph
+
+
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+async def test_schema_summary_without_ontology_graph_has_no_labels() -> None:
+    # Invariant: with no projected TBox, schema_summary still works (no labels).
+    abox = f"""
+    @prefix sd: <{SD}> .
+    <https://ex/s/1> a sd:Sample .
+    """
+    out = await schema_summary(_ds_client({canonical_graph_iri("ds1"): abox}))
+    cls = next(c for c in out["classes"] if c["iri"] == f"{SD}Sample")
+    assert "label" not in cls  # degrades gracefully

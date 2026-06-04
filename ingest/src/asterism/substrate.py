@@ -430,6 +430,29 @@ async def canonical_graphs(client: SupportsSparql) -> list[str]:
     return out
 
 
+async def ontology_graphs(client: SupportsSparql) -> list[str]:
+    """List the per-dataset ontology (projected TBox) named graphs, sorted (#20 §2).
+
+    These hold the RDFS/OWL projection of each dataset's TBox
+    (``…/asterism/graph/ontology/{id}``). ``schema_summary`` reads them to enrich
+    Ask with labels / domain / range, but Ask works without them (ABox baseline).
+    """
+    q = (
+        "SELECT DISTINCT ?g WHERE { "
+        "GRAPH ?g { ?s ?p ?o } "
+        f'FILTER(STRSTARTS(STR(?g), "{ONTOLOGY_GRAPH_BASE}")) '
+        "} ORDER BY ?g"
+    )
+    data = await client.sparql_select(q)
+    results = data.get("results", {}) if isinstance(data, dict) else {}
+    out: list[str] = []
+    for b in results.get("bindings", []):
+        v = b.get("g", {})
+        if v.get("type") == "uri":
+            out.append(v["value"])
+    return out
+
+
 def canonical_from_clauses(graphs: list[str], *, named: bool = False) -> str:
     """Build the dataset clause that merges ``graphs`` into the query dataset.
 
