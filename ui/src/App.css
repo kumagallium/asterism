@@ -2683,6 +2683,56 @@ textarea:focus {
   gap: 1rem;
   align-items: start;
 }
+
+/* #20: live vocabulary panel (real schema_summary over the canonical FROM-merge) */
+.vocab-live {
+  margin-bottom: 1rem;
+}
+.vocab-live-note {
+  margin: 0.25rem 0 0.75rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.vocab-live-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.25rem;
+}
+@media (max-width: 720px) {
+  .vocab-live-cols {
+    grid-template-columns: 1fr;
+  }
+}
+.vocab-live-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.vocab-live-term {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-alt);
+}
+.vocab-live-label {
+  font-weight: 600;
+  color: var(--fg);
+}
+.vocab-live-iri {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.vocab-live-count {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  color: var(--entity);
+  font-weight: 600;
+  font-size: 0.85rem;
+}
 .vocab-card-head {
   display: flex;
   align-items: center;

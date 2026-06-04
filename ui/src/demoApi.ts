@@ -269,6 +269,73 @@ export async function provenance(iri: string): Promise<ProvenanceChain> {
   return normalizeChain(await res.json(), iri)
 }
 
+// ---- live vocabulary (schema_summary) -------------------------------------
+// The schema-agnostic introspection of whatever is ACTUALLY in the store
+// (classes / predicates with usage counts), enriched with rdfs:label projected
+// from each dataset's TBox (#20 step5). This is what makes the vocabulary view
+// real + generic: it reflects the live canonical FROM-merge, not a hardcoded
+// starrydata fixture, and labels appear once a dataset's ontology is projected.
+
+export interface SchemaTerm {
+  iri: string
+  count: number
+  label?: string
+}
+
+export interface SchemaSummary {
+  classes: SchemaTerm[]
+  predicates: SchemaTerm[]
+}
+
+const SCHEMA_FIXTURE: SchemaSummary = {
+  classes: [
+    { iri: 'https://example.org/starrydata/ontology#Curve', count: 1240, label: 'Curve' },
+    { iri: 'https://example.org/starrydata/ontology#Sample', count: 318, label: 'Sample' },
+    { iri: 'https://example.org/starrydata/ontology#Paper', count: 96, label: 'Paper' },
+  ],
+  predicates: [
+    { iri: 'https://example.org/starrydata/ontology#yMax', count: 1240, label: 'yMax' },
+    { iri: 'https://example.org/starrydata/ontology#ofSample', count: 1240, label: 'ofSample' },
+    { iri: 'https://example.org/starrydata/ontology#fromPaper', count: 318, label: 'fromPaper' },
+  ],
+}
+
+function normalizeTerms(raw: unknown): SchemaTerm[] {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .map((t): SchemaTerm => {
+      const o = (t ?? {}) as Record<string, unknown>
+      return {
+        iri: asString(o.iri),
+        count: typeof o.count === 'number' ? o.count : Number(o.count) || 0,
+        label: typeof o.label === 'string' ? o.label : undefined,
+      }
+    })
+    .filter((t) => t.iri)
+}
+
+/** Live vocabulary actually present in the canonical store (best-effort).
+ *
+ * Returns ``null`` when the agent is unreachable so callers can fall back to the
+ * curated ontology fixture rather than showing an error. */
+export async function getSchema(): Promise<SchemaSummary | null> {
+  if (IS_MOCK) {
+    await delay(300)
+    return SCHEMA_FIXTURE
+  }
+  try {
+    const res = await fetch(`${AGENT_BASE}/demo/schema`)
+    if (!res.ok) return null
+    const data = (await res.json()) as Record<string, unknown>
+    return {
+      classes: normalizeTerms(data.classes),
+      predicates: normalizeTerms(data.predicates),
+    }
+  } catch {
+    return null
+  }
+}
+
 /** True when serving fixtures (so the UI can show a "demo data" hint). */
 export const isMockMode = IS_MOCK
 
