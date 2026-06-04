@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { getSchema, type SchemaSummary, type SchemaTerm } from './demoApi'
-import { type CatalogDataset, getCatalogDatasets, getOntologies, type OntologyEntry } from './galleryApi'
+import { type CatalogDataset, getCatalogDatasets } from './galleryApi'
 import { ArrowIcon, LayersIcon, LinkIcon } from './icons'
 
 const STATUS_LABEL: Record<CatalogDataset['statusKind'], string> = {
@@ -15,42 +15,66 @@ function localName(iri: string): string {
   return i >= 0 ? iri.slice(i + 1) : iri
 }
 
+/** Namespace of an IRI (everything up to and including the last # or /). */
+function namespaceOf(iri: string): string {
+  const i = Math.max(iri.lastIndexOf('#'), iri.lastIndexOf('/'))
+  return i >= 0 ? iri.slice(0, i + 1) : iri
+}
+
+// Well-known EXTERNAL vocabularies. When the live data uses a term under one of
+// these namespaces, that vocabulary is being "reused" rather than re-minted.
+// Structural namespaces (rdf/rdfs/owl/xsd) are not interesting to surface.
+const KNOWN_VOCABS: { ns: string; prefix: string; what: string }[] = [
+  { ns: 'https://schema.org/', prefix: 'schema:', what: 'schema.org（人物・出版物などのメタデータ）' },
+  { ns: 'http://www.w3.org/ns/prov#', prefix: 'prov:', what: 'PROV-O（来歴 Entity / Activity / Agent）' },
+  { ns: 'http://purl.org/dc/terms/', prefix: 'dcterms:', what: 'Dublin Core terms（identifier / created 等）' },
+  { ns: 'http://purl.org/ontology/bibo/', prefix: 'bibo:', what: 'BIBO（volume / issue / pages）' },
+  { ns: 'http://qudt.org/schema/qudt/', prefix: 'qudt:', what: 'QUDT（物性量・単位の共有語彙）' },
+  { ns: 'http://www.w3.org/2004/02/skos/core#', prefix: 'skos:', what: 'SKOS（概念体系）' },
+]
+
+/** Reused external vocabularies actually present in the live terms. */
+function deriveReuses(schema: SchemaSummary): { prefix: string; what: string }[] {
+  const present = new Set<string>()
+  for (const t of [...schema.classes, ...schema.predicates]) present.add(namespaceOf(t.iri))
+  return KNOWN_VOCABS.filter((v) => present.has(v.ns)).map(({ prefix, what }) => ({ prefix, what }))
+}
+
 /**
- * Shared vocabulary board (design_handoff_asterism_ux #6). The answer to "if
- * datasets are primary, do ontology/mapping disappear?" — No: the vocabulary
- * stays first-class, it is just SHARED across datasets.
+ * Shared vocabulary board (design_handoff_asterism_ux #6). The vocabulary stays
+ * first-class — it is just SHARED across datasets.
  *
- * Real data: the shared vocabulary IS the committed canonical ontology
- * (getOntologies); the datasets that bind to it are the real catalog datasets.
- * No fabricated classes/usage.
+ * #20: this view is now driven ENTIRELY by live data. The classes/predicates are
+ * introspected from whatever is actually loaded (the canonical FROM-merge across
+ * all datasets), labels come from each dataset's projected TBox (step5), and the
+ * reused external vocabularies are derived from the live term namespaces. There
+ * is no hardcoded starrydata fixture here.
  */
 export function SharedVocabView({ onBack }: { onBack?: () => void }) {
-  const [onto, setOnto] = useState<OntologyEntry | null>(null)
   const [datasets, setDatasets] = useState<CatalogDataset[]>([])
   const [schema, setSchema] = useState<SchemaSummary | null>(null)
+  const [schemaTried, setSchemaTried] = useState(false)
   const [loaded, setLoaded] = useState(false)
 
   useEffect(() => {
     let cancelled = false
-    Promise.all([getOntologies(), getCatalogDatasets()])
-      .then(([os, ds]) => {
-        if (cancelled) return
-        setOnto(os[0] ?? null)
-        setDatasets(ds)
-        setLoaded(true)
-      })
-      .catch(() => !cancelled && setLoaded(true))
-    // Live vocabulary actually in the store (best-effort; null = agent absent).
+    getCatalogDatasets()
+      .then((ds) => !cancelled && setDatasets(ds))
+      .catch(() => {})
+      .finally(() => !cancelled && setLoaded(true))
     getSchema()
       .then((s) => !cancelled && setSchema(s))
       .catch(() => {})
+      .finally(() => !cancelled && setSchemaTried(true))
     return () => {
       cancelled = true
     }
   }, [])
 
-  // Datasets other than the canonical itself are the consumers of the vocabulary.
-  const consumers = datasets.filter((d) => d.id !== onto?.id)
+  // Consumers = real (materialized) datasets; the fixture-free list only has
+  // entries that carry a live registry record.
+  const consumers = datasets.filter((d) => d.live)
+  const reuses = schema ? deriveReuses(schema) : []
 
   return (
     <div className="vocab">
@@ -69,72 +93,43 @@ export function SharedVocabView({ onBack }: { onBack?: () => void }) {
             「設計図（語彙）」は無くなりません — <span className="vocab-banner-hl">共有</span>されるだけ
           </div>
           <div className="vocab-banner-sub">
-            データセットを主役にしても、語彙と取り込みルールは各データセットの中に残ります。
-            ここはそのうち<strong>みんなで共通して使う部分</strong>。揃えるほど横断検索・比較が効きます。
+            これは<strong>実データから自動で内省した語彙</strong>です（全データセットを横断・
+            ラベルは各データセットの設計図から投影された TBox 由来）。揃えるほど横断検索・比較が効きます。
           </div>
         </div>
       </div>
 
-      {!loaded && (
+      {!schemaTried && (
         <p className="loading-row">
           <span className="spinner" />
           読み込み中…
         </p>
       )}
 
-      {loaded && !onto && (
-        <p className="ds-empty-note">共有オントロジーがまだありません。</p>
+      {schemaTried && !schema && (
+        <p className="ds-empty-note">
+          実データの語彙を取得できませんでした（クエリ層が応答していません）。
+        </p>
       )}
 
-      {/* #20: live vocabulary actually in the canonical store (FROM-merge),
-          with rdfs:label from each dataset's projected TBox (step5). This is the
-          schema-agnostic, generic view — it reflects whatever is loaded, not a
-          hardcoded starrydata fixture. Shown only when the agent answered. */}
-      {schema && (schema.classes.length > 0 || schema.predicates.length > 0) && (
-        <div className="card vocab-live">
-          <div className="vocab-card-head">
-            <h3 className="card-h">実データの語彙（横断・自動内省）</h3>
-            <span className="vocab-card-meta">
-              {schema.classes.length} クラス · {schema.predicates.length} 述語
-            </span>
-          </div>
-          <p className="vocab-live-note">
-            公開済みの全データセットを横断して、いま実際に入っている語彙を数えています
-            （ラベルは各データセットの設計図から投影された TBox 由来）。
-          </p>
-          <div className="vocab-live-cols">
-            <LiveTermList title="クラス" terms={schema.classes} />
-            <LiveTermList title="述語" terms={schema.predicates} />
-          </div>
-        </div>
-      )}
-
-      {onto && (
+      {schema && (
         <div className="vocab-grid">
-          {/* shared classes (canonical ontology) */}
+          {/* live shared vocabulary (classes + predicates, schema-agnostic) */}
           <div className="card vocab-classes">
             <div className="vocab-card-head">
-              <h3 className="card-h">共有クラス</h3>
+              <h3 className="card-h">共有クラス（実データ）</h3>
               <span className="vocab-card-meta">
-                {onto.classes.length} · {onto.prefix}
+                {schema.classes.length} クラス · {schema.predicates.length} 述語
               </span>
             </div>
-            <div className="vocab-class-list">
-              {onto.classes.map((c) => (
-                <div key={c} className="vocab-class">
-                  <div className="vocab-class-body">
-                    <div className="vocab-class-title">
-                      <code className="vocab-class-en">{c}</code>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-            {onto.reuses.length > 0 && (
+            <LiveTermList title="クラス" terms={schema.classes} />
+            <div className="ds-subhead">主な述語</div>
+            <LiveTermList title="" terms={schema.predicates} limit={15} />
+            {reuses.length > 0 && (
               <>
-                <div className="ds-subhead">再利用している語彙</div>
+                <div className="ds-subhead">再利用している語彙（実データの名前空間から検出）</div>
                 <div className="ds-reuse-list">
-                  {onto.reuses.map((r) => (
+                  {reuses.map((r) => (
                     <span key={r.prefix} className="reuse-chip" title={r.what}>
                       <code>{r.prefix}</code>
                       <span className="reuse-chip-what">{r.what}</span>
@@ -145,17 +140,17 @@ export function SharedVocabView({ onBack }: { onBack?: () => void }) {
             )}
           </div>
 
-          {/* datasets that bind to this vocabulary */}
+          {/* datasets that bind to this vocabulary (real, materialized) */}
           <div className="card vocab-users">
             <div className="vocab-card-head">
-              <h3 className="card-h">このオントロジーを使うデータセット</h3>
+              <h3 className="card-h">この語彙を使うデータセット</h3>
               <span className="vocab-card-meta">{consumers.length}</span>
             </div>
             <div className="vocab-user-list">
-              {consumers.length === 0 && (
+              {loaded && consumers.length === 0 && (
                 <p className="ds-empty-note">
-                  まだ他のデータセットはこの語彙に紐づいていません。ワークベンチで設計を保存すると、
-                  共有語彙との差分（再利用 / 新規）を「取り込みルール」タブで確認できます。
+                  まだ取り込み済みのデータセットがありません。ワークベンチで設計を保存して取り込むと、
+                  ここに横断対象として並びます。
                 </p>
               )}
               {consumers.map((u) => (
@@ -192,13 +187,13 @@ export function SharedVocabView({ onBack }: { onBack?: () => void }) {
 }
 
 /** A ranked list of live classes/predicates: human label + IRI localname + count. */
-function LiveTermList({ title, terms }: { title: string; terms: SchemaTerm[] }) {
+function LiveTermList({ title, terms, limit = 50 }: { title: string; terms: SchemaTerm[]; limit?: number }) {
   return (
     <div className="vocab-live-col">
-      <div className="ds-subhead">{title}</div>
+      {title && <div className="ds-subhead">{title}</div>}
       {terms.length === 0 && <p className="ds-empty-note">（なし）</p>}
       <div className="vocab-live-list">
-        {terms.slice(0, 20).map((t) => (
+        {terms.slice(0, limit).map((t) => (
           <div key={t.iri} className="vocab-live-term" title={t.iri}>
             <span className="vocab-live-label">{t.label || localName(t.iri)}</span>
             {t.label && <code className="vocab-live-iri">{localName(t.iri)}</code>}
