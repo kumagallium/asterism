@@ -11,9 +11,20 @@ import {
   type ProposeResult,
   type RefineResult,
 } from './api'
+import { type SourceKind } from './datasetsApi'
 import { PRESET_HINTS } from './domainHints'
 import { MaterializePanel } from './MaterializePanel'
 import { ProposalView } from './ProposalView'
+
+// Data-source kinds. Only CSV is wired to a backend today; the others are shown
+// (the redesign's "any structured source" promise) but disabled until the
+// connect flow lands (Phase 2 decision: CSV-only, others as "近日対応").
+const SOURCES: { id: SourceKind; label: string }[] = [
+  { id: 'csv', label: '表計算 / CSV' },
+  { id: 'json', label: 'JSON' },
+  { id: 'api', label: 'API' },
+  { id: 'db', label: 'DB' },
+]
 
 // D7: the user-brought API key lives only in sessionStorage (cleared when the
 // tab closes) and is sent as a per-request header. It is never persisted.
@@ -24,10 +35,10 @@ const API_KEY_STORAGE = 'asterism.apiKey'
 // data-source panel ("構造を見る"), and the inspection Propose actually used is
 // shown inline with the proposal.
 type Step = 1 | 2 | 3
-const STEPS: { n: Step; label: string }[] = [
-  { n: 1, label: 'スキーマ提案' },
-  { n: 2, label: 'レビュー' },
-  { n: 3, label: '確定・保存' },
+const STEPS: { n: Step; label: string; en: string }[] = [
+  { n: 1, label: 'AI が設計', en: 'design' },
+  { n: 2, label: '確認・修正', en: 'review' },
+  { n: 3, label: '保存', en: 'save' },
 ]
 
 // Persist the workbench's *generated artifacts* (not secrets) to sessionStorage
@@ -341,8 +352,8 @@ export function WorkbenchView() {
   return (
     <>
       <p className="subtitle">
-        CSV をアップロードし、AI スキーマ提案 → レビュー → 確定・保存 の順に進めます。
-        確定するとカタログ（Gallery）に保存されます。構造解析は Propose が内部で実行するので、
+        データソースをつなぎ、<strong>AI が設計 → 確認・修正 → 保存</strong>の順に進めます。
+        保存するとカタログに並びます。構造解析は内部で自動実行するので、
         確認したいときだけ「構造を見る」を押してください。
       </p>
 
@@ -361,7 +372,24 @@ export function WorkbenchView() {
 
       {/* Persistent data source: the CSV is shared across every step. */}
       <section className="data-source">
-        <span className="data-source-label">データソース</span>
+        <div className="source-switch-row">
+          <span className="data-source-label">データソース</span>
+          <div className="source-switch" role="group" aria-label="データソースの種類">
+            {SOURCES.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                className={`source-pill${s.id === 'csv' ? ' active' : ''}`}
+                disabled={s.id !== 'csv'}
+                title={s.id !== 'csv' ? '近日対応' : undefined}
+              >
+                {s.label}
+                {s.id !== 'csv' && <span className="source-soon">近日</span>}
+              </button>
+            ))}
+          </div>
+          <span className="hint source-note">あらゆる構造化ソースに対応予定（現在は CSV）</span>
+        </div>
         <div className="data-source-row">
           <label className="file-btn">
             CSV を選択
@@ -426,7 +454,10 @@ export function WorkbenchView() {
               onClick={() => setStep(s.n)}
             >
               <span className="step-num">{done[s.n] ? '✓' : s.n}</span>
-              <span className="step-label">{s.label}</span>
+              <span className="step-text">
+                <span className="step-label">{s.label}</span>
+                <span className="step-en">{s.en}</span>
+              </span>
             </button>
             {i < STEPS.length - 1 && <span className="step-connector" aria-hidden="true" />}
           </li>
@@ -437,8 +468,8 @@ export function WorkbenchView() {
         {step === 1 && (
           <>
             <p className="step-hint">
-              AI が TBox / Mermaid / MIE / ingester のスキーマ案を提案します。Anthropic API
-              キーが必要です（このセッションのみ保持・サーバ非保存）。
+              AI がデータの<strong>設計図（語彙）</strong>と<strong>取り込みルール</strong>の案を提案します。
+              Anthropic API キーが必要です（このセッションのみ保持・サーバ非保存）。
             </p>
             <section className="controls">
               <label>
@@ -540,7 +571,7 @@ export function WorkbenchView() {
               </section>
             </>
           ) : (
-            <p className="step-guard">先に「スキーマ提案」でスキーマを生成してください。</p>
+            <p className="step-guard">先に「AI が設計」でスキーマを生成してください。</p>
           ))}
 
         {step === 3 &&
@@ -563,7 +594,7 @@ export function WorkbenchView() {
               {materialized && <MaterializePanel result={materialized} csvFiles={files} />}
             </>
           ) : (
-            <p className="step-guard">先に「スキーマ提案」でスキーマを生成してください。</p>
+            <p className="step-guard">先に「AI が設計」でスキーマを生成してください。</p>
           ))}
       </div>
     </>
