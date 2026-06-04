@@ -14,8 +14,10 @@ from __future__ import annotations
 
 import json
 
+import pytest
 import rdflib
 from asterism.starrydata import DEFAULT_ONTOLOGY, DEFAULT_RESOURCE
+from asterism.substrate import canonical_graph_iri, draft_graph_iri
 
 from asterism_mcp.tools import property_ranking, provenance_of, sample_search
 
@@ -62,8 +64,15 @@ _TTL = f"""
 
 
 def _client():
-    """A minimal client whose sparql_select runs against an in-memory rdflib graph."""
-    g = rdflib.Graph()
+    """A minimal client whose sparql_select runs against an in-memory rdflib store.
+
+    Uses a ``ConjunctiveGraph`` (a quad store) — not a single ``Graph`` — so the
+    canonical-scope reads (which use ``GRAPH ?g { ... }`` to span per-dataset
+    canonical named graphs, #20 P3) execute the same way they do against Oxigraph.
+    (``Dataset`` would be the non-deprecated type, but it currently emits a flood
+    of internal DeprecationWarnings per query; ConjunctiveGraph keeps logs clean.)
+    """
+    g = rdflib.ConjunctiveGraph()
     g.parse(data=_TTL, format="turtle")
 
     class _LocalClient:
@@ -114,3 +123,31 @@ async def test_provenance_of_curve_real() -> None:
     assert sample_step["iri"] == f"{SDR}sample/1-1"
     paper_step = next(s for s in out["chain"] if s["step"] == "paper")
     assert paper_step["iri"] == f"{SDR}paper/1"
+
+
+# ---- #20 P3: canonical scope reads per-dataset canonical graphs, drops drafts --
+
+# rdflib's internal SPARQL evaluation emits DeprecationWarnings on a Dataset; we
+# need Dataset here (not ConjunctiveGraph) because only its default_union=False
+# default models Oxigraph faithfully: GRAPH-less patterns read ONLY the default
+# graph, so the draft-exclusion below is meaningful rather than masked by a
+# union-everything default. The warnings are rdflib-internal, not our query.
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+async def test_canonical_scope_reads_named_graph_and_excludes_draft() -> None:
+    ds = rdflib.Dataset()  # default_union=False: GRAPH-less reads only default
+    canon = ds.graph(rdflib.URIRef(canonical_graph_iri("ds1")))
+    draft = ds.graph(rdflib.URIRef(draft_graph_iri("ds2")))
+    sd = rdflib.Namespace(SD)
+    canon.add((rdflib.URIRef("https://ex/s/c1"), rdflib.RDF.type, sd.Sample))
+    canon.add((rdflib.URIRef("https://ex/s/c1"), sd.compositionString, rdflib.Literal("CanonComp")))
+    draft.add((rdflib.URIRef("https://ex/s/d1"), rdflib.RDF.type, sd.Sample))
+    draft.add((rdflib.URIRef("https://ex/s/d1"), sd.compositionString, rdflib.Literal("DraftComp")))
+
+    class _C:
+        async def sparql_select(self, query: str) -> dict:
+            raw = ds.query(query).serialize(format="json")
+            return json.loads(raw.decode() if isinstance(raw, bytes) else raw)
+
+    comps = {r["composition"] for r in (await sample_search(_C()))["results"]}
+    assert "CanonComp" in comps  # per-dataset canonical named graph IS read
+    assert "DraftComp" not in comps  # unreviewed draft graph is excluded from Ask

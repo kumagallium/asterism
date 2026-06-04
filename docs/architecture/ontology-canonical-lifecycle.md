@@ -142,7 +142,10 @@ status: **合意済み**（2026-06-03 ユーザー確定）— 旧 `要決定` 4
 
 #### 段階（P3 内のサブステップ・各 PR CI green）
 
-1. **canonical を per-dataset graph 化**（promote 先変更＋読み取り UNION＋既存 default の移行）。これが他全部の土台。⬜ **未**（高リスク＝読み取り経路を全 read tool で変更・実 Oxigraph 検証が要る。実装の発見: `schema_summary`/typed 4 ツール/`template_curve_fetch` は GRAPH-less＝default graph 前提。BIND/集約/OPTIONAL を含む WHERE を素朴に UNION 包むと semantics が崩れる→`FROM <canonical/{id}>` 注入 等の慎重な方式が必要。実機確認込みの専用 PR で。）
+1. **canonical を per-dataset graph 化**。🟡 **読み取り対応 着地（PR #106）／promote 切替は次**。
+   - **実機検証（read-only on 実 Oxigraph :7878）**: `FROM <g>` は GRAPH-less クエリをその graph に向け、`FROM <存在しない>` は 0＝**FROM 指定時は default を読まない**ことを確認。これを踏まえ、後方互換（移行不要）の **GRAPH-union 方式**を採用: canonical 読み取り＝`{ body } UNION { GRAPH ?g { body } FILTER(STRSTARTS(?g, "…/asterism/graph/canonical/")) }`＝**default graph ∪ 各 canonical named graph、draft/control/ontology は prefix FILTER で除外**。
+   - **読み取り側を全 read tool に適用済（PR #106）**: `_canonical_scope()` ヘルパ＋`schema_summary`(`_graph_clause` None 経路)・`sample_search`・`property_ranking`(本体＋count)・`template_curve_fetch`・`provenance_of`(全 OPTIONAL の phantom 行回避に必須アンカー`?e ?p ?o`を追加)。**現状は canonical graph が存在しない＝挙動不変**（default branch のみ一致）。実機で canonical-scope クエリが default の3クラスのみ返し**735万件の draft を除外**することを確認。テスト harness を `ConjunctiveGraph`(quad)化＋canonical 読取/draft 除外の新テスト。
+   - ⬜ **残（次 PR）**: promote 先を `MOVE draft → canonical/{id}`（default でなく）に切替＋既存 default データの per-dataset graph 移行＋`alignment_report` の canonical 側を union に。
 2. **version モデル**（registry 版ログ＋meta `version`＋control 語彙）。✅ **着地（PR #105）**: `mark_promoted` が monotonic `version` を bump し append-only `versions` ログを記録（再昇格で +1・点的版は持たない＝要決定②）。promote API が `version` を返す。substrate に lifecycle graph IRI ヘルパ（`canonical_graph_iri`/`ontology_graph_iri`・dataset-neutral 名前空間 `…/asterism/graph/`）＋control 語彙定数を追加（step 1/3/4 で使用・現状は未配線で挙動不変）。
 3. **retract/reinstate**（tombstone＋読み取り除外）。⬜ 未（step 1 の per-dataset graph に依存）。
 4. **delete**（draft/all＋force＋tombstone 痕跡）。⬜ 未（step 1 に依存）。

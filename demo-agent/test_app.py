@@ -56,7 +56,7 @@ class _LocalClient:
 
 
 def _real_client(monkeypatch) -> TestClient:
-    g = rdflib.Graph()
+    g = rdflib.ConjunctiveGraph()  # quad store: canonical-scope reads use GRAPH (#20 P3)
     g.parse(data=_TTL, format="turtle")
     demo._state["client"] = _LocalClient(g)
     monkeypatch.setattr(demo, "_REAL", True)
@@ -157,7 +157,7 @@ class _FakeAnthropic:
 
 
 def _custom_schema_client(monkeypatch, fake: _FakeAnthropic) -> TestClient:
-    g = rdflib.Graph()
+    g = rdflib.ConjunctiveGraph()  # quad store: canonical-scope reads use GRAPH (#20 P3)
     g.parse(data=_CUSTOM_TTL, format="turtle")
     demo._state["client"] = _LocalClient(g)
     monkeypatch.setattr(demo, "_REAL", True)
@@ -217,7 +217,7 @@ def test_llm_escape_requires_key(monkeypatch) -> None:
 def test_typed_path_still_short_circuits_without_llm(monkeypatch) -> None:
     # Starrydata fixture + a ZT question → typed path answers; LLM untouched even
     # when a key is present.
-    g = rdflib.Graph()
+    g = rdflib.ConjunctiveGraph()  # quad store: canonical-scope reads use GRAPH (#20 P3)
     g.parse(data=_TTL, format="turtle")
     demo._state["client"] = _LocalClient(g)
     monkeypatch.setattr(demo, "_REAL", True)
