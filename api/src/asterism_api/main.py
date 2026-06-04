@@ -640,6 +640,44 @@ def build_app(
             }
         )
 
+    @app.post("/api/datasets/{dataset_id}/retract")
+    async def retract_dataset(dataset_id: str) -> JSONResponse:
+        """#20 P3 step3: withdraw a promoted dataset from the citable corpus.
+
+        Tombstone, not delete: the canonical graph's data + IRIs stay (so existing
+        citations keep resolving) but a control-graph marker makes the canonical
+        scope exclude it from every Ask read. Reversible via /reinstate.
+        """
+        data = registry.load_dataset(cfg.registry_root, dataset_id)
+        if data is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        if not data["meta"].get("promoted"):
+            raise HTTPException(400, "dataset is not promoted (nothing canonical to retract)")
+        canonical_iri = substrate.canonical_graph_iri(dataset_id)
+        client: OxigraphClient = app.state.client
+        now = datetime.now(UTC).isoformat()
+        await substrate.retract_canonical(client, canonical_iri, invalidated_at=now)
+        meta = registry.mark_retracted(cfg.registry_root, dataset_id, retracted_at=now)
+        return JSONResponse(
+            {"dataset_id": dataset_id, "status": "retracted", "dataset": meta}
+        )
+
+    @app.post("/api/datasets/{dataset_id}/reinstate")
+    async def reinstate_dataset(dataset_id: str) -> JSONResponse:
+        """#20 P3 step3: undo a retract — bring the dataset back into the Ask scope."""
+        data = registry.load_dataset(cfg.registry_root, dataset_id)
+        if data is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        canonical_iri = substrate.canonical_graph_iri(dataset_id)
+        client: OxigraphClient = app.state.client
+        await substrate.reinstate_canonical(client, canonical_iri)
+        meta = registry.mark_reinstated(
+            cfg.registry_root, dataset_id, reinstated_at=datetime.now(UTC).isoformat()
+        )
+        return JSONResponse(
+            {"dataset_id": dataset_id, "status": "active", "dataset": meta}
+        )
+
     @app.post("/api/sparql")
     async def sparql(body: SparqlRequest) -> JSONResponse:
         """Read-only SPARQL relay to Oxigraph (advanced escape hatch, ADR §5).

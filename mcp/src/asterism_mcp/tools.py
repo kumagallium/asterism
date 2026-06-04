@@ -28,7 +28,7 @@ from typing import Any, Final
 
 from asterism.datasets import load_dataset
 from asterism.oxigraph_client import OxigraphClient
-from asterism.substrate import CANONICAL_GRAPH_BASE
+from asterism.substrate import canonical_scope_where
 
 # ----------------------------------------------------------------------------
 # Predicate -> output-key mapping for template_curve_fetch
@@ -94,33 +94,20 @@ def _parse_value(key: str, raw: str) -> Any:
 # Canonical read scope (#20 P3)
 # ----------------------------------------------------------------------------
 #
-# "Canonical" used to mean exactly the default graph (promote MOVEd drafts into
-# it). P3 moves promoted data into per-dataset *canonical named graphs*
-# (.../asterism/graph/canonical/{id}). To read citable facts regardless of where
-# they live — and to keep working before/after that migration — every Ask read
-# spans the default graph (legacy / seed / pre-migration data) UNION every
-# canonical named graph. Draft / control / ontology graphs are EXCLUDED by the
+# Every Ask read spans the **canonical scope**: the default graph (legacy / seed /
+# pre-migration data) UNION every per-dataset canonical named graph
+# (.../asterism/graph/canonical/{id}), MINUS any that are retracted (tombstoned in
+# the control graph). Draft / control / ontology graphs are excluded by the
 # canonical-prefix filter, so unreviewed drafts never leak into Ask.
 #
-# This is behaviour-preserving today: no canonical named graphs exist yet (the
-# promote-target flip is a follow-up), so only the default-graph branch matches.
-
-_CANON_BASE: Final[str] = CANONICAL_GRAPH_BASE.replace("<", "").replace(">", "")
-_CANON_GVAR: Final[str] = "?__cg"
+# The scope pattern is defined ONCE in ``asterism.substrate.canonical_scope_where``
+# and imported here so Ask reads, the curve fetch, and promotion's alignment all
+# use byte-for-byte the same scope (no drift, incl. the retraction exclusion).
 
 
 def _canonical_scope(body: str) -> str:
-    """Wrap a GRAPH-less group pattern to read the canonical scope.
-
-    ``{ body } UNION { GRAPH ?__cg { body } FILTER(canonical prefix) }`` — the
-    default graph plus every per-dataset canonical named graph, drafts excluded.
-    """
-    return (
-        "{ " + body + " }\n"
-        "  UNION\n"
-        "  { GRAPH " + _CANON_GVAR + " { " + body + " } "
-        f'FILTER(STRSTARTS(STR({_CANON_GVAR}), "{_CANON_BASE}")) }}'
-    )
+    """Wrap a GRAPH-less group pattern to read the canonical scope (#20 P3)."""
+    return canonical_scope_where(body)
 
 
 def _build_query(curve_iri: str) -> str:

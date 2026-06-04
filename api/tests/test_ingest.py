@@ -194,9 +194,11 @@ class _PromoteOxi:
             q = request.content.decode()
             if "COUNT" in q:
                 rows = [{"c": {"value": "1640"}}]
+            elif "?__cg" in q:  # canonical-scope side (default + canonical/*) — empty
+                rows = []
             elif "GRAPH <" in q:  # draft side names a graph literally
                 rows = [{"x": {"type": "uri", "value": "https://ex#draftProp"}}]
-            else:  # canonical-scope side (default + canonical/*) — empty here
+            else:
                 rows = []
             return httpx.Response(
                 200,
@@ -315,3 +317,35 @@ def test_ingest_morph_kgc_error_returns_422(tmp_path: Path, monkeypatch) -> None
         assert r.status_code == 422
         assert "KeyError" in r.json()["detail"]
     assert oxi.store_calls == []  # nothing loaded
+
+
+def test_retract_then_reinstate_roundtrip(tmp_path: Path) -> None:
+    """#20 P3 step3: retract tombstones the canonical graph; reinstate clears it."""
+    dataset_id = _ingested_dataset(tmp_path)
+    oxi = _PromoteOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    canon = f"https://kumagallium.github.io/asterism/graph/canonical/{dataset_id}"
+    with TestClient(app) as client:
+        assert client.post(f"/api/datasets/{dataset_id}/promote").status_code == 200
+        r = client.post(f"/api/datasets/{dataset_id}/retract")
+        assert r.status_code == 200, r.text
+        assert r.json()["status"] == "retracted"
+        assert r.json()["dataset"]["status"] == "retracted"
+        r2 = client.post(f"/api/datasets/{dataset_id}/reinstate")
+        assert r2.status_code == 200
+        assert r2.json()["status"] == "active"
+    # retract wrote a control-graph tombstone for the canonical graph...
+    assert any("INSERT DATA" in u and '"retracted"' in u and canon in u for u in oxi.updates)
+    # ...and meta ends active again after reinstate.
+    meta = json.loads((tmp_path / "registry" / dataset_id / "meta.json").read_text())
+    assert meta["status"] == "active"
+
+
+def test_retract_requires_promoted(tmp_path: Path) -> None:
+    dataset_id = _save_dataset_with_rml(tmp_path)  # designed but never promoted
+    oxi = _PromoteOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app) as client:
+        r = client.post(f"/api/datasets/{dataset_id}/retract")
+        assert r.status_code == 400
+    assert oxi.updates == []  # nothing tombstoned

@@ -148,7 +148,7 @@ status: **合意済み**（2026-06-03 ユーザー確定）— 旧 `要決定` 4
    - ✅ **promote 切替 着地（PR #107）**: `promote_draft_to_canonical(client, draft, canonical)` が `MOVE GRAPH <draft> TO GRAPH <canonical/{id}>`（default でなく）。MOVE は宛先を置換するので**再昇格で旧版 triple が残らない**。`alignment_report` の canonical 側を canonical-scope union に。registry meta に `canonical_graph` 記録（retract/delete が target にする）。promote API レスポンスの `canonical_graph` が `canonical/{id}` に。
    - **既存 default データの移行は任意**（読み取りが default も canonical も読むため、旧 default データ・seed は読めたまま）。強制移行はせず、必要時に一括 MOVE する運用。
 2. **version モデル**（registry 版ログ＋meta `version`＋control 語彙）。✅ **着地（PR #105）**: `mark_promoted` が monotonic `version` を bump し append-only `versions` ログを記録（再昇格で +1・点的版は持たない＝要決定②）。promote API が `version` を返す。substrate に lifecycle graph IRI ヘルパ（`canonical_graph_iri`/`ontology_graph_iri`・dataset-neutral 名前空間 `…/asterism/graph/`）＋control 語彙定数を追加（step 1/3/4 で使用・現状は未配線で挙動不変）。
-3. **retract/reinstate**（tombstone＋読み取り除外）。⬜ 未（step 1 の per-dataset graph に依存）。
+3. **retract/reinstate**（tombstone＋読み取り除外）。✅ **完了（PR #108）**: control graph `…/graph/control` に `<canonical/{id}> asterism:status "retracted" ; prov:invalidatedAtTime …` を書き、canonical scope が `FILTER NOT EXISTS` で除外（**物理削除しない＝IRI は解決可能なまま**）。canonical scope は `substrate.canonical_scope_where()` に一本化し mcp も import（Ask/alignment が同一スコープ＝drift なし）。reinstate=control の marker 削除。新 API `POST /api/datasets/{id}/retract|reinstate`（人間ゲート・`/api/sparql` は read-only 維持）。registry meta に `status`。実 Oxigraph で retract 対応クエリの構文も確認。
 4. **delete**（draft/all＋force＋tombstone 痕跡）。⬜ 未（step 1 に依存）。
 5. **ontology graph 投影**＋`schema_summary` の TBox 補強。⬜ 未（additive・step 1 と独立に可能）。
 

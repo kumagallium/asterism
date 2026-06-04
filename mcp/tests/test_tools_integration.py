@@ -151,3 +151,34 @@ async def test_canonical_scope_reads_named_graph_and_excludes_draft() -> None:
     comps = {r["composition"] for r in (await sample_search(_C()))["results"]}
     assert "CanonComp" in comps  # per-dataset canonical named graph IS read
     assert "DraftComp" not in comps  # unreviewed draft graph is excluded from Ask
+
+
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+async def test_retracted_canonical_graph_excluded_from_ask() -> None:
+    from asterism.substrate import CONTROL_GRAPH_IRI, STATUS_PREDICATE, canonical_graph_iri
+
+    ds = rdflib.Dataset()
+    sd = rdflib.Namespace(SD)
+    g1 = ds.graph(rdflib.URIRef(canonical_graph_iri("ds1")))
+    g2 = ds.graph(rdflib.URIRef(canonical_graph_iri("ds2")))
+    for g, comp, sid in ((g1, "ActiveComp", "a1"), (g2, "RetractedComp", "r1")):
+        g.add((rdflib.URIRef(f"https://ex/s/{sid}"), rdflib.RDF.type, sd.Sample))
+        g.add((rdflib.URIRef(f"https://ex/s/{sid}"), sd.compositionString, rdflib.Literal(comp)))
+    # Tombstone ds2 in the control graph -> it leaves the canonical scope.
+    ctrl = ds.graph(rdflib.URIRef(CONTROL_GRAPH_IRI))
+    ctrl.add(
+        (
+            rdflib.URIRef(canonical_graph_iri("ds2")),
+            rdflib.URIRef(STATUS_PREDICATE),
+            rdflib.Literal("retracted"),
+        )
+    )
+
+    class _C:
+        async def sparql_select(self, query: str) -> dict:
+            raw = ds.query(query).serialize(format="json")
+            return json.loads(raw.decode() if isinstance(raw, bytes) else raw)
+
+    comps = {r["composition"] for r in (await sample_search(_C()))["results"]}
+    assert "ActiveComp" in comps  # active canonical graph is read
+    assert "RetractedComp" not in comps  # retracted canonical graph is excluded

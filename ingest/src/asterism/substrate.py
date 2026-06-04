@@ -87,6 +87,8 @@ CONTROL_GRAPH_IRI: str = LIFECYCLE_GRAPH_BASE + "control"
 
 # Control vocabulary (asterism: namespace) for the lifecycle status of a dataset.
 ASTERISM_NS: str = "https://kumagallium.github.io/asterism/vocab#"
+STATUS_PREDICATE: str = ASTERISM_NS + "status"
+INVALIDATED_PREDICATE: str = "http://www.w3.org/ns/prov#invalidatedAtTime"
 STATUS_ACTIVE: str = "active"
 STATUS_RETRACTED: str = "retracted"
 STATUS_DELETED: str = "deleted"
@@ -234,19 +236,34 @@ def classify_alignment(draft: set[str], canonical: set[str]) -> dict[str, list[s
     }
 
 
-def _canonical_where(body: str) -> str:
-    """A WHERE group reading the **canonical scope** (#20 P3).
+# Excludes retracted canonical graphs: a tombstone in the control graph
+# (``<canonical/{id}> asterism:status "retracted"``) drops that graph from every
+# Ask read (#20 P3 step3). The IRIs stay resolvable for citations; they just
+# leave the citable corpus until reinstated.
+_RETRACTED_EXCLUSION: str = (
+    f"FILTER NOT EXISTS {{ GRAPH <{CONTROL_GRAPH_IRI}> {{ "
+    f'?__cg <{STATUS_PREDICATE}> "{STATUS_RETRACTED}" }} }}'
+)
 
-    ``{ body } UNION { GRAPH ?__cg { body } FILTER(canonical prefix) }`` — the
-    default graph (legacy / seed / pre-migration data) plus every per-dataset
-    canonical named graph; draft / control / ontology graphs are excluded by the
-    prefix filter. Mirrors ``asterism_mcp.tools._canonical_scope`` so alignment
-    compares a draft against exactly what Ask treats as canonical.
+
+def canonical_scope_where(body: str) -> str:
+    """A WHERE group reading the **canonical scope** (#20 P3). Single source of truth.
+
+    ``{ body } UNION { GRAPH ?__cg { body } FILTER(canonical prefix) FILTER NOT
+    EXISTS retracted }`` — the default graph (legacy / seed / pre-migration data)
+    plus every per-dataset canonical named graph that is NOT retracted; draft /
+    control / ontology graphs are excluded by the prefix filter. ``asterism_mcp``
+    imports this so Ask reads and alignment use the exact same scope.
     """
     return (
         "{ " + body + " } UNION { GRAPH ?__cg { " + body + " } "
-        f'FILTER(STRSTARTS(STR(?__cg), "{CANONICAL_GRAPH_BASE}")) }}'
+        f'FILTER(STRSTARTS(STR(?__cg), "{CANONICAL_GRAPH_BASE}")) '
+        f"{_RETRACTED_EXCLUSION} }}"
     )
+
+
+# Backwards-compatible internal alias.
+_canonical_where = canonical_scope_where
 
 
 async def _distinct_iris(client: SupportsSparql, where: str) -> set[str]:
@@ -300,3 +317,36 @@ async def promote_draft_to_canonical(
         count = int(bindings[0]["c"]["value"])
     await client.sparql_update(f"MOVE GRAPH <{draft_iri}> TO GRAPH <{canonical_iri}>")
     return count
+
+
+# ----------------------------------------------------------------------------
+# Retract / reinstate (#20 P3 step3) — tombstone, never physical delete
+# ----------------------------------------------------------------------------
+#
+# Retract marks a canonical graph as withdrawn in the control graph; the
+# canonical scope (canonical_scope_where) then excludes it from every Ask read.
+# The data + IRIs stay in place so existing citations keep resolving (ADR §3 確定
+# ②: physical delete is avoided for citation stability). Reinstate removes the
+# marker. Both are scoped, validated control-graph writes — NOT a generic UPDATE
+# passthrough (the public /api/sparql stays read-only).
+
+_XSD_DATETIME: str = "http://www.w3.org/2001/XMLSchema#dateTime"
+
+
+async def retract_canonical(
+    client: SupportsSparql, canonical_iri: str, *, invalidated_at: str
+) -> None:
+    """Tombstone ``canonical_iri`` as retracted (excluded from Ask, IRIs kept)."""
+    await client.sparql_update(
+        f"DELETE WHERE {{ GRAPH <{CONTROL_GRAPH_IRI}> {{ <{canonical_iri}> ?p ?o }} }} ;"
+        f"INSERT DATA {{ GRAPH <{CONTROL_GRAPH_IRI}> {{ "
+        f'<{canonical_iri}> <{STATUS_PREDICATE}> "{STATUS_RETRACTED}" ; '
+        f'<{INVALIDATED_PREDICATE}> "{invalidated_at}"^^<{_XSD_DATETIME}> }} }}'
+    )
+
+
+async def reinstate_canonical(client: SupportsSparql, canonical_iri: str) -> None:
+    """Remove the retract tombstone for ``canonical_iri`` (back into the Ask scope)."""
+    await client.sparql_update(
+        f"DELETE WHERE {{ GRAPH <{CONTROL_GRAPH_IRI}> {{ <{canonical_iri}> ?p ?o }} }}"
+    )
