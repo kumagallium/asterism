@@ -228,6 +228,91 @@ def _ingested_dataset(tmp: Path) -> str:
     return dataset_id
 
 
+_TBOX_RML = (
+    "@prefix sd: <https://kumagallium.github.io/asterism/starrydata/ontology#> .\n"
+    "@prefix sdr: <https://kumagallium.github.io/asterism/starrydata/resource/> .\n"
+    "@prefix schema: <https://schema.org/> .\n"
+)
+_TBOX_MODEL = (
+    "- Paper <https://ex/paper/1>:\n"
+    "    - a: sd:Paper\n"
+    "    - schema:name?:\n"
+    "        - title: \"t\"\n"
+    "- Sample <https://ex/sample/1>:\n"
+    "    - a: sd:Sample\n"
+    "    - sd:fromPaper:\n"
+    "        - sp: Paper\n"
+)
+
+
+class _ProjectOxi:
+    """Promote fake that also records /store POSTs (for ontology projection)."""
+
+    def __init__(self) -> None:
+        self.updates: list[str] = []
+        self.stores: list[str | None] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/update":
+                self.updates.append(request.content.decode())
+                return httpx.Response(204)
+            if request.url.path == "/store":
+                self.stores.append(request.url.params.get("graph"))
+                return httpx.Response(204)
+            q = request.content.decode()
+            if "COUNT" in q and "GRAPH" not in q:
+                rows = [{"c": {"value": "0"}}]  # migration default-count
+            elif "COUNT" in q:
+                rows = [{"c": {"value": "1640"}}]
+            else:
+                rows = []
+            return httpx.Response(
+                200,
+                text=json.dumps({"results": {"bindings": rows}}),
+                headers={"content-type": "application/sparql-results+json"},
+            )
+
+        inner = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://test")
+        self.client = OxigraphClient(OxigraphConfig(base_url="http://test"), client=inner)
+
+
+def test_promote_projects_tbox_into_ontology_graph(tmp_path: Path) -> None:
+    # A dataset with a real model.yaml -> promote projects RDFS into ontology/{id}.
+    dataset_id = registry.save_dataset(
+        tmp_path / "registry",
+        "tbox",
+        {
+            "diagram.md": "classDiagram\n  class Paper",
+            "model.yaml": _TBOX_MODEL,
+            "mie.yaml": "schema_info:\n  title: x",
+            "ingester.py": "def go(): ...",
+            "mapping.rml.ttl": _TBOX_RML,
+        },
+        complete=True,
+        warnings=[],
+        traps=[],
+        exit_code=0,
+        created_at="2026-06-05T00:00:00+00:00",
+    )["id"]
+    registry.mark_ingested(
+        tmp_path / "registry",
+        dataset_id,
+        graph_iri=f"https://kumagallium.github.io/asterism/starrydata/graph/draft/{dataset_id}",
+        triple_count=1640,
+        ingested_at="2026-06-05T00:10:00+00:00",
+    )
+    oxi = _ProjectOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app) as client:
+        body = client.post(f"/api/datasets/{dataset_id}/promote").json()
+    ontology_iri = f"https://kumagallium.github.io/asterism/graph/ontology/{dataset_id}"
+    assert body["ontology_graph"] == ontology_iri
+    assert body["ontology_triples"] > 0  # TBox projected
+    # The ontology graph was replaced (DROP) then loaded (POST /store?graph=...).
+    assert any("DROP" in u and ontology_iri in u for u in oxi.updates)
+    assert ontology_iri in oxi.stores
+
+
 def test_alignment_preview_classifies_draft(tmp_path: Path) -> None:
     dataset_id = _ingested_dataset(tmp_path)
     oxi = _PromoteOxi()

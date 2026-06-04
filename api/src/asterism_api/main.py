@@ -36,6 +36,11 @@ from typing import Final
 
 from asterism import substrate
 from asterism.datasets import load_dataset
+from asterism.ontology_projection import (
+    STANDARD_PREFIXES,
+    extract_prefixes,
+    project_model_yaml,
+)
 from asterism.oxigraph_client import OxigraphClient, OxigraphConfig
 from asterism.starrydata import IngestConfig
 from asterism.watcher import (
@@ -90,6 +95,38 @@ _SPARQL_UPDATE = re.compile(
 )
 
 logger = logging.getLogger(__name__)
+
+
+async def _project_ontology_graph(
+    client: OxigraphClient, dataset_id: str, artifacts: dict[str, str]
+) -> int:
+    """#20 step5: project the dataset's TBox into its ontology named graph.
+
+    Additive + best-effort: reads the bundle's ``model.yaml`` (rdf-config TBox),
+    resolves prefixes from the bundle's own RML / MIE declarations (so ``sd:`` /
+    ``sdr:`` map to THIS dataset's IRIs) unioned with standard ones, projects
+    RDFS/OWL, and replaces the ontology graph (DROP then load) so a re-promote
+    has no stale triples. Returns the triple count (0 = nothing projected). Never
+    raises — a projection failure must not block a promote (the TBox graph is
+    enrichment; Ask works from the ABox regardless).
+    """
+    model_yaml = artifacts.get("model.yaml") or ""
+    if not model_yaml.strip():
+        return 0
+    prefixes = STANDARD_PREFIXES | extract_prefixes(
+        artifacts.get("mapping.rml.ttl") or "", artifacts.get("mie.yaml") or ""
+    )
+    graph = project_model_yaml(model_yaml, prefixes)
+    if len(graph) == 0:
+        return 0
+    payload = graph.serialize(format="turtle")
+    if isinstance(payload, str):
+        payload = payload.encode("utf-8")
+    ontology_iri = substrate.ontology_graph_iri(dataset_id)
+    await substrate.drop_graph(client, ontology_iri)  # replace, not merge
+    await client.post_turtle_bytes(payload, graph_iri=ontology_iri)
+    return len(graph)
+
 
 # #20 P2-2b: starrydata's identity (ontology / resource IRIs) is content declared
 # in datasets/starrydata/dataset.toml, read via the generic dataset loader — the
@@ -635,6 +672,14 @@ def build_app(
         triples_promoted = await substrate.promote_draft_to_canonical(
             client, graph_iri, canonical_iri
         )
+        # #20 step5: project the TBox into the ontology graph (additive, best-effort).
+        ontology_triples = 0
+        try:
+            ontology_triples = await _project_ontology_graph(
+                client, dataset_id, data.get("artifacts", {})
+            )
+        except Exception:  # never block a promote on TBox projection
+            logger.exception("ontology projection failed for %s (continuing)", dataset_id)
         meta = registry.mark_promoted(
             cfg.registry_root,
             dataset_id,
@@ -649,6 +694,9 @@ def build_app(
                 "promoted": True,
                 "canonical_graph": canonical_iri,
                 "triples_promoted": triples_promoted,
+                # #20 step5: TBox triples projected into the ontology graph.
+                "ontology_graph": substrate.ontology_graph_iri(dataset_id),
+                "ontology_triples": ontology_triples,
                 "alignment": alignment,
                 # #20 P3: monotonic dataset version (bumped on each re-promote).
                 "version": meta.get("version") if meta else None,
