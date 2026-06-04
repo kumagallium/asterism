@@ -88,6 +88,28 @@ def test_load_missing_file_returns_empty(tmp_path) -> None:
     assert load_query_tools("nonesuch", root=tmp_path) == []
 
 
+def test_available_and_load_all_query_tools(tmp_path) -> None:
+    from asterism.query_tools import available_datasets, load_all_query_tools
+
+    (tmp_path / "ds_a").mkdir()
+    (tmp_path / "ds_b").mkdir()
+    (tmp_path / "ds_c").mkdir()  # no query_tools.yaml -> excluded
+    doc = "tools:\n  - name: t\n    query: 'SELECT ?s WHERE { ?s ?p ?o }'\n"
+    (tmp_path / "ds_a" / "query_tools.yaml").write_text(doc, encoding="utf-8")
+    (tmp_path / "ds_b" / "query_tools.yaml").write_text(doc, encoding="utf-8")
+
+    assert available_datasets(root=tmp_path) == ["ds_a", "ds_b"]
+    all_tools = load_all_query_tools(root=tmp_path)
+    assert set(all_tools) == {"ds_a", "ds_b"}
+    assert [t.name for t in all_tools["ds_a"]] == ["t"]
+
+
+def test_starrydata_ships_query_tools() -> None:
+    # The repo's starrydata content declares the two query tools.
+    names = {t.name for t in load_query_tools("starrydata")}
+    assert {"property_ranking", "sample_search"} <= names
+
+
 # ---------------------------------------------------------------------------
 # safe parameter binding
 # ---------------------------------------------------------------------------
