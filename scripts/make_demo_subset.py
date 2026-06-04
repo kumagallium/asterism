@@ -7,8 +7,8 @@ demo's headline question ("highest ZT") always has data — then filters samples
 the demo loads into Oxigraph.
 
 Licensed source data stays OUT of the repo: everything is written under
-``demo-agent/seed/`` (gitignore that dir). Reproducible: same inputs + N give
-the same seed.
+``datasets/starrydata/seed/`` (gitignore that dir). Reproducible: same inputs + N
+give the same seed.
 
 Usage:
     python scripts/make_demo_subset.py --src ../starrydata_dataset --n-papers 40
@@ -85,7 +85,9 @@ def main(argv: list[str] | None = None) -> int:
         help="comma-separated SIDs to force-include (e.g. a known >3.5 ZT "
         "outlier so the data-quality exclusion is visible in the demo)",
     )
-    ap.add_argument("--out", type=Path, default=_REPO / "demo-agent" / "seed")
+    ap.add_argument(
+        "--out", type=Path, default=_REPO / "datasets" / "starrydata" / "seed"
+    )
     args = ap.parse_args(argv)
 
     src: Path = args.src

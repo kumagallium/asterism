@@ -43,10 +43,9 @@ from typing import Final
 
 from watchfiles import Change, awatch
 
+from asterism.datasets import load_dataset
 from asterism.oxigraph_client import OxigraphClient
 from asterism.starrydata import (
-    DEFAULT_ONTOLOGY,
-    DEFAULT_RESOURCE,
     IngestConfig,
     IngestStats,
     ingest_curves,
@@ -55,6 +54,20 @@ from asterism.starrydata import (
 )
 
 logger = logging.getLogger(__name__)
+
+# #20 P2-2b: starrydata's identity (graph / ontology / resource IRIs) is content
+# declared in datasets/starrydata/dataset.toml, read via the generic dataset
+# loader — the watcher no longer imports starrydata constants. The descriptor is
+# the source of truth (live in prod via the bundled datasets/ tree); the literals
+# are a defensive fallback for a wheel-only install. Per-dataset watcher wiring
+# (drop dirs, ingesters) generalizes in P4.
+_SD = load_dataset("starrydata")
+_DEFAULT_ONTOLOGY = (
+    _SD.ontology_iri if _SD else "https://kumagallium.github.io/asterism/starrydata/ontology#"
+)
+_DEFAULT_RESOURCE = (
+    _SD.resource_iri if _SD else "https://kumagallium.github.io/asterism/starrydata/resource/"
+)
 
 # Kinds we accept. The drop directory layout is
 # ``<drop_root>/<kind>/<filename>.csv`` for each kind below.
@@ -68,7 +81,9 @@ _INGESTERS = {
 
 DEFAULT_SETTLE_S: Final[float] = 0.3
 DEFAULT_GRAPH_PREFIX: Final[str] = (
-    "https://kumagallium.github.io/asterism/starrydata/graph/"
+    _SD.graph_base
+    if _SD and _SD.graph_base
+    else "https://kumagallium.github.io/asterism/starrydata/graph/"
 )
 
 
@@ -381,8 +396,8 @@ def _main(argv: list[str] | None = None) -> int:
         help="POST each kind into a per-kind named graph instead of the "
         "default graph (legacy mode; requires GRAPH-wrapped SPARQL).",
     )
-    p.add_argument("--ontology", default=DEFAULT_ONTOLOGY)
-    p.add_argument("--resource", default=DEFAULT_RESOURCE)
+    p.add_argument("--ontology", default=_DEFAULT_ONTOLOGY)
+    p.add_argument("--resource", default=_DEFAULT_RESOURCE)
     p.add_argument("--settle-s", type=float, default=DEFAULT_SETTLE_S)
     args = p.parse_args(argv)
 

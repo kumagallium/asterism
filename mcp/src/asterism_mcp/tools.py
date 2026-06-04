@@ -26,14 +26,23 @@ import json
 import re
 from typing import Any, Final
 
+from asterism.datasets import load_dataset
 from asterism.oxigraph_client import OxigraphClient
-from asterism.starrydata import DEFAULT_ONTOLOGY
 
 # ----------------------------------------------------------------------------
 # Predicate -> output-key mapping for template_curve_fetch
 # ----------------------------------------------------------------------------
 
-SD: Final[str] = DEFAULT_ONTOLOGY
+# #20 P2-2b: the typed curve tool speaks starrydata's `sd:` vocabulary, whose IRI
+# is content declared in datasets/starrydata/dataset.toml and read via the
+# generic dataset loader — no import of starrydata constants. The descriptor is
+# the source of truth (live in prod via the bundled datasets/ tree); the literal
+# is a defensive fallback for a wheel-only install. Per-dataset generalization of
+# the typed tools themselves is P4.
+_SD = load_dataset("starrydata")
+SD: Final[str] = (
+    _SD.ontology_iri if _SD else "https://kumagallium.github.io/asterism/starrydata/ontology#"
+)
 SCHEMA: Final[str] = "https://schema.org/"
 DCTERMS: Final[str] = "http://purl.org/dc/terms/"
 

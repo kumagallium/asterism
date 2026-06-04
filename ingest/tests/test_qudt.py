@@ -1,6 +1,9 @@
 """QUDT normalization lookup tests."""
 from __future__ import annotations
 
+import pytest
+
+import asterism.qudt as qudt
 from asterism.qudt import (
     QUANTITY_KIND_BASE,
     UNIT_BASE,
@@ -76,3 +79,28 @@ def test_unit_unmapped_returns_none() -> None:
 def test_conductivity_variants_unify() -> None:
     # Both ohm^(-1)*m^(-1) and S*m^(-1) are siemens/metre -> same QUDT unit.
     assert unit_iri("ohm^(-1)*m^(-1)") == unit_iri("S*m^(-1)") == UNIT_BASE + "S-PER-M"
+
+
+# ----------------------------------------------------------------------------
+# Graceful degradation when the content table is unreachable (#20 P2-2b)
+# ----------------------------------------------------------------------------
+
+
+def test_qudt_disabled_when_table_missing(
+    tmp_path: object, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A wheel-only install without datasets/ content disables QUDT, not errors.
+
+    Point ASTERISM_DATASETS_ROOT at an empty dir (no starrydata/qudt_map.yaml):
+    every lookup returns None and a single warning is logged.
+    """
+    monkeypatch.setenv("ASTERISM_DATASETS_ROOT", str(tmp_path))
+    qudt._load_map.cache_clear()
+    try:
+        with caplog.at_level("WARNING"):
+            assert quantity_kind_iri("Seebeck coefficient") is None
+            assert unit_iri("V*K^(-1)") is None
+        assert "QUDT normalization disabled" in caplog.text
+    finally:
+        # Restore the shared lru_cache so later tests re-resolve the real table.
+        qudt._load_map.cache_clear()
