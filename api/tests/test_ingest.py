@@ -194,9 +194,9 @@ class _PromoteOxi:
             q = request.content.decode()
             if "COUNT" in q:
                 rows = [{"c": {"value": "1640"}}]
-            elif "GRAPH" in q:  # draft predicates/classes
+            elif "GRAPH <" in q:  # draft side names a graph literally
                 rows = [{"x": {"type": "uri", "value": "https://ex#draftProp"}}]
-            else:  # canonical predicates/classes (empty)
+            else:  # canonical-scope side (default + canonical/*) — empty here
                 rows = []
             return httpx.Response(
                 200,
@@ -244,16 +244,21 @@ def test_promote_moves_to_canonical_and_marks_meta(tmp_path: Path) -> None:
         assert r.status_code == 200, r.text
         body = r.json()
         assert body["promoted"] is True
-        assert body["canonical_graph"] == "default"
+        # #20 P3: promote now targets the dataset's per-dataset canonical graph.
+        expected_canon = f"https://kumagallium.github.io/asterism/graph/canonical/{dataset_id}"
+        assert body["canonical_graph"] == expected_canon
         assert body["triples_promoted"] == 1640
         assert body["dataset"]["promoted"] is True
         assert body["dataset"]["ingested"] is False  # draft consumed
-    # A MOVE ... TO DEFAULT was issued.
-    assert any("MOVE GRAPH" in u and "TO DEFAULT" in u for u in oxi.updates)
+    # A MOVE ... TO GRAPH <canonical/{id}> was issued (not TO DEFAULT).
+    assert any(
+        "MOVE GRAPH" in u and f"TO GRAPH <{expected_canon}>" in u for u in oxi.updates
+    )
     # Meta on disk reflects promotion.
     meta = json.loads((tmp_path / "registry" / dataset_id / "meta.json").read_text())
     assert meta["promoted"] is True
     assert meta["triples_promoted"] == 1640
+    assert meta["canonical_graph"] == expected_canon
     # #20 P3: first promotion is version 1 with one entry in the version log.
     assert meta["version"] == 1
     assert len(meta["versions"]) == 1

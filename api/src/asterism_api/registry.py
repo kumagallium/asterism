@@ -137,12 +137,15 @@ def mark_promoted(
     triples_promoted: int,
     alignment: dict,
     promoted_at: str,
+    canonical_graph: str | None = None,
 ) -> dict | None:
     """Record that ``dataset_id``'s draft graph was promoted into the canonical graph.
 
     The draft named graph no longer exists after promotion (its triples moved to
-    the default/canonical graph), so we clear ``ingested``/``graph_iri`` and set
-    ``promoted``. Returns the new meta, or ``None`` if id is unsafe / absent.
+    the canonical graph), so we clear ``ingested``/``graph_iri`` and set
+    ``promoted``. ``canonical_graph`` (the per-dataset canonical named graph IRI,
+    #20 P3) is recorded so later retract / delete can target it. Returns the new
+    meta, or ``None`` if id is unsafe / absent.
     """
     if not re.fullmatch(r"[a-z0-9-]{1,128}", dataset_id):
         return None
@@ -153,6 +156,7 @@ def mark_promoted(
     meta["promoted"] = True
     meta["ingested"] = False  # draft graph consumed by the MOVE
     meta["graph_iri"] = None
+    meta["canonical_graph"] = canonical_graph  # #20 P3: per-dataset canonical graph
     meta["triples_promoted"] = triples_promoted
     meta["alignment"] = alignment
     meta["promoted_at"] = promoted_at

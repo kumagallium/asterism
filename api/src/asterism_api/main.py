@@ -611,20 +611,27 @@ def build_app(
             raise HTTPException(400, "dataset has no draft graph to promote (not ingested)")
         client: OxigraphClient = app.state.client
         graph_iri = substrate.draft_graph_iri(dataset_id)
+        # #20 P3: promote into the dataset's own canonical named graph (not the
+        # shared default graph), so retract / re-promote / delete are clean graph-
+        # scoped ops. Ask reads it via the canonical scope (default + canonical/*).
+        canonical_iri = substrate.canonical_graph_iri(dataset_id)
         alignment = await substrate.alignment_report(client, graph_iri)
-        triples_promoted = await substrate.promote_draft_to_canonical(client, graph_iri)
+        triples_promoted = await substrate.promote_draft_to_canonical(
+            client, graph_iri, canonical_iri
+        )
         meta = registry.mark_promoted(
             cfg.registry_root,
             dataset_id,
             triples_promoted=triples_promoted,
             alignment=alignment,
             promoted_at=datetime.now(UTC).isoformat(),
+            canonical_graph=canonical_iri,
         )
         return JSONResponse(
             {
                 "dataset_id": dataset_id,
                 "promoted": True,
-                "canonical_graph": "default",
+                "canonical_graph": canonical_iri,
                 "triples_promoted": triples_promoted,
                 "alignment": alignment,
                 # #20 P3: monotonic dataset version (bumped on each re-promote).

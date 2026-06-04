@@ -178,7 +178,9 @@ class _FakeSparql:
     async def sparql_select(self, query: str) -> dict:
         if "COUNT" in query:
             return {"results": {"bindings": [{"c": {"value": str(self._draft_n)}}]}}
-        scope = "graph" if "GRAPH" in query else "default"
+        # Draft side names a graph literally (``GRAPH <...draft/...>``); the
+        # canonical side is the canonical-scope UNION (``GRAPH ?__cg ... FILTER``).
+        scope = "graph" if "GRAPH <" in query else "default"
         kind = "c" if "?s a ?x" in query else "p"
         vals = self._sets[(scope, kind)]
         return {"results": {"bindings": [{"x": {"type": "uri", "value": v}} for v in vals]}}
@@ -200,12 +202,15 @@ async def test_alignment_report_classifies_predicates_and_classes() -> None:
     assert rep["classes"]["new"] == ["https://ex#Curve"]  # canonical empty -> all new
 
 
-async def test_promote_moves_draft_to_default() -> None:
+async def test_promote_moves_draft_to_canonical_graph() -> None:
+    # #20 P3: promote MOVEs the draft into the dataset's canonical NAMED graph
+    # (not the shared default graph), so the op is per-dataset graph-scoped.
     fake = _FakeSparql(set(), set(), set(), set(), draft_n=1640)
-    iri = draft_graph_iri("ds1")
-    moved = await promote_draft_to_canonical(fake, iri)
+    draft = draft_graph_iri("ds1")
+    canon = canonical_graph_iri("ds1")
+    moved = await promote_draft_to_canonical(fake, draft, canon)
     assert moved == 1640
-    assert fake.updates == [f"MOVE GRAPH <{iri}> TO DEFAULT"]
+    assert fake.updates == [f"MOVE GRAPH <{draft}> TO GRAPH <{canon}>"]
 
 
 # ---- FnO namespace normalization (#15 ingest robustness) ---------------------
