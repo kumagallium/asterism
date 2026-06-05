@@ -1,6 +1,16 @@
 # Asterism
 
+[![Live demo](https://img.shields.io/badge/live%20demo-asterism%2Fdemo-3f6f49?logo=html5&logoColor=white)](https://kumagallium.github.io/asterism/demo/)
+[![CI](https://github.com/kumagallium/asterism/actions/workflows/ci.yml/badge.svg)](https://github.com/kumagallium/asterism/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
+[![release](https://img.shields.io/github/v/tag/kumagallium/asterism?sort=semver&label=release&color=blue)](https://github.com/kumagallium/asterism/tags)
+[![SPARQL 1.1](https://img.shields.io/badge/SPARQL-1.1-orange.svg)](https://www.w3.org/TR/sparql11-query/)
+[![MCP](https://img.shields.io/badge/MCP-server-purple.svg)](https://modelcontextprotocol.io/)
+
 > Connect your private and open data through shared ontologies — so AI can reach what it couldn't. Every answer grounded, and traceable to its source.
+
+**▶ Live demo (no server, no AI — real SPARQL in your browser): <https://kumagallium.github.io/asterism/demo/>.** Ask materials questions over a small [starrydata](https://github.com/starrydata) subset and get deterministic answers — each carrying its citable IRIs, the exact SPARQL run, and a provenance trace — plus a cross-dataset join of Starrydata measurements with [Materials Project](https://next-gen.materialsproject.org/) crystal structures. Runs entirely client-side (oxigraph-wasm); nothing is sent anywhere.
 
 **Asterism** turns scattered structured data into a connected knowledge graph you can query and trust. Data points are the stars; shared ontologies are the lines that connect them into a recognizable figure — one your tools, and your AI, can finally read. It exposes the result as both a SPARQL 1.1 endpoint and an MCP server, with full provenance. CSV is the first input type (starting with the [starrydata](https://github.com/starrydata) dataset of thermoelectric/measurement curves); the ingestion substrate is declarative and source-agnostic, extending to JSON/API sources without per-dataset code.
 
@@ -15,7 +25,7 @@ Live execution state: **[`docs/ROADMAP.md`](docs/ROADMAP.md)**. Design decisions
 
 Shipped today: a CSV → RDF ingester (papers / samples / curves), a watcher + HTTP upload API (drop a CSV → auto-reindex), QUDT unit normalization, WebPlotDigitizer provenance, and a 12M-triple benchmark; a SPARQL endpoint and an MCP server with typed tools (`template_curve_fetch`, `sample_search`, `property_ranking`, `provenance_of`) for grounded, cited answers; an AI-assisted **"Step 0"** schema builder for arbitrary CSVs (CLI); and a reproducible demo tagged `v0.1.0`.
 
-In progress (see ROADMAP): a declarative substrate that generalizes ingestion from "CSV → RDF" to "structured source → RDF" (JSON/API already proven), a shared vetted function library, and a schema-aware query layer so questions can be asked over any onboarded ontology — not just the built-in one. **There is no GUI yet** — every surface is a CLI, the HTTP upload API, directory-drop, or MCP.
+In progress (see ROADMAP): a declarative substrate that generalizes ingestion from "CSV → RDF" to "structured source → RDF" (JSON/API already proven), a shared vetted function library, and a schema-aware query layer so questions can be asked over any onboarded ontology — not just the built-in one. A researcher-facing **web UI** (schema-design workbench, dataset catalog, and a grounded **Ask** view) is in active development under [`ui/`](ui/) (React, served by the API); today's stable surfaces are the CLI, the HTTP upload API, directory-drop, and MCP.
 
 ## Design principles
 
@@ -64,7 +74,7 @@ asyncio.run(main())
 "
 ```
 
-For **Step 0** — designing a schema for a *new* (non-starrydata) CSV. This is a local CLI workflow (no GUI yet); `propose` / `refine` call an LLM, so they need an API key:
+For **Step 0** — designing a schema for a *new* (non-starrydata) CSV. This is a local CLI workflow; `propose` / `refine` call an LLM, so they need an API key:
 
 ```bash
 pip install -e step0                  # installs the asterism-* CLIs
