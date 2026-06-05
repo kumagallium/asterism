@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { getSchema, type SchemaSummary, type SchemaTerm } from './demoApi'
 import { type CatalogDataset, getCatalogDatasets } from './galleryApi'
 import { ArrowIcon, LayersIcon, LinkIcon } from './icons'
+import { deriveReuses, localName } from './vocab'
 
 const STATUS_LABEL: Record<CatalogDataset['statusKind'], string> = {
   pub: '公開済み',
@@ -9,35 +10,9 @@ const STATUS_LABEL: Record<CatalogDataset['statusKind'], string> = {
   design: '設計中',
 }
 
-/** Local name of an IRI (after the last # / /), for a compact code display. */
-function localName(iri: string): string {
-  const i = Math.max(iri.lastIndexOf('#'), iri.lastIndexOf('/'))
-  return i >= 0 ? iri.slice(i + 1) : iri
-}
-
-/** Namespace of an IRI (everything up to and including the last # or /). */
-function namespaceOf(iri: string): string {
-  const i = Math.max(iri.lastIndexOf('#'), iri.lastIndexOf('/'))
-  return i >= 0 ? iri.slice(0, i + 1) : iri
-}
-
-// Well-known EXTERNAL vocabularies. When the live data uses a term under one of
-// these namespaces, that vocabulary is being "reused" rather than re-minted.
-// Structural namespaces (rdf/rdfs/owl/xsd) are not interesting to surface.
-const KNOWN_VOCABS: { ns: string; prefix: string; what: string }[] = [
-  { ns: 'https://schema.org/', prefix: 'schema:', what: 'schema.org（人物・出版物などのメタデータ）' },
-  { ns: 'http://www.w3.org/ns/prov#', prefix: 'prov:', what: 'PROV-O（来歴 Entity / Activity / Agent）' },
-  { ns: 'http://purl.org/dc/terms/', prefix: 'dcterms:', what: 'Dublin Core terms（identifier / created 等）' },
-  { ns: 'http://purl.org/ontology/bibo/', prefix: 'bibo:', what: 'BIBO（volume / issue / pages）' },
-  { ns: 'http://qudt.org/schema/qudt/', prefix: 'qudt:', what: 'QUDT（物性量・単位の共有語彙）' },
-  { ns: 'http://www.w3.org/2004/02/skos/core#', prefix: 'skos:', what: 'SKOS（概念体系）' },
-]
-
-/** Reused external vocabularies actually present in the live terms. */
-function deriveReuses(schema: SchemaSummary): { prefix: string; what: string }[] {
-  const present = new Set<string>()
-  for (const t of [...schema.classes, ...schema.predicates]) present.add(namespaceOf(t.iri))
-  return KNOWN_VOCABS.filter((v) => present.has(v.ns)).map(({ prefix, what }) => ({ prefix, what }))
+/** Reused external vocabularies actually present in the live schema terms. */
+function schemaReuses(schema: SchemaSummary): { prefix: string; what: string }[] {
+  return deriveReuses([...schema.classes, ...schema.predicates].map((t) => t.iri))
 }
 
 /**
@@ -74,7 +49,7 @@ export function SharedVocabView({ onBack }: { onBack?: () => void }) {
   // Consumers = real (materialized) datasets; the fixture-free list only has
   // entries that carry a live registry record.
   const consumers = datasets.filter((d) => d.live)
-  const reuses = schema ? deriveReuses(schema) : []
+  const reuses = schema ? schemaReuses(schema) : []
 
   return (
     <div className="vocab">

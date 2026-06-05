@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { getSchema } from './demoApi'
 import {
   type AlignmentReport,
   type CatalogDataset,
@@ -14,6 +15,7 @@ import {
 } from './galleryApi'
 import { ArrowIcon, LinkIcon, SearchIcon } from './icons'
 import { Mermaid } from './Mermaid'
+import { localName } from './vocab'
 
 const STATUS_LABEL: Record<CatalogStatusKind, string> = {
   pub: '公開済み',
@@ -26,8 +28,10 @@ const STATUS_LABEL: Record<CatalogStatusKind, string> = {
  * dataset HAS a 設計図 (vocabulary) and 取り込みルール (mapping), shown as two tabs
  * inside the dataset; the SHARED vocabulary is the gateway band at the bottom.
  *
- * All datasets are REAL: the committed canonical ontology+mapping and the
- * workbench-materialized drafts (getCatalogDatasets). No demo placeholders.
+ * All datasets are REAL and LIVE: the workbench-materialized drafts persisted to
+ * /api/datasets (getCatalogDatasets), each with its designed classes (model.yaml),
+ * class diagram (diagram.md), and the external vocabularies it actually reuses
+ * (derived from real term IRIs). No fixtures, no demo placeholders.
  */
 export function GalleryView({
   focusClass,
@@ -41,6 +45,9 @@ export function GalleryView({
   const [picked, setPicked] = useState<string | null>(null)
   const [seenFocus, setSeenFocus] = useState<string | null | undefined>(focusClass)
   const [tab, setTab] = useState<'design' | 'rules'>('design')
+  // Live count of shared classes actually in the store (for the gateway band).
+  // null = unavailable (query layer down) → the band omits the number.
+  const [sharedClassCount, setSharedClassCount] = useState<number | null>(null)
 
   function reload() {
     getCatalogDatasets()
@@ -57,6 +64,9 @@ export function GalleryView({
       .catch((e) => {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e))
       })
+    getSchema()
+      .then((s) => !cancelled && setSharedClassCount(s ? s.classes.length : null))
+      .catch(() => {})
     return () => {
       cancelled = true
     }
@@ -72,8 +82,6 @@ export function GalleryView({
   const list = datasets ?? []
   const focused = focusClass ? list.find((d) => d.classes.includes(focusClass)) : undefined
   const selected = list.find((d) => d.id === picked) ?? focused ?? list[0] ?? null
-  // The shared vocabulary = the canonical ontology (a dataset with no draft handle).
-  const canonical = list.find((d) => !d.live)
 
   return (
     <div className="catalog">
@@ -137,29 +145,29 @@ export function GalleryView({
         </div>
       )}
 
-      {/* shared vocabulary gateway (= the canonical ontology) */}
-      {canonical && (
-        <button type="button" className="shared-band" onClick={onOpenVocab}>
-          <span className="shared-band-icon">
-            <LinkIcon size={19} />
+      {/* shared vocabulary gateway → the live cross-dataset vocabulary board */}
+      <button type="button" className="shared-band" onClick={onOpenVocab}>
+        <span className="shared-band-icon">
+          <LinkIcon size={19} />
+        </span>
+        <span className="shared-band-body">
+          <span className="shared-band-title">
+            共有の語彙 <span className="shared-band-en">shared vocabulary</span>
+            <span className="shared-band-warn">変更は全体に影響 · 要注意</span>
           </span>
-          <span className="shared-band-body">
-            <span className="shared-band-title">
-              共有の語彙 <span className="shared-band-en">shared vocabulary</span>
-              <span className="shared-band-warn">変更は全体に影響 · 要注意</span>
-            </span>
-            <span className="shared-band-sub">
-              複数のデータセットが共通で使う設計図。揃えておくと<strong>横断して検索・比較</strong>できます。
-            </span>
+          <span className="shared-band-sub">
+            複数のデータセットが共通で使う設計図。揃えておくと<strong>横断して検索・比較</strong>できます。
           </span>
-          <span className="shared-band-cta">
+        </span>
+        <span className="shared-band-cta">
+          {sharedClassCount != null && (
             <span className="shared-band-users">
-              <span className="mono-strong">{canonical.classes.length}</span> クラスを共有
+              <span className="mono-strong">{sharedClassCount}</span> クラスを共有
             </span>
-            開く <ArrowIcon size={14} />
-          </span>
-        </button>
-      )}
+          )}
+          開く <ArrowIcon size={14} />
+        </span>
+      </button>
     </div>
   )
 }
@@ -264,6 +272,19 @@ function DatasetDetail({
             <p className="ds-empty-note">クラス情報はありません。</p>
           )}
 
+          {dataset.predicates.length > 0 && (
+            <>
+              <div className="ds-subhead">使っている述語（実データの語彙）</div>
+              <div className="ds-classes">
+                {dataset.predicates.map((p) => (
+                  <span key={p} className="class-chip" title={p}>
+                    <code className="class-chip-en">{localName(p)}</code>
+                  </span>
+                ))}
+              </div>
+            </>
+          )}
+
           {dataset.mermaid && (
             <details className="ds-diagram-details">
               <summary>クラス図を見る</summary>
@@ -275,7 +296,7 @@ function DatasetDetail({
 
           {dataset.reuses.length > 0 && (
             <>
-              <div className="ds-subhead">他から借りている語彙（再発明しない）</div>
+              <div className="ds-subhead">他から借りている語彙（実データの名前空間から検出）</div>
               <div className="ds-reuse-list">
                 {dataset.reuses.map((r) => (
                   <span key={r.prefix} className="reuse-chip" title={r.what}>
