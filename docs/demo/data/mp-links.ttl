@@ -1,0 +1,3091 @@
+@prefix mp: <https://next-gen.materialsproject.org/materials/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix schema: <https://schema.org/> .
+@prefix sd: <https://kumagallium.github.io/asterism/starrydata/ontology#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+sd:crystalSystem a owl:DatatypeProperty ;
+    rdfs:label "crystal system"@en ;
+    rdfs:domain sd:CrystalStructure ;
+    rdfs:range xsd:string .
+
+sd:dopantElement a owl:DatatypeProperty ;
+    rdfs:label "dopant element"@en ;
+    rdfs:domain sd:PointDefect ;
+    rdfs:range xsd:string .
+
+sd:hasHostStructure a owl:ObjectProperty ;
+    rdfs:label "has host structure"@en,
+        "母相構造を持つ"@ja ;
+    rdfs:comment "Links a Sample to the idealized CrystalStructure of its host (parent) phase. Weak link: the sample is doped / non-stoichiometric, the structure is the pristine parent."@en ;
+    rdfs:domain sd:Sample ;
+    rdfs:range sd:CrystalStructure .
+
+sd:hasPointDefect a owl:ObjectProperty ;
+    rdfs:label "has point defect"@en,
+        "点欠陥を持つ"@ja ;
+    rdfs:domain sd:Sample ;
+    rdfs:range sd:PointDefect .
+
+sd:idealizedFrom a owl:ObjectProperty ;
+    rdfs:label "idealized from"@en,
+        "理想化の出所"@ja ;
+    rdfs:comment "The computational database entry (e.g. a Materials Project material IRI) this idealized structure was taken from. Deliberately a sub-property of prov:wasDerivedFrom, NOT owl:sameAs: the sample is not identical to the computed compound."@en ;
+    rdfs:domain sd:CrystalStructure ;
+    rdfs:seeAlso <https://optimade.materialsproject.org/> ;
+    rdfs:subPropertyOf prov:wasDerivedFrom .
+
+sd:matchConfidence a owl:DatatypeProperty ;
+    rdfs:label "match confidence"@en ;
+    rdfs:comment "high / medium / unresolved. 'unresolved' attempts are emitted too, so coverage gaps stay queryable."@en ;
+    rdfs:domain sd:StructureMatchActivity ;
+    rdfs:range xsd:string .
+
+sd:matchMethod a owl:DatatypeProperty ;
+    rdfs:label "match method"@en ;
+    rdfs:comment "How the host was resolved, e.g. \"MaterialFamily(curator) + composition diff\", \"composition-normalization\"."@en ;
+    rdfs:domain sd:StructureMatchActivity ;
+    rdfs:range xsd:string .
+
+sd:mpFunctional a owl:DatatypeProperty ;
+    rdfs:label "MP functional"@en ;
+    rdfs:comment "DFT functional behind the MP entry (e.g. \"GGA/GGA+U\", \"r2SCAN\"), or \"demo\" for the placeholder PoC table."@en ;
+    rdfs:domain sd:CrystalStructure ;
+    rdfs:range xsd:string .
+
+sd:reducedHostFormula a owl:DatatypeProperty ;
+    rdfs:label "reduced host formula"@en ;
+    rdfs:domain sd:CrystalStructure ;
+    rdfs:range xsd:string .
+
+sd:siteAmount a owl:DatatypeProperty ;
+    rdfs:label "site amount (per formula)"@en ;
+    rdfs:comment "Amount of the dopant as written in the sample's composition formula (per-formula-unit, not normalized)."@en ;
+    rdfs:domain sd:PointDefect ;
+    rdfs:range xsd:double .
+
+sd:solidSolutionElement a owl:DatatypeProperty ;
+    rdfs:label "solid solution element"@en ;
+    rdfs:comment "A non-dilute substituent sharing a site in the host (e.g. Se in Bi2(Te,Se)3)."@en ;
+    rdfs:domain sd:CrystalStructure ;
+    rdfs:range xsd:string .
+
+sd:spaceGroupNumber a owl:DatatypeProperty ;
+    rdfs:label "space group number"@en ;
+    rdfs:domain sd:CrystalStructure ;
+    rdfs:range xsd:integer .
+
+sd:spaceGroupSymbol a owl:DatatypeProperty ;
+    rdfs:label "space group symbol"@en ;
+    rdfs:comment "Hermann-Mauguin symbol, e.g. \"Fm-3m\", \"R-3m\"."@en ;
+    rdfs:domain sd:CrystalStructure ;
+    rdfs:range xsd:string .
+
+sd:structurePrototype a owl:DatatypeProperty ;
+    rdfs:label "structure prototype"@en ;
+    rdfs:comment "Structure type / prototype, e.g. \"rock salt (NaCl-type)\", \"tetradymite (Bi2Te3-type)\". More robust to doping than an exact mp-id."@en ;
+    rdfs:domain sd:CrystalStructure ;
+    rdfs:range xsd:string .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1171-665> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:42.268018+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1171-665> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1171-666> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:42.269747+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1171-666> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1171-667> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:42.270784+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1171-667> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1171-668> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:41.973725+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1171-668> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1171-669> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:42.272584+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1171-669> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1171-670> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:42.264423+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1171-670> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1171-671> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:42.273465+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1171-671> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1171-672> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:42.274210+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1171-672> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1179-686> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:42.540124+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1179-686> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1433-676> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:43.945226+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1433-676> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1433-677> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:44.230137+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1433-677> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1433-678> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:42.817865+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1433-678> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1433-679> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:43.097796+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1433-679> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1433-680> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:44.525176+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1433-680> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1433-681> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:43.369600+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1433-681> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1433-682> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:43.668724+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1433-682> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1433-683> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:44.525368+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1433-683> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1433-685> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:43.669674+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1433-685> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/15-2283> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:36.784403+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/15-2283> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/15-2284> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:36.782002+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/15-2284> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/15-2285> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:36.784823+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/15-2285> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/15-2286> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:36.782651+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/15-2286> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/15-2287> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:36.783087+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/15-2287> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/15-2288> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:36.785237+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/15-2288> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/15-538> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:35.967936+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/15-538> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/15-539> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:36.240900+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/15-539> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/15-540> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:36.511211+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/15-540> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/15-541> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:36.780161+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/15-541> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1623-687> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:44.793796+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1623-687> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1623-688> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:45.068109+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1623-688> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1668-691> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:45.624164+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1668-691> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1668-692> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:45.068706+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1668-692> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1668-693> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:45.069291+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1668-693> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1668-694> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:45.069648+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1668-694> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1668-695> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:45.624361+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1668-695> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1668-696> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:45.624490+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1668-696> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1668-697> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:45.070094+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1668-697> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1668-698> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:45.070440+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1668-698> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1668-699> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:45.624607+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1668-699> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1668-700> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:45.070857+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1668-700> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1668-701> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:45.624723+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1668-701> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1668-702> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:45.346398+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1668-702> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1668-703> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:45.927221+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1668-703> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1668-704> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:45.623280+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1668-704> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1710-432> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:45.927747+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1710-432> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1710-433> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:45.933406+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1710-433> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1710-705> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:45.928208+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1710-705> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1710-706> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:45.928617+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1710-706> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1710-707> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:45.934178+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1710-707> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1710-708> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:45.929124+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1710-708> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1710-709> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:45.934757+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1710-709> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1710-710> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:45.930002+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1710-710> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1710-711> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:45.930780+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1710-711> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1710-712> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:45.935337+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1710-712> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1710-713> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:45.931856+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1710-713> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1710-714> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:45.932678+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1710-714> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1730-151> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:46.462446+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1730-151> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1730-153> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:47.838006+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1730-153> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1730-154> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:47.838150+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1730-154> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1730-37> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:46.197246+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1730-37> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1730-715> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:47.838619+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1730-715> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1730-716> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:47.838932+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1730-716> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1730-717> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:46.757842+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1730-717> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1730-718> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:47.016750+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1730-718> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1730-719> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:47.282709+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1730-719> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1730-720> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:47.551598+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1730-720> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1730-721> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:47.551784+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1730-721> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1730-722> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:47.839050+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1730-722> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1730-723> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:47.831863+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1730-723> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1730-724> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:48.121463+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1730-724> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1730-725> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:47.837087+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1730-725> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1730-727> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:47.837689+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1730-727> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1730-728> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:48.402938+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1730-728> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1757-729> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:49.510154+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1757-729> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1757-730> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:49.754348+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1757-730> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1757-731> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:48.672698+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1757-731> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1757-732> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:48.936785+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1757-732> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1757-733> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:49.230628+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1757-733> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1757-734> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:50.034389+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1757-734> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1757-735> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:49.509973+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1757-735> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1759-736> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:50.313933+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1759-736> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1759-737> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:50.589738+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1759-737> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1925-739> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:52.224191+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1925-739> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1925-740> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:51.128301+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1925-740> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1925-741> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:51.128866+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1925-741> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1925-742> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:51.413775+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1925-742> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1925-743> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:51.682324+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1925-743> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1925-744> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:52.505770+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1925-744> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1925-745> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:51.953812+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1925-745> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1941-752> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:52.505974+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1941-752> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1941-753> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:52.772008+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1941-753> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1941-754> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:53.334234+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1941-754> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1941-755> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:53.037682+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1941-755> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1946-757> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:53.914251+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1946-757> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1946-758> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:53.619392+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1946-758> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1946-759> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:53.913598+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1946-759> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1946-760> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:53.914402+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1946-760> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1947-761> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:54.452020+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1947-761> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1947-762> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:54.452580+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1947-762> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1947-763> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:54.453203+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1947-763> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1947-764> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:54.453894+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1947-764> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1947-765> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:54.455501+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1947-765> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1947-766> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:54.180826+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1947-766> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1947-767> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:54.450024+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1947-767> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1947-768> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:54.456048+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1947-768> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1947-769> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:54.451157+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1947-769> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1947-770> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:54.456607+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1947-770> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1950-772> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:54.457158+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1950-772> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1950-773> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:54.738567+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1950-773> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1950-774> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:55.044437+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1950-774> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1950-775> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:55.045338+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1950-775> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1960-786> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:55.326608+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1960-786> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1960-787> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:55.045796+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1960-787> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1960-788> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:55.046417+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1960-788> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1960-789> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:55.617993+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1960-789> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1960-790> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:55.906667+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1960-790> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1965-779> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:56.188431+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1965-779> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1965-791> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:57.293305+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1965-791> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1965-792> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:57.294130+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1965-792> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1965-793> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:56.482672+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1965-793> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1965-794> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:56.483416+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1965-794> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1965-795> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:56.484077+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1965-795> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1965-796> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:57.294505+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1965-796> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1968-797> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:57.294885+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1968-797> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1968-798> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:57.599324+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1968-798> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1968-799> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:57.295253+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1968-799> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1968-800> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:57.597893+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1968-800> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1968-801> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:57.601667+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1968-801> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1988-802> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:57.884820+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1988-802> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1988-803> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:59.012725+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1988-803> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1988-804> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:59.287417+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1988-804> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1988-805> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:58.164811+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1988-805> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1988-806> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:59.288046+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1988-806> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1988-807> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:58.441418+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1988-807> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1988-808> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:58.731556+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1988-808> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1988-809> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:58.732742+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1988-809> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1988-810> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:59.288508+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1988-810> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2004-811> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:59.291973+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2004-811> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2004-812> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:59.292452+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2004-812> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2004-813> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:59.289230+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2004-813> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2004-814> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:59.290744+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2004-814> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2004-815> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:59.291570+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2004-815> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2004-816> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:59.292896+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2004-816> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2004-817> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:59.293370+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2004-817> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2019-818> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:59.850814+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2019-818> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2019-819> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:59.585845+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2019-819> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2019-820> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:00.142426+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2019-820> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2019-821> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:00.435317+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2019-821> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2019-822> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:59.850082+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2019-822> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2019-823> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:00.705392+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2019-823> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2019-824> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:00.988642+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2019-824> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2049-831> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:01.260428+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2049-831> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2049-832> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:01.781840+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2049-832> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2049-833> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:01.261136+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2049-833> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2057-836> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:02.084866+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2057-836> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2057-837> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:02.382768+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2057-837> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2057-838> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:02.676940+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2057-838> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2057-839> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:02.948790+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2057-839> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2057-840> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:02.086012+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2057-840> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2057-841> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:02.086497+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2057-841> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2067-842> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:02.951598+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2067-842> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2067-843> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:02.950103+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2067-843> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2067-844> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:02.952088+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2067-844> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2067-845> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:02.950937+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2067-845> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2154-846> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:03.230184+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2154-846> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2154-847> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:03.231121+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2154-847> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2154-848> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:03.232383+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2154-848> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2154-850> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:03.233433+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2154-850> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2154-852> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:03.234133+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2154-852> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2154-853> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:03.234699+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2154-853> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2357-855> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:03.497651+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2357-855> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2357-856> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:04.075184+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2357-856> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2357-857> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:03.770195+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2357-857> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2357-858> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:04.076531+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2357-858> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2357-859> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:04.369636+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2357-859> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2357-860> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:04.074246+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2357-860> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2423-861> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:04.679290+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2423-861> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2423-862> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:04.685614+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2423-862> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2423-863> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:04.683409+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2423-863> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2423-864> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:04.684011+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2423-864> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2423-865> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:04.685169+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2423-865> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2490-868> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:04.976705+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2490-868> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2490-869> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:05.268401+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2490-869> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2490-870> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:05.269037+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2490-870> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2490-871> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:05.269637+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2490-871> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2544-872> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:05.270168+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2544-872> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2544-873> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:05.271902+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2544-873> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2544-874> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:05.272632+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2544-874> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2544-875> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:05.273464+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2544-875> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2544-876> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:05.274890+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2544-876> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2544-877> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:05.270740+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2544-877> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2544-878> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:05.275555+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2544-878> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2544-879> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:05.271224+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2544-879> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2544-880> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:05.275995+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2544-880> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2614-895> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:05.280723+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2614-895> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2614-896> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:05.281163+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2614-896> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2614-897> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:05.281594+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2614-897> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2614-898> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:05.276463+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2614-898> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2614-899> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:05.282056+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2614-899> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2614-900> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:05.276888+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2614-900> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2614-901> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:05.277356+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2614-901> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2614-902> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:05.277771+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2614-902> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2614-903> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:05.278284+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2614-903> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2614-904> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:05.278747+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2614-904> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2614-905> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:05.279760+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2614-905> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2614-910> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:05.282469+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2614-910> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/27-1285> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:37.954268+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/27-1285> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/27-1286> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:37.954698+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/27-1286> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/27-1287> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:37.955499+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/27-1287> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/27-1288> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:37.952912+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/27-1288> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/27-543> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:37.100138+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/27-543> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/27-544> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:37.354820+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/27-544> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/27-545> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:37.655452+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/27-545> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/27-546> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:37.952099+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/27-546> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2821-916> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:05.581012+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2821-916> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2821-918> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:05.579084+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2821-918> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2821-920> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:05.579998+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2821-920> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2821-921> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:05.580480+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2821-921> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2821-922> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:05.863125+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2821-922> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2946-925> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:05.863601+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2946-925> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2946-926> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:05.863948+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2946-926> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2946-927> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:05.865284+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2946-927> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2946-928> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:05.864316+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2946-928> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2946-929> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:05.864729+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2946-929> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/3231-1003> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:06.153628+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/3231-1003> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/3231-1004> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:06.154824+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/3231-1004> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/3231-1005> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:06.156132+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/3231-1005> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/3231-1006> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:06.156858+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/3231-1006> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/3231-1007> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:06.157921+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/3231-1007> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/3231-1008> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:06.158493+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/3231-1008> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/3231-1009> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:06.159137+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/3231-1009> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/3231-1010> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:06.160731+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/3231-1010> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/3231-1011> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:06.159924+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/3231-1011> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/556-600> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:38.562847+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/556-600> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/556-601> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:38.850424+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/556-601> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/560-602> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:39.189338+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/560-602> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/560-603> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:39.444239+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/560-603> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/560-604> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:39.727008+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/560-604> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/574-605> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:39.995812+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/574-605> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/574-606> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:40.244344+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/574-606> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/574-607> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:39.994226+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/574-607> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/574-608> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:40.244917+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/574-608> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/631-618> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:40.529433+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/631-618> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/631-619> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:40.526373+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/631-619> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/631-620> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:40.529544+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/631-620> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/631-621> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:40.526863+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/631-621> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/631-622> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:40.527371+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/631-622> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/631-623> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:40.529657+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/631-623> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/631-624> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:40.527916+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/631-624> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/631-625> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:40.529757+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/631-625> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/631-626> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:40.528471+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/631-626> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/631-627> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:40.528923+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/631-627> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/631-628> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:40.529895+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/631-628> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/631-629> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:40.529263+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/631-629> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/775-38580> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:41.359311+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/775-38580> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/775-648> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:41.357738+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/775-648> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/775-649> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:40.789206+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/775-649> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/775-650> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:40.790267+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/775-650> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/775-651> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:41.069043+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/775-651> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/775-652> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:41.070117+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/775-652> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/775-653> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:41.357876+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/775-653> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/775-654> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:41.358007+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/775-654> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/775-655> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:41.358140+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/775-655> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/775-656> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:41.358418+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/775-656> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/775-657> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:41.356871+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/775-657> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/775-658> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:41.357122+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/775-658> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/775-659> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:41.358826+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/775-659> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/775-660> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:41.357280+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/775-660> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/775-661> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:41.357460+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/775-661> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/775-662> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:41.359008+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/775-662> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/775-663> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:41.357598+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/775-663> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/775-664> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:41.359157+00:00"^^xsd:dateTime ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/775-664> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "unresolved" ;
+    sd:matchMethod "no host resolvable" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/defect/120-19477/S> a sd:PointDefect ;
+    sd:dopantElement "S" ;
+    sd:siteAmount 1e-02 .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/defect/120-19478/S> a sd:PointDefect ;
+    sd:dopantElement "S" ;
+    sd:siteAmount 2e-02 .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/defect/120-19479/S> a sd:PointDefect ;
+    sd:dopantElement "S" ;
+    sd:siteAmount 3e-02 .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/defect/120-19480/S> a sd:PointDefect ;
+    sd:dopantElement "S" ;
+    sd:siteAmount 4e-02 .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/defect/120-19481/S> a sd:PointDefect ;
+    sd:dopantElement "S" ;
+    sd:siteAmount 3e-02 .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/defect/120-19482/S> a sd:PointDefect ;
+    sd:dopantElement "S" ;
+    sd:siteAmount 3e-02 .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/defect/120-19483/I> a sd:PointDefect ;
+    sd:dopantElement "I" ;
+    sd:siteAmount 3e-02 .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/defect/120-19484/I> a sd:PointDefect ;
+    sd:dopantElement "I" ;
+    sd:siteAmount 3e-02 .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/defect/120-19484/S> a sd:PointDefect ;
+    sd:dopantElement "S" ;
+    sd:siteAmount 1e-01 .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/defect/120-19485/I> a sd:PointDefect ;
+    sd:dopantElement "I" ;
+    sd:siteAmount 3e-02 .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/defect/1730-726/Ni> a sd:PointDefect ;
+    sd:dopantElement "Ni" ;
+    sd:siteAmount 2.64e+00 .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/defect/1730-726/Sn> a sd:PointDefect ;
+    sd:dopantElement "Sn" ;
+    sd:siteAmount 9e-01 .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/defect/1730-726/Zn> a sd:PointDefect ;
+    sd:dopantElement "Zn" ;
+    sd:siteAmount 2.28e+00 .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/defect/1946-756/Al> a sd:PointDefect ;
+    sd:dopantElement "Al" ;
+    sd:siteAmount 0e+00 .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/defect/1950-771/In> a sd:PointDefect ;
+    sd:dopantElement "In" ;
+    sd:siteAmount 0e+00 .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/defect/27-542/Ga> a sd:PointDefect ;
+    sd:dopantElement "Ga" ;
+    sd:siteAmount 0e+00 .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/defect/3231-1001/Ni> a sd:PointDefect ;
+    sd:dopantElement "Ni" ;
+    sd:siteAmount 0e+00 .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/defect/3231-1002/Ni> a sd:PointDefect ;
+    sd:dopantElement "Ni" ;
+    sd:siteAmount 2e-01 .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/defect/869-27523/Sr> a sd:PointDefect ;
+    sd:dopantElement "Sr" ;
+    sd:siteAmount 2e-02 .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/defect/869-27524/Sr> a sd:PointDefect ;
+    sd:dopantElement "Sr" ;
+    sd:siteAmount 4e-02 .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/defect/869-27525/Sr> a sd:PointDefect ;
+    sd:dopantElement "Sr" ;
+    sd:siteAmount 8e-02 .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/120-19476> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/SnSe> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/120-19477> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/SnSe> ;
+    sd:hasPointDefect <https://kumagallium.github.io/asterism/starrydata/resource/defect/120-19477/S> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/120-19478> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/SnSe> ;
+    sd:hasPointDefect <https://kumagallium.github.io/asterism/starrydata/resource/defect/120-19478/S> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/120-19479> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/SnSe> ;
+    sd:hasPointDefect <https://kumagallium.github.io/asterism/starrydata/resource/defect/120-19479/S> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/120-19480> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/SnSe> ;
+    sd:hasPointDefect <https://kumagallium.github.io/asterism/starrydata/resource/defect/120-19480/S> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/120-19481> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/SnSe> ;
+    sd:hasPointDefect <https://kumagallium.github.io/asterism/starrydata/resource/defect/120-19481/S> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/120-19482> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/SnSe> ;
+    sd:hasPointDefect <https://kumagallium.github.io/asterism/starrydata/resource/defect/120-19482/S> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/120-19483> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/SnSe> ;
+    sd:hasPointDefect <https://kumagallium.github.io/asterism/starrydata/resource/defect/120-19483/I> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/120-19484> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/SnSe> ;
+    sd:hasPointDefect <https://kumagallium.github.io/asterism/starrydata/resource/defect/120-19484/I>,
+        <https://kumagallium.github.io/asterism/starrydata/resource/defect/120-19484/S> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/120-19485> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/SnSe> ;
+    sd:hasPointDefect <https://kumagallium.github.io/asterism/starrydata/resource/defect/120-19485/I> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/15-2281> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/Ba6Ge25> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/15-2282> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/Ba6Ge25> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/15-537> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/Ba6Ge25> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/1730-726> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/BaGe5> ;
+    sd:hasPointDefect <https://kumagallium.github.io/asterism/starrydata/resource/defect/1730-726/Ni>,
+        <https://kumagallium.github.io/asterism/starrydata/resource/defect/1730-726/Sn>,
+        <https://kumagallium.github.io/asterism/starrydata/resource/defect/1730-726/Zn> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/1921-738> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/Ba8Ge43> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/1946-756> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/Ba6Ge25> ;
+    sd:hasPointDefect <https://kumagallium.github.io/asterism/starrydata/resource/defect/1946-756/Al> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/1950-771> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/Ba6Ge25> ;
+    sd:hasPointDefect <https://kumagallium.github.io/asterism/starrydata/resource/defect/1950-771/In> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/20-3124> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/PbTe> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/20-3125> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/PbTe> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/20-3126> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/PbTe> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/20-3127> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/PbTe> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/20-3128> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/PbTe> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/2049-830> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/Ba4Au2Si21> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/2049-834> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/Ba4Au3Si20> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/2049-835> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/Ba4Au3Si20> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/27-1284> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/Ba6Ge25> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/27-542> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/Ba6Ge25> ;
+    sd:hasPointDefect <https://kumagallium.github.io/asterism/starrydata/resource/defect/27-542/Ga> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/3-1308> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/Bi2Te3> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/3-1309> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/Bi2Te3> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/3-1310> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/Bi2Te3> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/3-1311> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/Bi2Te3> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/3-1312> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/Bi2Te3> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/3-535> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/Bi2Te3> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/3-536> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/Bi2Te3> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/3231-1001> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/Ba8Ge43> ;
+    sd:hasPointDefect <https://kumagallium.github.io/asterism/starrydata/resource/defect/3231-1001/Ni> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/3231-1002> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/Ba8Ge43> ;
+    sd:hasPointDefect <https://kumagallium.github.io/asterism/starrydata/resource/defect/3231-1002/Ni> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/869-27522> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/PbSe> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/869-27523> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/PbSe> ;
+    sd:hasPointDefect <https://kumagallium.github.io/asterism/starrydata/resource/defect/869-27523/Sr> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/869-27524> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/PbSe> ;
+    sd:hasPointDefect <https://kumagallium.github.io/asterism/starrydata/resource/defect/869-27524/Sr> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/869-27525> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/PbSe> ;
+    sd:hasPointDefect <https://kumagallium.github.io/asterism/starrydata/resource/defect/869-27525/Sr> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/869-27526> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/PbSe> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/9-1381> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/ZnO> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/9-1382> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/ZnFe2O4> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/9-1383> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/ZnFe2O4> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/9-1384> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/ZnO> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/sample/9-1385> sd:hasHostStructure <https://kumagallium.github.io/asterism/starrydata/resource/structure/ZnO> .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/120-19476> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:38.273382+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/SnSe> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/120-19476> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "medium" ;
+    sd:matchMethod "exact integer formula" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/120-19477> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:38.274886+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/SnSe> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/120-19477> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "medium" ;
+    sd:matchMethod "exact integer formula" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/120-19478> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:38.276416+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/SnSe> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/120-19478> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "low" ;
+    sd:matchMethod "rounded stoichiometry" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/120-19479> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:38.266704+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/SnSe> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/120-19479> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "low" ;
+    sd:matchMethod "rounded stoichiometry" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/120-19480> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:38.268432+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/SnSe> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/120-19480> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "low" ;
+    sd:matchMethod "rounded stoichiometry" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/120-19481> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:38.269536+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/SnSe> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/120-19481> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "low" ;
+    sd:matchMethod "rounded stoichiometry" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/120-19482> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:38.270565+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/SnSe> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/120-19482> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "low" ;
+    sd:matchMethod "rounded stoichiometry" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/120-19483> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:38.277527+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/SnSe> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/120-19483> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "low" ;
+    sd:matchMethod "rounded stoichiometry" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/120-19484> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:38.271758+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/SnSe> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/120-19484> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "low" ;
+    sd:matchMethod "rounded stoichiometry" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/120-19485> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:38.278909+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/SnSe> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/120-19485> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "low" ;
+    sd:matchMethod "rounded stoichiometry" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/15-2281> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:36.783513+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/Ba6Ge25> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/15-2281> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "medium" ;
+    sd:matchMethod "exact integer formula" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/15-2282> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:36.780981+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/Ba6Ge25> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/15-2282> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "medium" ;
+    sd:matchMethod "exact integer formula" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/15-537> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:35.119620+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/Ba6Ge25> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/15-537> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "medium" ;
+    sd:matchMethod "exact integer formula" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1730-726> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:48.400981+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/BaGe5> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1730-726> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "low" ;
+    sd:matchMethod "rounded stoichiometry" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1921-738> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:50.860934+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/Ba8Ge43> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1921-738> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "medium" ;
+    sd:matchMethod "exact integer formula" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1946-756> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:53.913859+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/Ba6Ge25> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1946-756> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "medium" ;
+    sd:matchMethod "exact integer formula" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1950-771> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:54.739583+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/Ba6Ge25> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/1950-771> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "medium" ;
+    sd:matchMethod "exact integer formula" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/20-3124> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:37.098611+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/PbTe> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/20-3124> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "high" ;
+    sd:matchMethod "MaterialFamily(curator)" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/20-3125> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:37.098922+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/PbTe> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/20-3125> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "high" ;
+    sd:matchMethod "MaterialFamily(curator)" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/20-3126> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:37.098028+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/PbTe> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/20-3126> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "high" ;
+    sd:matchMethod "MaterialFamily(curator)" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/20-3127> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:37.099197+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/PbTe> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/20-3127> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "high" ;
+    sd:matchMethod "MaterialFamily(curator)" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/20-3128> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:37.099446+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/PbTe> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/20-3128> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "high" ;
+    sd:matchMethod "MaterialFamily(curator)" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2049-830> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:01.780743+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/Ba4Au2Si21> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2049-830> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "low" ;
+    sd:matchMethod "rounded stoichiometry" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2049-834> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:01.522217+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/Ba4Au3Si20> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2049-834> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "low" ;
+    sd:matchMethod "rounded stoichiometry" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2049-835> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:01.782196+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/Ba4Au3Si20> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/2049-835> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "low" ;
+    sd:matchMethod "rounded stoichiometry" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/27-1284> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:37.953360+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/Ba6Ge25> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/27-1284> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "medium" ;
+    sd:matchMethod "exact integer formula" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/27-542> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:37.099717+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/Ba6Ge25> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/27-542> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "medium" ;
+    sd:matchMethod "exact integer formula" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/3-1308> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:33.707971+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/Bi2Te3> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/3-1308> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "high" ;
+    sd:matchMethod "MaterialFamily(curator)" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/3-1309> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:33.708613+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/Bi2Te3> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/3-1309> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "high" ;
+    sd:matchMethod "MaterialFamily(curator)" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/3-1310> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:33.706259+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/Bi2Te3> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/3-1310> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "high" ;
+    sd:matchMethod "MaterialFamily(curator)" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/3-1311> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:33.706910+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/Bi2Te3> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/3-1311> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "high" ;
+    sd:matchMethod "MaterialFamily(curator)" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/3-1312> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:33.707439+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/Bi2Te3> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/3-1312> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "high" ;
+    sd:matchMethod "MaterialFamily(curator)" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/3-535> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:33.703044+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/Bi2Te3> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/3-535> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "high" ;
+    sd:matchMethod "MaterialFamily(curator)" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/3-536> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:33.705512+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/Bi2Te3> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/3-536> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "high" ;
+    sd:matchMethod "MaterialFamily(curator)" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/3231-1001> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:05.865635+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/Ba8Ge43> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/3231-1001> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "medium" ;
+    sd:matchMethod "exact integer formula" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/3231-1002> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:47:05.867286+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/Ba8Ge43> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/3231-1002> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "low" ;
+    sd:matchMethod "rounded stoichiometry" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/869-27522> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:41.703047+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/PbSe> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/869-27522> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "medium" ;
+    sd:matchMethod "exact integer formula" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/869-27523> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:41.704117+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/PbSe> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/869-27523> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "low" ;
+    sd:matchMethod "rounded stoichiometry" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/869-27524> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:41.705020+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/PbSe> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/869-27524> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "low" ;
+    sd:matchMethod "rounded stoichiometry" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/869-27525> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:41.700832+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/PbSe> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/869-27525> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "low" ;
+    sd:matchMethod "rounded stoichiometry" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/869-27526> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:41.702090+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/PbSe> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/869-27526> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "low" ;
+    sd:matchMethod "rounded stoichiometry" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/9-1381> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:34.555893+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/ZnO> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/9-1381> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "high" ;
+    sd:matchMethod "MaterialFamily(curator)" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/9-1382> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:34.867012+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/ZnFe2O4> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/9-1382> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "low" ;
+    sd:matchMethod "rounded stoichiometry" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/9-1383> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:34.867952+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/ZnFe2O4> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/9-1383> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "low" ;
+    sd:matchMethod "rounded stoichiometry" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/9-1384> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:34.555176+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/ZnO> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/9-1384> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "high" ;
+    sd:matchMethod "MaterialFamily(curator)" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structurematch/9-1385> a prov:Activity,
+        sd:StructureMatchActivity ;
+    prov:endedAtTime "2026-06-04T17:46:34.555564+00:00"^^xsd:dateTime ;
+    prov:generated <https://kumagallium.github.io/asterism/starrydata/resource/structure/ZnO> ;
+    prov:used <https://kumagallium.github.io/asterism/starrydata/resource/sample/9-1385> ;
+    prov:wasAssociatedWith <https://github.com/kumagallium/asterism#mp-linking-poc> ;
+    sd:matchConfidence "high" ;
+    sd:matchMethod "MaterialFamily(curator)" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structure/Ba4Au2Si21> a prov:Entity,
+        sd:CrystalStructure ;
+    prov:wasGeneratedBy <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2049-830> ;
+    sd:crystalSystem "Orthorhombic" ;
+    sd:idealizedFrom mp:mp-1228313 ;
+    sd:mpFunctional "MP summary (GGA/GGA+U or r2SCAN)" ;
+    sd:reducedHostFormula "Ba4Au2Si21" ;
+    sd:spaceGroupNumber 40 ;
+    sd:spaceGroupSymbol "Ama2" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structure/BaGe5> a prov:Entity,
+        sd:CrystalStructure ;
+    prov:wasGeneratedBy <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1730-726> ;
+    sd:crystalSystem "Orthorhombic" ;
+    sd:idealizedFrom mp:mp-1095284 ;
+    sd:mpFunctional "MP summary (GGA/GGA+U or r2SCAN)" ;
+    sd:reducedHostFormula "BaGe5" ;
+    sd:spaceGroupNumber 74 ;
+    sd:spaceGroupSymbol "Imma" .
+
+mp:mp-1095284 a prov:Entity ;
+    schema:identifier "mp-1095284" ;
+    schema:url mp:mp-1095284 .
+
+mp:mp-1199827 a prov:Entity ;
+    schema:identifier "mp-1199827" ;
+    schema:url mp:mp-1199827 .
+
+mp:mp-1228313 a prov:Entity ;
+    schema:identifier "mp-1228313" ;
+    schema:url mp:mp-1228313 .
+
+mp:mp-17815 a prov:Entity ;
+    schema:identifier "mp-17815" ;
+    schema:url mp:mp-17815 .
+
+mp:mp-19313 a prov:Entity ;
+    schema:identifier "mp-19313" ;
+    schema:url mp:mp-19313 .
+
+mp:mp-19717 a prov:Entity ;
+    schema:identifier "mp-19717" ;
+    schema:url mp:mp-19717 .
+
+mp:mp-2133 a prov:Entity ;
+    schema:identifier "mp-2133" ;
+    schema:url mp:mp-2133 .
+
+mp:mp-2201 a prov:Entity ;
+    schema:identifier "mp-2201" ;
+    schema:url mp:mp-2201 .
+
+mp:mp-34202 a prov:Entity ;
+    schema:identifier "mp-34202" ;
+    schema:url mp:mp-34202 .
+
+mp:mp-569965 a prov:Entity ;
+    schema:identifier "mp-569965" ;
+    schema:url mp:mp-569965 .
+
+mp:mp-691 a prov:Entity ;
+    schema:identifier "mp-691" ;
+    schema:url mp:mp-691 .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structure/Ba4Au3Si20> a prov:Entity,
+        sd:CrystalStructure ;
+    prov:wasGeneratedBy <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2049-834>,
+        <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/2049-835> ;
+    sd:crystalSystem "Cubic" ;
+    sd:idealizedFrom mp:mp-17815 ;
+    sd:mpFunctional "MP summary (GGA/GGA+U or r2SCAN)" ;
+    sd:reducedHostFormula "Ba4Au3Si20" ;
+    sd:spaceGroupNumber 223 ;
+    sd:spaceGroupSymbol "Pm-3n" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structure/ZnFe2O4> a prov:Entity,
+        sd:CrystalStructure ;
+    prov:wasGeneratedBy <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/9-1382>,
+        <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/9-1383> ;
+    sd:crystalSystem "Cubic" ;
+    sd:idealizedFrom mp:mp-19313 ;
+    sd:mpFunctional "MP summary (GGA/GGA+U or r2SCAN)" ;
+    sd:reducedHostFormula "ZnFe2O4" ;
+    sd:spaceGroupNumber 227 ;
+    sd:spaceGroupSymbol "Fd-3m" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structure/Ba8Ge43> a prov:Entity,
+        sd:CrystalStructure ;
+    prov:wasGeneratedBy <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1921-738>,
+        <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/3231-1001>,
+        <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/3231-1002> ;
+    sd:crystalSystem "Cubic" ;
+    sd:idealizedFrom mp:mp-1199827 ;
+    sd:mpFunctional "MP summary (GGA/GGA+U or r2SCAN)" ;
+    sd:reducedHostFormula "Ba8Ge43" ;
+    sd:spaceGroupNumber 230 ;
+    sd:spaceGroupSymbol "Ia-3d" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structure/ZnO> a prov:Entity,
+        sd:CrystalStructure ;
+    prov:wasGeneratedBy <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/9-1381>,
+        <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/9-1384>,
+        <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/9-1385> ;
+    sd:crystalSystem "Hexagonal" ;
+    sd:idealizedFrom mp:mp-2133 ;
+    sd:mpFunctional "MP summary (GGA/GGA+U or r2SCAN)" ;
+    sd:reducedHostFormula "ZnO" ;
+    sd:spaceGroupNumber 186 ;
+    sd:spaceGroupSymbol "P6_3mc" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structure/PbSe> a prov:Entity,
+        sd:CrystalStructure ;
+    prov:wasGeneratedBy <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/869-27522>,
+        <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/869-27523>,
+        <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/869-27524>,
+        <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/869-27525>,
+        <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/869-27526> ;
+    sd:crystalSystem "Cubic" ;
+    sd:idealizedFrom mp:mp-2201 ;
+    sd:mpFunctional "MP summary (GGA/GGA+U or r2SCAN)" ;
+    sd:reducedHostFormula "PbSe" ;
+    sd:spaceGroupNumber 225 ;
+    sd:spaceGroupSymbol "Fm-3m" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structure/PbTe> a prov:Entity,
+        sd:CrystalStructure ;
+    prov:wasGeneratedBy <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/20-3124>,
+        <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/20-3125>,
+        <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/20-3126>,
+        <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/20-3127>,
+        <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/20-3128> ;
+    sd:crystalSystem "Cubic" ;
+    sd:idealizedFrom mp:mp-19717 ;
+    sd:mpFunctional "MP summary (GGA/GGA+U or r2SCAN)" ;
+    sd:reducedHostFormula "PbTe" ;
+    sd:spaceGroupNumber 225 ;
+    sd:spaceGroupSymbol "Fm-3m" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structure/Ba6Ge25> a prov:Entity,
+        sd:CrystalStructure ;
+    prov:wasGeneratedBy <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/15-2281>,
+        <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/15-2282>,
+        <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/15-537>,
+        <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1946-756>,
+        <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/1950-771>,
+        <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/27-1284>,
+        <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/27-542> ;
+    sd:crystalSystem "Cubic" ;
+    sd:idealizedFrom mp:mp-569965 ;
+    sd:mpFunctional "MP summary (GGA/GGA+U or r2SCAN)" ;
+    sd:reducedHostFormula "Ba6Ge25" ;
+    sd:spaceGroupNumber 213 ;
+    sd:spaceGroupSymbol "P4_132" .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structure/Bi2Te3> a prov:Entity,
+        sd:CrystalStructure ;
+    prov:wasGeneratedBy <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/3-1308>,
+        <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/3-1309>,
+        <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/3-1310>,
+        <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/3-1311>,
+        <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/3-1312>,
+        <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/3-535>,
+        <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/3-536> ;
+    sd:crystalSystem "Trigonal" ;
+    sd:idealizedFrom mp:mp-34202 ;
+    sd:mpFunctional "MP summary (GGA/GGA+U or r2SCAN)" ;
+    sd:reducedHostFormula "Bi2Te3" ;
+    sd:spaceGroupNumber 166 ;
+    sd:spaceGroupSymbol "R-3m" .
+
+sd:CrystalStructure a owl:Class ;
+    rdfs:label "Crystal Structure"@en,
+        "結晶構造"@ja ;
+    rdfs:comment "An idealized (pristine, stoichiometric) crystal structure of a host phase, sourced from a computational database such as Materials Project. NOT the real sample structure: dopants and microstructure are out of scope here."@en ;
+    rdfs:seeAlso <https://atomrdf.pyscal.org/> ;
+    rdfs:subClassOf prov:Entity .
+
+<https://kumagallium.github.io/asterism/starrydata/resource/structure/SnSe> a prov:Entity,
+        sd:CrystalStructure ;
+    prov:wasGeneratedBy <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/120-19476>,
+        <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/120-19477>,
+        <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/120-19478>,
+        <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/120-19479>,
+        <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/120-19480>,
+        <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/120-19481>,
+        <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/120-19482>,
+        <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/120-19483>,
+        <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/120-19484>,
+        <https://kumagallium.github.io/asterism/starrydata/resource/structurematch/120-19485> ;
+    sd:crystalSystem "Orthorhombic" ;
+    sd:idealizedFrom mp:mp-691 ;
+    sd:mpFunctional "MP summary (GGA/GGA+U or r2SCAN)" ;
+    sd:reducedHostFormula "SnSe" ;
+    sd:solidSolutionElement "S" ;
+    sd:spaceGroupNumber 62 ;
+    sd:spaceGroupSymbol "Pnma" .
+
+sd:PointDefect a owl:Class ;
+    rdfs:label "Point Defect"@en,
+        "点欠陥"@ja ;
+    rdfs:comment "A point defect (substitutional dopant / interstitial / vacancy) that represents the deviation of a real sample from its idealized host structure. Doping is modeled here as point defects."@en ;
+    rdfs:seeAlso <https://atomrdf.pyscal.org/> ;
+    rdfs:subClassOf prov:Entity .
+
+<https://github.com/kumagallium/asterism#mp-linking-poc> a prov:SoftwareAgent ;
+    schema:name "asterism mp-linking PoC" .
+
+sd:StructureMatchActivity a owl:Class ;
+    rdfs:label "Structure Match Activity"@en,
+        "構造突き合わせアクティビティ"@ja ;
+    rdfs:comment "The act of resolving a sample's host phase to an idealized crystal structure (e.g. by composition normalization + Materials Project lookup). Carries method, confidence, and the MP functional so the link is auditable. Mirrors sd:IngestionActivity / sd:DigitizationActivity."@en ;
+    rdfs:subClassOf prov:Activity .
+

@@ -1,0 +1,1546 @@
+{
+  "meta": {
+    "generated_note": "Precomputed by scripts/build_demo_assets.py via the real asterism_mcp.tools against the shipped Turtle. The browser re-runs the same SPARQL with oxigraph-wasm; this is the fallback.",
+    "dataset": "starrydata (demo subset)",
+    "papers": 45,
+    "samples": 318,
+    "curves": 1228,
+    "max_plausible": 3.5,
+    "stripped_curve_arrays": 1218,
+    "featured": 10,
+    "mp_source": "live (Materials Project REST)",
+    "mp_linked_rows": 11
+  },
+  "ranking": {
+    "label": "ZT ランキング (property_ranking)",
+    "sparql": "PREFIX sd: <https://kumagallium.github.io/asterism/starrydata/ontology#>\nPREFIX schema: <https://schema.org/>\nPREFIX dcterms: <http://purl.org/dc/terms/>\nPREFIX prov: <http://www.w3.org/ns/prov#>\nSELECT ?curve ?ymax ?s ?comp ?p ?title WHERE {\n  ?curve a sd:Curve ; sd:propertyY \"ZT\" ; sd:yMax ?ymax ; sd:ofSample ?s .\n  ?s sd:fromPaper ?p .\n  OPTIONAL { ?s sd:compositionString ?comp }\n  OPTIONAL { ?p schema:name ?title }\n  FILTER(?ymax <= 3.5)\n} ORDER BY DESC(?ymax) LIMIT 10",
+    "result": {
+      "property_y": "ZT",
+      "top_n": 10,
+      "max_plausible": 3.5,
+      "excluded_implausible": 0,
+      "results": [
+        {
+          "curve_iri": "https://kumagallium.github.io/asterism/starrydata/resource/curve/869-22105-27525",
+          "value": 1.466923,
+          "sample_iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/869-27525",
+          "composition": "Pb0.92Sr0.08Se",
+          "paper_iri": "https://kumagallium.github.io/asterism/starrydata/resource/paper/869",
+          "title": "Tuning bands of PbSe for better thermoelectric efficiency"
+        },
+        {
+          "curve_iri": "https://kumagallium.github.io/asterism/starrydata/resource/curve/1710-357-714",
+          "value": 1.450116,
+          "sample_iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/1710-714",
+          "composition": "Ba7.98Ga15.65Cu0.125Sn30.25",
+          "paper_iri": "https://kumagallium.github.io/asterism/starrydata/resource/paper/1710",
+          "title": "Thermoelectric properties of type-VIII clathrate Ba8Ga16Sn30 doped with Cu"
+        },
+        {
+          "curve_iri": "https://kumagallium.github.io/asterism/starrydata/resource/curve/1710-357-713",
+          "value": 1.391395,
+          "sample_iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/1710-713",
+          "composition": "Ba8.00Ga15.85Cu0.033Sn30.14",
+          "paper_iri": "https://kumagallium.github.io/asterism/starrydata/resource/paper/1710",
+          "title": "Thermoelectric properties of type-VIII clathrate Ba8Ga16Sn30 doped with Cu"
+        },
+        {
+          "curve_iri": "https://kumagallium.github.io/asterism/starrydata/resource/curve/869-22105-27524",
+          "value": 1.376034,
+          "sample_iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/869-27524",
+          "composition": "Pb0.96Sr0.04Se",
+          "paper_iri": "https://kumagallium.github.io/asterism/starrydata/resource/paper/869",
+          "title": "Tuning bands of PbSe for better thermoelectric efficiency"
+        },
+        {
+          "curve_iri": "https://kumagallium.github.io/asterism/starrydata/resource/curve/1710-357-712",
+          "value": 1.352052,
+          "sample_iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/1710-712",
+          "composition": "Ba7.99Ga15.80Cu0.033Sn30.17",
+          "paper_iri": "https://kumagallium.github.io/asterism/starrydata/resource/paper/1710",
+          "title": "Thermoelectric properties of type-VIII clathrate Ba8Ga16Sn30 doped with Cu"
+        },
+        {
+          "curve_iri": "https://kumagallium.github.io/asterism/starrydata/resource/curve/1710-357-711",
+          "value": 1.348557,
+          "sample_iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/1710-711",
+          "composition": "Ba8.00Ga15.80Cu0.020Sn30.09",
+          "paper_iri": "https://kumagallium.github.io/asterism/starrydata/resource/paper/1710",
+          "title": "Thermoelectric properties of type-VIII clathrate Ba8Ga16Sn30 doped with Cu"
+        },
+        {
+          "curve_iri": "https://kumagallium.github.io/asterism/starrydata/resource/curve/869-22105-27523",
+          "value": 1.299645,
+          "sample_iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/869-27523",
+          "composition": "Pb0.98Sr0.02Se",
+          "paper_iri": "https://kumagallium.github.io/asterism/starrydata/resource/paper/869",
+          "title": "Tuning bands of PbSe for better thermoelectric efficiency"
+        },
+        {
+          "curve_iri": "https://kumagallium.github.io/asterism/starrydata/resource/curve/27-248-546",
+          "value": 1.259388,
+          "sample_iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/27-546",
+          "composition": "Ba24Ga15Ge85",
+          "paper_iri": "https://kumagallium.github.io/asterism/starrydata/resource/paper/27",
+          "title": "High thermoelectric performance of type-III clathrate compounds of the Ba–Ge–Ga system"
+        },
+        {
+          "curve_iri": "https://kumagallium.github.io/asterism/starrydata/resource/curve/2019-446-822",
+          "value": 1.236712,
+          "sample_iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/2019-822",
+          "composition": "Ba8Ga10Al6Sn30",
+          "paper_iri": "https://kumagallium.github.io/asterism/starrydata/resource/paper/2019",
+          "title": "Enhancement of thermoelectric efficiency in type-VIII clathrate Ba8Ga16Sn30 by Al substitution for Ga"
+        },
+        {
+          "curve_iri": "https://kumagallium.github.io/asterism/starrydata/resource/curve/869-22105-27526",
+          "value": 1.180307,
+          "sample_iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/869-27526",
+          "composition": "Pb0.88Sr0.12Se",
+          "paper_iri": "https://kumagallium.github.io/asterism/starrydata/resource/paper/869",
+          "title": "Tuning bands of PbSe for better thermoelectric efficiency"
+        }
+      ]
+    }
+  },
+  "composition": {
+    "label": "組成検索 (sample_search)",
+    "sparql_template": "PREFIX sd: <https://kumagallium.github.io/asterism/starrydata/ontology#>\nPREFIX schema: <https://schema.org/>\nPREFIX dcterms: <http://purl.org/dc/terms/>\nPREFIX prov: <http://www.w3.org/ns/prov#>\nSELECT DISTINCT ?sample ?comp ?name ?paper ?title WHERE {\n  ?sample a sd:Sample .\n  ?sample sd:compositionString ?comp .\n  FILTER(CONTAINS(LCASE(STR(?comp)), \"%Q%\"))\n  OPTIONAL { ?sample schema:name ?name }\n  OPTIONAL { ?sample sd:fromPaper ?paper . OPTIONAL { ?paper schema:name ?title } }\n} LIMIT 20",
+    "default_value": "Ba8Ga16",
+    "result": {
+      "query": {
+        "composition": "Ba8Ga16",
+        "property_y": null,
+        "limit": 20
+      },
+      "count": 20,
+      "results": [
+        {
+          "sample_iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/1960-786",
+          "composition": "Ba8Ga16Al1Ge29",
+          "name": "x=1.0",
+          "paper_iri": "https://kumagallium.github.io/asterism/starrydata/resource/paper/1960",
+          "title": "High temperature thermoelectric transport properties of p-type Ba8Ga16AlxGe30−x type-I clathrates with high performance"
+        },
+        {
+          "sample_iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/2004-814",
+          "composition": "Ba8Ga16Ge30",
+          "name": "BBG4",
+          "paper_iri": "https://kumagallium.github.io/asterism/starrydata/resource/paper/2004",
+          "title": "Thermal stability and thermoelectric properties of p-type Ba8Ga16Ge30 clathrates"
+        },
+        {
+          "sample_iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/1947-761",
+          "composition": "Ba8Ga16Zn2.4Ge27.6",
+          "name": "Zn=2.4",
+          "paper_iri": "https://kumagallium.github.io/asterism/starrydata/resource/paper/1947",
+          "title": "Synthesis and thermoelectric properties of p-type Ba8Ga16ZnxGe30−x type-I clathrates"
+        },
+        {
+          "sample_iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/1757-729",
+          "composition": "Ba8Ga16Ge30",
+          "name": "Ba8Ga16Ge30",
+          "paper_iri": "https://kumagallium.github.io/asterism/starrydata/resource/paper/1757",
+          "title": "Thermoelectric properties of Au-containing type-I clathrates Ba8AuxGa16−3xGe30+2x"
+        },
+        {
+          "sample_iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/2004-812",
+          "composition": "Ba8Ga16Ge30",
+          "name": "BBG2",
+          "paper_iri": "https://kumagallium.github.io/asterism/starrydata/resource/paper/2004",
+          "title": "Thermal stability and thermoelectric properties of p-type Ba8Ga16Ge30 clathrates"
+        },
+        {
+          "sample_iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/2019-818",
+          "composition": "Ba8Ga16Al0Sn30",
+          "name": "x=0",
+          "paper_iri": "https://kumagallium.github.io/asterism/starrydata/resource/paper/2019",
+          "title": "Enhancement of thermoelectric efficiency in type-VIII clathrate Ba8Ga16Sn30 by Al substitution for Ga"
+        },
+        {
+          "sample_iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/1668-699",
+          "composition": "Ba8Ga16Sn30",
+          "name": "K(n-50)",
+          "paper_iri": "https://kumagallium.github.io/asterism/starrydata/resource/paper/1668",
+          "title": "Optimization of thermoelectric properties of type-VIII clathrate Ba8Ga16Sn30 by carrier tuning"
+        },
+        {
+          "sample_iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/2067-842",
+          "composition": "Ba8Ga16Ge30",
+          "name": "Ref",
+          "paper_iri": "https://kumagallium.github.io/asterism/starrydata/resource/paper/2067",
+          "title": "Thermoelectric properties of Ba8Ga16Ge30 with TiO2 nanoinclusions"
+        },
+        {
+          "sample_iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/1968-797",
+          "composition": "Yb0Ba8Ga16Ge30",
+          "name": "x=0",
+          "paper_iri": "https://kumagallium.github.io/asterism/starrydata/resource/paper/1968",
+          "title": "High temperature thermoelectric transport properties of double-atom-filled clathrate compounds YbxBa8−xGa16Ge30"
+        },
+        {
+          "sample_iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/2067-845",
+          "composition": "(TiO2)40.05(Ba8Ga16Ge30)59.95",
+          "name": "1.2%",
+          "paper_iri": "https://kumagallium.github.io/asterism/starrydata/resource/paper/2067",
+          "title": "Thermoelectric properties of Ba8Ga16Ge30 with TiO2 nanoinclusions"
+        },
+        {
+          "sample_iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/1947-763",
+          "composition": "Ba8Ga16Zn2.8Ge27.2",
+          "name": "Zn=2.8",
+          "paper_iri": "https://kumagallium.github.io/asterism/starrydata/resource/paper/1947",
+          "title": "Synthesis and thermoelectric properties of p-type Ba8Ga16ZnxGe30−x type-I clathrates"
+        },
+        {
+          "sample_iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/1668-700",
+          "composition": "Ba8Ga16Sn30",
+          "name": "KL",
+          "paper_iri": "https://kumagallium.github.io/asterism/starrydata/resource/paper/1668",
+          "title": "Optimization of thermoelectric properties of type-VIII clathrate Ba8Ga16Sn30 by carrier tuning"
+        },
+        {
+          "sample_iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/1941-752",
+          "composition": "Ba8Ga16In0Ge30",
+          "name": "x=0",
+          "paper_iri": "https://kumagallium.github.io/asterism/starrydata/resource/paper/1941",
+          "title": "Effect of In additions on the thermoelectric properties of the type-I clathrate compound Ba8Ga16Ge30"
+        },
+        {
+          "sample_iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/1947-767",
+          "composition": "Ba8Ga16Zn2.6Ge27.4",
+          "name": "x=2.6",
+          "paper_iri": "https://kumagallium.github.io/asterism/starrydata/resource/paper/1947",
+          "title": "Synthesis and thermoelectric properties of p-type Ba8Ga16ZnxGe30−x type-I clathrates"
+        },
+        {
+          "sample_iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/2154-853",
+          "composition": "Ba8Ga16Sn30",
+          "name": "type-VIII",
+          "paper_iri": "https://kumagallium.github.io/asterism/starrydata/resource/paper/2154",
+          "title": "Thermoelectric and transport properties of sintered n-type K8Ba16Ga40Sn96 with type-II clathrate structure"
+        },
+        {
+          "sample_iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/1947-766",
+          "composition": "Ba8Ga16Zn2.4Ge27.6",
+          "name": "X=2.4",
+          "paper_iri": "https://kumagallium.github.io/asterism/starrydata/resource/paper/1947",
+          "title": "Synthesis and thermoelectric properties of p-type Ba8Ga16ZnxGe30−x type-I clathrates"
+        },
+        {
+          "sample_iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/2004-813",
+          "composition": "Ba8Ga16Ge30",
+          "name": "BBG3",
+          "paper_iri": "https://kumagallium.github.io/asterism/starrydata/resource/paper/2004",
+          "title": "Thermal stability and thermoelectric properties of p-type Ba8Ga16Ge30 clathrates"
+        },
+        {
+          "sample_iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/1947-769",
+          "composition": "Ba8Ga16Zn3.0Ge27.0",
+          "name": "x=3.0",
+          "paper_iri": "https://kumagallium.github.io/asterism/starrydata/resource/paper/1947",
+          "title": "Synthesis and thermoelectric properties of p-type Ba8Ga16ZnxGe30−x type-I clathrates"
+        },
+        {
+          "sample_iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/2154-850",
+          "composition": "Ba8Ga16Sn30",
+          "name": "type-VIII k",
+          "paper_iri": "https://kumagallium.github.io/asterism/starrydata/resource/paper/2154",
+          "title": "Thermoelectric and transport properties of sintered n-type K8Ba16Ga40Sn96 with type-II clathrate structure"
+        },
+        {
+          "sample_iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/2004-815",
+          "composition": "Ba8Ga16Ge30",
+          "name": "BBG4a",
+          "paper_iri": "https://kumagallium.github.io/asterism/starrydata/resource/paper/2004",
+          "title": "Thermal stability and thermoelectric properties of p-type Ba8Ga16Ge30 clathrates"
+        }
+      ]
+    }
+  },
+  "provenance": {
+    "label": "来歴トレース (provenance_of)",
+    "sparql_template": "PREFIX sd: <https://kumagallium.github.io/asterism/starrydata/ontology#>\nPREFIX schema: <https://schema.org/>\nPREFIX dcterms: <http://purl.org/dc/terms/>\nPREFIX prov: <http://www.w3.org/ns/prov#>\nSELECT ?etype ?fig ?py ?ymax ?ecomp ?ename ?sample ?scomp ?sname ?paper ?ptitle ?pid ?act ?atype ?atime WHERE {\n  BIND(<%IRI%> AS ?e)\n  OPTIONAL { ?e a ?etype . FILTER(STRSTARTS(STR(?etype), \"https://kumagallium.github.io/asterism/starrydata/ontology#\")) }\n  OPTIONAL { ?e sd:figureName ?fig }\n  OPTIONAL { ?e sd:propertyY ?py }\n  OPTIONAL { ?e sd:yMax ?ymax }\n  OPTIONAL { ?e sd:compositionString ?ecomp }\n  OPTIONAL { ?e schema:name ?ename }\n  OPTIONAL {\n    ?e sd:ofSample ?sample .\n    OPTIONAL { ?sample sd:compositionString ?scomp }\n    OPTIONAL { ?sample schema:name ?sname }\n    OPTIONAL { ?sample sd:fromPaper ?paper .\n      OPTIONAL { ?paper schema:name ?ptitle }\n      OPTIONAL { ?paper dcterms:identifier ?pid } }\n  }\n  OPTIONAL { ?e sd:fromPaper ?paper .\n    OPTIONAL { ?paper schema:name ?ptitle }\n    OPTIONAL { ?paper dcterms:identifier ?pid } }\n  OPTIONAL {\n    ?e prov:wasGeneratedBy ?act .\n    OPTIONAL { ?act a ?atype . FILTER(STRSTARTS(STR(?atype), \"https://kumagallium.github.io/asterism/starrydata/ontology#\")) }\n    OPTIONAL { ?act prov:atTime ?atime }\n  }\n}",
+    "chains": {
+      "https://kumagallium.github.io/asterism/starrydata/resource/curve/869-22105-27525": {
+        "iri": "https://kumagallium.github.io/asterism/starrydata/resource/curve/869-22105-27525",
+        "found": true,
+        "chain": [
+          {
+            "step": "curve",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/curve/869-22105-27525",
+            "label": "4",
+            "detail": "ZT; yMax=1.466923"
+          },
+          {
+            "step": "sample",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/869-27525",
+            "label": "Pb0.92Sr0.08Se",
+            "detail": "composition=Pb0.92Sr0.08Se"
+          },
+          {
+            "step": "paper",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/paper/869",
+            "label": "Tuning bands of PbSe for better thermoelectric efficiency",
+            "detail": "id=869"
+          },
+          {
+            "step": "digitization",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/digitization/869-22105-27525",
+            "label": "DigitizationActivity",
+            "detail": "atTime=2020-03-23T06:17:34Z"
+          },
+          {
+            "step": "ingestion",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/ingestion/run-20260604T172858Z",
+            "label": "IngestionActivity",
+            "detail": "atTime=2026-06-04T17:28:58.2761Z"
+          }
+        ]
+      },
+      "https://kumagallium.github.io/asterism/starrydata/resource/curve/1710-357-714": {
+        "iri": "https://kumagallium.github.io/asterism/starrydata/resource/curve/1710-357-714",
+        "found": true,
+        "chain": [
+          {
+            "step": "curve",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/curve/1710-357-714",
+            "label": "5(b)",
+            "detail": "ZT; yMax=1.450116"
+          },
+          {
+            "step": "sample",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/1710-714",
+            "label": "Ba7.98Ga15.65Cu0.125Sn30.25",
+            "detail": "composition=Ba7.98Ga15.65Cu0.125Sn30.25"
+          },
+          {
+            "step": "paper",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/paper/1710",
+            "label": "Thermoelectric properties of type-VIII clathrate Ba8Ga16Sn30 doped with Cu",
+            "detail": "id=1710"
+          },
+          {
+            "step": "digitization",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/digitization/1710-357-714",
+            "label": "DigitizationActivity",
+            "detail": "atTime=2017-12-13T06:07:40Z"
+          },
+          {
+            "step": "ingestion",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/ingestion/run-20260604T172858Z",
+            "label": "IngestionActivity",
+            "detail": "atTime=2026-06-04T17:28:58.2761Z"
+          }
+        ]
+      },
+      "https://kumagallium.github.io/asterism/starrydata/resource/curve/1710-357-713": {
+        "iri": "https://kumagallium.github.io/asterism/starrydata/resource/curve/1710-357-713",
+        "found": true,
+        "chain": [
+          {
+            "step": "curve",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/curve/1710-357-713",
+            "label": "5(b)",
+            "detail": "ZT; yMax=1.391395"
+          },
+          {
+            "step": "sample",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/1710-713",
+            "label": "Ba8.00Ga15.85Cu0.033Sn30.14",
+            "detail": "composition=Ba8.00Ga15.85Cu0.033Sn30.14"
+          },
+          {
+            "step": "paper",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/paper/1710",
+            "label": "Thermoelectric properties of type-VIII clathrate Ba8Ga16Sn30 doped with Cu",
+            "detail": "id=1710"
+          },
+          {
+            "step": "digitization",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/digitization/1710-357-713",
+            "label": "DigitizationActivity",
+            "detail": "atTime=2017-12-13T06:06:38Z"
+          },
+          {
+            "step": "ingestion",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/ingestion/run-20260604T172858Z",
+            "label": "IngestionActivity",
+            "detail": "atTime=2026-06-04T17:28:58.2761Z"
+          }
+        ]
+      },
+      "https://kumagallium.github.io/asterism/starrydata/resource/curve/869-22105-27524": {
+        "iri": "https://kumagallium.github.io/asterism/starrydata/resource/curve/869-22105-27524",
+        "found": true,
+        "chain": [
+          {
+            "step": "curve",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/curve/869-22105-27524",
+            "label": "4",
+            "detail": "ZT; yMax=1.376034"
+          },
+          {
+            "step": "sample",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/869-27524",
+            "label": "Pb0.96Sr0.04Se",
+            "detail": "composition=Pb0.96Sr0.04Se"
+          },
+          {
+            "step": "paper",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/paper/869",
+            "label": "Tuning bands of PbSe for better thermoelectric efficiency",
+            "detail": "id=869"
+          },
+          {
+            "step": "digitization",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/digitization/869-22105-27524",
+            "label": "DigitizationActivity",
+            "detail": "atTime=2020-03-23T06:16:40Z"
+          },
+          {
+            "step": "ingestion",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/ingestion/run-20260604T172858Z",
+            "label": "IngestionActivity",
+            "detail": "atTime=2026-06-04T17:28:58.2761Z"
+          }
+        ]
+      },
+      "https://kumagallium.github.io/asterism/starrydata/resource/curve/1710-357-712": {
+        "iri": "https://kumagallium.github.io/asterism/starrydata/resource/curve/1710-357-712",
+        "found": true,
+        "chain": [
+          {
+            "step": "curve",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/curve/1710-357-712",
+            "label": "5(b)",
+            "detail": "ZT; yMax=1.352052"
+          },
+          {
+            "step": "sample",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/1710-712",
+            "label": "Ba7.99Ga15.80Cu0.033Sn30.17",
+            "detail": "composition=Ba7.99Ga15.80Cu0.033Sn30.17"
+          },
+          {
+            "step": "paper",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/paper/1710",
+            "label": "Thermoelectric properties of type-VIII clathrate Ba8Ga16Sn30 doped with Cu",
+            "detail": "id=1710"
+          },
+          {
+            "step": "digitization",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/digitization/1710-357-712",
+            "label": "DigitizationActivity",
+            "detail": "atTime=2017-12-13T06:05:49Z"
+          },
+          {
+            "step": "ingestion",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/ingestion/run-20260604T172858Z",
+            "label": "IngestionActivity",
+            "detail": "atTime=2026-06-04T17:28:58.2761Z"
+          }
+        ]
+      },
+      "https://kumagallium.github.io/asterism/starrydata/resource/curve/1710-357-711": {
+        "iri": "https://kumagallium.github.io/asterism/starrydata/resource/curve/1710-357-711",
+        "found": true,
+        "chain": [
+          {
+            "step": "curve",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/curve/1710-357-711",
+            "label": "5(b)",
+            "detail": "ZT; yMax=1.348557"
+          },
+          {
+            "step": "sample",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/1710-711",
+            "label": "Ba8.00Ga15.80Cu0.020Sn30.09",
+            "detail": "composition=Ba8.00Ga15.80Cu0.020Sn30.09"
+          },
+          {
+            "step": "paper",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/paper/1710",
+            "label": "Thermoelectric properties of type-VIII clathrate Ba8Ga16Sn30 doped with Cu",
+            "detail": "id=1710"
+          },
+          {
+            "step": "digitization",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/digitization/1710-357-711",
+            "label": "DigitizationActivity",
+            "detail": "atTime=2017-12-13T06:04:25Z"
+          },
+          {
+            "step": "ingestion",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/ingestion/run-20260604T172858Z",
+            "label": "IngestionActivity",
+            "detail": "atTime=2026-06-04T17:28:58.2761Z"
+          }
+        ]
+      },
+      "https://kumagallium.github.io/asterism/starrydata/resource/curve/869-22105-27523": {
+        "iri": "https://kumagallium.github.io/asterism/starrydata/resource/curve/869-22105-27523",
+        "found": true,
+        "chain": [
+          {
+            "step": "curve",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/curve/869-22105-27523",
+            "label": "4",
+            "detail": "ZT; yMax=1.299645"
+          },
+          {
+            "step": "sample",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/869-27523",
+            "label": "Pb0.98Sr0.02Se",
+            "detail": "composition=Pb0.98Sr0.02Se"
+          },
+          {
+            "step": "paper",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/paper/869",
+            "label": "Tuning bands of PbSe for better thermoelectric efficiency",
+            "detail": "id=869"
+          },
+          {
+            "step": "digitization",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/digitization/869-22105-27523",
+            "label": "DigitizationActivity",
+            "detail": "atTime=2020-03-23T06:15:54Z"
+          },
+          {
+            "step": "ingestion",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/ingestion/run-20260604T172858Z",
+            "label": "IngestionActivity",
+            "detail": "atTime=2026-06-04T17:28:58.2761Z"
+          }
+        ]
+      },
+      "https://kumagallium.github.io/asterism/starrydata/resource/curve/27-248-546": {
+        "iri": "https://kumagallium.github.io/asterism/starrydata/resource/curve/27-248-546",
+        "found": true,
+        "chain": [
+          {
+            "step": "curve",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/curve/27-248-546",
+            "label": "7",
+            "detail": "ZT; yMax=1.259388"
+          },
+          {
+            "step": "sample",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/27-546",
+            "label": "Ba24Ga15Ge85",
+            "detail": "composition=Ba24Ga15Ge85"
+          },
+          {
+            "step": "paper",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/paper/27",
+            "label": "High thermoelectric performance of type-III clathrate compounds of the Ba–Ge–Ga system",
+            "detail": "id=27"
+          },
+          {
+            "step": "digitization",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/digitization/27-248-546",
+            "label": "DigitizationActivity",
+            "detail": "atTime=2017-12-01T06:54:00Z"
+          },
+          {
+            "step": "ingestion",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/ingestion/run-20260604T172858Z",
+            "label": "IngestionActivity",
+            "detail": "atTime=2026-06-04T17:28:58.2761Z"
+          }
+        ]
+      },
+      "https://kumagallium.github.io/asterism/starrydata/resource/curve/2019-446-822": {
+        "iri": "https://kumagallium.github.io/asterism/starrydata/resource/curve/2019-446-822",
+        "found": true,
+        "chain": [
+          {
+            "step": "curve",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/curve/2019-446-822",
+            "label": "8",
+            "detail": "ZT; yMax=1.236712"
+          },
+          {
+            "step": "sample",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/2019-822",
+            "label": "Ba8Ga10Al6Sn30",
+            "detail": "composition=Ba8Ga10Al6Sn30"
+          },
+          {
+            "step": "paper",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/paper/2019",
+            "label": "Enhancement of thermoelectric efficiency in type-VIII clathrate Ba8Ga16Sn30 by Al substitution for Ga",
+            "detail": "id=2019"
+          },
+          {
+            "step": "digitization",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/digitization/2019-446-822",
+            "label": "DigitizationActivity",
+            "detail": "atTime=2017-12-20T05:40:27Z"
+          },
+          {
+            "step": "ingestion",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/ingestion/run-20260604T172858Z",
+            "label": "IngestionActivity",
+            "detail": "atTime=2026-06-04T17:28:58.2761Z"
+          }
+        ]
+      },
+      "https://kumagallium.github.io/asterism/starrydata/resource/curve/869-22105-27526": {
+        "iri": "https://kumagallium.github.io/asterism/starrydata/resource/curve/869-22105-27526",
+        "found": true,
+        "chain": [
+          {
+            "step": "curve",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/curve/869-22105-27526",
+            "label": "4",
+            "detail": "ZT; yMax=1.180307"
+          },
+          {
+            "step": "sample",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/869-27526",
+            "label": "Pb0.88Sr0.12Se",
+            "detail": "composition=Pb0.88Sr0.12Se"
+          },
+          {
+            "step": "paper",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/paper/869",
+            "label": "Tuning bands of PbSe for better thermoelectric efficiency",
+            "detail": "id=869"
+          },
+          {
+            "step": "digitization",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/digitization/869-22105-27526",
+            "label": "DigitizationActivity",
+            "detail": "atTime=2020-03-23T06:18:29Z"
+          },
+          {
+            "step": "ingestion",
+            "iri": "https://kumagallium.github.io/asterism/starrydata/resource/ingestion/run-20260604T172858Z",
+            "label": "IngestionActivity",
+            "detail": "atTime=2026-06-04T17:28:58.2761Z"
+          }
+        ]
+      }
+    }
+  },
+  "featured_curves": {
+    "https://kumagallium.github.io/asterism/starrydata/resource/curve/869-22105-27525": {
+      "property_x": "Temperature",
+      "property_y": "ZT",
+      "unit_x": "K",
+      "unit_y": "-",
+      "figure_name": "4",
+      "point_count": 22,
+      "x": [
+        303.9407,
+        334.6663,
+        374.6947,
+        417.387,
+        448.0531,
+        481.3746,
+        518.6879,
+        558.6566,
+        582.6073,
+        619.8865,
+        647.8119,
+        675.7373,
+        704.9308,
+        732.8562,
+        760.7305,
+        780.6554,
+        804.5294,
+        820.4454,
+        840.3447,
+        864.2273,
+        881.437,
+        896.0338
+      ],
+      "y": [
+        0.029151,
+        0.03441733,
+        0.06849422,
+        0.1073906,
+        0.1460955,
+        0.1943968,
+        0.2523158,
+        0.3198312,
+        0.3775374,
+        0.4545642,
+        0.5314419,
+        0.6083197,
+        0.7234343,
+        0.8003121,
+        0.9058515,
+        0.9730477,
+        1.073746,
+        1.140879,
+        1.222406,
+        1.318328,
+        1.409366,
+        1.466923
+      ]
+    },
+    "https://kumagallium.github.io/asterism/starrydata/resource/curve/1710-357-714": {
+      "property_x": "Temperature",
+      "property_y": "ZT",
+      "unit_x": "K",
+      "unit_y": "-",
+      "figure_name": "5(b)",
+      "point_count": 16,
+      "x": [
+        299.2248,
+        319.1588,
+        340.3576,
+        360.9224,
+        380.2288,
+        398.9367,
+        421.3583,
+        440.0857,
+        461.2781,
+        481.2088,
+        499.9005,
+        522.3157,
+        541.5636,
+        560.7792,
+        581.224,
+        602.8591
+      ],
+      "y": [
+        0.5679114,
+        0.6381473,
+        0.7357817,
+        0.8177587,
+        0.8801698,
+        0.9700039,
+        1.044124,
+        1.157456,
+        1.247258,
+        1.313577,
+        1.383829,
+        1.450116,
+        1.442032,
+        1.394784,
+        1.331854,
+        1.206245
+      ]
+    },
+    "https://kumagallium.github.io/asterism/starrydata/resource/curve/1710-357-713": {
+      "property_x": "Temperature",
+      "property_y": "ZT",
+      "unit_x": "K",
+      "unit_y": "-",
+      "figure_name": "5(b)",
+      "point_count": 16,
+      "x": [
+        301.0914,
+        319.162,
+        341.5901,
+        359.6705,
+        378.3784,
+        400.8163,
+        421.3875,
+        440.089,
+        460.6635,
+        478.7406,
+        503.624,
+        520.4037,
+        539.6484,
+        563.2312,
+        581.7997,
+        602.212
+      ],
+      "y": [
+        0.5718035,
+        0.6420637,
+        0.7240163,
+        0.8060257,
+        0.8958598,
+        0.9895617,
+        1.079371,
+        1.161373,
+        1.255099,
+        1.333192,
+        1.379864,
+        1.391395,
+        1.379394,
+        1.355588,
+        1.277016,
+        1.174922
+      ]
+    },
+    "https://kumagallium.github.io/asterism/starrydata/resource/curve/869-22105-27524": {
+      "property_x": "Temperature",
+      "property_y": "ZT",
+      "unit_x": "K",
+      "unit_y": "-",
+      "figure_name": "4",
+      "point_count": 21,
+      "x": [
+        303.9577,
+        331.9938,
+        362.6768,
+        396.0153,
+        438.6822,
+        474.6762,
+        510.6532,
+        537.2764,
+        561.21,
+        599.783,
+        627.7339,
+        659.6255,
+        688.8957,
+        715.4763,
+        744.7379,
+        764.6542,
+        795.2181,
+        819.1262,
+        840.3617,
+        864.2953,
+        888.1779
+      ],
+      "y": [
+        0.01959713,
+        0.03437478,
+        0.06352578,
+        0.1022732,
+        0.1555004,
+        0.2038442,
+        0.261742,
+        0.3194907,
+        0.3867508,
+        0.4876835,
+        0.5502305,
+        0.6510568,
+        0.7231789,
+        0.8048124,
+        0.8817115,
+        0.9536847,
+        1.049713,
+        1.131304,
+        1.212852,
+        1.280112,
+        1.376034
+      ]
+    },
+    "https://kumagallium.github.io/asterism/starrydata/resource/curve/1710-357-712": {
+      "property_x": "Temperature",
+      "property_y": "ZT",
+      "unit_x": "K",
+      "unit_y": "-",
+      "figure_name": "5(b)",
+      "point_count": 48,
+      "x": [
+        301.6833,
+        308.535,
+        314.7656,
+        319.1361,
+        329.103,
+        332.8492,
+        339.7009,
+        347.8045,
+        352.1717,
+        357.1601,
+        362.1517,
+        367.7676,
+        375.2437,
+        387.0805,
+        391.4477,
+        397.6783,
+        406.4063,
+        410.767,
+        416.37,
+        426.3467,
+        431.9594,
+        436.9445,
+        442.5507,
+        449.4056,
+        453.7729,
+        461.2457,
+        468.0941,
+        473.6971,
+        479.9244,
+        488.6394,
+        494.8635,
+        503.5753,
+        508.5539,
+        516.0202,
+        525.958,
+        534.0357,
+        540.2468,
+        546.4547,
+        551.4203,
+        558.2428,
+        564.441,
+        568.779,
+        573.7317,
+        579.3087,
+        585.5069,
+        592.3099,
+        597.2723,
+        600.3681
+      ],
+      "y": [
+        0.5365477,
+        0.559957,
+        0.5833743,
+        0.6107324,
+        0.6458503,
+        0.6693001,
+        0.6927094,
+        0.7278516,
+        0.7512933,
+        0.7747269,
+        0.8020769,
+        0.8333351,
+        0.8606527,
+        0.9035791,
+        0.9270208,
+        0.9504381,
+        0.9894887,
+        1.005098,
+        1.02069,
+        1.067557,
+        1.094899,
+        1.114416,
+        1.133925,
+        1.161251,
+        1.184693,
+        1.208094,
+        1.227587,
+        1.243179,
+        1.26268,
+        1.286065,
+        1.30165,
+        1.321118,
+        1.332803,
+        1.348371,
+        1.348241,
+        1.352052,
+        1.351971,
+        1.347974,
+        1.343992,
+        1.332154,
+        1.316407,
+        1.304601,
+        1.284954,
+        1.269216,
+        1.253469,
+        1.218132,
+        1.210235,
+        1.198445
+      ]
+    },
+    "https://kumagallium.github.io/asterism/starrydata/resource/curve/1710-357-711": {
+      "property_x": "Temperature",
+      "property_y": "ZT",
+      "unit_x": "K",
+      "unit_y": "-",
+      "figure_name": "5(b)",
+      "point_count": 48,
+      "x": [
+        301.7352,
+        309.2015,
+        316.0565,
+        325.4023,
+        329.1517,
+        334.7612,
+        342.8648,
+        349.0921,
+        352.2106,
+        357.1958,
+        364.0507,
+        369.039,
+        374.0306,
+        381.5034,
+        385.2496,
+        391.4769,
+        401.4503,
+        407.0598,
+        412.0482,
+        417.03,
+        426.3824,
+        432.6097,
+        439.4679,
+        445.692,
+        450.6868,
+        453.8053,
+        462.5301,
+        471.2451,
+        479.339,
+        486.8053,
+        494.8927,
+        501.7347,
+        509.8091,
+        516.6349,
+        523.4638,
+        531.535,
+        537.7364,
+        543.9378,
+        548.8937,
+        555.0886,
+        563.1436,
+        569.3385,
+        573.0425,
+        578.6163,
+        584.8079,
+        590.9931,
+        595.3279,
+        599.0318
+      ],
+      "y": [
+        0.5992102,
+        0.6147786,
+        0.6421042,
+        0.6772302,
+        0.7045964,
+        0.7280219,
+        0.7631642,
+        0.7826651,
+        0.7982902,
+        0.8178074,
+        0.845133,
+        0.8685666,
+        0.8959166,
+        0.9193177,
+        0.9427675,
+        0.9622684,
+        1.005219,
+        1.028645,
+        1.052078,
+        1.067679,
+        1.110638,
+        1.130139,
+        1.161381,
+        1.176965,
+        1.208232,
+        1.223857,
+        1.258991,
+        1.282376,
+        1.305769,
+        1.321337,
+        1.336897,
+        1.348557,
+        1.348452,
+        1.34053,
+        1.336524,
+        1.332503,
+        1.320672,
+        1.308842,
+        1.293112,
+        1.273448,
+        1.249845,
+        1.230181,
+        1.202718,
+        1.183063,
+        1.159483,
+        1.128071,
+        1.112349,
+        1.084885
+      ]
+    },
+    "https://kumagallium.github.io/asterism/starrydata/resource/curve/869-22105-27523": {
+      "property_x": "Temperature",
+      "property_y": "ZT",
+      "unit_x": "K",
+      "unit_y": "-",
+      "figure_name": "4",
+      "point_count": 24,
+      "x": [
+        314.6308,
+        333.3215,
+        365.3578,
+        385.3592,
+        424.0343,
+        452.0278,
+        476.0295,
+        505.3422,
+        523.9818,
+        553.286,
+        574.5642,
+        590.5398,
+        615.8096,
+        638.39,
+        660.9873,
+        688.9042,
+        711.5015,
+        735.4181,
+        767.3438,
+        792.5796,
+        817.841,
+        844.4301,
+        864.3549,
+        890.9866
+      ],
+      "y": [
+        0.02932123,
+        0.03917299,
+        0.0587914,
+        0.08299525,
+        0.1266047,
+        0.165267,
+        0.1943117,
+        0.2425491,
+        0.2810625,
+        0.3340769,
+        0.3917405,
+        0.4254344,
+        0.4927158,
+        0.5695085,
+        0.6367473,
+        0.718402,
+        0.7856408,
+        0.8624548,
+        0.9441733,
+        1.030562,
+        1.102621,
+        1.179477,
+        1.246674,
+        1.299645
+      ]
+    },
+    "https://kumagallium.github.io/asterism/starrydata/resource/curve/27-248-546": {
+      "property_x": "Temperature",
+      "property_y": "ZT",
+      "unit_x": "K",
+      "unit_y": "-",
+      "figure_name": "7",
+      "point_count": 14,
+      "x": [
+        329.252,
+        377.7037,
+        423.6054,
+        469.507,
+        516.6837,
+        563.8604,
+        611.0371,
+        658.2138,
+        704.1154,
+        753.8422,
+        798.4688,
+        848.1955,
+        896.6473,
+        943.824
+      ],
+      "y": [
+        0.1016767,
+        0.1445527,
+        0.2102488,
+        0.269418,
+        0.3416528,
+        0.4236777,
+        0.5318099,
+        0.6399421,
+        0.7415356,
+        0.8529549,
+        0.9708536,
+        1.075746,
+        1.167573,
+        1.259388
+      ]
+    },
+    "https://kumagallium.github.io/asterism/starrydata/resource/curve/2019-446-822": {
+      "property_x": "Temperature",
+      "property_y": "ZT",
+      "unit_x": "K",
+      "unit_y": "-",
+      "figure_name": "8",
+      "point_count": 40,
+      "x": [
+        298.7234,
+        308.2979,
+        315.3191,
+        322.3404,
+        331.2766,
+        339.5745,
+        346.5957,
+        358.0851,
+        368.9362,
+        379.7872,
+        390.0,
+        398.2979,
+        408.5106,
+        418.0851,
+        427.6596,
+        438.5106,
+        444.8936,
+        451.9149,
+        458.9362,
+        463.0851,
+        469.1489,
+        476.8085,
+        486.383,
+        493.4043,
+        502.3404,
+        511.9149,
+        518.9362,
+        527.8723,
+        532.9787,
+        540.0,
+        547.0213,
+        555.9574,
+        566.1702,
+        571.2766,
+        576.383,
+        578.9362,
+        586.5957,
+        589.1489,
+        592.9787,
+        598.0851
+      ],
+      "y": [
+        0.6501086,
+        0.6725755,
+        0.6950186,
+        0.7146645,
+        0.7371254,
+        0.753986,
+        0.7820235,
+        0.8156971,
+        0.8409731,
+        0.8690463,
+        0.8943163,
+        0.9167713,
+        0.9448386,
+        0.9701027,
+        1.003758,
+        1.04302,
+        1.068255,
+        1.101887,
+        1.12433,
+        1.15234,
+        1.177572,
+        1.205615,
+        1.219691,
+        1.230945,
+        1.233825,
+        1.236712,
+        1.235379,
+        1.231266,
+        1.220125,
+        1.214596,
+        1.197878,
+        1.181178,
+        1.16449,
+        1.139363,
+        1.103047,
+        1.075099,
+        1.041604,
+        1.013656,
+        0.9913138,
+        0.9801726
+      ]
+    },
+    "https://kumagallium.github.io/asterism/starrydata/resource/curve/869-22105-27526": {
+      "property_x": "Temperature",
+      "property_y": "ZT",
+      "unit_x": "K",
+      "unit_y": "-",
+      "figure_name": "4",
+      "point_count": 24,
+      "x": [
+        302.5874,
+        329.2787,
+        362.6342,
+        395.9898,
+        424.0088,
+        453.33,
+        481.3235,
+        505.3252,
+        531.9484,
+        561.2611,
+        591.893,
+        618.5247,
+        650.4759,
+        686.4104,
+        707.697,
+        726.3196,
+        747.5977,
+        768.8673,
+        798.1375,
+        816.7601,
+        839.3659,
+        865.9721,
+        881.9221,
+        896.5444
+      ],
+      "y": [
+        0.03868359,
+        0.05821689,
+        0.08741045,
+        0.116604,
+        0.1409355,
+        0.1843961,
+        0.2230584,
+        0.252103,
+        0.3098518,
+        0.3580892,
+        0.4159018,
+        0.4688737,
+        0.5362614,
+        0.6180438,
+        0.6709306,
+        0.7189978,
+        0.7766615,
+        0.8391021,
+        0.9112242,
+        0.9592914,
+        1.021753,
+        1.089056,
+        1.137081,
+        1.180307
+      ]
+    }
+  },
+  "cross": {
+    "sparql": "PREFIX sd: <https://kumagallium.github.io/asterism/starrydata/ontology#>\nPREFIX prov: <http://www.w3.org/ns/prov#>\n# 2 ソースを 1 クエリで結合（ETL 不要・結合キー = 同じ sample IRI）\n#   既定グラフ = starrydata（文献の測定値 ZT）\n#   名前付きグラフ = Materials Project（計算された母相の結晶構造）\n# 母相結晶構造ごとに 1 行（その相の最大 ZT・該当サンプル数）。\nSELECT ?formula (MAX(?zt) AS ?ztmax) (COUNT(DISTINCT ?sample) AS ?nsamples)\n       ?sg ?csys ?proto ?mp (SAMPLE(?sample) AS ?example)\n       (SAMPLE(?comp) AS ?examplecomp) WHERE {\n  ?curve a sd:Curve ; sd:propertyY \"ZT\" ; sd:yMax ?zt ; sd:ofSample ?sample .\n  ?sample sd:compositionString ?comp .\n  GRAPH <https://kumagallium.github.io/asterism/starrydata/graph/mp-links> {\n    ?sample sd:hasHostStructure ?st .\n    ?st sd:reducedHostFormula ?formula .\n    OPTIONAL { ?st sd:spaceGroupSymbol ?sg }\n    OPTIONAL { ?st sd:crystalSystem ?csys }\n    OPTIONAL { ?st sd:structurePrototype ?proto }\n    OPTIONAL { ?st sd:idealizedFrom ?mp }\n  }\n} GROUP BY ?formula ?sg ?csys ?proto ?mp\nORDER BY DESC(?ztmax) LIMIT 12",
+    "graph": "https://kumagallium.github.io/asterism/starrydata/graph/mp-links",
+    "rows": [
+      {
+        "host_formula": "PbSe",
+        "zt": 1.466923,
+        "n_samples": 5,
+        "space_group": "Fm-3m",
+        "crystal_system": "Cubic",
+        "prototype": null,
+        "mp_id": "mp-2201",
+        "mp_iri": "https://next-gen.materialsproject.org/materials/mp-2201",
+        "example_sample_iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/869-27522",
+        "example_composition": "PbSe",
+        "bridge": {
+          "dopants": [],
+          "structure_iri": "https://kumagallium.github.io/asterism/starrydata/resource/structure/PbSe",
+          "match_method": "exact integer formula",
+          "match_confidence": "medium",
+          "match_time": "2026-06-04T17:46:41.703047Z",
+          "mp_iri": "https://next-gen.materialsproject.org/materials/mp-2201"
+        }
+      },
+      {
+        "host_formula": "SnSe",
+        "zt": 0.9767726,
+        "n_samples": 10,
+        "space_group": "Pnma",
+        "crystal_system": "Orthorhombic",
+        "prototype": null,
+        "mp_id": "mp-691",
+        "mp_iri": "https://next-gen.materialsproject.org/materials/mp-691",
+        "example_sample_iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/120-19478",
+        "example_composition": "SnSe0.98S0.02",
+        "bridge": {
+          "dopants": [
+            {
+              "element": "S",
+              "amount": "0.02"
+            }
+          ],
+          "structure_iri": "https://kumagallium.github.io/asterism/starrydata/resource/structure/SnSe",
+          "match_method": "rounded stoichiometry",
+          "match_confidence": "low",
+          "match_time": "2026-06-04T17:46:38.276416Z",
+          "mp_iri": "https://next-gen.materialsproject.org/materials/mp-691"
+        }
+      },
+      {
+        "host_formula": "Bi2Te3",
+        "zt": 0.9140746,
+        "n_samples": 3,
+        "space_group": "R-3m",
+        "crystal_system": "Trigonal",
+        "prototype": null,
+        "mp_id": "mp-34202",
+        "mp_iri": "https://next-gen.materialsproject.org/materials/mp-34202",
+        "example_sample_iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/3-1310",
+        "example_composition": "Bi2Te2",
+        "bridge": {
+          "dopants": [],
+          "structure_iri": "https://kumagallium.github.io/asterism/starrydata/resource/structure/Bi2Te3",
+          "match_method": "MaterialFamily(curator)",
+          "match_confidence": "high",
+          "match_time": "2026-06-04T17:46:33.706259Z",
+          "mp_iri": "https://next-gen.materialsproject.org/materials/mp-34202"
+        }
+      },
+      {
+        "host_formula": "PbTe",
+        "zt": 0.360473,
+        "n_samples": 2,
+        "space_group": "Fm-3m",
+        "crystal_system": "Cubic",
+        "prototype": null,
+        "mp_id": "mp-19717",
+        "mp_iri": "https://next-gen.materialsproject.org/materials/mp-19717",
+        "example_sample_iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/20-3124",
+        "example_composition": "PbSexTe1-x",
+        "bridge": {
+          "dopants": [],
+          "structure_iri": "https://kumagallium.github.io/asterism/starrydata/resource/structure/PbTe",
+          "match_method": "MaterialFamily(curator)",
+          "match_confidence": "high",
+          "match_time": "2026-06-04T17:46:37.098611Z",
+          "mp_iri": "https://next-gen.materialsproject.org/materials/mp-19717"
+        }
+      },
+      {
+        "host_formula": "Ba4Au3Si20",
+        "zt": 0.2186893,
+        "n_samples": 2,
+        "space_group": "Pm-3n",
+        "crystal_system": "Cubic",
+        "prototype": null,
+        "mp_id": "mp-17815",
+        "mp_iri": "https://next-gen.materialsproject.org/materials/mp-17815",
+        "example_sample_iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/2049-835",
+        "example_composition": "Ba8Au6.10Si39.90",
+        "bridge": {
+          "dopants": [],
+          "structure_iri": "https://kumagallium.github.io/asterism/starrydata/resource/structure/Ba4Au3Si20",
+          "match_method": "rounded stoichiometry",
+          "match_confidence": "low",
+          "match_time": "2026-06-04T17:47:01.782196Z",
+          "mp_iri": "https://next-gen.materialsproject.org/materials/mp-17815"
+        }
+      },
+      {
+        "host_formula": "BaGe5",
+        "zt": 0.211715,
+        "n_samples": 1,
+        "space_group": "Imma",
+        "crystal_system": "Orthorhombic",
+        "prototype": null,
+        "mp_id": "mp-1095284",
+        "mp_iri": "https://next-gen.materialsproject.org/materials/mp-1095284",
+        "example_sample_iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/1730-726",
+        "example_composition": "Ba8Ni2.64Zn2.28Ge40.18Sn0.90",
+        "bridge": {
+          "dopants": [
+            {
+              "element": "Sn",
+              "amount": "0.9"
+            },
+            {
+              "element": "Zn",
+              "amount": "2.28"
+            },
+            {
+              "element": "Ni",
+              "amount": "2.64"
+            }
+          ],
+          "structure_iri": "https://kumagallium.github.io/asterism/starrydata/resource/structure/BaGe5",
+          "match_method": "rounded stoichiometry",
+          "match_confidence": "low",
+          "match_time": "2026-06-04T17:46:48.400981Z",
+          "mp_iri": "https://next-gen.materialsproject.org/materials/mp-1095284"
+        }
+      },
+      {
+        "host_formula": "Ba6Ge25",
+        "zt": 0.1433044,
+        "n_samples": 4,
+        "space_group": "P4_132",
+        "crystal_system": "Cubic",
+        "prototype": null,
+        "mp_id": "mp-569965",
+        "mp_iri": "https://next-gen.materialsproject.org/materials/mp-569965",
+        "example_sample_iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/1946-756",
+        "example_composition": "Ba24Al0Ge100",
+        "bridge": {
+          "dopants": [
+            {
+              "element": "Al",
+              "amount": "0"
+            }
+          ],
+          "structure_iri": "https://kumagallium.github.io/asterism/starrydata/resource/structure/Ba6Ge25",
+          "match_method": "exact integer formula",
+          "match_confidence": "medium",
+          "match_time": "2026-06-04T17:46:53.913859Z",
+          "mp_iri": "https://next-gen.materialsproject.org/materials/mp-569965"
+        }
+      },
+      {
+        "host_formula": "Ba8Ge43",
+        "zt": 0.05626417,
+        "n_samples": 2,
+        "space_group": "Ia-3d",
+        "crystal_system": "Cubic",
+        "prototype": null,
+        "mp_id": "mp-1199827",
+        "mp_iri": "https://next-gen.materialsproject.org/materials/mp-1199827",
+        "example_sample_iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/1921-738",
+        "example_composition": "Ba8Ge43",
+        "bridge": {
+          "dopants": [],
+          "structure_iri": "https://kumagallium.github.io/asterism/starrydata/resource/structure/Ba8Ge43",
+          "match_method": "exact integer formula",
+          "match_confidence": "medium",
+          "match_time": "2026-06-04T17:46:50.860934Z",
+          "mp_iri": "https://next-gen.materialsproject.org/materials/mp-1199827"
+        }
+      },
+      {
+        "host_formula": "Ba4Au2Si21",
+        "zt": 0.03131365,
+        "n_samples": 1,
+        "space_group": "Ama2",
+        "crystal_system": "Orthorhombic",
+        "prototype": null,
+        "mp_id": "mp-1228313",
+        "mp_iri": "https://next-gen.materialsproject.org/materials/mp-1228313",
+        "example_sample_iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/2049-830",
+        "example_composition": "Ba8Au4.10Si41.90",
+        "bridge": {
+          "dopants": [],
+          "structure_iri": "https://kumagallium.github.io/asterism/starrydata/resource/structure/Ba4Au2Si21",
+          "match_method": "rounded stoichiometry",
+          "match_confidence": "low",
+          "match_time": "2026-06-04T17:47:01.780743Z",
+          "mp_iri": "https://next-gen.materialsproject.org/materials/mp-1228313"
+        }
+      },
+      {
+        "host_formula": "ZnO",
+        "zt": 0.01855299,
+        "n_samples": 3,
+        "space_group": "P6_3mc",
+        "crystal_system": "Hexagonal",
+        "prototype": null,
+        "mp_id": "mp-2133",
+        "mp_iri": "https://next-gen.materialsproject.org/materials/mp-2133",
+        "example_sample_iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/9-1385",
+        "example_composition": "Zn0.750Fe0.171O",
+        "bridge": {
+          "dopants": [],
+          "structure_iri": "https://kumagallium.github.io/asterism/starrydata/resource/structure/ZnO",
+          "match_method": "MaterialFamily(curator)",
+          "match_confidence": "high",
+          "match_time": "2026-06-04T17:46:34.555564Z",
+          "mp_iri": "https://next-gen.materialsproject.org/materials/mp-2133"
+        }
+      },
+      {
+        "host_formula": "ZnFe2O4",
+        "zt": 0.009564889,
+        "n_samples": 2,
+        "space_group": "Fd-3m",
+        "crystal_system": "Cubic",
+        "prototype": null,
+        "mp_id": "mp-19313",
+        "mp_iri": "https://next-gen.materialsproject.org/materials/mp-19313",
+        "example_sample_iri": "https://kumagallium.github.io/asterism/starrydata/resource/sample/9-1383",
+        "example_composition": "Zn0.945Fe1.78O3.71",
+        "bridge": {
+          "dopants": [],
+          "structure_iri": "https://kumagallium.github.io/asterism/starrydata/resource/structure/ZnFe2O4",
+          "match_method": "rounded stoichiometry",
+          "match_confidence": "low",
+          "match_time": "2026-06-04T17:46:34.867952Z",
+          "mp_iri": "https://next-gen.materialsproject.org/materials/mp-19313"
+        }
+      }
+    ],
+    "label": "横断結合 — Starrydata × Materials Project",
+    "source": "live (Materials Project REST)"
+  }
+}
