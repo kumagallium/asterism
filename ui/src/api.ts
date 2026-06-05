@@ -154,6 +154,10 @@ export interface DatasetMeta {
   ingested?: boolean
   graph_iri?: string
   triple_count?: number
+  // Task E: design-time source CSVs persisted server-side (so a design-stage
+  // dataset can be ingested from the catalog with no re-attach).
+  has_source?: boolean
+  source_files?: string[]
 }
 
 export interface MaterializeResult {
@@ -175,19 +179,55 @@ export interface IngestResult {
   dataset: DatasetMeta
 }
 
+/** Result of persisting a dataset's design-time source CSVs (Task E). */
+export interface AttachSourceResult {
+  dataset_id: string
+  source_files: string[]
+  dataset: DatasetMeta
+}
+
 /**
- * Human gate (Phase 5 #15): run a dataset's approved RML through the Morph-KGC
- * substrate on the given CSVs and load the result into an isolated draft graph.
- * The CSVs are the same ones used to design the schema (held in workbench state).
+ * Persist the CSVs a dataset was designed from (Task E). Called after a
+ * materialize so the design-stage dataset carries its source server-side and
+ * can later be ingested from the catalog with no CSV re-attach.
  */
-export async function ingestDataset(datasetId: string, files: File[]): Promise<IngestResult> {
+export async function attachSource(datasetId: string, files: File[]): Promise<AttachSourceResult> {
   const form = new FormData()
   for (const file of files) {
     form.append('files', file)
   }
-  const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/ingest`, {
+  const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/source`, {
     method: 'POST',
     body: form,
+  })
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '')
+    throw new Error(`attach source failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
+  }
+  return (await res.json()) as AttachSourceResult
+}
+
+/**
+ * Human gate (Phase 5 #15): run a dataset's approved RML through the Morph-KGC
+ * substrate and load the result into an isolated draft graph. Pass the source
+ * CSVs to upload them (they are also persisted as the dataset's source); pass
+ * none to reuse the dataset's persisted design-time source (Task E — the
+ * catalog ingests a design-stage dataset with no re-attach).
+ */
+export async function ingestDataset(datasetId: string, files: File[] = []): Promise<IngestResult> {
+  // No files → send no body (the server falls back to the persisted source). With
+  // files → multipart upload (also persisted). An empty multipart body is avoided
+  // so the no-attach path matches a bare POST.
+  let body: FormData | undefined
+  if (files.length > 0) {
+    body = new FormData()
+    for (const file of files) {
+      body.append('files', file)
+    }
+  }
+  const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/ingest`, {
+    method: 'POST',
+    body,
   })
   if (!res.ok) {
     const detail = await res.text().catch(() => '')

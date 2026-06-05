@@ -35,8 +35,13 @@ _ARTIFACT_FILES = {
     "mapping.rml.ttl": "mapping.rml.ttl",
 }
 _META_FILE = "meta.json"
+# Design-time source CSVs are persisted here so the dataset carries the exact
+# data it was built from (reproducibility — the citable-facts product direction).
+# This lets the catalog ingest a *design*-stage dataset with no CSV re-attach.
+_SOURCE_DIR = "source"
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
+_ID_RE = re.compile(r"[a-z0-9-]{1,128}")
 _CLASS_RE = re.compile(r"^\s*class\s+(\w+)", re.MULTILINE)
 _MERMAID_BLOCK_RE = re.compile(r"```mermaid\s*\n(.*?)```", re.DOTALL)
 
@@ -102,6 +107,39 @@ def save_dataset(
     }
     (dest / _META_FILE).write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     return meta
+
+
+def source_dir(root: Path, dataset_id: str) -> Path | None:
+    """Return ``root/<id>/source`` (where design-time CSVs live), or None.
+
+    None when the id is unsafe or the dataset does not exist. The directory may
+    not exist yet (no source attached); callers that write create it.
+    """
+    if not _ID_RE.fullmatch(dataset_id):
+        return None
+    if not (root / dataset_id / _META_FILE).is_file():
+        return None
+    return root / dataset_id / _SOURCE_DIR
+
+
+def list_source_files(root: Path, dataset_id: str) -> list[Path]:
+    """Persisted design-time source CSVs for ``dataset_id`` (sorted; [] if none)."""
+    sdir = source_dir(root, dataset_id)
+    if sdir is None or not sdir.is_dir():
+        return []
+    return sorted(p for p in sdir.iterdir() if p.is_file() and p.suffix == ".csv")
+
+
+def mark_source_saved(root: Path, dataset_id: str, source_files: list[str]) -> dict | None:
+    """Record on the meta which design-time source CSVs are now persisted.
+
+    ``has_source`` lets the catalog offer a no-re-attach ingest; ``source_files``
+    is the recorded filename list. Returns the new meta, or None if id is unsafe
+    / absent.
+    """
+    return _update_meta(
+        root, dataset_id, {"has_source": True, "source_files": sorted(source_files)}
+    )
 
 
 def mark_ingested(

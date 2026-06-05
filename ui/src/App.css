@@ -1748,6 +1748,20 @@ textarea:focus {
   color: var(--muted);
   word-break: break-all;
 }
+/* Task E: catalog-side ingest gate (design-stage datasets). */
+.ingest-source {
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin: 0.4rem 0 0.7rem;
+  line-height: 1.5;
+}
+.ingest-pick {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin: 0.4rem 0 0.7rem;
+}
 .rml-preview {
   margin: 0.4rem 0 0.7rem;
 }
