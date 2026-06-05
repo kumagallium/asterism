@@ -305,11 +305,16 @@ function DatasetDetail({
           ) : (
             <p className="ds-empty-note">取り込みルールの生成物はまだありません。</p>
           )}
+        </div>
+      )}
 
-          {/* Real materialized drafts keep the S4 promote human-gate. */}
-          {dataset.live && <PromoteControl meta={dataset.live.meta} />}
+      {/* Dataset-level controls — shown under BOTH tabs (not mapping-specific). */}
+      {dataset.live && (
+        <div className="ds-detail-controls">
+          {/* S4 promote human-gate (only for ingested-not-promoted drafts). */}
+          <PromoteControl meta={dataset.live.meta} />
           {/* #20 P3 lifecycle: retract / reinstate / delete (human-gated). */}
-          {dataset.live && <LifecycleControl meta={dataset.live.meta} onChanged={onChanged} />}
+          <LifecycleControl meta={dataset.live.meta} onChanged={onChanged} />
         </div>
       )}
     </div>
