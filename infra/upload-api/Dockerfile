@@ -19,20 +19,36 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# Install the sibling packages in dependency order: ingest first, then api
-# (which depends on asterism-ingest). The api/pyproject.toml uses
-# ``[tool.uv.sources]`` for local dev under uv; pip relies on the fact that
-# asterism-ingest is already installed when it resolves the api package.
+# Install the sibling packages in dependency order: ingest + step0 first, then
+# api (which depends on BOTH asterism-ingest and asterism-step0). The
+# api/pyproject.toml uses ``[tool.uv.sources]`` for local dev under uv; pip relies
+# on those siblings already being installed when it resolves the api package — so
+# they MUST be pip-installed here (asterism-step0 is not on any index, so omitting
+# it makes ``pip install /app/api`` fail with "No matching distribution").
 #
-# Both pyproject.toml files reference ``readme = "../README.md"`` so hatchling
+# Extras pulled so production runs the FULL workbench flow, not a half image:
+#   - ingest[substrate] -> Morph-KGC. The human-gated ingest (POST
+#     /api/datasets/{id}/ingest) + the watcher run approved RML through the
+#     declarative substrate; ``asterism.substrate`` imports ``morph_kgc`` lazily,
+#     so WITHOUT this the container starts but every ingest fails at runtime
+#     (RuntimeError: morph-kgc not installed). #15.
+#   - step0[anthropic] -> the Anthropic SDK. ``/api/propose`` uses step0's
+#     ``AnthropicLLMClient`` (imports ``anthropic`` lazily at call time), so
+#     without it propose fails at runtime. The user still brings their own API
+#     key per request (never baked into the image).
+#
+# All pyproject.toml files reference ``readme = "../README.md"`` so hatchling
 # needs to find /app/README.md during build.
 COPY README.md /app/README.md
 COPY ingest/pyproject.toml /app/ingest/pyproject.toml
 COPY ingest/src /app/ingest/src
+COPY step0/pyproject.toml /app/step0/pyproject.toml
+COPY step0/src /app/step0/src
 COPY api/pyproject.toml /app/api/pyproject.toml
 COPY api/src /app/api/src
 
-RUN pip install /app/ingest \
+RUN pip install "/app/ingest[substrate]" \
+    && pip install "/app/step0[anthropic]" \
     && pip install /app/api
 
 # #20 P2-2b: ship the dataset content (identity descriptors + the QUDT map) so the
