@@ -412,10 +412,19 @@ async def canonical_graphs(client: SupportsSparql) -> list[str]:
 
     Used to build the FROM-merge dataset for cross-dataset queries. Deterministic
     order (sorted) keeps generated queries stable/cacheable.
+
+    Perf: the body is the empty group ``GRAPH ?g {}`` (not ``GRAPH ?g {?s ?p ?o}``).
+    The empty GGP enumerates named-graph *names* straight from the graph index — it
+    does NOT scan triples — so this stays O(#graphs) instead of O(#triples). That
+    matters because this runs on every read (FROM-merge), and a single large draft
+    graph (millions of triples) makes the triple-scanning form take tens of seconds
+    (measured: >30 s vs ~0.3 s on Oxigraph). A store never holds empty named graphs
+    (writes are MOVE/DROP, which drop the graph), so the two forms return the same
+    set; ``ontology_graphs`` uses the same trick.
     """
     q = (
         "SELECT DISTINCT ?g WHERE { "
-        "GRAPH ?g { ?s ?p ?o } "
+        "GRAPH ?g {} "
         f'FILTER(STRSTARTS(STR(?g), "{CANONICAL_GRAPH_BASE}")) '
         f"{_retracted_exclusion_for_var('?g')} "
         "} ORDER BY ?g"
@@ -436,10 +445,13 @@ async def ontology_graphs(client: SupportsSparql) -> list[str]:
     These hold the RDFS/OWL projection of each dataset's TBox
     (``…/asterism/graph/ontology/{id}``). ``schema_summary`` reads them to enrich
     Ask with labels / domain / range, but Ask works without them (ABox baseline).
+
+    Perf: enumerates with the empty group ``GRAPH ?g {}`` (graph-name index, not a
+    triple scan) for the same reason as :func:`canonical_graphs`.
     """
     q = (
         "SELECT DISTINCT ?g WHERE { "
-        "GRAPH ?g { ?s ?p ?o } "
+        "GRAPH ?g {} "
         f'FILTER(STRSTARTS(STR(?g), "{ONTOLOGY_GRAPH_BASE}")) '
         "} ORDER BY ?g"
     )
