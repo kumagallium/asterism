@@ -1,4 +1,4 @@
-// Data for the M4 galleries (ontologies vs mappings).
+// Data for the dataset-centric Catalog / Home screens.
 //
 // Two layers are presented separately on purpose (design doc §6.6 / D8):
 //
@@ -8,13 +8,18 @@
 //     changing, per-dataset/per-purpose, LOCAL and disposable.
 //
 // Making that edit-risk difference legible — and surfacing each mapping's
-// PURPOSE — is the whole point of the two-gallery split (handoff §1).
+// PURPOSE — is the whole point of the two-layer split (handoff §1).
 //
-// Fixture-first, like demoApi.ts: the content below is the REAL committed
-// starrydata ontology/mapping (docs/ontology/*, ingest/.../starrydata.py,
-// data/togomcp/mie/starrydata.yaml), captured statically so the UI renders
-// before a backend gallery endpoint exists. A later `live` mode can fetch the
-// same shapes from the API without touching the views.
+// LIVE-ONLY (no fixtures): every dataset shown here is REAL — the workbench-
+// materialized drafts persisted to the api (/api/datasets), with their own
+// designed vocabulary (model.yaml → classes), class diagram (diagram.md), and
+// the external vocabularies they actually reuse (derived from the real term
+// IRIs in each dataset's alignment report). The shared, cross-dataset vocabulary
+// is introspected live from the store by SharedVocabView (demo-agent
+// /demo/schema). Nothing is fabricated: when a signal is unavailable, the UI
+// shows "—" or an explicit empty state rather than a placeholder.
+
+import { deriveReuses } from './vocab'
 
 // ---- edit-risk (the layer-distinction signal) -----------------------------
 
@@ -47,77 +52,6 @@ export interface OntologyEntry {
   editRisk: EditRisk
 }
 
-// The canonical starrydata TBox (docs/ontology/diagram.md + starrydata.ttl).
-export const STARRYDATA_MERMAID = `classDiagram
-    direction LR
-
-    class Paper {
-        +dcterms:identifier (SID)
-        +schema:identifier (DOI)
-        +schema:name (title)
-        +schema:datePublished
-        +bibo:volume / issue / pages
-    }
-    class Sample {
-        +dcterms:identifier (sample_id)
-        +schema:name (sample_name)
-        +sd:compositionString
-        +sd:compositionDetails
-    }
-    class Curve {
-        +dcterms:identifier (figure_id)
-        +sd:propertyX / propertyY
-        +sd:unitXString / unitYString
-        +sd:xValuesJSON / yValuesJSON
-        +sd:xMin / xMax / yMin / yMax
-        +sd:pointCount
-    }
-    class Descriptor {
-        +sd:descriptorName
-        +sd:descriptorCategory
-        +sd:descriptorExtracted
-    }
-    class IngestionActivity {
-        +prov:atTime
-        +prov:used (CSV source)
-        +prov:wasAssociatedWith (agent)
-    }
-
-    Sample "1" --> "1" Paper : fromPaper
-    Sample "1" --> "0..n" Descriptor : hasDescriptor
-    Curve "1" --> "1" Sample : ofSample
-    Paper ..> IngestionActivity : wasGeneratedBy
-    Sample ..> IngestionActivity : wasGeneratedBy
-    Curve ..> IngestionActivity : wasGeneratedBy
-
-    note for Curve "subClassOf prov-Entity. x/y are JSON literal plus aggregates"
-    note for IngestionActivity "subClassOf prov-Activity. One per ingest run"`
-
-const ONTOLOGIES: OntologyEntry[] = [
-  {
-    id: 'starrydata',
-    name: 'Starrydata Ontology',
-    prefix: 'sd:',
-    baseIri: 'https://kumagallium.github.io/asterism/starrydata/ontology#',
-    description:
-      '材料測定データ (熱電・電池・磁性) の共有語彙。Paper / Sample / Curve を中心に、すべて prov:Entity として来歴を担保する。物性名・単位は生文字列に加えて QUDT IRI に正規化 (sd:propertyYQuantity → qudt:SeebeckCoefficient 等) し、表記ゆれを横断できる。',
-    classes: ['Paper', 'Sample', 'Curve', 'Descriptor', 'IngestionActivity'],
-    reuses: [
-      {
-        prefix: 'qudt:',
-        what: 'QuantityKind / Unit（"Seebeck coefficient"→qudt:SeebeckCoefficient、単位→QUDT。物性名・単位の共有語彙）',
-      },
-      { prefix: 'schema:', what: 'Person / Periodical / 論文メタdata (schema.org)' },
-      { prefix: 'prov:', what: 'Entity / Activity / Agent (PROV-O)' },
-      { prefix: 'dcterms:', what: 'identifier / created / modified' },
-      { prefix: 'bibo:', what: 'volume / issue / pages' },
-    ],
-    mermaid: STARRYDATA_MERMAID,
-    // Shared vocabulary: slow-changing, breaking it ripples to all consumers.
-    editRisk: 'high',
-  },
-]
-
 // ---- mapping layer --------------------------------------------------------
 
 export type MappingArtifactKind = 'ingester' | 'mie' | 'shex' | 'mapping'
@@ -149,72 +83,22 @@ export interface MappingEntry {
   editRisk: EditRisk
 }
 
-// The real starrydata binding: ingest/.../starrydata.py + the MIE yaml. Purpose
-// tags are drawn from the MIE's sparql_query_examples (ZT/Seebeck ranking,
-// composition search, QUDT unit normalization, provenance, paper coverage).
-const MAPPINGS: MappingEntry[] = [
-  {
-    id: 'starrydata-ingest',
-    name: 'Starrydata 取り込みマッピング',
-    dataset: 'Starrydata CSV（papers / samples / curves）',
-    targetOntologyId: 'starrydata',
-    targetOntologyName: 'Starrydata Ontology',
-    description:
-      '3 種の CSV を複合キーで IRI 化し、sd: 語彙へ束縛する。どの目的（問い）に応えるための束縛かを目的タグで示す。',
-    purposes: [
-      {
-        tag: '熱電性能の探索',
-        detail: 'Curve の propertyY（ZT / Seebeck）と xMin/xMax/yMin/yMax 集約で範囲フィルタ・ランキング',
-      },
-      {
-        tag: '組成検索',
-        detail: 'Sample.compositionString の部分一致で試料を引く（Bi2Te3 など）',
-      },
-      {
-        tag: '単位の正規化（QUDT）',
-        detail: 'Seebeck の表記ゆれ・単位（V/K 等）を QUDT 共有語彙で横断',
-      },
-      {
-        tag: '来歴トレース',
-        detail: 'curve → sample → paper → IngestionActivity / デジタル化を辿る',
-      },
-      {
-        tag: '論文メタデータ参照',
-        detail: 'DOI / 著者 / 雑誌（schema.org 再利用）で網羅的研究を特定',
-      },
-    ],
-    artifacts: [
-      {
-        kind: 'ingester',
-        name: 'ingest/.../starrydata.py',
-        summary: 'CSV 3 種 → triples。複合キーで IRI を生成し sd: 語彙へ束縛',
-      },
-      {
-        kind: 'mie',
-        name: 'data/togomcp/mie/starrydata.yaml',
-        summary: 'AI 探索メタ + SPARQL 例 + answer_grounding（回答の接地ルール）',
-      },
-      {
-        kind: 'shex',
-        name: 'shape_expressions（MIE 内）',
-        summary: 'Paper / Sample / Curve の ShEx 形状制約',
-      },
-    ],
-    // Dataset-local binding: fast-changing, disposable, safe to edit.
-    editRisk: 'low',
-  },
-]
-
 // ---- live datasets (materialized via the workbench, persisted to /api) ----
 // These are what closes the authoring→catalog loop: a dataset materialized in
 // the workbench is persisted (api V1a) and surfaces here. They are DRAFTS (a
-// freshly designed TBox + mapping), distinct from the seeded canonical
-// vocabulary above. The fetch is best-effort: if the workbench API is absent,
-// the gallery still renders the fixtures (no error).
+// freshly designed TBox + mapping) until promoted into the canonical graph. The
+// fetch is best-effort: if the workbench API is absent, the catalog renders an
+// empty state (no error, no fixture).
 
 // Workbench API base. Same-origin by default (Vite proxies /api → :8080);
 // override with VITE_API_URL to point at a separately-hosted API.
 const API_BASE = ((import.meta.env.VITE_API_URL as string | undefined) ?? '').replace(/\/+$/, '')
+
+/** Reuse/New split of a draft's predicates + classes vs the canonical graph. */
+export interface AlignmentReport {
+  predicates: { reuse: string[]; new: string[] }
+  classes: { reuse: string[]; new: string[] }
+}
 
 interface DatasetMeta {
   id: string
@@ -234,12 +118,13 @@ interface DatasetMeta {
   // S4: whether the draft was promoted into the canonical (default) graph.
   promoted?: boolean
   triples_promoted?: number
-}
-
-/** Reuse/New split of a draft's predicates + classes vs the canonical graph. */
-export interface AlignmentReport {
-  predicates: { reuse: string[]; new: string[] }
-  classes: { reuse: string[]; new: string[] }
+  // #20 P3 lifecycle: "active" | "retracted" (tombstoned) | "deleted"; version bumps on re-promote.
+  status?: string
+  version?: number
+  // Reuse/New term split computed against canonical at ingest/promote time. Its
+  // full term IRIs are the truthful source for "which external vocabularies does
+  // this dataset actually reuse" (deriveReuses) — no extra query, no UI minting.
+  alignment?: AlignmentReport
 }
 
 /** Preview which draft terms are Reuse (in canonical) vs New, before promoting. */
@@ -266,11 +151,65 @@ export async function promoteDataset(
   return (await res.json()) as { triples_promoted: number; alignment: AlignmentReport }
 }
 
-/** A materialized dataset adapted to both gallery layers (ontology + mapping). */
+async function _errText(res: Response, op: string): Promise<string> {
+  const detail = await res.text().catch(() => '')
+  return `${op} failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`
+}
+
+/** #20 P3: withdraw a promoted dataset from the citable corpus (tombstone, not
+ * delete — data + IRIs stay so existing citations keep resolving). */
+export async function retractDataset(datasetId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/datasets/${encodeURIComponent(datasetId)}/retract`, {
+    method: 'POST',
+  })
+  if (!res.ok) throw new Error(await _errText(res, 'retract'))
+}
+
+/** #20 P3: undo a retraction — the dataset re-enters the citable scope. */
+export async function reinstateDataset(datasetId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/datasets/${encodeURIComponent(datasetId)}/reinstate`, {
+    method: 'POST',
+  })
+  if (!res.ok) throw new Error(await _errText(res, 'reinstate'))
+}
+
+/** #20 P3: hard-delete a dataset. A promoted (citable) dataset needs force=true
+ * (the backend returns 409 otherwise and steers you to retract). */
+export async function deleteDataset(datasetId: string, force = false): Promise<void> {
+  const q = force ? '?force=true' : ''
+  const res = await fetch(`${API_BASE}/api/datasets/${encodeURIComponent(datasetId)}${q}`, {
+    method: 'DELETE',
+  })
+  if (!res.ok) throw new Error(await _errText(res, 'delete'))
+}
+
+/** A materialized dataset adapted to both layers (ontology + mapping). */
 export interface LiveDataset {
   meta: DatasetMeta
   ontology: OntologyEntry
   mapping: MappingEntry
+}
+
+// All term IRIs a dataset actually uses, from its alignment report (classes +
+// predicates, reuse + new). Empty when no alignment has been computed yet.
+function alignmentTermIris(a?: AlignmentReport): string[] {
+  if (!a) return []
+  return [...a.classes.reuse, ...a.classes.new, ...a.predicates.reuse, ...a.predicates.new]
+}
+
+// Structural predicates carry no vocabulary signal in the per-dataset view.
+const STRUCTURAL_NS = [
+  'http://www.w3.org/1999/02/22-rdf-syntax-ns#',
+  'http://www.w3.org/2000/01/rdf-schema#',
+  'http://www.w3.org/2002/07/owl#',
+]
+
+/** Real predicate IRIs the dataset uses (from alignment), minus structural ones. */
+function datasetPredicateIris(a?: AlignmentReport): string[] {
+  if (!a) return []
+  return [...a.predicates.reuse, ...a.predicates.new].filter(
+    (p) => !STRUCTURAL_NS.some((ns) => p.startsWith(ns)),
+  )
 }
 
 function toOntology(meta: DatasetMeta, mermaid: string): OntologyEntry {
@@ -281,7 +220,8 @@ function toOntology(meta: DatasetMeta, mermaid: string): OntologyEntry {
     baseIri: meta.id,
     description: `ワークベンチで materialize した設計（${meta.created_at.slice(0, 10)}）。共有語彙への昇格前のドラフト。`,
     classes: meta.classes ?? [],
-    reuses: [],
+    // Reuse story straight from the real term IRIs this dataset uses (no fixture).
+    reuses: deriveReuses(alignmentTermIris(meta.alignment)),
     mermaid,
     // A draft TBox is local/disposable until promoted — low risk to edit.
     editRisk: 'low',
@@ -344,8 +284,8 @@ function toMapping(meta: DatasetMeta): MappingEntry {
 
 /**
  * Fetch datasets the user has materialized. Best-effort: any failure (no API,
- * network error, non-200) resolves to an empty list so the gallery degrades to
- * fixtures rather than erroring.
+ * network error, non-200) resolves to an empty list so the catalog degrades to
+ * an empty state rather than erroring.
  */
 export async function getLiveDatasets(): Promise<LiveDataset[]> {
   let metas: DatasetMeta[]
@@ -357,20 +297,26 @@ export async function getLiveDatasets(): Promise<LiveDataset[]> {
   } catch {
     return []
   }
-  // Pull each dataset's diagram for its Mermaid (best-effort per item).
+  // Pull each dataset's detail for its Mermaid diagram + the richer meta (which
+  // carries the alignment report) — best-effort per item.
   return Promise.all(
     metas.map(async (meta) => {
       let mermaid = ''
+      let full = meta
       try {
         const res = await fetch(`${API_BASE}/api/datasets/${encodeURIComponent(meta.id)}`)
         if (res.ok) {
-          const detail = (await res.json()) as { artifacts?: { 'diagram.md'?: string } }
+          const detail = (await res.json()) as {
+            meta?: DatasetMeta
+            artifacts?: { 'diagram.md'?: string }
+          }
           mermaid = extractMermaid(detail.artifacts?.['diagram.md'] ?? '')
+          if (detail.meta) full = { ...meta, ...detail.meta }
         }
       } catch {
-        // leave mermaid empty; the card still renders
+        // leave mermaid empty + use the list meta; the card still renders
       }
-      return { meta, ontology: toOntology(meta, mermaid), mapping: toMapping(meta) }
+      return { meta: full, ontology: toOntology(full, mermaid), mapping: toMapping(full) }
     }),
   )
 }
@@ -382,11 +328,9 @@ function extractMermaid(diagramMd: string): string {
 }
 
 // ---- dataset-centric catalog (real data) ----------------------------------
-// The redesigned Catalog/Home/Shared-vocab screens are dataset-first. To stay
-// truthful (no fabricated datasets/counts), datasets come ONLY from real
-// sources: the committed canonical ontology+mapping (captured above from
-// docs/ontology + the ingester/MIE) and the workbench-materialized drafts
-// (fetched live from /api/datasets). No demo placeholders.
+// The Catalog/Home/Shared-vocab screens are dataset-first. To stay truthful (no
+// fabricated datasets/counts), datasets come ONLY from the workbench-materialized
+// drafts persisted to /api/datasets. No demo placeholders, no static canonical.
 
 export type CatalogStatusKind = 'pub' | 'draft' | 'design'
 
@@ -399,6 +343,8 @@ export interface CatalogDataset {
   purposes: { tag: string; detail: string }[]
   classes: string[]
   reuses: { prefix: string; what: string }[]
+  /** Real predicate IRIs the dataset uses (from alignment); structural ones dropped. */
+  predicates: string[]
   artifacts: { kind: string; name: string; detail: string }[]
   mermaid?: string
   /** Present for materialized drafts; carries the backend handle for promote. */
@@ -410,28 +356,6 @@ const ARTIFACT_KIND_LABEL: Record<MappingArtifactKind, string> = {
   mie: 'MIE',
   shex: 'ShEx',
   mapping: 'RML',
-}
-
-function canonicalToCatalog(o: OntologyEntry, mapping?: MappingEntry): CatalogDataset {
-  return {
-    id: o.id,
-    name: o.name,
-    sub: `${o.prefix} · 共有オントロジー`,
-    statusKind: 'pub',
-    counts: [
-      { value: String(o.classes.length), label: 'クラス' },
-      { value: String(o.reuses.length), label: '再利用語彙' },
-    ],
-    purposes: mapping?.purposes ?? [],
-    classes: o.classes,
-    reuses: o.reuses,
-    artifacts: (mapping?.artifacts ?? []).map((a) => ({
-      kind: ARTIFACT_KIND_LABEL[a.kind],
-      name: a.name,
-      detail: a.summary,
-    })),
-    mermaid: o.mermaid,
-  }
 }
 
 function liveToCatalog(l: LiveDataset): CatalogDataset {
@@ -450,6 +374,7 @@ function liveToCatalog(l: LiveDataset): CatalogDataset {
     purposes: [],
     classes: l.ontology.classes,
     reuses: l.ontology.reuses,
+    predicates: datasetPredicateIris(l.meta.alignment),
     artifacts: l.mapping.artifacts.map((a) => ({
       kind: ARTIFACT_KIND_LABEL[a.kind],
       name: a.name,
@@ -460,16 +385,10 @@ function liveToCatalog(l: LiveDataset): CatalogDataset {
   }
 }
 
-/** All catalogued datasets: canonical ontologies + materialized drafts. Real. */
+/** All catalogued datasets: the workbench-materialized drafts. Real, live-only. */
 export async function getCatalogDatasets(): Promise<CatalogDataset[]> {
-  const [ontos, maps, live] = await Promise.all([getOntologies(), getMappings(), getLiveDatasets()])
-  const canonical = ontos.map((o) =>
-    canonicalToCatalog(
-      o,
-      maps.find((m) => m.targetOntologyId === o.id),
-    ),
-  )
-  return [...canonical, ...live.map(liveToCatalog)]
+  const live = await getLiveDatasets()
+  return live.map(liveToCatalog)
 }
 
 // Run a scalar-returning SPARQL aggregate against the read-only endpoint.
@@ -508,22 +427,4 @@ export async function getGraphStats(): Promise<{
     getCatalogDatasets().then((d) => d.length),
   ])
   return { facts, classes, datasets }
-}
-
-// ---- public API (async so a live backend can drop in later) ---------------
-
-/** List the shared vocabularies (TBox layer). */
-export async function getOntologies(): Promise<OntologyEntry[]> {
-  await delay(120)
-  return ONTOLOGIES
-}
-
-/** List the dataset→vocabulary bindings (mapping layer), purpose-tagged. */
-export async function getMappings(): Promise<MappingEntry[]> {
-  await delay(120)
-  return MAPPINGS
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms))
 }

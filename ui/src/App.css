@@ -1966,6 +1966,53 @@ textarea:focus {
   font-size: 0.78rem;
   padding: 0.35rem 0.7rem;
 }
+.btn--danger {
+  background: var(--surface);
+  color: var(--error-fg);
+  border-color: var(--error-border);
+}
+.btn--danger:hover:not(:disabled) {
+  background: var(--error-bg);
+  border-color: var(--error-fg);
+}
+.btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* Dataset-level controls (promote + lifecycle): match the tab body's padding so
+   they align with the rest of the detail card (ds-detail itself has padding:0). */
+.ds-detail-controls {
+  padding: 0 1.1rem 1.1rem;
+}
+
+/* #20 P3 lifecycle controls (retract / reinstate / delete) */
+.lifecycle-control {
+  margin-top: 1rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border);
+}
+.lifecycle-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+}
+.lifecycle-status {
+  margin: 0.25rem 0 0.4rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.lifecycle-ok {
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--entity);
+}
+.lifecycle-err {
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--error-fg);
+}
 
 /* ---- shared: card / pills / links (Phase 2 screens) ---- */
 .card {

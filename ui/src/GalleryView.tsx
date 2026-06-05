@@ -1,15 +1,21 @@
 import { useEffect, useState } from 'react'
+import { getSchema } from './demoApi'
 import {
   type AlignmentReport,
   type CatalogDataset,
   type CatalogStatusKind,
+  datasetStage,
+  deleteDataset,
   getAlignment,
   getCatalogDatasets,
   type LiveDataset,
   promoteDataset,
+  reinstateDataset,
+  retractDataset,
 } from './galleryApi'
 import { ArrowIcon, LinkIcon, SearchIcon } from './icons'
 import { Mermaid } from './Mermaid'
+import { localName } from './vocab'
 
 const STATUS_LABEL: Record<CatalogStatusKind, string> = {
   pub: '公開済み',
@@ -22,8 +28,10 @@ const STATUS_LABEL: Record<CatalogStatusKind, string> = {
  * dataset HAS a 設計図 (vocabulary) and 取り込みルール (mapping), shown as two tabs
  * inside the dataset; the SHARED vocabulary is the gateway band at the bottom.
  *
- * All datasets are REAL: the committed canonical ontology+mapping and the
- * workbench-materialized drafts (getCatalogDatasets). No demo placeholders.
+ * All datasets are REAL and LIVE: the workbench-materialized drafts persisted to
+ * /api/datasets (getCatalogDatasets), each with its designed classes (model.yaml),
+ * class diagram (diagram.md), and the external vocabularies it actually reuses
+ * (derived from real term IRIs). No fixtures, no demo placeholders.
  */
 export function GalleryView({
   focusClass,
@@ -37,6 +45,15 @@ export function GalleryView({
   const [picked, setPicked] = useState<string | null>(null)
   const [seenFocus, setSeenFocus] = useState<string | null | undefined>(focusClass)
   const [tab, setTab] = useState<'design' | 'rules'>('design')
+  // Live count of shared classes actually in the store (for the gateway band).
+  // null = unavailable (query layer down) → the band omits the number.
+  const [sharedClassCount, setSharedClassCount] = useState<number | null>(null)
+
+  function reload() {
+    getCatalogDatasets()
+      .then((d) => setDatasets(d))
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -47,6 +64,9 @@ export function GalleryView({
       .catch((e) => {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e))
       })
+    getSchema()
+      .then((s) => !cancelled && setSharedClassCount(s ? s.classes.length : null))
+      .catch(() => {})
     return () => {
       cancelled = true
     }
@@ -62,8 +82,6 @@ export function GalleryView({
   const list = datasets ?? []
   const focused = focusClass ? list.find((d) => d.classes.includes(focusClass)) : undefined
   const selected = list.find((d) => d.id === picked) ?? focused ?? list[0] ?? null
-  // The shared vocabulary = the canonical ontology (a dataset with no draft handle).
-  const canonical = list.find((d) => !d.live)
 
   return (
     <div className="catalog">
@@ -116,34 +134,40 @@ export function GalleryView({
           </div>
 
           {selected && (
-            <DatasetDetail dataset={selected} tab={tab} onTab={setTab} highlight={focusClass} />
+            <DatasetDetail
+              dataset={selected}
+              tab={tab}
+              onTab={setTab}
+              highlight={focusClass}
+              onChanged={reload}
+            />
           )}
         </div>
       )}
 
-      {/* shared vocabulary gateway (= the canonical ontology) */}
-      {canonical && (
-        <button type="button" className="shared-band" onClick={onOpenVocab}>
-          <span className="shared-band-icon">
-            <LinkIcon size={19} />
+      {/* shared vocabulary gateway → the live cross-dataset vocabulary board */}
+      <button type="button" className="shared-band" onClick={onOpenVocab}>
+        <span className="shared-band-icon">
+          <LinkIcon size={19} />
+        </span>
+        <span className="shared-band-body">
+          <span className="shared-band-title">
+            共有の語彙 <span className="shared-band-en">shared vocabulary</span>
+            <span className="shared-band-warn">変更は全体に影響 · 要注意</span>
           </span>
-          <span className="shared-band-body">
-            <span className="shared-band-title">
-              共有の語彙 <span className="shared-band-en">shared vocabulary</span>
-              <span className="shared-band-warn">変更は全体に影響 · 要注意</span>
-            </span>
-            <span className="shared-band-sub">
-              複数のデータセットが共通で使う設計図。揃えておくと<strong>横断して検索・比較</strong>できます。
-            </span>
+          <span className="shared-band-sub">
+            複数のデータセットが共通で使う設計図。揃えておくと<strong>横断して検索・比較</strong>できます。
           </span>
-          <span className="shared-band-cta">
+        </span>
+        <span className="shared-band-cta">
+          {sharedClassCount != null && (
             <span className="shared-band-users">
-              <span className="mono-strong">{canonical.classes.length}</span> クラスを共有
+              <span className="mono-strong">{sharedClassCount}</span> クラスを共有
             </span>
-            開く <ArrowIcon size={14} />
-          </span>
-        </button>
-      )}
+          )}
+          開く <ArrowIcon size={14} />
+        </span>
+      </button>
     </div>
   )
 }
@@ -182,11 +206,13 @@ function DatasetDetail({
   tab,
   onTab,
   highlight,
+  onChanged,
 }: {
   dataset: CatalogDataset
   tab: 'design' | 'rules'
   onTab: (t: 'design' | 'rules') => void
   highlight?: string | null
+  onChanged: () => void
 }) {
   return (
     <div className="ds-detail card">
@@ -246,6 +272,19 @@ function DatasetDetail({
             <p className="ds-empty-note">クラス情報はありません。</p>
           )}
 
+          {dataset.predicates.length > 0 && (
+            <>
+              <div className="ds-subhead">使っている述語（実データの語彙）</div>
+              <div className="ds-classes">
+                {dataset.predicates.map((p) => (
+                  <span key={p} className="class-chip" title={p}>
+                    <code className="class-chip-en">{localName(p)}</code>
+                  </span>
+                ))}
+              </div>
+            </>
+          )}
+
           {dataset.mermaid && (
             <details className="ds-diagram-details">
               <summary>クラス図を見る</summary>
@@ -257,7 +296,7 @@ function DatasetDetail({
 
           {dataset.reuses.length > 0 && (
             <>
-              <div className="ds-subhead">他から借りている語彙（再発明しない）</div>
+              <div className="ds-subhead">他から借りている語彙（実データの名前空間から検出）</div>
               <div className="ds-reuse-list">
                 {dataset.reuses.map((r) => (
                   <span key={r.prefix} className="reuse-chip" title={r.what}>
@@ -287,9 +326,16 @@ function DatasetDetail({
           ) : (
             <p className="ds-empty-note">取り込みルールの生成物はまだありません。</p>
           )}
+        </div>
+      )}
 
-          {/* Real materialized drafts keep the S4 promote human-gate. */}
-          {dataset.live && <PromoteControl meta={dataset.live.meta} />}
+      {/* Dataset-level controls — shown under BOTH tabs (not mapping-specific). */}
+      {dataset.live && (
+        <div className="ds-detail-controls">
+          {/* S4 promote human-gate (only for ingested-not-promoted drafts). */}
+          <PromoteControl meta={dataset.live.meta} />
+          {/* #20 P3 lifecycle: retract / reinstate / delete (human-gated). */}
+          <LifecycleControl meta={dataset.live.meta} onChanged={onChanged} />
         </div>
       )}
     </div>
@@ -370,6 +416,102 @@ function PromoteControl({ meta }: { meta: LiveDataset['meta'] }) {
         {busy ? '昇格中…' : '共有データに昇格（Ask で使えるように）'}
       </button>
       {err && <p className="promote-err">昇格に失敗しました: {err}</p>}
+    </div>
+  )
+}
+
+/**
+ * #20 P3 lifecycle controls (human-gated): retract (withdraw from the citable
+ * corpus — tombstone, IRIs kept), reinstate (undo), and delete (hard removal;
+ * a promoted/citable dataset requires an explicit force confirm). Backend-backed
+ * by /api/datasets/{id}/{retract,reinstate} and DELETE /api/datasets/{id}.
+ */
+function LifecycleControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChanged: () => void }) {
+  const [busy, setBusy] = useState('')
+  const [err, setErr] = useState('')
+  const [msg, setMsg] = useState('')
+  const retracted = meta.status === 'retracted'
+  const stage = datasetStage(meta)
+
+  async function run(label: string, fn: () => Promise<string>) {
+    setBusy(label)
+    setErr('')
+    setMsg('')
+    try {
+      setMsg(await fn())
+      onChanged()
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy('')
+    }
+  }
+
+  return (
+    <div className="lifecycle-control">
+      <div className="ds-subhead">ライフサイクル操作</div>
+      {retracted && (
+        <p className="lifecycle-status">
+          状態: <strong>撤回済み</strong>（Ask の引用対象外。データ・IRI は残るので既存の引用は壊れません。復帰できます）
+        </p>
+      )}
+      <div className="lifecycle-actions">
+        {stage === 'promoted' && !retracted && (
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm"
+            disabled={!!busy}
+            onClick={() =>
+              window.confirm(
+                'このデータセットを撤回しますか？\nAsk の引用対象から外しますが、データと IRI は残るので既存の引用は壊れません（後で復帰できます）。',
+              ) &&
+              run('retract', async () => {
+                await retractDataset(meta.id)
+                return '撤回しました（canonical から除外・引用は維持）。'
+              })
+            }
+          >
+            {busy === 'retract' ? '撤回中…' : '撤回（Ask の引用から外す）'}
+          </button>
+        )}
+        {retracted && (
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm"
+            disabled={!!busy}
+            onClick={() =>
+              run('reinstate', async () => {
+                await reinstateDataset(meta.id)
+                return '復帰しました（再び Ask の引用対象です）。'
+              })
+            }
+          >
+            {busy === 'reinstate' ? '復帰中…' : '復帰（再び引用対象に）'}
+          </button>
+        )}
+        <button
+          type="button"
+          className="btn btn--danger btn--sm"
+          disabled={!!busy}
+          onClick={() => {
+            const promoted = stage === 'promoted'
+            const ok = window.confirm(
+              promoted
+                ? 'このデータセットを完全に削除しますか？\n昇格済み（引用可能）なので、既存の引用が 404 になる恐れがあります。通常は「撤回」を推奨します。\n\nそれでも削除しますか？'
+                : 'このデータセットを削除しますか？（未昇格なので安全に削除できます）',
+            )
+            if (ok)
+              run('delete', async () => {
+                await deleteDataset(meta.id, promoted)
+                return '削除しました。'
+              })
+          }}
+        >
+          {busy === 'delete' ? '削除中…' : '削除'}
+        </button>
+      </div>
+      {msg && <p className="lifecycle-ok">{msg}</p>}
+      {err && <p className="lifecycle-err">操作に失敗しました: {err}</p>}
     </div>
   )
 }
