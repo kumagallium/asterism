@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
+  attachSource,
   inspectCsvs,
   materializeSchema,
   proposeCsvs,
@@ -316,7 +317,19 @@ export function WorkbenchView() {
     setProposeErr('')
     setMaterializing(true)
     try {
-      setMaterialized(await materializeSchema(proposal))
+      const result = await materializeSchema(proposal)
+      setMaterialized(result)
+      // Task E: persist the design-time CSVs alongside the saved dataset so it
+      // can be ingested from the catalog later with no re-attach. Best-effort —
+      // never block the save (ingest can still re-upload if this fails).
+      const datasetId = result.dataset?.id
+      if (datasetId && files.length > 0) {
+        try {
+          await attachSource(datasetId, files)
+        } catch {
+          /* source persistence is a convenience, not required */
+        }
+      }
     } catch (e) {
       setProposeErr(e instanceof Error ? e.message : String(e))
     } finally {

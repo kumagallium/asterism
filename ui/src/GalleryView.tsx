@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { ingestDataset, type IngestResult } from './api'
 import { getSchema } from './demoApi'
 import {
   type AlignmentReport,
@@ -134,7 +135,11 @@ export function GalleryView({
           </div>
 
           {selected && (
+            // Key by dataset id so the detail (and its controls' local state —
+            // IngestControl's done/files, PromoteControl's promoted/alignment)
+            // remounts fresh when switching datasets, never leaking across them.
             <DatasetDetail
+              key={selected.id}
               dataset={selected}
               tab={tab}
               onTab={setTab}
@@ -332,6 +337,8 @@ function DatasetDetail({
       {/* Dataset-level controls — shown under BOTH tabs (not mapping-specific). */}
       {dataset.live && (
         <div className="ds-detail-controls">
+          {/* Task E: ingest gate for design-stage datasets (no facts yet). */}
+          <IngestControl meta={dataset.live.meta} onChanged={onChanged} />
           {/* S4 promote human-gate (only for ingested-not-promoted drafts). */}
           <PromoteControl meta={dataset.live.meta} />
           {/* #20 P3 lifecycle: retract / reinstate / delete (human-gated). */}
@@ -345,6 +352,103 @@ function DatasetDetail({
 function shortIri(iri: string): string {
   const m = iri.split(/[#/]/).filter(Boolean)
   return m.length ? m[m.length - 1] : iri
+}
+
+/**
+ * Task E: ingest a *design*-stage dataset straight from the catalog. A design
+ * dataset has a saved schema + declarative RML but no facts (0 triples) until
+ * its RML is run through the substrate into a draft graph — previously only
+ * reachable inside the workbench. When the design-time source CSV was persisted
+ * (workbench save), this is a one-click approve; otherwise the user re-attaches
+ * the CSV here. Loads into an isolated draft graph (Ask cites canonical), so it
+ * is not yet a citable fact — promote does that. Only shown for design stage.
+ */
+function IngestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChanged: () => void }) {
+  const [files, setFiles] = useState<File[]>([])
+  const [busy, setBusy] = useState(false)
+  const [done, setDone] = useState<IngestResult | null>(null)
+  const [err, setErr] = useState('')
+
+  // Only design-stage needs this gate: ingested → promote, promoted → done.
+  if (datasetStage(meta) !== 'design') return null
+
+  if (!meta.has_rml) {
+    return (
+      <div className="ingest-gate">
+        <div className="ds-subhead">取り込み（Oxigraph へ投入）</div>
+        <p className="ingest-hint">
+          この設計には宣言 RML マッピングが無いため取り込めません。ワークベンチの「AI が設計」で
+          §RML（宣言マッピング）を出すと、ここから安全に投入できるようになります。
+        </p>
+      </div>
+    )
+  }
+
+  if (done) {
+    return (
+      <div className="ingest-gate">
+        <div className="ds-subhead">取り込み（Oxigraph へ投入）</div>
+        <p className="ingest-ok">
+          ✓ 下書きグラフに取り込みました（{done.triple_count} 件）。次に下の「共有データに昇格」を押すと
+          Ask が引用できます。
+        </p>
+      </div>
+    )
+  }
+
+  const hasSource = !!meta.has_source
+  const canIngest = !busy && (hasSource || files.length > 0)
+
+  async function onIngest() {
+    setBusy(true)
+    setErr('')
+    try {
+      // hasSource → ingest with no upload (server uses the persisted source).
+      setDone(await ingestDataset(meta.id, hasSource ? [] : files))
+      onChanged() // design → draft: refresh so promote control appears
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="ingest-gate">
+      <div className="ds-subhead">取り込み（Oxigraph へ投入）</div>
+      <p className="ingest-note">
+        承認すると、この宣言 RML を Morph-KGC が実行し（生成コードは走らず、検証済みの Tier 0
+        関数だけ）、結果を<strong>隔離された下書きグラフ</strong>に投入します。Ask
+        の引用面（canonical）は汚しません。
+      </p>
+      {hasSource ? (
+        <p className="ingest-source">
+          設計時の CSV を保存済み
+          {meta.source_files?.length ? `（${meta.source_files.join('、')}）` : ''}
+          。再添付なしで取り込めます。
+        </p>
+      ) : (
+        <div className="ingest-pick">
+          <label className="file-btn">
+            CSV を選択
+            <input
+              type="file"
+              accept=".csv"
+              multiple
+              onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
+            />
+          </label>
+          <span className={`file-names${files.length ? '' : ' empty'}`}>
+            {files.length ? files.map((f) => f.name).join('、') : '設計に使った CSV を選んでください'}
+          </span>
+        </div>
+      )}
+      <button type="button" className="promote-btn" onClick={onIngest} disabled={!canIngest}>
+        {busy ? '取り込み中…' : '取り込み（Oxigraph へ投入）'}
+      </button>
+      {err && <p className="promote-err">取り込みに失敗しました: {err}</p>}
+    </div>
+  )
 }
 
 /**

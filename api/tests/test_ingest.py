@@ -176,6 +176,92 @@ def test_ingest_without_morph_kgc_returns_501(tmp_path: Path, monkeypatch) -> No
     assert oxi.store_calls == []
 
 
+# ---- design-time source persistence (Task E) --------------------------------
+
+
+def test_attach_source_persists_csv_and_flags_meta(tmp_path: Path) -> None:
+    dataset_id = _save_dataset_with_rml(tmp_path)
+    oxi = _RecordingOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app) as client:
+        r = client.post(
+            f"/api/datasets/{dataset_id}/source",
+            files={"files": ("papers.csv", b"SID\n1\n", "text/csv")},
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["source_files"] == ["papers.csv"]
+        assert body["dataset"]["has_source"] is True
+        assert body["dataset"]["source_files"] == ["papers.csv"]
+    # Persisted under <id>/source/ with the exact bytes.
+    src = tmp_path / "registry" / dataset_id / "source" / "papers.csv"
+    assert src.is_file()
+    assert src.read_bytes() == b"SID\n1\n"
+
+
+def test_attach_source_unknown_dataset_404(tmp_path: Path) -> None:
+    oxi = _RecordingOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app) as client:
+        r = client.post(
+            "/api/datasets/nope-00000000/source",
+            files={"files": ("papers.csv", b"SID\n1\n", "text/csv")},
+        )
+        assert r.status_code == 404
+
+
+def test_ingest_uses_persisted_source_when_no_upload(tmp_path: Path, monkeypatch) -> None:
+    """Task E: a design-stage dataset with persisted source ingests with no re-attach."""
+    dataset_id = _save_dataset_with_rml(tmp_path)
+    monkeypatch.setattr(substrate, "materialize_to_graph", lambda *a, **k: _fake_graph())
+    oxi = _RecordingOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app) as client:
+        assert (
+            client.post(
+                f"/api/datasets/{dataset_id}/source",
+                files={"files": ("papers.csv", b"SID\n1\n", "text/csv")},
+            ).status_code
+            == 200
+        )
+        # Ingest with NO files uploaded — the persisted source is used.
+        r = client.post(f"/api/datasets/{dataset_id}/ingest")
+        assert r.status_code == 200, r.text
+        assert r.json()["triple_count"] == 1
+        assert r.json()["graph_kind"] == "draft"
+    assert oxi.store_calls == [substrate.draft_graph_iri(dataset_id)]
+
+
+def test_ingest_upload_persists_source_for_reuse(tmp_path: Path, monkeypatch) -> None:
+    """An ingest WITH an upload also persists that CSV as the dataset's source."""
+    dataset_id = _save_dataset_with_rml(tmp_path)
+    monkeypatch.setattr(substrate, "materialize_to_graph", lambda *a, **k: _fake_graph())
+    oxi = _RecordingOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app) as client:
+        r = client.post(
+            f"/api/datasets/{dataset_id}/ingest",
+            files={"files": ("papers.csv", b"SID\n1\n", "text/csv")},
+        )
+        assert r.status_code == 200, r.text
+    meta = json.loads((tmp_path / "registry" / dataset_id / "meta.json").read_text())
+    assert meta["has_source"] is True
+    assert meta["source_files"] == ["papers.csv"]
+    assert (tmp_path / "registry" / dataset_id / "source" / "papers.csv").is_file()
+
+
+def test_ingest_without_upload_or_source_400(tmp_path: Path) -> None:
+    """No upload and no persisted source -> 400 (nothing to ingest from)."""
+    dataset_id = _save_dataset_with_rml(tmp_path)  # RML present, no source attached
+    oxi = _RecordingOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app) as client:
+        r = client.post(f"/api/datasets/{dataset_id}/ingest")
+        assert r.status_code == 400
+        assert "CSV" in r.json()["detail"]
+    assert oxi.store_calls == []
+
+
 # ---- promotion: draft -> canonical (#15 S4) ---------------------------------
 
 

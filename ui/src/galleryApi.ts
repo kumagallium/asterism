@@ -115,6 +115,10 @@ interface DatasetMeta {
   ingested?: boolean
   triple_count?: number
   graph_iri?: string
+  // Task E: design-time source CSVs persisted server-side (lets the catalog
+  // ingest a design-stage dataset with no CSV re-attach).
+  has_source?: boolean
+  source_files?: string[]
   // S4: whether the draft was promoted into the canonical (default) graph.
   promoted?: boolean
   triples_promoted?: number

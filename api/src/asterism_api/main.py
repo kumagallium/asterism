@@ -226,6 +226,31 @@ async def _save_upload(file: UploadFile, dest: Path, chunk_size: int = 1 << 20) 
     return total
 
 
+async def _persist_source_uploads(
+    registry_root: Path, dataset_id: str, files: list[UploadFile]
+) -> tuple[list[str], dict | None]:
+    """Persist uploaded CSVs as the dataset's design-time source (Task E).
+
+    Streams each upload into ``registry_root/<id>/source/`` (resetting any prior
+    source so it reflects exactly this upload) and records the filenames on the
+    meta. This lets a *design*-stage dataset be ingested from the catalog later
+    with no CSV re-attach (reproducibility — the citable-facts direction).
+    """
+    sdir = registry.source_dir(registry_root, dataset_id)
+    if sdir is None:
+        raise HTTPException(404, f"dataset {dataset_id!r} not found")
+    await asyncio.to_thread(shutil.rmtree, sdir, ignore_errors=True)
+    saved: list[str] = []
+    for upload in files:
+        if upload.filename is None:
+            raise HTTPException(400, "missing filename")
+        name = _validate_name(upload.filename)
+        await _save_upload(upload, sdir / name)
+        saved.append(name)
+    meta = registry.mark_source_saved(registry_root, dataset_id, saved)
+    return saved, meta
+
+
 def _tail_jsonl(path: Path, limit: int) -> list[dict[str, object]]:
     if not path.exists():
         return []
@@ -559,19 +584,49 @@ def build_app(
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
         return data
 
+    @app.post("/api/datasets/{dataset_id}/source")
+    async def attach_source(
+        dataset_id: str,
+        files: list[UploadFile] = File(..., description="Design-time source CSV(s)"),
+    ) -> JSONResponse:
+        """Persist the CSVs a dataset was designed from (reproducibility, Task E).
+
+        Saved alongside the registry bundle (``<id>/source/``) so a *design*-stage
+        dataset can later be ingested from the catalog with no CSV re-attach. The
+        workbench calls this right after materialize (step 3 保存). Overwrites any
+        previously attached source.
+        """
+        if registry.load_dataset(cfg.registry_root, dataset_id) is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        if not files:
+            raise HTTPException(400, "no CSV files uploaded")
+        saved, meta = await _persist_source_uploads(cfg.registry_root, dataset_id, files)
+        return JSONResponse(
+            {"dataset_id": dataset_id, "source_files": saved, "dataset": meta}
+        )
+
     @app.post("/api/datasets/{dataset_id}/ingest")
     async def ingest_dataset(
         dataset_id: str,
-        files: list[UploadFile] = File(..., description="Source CSV(s) the RML maps"),
+        files: list[UploadFile] = File(
+            default=[],
+            description="Source CSV(s) the RML maps. Optional — when omitted, the "
+            "dataset's persisted design-time source is used (Task E).",
+        ),
     ) -> JSONResponse:
         """Phase 5 (#15): human-gated ingest of a dataset's approved RML mapping.
 
         Runs the dataset's persisted ``mapping.rml.ttl`` through the Morph-KGC
-        substrate on the uploaded CSVs (NO generated code — only the closed Tier 0
-        functions) and loads the result into an **isolated draft named graph**.
-        Ask cites the canonical graph by default, so draft data is not a citable
-        fact until separately promoted. This is the explicit second gate after
-        ``materialize`` (which only saves the RML draft).
+        substrate (NO generated code — only the closed Tier 0 functions) and loads
+        the result into an **isolated draft named graph**. Ask cites the canonical
+        graph by default, so draft data is not a citable fact until separately
+        promoted. This is the explicit second gate after ``materialize`` (which
+        only saves the RML draft).
+
+        Source CSVs are either uploaded here (and persisted as the dataset's
+        design-time source) or — when omitted — taken from that persisted source,
+        so a *design*-stage dataset can be ingested straight from the catalog with
+        no re-attach (Task E).
         """
         data = registry.load_dataset(cfg.registry_root, dataset_id)
         if data is None:
@@ -581,38 +636,41 @@ def build_app(
             raise HTTPException(
                 400, "this dataset has no declarative RML mapping to ingest"
             )
-        if not files:
-            raise HTTPException(400, "no CSV files uploaded")
 
-        tmpdir = Path(tempfile.mkdtemp(prefix="asterism-ingest-"))
-        try:
-            for upload in files:
-                if upload.filename is None:
-                    raise HTTPException(400, "missing filename")
-                await _save_upload(upload, tmpdir / _validate_name(upload.filename))
-
-            graph_iri = substrate.draft_graph_iri(dataset_id)
-            client: OxigraphClient = app.state.client
-            try:
-                # Morph-KGC is CPU-bound and blocking — run it off the event loop.
-                graph = await asyncio.to_thread(
-                    substrate.materialize_to_graph, rml_ttl, tmpdir
-                )
-            except RuntimeError as exc:  # morph-kgc not installed (optional extra)
-                raise HTTPException(501, str(exc)) from exc
-            except Exception as exc:  # Morph-KGC could not run this mapping
-                # User-data error (malformed/unsupported RML, column mismatch, …)
-                # — surface it as 422 with the cause, not an opaque 500.
-                raise HTTPException(
-                    422,
-                    "宣言マッピングを substrate で実行できませんでした: "
-                    f"{type(exc).__name__}: {exc}",
-                ) from exc
-            triple_count = await substrate.ingest_graph_to_oxigraph(
-                graph, client, graph_iri
+        # Uploaded CSVs (if any) refresh + persist the design-time source; an
+        # ingest with no upload reuses whatever source was persisted.
+        uploaded = [f for f in files if f.filename]
+        if uploaded:
+            await _persist_source_uploads(cfg.registry_root, dataset_id, uploaded)
+        csv_paths = registry.list_source_files(cfg.registry_root, dataset_id)
+        if not csv_paths:
+            raise HTTPException(
+                400,
+                "投入には CSV が必要です。設計時に CSV を添付するか、"
+                "ここで CSV をアップロードしてください",
             )
-        finally:
-            shutil.rmtree(tmpdir, ignore_errors=True)
+        csv_dir = csv_paths[0].parent
+
+        graph_iri = substrate.draft_graph_iri(dataset_id)
+        client: OxigraphClient = app.state.client
+        try:
+            # Morph-KGC is CPU-bound and blocking — run it off the event loop.
+            graph = await asyncio.to_thread(
+                substrate.materialize_to_graph, rml_ttl, csv_dir
+            )
+        except RuntimeError as exc:  # morph-kgc not installed (optional extra)
+            raise HTTPException(501, str(exc)) from exc
+        except Exception as exc:  # Morph-KGC could not run this mapping
+            # User-data error (malformed/unsupported RML, column mismatch, …)
+            # — surface it as 422 with the cause, not an opaque 500.
+            raise HTTPException(
+                422,
+                "宣言マッピングを substrate で実行できませんでした: "
+                f"{type(exc).__name__}: {exc}",
+            ) from exc
+        triple_count = await substrate.ingest_graph_to_oxigraph(
+            graph, client, graph_iri
+        )
 
         meta = registry.mark_ingested(
             cfg.registry_root,
