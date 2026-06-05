@@ -34,6 +34,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final
 
+import httpx
 from asterism import substrate
 from asterism.datasets import load_dataset
 from asterism.ontology_projection import (
@@ -668,9 +669,25 @@ def build_app(
                 "宣言マッピングを substrate で実行できませんでした: "
                 f"{type(exc).__name__}: {exc}",
             ) from exc
-        triple_count = await substrate.ingest_graph_to_oxigraph(
-            graph, client, graph_iri
-        )
+        try:
+            triple_count = await substrate.ingest_graph_to_oxigraph(
+                graph, client, graph_iri
+            )
+        except httpx.TimeoutException as exc:
+            # The generated graph is too large to POST in one request within the
+            # timeout (e.g. the full starrydata dump). Surface an actionable 504,
+            # not an opaque 500. The workbench ingest targets design-sized
+            # subsets; bulk loads belong in the production ingest pipeline.
+            raise HTTPException(
+                504,
+                "Oxigraph への投入がタイムアウトしました。データが大きすぎる可能性があります。"
+                "ワークベンチの取り込みは小さめのサブセット向けです。"
+                "全件は本番の取り込みパイプラインをご利用ください",
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise HTTPException(
+                502, f"Oxigraph への投入に失敗しました: {type(exc).__name__}: {exc}"
+            ) from exc
 
         meta = registry.mark_ingested(
             cfg.registry_root,
