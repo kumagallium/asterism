@@ -1980,6 +1980,12 @@ textarea:focus {
   cursor: default;
 }
 
+/* Dataset-level controls (promote + lifecycle): match the tab body's padding so
+   they align with the rest of the detail card (ds-detail itself has padding:0). */
+.ds-detail-controls {
+  padding: 0 1.1rem 1.1rem;
+}
+
 /* #20 P3 lifecycle controls (retract / reinstate / delete) */
 .lifecycle-control {
   margin-top: 1rem;
