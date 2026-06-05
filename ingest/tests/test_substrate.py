@@ -8,6 +8,7 @@ graph into Oxigraph (via a fake client). The Morph-KGC path is proven by the
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -332,6 +333,76 @@ async def test_canonical_graphs_lists_sorted_excluding_retracted() -> None:
             }
 
     assert await canonical_graphs(_Fake()) == [g_a, g_b]
+
+
+def _rdflib_client(ds: rdflib.Dataset) -> object:
+    """A SupportsSparql adapter that actually executes SPARQL on an rdflib Dataset.
+
+    Used to exercise the real enumeration query (empty-pattern ``GRAPH ?g {}``)
+    end-to-end, not just its string shape.
+    """
+
+    class _C:
+        async def sparql_select(self, query: str) -> dict:
+            return json.loads(ds.query(query).serialize(format="json"))
+
+    return _C()
+
+
+async def test_canonical_and_ontology_graphs_enumerate_by_name_selectively() -> None:
+    # Real-store enumeration must select ONLY graphs under the right prefix —
+    # canonical_graphs -> canonical/*, ontology_graphs -> ontology/* — and never
+    # leak draft graphs. The empty-pattern form reads the graph-name index, so a
+    # large draft graph is excluded WITHOUT being scanned triple-by-triple (the
+    # whole point of the perf fix); here we also assert it never shows up.
+    from asterism.substrate import (
+        canonical_graph_iri,
+        canonical_graphs,
+        draft_graph_iri,
+        ontology_graph_iri,
+        ontology_graphs,
+    )
+
+    ds = rdflib.Dataset()
+    ex = rdflib.Namespace("https://ex/")
+    g_a = rdflib.URIRef(canonical_graph_iri("a"))
+    g_b = rdflib.URIRef(canonical_graph_iri("b"))
+    g_onto = rdflib.URIRef(ontology_graph_iri("a"))
+    g_draft = rdflib.URIRef(draft_graph_iri("d"))
+    ds.graph(g_a).add((ex.s, ex.p, ex.o))
+    ds.graph(g_b).add((ex.s2, ex.p, ex.o2))
+    ds.graph(g_onto).add((ex.c, rdflib.RDFS.label, rdflib.Literal("C")))
+    for i in range(500):  # a "large" draft graph that must not leak in
+        ds.graph(g_draft).add((ex[f"x{i}"], ex.p, rdflib.Literal(i)))
+
+    client = _rdflib_client(ds)
+    assert await canonical_graphs(client) == [str(g_a), str(g_b)]
+    assert await ontology_graphs(client) == [str(g_onto)]
+
+
+async def test_canonical_graphs_empty_pattern_still_excludes_retracted() -> None:
+    # The empty-pattern enumeration must still honour the retracted tombstone in
+    # the control graph (FILTER NOT EXISTS), and the control graph itself — which
+    # the name index also enumerates — is dropped by the canonical-prefix filter.
+    from asterism.substrate import (
+        CONTROL_GRAPH_IRI,
+        STATUS_PREDICATE,
+        STATUS_RETRACTED,
+        canonical_graph_iri,
+        canonical_graphs,
+    )
+
+    ds = rdflib.Dataset()
+    ex = rdflib.Namespace("https://ex/")
+    g_a = rdflib.URIRef(canonical_graph_iri("a"))
+    g_b = rdflib.URIRef(canonical_graph_iri("b"))
+    ds.graph(g_a).add((ex.s, ex.p, ex.o))
+    ds.graph(g_b).add((ex.s2, ex.p, ex.o2))
+    ds.graph(rdflib.URIRef(CONTROL_GRAPH_IRI)).add(
+        (g_b, rdflib.URIRef(STATUS_PREDICATE), rdflib.Literal(STATUS_RETRACTED))
+    )
+
+    assert await canonical_graphs(_rdflib_client(ds)) == [str(g_a)]
 
 
 async def test_migrate_default_to_canonical_merges_then_clears() -> None:
