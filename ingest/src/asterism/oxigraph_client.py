@@ -27,6 +27,11 @@ from typing import Final
 import httpx
 
 DEFAULT_TIMEOUT_S: Final[float] = 30.0
+# A Graph Store ``POST /store`` for an ingest can carry a large Turtle payload
+# (a sizable subset materializes to many MB). The default 30s write/read timeout
+# is too short for those, so the store POST gets a much longer write/read budget
+# (connect still uses the short default, so a down Oxigraph fails fast).
+DEFAULT_STORE_TIMEOUT_S: Final[float] = 300.0
 DEFAULT_RETRIES: Final[int] = 3
 DEFAULT_BACKOFF_S: Final[float] = 0.2
 
@@ -35,6 +40,7 @@ DEFAULT_BACKOFF_S: Final[float] = 0.2
 class OxigraphConfig:
     base_url: str = "http://localhost:7878"
     timeout_s: float = DEFAULT_TIMEOUT_S
+    store_timeout_s: float = DEFAULT_STORE_TIMEOUT_S
     retries: int = DEFAULT_RETRIES
     backoff_s: float = DEFAULT_BACKOFF_S
 
@@ -117,6 +123,13 @@ class OxigraphClient:
                     params=params,
                     content=payload,
                     headers={"Content-Type": "text/turtle; charset=utf-8"},
+                    # Large ingest payloads need a generous write/read budget;
+                    # keep connect/pool on the short default (fail fast if down).
+                    timeout=httpx.Timeout(
+                        self.config.timeout_s,
+                        read=self.config.store_timeout_s,
+                        write=self.config.store_timeout_s,
+                    ),
                 )
                 # Oxigraph returns 200 (graph existed, triples merged) or
                 # 201 (graph created). Treat both as success.

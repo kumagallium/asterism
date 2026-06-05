@@ -262,6 +262,45 @@ def test_ingest_without_upload_or_source_400(tmp_path: Path) -> None:
     assert oxi.store_calls == []
 
 
+def test_ingest_oxigraph_write_timeout_returns_504(tmp_path: Path, monkeypatch) -> None:
+    """A too-large payload (write timeout posting to Oxigraph) surfaces as 504, not 500."""
+    dataset_id = _save_dataset_with_rml(tmp_path)
+    monkeypatch.setattr(substrate, "materialize_to_graph", lambda *a, **k: _fake_graph())
+
+    async def _timeout(*_a, **_k):
+        raise httpx.WriteTimeout("write timed out")
+
+    monkeypatch.setattr(substrate, "ingest_graph_to_oxigraph", _timeout)
+    oxi = _RecordingOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app) as client:
+        r = client.post(
+            f"/api/datasets/{dataset_id}/ingest",
+            files={"files": ("papers.csv", b"SID\n1\n", "text/csv")},
+        )
+        assert r.status_code == 504
+        assert "タイムアウト" in r.json()["detail"]
+
+
+def test_ingest_oxigraph_http_error_returns_502(tmp_path: Path, monkeypatch) -> None:
+    """A non-timeout Oxigraph HTTP failure surfaces as 502, not 500."""
+    dataset_id = _save_dataset_with_rml(tmp_path)
+    monkeypatch.setattr(substrate, "materialize_to_graph", lambda *a, **k: _fake_graph())
+
+    async def _err(*_a, **_k):
+        raise httpx.ConnectError("connection refused")
+
+    monkeypatch.setattr(substrate, "ingest_graph_to_oxigraph", _err)
+    oxi = _RecordingOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app) as client:
+        r = client.post(
+            f"/api/datasets/{dataset_id}/ingest",
+            files={"files": ("papers.csv", b"SID\n1\n", "text/csv")},
+        )
+        assert r.status_code == 502
+
+
 # ---- promotion: draft -> canonical (#15 S4) ---------------------------------
 
 
