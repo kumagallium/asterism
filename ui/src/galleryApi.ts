@@ -234,6 +234,9 @@ interface DatasetMeta {
   // S4: whether the draft was promoted into the canonical (default) graph.
   promoted?: boolean
   triples_promoted?: number
+  // #20 P3 lifecycle: "active" | "retracted" (tombstoned) | "deleted"; version bumps on re-promote.
+  status?: string
+  version?: number
 }
 
 /** Reuse/New split of a draft's predicates + classes vs the canonical graph. */
@@ -264,6 +267,38 @@ export async function promoteDataset(
     throw new Error(`promote failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
   }
   return (await res.json()) as { triples_promoted: number; alignment: AlignmentReport }
+}
+
+async function _errText(res: Response, op: string): Promise<string> {
+  const detail = await res.text().catch(() => '')
+  return `${op} failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`
+}
+
+/** #20 P3: withdraw a promoted dataset from the citable corpus (tombstone, not
+ * delete — data + IRIs stay so existing citations keep resolving). */
+export async function retractDataset(datasetId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/datasets/${encodeURIComponent(datasetId)}/retract`, {
+    method: 'POST',
+  })
+  if (!res.ok) throw new Error(await _errText(res, 'retract'))
+}
+
+/** #20 P3: undo a retraction — the dataset re-enters the citable scope. */
+export async function reinstateDataset(datasetId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/datasets/${encodeURIComponent(datasetId)}/reinstate`, {
+    method: 'POST',
+  })
+  if (!res.ok) throw new Error(await _errText(res, 'reinstate'))
+}
+
+/** #20 P3: hard-delete a dataset. A promoted (citable) dataset needs force=true
+ * (the backend returns 409 otherwise and steers you to retract). */
+export async function deleteDataset(datasetId: string, force = false): Promise<void> {
+  const q = force ? '?force=true' : ''
+  const res = await fetch(`${API_BASE}/api/datasets/${encodeURIComponent(datasetId)}${q}`, {
+    method: 'DELETE',
+  })
+  if (!res.ok) throw new Error(await _errText(res, 'delete'))
 }
 
 /** A materialized dataset adapted to both gallery layers (ontology + mapping). */

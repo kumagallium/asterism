@@ -126,6 +126,10 @@ export function SharedVocabView({ onBack }: { onBack?: () => void }) {
               右端の数字＝実データ中の件数。<strong>クラスはインスタンス数</strong>（その型のものが何件あるか）、
               <strong>述語は使用回数</strong>（そのプロパティを使うトリプル数）。
             </p>
+            <p className="vocab-live-note">
+              ※ 数えるのは <strong>canonical（昇格済み・引用可能）データのみ</strong>。
+              下書き（未レビュー）グラフは含みません ── 昇格すると集計に入ります。
+            </p>
             <div className="ds-subhead">クラス（インスタンス数）</div>
             <LiveTermList title="" terms={schema.classes} />
             <div className="ds-subhead">主な述語（使用回数）</div>
