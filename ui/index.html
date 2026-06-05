@@ -1,9 +1,13 @@
 <!doctype html>
-<html lang="ja">
+<html lang="ja" translate="no">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- This is an authored bilingual (JA primary, EN sublabels) UI. Browser page
+         translation rewrites text nodes and breaks React's DOM reconciliation
+         (white-screen "removeChild" crash), so we opt out of machine translation. -->
+    <meta name="google" content="notranslate" />
     <title>asterism — 研究データを RDF 化</title>
     <!-- Forest design system fonts: Hanken Grotesk (UI/display, Latin),
          Zen Kaku Gothic New / Noto Sans JP (Japanese gothic), IBM Plex Mono

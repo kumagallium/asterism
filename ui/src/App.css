@@ -2895,3 +2895,62 @@ textarea:focus {
     grid-template-columns: 1fr;
   }
 }
+
+/* App-level error boundary fallback (replaces a white-screen render crash). */
+.app-error-boundary {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  background: var(--surface, #f7f8f6);
+}
+.app-error-card {
+  max-width: 32rem;
+  padding: 1.75rem 1.75rem 1.5rem;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--error-fg, #b3261e);
+  border-radius: 12px;
+  background: var(--card, #fff);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.06);
+}
+.app-error-title {
+  font-size: 1.15rem;
+  margin: 0 0 0.6rem;
+  color: var(--fg);
+}
+.app-error-body {
+  font-size: 0.92rem;
+  line-height: 1.6;
+  color: var(--fg);
+  margin: 0 0 0.6rem;
+}
+.app-error-note {
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin: 0 0 1rem;
+}
+.app-error-btn {
+  font: inherit;
+  font-weight: 600;
+  color: #fff;
+  background: var(--primary);
+  border: none;
+  border-radius: 8px;
+  padding: 0.55rem 1.1rem;
+  cursor: pointer;
+}
+.app-error-btn:hover {
+  filter: brightness(0.95);
+}
+.app-error-details {
+  margin-top: 1rem;
+}
+.app-error-pre {
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  color: var(--muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0.4rem 0 0;
+}
