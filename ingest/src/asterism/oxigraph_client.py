@@ -165,16 +165,24 @@ class OxigraphClient:
         return r.json()  # type: ignore[no-any-return]
 
     async def sparql_update(self, update: str) -> None:
-        """Run a SPARQL 1.1 Update (INSERT/DELETE/MOVE/...) against ``/update``.
+        """Run a SPARQL 1.1 Update (INSERT/DELETE/MOVE/DROP/...) against ``/update``.
 
         Internal write path — NOT the read-only ``/api/sparql`` relay. Used by the
-        human-gated promote (#15 S4) to MOVE a draft graph into the canonical
-        (default) graph. Raises ``httpx.HTTPStatusError`` on non-2xx.
+        human-gated promote (MOVE) and the ingest clean-slate / retract (DROP).
+        Graph-level updates on a large graph (a multi-million-triple draft DROP or
+        a promote MOVE) can take far longer than the default 30s, so this uses the
+        generous ``store_timeout_s`` read/write budget (connect stays short — a
+        down Oxigraph fails fast). Raises ``httpx.HTTPStatusError`` on non-2xx.
         """
         r = await self._client.post(
             "/update",
             content=update,
             headers={"Content-Type": "application/sparql-update"},
+            timeout=httpx.Timeout(
+                self.config.timeout_s,
+                read=self.config.store_timeout_s,
+                write=self.config.store_timeout_s,
+            ),
         )
         r.raise_for_status()
 

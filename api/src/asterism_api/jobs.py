@@ -88,8 +88,8 @@ class JobManager:
             job.emit("done", result=result)
         except Exception as exc:  # surface any failure to the SSE client
             job.status = _ERROR
-            job.error = str(exc)
-            job.emit("error", message=str(exc))
+            job.error = str(exc) or type(exc).__name__
+            job.emit("error", message=job.error)
         finally:
             job._updated.set()
 
@@ -127,8 +127,8 @@ class JobManager:
             job.emit("done", result=result)
         except Exception as exc:  # surface any failure to the SSE client
             job.status = _ERROR
-            job.error = str(exc)
-            job.emit("error", message=str(exc))
+            job.error = str(exc) or type(exc).__name__
+            job.emit("error", message=job.error)
         finally:
             job._updated.set()
 

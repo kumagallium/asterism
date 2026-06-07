@@ -17,6 +17,28 @@ def _make_client(handler: httpx.MockTransport) -> OxigraphClient:
     return OxigraphClient(OxigraphConfig(base_url="http://test"), client=inner)
 
 
+async def test_sparql_update_uses_generous_timeout_for_large_graph_ops() -> None:
+    # DROP/MOVE on a multi-million-triple graph can far exceed the default 30s, so
+    # sparql_update must pass the generous store_timeout_s read/write budget.
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path
+        seen["timeout"] = request.extensions.get("timeout")
+        return httpx.Response(204)
+
+    inner = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://test")
+    cfg = OxigraphConfig(base_url="http://test", store_timeout_s=300.0)
+    async with OxigraphClient(cfg, client=inner) as client:
+        await client.sparql_update("DROP SILENT GRAPH <https://ex/g>")
+
+    assert seen["path"] == "/update"
+    timeout = seen["timeout"]
+    assert isinstance(timeout, dict)
+    assert timeout["read"] == 300.0
+    assert timeout["write"] == 300.0
+
+
 async def test_post_turtle_bytes_sends_correct_request() -> None:
     seen: dict[str, object] = {}
 
