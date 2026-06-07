@@ -17,7 +17,7 @@
 | # | ワークストリーム | 状態 | 担当 | 参照 |
 |---|---|---|---|---|
 | — | substrate（ソース非依存の宣言的取り込み: RML+Morph-KGC） | 実証済み | core/CC | `architecture/phase5-declarative-substrate.md` |
-| — | **スケーラブルな宣言的取り込み（大規模データ対応）** | 🟢 **ADR 合意済（方式=ストリーミング＋背景ジョブで一本化）・実装着手前**。現 #15 対話 ingest はサブセット限定（全 starrydata=593万トリプル生成は 54s で可だが単一 POST が 300s で 504 実測）。3天井（全グラフ in-memory／巨大1回POST／同期・無進捗）を、morph-kgc の N-Triples ファイル出力＋チャンク投入＋背景ジョブ(SSE 進捗)で撤去。段階=S1 substrate ストリーミング→S2 背景ジョブ→S3 UI 進捗。現 #129(504/timeout) は安全網として温存 | CC | `architecture/scalable-declarative-ingestion.md` |
+| — | **スケーラブルな宣言的取り込み（大規模データ対応）** | ✅ **S1-S3 完了（PR #130 ADR/#131 S1/#132 S2+S3）**。3天井（全グラフ in-memory／巨大1回POST／同期・無進捗）を撤去＝morph-kgc の **N-Triples ファイル出力**＋**チャンク逐次 POST**＋**背景ジョブ(SSE 進捗)**で一本化。**実証**: S1 e2e で**全 starrydata 593万**をストリーミング全件投入（単一 POST は 504）。S2+S3 を**実ブラウザで 120万トリプルを進捗バー(24→49→100%)付きで投入→draft** 確認。同じ「取り込み」ボタンが数行〜全件までスケール。残=本番 compose 運用・大 CSV 超の morph-kgc chunksize は後続 | CC | `architecture/scalable-declarative-ingestion.md` |
 | — | 関数ライブラリ v0（`functions.py`・閉じた検証済み集合） | ✅ main 入り（#73）。Tier0=8 関数（+2入力 `float_array_count`） | CC | 同上 §4 |
 | 14 | step0 が宣言 RML を出力 | ✅ **完了**（#74-77: propose §RML 生成→materialize 抽出→`rml_check`→validate T9 閉集合検証） | CC | `architecture/step0-rml-emission.md` |
 | 15 | ワークベンチ materialize（人間ゲート） | ✅ **S1-S4 完了**（#78-80 + 本PR）。substrate→投入 API→UI ゲート→draft→canonical 昇格+alignment。**実 Oxigraph で実投入・昇格を検証ずみ** | CC(UI) | `architecture/phase5-workbench-materialize-gate.md` |
