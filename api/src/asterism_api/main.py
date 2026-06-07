@@ -34,7 +34,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final
 
-import httpx
 from asterism import substrate
 from asterism.datasets import load_dataset
 from asterism.ontology_projection import (
@@ -628,6 +627,14 @@ def build_app(
         design-time source) or — when omitted — taken from that persisted source,
         so a *design*-stage dataset can be ingested straight from the catalog with
         no re-attach (Task E).
+
+        **Scalable / background (ADR scalable-declarative-ingestion.md)**: validation
+        is synchronous (4xx below), then the heavy work runs as a background job —
+        Morph-KGC writes N-Triples to a file, which is streamed into the draft graph
+        in row-chunked POSTs. Returns ``202 {job_id}``; progress + completion stream
+        over ``GET /api/jobs/{job_id}/stream`` (SSE). This lets a large dataset
+        (millions of triples) load with live progress instead of a blocking request
+        that times out.
         """
         data = registry.load_dataset(cfg.registry_root, dataset_id)
         if data is None:
@@ -639,7 +646,8 @@ def build_app(
             )
 
         # Uploaded CSVs (if any) refresh + persist the design-time source; an
-        # ingest with no upload reuses whatever source was persisted.
+        # ingest with no upload reuses whatever source was persisted. (Synchronous
+        # so the CSV is on disk before the background job reads it.)
         uploaded = [f for f in files if f.filename]
         if uploaded:
             await _persist_source_uploads(cfg.registry_root, dataset_id, uploaded)
@@ -651,60 +659,56 @@ def build_app(
                 "ここで CSV をアップロードしてください",
             )
         csv_dir = csv_paths[0].parent
-
         graph_iri = substrate.draft_graph_iri(dataset_id)
         client: OxigraphClient = app.state.client
-        try:
-            # Morph-KGC is CPU-bound and blocking — run it off the event loop.
-            graph = await asyncio.to_thread(
-                substrate.materialize_to_graph, rml_ttl, csv_dir
-            )
-        except RuntimeError as exc:  # morph-kgc not installed (optional extra)
-            raise HTTPException(501, str(exc)) from exc
-        except Exception as exc:  # Morph-KGC could not run this mapping
-            # User-data error (malformed/unsupported RML, column mismatch, …)
-            # — surface it as 422 with the cause, not an opaque 500.
-            raise HTTPException(
-                422,
-                "宣言マッピングを substrate で実行できませんでした: "
-                f"{type(exc).__name__}: {exc}",
-            ) from exc
-        try:
-            triple_count = await substrate.ingest_graph_to_oxigraph(
-                graph, client, graph_iri
-            )
-        except httpx.TimeoutException as exc:
-            # The generated graph is too large to POST in one request within the
-            # timeout (e.g. the full starrydata dump). Surface an actionable 504,
-            # not an opaque 500. The workbench ingest targets design-sized
-            # subsets; bulk loads belong in the production ingest pipeline.
-            raise HTTPException(
-                504,
-                "Oxigraph への投入がタイムアウトしました。データが大きすぎる可能性があります。"
-                "ワークベンチの取り込みは小さめのサブセット向けです。"
-                "全件は本番の取り込みパイプラインをご利用ください",
-            ) from exc
-        except httpx.HTTPError as exc:
-            raise HTTPException(
-                502, f"Oxigraph への投入に失敗しました: {type(exc).__name__}: {exc}"
-            ) from exc
 
-        meta = registry.mark_ingested(
-            cfg.registry_root,
-            dataset_id,
-            graph_iri=graph_iri,
-            triple_count=triple_count,
-            ingested_at=datetime.now(UTC).isoformat(),
-        )
-        return JSONResponse(
-            {
+        async def ingest_job(emit: Callable[..., None]) -> dict[str, object]:
+            work = Path(tempfile.mkdtemp(prefix="asterism-ingest-"))
+            try:
+                emit(phase="materialize", message="RDF を生成中")
+                # Morph-KGC writes N-Triples to a file (memory-bounded); the
+                # subprocess CLI is blocking, so run it off the event loop.
+                nt = await asyncio.to_thread(
+                    substrate.materialize_to_nt_file, rml_ttl, csv_dir, work_dir=work
+                )
+                total = substrate.count_nt_lines(nt)
+                emit(phase="materialized", total=total)
+                # Clean slate so a re-ingest replaces (and clears any prior partial).
+                await substrate.drop_graph(client, graph_iri)
+                try:
+                    triple_count = await substrate.stream_nt_file_to_oxigraph(
+                        nt,
+                        client,
+                        graph_iri,
+                        on_progress=lambda done, tot: emit(
+                            phase="upload", done=done, total=tot
+                        ),
+                    )
+                except Exception:
+                    # D6: never leave a partial draft graph behind on failure.
+                    await substrate.drop_graph(client, graph_iri)
+                    raise
+            finally:
+                shutil.rmtree(work, ignore_errors=True)  # the .nt can be GBs
+
+            meta = registry.mark_ingested(
+                cfg.registry_root,
+                dataset_id,
+                graph_iri=graph_iri,
+                triple_count=triple_count,
+                ingested_at=datetime.now(UTC).isoformat(),
+            )
+            return {
                 "dataset_id": dataset_id,
                 "graph_iri": graph_iri,
                 "graph_kind": "draft",
                 "triple_count": triple_count,
                 "dataset": meta,
             }
-        )
+
+        jobs: JobManager = app.state.jobs
+        job_id = jobs.start_coro(ingest_job)
+        return JSONResponse({"job_id": job_id}, status_code=202)
 
     @app.get("/api/datasets/{dataset_id}/alignment")
     async def dataset_alignment(dataset_id: str) -> JSONResponse:

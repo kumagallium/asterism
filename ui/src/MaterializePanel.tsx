@@ -1,5 +1,12 @@
 import { useState } from 'react'
-import { type IngestResult, type MaterializeResult, type TrapResult, ingestDataset } from './api'
+import {
+  type IngestProgress,
+  type IngestResult,
+  type MaterializeResult,
+  type TrapResult,
+  ingestDataset,
+} from './api'
+import { IngestProgressView } from './IngestProgressView'
 
 const STATUS_GLYPH: Record<TrapResult['status'], string> = {
   pass: '✓',
@@ -123,6 +130,7 @@ function IngestGate({ result, csvFiles }: { result: MaterializeResult; csvFiles:
   const rml = (result.artifacts['mapping.rml.ttl'] ?? '').trim()
   const datasetId = result.dataset?.id
   const [busy, setBusy] = useState(false)
+  const [progress, setProgress] = useState<IngestProgress | null>(null)
   const [done, setDone] = useState<IngestResult | null>(null)
   const [err, setErr] = useState('')
 
@@ -144,8 +152,9 @@ function IngestGate({ result, csvFiles }: { result: MaterializeResult; csvFiles:
     if (!datasetId) return
     setBusy(true)
     setErr('')
+    setProgress(null)
     try {
-      setDone(await ingestDataset(datasetId, csvFiles))
+      setDone(await ingestDataset(datasetId, csvFiles, setProgress))
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
     } finally {
@@ -177,6 +186,7 @@ function IngestGate({ result, csvFiles }: { result: MaterializeResult; csvFiles:
           <button type="button" onClick={onIngest} disabled={!canIngest}>
             {busy ? '投入中…' : 'Oxigraph へ投入（承認）'}
           </button>
+          {busy && <IngestProgressView progress={progress} />}
           {!datasetId && (
             <p className="ingest-hint">
               この設計はまだ保存されていません（dataset が見つかりません）。

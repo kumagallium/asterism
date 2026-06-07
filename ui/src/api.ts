@@ -207,14 +207,35 @@ export async function attachSource(datasetId: string, files: File[]): Promise<At
   return (await res.json()) as AttachSourceResult
 }
 
+/** A progress frame streamed while a (background) ingest runs. */
+export interface IngestProgress {
+  /** "materialize" | "materialized" | "upload" (+ future phases). */
+  phase: string
+  /** Rows loaded so far / total (present during the "upload" phase). */
+  done?: number
+  total?: number
+  message?: string
+}
+
 /**
  * Human gate (Phase 5 #15): run a dataset's approved RML through the Morph-KGC
  * substrate and load the result into an isolated draft graph. Pass the source
  * CSVs to upload them (they are also persisted as the dataset's source); pass
  * none to reuse the dataset's persisted design-time source (Task E — the
  * catalog ingests a design-stage dataset with no re-attach).
+ *
+ * The heavy work (Morph-KGC materialize → chunked streaming load) runs as a
+ * background job so a large dataset (millions of triples) loads with live
+ * progress instead of a blocking request that times out (ADR
+ * scalable-declarative-ingestion.md). The POST returns 202 + job_id; this
+ * subscribes to the job's SSE stream, forwards progress to `onProgress`, and
+ * resolves with the result on `done` (rejects on `error`).
  */
-export async function ingestDataset(datasetId: string, files: File[] = []): Promise<IngestResult> {
+export async function ingestDataset(
+  datasetId: string,
+  files: File[] = [],
+  onProgress?: (p: IngestProgress) => void,
+): Promise<IngestResult> {
   // No files → send no body (the server falls back to the persisted source). With
   // files → multipart upload (also persisted). An empty multipart body is avoided
   // so the no-attach path matches a bare POST.
@@ -233,7 +254,35 @@ export async function ingestDataset(datasetId: string, files: File[] = []): Prom
     const detail = await res.text().catch(() => '')
     throw new Error(`ingest failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
   }
-  return (await res.json()) as IngestResult
+  const { job_id } = (await res.json()) as { job_id: string }
+  return new Promise<IngestResult>((resolve, reject) => {
+    const es = new EventSource(`/api/jobs/${job_id}/stream`)
+    es.addEventListener('running', (e) => {
+      try {
+        onProgress?.(JSON.parse((e as MessageEvent).data) as IngestProgress)
+      } catch {
+        /* ignore a malformed progress frame */
+      }
+    })
+    es.addEventListener('done', (e) => {
+      es.close()
+      resolve(JSON.parse((e as MessageEvent).data).result as IngestResult)
+    })
+    es.addEventListener('error', (e) => {
+      const msg = (e as MessageEvent).data
+      if (msg) {
+        // Server-sent `error`: the job genuinely failed. Fatal.
+        es.close()
+        reject(new Error(JSON.parse(msg).message ?? 'ingest failed'))
+      } else if (es.readyState === EventSource.CLOSED) {
+        // Browser gave up reconnecting — a real, permanent loss.
+        es.close()
+        reject(new Error('connection lost'))
+      }
+      // Otherwise CONNECTING: a transient drop — let EventSource reconnect; the
+      // JobManager replays from the start so a long ingest survives a blip.
+    })
+  })
 }
 
 /**
