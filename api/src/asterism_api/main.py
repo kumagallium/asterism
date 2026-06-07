@@ -674,6 +674,9 @@ def build_app(
                 total = substrate.count_nt_lines(nt)
                 emit(phase="materialized", total=total)
                 # Clean slate so a re-ingest replaces (and clears any prior partial).
+                # Dropping a large existing draft graph can take a while — keep the
+                # UI informed (and sparql_update has a generous timeout for it).
+                emit(phase="preparing", message="下書きグラフを準備中")
                 await substrate.drop_graph(client, graph_iri)
                 try:
                     triple_count = await substrate.stream_nt_file_to_oxigraph(
