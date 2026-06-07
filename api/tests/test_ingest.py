@@ -1,10 +1,11 @@
 """Tests for the human-gated substrate ingest (Phase 5 #15).
 
 ``POST /api/datasets/{id}/ingest`` runs the dataset's persisted RML through
-Morph-KGC and loads the result into a draft named graph. We monkeypatch the
-Morph-KGC step (``substrate.materialize_to_graph``) so the tests need neither the
-optional ``morph-kgc`` extra nor real CSVs, and use the MockTransport Oxigraph
-client so the ``/store`` POST is observable.
+Morph-KGC and streams the result into a draft named graph as a background job
+(202 + job_id; progress + done over SSE). We monkeypatch the Morph-KGC file-output
+step (``substrate.materialize_to_nt_file``) so the tests need neither the optional
+``morph-kgc`` extra nor real CSVs, and use the MockTransport Oxigraph client so
+the chunked ``/store`` POSTs (and the draft-graph ``DROP``) are observable.
 """
 from __future__ import annotations
 
@@ -12,7 +13,6 @@ import json
 from pathlib import Path
 
 import httpx
-import rdflib
 from asterism import substrate
 from asterism.oxigraph_client import OxigraphClient, OxigraphConfig
 from fastapi.testclient import TestClient
@@ -36,14 +36,18 @@ def _settings(tmp: Path) -> Settings:
 
 
 class _RecordingOxi:
-    """OxigraphClient backed by a transport that records /store graph params."""
+    """OxigraphClient backed by a transport that records /store + /update calls."""
 
     def __init__(self) -> None:
         self.store_calls: list[str | None] = []
+        self.updates: list[str] = []
 
         def handler(request: httpx.Request) -> httpx.Response:
             if request.url.path == "/store":
                 self.store_calls.append(request.url.params.get("graph"))
+                return httpx.Response(204)
+            if request.url.path == "/update":
+                self.updates.append(request.content.decode())
                 return httpx.Response(204)
             return httpx.Response(
                 200,
@@ -55,6 +59,53 @@ class _RecordingOxi:
             transport=httpx.MockTransport(handler), base_url="http://test"
         )
         self.client = OxigraphClient(OxigraphConfig(base_url="http://test"), client=inner)
+
+
+# ---- background-job ingest helpers (the endpoint returns 202 + job_id, then
+# materialize + chunked upload run as a job whose SSE stream carries progress +
+# the done result; see ADR scalable-declarative-ingestion.md / jobs.py) --------
+
+
+def _parse_sse(text: str) -> list[tuple[str, dict]]:
+    """Parse an SSE response body into ``[(event_name, data_dict), ...]``."""
+    out: list[tuple[str, dict]] = []
+    name = ""
+    for line in text.splitlines():
+        if line.startswith("event:"):
+            name = line[len("event:") :].strip()
+        elif line.startswith("data:"):
+            out.append((name, json.loads(line[len("data:") :].strip())))
+    return out
+
+
+def _fake_nt_materializer(*, triples: int = 1):
+    """A stand-in for ``substrate.materialize_to_nt_file`` that writes N triples.
+
+    Avoids needing morph-kgc / real CSVs; the streaming load then runs for real
+    against the recording client.
+    """
+
+    def _materialize(rml_ttl, csv_dir, *, udfs_path=None, work_dir=None) -> Path:
+        out = Path(work_dir) / "out.nt"
+        out.write_bytes(
+            b"".join(
+                f"<https://ex/paper/{i}> <https://schema.org/name> \"p{i}\" .\n".encode()
+                for i in range(triples)
+            )
+        )
+        return out
+
+    return _materialize
+
+
+def _drive_ingest(client, dataset_id: str, files=None) -> tuple[int, list[tuple[str, dict]]]:
+    """POST the ingest, then (if 202) drain its SSE stream. Returns (status, events)."""
+    r = client.post(f"/api/datasets/{dataset_id}/ingest", files=files or None)
+    if r.status_code != 202:
+        return r.status_code, []
+    job_id = r.json()["job_id"]
+    events = _parse_sse(client.get(f"/api/jobs/{job_id}/stream").text)
+    return 202, events
 
 
 _RML = (
@@ -87,18 +138,6 @@ def _save_dataset_with_rml(tmp: Path, rml: str = _RML) -> str:
     )["id"]
 
 
-def _fake_graph() -> rdflib.Graph:
-    g = rdflib.Graph()
-    g.add(
-        (
-            rdflib.URIRef("https://ex/paper/1"),
-            rdflib.URIRef("https://schema.org/name"),
-            rdflib.Literal("A paper"),
-        )
-    )
-    return g
-
-
 def test_save_dataset_persists_rml_and_flags_has_rml(tmp_path: Path) -> None:
     dataset_id = _save_dataset_with_rml(tmp_path)
     loaded = registry.load_dataset(tmp_path / "registry", dataset_id)
@@ -108,25 +147,31 @@ def test_save_dataset_persists_rml_and_flags_has_rml(tmp_path: Path) -> None:
     assert loaded["meta"]["ingested"] is False
 
 
-def test_ingest_happy_path_loads_draft_graph(tmp_path: Path, monkeypatch) -> None:
+def test_ingest_happy_path_streams_draft_graph_with_progress(tmp_path: Path, monkeypatch) -> None:
     dataset_id = _save_dataset_with_rml(tmp_path)
-    monkeypatch.setattr(substrate, "materialize_to_graph", lambda *a, **k: _fake_graph())
+    monkeypatch.setattr(substrate, "materialize_to_nt_file", _fake_nt_materializer(triples=1))
     oxi = _RecordingOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    graph_iri = substrate.draft_graph_iri(dataset_id)
     with TestClient(app) as client:
-        r = client.post(
-            f"/api/datasets/{dataset_id}/ingest",
-            files={"files": ("papers.csv", b"SID\n1\n", "text/csv")},
+        status, events = _drive_ingest(
+            client, dataset_id, {"files": ("papers.csv", b"SID\n1\n", "text/csv")}
         )
-        assert r.status_code == 200, r.text
-        body = r.json()
-        assert body["graph_kind"] == "draft"
-        assert body["graph_iri"].endswith(f"/graph/draft/{dataset_id}")
-        assert body["triple_count"] == 1
-        assert body["dataset"]["ingested"] is True
-    # The triples were POSTed to the draft named graph (not the default graph).
-    assert oxi.store_calls == [body["graph_iri"]]
-    # Meta on disk reflects the ingest.
+        assert status == 202
+        assert "done" in [n for n, _ in events], events
+        result = next(d for n, d in events if n == "done")["result"]
+        assert result["graph_kind"] == "draft"
+        assert result["graph_iri"] == graph_iri
+        assert result["triple_count"] == 1
+        assert result["dataset"]["ingested"] is True
+        # progress frames: a materialize phase then an upload phase reaching total
+        running = [d for n, d in events if n == "running"]
+        assert any(d.get("phase") == "materialize" for d in running)
+        assert any(
+            d.get("phase") == "upload" and d.get("done") == d.get("total") for d in running
+        )
+    # chunk(s) POSTed to the draft named graph; meta on disk updated.
+    assert oxi.store_calls == [graph_iri]
     meta = json.loads((tmp_path / "registry" / dataset_id / "meta.json").read_text())
     assert meta["ingested"] is True
     assert meta["triple_count"] == 1
@@ -157,23 +202,23 @@ def test_ingest_dataset_without_rml_400(tmp_path: Path) -> None:
     assert oxi.store_calls == []  # nothing loaded
 
 
-def test_ingest_without_morph_kgc_returns_501(tmp_path: Path, monkeypatch) -> None:
+def test_ingest_without_morph_kgc_errors_in_job(tmp_path: Path, monkeypatch) -> None:
     dataset_id = _save_dataset_with_rml(tmp_path)
 
     def _raise(*_a, **_k):
         raise RuntimeError("morph-kgc is required for substrate ingestion; install ...")
 
-    monkeypatch.setattr(substrate, "materialize_to_graph", _raise)
+    monkeypatch.setattr(substrate, "materialize_to_nt_file", _raise)
     oxi = _RecordingOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
     with TestClient(app) as client:
-        r = client.post(
-            f"/api/datasets/{dataset_id}/ingest",
-            files={"files": ("papers.csv", b"SID\n1\n", "text/csv")},
+        status, events = _drive_ingest(
+            client, dataset_id, {"files": ("papers.csv", b"SID\n1\n", "text/csv")}
         )
-        assert r.status_code == 501
-        assert "morph-kgc" in r.json()["detail"]
-    assert oxi.store_calls == []
+        assert status == 202
+        err = next((d for n, d in events if n == "error"), None)
+        assert err is not None and "morph-kgc" in err["message"]
+    assert oxi.store_calls == []  # nothing loaded
 
 
 # ---- design-time source persistence (Task E) --------------------------------
@@ -213,7 +258,7 @@ def test_attach_source_unknown_dataset_404(tmp_path: Path) -> None:
 def test_ingest_uses_persisted_source_when_no_upload(tmp_path: Path, monkeypatch) -> None:
     """Task E: a design-stage dataset with persisted source ingests with no re-attach."""
     dataset_id = _save_dataset_with_rml(tmp_path)
-    monkeypatch.setattr(substrate, "materialize_to_graph", lambda *a, **k: _fake_graph())
+    monkeypatch.setattr(substrate, "materialize_to_nt_file", _fake_nt_materializer(triples=1))
     oxi = _RecordingOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
     with TestClient(app) as client:
@@ -225,25 +270,26 @@ def test_ingest_uses_persisted_source_when_no_upload(tmp_path: Path, monkeypatch
             == 200
         )
         # Ingest with NO files uploaded — the persisted source is used.
-        r = client.post(f"/api/datasets/{dataset_id}/ingest")
-        assert r.status_code == 200, r.text
-        assert r.json()["triple_count"] == 1
-        assert r.json()["graph_kind"] == "draft"
+        status, events = _drive_ingest(client, dataset_id)
+        assert status == 202
+        result = next(d for n, d in events if n == "done")["result"]
+        assert result["triple_count"] == 1
+        assert result["graph_kind"] == "draft"
     assert oxi.store_calls == [substrate.draft_graph_iri(dataset_id)]
 
 
 def test_ingest_upload_persists_source_for_reuse(tmp_path: Path, monkeypatch) -> None:
     """An ingest WITH an upload also persists that CSV as the dataset's source."""
     dataset_id = _save_dataset_with_rml(tmp_path)
-    monkeypatch.setattr(substrate, "materialize_to_graph", lambda *a, **k: _fake_graph())
+    monkeypatch.setattr(substrate, "materialize_to_nt_file", _fake_nt_materializer(triples=1))
     oxi = _RecordingOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
     with TestClient(app) as client:
-        r = client.post(
-            f"/api/datasets/{dataset_id}/ingest",
-            files={"files": ("papers.csv", b"SID\n1\n", "text/csv")},
+        status, events = _drive_ingest(
+            client, dataset_id, {"files": ("papers.csv", b"SID\n1\n", "text/csv")}
         )
-        assert r.status_code == 200, r.text
+        assert status == 202
+        assert "done" in [n for n, _ in events], events
     meta = json.loads((tmp_path / "registry" / dataset_id / "meta.json").read_text())
     assert meta["has_source"] is True
     assert meta["source_files"] == ["papers.csv"]
@@ -262,43 +308,28 @@ def test_ingest_without_upload_or_source_400(tmp_path: Path) -> None:
     assert oxi.store_calls == []
 
 
-def test_ingest_oxigraph_write_timeout_returns_504(tmp_path: Path, monkeypatch) -> None:
-    """A too-large payload (write timeout posting to Oxigraph) surfaces as 504, not 500."""
+def test_ingest_stream_failure_errors_and_drops_draft(tmp_path: Path, monkeypatch) -> None:
+    """A streaming-load failure surfaces as a job error and drops the partial draft (D6)."""
     dataset_id = _save_dataset_with_rml(tmp_path)
-    monkeypatch.setattr(substrate, "materialize_to_graph", lambda *a, **k: _fake_graph())
+    monkeypatch.setattr(substrate, "materialize_to_nt_file", _fake_nt_materializer(triples=3))
 
-    async def _timeout(*_a, **_k):
-        raise httpx.WriteTimeout("write timed out")
+    async def _boom(*_a, **_k):
+        raise httpx.ConnectError("oxigraph down")
 
-    monkeypatch.setattr(substrate, "ingest_graph_to_oxigraph", _timeout)
+    monkeypatch.setattr(substrate, "stream_nt_file_to_oxigraph", _boom)
     oxi = _RecordingOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    graph_iri = substrate.draft_graph_iri(dataset_id)
     with TestClient(app) as client:
-        r = client.post(
-            f"/api/datasets/{dataset_id}/ingest",
-            files={"files": ("papers.csv", b"SID\n1\n", "text/csv")},
+        status, events = _drive_ingest(
+            client, dataset_id, {"files": ("papers.csv", b"SID\n1\n", "text/csv")}
         )
-        assert r.status_code == 504
-        assert "タイムアウト" in r.json()["detail"]
-
-
-def test_ingest_oxigraph_http_error_returns_502(tmp_path: Path, monkeypatch) -> None:
-    """A non-timeout Oxigraph HTTP failure surfaces as 502, not 500."""
-    dataset_id = _save_dataset_with_rml(tmp_path)
-    monkeypatch.setattr(substrate, "materialize_to_graph", lambda *a, **k: _fake_graph())
-
-    async def _err(*_a, **_k):
-        raise httpx.ConnectError("connection refused")
-
-    monkeypatch.setattr(substrate, "ingest_graph_to_oxigraph", _err)
-    oxi = _RecordingOxi()
-    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
-    with TestClient(app) as client:
-        r = client.post(
-            f"/api/datasets/{dataset_id}/ingest",
-            files={"files": ("papers.csv", b"SID\n1\n", "text/csv")},
-        )
-        assert r.status_code == 502
+        assert status == 202
+        err = next((d for n, d in events if n == "error"), None)
+        assert err is not None
+        assert "ConnectError" in err["message"] or "oxigraph down" in err["message"]
+    # D6: the draft graph was dropped (so no partial load lingers).
+    assert any("DROP SILENT GRAPH" in u and graph_iri in u for u in oxi.updates)
 
 
 # ---- promotion: draft -> canonical (#15 S4) ---------------------------------
@@ -512,24 +543,24 @@ def test_promote_requires_ingested_draft(tmp_path: Path) -> None:
     assert oxi.updates == []  # nothing moved
 
 
-def test_ingest_morph_kgc_error_returns_422(tmp_path: Path, monkeypatch) -> None:
-    # A Morph-KGC failure on malformed/unsupported RML must surface as 422
-    # (user-data error) with the cause — not an opaque 500.
+def test_ingest_morph_kgc_error_surfaces_in_job(tmp_path: Path, monkeypatch) -> None:
+    # A Morph-KGC failure on malformed/unsupported RML must surface as a job error
+    # event with the cause — not an opaque crash.
     dataset_id = _save_dataset_with_rml(tmp_path)
 
     def _boom(*_a, **_k):
-        raise KeyError("object")
+        raise RuntimeError("Morph-KGC materialization failed (exit 1): KeyError")
 
-    monkeypatch.setattr(substrate, "materialize_to_graph", _boom)
+    monkeypatch.setattr(substrate, "materialize_to_nt_file", _boom)
     oxi = _RecordingOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
     with TestClient(app) as client:
-        r = client.post(
-            f"/api/datasets/{dataset_id}/ingest",
-            files={"files": ("papers.csv", b"SID\n1\n", "text/csv")},
+        status, events = _drive_ingest(
+            client, dataset_id, {"files": ("papers.csv", b"SID\n1\n", "text/csv")}
         )
-        assert r.status_code == 422
-        assert "KeyError" in r.json()["detail"]
+        assert status == 202
+        err = next((d for n, d in events if n == "error"), None)
+        assert err is not None and "Morph-KGC materialization failed" in err["message"]
     assert oxi.store_calls == []  # nothing loaded
 
 

@@ -1762,6 +1762,36 @@ textarea:focus {
   flex-wrap: wrap;
   margin: 0.4rem 0 0.7rem;
 }
+/* Live ingest progress (background job: materialize spinner → upload bar). */
+.ingest-progress {
+  margin: 0.6rem 0 0.2rem;
+}
+.ingest-progress-label {
+  font-size: 0.82rem;
+  color: var(--fg);
+  margin-bottom: 0.3rem;
+}
+.ingest-progress-track {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--surfaceAlt, #e8ece6);
+  overflow: hidden;
+}
+.ingest-progress-track > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--primary);
+  transition: width 0.25s ease;
+}
+.ingest-progress-msg {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin: 0.6rem 0 0.2rem;
+}
 .rml-preview {
   margin: 0.4rem 0 0.7rem;
 }

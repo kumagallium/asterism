@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -83,6 +83,45 @@ class JobManager:
         job.emit("running", message="LLM call in progress")
         try:
             result = await asyncio.to_thread(work)
+            job.status = _DONE
+            job.result = result
+            job.emit("done", result=result)
+        except Exception as exc:  # surface any failure to the SSE client
+            job.status = _ERROR
+            job.error = str(exc)
+            job.emit("error", message=str(exc))
+        finally:
+            job._updated.set()
+
+    def start_coro(self, make_coro: Callable[[Callable[..., None]], Awaitable[Any]]) -> str:
+        """Schedule an async job that can report **interim progress**.
+
+        ``make_coro(emit)`` returns the awaitable to run; ``emit(**data)`` appends
+        a ``running`` event (a progress frame). Because the coroutine runs on the
+        event loop (not a worker thread), calling ``emit`` from it — e.g. from a
+        streaming-upload progress callback — is safe (no cross-thread ``Event``
+        signalling). The awaitable's return value becomes the job ``result``.
+        Used by the scalable ingest (materialize → chunked upload with progress).
+        """
+        job = _Job(job_id=self._next_id())
+        self._jobs[job.job_id] = job
+
+        def emit(**data: Any) -> None:
+            job.emit("running", **data)
+
+        job.task = asyncio.create_task(self._run_coro(job, make_coro, emit))
+        return job.job_id
+
+    async def _run_coro(
+        self,
+        job: _Job,
+        make_coro: Callable[[Callable[..., None]], Awaitable[Any]],
+        emit: Callable[..., None],
+    ) -> None:
+        job.status = _RUNNING
+        job.emit("started", job_id=job.job_id)
+        try:
+            result = await make_coro(emit)
             job.status = _DONE
             job.result = result
             job.emit("done", result=result)

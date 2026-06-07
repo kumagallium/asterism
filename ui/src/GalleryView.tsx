@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ingestDataset, type IngestResult } from './api'
+import { ingestDataset, type IngestProgress, type IngestResult } from './api'
 import { getSchema } from './demoApi'
 import {
   type AlignmentReport,
@@ -15,6 +15,7 @@ import {
   retractDataset,
 } from './galleryApi'
 import { ArrowIcon, LinkIcon, SearchIcon } from './icons'
+import { IngestProgressView } from './IngestProgressView'
 import { Mermaid } from './Mermaid'
 import { localName } from './vocab'
 
@@ -366,6 +367,7 @@ function shortIri(iri: string): string {
 function IngestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChanged: () => void }) {
   const [files, setFiles] = useState<File[]>([])
   const [busy, setBusy] = useState(false)
+  const [progress, setProgress] = useState<IngestProgress | null>(null)
   const [done, setDone] = useState<IngestResult | null>(null)
   const [err, setErr] = useState('')
 
@@ -402,9 +404,10 @@ function IngestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChang
   async function onIngest() {
     setBusy(true)
     setErr('')
+    setProgress(null)
     try {
       // hasSource → ingest with no upload (server uses the persisted source).
-      setDone(await ingestDataset(meta.id, hasSource ? [] : files))
+      setDone(await ingestDataset(meta.id, hasSource ? [] : files, setProgress))
       onChanged() // design → draft: refresh so promote control appears
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
@@ -446,6 +449,7 @@ function IngestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChang
       <button type="button" className="promote-btn" onClick={onIngest} disabled={!canIngest}>
         {busy ? '取り込み中…' : '取り込み（Oxigraph へ投入）'}
       </button>
+      {busy && <IngestProgressView progress={progress} />}
       {err && <p className="promote-err">取り込みに失敗しました: {err}</p>}
     </div>
   )
