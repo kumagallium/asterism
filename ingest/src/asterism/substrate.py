@@ -21,7 +21,10 @@ dependency — install with ``pip install 'asterism-ingest[substrate]'``.
 from __future__ import annotations
 
 import re
+import subprocess
+import sys
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 
@@ -184,6 +187,132 @@ async def ingest_graph_to_oxigraph(
         payload = payload.encode("utf-8")
     await client.post_turtle_bytes(payload, graph_iri=graph_iri)
     return len(graph)
+
+
+# ----------------------------------------------------------------------------
+# Scalable streaming path (ADR scalable-declarative-ingestion.md)
+# ----------------------------------------------------------------------------
+# The functions above build the whole rdflib Graph in memory and POST it in one
+# request — fine for design-sized subsets, but a large dataset (millions of
+# triples) exhausts memory / times out the single POST. The streaming pair below
+# scales: Morph-KGC writes N-Triples to a *file* (its memory-bounded CLI path),
+# then we load that file into Oxigraph in row-chunked POSTs with progress.
+
+# Default rows per /store POST. N-Triples lines are independent (absolute IRIs),
+# so any contiguous slice is a valid payload; this bounds per-request size.
+DEFAULT_CHUNK_LINES = 50_000
+
+
+def materialize_to_nt_file(
+    rml_ttl: str,
+    csv_dir: Path | str,
+    *,
+    udfs_path: Path | str | None = None,
+    work_dir: Path | str | None = None,
+) -> Path:
+    """Run Morph-KGC and write the triples to an N-Triples file; return its path.
+
+    Unlike :func:`materialize_to_graph` (whole graph in memory), this invokes
+    Morph-KGC's file-output CLI (``python -m morph_kgc <config>`` with
+    ``output_file``) so triples stream to disk — the memory-bounded path Morph-KGC
+    itself recommends for large data. ``number_of_processes: 1`` avoids
+    multiprocessing (portable + safe UDF import). Raises ``RuntimeError`` if
+    ``morph-kgc`` is absent or materialization fails (caller maps a failure to a
+    user-facing 4xx, as with :func:`materialize_to_graph`).
+    """
+    try:
+        import morph_kgc  # noqa: F401  (presence check; the CLI does the work)
+    except ImportError as exc:  # optional dependency
+        raise RuntimeError(
+            "morph-kgc is required for substrate ingestion; "
+            "install with: pip install 'asterism-ingest[substrate]'"
+        ) from exc
+
+    work = Path(work_dir) if work_dir else Path(tempfile.mkdtemp(prefix="c2r-substrate-"))
+    work.mkdir(parents=True, exist_ok=True)
+    udfs = Path(udfs_path) if udfs_path else _DEFAULT_UDFS
+    mapping_file = work / "mappings.rml.ttl"
+    mapping_file.write_text(
+        normalize_fno_namespace(absolutize_rml_sources(rml_ttl, csv_dir)),
+        encoding="utf-8",
+    )
+    out = work / "out.nt"
+    config_file = work / "config.ini"
+    config_file.write_text(
+        "[CONFIGURATION]\n"
+        f"udfs: {udfs}\n"
+        f"output_file: {out}\n"
+        "number_of_processes: 1\n"
+        "[DataSource1]\n"
+        f"mappings: {mapping_file}\n",
+        encoding="utf-8",
+    )
+    # The vetted Morph-KGC CLI on a declarative config (no generated code).
+    proc = subprocess.run(
+        [sys.executable, "-m", "morph_kgc", str(config_file)],
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        tail = "\n".join((proc.stderr or "").strip().splitlines()[-5:])
+        raise RuntimeError(
+            f"Morph-KGC materialization failed (exit {proc.returncode}): {tail}"
+        )
+    # A 0-triple result may leave no file; the contract is "path to an .nt file".
+    out.touch(exist_ok=True)
+    return out
+
+
+def count_nt_lines(nt_path: Path | str) -> int:
+    """Triple count of an N-Triples file (one triple per line; 0 if absent)."""
+    path = Path(nt_path)
+    if not path.exists():
+        return 0
+    with path.open("rb") as fh:
+        return sum(1 for _ in fh)
+
+
+async def stream_nt_file_to_oxigraph(
+    nt_path: Path | str,
+    client: SupportsTurtlePost,
+    graph_iri: str,
+    *,
+    chunk_lines: int = DEFAULT_CHUNK_LINES,
+    on_progress: Callable[[int, int], None] | None = None,
+) -> int:
+    """Load an N-Triples file into ``graph_iri`` in row-chunked ``/store`` POSTs.
+
+    Bounded memory (one chunk in flight). Each chunk is valid Turtle (N-Triples is
+    a Turtle subset), posted via ``post_turtle_bytes`` whose Graph Store POST
+    *appends*, so the chunks accumulate in the same graph. ``on_progress(done,
+    total)`` is called after each chunk (for SSE progress). Returns triples loaded.
+    """
+    path = Path(nt_path)
+    total = count_nt_lines(path)
+    if total == 0:
+        if on_progress is not None:
+            on_progress(0, 0)
+        return 0
+    done = 0
+    buf: list[bytes] = []
+
+    async def flush() -> None:
+        nonlocal done, buf
+        if not buf:
+            return
+        await client.post_turtle_bytes(b"".join(buf), graph_iri=graph_iri)
+        done += len(buf)
+        buf = []
+        if on_progress is not None:
+            on_progress(done, total)
+
+    with path.open("rb") as fh:
+        for line in fh:
+            buf.append(line)
+            if len(buf) >= chunk_lines:
+                await flush()
+        await flush()
+    return done
 
 
 async def run_substrate_ingest(

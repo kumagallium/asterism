@@ -22,12 +22,15 @@ from asterism.substrate import (
     alignment_report,
     canonical_graph_iri,
     classify_alignment,
+    count_nt_lines,
     draft_graph_iri,
     ingest_graph_to_oxigraph,
     materialize_to_graph,
+    materialize_to_nt_file,
     ontology_graph_iri,
     promote_draft_to_canonical,
     run_substrate_ingest,
+    stream_nt_file_to_oxigraph,
 )
 
 # ---- draft graph IRI scheme -------------------------------------------------
@@ -142,6 +145,59 @@ def test_materialize_to_graph_requires_morph_kgc(tmp_path: Path) -> None:
         pytest.skip("morph-kgc installed; cannot exercise the missing-dependency path")
     with pytest.raises(RuntimeError, match="morph-kgc"):
         materialize_to_graph('rml:source "p.csv"', tmp_path)
+
+
+def test_materialize_to_nt_file_requires_morph_kgc(tmp_path: Path) -> None:
+    if _morph_kgc_installed():
+        pytest.skip("morph-kgc installed; cannot exercise the missing-dependency path")
+    with pytest.raises(RuntimeError, match="morph-kgc"):
+        materialize_to_nt_file('rml:source "p.csv"', tmp_path)
+
+
+# ---- streaming N-Triples load (scalable path) -------------------------------
+
+
+def test_count_nt_lines(tmp_path: Path) -> None:
+    f = tmp_path / "a.nt"
+    f.write_bytes(b"<s1> <p> <o> .\n<s2> <p> <o> .\n<s3> <p> <o> .\n")
+    assert count_nt_lines(f) == 3
+    assert count_nt_lines(tmp_path / "missing.nt") == 0  # absent -> 0
+
+
+async def test_stream_nt_file_chunks_appends_and_reports_progress(tmp_path: Path) -> None:
+    # 5 triples, 2 per chunk -> 3 POSTs (2+2+1), all to the draft graph.
+    lines = [f"<https://ex/s{i}> <https://ex/p> <https://ex/o> .".encode() for i in range(5)]
+    f = tmp_path / "out.nt"
+    f.write_bytes(b"\n".join(lines) + b"\n")
+    fake = _FakeOxi()
+    progress: list[tuple[int, int]] = []
+
+    n = await stream_nt_file_to_oxigraph(
+        f, fake, "https://ex/graph/draft/ds1", chunk_lines=2,
+        on_progress=lambda done, total: progress.append((done, total)),
+    )
+
+    assert n == 5  # total triples loaded
+    assert len(fake.calls) == 3  # 2 + 2 + 1
+    assert all(g == "https://ex/graph/draft/ds1" for _, g in fake.calls)
+    # chunks reassemble to the whole file (append semantics)
+    assert b"".join(p for p, _ in fake.calls) == f.read_bytes()
+    # progress is monotonic and ends at total
+    assert progress == [(2, 5), (4, 5), (5, 5)]
+
+
+async def test_stream_nt_file_empty_is_zero(tmp_path: Path) -> None:
+    f = tmp_path / "empty.nt"
+    f.touch()
+    fake = _FakeOxi()
+    progress: list[tuple[int, int]] = []
+    n = await stream_nt_file_to_oxigraph(
+        f, fake, "https://ex/graph/draft/ds1",
+        on_progress=lambda done, total: progress.append((done, total)),
+    )
+    assert n == 0
+    assert fake.calls == []  # nothing posted
+    assert progress == [(0, 0)]
 
 
 async def test_run_substrate_ingest_validates_id_before_work() -> None:
