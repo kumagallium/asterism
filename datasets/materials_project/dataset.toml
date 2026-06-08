@@ -1,0 +1,24 @@
+# Declared identity of the **materials_project** example dataset (#19).
+#
+# This is the SECOND, non-starrydata dataset (ADR ontology-canonical-lifecycle
+# §4: starrydata is one dataset among many, not a core default). It exists to
+# prove that the engine generalizes beyond starrydata:
+#   (a) its own typed query tools (query_tools.yaml) publish to MCP,
+#   (b) it joins to starrydata across the FROM-merge on a shared concept
+#       (chemical composition), and
+#   (c) its new classes/predicates surface in schema_summary.
+#
+# Domain: idealized crystal structures from the Materials Project — the
+# *structure* dimension that Starrydata lacks (PSPP: Starrydata has process /
+# property / performance, no structure). Keyed by reduced host formula, which is
+# the bridge to starrydata's sd:compositionString.
+#
+# IRIs are data identity: do not rename casually (前提 ADR / IRI 不変).
+
+name = "materials_project"
+description = "Idealized crystal structures (space group / crystal system) from the Materials Project, keyed by reduced host formula — the structure dimension Starrydata lacks."
+
+ontology_iri = "https://kumagallium.github.io/asterism/materials_project/ontology#"
+resource_iri = "https://kumagallium.github.io/asterism/materials_project/resource/"
+graph_base = "https://kumagallium.github.io/asterism/materials_project/graph/"
+software_agent_iri = "https://github.com/kumagallium/asterism"
