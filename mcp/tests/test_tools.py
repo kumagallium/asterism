@@ -66,8 +66,10 @@ def _uri_binding(p: str, iri: str) -> dict:
 def _is_canonical_enum(body: str) -> bool:
     """True for the canonical-graph enumeration that every read tool now issues
     first (#20 FROM-merge). Tests answer it with an empty set so the FROM block is
-    empty and the tool query under test is built without any FROM clauses."""
-    return "SELECT DISTINCT ?g" in body and "STRSTARTS(STR(?g)" in body
+    empty and the tool query under test is built without any FROM clauses. The
+    enumeration now reads the control graph's promoted markers (memory-bounded
+    promote), so we match on that instead of the old name-index prefix scan."""
+    return "SELECT DISTINCT ?g" in body and '"promoted"' in body
 
 
 def _make_client(handler, *, canonical_graphs: list[str] | None = None) -> OxigraphClient:

@@ -150,10 +150,14 @@ def mark_ingested(
     triple_count: int,
     ingested_at: str,
 ) -> dict | None:
-    """Record that ``dataset_id`` was ingested into ``graph_iri`` (a draft graph).
+    """Record that ``dataset_id`` was ingested into ``graph_iri`` (its canonical
+    graph, staged but not yet citable).
 
-    Updates the dataset's ``meta.json`` in place and returns the new meta, or
-    ``None`` if the id is unsafe / the dataset does not exist.
+    Memory-bounded promote: ingest streams straight into the per-dataset canonical
+    graph, which stays out of the Ask scope until promote flips the control flag.
+    So a fresh ingest also clears ``promoted`` — a re-ingest supersedes any prior
+    promotion and requires a new human promote gate. Updates ``meta.json`` in place
+    and returns the new meta, or ``None`` if the id is unsafe / absent.
     """
     if not re.fullmatch(r"[a-z0-9-]{1,128}", dataset_id):
         return None
@@ -162,6 +166,7 @@ def mark_ingested(
         return None
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     meta["ingested"] = True
+    meta["promoted"] = False  # staged in the canonical graph; awaits a promote gate
     meta["graph_iri"] = graph_iri
     meta["triple_count"] = triple_count
     meta["ingested_at"] = ingested_at
@@ -178,13 +183,14 @@ def mark_promoted(
     promoted_at: str,
     canonical_graph: str | None = None,
 ) -> dict | None:
-    """Record that ``dataset_id``'s draft graph was promoted into the canonical graph.
+    """Record that ``dataset_id``'s staged canonical graph was promoted (made citable).
 
-    The draft named graph no longer exists after promotion (its triples moved to
-    the canonical graph), so we clear ``ingested``/``graph_iri`` and set
-    ``promoted``. ``canonical_graph`` (the per-dataset canonical named graph IRI,
-    #20 P3) is recorded so later retract / delete can target it. Returns the new
-    meta, or ``None`` if id is unsafe / absent.
+    Memory-bounded promote: the triples were already streamed into the canonical
+    graph at ingest, and promote just flipped a control-graph flag — nothing moved.
+    There is no longer a pending draft, so we clear ``ingested``/``graph_iri`` and
+    set ``promoted``. ``canonical_graph`` (the per-dataset canonical named graph
+    IRI, #20 P3) is recorded so later retract / delete can target it. Returns the
+    new meta, or ``None`` if id is unsafe / absent.
     """
     if not re.fullmatch(r"[a-z0-9-]{1,128}", dataset_id):
         return None
@@ -193,7 +199,8 @@ def mark_promoted(
         return None
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     meta["promoted"] = True
-    meta["ingested"] = False  # draft graph consumed by the MOVE
+    meta["ingested"] = False  # no pending draft; data is staged in the canonical graph
+    meta["status"] = "active"  # a (re-)promote makes it citable again (clears retracted)
     meta["graph_iri"] = None
     meta["canonical_graph"] = canonical_graph  # #20 P3: per-dataset canonical graph
     meta["triples_promoted"] = triples_promoted
