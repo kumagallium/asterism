@@ -128,13 +128,14 @@ status: 実装済み（substrate + api + registry + 背景スイーパ・全 bac
 | V3 | 再取り込み(replace) | 旧 live を**触らず**新版 `v{n+1}` を投入（staged）。Ask は再ストリーム中ずっと旧版を配信＝**ギャップなし・un-publish 不要・DROP なし**。 |
 | V4 | promote | `liveGraph` を staged 版へ差し替え＋`status promoted`＝**control 書込のみ(O(1))**。旧 live 版は **`pendingDrop` キュー**へ enqueue（背景ドロップ）。 |
 | V5 | delete | live/staged データグラフを `pendingDrop` へ enqueue＋(promoted なら)`deleted` tombstone を立てて**即応答**。大 DROP はリクエスト経路に無い。 |
-| V6 | 背景スイーパ | api lifespan の周期タスク（既存 watcher と並ぶ）が `pendingDrop` グラフを `DROP SILENT` で掃除しマーカ除去。初回 tick は**クラッシュ復旧**（掃除途中で落ちた orphan を回収）。 |
+| V6 | 背景スイーパ | api lifespan の周期タスク（既存 watcher と並ぶ）が `pendingDrop` グラフを**チャンク DELETE**（`chunked_drop_graph`）で掃除しマーカ除去。初回 tick は**クラッシュ復旧**（掃除途中で落ちた orphan を回収）。 |
+| V7 | 大グラフの reclaim | **単発 `DROP GRAPH` はグラフ全体をメモリ展開し 8GB Oxigraph を OOM-kill する（実測）**ので、reclaim は `DELETE { GRAPH <g> {?s ?p ?o} } WHERE { SELECT … LIMIT N }` の**バッチ削除**（既定 10万行/バッチ・`ASK` で空になるまでループ）。各バッチは有界＝メモリ一定。**チャンク化は任意でなく必須**。 |
 
 **surgical control 書込**: status/liveGraph/stagedGraph を1つずつ replace（DELETE-all しない）＝retract/reinstate が `liveGraph` を保存（同じ版が戻る）。**後方互換**: part5 前に昇格した dataset（key グラフにデータ・live 無）は `COALESCE` で従来どおり citable。再取り込み時は **key グラフが実データを持つ場合のみ orphan**（cheap ASK で判定）＝旧版リーク無し。**起動 backfill** は status＋liveGraph（registry meta から）を復元。
 
 不変条件は不変: 生成コード非実行・IRI 不変・read-only `/api/sparql`・draft 隔離（未 promoted な staged 版は `liveGraph` に指されないので不可視）。
 
-**残（任意・後続）**: 周期スイーパは 1 グラフを丸ごと `DROP SILENT` する（大グラフでも背景＝経路外だが単発 DROP は重い）。さらに薄くするなら**チャンク DELETE**（`DELETE … WHERE … LIMIT N` 反復）に差し替え可（インターフェース `sweep_pending_drops` 内で吸収）。優先度低（経路外ゆえ体感影響なし）。
+**実測（使い捨て 8GB Oxigraph・5M×2 再取り込み）**: stream v1 ピーク 2.08GiB／**v1 を live のまま v2 再ストリーム（10M 同居）ピーク 2.38GiB**／**re-promote 0.010s（O(1)）**／**5M v1 のチャンク sweep ピーク 4.23GiB・OOM なし**（同じ 5M を**単発 `DROP GRAPH`** すると 8GB を超えて OOM-kill＝V7 の根拠）。全経路でメモリ一定・コンテナ無傷（RestartCount 0）。
 
 ### 見積（修正後）
 
