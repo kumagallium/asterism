@@ -1183,6 +1183,40 @@ textarea:focus {
   margin: 0;
 }
 
+/* The answer is rendered as Markdown (GFM). Reset the markdown block margins so
+   the card hugs the content, and style tables (from the LLM escape) readably. */
+.answer-md {
+  overflow-x: auto;
+}
+.answer-md > :first-child {
+  margin-top: 0;
+}
+.answer-md > :last-child {
+  margin-bottom: 0;
+}
+.answer-md table {
+  border-collapse: collapse;
+  margin: 0.7rem 0;
+  font-size: 0.85rem;
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: normal;
+}
+.answer-md th,
+.answer-md td {
+  border: 1px solid var(--border);
+  padding: 0.35rem 0.6rem;
+  text-align: left;
+}
+.answer-md th {
+  background: var(--secondary);
+  font-weight: 600;
+}
+.answer-md code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.85em;
+}
+
 .section-h {
   font-size: 0.72rem;
   font-weight: 700;
