@@ -1,0 +1,43 @@
+# Materials Project model — rdf-config form (TBox for #20 step5 projection).
+#
+# rdf-config is example-driven: each Subject is one representative instance;
+# property cardinality is shown by a marker (? / * / + / none). At promote time
+# asterism.ontology_projection projects this into RDFS/OWL in the per-dataset
+# ontology graph (…/asterism/graph/ontology/materials_project), so schema_summary
+# can enrich answers with labels and domain/range. Ask still works from ABox
+# introspection alone when no ontology graph exists — the TBox is enrichment,
+# never a dependency (ADR ontology-canonical-lifecycle §2).
+#
+# Two subjects:
+#   - Material        : keyed by mp-id; carries mp:formula (the join key to
+#                       starrydata's sd:compositionString) and a link to its
+#                       crystal structure.
+#   - CrystalStructure: the structural descriptor Starrydata lacks (space group
+#                       symbol/number, crystal system).
+#
+# The mp: prefix is this dataset's own ontology namespace (from dataset.toml /
+# the RML bundle); schema:/prov: are reused upper vocabularies.
+
+- Material <https://kumagallium.github.io/asterism/materials_project/resource/material/mp-34202>:
+    - a: mp:Material
+    - mp:mpId:
+        - mp_id: "mp-34202"
+    - mp:formula:
+        - formula: "Bi2Te3"
+    - schema:url?:
+        - mp_url: <https://next-gen.materialsproject.org/materials/mp-34202>
+    - mp:hasCrystalStructure:
+        - structure: CrystalStructure
+
+- CrystalStructure <https://kumagallium.github.io/asterism/materials_project/resource/structure/mp-34202>:
+    - a: mp:CrystalStructure
+    - mp:spaceGroupSymbol:
+        - sg_symbol: "R-3m"
+    - mp:spaceGroupNumber:
+        - sg_number: 166
+    - mp:crystalSystem:
+        - crystal_system: "Trigonal"
+    - mp:idealizedFrom?:
+        - mp_material: <https://next-gen.materialsproject.org/materials/mp-34202>
+    - mp:ofMaterial:
+        - material: Material

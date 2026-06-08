@@ -1,0 +1,185 @@
+# Typed query tools for the **materials_project** vocabulary, declared as CONTENT
+# (#20 P4 / #19). Same contract as datasets/starrydata/query_tools.yaml: each
+# entry is a named, parameterized, read-only SPARQL operation an AI agent calls
+# instead of writing raw SPARQL. The engine (asterism.query_tools) binds caller
+# arguments into the {{placeholders}} type-safely (escaped, never raw-concatenated)
+# and runs the result through the canonical FROM-merge — so these tools see what
+# Ask sees, across datasets. A human vets the template; nothing is generated at
+# runtime (same trust model as the Tier 0 function library).
+#
+# That this file exists at all — a non-starrydata dataset declaring its OWN typed
+# tools over its OWN vocabulary, with the engine knowing no materials vocabulary —
+# is the point of #19: the typed/deterministic path generalizes beyond starrydata.
+#
+# Placeholder syntax:
+#   {{name}}                scalar (type-safe serialization of the arg)
+#   {{#name}}...{{/name}}   kept only when the arg is provided (optional block)
+
+tools:
+  - name: structure_by_composition
+    title: "Find the crystal structure for a composition"
+    description: >
+      Given a reduced chemical formula (e.g. "Bi2Te3"), return its idealized
+      crystal structure from the Materials Project: space group symbol/number,
+      crystal system, and the source mp-id. This is the structure dimension
+      Starrydata lacks — pair it with a thermoelectric property to reason about
+      structure-property relationships.
+    parameters:
+      - name: composition
+        type: string
+        required: true
+        description: 'reduced host formula, exact match on mp:formula, e.g. "Bi2Te3"'
+    query: |
+      PREFIX mp: <https://kumagallium.github.io/asterism/materials_project/ontology#>
+      SELECT ?material ?mpid ?formula ?spaceGroupSymbol ?spaceGroupNumber ?crystalSystem
+      WHERE {
+        ?material a mp:Material ;
+                  mp:formula {{composition}} ;
+                  mp:formula ?formula ;
+                  mp:mpId ?mpid ;
+                  mp:hasCrystalStructure ?st .
+        ?st mp:spaceGroupSymbol ?spaceGroupSymbol ;
+            mp:spaceGroupNumber ?spaceGroupNumber ;
+            mp:crystalSystem ?crystalSystem .
+      }
+    result:
+      item:
+        material_iri: material
+        mp_id: mpid
+        formula: formula
+        space_group: spaceGroupSymbol
+        space_group_number: { var: spaceGroupNumber, number: true }
+        crystal_system: crystalSystem
+
+  - name: materials_by_space_group
+    title: "List materials with a given space group"
+    description: >
+      List Materials Project entries whose idealized structure has the given
+      space group symbol (e.g. "Fm-3m" for rock-salt). Useful for finding
+      structurally analogous materials.
+    parameters:
+      - name: space_group
+        type: string
+        required: true
+        description: 'space group Hermann-Mauguin symbol, exact match, e.g. "Fm-3m"'
+      - name: limit
+        type: integer
+        default: 50
+        minimum: 1
+        maximum: 500
+        description: max materials returned
+    query: |
+      PREFIX mp: <https://kumagallium.github.io/asterism/materials_project/ontology#>
+      SELECT ?material ?mpid ?formula ?spaceGroupNumber ?crystalSystem
+      WHERE {
+        ?st mp:spaceGroupSymbol {{space_group}} ;
+            mp:spaceGroupNumber ?spaceGroupNumber ;
+            mp:crystalSystem ?crystalSystem ;
+            mp:ofMaterial ?material .
+        ?material mp:formula ?formula ; mp:mpId ?mpid .
+      }
+      ORDER BY ?formula
+      LIMIT {{limit}}
+    result:
+      item:
+        material_iri: material
+        mp_id: mpid
+        formula: formula
+        space_group_number: { var: spaceGroupNumber, number: true }
+        crystal_system: crystalSystem
+
+  - name: materials_by_crystal_system
+    title: "List materials in a crystal system"
+    description: >
+      List Materials Project entries whose idealized structure belongs to the
+      given crystal system (Cubic, Trigonal, Hexagonal, Orthorhombic, Tetragonal,
+      Monoclinic, Triclinic).
+    parameters:
+      - name: crystal_system
+        type: enum
+        required: true
+        enum: [Cubic, Trigonal, Hexagonal, Orthorhombic, Tetragonal, Monoclinic, Triclinic]
+        description: the crystal system to filter by
+      - name: limit
+        type: integer
+        default: 50
+        minimum: 1
+        maximum: 500
+        description: max materials returned
+    query: |
+      PREFIX mp: <https://kumagallium.github.io/asterism/materials_project/ontology#>
+      SELECT ?material ?mpid ?formula ?spaceGroupSymbol ?spaceGroupNumber
+      WHERE {
+        ?st mp:crystalSystem {{crystal_system}} ;
+            mp:spaceGroupSymbol ?spaceGroupSymbol ;
+            mp:spaceGroupNumber ?spaceGroupNumber ;
+            mp:ofMaterial ?material .
+        ?material mp:formula ?formula ; mp:mpId ?mpid .
+      }
+      ORDER BY ?formula
+      LIMIT {{limit}}
+    result:
+      item:
+        material_iri: material
+        mp_id: mpid
+        formula: formula
+        space_group: spaceGroupSymbol
+        space_group_number: { var: spaceGroupNumber, number: true }
+
+  # ---- Cross-dataset typed tool (#19 goal b) -------------------------------
+  # This tool deliberately joins TWO datasets: a thermoelectric property from
+  # starrydata (sd:) and the crystal structure from materials_project (mp:),
+  # bridged on the shared composition literal. It runs through the canonical
+  # FROM-merge, so both datasets' canonical graphs are visible in one query —
+  # the structure-property link as a typed, citable, deterministic operation
+  # (product_direction: 引用できる事実) rather than an LLM escape. It returns
+  # nothing unless BOTH datasets are promoted into canonical scope.
+  - name: thermoelectric_structure
+    title: "Rank thermoelectric materials with the crystal structure that explains them"
+    description: >
+      Cross-dataset join: rank curves by their per-curve peak property value
+      (sd:yMax, e.g. ZT) from Starrydata, and attach the idealized crystal
+      structure (space group, crystal system) from the Materials Project for the
+      same composition. Lets an agent reason "this property because of this
+      structure" with cited IRIs from both datasets. Pass max_plausible to drop
+      digitization outliers (e.g. ZT > 3.5).
+    parameters:
+      - name: property_y
+        type: string
+        default: "ZT"
+        description: 'the sd:propertyY label to rank by, e.g. "ZT"'
+      - name: max_plausible
+        type: number
+        required: false
+        description: only curves with yMax <= this value rank (data-quality guard)
+      - name: top_n
+        type: integer
+        default: 20
+        minimum: 1
+        maximum: 200
+        description: number of top curves to return
+    query: |
+      PREFIX sd: <https://kumagallium.github.io/asterism/starrydata/ontology#>
+      PREFIX mp: <https://kumagallium.github.io/asterism/materials_project/ontology#>
+      SELECT ?formula ?ymax ?spaceGroupSymbol ?spaceGroupNumber ?crystalSystem ?mpid ?curve ?sample
+      WHERE {
+        ?curve a sd:Curve ; sd:propertyY {{property_y}} ; sd:yMax ?ymax ; sd:ofSample ?sample .
+        ?sample sd:compositionString ?formula .
+        ?material a mp:Material ; mp:formula ?formula ; mp:mpId ?mpid ; mp:hasCrystalStructure ?st .
+        ?st mp:spaceGroupSymbol ?spaceGroupSymbol ;
+            mp:spaceGroupNumber ?spaceGroupNumber ;
+            mp:crystalSystem ?crystalSystem .
+        {{#max_plausible}}FILTER(?ymax <= {{max_plausible}}){{/max_plausible}}
+      }
+      ORDER BY DESC(?ymax)
+      LIMIT {{top_n}}
+    result:
+      item:
+        composition: formula
+        value: { var: ymax, number: true }
+        space_group: spaceGroupSymbol
+        space_group_number: { var: spaceGroupNumber, number: true }
+        crystal_system: crystalSystem
+        mp_id: mpid
+        curve_iri: curve
+        sample_iri: sample
