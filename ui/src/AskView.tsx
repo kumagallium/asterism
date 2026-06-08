@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { CitationCard } from './CitationCard'
 import { ask, isMockMode, type AskResponse, type Citation } from './demoApi'
 import { AskIcon, CheckIcon } from './icons'
@@ -73,7 +75,10 @@ export function AskView({ onShowVocab }: { onShowVocab?: (className: string) => 
               placeholder="例: ZT が最も高い熱電材料は？"
               onChange={(e) => setQuestion(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') run(question)
+                // Don't submit on the Enter that confirms an IME (kanji/かな)
+                // conversion — only on a real, non-composing Enter. Without this
+                // guard Japanese input is impossible (Enter fires mid-conversion).
+                if (e.key === 'Enter' && !e.nativeEvent.isComposing) run(question)
               }}
             />
           </div>
@@ -133,7 +138,12 @@ export function AskView({ onShowVocab }: { onShowVocab?: (className: string) => 
               </span>
               <span className="answer-head-note">取り込み済みのデータに基づく</span>
             </div>
-            <p className="answer-text">{result.answer}</p>
+            {/* The LLM escape can return Markdown (GFM tables / lists); typed
+                answers are plain sentences. Render as Markdown so a table is a
+                table, not raw "| … |" pipes. */}
+            <div className="answer-text answer-md">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{result.answer}</ReactMarkdown>
+            </div>
 
             {result.citations.length > 0 && (
               <div className="citations">
