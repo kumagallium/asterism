@@ -346,6 +346,31 @@ async def test_versioned_promote_swaps_pointer_and_orphans_prior() -> None:
 
 
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")
+async def test_chunked_drop_graph_empties_in_batches() -> None:
+    # Memory-safe reclaim: a large graph is emptied in bounded DELETE…LIMIT batches
+    # (a single DROP would materialize the whole graph and OOM Oxigraph). Here a
+    # 5-triple graph with chunk=2 takes 3 batches and ends empty; a sibling graph is
+    # untouched.
+    from asterism.substrate import chunked_drop_graph
+
+    ds = rdflib.Dataset()
+    ex = rdflib.Namespace("https://ex#")
+    g = rdflib.URIRef(versioned_graph_iri("ds1", 1))
+    other = rdflib.URIRef(versioned_graph_iri("ds1", 2))
+    for i in range(5):
+        ds.graph(g).add((ex[f"s{i}"], ex.p, rdflib.Literal(i)))
+    ds.graph(other).add((ex.keep, ex.p, rdflib.Literal("keep")))
+    client = _RWClient(ds)
+
+    batches = await chunked_drop_graph(client, str(g), chunk=2)
+    assert batches == 3  # 2 + 2 + 1
+    assert len(ds.graph(g)) == 0  # emptied
+    assert len(ds.graph(other)) == 1  # sibling untouched
+    # idempotent: a second call on the empty graph is a no-op (0 batches)
+    assert await chunked_drop_graph(client, str(g), chunk=2) == 0
+
+
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 async def test_repromote_legacy_dataset_orphans_key_graph() -> None:
     # Backward-compat: a dataset promoted BEFORE part5 has its data in the key graph
     # (no liveGraph). Re-ingesting it streams a version graph; re-promote must orphan

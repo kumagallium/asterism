@@ -322,6 +322,15 @@ def test_ingest_stream_failure_errors_and_drops_staged(tmp_path: Path, monkeypat
         raise httpx.ConnectError("oxigraph down")
 
     monkeypatch.setattr(substrate, "stream_nt_file_to_oxigraph", _boom)
+    # D6 reclaims the partial via a memory-safe chunked delete; spy on it (the
+    # recording client can't model the ASK-until-empty loop).
+    reclaimed: list[str] = []
+
+    async def _spy_chunked(_client, graph_iri, **_k):
+        reclaimed.append(graph_iri)
+        return 0
+
+    monkeypatch.setattr(substrate, "chunked_drop_graph", _spy_chunked)
     oxi = _RecordingOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
     graph_iri = substrate.versioned_graph_iri(dataset_id, 1)
@@ -333,8 +342,8 @@ def test_ingest_stream_failure_errors_and_drops_staged(tmp_path: Path, monkeypat
         err = next((d for n, d in events if n == "error"), None)
         assert err is not None
         assert "ConnectError" in err["message"] or "oxigraph down" in err["message"]
-    # D6: the partial staged version graph was dropped (it was never live).
-    assert any("DROP SILENT GRAPH" in u and graph_iri in u for u in oxi.updates)
+    # D6: the partial staged version graph was reclaimed (it was never live).
+    assert reclaimed == [graph_iri]
 
 
 # ---- promotion: draft -> canonical (#15 S4) ---------------------------------

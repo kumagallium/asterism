@@ -751,9 +751,11 @@ def build_app(
                         ),
                     )
                 except Exception:
-                    # D6: never leave a partial version graph behind on failure
-                    # (it was never live, so dropping it cannot affect a reader).
-                    await substrate.drop_graph(client, staged_iri)
+                    # D6: never leave a partial version graph behind on failure (it
+                    # was never live, so reclaiming it cannot affect a reader). Use a
+                    # chunked delete — a partial can be large, and a single DROP of a
+                    # multi-million-triple graph OOMs Oxigraph.
+                    await substrate.chunked_drop_graph(client, staged_iri)
                     raise
             finally:
                 shutil.rmtree(work, ignore_errors=True)  # the .nt can be GBs

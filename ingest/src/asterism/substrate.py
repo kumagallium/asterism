@@ -593,15 +593,20 @@ async def pending_drops(client: SupportsSparql, *, limit: int = 50) -> list[str]
 
 
 async def sweep_pending_drops(client: SupportsSparql, *, limit: int = 50) -> list[str]:
-    """Drop the enqueued graphs (``DROP SILENT``) and clear their markers; return the
-    IRIs dropped. Each is a superseded version or a deleted dataset's data graph —
-    never a live/citable graph — so this is safe to run concurrently with reads. Runs
-    off the request path (a background sweeper / post-op task), keeping the large DROP
-    out of the critical path (part5)."""
+    """Reclaim the enqueued graphs (memory-safe chunked delete) and clear their
+    markers; return the IRIs reclaimed. Each is a superseded version or a deleted
+    dataset's data graph — never a live/citable graph — so this is safe to run
+    concurrently with reads. Runs off the request path (a background sweeper),
+    keeping the large reclaim out of the critical path (part5).
+
+    Uses :func:`chunked_drop_graph` rather than ``DROP GRAPH``: a single DROP of a
+    multi-million-triple graph materializes the whole graph and OOMs even an 8 GB
+    Oxigraph (measured), so the reclaim itself must be batched.
+    """
     drops = await pending_drops(client, limit=limit)
     done: list[str] = []
     for g in drops:
-        await drop_graph(client, g)
+        await chunked_drop_graph(client, g)
         await _clear_control_predicate(client, g, PENDING_DROP_PREDICATE)
         done.append(g)
     return done
@@ -656,8 +661,41 @@ async def reinstate_canonical(client: SupportsSparql, dataset_key: str) -> None:
 
 async def drop_graph(client: SupportsSparql, graph_iri: str) -> None:
     """Physically remove a named graph (``DROP SILENT GRAPH``). SILENT = no error
-    if it does not exist (idempotent)."""
+    if it does not exist (idempotent).
+
+    ``DROP GRAPH`` materializes the whole graph in memory on Oxigraph, so it is only
+    safe for *small* graphs (an ontology TBox, an empty key graph). For a possibly
+    large data graph use :func:`chunked_drop_graph`, which is memory-bounded.
+    """
     await client.sparql_update(f"DROP SILENT GRAPH <{graph_iri}>")
+
+
+# Rows deleted per chunked-delete batch. Bounds per-request memory: a single
+# ``DROP GRAPH`` of millions of triples materializes the whole graph and OOMs even
+# an 8 GB Oxigraph (measured), so reclaiming a large graph must be batched.
+DEFAULT_DELETE_CHUNK = 100_000
+
+
+async def chunked_drop_graph(
+    client: SupportsSparql, graph_iri: str, *, chunk: int = DEFAULT_DELETE_CHUNK
+) -> int:
+    """Empty a named graph in bounded ``DELETE … LIMIT N`` batches; return batch count.
+
+    Memory-safe alternative to ``DROP GRAPH`` for large graphs: each batch
+    materializes at most ``chunk`` bindings (a sub-SELECT ``LIMIT`` inside the
+    ``WHERE``), so Oxigraph never holds the whole graph in memory. Loops until the
+    graph is empty (``ASK`` between batches — O(1), stops at the first triple). Used
+    by the background sweeper to reclaim superseded / deleted versions without OOM.
+    """
+    batches = 0
+    while await graph_has_triples(client, graph_iri):
+        await client.sparql_update(
+            f"DELETE {{ GRAPH <{graph_iri}> {{ ?s ?p ?o }} }} WHERE {{ "
+            f"SELECT ?s ?p ?o WHERE {{ GRAPH <{graph_iri}> {{ ?s ?p ?o }} }} "
+            f"LIMIT {int(chunk)} }}"
+        )
+        batches += 1
+    return batches
 
 
 async def tombstone_deleted(
