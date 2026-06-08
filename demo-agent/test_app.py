@@ -282,3 +282,37 @@ def test_typed_path_still_short_circuits_without_llm(monkeypatch) -> None:
     ).json()
     assert "ZT" in body["answer"]
     assert fake.calls == []  # typed path won; no escape
+
+
+def test_generic_question_falls_through_not_canned_samples(monkeypatch) -> None:
+    # Regression: a complex question with no ZT/Seebeck keyword and no formula token
+    # must NOT be answered by sample_search(composition=None) — that matches EVERY
+    # sample, so it always returned citations and permanently blocked the LLM
+    # fallback (every such question got the same arbitrary "all samples" list). It
+    # must fall through instead; with no key -> the hint, with a key -> the escape.
+    g = rdflib.ConjunctiveGraph()  # real starrydata fixture: sample_search(None) WOULD match all
+    g.parse(data=_TTL, format="turtle")
+    demo._state["client"] = _LocalClient(g)
+    monkeypatch.setattr(demo, "_REAL", True)
+    fake = _FakeAnthropic([])
+    monkeypatch.setitem(demo._state, "anthropic_factory", lambda _key: fake)
+    client = TestClient(demo.app)
+    q = "熱電材料の性能と結晶構造のリストを出してほしい"
+
+    # no key -> NOT the canned 20-sample answer; falls through to the hint
+    body = client.post("/demo/ask", json={"question": q}).json()
+    assert body["citations"] == []
+    assert "None" not in body["answer"]  # the old "組成 'None' に一致…" bug is gone
+    assert any("API キー" in n for n in body["notes"])
+    assert fake.calls == []  # no key -> LLM not invoked
+
+    # with a key -> the LLM escape IS invoked for the same generic question
+    fake2 = _FakeAnthropic(
+        [
+            _block(content=[_block(type="tool_use", id="t1", name="submit_answer",
+                                   input={"answer": "（探索結果）", "citations": []})]),
+        ]
+    )
+    monkeypatch.setitem(demo._state, "anthropic_factory", lambda _key: fake2)
+    client.post("/demo/ask", json={"question": q}, headers={"X-API-Key": "sk-test"}).json()
+    assert fake2.calls, "the LLM escape must engage for a generic question when a key is given"

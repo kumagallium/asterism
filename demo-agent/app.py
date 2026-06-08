@@ -455,9 +455,18 @@ async def _llm_sparql_answer(question: str, api_key: str) -> dict:
 
 
 async def _typed_answer(question: str) -> dict:
-    """The deterministic starrydata-shaped path (no LLM). May return no citations
-    when the question/schema does not fit the typed tools — that is the signal to
-    fall through to the LLM escape."""
+    """The deterministic starrydata-shaped path (no LLM). Returns NO citations when
+    the question does not fit the typed tools — that is the signal for ``ask`` to
+    fall through to the LLM escape.
+
+    Crucially, the typed path only "answers" when the router extracted a concrete
+    argument (a property to rank, or a composition to search). A bare
+    ``sample_search(composition=None)`` matches *every* sample, so it would always
+    return citations and thus permanently block the LLM fallback — any question
+    without a ZT/Seebeck keyword or a formula token would get the same arbitrary
+    "all samples" list. So when nothing concrete was extracted we return empty and
+    let the escape (or the no-key hint) handle it.
+    """
     from asterism_mcp.tools import property_ranking, sample_search
 
     kind, arg, mp = _route(question)
@@ -466,8 +475,12 @@ async def _typed_answer(question: str) -> dict:
             _client(), property_y=arg, top_n=10, max_plausible=mp
         )
         return _compose_rank(rank)
-    res = await sample_search(_client(), composition=arg, limit=20)
-    return _compose_search(arg, res)
+    if kind == "search" and arg:
+        res = await sample_search(_client(), composition=arg, limit=20)
+        return _compose_search(arg, res)
+    # Nothing concrete to query on — a generic / cross-dataset question the
+    # demo-scoped typed tools cannot answer. Empty -> fall through to the LLM escape.
+    return {"answer": "", "citations": [], "notes": []}
 
 
 @app.post("/demo/ask")
