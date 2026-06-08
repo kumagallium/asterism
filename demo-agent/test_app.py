@@ -316,3 +316,29 @@ def test_generic_question_falls_through_not_canned_samples(monkeypatch) -> None:
     monkeypatch.setitem(demo._state, "anthropic_factory", lambda _key: fake2)
     client.post("/demo/ask", json={"question": q}, headers={"X-API-Key": "sk-test"}).json()
     assert fake2.calls, "the LLM escape must engage for a generic question when a key is given"
+
+
+def test_crossdataset_question_defers_despite_zt_keyword(monkeypatch) -> None:
+    # Regression: a cross-dataset question (ZT *by crystal structure*) contains the
+    # "ZT" keyword, which used to short-circuit to the single-property ZT ranking,
+    # ignoring the crystal-structure half. It must defer to the LLM escape instead
+    # (which can join starrydata composition == Materials Project formula).
+    g = rdflib.ConjunctiveGraph()
+    g.parse(data=_TTL, format="turtle")
+    demo._state["client"] = _LocalClient(g)
+    monkeypatch.setattr(demo, "_REAL", True)
+    fake = _FakeAnthropic(
+        [
+            _block(content=[_block(type="tool_use", id="t1", name="submit_answer",
+                                   input={"answer": "（横断結果）", "citations": []})]),
+        ]
+    )
+    monkeypatch.setitem(demo._state, "anthropic_factory", lambda _key: fake)
+    body = TestClient(demo.app).post(
+        "/demo/ask",
+        json={"question": "どんな結晶構造だとどんなZTを示すのでしょうか"},
+        headers={"X-API-Key": "sk-test"},
+    ).json()
+    # Did NOT return the typed ZT ranking; the escape engaged.
+    assert fake.calls, "a crystal-structure / ZT cross question must reach the LLM escape"
+    assert "最大" not in (body.get("answer") or "")  # not the typed ranking phrasing

@@ -147,6 +147,19 @@ def _client():
 # A crude formula-ish token grabber for composition questions (e.g. "Bi2Te3").
 _FORMULA_RE = re.compile(r"[A-Z][A-Za-z0-9().]{1,}")
 
+# Questions that reach BEYOND the demo-scoped typed tools (which only rank a single
+# property or search by composition): crystal structure (a second, Materials-Project
+# dataset) or a correlation between two things. These are exactly the cross-dataset
+# questions the LLM escape exists for — it can join datasets (e.g. starrydata
+# compositionString == Materials Project formula) and write the SPARQL. So even when
+# a typed keyword like "ZT" is also present, defer to the escape rather than dump a
+# single-property ranking that ignores half the question.
+_BEYOND_TYPED = re.compile(
+    r"結晶構造|結晶系|空間群|格子|crystal|structure|lattice|space\s*group|"
+    r"相関|correlat|横断|cross[- ]?dataset|どんな.{0,16}どんな|どの.{0,16}どの",
+    re.IGNORECASE,
+)
+
 
 def _route(question: str) -> tuple[str, str | None, float | None]:
     """Pick a tool + args from the question. Deterministic, demo-scoped."""
@@ -468,6 +481,12 @@ async def _typed_answer(question: str) -> dict:
     let the escape (or the no-key hint) handle it.
     """
     from asterism_mcp.tools import property_ranking, sample_search
+
+    # Cross-dataset / crystal-structure / correlation questions are beyond the typed
+    # tools (single-property ranking, composition search). Defer to the LLM escape —
+    # which can join across datasets — instead of short-circuiting on a "ZT" keyword.
+    if _BEYOND_TYPED.search(question):
+        return {"answer": "", "citations": [], "notes": []}
 
     kind, arg, mp = _route(question)
     if kind == "rank" and arg:
