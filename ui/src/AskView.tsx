@@ -133,10 +133,27 @@ export function AskView({ onShowVocab }: { onShowVocab?: (className: string) => 
         {result && (
           <section className="answer-card">
             <div className="answer-head">
-              <span className="answer-badge">
-                <CheckIcon size={13} /> 根拠つきの回答
+              {(result.verifiedTools?.length ?? 0) > 0 ? (
+                <span className="answer-badge answer-badge-verified">
+                  <CheckIcon size={13} /> 検証済ツール: {result.verifiedTools!.map((t) => t.title).join(' · ')}
+                </span>
+              ) : result.unverifiedSparql ? (
+                <span className="answer-badge answer-badge-unverified">AI 生成 SPARQL（未検証）</span>
+              ) : (
+                <span className="answer-badge">
+                  <CheckIcon size={13} /> 根拠つきの回答
+                </span>
+              )}
+              {result.unverifiedSparql && (result.verifiedTools?.length ?? 0) > 0 && (
+                <span className="answer-badge answer-badge-unverified">＋ AI 生成 SPARQL（未検証）</span>
+              )}
+              <span className="answer-head-note">
+                {(result.verifiedTools?.length ?? 0) > 0
+                  ? '人が検証した決定論ツール · 固定クエリ · 再現可能な引用'
+                  : result.unverifiedSparql
+                    ? 'AI が生成したクエリ · 未検証（下の SPARQL で確認できます）'
+                    : '取り込み済みのデータに基づく'}
               </span>
-              <span className="answer-head-note">取り込み済みのデータに基づく</span>
             </div>
             {/* The LLM escape can return Markdown (GFM tables / lists); typed
                 answers are plain sentences. Render as Markdown so a table is a
@@ -183,7 +200,7 @@ export function AskView({ onShowVocab }: { onShowVocab?: (className: string) => 
                   <span className="sparql-disclosure-tag">読み取り専用</span>
                 </summary>
                 <p className="sparql-disclosure-hint">
-                  この回答は、スキーマを内省して生成した次の読み取り専用クエリの結果に基づきます。
+                  この回答が実行した読み取り専用クエリです（検証済ツールは固定テンプレ、escape は AI 生成）。
                 </p>
                 {result.sparql.map((q, i) => (
                   <pre key={i} className="sparql-block">
