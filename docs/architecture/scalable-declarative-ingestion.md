@@ -1,7 +1,7 @@
 # スケーラブルな宣言的取り込み（大規模データ対応・設計メモ）
 
 決定母体: [`phase5-workbench-materialize-gate.md`](phase5-workbench-materialize-gate.md)（#15 人間ゲート・draft 隔離）/ [`phase5-declarative-substrate.md`](phase5-declarative-substrate.md)（substrate・Tier 0 関数）
-status: 設計確定（決定事項あり）→ 取り込み(ingest) S1-S3 実装済 ＋ **昇格(promote) フラグ化 実装済（§promote）**。残=part 5（バージョン付きグラフで replace/delete の大 DROP をクリティカルパス外へ）
+status: 設計確定（決定事項あり）→ 取り込み(ingest) S1-S3 実装済 ＋ **昇格(promote) フラグ化 実装済（§promote）** ＋ **part5 バージョン付きグラフ実装済（§promote/part5・replace/delete の大 DROP もクリティカルパス外へ）**
 
 ## 0. 何を直すか
 
@@ -113,9 +113,28 @@ delete      → DROP canonical/{id} ＋ status "deleted" tombstone
 
 citability がフラグ依存に変わるため、旧 MOVE 方式で昇格済みのデータは起動時に promoted フラグを backfill しないと不可視になる。api の lifespan で **registry の `promoted=True`（かつ未 retracted）な各 dataset の canonical graph と、legacy bulk graph（データがある時のみ・cheap ASK で判定）にフラグを冪等 backfill** する。毎起動安全（未 promoted な draft は registry が promoted=False なので決して立てない／retracted は据え置き）。
 
-### 残り（後続 PR・part 5）
+### part5: バージョン付きグラフ（replace/delete の大 DROP をクリティカルパス外へ）
 
-P5 の再取り込み/delete はまだ**大 DROP をクリティカルパスに残す**（#134 で 300s timeout 済・DROP は MOVE と違いメモリを複製しないので OOM 主犯ではないが大グラフでは重い）。完全に外すには**バージョン付きグラフ `…/canonical/{id}/v{n}` 投入＋ポインタ切替＋旧版の遅延/チャンク削除**が要る（別 PR）。初回の ingest→promote（＝実機をフリーズさせた経路）は本 §で MOVE/大 DROP ともゼロ。
+status: 実装済み（substrate + api + registry + 背景スイーパ・全 backend テスト緑）
+
+§promote のフラグ化で初回 ingest→promote は MOVE/大 DROP ともゼロになったが、**再取り込み(replace)/delete はまだ大 DROP をクリティカルパスに残していた**（#134 で 300s timeout・DROP は MOVE と違いメモリ非複製ゆえ OOM 主犯ではないが大グラフで重い）。part5 でこれも外す。
+
+**バージョン付きデータグラフ＋ポインタ切替＋背景ドロップ:**
+
+| # | 論点 | 決定 |
+|---|---|---|
+| V1 | データグラフ | 各 ingest を**新しいバージョングラフ `canonical/{id}/v{n}`** へストリーミング（`n` は registry の単調 `data_seq`・ドロップ後も再利用しないので衝突しない）。`canonical/{id}` は **control の subject(=dataset key)** で、(part5 前に昇格した dataset では) データグラフも兼ねる。 |
+| V2 | citable ポインタ | control graph が dataset key に `liveGraph <…/v{n}>` を持つ。`canonical_graphs()` は **`COALESCE(liveGraph, key)`**＝promoted な各 dataset の live バージョン（live 無＝part5 前データは key グラフ）を返す。 |
+| V3 | 再取り込み(replace) | 旧 live を**触らず**新版 `v{n+1}` を投入（staged）。Ask は再ストリーム中ずっと旧版を配信＝**ギャップなし・un-publish 不要・DROP なし**。 |
+| V4 | promote | `liveGraph` を staged 版へ差し替え＋`status promoted`＝**control 書込のみ(O(1))**。旧 live 版は **`pendingDrop` キュー**へ enqueue（背景ドロップ）。 |
+| V5 | delete | live/staged データグラフを `pendingDrop` へ enqueue＋(promoted なら)`deleted` tombstone を立てて**即応答**。大 DROP はリクエスト経路に無い。 |
+| V6 | 背景スイーパ | api lifespan の周期タスク（既存 watcher と並ぶ）が `pendingDrop` グラフを `DROP SILENT` で掃除しマーカ除去。初回 tick は**クラッシュ復旧**（掃除途中で落ちた orphan を回収）。 |
+
+**surgical control 書込**: status/liveGraph/stagedGraph を1つずつ replace（DELETE-all しない）＝retract/reinstate が `liveGraph` を保存（同じ版が戻る）。**後方互換**: part5 前に昇格した dataset（key グラフにデータ・live 無）は `COALESCE` で従来どおり citable。再取り込み時は **key グラフが実データを持つ場合のみ orphan**（cheap ASK で判定）＝旧版リーク無し。**起動 backfill** は status＋liveGraph（registry meta から）を復元。
+
+不変条件は不変: 生成コード非実行・IRI 不変・read-only `/api/sparql`・draft 隔離（未 promoted な staged 版は `liveGraph` に指されないので不可視）。
+
+**残（任意・後続）**: 周期スイーパは 1 グラフを丸ごと `DROP SILENT` する（大グラフでも背景＝経路外だが単発 DROP は重い）。さらに薄くするなら**チャンク DELETE**（`DELETE … WHERE … LIMIT N` 反復）に差し替え可（インターフェース `sweep_pending_drops` 内で吸収）。優先度低（経路外ゆえ体感影響なし）。
 
 ### 見積（修正後）
 

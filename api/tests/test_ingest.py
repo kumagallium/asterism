@@ -154,9 +154,9 @@ def test_ingest_happy_path_streams_canonical_with_progress(tmp_path: Path, monke
     monkeypatch.setattr(substrate, "materialize_to_nt_file", _fake_nt_materializer(triples=1))
     oxi = _RecordingOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
-    # Memory-bounded promote: ingest streams straight into the canonical graph
-    # (staged, not yet citable — no draft graph, no later MOVE).
-    graph_iri = substrate.canonical_graph_iri(dataset_id)
+    # part5: the first ingest streams into a fresh version graph v1 (staged, not yet
+    # citable — the live graph, if any, is untouched, so there is no DROP).
+    graph_iri = substrate.versioned_graph_iri(dataset_id, 1)
     with TestClient(app) as client:
         status, events = _drive_ingest(
             client, dataset_id, {"files": ("papers.csv", b"SID\n1\n", "text/csv")}
@@ -280,7 +280,7 @@ def test_ingest_uses_persisted_source_when_no_upload(tmp_path: Path, monkeypatch
         result = next(d for n, d in events if n == "done")["result"]
         assert result["triple_count"] == 1
         assert result["graph_kind"] == "staged"
-    assert oxi.store_calls == [substrate.canonical_graph_iri(dataset_id)]
+    assert oxi.store_calls == [substrate.versioned_graph_iri(dataset_id, 1)]
 
 
 def test_ingest_upload_persists_source_for_reuse(tmp_path: Path, monkeypatch) -> None:
@@ -324,7 +324,7 @@ def test_ingest_stream_failure_errors_and_drops_staged(tmp_path: Path, monkeypat
     monkeypatch.setattr(substrate, "stream_nt_file_to_oxigraph", _boom)
     oxi = _RecordingOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
-    graph_iri = substrate.canonical_graph_iri(dataset_id)
+    graph_iri = substrate.versioned_graph_iri(dataset_id, 1)
     with TestClient(app) as client:
         status, events = _drive_ingest(
             client, dataset_id, {"files": ("papers.csv", b"SID\n1\n", "text/csv")}
@@ -333,7 +333,7 @@ def test_ingest_stream_failure_errors_and_drops_staged(tmp_path: Path, monkeypat
         err = next((d for n, d in events if n == "error"), None)
         assert err is not None
         assert "ConnectError" in err["message"] or "oxigraph down" in err["message"]
-    # D6: the staged canonical graph was dropped (so no partial load lingers).
+    # D6: the partial staged version graph was dropped (it was never live).
     assert any("DROP SILENT GRAPH" in u and graph_iri in u for u in oxi.updates)
 
 
@@ -379,13 +379,14 @@ class _PromoteOxi:
 
 def _ingested_dataset(tmp: Path) -> str:
     dataset_id = _save_dataset_with_rml(tmp)
-    # Memory-bounded promote: ingest stages into the per-dataset canonical graph.
+    # part5: ingest stages into a fresh version graph (v1 for the first ingest).
     registry.mark_ingested(
         tmp / "registry",
         dataset_id,
-        graph_iri=substrate.canonical_graph_iri(dataset_id),
+        graph_iri=substrate.versioned_graph_iri(dataset_id, 1),
         triple_count=1640,
         ingested_at="2026-06-03T00:10:00+00:00",
+        data_seq=1,
     )
     return dataset_id
 
@@ -459,9 +460,10 @@ def test_promote_projects_tbox_into_ontology_graph(tmp_path: Path) -> None:
     registry.mark_ingested(
         tmp_path / "registry",
         dataset_id,
-        graph_iri=f"https://kumagallium.github.io/asterism/starrydata/graph/draft/{dataset_id}",
+        graph_iri=substrate.versioned_graph_iri(dataset_id, 1),
         triple_count=1640,
         ingested_at="2026-06-05T00:10:00+00:00",
+        data_seq=1,
     )
     oxi = _ProjectOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
@@ -492,27 +494,35 @@ def test_promote_flags_canonical_and_marks_meta(tmp_path: Path) -> None:
     dataset_id = _ingested_dataset(tmp_path)
     oxi = _PromoteOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    expected_canon = f"https://kumagallium.github.io/asterism/graph/canonical/{dataset_id}"
+    expected_live = f"{expected_canon}/v1"
     with TestClient(app) as client:
         r = client.post(f"/api/datasets/{dataset_id}/promote")
         assert r.status_code == 200, r.text
         body = r.json()
         assert body["promoted"] is True
-        expected_canon = f"https://kumagallium.github.io/asterism/graph/canonical/{dataset_id}"
         assert body["canonical_graph"] == expected_canon
+        # part5: the live version graph holding the data.
+        assert body["live_graph"] == expected_live
         # Triple count is read from the ingest meta (not a COUNT of the graph).
         assert body["triples_promoted"] == 1640
         assert body["dataset"]["promoted"] is True
         assert body["dataset"]["ingested"] is False
-    # Memory-bounded promote: a control-graph flag write, NEVER a MOVE of the data.
+    # Memory-bounded + part5: control-graph writes only — NEVER a MOVE/DROP of data.
     assert not any("MOVE GRAPH" in u for u in oxi.updates)
     assert any(
         "INSERT DATA" in u and '"promoted"' in u and expected_canon in u for u in oxi.updates
+    )
+    # The live pointer is set to the version graph.
+    assert any(
+        "INSERT DATA" in u and "liveGraph" in u and expected_live in u for u in oxi.updates
     )
     # Meta on disk reflects promotion.
     meta = json.loads((tmp_path / "registry" / dataset_id / "meta.json").read_text())
     assert meta["promoted"] is True
     assert meta["triples_promoted"] == 1640
     assert meta["canonical_graph"] == expected_canon
+    assert meta["live_graph"] == expected_live
     # #20 P3: first promotion is version 1 with one entry in the version log.
     assert meta["version"] == 1
     assert len(meta["versions"]) == 1
@@ -608,14 +618,17 @@ def test_delete_staged_only_dataset_no_force(tmp_path: Path) -> None:
     dataset_id = _ingested_dataset(tmp_path)  # ingested (staged), not promoted
     oxi = _PromoteOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
-    canon = f"https://kumagallium.github.io/asterism/graph/canonical/{dataset_id}"
+    staged = f"https://kumagallium.github.io/asterism/graph/canonical/{dataset_id}/v1"
     with TestClient(app) as client:
         r = client.delete(f"/api/datasets/{dataset_id}")
         assert r.status_code == 200, r.text
         assert r.json()["deleted"] is True
         assert r.json()["was_promoted"] is False
-    # the staged canonical graph (where the data lives) was dropped, registry dir gone
-    assert any("DROP SILENT GRAPH" in u and canon in u for u in oxi.updates)
+    # part5: the staged version graph is ENQUEUED for a background drop (off the
+    # request path), not dropped synchronously; the registry dir is gone now.
+    assert any(
+        "INSERT DATA" in u and "pendingDrop" in u and staged in u for u in oxi.updates
+    )
     assert not (tmp_path / "registry" / dataset_id).exists()
 
 
@@ -632,7 +645,7 @@ def test_delete_promoted_requires_force(tmp_path: Path) -> None:
     assert (tmp_path / "registry" / dataset_id).exists()
 
 
-def test_delete_promoted_with_force_drops_canonical_and_tombstones(tmp_path: Path) -> None:
+def test_delete_promoted_with_force_enqueues_drop_and_tombstones(tmp_path: Path) -> None:
     dataset_id = _ingested_dataset(tmp_path)
     oxi = _PromoteOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
@@ -642,7 +655,9 @@ def test_delete_promoted_with_force_drops_canonical_and_tombstones(tmp_path: Pat
         r = client.delete(f"/api/datasets/{dataset_id}?force=true")
         assert r.status_code == 200, r.text
         assert r.json()["deleted"] is True and r.json()["was_promoted"] is True
-    assert any("DROP SILENT GRAPH" in u and canon in u for u in oxi.updates)
+    # part5: the data graph is ENQUEUED for a background drop (no synchronous DROP on
+    # the request path); a deleted tombstone is left for dangling citations.
+    assert any("INSERT DATA" in u and "pendingDrop" in u for u in oxi.updates)
     assert any("INSERT DATA" in u and '"deleted"' in u and canon in u for u in oxi.updates)
     assert not (tmp_path / "registry" / dataset_id).exists()
 

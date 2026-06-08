@@ -101,12 +101,39 @@ STATUS_PROMOTED: str = "promoted"
 STATUS_RETRACTED: str = "retracted"
 STATUS_DELETED: str = "deleted"
 
+# part5 (versioned data graphs): a dataset's *key* graph IRI ``canonical/{id}`` is
+# the control subject; its citable data lives in a per-ingest *version* graph
+# ``canonical/{id}/v{n}`` that the control graph points at via ``liveGraph``. This
+# takes the large DROP off the critical path for replace / delete: a re-ingest
+# streams a NEW version alongside the live one, promote swaps the pointer (O(1)),
+# and the superseded version is dropped in the background (``pendingDrop`` queue).
+# Datasets promoted before part5 (data in the key graph, no ``liveGraph``) keep
+# working — ``canonical_graphs`` falls back to the key graph when no live pointer.
+LIVE_GRAPH_PREDICATE: str = ASTERISM_NS + "liveGraph"
+STAGED_GRAPH_PREDICATE: str = ASTERISM_NS + "stagedGraph"
+PENDING_DROP_PREDICATE: str = ASTERISM_NS + "pendingDrop"
+
 
 def canonical_graph_iri(dataset_id: str) -> str:
-    """Per-dataset canonical (citable) named graph IRI."""
+    """Per-dataset canonical *key* graph IRI (the control subject; also the data
+    graph for datasets promoted before part5's versioned graphs)."""
     if not _DATASET_ID.match(dataset_id):
         raise ValueError(f"unsafe dataset_id for graph IRI: {dataset_id!r}")
     return f"{CANONICAL_GRAPH_BASE}{dataset_id}"
+
+
+def versioned_graph_iri(dataset_id: str, version: int) -> str:
+    """Per-ingest versioned data graph IRI ``…/canonical/{id}/v{n}`` (part5).
+
+    Each ingest streams into a fresh version graph; promote points the dataset's
+    ``liveGraph`` at it. ``version`` is a monotonic per-dataset sequence (it never
+    reuses a number even after old versions are dropped, so graphs never collide).
+    """
+    if not _DATASET_ID.match(dataset_id):
+        raise ValueError(f"unsafe dataset_id for graph IRI: {dataset_id!r}")
+    if not isinstance(version, int) or version < 1:
+        raise ValueError(f"version must be a positive int, got {version!r}")
+    return f"{CANONICAL_GRAPH_BASE}{dataset_id}/v{version}"
 
 
 def ontology_graph_iri(dataset_id: str) -> str:
@@ -376,36 +403,17 @@ def classify_alignment(draft: set[str], canonical: set[str]) -> dict[str, list[s
     }
 
 
-def _promoted_requirement_for_var(graph_var: str) -> str:
-    """``FILTER EXISTS`` that keeps ``graph_var`` only if it is flagged promoted."""
-    return (
-        f"FILTER EXISTS {{ GRAPH <{CONTROL_GRAPH_IRI}> {{ "
-        f'{graph_var} <{STATUS_PREDICATE}> "{STATUS_PROMOTED}" }} }}'
-    )
+async def _distinct_iris(
+    client: SupportsSparql, where: str, *, from_block: str = ""
+) -> set[str]:
+    """DISTINCT IRI values of ``?x`` from ``SELECT ?x {from_block}WHERE {{ where }}``.
 
-
-def canonical_scope_where(body: str) -> str:
-    """A WHERE group reading the **canonical scope** (#20 P3). Single source of truth.
-
-    ``{ body } UNION { GRAPH ?__cg { body } FILTER EXISTS promoted }`` — the
-    default graph (legacy / seed / pre-migration data) plus every per-dataset
-    canonical named graph that the control graph flags ``promoted``. Ingested-but-
-    unpromoted graphs (no flag) and retracted / deleted graphs (a different status)
-    are excluded — that single requirement subsumes the old retracted filter.
-    ``asterism_mcp`` imports this so Ask reads and alignment use the exact same scope.
+    ``from_block`` injects ``FROM`` clauses so the canonical side reads the
+    cross-dataset merge (same scope as Ask), not a single graph.
     """
-    return (
-        "{ " + body + " } UNION { GRAPH ?__cg { " + body + " } "
-        f"{_promoted_requirement_for_var('?__cg')} }}"
+    data = await client.sparql_select(
+        f"SELECT DISTINCT ?x {from_block}WHERE {{ {where} }}"
     )
-
-
-# Backwards-compatible internal alias.
-_canonical_where = canonical_scope_where
-
-
-async def _distinct_iris(client: SupportsSparql, where: str) -> set[str]:
-    data = await client.sparql_select(f"SELECT DISTINCT ?x WHERE {{ {where} }}")
     results = data.get("results", {}) if isinstance(data, dict) else {}
     out: set[str] = set()
     for b in results.get("bindings", []):
@@ -415,60 +423,188 @@ async def _distinct_iris(client: SupportsSparql, where: str) -> set[str]:
     return out
 
 
-async def alignment_report(client: SupportsSparql, draft_iri: str) -> dict[str, object]:
-    """Compare a draft graph's predicates + classes against the canonical scope.
+async def alignment_report(client: SupportsSparql, staged_iri: str) -> dict[str, object]:
+    """Compare a staged graph's predicates + classes against the citable corpus.
 
     Returns ``{"predicates": {reuse, new}, "classes": {reuse, new}}`` — what the
     human reviews before promoting (the Reuse/Align/Extend/New decision; here we
-    surface Reuse vs New mechanically). The canonical side spans the default graph
-    plus every per-dataset canonical named graph (#20 P3), so Reuse reflects the
-    whole citable corpus the draft is being merged into.
+    surface Reuse vs New mechanically). The canonical side is the FROM-merge over
+    every citable graph (:func:`canonical_graphs` — the same scope Ask reads), so
+    Reuse reflects the whole corpus the staged data is being merged into. The staged
+    graph is not promoted yet, so it is never part of the side it is compared against.
     """
-    g = f"<{draft_iri}>"
-    draft_preds = await _distinct_iris(client, f"GRAPH {g} {{ ?s ?x ?o }}")
-    canon_preds = await _distinct_iris(client, _canonical_where("?s ?x ?o"))
-    draft_classes = await _distinct_iris(client, f"GRAPH {g} {{ ?s a ?x }}")
-    canon_classes = await _distinct_iris(client, _canonical_where("?s a ?x"))
+    staged = f"<{staged_iri}>"
+    from_block = canonical_from_clauses(await canonical_graphs(client))
+    staged_preds = await _distinct_iris(client, f"GRAPH {staged} {{ ?s ?x ?o }}")
+    canon_preds = await _distinct_iris(client, "?s ?x ?o", from_block=from_block)
+    staged_classes = await _distinct_iris(client, f"GRAPH {staged} {{ ?s a ?x }}")
+    canon_classes = await _distinct_iris(client, "?s a ?x", from_block=from_block)
     return {
-        "predicates": classify_alignment(draft_preds, canon_preds),
-        "classes": classify_alignment(draft_classes, canon_classes),
+        "predicates": classify_alignment(staged_preds, canon_preds),
+        "classes": classify_alignment(staged_classes, canon_classes),
     }
 
 
-async def mark_graph_promoted(client: SupportsSparql, canonical_iri: str) -> None:
-    """Flag ``canonical_iri`` as ``promoted`` (citable) in the control graph. O(1).
+# --- surgical control-graph writers (touch ONE predicate, preserve the rest) ---
+# part5 keeps several control triples per dataset key (status / liveGraph /
+# stagedGraph), so a write must replace a single predicate, never DELETE-all.
 
-    Replaces any prior control status for the graph (so it also serves as
-    reinstate-from-retracted and re-promote). One small control-graph write — it
-    never touches the data graph, so it is memory-bounded regardless of how many
-    triples ``canonical_iri`` holds (the whole point: no MOVE).
-    """
+
+async def _set_control_literal(
+    client: SupportsSparql, subject: str, predicate: str, value: str
+) -> None:
     await client.sparql_update(
-        f"DELETE WHERE {{ GRAPH <{CONTROL_GRAPH_IRI}> {{ <{canonical_iri}> ?p ?o }} }} ;"
+        f"DELETE WHERE {{ GRAPH <{CONTROL_GRAPH_IRI}> {{ <{subject}> <{predicate}> ?o }} }} ;"
         f"INSERT DATA {{ GRAPH <{CONTROL_GRAPH_IRI}> {{ "
-        f'<{canonical_iri}> <{STATUS_PREDICATE}> "{STATUS_PROMOTED}" }} }}'
+        f'<{subject}> <{predicate}> "{value}" }} }}'
     )
 
 
-async def clear_status(client: SupportsSparql, canonical_iri: str) -> None:
-    """Remove ``canonical_iri`` from the citable scope by clearing its control
-    status. Used on re-ingest to un-publish before re-streaming (gap-free swap);
-    NOT a tombstone (leaves no retracted / deleted marker)."""
+async def _set_control_iri(
+    client: SupportsSparql, subject: str, predicate: str, obj_iri: str
+) -> None:
     await client.sparql_update(
-        f"DELETE WHERE {{ GRAPH <{CONTROL_GRAPH_IRI}> {{ <{canonical_iri}> ?p ?o }} }}"
+        f"DELETE WHERE {{ GRAPH <{CONTROL_GRAPH_IRI}> {{ <{subject}> <{predicate}> ?o }} }} ;"
+        f"INSERT DATA {{ GRAPH <{CONTROL_GRAPH_IRI}> {{ "
+        f"<{subject}> <{predicate}> <{obj_iri}> }} }}"
     )
 
 
-async def promote_to_canonical(client: SupportsSparql, canonical_iri: str) -> None:
-    """Promote a dataset's canonical graph: flip its control flag to ``promoted``.
+async def _clear_control_predicate(
+    client: SupportsSparql, subject: str, predicate: str
+) -> None:
+    await client.sparql_update(
+        f"DELETE WHERE {{ GRAPH <{CONTROL_GRAPH_IRI}> {{ <{subject}> <{predicate}> ?o }} }}"
+    )
 
-    Memory-bounded (O(1) flag write) — the triples were streamed straight into
-    ``canonical_iri`` at ingest, so promotion moves/copies nothing (the OOM-prone
-    ``MOVE GRAPH`` is gone). Ask then reads ``canonical_iri`` via the canonical
-    scope. The triple count is read from the registry (recorded at ingest), so this
-    does not scan the graph either.
+
+async def _control_iri_object(
+    client: SupportsSparql, subject: str, predicate: str
+) -> str | None:
+    """Read the single IRI object of ``<subject> <predicate>`` from the control graph."""
+    data = await client.sparql_select(
+        f"SELECT ?o WHERE {{ GRAPH <{CONTROL_GRAPH_IRI}> {{ "
+        f"<{subject}> <{predicate}> ?o }} }} LIMIT 1"
+    )
+    results = data.get("results", {}) if isinstance(data, dict) else {}
+    for b in results.get("bindings", []):
+        v = b.get("o", {})
+        if v.get("type") == "uri":
+            return v["value"]
+    return None
+
+
+async def live_graph_of(client: SupportsSparql, dataset_key: str) -> str | None:
+    """The dataset's current live (citable) data graph, or None if unset.
+
+    None means the data lives in the key graph itself (a dataset promoted before
+    part5's versioned graphs) — callers fall back to ``dataset_key``.
     """
-    await mark_graph_promoted(client, canonical_iri)
+    return await _control_iri_object(client, dataset_key, LIVE_GRAPH_PREDICATE)
+
+
+async def set_staged_graph(
+    client: SupportsSparql, dataset_key: str, staged_iri: str
+) -> None:
+    """Record the just-ingested (not-yet-citable) version graph for ``dataset_key``."""
+    await _set_control_iri(client, dataset_key, STAGED_GRAPH_PREDICATE, staged_iri)
+
+
+async def clear_staged_graph(client: SupportsSparql, dataset_key: str) -> None:
+    """Drop the staged-version pointer (e.g. deleting a never-promoted dataset).
+    Leaves no tombstone — the dataset was never citable."""
+    await _clear_control_predicate(client, dataset_key, STAGED_GRAPH_PREDICATE)
+
+
+async def mark_graph_promoted(
+    client: SupportsSparql, dataset_key: str, *, live_graph: str | None = None
+) -> None:
+    """Flag ``dataset_key`` ``promoted`` in the control graph; set its live graph.
+
+    Surgical (preserves other control triples). Used by the startup backfill to
+    restore citability after upgrade — ``live_graph`` points it at the version graph
+    holding the data (omit for a pre-part5 dataset whose data is in the key graph).
+    """
+    await _set_control_literal(client, dataset_key, STATUS_PREDICATE, STATUS_PROMOTED)
+    await _clear_control_predicate(client, dataset_key, INVALIDATED_PREDICATE)
+    if live_graph:
+        await _set_control_iri(client, dataset_key, LIVE_GRAPH_PREDICATE, live_graph)
+
+
+async def promote_to_canonical(
+    client: SupportsSparql, dataset_key: str, staged_graph: str
+) -> str | None:
+    """Promote: make ``dataset_key`` citable and point its live graph at ``staged_graph``.
+
+    Memory-bounded (only control-graph writes — no MOVE, no DROP): the triples were
+    streamed straight into ``staged_graph`` at ingest. Sets ``status promoted`` +
+    ``liveGraph = staged_graph`` and clears the staged pointer. If a *prior* live
+    graph is being superseded, it is enqueued for a background drop (off the request
+    path) and returned; otherwise None.
+    """
+    prior = await live_graph_of(client, dataset_key)
+    # No live pointer: a dataset promoted before part5 holds its data in the key graph
+    # itself. Orphan it (only if it actually has data) so a re-promote does not leak
+    # the old version. A fresh part5 dataset's key graph is empty -> stays None.
+    if (
+        prior is None
+        and dataset_key != staged_graph
+        and await graph_has_triples(client, dataset_key)
+    ):
+        prior = dataset_key
+    await _set_control_literal(client, dataset_key, STATUS_PREDICATE, STATUS_PROMOTED)
+    await _clear_control_predicate(client, dataset_key, INVALIDATED_PREDICATE)
+    await _set_control_iri(client, dataset_key, LIVE_GRAPH_PREDICATE, staged_graph)
+    await _clear_control_predicate(client, dataset_key, STAGED_GRAPH_PREDICATE)
+    if prior and prior != staged_graph:
+        await mark_pending_drop(client, prior)
+        return prior
+    return None
+
+
+# --- background drop queue (part5): superseded / deleted graphs are dropped off
+# the request path, so replace / delete never block on a large DROP --------------
+
+
+async def mark_pending_drop(client: SupportsSparql, graph_iri: str) -> None:
+    """Enqueue ``graph_iri`` for a background drop (a superseded version or a deleted
+    dataset's data graph). Idempotent; the sweeper drops it and clears the marker."""
+    await client.sparql_update(
+        f"DELETE WHERE {{ GRAPH <{CONTROL_GRAPH_IRI}> {{ "
+        f"<{graph_iri}> <{PENDING_DROP_PREDICATE}> ?o }} }} ;"
+        f"INSERT DATA {{ GRAPH <{CONTROL_GRAPH_IRI}> {{ "
+        f'<{graph_iri}> <{PENDING_DROP_PREDICATE}> "1" }} }}'
+    )
+
+
+async def pending_drops(client: SupportsSparql, *, limit: int = 50) -> list[str]:
+    """Graphs currently enqueued for a background drop (oldest IRI order)."""
+    data = await client.sparql_select(
+        f"SELECT ?g WHERE {{ GRAPH <{CONTROL_GRAPH_IRI}> {{ "
+        f"?g <{PENDING_DROP_PREDICATE}> ?o }} }} ORDER BY ?g LIMIT {int(limit)}"
+    )
+    results = data.get("results", {}) if isinstance(data, dict) else {}
+    out: list[str] = []
+    for b in results.get("bindings", []):
+        v = b.get("g", {})
+        if v.get("type") == "uri":
+            out.append(v["value"])
+    return out
+
+
+async def sweep_pending_drops(client: SupportsSparql, *, limit: int = 50) -> list[str]:
+    """Drop the enqueued graphs (``DROP SILENT``) and clear their markers; return the
+    IRIs dropped. Each is a superseded version or a deleted dataset's data graph —
+    never a live/citable graph — so this is safe to run concurrently with reads. Runs
+    off the request path (a background sweeper / post-op task), keeping the large DROP
+    out of the critical path (part5)."""
+    drops = await pending_drops(client, limit=limit)
+    done: list[str] = []
+    for g in drops:
+        await drop_graph(client, g)
+        await _clear_control_predicate(client, g, PENDING_DROP_PREDICATE)
+        done.append(g)
+    return done
 
 
 # ----------------------------------------------------------------------------
@@ -486,24 +622,31 @@ _XSD_DATETIME: str = "http://www.w3.org/2001/XMLSchema#dateTime"
 
 
 async def retract_canonical(
-    client: SupportsSparql, canonical_iri: str, *, invalidated_at: str
+    client: SupportsSparql, dataset_key: str, *, invalidated_at: str
 ) -> None:
-    """Tombstone ``canonical_iri`` as retracted (excluded from Ask, IRIs kept)."""
+    """Tombstone ``dataset_key`` as retracted (excluded from Ask, data + IRIs kept).
+
+    Surgical: only the status + invalidatedAt change; the ``liveGraph`` pointer is
+    preserved so reinstate brings back the same data.
+    """
     await client.sparql_update(
-        f"DELETE WHERE {{ GRAPH <{CONTROL_GRAPH_IRI}> {{ <{canonical_iri}> ?p ?o }} }} ;"
+        f"DELETE WHERE {{ GRAPH <{CONTROL_GRAPH_IRI}> {{ "
+        f"<{dataset_key}> <{STATUS_PREDICATE}> ?s }} }} ;"
+        f"DELETE WHERE {{ GRAPH <{CONTROL_GRAPH_IRI}> {{ "
+        f"<{dataset_key}> <{INVALIDATED_PREDICATE}> ?t }} }} ;"
         f"INSERT DATA {{ GRAPH <{CONTROL_GRAPH_IRI}> {{ "
-        f'<{canonical_iri}> <{STATUS_PREDICATE}> "{STATUS_RETRACTED}" ; '
+        f'<{dataset_key}> <{STATUS_PREDICATE}> "{STATUS_RETRACTED}" ; '
         f'<{INVALIDATED_PREDICATE}> "{invalidated_at}"^^<{_XSD_DATETIME}> }} }}'
     )
 
 
-async def reinstate_canonical(client: SupportsSparql, canonical_iri: str) -> None:
-    """Undo a retract: flip the control status back to ``promoted`` (citable again).
-
-    (Citability now requires the ``promoted`` flag, so reinstate must set it — not
-    merely clear the retracted marker.)
+async def reinstate_canonical(client: SupportsSparql, dataset_key: str) -> None:
+    """Undo a retract: flip the status back to ``promoted`` (citable again), keeping
+    the same ``liveGraph``. Citability requires the promoted flag, so reinstate must
+    set it (not merely clear the retracted marker); the live pointer is untouched.
     """
-    await mark_graph_promoted(client, canonical_iri)
+    await _set_control_literal(client, dataset_key, STATUS_PREDICATE, STATUS_PROMOTED)
+    await _clear_control_predicate(client, dataset_key, INVALIDATED_PREDICATE)
 
 
 # ----------------------------------------------------------------------------
@@ -568,14 +711,22 @@ async def canonical_graphs(client: SupportsSparql) -> list[str]:
     Used to build the FROM-merge dataset for cross-dataset queries. Deterministic
     order (sorted) keeps generated queries stable/cacheable.
 
+    part5: each promoted dataset key resolves to its ``liveGraph`` (the current
+    version graph holding the data); a dataset promoted before part5 has no live
+    pointer, so it falls back to the key graph itself (``COALESCE``). Superseded
+    versions are not pointed at by any live key, so they are never returned.
+
     Perf: reads the control graph's ``promoted`` triples — one per promoted dataset
     — so this is O(#datasets) with no triple scan, even with a multi-million-triple
     graph in the store (the property that made the old name-index scan slow).
     """
     q = (
         "SELECT DISTINCT ?g WHERE { "
-        f'GRAPH <{CONTROL_GRAPH_IRI}> {{ ?g <{STATUS_PREDICATE}> "{STATUS_PROMOTED}" }} '
-        "} ORDER BY ?g"
+        f"GRAPH <{CONTROL_GRAPH_IRI}> {{ "
+        f'?c <{STATUS_PREDICATE}> "{STATUS_PROMOTED}" . '
+        f"OPTIONAL {{ ?c <{LIVE_GRAPH_PREDICATE}> ?lg }} "
+        "BIND(COALESCE(?lg, ?c) AS ?g) "
+        "} } ORDER BY ?g"
     )
     data = await client.sparql_select(q)
     results = data.get("results", {}) if isinstance(data, dict) else {}

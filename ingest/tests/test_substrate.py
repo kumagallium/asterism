@@ -28,9 +28,9 @@ from asterism.substrate import (
     materialize_to_graph,
     materialize_to_nt_file,
     ontology_graph_iri,
-    promote_to_canonical,
     run_substrate_ingest,
     stream_nt_file_to_oxigraph,
+    versioned_graph_iri,
 )
 
 # ---- draft graph IRI scheme -------------------------------------------------
@@ -246,67 +246,149 @@ class _FakeSparql:
         self.updates.append(update)
 
 
+class _RWClient:
+    """A SupportsSparql backed by a real rdflib Dataset (SELECT + UPDATE).
+
+    Exercises the surgical control writes + versioned-graph swap + sweep against a
+    real SPARQL 1.1 engine, not just recorded query strings.
+    """
+
+    def __init__(self, ds: rdflib.Dataset) -> None:
+        self.ds = ds
+
+    async def sparql_select(self, query: str) -> dict:
+        raw = self.ds.query(query).serialize(format="json")
+        return json.loads(raw.decode() if isinstance(raw, bytes) else raw)
+
+    async def sparql_update(self, update: str) -> None:
+        self.ds.update(update)
+
+
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 async def test_alignment_report_classifies_predicates_and_classes() -> None:
-    fake = _FakeSparql(
-        draft_preds={"https://schema.org/name", "https://ex#new"},
-        canon_preds={"https://schema.org/name"},
-        draft_classes={"https://ex#Curve"},
-        canon_classes=set(),
-    )
-    rep = await alignment_report(fake, draft_graph_iri("ds1"))
-    assert rep["predicates"]["reuse"] == ["https://schema.org/name"]
-    assert rep["predicates"]["new"] == ["https://ex#new"]
-    assert rep["classes"]["new"] == ["https://ex#Curve"]  # canonical empty -> all new
-
-
-async def test_promote_to_canonical_sets_flag_no_move() -> None:
-    # Memory-bounded promote: a control-graph flag write, NEVER a MOVE of the data
-    # graph (the OOM-prone op is gone). One DELETE+INSERT, no MOVE/COUNT.
-    from asterism.substrate import CONTROL_GRAPH_IRI, STATUS_PREDICATE
-
-    fake = _FakeSparql(set(), set(), set(), set())
-    canon = canonical_graph_iri("ds1")
-    await promote_to_canonical(fake, canon)
-    assert len(fake.updates) == 1
-    u = fake.updates[0]
-    assert "MOVE" not in u
-    assert "DELETE WHERE" in u and "INSERT DATA" in u
-    assert CONTROL_GRAPH_IRI in u and canon in u
-    assert STATUS_PREDICATE in u and '"promoted"' in u
-
-
-async def test_clear_status_removes_control_marker() -> None:
-    # Used on re-ingest to un-publish before re-streaming (gap-free swap): clears
-    # the control status, leaving no retracted/deleted tombstone.
-    from asterism.substrate import CONTROL_GRAPH_IRI, clear_status
-
-    fake = _FakeSparql(set(), set(), set(), set())
-    canon = canonical_graph_iri("ds1")
-    await clear_status(fake, canon)
-    assert len(fake.updates) == 1
-    u = fake.updates[0]
-    assert u.startswith("DELETE WHERE") and "INSERT" not in u
-    assert CONTROL_GRAPH_IRI in u and canon in u
-
-
-# ---- retract / reinstate (#20 P3 step3) -------------------------------------
-
-
-def test_canonical_scope_where_requires_promoted() -> None:
+    # The canonical side is the FROM-merge over the *promoted* graphs (same scope as
+    # Ask); the staged graph is not promoted, so it is never on the side it is
+    # compared against.
     from asterism.substrate import (
         CONTROL_GRAPH_IRI,
         STATUS_PREDICATE,
-        canonical_scope_where,
+        STATUS_PROMOTED,
+        set_staged_graph,
     )
 
-    sql = canonical_scope_where("?s ?p ?o")
-    # default branch + canonical named-graph branch
-    assert "{ ?s ?p ?o }" in sql and "GRAPH ?__cg" in sql
-    # only graphs flagged promoted in the control graph are in scope (this single
-    # requirement subsumes the old retracted exclusion)
-    assert "FILTER EXISTS" in sql
-    assert CONTROL_GRAPH_IRI in sql
-    assert STATUS_PREDICATE in sql and "promoted" in sql
+    ds = rdflib.Dataset()
+    schema = rdflib.Namespace("https://schema.org/")
+    ex = rdflib.Namespace("https://ex#")
+    canon_g = rdflib.URIRef(canonical_graph_iri("other"))
+    staged_g = rdflib.URIRef(versioned_graph_iri("ds1", 1))
+    # canonical (promoted) side: reuses schema:name
+    ds.graph(canon_g).add((ex.s, schema.name, rdflib.Literal("x")))
+    ds.graph(rdflib.URIRef(CONTROL_GRAPH_IRI)).add(
+        (canon_g, rdflib.URIRef(STATUS_PREDICATE), rdflib.Literal(STATUS_PROMOTED))
+    )
+    # staged side: schema:name (reuse) + ex#new (new) + class ex#Curve (new)
+    ds.graph(staged_g).add((ex.a, schema.name, rdflib.Literal("y")))
+    ds.graph(staged_g).add((ex.a, ex.new, rdflib.Literal("z")))
+    ds.graph(staged_g).add((ex.a, rdflib.RDF.type, ex.Curve))
+    client = _RWClient(ds)
+    await set_staged_graph(client, canonical_graph_iri("ds1"), str(staged_g))
+
+    rep = await alignment_report(client, str(staged_g))
+    assert rep["predicates"]["reuse"] == ["https://schema.org/name"]
+    assert "https://ex#new" in rep["predicates"]["new"]
+    assert rep["classes"]["new"] == ["https://ex#Curve"]  # canonical has no classes
+
+
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+async def test_versioned_promote_swaps_pointer_and_orphans_prior() -> None:
+    # part5: promote points liveGraph at the staged version (no MOVE/DROP); a
+    # re-promote supersedes the prior version, which is enqueued for a background
+    # drop and reclaimed by the sweeper — the live version stays untouched.
+    from asterism.substrate import (
+        canonical_graphs,
+        live_graph_of,
+        pending_drops,
+        promote_to_canonical,
+        set_staged_graph,
+        sweep_pending_drops,
+    )
+
+    ds = rdflib.Dataset()
+    ex = rdflib.Namespace("https://ex#")
+    key = canonical_graph_iri("ds1")
+    v1, v2 = versioned_graph_iri("ds1", 1), versioned_graph_iri("ds1", 2)
+    ds.graph(rdflib.URIRef(v1)).add((ex.a, ex.p, rdflib.Literal("v1")))
+    ds.graph(rdflib.URIRef(v2)).add((ex.b, ex.p, rdflib.Literal("v2")))
+    client = _RWClient(ds)
+
+    # ingest v1 -> stage -> promote
+    await set_staged_graph(client, key, v1)
+    assert await canonical_graphs(client) == []  # staged, not citable
+    orphan = await promote_to_canonical(client, key, v1)
+    assert orphan is None
+    assert await canonical_graphs(client) == [v1]  # live version is citable
+    assert await live_graph_of(client, key) == v1
+
+    # re-ingest v2 -> v1 stays citable during the (separate) re-stream
+    await set_staged_graph(client, key, v2)
+    assert await canonical_graphs(client) == [v1]  # gap-free: still v1
+    # re-promote -> live swaps to v2, v1 superseded + enqueued
+    orphan2 = await promote_to_canonical(client, key, v2)
+    assert orphan2 == v1
+    assert await canonical_graphs(client) == [v2]
+    assert await pending_drops(client) == [v1]
+
+    # the sweeper drops only the superseded v1; v2 (live) is untouched
+    assert await sweep_pending_drops(client) == [v1]
+    assert len(ds.graph(rdflib.URIRef(v1))) == 0
+    assert len(ds.graph(rdflib.URIRef(v2))) == 1
+    assert await pending_drops(client) == []
+
+
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+async def test_repromote_legacy_dataset_orphans_key_graph() -> None:
+    # Backward-compat: a dataset promoted BEFORE part5 has its data in the key graph
+    # (no liveGraph). Re-ingesting it streams a version graph; re-promote must orphan
+    # the legacy key graph so the old version is reclaimed (no leak).
+    from asterism.substrate import (
+        CONTROL_GRAPH_IRI,
+        STATUS_PREDICATE,
+        STATUS_PROMOTED,
+        canonical_graphs,
+        mark_graph_promoted,
+        promote_to_canonical,
+        set_staged_graph,
+        sweep_pending_drops,
+    )
+
+    ds = rdflib.Dataset()
+    ex = rdflib.Namespace("https://ex#")
+    key = canonical_graph_iri("legacyds")
+    v1 = versioned_graph_iri("legacyds", 1)
+    # legacy state: data in the key graph, promoted, NO liveGraph (pre-part5)
+    ds.graph(rdflib.URIRef(key)).add((ex.old, ex.p, rdflib.Literal("legacy")))
+    ds.graph(rdflib.URIRef(v1)).add((ex.new, ex.p, rdflib.Literal("v1")))
+    ds.graph(rdflib.URIRef(CONTROL_GRAPH_IRI)).add(
+        (rdflib.URIRef(key), rdflib.URIRef(STATUS_PREDICATE), rdflib.Literal(STATUS_PROMOTED))
+    )
+    client = _RWClient(ds)
+    assert await canonical_graphs(client) == [key]  # legacy data citable via the key
+
+    # mark_graph_promoted backfill restores the pre-part5 state too (no live_graph)
+    await mark_graph_promoted(client, key)
+    assert await canonical_graphs(client) == [key]
+
+    # re-ingest v1 -> re-promote: the legacy key graph is orphaned + reclaimed
+    await set_staged_graph(client, key, v1)
+    orphan = await promote_to_canonical(client, key, v1)
+    assert orphan == key
+    assert await canonical_graphs(client) == [v1]
+    await sweep_pending_drops(client)
+    assert len(ds.graph(rdflib.URIRef(key))) == 0  # legacy data reclaimed
+    assert len(ds.graph(rdflib.URIRef(v1))) == 1
+
+
+# ---- retract / reinstate (#20 P3 step3) -------------------------------------
 
 
 async def test_retract_canonical_writes_tombstone() -> None:
@@ -327,19 +409,34 @@ async def test_retract_canonical_writes_tombstone() -> None:
     assert STATUS_PREDICATE in u and '"retracted"' in u
 
 
-async def test_reinstate_canonical_restores_promoted_flag() -> None:
-    from asterism.substrate import CONTROL_GRAPH_IRI, STATUS_PREDICATE, reinstate_canonical
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+async def test_retract_reinstate_preserve_live_graph() -> None:
+    # part5: retract/reinstate flip the status surgically, keeping the liveGraph
+    # pointer, so reinstate brings back the SAME version graph.
+    from asterism.substrate import (
+        canonical_graphs,
+        live_graph_of,
+        promote_to_canonical,
+        reinstate_canonical,
+        retract_canonical,
+        set_staged_graph,
+    )
 
-    fake = _FakeSparql(set(), set(), set(), set())
-    canon = canonical_graph_iri("ds1")
-    await reinstate_canonical(fake, canon)
-    assert len(fake.updates) == 1
-    u = fake.updates[0]
-    # citability requires the promoted flag, so reinstate must SET it (clear the
-    # retracted marker, then insert promoted) — not merely remove the tombstone
-    assert "DELETE WHERE" in u and "INSERT DATA" in u
-    assert CONTROL_GRAPH_IRI in u and canon in u
-    assert STATUS_PREDICATE in u and '"promoted"' in u
+    ds = rdflib.Dataset()
+    ex = rdflib.Namespace("https://ex#")
+    key = canonical_graph_iri("ds1")
+    v1 = versioned_graph_iri("ds1", 1)
+    ds.graph(rdflib.URIRef(v1)).add((ex.a, ex.p, rdflib.Literal("v1")))
+    client = _RWClient(ds)
+    await set_staged_graph(client, key, v1)
+    await promote_to_canonical(client, key, v1)
+
+    await retract_canonical(client, key, invalidated_at="2026-06-08T00:00:00")
+    assert await canonical_graphs(client) == []  # withdrawn from the citable scope
+    assert await live_graph_of(client, key) == v1  # pointer preserved
+
+    await reinstate_canonical(client, key)
+    assert await canonical_graphs(client) == [v1]  # same version back, citable
 
 
 # ---- delete (#20 P3 step4) --------------------------------------------------
