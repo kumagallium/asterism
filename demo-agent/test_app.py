@@ -266,22 +266,53 @@ def test_llm_escape_requires_key(monkeypatch) -> None:
     assert any("API キー" in n for n in body["notes"])
 
 
-def test_typed_path_still_short_circuits_without_llm(monkeypatch) -> None:
-    # Starrydata fixture + a ZT question → typed path answers; LLM untouched even
-    # when a key is present.
+def test_no_key_typed_showcase_answers_zt(monkeypatch) -> None:
+    # No key -> the free, deterministic typed showcase answers a ZT question with no
+    # LLM (and reports the excluded outlier as a data-quality note).
     g = rdflib.ConjunctiveGraph()  # quad store: canonical-scope reads use GRAPH (#20 P3)
     g.parse(data=_TTL, format="turtle")
     demo._state["client"] = _LocalClient(g)
     monkeypatch.setattr(demo, "_REAL", True)
     fake = _FakeAnthropic([])
     monkeypatch.setitem(demo._state, "anthropic_factory", lambda _key: fake)
-    client = TestClient(demo.app)
-    body = client.post(
-        "/demo/ask", json={"question": "ZTが最も高い材料は？"},
-        headers={"X-API-Key": "sk-test"},
+    body = TestClient(demo.app).post(
+        "/demo/ask", json={"question": "ZTが最も高い材料は？"}  # no X-API-Key
     ).json()
     assert "ZT" in body["answer"]
-    assert fake.calls == []  # typed path won; no escape
+    assert body["citations"]
+    assert fake.calls == []  # no key -> typed path, LLM untouched
+
+
+def test_key_present_llm_picks_typed_property_ranking(monkeypatch) -> None:
+    # P4-2b: with a key, the LLM does the routing — for a clean "highest ZT" question
+    # it can CALL the deterministic property_ranking tool (not only raw SPARQL). The
+    # tool runs for real and its result is fed back before the model submits.
+    g = rdflib.ConjunctiveGraph()
+    g.parse(data=_TTL, format="turtle")
+    demo._state["client"] = _LocalClient(g)
+    monkeypatch.setattr(demo, "_REAL", True)
+    fake = _FakeAnthropic(
+        [
+            _block(content=[_block(type="tool_use", id="t1", name="property_ranking",
+                                   input={"property_y": "ZT", "max_plausible": 3.5})]),
+            _block(content=[_block(type="tool_use", id="t2", name="submit_answer",
+                                   input={"answer": "最大 ZT の材料は …", "citations": []})]),
+        ]
+    )
+    monkeypatch.setitem(demo._state, "anthropic_factory", lambda _key: fake)
+    body = TestClient(demo.app).post(
+        "/demo/ask", json={"question": "ZTが最も高い熱電材料は？"},
+        headers={"X-API-Key": "sk-test"},
+    ).json()
+    assert len(fake.calls) == 2  # called property_ranking, then submitted
+    # the 2nd model call carries the property_ranking tool_result (it really ran)
+    second = fake.calls[1]["messages"]
+    results = [
+        b for m in second if isinstance(m.get("content"), list)
+        for b in m["content"] if isinstance(b, dict) and b.get("type") == "tool_result"
+    ]
+    assert any(r["tool_use_id"] == "t1" for r in results)
+    assert "最大 ZT" in body["answer"]
 
 
 def test_generic_question_falls_through_not_canned_samples(monkeypatch) -> None:

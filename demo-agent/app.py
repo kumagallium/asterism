@@ -250,15 +250,17 @@ def _compose_search(comp: str | None, res: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# #18 LLM NL->SPARQL escape (consuming layer only — core stays Claude-free)
+# #18 / P4-2b LLM tool-use agent (consuming layer only — core stays Claude-free)
 # ---------------------------------------------------------------------------
-# When the typed path finds nothing (e.g. a user-designed schema the typed tools
-# were never specialized for), an LLM introspects the live vocabulary via
-# schema_summary, writes a READ-ONLY SPARQL query, runs it through sparql_query
-# (which enforces read-only), inspects the rows, and composes a grounded answer
-# with citations. This is the "exploration is an escape hatch" path from the
-# product direction: deterministic-and-typed is primary, the LLM only enters
-# when typed answers run out, and it can only call the same read-only tools.
+# With a user-brought key, an LLM does the routing instead of a brittle keyword
+# matcher: it introspects the live vocabulary via schema_summary and PICKS the
+# right read-only tool per question — the DETERMINISTIC typed tools
+# (property_ranking / sample_search: cited, with data-quality notes) when a
+# question fits one, or raw read-only SPARQL (run_sparql) for anything else
+# (cross-dataset joins, correlations, custom shapes). It composes a grounded answer
+# with citations from the actual results. Still an escape per the product direction
+# (the no-key path is the deterministic typed showcase), and still read-only — the
+# LLM can never mutate the store.
 
 _RUN_SPARQL_TOOL = {
     "name": "run_sparql",
@@ -307,20 +309,84 @@ _SUBMIT_ANSWER_TOOL = {
     },
 }
 
+# Typed tools exposed to the LLM so it can PICK the deterministic, cited path when
+# a question fits one (instead of a brittle keyword router deciding for it). For
+# anything the typed tools don't cover (cross-dataset joins, correlations, custom
+# shapes) the LLM falls back to run_sparql. This is P4-2b: the LLM does the routing.
+_PROPERTY_RANKING_TOOL = {
+    "name": "property_ranking",
+    "description": (
+        "DETERMINISTIC, CITED ranking of measured curves by a y-axis property "
+        "(e.g. 'ZT', 'Seebeck coefficient'). Returns the top items with value + "
+        "composition + citable IRIs, and EXCLUDES physically-implausible outliers "
+        "(reported as excluded_implausible — a data-quality signal worth mentioning). "
+        "PREFER this over run_sparql for a plain 'highest / top-N by <property>' "
+        "question within one dataset."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "property_y": {"type": "string", "description": "exact propertyY value, e.g. 'ZT'"},
+            "top_n": {"type": "integer", "description": "default 10"},
+            "max_plausible": {
+                "type": "number",
+                "description": "exclude values above this (e.g. 3.5 for ZT)",
+            },
+        },
+        "required": ["property_y"],
+    },
+}
+
+_SAMPLE_SEARCH_TOOL = {
+    "name": "sample_search",
+    "description": (
+        "DETERMINISTIC, CITED search of samples by composition substring and/or by "
+        "a measured property, returning citable sample IRIs + composition + paper "
+        "title. PREFER this for 'samples with composition X' or 'samples that have a "
+        "<property> curve' within one dataset."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "composition": {"type": "string", "description": "composition substring, e.g. 'SnSe'"},
+            "property_y": {"type": "string", "description": "require a curve of this propertyY"},
+        },
+    },
+}
+
 _ASK_SYSTEM = """\
-You answer questions over an RDF graph by writing READ-ONLY SPARQL and grounding \
-your answer in the actual results. Make NO assumptions about the vocabulary \
-beyond the schema below — it lists the classes, predicates, and per-class \
-predicate shapes that ACTUALLY exist in the store, with usage counts.
+You answer questions over an RDF graph that may span MULTIPLE datasets. You have
+deterministic typed tools AND raw read-only SPARQL — YOU choose which fits the
+question. Make NO assumptions about the vocabulary beyond the schema below — it
+lists the classes, predicates, and per-class predicate shapes that ACTUALLY exist
+in the store, with usage counts.
+
+Choosing a tool:
+- A plain 'highest / top-N by <property>' question -> property_ranking (it is
+  deterministic, cites IRIs, and reports excluded outliers). Mention the
+  excluded_implausible count if it is > 0.
+- 'samples with composition X' / 'samples that have a <property> curve' ->
+  sample_search.
+- ANYTHING ELSE — cross-dataset joins, correlations between two things, custom
+  shapes — write SPARQL and run_sparql.
+
+Cross-dataset joins (IMPORTANT): datasets can relate by shared literal VALUES, not
+only by predicates. For example a starrydata `compositionString` may EQUAL a
+Materials Project `formula`. To answer a question that spans datasets, JOIN on the
+shared value, e.g.
+  ?samp <…/compositionString> ?c . ?mat <…/formula> ?c . ?mat <…/hasCrystalStructure> ?cs .
+Use the EXACT class/predicate IRIs from the schema, in <>.
 
 Rules:
-- Use ONLY IRIs that appear in the schema, written as full IRIs in <>.
-- Always SELECT enough to cite (include the subject IRI). Add LIMIT (<=50).
-- Call run_sparql to execute. If it returns an error, read it and try again \
-(at most a few times); do not give up after one failure.
-- When you have the data, call submit_answer with a concise Japanese answer and \
-citations whose IRIs literally appear in your results. Never fabricate values.
-- If the data genuinely cannot answer the question, say so honestly.
+- Use ONLY IRIs that appear in the schema. SELECT enough to cite (the subject IRI).
+  Add LIMIT (<=50).
+- If a query errors or returns nothing, read it and try a DIFFERENT query (try a
+  few times — e.g. relax a join, check the actual predicate). Do not give up after
+  one failure.
+- Call submit_answer with a concise Japanese answer + citations whose IRIs
+  literally appear in your results. NEVER fabricate values or IRIs, and NEVER
+  submit a placeholder like "ダミー" — if the data genuinely cannot answer (e.g. the
+  two datasets share no join key), say so HONESTLY and explain what is missing.
 
 Schema (classes / predicates / per-class shapes with counts):
 %s
@@ -363,22 +429,34 @@ def _blocks_to_dicts(content: list) -> list[dict]:
     return out
 
 
-async def _llm_sparql_answer(question: str, api_key: str) -> dict:
-    """Schema-grounded LLM agent: introspect → write SPARQL → run → answer.
+async def _llm_answer(question: str, api_key: str) -> dict:
+    """Schema-grounded LLM agent: it PICKS among the deterministic typed tools
+    (property_ranking / sample_search) and raw read-only SPARQL (run_sparql),
+    grounding the answer in real results (P4-2b — the LLM does the routing).
 
     Returns the same ``{answer, citations, notes}`` contract as the typed path,
-    plus a ``sparql`` list of the queries actually run (disclosure: the user can
-    see and verify how the answer was derived). All queries go through the
-    read-only ``sparql_query`` guard, so the LLM cannot mutate the store.
+    plus a ``sparql`` list of the queries actually run (disclosure). All store
+    access is read-only (typed tools + the ``sparql_query`` guard), so the LLM
+    cannot mutate the store.
     """
-    from asterism_mcp.tools import schema_summary, sparql_query
+    from asterism_mcp.tools import (
+        property_ranking,
+        sample_search,
+        schema_summary,
+        sparql_query,
+    )
 
     client = _client()
     schema = await schema_summary(
         client, max_classes=40, max_predicates=80, predicates_per_class=15
     )
     system = _ASK_SYSTEM % _render_schema(schema)
-    tools = [_RUN_SPARQL_TOOL, _SUBMIT_ANSWER_TOOL]
+    tools = [
+        _PROPERTY_RANKING_TOOL,
+        _SAMPLE_SEARCH_TOOL,
+        _RUN_SPARQL_TOOL,
+        _SUBMIT_ANSWER_TOOL,
+    ]
     messages: list[dict] = [{"role": "user", "content": question}]
     used_sparql: list[str] = []
     anthropic = _anthropic_client(api_key)
@@ -420,37 +498,46 @@ async def _llm_sparql_answer(question: str, api_key: str) -> dict:
                 "sparql": used_sparql,
             }
 
-        # Execute every run_sparql call and feed the results back.
+        # Execute every tool call and feed the results back.
         messages.append({"role": "assistant", "content": _blocks_to_dicts(resp.content)})
         tool_results: list[dict] = []
         for tu in tool_uses:
-            if tu.name == "run_sparql":
-                q = (tu.input or {}).get("query", "")
-                try:
+            inp = tu.input or {}
+            try:
+                if tu.name == "run_sparql":
+                    q = inp.get("query", "")
                     result = await sparql_query(q, client, max_rows=50)
                     # Disclose the query that ACTUALLY ran: sparql_query rewrites a
                     # plain SELECT to read the cross-dataset canonical FROM-merge
                     # (#20), so the user sees the real, reproducible query string.
                     used_sparql.append(result.get("effective_query") or q)
-                except Exception as exc:  # never let a bad query kill the loop
-                    used_sparql.append(q)
-                    result = {"error": str(exc)}
-                tool_results.append(
-                    {
-                        "type": "tool_result",
-                        "tool_use_id": tu.id,
-                        "content": json.dumps(result, ensure_ascii=False),
-                    }
-                )
-            else:
-                tool_results.append(
-                    {
-                        "type": "tool_result",
-                        "tool_use_id": tu.id,
-                        "content": "unknown tool",
-                        "is_error": True,
-                    }
-                )
+                elif tu.name == "property_ranking":
+                    result = await property_ranking(
+                        client,
+                        property_y=inp.get("property_y", ""),
+                        top_n=int(inp.get("top_n") or 10),
+                        max_plausible=inp.get("max_plausible"),
+                    )
+                elif tu.name == "sample_search":
+                    result = await sample_search(
+                        client,
+                        composition=inp.get("composition"),
+                        property_y=inp.get("property_y"),
+                        limit=20,
+                    )
+                else:
+                    result = {"error": f"unknown tool {tu.name!r}"}
+            except Exception as exc:  # never let a bad tool call kill the loop
+                if tu.name == "run_sparql":
+                    used_sparql.append(inp.get("query", ""))
+                result = {"error": str(exc)}
+            tool_results.append(
+                {
+                    "type": "tool_result",
+                    "tool_use_id": tu.id,
+                    "content": json.dumps(result, ensure_ascii=False),
+                }
+            )
         messages.append({"role": "user", "content": tool_results})
 
     # Exhausted steps without a submit_answer (should be rare given force_final).
@@ -511,23 +598,23 @@ async def ask(
         # MOCK: same grounded fixture regardless of question.
         return _ASK_FIXTURE
 
-    # 1. Deterministic typed path first (LLM-free, fast, reproducible). This is
-    #    the main act per product direction; it only fits the starrydata schema.
+    # P4-2b: with a key, the LLM does the routing — it PICKS among the deterministic
+    # typed tools (property_ranking / sample_search, which it can call for a clean
+    # fit) and raw SPARQL (cross-dataset / anything else). This replaces the brittle
+    # keyword router for exploration: a "ZT by crystal structure" question is no
+    # longer short-circuited to a single-property ranking.
+    if x_api_key:
+        return await _llm_answer(req.question, x_api_key)
+
+    # No key: the free, deterministic typed showcase (the example chips). A question
+    # the typed tools cannot answer gets an honest hint that the general path needs
+    # a key (we never fabricate a generic "all samples" answer — see _typed_answer).
     typed = await _typed_answer(req.question)
     if typed.get("citations"):
         return typed
-
-    # 2. Escape: the typed tools found nothing — the data may use a schema they
-    #    were never specialized for. If the caller brought an API key, let an LLM
-    #    introspect the schema and write a read-only SPARQL query to answer.
-    if x_api_key:
-        return await _llm_sparql_answer(req.question, x_api_key)
-
-    # 3. No key, nothing typed: hand back the empty typed answer with a hint so
-    #    the user knows the general (LLM) path needs a key.
     typed.setdefault("notes", []).append(
-        "型付きツールで該当が見つかりませんでした。任意スキーマへの一般的な質問には "
-        "API キーが必要です（スキーマを内省して SPARQL を生成します）。"
+        "型付きツールで該当が見つかりませんでした。一般的な質問・横断的な質問には "
+        "API キーが必要です（スキーマを内省して型付きツール/SPARQL を選びます）。"
     )
     return typed
 
