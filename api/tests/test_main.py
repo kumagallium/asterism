@@ -587,10 +587,16 @@ def test_sparql_injects_from_merge_when_canonical_graphs_exist(tmp_path: Path) -
 
     def handler(request: httpx.Request) -> httpx.Response:
         q = request.content.decode()
-        if "SELECT DISTINCT ?g" in q and "STRSTARTS(STR(?g)" in q:  # enumeration
+        if "SELECT DISTINCT ?g" in q and '"promoted"' in q:  # canonical enumeration
             rows = [{"g": {"type": "uri", "value": g}}]
         elif "COUNT" in q and "GRAPH" not in q:  # startup migration default-count
             rows = [{"c": {"value": "0"}}]
+        elif q.strip().startswith("ASK"):  # startup legacy-has-data probe -> empty
+            return httpx.Response(
+                200,
+                text=json.dumps({"head": {}, "boolean": False}),
+                headers={"content-type": "application/sparql-results+json"},
+            )
         else:
             seen["relay"] = q  # the rewritten relay query
             rows = []
@@ -634,7 +640,12 @@ def test_startup_migrates_default_into_canonical_legacy(tmp_path: Path) -> None:
     with TestClient(app):
         pass  # lifespan startup runs the migration
     legacy = canonical_graph_iri("legacy")
-    assert updates == [f"ADD DEFAULT TO GRAPH <{legacy}>", "CLEAR DEFAULT"]
+    # Migrate default -> canonical/legacy, then flag legacy promoted (citability is
+    # now flag-gated, so migrated legacy data must carry the promoted flag).
+    assert updates[:2] == [f"ADD DEFAULT TO GRAPH <{legacy}>", "CLEAR DEFAULT"]
+    assert any(
+        "INSERT DATA" in u and '"promoted"' in u and legacy in u for u in updates[2:]
+    )
 
 
 def test_job_stream_unknown_id(

@@ -93,6 +93,11 @@ ASTERISM_NS: str = "https://kumagallium.github.io/asterism/vocab#"
 STATUS_PREDICATE: str = ASTERISM_NS + "status"
 INVALIDATED_PREDICATE: str = "http://www.w3.org/ns/prov#invalidatedAtTime"
 STATUS_ACTIVE: str = "active"
+# A canonical graph is *citable* iff the control graph flags it "promoted"
+# (memory-bounded promote — the flag, not graph existence, gates the Ask scope, so
+# a freshly-ingested-but-unreviewed graph is excluded without a MOVE). retracted /
+# deleted are the two ways a once-promoted graph leaves the scope.
+STATUS_PROMOTED: str = "promoted"
 STATUS_RETRACTED: str = "retracted"
 STATUS_DELETED: str = "deleted"
 
@@ -336,13 +341,19 @@ async def run_substrate_ingest(
 
 
 # ----------------------------------------------------------------------------
-# Promotion: draft -> canonical (#15 S4)
+# Promotion: stage -> canonical (#15 S4) — memory-bounded, flag-based (no MOVE)
 # ----------------------------------------------------------------------------
 #
-# "Canonical" is the *default graph* — where Ask's GRAPH-less queries (and the
-# MCP tools' GRAPH ?g UNION default) read citable facts. Promotion MOVEs a draft
-# named graph into the default graph after a human reviews the alignment report,
-# so unreviewed vocabulary never silently becomes a citable fact (D2).
+# Ingest streams a dataset's triples STRAIGHT into its per-dataset canonical graph
+# (``…/graph/canonical/{id}``); promotion then flips a single "promoted" flag in
+# the control graph. Citability is gated on that flag, NOT on graph existence, so
+# an ingested-but-unreviewed graph sits in ``canonical/{id}`` yet stays out of the
+# Ask scope until a human promotes it (the draft-isolation invariant, D2).
+#
+# This replaces the old ``MOVE GRAPH draft TO canonical``: Oxigraph materializes a
+# whole graph in memory to MOVE it (~1.5 GB per 1 M triples — OOM on large data),
+# whereas a flag write is O(1) and memory-bounded. See
+# ``docs/architecture/scalable-declarative-ingestion.md`` §promote.
 
 
 class SupportsSparql(Protocol):
@@ -365,34 +376,27 @@ def classify_alignment(draft: set[str], canonical: set[str]) -> dict[str, list[s
     }
 
 
-# Excludes retracted canonical graphs: a tombstone in the control graph
-# (``<canonical/{id}> asterism:status "retracted"``) drops that graph from every
-# Ask read (#20 P3 step3). The IRIs stay resolvable for citations; they just
-# leave the citable corpus until reinstated.
-def _retracted_exclusion_for_var(graph_var: str) -> str:
-    """``FILTER NOT EXISTS`` that drops ``graph_var`` if it is retracted."""
+def _promoted_requirement_for_var(graph_var: str) -> str:
+    """``FILTER EXISTS`` that keeps ``graph_var`` only if it is flagged promoted."""
     return (
-        f"FILTER NOT EXISTS {{ GRAPH <{CONTROL_GRAPH_IRI}> {{ "
-        f'{graph_var} <{STATUS_PREDICATE}> "{STATUS_RETRACTED}" }} }}'
+        f"FILTER EXISTS {{ GRAPH <{CONTROL_GRAPH_IRI}> {{ "
+        f'{graph_var} <{STATUS_PREDICATE}> "{STATUS_PROMOTED}" }} }}'
     )
-
-
-_RETRACTED_EXCLUSION: str = _retracted_exclusion_for_var("?__cg")
 
 
 def canonical_scope_where(body: str) -> str:
     """A WHERE group reading the **canonical scope** (#20 P3). Single source of truth.
 
-    ``{ body } UNION { GRAPH ?__cg { body } FILTER(canonical prefix) FILTER NOT
-    EXISTS retracted }`` — the default graph (legacy / seed / pre-migration data)
-    plus every per-dataset canonical named graph that is NOT retracted; draft /
-    control / ontology graphs are excluded by the prefix filter. ``asterism_mcp``
-    imports this so Ask reads and alignment use the exact same scope.
+    ``{ body } UNION { GRAPH ?__cg { body } FILTER EXISTS promoted }`` — the
+    default graph (legacy / seed / pre-migration data) plus every per-dataset
+    canonical named graph that the control graph flags ``promoted``. Ingested-but-
+    unpromoted graphs (no flag) and retracted / deleted graphs (a different status)
+    are excluded — that single requirement subsumes the old retracted filter.
+    ``asterism_mcp`` imports this so Ask reads and alignment use the exact same scope.
     """
     return (
         "{ " + body + " } UNION { GRAPH ?__cg { " + body + " } "
-        f'FILTER(STRSTARTS(STR(?__cg), "{CANONICAL_GRAPH_BASE}")) '
-        f"{_RETRACTED_EXCLUSION} }}"
+        f"{_promoted_requirement_for_var('?__cg')} }}"
     )
 
 
@@ -431,26 +435,40 @@ async def alignment_report(client: SupportsSparql, draft_iri: str) -> dict[str, 
     }
 
 
-async def promote_draft_to_canonical(
-    client: SupportsSparql, draft_iri: str, canonical_iri: str
-) -> int:
-    """MOVE the draft graph into the dataset's **canonical named graph** (#20 P3).
+async def mark_graph_promoted(client: SupportsSparql, canonical_iri: str) -> None:
+    """Flag ``canonical_iri`` as ``promoted`` (citable) in the control graph. O(1).
 
-    Returns the triples moved. ``MOVE`` replaces the destination, so a re-promote
-    cleanly swaps in the new version (stale triples from a prior version do not
-    linger — that is why canonical is per-dataset, ADR §3.1). After this the draft
-    named graph no longer exists; Ask reads ``canonical_iri`` via the canonical
-    scope. An empty/absent draft makes this a no-op.
+    Replaces any prior control status for the graph (so it also serves as
+    reinstate-from-retracted and re-promote). One small control-graph write — it
+    never touches the data graph, so it is memory-bounded regardless of how many
+    triples ``canonical_iri`` holds (the whole point: no MOVE).
     """
-    count = 0
-    data = await client.sparql_select(
-        f"SELECT (COUNT(*) AS ?c) WHERE {{ GRAPH <{draft_iri}> {{ ?s ?p ?o }} }}"
+    await client.sparql_update(
+        f"DELETE WHERE {{ GRAPH <{CONTROL_GRAPH_IRI}> {{ <{canonical_iri}> ?p ?o }} }} ;"
+        f"INSERT DATA {{ GRAPH <{CONTROL_GRAPH_IRI}> {{ "
+        f'<{canonical_iri}> <{STATUS_PREDICATE}> "{STATUS_PROMOTED}" }} }}'
     )
-    bindings = data.get("results", {}).get("bindings", []) if isinstance(data, dict) else []
-    if bindings:
-        count = int(bindings[0]["c"]["value"])
-    await client.sparql_update(f"MOVE GRAPH <{draft_iri}> TO GRAPH <{canonical_iri}>")
-    return count
+
+
+async def clear_status(client: SupportsSparql, canonical_iri: str) -> None:
+    """Remove ``canonical_iri`` from the citable scope by clearing its control
+    status. Used on re-ingest to un-publish before re-streaming (gap-free swap);
+    NOT a tombstone (leaves no retracted / deleted marker)."""
+    await client.sparql_update(
+        f"DELETE WHERE {{ GRAPH <{CONTROL_GRAPH_IRI}> {{ <{canonical_iri}> ?p ?o }} }}"
+    )
+
+
+async def promote_to_canonical(client: SupportsSparql, canonical_iri: str) -> None:
+    """Promote a dataset's canonical graph: flip its control flag to ``promoted``.
+
+    Memory-bounded (O(1) flag write) — the triples were streamed straight into
+    ``canonical_iri`` at ingest, so promotion moves/copies nothing (the OOM-prone
+    ``MOVE GRAPH`` is gone). Ask then reads ``canonical_iri`` via the canonical
+    scope. The triple count is read from the registry (recorded at ingest), so this
+    does not scan the graph either.
+    """
+    await mark_graph_promoted(client, canonical_iri)
 
 
 # ----------------------------------------------------------------------------
@@ -480,10 +498,12 @@ async def retract_canonical(
 
 
 async def reinstate_canonical(client: SupportsSparql, canonical_iri: str) -> None:
-    """Remove the retract tombstone for ``canonical_iri`` (back into the Ask scope)."""
-    await client.sparql_update(
-        f"DELETE WHERE {{ GRAPH <{CONTROL_GRAPH_IRI}> {{ <{canonical_iri}> ?p ?o }} }}"
-    )
+    """Undo a retract: flip the control status back to ``promoted`` (citable again).
+
+    (Citability now requires the ``promoted`` flag, so reinstate must set it — not
+    merely clear the retracted marker.)
+    """
+    await mark_graph_promoted(client, canonical_iri)
 
 
 # ----------------------------------------------------------------------------
@@ -526,9 +546,9 @@ async def tombstone_deleted(
 # {GRAPH-less}`` — verified on Oxigraph (FROM merges named graphs into the query's
 # default graph, so plain patterns join across them). FROM replaces the real
 # default graph, so legacy/seed data must first be migrated into a canonical graph
-# (migrate_default_to_canonical) for the merge to cover it. Retracted graphs are
-# simply omitted from the FROM list. These helpers are introduced unused; the
-# read-path switch + migration land in the follow-up PR.
+# (migrate_default_to_canonical, whose caller flags the target promoted) for the
+# merge to cover it. Only promoted graphs are listed, so unpromoted / retracted /
+# deleted graphs are simply absent from the FROM list.
 
 # Reserved canonical graph that legacy default-graph data migrates into, so the
 # FROM-merge covers it. "legacy" is IRI-safe and unlikely to collide with a real
@@ -537,25 +557,24 @@ LEGACY_DATASET_ID: str = "legacy"
 
 
 async def canonical_graphs(client: SupportsSparql) -> list[str]:
-    """List the canonical named graphs to read, sorted, EXCLUDING retracted ones.
+    """List the **citable** canonical named graphs, sorted (#20 P3).
+
+    A canonical graph is citable iff the control graph flags it ``promoted``, so
+    this enumerates the control graph's promoted markers — NOT the graph-name index.
+    Ingested-but-unpromoted graphs (no flag) and retracted / deleted graphs (a
+    different status) are absent, so draft data is never cited (the draft-isolation
+    invariant, now flag-based instead of MOVE-based).
 
     Used to build the FROM-merge dataset for cross-dataset queries. Deterministic
     order (sorted) keeps generated queries stable/cacheable.
 
-    Perf: the body is the empty group ``GRAPH ?g {}`` (not ``GRAPH ?g {?s ?p ?o}``).
-    The empty GGP enumerates named-graph *names* straight from the graph index — it
-    does NOT scan triples — so this stays O(#graphs) instead of O(#triples). That
-    matters because this runs on every read (FROM-merge), and a single large draft
-    graph (millions of triples) makes the triple-scanning form take tens of seconds
-    (measured: >30 s vs ~0.3 s on Oxigraph). A store never holds empty named graphs
-    (writes are MOVE/DROP, which drop the graph), so the two forms return the same
-    set; ``ontology_graphs`` uses the same trick.
+    Perf: reads the control graph's ``promoted`` triples — one per promoted dataset
+    — so this is O(#datasets) with no triple scan, even with a multi-million-triple
+    graph in the store (the property that made the old name-index scan slow).
     """
     q = (
         "SELECT DISTINCT ?g WHERE { "
-        "GRAPH ?g {} "
-        f'FILTER(STRSTARTS(STR(?g), "{CANONICAL_GRAPH_BASE}")) '
-        f"{_retracted_exclusion_for_var('?g')} "
+        f'GRAPH <{CONTROL_GRAPH_IRI}> {{ ?g <{STATUS_PREDICATE}> "{STATUS_PROMOTED}" }} '
         "} ORDER BY ?g"
     )
     data = await client.sparql_select(q)
@@ -717,6 +736,10 @@ async def migrate_default_to_canonical(
     startup**: a second run finds the default graph empty and is a no-op, and a
     target that already holds data is merged into, not clobbered (unlike ``MOVE``).
 
+    The caller flags ``target_iri`` ``promoted`` (``mark_graph_promoted``) so the
+    migrated data is citable — citability is now flag-gated, and the target is not
+    a workbench-promoted dataset that would otherwise carry its own flag.
+
     Returns the number of triples that were in the default graph before the move
     (0 = nothing to migrate).
     """
@@ -732,3 +755,11 @@ async def migrate_default_to_canonical(
         await client.sparql_update(f"ADD DEFAULT TO GRAPH <{target_iri}>")
         await client.sparql_update("CLEAR DEFAULT")
     return count
+
+
+async def graph_has_triples(client: SupportsSparql, graph_iri: str) -> bool:
+    """True iff ``graph_iri`` holds at least one triple (a cheap ASK — stops at the
+    first match, so it does not scan a large graph). Used at startup to flag the
+    legacy bulk graph ``promoted`` only when it actually holds data."""
+    data = await client.sparql_select(f"ASK {{ GRAPH <{graph_iri}> {{ ?s ?p ?o }} }}")
+    return bool(data.get("boolean")) if isinstance(data, dict) else False

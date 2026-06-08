@@ -209,11 +209,22 @@ def test_llm_escape_discloses_from_merged_query(monkeypatch) -> None:
     # When the data lives in a canonical named graph, the escape's SELECT is
     # rewritten to read the cross-dataset FROM-merge (#20); the disclosure must
     # show that effective query (with FROM), not the raw model SELECT.
-    from asterism.substrate import LEGACY_DATASET_ID, canonical_graph_iri
+    from asterism.substrate import (
+        CONTROL_GRAPH_IRI,
+        LEGACY_DATASET_ID,
+        STATUS_PREDICATE,
+        STATUS_PROMOTED,
+        canonical_graph_iri,
+    )
 
     legacy = canonical_graph_iri(LEGACY_DATASET_ID)
     ds = rdflib.ConjunctiveGraph()
     ds.get_context(rdflib.URIRef(legacy)).parse(data=_CUSTOM_TTL, format="turtle")
+    # Flag the canonical graph promoted (as ingest+promote would) so the FROM-merge
+    # — which enumerates only promoted canonical graphs — includes it.
+    ds.get_context(rdflib.URIRef(CONTROL_GRAPH_IRI)).add(
+        (rdflib.URIRef(legacy), rdflib.URIRef(STATUS_PREDICATE), rdflib.Literal(STATUS_PROMOTED))
+    )
     demo._state["client"] = _LocalClient(ds)
     monkeypatch.setattr(demo, "_REAL", True)
 

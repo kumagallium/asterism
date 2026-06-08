@@ -28,7 +28,7 @@ from asterism.substrate import (
     materialize_to_graph,
     materialize_to_nt_file,
     ontology_graph_iri,
-    promote_draft_to_canonical,
+    promote_to_canonical,
     run_substrate_ingest,
     stream_nt_file_to_oxigraph,
 )
@@ -236,7 +236,7 @@ class _FakeSparql:
         if "COUNT" in query:
             return {"results": {"bindings": [{"c": {"value": str(self._draft_n)}}]}}
         # The canonical-scope side binds ``?__cg`` (UNION over canonical graphs,
-        # incl. a control-graph NOT EXISTS); the draft side names a graph literally.
+        # incl. a control-graph EXISTS promoted); the staged side names a graph literally.
         scope = "default" if "?__cg" in query else "graph"
         kind = "c" if "?s a ?x" in query else "p"
         vals = self._sets[(scope, kind)]
@@ -259,21 +259,40 @@ async def test_alignment_report_classifies_predicates_and_classes() -> None:
     assert rep["classes"]["new"] == ["https://ex#Curve"]  # canonical empty -> all new
 
 
-async def test_promote_moves_draft_to_canonical_graph() -> None:
-    # #20 P3: promote MOVEs the draft into the dataset's canonical NAMED graph
-    # (not the shared default graph), so the op is per-dataset graph-scoped.
-    fake = _FakeSparql(set(), set(), set(), set(), draft_n=1640)
-    draft = draft_graph_iri("ds1")
+async def test_promote_to_canonical_sets_flag_no_move() -> None:
+    # Memory-bounded promote: a control-graph flag write, NEVER a MOVE of the data
+    # graph (the OOM-prone op is gone). One DELETE+INSERT, no MOVE/COUNT.
+    from asterism.substrate import CONTROL_GRAPH_IRI, STATUS_PREDICATE
+
+    fake = _FakeSparql(set(), set(), set(), set())
     canon = canonical_graph_iri("ds1")
-    moved = await promote_draft_to_canonical(fake, draft, canon)
-    assert moved == 1640
-    assert fake.updates == [f"MOVE GRAPH <{draft}> TO GRAPH <{canon}>"]
+    await promote_to_canonical(fake, canon)
+    assert len(fake.updates) == 1
+    u = fake.updates[0]
+    assert "MOVE" not in u
+    assert "DELETE WHERE" in u and "INSERT DATA" in u
+    assert CONTROL_GRAPH_IRI in u and canon in u
+    assert STATUS_PREDICATE in u and '"promoted"' in u
+
+
+async def test_clear_status_removes_control_marker() -> None:
+    # Used on re-ingest to un-publish before re-streaming (gap-free swap): clears
+    # the control status, leaving no retracted/deleted tombstone.
+    from asterism.substrate import CONTROL_GRAPH_IRI, clear_status
+
+    fake = _FakeSparql(set(), set(), set(), set())
+    canon = canonical_graph_iri("ds1")
+    await clear_status(fake, canon)
+    assert len(fake.updates) == 1
+    u = fake.updates[0]
+    assert u.startswith("DELETE WHERE") and "INSERT" not in u
+    assert CONTROL_GRAPH_IRI in u and canon in u
 
 
 # ---- retract / reinstate (#20 P3 step3) -------------------------------------
 
 
-def test_canonical_scope_where_excludes_retracted() -> None:
+def test_canonical_scope_where_requires_promoted() -> None:
     from asterism.substrate import (
         CONTROL_GRAPH_IRI,
         STATUS_PREDICATE,
@@ -283,10 +302,11 @@ def test_canonical_scope_where_excludes_retracted() -> None:
     sql = canonical_scope_where("?s ?p ?o")
     # default branch + canonical named-graph branch
     assert "{ ?s ?p ?o }" in sql and "GRAPH ?__cg" in sql
-    # retracted canonical graphs are filtered out via the control graph
-    assert "FILTER NOT EXISTS" in sql
+    # only graphs flagged promoted in the control graph are in scope (this single
+    # requirement subsumes the old retracted exclusion)
+    assert "FILTER EXISTS" in sql
     assert CONTROL_GRAPH_IRI in sql
-    assert STATUS_PREDICATE in sql and "retracted" in sql
+    assert STATUS_PREDICATE in sql and "promoted" in sql
 
 
 async def test_retract_canonical_writes_tombstone() -> None:
@@ -307,17 +327,19 @@ async def test_retract_canonical_writes_tombstone() -> None:
     assert STATUS_PREDICATE in u and '"retracted"' in u
 
 
-async def test_reinstate_canonical_clears_tombstone() -> None:
-    from asterism.substrate import CONTROL_GRAPH_IRI, reinstate_canonical
+async def test_reinstate_canonical_restores_promoted_flag() -> None:
+    from asterism.substrate import CONTROL_GRAPH_IRI, STATUS_PREDICATE, reinstate_canonical
 
     fake = _FakeSparql(set(), set(), set(), set())
     canon = canonical_graph_iri("ds1")
     await reinstate_canonical(fake, canon)
     assert len(fake.updates) == 1
     u = fake.updates[0]
-    assert u.startswith("DELETE WHERE")
+    # citability requires the promoted flag, so reinstate must SET it (clear the
+    # retracted marker, then insert promoted) — not merely remove the tombstone
+    assert "DELETE WHERE" in u and "INSERT DATA" in u
     assert CONTROL_GRAPH_IRI in u and canon in u
-    assert "INSERT" not in u  # reinstate only removes the marker
+    assert STATUS_PREDICATE in u and '"promoted"' in u
 
 
 # ---- delete (#20 P3 step4) --------------------------------------------------
@@ -368,17 +390,17 @@ def test_canonical_from_clauses_named_adds_from_named() -> None:
     )
 
 
-async def test_canonical_graphs_lists_sorted_excluding_retracted() -> None:
-    from asterism.substrate import canonical_graphs
+async def test_canonical_graphs_lists_sorted_promoted_only() -> None:
+    from asterism.substrate import CONTROL_GRAPH_IRI, canonical_graphs
 
     g_a = canonical_graph_iri("a")
     g_b = canonical_graph_iri("b")
 
     class _Fake:
         async def sparql_select(self, query: str) -> dict:
-            # The enumeration filters by canonical prefix + NOT EXISTS retracted;
-            # we just return a fixed active set to check parsing/shape.
-            assert "STRSTARTS" in query and "FILTER NOT EXISTS" in query
+            # The enumeration reads the control graph's promoted markers (no triple
+            # scan); we just return a fixed promoted set to check parsing/shape.
+            assert CONTROL_GRAPH_IRI in query and '"promoted"' in query
             return {
                 "results": {
                     "bindings": [
@@ -405,13 +427,15 @@ def _rdflib_client(ds: rdflib.Dataset) -> object:
     return _C()
 
 
-async def test_canonical_and_ontology_graphs_enumerate_by_name_selectively() -> None:
-    # Real-store enumeration must select ONLY graphs under the right prefix —
-    # canonical_graphs -> canonical/*, ontology_graphs -> ontology/* — and never
-    # leak draft graphs. The empty-pattern form reads the graph-name index, so a
-    # large draft graph is excluded WITHOUT being scanned triple-by-triple (the
-    # whole point of the perf fix); here we also assert it never shows up.
+async def test_canonical_graphs_reads_promoted_flags_only() -> None:
+    # Real-store enumeration: canonical_graphs reads the control graph's promoted
+    # markers (NOT a triple scan), so a graph with data but no promoted flag (a
+    # staged/un-promoted ingest) is excluded, and a large draft graph never leaks
+    # in regardless of its size. ontology_graphs still enumerates ontology/* by name.
     from asterism.substrate import (
+        CONTROL_GRAPH_IRI,
+        STATUS_PREDICATE,
+        STATUS_PROMOTED,
         canonical_graph_iri,
         canonical_graphs,
         draft_graph_iri,
@@ -423,26 +447,33 @@ async def test_canonical_and_ontology_graphs_enumerate_by_name_selectively() -> 
     ex = rdflib.Namespace("https://ex/")
     g_a = rdflib.URIRef(canonical_graph_iri("a"))
     g_b = rdflib.URIRef(canonical_graph_iri("b"))
+    g_staged = rdflib.URIRef(canonical_graph_iri("staged"))  # data but no flag
     g_onto = rdflib.URIRef(ontology_graph_iri("a"))
     g_draft = rdflib.URIRef(draft_graph_iri("d"))
     ds.graph(g_a).add((ex.s, ex.p, ex.o))
     ds.graph(g_b).add((ex.s2, ex.p, ex.o2))
+    ds.graph(g_staged).add((ex.s3, ex.p, ex.o3))
     ds.graph(g_onto).add((ex.c, rdflib.RDFS.label, rdflib.Literal("C")))
     for i in range(500):  # a "large" draft graph that must not leak in
         ds.graph(g_draft).add((ex[f"x{i}"], ex.p, rdflib.Literal(i)))
+    # Only g_a and g_b are flagged promoted in the control graph.
+    control = ds.graph(rdflib.URIRef(CONTROL_GRAPH_IRI))
+    pred = rdflib.URIRef(STATUS_PREDICATE)
+    control.add((g_a, pred, rdflib.Literal(STATUS_PROMOTED)))
+    control.add((g_b, pred, rdflib.Literal(STATUS_PROMOTED)))
 
     client = _rdflib_client(ds)
-    assert await canonical_graphs(client) == [str(g_a), str(g_b)]
+    assert await canonical_graphs(client) == [str(g_a), str(g_b)]  # g_staged excluded
     assert await ontology_graphs(client) == [str(g_onto)]
 
 
-async def test_canonical_graphs_empty_pattern_still_excludes_retracted() -> None:
-    # The empty-pattern enumeration must still honour the retracted tombstone in
-    # the control graph (FILTER NOT EXISTS), and the control graph itself — which
-    # the name index also enumerates — is dropped by the canonical-prefix filter.
+async def test_canonical_graphs_excludes_retracted_status() -> None:
+    # A graph whose control status is retracted (not promoted) is excluded — the
+    # promoted requirement subsumes the old retracted filter.
     from asterism.substrate import (
         CONTROL_GRAPH_IRI,
         STATUS_PREDICATE,
+        STATUS_PROMOTED,
         STATUS_RETRACTED,
         canonical_graph_iri,
         canonical_graphs,
@@ -454,9 +485,10 @@ async def test_canonical_graphs_empty_pattern_still_excludes_retracted() -> None
     g_b = rdflib.URIRef(canonical_graph_iri("b"))
     ds.graph(g_a).add((ex.s, ex.p, ex.o))
     ds.graph(g_b).add((ex.s2, ex.p, ex.o2))
-    ds.graph(rdflib.URIRef(CONTROL_GRAPH_IRI)).add(
-        (g_b, rdflib.URIRef(STATUS_PREDICATE), rdflib.Literal(STATUS_RETRACTED))
-    )
+    control = ds.graph(rdflib.URIRef(CONTROL_GRAPH_IRI))
+    pred = rdflib.URIRef(STATUS_PREDICATE)
+    control.add((g_a, pred, rdflib.Literal(STATUS_PROMOTED)))
+    control.add((g_b, pred, rdflib.Literal(STATUS_RETRACTED)))
 
     assert await canonical_graphs(_rdflib_client(ds)) == [str(g_a)]
 

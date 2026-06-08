@@ -21,7 +21,13 @@ from asterism.query_tools import (
     render_query,
     run_query_tool,
 )
-from asterism.substrate import canonical_graph_iri
+from asterism.substrate import (
+    CANONICAL_GRAPH_BASE,
+    CONTROL_GRAPH_IRI,
+    STATUS_PREDICATE,
+    STATUS_PROMOTED,
+    canonical_graph_iri,
+)
 
 SD = "https://kumagallium.github.io/asterism/starrydata/ontology#"
 
@@ -221,10 +227,19 @@ _TTL = f"""
 
 
 def _ds_client(graphs: dict[str, str]):
-    """rdflib client: each {graph_iri: ttl} loaded into that named graph."""
+    """rdflib client: each {graph_iri: ttl} loaded into that named graph.
+
+    Canonical graphs are flagged ``promoted`` in the control graph (as a real
+    ingest+promote would), so the FROM-merge — which now enumerates only promoted
+    canonical graphs — picks them up.
+    """
     ds = rdflib.ConjunctiveGraph()
+    control = ds.get_context(rdflib.URIRef(CONTROL_GRAPH_IRI))
+    pred = rdflib.URIRef(STATUS_PREDICATE)
     for giri, ttl in graphs.items():
         ds.get_context(rdflib.URIRef(giri)).parse(data=ttl, format="turtle")
+        if giri.startswith(CANONICAL_GRAPH_BASE):
+            control.add((rdflib.URIRef(giri), pred, rdflib.Literal(STATUS_PROMOTED)))
 
     class _C:
         async def sparql_select(self, query: str) -> dict:

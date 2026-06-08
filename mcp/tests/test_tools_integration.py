@@ -17,7 +17,15 @@ import json
 import pytest
 import rdflib
 from asterism.starrydata import DEFAULT_ONTOLOGY, DEFAULT_RESOURCE
-from asterism.substrate import canonical_graph_iri, draft_graph_iri, ontology_graph_iri
+from asterism.substrate import (
+    CANONICAL_GRAPH_BASE,
+    CONTROL_GRAPH_IRI,
+    STATUS_PREDICATE,
+    STATUS_PROMOTED,
+    canonical_graph_iri,
+    draft_graph_iri,
+    ontology_graph_iri,
+)
 
 from asterism_mcp.tools import (
     property_ranking,
@@ -67,6 +75,17 @@ _TTL = f"""
 <{SDR}digitization/1> a sd:DigitizationActivity ;
     prov:atTime "2020-01-01T00:00:00Z"^^xsd:dateTime .
 """
+
+
+def _flag_promoted(ds: rdflib.Dataset, *graph_iris: str) -> None:
+    """Flag each given canonical graph ``promoted`` in the control graph — as a real
+    ingest+promote would. The FROM-merge enumerates only promoted canonical graphs
+    (memory-bounded promote), so a canonical graph is in the Ask scope only once
+    flagged here."""
+    ctrl = ds.graph(rdflib.URIRef(CONTROL_GRAPH_IRI))
+    pred = rdflib.URIRef(STATUS_PREDICATE)
+    for giri in graph_iris:
+        ctrl.add((rdflib.URIRef(giri), pred, rdflib.Literal(STATUS_PROMOTED)))
 
 
 def _client():
@@ -148,6 +167,7 @@ async def test_canonical_scope_reads_named_graph_and_excludes_draft() -> None:
     canon.add((rdflib.URIRef("https://ex/s/c1"), sd.compositionString, rdflib.Literal("CanonComp")))
     draft.add((rdflib.URIRef("https://ex/s/d1"), rdflib.RDF.type, sd.Sample))
     draft.add((rdflib.URIRef("https://ex/s/d1"), sd.compositionString, rdflib.Literal("DraftComp")))
+    _flag_promoted(ds, canonical_graph_iri("ds1"))  # ds1 promoted; ds2 is an unflagged draft
 
     class _C:
         async def sparql_select(self, query: str) -> dict:
@@ -170,7 +190,9 @@ async def test_retracted_canonical_graph_excluded_from_ask() -> None:
     for g, comp, sid in ((g1, "ActiveComp", "a1"), (g2, "RetractedComp", "r1")):
         g.add((rdflib.URIRef(f"https://ex/s/{sid}"), rdflib.RDF.type, sd.Sample))
         g.add((rdflib.URIRef(f"https://ex/s/{sid}"), sd.compositionString, rdflib.Literal(comp)))
-    # Tombstone ds2 in the control graph -> it leaves the canonical scope.
+    # ds1 is promoted (citable); ds2 carries a retracted status instead of promoted,
+    # so it is absent from the canonical scope.
+    _flag_promoted(ds, canonical_graph_iri("ds1"))
     ctrl = ds.graph(rdflib.URIRef(CONTROL_GRAPH_IRI))
     ctrl.add(
         (
@@ -211,14 +233,20 @@ def _cross_dataset_ds() -> rdflib.Dataset:
     ga.add((sample, sd.compositionString, rdflib.Literal("SnSe")))
     ga.add((sample, sd.fromPaper, paper))  # link points into dataset B
     gb.add((paper, schema.name, rdflib.Literal("Shared paper")))  # lives in dataset B
+    _flag_promoted(ds, canonical_graph_iri("a"), canonical_graph_iri("b"))
     return ds
 
 
 def _ds_from(graphs: dict[str, str]) -> rdflib.Dataset:
-    """Build a Dataset from a ``{graph_iri: turtle}`` mapping."""
+    """Build a Dataset from a ``{graph_iri: turtle}`` mapping.
+
+    Canonical graphs are flagged ``promoted`` (as ingest+promote would) so the
+    FROM-merge — which enumerates only promoted canonical graphs — includes them.
+    """
     ds = rdflib.Dataset()
     for giri, ttl in graphs.items():
         ds.graph(rdflib.URIRef(giri)).parse(data=ttl, format="turtle")
+    _flag_promoted(ds, *[g for g in graphs if g.startswith(CANONICAL_GRAPH_BASE)])
     return ds
 
 

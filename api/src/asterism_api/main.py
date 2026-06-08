@@ -320,8 +320,25 @@ def build_app(
                     moved,
                     legacy_iri,
                 )
-        except Exception:  # never block startup on the migration
-            logger.exception("default->canonical/legacy migration failed (continuing)")
+            # Memory-bounded promote: citability is now gated on a control-graph
+            # "promoted" flag (no MOVE). Flag the legacy bulk graph (watcher / seed /
+            # migration all land there) when it holds data, and backfill the flag for
+            # every registry dataset already promoted under the old MOVE scheme so it
+            # stays citable after this upgrade. Idempotent — safe on every startup; it
+            # never flags a not-yet-promoted draft (registry ``promoted`` is set only
+            # after the human gate), and it leaves retracted datasets retracted.
+            if moved or await substrate.graph_has_triples(client, legacy_iri):
+                await substrate.mark_graph_promoted(client, legacy_iri)
+            for meta in registry.list_datasets(cfg.registry_root):
+                if meta.get("promoted") and meta.get("status") != "retracted":
+                    cg = meta.get("canonical_graph") or substrate.canonical_graph_iri(
+                        meta["id"]
+                    )
+                    await substrate.mark_graph_promoted(client, cg)
+        except Exception:  # never block startup on the migration / backfill
+            logger.exception(
+                "default->canonical/legacy migration or promote-flag backfill failed (continuing)"
+            )
         stop = asyncio.Event()
         task: asyncio.Task[None] | None = None
         if start_watcher:
@@ -617,10 +634,12 @@ def build_app(
         """Phase 5 (#15): human-gated ingest of a dataset's approved RML mapping.
 
         Runs the dataset's persisted ``mapping.rml.ttl`` through the Morph-KGC
-        substrate (NO generated code — only the closed Tier 0 functions) and loads
-        the result into an **isolated draft named graph**. Ask cites the canonical
-        graph by default, so draft data is not a citable fact until separately
-        promoted. This is the explicit second gate after ``materialize`` (which
+        substrate (NO generated code — only the closed Tier 0 functions) and streams
+        the result straight into the dataset's **per-dataset canonical graph**. That
+        graph is excluded from the Ask scope until promote flips its control-graph
+        flag, so the data is not a citable fact until separately promoted (the flag,
+        not graph existence, gates citability — memory-bounded promote needs no
+        later MOVE). This is the explicit second gate after ``materialize`` (which
         only saves the RML draft).
 
         Source CSVs are either uploaded here (and persisted as the dataset's
@@ -659,7 +678,11 @@ def build_app(
                 "ここで CSV をアップロードしてください",
             )
         csv_dir = csv_paths[0].parent
-        graph_iri = substrate.draft_graph_iri(dataset_id)
+        # Memory-bounded promote: stream straight into the per-dataset *canonical*
+        # graph (no draft graph, no later MOVE). It stays out of the Ask scope until
+        # promote flips the control flag, so draft isolation holds (the flag, not
+        # graph existence, gates citability).
+        graph_iri = substrate.canonical_graph_iri(dataset_id)
         client: OxigraphClient = app.state.client
 
         async def ingest_job(emit: Callable[..., None]) -> dict[str, object]:
@@ -674,9 +697,14 @@ def build_app(
                 total = substrate.count_nt_lines(nt)
                 emit(phase="materialized", total=total)
                 # Clean slate so a re-ingest replaces (and clears any prior partial).
-                # Dropping a large existing draft graph can take a while — keep the
-                # UI informed (and sparql_update has a generous timeout for it).
-                emit(phase="preparing", message="下書きグラフを準備中")
+                # Un-publish FIRST (clear the promoted flag) so a re-ingest of an
+                # already-promoted dataset leaves the citable scope before its graph
+                # is dropped — no window where Ask sees a half-replaced graph. Then
+                # drop the existing graph; sparql_update has a generous timeout for a
+                # large drop (a versioned-graph swap to take that off the critical
+                # path is a follow-up — ADR §promote).
+                emit(phase="preparing", message="取り込み先グラフを準備中")
+                await substrate.clear_status(client, graph_iri)
                 await substrate.drop_graph(client, graph_iri)
                 try:
                     triple_count = await substrate.stream_nt_file_to_oxigraph(
@@ -688,7 +716,7 @@ def build_app(
                         ),
                     )
                 except Exception:
-                    # D6: never leave a partial draft graph behind on failure.
+                    # D6: never leave a partial graph behind on failure.
                     await substrate.drop_graph(client, graph_iri)
                     raise
             finally:
@@ -704,7 +732,8 @@ def build_app(
             return {
                 "dataset_id": dataset_id,
                 "graph_iri": graph_iri,
-                "graph_kind": "draft",
+                # Staged in the canonical graph but not yet citable (awaits promote).
+                "graph_kind": "staged",
                 "triple_count": triple_count,
                 "dataset": meta,
             }
@@ -715,45 +744,50 @@ def build_app(
 
     @app.get("/api/datasets/{dataset_id}/alignment")
     async def dataset_alignment(dataset_id: str) -> JSONResponse:
-        """Preview the Reuse/New alignment of a dataset's draft graph vs canonical.
+        """Preview the Reuse/New alignment of a dataset's staged graph vs canonical.
 
         What the human reviews *before* promoting (#15 S4): which predicates and
-        classes the draft uses are already in the canonical (default) graph
-        (Reuse) vs not yet (New). Read-only.
+        classes the staged (ingested, not-yet-promoted) graph uses are already in
+        the citable canonical scope (Reuse) vs not yet (New). The staged graph is
+        the dataset's canonical graph before its promoted flag is set, so it is not
+        in the canonical scope it is compared against. Read-only.
         """
         data = registry.load_dataset(cfg.registry_root, dataset_id)
         if data is None:
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
         if not data["meta"].get("ingested"):
-            raise HTTPException(400, "dataset has no draft graph (not ingested)")
+            raise HTTPException(400, "dataset has no staged graph (not ingested)")
         client: OxigraphClient = app.state.client
-        graph_iri = substrate.draft_graph_iri(dataset_id)
+        graph_iri = substrate.canonical_graph_iri(dataset_id)
         report = await substrate.alignment_report(client, graph_iri)
         return JSONResponse({"dataset_id": dataset_id, "alignment": report})
 
     @app.post("/api/datasets/{dataset_id}/promote")
     async def promote_dataset(dataset_id: str) -> JSONResponse:
-        """Phase 5 (#15 S4): human-gated promotion of a draft graph to canonical.
+        """Phase 5 (#15 S4): human-gated promotion of a staged graph to citable.
 
-        MOVEs the draft named graph into the canonical (default) graph so Ask can
-        cite it. The alignment report (Reuse vs New) is recorded on the dataset's
-        meta. The draft graph is consumed by the move.
+        Memory-bounded promote: the triples were already streamed into the dataset's
+        canonical graph at ingest, so promotion just flips the control-graph
+        ``promoted`` flag — O(1), no MOVE (the OOM-prone graph copy is gone). Ask
+        then reads it via the canonical scope. The alignment report (Reuse vs New)
+        is recorded on the dataset's meta.
         """
         data = registry.load_dataset(cfg.registry_root, dataset_id)
         if data is None:
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
         if not data["meta"].get("ingested"):
-            raise HTTPException(400, "dataset has no draft graph to promote (not ingested)")
+            raise HTTPException(400, "dataset has no staged graph to promote (not ingested)")
         client: OxigraphClient = app.state.client
-        graph_iri = substrate.draft_graph_iri(dataset_id)
-        # #20 P3: promote into the dataset's own canonical named graph (not the
-        # shared default graph), so retract / re-promote / delete are clean graph-
-        # scoped ops. Ask reads it via the canonical scope (default + canonical/*).
+        # The staged graph IS the canonical graph (ingest streamed straight into it);
+        # promotion only sets its citable flag. Aligning the staged graph against the
+        # canonical scope is valid because the staged graph is not flagged promoted
+        # yet, so it is not part of the scope it is compared against.
         canonical_iri = substrate.canonical_graph_iri(dataset_id)
-        alignment = await substrate.alignment_report(client, graph_iri)
-        triples_promoted = await substrate.promote_draft_to_canonical(
-            client, graph_iri, canonical_iri
-        )
+        alignment = await substrate.alignment_report(client, canonical_iri)
+        await substrate.promote_to_canonical(client, canonical_iri)
+        # Triple count is recorded at ingest (mark_ingested) — read it rather than
+        # COUNT the (possibly multi-million-triple) graph, keeping promote O(1).
+        triples_promoted = int(data["meta"].get("triple_count") or 0)
         # #20 step5: project the TBox into the ontology graph (additive, best-effort).
         ontology_triples = 0
         try:
@@ -832,9 +866,11 @@ def build_app(
 
         A *promoted* dataset has citable canonical data, so deleting it can break
         existing citations — that requires explicit ``?force=true``; the safe
-        default for those is ``retract``. A design / draft-only dataset (never
-        promoted) is removed freely. A canonical DROP leaves a ``deleted``
-        tombstone in the control graph so dangling citations get a clear answer.
+        default for those is ``retract``. A design / staged-only dataset (never
+        promoted) is removed freely. The dataset's triples live in its canonical
+        graph (ingest streamed straight there), so we DROP that graph; a promoted
+        delete also leaves a ``deleted`` tombstone in the control graph so dangling
+        citations get a clear answer.
         """
         data = registry.load_dataset(cfg.registry_root, dataset_id)
         if data is None:
@@ -848,11 +884,13 @@ def build_app(
                 "or pass ?force=true to hard-delete (breaks existing citations).",
             )
         client: OxigraphClient = app.state.client
-        if meta.get("ingested"):
-            await substrate.drop_graph(client, substrate.draft_graph_iri(dataset_id))
-        if promoted:
-            canonical_iri = substrate.canonical_graph_iri(dataset_id)
+        canonical_iri = substrate.canonical_graph_iri(dataset_id)
+        # The canonical graph holds the data whether the dataset is staged
+        # (ingested) or promoted; drop it in either case.
+        if meta.get("ingested") or promoted:
             await substrate.drop_graph(client, canonical_iri)
+        if promoted:
+            # Replaces the promoted flag with a deleted tombstone (one control write).
             await substrate.tombstone_deleted(
                 client, canonical_iri, deleted_at=datetime.now(UTC).isoformat()
             )

@@ -1,11 +1,13 @@
 """Tests for the human-gated substrate ingest (Phase 5 #15).
 
 ``POST /api/datasets/{id}/ingest`` runs the dataset's persisted RML through
-Morph-KGC and streams the result into a draft named graph as a background job
-(202 + job_id; progress + done over SSE). We monkeypatch the Morph-KGC file-output
-step (``substrate.materialize_to_nt_file``) so the tests need neither the optional
-``morph-kgc`` extra nor real CSVs, and use the MockTransport Oxigraph client so
-the chunked ``/store`` POSTs (and the draft-graph ``DROP``) are observable.
+Morph-KGC and streams the result straight into the dataset's canonical named graph
+(staged, not yet citable) as a background job (202 + job_id; progress + done over
+SSE). Promotion then flips a control-graph flag — no MOVE (memory-bounded promote).
+We monkeypatch the Morph-KGC file-output step (``substrate.materialize_to_nt_file``)
+so the tests need neither the optional ``morph-kgc`` extra nor real CSVs, and use
+the MockTransport Oxigraph client so the chunked ``/store`` POSTs (and the graph
+``DROP`` / control writes) are observable.
 """
 from __future__ import annotations
 
@@ -147,12 +149,14 @@ def test_save_dataset_persists_rml_and_flags_has_rml(tmp_path: Path) -> None:
     assert loaded["meta"]["ingested"] is False
 
 
-def test_ingest_happy_path_streams_draft_graph_with_progress(tmp_path: Path, monkeypatch) -> None:
+def test_ingest_happy_path_streams_canonical_with_progress(tmp_path: Path, monkeypatch) -> None:
     dataset_id = _save_dataset_with_rml(tmp_path)
     monkeypatch.setattr(substrate, "materialize_to_nt_file", _fake_nt_materializer(triples=1))
     oxi = _RecordingOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
-    graph_iri = substrate.draft_graph_iri(dataset_id)
+    # Memory-bounded promote: ingest streams straight into the canonical graph
+    # (staged, not yet citable — no draft graph, no later MOVE).
+    graph_iri = substrate.canonical_graph_iri(dataset_id)
     with TestClient(app) as client:
         status, events = _drive_ingest(
             client, dataset_id, {"files": ("papers.csv", b"SID\n1\n", "text/csv")}
@@ -160,17 +164,18 @@ def test_ingest_happy_path_streams_draft_graph_with_progress(tmp_path: Path, mon
         assert status == 202
         assert "done" in [n for n, _ in events], events
         result = next(d for n, d in events if n == "done")["result"]
-        assert result["graph_kind"] == "draft"
+        assert result["graph_kind"] == "staged"
         assert result["graph_iri"] == graph_iri
         assert result["triple_count"] == 1
         assert result["dataset"]["ingested"] is True
+        assert result["dataset"]["promoted"] is False  # staged, awaits a promote gate
         # progress frames: a materialize phase then an upload phase reaching total
         running = [d for n, d in events if n == "running"]
         assert any(d.get("phase") == "materialize" for d in running)
         assert any(
             d.get("phase") == "upload" and d.get("done") == d.get("total") for d in running
         )
-    # chunk(s) POSTed to the draft named graph; meta on disk updated.
+    # chunk(s) POSTed to the canonical named graph; meta on disk updated.
     assert oxi.store_calls == [graph_iri]
     meta = json.loads((tmp_path / "registry" / dataset_id / "meta.json").read_text())
     assert meta["ingested"] is True
@@ -274,8 +279,8 @@ def test_ingest_uses_persisted_source_when_no_upload(tmp_path: Path, monkeypatch
         assert status == 202
         result = next(d for n, d in events if n == "done")["result"]
         assert result["triple_count"] == 1
-        assert result["graph_kind"] == "draft"
-    assert oxi.store_calls == [substrate.draft_graph_iri(dataset_id)]
+        assert result["graph_kind"] == "staged"
+    assert oxi.store_calls == [substrate.canonical_graph_iri(dataset_id)]
 
 
 def test_ingest_upload_persists_source_for_reuse(tmp_path: Path, monkeypatch) -> None:
@@ -308,8 +313,8 @@ def test_ingest_without_upload_or_source_400(tmp_path: Path) -> None:
     assert oxi.store_calls == []
 
 
-def test_ingest_stream_failure_errors_and_drops_draft(tmp_path: Path, monkeypatch) -> None:
-    """A streaming-load failure surfaces as a job error and drops the partial draft (D6)."""
+def test_ingest_stream_failure_errors_and_drops_staged(tmp_path: Path, monkeypatch) -> None:
+    """A streaming-load failure surfaces as a job error and drops the partial graph (D6)."""
     dataset_id = _save_dataset_with_rml(tmp_path)
     monkeypatch.setattr(substrate, "materialize_to_nt_file", _fake_nt_materializer(triples=3))
 
@@ -319,7 +324,7 @@ def test_ingest_stream_failure_errors_and_drops_draft(tmp_path: Path, monkeypatc
     monkeypatch.setattr(substrate, "stream_nt_file_to_oxigraph", _boom)
     oxi = _RecordingOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
-    graph_iri = substrate.draft_graph_iri(dataset_id)
+    graph_iri = substrate.canonical_graph_iri(dataset_id)
     with TestClient(app) as client:
         status, events = _drive_ingest(
             client, dataset_id, {"files": ("papers.csv", b"SID\n1\n", "text/csv")}
@@ -328,7 +333,7 @@ def test_ingest_stream_failure_errors_and_drops_draft(tmp_path: Path, monkeypatc
         err = next((d for n, d in events if n == "error"), None)
         assert err is not None
         assert "ConnectError" in err["message"] or "oxigraph down" in err["message"]
-    # D6: the draft graph was dropped (so no partial load lingers).
+    # D6: the staged canonical graph was dropped (so no partial load lingers).
     assert any("DROP SILENT GRAPH" in u and graph_iri in u for u in oxi.updates)
 
 
@@ -374,10 +379,11 @@ class _PromoteOxi:
 
 def _ingested_dataset(tmp: Path) -> str:
     dataset_id = _save_dataset_with_rml(tmp)
+    # Memory-bounded promote: ingest stages into the per-dataset canonical graph.
     registry.mark_ingested(
         tmp / "registry",
         dataset_id,
-        graph_iri=f"https://kumagallium.github.io/asterism/starrydata/graph/draft/{dataset_id}",
+        graph_iri=substrate.canonical_graph_iri(dataset_id),
         triple_count=1640,
         ingested_at="2026-06-03T00:10:00+00:00",
     )
@@ -482,7 +488,7 @@ def test_alignment_preview_classifies_draft(tmp_path: Path) -> None:
         assert al["predicates"]["reuse"] == []
 
 
-def test_promote_moves_to_canonical_and_marks_meta(tmp_path: Path) -> None:
+def test_promote_flags_canonical_and_marks_meta(tmp_path: Path) -> None:
     dataset_id = _ingested_dataset(tmp_path)
     oxi = _PromoteOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
@@ -491,15 +497,16 @@ def test_promote_moves_to_canonical_and_marks_meta(tmp_path: Path) -> None:
         assert r.status_code == 200, r.text
         body = r.json()
         assert body["promoted"] is True
-        # #20 P3: promote now targets the dataset's per-dataset canonical graph.
         expected_canon = f"https://kumagallium.github.io/asterism/graph/canonical/{dataset_id}"
         assert body["canonical_graph"] == expected_canon
+        # Triple count is read from the ingest meta (not a COUNT of the graph).
         assert body["triples_promoted"] == 1640
         assert body["dataset"]["promoted"] is True
-        assert body["dataset"]["ingested"] is False  # draft consumed
-    # A MOVE ... TO GRAPH <canonical/{id}> was issued (not TO DEFAULT).
+        assert body["dataset"]["ingested"] is False
+    # Memory-bounded promote: a control-graph flag write, NEVER a MOVE of the data.
+    assert not any("MOVE GRAPH" in u for u in oxi.updates)
     assert any(
-        "MOVE GRAPH" in u and f"TO GRAPH <{expected_canon}>" in u for u in oxi.updates
+        "INSERT DATA" in u and '"promoted"' in u and expected_canon in u for u in oxi.updates
     )
     # Meta on disk reflects promotion.
     meta = json.loads((tmp_path / "registry" / dataset_id / "meta.json").read_text())
@@ -596,18 +603,19 @@ def test_retract_requires_promoted(tmp_path: Path) -> None:
     assert oxi.updates == []  # nothing tombstoned
 
 
-def test_delete_draft_only_dataset_no_force(tmp_path: Path) -> None:
-    """A never-promoted (design/draft) dataset deletes freely; registry dir removed."""
-    dataset_id = _ingested_dataset(tmp_path)  # ingested draft, not promoted
+def test_delete_staged_only_dataset_no_force(tmp_path: Path) -> None:
+    """A never-promoted (design/staged) dataset deletes freely; registry dir removed."""
+    dataset_id = _ingested_dataset(tmp_path)  # ingested (staged), not promoted
     oxi = _PromoteOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    canon = f"https://kumagallium.github.io/asterism/graph/canonical/{dataset_id}"
     with TestClient(app) as client:
         r = client.delete(f"/api/datasets/{dataset_id}")
         assert r.status_code == 200, r.text
         assert r.json()["deleted"] is True
         assert r.json()["was_promoted"] is False
-    # draft graph dropped, registry dir gone
-    assert any("DROP SILENT GRAPH" in u and "draft/" in u for u in oxi.updates)
+    # the staged canonical graph (where the data lives) was dropped, registry dir gone
+    assert any("DROP SILENT GRAPH" in u and canon in u for u in oxi.updates)
     assert not (tmp_path / "registry" / dataset_id).exists()
 
 
