@@ -429,16 +429,68 @@ def _blocks_to_dicts(content: list) -> list[dict]:
     return out
 
 
+def _param_json_schema(p) -> dict:
+    """Map a declared ToolParam to an Anthropic tool input_schema property."""
+    if p.type == "number":
+        base: dict = {"type": "number"}
+    elif p.type == "integer":
+        base = {"type": "integer"}
+    elif p.type == "enum":
+        base = {"type": "string", "enum": list(p.enum or ())}
+    else:  # string, iri
+        base = {"type": "string"}
+    if p.description:
+        base["description"] = p.description
+    return base
+
+
+def _content_tool_defs(exclude: set[str] | None = None) -> tuple[list[dict], dict]:
+    """Anthropic tool defs for every dataset's declared query tools, EXCEPT the
+    excluded datasets (starrydata keeps its richer hardcoded tools).
+
+    Returns ``(defs, registry)`` with ``registry[name] = (dataset, QueryTool)``.
+    The engine knows no vocabulary; tools come from each dataset's
+    ``query_tools.yaml`` (#112/#113), so a newly onboarded dataset (e.g. Materials
+    Project) becomes a VERIFIED Ask tool for free — no per-dataset code here.
+    """
+    from asterism.query_tools import load_all_query_tools
+
+    exclude = exclude or set()
+    defs: list[dict] = []
+    registry: dict[str, tuple] = {}
+    for dataset, qts in load_all_query_tools().items():
+        if dataset in exclude:
+            continue
+        for qt in qts:
+            name = f"{dataset}__{qt.name}"
+            defs.append(
+                {
+                    "name": name,
+                    "description": f"[verified · dataset:{dataset}] {qt.description or qt.title}",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {p.name: _param_json_schema(p) for p in qt.params},
+                        "required": [p.name for p in qt.params if p.required],
+                    },
+                }
+            )
+            registry[name] = (dataset, qt)
+    return defs, registry
+
+
 async def _llm_answer(question: str, api_key: str) -> dict:
-    """Schema-grounded LLM agent: it PICKS among the deterministic typed tools
-    (property_ranking / sample_search) and raw read-only SPARQL (run_sparql),
-    grounding the answer in real results (P4-2b — the LLM does the routing).
+    """Schema-grounded LLM agent: it PICKS among the deterministic VERIFIED tools
+    (starrydata property_ranking / sample_search + every other dataset's declared
+    query tools, e.g. Materials Project's structure_by_composition) and raw
+    read-only SPARQL (run_sparql, the unverified escape), grounding the answer in
+    real results (P4-2b — the LLM does the routing).
 
     Returns the same ``{answer, citations, notes}`` contract as the typed path,
     plus a ``sparql`` list of the queries actually run (disclosure). All store
     access is read-only (typed tools + the ``sparql_query`` guard), so the LLM
     cannot mutate the store.
     """
+    from asterism.query_tools import run_query_tool
     from asterism_mcp.tools import (
         property_ranking,
         sample_search,
@@ -451,14 +503,23 @@ async def _llm_answer(question: str, api_key: str) -> dict:
         client, max_classes=40, max_predicates=80, predicates_per_class=15
     )
     system = _ASK_SYSTEM % _render_schema(schema)
+    # starrydata keeps its richer hardcoded tools (property_ranking carries the
+    # excluded_implausible data-quality count); every OTHER dataset's declared
+    # query_tools.yaml is also offered, so e.g. Materials Project's
+    # structure_by_composition / thermoelectric_structure route as VERIFIED tools
+    # rather than the unverified SPARQL escape. New datasets appear here for free.
+    content_defs, content_registry = _content_tool_defs(exclude={"starrydata"})
     tools = [
         _PROPERTY_RANKING_TOOL,
         _SAMPLE_SEARCH_TOOL,
+        *content_defs,
         _RUN_SPARQL_TOOL,
         _SUBMIT_ANSWER_TOOL,
     ]
     messages: list[dict] = [{"role": "user", "content": question}]
     used_sparql: list[str] = []
+    verified_used: list[dict] = []  # provenance: vetted tools the answer used
+    unverified = False  # provenance: whether the unverified SPARQL escape was used
     anthropic = _anthropic_client(api_key)
 
     for step in range(_ASK_MAX_STEPS):
@@ -486,6 +547,8 @@ async def _llm_answer(question: str, api_key: str) -> dict:
                 "citations": data.get("citations") or [],
                 "notes": list(data.get("notes") or []),
                 "sparql": used_sparql,
+                "verified_tools": verified_used,
+                "unverified_sparql": unverified,
             }
 
         if not tool_uses:
@@ -496,6 +559,8 @@ async def _llm_answer(question: str, api_key: str) -> dict:
                 "citations": [],
                 "notes": [],
                 "sparql": used_sparql,
+                "verified_tools": verified_used,
+                "unverified_sparql": unverified,
             }
 
         # Execute every tool call and feed the results back.
@@ -505,6 +570,7 @@ async def _llm_answer(question: str, api_key: str) -> dict:
             inp = tu.input or {}
             try:
                 if tu.name == "run_sparql":
+                    unverified = True  # the unverified escape was used
                     q = inp.get("query", "")
                     result = await sparql_query(q, client, max_rows=50)
                     # Disclose the query that ACTUALLY ran: sparql_query rewrites a
@@ -518,6 +584,9 @@ async def _llm_answer(question: str, api_key: str) -> dict:
                         top_n=int(inp.get("top_n") or 10),
                         max_plausible=inp.get("max_plausible"),
                     )
+                    verified_used.append(
+                        {"dataset": "starrydata", "name": "property_ranking", "title": "property_ranking"}
+                    )
                 elif tu.name == "sample_search":
                     result = await sample_search(
                         client,
@@ -525,6 +594,25 @@ async def _llm_answer(question: str, api_key: str) -> dict:
                         property_y=inp.get("property_y"),
                         limit=20,
                     )
+                    verified_used.append(
+                        {"dataset": "starrydata", "name": "sample_search", "title": "sample_search"}
+                    )
+                elif tu.name in content_registry:
+                    # A declared (verified) query tool from another dataset, e.g.
+                    # Materials Project's thermoelectric_structure — run the fixed
+                    # template through the canonical FROM-merge (cross-dataset).
+                    dataset, qt = content_registry[tu.name]
+                    out = await run_query_tool(client, qt, dict(inp), max_rows=50)
+                    if out.get("sparql"):
+                        used_sparql.append(out["sparql"])
+                    verified_used.append(
+                        {"dataset": dataset, "name": qt.name, "title": qt.title}
+                    )
+                    result = {
+                        "count": out["count"],
+                        "items": out["items"],
+                        "truncated": out["truncated"],
+                    }
                 else:
                     result = {"error": f"unknown tool {tu.name!r}"}
             except Exception as exc:  # never let a bad tool call kill the loop
@@ -546,6 +634,8 @@ async def _llm_answer(question: str, api_key: str) -> dict:
         "citations": [],
         "notes": [],
         "sparql": used_sparql,
+        "verified_tools": verified_used,
+        "unverified_sparql": unverified,
     }
 
 
@@ -580,10 +670,20 @@ async def _typed_answer(question: str) -> dict:
         rank = await property_ranking(
             _client(), property_y=arg, top_n=10, max_plausible=mp
         )
-        return _compose_rank(rank)
+        out = _compose_rank(rank)
+        if out.get("citations"):
+            out["verified_tools"] = [
+                {"dataset": "starrydata", "name": "property_ranking", "title": "property_ranking"}
+            ]
+        return out
     if kind == "search" and arg:
         res = await sample_search(_client(), composition=arg, limit=20)
-        return _compose_search(arg, res)
+        out = _compose_search(arg, res)
+        if out.get("citations"):
+            out["verified_tools"] = [
+                {"dataset": "starrydata", "name": "sample_search", "title": "sample_search"}
+            ]
+        return out
     # Nothing concrete to query on — a generic / cross-dataset question the
     # demo-scoped typed tools cannot answer. Empty -> fall through to the LLM escape.
     return {"answer": "", "citations": [], "notes": []}

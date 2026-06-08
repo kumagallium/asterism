@@ -313,6 +313,9 @@ def test_key_present_llm_picks_typed_property_ranking(monkeypatch) -> None:
     ]
     assert any(r["tool_use_id"] == "t1" for r in results)
     assert "最大 ZT" in body["answer"]
+    # P4-2b provenance: property_ranking is a VERIFIED tool, not an escape.
+    assert [v["name"] for v in body["verified_tools"]] == ["property_ranking"]
+    assert body["unverified_sparql"] is False
 
 
 def test_generic_question_falls_through_not_canned_samples(monkeypatch) -> None:
@@ -373,3 +376,99 @@ def test_crossdataset_question_defers_despite_zt_keyword(monkeypatch) -> None:
     # Did NOT return the typed ZT ranking; the escape engaged.
     assert fake.calls, "a crystal-structure / ZT cross question must reach the LLM escape"
     assert "最大" not in (body.get("answer") or "")  # not the typed ranking phrasing
+
+
+# --- P4-2b: every dataset's verified tools route + per-answer provenance -----
+
+_MP = "https://kumagallium.github.io/asterism/materials_project/ontology#"
+_MPR = "https://kumagallium.github.io/asterism/materials_project/resource/"
+
+
+def _promote(ds: rdflib.ConjunctiveGraph, graph_iri: str) -> None:
+    from asterism.substrate import CONTROL_GRAPH_IRI, STATUS_PREDICATE, STATUS_PROMOTED
+
+    ds.get_context(rdflib.URIRef(CONTROL_GRAPH_IRI)).add(
+        (rdflib.URIRef(graph_iri), rdflib.URIRef(STATUS_PREDICATE), rdflib.Literal(STATUS_PROMOTED))
+    )
+
+
+def test_router_routes_to_mp_verified_content_tool(monkeypatch) -> None:
+    # The generality + provenance headline: a structure-property question routes to
+    # the Materials Project dataset's OWN declared tool (thermoelectric_structure,
+    # loaded from datasets/materials_project/query_tools.yaml — NOT hardcoded), which
+    # joins ZT (starrydata) with the crystal structure (MP) across the FROM-merge.
+    # It is marked VERIFIED, not an unverified escape.
+    from asterism.substrate import canonical_graph_iri
+
+    sd_graph = canonical_graph_iri("starrydata")
+    mp_graph = canonical_graph_iri("materials_project")
+    sd_ttl = f"""
+    @prefix sd: <{SD}> .
+    @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+    <{SDR}sample/x> a sd:Sample ; sd:compositionString "SnSe" .
+    <{SDR}curve/x> a sd:Curve ; sd:propertyY "ZT" ; sd:yMax "0.82"^^xsd:double ;
+        sd:ofSample <{SDR}sample/x> .
+    """
+    mp_ttl = f"""
+    @prefix mp: <{_MP}> .
+    <{_MPR}material/mp-691> a mp:Material ; mp:formula "SnSe" ; mp:mpId "mp-691" ;
+        mp:hasCrystalStructure <{_MPR}structure/mp-691> .
+    <{_MPR}structure/mp-691> a mp:CrystalStructure ; mp:spaceGroupSymbol "Pnma" ;
+        mp:spaceGroupNumber 62 ; mp:crystalSystem "Orthorhombic" .
+    """
+    ds = rdflib.ConjunctiveGraph()
+    ds.get_context(rdflib.URIRef(sd_graph)).parse(data=sd_ttl, format="turtle")
+    ds.get_context(rdflib.URIRef(mp_graph)).parse(data=mp_ttl, format="turtle")
+    _promote(ds, sd_graph)
+    _promote(ds, mp_graph)
+    demo._state["client"] = _LocalClient(ds)
+    monkeypatch.setattr(demo, "_REAL", True)
+
+    fake = _FakeAnthropic(
+        [
+            _block(content=[_block(
+                type="tool_use", id="t1", name="materials_project__thermoelectric_structure",
+                input={"property_y": "ZT", "max_plausible": 3.5},
+            )]),
+            _block(content=[_block(
+                type="tool_use", id="t2", name="submit_answer",
+                input={"answer": "SnSe（Pnma, 直方晶）が ZT 0.82。", "citations": []},
+            )]),
+        ]
+    )
+    monkeypatch.setitem(demo._state, "anthropic_factory", lambda _key: fake)
+    body = TestClient(demo.app).post(
+        "/demo/ask", json={"question": "高 ZT の熱電材料はどんな結晶構造？"},
+        headers={"X-API-Key": "sk-test"},
+    ).json()
+
+    assert {"dataset": "materials_project", "name": "thermoelectric_structure",
+            "title": "Rank thermoelectric materials with the crystal structure that explains them"} in body["verified_tools"]
+    assert body["unverified_sparql"] is False
+    # The cross-dataset join actually ran: the MP structure reached the model.
+    fed_back = json.dumps(fake.calls[1]["messages"], ensure_ascii=False)
+    assert "Pnma" in fed_back and "SnSe" in fed_back
+
+
+def test_router_escape_marks_unverified(monkeypatch) -> None:
+    # When the LLM falls back to run_sparql (no verified tool fits), the answer is
+    # flagged unverified with no verified tool — the amber badge in the UI.
+    g = rdflib.ConjunctiveGraph()
+    g.parse(data=_CUSTOM_TTL, format="turtle")
+    demo._state["client"] = _LocalClient(g)
+    monkeypatch.setattr(demo, "_REAL", True)
+    select = f"SELECT ?w ?n WHERE {{ ?w a <{_EX}Widget> ; <{_EX}name> ?n }}"
+    fake = _FakeAnthropic(
+        [
+            _block(content=[_block(type="tool_use", id="t1", name="run_sparql",
+                                   input={"query": select})]),
+            _block(content=[_block(type="tool_use", id="t2", name="submit_answer",
+                                   input={"answer": "Widget は 2 件。", "citations": []})]),
+        ]
+    )
+    monkeypatch.setitem(demo._state, "anthropic_factory", lambda _key: fake)
+    body = TestClient(demo.app).post(
+        "/demo/ask", json={"question": "Widget は何件？"}, headers={"X-API-Key": "sk-test"},
+    ).json()
+    assert body["unverified_sparql"] is True
+    assert body["verified_tools"] == []
