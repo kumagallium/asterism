@@ -22,6 +22,7 @@ log writer.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -265,6 +266,28 @@ def _tail_jsonl(path: Path, limit: int) -> list[dict[str, object]]:
     return out
 
 
+async def _pending_drop_sweeper(
+    client: OxigraphClient, stop: asyncio.Event, *, interval: float = 10.0
+) -> None:
+    """Background task (part5): drop superseded / deleted version graphs.
+
+    Re-ingest streams a new version and promote swaps the live pointer, leaving the
+    old version superseded; delete enqueues the data graph. This sweeper drops those
+    enqueued graphs OFF the request path, so replace / delete never block on a large
+    DROP. The first iteration runs immediately (recovering orphans left by a crash
+    mid-drop), then every ``interval`` seconds until shutdown.
+    """
+    while not stop.is_set():
+        try:
+            dropped = await substrate.sweep_pending_drops(client, limit=20)
+            if dropped:
+                logger.info("swept %d superseded/deleted graph(s)", len(dropped))
+        except Exception:  # never let a sweep error kill the loop
+            logger.exception("pending-drop sweep failed (continuing)")
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(stop.wait(), timeout=interval)
+
+
 # ----------------------------------------------------------------------------
 # App builder
 # ----------------------------------------------------------------------------
@@ -334,7 +357,11 @@ def build_app(
                     cg = meta.get("canonical_graph") or substrate.canonical_graph_iri(
                         meta["id"]
                     )
-                    await substrate.mark_graph_promoted(client, cg)
+                    # part5: restore the live version pointer too (a dataset promoted
+                    # before part5 has no live_graph -> falls back to the key graph).
+                    await substrate.mark_graph_promoted(
+                        client, cg, live_graph=meta.get("live_graph")
+                    )
         except Exception:  # never block startup on the migration / backfill
             logger.exception(
                 "default->canonical/legacy migration or promote-flag backfill failed (continuing)"
@@ -345,19 +372,29 @@ def build_app(
             task = asyncio.create_task(
                 watch(watcher_cfg, client, stop_event=stop), name="asterism-watcher"
             )
+        # part5: a background sweeper drops superseded / deleted version graphs off
+        # the request path (an initial sweep also recovers any orphans left by a
+        # crash mid-drop). Gated on start_watcher so unit tests opt out cleanly.
+        sweeper: asyncio.Task[None] | None = None
+        if start_watcher:
+            sweeper = asyncio.create_task(
+                _pending_drop_sweeper(client, stop), name="asterism-drop-sweeper"
+            )
         app.state.client = client
         app.state.watcher_cfg = watcher_cfg
         app.state.watcher_task = task
+        app.state.sweeper_task = sweeper
         app.state.jobs = JobManager()
         try:
             yield
         finally:
             stop.set()
-            if task is not None:
-                try:
-                    await asyncio.wait_for(task, timeout=2.0)
-                except (TimeoutError, asyncio.CancelledError):
-                    task.cancel()
+            for bg in (task, sweeper):
+                if bg is not None:
+                    try:
+                        await asyncio.wait_for(bg, timeout=2.0)
+                    except (TimeoutError, asyncio.CancelledError):
+                        bg.cancel()
             if oxigraph_client is None:
                 await client.aclose()
 
@@ -678,11 +715,15 @@ def build_app(
                 "ここで CSV をアップロードしてください",
             )
         csv_dir = csv_paths[0].parent
-        # Memory-bounded promote: stream straight into the per-dataset *canonical*
-        # graph (no draft graph, no later MOVE). It stays out of the Ask scope until
-        # promote flips the control flag, so draft isolation holds (the flag, not
-        # graph existence, gates citability).
-        graph_iri = substrate.canonical_graph_iri(dataset_id)
+        # part5: stream into a FRESH per-ingest version graph `canonical/{id}/v{n}`
+        # — never touching the currently live graph. So a re-ingest needs no
+        # un-publish and no DROP on the request path (the old version stays citable
+        # until promote swaps the live pointer; it is dropped in the background
+        # afterwards). The version graph stays out of the Ask scope until promote
+        # points the dataset's liveGraph at it (draft isolation, flag-based).
+        dataset_key = substrate.canonical_graph_iri(dataset_id)
+        data_seq = registry.next_data_seq(cfg.registry_root, dataset_id)
+        staged_iri = substrate.versioned_graph_iri(dataset_id, data_seq)
         client: OxigraphClient = app.state.client
 
         async def ingest_job(emit: Callable[..., None]) -> dict[str, object]:
@@ -696,43 +737,41 @@ def build_app(
                 )
                 total = substrate.count_nt_lines(nt)
                 emit(phase="materialized", total=total)
-                # Clean slate so a re-ingest replaces (and clears any prior partial).
-                # Un-publish FIRST (clear the promoted flag) so a re-ingest of an
-                # already-promoted dataset leaves the citable scope before its graph
-                # is dropped — no window where Ask sees a half-replaced graph. Then
-                # drop the existing graph; sparql_update has a generous timeout for a
-                # large drop (a versioned-graph swap to take that off the critical
-                # path is a follow-up — ADR §promote).
+                # The target is a fresh, empty version graph — no clean-slate DROP
+                # needed (and the live graph is untouched, so Ask keeps serving the
+                # current version throughout the re-stream).
                 emit(phase="preparing", message="取り込み先グラフを準備中")
-                await substrate.clear_status(client, graph_iri)
-                await substrate.drop_graph(client, graph_iri)
                 try:
                     triple_count = await substrate.stream_nt_file_to_oxigraph(
                         nt,
                         client,
-                        graph_iri,
+                        staged_iri,
                         on_progress=lambda done, tot: emit(
                             phase="upload", done=done, total=tot
                         ),
                     )
                 except Exception:
-                    # D6: never leave a partial graph behind on failure.
-                    await substrate.drop_graph(client, graph_iri)
+                    # D6: never leave a partial version graph behind on failure
+                    # (it was never live, so dropping it cannot affect a reader).
+                    await substrate.drop_graph(client, staged_iri)
                     raise
             finally:
                 shutil.rmtree(work, ignore_errors=True)  # the .nt can be GBs
 
+            # Record the staged version graph as the dataset's pending ingest.
+            await substrate.set_staged_graph(client, dataset_key, staged_iri)
             meta = registry.mark_ingested(
                 cfg.registry_root,
                 dataset_id,
-                graph_iri=graph_iri,
+                graph_iri=staged_iri,
                 triple_count=triple_count,
                 ingested_at=datetime.now(UTC).isoformat(),
+                data_seq=data_seq,
             )
             return {
                 "dataset_id": dataset_id,
-                "graph_iri": graph_iri,
-                # Staged in the canonical graph but not yet citable (awaits promote).
+                "graph_iri": staged_iri,
+                # Staged in a version graph but not yet citable (awaits promote).
                 "graph_kind": "staged",
                 "triple_count": triple_count,
                 "dataset": meta,
@@ -758,19 +797,23 @@ def build_app(
         if not data["meta"].get("ingested"):
             raise HTTPException(400, "dataset has no staged graph (not ingested)")
         client: OxigraphClient = app.state.client
-        graph_iri = substrate.canonical_graph_iri(dataset_id)
-        report = await substrate.alignment_report(client, graph_iri)
+        # part5: align the *staged version graph* (recorded at ingest) against the
+        # citable corpus — it is not promoted yet, so it is not part of that scope.
+        staged_iri = data["meta"].get("graph_iri") or substrate.canonical_graph_iri(
+            dataset_id
+        )
+        report = await substrate.alignment_report(client, staged_iri)
         return JSONResponse({"dataset_id": dataset_id, "alignment": report})
 
     @app.post("/api/datasets/{dataset_id}/promote")
     async def promote_dataset(dataset_id: str) -> JSONResponse:
-        """Phase 5 (#15 S4): human-gated promotion of a staged graph to citable.
+        """Phase 5 (#15 S4): human-gated promotion of a staged version graph to citable.
 
-        Memory-bounded promote: the triples were already streamed into the dataset's
-        canonical graph at ingest, so promotion just flips the control-graph
-        ``promoted`` flag — O(1), no MOVE (the OOM-prone graph copy is gone). Ask
-        then reads it via the canonical scope. The alignment report (Reuse vs New)
-        is recorded on the dataset's meta.
+        Memory-bounded + off-critical-path: the triples were already streamed into a
+        version graph at ingest, so promotion just points the dataset's ``liveGraph``
+        at it and flips ``promoted`` — O(1) control writes, no MOVE/DROP. A re-promote
+        supersedes the prior version, which is dropped in the background (part5). The
+        alignment report (Reuse vs New) is recorded on the dataset's meta.
         """
         data = registry.load_dataset(cfg.registry_root, dataset_id)
         if data is None:
@@ -778,13 +821,15 @@ def build_app(
         if not data["meta"].get("ingested"):
             raise HTTPException(400, "dataset has no staged graph to promote (not ingested)")
         client: OxigraphClient = app.state.client
-        # The staged graph IS the canonical graph (ingest streamed straight into it);
-        # promotion only sets its citable flag. Aligning the staged graph against the
-        # canonical scope is valid because the staged graph is not flagged promoted
-        # yet, so it is not part of the scope it is compared against.
-        canonical_iri = substrate.canonical_graph_iri(dataset_id)
-        alignment = await substrate.alignment_report(client, canonical_iri)
-        await substrate.promote_to_canonical(client, canonical_iri)
+        dataset_key = substrate.canonical_graph_iri(dataset_id)
+        # The staged version graph (recorded at ingest) holds the new data. Aligning
+        # it against the citable corpus is valid: it is not promoted yet, so it is not
+        # part of the scope it is compared against.
+        staged_iri = data["meta"].get("graph_iri") or dataset_key
+        alignment = await substrate.alignment_report(client, staged_iri)
+        # O(1): point liveGraph at the staged version + flag promoted. Any prior live
+        # version is enqueued for a background drop (reclaimed off the request path).
+        await substrate.promote_to_canonical(client, dataset_key, staged_iri)
         # Triple count is recorded at ingest (mark_ingested) — read it rather than
         # COUNT the (possibly multi-million-triple) graph, keeping promote O(1).
         triples_promoted = int(data["meta"].get("triple_count") or 0)
@@ -802,13 +847,16 @@ def build_app(
             triples_promoted=triples_promoted,
             alignment=alignment,
             promoted_at=datetime.now(UTC).isoformat(),
-            canonical_graph=canonical_iri,
+            canonical_graph=dataset_key,
+            live_graph=staged_iri,
         )
         return JSONResponse(
             {
                 "dataset_id": dataset_id,
                 "promoted": True,
-                "canonical_graph": canonical_iri,
+                "canonical_graph": dataset_key,
+                # part5: the version graph now holding the citable data.
+                "live_graph": staged_iri,
                 "triples_promoted": triples_promoted,
                 # #20 step5: TBox triples projected into the ontology graph.
                 "ontology_graph": substrate.ontology_graph_iri(dataset_id),
@@ -867,10 +915,13 @@ def build_app(
         A *promoted* dataset has citable canonical data, so deleting it can break
         existing citations — that requires explicit ``?force=true``; the safe
         default for those is ``retract``. A design / staged-only dataset (never
-        promoted) is removed freely. The dataset's triples live in its canonical
-        graph (ingest streamed straight there), so we DROP that graph; a promoted
-        delete also leaves a ``deleted`` tombstone in the control graph so dangling
-        citations get a clear answer.
+        promoted) is removed freely.
+
+        part5: the dataset's data graphs (live version + any pending staged version)
+        are **enqueued for a background drop** and the endpoint returns immediately —
+        delete never blocks on a large DROP. A promoted delete also leaves a
+        ``deleted`` tombstone in the control graph so dangling citations get a clear
+        answer.
         """
         data = registry.load_dataset(cfg.registry_root, dataset_id)
         if data is None:
@@ -884,17 +935,28 @@ def build_app(
                 "or pass ?force=true to hard-delete (breaks existing citations).",
             )
         client: OxigraphClient = app.state.client
-        canonical_iri = substrate.canonical_graph_iri(dataset_id)
-        # The canonical graph holds the data whether the dataset is staged
-        # (ingested) or promoted; drop it in either case.
-        if meta.get("ingested") or promoted:
-            await substrate.drop_graph(client, canonical_iri)
+        dataset_key = substrate.canonical_graph_iri(dataset_id)
+        # Gather the data graphs to reclaim: the live version (or the key graph for a
+        # pre-part5 dataset) and any pending staged version.
+        to_drop: set[str] = set()
         if promoted:
-            # Replaces the promoted flag with a deleted tombstone (one control write).
+            to_drop.add(await substrate.live_graph_of(client, dataset_key) or dataset_key)
+        staged = meta.get("graph_iri")
+        if meta.get("ingested") and staged:
+            to_drop.add(staged)
+        for g in sorted(to_drop):
+            await substrate.mark_pending_drop(client, g)
+        if promoted:
+            # Replaces the live pointer with a deleted tombstone (one control write).
             await substrate.tombstone_deleted(
-                client, canonical_iri, deleted_at=datetime.now(UTC).isoformat()
+                client, dataset_key, deleted_at=datetime.now(UTC).isoformat()
             )
+        else:
+            # Never citable — just drop its staged pointer (no tombstone needed).
+            await substrate.clear_staged_graph(client, dataset_key)
         registry.delete_dataset(cfg.registry_root, dataset_id)
+        # The data graphs are enqueued for a background drop; the periodic sweeper
+        # reclaims them off the request path (so delete never blocks on a large DROP).
         return JSONResponse(
             {"dataset_id": dataset_id, "deleted": True, "was_promoted": promoted}
         )

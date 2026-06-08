@@ -142,6 +142,22 @@ def mark_source_saved(root: Path, dataset_id: str, source_files: list[str]) -> d
     )
 
 
+def next_data_seq(root: Path, dataset_id: str) -> int:
+    """The next monotonic per-dataset ingest sequence (part5 version numbering).
+
+    Monotonic (never reused even after old versions are dropped), so version graphs
+    never collide. 1 for the first ingest. Returns 1 if the id is unsafe / absent
+    (the caller validates separately).
+    """
+    if not re.fullmatch(r"[a-z0-9-]{1,128}", dataset_id):
+        return 1
+    meta_path = root / dataset_id / _META_FILE
+    if not meta_path.is_file():
+        return 1
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    return int(meta.get("data_seq", 0)) + 1
+
+
 def mark_ingested(
     root: Path,
     dataset_id: str,
@@ -149,15 +165,18 @@ def mark_ingested(
     graph_iri: str,
     triple_count: int,
     ingested_at: str,
+    data_seq: int,
 ) -> dict | None:
-    """Record that ``dataset_id`` was ingested into ``graph_iri`` (its canonical
+    """Record that ``dataset_id`` was ingested into ``graph_iri`` (a *version* data
     graph, staged but not yet citable).
 
-    Memory-bounded promote: ingest streams straight into the per-dataset canonical
-    graph, which stays out of the Ask scope until promote flips the control flag.
-    So a fresh ingest also clears ``promoted`` — a re-ingest supersedes any prior
-    promotion and requires a new human promote gate. Updates ``meta.json`` in place
-    and returns the new meta, or ``None`` if the id is unsafe / absent.
+    part5: ingest streams into a fresh per-ingest version graph
+    (``canonical/{id}/v{n}``) that stays out of the Ask scope until promote points
+    the dataset's ``liveGraph`` at it — so a re-ingest does NOT touch the currently
+    live graph (no DROP, no citability gap). A fresh ingest clears ``promoted`` (a
+    re-ingest supersedes any prior promotion and needs a new human promote gate) and
+    records ``data_seq`` (the monotonic version). Updates ``meta.json`` in place;
+    returns the new meta, or ``None`` if the id is unsafe / absent.
     """
     if not re.fullmatch(r"[a-z0-9-]{1,128}", dataset_id):
         return None
@@ -166,10 +185,11 @@ def mark_ingested(
         return None
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     meta["ingested"] = True
-    meta["promoted"] = False  # staged in the canonical graph; awaits a promote gate
-    meta["graph_iri"] = graph_iri
+    meta["promoted"] = False  # staged in a version graph; awaits a promote gate
+    meta["graph_iri"] = graph_iri  # the staged version graph
     meta["triple_count"] = triple_count
     meta["ingested_at"] = ingested_at
+    meta["data_seq"] = int(data_seq)
     meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     return meta
 
@@ -182,6 +202,7 @@ def mark_promoted(
     alignment: dict,
     promoted_at: str,
     canonical_graph: str | None = None,
+    live_graph: str | None = None,
 ) -> dict | None:
     """Record that ``dataset_id``'s staged canonical graph was promoted (made citable).
 
@@ -199,10 +220,13 @@ def mark_promoted(
         return None
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     meta["promoted"] = True
-    meta["ingested"] = False  # no pending draft; data is staged in the canonical graph
+    meta["ingested"] = False  # no pending staged graph; the version graph is now live
     meta["status"] = "active"  # a (re-)promote makes it citable again (clears retracted)
     meta["graph_iri"] = None
-    meta["canonical_graph"] = canonical_graph  # #20 P3: per-dataset canonical graph
+    meta["canonical_graph"] = canonical_graph  # #20 P3: per-dataset canonical key graph
+    # part5: the version graph now holding the citable data (the live pointer). The
+    # startup backfill restores the control-graph liveGraph from this after upgrade.
+    meta["live_graph"] = live_graph
     meta["triples_promoted"] = triples_promoted
     meta["alignment"] = alignment
     meta["promoted_at"] = promoted_at
