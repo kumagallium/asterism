@@ -34,6 +34,12 @@ export interface Citation {
   fields: CitationField
 }
 
+export interface VerifiedTool {
+  dataset: string
+  name: string
+  title: string
+}
+
 export interface AskResponse {
   answer: string
   citations: Citation[]
@@ -42,6 +48,11 @@ export interface AskResponse {
   // (starrydata) path; populated when the LLM escape writes queries over a
   // user-designed schema. Disclosed in the UI so the answer is verifiable.
   sparql: string[]
+  // C (P4-2b) provenance: which human-vetted typed tools the answer used
+  // (deterministic, reproducible, citable) and whether an unverified
+  // LLM-generated SPARQL escape was used. Drives the answer provenance badge.
+  verifiedTools?: VerifiedTool[]
+  unverifiedSparql?: boolean
 }
 
 export interface ProvenanceStep {
@@ -197,6 +208,12 @@ function normalizeCitation(raw: unknown): Citation {
   }
 }
 
+function normalizeVerifiedTool(raw: unknown): VerifiedTool {
+  const r = (raw ?? {}) as Record<string, unknown>
+  const name = asString(r.name)
+  return { dataset: asString(r.dataset), name, title: asString(r.title) || name }
+}
+
 function normalizeAsk(raw: unknown): AskResponse {
   const r = (raw ?? {}) as Record<string, unknown>
   return {
@@ -204,6 +221,10 @@ function normalizeAsk(raw: unknown): AskResponse {
     citations: Array.isArray(r.citations) ? r.citations.map(normalizeCitation) : [],
     notes: Array.isArray(r.notes) ? r.notes.map(asString).filter(Boolean) : [],
     sparql: Array.isArray(r.sparql) ? r.sparql.map(asString).filter(Boolean) : [],
+    verifiedTools: Array.isArray(r.verified_tools)
+      ? r.verified_tools.map(normalizeVerifiedTool).filter((t) => t.name)
+      : [],
+    unverifiedSparql: r.unverified_sparql === true,
   }
 }
 

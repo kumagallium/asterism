@@ -1169,6 +1169,11 @@ textarea:focus {
 .answer-badge svg {
   display: block;
 }
+/* C (P4-2b) provenance: verified = green (base), unverified = amber. */
+.answer-badge-unverified {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
 .answer-head-note {
   font-size: 0.74rem;
   color: var(--faint);

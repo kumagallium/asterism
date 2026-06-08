@@ -294,24 +294,6 @@ _SUBMIT_ANSWER_TOOL = {
     },
 }
 
-_ASK_SYSTEM = """\
-You answer questions over an RDF graph by writing READ-ONLY SPARQL and grounding \
-your answer in the actual results. Make NO assumptions about the vocabulary \
-beyond the schema below — it lists the classes, predicates, and per-class \
-predicate shapes that ACTUALLY exist in the store, with usage counts.
-
-Rules:
-- Use ONLY IRIs that appear in the schema, written as full IRIs in <>.
-- Always SELECT enough to cite (include the subject IRI). Add LIMIT (<=50).
-- Call run_sparql to execute. If it returns an error, read it and try again \
-(at most a few times); do not give up after one failure.
-- When you have the data, call submit_answer with a concise Japanese answer and \
-citations whose IRIs literally appear in your results. Never fabricate values.
-- If the data genuinely cannot answer the question, say so honestly.
-
-Schema (classes / predicates / per-class shapes with counts):
-%s
-"""
 
 
 def _anthropic_client(api_key: str):
@@ -350,24 +332,116 @@ def _blocks_to_dicts(content: list) -> list[dict]:
     return out
 
 
-async def _llm_sparql_answer(question: str, api_key: str) -> dict:
-    """Schema-grounded LLM agent: introspect → write SPARQL → run → answer.
+# ---------------------------------------------------------------------------
+# C: LLM-as-router over the verified typed tools (P4-2b)
+# ---------------------------------------------------------------------------
+# Single free-text box, but the LLM only *routes*: it picks a human-vetted typed
+# tool (from any dataset's query_tools.yaml) and the deterministic tool produces
+# the cited answer (fixed query, data-quality gate baked in, reproducible
+# citation). Only when no verified tool fits does it fall back to run_sparql
+# (escape, unverified). So the answerable range = everything (escape covers the
+# tail), while curated question-families stay deterministic + citable. New tools
+# appear automatically (load_all_query_tools spans every dataset) — no per-dataset
+# code: "every ingested dataset is askable" without touching this router.
 
-    Returns the same ``{answer, citations, notes}`` contract as the typed path,
-    plus a ``sparql`` list of the queries actually run (disclosure: the user can
-    see and verify how the answer was derived). All queries go through the
-    read-only ``sparql_query`` guard, so the LLM cannot mutate the store.
+_ROUTER_SYSTEM = """\
+You answer questions over an RDF graph. You have two kinds of tools:
+
+1. VERIFIED TOOLS (names containing "__"): human-vetted, parameterized,
+   deterministic, reproducible, citable operations over specific datasets.
+   PREFER these — if the question fits one, call it with the right arguments.
+2. run_sparql: a fallback to write your OWN read-only SPARQL, used only when NO
+   verified tool fits. Its results are unverified.
+
+The schema below lists the classes/predicates that ACTUALLY exist (with counts);
+use only IRIs from it, written as full IRIs in <>.
+
+Rules:
+- Try a VERIFIED tool FIRST. Use run_sparql only if none fits the question.
+- A verified tool may span datasets (e.g. join a thermoelectric property with a
+  crystal structure) — prefer it for cross-dataset questions when one fits.
+- Cite the IRIs that appear in your tool results (include subject IRIs). Add
+  LIMIT (<=50) to any run_sparql. Never fabricate values or IRIs.
+- When you have the data, call submit_answer with a concise Japanese answer.
+- If the data genuinely cannot answer the question, say so honestly.
+
+Schema (classes / predicates / per-class shapes with counts):
+%s
+"""
+
+_VERIFIED_SEP = "__"
+
+
+def _param_json_schema(p) -> dict:
+    """Map a declared ToolParam to an Anthropic tool input_schema property."""
+    if p.type == "number":
+        base: dict = {"type": "number"}
+    elif p.type == "integer":
+        base = {"type": "integer"}
+    elif p.type == "enum":
+        base = {"type": "string", "enum": list(p.enum or ())}
+    else:  # string, iri
+        base = {"type": "string"}
+    if p.description:
+        base["description"] = p.description
+    return base
+
+
+def _verified_tool_defs() -> tuple[list[dict], dict]:
+    """Anthropic tool defs for every declared query tool, across ALL datasets.
+
+    Returns ``(defs, registry)`` with ``registry[name] = (dataset, QueryTool)``.
+    The engine knows no vocabulary; tools come from each dataset's
+    ``query_tools.yaml`` (#112/#113), so a newly onboarded dataset's tools appear
+    here for free — the generality requirement ("all ingested datasets askable").
     """
+    from asterism.query_tools import load_all_query_tools
+
+    defs: list[dict] = []
+    registry: dict[str, tuple] = {}
+    for dataset, qts in load_all_query_tools().items():
+        for qt in qts:
+            name = f"{dataset}{_VERIFIED_SEP}{qt.name}"
+            defs.append(
+                {
+                    "name": name,
+                    "description": f"[verified · dataset:{dataset}] {qt.description or qt.title}",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {p.name: _param_json_schema(p) for p in qt.params},
+                        "required": [p.name for p in qt.params if p.required],
+                    },
+                }
+            )
+            registry[name] = (dataset, qt)
+    return defs, registry
+
+
+async def _llm_router_answer(question: str, api_key: str) -> dict:
+    """C: an LLM routes a free-text question to a VERIFIED typed tool
+    (deterministic, citable) or, only if none fits, to a read-only SPARQL escape
+    (unverified).
+
+    Returns ``{answer, citations, notes, sparql}`` plus provenance for the UI
+    badge: ``verified_tools`` (the vetted tools actually used) and
+    ``unverified_sparql`` (whether the escape was used). Execution stays
+    read-only: verified tools run fixed templates through the FROM-merge, and
+    run_sparql is guarded.
+    """
+    from asterism.query_tools import run_query_tool
     from asterism_mcp.tools import schema_summary, sparql_query
 
     client = _client()
     schema = await schema_summary(
         client, max_classes=40, max_predicates=80, predicates_per_class=15
     )
-    system = _ASK_SYSTEM % _render_schema(schema)
-    tools = [_RUN_SPARQL_TOOL, _SUBMIT_ANSWER_TOOL]
+    verified_defs, registry = _verified_tool_defs()
+    system = _ROUTER_SYSTEM % _render_schema(schema)
+    tools = [*verified_defs, _RUN_SPARQL_TOOL, _SUBMIT_ANSWER_TOOL]
     messages: list[dict] = [{"role": "user", "content": question}]
     used_sparql: list[str] = []
+    verified_used: list[dict] = []
+    unverified = False
     anthropic = _anthropic_client(api_key)
 
     for step in range(_ASK_MAX_STEPS):
@@ -388,13 +462,13 @@ async def _llm_sparql_answer(question: str, api_key: str) -> dict:
         submit = next((b for b in tool_uses if b.name == "submit_answer"), None)
         if submit is not None:
             data = submit.input or {}
-            # The queries are disclosed via the dedicated ``sparql`` field (the UI
-            # renders them in a panel); we no longer stuff them into ``notes``.
             return {
                 "answer": data.get("answer", ""),
                 "citations": data.get("citations") or [],
                 "notes": list(data.get("notes") or []),
                 "sparql": used_sparql,
+                "verified_tools": verified_used,
+                "unverified_sparql": unverified,
             }
 
         if not tool_uses:
@@ -405,39 +479,53 @@ async def _llm_sparql_answer(question: str, api_key: str) -> dict:
                 "citations": [],
                 "notes": [],
                 "sparql": used_sparql,
+                "verified_tools": verified_used,
+                "unverified_sparql": unverified,
             }
 
-        # Execute every run_sparql call and feed the results back.
+        # Execute every tool call (verified tool or run_sparql) and feed results back.
         messages.append({"role": "assistant", "content": _blocks_to_dicts(resp.content)})
         tool_results: list[dict] = []
         for tu in tool_uses:
+            result: dict
             if tu.name == "run_sparql":
+                unverified = True
                 q = (tu.input or {}).get("query", "")
                 try:
                     result = await sparql_query(q, client, max_rows=50)
-                    # Disclose the query that ACTUALLY ran: sparql_query rewrites a
-                    # plain SELECT to read the cross-dataset canonical FROM-merge
-                    # (#20), so the user sees the real, reproducible query string.
+                    # Disclose the query that ACTUALLY ran (FROM-merge rewrite, #20).
                     used_sparql.append(result.get("effective_query") or q)
                 except Exception as exc:  # never let a bad query kill the loop
                     used_sparql.append(q)
                     result = {"error": str(exc)}
-                tool_results.append(
-                    {
-                        "type": "tool_result",
-                        "tool_use_id": tu.id,
-                        "content": json.dumps(result, ensure_ascii=False),
+            elif tu.name in registry:
+                dataset, qt = registry[tu.name]
+                try:
+                    out = await run_query_tool(
+                        client, qt, dict(tu.input or {}), max_rows=50
+                    )
+                    if out.get("sparql"):
+                        used_sparql.append(out["sparql"])
+                    verified_used.append(
+                        {"dataset": dataset, "name": qt.name, "title": qt.title}
+                    )
+                    result = {
+                        "count": out["count"],
+                        "items": out["items"],
+                        "truncated": out["truncated"],
                     }
-                )
+                except Exception as exc:
+                    result = {"error": str(exc)}
             else:
-                tool_results.append(
-                    {
-                        "type": "tool_result",
-                        "tool_use_id": tu.id,
-                        "content": "unknown tool",
-                        "is_error": True,
-                    }
-                )
+                result = {"error": "unknown tool"}
+            tr: dict = {
+                "type": "tool_result",
+                "tool_use_id": tu.id,
+                "content": json.dumps(result, ensure_ascii=False),
+            }
+            if isinstance(result, dict) and result.get("error"):
+                tr["is_error"] = True
+            tool_results.append(tr)
         messages.append({"role": "user", "content": tool_results})
 
     # Exhausted steps without a submit_answer (should be rare given force_final).
@@ -446,6 +534,8 @@ async def _llm_sparql_answer(question: str, api_key: str) -> dict:
         "citations": [],
         "notes": [],
         "sparql": used_sparql,
+        "verified_tools": verified_used,
+        "unverified_sparql": unverified,
     }
 
 
@@ -474,12 +564,23 @@ async def _typed_answer(question: str) -> dict:
         rank = await property_ranking(
             _client(), property_y=arg, top_n=10, max_plausible=mp
         )
-        return _compose_rank(rank)
+        out = _compose_rank(rank)
+        if out.get("citations"):
+            out["verified_tools"] = [
+                {"dataset": "starrydata", "name": "property_ranking", "title": "property_ranking"}
+            ]
+        return out
     if kind == "search" and arg:
         res = await sample_search(_client(), composition=arg, limit=20)
-        return _compose_search(arg, res)
-    # Nothing concrete to query on — a generic / cross-dataset question the
-    # demo-scoped typed tools cannot answer. Empty -> fall through to the LLM escape.
+        out = _compose_search(arg, res)
+        if out.get("citations"):
+            out["verified_tools"] = [
+                {"dataset": "starrydata", "name": "sample_search", "title": "sample_search"}
+            ]
+        return out
+    # Nothing concrete to query on (#142): a bare sample_search(None) matches every
+    # sample and would block the fallthrough — return empty so the no-key path
+    # appends a hint instead of a canned "all samples" list.
     return {"answer": "", "citations": [], "notes": []}
 
 
@@ -492,23 +593,22 @@ async def ask(
         # MOCK: same grounded fixture regardless of question.
         return _ASK_FIXTURE
 
-    # 1. Deterministic typed path first (LLM-free, fast, reproducible). This is
-    #    the main act per product direction; it only fits the starrydata schema.
+    # 1. With a key: the C router. The LLM picks a VERIFIED typed tool (any
+    #    dataset — deterministic, citable) and only falls back to a read-only
+    #    SPARQL escape when none fits. Covers every ingested dataset + the long
+    #    tail; the response carries provenance so the UI can badge each answer.
+    if x_api_key:
+        return await _llm_router_answer(req.question, x_api_key)
+
+    # 2. No key: the LLM-free keyword floor (starrydata typed tools — key-free,
+    #    deterministic). It only fits the starrydata schema; if nothing matches,
+    #    hand back the empty answer with a hint that the general router needs a key.
     typed = await _typed_answer(req.question)
     if typed.get("citations"):
         return typed
-
-    # 2. Escape: the typed tools found nothing — the data may use a schema they
-    #    were never specialized for. If the caller brought an API key, let an LLM
-    #    introspect the schema and write a read-only SPARQL query to answer.
-    if x_api_key:
-        return await _llm_sparql_answer(req.question, x_api_key)
-
-    # 3. No key, nothing typed: hand back the empty typed answer with a hint so
-    #    the user knows the general (LLM) path needs a key.
     typed.setdefault("notes", []).append(
-        "型付きツールで該当が見つかりませんでした。任意スキーマへの一般的な質問には "
-        "API キーが必要です（スキーマを内省して SPARQL を生成します）。"
+        "キー無しの型付き検索（starrydata）で該当がありませんでした。MP など他データセットや "
+        "自由な質問には API キーが必要です（検証済ツールへ自動振り分け＋未整備な問いは SPARQL 生成）。"
     )
     return typed
 

@@ -203,6 +203,9 @@ def test_llm_escape_fires_when_typed_path_empty(monkeypatch) -> None:
     assert select in body["sparql"]
     fed_back = json.dumps(fake.calls[1]["messages"], ensure_ascii=False)
     assert "alpha" in fed_back  # the real rows reached the model on turn 2
+    # C provenance: run_sparql escape → unverified, no verified tool used.
+    assert body["unverified_sparql"] is True
+    assert body["verified_tools"] == []
 
 
 def test_llm_escape_discloses_from_merged_query(monkeypatch) -> None:
@@ -266,30 +269,136 @@ def test_llm_escape_requires_key(monkeypatch) -> None:
     assert any("API キー" in n for n in body["notes"])
 
 
-def test_typed_path_still_short_circuits_without_llm(monkeypatch) -> None:
-    # Starrydata fixture + a ZT question → typed path answers; LLM untouched even
-    # when a key is present.
+def test_keyfree_floor_answers_starrydata_without_llm(monkeypatch) -> None:
+    # NO key: the LLM-free keyword floor still answers starrydata ZT questions
+    # deterministically (non-regression), badged as a verified tool.
     g = rdflib.ConjunctiveGraph()  # quad store: canonical-scope reads use GRAPH (#20 P3)
     g.parse(data=_TTL, format="turtle")
     demo._state["client"] = _LocalClient(g)
     monkeypatch.setattr(demo, "_REAL", True)
     fake = _FakeAnthropic([])
     monkeypatch.setitem(demo._state, "anthropic_factory", lambda _key: fake)
-    client = TestClient(demo.app)
-    body = client.post(
-        "/demo/ask", json={"question": "ZTが最も高い材料は？"},
+    body = TestClient(demo.app).post(
+        "/demo/ask", json={"question": "ZTが最も高い材料は？"}
+    ).json()  # no X-API-Key
+    assert "ZT" in body["answer"]
+    assert fake.calls == []  # key-free path; LLM never invoked
+    assert any(v["name"] == "property_ranking" for v in body.get("verified_tools", []))
+
+
+# --- C: LLM-as-router over the verified typed tools (P4-2b) -----------------
+
+_MP = "https://kumagallium.github.io/asterism/materials_project/ontology#"
+_MPR = "https://kumagallium.github.io/asterism/materials_project/resource/"
+
+
+def _promote(ds: rdflib.ConjunctiveGraph, graph_iri: str) -> None:
+    from asterism.substrate import CONTROL_GRAPH_IRI, STATUS_PREDICATE, STATUS_PROMOTED
+
+    ds.get_context(rdflib.URIRef(CONTROL_GRAPH_IRI)).add(
+        (rdflib.URIRef(graph_iri), rdflib.URIRef(STATUS_PREDICATE), rdflib.Literal(STATUS_PROMOTED))
+    )
+
+
+def test_router_routes_a_zt_question_to_a_verified_tool(monkeypatch) -> None:
+    # With a key, the C router gives the LLM the verified tools; the (faked) LLM
+    # picks starrydata__property_ranking and the DETERMINISTIC tool produces the
+    # answer → provenance marks it verified, not an unverified SPARQL escape.
+    from asterism.substrate import canonical_graph_iri
+
+    sd_graph = canonical_graph_iri("starrydata")
+    ds = rdflib.ConjunctiveGraph()
+    ds.get_context(rdflib.URIRef(sd_graph)).parse(data=_TTL, format="turtle")
+    _promote(ds, sd_graph)
+    demo._state["client"] = _LocalClient(ds)
+    monkeypatch.setattr(demo, "_REAL", True)
+
+    fake = _FakeAnthropic(
+        [
+            _block(content=[_block(
+                type="tool_use", id="t1", name="starrydata__property_ranking",
+                input={"property_y": "ZT", "max_plausible": 3.5},
+            )]),
+            _block(content=[_block(
+                type="tool_use", id="t2", name="submit_answer",
+                input={"answer": "最大 ZT は SnSe（約 2.6）。",
+                       "citations": [{"iri": f"{SDR}curve/1-1-1", "kind": "curve"}]},
+            )]),
+        ]
+    )
+    monkeypatch.setitem(demo._state, "anthropic_factory", lambda _key: fake)
+    body = TestClient(demo.app).post(
+        "/demo/ask", json={"question": "ZT が最も高い熱電材料は？"},
         headers={"X-API-Key": "sk-test"},
     ).json()
-    assert "ZT" in body["answer"]
-    assert fake.calls == []  # typed path won; no escape
+    assert [v["name"] for v in body["verified_tools"]] == ["property_ranking"]
+    assert body["unverified_sparql"] is False
+    # The verified tool actually ran and the rows reached the model (SnSe, 2.6).
+    fed_back = json.dumps(fake.calls[1]["messages"], ensure_ascii=False)
+    assert "SnSe" in fed_back and "2.6" in fed_back
+
+
+def test_router_routes_to_mp_cross_dataset_tool(monkeypatch) -> None:
+    # The headline: a structure-property question routes to materials_project's
+    # cross-dataset thermoelectric_structure tool — joining ZT (starrydata) with
+    # the crystal structure (materials_project) across the FROM-merge, verified.
+    from asterism.substrate import canonical_graph_iri
+
+    sd_graph = canonical_graph_iri("starrydata")
+    mp_graph = canonical_graph_iri("materials_project")
+    sd_ttl = f"""
+    @prefix sd: <{SD}> .
+    @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+    <{SDR}sample/x> a sd:Sample ; sd:compositionString "SnSe" .
+    <{SDR}curve/x> a sd:Curve ; sd:propertyY "ZT" ; sd:yMax "0.82"^^xsd:double ;
+        sd:ofSample <{SDR}sample/x> .
+    """
+    mp_ttl = f"""
+    @prefix mp: <{_MP}> .
+    <{_MPR}material/mp-691> a mp:Material ; mp:formula "SnSe" ; mp:mpId "mp-691" ;
+        mp:hasCrystalStructure <{_MPR}structure/mp-691> .
+    <{_MPR}structure/mp-691> a mp:CrystalStructure ; mp:spaceGroupSymbol "Pnma" ;
+        mp:spaceGroupNumber 62 ; mp:crystalSystem "Orthorhombic" .
+    """
+    ds = rdflib.ConjunctiveGraph()
+    ds.get_context(rdflib.URIRef(sd_graph)).parse(data=sd_ttl, format="turtle")
+    ds.get_context(rdflib.URIRef(mp_graph)).parse(data=mp_ttl, format="turtle")
+    _promote(ds, sd_graph)
+    _promote(ds, mp_graph)
+    demo._state["client"] = _LocalClient(ds)
+    monkeypatch.setattr(demo, "_REAL", True)
+
+    fake = _FakeAnthropic(
+        [
+            _block(content=[_block(
+                type="tool_use", id="t1", name="materials_project__thermoelectric_structure",
+                input={"property_y": "ZT", "max_plausible": 3.5},
+            )]),
+            _block(content=[_block(
+                type="tool_use", id="t2", name="submit_answer",
+                input={"answer": "SnSe（Pnma, 直方晶）が ZT 0.82。", "citations": []},
+            )]),
+        ]
+    )
+    monkeypatch.setitem(demo._state, "anthropic_factory", lambda _key: fake)
+    body = TestClient(demo.app).post(
+        "/demo/ask", json={"question": "高 ZT の熱電材料はどんな結晶構造？"},
+        headers={"X-API-Key": "sk-test"},
+    ).json()
+
+    assert {"dataset": "materials_project", "name": "thermoelectric_structure",
+            "title": "Rank thermoelectric materials with the crystal structure that explains them"} in body["verified_tools"]
+    assert body["unverified_sparql"] is False
+    # The cross-dataset join actually ran: the MP structure reached the model.
+    fed_back = json.dumps(fake.calls[1]["messages"], ensure_ascii=False)
+    assert "Pnma" in fed_back and "SnSe" in fed_back
 
 
 def test_generic_question_falls_through_not_canned_samples(monkeypatch) -> None:
-    # Regression: a complex question with no ZT/Seebeck keyword and no formula token
-    # must NOT be answered by sample_search(composition=None) — that matches EVERY
-    # sample, so it always returned citations and permanently blocked the LLM
-    # fallback (every such question got the same arbitrary "all samples" list). It
-    # must fall through instead; with no key -> the hint, with a key -> the escape.
+    # Regression (#142): a complex question with no ZT/Seebeck keyword and no
+    # formula token must NOT be answered by sample_search(composition=None) — that
+    # matches EVERY sample and would block the fallthrough. With no key → the hint;
+    # with a key → the C router engages (the LLM is invoked).
     g = rdflib.ConjunctiveGraph()  # real starrydata fixture: sample_search(None) WOULD match all
     g.parse(data=_TTL, format="turtle")
     demo._state["client"] = _LocalClient(g)
@@ -299,14 +408,14 @@ def test_generic_question_falls_through_not_canned_samples(monkeypatch) -> None:
     client = TestClient(demo.app)
     q = "熱電材料の性能と結晶構造のリストを出してほしい"
 
-    # no key -> NOT the canned 20-sample answer; falls through to the hint
+    # no key → NOT the canned 20-sample answer; falls through to the hint
     body = client.post("/demo/ask", json={"question": q}).json()
     assert body["citations"] == []
     assert "None" not in body["answer"]  # the old "組成 'None' に一致…" bug is gone
     assert any("API キー" in n for n in body["notes"])
-    assert fake.calls == []  # no key -> LLM not invoked
+    assert fake.calls == []  # no key → LLM not invoked
 
-    # with a key -> the LLM escape IS invoked for the same generic question
+    # with a key → the C router IS invoked for the same generic question
     fake2 = _FakeAnthropic(
         [
             _block(content=[_block(type="tool_use", id="t1", name="submit_answer",
@@ -315,4 +424,4 @@ def test_generic_question_falls_through_not_canned_samples(monkeypatch) -> None:
     )
     monkeypatch.setitem(demo._state, "anthropic_factory", lambda _key: fake2)
     client.post("/demo/ask", json={"question": q}, headers={"X-API-Key": "sk-test"}).json()
-    assert fake2.calls, "the LLM escape must engage for a generic question when a key is given"
+    assert fake2.calls, "the router must engage for a generic question when a key is given"
