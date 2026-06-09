@@ -44,7 +44,7 @@ from asterism.ontology_projection import (
     project_model_yaml,
 )
 from asterism.oxigraph_client import OxigraphClient, OxigraphConfig
-from asterism.query_tools import QueryToolError, parse_query_tools
+from asterism.query_tools import QueryToolError, parse_query_tools, run_query_tool
 from asterism.starrydata import IngestConfig
 from asterism.watcher import (
     DEFAULT_GRAPH_PREFIX,
@@ -111,6 +111,14 @@ class ToolProposeBody(BaseModel):
     never auto-saved."""
 
     intent: str
+
+
+class ToolRunBody(BaseModel):
+    """Body for POST /api/datasets/{id}/tools/{name}/run: the typed arguments to
+    bind into a saved (human-vetted) query tool. The deterministic, read-only,
+    key-free execution path — no LLM, the same typed surface MCP exposes."""
+
+    args: dict = {}
 
 
 # Update-form keywords. Oxigraph's /query endpoint is read-only regardless, but
@@ -780,6 +788,41 @@ def build_app(
         except QueryToolError as exc:
             valid, error = False, str(exc)
         return {"dataset_id": dataset_id, "draft": draft, "valid": valid, "error": error}
+
+    @app.post("/api/datasets/{dataset_id}/tools/{tool_name}/run")
+    async def run_dataset_tool(
+        dataset_id: str, tool_name: str, body: ToolRunBody
+    ) -> dict[str, object]:
+        """Run ONE saved query tool deterministically — typed, read-only, key-free.
+
+        This is the verified-tool *execution* path (product_direction: 決定論・型付
+        きを主役, no LLM). The template was vetted by a human at save time; here we
+        only bind the caller's typed arguments safely (type-checked + escaped, never
+        string-concatenated) and run the result over the canonical FROM-merge — the
+        same deterministic path the MCP surface exposes. Needs no API key. Allowed
+        even in a typed-only exposure profile: it is NOT the raw-SPARQL escape, it is
+        the typed path that profile is meant to keep. Returns
+        ``{tool, count, items, truncated, sparql}``."""
+        if registry.load_dataset(cfg.registry_root, dataset_id) is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        match = next(
+            (t for t in registry.list_query_tools(cfg.registry_root, dataset_id)
+             if t.get("name") == tool_name),
+            None,
+        )
+        if match is None:
+            raise HTTPException(404, f"tool {tool_name!r} not found")
+        try:
+            tool = parse_query_tools({"tools": [match]})[0]
+        except QueryToolError as exc:  # a saved tool should already be valid
+            raise HTTPException(400, f"invalid query tool: {exc}") from exc
+        client: OxigraphClient = app.state.client
+        try:
+            return await run_query_tool(client, tool, dict(body.args or {}))
+        except QueryToolError as exc:  # a bad/missing/typed-wrong argument
+            raise HTTPException(400, f"invalid argument: {exc}") from exc
+        except Exception as exc:  # surface Oxigraph errors to the UI
+            raise HTTPException(502, f"tool run failed: {exc}") from exc
 
     @app.post("/api/datasets/{dataset_id}/source")
     async def attach_source(

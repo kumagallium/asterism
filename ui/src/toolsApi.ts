@@ -53,6 +53,15 @@ export interface ProposeResult {
   error: string | null
 }
 
+/** Result of running a saved tool: shaped rows + the read-only SPARQL it ran. */
+export interface ToolRunResult {
+  tool: string
+  count: number
+  items: Record<string, unknown>[]
+  truncated: boolean
+  sparql: string
+}
+
 async function asError(res: Response, op: string): Promise<Error> {
   // The api returns FastAPI's {detail: "..."}; fall back to raw text.
   const text = await res.text().catch(() => '')
@@ -115,4 +124,26 @@ export async function proposeTool(
   )
   if (!res.ok) throw await asError(res, 'AI 下書き')
   return (await res.json()) as ProposeResult
+}
+
+/**
+ * Run a saved tool deterministically — typed, read-only, KEY-FREE (no LLM). The
+ * server binds the typed args safely and runs over the canonical FROM-merge, the
+ * same path the MCP surface exposes. Returns the shaped rows + the SPARQL it ran.
+ */
+export async function runTool(
+  datasetId: string,
+  name: string,
+  args: Record<string, unknown>,
+): Promise<ToolRunResult> {
+  const res = await fetch(
+    `${API_BASE}/api/datasets/${encodeURIComponent(datasetId)}/tools/${encodeURIComponent(name)}/run`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ args }),
+    },
+  )
+  if (!res.ok) throw await asError(res, 'ツールの実行')
+  return (await res.json()) as ToolRunResult
 }
