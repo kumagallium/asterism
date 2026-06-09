@@ -599,6 +599,8 @@ function ReingestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onCha
   // because the previously-promoted version stays live until the re-promote.
   const published = version >= 1
   const hasSource = !!meta.has_source
+  const isJson = meta.source_kind === 'json'
+  const sourceLabel = isJson ? 'JSON' : 'CSV'
   const canReingest = !busy && (hasSource || files.length > 0)
 
   async function onReingest() {
@@ -623,7 +625,7 @@ function ReingestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onCha
     <div className="ingest-gate">
       <div className="ds-subhead">データを更新（再取り込み）</div>
       <p className="ingest-note">
-        新しい CSV を<strong>別バージョンのグラフ</strong>（canonical/{shortIri(meta.id)}/v…）に取り込みます。
+        新しい{sourceLabel}を<strong>別バージョンのグラフ</strong>（canonical/{shortIri(meta.id)}/v…）に取り込みます。
         {published ? (
           <>
             取り込み中も<strong>今の公開版（v{version}）が Ask に引用され続ける</strong>ので、回答が途切れません。
@@ -638,17 +640,17 @@ function ReingestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onCha
       </p>
       {hasSource ? (
         <p className="ingest-source">
-          設計時の CSV を保存済み
+          設計時の{sourceLabel}を保存済み
           {meta.source_files?.length ? `（${meta.source_files.join('、')}）` : ''}
-          。再添付なしで取り込めます。別の CSV に差し替えたい場合は下で選んでください。
+          。再添付なしで取り込めます。別の{sourceLabel}に差し替えたい場合は下で選んでください。
         </p>
       ) : null}
       <div className="ingest-pick">
         <label className="file-btn">
-          {hasSource ? 'CSV を差し替え' : 'CSV を選択'}
+          {hasSource ? `${sourceLabel}を差し替え` : `${sourceLabel}を選択`}
           <input
             type="file"
-            accept=".csv"
+            accept={isJson ? '.json,.geojson' : '.csv'}
             multiple
             onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
           />
@@ -657,8 +659,8 @@ function ReingestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onCha
           {files.length
             ? files.map((f) => f.name).join('、')
             : hasSource
-              ? '差し替えない場合は保存済み CSV を使います'
-              : '更新に使う CSV を選んでください'}
+              ? `差し替えない場合は保存済み${sourceLabel}を使います`
+              : `更新に使う${sourceLabel}を選んでください`}
         </span>
       </div>
       <button type="button" className="promote-btn" onClick={onReingest} disabled={!canReingest}>
