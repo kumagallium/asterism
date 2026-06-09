@@ -26,6 +26,7 @@ Run (real):  CSV2RDF_OXIGRAPH_URL=http://localhost:7878 uvicorn app:app --port 8
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import re
@@ -458,7 +459,16 @@ def _content_tool_defs(exclude: set[str] | None = None) -> tuple[list[dict], dic
     exclude = exclude or set()
     defs: list[dict] = []
     registry: dict[str, tuple] = {}
-    for dataset, qts in load_all_query_tools().items():
+    # Tools come from BOTH the repo example datasets (datasets/<name>/) AND the
+    # workbench registry (registry/<id>/query_tools.yaml) — same loader, same
+    # shape — so a tool a researcher saved on their own onboarded dataset routes
+    # as a verified Ask tool, no repo PR (the "grow verified tools" store, P1).
+    sources: dict[str, list] = dict(load_all_query_tools())
+    reg_root = os.environ.get("CSV2RDF_REGISTRY_ROOT")
+    if reg_root:
+        with contextlib.suppress(Exception):
+            sources.update(load_all_query_tools(reg_root))
+    for dataset, qts in sources.items():
         if dataset in exclude:
             continue
         for qt in qts:

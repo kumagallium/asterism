@@ -16,6 +16,7 @@ local users who spawn the server as a subprocess.
 
 from __future__ import annotations
 
+import contextlib
 import inspect
 import logging
 import os
@@ -260,7 +261,15 @@ def _register_declared_query_tools(mcp: FastMCP, get_client) -> None:
     taken by a hardcoded tool are likewise prefixed (defensive).
     """
     taken = {"template_curve_fetch", "provenance_of", "schema_summary", "sparql_query"}
-    for dataset, tools in load_all_query_tools().items():
+    # Tools come from BOTH the repo example datasets (datasets/<name>/) AND the
+    # workbench registry (registry/<id>/query_tools.yaml) — a tool a researcher
+    # saved on their onboarded dataset becomes a typed MCP tool too (P1).
+    sources = dict(load_all_query_tools())
+    reg_root = os.environ.get("CSV2RDF_REGISTRY_ROOT")
+    if reg_root:
+        with contextlib.suppress(Exception):
+            sources.update(load_all_query_tools(reg_root))
+    for dataset, tools in sources.items():
         for tool in tools:
             name = tool.name if tool.name not in taken else f"{dataset}_{tool.name}"
             taken.add(name)

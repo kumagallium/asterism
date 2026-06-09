@@ -24,6 +24,8 @@ import shutil
 import uuid
 from pathlib import Path
 
+import yaml
+
 # Files written per dataset (artifact key -> filename on disk).
 _ARTIFACT_FILES = {
     "diagram.md": "diagram.md",
@@ -330,3 +332,73 @@ def load_dataset(root: Path, dataset_id: str) -> dict | None:
         if (dest / filename).is_file()
     }
     return {"meta": meta, "artifacts": artifacts}
+
+
+# ---------------------------------------------------------------------------
+# Per-dataset query tools (the "grow verified tools" store, P1).
+# ---------------------------------------------------------------------------
+# A dataset's typed Ask tools live at ``registry/<id>/query_tools.yaml`` — the
+# SAME shape as the repo's ``datasets/<name>/query_tools.yaml`` content, so the
+# engine (asterism.query_tools) and the Ask layer load registry tools with the
+# exact same loader. This is what lets a workbench-onboarded dataset (not just a
+# repo example) carry human-vetted, deterministic, citable tools. Tools are
+# persisted content; nothing is generated at runtime. The CALLER validates a tool
+# with asterism.query_tools.parse_query_tools before saving (the human-vet gate).
+
+_QUERY_TOOLS_FILE = "query_tools.yaml"
+
+
+def query_tools_path(root: Path, dataset_id: str) -> Path | None:
+    """``registry/<id>/query_tools.yaml`` for a valid id, else None (id is a bare
+    slug so it cannot escape ``root``)."""
+    if not re.fullmatch(r"[a-z0-9-]{1,128}", dataset_id):
+        return None
+    return root / dataset_id / _QUERY_TOOLS_FILE
+
+
+def list_query_tools(root: Path, dataset_id: str) -> list[dict]:
+    """The dataset's declared query tools (raw dicts), or ``[]`` if none/invalid."""
+    path = query_tools_path(root, dataset_id)
+    if path is None or not path.is_file():
+        return []
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    tools = data.get("tools") if isinstance(data, dict) else None
+    return [t for t in tools if isinstance(t, dict)] if isinstance(tools, list) else []
+
+
+def _write_tools(path: Path, tools: list[dict]) -> None:
+    path.write_text(
+        yaml.safe_dump({"tools": tools}, allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
+
+
+def save_query_tool(root: Path, dataset_id: str, tool: dict) -> list[dict]:
+    """Upsert ``tool`` (by ``name``) into the dataset's query_tools.yaml; return
+    the full tool list. Raises ``FileNotFoundError`` if the dataset dir is absent.
+
+    The caller MUST have validated ``tool`` via
+    ``asterism.query_tools.parse_query_tools`` first (read-only + safe binding) —
+    that validation IS the human-vet gate; this just persists vetted content.
+    """
+    path = query_tools_path(root, dataset_id)
+    if path is None or not path.parent.is_dir():
+        raise FileNotFoundError(dataset_id)
+    name = str(tool.get("name", ""))
+    tools = [t for t in list_query_tools(root, dataset_id) if str(t.get("name")) != name]
+    tools.append(tool)
+    _write_tools(path, tools)
+    return tools
+
+
+def delete_query_tool(root: Path, dataset_id: str, name: str) -> bool:
+    """Remove the named tool; return True if one was removed."""
+    path = query_tools_path(root, dataset_id)
+    if path is None or not path.is_file():
+        return False
+    tools = list_query_tools(root, dataset_id)
+    remaining = [t for t in tools if str(t.get("name")) != name]
+    if len(remaining) == len(tools):
+        return False
+    _write_tools(path, remaining)
+    return True

@@ -43,6 +43,7 @@ from asterism.ontology_projection import (
     project_model_yaml,
 )
 from asterism.oxigraph_client import OxigraphClient, OxigraphConfig
+from asterism.query_tools import QueryToolError, parse_query_tools
 from asterism.starrydata import IngestConfig
 from asterism.watcher import (
     DEFAULT_GRAPH_PREFIX,
@@ -86,6 +87,20 @@ class SparqlRequest(BaseModel):
     """Body for POST /api/sparql: a read-only SPARQL query (escape hatch)."""
 
     query: str
+
+
+class QueryToolBody(BaseModel):
+    """Body for POST /api/datasets/{id}/tools: one declared, parameterized,
+    read-only SPARQL tool (same shape as a datasets/<name>/query_tools.yaml entry).
+    Validated server-side via asterism.query_tools.parse_query_tools (read-only +
+    safe binding) before it is persisted — saving IS the human-vet gate."""
+
+    name: str
+    query: str
+    title: str = ""
+    description: str = ""
+    parameters: list[dict] = []
+    result: dict = {}
 
 
 # Update-form keywords. Oxigraph's /query endpoint is read-only regardless, but
@@ -637,6 +652,55 @@ def build_app(
         if data is None:
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
         return data
+
+    @app.get("/api/datasets/{dataset_id}/tools")
+    async def list_dataset_tools(dataset_id: str) -> dict[str, object]:
+        """List a dataset's declared query tools (the "grow verified tools" store).
+
+        Tools live at ``registry/<id>/query_tools.yaml`` and are loaded by the
+        same engine the repo example datasets use, so a saved tool becomes a
+        verified, deterministic Ask tool for this dataset (no repo PR needed)."""
+        if registry.load_dataset(cfg.registry_root, dataset_id) is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        tools = registry.list_query_tools(cfg.registry_root, dataset_id)
+        return {"dataset_id": dataset_id, "tools": tools}
+
+    @app.post("/api/datasets/{dataset_id}/tools")
+    async def save_dataset_tool(dataset_id: str, body: QueryToolBody) -> dict[str, object]:
+        """Add/replace one query tool on a dataset (upsert by name).
+
+        The submitted tool is validated with ``parse_query_tools`` (read-only
+        SELECT/ASK + safe ``{{placeholder}}`` binding) before it is persisted —
+        an invalid tool is 400, never saved. Saving IS the human-vet gate: a
+        person deliberately submits a tool they have reviewed (same trust model as
+        the Tier 0 function library; nothing is generated at runtime)."""
+        if registry.load_dataset(cfg.registry_root, dataset_id) is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        tool = body.model_dump()
+        try:
+            parsed = parse_query_tools({"tools": [tool]})
+        except QueryToolError as exc:
+            raise HTTPException(400, f"invalid query tool: {exc}") from exc
+        registry.save_query_tool(cfg.registry_root, dataset_id, tool)
+        return {
+            "dataset_id": dataset_id,
+            "saved": parsed[0].name,
+            "tools": registry.list_query_tools(cfg.registry_root, dataset_id),
+        }
+
+    @app.delete("/api/datasets/{dataset_id}/tools/{tool_name}")
+    async def delete_dataset_tool(dataset_id: str, tool_name: str) -> dict[str, object]:
+        """Remove one declared query tool from a dataset."""
+        if registry.load_dataset(cfg.registry_root, dataset_id) is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        removed = registry.delete_query_tool(cfg.registry_root, dataset_id, tool_name)
+        if not removed:
+            raise HTTPException(404, f"tool {tool_name!r} not found")
+        return {
+            "dataset_id": dataset_id,
+            "deleted": tool_name,
+            "tools": registry.list_query_tools(cfg.registry_root, dataset_id),
+        }
 
     @app.post("/api/datasets/{dataset_id}/source")
     async def attach_source(

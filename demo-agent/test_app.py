@@ -472,3 +472,21 @@ def test_router_escape_marks_unverified(monkeypatch) -> None:
     ).json()
     assert body["unverified_sparql"] is True
     assert body["verified_tools"] == []
+
+
+def test_content_tool_defs_includes_registry_tools(monkeypatch, tmp_path) -> None:
+    # P1: a tool saved on a registry (workbench) dataset — registry/<id>/query_tools.yaml
+    # — is offered by the router too, not only the repo example datasets.
+    reg = tmp_path / "registry"
+    ds = reg / "my-dataset-abc12345"
+    ds.mkdir(parents=True)
+    (ds / "query_tools.yaml").write_text(
+        "tools:\n  - name: t1\n    title: T1\n"
+        "    query: 'SELECT ?s WHERE { ?s ?p ?o } LIMIT 1'\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CSV2RDF_REGISTRY_ROOT", str(reg))
+    defs, registry_map = demo._content_tool_defs(exclude={"starrydata"})
+    names = {d["name"] for d in defs}
+    assert "my-dataset-abc12345__t1" in names
+    assert registry_map["my-dataset-abc12345__t1"][0] == "my-dataset-abc12345"
