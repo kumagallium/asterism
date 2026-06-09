@@ -38,6 +38,24 @@ def test_parses_json_draft_and_passes_context() -> None:
     assert "MODEL_X" in user and "MIE_Y" in user
 
 
+def test_rml_grounds_the_draft_when_model_is_thin() -> None:
+    # The real failure mode: a workbench-seeded dataset ships a stub model.yaml
+    # (bare class names, no namespace), so the model must ground in the RML — the
+    # source of truth for the real namespaces/predicates — instead of inventing a
+    # placeholder namespace. Assert the RML's namespace + predicates reach the LLM.
+    llm = _FakeLLM(_VALID)
+    rml = (
+        "@prefix sd: <https://kumagallium.github.io/asterism/starrydata/ontology#> .\n"
+        "<#Curve> rr:class sd:Curve ; rr:predicate sd:propertyY, sd:yMax ."
+    )
+    propose_query_tool(
+        llm, intent="rank by thermal conductivity", model_yaml="- Curve:", rml_ttl=rml
+    )
+    user = llm.calls[0][1]
+    assert "starrydata/ontology#" in user
+    assert "sd:propertyY" in user and "sd:yMax" in user
+
+
 def test_tolerates_code_fence_and_prose() -> None:
     llm = _FakeLLM("Sure, here is the tool:\n```json\n" + _VALID + "\n```\nHope that helps!")
     assert propose_query_tool(llm, intent="x")["name"] == "by_formula"

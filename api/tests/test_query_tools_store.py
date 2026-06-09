@@ -198,6 +198,40 @@ def test_propose_returns_valid_draft_unsaved(
     assert client.get(f"/api/datasets/{ds}/tools").json()["tools"] == []
 
 
+def test_propose_grounds_in_dataset_rml(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    # The endpoint must feed the dataset's persisted mapping.rml.ttl to the LLM so a
+    # seed dataset with a stub model.yaml still drafts against the REAL vocabulary
+    # (the namespaces/predicates live in the RML, not the stub model).
+    cap: dict = {}
+    client = _client_with_llm(tmp_path, healthy_client, _DraftLLM(_VALID_DRAFT, cap))
+    reg = tmp_path / "registry"
+    reg.mkdir(parents=True, exist_ok=True)
+    rml = (
+        "@prefix sd: <https://kumagallium.github.io/asterism/starrydata/ontology#> .\n"
+        "<#M> rr:class sd:Curve ."
+    )
+    meta = registry.save_dataset(
+        reg,
+        "lab",
+        {"diagram.md": "classDiagram\n  class Thing", "model.yaml": "", "mie.yaml": "",
+         "mapping.rml.ttl": rml},
+        complete=True,
+        warnings=[],
+        traps=[],
+        exit_code=0,
+        created_at="2026-06-09T00:00:00Z",
+    )
+    r = client.post(
+        f"/api/datasets/{meta['id']}/tools/propose",
+        json={"intent": "x"},
+        headers={"X-API-Key": "sk"},
+    )
+    assert r.status_code == 200, r.text
+    assert "sd:Curve" in cap["user"] and "starrydata/ontology#" in cap["user"]
+
+
 def test_propose_flags_invalid_draft(tmp_path: Path, healthy_client: OxigraphClient) -> None:
     llm = _DraftLLM('{"name":"bad","query":"DELETE WHERE { ?s ?p ?o }"}')
     client = _client_with_llm(tmp_path, healthy_client, llm)
