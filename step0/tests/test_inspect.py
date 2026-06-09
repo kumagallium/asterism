@@ -9,16 +9,27 @@ These cover the deterministic CSV inspection pipeline:
   - BOM tolerance (UTF-8-sig)
   - Markdown rendering shape (smoke check)
 """
+
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from textwrap import dedent
 
 from asterism_step0.inspect import (
     inspect_csv,
     inspect_csv_set,
+    inspect_json,
+    inspect_json_set,
+    inspect_source_set,
     render_markdown,
 )
+
+
+def _write_json(path: Path, data: object) -> Path:
+    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    return path
+
 
 # ----------------------------------------------------------------------------
 # Helpers
@@ -246,17 +257,11 @@ def test_starrydata_three_way_composite(tmp_path: Path) -> None:
     )
     ins = inspect_csv(csv_path, fk_hint_columns=["SID", "figure_id", "sample_id"])
     # 2-column composites should collide (SID=1, figure_id=7 has two samples)
-    two_way = next(
-        r
-        for r in ins.uniqueness_reports
-        if set(r.key) == {"SID", "figure_id"}
-    )
+    two_way = next(r for r in ins.uniqueness_reports if set(r.key) == {"SID", "figure_id"})
     assert not two_way.is_unique
     # 3-column composite resolves it
     three_way = next(
-        r
-        for r in ins.uniqueness_reports
-        if set(r.key) == {"SID", "figure_id", "sample_id"}
+        r for r in ins.uniqueness_reports if set(r.key) == {"SID", "figure_id", "sample_id"}
     )
     assert three_way.is_unique
     assert three_way.collision_count == 0
@@ -335,6 +340,134 @@ def test_render_markdown_contains_expected_sections(tmp_path: Path) -> None:
     assert "trap T1" in md
     assert "`xs`" in md
     assert "json-array" in md
+
+
+# ----------------------------------------------------------------------------
+# JSON inspection (#19)
+# ----------------------------------------------------------------------------
+
+
+def test_json_top_level_array_iterator_and_dotpaths(tmp_path: Path) -> None:
+    """A top-level array flattens nested objects to dot-path leaf fields."""
+    p = _write_json(
+        tmp_path / "mp.json",
+        [
+            {"mp_id": "mp-1", "formula": "PbTe", "structure": {"spacegroup": "Fm-3m"}},
+            {"mp_id": "mp-2", "formula": "SnSe", "structure": {"spacegroup": "Pnma"}},
+        ],
+    )
+    ins = inspect_json(p)
+    assert ins.source_kind == "json"
+    assert ins.iterator == "$[*]"
+    assert ins.total_rows == 2
+    by_name = {c.name: c for c in ins.columns}
+    # Nested object is flattened to a dot-path leaf (Morph-KGC json_normalize parity).
+    assert "structure.spacegroup" in by_name
+    assert by_name["structure.spacegroup"].inferred_type == "xsd:string"
+    assert by_name["formula"].inferred_type == "xsd:string"
+
+
+def test_json_type_inference_and_list_leaf(tmp_path: Path) -> None:
+    """Numeric scalars infer xsd types; list leaves are kept as json-array cells."""
+    p = _write_json(
+        tmp_path / "data.json",
+        [
+            {"id": 1, "energy": 0.5, "tags": [1, 2, 3]},
+            {"id": 2, "energy": 1.25, "tags": [4, 5]},
+        ],
+    )
+    ins = inspect_json(p)
+    by_name = {c.name: c for c in ins.columns}
+    assert by_name["id"].inferred_type == "xsd:integer"
+    assert by_name["energy"].inferred_type == "xsd:double"
+    assert by_name["tags"].inferred_type == "json-array"
+    assert by_name["tags"].json_element_kind == "number"
+
+
+def test_json_uniqueness(tmp_path: Path) -> None:
+    p = _write_json(
+        tmp_path / "u.json",
+        [{"mp_id": "mp-1"}, {"mp_id": "mp-2"}, {"mp_id": "mp-3"}],
+    )
+    ins = inspect_json(p)
+    reports = {r.key: r for r in ins.uniqueness_reports}
+    assert ("mp_id",) in reports
+    assert reports[("mp_id",)].is_unique
+
+
+def test_json_record_path_under_key(tmp_path: Path) -> None:
+    """Records nested under a top-level key are found via --record-path."""
+    p = _write_json(
+        tmp_path / "wrapped.json",
+        {"meta": {"count": 2}, "data": [{"mp_id": "mp-1"}, {"mp_id": "mp-2"}]},
+    )
+    ins = inspect_json(p, record_path="data")
+    assert ins.iterator == "$.data[*]"
+    assert ins.total_rows == 2
+    assert ins.column("mp_id") is not None
+
+
+def test_json_record_path_autodetected(tmp_path: Path) -> None:
+    """A single array-of-objects value is auto-detected as the iterator."""
+    p = _write_json(
+        tmp_path / "auto.json",
+        {"results": [{"mp_id": "mp-1"}, {"mp_id": "mp-2"}]},
+    )
+    ins = inspect_json(p)
+    assert ins.iterator == "$.results[*]"
+    assert ins.total_rows == 2
+
+
+def test_json_cross_file_foreign_key(tmp_path: Path) -> None:
+    a = _write_json(
+        tmp_path / "materials.json",
+        [{"mp_id": "mp-1", "formula": "PbTe"}, {"mp_id": "mp-2", "formula": "SnSe"}],
+    )
+    b = _write_json(
+        tmp_path / "props.json",
+        [{"mp_id": "mp-1", "zt": "1.0"}, {"mp_id": "mp-1", "zt": "1.2"}],
+    )
+    _insps, fks = inspect_json_set([a, b], fk_hint_columns=["mp_id"])
+    mp_fks = [f for f in fks if f.from_column == "mp_id"]
+    assert len(mp_fks) == 1
+    assert mp_fks[0].overlap_count == 1  # only mp-1 overlaps
+
+
+def test_inspect_source_set_dispatches_by_extension(tmp_path: Path) -> None:
+    """A mixed CSV + JSON set routes each file to the right inspector."""
+    csv_path = _write_csv(
+        tmp_path / "samples.csv",
+        """
+        SID,formula
+        1,PbTe
+        2,SnSe
+        """,
+    )
+    json_path = _write_json(
+        tmp_path / "structures.json",
+        [{"formula": "PbTe", "spacegroup": "Fm-3m"}, {"formula": "SnSe", "spacegroup": "Pnma"}],
+    )
+    insps, fks = inspect_source_set([csv_path, json_path], fk_hint_columns=["formula"])
+    kinds = {ins.name: ins.source_kind for ins in insps}
+    assert kinds["samples.csv"] == "csv"
+    assert kinds["structures.json"] == "json"
+    # "formula" overlaps {PbTe, SnSe} across the CSV and the JSON.
+    formula_fks = [f for f in fks if f.from_column == "formula"]
+    assert formula_fks and formula_fks[0].overlap_count == 2
+
+
+def test_render_markdown_json_header(tmp_path: Path) -> None:
+    p = _write_json(
+        tmp_path / "mp.json",
+        [{"mp_id": "mp-1", "structure": {"spacegroup": "Fm-3m"}}],
+    )
+    ins = inspect_json(p)
+    md = render_markdown([ins])
+    assert "## JSON: mp.json" in md
+    assert "iterator `$[*]`" in md
+    assert "ql:JSONPath" in md
+    assert "`structure.spacegroup`" in md
+    assert "### Columns" in md
 
 
 def test_render_markdown_renders_collisions(tmp_path: Path) -> None:
