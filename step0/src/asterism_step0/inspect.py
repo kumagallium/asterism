@@ -1,9 +1,22 @@
-"""CSV inspection for AI-assisted Step 0 (Phase 3).
+"""Source inspection for AI-assisted Step 0 (Phase 3).
 
 This module is the deterministic prelude to ``propose_schema``: given one or
-more CSV files, it builds a structured summary the LLM can ground its schema
+more structured-data files, it builds a summary the LLM can ground its schema
 proposal on. It deliberately uses only the standard library so the package is
 installable without pandas.
+
+Two source kinds are supported, both producing the *same* inspection contract
+(:class:`SourceInspection` + :func:`render_markdown`) so everything downstream
+(propose / refine / materialize) is source-agnostic:
+
+* **CSV** — columns are header names; cells are strings (the original path).
+* **JSON** (#19) — a JSON array of records (or a single nested array). Each
+  record is flattened to dot-path leaf fields, mirroring Morph-KGC's
+  ``pandas.json_normalize`` semantics (nested objects → ``a.b`` columns, list
+  leaves kept as JSON cells). The detected *iterator* (e.g. ``$[*]``) is carried
+  on the inspection so ``propose`` can emit an RML ``rml:logicalSource`` with
+  ``rml:referenceFormulation ql:JSONPath`` + ``rml:iterator`` and dot-path
+  ``rml:reference`` selectors that resolve against Morph-KGC's JSON reader.
 
 Key responsibilities (from ``docs/architecture/ai-assisted-step0-workflow.md``):
 
@@ -24,6 +37,7 @@ the ``step1_inspection`` argument to the Step 3 schema-proposal prompt.
 
 BOM handling (trap T2): every CSV is opened with ``encoding="utf-8-sig"``.
 """
+
 from __future__ import annotations
 
 import csv
@@ -233,17 +247,29 @@ class ForeignKeyCandidate:
 
 
 @dataclass
-class CSVInspection:
-    """Full structured result for one CSV file."""
+class SourceInspection:
+    """Full structured result for one source file (CSV or JSON).
+
+    ``source_kind`` distinguishes the two; ``iterator`` is the JSONPath record
+    iterator for JSON sources (``None`` for CSV). For JSON, ``columns[*].name``
+    holds a dot-path leaf field (e.g. ``structure.spacegroup``) usable verbatim
+    as an ``rml:reference`` under ``ql:JSONPath``.
+    """
 
     path: str  # absolute or relative path as given
     name: str  # basename
     total_rows: int
     columns: list[ColumnSummary]
-    uniqueness_reports: list[UniquenessReport]  # candidate keys evaluated for this CSV
+    uniqueness_reports: list[UniquenessReport]  # candidate keys evaluated for this source
+    source_kind: str = "csv"  # "csv" | "json"
+    iterator: str | None = None  # JSONPath record iterator for JSON (e.g. "$[*]")
 
     def column(self, name: str) -> ColumnSummary | None:
         return next((c for c in self.columns if c.name == name), None)
+
+
+# Back-compat alias: this type was CSV-only before #19 added JSON support.
+CSVInspection = SourceInspection
 
 
 # ----------------------------------------------------------------------------
@@ -269,24 +295,14 @@ def _stream_rows(path: Path) -> Iterator[dict[str, str]]:
         yield from csv.DictReader(fh)
 
 
-def _build_column_summaries(path: Path) -> tuple[list[ColumnSummary], int, list[dict[str, str]]]:
-    """Stream the CSV once; return per-column summaries, row count, and a
-    bounded slice of materialised rows for downstream uniqueness checks.
-    """
-    # We need:
-    #  - non_null_count per column
-    #  - unique values per column (capped at _SAMPLE_RING)
-    #  - sample values for type inference (capped at _SAMPLE_RING)
-    #
-    # For uniqueness analysis, we ALSO need every row materialised — that means
-    # we hold the whole CSV in memory. For starrydata's largest file
-    # (curves.csv, 233k rows) this is acceptable; users with multi-million-row
-    # CSVs should use a streaming variant (future work).
-    rows = list(_stream_rows(path))
-    if not rows:
-        return [], 0, []
+def _summarize_rows(rows: list[dict[str, str]], columns: Sequence[str]) -> list[ColumnSummary]:
+    """Build per-column summaries from already-materialised string rows.
 
-    columns = list(rows[0].keys())
+    Shared by the CSV and JSON inspectors so both produce identical
+    :class:`ColumnSummary` semantics (type inference, JSON-cell detection,
+    bounded distinct/sample counts). Missing keys count as null, so this is
+    safe for heterogeneous JSON records.
+    """
     seen_values: dict[str, set[str]] = {c: set() for c in columns}
     samples: dict[str, list[str]] = {c: [] for c in columns}
     non_null: dict[str, int] = {c: 0 for c in columns}
@@ -330,7 +346,28 @@ def _build_column_summaries(path: Path) -> tuple[list[ColumnSummary], int, list[
             )
         )
 
-    return summaries, len(rows), rows
+    return summaries
+
+
+def _build_column_summaries(path: Path) -> tuple[list[ColumnSummary], int, list[dict[str, str]]]:
+    """Stream the CSV once; return per-column summaries, row count, and a
+    bounded slice of materialised rows for downstream uniqueness checks.
+    """
+    # We need:
+    #  - non_null_count per column
+    #  - unique values per column (capped at _SAMPLE_RING)
+    #  - sample values for type inference (capped at _SAMPLE_RING)
+    #
+    # For uniqueness analysis, we ALSO need every row materialised — that means
+    # we hold the whole CSV in memory. For starrydata's largest file
+    # (curves.csv, 233k rows) this is acceptable; users with multi-million-row
+    # CSVs should use a streaming variant (future work).
+    rows = list(_stream_rows(path))
+    if not rows:
+        return [], 0, []
+
+    columns = list(rows[0].keys())
+    return _summarize_rows(rows, columns), len(rows), rows
 
 
 def _check_uniqueness(rows: list[dict[str, str]], key: tuple[str, ...]) -> UniquenessReport:
@@ -481,7 +518,173 @@ def inspect_csv(path: Path | str, *, fk_hint_columns: Sequence[str] | None = Non
     )
 
 
-def _detect_foreign_keys(inspections: Sequence[CSVInspection]) -> list[ForeignKeyCandidate]:
+# ----------------------------------------------------------------------------
+# JSON inspection (#19) — flatten records to dot-path leaves (Morph-KGC parity)
+# ----------------------------------------------------------------------------
+
+
+def _flatten_record(obj: object, prefix: str = "") -> dict[str, str]:
+    """Flatten one JSON record to ``{dot_path: string_cell}``.
+
+    Mirrors Morph-KGC's ``pandas.json_normalize`` (sep ``.``): nested objects
+    recurse into ``a.b`` keys; **list leaves are kept as a JSON-encoded cell**
+    (not exploded) so :func:`_detect_json_kind` tags them ``json-array`` — the
+    same shape a CSV "JSON in a cell" column has. Scalars stringify; ``None``
+    becomes empty (treated as null, like a blank CSV cell).
+    """
+    out: dict[str, str] = {}
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            key = f"{prefix}.{k}" if prefix else str(k)
+            if isinstance(v, dict):
+                out.update(_flatten_record(v, key))
+            elif isinstance(v, list):
+                out[key] = json.dumps(v, ensure_ascii=False)
+            elif v is None:
+                out[key] = ""
+            elif isinstance(v, bool):
+                out[key] = "true" if v else "false"
+            else:
+                out[key] = str(v)
+    else:
+        # A non-object record (scalar or array). Represent it under a synthetic
+        # "value" field so it still has a referenceable selector.
+        field_name = prefix or "value"
+        if isinstance(obj, list):
+            out[field_name] = json.dumps(obj, ensure_ascii=False)
+        elif obj is None:
+            out[field_name] = ""
+        elif isinstance(obj, bool):
+            out[field_name] = "true" if obj else "false"
+        else:
+            out[field_name] = str(obj)
+    return out
+
+
+def _detect_iterator(data: object, record_path: str | None = None) -> tuple[list, str]:
+    """Return ``(records, iterator)`` for a parsed JSON document.
+
+    * top-level array → ``$[*]``
+    * top-level object with exactly one array-of-objects value → ``$.key[*]``
+      (if several, the longest is chosen; pass ``record_path`` to disambiguate)
+    * top-level object with no record array → the object itself is one record
+      (``$``)
+    """
+    if record_path is not None:
+        records = data.get(record_path) if isinstance(data, dict) else None
+        if isinstance(records, list):
+            return records, f"$.{record_path}[*]"
+        # Fall through to auto-detection if the hint did not resolve.
+    if isinstance(data, list):
+        return data, "$[*]"
+    if isinstance(data, dict):
+        array_keys = [
+            (k, v)
+            for k, v in data.items()
+            if isinstance(v, list) and v and all(isinstance(e, dict) for e in v[:10])
+        ]
+        if array_keys:
+            k, v = max(array_keys, key=lambda kv: len(kv[1]))
+            return v, f"$.{k}[*]"
+        return [data], "$"
+    return [], "$[*]"
+
+
+def _load_json_records(
+    path: Path, record_path: str | None = None
+) -> tuple[list[dict[str, str]], str]:
+    """Load a JSON file and return ``(flattened_rows, iterator)``."""
+    with path.open(encoding="utf-8") as fh:
+        data = json.load(fh)
+    raw_records, iterator = _detect_iterator(data, record_path)
+    rows = [_flatten_record(rec) for rec in raw_records]
+    return rows, iterator
+
+
+def _columns_in_order(rows: Sequence[dict[str, str]]) -> list[str]:
+    """Ordered union of keys across (possibly heterogeneous) JSON rows."""
+    columns: list[str] = []
+    seen: set[str] = set()
+    for row in rows:
+        for k in row:
+            if k not in seen:
+                seen.add(k)
+                columns.append(k)
+    return columns
+
+
+def inspect_json(
+    path: Path | str,
+    *,
+    fk_hint_columns: Sequence[str] | None = None,
+    record_path: str | None = None,
+) -> SourceInspection:
+    """Inspect a single JSON file.
+
+    Produces the same :class:`SourceInspection` contract as :func:`inspect_csv`,
+    with ``source_kind="json"`` and the detected ``iterator``. Columns are
+    dot-path leaf fields usable verbatim as ``rml:reference`` selectors.
+    """
+    p = Path(path)
+    rows, iterator = _load_json_records(p, record_path)
+    if not rows:
+        return SourceInspection(
+            path=str(p),
+            name=p.name,
+            total_rows=0,
+            columns=[],
+            uniqueness_reports=[],
+            source_kind="json",
+            iterator=iterator,
+        )
+
+    columns = _columns_in_order(rows)
+    summaries = _summarize_rows(rows, columns)
+
+    id_candidates = _id_candidate_columns(summaries)
+    fk_columns = list(fk_hint_columns) if fk_hint_columns else []
+    if not fk_columns:
+        fk_columns = list(id_candidates)
+
+    reports = _composite_uniqueness_search(rows, id_candidates, fk_columns)
+    return SourceInspection(
+        path=str(p),
+        name=p.name,
+        total_rows=len(rows),
+        columns=summaries,
+        uniqueness_reports=reports,
+        source_kind="json",
+        iterator=iterator,
+    )
+
+
+def _value_buckets(ins: SourceInspection) -> dict[str, set[str]]:
+    """Re-read a source and collect a bounded distinct-value set per column.
+
+    Dispatches on ``source_kind`` so foreign-key detection works uniformly for
+    CSV and JSON sources.
+    """
+    buckets: dict[str, set[str]] = {c.name: set() for c in ins.columns}
+    cap = _SAMPLE_RING * 5
+    if ins.source_kind == "json":
+        rows, _ = _load_json_records(Path(ins.path))
+        for row in rows:
+            for col_name in buckets:
+                v = (row.get(col_name) or "").strip()
+                if v and len(buckets[col_name]) < cap:
+                    buckets[col_name].add(v)
+        return buckets
+    with Path(ins.path).open(encoding="utf-8-sig", newline="") as fh:
+        reader = csv.DictReader(fh)
+        for row in reader:
+            for col_name in buckets:
+                v = (row.get(col_name) or "").strip()
+                if v and len(buckets[col_name]) < cap:
+                    buckets[col_name].add(v)
+    return buckets
+
+
+def _detect_foreign_keys(inspections: Sequence[SourceInspection]) -> list[ForeignKeyCandidate]:
     """Across multiple CSVs, flag column pairs with overlapping value sets.
 
     We compare *every* column pair where both sides have non-empty values
@@ -494,19 +697,9 @@ def _detect_foreign_keys(inspections: Sequence[CSVInspection]) -> list[ForeignKe
     LLM should re-confirm with a SPARQL or pandas verify step.
     """
     candidates: list[ForeignKeyCandidate] = []
-    # Pull per-column distinct-value samples by re-reading the CSVs. We don't
-    # cache them on ColumnSummary to keep that dataclass small.
-    cache: dict[str, dict[str, set[str]]] = {}
-    for ins in inspections:
-        with Path(ins.path).open(encoding="utf-8-sig", newline="") as fh:
-            reader = csv.DictReader(fh)
-            buckets: dict[str, set[str]] = {c.name: set() for c in ins.columns}
-            for row in reader:
-                for col_name in buckets:
-                    v = (row.get(col_name) or "").strip()
-                    if v and len(buckets[col_name]) < _SAMPLE_RING * 5:
-                        buckets[col_name].add(v)
-            cache[ins.path] = buckets
+    # Pull per-column distinct-value samples by re-reading each source (CSV or
+    # JSON). We don't cache them on ColumnSummary to keep that dataclass small.
+    cache: dict[str, dict[str, set[str]]] = {ins.path: _value_buckets(ins) for ins in inspections}
 
     for a, b in itertools.combinations(inspections, 2):
         for col_a in a.columns:
@@ -549,6 +742,50 @@ def inspect_csv_set(
     return inspections, fks
 
 
+def inspect_json_set(
+    paths: Sequence[Path | str],
+    *,
+    fk_hint_columns: Sequence[str] | None = None,
+    record_path: str | None = None,
+) -> tuple[list[SourceInspection], list[ForeignKeyCandidate]]:
+    """Inspect a coordinated set of JSON files and report cross-file foreign keys."""
+    inspections = [
+        inspect_json(p, fk_hint_columns=fk_hint_columns, record_path=record_path) for p in paths
+    ]
+    fks = _detect_foreign_keys(inspections)
+    return inspections, fks
+
+
+_JSON_SUFFIXES = {".json", ".geojson"}
+
+
+def _is_json_path(path: Path | str) -> bool:
+    return Path(path).suffix.lower() in _JSON_SUFFIXES
+
+
+def inspect_source_set(
+    paths: Sequence[Path | str],
+    *,
+    fk_hint_columns: Sequence[str] | None = None,
+    record_path: str | None = None,
+) -> tuple[list[SourceInspection], list[ForeignKeyCandidate]]:
+    """Inspect a set of sources, dispatching per file by extension (.json → JSON).
+
+    Mixed CSV/JSON sets are supported; foreign-key candidates are reported across
+    the whole set. This is the source-agnostic entry point the API/CLI use; the
+    per-kind ``inspect_csv_set`` / ``inspect_json_set`` remain for callers that
+    know the kind up front.
+    """
+    inspections = [
+        inspect_json(p, fk_hint_columns=fk_hint_columns, record_path=record_path)
+        if _is_json_path(p)
+        else inspect_csv(p, fk_hint_columns=fk_hint_columns)
+        for p in paths
+    ]
+    fks = _detect_foreign_keys(inspections)
+    return inspections, fks
+
+
 # ----------------------------------------------------------------------------
 # Markdown renderer (matches ai-assisted-step0-prompts.md §1 output format)
 # ----------------------------------------------------------------------------
@@ -561,9 +798,20 @@ def render_markdown(
     """Produce the Markdown body the Step 3 schema-proposal prompt expects."""
     buf = io.StringIO()
     for ins in inspections:
-        buf.write(f"## CSV: {ins.name}\n\n")
-        buf.write(f"- Total rows: {ins.total_rows:,}\n")
-        buf.write(f"- Path: `{ins.path}`\n\n")
+        if ins.source_kind == "json":
+            iterator = ins.iterator or "$[*]"
+            buf.write(f"## JSON: {ins.name}\n\n")
+            buf.write(f"- Records: {ins.total_rows:,} (iterator `{iterator}`)\n")
+            buf.write(f"- Path: `{ins.path}`\n")
+            buf.write(
+                "- Reference style: dot-path leaf fields (e.g. `structure.spacegroup`) — emit "
+                '`rml:referenceFormulation ql:JSONPath`, `rml:iterator "' + iterator + '"`, '
+                "and `rml:reference` with the dot-paths below.\n\n"
+            )
+        else:
+            buf.write(f"## CSV: {ins.name}\n\n")
+            buf.write(f"- Total rows: {ins.total_rows:,}\n")
+            buf.write(f"- Path: `{ins.path}`\n\n")
 
         buf.write("### Columns\n\n")
         buf.write("| name | type | non-null rate | distinct values | sample values |\n")
@@ -608,7 +856,7 @@ def render_markdown(
             )
 
     if fk_candidates:
-        buf.write("## Foreign key candidates (across CSVs)\n\n")
+        buf.write("## Foreign key candidates (across sources)\n\n")
         buf.write(
             "| from CSV | column | to CSV | column | overlap count | from distinct | ratio |\n"
         )
@@ -634,11 +882,12 @@ def _build_arg_parser():  # type: ignore[no-untyped-def]
     p = argparse.ArgumentParser(
         prog="asterism-inspect",
         description=(
-            "Inspect one or more CSVs and emit the Markdown body that the "
-            "Step 3 schema-proposal prompt expects."
+            "Inspect one or more sources (CSV or JSON) and emit the Markdown body "
+            "that the Step 3 schema-proposal prompt expects. The source kind is "
+            "picked per file by extension (.json / .geojson → JSON)."
         ),
     )
-    p.add_argument("csv", type=Path, nargs="+", help="CSV file(s) to inspect")
+    p.add_argument("source", type=Path, nargs="+", help="Source file(s) to inspect (CSV or JSON)")
     p.add_argument(
         "--fk",
         dest="fk_hint",
@@ -647,6 +896,16 @@ def _build_arg_parser():  # type: ignore[no-untyped-def]
         help=(
             "Foreign-key companion column. Repeatable. Example for starrydata: "
             "--fk SID  (joins papers/samples/curves)."
+        ),
+    )
+    p.add_argument(
+        "--record-path",
+        dest="record_path",
+        default=None,
+        help=(
+            "For JSON sources whose records live under a top-level key, the key "
+            "holding the array of records (e.g. --record-path data). Auto-detected "
+            "when omitted."
         ),
     )
     p.add_argument(
@@ -661,7 +920,9 @@ def _build_arg_parser():  # type: ignore[no-untyped-def]
 def _main(argv: list[str] | None = None) -> int:
     args = _build_arg_parser().parse_args(argv)
     fk_hint = args.fk_hint or None
-    inspections, fks = inspect_csv_set(args.csv, fk_hint_columns=fk_hint)
+    inspections, fks = inspect_source_set(
+        args.source, fk_hint_columns=fk_hint, record_path=args.record_path
+    )
     md = render_markdown(inspections, fks)
     if args.output is None:
         print(md)
