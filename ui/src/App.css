@@ -3356,3 +3356,36 @@ textarea:focus {
   flex-direction: column;
   gap: 0.4rem;
 }
+
+/* ---- Ask: verified tools, runnable key-free (deterministic typed path) ---- */
+.verified-tools {
+  margin: 0.4rem 0 0.9rem;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.9rem;
+}
+.verified-tools > summary {
+  cursor: pointer;
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: var(--primary);
+}
+.verified-tools[open] > summary {
+  margin-bottom: 0.5rem;
+}
+.verified-tools-hint {
+  font-size: 0.8rem;
+  color: var(--muted);
+  line-height: 1.55;
+  margin: 0 0 0.6rem;
+}
+.verified-tools-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.7rem;
+}
+.verified-tools-group .ds-subhead {
+  margin-top: 0.3rem;
+}
