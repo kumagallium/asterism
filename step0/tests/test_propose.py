@@ -12,6 +12,7 @@ Coverage:
   - The default AnthropicLLMClient lazy-imports anthropic (we don't actually
     call it; just verify the wiring)
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -49,6 +50,13 @@ def _write_csv(path: Path, content: str) -> Path:
     return path
 
 
+def _write_json(path: Path, data: object) -> Path:
+    import json
+
+    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    return path
+
+
 # ----------------------------------------------------------------------------
 # propose_schema end-to-end (with mock LLM)
 # ----------------------------------------------------------------------------
@@ -82,6 +90,45 @@ def test_propose_schema_passes_inspection_to_llm(tmp_path: Path) -> None:
     assert "sample_id" in user_msg
     # Domain hint is embedded
     assert "thermoelectric" in user_msg
+
+
+def test_propose_schema_routes_json_source_to_llm(tmp_path: Path) -> None:
+    """A JSON source flows through the JSON inspector and reaches the LLM as a
+    `## JSON:` block carrying the iterator + dot-path leaves."""
+    json_path = _write_json(
+        tmp_path / "mp.json",
+        [
+            {"mp_id": "mp-1", "formula": "PbTe", "structure": {"spacegroup": "Fm-3m"}},
+            {"mp_id": "mp-2", "formula": "SnSe", "structure": {"spacegroup": "Pnma"}},
+        ],
+    )
+    mock = _RecordingLLM()
+    propose_schema([json_path], domain_hint="crystal structures", llm=mock)
+    user_msg = mock.user_messages[0]
+    assert "## JSON: mp.json" in user_msg
+    assert "iterator `$[*]`" in user_msg
+    # Dot-path leaf is presented for use as an rml:reference.
+    assert "`structure.spacegroup`" in user_msg
+    assert "crystal structures" in user_msg
+
+
+def test_propose_schema_json_record_path(tmp_path: Path) -> None:
+    json_path = _write_json(
+        tmp_path / "wrapped.json",
+        {"data": [{"mp_id": "mp-1"}, {"mp_id": "mp-2"}]},
+    )
+    mock = _RecordingLLM()
+    propose_schema([json_path], domain_hint="x", record_path="data", llm=mock)
+    assert "iterator `$.data[*]`" in mock.user_messages[0]
+
+
+def test_system_prompt_teaches_json_logical_source() -> None:
+    """§9 must teach the JSON logicalSource shape (ql:JSONPath + iterator) so the
+    LLM emits Morph-KGC-readable RML for JSON sources (#19)."""
+    assert "ql:JSONPath" in SYSTEM_PROMPT
+    assert "rml:iterator" in SYSTEM_PROMPT
+    # Still teaches the CSV shape too (both kinds supported by one cacheable prompt).
+    assert "ql:CSV" in SYSTEM_PROMPT
 
 
 def test_propose_schema_returns_canned_llm_output(tmp_path: Path) -> None:
