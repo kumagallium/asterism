@@ -150,3 +150,65 @@ def test_tools_unknown_dataset_404(tmp_path: Path, healthy_client: OxigraphClien
     (tmp_path / "registry").mkdir(parents=True, exist_ok=True)
     assert client.get("/api/datasets/nope-00000000/tools").status_code == 404
     assert client.post("/api/datasets/nope-00000000/tools", json=VALID_TOOL).status_code == 404
+
+
+# --- P2: AI-assisted draft (key-gated, human-reviewed) ----------------------
+
+_VALID_DRAFT = (
+    '{"name":"drafted","title":"Drafted","query":"SELECT ?s WHERE { ?s ?p ?o } LIMIT 5",'
+    '"parameters":[],"result":{}}'
+)
+
+
+class _DraftLLM:
+    def __init__(self, response: str, captured: dict | None = None) -> None:
+        self.response = response
+        self.captured = captured if captured is not None else {}
+
+    def complete(self, system_prompt: str, user_message: str) -> str:
+        self.captured["user"] = user_message
+        return self.response
+
+
+def _client_with_llm(tmp_path: Path, healthy_client: OxigraphClient, llm) -> TestClient:
+    app = build_app(
+        _settings(tmp_path),
+        oxigraph_client=healthy_client,
+        start_watcher=False,
+        llm_factory=lambda key: llm,
+    )
+    return TestClient(app)
+
+
+def test_propose_returns_valid_draft_unsaved(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    cap: dict = {}
+    client = _client_with_llm(tmp_path, healthy_client, _DraftLLM(_VALID_DRAFT, cap))
+    ds = _seed_dataset(tmp_path / "registry")
+    r = client.post(
+        f"/api/datasets/{ds}/tools/propose", json={"intent": "list all triples"},
+        headers={"X-API-Key": "sk"},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["draft"]["name"] == "drafted" and body["valid"] is True
+    assert "list all triples" in cap["user"]  # intent reached the model
+    # the draft is NOT auto-saved — a human reviews + saves it (the vet gate)
+    assert client.get(f"/api/datasets/{ds}/tools").json()["tools"] == []
+
+
+def test_propose_flags_invalid_draft(tmp_path: Path, healthy_client: OxigraphClient) -> None:
+    llm = _DraftLLM('{"name":"bad","query":"DELETE WHERE { ?s ?p ?o }"}')
+    client = _client_with_llm(tmp_path, healthy_client, llm)
+    ds = _seed_dataset(tmp_path / "registry")
+    body = client.post(
+        f"/api/datasets/{ds}/tools/propose", json={"intent": "x"}, headers={"X-API-Key": "sk"}
+    ).json()
+    assert body["valid"] is False and body["error"]
+
+
+def test_propose_requires_key(tmp_path: Path, healthy_client: OxigraphClient) -> None:
+    client = _client_with_llm(tmp_path, healthy_client, _DraftLLM(_VALID_DRAFT))
+    ds = _seed_dataset(tmp_path / "registry")
+    assert client.post(f"/api/datasets/{ds}/tools/propose", json={"intent": "x"}).status_code == 400

@@ -56,6 +56,7 @@ from asterism_step0.inspect import inspect_csv_set, render_markdown
 from asterism_step0.materialize import materialize_schema
 from asterism_step0.propose import AnthropicLLMClient, LLMClient, propose_schema
 from asterism_step0.refine import refine_schema
+from asterism_step0.tool_propose import propose_query_tool
 from asterism_step0.validate import SchemaBundle, validate_schema
 from fastapi import FastAPI, File, Form, Header, HTTPException, Query, Response, UploadFile
 from fastapi import Path as PathParam
@@ -101,6 +102,14 @@ class QueryToolBody(BaseModel):
     description: str = ""
     parameters: list[dict] = []
     result: dict = {}
+
+
+class ToolProposeBody(BaseModel):
+    """Body for POST /api/datasets/{id}/tools/propose: a natural-language intent
+    the AI drafts a query tool for (P2). The draft is returned for human review,
+    never auto-saved."""
+
+    intent: str
 
 
 # Update-form keywords. Oxigraph's /query endpoint is read-only regardless, but
@@ -701,6 +710,49 @@ def build_app(
             "deleted": tool_name,
             "tools": registry.list_query_tools(cfg.registry_root, dataset_id),
         }
+
+    @app.post("/api/datasets/{dataset_id}/tools/propose")
+    async def propose_dataset_tool(
+        dataset_id: str,
+        body: ToolProposeBody,
+        x_api_key: str | None = Header(default=None),
+    ) -> dict[str, object]:
+        """P2: AI-draft ONE query tool from a natural-language intent.
+
+        The LLM (user-brought key, never stored) drafts a parameterized read-only
+        SPARQL tool grounded in this dataset's vocabulary (its model.yaml + MIE
+        examples). The draft is RETURNED FOR HUMAN REVIEW — it is validated with
+        the same ``parse_query_tools`` gate (``valid`` flag) but NOT saved; the
+        person reviews/edits it and saves it via ``POST .../tools`` (the human-vet
+        gate). The intent must be provided; the API key is required (LLM call)."""
+        data = registry.load_dataset(cfg.registry_root, dataset_id)
+        if data is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        if not body.intent.strip():
+            raise HTTPException(400, "intent is required")
+        if not x_api_key:
+            raise HTTPException(400, "AI draft needs an Anthropic API key (header X-API-Key)")
+        arts = data["artifacts"]
+
+        def run() -> dict:
+            return propose_query_tool(
+                make_llm(x_api_key),
+                intent=body.intent,
+                model_yaml=arts.get("model.yaml", "") or "",
+                mie_yaml=arts.get("mie.yaml", "") or "",
+            )
+
+        try:
+            draft = await asyncio.to_thread(run)
+        except Exception as exc:  # LLM/parse failure -> 502 with the reason
+            raise HTTPException(502, f"AI draft failed: {exc}") from exc
+
+        valid, error = True, None
+        try:
+            parse_query_tools({"tools": [draft]})
+        except QueryToolError as exc:
+            valid, error = False, str(exc)
+        return {"dataset_id": dataset_id, "draft": draft, "valid": valid, "error": error}
 
     @app.post("/api/datasets/{dataset_id}/source")
     async def attach_source(
