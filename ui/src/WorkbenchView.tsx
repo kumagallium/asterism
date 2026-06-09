@@ -12,14 +12,14 @@ import {
   type ProposeResult,
   type RefineResult,
 } from './api'
-import { type SourceKind } from './datasetsApi'
+import { SOURCE_ACCEPT, SUPPORTED_SOURCES, type SourceKind } from './datasetsApi'
 import { PRESET_HINTS } from './domainHints'
 import { MaterializePanel } from './MaterializePanel'
 import { ProposalView } from './ProposalView'
 
-// Data-source kinds. Only CSV is wired to a backend today; the others are shown
-// (the redesign's "any structured source" promise) but disabled until the
-// connect flow lands (Phase 2 decision: CSV-only, others as "近日対応").
+// Data-source kinds. CSV and JSON (#19) are wired end-to-end (Morph-KGC reads
+// both via the RML's referenceFormulation); API/DB are shown (the redesign's
+// "any structured source" promise) but disabled until their connect flow lands.
 const SOURCES: { id: SourceKind; label: string }[] = [
   { id: 'csv', label: '表計算 / CSV' },
   { id: 'json', label: 'JSON' },
@@ -76,6 +76,7 @@ function loadJob(): { jobId: string; kind: JobKind } | null {
 
 interface WorkbenchSnapshot {
   step: Step
+  source: SourceKind
   fk: string
   markdown: string
   domainFree: string
@@ -105,6 +106,9 @@ export function WorkbenchView() {
   const [snap] = useState(loadSnapshot)
 
   const [step, setStep] = useState<Step>(snap.step ?? 1)
+  // Selected data-source kind (#19). CSV / JSON are wired; switching kinds clears
+  // any picked files since they no longer match the new kind's picker filter.
+  const [source, setSource] = useState<SourceKind>(snap.source ?? 'csv')
   const [files, setFiles] = useState<File[]>([])
   const [fk, setFk] = useState(snap.fk ?? '')
 
@@ -141,6 +145,7 @@ export function WorkbenchView() {
   useEffect(() => {
     const snapshot: WorkbenchSnapshot = {
       step,
+      source,
       fk,
       markdown,
       domainFree,
@@ -153,7 +158,7 @@ export function WorkbenchView() {
     } catch {
       // sessionStorage may be unavailable (private mode quota) — non-fatal.
     }
-  }, [step, fk, markdown, domainFree, presetIds, proposal, materialized])
+  }, [step, source, fk, markdown, domainFree, presetIds, proposal, materialized])
 
   // Resume an in-flight propose/refine job after a reload/crash/disconnect: the
   // server replays the job's events, so a result that completed while the UI was
@@ -374,7 +379,7 @@ export function WorkbenchView() {
         <div className="wb-restore-row">
           {restored && (
             <span className="wb-restore-note">
-              前回の作業を復元しました（再実行する場合のみ CSV を選び直してください）。
+              前回の作業を復元しました（再実行する場合のみソースを選び直してください）。
             </span>
           )}
           <button type="button" className="secondary-btn wb-clear-btn" onClick={clearWorkbench}>
@@ -388,27 +393,36 @@ export function WorkbenchView() {
         <div className="source-switch-row">
           <span className="data-source-label">データソース</span>
           <div className="source-switch" role="group" aria-label="データソースの種類">
-            {SOURCES.map((s) => (
-              <button
-                key={s.id}
-                type="button"
-                className={`source-pill${s.id === 'csv' ? ' active' : ''}`}
-                disabled={s.id !== 'csv'}
-                title={s.id !== 'csv' ? '近日対応' : undefined}
-              >
-                {s.label}
-                {s.id !== 'csv' && <span className="source-soon">近日</span>}
-              </button>
-            ))}
+            {SOURCES.map((s) => {
+              const supported = SUPPORTED_SOURCES.includes(s.id)
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  className={`source-pill${s.id === source ? ' active' : ''}`}
+                  disabled={!supported}
+                  title={supported ? undefined : '近日対応'}
+                  onClick={() => {
+                    if (s.id === source) return
+                    // Switching kinds invalidates the picked files (different picker filter).
+                    setSource(s.id)
+                    setFiles([])
+                  }}
+                >
+                  {s.label}
+                  {!supported && <span className="source-soon">近日</span>}
+                </button>
+              )
+            })}
           </div>
-          <span className="hint source-note">あらゆる構造化ソースに対応予定（現在は CSV）</span>
+          <span className="hint source-note">あらゆる構造化ソースに対応予定（現在は CSV / JSON）</span>
         </div>
         <div className="data-source-row">
           <label className="file-btn">
-            CSV を選択
+            {source === 'json' ? 'JSON を選択' : 'CSV を選択'}
             <input
               type="file"
-              accept=".csv"
+              accept={SOURCE_ACCEPT[source] ?? '.csv'}
               multiple
               onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
             />
@@ -417,11 +431,11 @@ export function WorkbenchView() {
             {files.length ? files.map((f) => f.name).join('、') : 'ファイル未選択'}
           </span>
           <label className="fk-field">
-            <span>FK 列ヒント（任意）</span>
+            <span>{source === 'json' ? 'FK フィールドヒント（任意）' : 'FK 列ヒント（任意）'}</span>
             <input
               type="text"
               value={fk}
-              placeholder="SID"
+              placeholder={source === 'json' ? 'mp_id' : 'SID'}
               onChange={(e) => setFk(e.target.value)}
             />
           </label>
@@ -429,8 +443,8 @@ export function WorkbenchView() {
         <div className="data-source-foot">
           <span className="hint">
             {files.length > 0
-              ? `${files.length} file(s) selected — 全ステップで同じ CSV を使います`
-              : 'ここで選んだ CSV を全ステップで共有します'}
+              ? `${files.length} file(s) selected — 全ステップで同じソースを使います`
+              : 'ここで選んだソースを全ステップで共有します'}
           </span>
           {files.length > 0 && (
             <button type="button" className="secondary-btn inspect-toggle" onClick={onToggleInspect}>

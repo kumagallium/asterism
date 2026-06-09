@@ -403,6 +403,8 @@ function IngestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChang
   }
 
   const hasSource = !!meta.has_source
+  const isJson = meta.source_kind === 'json'
+  const sourceLabel = isJson ? 'JSON' : 'CSV'
   const canIngest = !busy && (hasSource || files.length > 0)
 
   async function onIngest() {
@@ -430,23 +432,25 @@ function IngestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChang
       </p>
       {hasSource ? (
         <p className="ingest-source">
-          設計時の CSV を保存済み
+          設計時の{sourceLabel}を保存済み
           {meta.source_files?.length ? `（${meta.source_files.join('、')}）` : ''}
           。再添付なしで取り込めます。
         </p>
       ) : (
         <div className="ingest-pick">
           <label className="file-btn">
-            CSV を選択
+            {sourceLabel}を選択
             <input
               type="file"
-              accept=".csv"
+              accept={isJson ? '.json,.geojson' : '.csv'}
               multiple
               onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
             />
           </label>
           <span className={`file-names${files.length ? '' : ' empty'}`}>
-            {files.length ? files.map((f) => f.name).join('、') : '設計に使った CSV を選んでください'}
+            {files.length
+              ? files.map((f) => f.name).join('、')
+              : `設計に使った${sourceLabel}を選んでください`}
           </span>
         </div>
       )}
