@@ -1,0 +1,147 @@
+# Changelog
+
+## [v0.1.1](https://github.com/kumagallium/asterism/compare/v0.1.0...v0.1.1) - 2026-06-09
+
+- [feat] ワークベンチ: 提案/再生成の進捗カードを追加 (経過時間+不定バー) by @kumagallium in https://github.com/kumagallium/asterism/pull/69
+- [feat] 検証パネルを日本語化 + 凡例追加 + 自動翻訳の抑止 by @kumagallium in https://github.com/kumagallium/asterism/pull/70
+- [feat] ワークベンチ: ジョブ再開 (リロード/落ち/接続断で提案を失わない) by @kumagallium in https://github.com/kumagallium/asterism/pull/72
+- [Phase 5] 設計→Ask 連結: 検証済み関数ライブラリ v0 + e2e スパイク + 統治 ADR by @kumagallium in https://github.com/kumagallium/asterism/pull/73
+- [Phase 5 #14] Tier0 に 2 入力 float_array_count を追加 (curve pointCount) by @kumagallium in https://github.com/kumagallium/asterism/pull/74
+- [Phase 5 #14] step0 materialize が宣言 RML を任意 artifact として出力 (案B) by @kumagallium in https://github.com/kumagallium/asterism/pull/75
+- [Phase 5 #14] step0 propose が宣言 RML を生成 + T9 閉集合検証 (案C) by @kumagallium in https://github.com/kumagallium/asterism/pull/76
+- [Phase 5 #14] validate に T9 (RML 閉集合) を統合 by @kumagallium in https://github.com/kumagallium/asterism/pull/77
+- [Phase 5 #15] 宣言 substrate 投入コア + 人間ゲート ADR (S1) by @kumagallium in https://github.com/kumagallium/asterism/pull/78
+- [Phase 5 #15] 人間ゲート投入エンドポイント + RML 永続化 (S2) by @kumagallium in https://github.com/kumagallium/asterism/pull/79
+- [Phase 5 #15] ワークベンチに投入ゲート + Gallery ingested 表示 (S3 UI) by @kumagallium in https://github.com/kumagallium/asterism/pull/80
+- Asterism 改名（IRI 名前空間ごと）＋ ROADMAP/CLAUDE/README by @kumagallium in https://github.com/kumagallium/asterism/pull/82
+- [Phase 5 #15 S4] draft→canonical 昇格 + alignment（人間ゲートの昇格側） by @kumagallium in https://github.com/kumagallium/asterism/pull/83
+- [#15] ローカル substrate スタック起動を再現可能に（検証用・Asterism） by @kumagallium in https://github.com/kumagallium/asterism/pull/84
+- [fix] SSE の一時切断で propose/refine の進捗を失わない by @kumagallium in https://github.com/kumagallium/asterism/pull/85
+- [fix] 宣言 RML の FnO 名前空間を正規化 + ingest エラーを明確化 (#15) by @kumagallium in https://github.com/kumagallium/asterism/pull/86
+- [fix] Gallery のデータセット状態表示と昇格ラベルを分かりやすく (#15) by @kumagallium in https://github.com/kumagallium/asterism/pull/87
+- [docs] ROADMAP: 6/3 ドッグフード結果と #18 を反映 by @kumagallium in https://github.com/kumagallium/asterism/pull/88
+- [feat] #18 汎用 Ask 層の土台: スキーマ非依存の schema_summary + sparql_query by @kumagallium in https://github.com/kumagallium/asterism/pull/89
+- [feat] #18 LLM NL→SPARQL escape: 型付き優先＋自動フォールバックの Ask by @kumagallium in https://github.com/kumagallium/asterism/pull/90
+- [feat] #18 Ask-view UX: 一般質問用キー欄＋使用 SPARQL 開示パネル by @kumagallium in https://github.com/kumagallium/asterism/pull/91
+- [docs] ROADMAP: #18 完了（実 LLM dogfood 実証） by @kumagallium in https://github.com/kumagallium/asterism/pull/92
+- [docs] ADR: オントロジー/canonical ライフサイクル + starrydata 脱結合（ドラフト） by @kumagallium in https://github.com/kumagallium/asterism/pull/93
+- [feat] #20 P2-1: 汎用ヘルパを asterism.text に抽出（starrydata 脱結合の第一歩） by @kumagallium in https://github.com/kumagallium/asterism/pull/94
+- [feat] #20 P2-2a: starrydata identity を datasets/ に宣言＋汎用 dataset ローダ by @kumagallium in https://github.com/kumagallium/asterism/pull/95
+- UI Phase 1: forest 再設計（基盤 + 新IA + Ask 全面刷新） by @kumagallium in https://github.com/kumagallium/asterism/pull/96
+- #20 P2-2b(1/3): api/mcp 定数 import 撤去 + datasets/ を image 同梱 by @kumagallium in https://github.com/kumagallium/asterism/pull/97
+- #20 P2-2b(2/3): QUDT 表を datasets/ の唯一の正へ by @kumagallium in https://github.com/kumagallium/asterism/pull/98
+- #20 P2-2b(3/3): seed 物理移動 + watcher descriptor 化 + ADR/ROADMAP by @kumagallium in https://github.com/kumagallium/asterism/pull/99
+- fix(step0): 不完全 refine 出力ガード（前の完全版を保持して警告） by @kumagallium in https://github.com/kumagallium/asterism/pull/101
+- docs(ROADMAP): refine ガード(#101)＋#20 P2 完了を反映 by @kumagallium in https://github.com/kumagallium/asterism/pull/102
+- docs(ADR): #20 P3 実装設計（ライフサイクル CRUD/版・提案/未実装） by @kumagallium in https://github.com/kumagallium/asterism/pull/103
+- UI Phase 2: ホーム + カタログ データセット主役化 + 共有の語彙 + データ追加ソース切替 by @kumagallium in https://github.com/kumagallium/asterism/pull/100
+- UI: 旧 demo/gallery 由来の dead CSS 整理 by @kumagallium in https://github.com/kumagallium/asterism/pull/104
+- #20 P3(1): dataset version モデル + lifecycle graph IRI 基盤 by @kumagallium in https://github.com/kumagallium/asterism/pull/105
+- #20 P3(2): canonical 読み取りスコープ（default ∪ canonical 個室・draft 除外） by @kumagallium in https://github.com/kumagallium/asterism/pull/106
+- #20 P3 step1 完了: promote を per-dataset canonical graph へ切替 by @kumagallium in https://github.com/kumagallium/asterism/pull/107
+- #20 P3 step3: retract/reinstate（引っ込める・tombstone・引用安定） by @kumagallium in https://github.com/kumagallium/asterism/pull/108
+- #20 P3 step4: delete（消す）— force ゲート + tombstone 痕跡 by @kumagallium in https://github.com/kumagallium/asterism/pull/109
+- #20 横断参照(cross-dataset)=FROM-merge の基盤（部品・未配線） by @kumagallium in https://github.com/kumagallium/asterism/pull/110
+- [feat] #20 ① 横断参照(cross-dataset)=FROM-merge 配線 by @kumagallium in https://github.com/kumagallium/asterism/pull/111
+- [feat] #20 ② P4-1 宣言 typed ツールエンジン (content 宣言・additive) by @kumagallium in https://github.com/kumagallium/asterism/pull/112
+- [feat] #20 ② P4-2a 宣言ツールの MCP 動的公開 by @kumagallium in https://github.com/kumagallium/asterism/pull/113
+- [feat] #20 ③ step5 オントロジー graph 投影 + schema_summary label 補強 by @kumagallium in https://github.com/kumagallium/asterism/pull/114
+- [feat] UI: 共有の語彙に「実データの語彙」live パネル (#20 step5 可視化) by @kumagallium in https://github.com/kumagallium/asterism/pull/115
+- [feat] UI: 共有の語彙を完全に live 化（ハードコード fixture 撤去） by @kumagallium in https://github.com/kumagallium/asterism/pull/116
+- [feat] UI: 共有の語彙の件数に凡例（クラス=インスタンス数 / 述語=使用回数） by @kumagallium in https://github.com/kumagallium/asterism/pull/118
+- [feat] UI: ライフサイクル操作（撤回/復帰/削除）配線 + canonical 集計の明示 by @kumagallium in https://github.com/kumagallium/asterism/pull/119
+- [fix] UI: ライフサイクル操作（昇格/撤回/削除）を両タブで表示 by @kumagallium in https://github.com/kumagallium/asterism/pull/120
+- [feat] UI: カタログ/ホームの fixture を完全撤去し live 化 (#20) by @kumagallium in https://github.com/kumagallium/asterism/pull/121
+- [fix] UI: データセット詳細のライフサイクル操作のパディング揃え by @kumagallium in https://github.com/kumagallium/asterism/pull/122
+- [perf] #20 FROM-merge: graph 列挙を空パターン化（triple 走査を回避） by @kumagallium in https://github.com/kumagallium/asterism/pull/123
+- docs: ROADMAP 更新 — UI カタログ/ホーム live 化 (#121) + FROM-merge perf (#123) by @kumagallium in https://github.com/kumagallium/asterism/pull/124
+- docs: 静的「引用できる事実」デモ（サーバ/AI 不要・GitHub Pages・MP 横断結合） by @kumagallium in https://github.com/kumagallium/asterism/pull/117
+- docs(readme): デモ導線・バッジ追加＋UI 記述更新 by @kumagallium in https://github.com/kumagallium/asterism/pull/125
+- feat(catalog): ingest design-stage datasets from the catalog (Task E) by @kumagallium in https://github.com/kumagallium/asterism/pull/126
+- [feat] #15 運用化: 本番 docker api に morph-kgc（+ step0 ビルドバグ修正） by @kumagallium in https://github.com/kumagallium/asterism/pull/127
+- fix(ui): prevent white-screen render crash (error boundary + translate opt-out) by @kumagallium in https://github.com/kumagallium/asterism/pull/128
+- fix(ingest): graceful 504/502 + longer write timeout for large ingests by @kumagallium in https://github.com/kumagallium/asterism/pull/129
+- docs(adr): scalable declarative ingestion (streaming + background job) by @kumagallium in https://github.com/kumagallium/asterism/pull/130
+- feat(substrate): streaming N-Triples materialize + chunked load (scalable ingest S1) by @kumagallium in https://github.com/kumagallium/asterism/pull/131
+- feat(ingest): background job + live SSE progress (scalable ingest S2+S3) by @kumagallium in https://github.com/kumagallium/asterism/pull/132
+- docs(roadmap): mark scalable ingestion S1-S3 complete by @kumagallium in https://github.com/kumagallium/asterism/pull/133
+- fix(ingest): generous timeout for large-graph DROP/MOVE by @kumagallium in https://github.com/kumagallium/asterism/pull/134
+- docs(roadmap): MOVE-OOM root cause + memory-bounded promote next by @kumagallium in https://github.com/kumagallium/asterism/pull/135
+- feat(promote): memory-bounded promotion — flag-based, no MOVE GRAPH by @kumagallium in https://github.com/kumagallium/asterism/pull/136
+- #19: onboard Materials Project as a second, non-starrydata dataset (content backbone) by @kumagallium in https://github.com/kumagallium/asterism/pull/137
+- test(promote): disposable-Oxigraph memory-bounded promote validation harness by @kumagallium in https://github.com/kumagallium/asterism/pull/138
+- docs: record #19 path B-1 (production-ingest dogfood) by @kumagallium in https://github.com/kumagallium/asterism/pull/139
+- feat(promote): part5 versioned graphs — replace/delete off the critical path by @kumagallium in https://github.com/kumagallium/asterism/pull/140
+- fix(promote): chunked delete for part5 reclaim — a single DROP GRAPH OOMs by @kumagallium in https://github.com/kumagallium/asterism/pull/141
+- fix(ask): generic questions fall through to the LLM escape (not a canned list) by @kumagallium in https://github.com/kumagallium/asterism/pull/142
+- fix(ui/ask): IME-safe Enter + render the answer as Markdown by @kumagallium in https://github.com/kumagallium/asterism/pull/144
+- fix(ask): cross-dataset / crystal-structure questions reach the LLM escape by @kumagallium in https://github.com/kumagallium/asterism/pull/145
+- feat(ask): LLM picks among typed tools + SPARQL (P4-2b) — drop the keyword router by @kumagallium in https://github.com/kumagallium/asterism/pull/146
+- docs(roadmap): Ask-layer fixes + P4-2b done (LLM picks tools) by @kumagallium in https://github.com/kumagallium/asterism/pull/147
+- feat(ask): route every dataset's verified tools + per-answer provenance badge by @kumagallium in https://github.com/kumagallium/asterism/pull/148
+- feat(step0): JSON source inspector (#19 part 1) by @kumagallium in https://github.com/kumagallium/asterism/pull/149
+- feat(tools): per-dataset query-tools store — grow verified tools without a repo PR (P1) by @kumagallium in https://github.com/kumagallium/asterism/pull/150
+- feat(step0): propose emits JSON RML logicalSource (#19 part 2) by @kumagallium in https://github.com/kumagallium/asterism/pull/151
+
+## [v0.1.0](https://github.com/kumagallium/asterism/commits/v0.1.0) - 2026-06-02
+
+- Fix Sample/Curve IRI collision (composite keys for starrydata raw ids) by @kumagallium in https://github.com/kumagallium/asterism/pull/8
+- Make sd: / sdr: namespace dereferenceable via GitHub Pages by @kumagallium in https://github.com/kumagallium/asterism/pull/9
+- Phase 3 基盤: AI-assisted Step 0 workflow を文書化 by @kumagallium in https://github.com/kumagallium/asterism/pull/11
+- Phase 2: drop CSV → auto reindex (watcher + upload API) by @kumagallium in https://github.com/kumagallium/asterism/pull/10
+- Phase 3 #1 + #2: AI-assisted Step 0 の prompt 集 と design-rationale by @kumagallium in https://github.com/kumagallium/asterism/pull/12
+- Phase 3 #3: LinkML vs rdf-config 比較実験 + 採用判断 by @kumagallium in https://github.com/kumagallium/asterism/pull/13
+- Phase 3 #4 (part 1): step0 package — CSV inspection module by @kumagallium in https://github.com/kumagallium/asterism/pull/15
+- Phase 3 #4 (part 2): propose_schema with Anthropic SDK + prompt caching by @kumagallium in https://github.com/kumagallium/asterism/pull/16
+- Phase 2 #3: self-built MCP with template_curve_fetch by @kumagallium in https://github.com/kumagallium/asterism/pull/14
+- Phase 3 #6: validate_schema — 8-trap static + dynamic validator by @kumagallium in https://github.com/kumagallium/asterism/pull/17
+- Phase 3 #5: refine_schema — process review comments, sync update 4 artifacts by @kumagallium in https://github.com/kumagallium/asterism/pull/19
+- Phase 3 #7: csv2rdf-ttl2mermaid — auto-gen Mermaid from TBox + --check CI mode by @kumagallium in https://github.com/kumagallium/asterism/pull/20
+- Phase 2 #2: QUDT quantity/unit normalization (synonym unification) by @kumagallium in https://github.com/kumagallium/asterism/pull/18
+- Phase 3: materialize_schema — split proposal Markdown into 4 artifact files by @kumagallium in https://github.com/kumagallium/asterism/pull/22
+- Phase 2 #6: DigitizationActivity (WebPlotDigitizer provenance) by @kumagallium in https://github.com/kumagallium/asterism/pull/21
+- fix: propose/refine stream output (16k→32k) + dogfood feedback by @kumagallium in https://github.com/kumagallium/asterism/pull/23
+- fix: validate T1 false positive on anti_patterns IRI examples by @kumagallium in https://github.com/kumagallium/asterism/pull/24
+- Phase 2 #5: full-scale benchmark (12M triples) + invalid-IRI URL fix by @kumagallium in https://github.com/kumagallium/asterism/pull/25
+- [fix] Phase 2: load into default graph (MIE-compatible) by @kumagallium in https://github.com/kumagallium/asterism/pull/26
+- docs: Phase 3 dogfood Round 3 — propose to refine to materialize to validate full loop by @kumagallium in https://github.com/kumagallium/asterism/pull/27
+- [infra] make upload-api host port configurable by @kumagallium in https://github.com/kumagallium/asterism/pull/28
+- [docs] sync Pages ontology with canonical (QUDT + DigitizationActivity) by @kumagallium in https://github.com/kumagallium/asterism/pull/29
+- [feat] Phase 3: validate T1 verifies uniqueness from the ingester IRI builder by @kumagallium in https://github.com/kumagallium/asterism/pull/30
+- [feat] Phase 3: validate を CI に統合 (starrydata-min fixture) by @kumagallium in https://github.com/kumagallium/asterism/pull/31
+- [docs] Phase 3 feedback: 項目6 (validate CI 統合) を完了マーク by @kumagallium in https://github.com/kumagallium/asterism/pull/32
+- [fix] ingest: drop scheme-less URL placeholders (e.g. "unknown") by @kumagallium in https://github.com/kumagallium/asterism/pull/33
+- [docs] README: Roadmap/Status を実態に更新 (Phase 2 完了・Phase 3 step0) by @kumagallium in https://github.com/kumagallium/asterism/pull/35
+- [ops] full-dataset loader into the default graph (in place) by @kumagallium in https://github.com/kumagallium/asterism/pull/34
+- [docs] Phase 4 UI 設計ドラフト (合意待ち) by @kumagallium in https://github.com/kumagallium/asterism/pull/36
+- [feat] Phase 4 M0a: POST /api/inspect (step0 構造解析を API 化) by @kumagallium in https://github.com/kumagallium/asterism/pull/37
+- [feat] Phase 4 M0b: React+Vite フロント足場 + inspect 画面 by @kumagallium in https://github.com/kumagallium/asterism/pull/38
+- [fix] Phase 4 M0b: vite proxy を 127.0.0.1 に + GFM テーブル描画 by @kumagallium in https://github.com/kumagallium/asterism/pull/39
+- [docs] Phase 4: オントロジー層/マッピング層の分離を設計に追加 (D8) by @kumagallium in https://github.com/kumagallium/asterism/pull/41
+- [feat] Phase 4 M1a: POST /api/propose + SSE ジョブ基盤 by @kumagallium in https://github.com/kumagallium/asterism/pull/42
+- [docs] MIE: add answer_grounding guidance + refresh data_statistics by @kumagallium in https://github.com/kumagallium/asterism/pull/40
+- [docs] MIE: add "highest ZT" query example + ZT anti-pattern by @kumagallium in https://github.com/kumagallium/asterism/pull/43
+- [feat] Phase 4 M1b: フロント propose 画面 (SSE購読 + Mermaid描画) by @kumagallium in https://github.com/kumagallium/asterism/pull/44
+- [feat] Phase 4: propose のドメインヒント任意化 + 定型チェックリスト (案A) by @kumagallium in https://github.com/kumagallium/asterism/pull/45
+- [feat] Phase 4 D0: Ask+来歴の契約 (demoApi) + デザイントークン + 設計追記 by @kumagallium in https://github.com/kumagallium/asterism/pull/46
+- [feat] Phase 4 D1: Ask ビュー (根拠付き回答 + 引用カード + 品質注記) by @kumagallium in https://github.com/kumagallium/asterism/pull/48
+- [feat] Phase 4 D2: 来歴トレース (引用クリック→鎖の描画) by @kumagallium in https://github.com/kumagallium/asterism/pull/49
+- [experiments] RDF data-quality auditor (ZT outliers + invariants) by @kumagallium in https://github.com/kumagallium/asterism/pull/47
+- [fix] Phase 4 demo: 来歴トレースにも mock バッジを表示 by @kumagallium in https://github.com/kumagallium/asterism/pull/51
+- [feat] Phase 4 M1c: refine (レビューコメント→再生成) by @kumagallium in https://github.com/kumagallium/asterism/pull/52
+- [feat] Phase 4 M1d: materialize + validate(8罠) 表示 + artifacts DL by @kumagallium in https://github.com/kumagallium/asterism/pull/53
+- [feat] Phase 4 D3: demo-agent 結線 (base URL 分離 + 実データ端ケース耐性) by @kumagallium in https://github.com/kumagallium/asterism/pull/54
+- [feat] Phase 4: タブの導線を2フェーズに整理 (ワークベンチ vs 活用) by @kumagallium in https://github.com/kumagallium/asterism/pull/55
+- [feat] Phase 4 M4a: Ontologies ギャラリー (共有 TBox の俯瞰・変更危険度を明示) by @kumagallium in https://github.com/kumagallium/asterism/pull/56
+- [feat] Phase 4 M4b: Mappings ギャラリー (目的タグを目立たせる) by @kumagallium in https://github.com/kumagallium/asterism/pull/57
+- [feat] Phase 4 U1: アプリシェル化 (サイドナビ + トップバー + コンテンツ) by @kumagallium in https://github.com/kumagallium/asterism/pull/58
+- [feat] Phase 4 V1a: materialize 結果を永続化 + dataset 一覧 API by @kumagallium in https://github.com/kumagallium/asterism/pull/59
+- [feat] Phase 4 V1b: Gallery が materialize 済み dataset を表示 (連結ループ) by @kumagallium in https://github.com/kumagallium/asterism/pull/60
+- [feat] Phase 4 U2: ワークベンチをステッパー化 (手順が見える設計フロー) by @kumagallium in https://github.com/kumagallium/asterism/pull/61
+- [feat] Phase 4 U3: 仕上げ (file input・スピナー・レスポンシブ) by @kumagallium in https://github.com/kumagallium/asterism/pull/62
+- [feat] Phase 4 M2: 取り込み履歴ビュー (GET /jobs を表で表示) by @kumagallium in https://github.com/kumagallium/asterism/pull/63
+- [feat] Phase 4 M3: 読み取り専用 SPARQL エディタ (脱出ハッチ) by @kumagallium in https://github.com/kumagallium/asterism/pull/64
+- [feat] Phase 4: Ask⇄Gallery 結合 (引用→対応語彙クラスへ飛ぶ grounding 導線) by @kumagallium in https://github.com/kumagallium/asterism/pull/65
+- [feat] Phase 4 仕上げ: Gallery に QUDT 再利用を明示 + 来歴ステップから語彙リンク by @kumagallium in https://github.com/kumagallium/asterism/pull/66
+- [fix] ワークベンチの提案がタブ切替/リロードで消える問題 (U2 リグレッション) by @kumagallium in https://github.com/kumagallium/asterism/pull/67
+- [feat] ワークベンチ: 構造解析を必須ステップから任意化 (案 b) by @kumagallium in https://github.com/kumagallium/asterism/pull/68
