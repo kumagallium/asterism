@@ -3023,3 +3023,285 @@ textarea:focus {
   word-break: break-word;
   margin: 0.4rem 0 0;
 }
+
+/* ---- P3: per-dataset tools panel (検証済ツールを増やす仕組み) ---- */
+.tools-panel {
+  display: block;
+}
+.tools-intro,
+.tools-hint {
+  font-size: 0.82rem;
+  color: var(--muted);
+  line-height: 1.6;
+  margin: 0 0 0.7rem;
+}
+.tools-hint {
+  margin: 0.35rem 0 0.6rem;
+}
+.tools-notice {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--success-fg);
+  background: var(--primary-soft);
+  border-radius: var(--radius-sm);
+  padding: 0.45rem 0.7rem;
+  margin: 0 0 0.7rem;
+}
+
+/* saved-tool cards */
+.tool-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.tool-card {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--primary);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 0.7rem 0.85rem;
+}
+.tool-card-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.tool-name {
+  font-family: var(--font-mono);
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: var(--primary);
+}
+.tool-title {
+  font-size: 0.82rem;
+  color: var(--fg);
+}
+.tool-card-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 0.4rem;
+}
+.tool-desc {
+  font-size: 0.8rem;
+  color: var(--muted);
+  line-height: 1.55;
+  margin: 0.45rem 0 0;
+}
+.tool-params {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+}
+.param-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  font-size: 0.74rem;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+}
+.param-chip code {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--fg);
+}
+.param-chip-type {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  color: var(--activity);
+}
+.param-chip-req {
+  font-size: 0.66rem;
+  color: var(--accent);
+  font-weight: 700;
+}
+.tool-sparql-details {
+  margin-top: 0.5rem;
+}
+.tool-sparql-details > summary {
+  cursor: pointer;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+/* author (AI draft) block */
+.tool-author {
+  margin-top: 1rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border);
+}
+.tool-intent-input {
+  width: 100%;
+  font-size: 0.86rem;
+  padding: 0.5rem 0.7rem;
+  resize: vertical;
+}
+.tool-author-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+.tool-key-input {
+  width: auto;
+  flex: 1 1 14rem;
+  margin-bottom: 0;
+}
+
+/* draft editor */
+.draft-editor {
+  margin-top: 1rem;
+  padding: 0.85rem;
+  border: 1px dashed var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+.draft-editor-head {
+  display: flex;
+  align-items: center;
+}
+.draft-editor-title {
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+.draft-gate {
+  font-size: 0.8rem;
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.65rem;
+  margin: 0;
+}
+.draft-gate--ok {
+  color: var(--success-fg);
+  background: var(--primary-soft);
+}
+.draft-gate--bad {
+  color: var(--error-fg);
+  background: var(--error-bg);
+  border: 1px solid var(--error-border);
+}
+.draft-gate--note {
+  color: var(--warn-fg);
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+}
+.draft-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.draft-label {
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+.draft-text {
+  width: 100%;
+  font-size: 0.84rem;
+  padding: 0.4rem 0.6rem;
+  font-family: var(--font-ui);
+}
+.draft-query {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  resize: vertical;
+}
+.draft-select {
+  font-size: 0.82rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--fg);
+}
+.draft-subhead {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.4rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+/* parameter edit rows */
+.param-edit {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-alt);
+  padding: 0.5rem 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.param-edit-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+}
+.param-name {
+  flex: 1 1 8rem;
+  font-family: var(--font-mono);
+}
+.param-req {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.param-del {
+  margin-left: auto;
+}
+.param-edit-extra {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+.param-default {
+  flex: 1 1 9rem;
+}
+.param-num {
+  width: 5.5rem;
+  flex: 0 0 auto;
+}
+.param-enum {
+  flex: 1 1 12rem;
+}
+
+/* result mapping rows */
+.result-edit-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+}
+.result-key {
+  flex: 1 1 10rem;
+}
+.result-var {
+  flex: 1 1 8rem;
+  font-family: var(--font-mono);
+}
+.result-arrow {
+  color: var(--faint);
+  font-weight: 700;
+}
+
+.draft-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.3rem;
+}
