@@ -1,0 +1,62 @@
+# Declarative JSON-source mapping for the Materials Project snapshot (#19).
+#
+# This is the JSON twin of the directly-seeded seed/mp.ttl: run through the
+# Morph-KGC substrate (NO generated code — only declarative RML) over mp.json, it
+# produces the SAME mp:Material / mp:CrystalStructure facts, so the JSON-source
+# path is a drop-in, reproducible alternative to the direct seed.
+#
+# The logical source is a JSON array of records (rml:iterator "$[*]"). Nested
+# crystal-structure fields flatten to dot-path references
+# (structure.space_group_symbol, …) — exactly the leaf paths Asterism's JSON
+# inspector reports and Morph-KGC's JSON reader (pandas.json_normalize) resolves.
+#
+# Tier 0 only / no functions are needed here: every value is a direct reference
+# or an IRI template. The bridge to Starrydata is mp:formula (== sd:compositionString).
+
+@prefix rr:     <http://www.w3.org/ns/r2rml#> .
+@prefix rml:    <http://semweb.mmlab.be/ns/rml#> .
+@prefix ql:     <http://semweb.mmlab.be/ns/ql#> .
+@prefix mp:     <https://kumagallium.github.io/asterism/materials_project/ontology#> .
+@prefix prov:   <http://www.w3.org/ns/prov#> .
+@prefix schema: <https://schema.org/> .
+@prefix xsd:    <http://www.w3.org/2001/XMLSchema#> .
+
+<#MaterialMap> a rr:TriplesMap ;
+  rml:logicalSource [
+    rml:source "mp.json" ;
+    rml:referenceFormulation ql:JSONPath ;
+    rml:iterator "$[*]"
+  ] ;
+  rr:subjectMap [
+    rr:template "https://kumagallium.github.io/asterism/materials_project/resource/material/{mp_id}" ;
+    rr:class prov:Entity, mp:Material
+  ] ;
+  rr:predicateObjectMap [ rr:predicate mp:mpId ; rr:objectMap [ rml:reference "mp_id" ] ] ;
+  rr:predicateObjectMap [ rr:predicate mp:formula ; rr:objectMap [ rml:reference "formula" ] ] ;
+  rr:predicateObjectMap [ rr:predicate schema:url ;
+    rr:objectMap [ rml:reference "mp_page" ; rr:termType rr:IRI ] ] ;
+  rr:predicateObjectMap [ rr:predicate mp:hasCrystalStructure ; rr:objectMap [
+    rr:template "https://kumagallium.github.io/asterism/materials_project/resource/structure/{mp_id}" ;
+    rr:termType rr:IRI ] ] .
+
+<#CrystalStructureMap> a rr:TriplesMap ;
+  rml:logicalSource [
+    rml:source "mp.json" ;
+    rml:referenceFormulation ql:JSONPath ;
+    rml:iterator "$[*]"
+  ] ;
+  rr:subjectMap [
+    rr:template "https://kumagallium.github.io/asterism/materials_project/resource/structure/{mp_id}" ;
+    rr:class prov:Entity, mp:CrystalStructure
+  ] ;
+  rr:predicateObjectMap [ rr:predicate mp:spaceGroupSymbol ;
+    rr:objectMap [ rml:reference "structure.space_group_symbol" ] ] ;
+  rr:predicateObjectMap [ rr:predicate mp:spaceGroupNumber ;
+    rr:objectMap [ rml:reference "structure.space_group_number" ; rr:datatype xsd:integer ] ] ;
+  rr:predicateObjectMap [ rr:predicate mp:crystalSystem ;
+    rr:objectMap [ rml:reference "structure.crystal_system" ] ] ;
+  rr:predicateObjectMap [ rr:predicate mp:idealizedFrom ;
+    rr:objectMap [ rml:reference "mp_page" ; rr:termType rr:IRI ] ] ;
+  rr:predicateObjectMap [ rr:predicate mp:ofMaterial ; rr:objectMap [
+    rr:template "https://kumagallium.github.io/asterism/materials_project/resource/material/{mp_id}" ;
+    rr:termType rr:IRI ] ] .

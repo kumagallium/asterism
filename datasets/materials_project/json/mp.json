@@ -1,0 +1,112 @@
+[
+  {
+    "mp_id": "mp-1228313",
+    "formula": "Ba4Au2Si21",
+    "mp_page": "https://next-gen.materialsproject.org/materials/mp-1228313",
+    "structure": {
+      "space_group_symbol": "Ama2",
+      "space_group_number": 40,
+      "crystal_system": "Orthorhombic"
+    }
+  },
+  {
+    "mp_id": "mp-17815",
+    "formula": "Ba4Au3Si20",
+    "mp_page": "https://next-gen.materialsproject.org/materials/mp-17815",
+    "structure": {
+      "space_group_symbol": "Pm-3n",
+      "space_group_number": 223,
+      "crystal_system": "Cubic"
+    }
+  },
+  {
+    "mp_id": "mp-569965",
+    "formula": "Ba6Ge25",
+    "mp_page": "https://next-gen.materialsproject.org/materials/mp-569965",
+    "structure": {
+      "space_group_symbol": "P4_132",
+      "space_group_number": 213,
+      "crystal_system": "Cubic"
+    }
+  },
+  {
+    "mp_id": "mp-1199827",
+    "formula": "Ba8Ge43",
+    "mp_page": "https://next-gen.materialsproject.org/materials/mp-1199827",
+    "structure": {
+      "space_group_symbol": "Ia-3d",
+      "space_group_number": 230,
+      "crystal_system": "Cubic"
+    }
+  },
+  {
+    "mp_id": "mp-1095284",
+    "formula": "BaGe5",
+    "mp_page": "https://next-gen.materialsproject.org/materials/mp-1095284",
+    "structure": {
+      "space_group_symbol": "Imma",
+      "space_group_number": 74,
+      "crystal_system": "Orthorhombic"
+    }
+  },
+  {
+    "mp_id": "mp-34202",
+    "formula": "Bi2Te3",
+    "mp_page": "https://next-gen.materialsproject.org/materials/mp-34202",
+    "structure": {
+      "space_group_symbol": "R-3m",
+      "space_group_number": 166,
+      "crystal_system": "Trigonal"
+    }
+  },
+  {
+    "mp_id": "mp-2201",
+    "formula": "PbSe",
+    "mp_page": "https://next-gen.materialsproject.org/materials/mp-2201",
+    "structure": {
+      "space_group_symbol": "Fm-3m",
+      "space_group_number": 225,
+      "crystal_system": "Cubic"
+    }
+  },
+  {
+    "mp_id": "mp-19717",
+    "formula": "PbTe",
+    "mp_page": "https://next-gen.materialsproject.org/materials/mp-19717",
+    "structure": {
+      "space_group_symbol": "Fm-3m",
+      "space_group_number": 225,
+      "crystal_system": "Cubic"
+    }
+  },
+  {
+    "mp_id": "mp-691",
+    "formula": "SnSe",
+    "mp_page": "https://next-gen.materialsproject.org/materials/mp-691",
+    "structure": {
+      "space_group_symbol": "Pnma",
+      "space_group_number": 62,
+      "crystal_system": "Orthorhombic"
+    }
+  },
+  {
+    "mp_id": "mp-19313",
+    "formula": "ZnFe2O4",
+    "mp_page": "https://next-gen.materialsproject.org/materials/mp-19313",
+    "structure": {
+      "space_group_symbol": "Fd-3m",
+      "space_group_number": 227,
+      "crystal_system": "Cubic"
+    }
+  },
+  {
+    "mp_id": "mp-2133",
+    "formula": "ZnO",
+    "mp_page": "https://next-gen.materialsproject.org/materials/mp-2133",
+    "structure": {
+      "space_group_symbol": "P6_3mc",
+      "space_group_number": 186,
+      "crystal_system": "Hexagonal"
+    }
+  }
+]
