@@ -5,7 +5,6 @@ import { CitationCard } from './CitationCard'
 import { ask, isMockMode, type AskResponse, type Citation } from './demoApi'
 import { AskIcon, CheckIcon } from './icons'
 import { ProvenanceTrace } from './ProvenanceTrace'
-import { VerifiedTools } from './VerifiedTools'
 
 const EXAMPLES = [
   'ZT が最も高い熱電材料は？',
@@ -128,10 +127,6 @@ export function AskView({ onShowVocab }: { onShowVocab?: (className: string) => 
             onChange={(e) => onApiKeyChange(e.target.value)}
           />
         </details>
-
-        {/* Verified, deterministic tools — runnable here with NO key (the typed
-            path). Self-hides when there are none. */}
-        <VerifiedTools />
 
         {error && <pre className="error">{error}</pre>}
 
