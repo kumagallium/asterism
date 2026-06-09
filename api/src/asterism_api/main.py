@@ -763,6 +763,10 @@ def build_app(
                 intent=body.intent,
                 model_yaml=arts.get("model.yaml", "") or "",
                 mie_yaml=arts.get("mie.yaml", "") or "",
+                # The RML is the ground truth for the dataset's real namespaces +
+                # predicate/class IRIs — without it a seed dataset's stub model.yaml
+                # makes the LLM invent a placeholder namespace (a 0-row tool).
+                rml_ttl=arts.get("mapping.rml.ttl", "") or "",
             )
 
         try:

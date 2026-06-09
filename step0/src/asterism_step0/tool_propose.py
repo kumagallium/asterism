@@ -40,18 +40,35 @@ Output ONLY a single JSON object (no prose, no markdown fence) with these keys:
                friendly keys. Use {"var": x, "number": true} for numeric columns.
 
 Hard rules:
-- Use ONLY classes/predicates that appear in the dataset vocabulary below. Do not
-  invent IRIs. Declare PREFIXes in the query (or use full <IRI>s).
+- Use ONLY the namespaces and class/predicate IRIs that appear in the material
+  below (the RML mapping and/or model.yaml). The RML mapping is the SOURCE OF
+  TRUTH for the namespaces and the predicate/class IRIs that actually exist in the
+  ingested data: read its @prefix declarations and its rr:class / rr:predicate
+  IRIs and use EXACTLY those. When the model.yaml is sparse (e.g. bare class names
+  with no predicates), derive the full vocabulary from the RML.
+- NEVER invent a placeholder namespace (e.g. http://example.org/...) and NEVER
+  guess a predicate name. An invented IRI matches nothing, so the tool returns
+  zero rows — that is the failure to avoid. If a quantity isn't a dedicated
+  predicate, model it the way the RML/examples do (e.g. a measured value may be a
+  generic value predicate filtered by a property-label predicate).
+- Declare the PREFIXes you use in the query, copying them verbatim from the RML.
 - The query MUST be read-only and self-contained.
 - Output the JSON object and NOTHING else.
 """
 
 
-def _user_message(intent: str, model_yaml: str, mie_yaml: str) -> str:
+def _user_message(intent: str, model_yaml: str, mie_yaml: str, rml_ttl: str = "") -> str:
     parts = [f"Intent (what the tool should do):\n{intent.strip()}\n"]
     parts.append(
         "Dataset vocabulary (rdf-config model.yaml — classes & predicates):\n"
         + (model_yaml.strip() or "(none provided)")
+        + "\n"
+    )
+    parts.append(
+        "Dataset mapping (RML/Turtle — the GROUND TRUTH for the real namespaces "
+        "and predicate/class IRIs in the data; copy PREFIXes and IRIs from here, "
+        "especially when the model.yaml above is sparse):\n"
+        + (rml_ttl.strip() or "(none provided)")
         + "\n"
     )
     parts.append(
@@ -84,9 +101,22 @@ def _extract_json_object(text: str) -> dict:
 
 
 def propose_query_tool(
-    llm: LLMClient, *, intent: str, model_yaml: str = "", mie_yaml: str = ""
+    llm: LLMClient,
+    *,
+    intent: str,
+    model_yaml: str = "",
+    mie_yaml: str = "",
+    rml_ttl: str = "",
 ) -> dict:
     """Draft one query_tool dict from ``intent`` + the dataset's vocabulary.
+
+    Grounds the LLM in the dataset's ``model.yaml`` (classes/predicates), its MIE
+    ``sparql_query_examples`` (patterns), and — crucially — its ``mapping.rml.ttl``
+    (``rml_ttl``), which is the source of truth for the real namespaces and
+    predicate/class IRIs in the ingested data. A workbench-seeded dataset can ship
+    a stub ``model.yaml`` (bare class names, no namespace); without the RML the
+    model invents a placeholder namespace (``http://example.org/…``) and the tool
+    returns zero rows. Passing the RML lets it use the actual vocabulary.
 
     Raises ``ValueError`` if the model's output cannot be parsed into a tool with
     at least ``name`` and ``query``. The caller validates the draft with
@@ -94,7 +124,7 @@ def propose_query_tool(
     """
     if not intent.strip():
         raise ValueError("intent is required")
-    text = llm.complete(_SYSTEM, _user_message(intent, model_yaml, mie_yaml))
+    text = llm.complete(_SYSTEM, _user_message(intent, model_yaml, mie_yaml, rml_ttl))
     tool = _extract_json_object(text)
     if "name" not in tool or "query" not in tool:
         raise ValueError("draft is missing required keys (name, query)")
