@@ -179,10 +179,32 @@ HARD RULES (a reviewer approves *column→predicate + which vetted function*, no
     — property name / unit → QUDT IRI (empty ⇒ triple skipped)
   - `fn:iri_safe` (value → IRI) — URL → IRI-safe
   - `fn:slug` (value → string) — string → IRI segment
+  - Parameterized primitives — take the column value(s) PLUS a **constant** config
+    argument (a table / regex / template), to absorb the long tail without a new
+    function. The config is data, not code:
+    - `fn:lookup` (value, table → string) — map a value via a vetted seed table.
+      Tables: `bool` (Yes/No/1/0/… → `true`/`false`), `country_iso3166` (country
+      name → ISO alpha-2), `unit_alias` (unit spelling → symbol, e.g. `kelvin`→`K`;
+      chain into `fn:qudt_unit` for the IRI). Miss ⇒ "" (triple skipped).
+    - `fn:regex_extract` (value, pattern → string) — extract a substring: a named
+      group `(?P<v>…)` if present, else group 1, else the whole match. Use a
+      **re2-compatible** pattern (no backreferences, no look-around). Miss ⇒ "".
+    - `fn:template` (template, field1…field4 → string) — safe interpolation: the
+      constant template uses positional tokens `{1}`…`{4}` filled by the field
+      columns (e.g. `"{1}-{2}"`). Missing field ⇒ "". (For simple IRI/string
+      composition prefer a plain `rr:template` term map.)
 - Direct column: `rr:objectMap [ rml:reference "col" ]`. Composite IRI: `rr:template "…/{a}-{b}"`.
 - Function objectMap: `rmlf:functionExecution [ rmlf:function fn:NAME ;
   rmlf:input [ rmlf:parameter fn:p_value ; rmlf:inputValueMap [ rml:reference "col" ] ] ]`.
   2-input (`fn:float_array_count`): two `rmlf:input`, params `fn:p_value1` / `fn:p_value2`.
+- Constant primitive arguments (table / pattern / template) are passed with
+  `rmlf:inputValueMap [ rmlf:constant "…" ]` — note `rmlf:constant` (the
+  `http://w3id.org/rml/` namespace); the legacy `rml:` namespace has no `constant`.
+  Primitive param IRIs: `fn:p_table` / `fn:p_pattern` / `fn:p_template` /
+  `fn:p_field1`…`fn:p_field4`. Example (lookup = value column + constant table):
+  `rmlf:functionExecution [ rmlf:function fn:lookup ;
+    rmlf:input [ rmlf:parameter fn:p_value ; rmlf:inputValueMap [ rml:reference "flag" ] ] ;
+    rmlf:input [ rmlf:parameter fn:p_table ; rmlf:inputValueMap [ rmlf:constant "bool" ] ] ]`.
 - A column with **no matching function AND multi-valued / nested cell-JSON**
   (authors, descriptors, project_names): DO NOT invent a function — emit the raw
   string to a `…Raw` predicate and add a `# fallback: <col> not expanded` comment.
