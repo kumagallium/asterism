@@ -1,9 +1,10 @@
 """Tests for asterism.substrate (declarative-substrate ingestion, #15).
 
-The Morph-KGC step needs the optional ``substrate`` extra + real CSVs, so it is
-not exercised here; these tests cover the parts that do not depend on it: the
-draft graph IRI scheme, thread-safe rml:source absolutization, and loading a
-graph into Oxigraph (via a fake client). The Morph-KGC path is proven by the
+Most tests cover the parts that do not depend on Morph-KGC: the draft graph IRI
+scheme, thread-safe rml:source absolutization (CSV and JSON, #19), and loading a
+graph into Oxigraph (via a fake client). One test (``test_materialize_to_graph_
+json_source``) runs the real Morph-KGC JSON path when the optional ``substrate``
+extra is installed (skipped otherwise); the CSV Morph-KGC path is proven by the
 ``experiments/phase5-morph-kgc-spike`` e2e.
 """
 from __future__ import annotations
@@ -98,6 +99,16 @@ def test_absolutize_only_touches_rml_source() -> None:
     assert 'rml:source "/data/ds1/c.csv"' in out
 
 
+def test_absolutize_rewrites_json_source() -> None:
+    """#19: source rewriting is format-agnostic — a JSON rml:source resolves too."""
+    rml = (
+        'rml:logicalSource [ rml:source "mp.json" ; '
+        'rml:referenceFormulation ql:JSONPath ; rml:iterator "$[*]" ] .\n'
+    )
+    out = absolutize_rml_sources(rml, "/data/ds1")
+    assert 'rml:source "/data/ds1/mp.json"' in out
+
+
 # ---- Oxigraph load (fake client) --------------------------------------------
 
 
@@ -152,6 +163,39 @@ def test_materialize_to_nt_file_requires_morph_kgc(tmp_path: Path) -> None:
         pytest.skip("morph-kgc installed; cannot exercise the missing-dependency path")
     with pytest.raises(RuntimeError, match="morph-kgc"):
         materialize_to_nt_file('rml:source "p.csv"', tmp_path)
+
+
+def test_materialize_to_graph_json_source(tmp_path: Path) -> None:
+    """#19: Morph-KGC reads a JSON source via ql:JSONPath + rml:iterator + dot-path
+    references (incl. nested objects). Gated on the optional morph-kgc extra."""
+    if not _morph_kgc_installed():
+        pytest.skip("morph-kgc not installed; this exercises the real JSON materialize")
+    (tmp_path / "mp.json").write_text(
+        '[{"mp_id": "mp-1", "formula": "PbTe", "structure": {"spacegroup": "Fm-3m"}},'
+        ' {"mp_id": "mp-2", "formula": "SnSe", "structure": {"spacegroup": "Pnma"}}]',
+        encoding="utf-8",
+    )
+    rml = (
+        "@prefix rr:  <http://www.w3.org/ns/r2rml#> .\n"
+        "@prefix rml: <http://semweb.mmlab.be/ns/rml#> .\n"
+        "@prefix ql:  <http://semweb.mmlab.be/ns/ql#> .\n"
+        "@prefix ex:  <https://ex/> .\n"
+        "<#M> a rr:TriplesMap ;\n"
+        '  rml:logicalSource [ rml:source "mp.json" ;\n'
+        "                      rml:referenceFormulation ql:JSONPath ;\n"
+        '                      rml:iterator "$[*]" ] ;\n'
+        '  rr:subjectMap [ rr:template "https://ex/mat/{mp_id}" ] ;\n'
+        "  rr:predicateObjectMap [ rr:predicate ex:formula ;\n"
+        '      rr:objectMap [ rml:reference "formula" ] ] ;\n'
+        "  rr:predicateObjectMap [ rr:predicate ex:spaceGroup ;\n"
+        '      rr:objectMap [ rml:reference "structure.spacegroup" ] ] .\n'
+    )
+    graph = materialize_to_graph(rml, tmp_path)
+    triples = {(str(s), str(p), str(o)) for s, p, o in graph}
+    assert ("https://ex/mat/mp-1", "https://ex/formula", "PbTe") in triples
+    # nested object flattened to a dot-path reference resolves
+    assert ("https://ex/mat/mp-1", "https://ex/spaceGroup", "Fm-3m") in triples
+    assert ("https://ex/mat/mp-2", "https://ex/spaceGroup", "Pnma") in triples
 
 
 # ---- streaming N-Triples load (scalable path) -------------------------------

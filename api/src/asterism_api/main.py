@@ -52,7 +52,7 @@ from asterism.watcher import (
     WatcherConfig,
     watch,
 )
-from asterism_step0.inspect import inspect_csv_set, render_markdown
+from asterism_step0.inspect import inspect_source_set, render_markdown
 from asterism_step0.materialize import materialize_schema
 from asterism_step0.propose import AnthropicLLMClient, LLMClient, propose_schema
 from asterism_step0.refine import refine_schema
@@ -162,6 +162,10 @@ _DEFAULT_RESOURCE = (
 # (``..`` segments, absolute paths, NULs). We also reject names without a
 # ``.csv`` suffix so the watcher's ``_classify`` actually fires.
 _SAFE_NAME = re.compile(r"^[A-Za-z0-9._-]{1,128}\.csv$")
+# The step0 / source / ingest paths accept JSON too (#19). Morph-KGC reads CSV
+# and JSON (ql:CSV / ql:JSONPath), so both are valid sources; the legacy
+# ``/upload/{kind}`` starrydata drop stays CSV-only (it feeds the CSV watcher).
+_SAFE_SOURCE_NAME = re.compile(r"^[A-Za-z0-9._-]{1,128}\.(csv|json|geojson)$")
 
 
 # ----------------------------------------------------------------------------
@@ -219,6 +223,16 @@ def _validate_name(name: str) -> str:
     return name
 
 
+def _validate_source_name(name: str) -> str:
+    """Validate a step0 / source-attach / ingest upload name (CSV or JSON, #19)."""
+    if not _SAFE_SOURCE_NAME.fullmatch(name):
+        raise HTTPException(
+            400,
+            "filename must match [A-Za-z0-9._-]+.(csv|json|geojson) (max 128 chars)",
+        )
+    return name
+
+
 async def _save_upload(file: UploadFile, dest: Path, chunk_size: int = 1 << 20) -> int:
     """Stream ``file`` to ``dest`` atomically via a sibling ``.tmp`` file."""
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -245,12 +259,13 @@ async def _save_upload(file: UploadFile, dest: Path, chunk_size: int = 1 << 20) 
 async def _persist_source_uploads(
     registry_root: Path, dataset_id: str, files: list[UploadFile]
 ) -> tuple[list[str], dict | None]:
-    """Persist uploaded CSVs as the dataset's design-time source (Task E).
+    """Persist uploaded sources as the dataset's design-time source (Task E, #19).
 
-    Streams each upload into ``registry_root/<id>/source/`` (resetting any prior
-    source so it reflects exactly this upload) and records the filenames on the
-    meta. This lets a *design*-stage dataset be ingested from the catalog later
-    with no CSV re-attach (reproducibility — the citable-facts direction).
+    Streams each upload (CSV or JSON) into ``registry_root/<id>/source/``
+    (resetting any prior source so it reflects exactly this upload) and records
+    the filenames + source kind on the meta. This lets a *design*-stage dataset
+    be ingested from the catalog later with no re-attach (reproducibility — the
+    citable-facts direction).
     """
     sdir = registry.source_dir(registry_root, dataset_id)
     if sdir is None:
@@ -260,7 +275,7 @@ async def _persist_source_uploads(
     for upload in files:
         if upload.filename is None:
             raise HTTPException(400, "missing filename")
-        name = _validate_name(upload.filename)
+        name = _validate_source_name(upload.filename)
         await _save_upload(upload, sdir / name)
         saved.append(name)
     meta = registry.mark_source_saved(registry_root, dataset_id, saved)
@@ -455,7 +470,7 @@ def build_app(
 
     @app.post("/api/inspect")
     async def inspect_csvs(
-        files: list[UploadFile] = File(..., description="CSV file(s) to inspect"),
+        files: list[UploadFile] = File(..., description="Source file(s) to inspect (CSV or JSON)"),
         fk: list[str] = Query(
             default=[], description="Foreign-key hint column (repeatable, e.g. SID)"
         ),
@@ -464,7 +479,8 @@ def build_app(
 
         No LLM and no API key — step0's inspect path is dependency-free. The
         uploads are written to a throwaway temp dir, inspected, then discarded;
-        nothing is persisted (dataset persistence arrives in M1).
+        nothing is persisted (dataset persistence arrives in M1). CSV and JSON
+        sources are dispatched per file by extension (#19).
         """
         if not files:
             raise HTTPException(400, "no files uploaded")
@@ -473,16 +489,18 @@ def build_app(
             for upload in files:
                 if upload.filename is None:
                     raise HTTPException(400, "missing filename")
-                dest = Path(td) / _validate_name(upload.filename)
+                dest = Path(td) / _validate_source_name(upload.filename)
                 await _save_upload(upload, dest)
                 paths.append(dest)
-            inspections, fks = inspect_csv_set(paths, fk_hint_columns=fk or None)
+            inspections, fks = inspect_source_set(paths, fk_hint_columns=fk or None)
             markdown = render_markdown(inspections, fks)
         return Response(content=markdown, media_type="text/markdown")
 
     @app.post("/api/propose")
     async def propose(
-        files: list[UploadFile] = File(..., description="CSV file(s) to model"),
+        files: list[UploadFile] = File(
+            ..., description="Source file(s) to model (CSV or JSON)"
+        ),
         domain: str = Form(
             default="",
             description="Domain hint (Markdown). Optional — improves quality but not required.",
@@ -511,7 +529,7 @@ def build_app(
         for upload in files:
             if upload.filename is None:
                 raise HTTPException(400, "missing filename")
-            dest = Path(tmpdir) / _validate_name(upload.filename)
+            dest = Path(tmpdir) / _validate_source_name(upload.filename)
             await _save_upload(upload, dest)
             paths.append(dest)
 
@@ -705,19 +723,21 @@ def build_app(
     @app.post("/api/datasets/{dataset_id}/source")
     async def attach_source(
         dataset_id: str,
-        files: list[UploadFile] = File(..., description="Design-time source CSV(s)"),
+        files: list[UploadFile] = File(
+            ..., description="Design-time source file(s) (CSV or JSON)"
+        ),
     ) -> JSONResponse:
-        """Persist the CSVs a dataset was designed from (reproducibility, Task E).
+        """Persist the sources a dataset was designed from (reproducibility, Task E).
 
         Saved alongside the registry bundle (``<id>/source/``) so a *design*-stage
-        dataset can later be ingested from the catalog with no CSV re-attach. The
-        workbench calls this right after materialize (step 3 保存). Overwrites any
-        previously attached source.
+        dataset can later be ingested from the catalog with no re-attach. The
+        workbench calls this right after materialize (step 3 保存). CSV and JSON
+        sources are both accepted (#19). Overwrites any previously attached source.
         """
         if registry.load_dataset(cfg.registry_root, dataset_id) is None:
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
         if not files:
-            raise HTTPException(400, "no CSV files uploaded")
+            raise HTTPException(400, "no source files uploaded")
         saved, meta = await _persist_source_uploads(cfg.registry_root, dataset_id, files)
         return JSONResponse(
             {"dataset_id": dataset_id, "source_files": saved, "dataset": meta}
@@ -728,8 +748,8 @@ def build_app(
         dataset_id: str,
         files: list[UploadFile] = File(
             default=[],
-            description="Source CSV(s) the RML maps. Optional — when omitted, the "
-            "dataset's persisted design-time source is used (Task E).",
+            description="Source file(s) the RML maps (CSV or JSON). Optional — when "
+            "omitted, the dataset's persisted design-time source is used (Task E).",
         ),
     ) -> JSONResponse:
         """Phase 5 (#15): human-gated ingest of a dataset's approved RML mapping.
@@ -765,20 +785,20 @@ def build_app(
                 400, "this dataset has no declarative RML mapping to ingest"
             )
 
-        # Uploaded CSVs (if any) refresh + persist the design-time source; an
+        # Uploaded sources (if any) refresh + persist the design-time source; an
         # ingest with no upload reuses whatever source was persisted. (Synchronous
-        # so the CSV is on disk before the background job reads it.)
+        # so the file is on disk before the background job reads it.)
         uploaded = [f for f in files if f.filename]
         if uploaded:
             await _persist_source_uploads(cfg.registry_root, dataset_id, uploaded)
-        csv_paths = registry.list_source_files(cfg.registry_root, dataset_id)
-        if not csv_paths:
+        source_paths = registry.list_source_files(cfg.registry_root, dataset_id)
+        if not source_paths:
             raise HTTPException(
                 400,
-                "投入には CSV が必要です。設計時に CSV を添付するか、"
-                "ここで CSV をアップロードしてください",
+                "投入には CSV または JSON のソースファイルが必要です。"
+                "設計時に添付するか、ここでアップロードしてください",
             )
-        csv_dir = csv_paths[0].parent
+        source_dir = source_paths[0].parent
         # part5: stream into a FRESH per-ingest version graph `canonical/{id}/v{n}`
         # — never touching the currently live graph. So a re-ingest needs no
         # un-publish and no DROP on the request path (the old version stays citable
@@ -797,7 +817,7 @@ def build_app(
                 # Morph-KGC writes N-Triples to a file (memory-bounded); the
                 # subprocess CLI is blocking, so run it off the event loop.
                 nt = await asyncio.to_thread(
-                    substrate.materialize_to_nt_file, rml_ttl, csv_dir, work_dir=work
+                    substrate.materialize_to_nt_file, rml_ttl, source_dir, work_dir=work
                 )
                 total = substrate.count_nt_lines(nt)
                 emit(phase="materialized", total=total)
