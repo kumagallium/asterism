@@ -204,6 +204,46 @@ def test_inspect_returns_markdown(
         assert "sample_id" in body
 
 
+def test_inspect_json_returns_markdown(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    """#19: /api/inspect dispatches a .json upload to the JSON inspector."""
+    app = build_app(
+        _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
+    )
+    with TestClient(app) as client:
+        r = client.post(
+            "/api/inspect",
+            files={
+                "files": (
+                    "mp.json",
+                    b'[{"mp_id":"mp-1","structure":{"spacegroup":"Fm-3m"}}]',
+                    "application/json",
+                )
+            },
+        )
+        assert r.status_code == 200, r.text
+        body = r.text
+        assert "## JSON: mp.json" in body
+        assert "iterator `$[*]`" in body
+        # nested object surfaces as a dot-path leaf usable as an rml:reference
+        assert "`structure.spacegroup`" in body
+
+
+def test_inspect_rejects_unsupported_source_extension(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    app = build_app(
+        _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
+    )
+    with TestClient(app) as client:
+        r = client.post(
+            "/api/inspect",
+            files={"files": ("notes.txt", b"hello\n", "text/plain")},
+        )
+        assert r.status_code == 400
+
+
 def test_inspect_multi_csv_with_fk(
     tmp_path: Path, healthy_client: OxigraphClient
 ) -> None:

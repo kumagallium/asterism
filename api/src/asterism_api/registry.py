@@ -37,10 +37,25 @@ _ARTIFACT_FILES = {
     "mapping.rml.ttl": "mapping.rml.ttl",
 }
 _META_FILE = "meta.json"
-# Design-time source CSVs are persisted here so the dataset carries the exact
+# Design-time source files are persisted here so the dataset carries the exact
 # data it was built from (reproducibility — the citable-facts product direction).
-# This lets the catalog ingest a *design*-stage dataset with no CSV re-attach.
+# This lets the catalog ingest a *design*-stage dataset with no re-attach.
 _SOURCE_DIR = "source"
+# Accepted source file extensions (#19): CSV and JSON. Morph-KGC reads both via
+# the RML's referenceFormulation (ql:CSV / ql:JSONPath), so the substrate path is
+# the same — only the persisted file's extension differs.
+_SOURCE_SUFFIXES = (".csv", ".json", ".geojson")
+
+
+def source_kind_of(filenames: list[str]) -> str:
+    """Classify a dataset's source as ``"json"`` or ``"csv"`` by extension.
+
+    JSON wins if any file is JSON (a dataset's source is a single kind in
+    practice); defaults to ``"csv"`` for an empty/CSV set.
+    """
+    if any(Path(n).suffix.lower() in (".json", ".geojson") for n in filenames):
+        return "json"
+    return "csv"
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 _ID_RE = re.compile(r"[a-z0-9-]{1,128}")
@@ -125,22 +140,35 @@ def source_dir(root: Path, dataset_id: str) -> Path | None:
 
 
 def list_source_files(root: Path, dataset_id: str) -> list[Path]:
-    """Persisted design-time source CSVs for ``dataset_id`` (sorted; [] if none)."""
+    """Persisted design-time source files for ``dataset_id`` (sorted; [] if none).
+
+    Includes CSV and JSON sources (#19) — Morph-KGC reads either via the RML's
+    referenceFormulation.
+    """
     sdir = source_dir(root, dataset_id)
     if sdir is None or not sdir.is_dir():
         return []
-    return sorted(p for p in sdir.iterdir() if p.is_file() and p.suffix == ".csv")
+    return sorted(
+        p for p in sdir.iterdir() if p.is_file() and p.suffix.lower() in _SOURCE_SUFFIXES
+    )
 
 
 def mark_source_saved(root: Path, dataset_id: str, source_files: list[str]) -> dict | None:
-    """Record on the meta which design-time source CSVs are now persisted.
+    """Record on the meta which design-time source files are now persisted.
 
     ``has_source`` lets the catalog offer a no-re-attach ingest; ``source_files``
-    is the recorded filename list. Returns the new meta, or None if id is unsafe
-    / absent.
+    is the recorded filename list; ``source_kind`` (csv | json, #19) lets the UI
+    label the source and pick the right picker. Returns the new meta, or None if
+    id is unsafe / absent.
     """
     return _update_meta(
-        root, dataset_id, {"has_source": True, "source_files": sorted(source_files)}
+        root,
+        dataset_id,
+        {
+            "has_source": True,
+            "source_files": sorted(source_files),
+            "source_kind": source_kind_of(source_files),
+        },
     )
 
 

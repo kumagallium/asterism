@@ -249,6 +249,86 @@ def test_attach_source_persists_csv_and_flags_meta(tmp_path: Path) -> None:
     assert src.read_bytes() == b"SID\n1\n"
 
 
+def test_source_kind_of_classifies_by_extension() -> None:
+    assert registry.source_kind_of(["papers.csv", "samples.csv"]) == "csv"
+    assert registry.source_kind_of(["mp.json"]) == "json"
+    assert registry.source_kind_of(["a.csv", "b.json"]) == "json"  # any JSON ⇒ json
+    assert registry.source_kind_of([]) == "csv"
+
+
+def test_attach_source_persists_json_and_sets_source_kind(tmp_path: Path) -> None:
+    """#19: a JSON source persists and the meta records source_kind="json"."""
+    dataset_id = _save_dataset_with_rml(tmp_path)
+    oxi = _RecordingOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app) as client:
+        r = client.post(
+            f"/api/datasets/{dataset_id}/source",
+            files={"files": ("mp.json", b'[{"mp_id":"mp-1"}]', "application/json")},
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["source_files"] == ["mp.json"]
+        assert body["dataset"]["has_source"] is True
+        assert body["dataset"]["source_kind"] == "json"
+    src = tmp_path / "registry" / dataset_id / "source" / "mp.json"
+    assert src.is_file()
+    assert src.read_bytes() == b'[{"mp_id":"mp-1"}]'
+
+
+def test_attach_source_rejects_unsupported_extension(tmp_path: Path) -> None:
+    dataset_id = _save_dataset_with_rml(tmp_path)
+    oxi = _RecordingOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app) as client:
+        r = client.post(
+            f"/api/datasets/{dataset_id}/source",
+            files={"files": ("data.txt", b"x\n", "text/plain")},
+        )
+        assert r.status_code == 400
+
+
+def test_ingest_uses_persisted_json_source(tmp_path: Path, monkeypatch) -> None:
+    """#19: a JSON-source dataset ingests from its persisted source (list_source_files
+    must pick up .json, not only .csv)."""
+    rml = (
+        "@prefix rr:  <http://www.w3.org/ns/r2rml#> .\n"
+        "@prefix rml: <http://semweb.mmlab.be/ns/rml#> .\n"
+        "@prefix ql:  <http://semweb.mmlab.be/ns/ql#> .\n"
+        "<#M> a rr:TriplesMap ;\n"
+        '  rml:logicalSource [ rml:source "mp.json" ;'
+        ' rml:referenceFormulation ql:JSONPath ; rml:iterator "$[*]" ] ;\n'
+        '  rr:subjectMap [ rr:template "https://ex/mat/{mp_id}" ] .\n'
+    )
+    dataset_id = _save_dataset_with_rml(tmp_path, rml=rml)
+    captured: dict[str, Path] = {}
+
+    def _materialize(rml_ttl, source_dir, *, udfs_path=None, work_dir=None) -> Path:
+        captured["source_dir"] = Path(source_dir)
+        out = Path(work_dir) / "out.nt"
+        out.write_bytes(b'<https://ex/mat/mp-1> <https://ex/p> "x" .\n')
+        return out
+
+    monkeypatch.setattr(substrate, "materialize_to_nt_file", _materialize)
+    oxi = _RecordingOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app) as client:
+        assert (
+            client.post(
+                f"/api/datasets/{dataset_id}/source",
+                files={"files": ("mp.json", b'[{"mp_id":"mp-1"}]', "application/json")},
+            ).status_code
+            == 200
+        )
+        status, events = _drive_ingest(client, dataset_id)
+        assert status == 202
+        result = next(d for n, d in events if n == "done")["result"]
+        assert result["triple_count"] == 1
+        assert result["graph_kind"] == "staged"
+    # the persisted JSON resolved as the source dir handed to morph-kgc
+    assert (captured["source_dir"] / "mp.json").is_file()
+
+
 def test_attach_source_unknown_dataset_404(tmp_path: Path) -> None:
     oxi = _RecordingOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
