@@ -1,0 +1,45 @@
+# asterism — MCP-front-only topology (store/MCP split, ADR store-mcp-split)
+#
+# Topology B: the MCP front runs HERE, but the store (Oxigraph SPARQL endpoint)
+# lives ELSEWHERE — at the data provider's own (e.g. domestic / institutional)
+# environment. This compose deliberately ships NO oxigraph and NO togomcp:
+#
+#   * NO oxigraph     — the store is external; point CSV2RDF_OXIGRAPH_URL at it.
+#   * NO togomcp       — togomcp exposes a GENERIC raw `run_sparql`; a sensitive
+#                        store withholds the raw-SPARQL surface (controlled
+#                        exposure) and registers ONLY this typed MCP front.
+#   * NO upload-api    — ingest (writes) happens provider-side; this front READS.
+#
+# The ONLY difference from the co-located compose.yaml (topology A) is *where*
+# CSV2RDF_OXIGRAPH_URL points and that the raw escape is OFF. Same MCP front,
+# same typed tools (query_tools.yaml) — see scripts/demo_exposure_profile.py for
+# proof that the typed answers are identical whether the raw escape is on or off.
+#
+# Usage:
+#   # 1. Put the external store URL in a local .env (gitignored), e.g.:
+#   #      CSV2RDF_OXIGRAPH_URL=https://store.example.ac.jp/sparql
+#   # 2. Bring up just the typed MCP front:
+#   docker compose -f compose.mcp-front.yaml up -d --build
+#   # The front speaks MCP over HTTP on :8002 (path /mcp) — register THIS with
+#   # the platform (Crucible). Consumers get the typed tools only.
+#
+# SECURITY (remote store): Oxigraph's own auth is thin. Put the external SPARQL
+# endpoint behind TLS + auth + network restriction (reverse proxy / tunnel), and
+# expose only read access to this front. See docs/architecture/store-mcp-split.md.
+
+services:
+
+  asterism:
+    build:
+      context: .
+      dockerfile: infra/asterism/Dockerfile
+    container_name: asterism_self_mcp
+    environment:
+      # The store lives elsewhere. REQUIRED — set in a local .env. No default to
+      # a localhost oxigraph here on purpose: this topology has no co-located store.
+      CSV2RDF_OXIGRAPH_URL: ${CSV2RDF_OXIGRAPH_URL:?set the external store URL in .env}
+      # Controlled exposure: typed tools only, no arbitrary SPARQL escape.
+      ASTERISM_EXPOSE_RAW_SPARQL: "false"
+    ports:
+      - "8002:8002"   # FastMCP HTTP transport (path /mcp) — register this front
+    restart: unless-stopped

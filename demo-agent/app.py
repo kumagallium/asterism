@@ -31,13 +31,19 @@ import json
 import os
 import re
 
-from fastapi import FastAPI, Header
+from asterism.exposure import raw_sparql_enabled
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 _OXIGRAPH_URL = os.environ.get("CSV2RDF_OXIGRAPH_URL")
 _REAL = bool(_OXIGRAPH_URL)
 _RES = "https://kumagallium.github.io/asterism/starrydata/resource/"
+
+# Exposure profile (ADR store-mcp-split): when False, the raw read-only SPARQL
+# escape is withheld — the Ask LLM is given ONLY the typed tools, and the
+# /demo/sparql passthrough is disabled. Typed tools stay available. Default open.
+_EXPOSE_RAW_SPARQL = raw_sparql_enabled()
 
 # #18 LLM NL->SPARQL escape config. Model is overridable for cost tuning; the
 # escape only fires when the deterministic typed path finds nothing (see ask()).
@@ -519,13 +525,23 @@ async def _llm_answer(question: str, api_key: str) -> dict:
     # structure_by_composition / thermoelectric_structure route as VERIFIED tools
     # rather than the unverified SPARQL escape. New datasets appear here for free.
     content_defs, content_registry = _content_tool_defs(exclude={"starrydata"})
+    # Exposure profile: when raw SPARQL is withheld, give the LLM ONLY the typed
+    # tools (hardcoded + declared content) and tell it so — it must answer from
+    # them or honestly decline, never attempt run_sparql (which it does not have).
     tools = [
         _PROPERTY_RANKING_TOOL,
         _SAMPLE_SEARCH_TOOL,
         *content_defs,
-        _RUN_SPARQL_TOOL,
-        _SUBMIT_ANSWER_TOOL,
     ]
+    if _EXPOSE_RAW_SPARQL:
+        tools.append(_RUN_SPARQL_TOOL)
+    else:
+        system += (
+            "\n\nNOTE: raw SPARQL is DISABLED in this deployment. Use ONLY the "
+            "typed tools above. If no typed tool can answer the question, say so "
+            "honestly via submit_answer — do not attempt arbitrary SPARQL."
+        )
+    tools.append(_SUBMIT_ANSWER_TOOL)
     messages: list[dict] = [{"role": "user", "content": question}]
     used_sparql: list[str] = []
     verified_used: list[dict] = []  # provenance: vetted tools the answer used
@@ -777,6 +793,12 @@ async def schema(graph: str | None = None) -> dict:
 @app.post("/demo/sparql")
 async def sparql(req: SparqlRequest) -> dict:
     """Read-only SPARQL SELECT/ASK passthrough (schema-agnostic escape hatch)."""
+    if not _EXPOSE_RAW_SPARQL:
+        raise HTTPException(
+            403,
+            "この配備では生 SPARQL は無効です（型付きツールのみ公開）。"
+            "ASTERISM_EXPOSE_RAW_SPARQL=1 で有効化できます。",
+        )
     if not _REAL:
         return {"columns": [], "rows": [], "count": 0, "truncated": False, "mode": "mock"}
     from asterism_mcp.tools import SparqlNotReadOnlyError, sparql_query

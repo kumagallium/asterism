@@ -134,6 +134,60 @@ async def test_declared_property_ranking_call_round_trip() -> None:
     assert body["items"][0]["value"] == 2.6  # number-coerced per result mapping
 
 
+# ---- exposure profile: gate the raw SPARQL escape (ADR store-mcp-split) ------
+
+
+async def test_exposure_on_registers_sparql_query() -> None:
+    mcp = build_server(
+        Settings({}),  # default: open
+        oxigraph_client=_mock_client(lambda r: _rows_response([], ["g"])),
+    )
+    names = {t.name for t in await mcp.list_tools()}
+    assert "sparql_query" in names
+
+
+async def test_exposure_off_withholds_only_sparql_query() -> None:
+    mcp = build_server(
+        Settings({"ASTERISM_EXPOSE_RAW_SPARQL": "0"}),
+        oxigraph_client=_mock_client(lambda r: _rows_response([], ["g"])),
+    )
+    names = {t.name for t in await mcp.list_tools()}
+    # The arbitrary-SPARQL escape is gone...
+    assert "sparql_query" not in names
+    # ...but every typed / vetted tool is still exposed.
+    assert {"template_curve_fetch", "provenance_of", "schema_summary"} <= names
+    assert "property_ranking" in names and "sample_search" in names
+
+
+async def test_typed_tool_returns_same_result_regardless_of_exposure() -> None:
+    """The whole point: closing raw SPARQL does not change typed-tool answers."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        q = request.content.decode()
+        if "SELECT DISTINCT ?g" in q:  # canonical-graph enumeration -> none
+            return _rows_response([], ["g"])
+        row = {
+            "curve": {"type": "uri", "value": f"{SDR}curve/1"},
+            "ymax": {"type": "literal", "value": "2.6"},
+            "s": {"type": "uri", "value": f"{SDR}sample/1"},
+            "comp": {"type": "literal", "value": "SnSe"},
+            "p": {"type": "uri", "value": f"{SDR}paper/1"},
+            "title": {"type": "literal", "value": "A paper"},
+        }
+        return _rows_response([row], ["curve", "ymax", "s", "comp", "p", "title"])
+
+    args = {"property_y": "ZT", "max_plausible": 3.5}
+    on = build_server(Settings({}), oxigraph_client=_mock_client(handler))
+    off = build_server(
+        Settings({"ASTERISM_EXPOSE_RAW_SPARQL": "0"}),
+        oxigraph_client=_mock_client(handler),
+    )
+    body_on = (await on.call_tool("property_ranking", args)).structured_content
+    body_off = (await off.call_tool("property_ranking", args)).structured_content
+    assert body_on == body_off
+    assert body_off["items"][0]["curve_iri"] == f"{SDR}curve/1"
+
+
 async def test_declared_tool_name_collision_is_prefixed(tmp_path, monkeypatch) -> None:
     # Two datasets declaring the same tool name -> the second is {dataset}_-prefixed.
     doc = "tools:\n  - name: dup\n    query: 'SELECT ?s WHERE { ?s ?p ?o }'\n"

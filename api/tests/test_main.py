@@ -600,6 +600,20 @@ def test_sparql_select_relays_results(tmp_path: Path) -> None:
         assert r.json()["results"]["bindings"][0]["s"]["value"] == "urn:x"
 
 
+def test_sparql_disabled_returns_403_when_exposure_off(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    """Exposure profile = typed-only: the raw SPARQL relay is withheld (ADR)."""
+    s = _settings(tmp_path)
+    s.expose_raw_sparql = False  # topology B / sensitive deployment
+    app = build_app(s, oxigraph_client=healthy_client, start_watcher=False)
+    with TestClient(app) as client:
+        r = client.post(
+            "/api/sparql", json={"query": "SELECT ?s WHERE { ?s ?p ?o } LIMIT 1"}
+        )
+        assert r.status_code == 403
+
+
 def test_sparql_rejects_update_and_empty(
     tmp_path: Path, healthy_client: OxigraphClient
 ) -> None:
