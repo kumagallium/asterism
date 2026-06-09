@@ -1,6 +1,7 @@
 """AI-driven schema proposal for asterism Phase 3.
 
-Given a directory of CSVs + a domain hint, this module produces:
+Given one or more structured sources (CSV or JSON, #19) + a domain hint, this
+module produces:
   1. A rdf-config-formatted ``model.yaml`` (per Phase 3 #3 decision)
   2. A rationale block explaining the design choices
 
@@ -23,13 +24,14 @@ This module is the "Step 3 schema proposal" of the workflow. Step 1 (CSV
 inspection) is the input; Step 5 (refine_schema) and Step 6 (validate_schema)
 are separate modules (future work).
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
-from asterism_step0.inspect import inspect_csv_set, render_markdown
+from asterism_step0.inspect import inspect_source_set, render_markdown
 
 # ----------------------------------------------------------------------------
 # System prompt — frozen, cacheable, embeds the §3.1 prompt template
@@ -145,6 +147,25 @@ the old `http://semweb.mmlab.be/ns/fnml#`):
 @prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
 ```
 
+**Logical source** — match each `rr:TriplesMap`'s `rml:logicalSource` to the
+source kind shown in the inspection (`## CSV:` vs `## JSON:` blocks). Use the
+filename and (for JSON) the iterator from the inspection block verbatim:
+- **CSV** sources:
+  ```
+  rml:logicalSource [ rml:source "<file>.csv" ; rml:referenceFormulation ql:CSV ] ;
+  ```
+  `rml:reference "col"` and `rr:template "…/{col}"` use the column name.
+- **JSON** sources (#19):
+  ```
+  rml:logicalSource [ rml:source "<file>.json" ;
+                      rml:referenceFormulation ql:JSONPath ;
+                      rml:iterator "<iterator from the inspection, e.g. $[*]>" ] ;
+  ```
+  `rml:reference` / `rr:template` use the **dot-path leaf field exactly as listed**
+  in the inspection (e.g. `structure.spacegroup`) — a plain dot-path, NOT a
+  `$`-prefixed JSONPath and NOT a `$.`-prefix. Tier 0 functions, templates, and
+  the HARD RULES below apply identically regardless of source kind.
+
 HARD RULES (a reviewer approves *column→predicate + which vetted function*, not code):
 - May reference ONLY these vetted **Tier 0** functions
   (`@prefix fn: <https://kumagallium.github.io/asterism/fn/>`). No other
@@ -183,8 +204,9 @@ HARD RULES (a reviewer approves *column→predicate + which vetted function*, no
 
 The user message will be structured as:
 ```
-# CSV inspection
-<output of asterism-inspect — see docs/architecture/ai-assisted-step0-prompts.md §1>
+# Source inspection
+<output of asterism-inspect — CSV (`## CSV:`) and/or JSON (`## JSON:`) blocks;
+ see docs/architecture/ai-assisted-step0-prompts.md §1>
 
 # Domain context
 <dataset name, purpose, ontology constraints, synonyms — per §2>
@@ -263,9 +285,7 @@ class AnthropicLLMClient:
         # Pass api_key only when provided; otherwise the SDK falls back to the
         # ANTHROPIC_API_KEY env var (the CLI / dogfood path).
         client = (
-            anthropic.Anthropic(api_key=self.api_key)
-            if self.api_key
-            else anthropic.Anthropic()
+            anthropic.Anthropic(api_key=self.api_key) if self.api_key else anthropic.Anthropic()
         )
         # Stream so large proposals complete without hitting the SDK's
         # non-streaming timeout guard. get_final_message() reassembles the
@@ -317,16 +337,21 @@ def propose_schema(
     domain_hint: str,
     *,
     fk_hint_columns: list[str] | None = None,
+    record_path: str | None = None,
     llm: LLMClient | None = None,
 ) -> SchemaProposal:
     """Run Step 1 (inspect) and Step 3 (propose) end-to-end.
 
     Args:
-        csv_paths: One or more CSV files to model.
+        csv_paths: One or more source files to model. CSV and JSON (#19) are
+            both accepted; the kind is picked per file by extension
+            (``.json`` / ``.geojson`` → JSON).
         domain_hint: Free-form Markdown following the ``ai-assisted-step0-prompts.md``
             §2 template (dataset name, purpose, ontology constraints, synonyms).
         fk_hint_columns: Optional FK columns to seed composite key search
-            (e.g. ``["SID"]`` for starrydata). Forwarded to inspect_csv_set.
+            (e.g. ``["SID"]`` for starrydata). Forwarded to inspect_source_set.
+        record_path: For JSON sources whose records live under a top-level key,
+            the key holding the array of records (auto-detected when omitted).
         llm: An :class:`LLMClient`. Defaults to :class:`AnthropicLLMClient`
             (requires ``ANTHROPIC_API_KEY``). Tests pass a mock.
 
@@ -337,14 +362,15 @@ def propose_schema(
     if llm is None:
         llm = AnthropicLLMClient()
 
-    # Step 1: deterministic inspection
-    inspections, fks = inspect_csv_set(csv_paths, fk_hint_columns=fk_hint_columns)
+    # Step 1: deterministic inspection (CSV and/or JSON, dispatched by extension)
+    inspections, fks = inspect_source_set(
+        csv_paths, fk_hint_columns=fk_hint_columns, record_path=record_path
+    )
     inspection_md = render_markdown(inspections, fks)
 
     # Step 3: assemble user message and call LLM
     user_message = (
-        f"# CSV inspection\n\n{inspection_md}\n\n"
-        f"# Domain context\n\n{domain_hint.strip()}\n"
+        f"# Source inspection\n\n{inspection_md}\n\n# Domain context\n\n{domain_hint.strip()}\n"
     )
     proposal_md = llm.complete(SYSTEM_PROMPT, user_message)
 
@@ -367,11 +393,11 @@ def _build_arg_parser():  # type: ignore[no-untyped-def]
     p = argparse.ArgumentParser(
         prog="asterism-propose",
         description=(
-            "Inspect CSV(s) + propose an rdf-config schema using Claude. "
-            "Requires ANTHROPIC_API_KEY."
+            "Inspect source(s) (CSV or JSON) + propose an rdf-config schema using "
+            "Claude. Requires ANTHROPIC_API_KEY."
         ),
     )
-    p.add_argument("csv", type=Path, nargs="+", help="CSV file(s) to model")
+    p.add_argument("source", type=Path, nargs="+", help="Source file(s) to model (CSV or JSON)")
     p.add_argument(
         "--domain",
         required=True,
@@ -389,6 +415,15 @@ def _build_arg_parser():  # type: ignore[no-untyped-def]
         action="append",
         default=[],
         help="Foreign-key companion column. Repeatable.",
+    )
+    p.add_argument(
+        "--record-path",
+        dest="record_path",
+        default=None,
+        help=(
+            "For JSON sources whose records live under a top-level key, the key "
+            "holding the array of records (auto-detected when omitted)."
+        ),
     )
     p.add_argument(
         "--output",
@@ -412,14 +447,13 @@ def _build_arg_parser():  # type: ignore[no-untyped-def]
 
 def _main(argv: list[str] | None = None) -> int:
     args = _build_arg_parser().parse_args(argv)
-    domain_hint = (
-        args.domain_file.read_text(encoding="utf-8") if args.domain_file else args.domain
-    )
+    domain_hint = args.domain_file.read_text(encoding="utf-8") if args.domain_file else args.domain
     llm = AnthropicLLMClient(model=args.model, effort=args.effort)
     proposal = propose_schema(
-        args.csv,
+        args.source,
         domain_hint,
         fk_hint_columns=args.fk_hint or None,
+        record_path=args.record_path,
         llm=llm,
     )
     if args.output is None:
