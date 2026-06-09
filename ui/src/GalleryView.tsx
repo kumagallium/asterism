@@ -17,7 +17,10 @@ import {
 import { ArrowIcon, LinkIcon, SearchIcon } from './icons'
 import { IngestProgressView } from './IngestProgressView'
 import { Mermaid } from './Mermaid'
+import { ToolsPanel } from './ToolsPanel'
 import { localName } from './vocab'
+
+type DetailTab = 'design' | 'rules' | 'tools'
 
 const STATUS_LABEL: Record<CatalogStatusKind, string> = {
   pub: '公開済み',
@@ -46,7 +49,7 @@ export function GalleryView({
   const [error, setError] = useState('')
   const [picked, setPicked] = useState<string | null>(null)
   const [seenFocus, setSeenFocus] = useState<string | null | undefined>(focusClass)
-  const [tab, setTab] = useState<'design' | 'rules'>('design')
+  const [tab, setTab] = useState<DetailTab>('design')
   // Live count of shared classes actually in the store (for the gateway band).
   // null = unavailable (query layer down) → the band omits the number.
   const [sharedClassCount, setSharedClassCount] = useState<number | null>(null)
@@ -215,8 +218,8 @@ function DatasetDetail({
   onChanged,
 }: {
   dataset: CatalogDataset
-  tab: 'design' | 'rules'
-  onTab: (t: 'design' | 'rules') => void
+  tab: DetailTab
+  onTab: (t: DetailTab) => void
   highlight?: string | null
   onChanged: () => void
 }) {
@@ -242,6 +245,15 @@ function DatasetDetail({
           >
             取り込みルール <span className="ds-tab-en">mapping</span>
           </button>
+          {dataset.live && (
+            <button
+              type="button"
+              className={`ds-tab${tab === 'tools' ? ' active' : ''}`}
+              onClick={() => onTab('tools')}
+            >
+              ツール <span className="ds-tab-en">tools</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -260,7 +272,9 @@ function DatasetDetail({
         </div>
       )}
 
-      {tab === 'design' ? (
+      {tab === 'tools' && dataset.live ? (
+        <ToolsPanel datasetId={dataset.live.meta.id} />
+      ) : tab === 'design' ? (
         <div className="ds-tab-body">
           <div className="ds-section-head">
             <span className="ds-section-title">設計図（中身の構造）</span>
