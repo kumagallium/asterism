@@ -340,8 +340,12 @@ function DatasetDetail({
         <div className="ds-detail-controls">
           {/* Task E: ingest gate for design-stage datasets (no facts yet). */}
           <IngestControl meta={dataset.live.meta} onChanged={onChanged} />
-          {/* S4 promote human-gate (only for ingested-not-promoted drafts). */}
-          <PromoteControl meta={dataset.live.meta} />
+          {/* S4 (re-)promote human-gate: first promote of a draft, or re-promote
+              of a re-ingested replacement (version bump). */}
+          <PromoteControl meta={dataset.live.meta} onChanged={onChanged} />
+          {/* part5: safe replace — re-ingest a promoted/ingested dataset into a new
+              version graph (gap-free), then re-promote to swap the live pointer. */}
+          <ReingestControl meta={dataset.live.meta} onChanged={onChanged} />
           {/* #20 P3 lifecycle: retract / reinstate / delete (human-gated). */}
           <LifecycleControl meta={dataset.live.meta} onChanged={onChanged} />
         </div>
@@ -457,25 +461,40 @@ function IngestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChang
 
 /**
  * The S4 human gate: review the draft's vocabulary alignment (Reuse vs New)
- * against the canonical graph, then promote (MOVE draft → canonical) so Ask can
- * cite it. Only shown for ingested-but-not-yet-promoted drafts.
+ * against the canonical graph, then promote so Ask can cite it.
+ *
+ * Derived purely from `meta` (not init-once local state) so it stays correct
+ * across a re-ingest of an already-promoted dataset: a re-ingest flips
+ * promoted→false, ingested→true (a fresh staged version awaiting approval), and
+ * this control must then re-reveal the (re-)promote button. A pending staged
+ * version (`meta.ingested`) always takes precedence over a prior promotion.
+ *
+ *   - meta.ingested      → a staged version awaits approval → show (re-)promote.
+ *                          version ≥ 1 ⇒ re-promote (part5 version bump).
+ *   - promoted, none pending → citable; show status.
+ *   - neither (design)   → nothing to gate.
  */
-function PromoteControl({ meta }: { meta: LiveDataset['meta'] }) {
+function PromoteControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChanged: () => void }) {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [alignment, setAlignment] = useState<AlignmentReport | null>(null)
-  const [promoted, setPromoted] = useState<number | null>(
-    meta.promoted ? (meta.triples_promoted ?? 0) : null,
-  )
+  const version = meta.version ?? 0
 
-  if (promoted !== null) {
-    return (
-      <p className="promote-ok">
-        ✓ 共有データに昇格済み（{promoted} 件）。Ask が引用できます（正式グラフ＝canonical）。
-      </p>
-    )
+  if (!meta.ingested) {
+    if (meta.promoted) {
+      return (
+        <p className="promote-ok">
+          ✓ 共有データに昇格済み（{meta.triples_promoted ?? 0} 件{version ? `・版 v${version}` : ''}）。Ask
+          が引用できます（正式グラフ＝canonical）。
+        </p>
+      )
+    }
+    return null
   }
-  if (!meta.ingested) return null
+
+  // A staged version exists. If the dataset was promoted before (version ≥ 1)
+  // this is a re-promote: it swaps the live pointer to the new version (part5).
+  const isRepromote = version >= 1
 
   async function preview() {
     setErr('')
@@ -489,20 +508,31 @@ function PromoteControl({ meta }: { meta: LiveDataset['meta'] }) {
     setBusy(true)
     setErr('')
     try {
-      setPromoted((await promoteDataset(meta.id)).triples_promoted)
+      await promoteDataset(meta.id)
+      // Refresh meta so this control settles into the citable (✓) view. Stays
+      // busy/disabled through the reload — the ✓ view replaces the button once
+      // the new meta lands, so there is no flash and no double-submit.
+      onChanged()
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
-    } finally {
       setBusy(false)
     }
   }
 
   return (
     <div className="promote-control">
-      <p className="promote-note">
-        「共有データに昇格」すると、下書きグラフのこのデータが <strong>Ask が引用する正式グラフ
-        （canonical）</strong> に移ります。昇格前に、使っている語彙が既存の再利用か新規かを確認できます。
-      </p>
+      {isRepromote ? (
+        <p className="promote-note">
+          新しい版を下書きグラフに取り込み済みです。「共有データに反映（再昇格）」を押すと、Ask が引用する版が{' '}
+          <strong>v{version} → v{version + 1}</strong>{' '}
+          に上がり、新しいデータに切り替わります。切り替えは一瞬で、旧版は自動で片付けられます（取り込み中も今の版が引用され続けるので途切れません）。
+        </p>
+      ) : (
+        <p className="promote-note">
+          「共有データに昇格」すると、下書きグラフのこのデータが <strong>Ask が引用する正式グラフ
+          （canonical）</strong> に移ります。昇格前に、使っている語彙が既存の再利用か新規かを確認できます。
+        </p>
+      )}
       {alignment ? (
         <div className="alignment-summary">
           <span>
@@ -517,13 +547,121 @@ function PromoteControl({ meta }: { meta: LiveDataset['meta'] }) {
         </div>
       ) : (
         <button type="button" className="btn btn--ghost btn--sm" onClick={preview}>
-          語彙の差分を確認（昇格前チェック）
+          語彙の差分を確認（{isRepromote ? '再昇格' : '昇格'}前チェック）
         </button>
       )}
       <button type="button" className="promote-btn" onClick={promote} disabled={busy}>
-        {busy ? '昇格中…' : '共有データに昇格（Ask で使えるように）'}
+        {busy
+          ? isRepromote
+            ? '反映中…'
+            : '昇格中…'
+          : isRepromote
+            ? `共有データに反映（再昇格 → v${version + 1}）`
+            : '共有データに昇格（Ask で使えるように）'}
       </button>
-      {err && <p className="promote-err">昇格に失敗しました: {err}</p>}
+      {err && (
+        <p className="promote-err">
+          {isRepromote ? '再昇格' : '昇格'}に失敗しました: {err}
+        </p>
+      )}
+    </div>
+  )
+}
+
+/**
+ * part5: safely *replace* the data of a promoted (or ingested) dataset. Re-ingest
+ * streams a fresh version graph `canonical/{id}/v{n}` WITHOUT touching the live
+ * one, so Ask keeps citing the current version gap-free throughout the re-stream;
+ * the new version is staged (not citable) until the user re-promotes below, which
+ * swaps the live pointer (O(1)) and bumps the dataset version. Shown for
+ * promoted/ingested datasets with declarative RML; hidden for design (that uses
+ * IngestControl) and for retracted datasets. CSV is re-attached here, or the
+ * persisted design-time source is reused.
+ */
+function ReingestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChanged: () => void }) {
+  const [files, setFiles] = useState<File[]>([])
+  const [busy, setBusy] = useState(false)
+  const [progress, setProgress] = useState<IngestProgress | null>(null)
+  const [err, setErr] = useState('')
+
+  const stage = datasetStage(meta)
+  // design → IngestControl owns the first ingest; retracted → reinstate first.
+  if (stage === 'design' || meta.status === 'retracted') return null
+  if (!meta.has_rml) return null
+
+  const version = meta.version ?? 0
+  // A live, citable version exists once the dataset has ever been promoted
+  // (version ≥ 1) — true even right after a re-ingest flips stage to 'ingested',
+  // because the previously-promoted version stays live until the re-promote.
+  const published = version >= 1
+  const hasSource = !!meta.has_source
+  const canReingest = !busy && (hasSource || files.length > 0)
+
+  async function onReingest() {
+    setBusy(true)
+    setErr('')
+    setProgress(null)
+    try {
+      // hasSource → no upload (server reuses the persisted source); else upload.
+      await ingestDataset(meta.id, hasSource ? [] : files, setProgress)
+      setFiles([])
+      // promoted→ingested (or another staged version): refresh so the re-promote
+      // gate (PromoteControl) appears with the new staged version.
+      onChanged()
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="ingest-gate">
+      <div className="ds-subhead">データを更新（再取り込み）</div>
+      <p className="ingest-note">
+        新しい CSV を<strong>別バージョンのグラフ</strong>（canonical/{shortIri(meta.id)}/v…）に取り込みます。
+        {published ? (
+          <>
+            取り込み中も<strong>今の公開版（v{version}）が Ask に引用され続ける</strong>ので、回答が途切れません。
+            完了したら下の「共有データに反映（再昇格）」で <strong>v{version} → v{version + 1}</strong>{' '}
+            に切り替わり、旧版は自動で片付けられます。
+          </>
+        ) : (
+          <>
+            まだ公開していない下書きを取り直します（Ask には影響しません）。完了したら下の「共有データに昇格」で公開できます。
+          </>
+        )}
+      </p>
+      {hasSource ? (
+        <p className="ingest-source">
+          設計時の CSV を保存済み
+          {meta.source_files?.length ? `（${meta.source_files.join('、')}）` : ''}
+          。再添付なしで取り込めます。別の CSV に差し替えたい場合は下で選んでください。
+        </p>
+      ) : null}
+      <div className="ingest-pick">
+        <label className="file-btn">
+          {hasSource ? 'CSV を差し替え' : 'CSV を選択'}
+          <input
+            type="file"
+            accept=".csv"
+            multiple
+            onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
+          />
+        </label>
+        <span className={`file-names${files.length ? '' : ' empty'}`}>
+          {files.length
+            ? files.map((f) => f.name).join('、')
+            : hasSource
+              ? '差し替えない場合は保存済み CSV を使います'
+              : '更新に使う CSV を選んでください'}
+        </span>
+      </div>
+      <button type="button" className="promote-btn" onClick={onReingest} disabled={!canReingest}>
+        {busy ? '取り込み中…' : '新しいデータで再取り込み'}
+      </button>
+      {busy && <IngestProgressView progress={progress} />}
+      {err && <p className="promote-err">再取り込みに失敗しました: {err}</p>}
     </div>
   )
 }
