@@ -607,7 +607,7 @@ function DraftEditor({
             placeholder="出力の列名 (例: space_group)"
             onChange={(e) => updateRow(i, { key: e.target.value })}
           />
-          <span className="result-arrow">←</span>
+          <span className="result-arrow">→</span>
           <input
             className="draft-text result-var"
             value={r.var}
