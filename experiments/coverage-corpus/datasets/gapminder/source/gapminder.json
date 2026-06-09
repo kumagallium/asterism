@@ -1,0 +1,642 @@
+[
+ {
+  "year": 1955,
+  "country": "Afghanistan",
+  "cluster": 0,
+  "pop": 7971931,
+  "life_expect": 43.88,
+  "fertility": 7.42
+ },
+ {
+  "year": 2000,
+  "country": "Afghanistan",
+  "cluster": 0,
+  "pop": 19542982,
+  "life_expect": 54.73,
+  "fertility": 7.53
+ },
+ {
+  "year": 1985,
+  "country": "Argentina",
+  "cluster": 3,
+  "pop": 30287112,
+  "life_expect": 71.73,
+  "fertility": 3.1
+ },
+ {
+  "year": 1975,
+  "country": "Australia",
+  "cluster": 4,
+  "pop": 13886854,
+  "life_expect": 72.51,
+  "fertility": 2.16
+ },
+ {
+  "year": 1960,
+  "country": "Austria",
+  "cluster": 1,
+  "pop": 7046553,
+  "life_expect": 68.96,
+  "fertility": 2.7
+ },
+ {
+  "year": 2005,
+  "country": "Austria",
+  "cluster": 1,
+  "pop": 8227034,
+  "life_expect": 79.75,
+  "fertility": 1.41
+ },
+ {
+  "year": 1995,
+  "country": "Bahamas",
+  "cluster": 3,
+  "pop": 299554,
+  "life_expect": 70.77,
+  "fertility": 2.5
+ },
+ {
+  "year": 1980,
+  "country": "Bangladesh",
+  "cluster": 0,
+  "pop": 83929765,
+  "life_expect": 53.22,
+  "fertility": 6.32
+ },
+ {
+  "year": 1970,
+  "country": "Barbados",
+  "cluster": 3,
+  "pop": 241397,
+  "life_expect": 69.18,
+  "fertility": 3.11
+ },
+ {
+  "year": 1960,
+  "country": "Belgium",
+  "cluster": 1,
+  "pop": 9108724,
+  "life_expect": 70.07,
+  "fertility": 2.56
+ },
+ {
+  "year": 2000,
+  "country": "Belgium",
+  "cluster": 1,
+  "pop": 10264343,
+  "life_expect": 78.04,
+  "fertility": 1.66
+ },
+ {
+  "year": 1990,
+  "country": "Bolivia",
+  "cluster": 3,
+  "pop": 7096194,
+  "life_expect": 61.69,
+  "fertility": 4.89
+ },
+ {
+  "year": 1975,
+  "country": "Brazil",
+  "cluster": 3,
+  "pop": 108700515,
+  "life_expect": 59.78,
+  "fertility": 4.42
+ },
+ {
+  "year": 1965,
+  "country": "Canada",
+  "cluster": 3,
+  "pop": 19688805,
+  "life_expect": 71.9,
+  "fertility": 3.14
+ },
+ {
+  "year": 1955,
+  "country": "Chile",
+  "cluster": 3,
+  "pop": 7323194,
+  "life_expect": 54.83,
+  "fertility": 4.97
+ },
+ {
+  "year": 1995,
+  "country": "Chile",
+  "cluster": 3,
+  "pop": 14416796,
+  "life_expect": 75.28,
+  "fertility": 2.3
+ },
+ {
+  "year": 1985,
+  "country": "China",
+  "cluster": 4,
+  "pop": 1060239979,
+  "life_expect": 66.59,
+  "fertility": 2.63
+ },
+ {
+  "year": 1975,
+  "country": "Colombia",
+  "cluster": 3,
+  "pop": 23403731,
+  "life_expect": 66.27,
+  "fertility": 4.4
+ },
+ {
+  "year": 1960,
+  "country": "Costa Rica",
+  "cluster": 3,
+  "pop": 1346302,
+  "life_expect": 65.35,
+  "fertility": 6.86
+ },
+ {
+  "year": 2005,
+  "country": "Costa Rica",
+  "cluster": 3,
+  "pop": 4315887,
+  "life_expect": 79.44,
+  "fertility": 2.04
+ },
+ {
+  "year": 1990,
+  "country": "Croatia",
+  "cluster": 1,
+  "pop": 4873707,
+  "life_expect": 72.46,
+  "fertility": 1.63
+ },
+ {
+  "year": 1980,
+  "country": "Cuba",
+  "cluster": 3,
+  "pop": 9809107,
+  "life_expect": 73.57,
+  "fertility": 1.62
+ },
+ {
+  "year": 1970,
+  "country": "Dominican Republic",
+  "cluster": 3,
+  "pop": 4475871,
+  "life_expect": 64.88,
+  "fertility": 6.18
+ },
+ {
+  "year": 1955,
+  "country": "Ecuador",
+  "cluster": 3,
+  "pop": 4022378,
+  "life_expect": 53.94,
+  "fertility": 6.75
+ },
+ {
+  "year": 2000,
+  "country": "Ecuador",
+  "cluster": 3,
+  "pop": 12626507,
+  "life_expect": 74.46,
+  "fertility": 3.1
+ },
+ {
+  "year": 1990,
+  "country": "Egypt",
+  "cluster": 5,
+  "pop": 57214630,
+  "life_expect": 63.92,
+  "fertility": 4.48
+ },
+ {
+  "year": 1975,
+  "country": "El Salvador",
+  "cluster": 3,
+  "pop": 4076751,
+  "life_expect": 62.42,
+  "fertility": 5.68
+ },
+ {
+  "year": 1965,
+  "country": "Finland",
+  "cluster": 1,
+  "pop": 4564583,
+  "life_expect": 69.56,
+  "fertility": 2.47
+ },
+ {
+  "year": 2005,
+  "country": "Finland",
+  "cluster": 1,
+  "pop": 5246071,
+  "life_expect": 79.32,
+  "fertility": 1.8
+ },
+ {
+  "year": 1995,
+  "country": "France",
+  "cluster": 1,
+  "pop": 57420354,
+  "life_expect": 78.19,
+  "fertility": 1.71
+ },
+ {
+  "year": 1985,
+  "country": "Georgia",
+  "cluster": 1,
+  "pop": 5338867,
+  "life_expect": 69.06,
+  "fertility": 2.34
+ },
+ {
+  "year": 1970,
+  "country": "Germany",
+  "cluster": 1,
+  "pop": 78294583,
+  "life_expect": 70.61,
+  "fertility": 2.04
+ },
+ {
+  "year": 1960,
+  "country": "Greece",
+  "cluster": 1,
+  "pop": 8495415,
+  "life_expect": 72.43,
+  "fertility": 2.29
+ },
+ {
+  "year": 2000,
+  "country": "Greece",
+  "cluster": 1,
+  "pop": 11038109,
+  "life_expect": 78.44,
+  "fertility": 1.33
+ },
+ {
+  "year": 1990,
+  "country": "Grenada",
+  "cluster": 3,
+  "pop": 99047,
+  "life_expect": 69.21,
+  "fertility": 3.49
+ },
+ {
+  "year": 1980,
+  "country": "Haiti",
+  "cluster": 3,
+  "pop": 5646676,
+  "life_expect": 51.28,
+  "fertility": 5.65
+ },
+ {
+  "year": 1965,
+  "country": "Hong Kong, China",
+  "cluster": 4,
+  "pop": 3602029,
+  "life_expect": 69.63,
+  "fertility": 4.87
+ },
+ {
+  "year": 1955,
+  "country": "Iceland",
+  "cluster": 1,
+  "pop": 157735,
+  "life_expect": 72.71,
+  "fertility": 4.08
+ },
+ {
+  "year": 2000,
+  "country": "Iceland",
+  "cluster": 1,
+  "pop": 281462,
+  "life_expect": 80.35,
+  "fertility": 2.07
+ },
+ {
+  "year": 1985,
+  "country": "India",
+  "cluster": 0,
+  "pop": 780242084,
+  "life_expect": 57.3,
+  "fertility": 4.43
+ },
+ {
+  "year": 1975,
+  "country": "Indonesia",
+  "cluster": 4,
+  "pop": 131213215,
+  "life_expect": 56.92,
+  "fertility": 5.04
+ },
+ {
+  "year": 1960,
+  "country": "Iran",
+  "cluster": 5,
+  "pop": 21388806,
+  "life_expect": 44.48,
+  "fertility": 7.21
+ },
+ {
+  "year": 2005,
+  "country": "Iran",
+  "cluster": 5,
+  "pop": 70182594,
+  "life_expect": 73.55,
+  "fertility": 1.78
+ },
+ {
+  "year": 1995,
+  "country": "Iraq",
+  "cluster": 5,
+  "pop": 20948858,
+  "life_expect": 67.16,
+  "fertility": 5.4
+ },
+ {
+  "year": 1980,
+  "country": "Ireland",
+  "cluster": 1,
+  "pop": 3391387,
+  "life_expect": 72.69,
+  "fertility": 3.2
+ },
+ {
+  "year": 1970,
+  "country": "Israel",
+  "cluster": 5,
+  "pop": 2907307,
+  "life_expect": 71.7,
+  "fertility": 4.11
+ },
+ {
+  "year": 1960,
+  "country": "Italy",
+  "cluster": 1,
+  "pop": 49517707,
+  "life_expect": 69.86,
+  "fertility": 2.38
+ },
+ {
+  "year": 2000,
+  "country": "Italy",
+  "cluster": 1,
+  "pop": 56966397,
+  "life_expect": 79.64,
+  "fertility": 1.25
+ },
+ {
+  "year": 1990,
+  "country": "Jamaica",
+  "cluster": 3,
+  "pop": 2392030,
+  "life_expect": 75.32,
+  "fertility": 2.85
+ },
+ {
+  "year": 1975,
+  "country": "Japan",
+  "cluster": 4,
+  "pop": 112411640,
+  "life_expect": 74.77,
+  "fertility": 1.94
+ },
+ {
+  "year": 1965,
+  "country": "Kenya",
+  "cluster": 2,
+  "pop": 9417207,
+  "life_expect": 56.31,
+  "fertility": 8.04
+ },
+ {
+  "year": 1955,
+  "country": "Lebanon",
+  "cluster": 5,
+  "pop": 1556327,
+  "life_expect": 62.08,
+  "fertility": 5.78
+ },
+ {
+  "year": 1995,
+  "country": "Lebanon",
+  "cluster": 5,
+  "pop": 3959640,
+  "life_expect": 73.15,
+  "fertility": 2.78
+ },
+ {
+  "year": 1985,
+  "country": "Mexico",
+  "cluster": 3,
+  "pop": 74872006,
+  "life_expect": 68.62,
+  "fertility": 4.09
+ },
+ {
+  "year": 1970,
+  "country": "Netherlands",
+  "cluster": 1,
+  "pop": 13037686,
+  "life_expect": 73.73,
+  "fertility": 2.57
+ },
+ {
+  "year": 1960,
+  "country": "New Zealand",
+  "cluster": 4,
+  "pop": 2381189,
+  "life_expect": 71.22,
+  "fertility": 4.06
+ },
+ {
+  "year": 2005,
+  "country": "New Zealand",
+  "cluster": 4,
+  "pop": 4132781,
+  "life_expect": 79.8,
+  "fertility": 1.96
+ },
+ {
+  "year": 1990,
+  "country": "Nigeria",
+  "cluster": 2,
+  "pop": 95214257,
+  "life_expect": 54.69,
+  "fertility": 6.46
+ },
+ {
+  "year": 1980,
+  "country": "North Korea",
+  "cluster": 4,
+  "pop": 17973650,
+  "life_expect": 64.05,
+  "fertility": 2.84
+ },
+ {
+  "year": 1970,
+  "country": "Norway",
+  "cluster": 1,
+  "pop": 3875546,
+  "life_expect": 74.25,
+  "fertility": 2.52
+ },
+ {
+  "year": 1955,
+  "country": "Pakistan",
+  "cluster": 0,
+  "pop": 41023128,
+  "life_expect": 48.64,
+  "fertility": 6.73
+ },
+ {
+  "year": 2000,
+  "country": "Pakistan",
+  "cluster": 0,
+  "pop": 154369924,
+  "life_expect": 61.04,
+  "fertility": 5.26
+ },
+ {
+  "year": 1985,
+  "country": "Peru",
+  "cluster": 3,
+  "pop": 19746610,
+  "life_expect": 65.94,
+  "fertility": 4.46
+ },
+ {
+  "year": 1975,
+  "country": "Philippines",
+  "cluster": 4,
+  "pop": 42394433,
+  "life_expect": 64.11,
+  "fertility": 5.6
+ },
+ {
+  "year": 1965,
+  "country": "Poland",
+  "cluster": 1,
+  "pop": 31224081,
+  "life_expect": 69.66,
+  "fertility": 2.51
+ },
+ {
+  "year": 2005,
+  "country": "Poland",
+  "cluster": 1,
+  "pop": 38575911,
+  "life_expect": 75.19,
+  "fertility": 1.24
+ },
+ {
+  "year": 1995,
+  "country": "Portugal",
+  "cluster": 1,
+  "pop": 10051248,
+  "life_expect": 75.47,
+  "fertility": 1.41
+ },
+ {
+  "year": 1985,
+  "country": "Rwanda",
+  "cluster": 2,
+  "pop": 6266752,
+  "life_expect": 51.49,
+  "fertility": 7.73
+ },
+ {
+  "year": 1970,
+  "country": "Saudi Arabia",
+  "cluster": 5,
+  "pop": 6106191,
+  "life_expect": 59.81,
+  "fertility": 7.58
+ },
+ {
+  "year": 1960,
+  "country": "South Africa",
+  "cluster": 2,
+  "pop": 16520441,
+  "life_expect": 53.93,
+  "fertility": 6.16
+ },
+ {
+  "year": 2000,
+  "country": "South Africa",
+  "cluster": 2,
+  "pop": 46813266,
+  "life_expect": 55.58,
+  "fertility": 2.41
+ },
+ {
+  "year": 1990,
+  "country": "South Korea",
+  "cluster": 4,
+  "pop": 44120039,
+  "life_expect": 72.13,
+  "fertility": 1.6
+ },
+ {
+  "year": 1980,
+  "country": "Spain",
+  "cluster": 1,
+  "pop": 37491666,
+  "life_expect": 75.51,
+  "fertility": 2.21
+ },
+ {
+  "year": 1965,
+  "country": "Switzerland",
+  "cluster": 1,
+  "pop": 5857047,
+  "life_expect": 72.51,
+  "fertility": 2.58
+ },
+ {
+  "year": 1955,
+  "country": "Turkey",
+  "cluster": 1,
+  "pop": 23821353,
+  "life_expect": 47.32,
+  "fertility": 6.49
+ },
+ {
+  "year": 2000,
+  "country": "Turkey",
+  "cluster": 1,
+  "pop": 64113547,
+  "life_expect": 74.73,
+  "fertility": 2.51
+ },
+ {
+  "year": 1985,
+  "country": "United Kingdom",
+  "cluster": 1,
+  "pop": 56643045,
+  "life_expect": 74.81,
+  "fertility": 1.79
+ },
+ {
+  "year": 1975,
+  "country": "United States",
+  "cluster": 3,
+  "pop": 211274535,
+  "life_expect": 72.73,
+  "fertility": 1.77
+ },
+ {
+  "year": 1960,
+  "country": "Venezuela",
+  "cluster": 3,
+  "pop": 8156937,
+  "life_expect": 65.17,
+  "fertility": 6.42
+ },
+ {
+  "year": 2005,
+  "country": "Venezuela",
+  "cluster": 3,
+  "pop": 26668785,
+  "life_expect": 75.01,
+  "fertility": 2.63
+ }
+]
