@@ -3305,3 +3305,54 @@ textarea:focus {
   gap: 0.6rem;
   margin-top: 0.3rem;
 }
+
+/* ---- P3: deterministic key-free tool run panel ---- */
+.tool-run {
+  margin-top: 0.7rem;
+  padding-top: 0.7rem;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+.tool-run-hint {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin: 0;
+  line-height: 1.55;
+}
+.tool-run-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+.run-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex: 1 1 12rem;
+}
+.run-label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--muted);
+  font-family: var(--font-mono);
+}
+.run-req {
+  font-size: 0.64rem;
+  color: var(--accent);
+  font-weight: 700;
+  font-family: var(--font-ui);
+}
+.run-type {
+  font-size: 0.64rem;
+  color: var(--activity);
+}
+.tool-run-result {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}

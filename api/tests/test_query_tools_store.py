@@ -246,3 +246,48 @@ def test_propose_requires_key(tmp_path: Path, healthy_client: OxigraphClient) ->
     client = _client_with_llm(tmp_path, healthy_client, _DraftLLM(_VALID_DRAFT))
     ds = _seed_dataset(tmp_path / "registry")
     assert client.post(f"/api/datasets/{ds}/tools/propose", json={"intent": "x"}).status_code == 400
+
+
+# --- run a saved tool (deterministic, typed, read-only, KEY-FREE) -----------
+
+
+def _run_client(tmp_path: Path, healthy_client: OxigraphClient) -> TestClient:
+    # The run endpoint reads app.state.client (set in the lifespan); these tests do
+    # not enter the lifespan, so wire the oxigraph client onto state directly.
+    app = build_app(_settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False)
+    app.state.client = healthy_client
+    return TestClient(app)
+
+
+def test_run_tool_binds_args_and_runs_readonly(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    client = _run_client(tmp_path, healthy_client)
+    ds = _seed_dataset(tmp_path / "registry")
+    client.post(f"/api/datasets/{ds}/tools", json=VALID_TOOL)
+    # No API key — running a vetted tool is deterministic and needs no LLM.
+    r = client.post(f"/api/datasets/{ds}/tools/find_by_label/run", json={"args": {"q": "foo"}})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["tool"] == "find_by_label"
+    assert isinstance(body["items"], list)
+    # the arg was bound SAFELY into the read-only query (escaped string literal)
+    assert '"foo"' in body["sparql"]
+
+
+def test_run_tool_missing_required_arg_is_400(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    client = _run_client(tmp_path, healthy_client)
+    ds = _seed_dataset(tmp_path / "registry")
+    client.post(f"/api/datasets/{ds}/tools", json=VALID_TOOL)
+    r = client.post(f"/api/datasets/{ds}/tools/find_by_label/run", json={"args": {}})
+    assert r.status_code == 400
+
+
+def test_run_unknown_tool_is_404(tmp_path: Path, healthy_client: OxigraphClient) -> None:
+    client = _run_client(tmp_path, healthy_client)
+    ds = _seed_dataset(tmp_path / "registry")
+    assert (
+        client.post(f"/api/datasets/{ds}/tools/nope/run", json={"args": {}}).status_code == 404
+    )
