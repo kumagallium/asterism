@@ -81,6 +81,40 @@ in canonical scope.
 | `seed/build_seed.py` | content tool: CSV → `mp.ttl` (deterministic, stdlib) |
 | `seed/mp.ttl` | generated ABox (committed) |
 | `seed/load.py` | load `mp.ttl` into the `canonical/materials_project` named graph |
+| `json/build_json_snapshot.py` | content tool: CSV → **nested** `mp.json` (#19 JSON-source dogfood) |
+| `json/mp.json` | nested JSON snapshot (committed) — the persisted, citable non-CSV source |
+| `json/mp.rml.ttl` | declarative JSONPath RML — produces the *same* facts as `mp.ttl` |
+
+## JSON source path (#19 — non-CSV ingestion dogfood)
+
+Materials Project is the dogfood for Asterism's **non-CSV source** support. MP is
+natively an HTTP API; the reproducible, declarative path is *API → JSON snapshot →
+JSON ingest* — the snapshot is the persisted, citable source (a live-API connector
+with auth/paging is a later, heavier step). `json/mp.json` is that snapshot, with
+crystal-structure fields **nested** under a `structure` object on purpose: it
+exercises the JSON path end to end, where a nested object flattens to dot-path
+leaf fields (`structure.space_group_symbol`) that the inspector reports and
+Morph-KGC reads via `rml:referenceFormulation ql:JSONPath` + `rml:iterator "$[*]"`
+(`json/mp.rml.ttl`).
+
+**Proven drop-in (real Morph-KGC + real Oxigraph, disposable stack):**
+`mp.json` + `mp.rml.ttl` materialize to **143 triples, set-equal to the directly
+seeded `mp.ttl`** — the JSON-source path is interchangeable with the direct seed.
+Streamed through the production substrate (`materialize_to_nt_file` →
+`stream_nt_file_to_oxigraph`, the same code `POST /api/datasets/{id}/ingest` runs)
+into a real Oxigraph, then a canonical FROM-merge join against a Starrydata ZT
+graph on `mp:formula == sd:compositionString` returns the structure↔property rows:
+
+| formula | space group | crystal system | ZT (Starrydata) |
+|---|---|---|---|
+| PbSe | Fm-3m | Cubic | 1.018 |
+| Bi2Te3 | R-3m | Trigonal | 0.914 |
+| SnSe | Pnma | Orthorhombic | 0.822 |
+| ZnO | P6_3mc | Hexagonal | 0.30 |
+
+So a non-CSV (JSON) dataset designed and ingested through the normal flow lands as
+citable facts that join across datasets — with no engine change. See ADR
+`docs/architecture/non-csv-sources.md`.
 
 ## Seed-load (local)
 
