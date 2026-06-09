@@ -22,6 +22,7 @@ import logging
 import os
 from typing import Annotated, Final, Literal
 
+from asterism.exposure import raw_sparql_enabled
 from asterism.oxigraph_client import OxigraphClient, OxigraphConfig
 from asterism.query_tools import (
     QueryTool,
@@ -57,6 +58,10 @@ class Settings:
     def __init__(self, env: dict[str, str] | None = None) -> None:
         e = env if env is not None else os.environ
         self.oxigraph_url = e.get("CSV2RDF_OXIGRAPH_URL", "http://oxigraph:7878")
+        # Exposure profile (ADR store-mcp-split): when False, the arbitrary
+        # read-only SPARQL escape (`sparql_query`) is NOT registered, so this
+        # deployment exposes only the vetted typed tools. Default open.
+        self.expose_raw_sparql = raw_sparql_enabled(e)
 
 
 # ----------------------------------------------------------------------------
@@ -171,22 +176,28 @@ def build_server(
             predicates_per_class=predicates_per_class,
         )
 
-    @mcp.tool(
-        name="sparql_query",
-        description=(
-            "Run an arbitrary READ-ONLY SPARQL SELECT/ASK against the store and "
-            "get back flat rows ({columns, rows, count, truncated}). The "
-            "schema-agnostic escape hatch: pair it with schema_summary (call "
-            "that first to learn the vocabulary) to answer questions over any "
-            "graph, including user-designed schemas. Update-form queries "
-            "(INSERT/DELETE/...) are rejected — read-only by contract."
-        ),
-    )
-    async def _sparql_query(query: str, max_rows: int = 200) -> dict[str, object]:
-        try:
-            return await sparql_query(query, get_client(), max_rows=max_rows)
-        except (ValueError, SparqlNotReadOnlyError) as exc:
-            return {"error": str(exc), "columns": [], "rows": [], "count": 0}
+    # The arbitrary-SPARQL escape hatch is gated by the deployment exposure
+    # profile: a sensitive store (topology B) sets ASTERISM_EXPOSE_RAW_SPARQL=0
+    # so consumers get ONLY the vetted typed tools (and schema_summary). Typed
+    # tools above are always registered. See asterism.exposure / ADR.
+    if cfg.expose_raw_sparql:
+
+        @mcp.tool(
+            name="sparql_query",
+            description=(
+                "Run an arbitrary READ-ONLY SPARQL SELECT/ASK against the store "
+                "and get back flat rows ({columns, rows, count, truncated}). The "
+                "schema-agnostic escape hatch: pair it with schema_summary (call "
+                "that first to learn the vocabulary) to answer questions over any "
+                "graph, including user-designed schemas. Update-form queries "
+                "(INSERT/DELETE/...) are rejected — read-only by contract."
+            ),
+        )
+        async def _sparql_query(query: str, max_rows: int = 200) -> dict[str, object]:
+            try:
+                return await sparql_query(query, get_client(), max_rows=max_rows)
+            except (ValueError, SparqlNotReadOnlyError) as exc:
+                return {"error": str(exc), "columns": [], "rows": [], "count": 0}
 
     # ----- #20 P4-2: per-dataset typed tools declared as content -----
     _register_declared_query_tools(mcp, get_client)

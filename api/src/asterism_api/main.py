@@ -37,6 +37,7 @@ from typing import Final
 
 from asterism import substrate
 from asterism.datasets import load_dataset
+from asterism.exposure import raw_sparql_enabled
 from asterism.ontology_projection import (
     STANDARD_PREFIXES,
     extract_prefixes,
@@ -201,6 +202,10 @@ class Settings:
             e.get("CSV2RDF_REGISTRY_ROOT", "/data/sources/registry")
         )
         self.oxigraph_url = e.get("CSV2RDF_OXIGRAPH_URL", "http://oxigraph:7878")
+        # Exposure profile (ADR store-mcp-split): when False, the read-only
+        # SPARQL relay (POST /api/sparql) is withheld so a sensitive deployment
+        # exposes only the typed tools / vetted endpoints. Default open.
+        self.expose_raw_sparql = raw_sparql_enabled(e)
         self.graph_prefix = e.get("CSV2RDF_GRAPH_PREFIX", DEFAULT_GRAPH_PREFIX)
         # Default-graph load keeps GRAPH-less SPARQL (MIE examples) working.
         # Set CSV2RDF_USE_DEFAULT_GRAPH=0 to opt back into per-kind named graphs.
@@ -1114,6 +1119,13 @@ def build_app(
         graph (e.g. a draft) by writing an explicit ``FROM`` / ``FROM NAMED``,
         which is respected as-is.
         """
+        if not cfg.expose_raw_sparql:
+            # Exposure profile = typed-only: the raw SPARQL escape is withheld.
+            raise HTTPException(
+                403,
+                "この配備では生 SPARQL は無効です (型付きツールのみ公開). "
+                "ASTERISM_EXPOSE_RAW_SPARQL=1 で有効化できます",
+            )
         q = body.query.strip()
         if not q:
             raise HTTPException(400, "query is required")

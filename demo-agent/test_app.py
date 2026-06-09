@@ -121,6 +121,15 @@ def test_sparql_endpoint_rejects_update(monkeypatch) -> None:
     assert "error" in body and body["rows"] == []
 
 
+def test_demo_sparql_disabled_returns_403(monkeypatch) -> None:
+    """Exposure profile = typed-only: /demo/sparql is withheld (ADR)."""
+    monkeypatch.setattr(demo, "_EXPOSE_RAW_SPARQL", False)
+    r = TestClient(demo.app).post(
+        "/demo/sparql", json={"query": "SELECT ?s WHERE { ?s ?p ?o } LIMIT 1"}
+    )
+    assert r.status_code == 403
+
+
 # --- #18 LLM NL->SPARQL escape (auto-fallback) ------------------------------
 
 _EX = "https://example.org/"
@@ -316,6 +325,30 @@ def test_key_present_llm_picks_typed_property_ranking(monkeypatch) -> None:
     # P4-2b provenance: property_ranking is a VERIFIED tool, not an escape.
     assert [v["name"] for v in body["verified_tools"]] == ["property_ranking"]
     assert body["unverified_sparql"] is False
+
+
+def test_ask_llm_excludes_run_sparql_when_exposure_off(monkeypatch) -> None:
+    """With raw SPARQL disabled, the Ask LLM is handed ONLY the typed tools."""
+    g = rdflib.ConjunctiveGraph()
+    g.parse(data=_TTL, format="turtle")
+    demo._state["client"] = _LocalClient(g)
+    monkeypatch.setattr(demo, "_REAL", True)
+    monkeypatch.setattr(demo, "_EXPOSE_RAW_SPARQL", False)
+    fake = _FakeAnthropic(
+        [
+            _block(content=[_block(type="tool_use", id="t1", name="submit_answer",
+                                   input={"answer": "型付きツールでは回答できません。",
+                                          "citations": []})]),
+        ]
+    )
+    monkeypatch.setitem(demo._state, "anthropic_factory", lambda _key: fake)
+    TestClient(demo.app).post(
+        "/demo/ask", json={"question": "結晶構造とZTの相関は？"},
+        headers={"X-API-Key": "sk-test"},
+    )
+    offered = {t["name"] for t in fake.calls[0]["tools"]}
+    assert "run_sparql" not in offered  # the raw escape is withheld
+    assert {"property_ranking", "sample_search"} <= offered  # typed tools remain
 
 
 def test_generic_question_falls_through_not_canned_samples(monkeypatch) -> None:
