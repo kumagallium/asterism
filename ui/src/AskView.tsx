@@ -13,8 +13,10 @@ const EXAMPLES = [
 ]
 
 // Shared with the workbench (same user-brought key, sessionStorage, never
-// persisted to disk). Typed questions need no key; the general/new-schema path
-// (LLM writes read-only SPARQL) does.
+// persisted to disk). Ask REQUIRES a key: the AI uses it to route the question to
+// the verified tools (it only picks the tool + args; the facts/citations come from
+// the deterministic tool, not the AI). For key-free deterministic tool execution,
+// use the catalog's ツール tab instead.
 const API_KEY_STORAGE = 'asterism.apiKey'
 
 /**
@@ -38,9 +40,15 @@ export function AskView({ onShowVocab }: { onShowVocab?: (className: string) => 
     else sessionStorage.removeItem(API_KEY_STORAGE)
   }
 
+  const keyMissing = !apiKey.trim() && !isMockMode
+
   async function run(q: string) {
     const query = q.trim()
     if (!query) return
+    if (keyMissing) {
+      setError('質問するには Anthropic API キーが必要です（下の欄に入力してください）。')
+      return
+    }
     setError('')
     setResult(null)
     setSelected(null)
@@ -58,8 +66,11 @@ export function AskView({ onShowVocab }: { onShowVocab?: (className: string) => 
     <div className="ask-view">
       <div className="ask-main">
         <p className="ask-intro">
-          自然言語で問うと、<strong>取り込み済みのデータ</strong>に基づく
-          <strong>根拠つきの回答</strong>と<strong>引用</strong>・<strong>出どころ（来歴）</strong>が返ります。
+          自然言語で問うと、AI が<strong>検証済みツール</strong>を選んで実行し、
+          <strong>取り込み済みのデータ</strong>に基づく<strong>根拠つきの回答</strong>と
+          <strong>引用</strong>・<strong>出どころ（来歴）</strong>を返します。数値・引用は
+          <strong>検証済みツール（固定クエリ）</strong>が生成するので再現可能です（AI はツール選択のみ）。
+          <strong>質問には API キーが必要です。</strong>
           {isMockMode && <span className="demo-badge">demo データ (mock)</span>}
         </p>
 
@@ -82,7 +93,11 @@ export function AskView({ onShowVocab }: { onShowVocab?: (className: string) => 
               }}
             />
           </div>
-          <button onClick={() => run(question)} disabled={loading || !question.trim()}>
+          <button
+            onClick={() => run(question)}
+            disabled={loading || !question.trim() || keyMissing}
+            title={keyMissing ? '先に API キーを入力してください' : undefined}
+          >
             {loading ? (
               <>
                 <span className="spinner" />
@@ -92,6 +107,27 @@ export function AskView({ onShowVocab }: { onShowVocab?: (className: string) => 
               '質問する'
             )}
           </button>
+        </section>
+
+        <section className={`ask-key-row${keyMissing ? ' ask-key-row--needed' : ''}`}>
+          <label className="ask-key-label" htmlFor="ask-key">
+            Anthropic API キー <span className="ask-key-required">必須</span>
+          </label>
+          <input
+            id="ask-key"
+            type="password"
+            className="ask-key-input"
+            value={apiKey}
+            placeholder="sk-ant-…"
+            autoComplete="off"
+            onChange={(e) => onApiKeyChange(e.target.value)}
+          />
+          <p className="ask-key-note">
+            質問の理解（どの検証済みツールを使うか）に AI を使うためキーが必要です。
+            数値・引用は<strong>検証済みツール</strong>が生成するので再現可能です（AI はツール選択のみ）。
+            キーはこのタブ内のみ保持し、保存しません（ワークベンチ・ツールと共通）。
+            <strong>キー無しで確定的にツールを実行</strong>したい場合は、カタログのデータセット詳細「ツール」タブからどうぞ。
+          </p>
         </section>
 
         <div className="ask-examples">
@@ -109,24 +145,6 @@ export function AskView({ onShowVocab }: { onShowVocab?: (className: string) => 
             </button>
           ))}
         </div>
-
-        <details className="ask-advanced">
-          <summary>詳細設定（一般的な質問用の API キー）</summary>
-          <p className="ask-advanced-hint">
-            定番の型付き質問（ZT・組成など）はキー不要です。
-            <strong>新しく設計したスキーマ</strong>への一般的な質問では、ここにキーを入れると
-            スキーマを内省して<strong>読み取り専用の SPARQL を生成</strong>し回答します。
-            キーはこのタブ内のみ保持し、保存しません（ワークベンチと共通）。
-          </p>
-          <input
-            type="password"
-            className="ask-key-input"
-            value={apiKey}
-            placeholder="sk-ant-…（任意）"
-            autoComplete="off"
-            onChange={(e) => onApiKeyChange(e.target.value)}
-          />
-        </details>
 
         {error && <pre className="error">{error}</pre>}
 

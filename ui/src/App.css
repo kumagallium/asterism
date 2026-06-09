@@ -1448,34 +1448,49 @@ textarea:focus {
 }
 
 /* ---- #18 Ask: optional API key (general/new-schema questions) ---- */
-.ask-advanced {
+/* Ask requires a key (the AI routes the question to verified tools). The key
+   field is always visible; the border turns amber while it is empty. */
+.ask-key-row {
   border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
   border-radius: var(--radius-sm);
   background: var(--surface-alt);
-  padding: 0.15rem 0.85rem;
+  padding: 0.6rem 0.85rem;
+  margin-top: 0.6rem;
 }
-.ask-advanced > summary {
-  cursor: pointer;
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: var(--muted);
-  padding: 0.5rem 0;
+.ask-key-row--needed {
+  border-left-color: var(--warn-fg);
+  background: var(--warn-bg);
 }
-.ask-advanced[open] > summary {
-  color: var(--fg);
-}
-.ask-advanced-hint {
+.ask-key-label {
+  display: block;
   font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--fg);
+  margin-bottom: 0.35rem;
+}
+.ask-key-required {
+  font-size: 0.66rem;
+  font-weight: 700;
+  color: var(--warn-fg);
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+  border-radius: 999px;
+  padding: 0.05rem 0.4rem;
+  margin-left: 0.3rem;
+}
+.ask-key-note {
+  font-size: 0.78rem;
   color: var(--muted);
   line-height: 1.6;
-  margin: 0.2rem 0 0.6rem;
+  margin: 0.1rem 0 0;
 }
 .ask-key-input {
   width: 100%;
   font-size: 0.9rem;
   font-family: var(--font-mono);
   padding: 0.5rem 0.7rem;
-  margin-bottom: 0.6rem;
+  margin-bottom: 0.5rem;
 }
 
 /* ---- #18 Ask: read-only SPARQL disclosure panel (escape path) ---- */
