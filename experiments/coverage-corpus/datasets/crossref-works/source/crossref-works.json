@@ -1,0 +1,1519 @@
+[
+ {
+  "DOI": "10.1007/978-3-658-17671-6_18-1",
+  "title": [
+   "Soziale Innovation"
+  ],
+  "author": [
+   {
+    "given": "Jürgen",
+    "family": "Howaldt",
+    "sequence": "first",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   },
+   {
+    "given": "Michael",
+    "family": "Schwarz",
+    "sequence": "additional",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   }
+  ],
+  "published": {
+   "date-parts": [
+    [
+     2018,
+     11,
+     3
+    ]
+   ]
+  },
+  "container-title": [
+   "Handbuch Innovationsforschung"
+  ],
+  "type": "book-chapter",
+  "is-referenced-by-count": 2
+ },
+ {
+  "DOI": "10.1007/978-3-031-23161-2_300726",
+  "title": [
+   "Loot Crates"
+  ],
+  "published": {
+   "date-parts": [
+    [
+     2024
+    ]
+   ]
+  },
+  "container-title": [
+   "Encyclopedia of Computer Graphics and Games"
+  ],
+  "type": "book-chapter",
+  "is-referenced-by-count": 0
+ },
+ {
+  "DOI": "10.1016/b978-0-08-102696-0.00020-8",
+  "title": [
+   "Sensor data analysis, reduction, and fusion for assessing and monitoring civil infrastructures"
+  ],
+  "author": [
+   {
+    "given": "D.",
+    "family": "Zonta",
+    "sequence": "first",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   }
+  ],
+  "published": {
+   "date-parts": [
+    [
+     2022
+    ]
+   ]
+  },
+  "container-title": [
+   "Sensor Technologies for Civil Infrastructures"
+  ],
+  "type": "book-chapter",
+  "is-referenced-by-count": 0
+ },
+ {
+  "DOI": "10.1007/978-3-031-28170-9_6",
+  "title": [
+   "The Fiscal Treatment of Family Size: A Further Look"
+  ],
+  "author": [
+   {
+    "given": "Alessandro",
+    "family": "Balestrino",
+    "sequence": "first",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   }
+  ],
+  "published": {
+   "date-parts": [
+    [
+     2023
+    ]
+   ]
+  },
+  "container-title": [
+   "Population Economics",
+   "The Economics of Family Taxation"
+  ],
+  "type": "book-chapter",
+  "is-referenced-by-count": 0
+ },
+ {
+  "DOI": "10.1007/978-981-16-8679-5_306",
+  "title": [
+   "Teaching Comparative Education in Cuba and the United States"
+  ],
+  "author": [
+   {
+    "given": "Mark",
+    "family": "Ginsburg",
+    "sequence": "first",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   },
+   {
+    "given": "Rosa Maria",
+    "family": "Massón Cruz",
+    "sequence": "additional",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   },
+   {
+    "given": "Emigdio",
+    "family": "Rodríguez Alfonso",
+    "sequence": "additional",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   },
+   {
+    "given": "Yuitana",
+    "family": "García Isaac",
+    "sequence": "additional",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   }
+  ],
+  "published": {
+   "date-parts": [
+    [
+     2022
+    ]
+   ]
+  },
+  "container-title": [
+   "Encyclopedia of Teacher Education"
+  ],
+  "type": "book-chapter",
+  "is-referenced-by-count": 0
+ },
+ {
+  "DOI": "10.1007/978-981-15-1636-8_42",
+  "title": [
+   "Mutagenic Effect of Chemicals on Certain Biochemical Parameters in Two Cultivars of Sunflower (Helianthus annuus L.)"
+  ],
+  "author": [
+   {
+    "given": "T.",
+    "family": "Padmavathi",
+    "sequence": "first",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   },
+   {
+    "given": "M.",
+    "family": "Uma Devi",
+    "sequence": "additional",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   },
+   {
+    "given": "B.",
+    "family": "Prathibha Devi",
+    "sequence": "additional",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   }
+  ],
+  "published": {
+   "date-parts": [
+    [
+     2020
+    ]
+   ]
+  },
+  "container-title": [
+   "Medicinal Plants: Biodiversity, Sustainable Utilization and Conservation"
+  ],
+  "type": "book-chapter",
+  "is-referenced-by-count": 0
+ },
+ {
+  "DOI": "10.1007/978-3-642-33832-8_41",
+  "title": [
+   "Disturbing Noise Identification and Sound Quality Research on Car Generator"
+  ],
+  "author": [
+   {
+    "given": "Yanfang",
+    "family": "Hou",
+    "sequence": "first",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   },
+   {
+    "given": "Guohua",
+    "family": "Han",
+    "sequence": "additional",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   },
+   {
+    "given": "Yaozhen",
+    "family": "Zhao",
+    "sequence": "additional",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   },
+   {
+    "given": "Xueying",
+    "family": "Xu",
+    "sequence": "additional",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   }
+  ],
+  "published": {
+   "date-parts": [
+    [
+     2012,
+     11,
+     7
+    ]
+   ]
+  },
+  "container-title": [
+   "Lecture Notes in Electrical Engineering",
+   "Proceedings of the FISITA 2012 World Automotive Congress"
+  ],
+  "type": "book-chapter",
+  "is-referenced-by-count": 0
+ },
+ {
+  "DOI": "10.1007/978-3-031-72371-1_11",
+  "title": [
+   "Brain Organoids and the Law"
+  ],
+  "author": [
+   {
+    "given": "Adithi",
+    "family": "Iyer",
+    "sequence": "first",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   }
+  ],
+  "published": {
+   "date-parts": [
+    [
+     2024
+    ]
+   ]
+  },
+  "container-title": [
+   "Collaborative Bioethics",
+   "Human Brain Organoids"
+  ],
+  "type": "book-chapter",
+  "is-referenced-by-count": 0
+ },
+ {
+  "DOI": "10.1007/978-3-319-18938-3",
+  "title": [
+   "Quantum Microscopy of Biological Systems"
+  ],
+  "author": [
+   {
+    "given": "Michael",
+    "family": "Taylor",
+    "sequence": "first",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   }
+  ],
+  "published": {
+   "date-parts": [
+    [
+     2015
+    ]
+   ]
+  },
+  "container-title": [
+   "Springer Theses"
+  ],
+  "type": "book",
+  "is-referenced-by-count": 13
+ },
+ {
+  "DOI": "10.1007/978-3-319-19932-0_5",
+  "title": [
+   "Horizontal Transfers and the New Model of TE-Driven Genome Evolution in Eukaryotes"
+  ],
+  "author": [
+   {
+    "given": "Moaine",
+    "family": "El Baidouri",
+    "sequence": "first",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   },
+   {
+    "given": "Olivier",
+    "family": "Panaud",
+    "sequence": "additional",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   }
+  ],
+  "published": {
+   "date-parts": [
+    [
+     2015
+    ]
+   ]
+  },
+  "container-title": [
+   "Evolutionary Biology: Biodiversification from Genotype to Phenotype"
+  ],
+  "type": "book-chapter",
+  "is-referenced-by-count": 1
+ },
+ {
+  "DOI": "10.34157/978-3-648-16750-2_3",
+  "title": [
+   "Gesetzliche Regelungen für Auszeiten"
+  ],
+  "author": [
+   {
+    "given": "Britta",
+    "family": "Redmann",
+    "sequence": "first",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   }
+  ],
+  "published": {
+   "date-parts": [
+    [
+     2023
+    ]
+   ]
+  },
+  "container-title": [
+   "Lebensphasenorientiertes Leadership"
+  ],
+  "type": "book-chapter",
+  "is-referenced-by-count": 0
+ },
+ {
+  "DOI": "10.1007/978-3-030-58292-0_20395",
+  "title": [
+   "Bingham, Hiram (1875–1956)"
+  ],
+  "published": {
+   "date-parts": [
+    [
+     2021
+    ]
+   ]
+  },
+  "container-title": [
+   "Encyclopedic Dictionary of Archaeology"
+  ],
+  "type": "book-chapter",
+  "is-referenced-by-count": 0
+ },
+ {
+  "DOI": "10.1007/978-3-476-05869-0_72",
+  "title": [
+   "Interkulturelles Zusammenleben"
+  ],
+  "author": [
+   {
+    "given": "Valentin",
+    "family": "Beck",
+    "sequence": "first",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   }
+  ],
+  "published": {
+   "date-parts": [
+    [
+     2023
+    ]
+   ]
+  },
+  "container-title": [
+   "Handbuch Angewandte Ethik"
+  ],
+  "type": "book-chapter",
+  "is-referenced-by-count": 0
+ },
+ {
+  "DOI": "10.1007/978-1-4842-7310-4_15",
+  "title": [
+   "Extensions"
+  ],
+  "author": [
+   {
+    "given": "Bauke",
+    "family": "Scholtz",
+    "sequence": "first",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   },
+   {
+    "given": "Arjan",
+    "family": "Tijms",
+    "sequence": "additional",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   }
+  ],
+  "published": {
+   "date-parts": [
+    [
+     2022
+    ]
+   ]
+  },
+  "container-title": [
+   "The Definitive Guide to Jakarta Faces in Jakarta EE 10"
+  ],
+  "type": "book-chapter",
+  "is-referenced-by-count": 0
+ },
+ {
+  "DOI": "10.1007/978-3-7091-0962-5_19",
+  "title": [
+   "Immune System"
+  ],
+  "author": [
+   {
+    "given": "Stefan",
+    "family": "Feske",
+    "sequence": "first",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   }
+  ],
+  "published": {
+   "date-parts": [
+    [
+     2011,
+     12,
+     10
+    ]
+   ]
+  },
+  "container-title": [
+   "Store-operated Ca2+ entry (SOCE) pathways"
+  ],
+  "type": "book-chapter",
+  "is-referenced-by-count": 0
+ },
+ {
+  "DOI": "10.1007/978-3-319-52090-2_300304",
+  "title": [
+   "PG Bag (Personal Gear Bag)"
+  ],
+  "published": {
+   "date-parts": [
+    [
+     2020
+    ]
+   ]
+  },
+  "container-title": [
+   "Encyclopedia of Wildfires and Wildland-Urban Interface (WUI) Fires"
+  ],
+  "type": "book-chapter",
+  "is-referenced-by-count": 0
+ },
+ {
+  "DOI": "10.1007/978-0-387-30160-0_1141",
+  "title": [
+   "Becke test"
+  ],
+  "published": {
+   "date-parts": [
+    [
+     2007
+    ]
+   ]
+  },
+  "container-title": [
+   "Encyclopedic Dictionary of Polymers"
+  ],
+  "type": "book-chapter",
+  "is-referenced-by-count": 0
+ },
+ {
+  "DOI": "10.1007/978-3-031-32152-8_30",
+  "title": [
+   "Elites"
+  ],
+  "author": [
+   {
+    "given": "Alejandro",
+    "family": "Pelfini",
+    "sequence": "first",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   }
+  ],
+  "published": {
+   "date-parts": [
+    [
+     2024
+    ]
+   ]
+  },
+  "container-title": [
+   "Global Handbook of Inequality"
+  ],
+  "type": "book-chapter",
+  "is-referenced-by-count": 0
+ },
+ {
+  "DOI": "10.1007/978-81-322-2752-6_56",
+  "title": [
+   "An Improved Content Based Medical Image Retrieval System Using Integrated Steerable Texture Components and User Interactive Feedback Method"
+  ],
+  "author": [
+   {
+    "given": "B.",
+    "family": "Jyothi",
+    "sequence": "first",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   },
+   {
+    "given": "Y.",
+    "family": "Madhavee Latha",
+    "sequence": "additional",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   },
+   {
+    "given": "P. G.",
+    "family": "Krishna Mohan",
+    "sequence": "additional",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   }
+  ],
+  "published": {
+   "date-parts": [
+    [
+     2016
+    ]
+   ]
+  },
+  "container-title": [
+   "Advances in Intelligent Systems and Computing",
+   "Information Systems Design and Intelligent Applications"
+  ],
+  "type": "book-chapter",
+  "is-referenced-by-count": 3
+ },
+ {
+  "DOI": "10.1007/978-3-030-05784-8_6",
+  "title": [
+   "Gorbachev’s “New Thinking”: A Proto-Liberal Program for the Soviet Union"
+  ],
+  "author": [
+   {
+    "given": "Svetlana",
+    "family": "Savranskaya",
+    "sequence": "first",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   }
+  ],
+  "published": {
+   "date-parts": [
+    [
+     2019
+    ]
+   ]
+  },
+  "container-title": [
+   "Philosophy and Politics - Critical Explorations",
+   "Dimensions and Challenges of Russian Liberalism"
+  ],
+  "type": "book-chapter",
+  "is-referenced-by-count": 0
+ },
+ {
+  "DOI": "10.1057/9780230244870_1",
+  "title": [
+   "Introduction: Medicine for the Sick Soul"
+  ],
+  "author": [
+   {
+    "given": "Sari",
+    "family": "Kivistö",
+    "sequence": "first",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   }
+  ],
+  "published": {
+   "date-parts": [
+    [
+     2009
+    ]
+   ]
+  },
+  "container-title": [
+   "Medical Analogy in Latin Satire"
+  ],
+  "type": "book-chapter",
+  "is-referenced-by-count": 0
+ },
+ {
+  "DOI": "10.1007/978-3-030-30192-7_2",
+  "title": [
+   "Geriatric Gastroenterology: A Gastroenterologist’s Perspective"
+  ],
+  "author": [
+   {
+    "given": "C. S.",
+    "family": "Pitchumoni",
+    "sequence": "first",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   }
+  ],
+  "published": {
+   "date-parts": [
+    [
+     2021
+    ]
+   ]
+  },
+  "container-title": [
+   "Geriatric Gastroenterology"
+  ],
+  "type": "book-chapter",
+  "is-referenced-by-count": 0
+ },
+ {
+  "DOI": "10.2991/978-94-6463-394-8_4",
+  "title": [
+   "The Influence of brand image, service quality, and perceived security on stakeholder loyalty: The moderating effect of stakeholder satisfaction"
+  ],
+  "author": [
+   {
+    "given": "Rachmad",
+    "family": "Erwanto",
+    "sequence": "first",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   },
+   {
+    "given": "Kumba",
+    "family": "Digdowiseso",
+    "sequence": "additional",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   }
+  ],
+  "published": {
+   "date-parts": [
+    [
+     2024
+    ]
+   ]
+  },
+  "container-title": [
+   "Advances in Economics, Business and Management Research",
+   "Proceedings of the International Conference on Business, Management, Accounting and Sustainable Economy (ICBMASE 2023)"
+  ],
+  "type": "book-chapter",
+  "is-referenced-by-count": 0
+ },
+ {
+  "DOI": "10.1007/978-981-10-4137-2_1",
+  "title": [
+   "Introduction"
+  ],
+  "author": [
+   {
+    "given": "Ali",
+    "family": "Alsamawi",
+    "sequence": "first",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   },
+   {
+    "given": "Darian",
+    "family": "McBain",
+    "sequence": "additional",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   },
+   {
+    "given": "Joy",
+    "family": "Murray",
+    "sequence": "additional",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   },
+   {
+    "given": "Manfred",
+    "family": "Lenzen",
+    "sequence": "additional",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   },
+   {
+    "given": "Kirsten S.",
+    "family": "Wiebe",
+    "sequence": "additional",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   }
+  ],
+  "published": {
+   "date-parts": [
+    [
+     2017
+    ]
+   ]
+  },
+  "container-title": [
+   "Environmental Footprints and Eco-design of Products and Processes",
+   "The Social Footprints of Global Trade"
+  ],
+  "type": "book-chapter",
+  "is-referenced-by-count": 0
+ },
+ {
+  "DOI": "10.1017/cbo9781139168588.019",
+  "title": [
+   "Accident compensation in the twenty-first century"
+  ],
+  "published": {
+   "date-parts": [
+    [
+     2006,
+     10,
+     26
+    ]
+   ]
+  },
+  "container-title": [
+   "Atiyah's Accidents, Compensation and the Law"
+  ],
+  "type": "book-chapter",
+  "is-referenced-by-count": 0
+ },
+ {
+  "DOI": "10.2991/978-2-494069-89-3_232",
+  "title": [
+   "Status Analysis of Efforts to Improve Teachers Well-Being"
+  ],
+  "author": [
+   {
+    "given": "Kexin",
+    "family": "Han",
+    "sequence": "first",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   }
+  ],
+  "published": {
+   "date-parts": [
+    [
+     2022
+    ]
+   ]
+  },
+  "container-title": [
+   "Advances in Social Science, Education and Humanities Research",
+   "Proceedings of the 2022 5th International Conference on Humanities Education and Social Sciences (ICHESS 2022)"
+  ],
+  "type": "book-chapter",
+  "is-referenced-by-count": 0
+ },
+ {
+  "DOI": "10.2991/978-94-6463-284-2_71",
+  "title": [
+   "Study of Thickness Effect on Freeze-Valve Scheme for Molten Salt Reactor Safety System"
+  ],
+  "author": [
+   {
+    "given": "Asril Pramutadi Andi",
+    "family": "Mustari",
+    "sequence": "first",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   },
+   {
+    "given": "Virgo",
+    "family": "Eben",
+    "sequence": "additional",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   }
+  ],
+  "published": {
+   "date-parts": [
+    [
+     2023
+    ]
+   ]
+  },
+  "container-title": [
+   "Advances in Engineering Research",
+   "Proceedings of the 4th Borobudur International Symposium on Science and Technology 2022 (BIS-STE 2022)"
+  ],
+  "type": "book-chapter",
+  "is-referenced-by-count": 0
+ },
+ {
+  "DOI": "10.1007/978-981-19-5815-1_13",
+  "title": [
+   "Eisaku Sato: Nichtnukleare Politik, atomwaffenfreies Okinawa und der Friedenspreis"
+  ],
+  "author": [
+   {
+    "given": "Daisuke",
+    "family": "Akimoto",
+    "sequence": "first",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   }
+  ],
+  "published": {
+   "date-parts": [
+    [
+     2023
+    ]
+   ]
+  },
+  "container-title": [
+   "Die japanischen Premierminister und ihre Friedensphilosophie"
+  ],
+  "type": "book-chapter",
+  "is-referenced-by-count": 0
+ },
+ {
+  "DOI": "10.1057/9781137363473_6",
+  "title": [
+   "Forces Present"
+  ],
+  "author": [
+   {
+    "given": "Marion F.",
+    "family": "Godfroy",
+    "sequence": "first",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   }
+  ],
+  "published": {
+   "date-parts": [
+    [
+     2015
+    ]
+   ]
+  },
+  "container-title": [
+   "Kourou and the Struggle for a French America"
+  ],
+  "type": "book-chapter",
+  "is-referenced-by-count": 0
+ },
+ {
+  "DOI": "10.1007/978-3-030-29061-0_16",
+  "title": [
+   "The Major Rivers and the Genesis of the Recent Area of Ticks Ixodes persulcatus in Western Siberia"
+  ],
+  "author": [
+   {
+    "given": "Valerie V.",
+    "family": "Yakimenko",
+    "sequence": "first",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   }
+  ],
+  "published": {
+   "date-parts": [
+    [
+     2019
+    ]
+   ]
+  },
+  "container-title": [
+   "Parasitology Research Monographs",
+   "Parasite and Disease Spread by Major Rivers on Earth"
+  ],
+  "type": "book-chapter",
+  "is-referenced-by-count": 0
+ },
+ {
+  "DOI": "10.1007/978-3-030-49932-7_13",
+  "title": [
+   "Predictive Modeling Concerning Mobile Learning Advance"
+  ],
+  "author": [
+   {
+    "given": "Malinka",
+    "family": "Ivanova",
+    "sequence": "first",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   }
+  ],
+  "published": {
+   "date-parts": [
+    [
+     2020,
+     9,
+     10
+    ]
+   ]
+  },
+  "container-title": [
+   "Advances in Intelligent Systems and Computing",
+   "Internet of Things, Infrastructures and Mobile Applications"
+  ],
+  "type": "book-chapter",
+  "is-referenced-by-count": 0
+ },
+ {
+  "DOI": "10.1007/978-1-4471-2819-9_4",
+  "title": [
+   "Product Development Process Comparison within Automotive Supply Chain"
+  ],
+  "author": [
+   {
+    "given": "Carlos Alberto",
+    "family": "Costa",
+    "sequence": "first",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   },
+   {
+    "given": "Marcos A.",
+    "family": "Luciano",
+    "sequence": "additional",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   },
+   {
+    "given": "Gabriel S.",
+    "family": "Milan",
+    "sequence": "additional",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   },
+   {
+    "given": "Esequiel Berra",
+    "family": "de Mello",
+    "sequence": "additional",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   }
+  ],
+  "published": {
+   "date-parts": [
+    [
+     2012
+    ]
+   ]
+  },
+  "container-title": [
+   "Proceedings of the I-ESA Conferences",
+   "Enterprise Interoperability V"
+  ],
+  "type": "book-chapter",
+  "is-referenced-by-count": 0
+ },
+ {
+  "DOI": "10.1007/978-1-4614-5091-7_5",
+  "title": [
+   "Laboratory Measurement of Optical Properties of LEDs"
+  ],
+  "author": [
+   {
+    "given": "János",
+    "family": "Schanda",
+    "sequence": "first",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   },
+   {
+    "given": "Péter",
+    "family": "Csuti",
+    "sequence": "additional",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   },
+   {
+    "given": "Ferenc",
+    "family": "Szabó",
+    "sequence": "additional",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   }
+  ],
+  "published": {
+   "date-parts": [
+    [
+     2013,
+     9,
+     17
+    ]
+   ]
+  },
+  "container-title": [
+   "Solid State Lighting Technology and Application Series",
+   "Thermal Management for LED Applications"
+  ],
+  "type": "book-chapter",
+  "is-referenced-by-count": 2
+ },
+ {
+  "DOI": "10.1017/9781108261166.007",
+  "title": [
+   "1917: The Third Wave"
+  ],
+  "published": {
+   "date-parts": [
+    [
+     2018,
+     11,
+     22
+    ]
+   ]
+  },
+  "container-title": [
+   "Contagion and War"
+  ],
+  "type": "book-chapter",
+  "is-referenced-by-count": 0
+ },
+ {
+  "DOI": "10.1007/978-1-4614-1812-2_5",
+  "title": [
+   "Cu-Dielectric Interfaces"
+  ],
+  "author": [
+   {
+    "given": "Ming",
+    "family": "He",
+    "sequence": "first",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   },
+   {
+    "given": "Toh-Ming",
+    "family": "Lu",
+    "sequence": "additional",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   }
+  ],
+  "published": {
+   "date-parts": [
+    [
+     2011,
+     11,
+     29
+    ]
+   ]
+  },
+  "container-title": [
+   "Springer Series in Materials Science",
+   "Metal-Dielectric Interfaces in Gigascale Electronics"
+  ],
+  "type": "book-chapter",
+  "is-referenced-by-count": 0
+ },
+ {
+  "DOI": "10.1007/978-3-662-54089-3_1372",
+  "title": [
+   "Diffusion coefficient of iodo-methane in toluene at infinite dilution"
+  ],
+  "author": [
+   {
+    "given": "Jochen",
+    "family": "Winkelmann",
+    "sequence": "first",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   }
+  ],
+  "published": {
+   "date-parts": [
+    [
+     2018
+    ]
+   ]
+  },
+  "container-title": [
+   "Diffusion in Gases, Liquids and Electrolytes"
+  ],
+  "type": "book-chapter",
+  "is-referenced-by-count": 0
+ },
+ {
+  "DOI": "10.1007/978-1-4842-9066-8_3",
+  "title": [
+   "The Real World of Digital Transformation"
+  ],
+  "author": [
+   {
+    "given": "Jeroen",
+    "family": "Mulder",
+    "sequence": "first",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   }
+  ],
+  "published": {
+   "date-parts": [
+    [
+     2023
+    ]
+   ]
+  },
+  "container-title": [
+   "Modern Enterprise Architecture"
+  ],
+  "type": "book-chapter",
+  "is-referenced-by-count": 1
+ },
+ {
+  "DOI": "10.1017/9781108989831.016",
+  "title": [
+   "The Treatment of Obesity in Polycystic Ovary Syndrome"
+  ],
+  "author": [
+   {
+    "given": "Harry",
+    "family": "Frydenberg",
+    "sequence": "first",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   }
+  ],
+  "published": {
+   "date-parts": [
+    [
+     2022,
+     6,
+     2
+    ]
+   ]
+  },
+  "container-title": [
+   "Polycystic Ovary Syndrome"
+  ],
+  "type": "book-chapter",
+  "is-referenced-by-count": 0
+ },
+ {
+  "DOI": "10.1017/cbo9780511518263.011",
+  "title": [
+   "Making a Space for Women"
+  ],
+  "published": {
+   "date-parts": [
+    [
+     1992,
+     8,
+     28
+    ]
+   ]
+  },
+  "container-title": [
+   "Australian Women in Papua New Guinea"
+  ],
+  "type": "book-chapter",
+  "is-referenced-by-count": 0
+ },
+ {
+  "DOI": "10.1007/978-3-662-62091-5_1",
+  "title": [
+   "Bevor es los geht: Einwände prüfen"
+  ],
+  "author": [
+   {
+    "given": "Susanna",
+    "family": "Hartmann-Strauss",
+    "sequence": "first",
+    "affiliation": [],
+    "role": [
+     {
+      "role": "author",
+      "vocabulary": "crossref"
+     }
+    ]
+   }
+  ],
+  "published": {
+   "date-parts": [
+    [
+     2020
+    ]
+   ]
+  },
+  "container-title": [
+   "Psychotherapie: Praxis",
+   "Videotherapie und Videosupervision"
+  ],
+  "type": "book-chapter",
+  "is-referenced-by-count": 0
+ }
+]
