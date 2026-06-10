@@ -1,14 +1,17 @@
 # Scholarly works (Crossref) schema
 
-> Authored by the subscription Claude Code agent acting as `propose.SYSTEM_PROMPT`.
+> Authored by the subscription Claude Code agent acting as `propose.SYSTEM_PROMPT`
+> (no Anthropic API call). Only the §9 RML block is consumed by the coverage
+> analyzer; the surrounding sections are abbreviated.
 
 ### 2. IRI scheme (abbrev.)
 
-- Work IRI: `sdr:work/{DOI}` (DOI is 100% unique; used verbatim as the key).
-- `title` / `container-title` are single-element JSON arrays; `author` is a
-  multi-valued array of objects; `published.date-parts` is a nested array.
-  None has a vetted Tier 0 function (no array-of-object expander, no
-  date-parts parser), so each uses the `…Raw` fallback.
+- `sd:` = ontology, `sdr:` = resource. Work IRI: `sdr:work/{DOI}` (DOI is 100% unique).
+- `DOI` (`10.xxxx/...`) → `fn:doi_norm` (bare lowercase form).
+- `published.date-parts` is a nested date-parts array (`[[2018, 11, 3]]`); the
+  honest scalar we can compute is the 4-digit year → `fn:year_only` (xsd:gYear).
+- `title` / `container-title` are JSON arrays and `author` is a multi-valued
+  array of objects; no vetted Tier 0 expander exists, so each uses `…Raw`.
 
 ### 9. RML declarative mapping
 
@@ -28,21 +31,33 @@
                       rml:iterator "$[*]" ] ;
   rr:subjectMap [ rr:template "https://kumagallium.github.io/asterism/resource/work/{DOI}" ;
                   rr:class sd:Work ] ;
+  # DOI — normalize to bare lowercase form
   rr:predicateObjectMap [ rr:predicate sd:doi ;
-    rr:objectMap [ rml:reference "DOI" ] ] ;
+    rr:objectMap [
+      rmlf:functionExecution [
+        rmlf:function fn:doi_norm ;
+        rmlf:input [ rmlf:parameter fn:p_value ;
+                     rmlf:inputValueMap [ rml:reference "DOI" ] ] ] ] ] ;
+  # type — clean enum string; direct
   rr:predicateObjectMap [ rr:predicate sd:type ;
     rr:objectMap [ rml:reference "type" ] ] ;
+  # is-referenced-by-count — clean integer; direct
   rr:predicateObjectMap [ rr:predicate sd:citationCount ;
     rr:objectMap [ rml:reference "is-referenced-by-count" ; rr:datatype xsd:integer ] ] ;
+  # published.date-parts — nested date-parts array; extract 4-digit year
+  rr:predicateObjectMap [ rr:predicate sd:publishedYear ;
+    rr:objectMap [
+      rmlf:functionExecution [
+        rmlf:function fn:year_only ;
+        rmlf:input [ rmlf:parameter fn:p_value ;
+                     rmlf:inputValueMap [ rml:reference "published.date-parts" ] ] ] ;
+      rr:datatype xsd:gYear ] ] ;
   # fallback: title not expanded (JSON array)
   rr:predicateObjectMap [ rr:predicate sd:titleRaw ;
     rr:objectMap [ rml:reference "title" ] ] ;
   # fallback: author not expanded (multi-valued JSON array of objects)
   rr:predicateObjectMap [ rr:predicate sd:authorRaw ;
     rr:objectMap [ rml:reference "author" ] ] ;
-  # fallback: published.date-parts not expanded (nested JSON array)
-  rr:predicateObjectMap [ rr:predicate sd:publishedDatePartsRaw ;
-    rr:objectMap [ rml:reference "published.date-parts" ] ] ;
   # fallback: container-title not expanded (JSON array)
   rr:predicateObjectMap [ rr:predicate sd:containerTitleRaw ;
     rr:objectMap [ rml:reference "container-title" ] ] .

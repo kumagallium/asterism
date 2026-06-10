@@ -1,7 +1,12 @@
-# US airports schema
+# Airports schema
 
 > Authored by the subscription Claude Code agent acting as `propose.SYSTEM_PROMPT`
-> (no Anthropic API call). `iata` is the natural key; coordinates map directly as doubles.
+> (no Anthropic API call). Only the §9 RML block is consumed by the coverage
+> analyzer; the surrounding sections are abbreviated.
+
+### 2. IRI scheme (abbrev.)
+
+- `sd:` = ontology, `sdr:` = resource. Airport IRI: `sdr:airport/{iata}`.
 
 ### 9. RML declarative mapping
 
@@ -15,21 +20,55 @@
 @prefix sd:   <https://kumagallium.github.io/asterism/ontology/> .
 @prefix sdr:  <https://kumagallium.github.io/asterism/resource/> .
 
-<#Map> a rr:TriplesMap ;
-  rml:logicalSource [ rml:source "airports.csv" ; rml:referenceFormulation ql:CSV ] ;
-  rr:subjectMap [ rr:template "https://kumagallium.github.io/asterism/resource/airport/{iata}" ; rr:class sd:Airport ] ;
-  rr:predicateObjectMap [ rr:predicate sd:iataCode ;
-    rr:objectMap [ rml:reference "iata" ] ] ;
-  rr:predicateObjectMap [ rr:predicate sd:name ;
-    rr:objectMap [ rml:reference "name" ] ] ;
-  rr:predicateObjectMap [ rr:predicate sd:city ;
-    rr:objectMap [ rml:reference "city" ] ] ;
-  rr:predicateObjectMap [ rr:predicate sd:state ;
-    rr:objectMap [ rml:reference "state" ] ] ;
-  rr:predicateObjectMap [ rr:predicate sd:country ;
-    rr:objectMap [ rml:reference "country" ] ] ;
-  rr:predicateObjectMap [ rr:predicate sd:latitude ;
-    rr:objectMap [ rml:reference "latitude" ; rr:datatype xsd:double ] ] ;
-  rr:predicateObjectMap [ rr:predicate sd:longitude ;
-    rr:objectMap [ rml:reference "longitude" ; rr:datatype xsd:double ] ] .
+<#AirportMap>
+  a rr:TriplesMap ;
+  rml:logicalSource [
+    rml:source "airports.csv" ;
+    rml:referenceFormulation ql:CSV
+  ] ;
+  rr:subjectMap [
+    rr:template "https://kumagallium.github.io/asterism/resource/airport/{iata}" ;
+    rr:class sd:Airport
+  ] ;
+  rr:predicateObjectMap [
+    rr:predicate sd:iataCode ;
+    rr:objectMap [ rml:reference "iata" ]
+  ] ;
+  rr:predicateObjectMap [
+    rr:predicate sd:name ;
+    rr:objectMap [ rml:reference "name" ]
+  ] ;
+  rr:predicateObjectMap [
+    rr:predicate sd:city ;
+    rr:objectMap [ rml:reference "city" ]
+  ] ;
+  rr:predicateObjectMap [
+    rr:predicate sd:state ;
+    rr:objectMap [ rml:reference "state" ]
+  ] ;
+  rr:predicateObjectMap [
+    rr:predicate sd:country ;
+    rr:objectMap [
+      rmlf:functionExecution [
+        rmlf:function fn:lookup ;
+        rmlf:input [
+          rmlf:parameter fn:p_value ;
+          rmlf:inputValueMap [ rml:reference "country" ]
+        ] ;
+        rmlf:input [
+          rmlf:parameter fn:p_table ;
+          rmlf:inputValueMap [ rmlf:constant "country_iso3166" ]
+        ]
+      ] ;
+      rr:datatype xsd:string
+    ]
+  ] ;
+  rr:predicateObjectMap [
+    rr:predicate sd:latitude ;
+    rr:objectMap [ rml:reference "latitude" ; rr:datatype xsd:double ]
+  ] ;
+  rr:predicateObjectMap [
+    rr:predicate sd:longitude ;
+    rr:objectMap [ rml:reference "longitude" ; rr:datatype xsd:double ]
+  ] .
 ```
