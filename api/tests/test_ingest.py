@@ -756,3 +756,159 @@ def test_delete_unknown_dataset_404(tmp_path: Path) -> None:
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
     with TestClient(app) as client:
         assert client.delete("/api/datasets/nope-00000000").status_code == 404
+
+
+# ---- incremental append: grow a live feed (ADR incremental-ingest.md) --------
+
+
+class _FeedOxi:
+    """Oxigraph fake for append: records /store POSTs and answers the liveGraph
+    SELECT with a fixed pointer, so the append resolves and targets the live graph."""
+
+    def __init__(self, live_graph: str) -> None:
+        self.stores: list[str | None] = []
+        self._live = live_graph
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/store":
+                self.stores.append(request.url.params.get("graph"))
+                return httpx.Response(204)
+            if request.url.path == "/update":
+                return httpx.Response(204)
+            q = request.content.decode()
+            rows = (
+                [{"o": {"type": "uri", "value": self._live}}] if "liveGraph" in q else []
+            )
+            return httpx.Response(
+                200,
+                text=json.dumps({"results": {"bindings": rows}}),
+                headers={"content-type": "application/sparql-results+json"},
+            )
+
+        inner = httpx.AsyncClient(
+            transport=httpx.MockTransport(handler), base_url="http://test"
+        )
+        self.client = OxigraphClient(OxigraphConfig(base_url="http://test"), client=inner)
+
+
+def _promoted_feed_dataset(tmp: Path) -> tuple[str, str]:
+    """A dataset ingested + promoted (a live feed to append to). Returns (id, live_graph).
+
+    Its design-time source (papers.csv) is persisted so the append can accumulate the
+    batch into it (the snapshot-reproducibility path, A7).
+    """
+    dataset_id = _save_dataset_with_rml(tmp)
+    live = substrate.versioned_graph_iri(dataset_id, 1)
+    sdir = tmp / "registry" / dataset_id / "source"
+    sdir.mkdir(parents=True, exist_ok=True)
+    (sdir / "papers.csv").write_bytes(b"SID\n1\n")
+    registry.mark_source_saved(tmp / "registry", dataset_id, ["papers.csv"])
+    registry.mark_ingested(
+        tmp / "registry",
+        dataset_id,
+        graph_iri=live,
+        triple_count=1,
+        ingested_at="2026-06-10T00:00:00+00:00",
+        data_seq=1,
+    )
+    registry.mark_promoted(
+        tmp / "registry",
+        dataset_id,
+        triples_promoted=1,
+        alignment={},
+        promoted_at="2026-06-10T00:01:00+00:00",
+        canonical_graph=substrate.canonical_graph_iri(dataset_id),
+        live_graph=live,
+    )
+    return dataset_id, live
+
+
+def test_append_grows_live_feed_and_records_meta(tmp_path: Path, monkeypatch) -> None:
+    dataset_id, live = _promoted_feed_dataset(tmp_path)
+    monkeypatch.setattr(substrate, "materialize_to_nt_file", _fake_nt_materializer(triples=2))
+    oxi = _FeedOxi(live)
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app) as client:
+        r = client.post(
+            f"/api/datasets/{dataset_id}/append",
+            files={"files": ("papers.csv", b"SID\n2\n3\n", "text/csv")},
+        )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    # The batch was POST-merged into the LIVE graph — not a new version graph.
+    assert body["live_graph"] == live
+    assert live in oxi.stores
+    assert substrate.versioned_graph_iri(dataset_id, 2) not in oxi.stores
+    assert body["triples_in_batch"] == 2
+    assert body["append_seq"] == 1
+    assert body["crosswalk_stale"] is True
+    meta = body["dataset"]
+    assert meta["feed"] is True
+    assert meta["append_seq"] == 1
+    assert meta["appends"][0]["seq"] == 1
+    assert meta["appends"][0]["triples_in_batch"] == 2
+    assert meta["appends"][0]["batch_files"] == ["papers.csv"]
+    # triple_count advances by the batch (1 promoted + 2 appended); promoted untouched.
+    assert meta["triple_count"] == 3
+    assert meta["promoted"] is True
+    # The batch was accumulated into the persisted source (header deduped) so a later
+    # snapshot re-ingest reproduces the whole feed.
+    src = (tmp_path / "registry" / dataset_id / "source" / "papers.csv").read_text()
+    assert src.splitlines() == ["SID", "1", "2", "3"]
+
+
+def test_append_second_batch_bumps_seq(tmp_path: Path, monkeypatch) -> None:
+    dataset_id, live = _promoted_feed_dataset(tmp_path)
+    monkeypatch.setattr(substrate, "materialize_to_nt_file", _fake_nt_materializer(triples=1))
+    oxi = _FeedOxi(live)
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app) as client:
+        b1 = client.post(
+            f"/api/datasets/{dataset_id}/append",
+            files={"files": ("papers.csv", b"SID\n2\n", "text/csv")},
+        ).json()
+        b2 = client.post(
+            f"/api/datasets/{dataset_id}/append",
+            files={"files": ("papers.csv", b"SID\n3\n", "text/csv")},
+        ).json()
+    assert b1["append_seq"] == 1
+    assert b2["append_seq"] == 2
+    assert [a["seq"] for a in b2["dataset"]["appends"]] == [1, 2]
+    assert b2["dataset"]["triple_count"] == 3  # 1 promoted + 1 + 1
+
+
+def test_append_requires_promoted_409(tmp_path: Path) -> None:
+    dataset_id = _save_dataset_with_rml(tmp_path)  # designed, never promoted
+    oxi = _RecordingOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app) as client:
+        r = client.post(
+            f"/api/datasets/{dataset_id}/append",
+            files={"files": ("papers.csv", b"SID\n2\n", "text/csv")},
+        )
+    assert r.status_code == 409
+    assert "live canonical graph" in r.json()["detail"]
+
+
+def test_append_rejects_mismatched_batch_name_400(tmp_path: Path) -> None:
+    dataset_id, live = _promoted_feed_dataset(tmp_path)
+    oxi = _FeedOxi(live)
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app) as client:
+        r = client.post(
+            f"/api/datasets/{dataset_id}/append",
+            files={"files": ("other.csv", b"X\n1\n", "text/csv")},
+        )
+    assert r.status_code == 400
+    assert "does not match any rml:source" in r.json()["detail"]
+
+
+def test_append_unknown_dataset_404(tmp_path: Path) -> None:
+    oxi = _RecordingOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app) as client:
+        r = client.post(
+            "/api/datasets/nope-00000000/append",
+            files={"files": ("papers.csv", b"SID\n2\n", "text/csv")},
+        )
+    assert r.status_code == 404

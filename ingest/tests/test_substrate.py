@@ -29,6 +29,8 @@ from asterism.substrate import (
     materialize_to_graph,
     materialize_to_nt_file,
     ontology_graph_iri,
+    rml_source_names,
+    run_append_ingest,
     run_substrate_ingest,
     stream_nt_file_to_oxigraph,
     versioned_graph_iri,
@@ -363,6 +365,111 @@ def test_materialize_with_multivalue_functions(tmp_path: Path) -> None:
     assert ("https://ex/r/1", "https://ex/tag", "us") in triples
     tags = {o for s, p, o in triples if p == "https://ex/tag"}
     assert tags == {"ci", "us"}
+
+
+# ---- incremental append (ADR incremental-ingest.md) -------------------------
+
+
+def test_rml_source_names_extracts_basenames() -> None:
+    rml = (
+        'rml:source "papers.csv" ;\n'
+        'rml:source "/abs/path/samples.csv" ;\n'
+        'rml:source "sub/dir/curves.json"'
+    )
+    assert rml_source_names(rml) == {"papers.csv", "samples.csv", "curves.json"}
+    assert rml_source_names("no sources here") == set()
+
+
+class _NTStore:
+    """A minimal Graph Store with real set semantics: ``post_turtle_bytes`` parses
+    the payload (N-Triples is a Turtle subset) into the named graph of an rdflib
+    Dataset, so re-posting an identical triple is deduped — exactly Oxigraph's
+    Graph Store POST-merge behaviour the append path relies on for idempotency.
+    """
+
+    def __init__(self) -> None:
+        self.ds = rdflib.Dataset()
+
+    async def post_turtle_bytes(self, payload: bytes, graph_iri: str | None = None) -> int:
+        g = self.ds.graph(rdflib.URIRef(graph_iri)) if graph_iri else self.ds.default_context
+        g.parse(data=payload, format="turtle")
+        return len(payload)
+
+    def count(self, graph_iri: str) -> int:
+        return len(self.ds.graph(rdflib.URIRef(graph_iri)))
+
+
+async def test_run_append_ingest_merges_idempotently(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Appending the SAME materialized batch twice does not grow the graph: the
+    Graph Store POST merges with set semantics, so deterministic IRIs dedupe (a
+    device re-emitting an already-ingested row). A fixed materializer stands in for
+    deterministic IRIs, so this runs without morph-kgc."""
+    nt = b'<https://ex/r/3> <https://ex/name> "c" .\n'
+
+    def _fixed_materialize(rml_ttl, csv_dir, *, udfs_path=None, work_dir=None):
+        out = Path(work_dir) / "out.nt"
+        out.write_bytes(nt)
+        return out
+
+    monkeypatch.setattr("asterism.substrate.materialize_to_nt_file", _fixed_materialize)
+    store = _NTStore()
+    live = "https://kumagallium.github.io/asterism/graph/canonical/feed/v1"
+
+    r1 = await run_append_ingest("<rml>", tmp_path, store, live)
+    assert r1 == {"graph_iri": live, "triples_in_batch": 1}
+    assert store.count(live) == 1
+    # Re-append the identical batch -> POST-merge dedupes -> no growth (idempotent).
+    await run_append_ingest("<rml>", tmp_path, store, live)
+    assert store.count(live) == 1
+
+
+async def test_run_append_ingest_real_morph_kgc_grows_and_dedupes(tmp_path: Path) -> None:
+    """End-to-end with real Morph-KGC + a set-semantics store: a base materialize then
+    an append of NEW rows grows the live graph, while re-appending the SAME batch is a
+    no-op (deterministic key→IRI templates make re-emitted rows dedupe). Existing rows
+    are never touched. Gated on the optional morph-kgc extra."""
+    if not _morph_kgc_installed():
+        pytest.skip("morph-kgc not installed; this exercises the real append path")
+    rml = """
+@prefix rr:   <http://www.w3.org/ns/r2rml#> .
+@prefix rml:  <http://semweb.mmlab.be/ns/rml#> .
+@prefix ql:   <http://semweb.mmlab.be/ns/ql#> .
+@prefix ex:   <https://ex/> .
+<#M> a rr:TriplesMap ;
+  rml:logicalSource [ rml:source "d.csv" ; rml:referenceFormulation ql:CSV ] ;
+  rr:subjectMap [ rr:template "https://ex/r/{id}" ] ;
+  rr:predicateObjectMap [ rr:predicate ex:name ; rr:objectMap [ rml:reference "name" ] ] .
+"""
+    base = tmp_path / "base"
+    base.mkdir()
+    (base / "d.csv").write_text("id,name\n1,a\n2,b\n", encoding="utf-8")
+    batch = tmp_path / "batch"
+    batch.mkdir()
+    (batch / "d.csv").write_text("id,name\n3,c\n", encoding="utf-8")  # ONLY the new row
+
+    store = _NTStore()
+    live = "https://kumagallium.github.io/asterism/graph/canonical/feed/v1"
+
+    await run_append_ingest(rml, base, store, live)
+    n_base = store.count(live)
+    assert n_base == 2  # rows 1, 2
+
+    appended = await run_append_ingest(rml, batch, store, live)
+    assert appended["triples_in_batch"] == 1  # only the new row materialized (O(new))
+    assert store.count(live) == 3  # the live graph grew by exactly the new row
+
+    # The base triples are untouched (their IRIs are stable, append only adds).
+    g = store.ds.graph(rdflib.URIRef(live))
+    assert (
+        rdflib.URIRef("https://ex/r/1"),
+        rdflib.URIRef("https://ex/name"),
+        rdflib.Literal("a"),
+    ) in g
+    # Re-append the identical batch -> idempotent (deterministic IRI dedupes).
+    await run_append_ingest(rml, batch, store, live)
+    assert store.count(live) == 3
 
 
 # ---- streaming N-Triples load (scalable path) -------------------------------

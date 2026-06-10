@@ -20,6 +20,7 @@ dependency — install with ``pip install 'asterism-ingest[substrate]'``.
 """
 from __future__ import annotations
 
+import asyncio
 import re
 import subprocess
 import sys
@@ -166,6 +167,18 @@ def normalize_fno_namespace(rml_ttl: str) -> str:
     No-op for RML already written against ``http://w3id.org/rml/``.
     """
     return rml_ttl.replace(_FNO_OLD_NS, _FNO_NEW_NS)
+
+
+def rml_source_names(rml_ttl: str) -> set[str]:
+    """Basenames of every ``rml:source "..."`` declared in the mapping.
+
+    The incremental append path materializes a *batch* directory holding only the new
+    rows; this lets the caller check that a batch file's name matches a source the RML
+    actually reads, so a mis-named batch fails loudly instead of silently materializing
+    0 triples. Basenames, so a relative or absolute ``rml:source`` both match an
+    uploaded batch file name.
+    """
+    return {Path(m.group(2)).name for m in _RML_SOURCE.finditer(rml_ttl)}
 
 
 def materialize_to_graph(
@@ -365,6 +378,55 @@ async def run_substrate_ingest(
     graph = materialize_to_graph(rml_ttl, csv_dir, udfs_path=udfs_path)
     triple_count = await ingest_graph_to_oxigraph(graph, client, graph_iri)
     return {"graph_iri": graph_iri, "triple_count": triple_count}
+
+
+# ----------------------------------------------------------------------------
+# Incremental append (ADR incremental-ingest.md) — grow a live feed in place
+# ----------------------------------------------------------------------------
+#
+# Snapshot ingest re-materializes the whole source set into a fresh version graph
+# (O(total)). For a device that emits CSV continuously, that is quadratic. The
+# append path materializes ONLY the new batch (O(new rows)) and POST-merges it into
+# the dataset's *already-live* canonical graph, so re-emitted rows dedupe by their
+# deterministic IRIs (set semantics) and existing triples/IRIs are untouched. The
+# trust model is unchanged: same Morph-KGC + Tier 0 substrate (no generated code),
+# and the append is a Graph Store POST (the ingest write path), never a SPARQL
+# UPDATE, so the read-only escape stays read-only.
+
+
+async def run_append_ingest(
+    rml_ttl: str,
+    csv_dir: Path | str,
+    client: SupportsTurtlePost,
+    graph_iri: str,
+    *,
+    udfs_path: Path | str | None = None,
+    work_dir: Path | str | None = None,
+    chunk_lines: int = DEFAULT_CHUNK_LINES,
+    on_progress: Callable[[int, int], None] | None = None,
+) -> dict[str, object]:
+    """Append one batch's materialized triples into an existing graph (incremental).
+
+    ``csv_dir`` holds *only* the new batch's source (the new rows), so materialize is
+    O(new). The N-Triples are POST-merged into ``graph_iri`` — the dataset's live
+    canonical graph the caller resolved, NOT a draft graph: append grows a citable
+    feed in place because the human gate was given when the dataset was first promoted
+    (ADR §A6). This is the shared seam for ``POST /api/datasets/{id}/append`` and a
+    future per-dataset watcher. The blocking Morph-KGC subprocess runs off the event
+    loop. Returns ``{"graph_iri": ..., "triples_in_batch": ...}``.
+
+    Append is idempotent and safe to retry: a partially-streamed batch leaves only
+    triples that re-appear (and dedupe) on retry, so — unlike the version-graph ingest
+    — no rollback DROP is needed on failure.
+    """
+    work = Path(work_dir) if work_dir else Path(tempfile.mkdtemp(prefix="c2r-append-"))
+    nt = await asyncio.to_thread(
+        materialize_to_nt_file, rml_ttl, csv_dir, udfs_path=udfs_path, work_dir=work
+    )
+    triples = await stream_nt_file_to_oxigraph(
+        nt, client, graph_iri, chunk_lines=chunk_lines, on_progress=on_progress
+    )
+    return {"graph_iri": graph_iri, "triples_in_batch": triples}
 
 
 # ----------------------------------------------------------------------------
