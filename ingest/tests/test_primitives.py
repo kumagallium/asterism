@@ -14,9 +14,11 @@ import pytest
 
 from asterism.primitives import (
     _MAX_REGEX_INPUT,
+    array_at,
     load_table,
     lookup,
     regex_extract,
+    split,
     template,
 )
 
@@ -150,3 +152,34 @@ def test_template_is_injection_safe() -> None:
     assert template("{0}-{5}-{x}", "a", "b") == "{0}-{5}-{x}"
     # a field value that itself looks like a token is NOT re-interpreted
     assert template("{1}{2}", "{2}", "B") == "{2}B"
+
+
+# ---- array_at ---------------------------------------------------------------
+
+
+def test_array_at() -> None:
+    assert array_at("[10, 20, 30]", "0") == "10"
+    assert array_at("[10, 20, 30]", "1") == "20"
+    assert array_at("[10, 20, 30]", "-1") == "30"  # negative index from the end
+    assert array_at('["a", "b"]', "1") == "b"
+    # out of range / non-integer / non-array / null element / empty → ""
+    assert array_at("[10, 20]", "5") == ""
+    assert array_at("[10, 20]", "x") == ""
+    assert array_at('{"a": 1}', "0") == ""
+    assert array_at("[null]", "0") == ""
+    assert array_at("", "0") == ""
+    assert array_at("[1]", "") == ""
+
+
+# ---- split (multi-value → list, Morph-KGC explodes) -------------------------
+
+
+def test_split_returns_list() -> None:
+    # a list result is what Morph-KGC explodes into one triple per element
+    assert split(",ci,us,", ",") == ["ci", "us"]  # wrapper commas / blanks dropped
+    assert split("a; b ;c", ";") == ["a", "b", "c"]  # tokens trimmed
+    assert split("single", ",") == ["single"]  # one token → one-element list
+    # empty input / empty delimiter → [] (no triples)
+    assert split("", ",") == []
+    assert split("a,b", "") == []
+    assert split(",,,", ",") == []  # all-blank → []

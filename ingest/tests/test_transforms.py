@@ -9,6 +9,7 @@ from __future__ import annotations
 from asterism.transforms import (
     datetime_iso,
     doi_norm,
+    json_array_single,
     nfkc_norm,
     number_clean,
     percent_to_ratio,
@@ -133,6 +134,19 @@ def test_url_canonical() -> None:
 
 
 # ---- value + unit -----------------------------------------------------------
+
+
+def test_json_array_single() -> None:
+    assert json_array_single('["Soziale Innovation"]') == "Soziale Innovation"
+    assert json_array_single("[42]") == "42"
+    # strict single-element: never silently drop data from a multi-element array
+    assert json_array_single('["a", "b"]') == ""
+    assert json_array_single("[]") == ""
+    assert json_array_single("[null]") == ""
+    # not a JSON array → ""
+    assert json_array_single('{"a": 1}') == ""
+    assert json_array_single("not json") == ""
+    assert json_array_single("") == ""
 
 
 def test_value_unit_split() -> None:

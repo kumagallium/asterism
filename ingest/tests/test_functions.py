@@ -66,6 +66,9 @@ CORE_A_NAMES = {
     "value_of",
     "unit_of",
 }
+# 多値/ネストの「容易な勝ち筋」。json_array_single は単一入力スカラ、array_at/split は
+# 定数引数つき。split は list[str] を返し Morph-KGC が explode する(唯一の非 str 返り)。
+MULTIVALUE_NAMES = {"json_array_single", "array_at", "split"}
 
 
 def test_date_iso_concrete() -> None:
@@ -121,6 +124,7 @@ def test_registry_names_unique_and_stable() -> None:
     assert name_set >= CORE_NAMES
     assert name_set >= PRIMITIVE_NAMES
     assert name_set >= CORE_A_NAMES
+    assert name_set >= MULTIVALUE_NAMES
 
 
 def test_registry_specs_are_wellformed() -> None:
@@ -178,6 +182,19 @@ def test_bool_norm_delegates_to_bool_table() -> None:
     assert bool_norm("Yes") == "true"
     assert bool_norm("off") == "false"
     assert bool_norm("maybe") == ""  # 未知語は ""
+
+
+def test_multivalue_specs_and_split_returns_list() -> None:
+    """多値関数の束縛: array_at/split は定数引数つき、split は list[str] を返す
+    (Morph-KGC が explode する唯一の非 str 返り)。json_array_single は単一入力。"""
+    from asterism.functions import P_DELIMITER, P_INDEX
+
+    by_name = {s.name: s for s in REGISTRY}
+    assert by_name["json_array_single"].params == {"value": P_VALUE}
+    assert by_name["array_at"].params == {"value": P_VALUE, "index": P_INDEX}
+    assert by_name["split"].params == {"value": P_VALUE, "delimiter": P_DELIMITER}
+    # split is the one entry point that returns a list (exploded downstream)
+    assert by_name["split"].func("a,b", ",") == ["a", "b"]
 
 
 def test_register_binds_every_function() -> None:

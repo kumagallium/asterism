@@ -314,6 +314,57 @@ def test_materialize_with_core_functions(tmp_path: Path) -> None:
     assert ("https://ex/r/1", "https://ex/unit", "K") in triples
 
 
+def test_materialize_with_multivalue_functions(tmp_path: Path) -> None:
+    """The multi-value "easy wins" run end-to-end: json_array_single unwraps a
+    one-element array, array_at pulls a fixed index, and split returns a list that
+    Morph-KGC EXPLODES into one triple per element. Gated on the optional extra.
+    """
+    if not _morph_kgc_installed():
+        pytest.skip("morph-kgc not installed; this exercises the real materialize")
+    (tmp_path / "d.csv").write_text(
+        'id,title,coords,tags\n1,"[""Soliton""]","[-118,34,26]",",ci,us,"\n',
+        encoding="utf-8",
+    )
+    rml = """
+@prefix rr:   <http://www.w3.org/ns/r2rml#> .
+@prefix rml:  <http://semweb.mmlab.be/ns/rml#> .
+@prefix ql:   <http://semweb.mmlab.be/ns/ql#> .
+@prefix rmlf: <http://w3id.org/rml/> .
+@prefix fn:   <https://kumagallium.github.io/asterism/fn/> .
+@prefix ex:   <https://ex/> .
+<#M> a rr:TriplesMap ;
+  rml:logicalSource [ rml:source "d.csv" ; rml:referenceFormulation ql:CSV ] ;
+  rr:subjectMap [ rr:template "https://ex/r/{id}" ] ;
+  rr:predicateObjectMap [ rr:predicate ex:title ; rr:objectMap [
+    rmlf:functionExecution [ rmlf:function fn:json_array_single ;
+      rmlf:input [ rmlf:parameter fn:p_value ;
+        rmlf:inputValueMap [ rml:reference "title" ] ] ] ] ] ;
+  rr:predicateObjectMap [ rr:predicate ex:lat ; rr:objectMap [
+    rmlf:functionExecution [ rmlf:function fn:array_at ;
+      rmlf:input [ rmlf:parameter fn:p_value ;
+        rmlf:inputValueMap [ rml:reference "coords" ] ] ;
+      rmlf:input [ rmlf:parameter fn:p_index ;
+        rmlf:inputValueMap [ rmlf:constant "1" ] ] ] ] ] ;
+  rr:predicateObjectMap [ rr:predicate ex:tag ; rr:objectMap [
+    rmlf:functionExecution [ rmlf:function fn:split ;
+      rmlf:input [ rmlf:parameter fn:p_value ;
+        rmlf:inputValueMap [ rml:reference "tags" ] ] ;
+      rmlf:input [ rmlf:parameter fn:p_delimiter ;
+        rmlf:inputValueMap [ rmlf:constant "," ] ] ] ] ] .
+"""
+    graph = materialize_to_graph(rml, tmp_path)
+    triples = {(str(s), str(p), str(o)) for s, p, o in graph}
+    # json_array_single: ["Soliton"] → Soliton
+    assert ("https://ex/r/1", "https://ex/title", "Soliton") in triples
+    # array_at index 1 of [-118, 34, 26] → 34
+    assert ("https://ex/r/1", "https://ex/lat", "34") in triples
+    # split ",ci,us," → TWO tag triples (the list is exploded)
+    assert ("https://ex/r/1", "https://ex/tag", "ci") in triples
+    assert ("https://ex/r/1", "https://ex/tag", "us") in triples
+    tags = {o for s, p, o in triples if p == "https://ex/tag"}
+    assert tags == {"ci", "us"}
+
+
 # ---- streaming N-Triples load (scalable path) -------------------------------
 
 

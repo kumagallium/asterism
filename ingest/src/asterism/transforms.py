@@ -16,6 +16,7 @@ these are vetted, closed-set transforms.
 """
 from __future__ import annotations
 
+import json
 import re
 import unicodedata
 from datetime import UTC, datetime
@@ -273,3 +274,29 @@ def unit_of(value: str) -> str:
     if not m:
         return ""
     return value[m.end() :].strip()
+
+
+# ---------------------------------------------------------------------------
+# JSON single-element unwrap
+# ---------------------------------------------------------------------------
+
+
+def json_array_single(value: str) -> str:
+    """Unwrap a JSON array that holds **exactly one** element (``'["X"]'`` ->
+    ``"X"``).
+
+    Returns ``""`` for a non-array, an empty array, or an array with more than one
+    element. The strict single-element rule means this never silently drops data:
+    a genuinely multi-valued cell (several authors / tags) is left untouched, to be
+    handled by ``split`` (explode) or a nested TriplesMap, not collapsed to its
+    first element.
+    """
+    if not value:
+        return ""
+    try:
+        data = json.loads(value)
+    except (json.JSONDecodeError, ValueError):
+        return ""
+    if isinstance(data, list) and len(data) == 1 and data[0] is not None:
+        return str(data[0])
+    return ""

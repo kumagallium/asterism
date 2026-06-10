@@ -26,7 +26,7 @@ rr:objectMap [ rmlf:functionExecution [ rmlf:function fn:lookup ;
   rmlf:input [ rmlf:parameter fn:p_table ; rmlf:inputValueMap [ rmlf:constant "country_iso3166" ] ] ] ]
 ```
 
-罠: 定数は **必ず新名前空間 `rmlf:constant`**（= `http://w3id.org/rml/constant`）。レガシー `rml:`（`http://semweb.mmlab.be/ns/rml#`）には `constant` が無く、Morph-KGC が黙って無視する。プリミティブの定数パラメータ IRI は `fn:p_table` / `fn:p_pattern` / `fn:p_template` / `fn:p_field1`…`fn:p_field4`。`regex_extract` は **re2 互換**パターンのみ（後方参照・先読み不可）。利用可能な seed 表は `ingest/src/asterism/tables/`（`bool` / `country_iso3166` / `unit_alias`）。定数は関数 IRI ではないので T9 閉集合チェックには影響しない（`rmlf:function` のみ照合）。
+罠: 定数は **必ず新名前空間 `rmlf:constant`**（= `http://w3id.org/rml/constant`）。レガシー `rml:`（`http://semweb.mmlab.be/ns/rml#`）には `constant` が無く、Morph-KGC が黙って無視する。プリミティブの定数パラメータ IRI は `fn:p_table` / `fn:p_pattern` / `fn:p_template` / `fn:p_field1`…`fn:p_field4`。`regex_extract` は **re2 互換**パターンのみ（後方参照・先読み不可）。利用可能な seed 表は `ingest/src/asterism/tables/`（`bool` / `country_iso3166` / `unit_alias`）。定数は関数 IRI ではないので T9 閉集合チェックには影響しない（`rmlf:function` のみ照合）。多値の定数パラメータ IRI は `fn:p_index`（`array_at`）/ `fn:p_delimiter`（`split`）。**`split` は `list[str]` を返し Morph-KGC が各要素を 1 トリプルへ explode する**（区切り多値の宣言的展開・入れ子 TriplesMap 不要）＝ `str -> str` 不変の唯一の例外。1 要素配列は `json_array_single`、定位置配列は `array_at`、object 配列のみ `…Raw`／入れ子 TriplesMap。
 
 ## 2. 既存 ingester 出力 ↔ RML 対応表
 
