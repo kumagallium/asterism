@@ -1,7 +1,9 @@
 # ADR: Crosswalk hub — one thin, growing bridge across datasets
 
-Status: **Prototype validated on live data** (2026-06-09). Productization pending
-(see "Productization path"). Related: [`ontology-canonical-lifecycle.md`](ontology-canonical-lifecycle.md)
+Status: **Builder is a tested package module** (`asterism.crosswalk` — pure,
+multi-concept, provenance; 2026-06-10) validated on live data (composition,
+2026-06-09). Remaining productization (runtime wiring on promote, per-link
+provenance, governance, UI) below. Related: [`ontology-canonical-lifecycle.md`](ontology-canonical-lifecycle.md)
 (2-axis TBox/ABox × draft/canonical, dataset decoupling), [`design-rationale.md`](design-rationale.md),
 [`product_direction_citable_facts`](../../README.md) (deterministic typed tools are the main path).
 
@@ -80,20 +82,38 @@ equality missed (whitespace/subscript variants). The hub tool
 - The hub bounds itself to **shared (≥2)** compositions to stay small and
   join-relevant; a full mint (every composition) is possible but heavier.
 
-## Productization path (not yet done)
+## Productization path
 
 1. **Deterministic normalization as a Tier 0 function** (`asterism.functions`), so
-   the join key is vetted, versioned, and reusable — not ad-hoc REPLACE chains.
-2. **`crosswalk` as a first-class concept**: a participation registry + a build step
-   in the substrate (re-run on dataset promote), with **per-link provenance** (this
-   link was normalized from *this* raw string by *this* function).
-3. **Human-gated mapping review** (the mappings are claims) + versioning.
-4. **UI**: manage the crosswalk (which datasets participate, review mappings), and a
-   catalog surface that shows "this composition is reported by N datasets".
+   the join key is vetted, versioned, and reusable. *Partial*: the builder uses
+   **named normalizers** (`asterism.crosswalk.NORMALIZERS`, e.g. `composition`); an
+   element-canonical key (`Bi2Te3 ≡ Te3Bi2`) is a future, separately-vetted one.
+2. **`crosswalk` as a first-class concept** — a participation registry + a build step
+   in the substrate. **Done (library)**: `asterism.crosswalk` is a pure, tested,
+   **multi-concept** builder (`CrosswalkConfig(concepts=…)`); a concept is a shared
+   class + link predicate + per-dataset rules + a normalizer. **Remaining**: wire a
+   substrate build step (re-run on dataset promote) and **per-link provenance** (this
+   link was normalized from *this* raw string by *this* function — today provenance
+   is per build Activity).
+3. **Multi-concept upper ontology** — accumulate shared *concepts* (Material,
+   Property, Measurement, …) beyond Composition, including **schema-level alignment**
+   (map a dataset class/property → an upper class/property via
+   `owl:equivalentClass` / `rdfs:subPropertyOf`), so "all materials with property P"
+   spans datasets regardless of local vocabulary. The library is multi-concept-ready
+   (value-based sharing); schema alignment is the next layer.
+4. **Human-gated mapping review** (the mappings are claims) + versioning.
+5. **UI**: create/manage the crosswalk (which datasets/concepts participate, review
+   mappings), and a catalog surface ("this composition is reported by N datasets").
 
-## Prototype
+## Implementation
 
-`experiments/crosswalk-hub/build.py` (config-driven; `build` / `--remove`). Reads via
-the read-only api FROM-merge, writes the hub graph + control flag to Oxigraph,
-writes the `crosswalk` registry dataset + tools. Runtime only (the hub data lives in
-Oxigraph, not in the repo).
+- **Library (tested, in-package):** `asterism.crosswalk` — `build_turtle(config,
+  observations)` is pure (no I/O): mints one shared entity per normalized value
+  shared by ≥ `min_datasets` datasets, emits crosswalk links + build provenance, for
+  any number of concepts. Unit tests in `ingest/tests/test_crosswalk.py` cover
+  normalization, the shared/singleton split, **growth** (adding a dataset grows the
+  shared set), multi-concept, and provenance.
+- **Spike (runtime I/O):** `experiments/crosswalk-hub/build.py` reads the live store
+  (read-only api FROM-merge), **delegates Turtle construction to `asterism.crosswalk`**,
+  and writes the hub graph + control flag + the `crosswalk` registry dataset + tools.
+  Runtime only (the hub data lives in Oxigraph). Run with the ingest venv.
