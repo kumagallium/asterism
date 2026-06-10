@@ -29,6 +29,7 @@ Safety notes:
 from __future__ import annotations
 
 import functools
+import json
 import logging
 import re
 from pathlib import Path
@@ -174,3 +175,46 @@ def template(
         return ""
     fields = (field1 or "", field2 or "", field3 or "", field4 or "")
     return _TEMPLATE_TOKEN.sub(lambda m: fields[int(m.group(1)) - 1], template)
+
+
+# ---- array_at (constant index into a JSON array) ----------------------------
+
+
+def array_at(value: str, index: str) -> str:
+    """Element at a constant 0-based ``index`` of a JSON array (``"[10,20,30]"``,
+    index ``"1"`` -> ``"20"``). Negative indices count from the end (``"-1"`` ->
+    last). ``""`` for a non-array, an out-of-range / non-integer index, or a null
+    element. Use it to pull a fixed-position scalar out of a structured array (e.g.
+    ``[lon, lat, depth]``)."""
+    if not value or not index:
+        return ""
+    try:
+        data = json.loads(value)
+    except (json.JSONDecodeError, ValueError):
+        return ""
+    if not isinstance(data, list):
+        return ""
+    try:
+        element = data[int(index)]
+    except (ValueError, IndexError):
+        return ""
+    return "" if element is None else str(element)
+
+
+# ---- split (constant delimiter → MULTIPLE values) ---------------------------
+
+
+def split(value: str, delimiter: str) -> list[str]:
+    """Split ``value`` on a constant ``delimiter`` into **multiple** values.
+
+    Unlike every other entry point (which is ``str -> str``), this returns a
+    ``list[str]``: Morph-KGC explodes a list result into one triple per element —
+    the declarative multi-value path, no nested TriplesMap needed. Surrounding
+    whitespace is trimmed and empty tokens are dropped, so a wrapped list like
+    ``",ci,us,"`` yields ``["ci", "us"]`` and an empty / delimiter-less input
+    yields ``[]`` (no triples). For an array-of-objects (each element has its own
+    fields) use a nested TriplesMap instead — split is for flat delimited scalars.
+    """
+    if not value or not delimiter:
+        return []
+    return [token for token in (part.strip() for part in value.split(delimiter)) if token]

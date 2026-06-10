@@ -27,7 +27,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from asterism.primitives import lookup, regex_extract, template
+from asterism.primitives import array_at, lookup, regex_extract, split, template
 from asterism.qudt import quantity_kind_iri, unit_iri
 from asterism.text import (
     parse_float_array,
@@ -38,6 +38,7 @@ from asterism.text import (
 from asterism.transforms import (
     datetime_iso,
     doi_norm,
+    json_array_single,
     nfkc_norm,
     number_clean,
     percent_to_ratio,
@@ -69,6 +70,8 @@ P_FIELD1 = FN + "p_field1"
 P_FIELD2 = FN + "p_field2"
 P_FIELD3 = FN + "p_field3"
 P_FIELD4 = FN + "p_field4"
+P_INDEX = FN + "p_index"
+P_DELIMITER = FN + "p_delimiter"
 
 
 # ---- 検証済み関数(既存実装への薄い委譲。FnO 形 str -> str) -------------------
@@ -134,10 +137,15 @@ def bool_norm(value: str) -> str:
 
 @dataclass(frozen=True)
 class FunctionSpec:
-    """1 関数の FnO 束縛情報。``params`` は {python 引数名: パラメータ IRI}。"""
+    """1 関数の FnO 束縛情報。``params`` は {python 引数名: パラメータ IRI}。
+
+    ほぼ全関数は ``str -> str``(該当なし "")。例外は多値関数(``split`` 等)で
+    ``list[str]`` を返し、Morph-KGC が各要素を 1 トリプルへ explode する
+    (宣言的多値経路・入れ子 TriplesMap 不要)。型はこの両形を許容する。
+    """
 
     name: str
-    func: Callable[..., str]
+    func: Callable[..., str | list[str]]
     params: dict[str, str]
 
     @property
@@ -199,6 +207,14 @@ REGISTRY: list[FunctionSpec] = [
     _single("url_canonical", url_canonical),
     _single("value_of", value_of),
     _single("unit_of", unit_of),
+    # 多値/ネストの「容易な勝ち筋」(tier0-coverage-gate.md §5)。スカラ抽出と、
+    # list を返して Morph-KGC に explode させる多値 split。入れ子 object 配列は
+    # 別途(入れ子 TriplesMap)。
+    _single("json_array_single", json_array_single),
+    FunctionSpec(name="array_at", func=array_at, params={"value": P_VALUE, "index": P_INDEX}),
+    FunctionSpec(
+        name="split", func=split, params={"value": P_VALUE, "delimiter": P_DELIMITER}
+    ),
 ]
 
 
