@@ -48,6 +48,24 @@ CORE_NAMES = {
     "qudt_unit",
 }
 PRIMITIVE_NAMES = {"lookup", "regex_extract", "template"}
+# コア関数拡充(Track A)。すべて単一入力(value)・str -> str。ロジックは asterism.transforms
+# (bool_norm のみ primitives.lookup の bool 表に委譲)。
+CORE_A_NAMES = {
+    "number_clean",
+    "percent_to_ratio",
+    "range_min",
+    "range_max",
+    "datetime_iso",
+    "year_only",
+    "nfkc_norm",
+    "trim_collapse",
+    "strip_footnote",
+    "bool_norm",
+    "doi_norm",
+    "url_canonical",
+    "value_of",
+    "unit_of",
+}
 
 
 def test_date_iso_concrete() -> None:
@@ -102,6 +120,7 @@ def test_registry_names_unique_and_stable() -> None:
     name_set = set(names)
     assert name_set >= CORE_NAMES
     assert name_set >= PRIMITIVE_NAMES
+    assert name_set >= CORE_A_NAMES
 
 
 def test_registry_specs_are_wellformed() -> None:
@@ -138,6 +157,27 @@ def test_primitive_specs_bind_constant_params() -> None:
         "field3": P_FIELD3,
         "field4": P_FIELD4,
     }
+
+
+def test_core_a_functions_are_single_input() -> None:
+    """Track A のコア関数は全て単一入力(value)で登録されている。"""
+    single = {"value": P_VALUE}
+    by_name = {s.name: s for s in REGISTRY}
+    for name in CORE_A_NAMES:
+        assert name in by_name, f"{name} が REGISTRY に無い"
+        assert by_name[name].params == single, f"{name} は単一入力であるべき"
+
+
+def test_bool_norm_delegates_to_bool_table() -> None:
+    """bool_norm は真偽語彙をプリミティブの bool 表に委譲する(語彙の単一の真実源)。"""
+    from asterism.functions import bool_norm
+    from asterism.primitives import lookup
+
+    for token in ("Yes", "no", "1", "off", "maybe"):
+        assert bool_norm(token) == lookup(token, "bool")
+    assert bool_norm("Yes") == "true"
+    assert bool_norm("off") == "false"
+    assert bool_norm("maybe") == ""  # 未知語は ""
 
 
 def test_register_binds_every_function() -> None:
