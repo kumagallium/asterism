@@ -27,6 +27,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from asterism.primitives import lookup, regex_extract, template
 from asterism.qudt import quantity_kind_iri, unit_iri
 from asterism.text import (
     parse_float_array,
@@ -42,6 +43,17 @@ FN = "https://kumagallium.github.io/asterism/fn/"
 P_VALUE = FN + "p_value"
 P_VALUE1 = FN + "p_value1"
 P_VALUE2 = FN + "p_value2"
+
+# パラメータ化プリミティブ(§5.1)の「定数(固定値)引数」を指すパラメータ IRI。
+# value(列参照)に加え、表名 / 正規表現 / 雛形といった *定数* を RML が
+# rmlf:inputValueMap [ rmlf:constant "…" ] で渡す先。p_value 系と同じ命名規約で安定。
+P_TABLE = FN + "p_table"
+P_PATTERN = FN + "p_pattern"
+P_TEMPLATE = FN + "p_template"
+P_FIELD1 = FN + "p_field1"
+P_FIELD2 = FN + "p_field2"
+P_FIELD3 = FN + "p_field3"
+P_FIELD4 = FN + "p_field4"
 
 
 # ---- 検証済み関数(既存実装への薄い委譲。FnO 形 str -> str) -------------------
@@ -119,6 +131,9 @@ def _pair(name: str, func: Callable[[str, str], str]) -> FunctionSpec:
 
 
 # 宣言マッピングが参照してよい関数の「閉じた集合」。ここに無いものは呼べない。
+# 末尾のパラメータ化プリミティブ(§5.1)は value(列参照)に加え定数引数を取る:
+# 可変性(表・パターン・雛形)を *データ* に逃がし、コアを有界に保つ。RML 側は定数を
+# rmlf:inputValueMap [ rmlf:constant "…" ] で渡す(propose §9 / step0-rml-emission.md)。
 REGISTRY: list[FunctionSpec] = [
     _single("date_iso", date_iso),
     _single("float_array_max", float_array_max),
@@ -128,6 +143,22 @@ REGISTRY: list[FunctionSpec] = [
     _single("slug", slug),
     _single("qudt_quantity", qudt_quantity),
     _single("qudt_unit", qudt_unit),
+    # パラメータ化プリミティブ(asterism.primitives への委譲。定数引数つき str -> str)。
+    FunctionSpec(name="lookup", func=lookup, params={"value": P_VALUE, "table": P_TABLE}),
+    FunctionSpec(
+        name="regex_extract", func=regex_extract, params={"value": P_VALUE, "pattern": P_PATTERN}
+    ),
+    FunctionSpec(
+        name="template",
+        func=template,
+        params={
+            "template": P_TEMPLATE,
+            "field1": P_FIELD1,
+            "field2": P_FIELD2,
+            "field3": P_FIELD3,
+            "field4": P_FIELD4,
+        },
+    ),
 ]
 
 

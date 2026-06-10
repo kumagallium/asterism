@@ -6,8 +6,17 @@
 
 from __future__ import annotations
 
+import inspect
+
 from asterism.functions import (
     FN,
+    P_FIELD1,
+    P_FIELD2,
+    P_FIELD3,
+    P_FIELD4,
+    P_PATTERN,
+    P_TABLE,
+    P_TEMPLATE,
     P_VALUE,
     P_VALUE1,
     P_VALUE2,
@@ -24,6 +33,21 @@ from asterism.functions import (
 )
 from asterism.qudt import quantity_kind_iri, unit_iri
 from asterism.starrydata import safe_url
+
+# コア(v0 8 関数)とパラメータ化プリミティブ(3)の名前。これらは IRI 安定のため
+# 必ず REGISTRY に在る(削除/改名しない)。Track A 等が *追記* しても壊れないよう、
+# 等値でなく包含で検証する(REGISTRY は append-only 運用)。
+CORE_NAMES = {
+    "date_iso",
+    "float_array_max",
+    "float_array_min",
+    "float_array_count",
+    "iri_safe",
+    "slug",
+    "qudt_quantity",
+    "qudt_unit",
+}
+PRIMITIVE_NAMES = {"lookup", "regex_extract", "template"}
 
 
 def test_date_iso_concrete() -> None:
@@ -71,18 +95,49 @@ def test_delegation_and_empty_contract() -> None:
     assert qudt_unit("definitely-not-a-unit") == ""
 
 
-def test_registry_is_closed_and_unique() -> None:
+def test_registry_names_unique_and_stable() -> None:
     names = [s.name for s in REGISTRY]
     assert len(names) == len(set(names)), "関数名は一意(IRI 衝突防止)"
-    assert len(REGISTRY) == 8
-    single = {"value": P_VALUE}
-    pair = {"value1": P_VALUE1, "value2": P_VALUE2}
+    # コアとプリミティブは常に在る(IRI 安定)。append-only なので包含で検証。
+    name_set = set(names)
+    assert name_set >= CORE_NAMES
+    assert name_set >= PRIMITIVE_NAMES
+
+
+def test_registry_specs_are_wellformed() -> None:
+    """全 spec の健全性: fun_id 規約・呼び出し可能・パラメータ規約。
+
+    パラメータ名(キー)は **関数の実シグネチャの引数名と一致必須** — ここが
+    morph-kgc の束縛(どの定数/列がどの引数に入るか)を決めるので、ズレると静かに
+    壊れる。IRI は FN 名前空間の ``p_`` 接頭辞(規約)。
+    """
     for spec in REGISTRY:
         assert spec.fun_id == FN + spec.name
-        assert spec.params in (single, pair)
         assert callable(spec.func)
-    # 2 入力は float_array_count のみ。それ以外は単一入力。
+        assert spec.params, "全関数は最低 1 パラメータを取る"
+        sig_params = inspect.signature(spec.func).parameters
+        for arg_name, iri in spec.params.items():
+            assert iri.startswith(FN + "p_"), f"{spec.name}: bad param IRI {iri}"
+            assert arg_name in sig_params, f"{spec.name}: param {arg_name} not in signature"
+
+
+def test_float_array_count_is_the_two_value_function() -> None:
+    pair = {"value1": P_VALUE1, "value2": P_VALUE2}
     assert {s.name for s in REGISTRY if s.params == pair} == {"float_array_count"}
+
+
+def test_primitive_specs_bind_constant_params() -> None:
+    """プリミティブは value(列参照)に加え定数引数(table/pattern/template/field)を束縛。"""
+    by_name = {s.name: s for s in REGISTRY}
+    assert by_name["lookup"].params == {"value": P_VALUE, "table": P_TABLE}
+    assert by_name["regex_extract"].params == {"value": P_VALUE, "pattern": P_PATTERN}
+    assert by_name["template"].params == {
+        "template": P_TEMPLATE,
+        "field1": P_FIELD1,
+        "field2": P_FIELD2,
+        "field3": P_FIELD3,
+        "field4": P_FIELD4,
+    }
 
 
 def test_register_binds_every_function() -> None:
@@ -97,7 +152,7 @@ def test_register_binds_every_function() -> None:
         return deco
 
     specs = register(fake_udf)
-    assert len(seen) == len(specs) == 8
+    assert len(seen) == len(specs) == len(REGISTRY)
     for (kwargs, fn), spec in zip(seen, REGISTRY, strict=True):
         assert kwargs["fun_id"] == FN + spec.name
         # 各パラメータ名 → IRI が udf に渡る(単一は value、2 入力は value1/value2)。

@@ -1,0 +1,87 @@
+# Tier 0 seed table — unit spelling → canonical symbol.
+#
+# Normalizes human spellings of common SI / derived units to a canonical symbol
+# via `fn:lookup(value, "unit_alias")`. Domain-neutral and deliberately distinct
+# from a dataset's curated QUDT map (e.g. datasets/starrydata/qudt_map.yaml):
+# this table does NOT duplicate that single source of truth. It composes with it —
+# `fn:lookup` normalizes the spelling, then `fn:qudt_unit` maps the symbol to a
+# QUDT IRI. Keys are matched case-insensitively (loader lowercases them); values
+# keep their case because unit symbols are case-sensitive (K kelvin vs k kilo).
+#
+# A seed set of high-frequency units; extend as real corpora demand (phase5 §5.1
+# — variability belongs in data, not code).
+
+# Base SI
+"meter": "m"
+"metre": "m"
+"meters": "m"
+"metres": "m"
+"kilogram": "kg"
+"kilograms": "kg"
+"gram": "g"
+"grams": "g"
+"gramme": "g"
+"second": "s"
+"seconds": "s"
+"sec": "s"
+"ampere": "A"
+"amp": "A"
+"amps": "A"
+"kelvin": "K"
+"kelvins": "K"
+"mole": "mol"
+"moles": "mol"
+"candela": "cd"
+
+# Temperature
+"celsius": "degC"
+"degree celsius": "degC"
+"degrees celsius": "degC"
+"centigrade": "degC"
+"°c": "degC"
+"fahrenheit": "degF"
+"degree fahrenheit": "degF"
+"degrees fahrenheit": "degF"
+"°f": "degF"
+
+# Derived SI
+"hertz": "Hz"
+"newton": "N"
+"newtons": "N"
+"pascal": "Pa"
+"pascals": "Pa"
+"joule": "J"
+"joules": "J"
+"watt": "W"
+"watts": "W"
+"volt": "V"
+"volts": "V"
+"ohm": "Ohm"
+"ohms": "Ohm"
+"siemens": "S"
+"farad": "F"
+"tesla": "T"
+"weber": "Wb"
+"henry": "H"
+"coulomb": "C"
+"lumen": "lm"
+"lux": "lx"
+
+# Common non-SI accepted
+"liter": "L"
+"litre": "L"
+"liters": "L"
+"litres": "L"
+"minute": "min"
+"minutes": "min"
+"hour": "h"
+"hours": "h"
+"day": "d"
+"days": "d"
+"percent": "%"
+"per cent": "%"
+"percentage": "%"
+"degree": "deg"
+"degrees": "deg"
+"radian": "rad"
+"radians": "rad"

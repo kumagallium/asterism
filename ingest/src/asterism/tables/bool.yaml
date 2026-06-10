@@ -1,0 +1,24 @@
+# Tier 0 seed table — boolean vocabulary.
+#
+# Free-text truthy / falsy tokens → xsd:boolean lexical form ("true" / "false").
+# Domain-neutral: usable by any dataset via `fn:lookup(value, "bool")`. Keys are
+# matched case-insensitively (the loader lowercases them), so only lowercase
+# spellings need to appear here. Values are the canonical xsd:boolean lexicals.
+#
+# Every key/value is QUOTED on purpose: YAML 1.1 would otherwise coerce bare
+# `yes`/`no`/`on`/`off`/`true`/`false` to booleans (and `1`/`0` to ints),
+# collapsing distinct keys. Quoting keeps them as the strings the loader expects.
+"true": "true"
+"yes": "true"
+"y": "true"
+"t": "true"
+"1": "true"
+"on": "true"
+"enabled": "true"
+"false": "false"
+"no": "false"
+"n": "false"
+"f": "false"
+"0": "false"
+"off": "false"
+"disabled": "false"

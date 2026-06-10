@@ -15,8 +15,12 @@ dependencies = [
 [project.optional-dependencies]
 # Declarative substrate (Phase 5 #15): run approved RML through Morph-KGC.
 # Optional so the core ingester stays installable without the substrate stack.
+# google-re2 powers the fn:regex_extract primitive with a linear-time matcher
+# (no catastrophic backtracking ⇒ ReDoS-immune on adversarial cell data); it is
+# only needed when materializing RML that uses that primitive, hence substrate.
 substrate = [
     "morph-kgc>=2.6",
+    "google-re2>=1.1",
 ]
 dev = [
     "pytest>=8.0",

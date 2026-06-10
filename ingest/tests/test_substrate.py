@@ -198,6 +198,71 @@ def test_materialize_to_graph_json_source(tmp_path: Path) -> None:
     assert ("https://ex/mat/mp-2", "https://ex/spaceGroup", "Pnma") in triples
 
 
+def test_materialize_with_parameterized_primitives(tmp_path: Path) -> None:
+    """Tier 0 parameterized primitives materialize end-to-end through Morph-KGC.
+
+    This is the load-bearing proof for the *constant-argument* convention: a
+    function input whose value map is ``rmlf:constant "…"`` (a table name, a regex
+    pattern, a template string) flows through Morph-KGC's FnML executer and reaches
+    the Python function alongside the column-reference ``rmlf:reference`` input. It
+    exercises all three primitives — fn:lookup, fn:regex_extract, fn:template —
+    with mixed reference + constant inputs. Gated on the optional morph-kgc extra.
+    """
+    if not _morph_kgc_installed():
+        pytest.skip("morph-kgc not installed; this exercises the real materialize")
+    (tmp_path / "d.csv").write_text(
+        "id,flag,raw,a,b\n1,Yes,sample-300,foo,bar\n2,No,none,baz,qux\n",
+        encoding="utf-8",
+    )
+    # NOTE: constant inputs use the NEW RML namespace (rmlf:constant =
+    # http://w3id.org/rml/constant); the legacy rml: namespace has no `constant`.
+    # Turtle ignores line breaks, so each FnO input is split across lines to stay
+    # within the line-length limit while keeping the structure readable.
+    rml = """
+@prefix rr:   <http://www.w3.org/ns/r2rml#> .
+@prefix rml:  <http://semweb.mmlab.be/ns/rml#> .
+@prefix ql:   <http://semweb.mmlab.be/ns/ql#> .
+@prefix rmlf: <http://w3id.org/rml/> .
+@prefix fn:   <https://kumagallium.github.io/asterism/fn/> .
+@prefix ex:   <https://ex/> .
+<#M> a rr:TriplesMap ;
+  rml:logicalSource [ rml:source "d.csv" ; rml:referenceFormulation ql:CSV ] ;
+  rr:subjectMap [ rr:template "https://ex/r/{id}" ] ;
+  rr:predicateObjectMap [ rr:predicate ex:flag ; rr:objectMap [
+    rmlf:functionExecution [ rmlf:function fn:lookup ;
+      rmlf:input [ rmlf:parameter fn:p_value ;
+        rmlf:inputValueMap [ rml:reference "flag" ] ] ;
+      rmlf:input [ rmlf:parameter fn:p_table ;
+        rmlf:inputValueMap [ rmlf:constant "bool" ] ] ] ] ] ;
+  rr:predicateObjectMap [ rr:predicate ex:num ; rr:objectMap [
+    rmlf:functionExecution [ rmlf:function fn:regex_extract ;
+      rmlf:input [ rmlf:parameter fn:p_value ;
+        rmlf:inputValueMap [ rml:reference "raw" ] ] ;
+      rmlf:input [ rmlf:parameter fn:p_pattern ;
+        rmlf:inputValueMap [ rmlf:constant "(?P<v>[0-9]+)" ] ] ] ] ] ;
+  rr:predicateObjectMap [ rr:predicate ex:joined ; rr:objectMap [
+    rmlf:functionExecution [ rmlf:function fn:template ;
+      rmlf:input [ rmlf:parameter fn:p_template ;
+        rmlf:inputValueMap [ rmlf:constant "{1}::{2}" ] ] ;
+      rmlf:input [ rmlf:parameter fn:p_field1 ;
+        rmlf:inputValueMap [ rml:reference "a" ] ] ;
+      rmlf:input [ rmlf:parameter fn:p_field2 ;
+        rmlf:inputValueMap [ rml:reference "b" ] ] ] ] ] .
+"""
+    graph = materialize_to_graph(rml, tmp_path)
+    triples = {(str(s), str(p), str(o)) for s, p, o in graph}
+    # lookup: constant table "bool" normalizes Yes→true, No→false
+    assert ("https://ex/r/1", "https://ex/flag", "true") in triples
+    assert ("https://ex/r/2", "https://ex/flag", "false") in triples
+    # regex_extract: constant pattern's named group v pulls the digits from row 1;
+    # row 2 ("none") has no match → empty objectMap dropped (no num triple)
+    assert ("https://ex/r/1", "https://ex/num", "300") in triples
+    assert not any(s == "https://ex/r/2" and p == "https://ex/num" for s, p, _ in triples)
+    # template: constant template + two reference fields
+    assert ("https://ex/r/1", "https://ex/joined", "foo::bar") in triples
+    assert ("https://ex/r/2", "https://ex/joined", "baz::qux") in triples
+
+
 # ---- streaming N-Triples load (scalable path) -------------------------------
 
 
