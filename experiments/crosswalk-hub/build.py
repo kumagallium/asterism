@@ -28,6 +28,7 @@ control flag straight to Oxigraph. Idempotent (PUT replaces the hub graph).
 from __future__ import annotations
 
 import json
+import os
 import sys
 import urllib.error
 import urllib.parse
@@ -35,7 +36,13 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
-import os
+# The hub Turtle is built by the TESTED library (single source of truth, multi-
+# concept). This script only does I/O: read the store, write the graph + control
+# flag + registry dataset. Run with a Python that has `asterism` installed (the
+# ingest venv): e.g. `ingest/.venv/bin/python experiments/crosswalk-hub/build.py …`.
+from asterism.crosswalk import Concept as XwConcept
+from asterism.crosswalk import CrosswalkConfig, build_turtle
+from asterism.crosswalk import Rule as XwRule
 
 API = os.environ.get("ASTERISM_API_SPARQL", "http://127.0.0.1:8086/api/sparql")
 OXI = os.environ.get("CSV2RDF_OXIGRAPH_URL", "http://127.0.0.1:7878")
@@ -46,15 +53,10 @@ NS = "https://kumagallium.github.io/asterism"
 SD = f"{NS}/starrydata/ontology#"
 MP = f"{NS}/materials_project/ontology#"
 XW = f"{NS}/crosswalk/ontology#"
-XW_RES = f"{NS}/crosswalk/resource/composition/"
 XW_ACT = f"{NS}/crosswalk/resource/build/latest"
 HUB_GRAPH = f"{NS}/graph/canonical/crosswalk"
 CONTROL_GRAPH = f"{NS}/graph/control"
 STATUS_PRED = f"{NS}/vocab#status"
-RDFS = "http://www.w3.org/2000/01/rdf-schema#"
-OWL = "http://www.w3.org/2002/07/owl#"
-PROV = "http://www.w3.org/ns/prov#"
-NORMALIZATION_ID = "fold-subscripts+strip-whitespace/v1"
 DATASET_ID = "crosswalk-bridge"
 
 
@@ -144,57 +146,44 @@ def links_for_shared(rule: Rule, shared: set[str]) -> dict[str, list[str]]:
 
 def build(labels: list[str]) -> None:
     rules = [RULES[x] for x in labels]
-    # Pass 1: each dataset's distinct normalized compositions.
+    # Pass 1: each dataset's distinct normalized compositions (to find the shared set).
     per_ds = {r.label: distinct_norm_comps(r) for r in rules}
-    # shared = a composition present in >= 2 participating datasets (join-relevant).
     counts: dict[str, int] = {}
     for s in per_ds.values():
         for k in s:
             counts[k] = counts.get(k, 0) + 1
     shared = {k for k, n in counts.items() if n >= 2}
 
-    lines = [
-        f"@prefix xw: <{XW}> .", f"@prefix rdfs: <{RDFS}> .",
-        f"@prefix owl: <{OWL}> .", f"@prefix prov: <{PROV}> .", "",
-        "# --- thin crosswalk TBox ---",
-        'xw:Composition a owl:Class ; rdfs:label "Composition (crosswalk)" ; '
-        'rdfs:comment "A normalized chemical composition shared across datasets." .',
-        'xw:hasComposition a owl:ObjectProperty ; rdfs:label "has composition" .',
-        "",
-        "# --- build provenance (the crosswalk is a derived, dated CLAIM) ---",
-        f'<{XW_ACT}> a prov:Activity ; rdfs:label "crosswalk hub build" ; '
-        f'xw:normalization "{NORMALIZATION_ID}" ; '
-        f'xw:participatingDatasets "{", ".join(labels)}" ; '
-        f'prov:endedAtTime "{BUILT_AT}"^^<http://www.w3.org/2001/XMLSchema#dateTime> .',
-        "",
-        "# --- shared composition entities + crosswalk links (the growing hub) ---",
-    ]
-    per_ds_links = {r.label: links_for_shared(r, shared) for r in rules}
-    link_counts: dict[str, int] = {}
-    for key in sorted(shared):
-        comp_iri = f"{XW_RES}{urllib.parse.quote(key, safe='')}"
-        lines.append(
-            f'<{comp_iri}> a xw:Composition ; rdfs:label "{key}" ; '
-            f"prov:wasGeneratedBy <{XW_ACT}> ."
-        )
-        for r in rules:
-            for e in per_ds_links[r.label].get(key, []):
-                lines.append(f"<{e}> xw:hasComposition <{comp_iri}> .")
-                link_counts[r.label] = link_counts.get(r.label, 0) + 1
-    turtle = "\n".join(lines) + "\n"
-    n_triples = turtle.count("\n")
+    # Pass 2: bounded OBSERVATIONS (only shared entities) -> the tested library
+    # asterism.crosswalk builds the hub Turtle (single source of truth, multi-concept).
+    observations: dict[tuple[str, str], list[tuple[str, str]]] = {}
+    for r in rules:
+        observations[("composition", r.label)] = [
+            (e, key) for key, ents in links_for_shared(r, shared).items() for e in ents
+        ]
+    concept = XwConcept(
+        name="composition", class_iri=f"{XW}Composition",
+        link_predicate=f"{XW}hasComposition", normalizer="composition",
+        rules=tuple(XwRule(r.label, r.predicate) for r in rules),
+    )
+    result = build_turtle(
+        CrosswalkConfig((concept,)), observations,
+        activity_iri=XW_ACT, built_at=BUILT_AT,
+    )
+    n_triples = result.turtle.count("\n")
 
-    oxi_put_graph(HUB_GRAPH, turtle)
+    oxi_put_graph(HUB_GRAPH, result.turtle)
     oxi_update(
         f"INSERT DATA {{ GRAPH <{CONTROL_GRAPH}> {{ "
         f'<{HUB_GRAPH}> <{STATUS_PRED}> "promoted" . }} }}'
     )
-    write_registry_dataset(labels, len(shared), n_triples)
+    n_shared = len(result.shared["composition"])
+    write_registry_dataset(labels, n_shared, n_triples)
 
     print(f"hub built over {labels}")
-    print(f"  shared compositions (in >= 2 datasets): {len(shared)}")
-    for r in rules:
-        print(f"    {r.label:20s} {link_counts.get(r.label, 0)} links")
+    print(f"  shared compositions (in >= 2 datasets): {n_shared}")
+    for ds, n in result.links["composition"].items():
+        print(f"    {ds:20s} {n} links")
     print(f"  hub graph <{HUB_GRAPH}> (promoted) ; registry dataset '{DATASET_ID}'")
 
 
