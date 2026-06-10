@@ -304,6 +304,38 @@ async def _persist_source_uploads(
     return saved, meta
 
 
+def _accumulate_source_batch(sdir: Path, name: str, content: bytes) -> None:
+    """Accumulate an append batch into the dataset's persisted source set (ADR A7).
+
+    So a later snapshot re-ingest reproduces the whole feed from the source set, the
+    canonical source file must GROW. For a CSV batch whose name matches an existing CSV
+    source, we append the batch's data rows — dropping a repeated header line and
+    inserting a newline first if the existing file lacks a trailing one. Otherwise (a
+    new name, or a JSON batch) we write the file as-is. JSON array-merge compaction is
+    a future step — a JSON batch is recorded as its own file.
+    """
+    sdir.mkdir(parents=True, exist_ok=True)
+    dest = sdir / name
+    if dest.suffix.lower() == ".csv" and dest.is_file():
+        with dest.open("rb") as fh:
+            existing_header = fh.readline()
+            fh.seek(0, os.SEEK_END)
+            size = fh.tell()
+            needs_nl = False
+            if size > 0:
+                fh.seek(size - 1)
+                needs_nl = fh.read(1) not in (b"\n", b"\r")
+        lines = content.splitlines(keepends=True)
+        if lines and lines[0].rstrip(b"\r\n") == existing_header.rstrip(b"\r\n"):
+            lines = lines[1:]  # drop the repeated header row
+        with dest.open("ab") as fh:
+            if needs_nl:
+                fh.write(b"\n")
+            fh.write(b"".join(lines))
+    else:
+        dest.write_bytes(content)
+
+
 def _tail_jsonl(path: Path, limit: int) -> list[dict[str, object]]:
     if not path.exists():
         return []
@@ -970,6 +1002,139 @@ def build_app(
         jobs: JobManager = app.state.jobs
         job_id = jobs.start_coro(ingest_job)
         return JSONResponse({"job_id": job_id}, status_code=202)
+
+    @app.post("/api/datasets/{dataset_id}/append")
+    async def append_dataset(
+        dataset_id: str,
+        files: list[UploadFile] = File(
+            ...,
+            description="New batch source file(s) (CSV or JSON) to append to the live "
+            "feed. Each name must match an rml:source in the mapping.",
+        ),
+    ) -> JSONResponse:
+        """Incremental append (ADR incremental-ingest.md): grow a promoted dataset's
+        live canonical graph with a new batch — the device-feed path.
+
+        Materializes ONLY this batch (O(new rows)) and POST-merges it into the
+        dataset's already-live canonical graph, so the new triples are immediately
+        citable while existing triples/IRIs are untouched (re-emitted rows dedupe by
+        their deterministic IRIs). No new version graph, no pointer swap, no DROP —
+        unlike snapshot ``ingest`` which re-materializes the whole source set.
+
+        Preconditions (4xx): the dataset exists, has an RML mapping, is *promoted* (a
+        live graph to grow) and active (not retracted/deleted). A batch file is
+        required (append always carries the new rows) and each must match an
+        ``rml:source`` name, else it would silently materialize 0 triples. The batch is
+        also accumulated into the dataset's source set so a later snapshot re-ingest
+        reproduces the whole feed (A7).
+
+        Trust model unchanged: same Morph-KGC + Tier 0 substrate (no generated code);
+        the append is a Graph Store POST (the ingest write path), not a SPARQL UPDATE,
+        so ``/api/sparql`` stays read-only. Append is idempotent — safe to retry.
+        """
+        data = registry.load_dataset(cfg.registry_root, dataset_id)
+        if data is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        meta = data["meta"]
+        rml_ttl = str(data["artifacts"].get("mapping.rml.ttl", "") or "")
+        if not rml_ttl.strip():
+            raise HTTPException(
+                400, "this dataset has no declarative RML mapping to append with"
+            )
+        if not meta.get("promoted"):
+            raise HTTPException(
+                409,
+                "append needs a live canonical graph; ingest then promote the dataset "
+                "first (append grows an already-citable feed in place)",
+            )
+        if meta.get("status") in ("retracted", "deleted"):
+            raise HTTPException(
+                409, f"dataset is {meta.get('status')}; reinstate it before appending"
+            )
+        uploaded = [f for f in files if f.filename]
+        if not uploaded:
+            raise HTTPException(400, "append requires at least one batch source file")
+
+        # Read each small batch file once: it is both materialized (in an isolated
+        # batch dir so Morph-KGC reads ONLY the new rows) and accumulated into the
+        # dataset's source set (so a later snapshot re-ingest reproduces the feed).
+        sources = substrate.rml_source_names(rml_ttl)
+        batch: list[tuple[str, bytes]] = []
+        for upload in uploaded:
+            name = _validate_source_name(upload.filename)
+            if sources and name not in sources:
+                raise HTTPException(
+                    400,
+                    f"batch file {name!r} does not match any rml:source in the mapping "
+                    f"(expected one of {sorted(sources)})",
+                )
+            batch.append((name, await upload.read()))
+
+        client: OxigraphClient = app.state.client
+        dataset_key = substrate.canonical_graph_iri(dataset_id)
+        # The live (citable) graph to grow: the version graph liveGraph points at, or
+        # the key graph for a dataset promoted before part5's versioned graphs.
+        live_graph = await substrate.live_graph_of(client, dataset_key) or dataset_key
+        sdir = registry.source_dir(cfg.registry_root, dataset_id)
+
+        work = Path(tempfile.mkdtemp(prefix="asterism-append-"))
+        try:
+            provided = {n for n, _ in batch}
+            for name, content in batch:
+                (work / name).write_bytes(content)
+            # For a multi-source RML, give any source the batch does NOT cover a
+            # header-only stand-in (0 new rows) so Morph-KGC can still materialize the
+            # batch without re-reading the full prior source. Best-effort: a CSV source
+            # with a persisted header; otherwise Morph-KGC fails loudly (422 below).
+            for src in sources - provided:
+                persisted = sdir / src if sdir else None
+                if (
+                    persisted is not None
+                    and persisted.is_file()
+                    and persisted.suffix.lower() == ".csv"
+                ):
+                    with persisted.open("rb") as fh:
+                        (work / src).write_bytes(fh.readline())
+            result = await substrate.run_append_ingest(
+                rml_ttl, work, client, live_graph
+            )
+        except RuntimeError as exc:  # morph-kgc missing / materialization failed
+            raise HTTPException(422, str(exc)) from exc
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+
+        # Accumulate the batch into the persisted source set (additive, A7).
+        if sdir is not None:
+            for name, content in batch:
+                await asyncio.to_thread(_accumulate_source_batch, sdir, name, content)
+        all_files = [
+            p.name for p in registry.list_source_files(cfg.registry_root, dataset_id)
+        ]
+
+        triples_in_batch = int(result["triples_in_batch"])
+        append_seq = registry.next_append_seq(cfg.registry_root, dataset_id)
+        new_meta = registry.mark_appended(
+            cfg.registry_root,
+            dataset_id,
+            batch_files=[n for n, _ in batch],
+            source_files=all_files,
+            triples_in_batch=triples_in_batch,
+            appended_at=datetime.now(UTC).isoformat(),
+            append_seq=append_seq,
+        )
+        return JSONResponse(
+            {
+                "dataset_id": dataset_id,
+                "live_graph": live_graph,
+                "triples_in_batch": triples_in_batch,
+                "append_seq": append_seq,
+                # The crosswalk hub is a derived projection over the canonical scope;
+                # this append may have introduced new shared values, so signal a
+                # rebuild is due (ADR §7). The rebuild is idempotent (PUT replace).
+                "crosswalk_stale": True,
+                "dataset": new_meta,
+            }
+        )
 
     @app.get("/api/datasets/{dataset_id}/alignment")
     async def dataset_alignment(dataset_id: str) -> JSONResponse:

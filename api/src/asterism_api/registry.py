@@ -224,6 +224,76 @@ def mark_ingested(
     return meta
 
 
+def next_append_seq(root: Path, dataset_id: str) -> int:
+    """The next monotonic per-dataset *append* sequence (incremental-ingest ADR).
+
+    Distinct from :func:`next_data_seq` (version graphs): an append grows the live
+    graph in place rather than minting a new version. 1 for the first append. Returns
+    1 if the id is unsafe / absent (the caller validates separately).
+    """
+    if not re.fullmatch(r"[a-z0-9-]{1,128}", dataset_id):
+        return 1
+    meta_path = root / dataset_id / _META_FILE
+    if not meta_path.is_file():
+        return 1
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    return int(meta.get("append_seq", 0)) + 1
+
+
+def mark_appended(
+    root: Path,
+    dataset_id: str,
+    *,
+    batch_files: list[str],
+    source_files: list[str],
+    triples_in_batch: int,
+    appended_at: str,
+    append_seq: int,
+) -> dict | None:
+    """Record an incremental append batch on the dataset's meta (incremental-ingest ADR).
+
+    Append grows the dataset's already-live canonical graph *in place* — it does NOT
+    create a new version graph — so, unlike :func:`mark_ingested`, this leaves
+    ``promoted`` / ``graph_iri`` / ``data_seq`` untouched. It marks the dataset a live
+    ``feed``, appends this batch to an append-only ``appends`` log (mirroring
+    ``versions``), refreshes the union ``source_files`` (+ ``source_kind``), and bumps
+    the running ``triples_appended`` counter and ``append_seq``.
+
+    ``triple_count`` is advanced by ``triples_in_batch`` as a best-effort UPPER bound:
+    re-emitted rows dedupe in the store, so the true count may be lower. The
+    authoritative count is a SPARQL COUNT when the catalog needs it — kept off the
+    per-append path so append stays O(new). Returns the new meta, or ``None`` if the id
+    is unsafe / absent.
+    """
+    if not re.fullmatch(r"[a-z0-9-]{1,128}", dataset_id):
+        return None
+    meta_path = root / dataset_id / _META_FILE
+    if not meta_path.is_file():
+        return None
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    meta["feed"] = True
+    meta["append_seq"] = int(append_seq)
+    meta["triples_appended"] = int(meta.get("triples_appended", 0) or 0) + int(
+        triples_in_batch
+    )
+    meta["triple_count"] = int(meta.get("triple_count", 0) or 0) + int(triples_in_batch)
+    meta["source_files"] = sorted(source_files)
+    meta["source_kind"] = source_kind_of(source_files)
+    meta["last_appended_at"] = appended_at
+    meta.setdefault("appends", []).append(
+        {
+            "seq": int(append_seq),
+            "batch_files": sorted(batch_files),
+            "triples_in_batch": int(triples_in_batch),
+            "appended_at": appended_at,
+        }
+    )
+    meta_path.write_text(
+        json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return meta
+
+
 def mark_promoted(
     root: Path,
     dataset_id: str,
