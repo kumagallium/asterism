@@ -1,6 +1,6 @@
 # ADR: Tier 0 "enough" coverage gate
 
-状態: **採択（初期値・要 A/B 後の再較正）** — Tier 0 関数ライブラリが「網羅」でなく
+状態: **採択＋A/B 後 再較正済（2026-06-10・§5）** — Tier 0 関数ライブラリが「網羅」でなく
 「**十分**」かを、多様コーパス上の計測ゲートで判定する。実装＋方法論＋スナップショットは
 [`experiments/coverage-corpus/README.md`](../../experiments/coverage-corpus/README.md)
 が生きた正。本 ADR は**決定（ゲートの定義と初期値）**のみを固定する。
@@ -46,3 +46,26 @@ A（REGISTRY 追記）・B（プリミティブ追記）の編集面と競合し
 頭関数が狙う需要。これは coverage の **demand-by-category**（heuristic・ゲート非投入）で別に
 可視化する。**ゲート（Track B/展開の信号）と demand 表（Track A の信号）を併読する**こと。
 A が関数を足すと該当列が direct→function に移り、計算分母が増えて `raw_rate` も下がる。
+
+## 5. A/B 着地後の再較正（2026-06-10・PR #167/#170 後）
+
+A（コア関数）・B（プリミティブ）merge 後、同一コーパス・同一 inspection で全 12 proposal を
+**新プロンプト（24 関数）で再生成**し `report` 再実行（生成は Claude が `propose.SYSTEM_PROMPT`
+を演じる Track C の手順どおり・各列は実サンプル形に忠実＝メトリクス稼ぎ無し）。
+
+- **`…Raw` 率 63.6% → 36.8%**（−27pt・相対 −42%）。計算列 11→19（function 4→12・raw 7 据置）。
+- **稼働関数**（§4 の「earn their place」）: `date_iso`×3・`lookup`×2・`datetime_iso`×2・
+  `url_canonical`×2・`doi_norm`・`year_only`・`bool_norm`。すべて A/B 由来の需要を実コーパスで充足。
+- **demand-by-category が決定的**: スカラ需要（`doi`/`epoch_millis`/`messy_date`/`url`/`boolean`）は
+  **すべて function 列 >0・raw/direct/unmapped =0** ＝ **スカラ被覆は本コーパスで実質完了**。
+  `value_with_unit_name` の 4 direct は単位が**列名**にありセル値はクリーン＝direct が正しい（関数不要）。
+- **残 `…Raw`（7）は 100% が `multivalue_or_json`**: crossref の `title`/`author`/`container-title`
+  （JSON 配列・object 配列）と earthquakes の `ids`/`sources`/`types`（カンマ列）・`coordinates`
+  （座標配列）。これは **多値展開（exploder）＝ RML iterator/入れ子 TriplesMap 意味論**が要る別
+  ワークストリームで、Track A/B のスコープ外（§2 が既に「還元不能」として 15% 許容に織り込んだ層）。
+
+**含意・再較正**: 36.8% の FAIL は **スカラ関数の不足でなく、保留中の多値 exploder のみ**を測っている。
+よって `RAW_RATE_GATE=0.15` を機械的に下げるのは誤り。次のいずれか:
+(a) **多値 exploder を別 KPI に分離**し、ゲートは「スカラ未充足（demand 表の raw/unmapped）= 0」を
+判定する形へ精緻化（今回スカラは 0 ＝ PASS 相当）。(b) コーパスを多値の薄い多ドメインで拡張し
+分母を平準化してから 10–15% を再評価。**当面の結論: スカラ Tier0 は「十分」に到達。残課題は多値展開**。

@@ -1,7 +1,12 @@
 # Seattle weather schema
 
 > Authored by the subscription Claude Code agent acting as `propose.SYSTEM_PROMPT`
-> (no Anthropic API call). Dates are already ISO; the weather summary is a controlled vocabulary.
+> (no Anthropic API call). Only the §9 RML block is consumed by the coverage
+> analyzer; the surrounding sections are abbreviated.
+
+### 2. IRI scheme (abbrev.)
+
+- `sd:` = ontology, `sdr:` = resource. Observation IRI: `sdr:weather/{date}`.
 
 ### 9. RML declarative mapping
 
@@ -15,19 +20,50 @@
 @prefix sd:   <https://kumagallium.github.io/asterism/ontology/> .
 @prefix sdr:  <https://kumagallium.github.io/asterism/resource/> .
 
-<#Map> a rr:TriplesMap ;
-  rml:logicalSource [ rml:source "seattle-weather.csv" ; rml:referenceFormulation ql:CSV ] ;
-  rr:subjectMap [ rr:template "https://kumagallium.github.io/asterism/resource/obs/seattle/{date}" ; rr:class sd:Observation ] ;
-  rr:predicateObjectMap [ rr:predicate sd:date ;
-    rr:objectMap [ rml:reference "date" ; rr:datatype xsd:date ] ] ;
-  rr:predicateObjectMap [ rr:predicate sd:precipitation ;
-    rr:objectMap [ rml:reference "precipitation" ; rr:datatype xsd:double ] ] ;
-  rr:predicateObjectMap [ rr:predicate sd:tempMax ;
-    rr:objectMap [ rml:reference "temp_max" ; rr:datatype xsd:double ] ] ;
-  rr:predicateObjectMap [ rr:predicate sd:tempMin ;
-    rr:objectMap [ rml:reference "temp_min" ; rr:datatype xsd:double ] ] ;
-  rr:predicateObjectMap [ rr:predicate sd:wind ;
-    rr:objectMap [ rml:reference "wind" ; rr:datatype xsd:double ] ] ;
-  rr:predicateObjectMap [ rr:predicate sd:weather ;
-    rr:objectMap [ rml:reference "weather" ] ] .
+<#WeatherObservationMap> a rr:TriplesMap ;
+    rml:logicalSource [
+        rml:source "seattle-weather.csv" ;
+        rml:referenceFormulation ql:CSV
+    ] ;
+
+    rr:subjectMap [
+        rr:template "https://kumagallium.github.io/asterism/resource/weather/{date}" ;
+        rr:class sd:WeatherObservation
+    ] ;
+
+    # date — already clean ISO YYYY-MM-DD (2012-01-01); map DIRECT, no fn:date_iso.
+    rr:predicateObjectMap [
+        rr:predicate sd:date ;
+        rr:objectMap [ rml:reference "date" ; rr:datatype xsd:date ]
+    ] ;
+
+    # precipitation — clean double (0.0, 8.1); direct.
+    rr:predicateObjectMap [
+        rr:predicate sd:precipitation ;
+        rr:objectMap [ rml:reference "precipitation" ; rr:datatype xsd:double ]
+    ] ;
+
+    # temp_max — clean double (12.8, 3.3); direct.
+    rr:predicateObjectMap [
+        rr:predicate sd:tempMax ;
+        rr:objectMap [ rml:reference "temp_max" ; rr:datatype xsd:double ]
+    ] ;
+
+    # temp_min — clean double (5.0, 0.0); direct.
+    rr:predicateObjectMap [
+        rr:predicate sd:tempMin ;
+        rr:objectMap [ rml:reference "temp_min" ; rr:datatype xsd:double ]
+    ] ;
+
+    # wind — clean double (4.7, 5.6); direct.
+    rr:predicateObjectMap [
+        rr:predicate sd:wind ;
+        rr:objectMap [ rml:reference "wind" ; rr:datatype xsd:double ]
+    ] ;
+
+    # weather — clean enum string (drizzle/snow/sun); plain literal, direct.
+    rr:predicateObjectMap [
+        rr:predicate sd:weather ;
+        rr:objectMap [ rml:reference "weather" ]
+    ] .
 ```
