@@ -35,6 +35,21 @@ from asterism.text import (
     safe_url,
     slugify,
 )
+from asterism.transforms import (
+    datetime_iso,
+    doi_norm,
+    nfkc_norm,
+    number_clean,
+    percent_to_ratio,
+    range_max,
+    range_min,
+    strip_footnote,
+    trim_collapse,
+    unit_of,
+    url_canonical,
+    value_of,
+    year_only,
+)
 
 # FnO 名前空間。関数 IRI = FN + 関数名、単一入力のパラメータ IRI = FN + "p_value"。
 # 2 入力関数は p_value1 / p_value2 で区別する(RML の rmlf:parameter が指す先)。
@@ -105,6 +120,16 @@ def qudt_unit(value: str) -> str:
     return unit_iri(value) or ""
 
 
+# ---- コア関数拡充(Track A。ロジックは asterism.transforms。全 str -> str・該当なし "") ----
+# 数値/日付/文字列/ID/値+単位の「頭」の高頻度変換。bool_norm は真偽語彙を
+# プリミティブの bool 表に委譲(単一の真実源 — 表は datasets でなく Tier0 同梱)。
+
+
+def bool_norm(value: str) -> str:
+    """真偽語彙 → "true"/"false"。lookup の bool 表に委譲(語彙の単一の真実源)。該当なし ""。"""
+    return lookup(value, "bool")
+
+
 # ---- FnO 登録メタデータ -------------------------------------------------------
 
 @dataclass(frozen=True)
@@ -159,6 +184,21 @@ REGISTRY: list[FunctionSpec] = [
             "field4": P_FIELD4,
         },
     ),
+    # コア関数拡充(Track A。asterism.transforms への委譲。全 _single = 単一入力 value)。
+    _single("number_clean", number_clean),
+    _single("percent_to_ratio", percent_to_ratio),
+    _single("range_min", range_min),
+    _single("range_max", range_max),
+    _single("datetime_iso", datetime_iso),
+    _single("year_only", year_only),
+    _single("nfkc_norm", nfkc_norm),
+    _single("trim_collapse", trim_collapse),
+    _single("strip_footnote", strip_footnote),
+    _single("bool_norm", bool_norm),
+    _single("doi_norm", doi_norm),
+    _single("url_canonical", url_canonical),
+    _single("value_of", value_of),
+    _single("unit_of", unit_of),
 ]
 
 

@@ -179,6 +179,19 @@ HARD RULES (a reviewer approves *column→predicate + which vetted function*, no
     — property name / unit → QUDT IRI (empty ⇒ triple skipped)
   - `fn:iri_safe` (value → IRI) — URL → IRI-safe
   - `fn:slug` (value → string) — string → IRI segment
+  - `fn:number_clean` (value → `xsd:double`) — strip thousands sep / currency /
+    accounting parens (`"$1,234.50"` → `1234.50`)
+  - `fn:percent_to_ratio` (value → `xsd:double`) — `"12%"` → `0.12`
+  - `fn:range_min` / `fn:range_max` (value → `xsd:double`) — `"10-20"` → low / high end
+  - `fn:datetime_iso` (value → `xsd:dateTime`) — messy datetime OR epoch (ms/s) → ISO 8601
+  - `fn:year_only` (value → `xsd:gYear`) — extract a 4-digit year
+  - `fn:nfkc_norm` (value → string) — Unicode NFKC (fold full-width / compatibility)
+  - `fn:trim_collapse` (value → string) — trim + collapse internal whitespace
+  - `fn:strip_footnote` (value → string) — drop trailing footnote markers (`"x[1]"` → `"x"`)
+  - `fn:bool_norm` (value → `xsd:boolean`) — `Yes/1/on` → `true`, `No/0/off` → `false`
+  - `fn:doi_norm` (value → string) — normalize a DOI to its bare lowercase form
+  - `fn:url_canonical` (value → string) — lowercase scheme+host, drop default port / fragment
+  - `fn:value_of` / `fn:unit_of` (value → string) — split value+unit (`"300 K"` → `300` / `K`)
   - Parameterized primitives — take the column value(s) PLUS a **constant** config
     argument (a table / regex / template), to absorb the long tail without a new
     function. The config is data, not code:

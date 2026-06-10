@@ -263,6 +263,57 @@ def test_materialize_with_parameterized_primitives(tmp_path: Path) -> None:
     assert ("https://ex/r/2", "https://ex/joined", "baz::qux") in triples
 
 
+def test_materialize_with_core_functions(tmp_path: Path) -> None:
+    """Track A core functions run end-to-end through Morph-KGC (registration +
+    execution), covering a few representative categories: number cleaning, epoch
+    datetime, boolean normalization, and value/unit splitting. Gated on morph-kgc.
+    """
+    if not _morph_kgc_installed():
+        pytest.skip("morph-kgc not installed; this exercises the real materialize")
+    (tmp_path / "d.csv").write_text(
+        'id,price,ts,flag,meas\n1,"$1,234.50",1609459200000,Yes,300 K\n',
+        encoding="utf-8",
+    )
+    rml = """
+@prefix rr:   <http://www.w3.org/ns/r2rml#> .
+@prefix rml:  <http://semweb.mmlab.be/ns/rml#> .
+@prefix ql:   <http://semweb.mmlab.be/ns/ql#> .
+@prefix rmlf: <http://w3id.org/rml/> .
+@prefix fn:   <https://kumagallium.github.io/asterism/fn/> .
+@prefix ex:   <https://ex/> .
+<#M> a rr:TriplesMap ;
+  rml:logicalSource [ rml:source "d.csv" ; rml:referenceFormulation ql:CSV ] ;
+  rr:subjectMap [ rr:template "https://ex/r/{id}" ] ;
+  rr:predicateObjectMap [ rr:predicate ex:price ; rr:objectMap [
+    rmlf:functionExecution [ rmlf:function fn:number_clean ;
+      rmlf:input [ rmlf:parameter fn:p_value ;
+        rmlf:inputValueMap [ rml:reference "price" ] ] ] ] ] ;
+  rr:predicateObjectMap [ rr:predicate ex:when ; rr:objectMap [
+    rmlf:functionExecution [ rmlf:function fn:datetime_iso ;
+      rmlf:input [ rmlf:parameter fn:p_value ;
+        rmlf:inputValueMap [ rml:reference "ts" ] ] ] ] ] ;
+  rr:predicateObjectMap [ rr:predicate ex:flag ; rr:objectMap [
+    rmlf:functionExecution [ rmlf:function fn:bool_norm ;
+      rmlf:input [ rmlf:parameter fn:p_value ;
+        rmlf:inputValueMap [ rml:reference "flag" ] ] ] ] ] ;
+  rr:predicateObjectMap [ rr:predicate ex:val ; rr:objectMap [
+    rmlf:functionExecution [ rmlf:function fn:value_of ;
+      rmlf:input [ rmlf:parameter fn:p_value ;
+        rmlf:inputValueMap [ rml:reference "meas" ] ] ] ] ] ;
+  rr:predicateObjectMap [ rr:predicate ex:unit ; rr:objectMap [
+    rmlf:functionExecution [ rmlf:function fn:unit_of ;
+      rmlf:input [ rmlf:parameter fn:p_value ;
+        rmlf:inputValueMap [ rml:reference "meas" ] ] ] ] ] .
+"""
+    graph = materialize_to_graph(rml, tmp_path)
+    triples = {(str(s), str(p), str(o)) for s, p, o in graph}
+    assert ("https://ex/r/1", "https://ex/price", "1234.50") in triples
+    assert ("https://ex/r/1", "https://ex/when", "2021-01-01T00:00:00Z") in triples
+    assert ("https://ex/r/1", "https://ex/flag", "true") in triples
+    assert ("https://ex/r/1", "https://ex/val", "300") in triples
+    assert ("https://ex/r/1", "https://ex/unit", "K") in triples
+
+
 # ---- streaming N-Triples load (scalable path) -------------------------------
 
 
