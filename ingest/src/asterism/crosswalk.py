@@ -17,6 +17,7 @@ the substrate / api / a CLI. The trust model is the Tier-0 one: the normalizatio
 """
 from __future__ import annotations
 
+import re
 import urllib.parse
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -48,10 +49,56 @@ def normalize_identity(value: str) -> str:
     return value.strip()
 
 
+# IUPAC element symbols (H..Og). Validating against the real set is what keeps the
+# element-canonical normalizer SAFE: only well-formed chemical formulas are reordered,
+# so a non-formula string (an id, a label) can never be silently merged with another.
+_ELEMENT_SYMBOLS = (
+    "H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Sc Ti V Cr Mn Fe Co Ni Cu Zn "
+    "Ga Ge As Se Br Kr Rb Sr Y Zr Nb Mo Tc Ru Rh Pd Ag Cd In Sn Sb Te I Xe Cs Ba La Ce "
+    "Pr Nd Pm Sm Eu Gd Tb Dy Ho Er Tm Yb Lu Hf Ta W Re Os Ir Pt Au Hg Tl Pb Bi Po At Rn "
+    "Fr Ra Ac Th Pa U Np Pu Am Cm Bk Cf Es Fm Md No Lr Rf Db Sg Bh Hs Mt Ds Rg Cn Nh Fl "
+    "Mc Lv Ts Og"
+)
+_ELEMENTS = frozenset(_ELEMENT_SYMBOLS.split())
+# An element symbol followed by an optional (possibly decimal) count.
+_ELEMENT_TOKEN = re.compile(r"([A-Z][a-z]?)(\d*\.?\d*)")
+
+
+def normalize_element_canonical(value: str) -> str:
+    """Order-canonical composition key: fold subscripts + strip, then sort elements
+    so ``Bi2Te3`` == ``Te3Bi2`` (a chemical formula is a multiset; element order does
+    not change the compound). Productization ① of the ADR — a richer, opt-in join key
+    for heterogeneous sources that write the same composition in different orders.
+
+    SAFE by construction: it only reorders a string that parses **entirely** into known
+    element symbols with their counts; anything else (an id, a label, a formula with
+    parentheses / dopant commas / charges) falls back to :func:`normalize_composition`
+    (subscript-fold + strip, no reorder) so distinct strings are never wrongly merged.
+    Case is significant (``Co`` cobalt != ``CO`` carbon+oxygen). Counts are preserved
+    verbatim — it does NOT reduce stoichiometry (``Bi4Te6`` != ``Bi2Te3``); a reducing
+    key would be a further, separately-vetted normalizer.
+    """
+    s = value.translate(_SUBS).replace(" ", "")
+    if not s:
+        return s
+    parts: list[tuple[str, str]] = []
+    pos = 0
+    for m in _ELEMENT_TOKEN.finditer(s):
+        if m.start() != pos or m.group(1) not in _ELEMENTS:
+            return normalize_composition(value)  # gap / non-element -> not a clean formula
+        parts.append((m.group(1), m.group(2)))
+        pos = m.end()
+    if pos != len(s) or not parts:
+        return normalize_composition(value)  # trailing junk / nothing parsed
+    parts.sort(key=lambda p: p[0])
+    return "".join(el + cnt for el, cnt in parts)
+
+
 # Named normalizers (a step toward Tier-0 functions): a concept references one by
 # name, so the join key is explicit, vetted, and recorded in provenance.
 NORMALIZERS = {
     "composition": normalize_composition,
+    "element_canonical": normalize_element_canonical,
     "identity": normalize_identity,
 }
 
