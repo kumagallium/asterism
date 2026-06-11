@@ -8,5 +8,6 @@ vPrefix = true
 changelog = true
 # Version bump is decided per merged PR via labels (default is patch). Apply the
 # "minor" label to a feature/breaking PR to bump the minor version; "major" for major.
-majorLabels = ["major"]
-minorLabels = ["minor"]
+# NOTE: .tagpr is git-config (INI) format — values are bare strings, NOT arrays.
+majorLabels = major
+minorLabels = minor
