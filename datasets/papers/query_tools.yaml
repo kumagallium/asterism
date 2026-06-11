@@ -1,0 +1,216 @@
+# Typed query tools for the **papers** (document-ontology) vocabulary, declared as
+# CONTENT. Same contract as datasets/{starrydata,materials_project}/query_tools.yaml:
+# each entry is a named, parameterized, read-only SPARQL operation an AI agent calls
+# instead of writing raw SPARQL. asterism.query_tools binds caller arguments into the
+# {{placeholders}} type-safely (escaped, never raw-concatenated) and runs the result
+# through the canonical FROM-merge — so these tools see what Ask sees, across datasets.
+# A human vets the template; nothing is generated at runtime (Tier-0 trust model).
+#
+# These are the document layer's recall surface (handoff §A.5): they return verbatim
+# text + a resolvable IRI + the structural path + PROV (the parse activity), so an
+# answer can say 「§4 によれば『…』」with a citation that dereferences. The last tool
+# is the data↔text FUSION headline (§A.6): a measured curve → the figure it came from
+# AND the sentence stating its measurement condition — a join RAG cannot do.
+#
+# Placeholder syntax:
+#   {{name}}                scalar (type-safe serialization of the arg)
+#   {{#name}}...{{/name}}   kept only when the arg is provided (optional block)
+
+tools:
+  - name: search_text
+    title: "Full-text search the paper corpus down to the sentence"
+    description: >
+      Case-insensitive substring search over every sentence's verbatim text
+      (nif:anchorOf). Returns the matching doco:Sentence nodes with their text,
+      the section they sit in (title + structural path), the paper, and the
+      character offset — the entry point for quoting. Pair a hit with
+      quote_with_citation to get a dereferenceable citation.
+    parameters:
+      - name: query
+        type: string
+        required: true
+        description: 'substring to find, e.g. "argon atmosphere" or "PPMS"'
+      - name: limit
+        type: integer
+        default: 20
+        minimum: 1
+        maximum: 200
+        description: max sentences returned
+    query: |
+      PREFIX doco: <http://purl.org/spar/doco/>
+      PREFIX po: <http://www.essepuntato.it/2008/12/pattern#>
+      PREFIX nif: <http://persistence.uni-leipzig.de/nlp2rdf/ontologies/nif-core#>
+      PREFIX dcterms: <http://purl.org/dc/terms/>
+      PREFIX prov: <http://www.w3.org/ns/prov#>
+      PREFIX lit: <https://kumagallium.github.io/asterism/papers/ontology#>
+      SELECT ?sentence ?text ?section ?sectionTitle ?structuralPath ?paper ?beginIndex
+      WHERE {
+        ?sentence a doco:Sentence ; nif:anchorOf ?text ;
+                  prov:wasQuotedFrom ?paper ; nif:beginIndex ?beginIndex .
+        ?para po:contains ?sentence .
+        ?section a doco:Section ; po:contains ?para .
+        OPTIONAL { ?section dcterms:title ?sectionTitle }
+        OPTIONAL { ?section lit:structuralPath ?structuralPath }
+        FILTER(CONTAINS(LCASE(STR(?text)), LCASE({{query}})))
+      }
+      ORDER BY ?beginIndex
+      LIMIT {{limit}}
+    result:
+      item:
+        sentence_iri: sentence
+        text: text
+        section_iri: section
+        section_title: sectionTitle
+        structural_path: structuralPath
+        paper_iri: paper
+        begin_index: { var: beginIndex, number: true }
+
+  - name: quote_with_citation
+    title: "Quote a sentence with a full, dereferenceable citation"
+    description: >
+      Given a doco:Sentence IRI (e.g. from search_text), return its verbatim text
+      plus everything needed to cite it: the resolvable node IRI, the character
+      span, the containing section (title + structural path), the paper, and the
+      PROV of HOW the sentence was produced — the lit:DocumentParsingActivity
+      (source format, parser, time). The parse provenance makes explicit that
+      sentence boundaries are a dated parser claim, not a verified fact.
+    parameters:
+      - name: node
+        type: iri
+        required: true
+        description: the doco:Sentence IRI to quote
+    query: |
+      PREFIX doco: <http://purl.org/spar/doco/>
+      PREFIX po: <http://www.essepuntato.it/2008/12/pattern#>
+      PREFIX nif: <http://persistence.uni-leipzig.de/nlp2rdf/ontologies/nif-core#>
+      PREFIX dcterms: <http://purl.org/dc/terms/>
+      PREFIX prov: <http://www.w3.org/ns/prov#>
+      PREFIX lit: <https://kumagallium.github.io/asterism/papers/ontology#>
+      SELECT ?node ?verbatim ?beginIndex ?endIndex ?section ?sectionTitle ?structuralPath
+             ?paper ?paperTitle ?activity ?sourceFormat ?parser ?parsedAt
+      WHERE {
+        BIND({{node}} AS ?node)
+        ?node nif:anchorOf ?verbatim ; prov:wasQuotedFrom ?paper ; prov:wasGeneratedBy ?activity .
+        OPTIONAL { ?node nif:beginIndex ?beginIndex ; nif:endIndex ?endIndex }
+        OPTIONAL {
+          ?para po:contains ?node .
+          ?section a doco:Section ; po:contains ?para .
+          OPTIONAL { ?section dcterms:title ?sectionTitle }
+          OPTIONAL { ?section lit:structuralPath ?structuralPath }
+        }
+        OPTIONAL { ?paper dcterms:title ?paperTitle }
+        OPTIONAL { ?activity lit:sourceFormat ?sourceFormat ; lit:parser ?parser ;
+                   prov:endedAtTime ?parsedAt }
+      }
+    result:
+      item:
+        node_iri: node
+        verbatim: verbatim
+        begin_index: { var: beginIndex, number: true }
+        end_index: { var: endIndex, number: true }
+        section_iri: section
+        section_title: sectionTitle
+        structural_path: structuralPath
+        paper_iri: paper
+        paper_title: paperTitle
+        parse_activity: activity
+        source_format: sourceFormat
+        parser: parser
+        parsed_at: parsedAt
+
+  - name: fetch_passage
+    title: "Fetch a paper's section (or all sections) with paragraph verbatim"
+    description: >
+      Return the paragraphs (IRI + verbatim text) of a paper, optionally narrowed
+      to one section by its structural path. Pass the paper by PMCID; pass section
+      as a structural path like "4" (Materials and Methods) or "2-1" (a subsection)
+      to focus, or omit it to walk the whole paper. The structural po:contains tree
+      makes this a deterministic browse, each paragraph individually citable.
+    parameters:
+      - name: paper
+        type: string
+        required: true
+        description: 'the paper PMCID, e.g. "PMC5951533"'
+      - name: section
+        type: string
+        required: false
+        description: 'optional structural path to focus on, e.g. "4" or "2-1"'
+    query: |
+      PREFIX doco: <http://purl.org/spar/doco/>
+      PREFIX po: <http://www.essepuntato.it/2008/12/pattern#>
+      PREFIX nif: <http://persistence.uni-leipzig.de/nlp2rdf/ontologies/nif-core#>
+      PREFIX dcterms: <http://purl.org/dc/terms/>
+      PREFIX lit: <https://kumagallium.github.io/asterism/papers/ontology#>
+      SELECT ?section ?sectionTitle ?structuralPath ?paragraph ?text
+      WHERE {
+        ?paperNode lit:pmcid {{paper}} ; po:contains* ?section .
+        ?section a doco:Section ; po:contains ?paragraph .
+        OPTIONAL { ?section dcterms:title ?sectionTitle }
+        OPTIONAL { ?section lit:structuralPath ?structuralPath }
+        {{#section}} ?section lit:structuralPath {{section}} . {{/section}}
+        ?paragraph a doco:Paragraph ; nif:isString ?text .
+      }
+      ORDER BY ?section ?paragraph
+    result:
+      item:
+        section_iri: section
+        section_title: sectionTitle
+        structural_path: structuralPath
+        paragraph_iri: paragraph
+        text: text
+
+  # ---- the data↔text FUSION headline (§A.6) -------------------------------
+  # Joins a measured curve (Starrydata, sd:) to the document layer: the FIGURE the
+  # curve was digitized from (prov:wasDerivedFrom) and the SENTENCE stating how it
+  # was measured (lit:conditionStatedIn). Returns the figure label + caption and the
+  # condition verbatim with resolvable IRIs from BOTH datasets — the cross-modal join
+  # (this number, that figure, this method sentence) that RAG cannot do
+  # deterministically. Rows appear only when both the curve overlay and the paper
+  # graph are in canonical scope.
+  - name: measurement_provenance
+    title: "Trace a measured curve to its figure and its stated measurement condition"
+    description: >
+      For a digitized property curve, return the paper FIGURE it was derived from
+      (label + caption) and the SENTENCE that states the measurement condition
+      (verbatim + dereferenceable IRI + paper). The data↔text fusion: link a
+      number to the prose that qualifies it. Optionally filter by composition.
+    parameters:
+      - name: composition
+        type: string
+        required: false
+        description: 'optional exact composition filter, e.g. "Ti0.5Zr0.25Hf0.25NiSn"'
+    query: |
+      PREFIX sd: <https://kumagallium.github.io/asterism/starrydata/ontology#>
+      PREFIX doco: <http://purl.org/spar/doco/>
+      PREFIX po: <http://www.essepuntato.it/2008/12/pattern#>
+      PREFIX nif: <http://persistence.uni-leipzig.de/nlp2rdf/ontologies/nif-core#>
+      PREFIX dcterms: <http://purl.org/dc/terms/>
+      PREFIX prov: <http://www.w3.org/ns/prov#>
+      PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+      PREFIX lit: <https://kumagallium.github.io/asterism/papers/ontology#>
+      SELECT ?curve ?composition ?propertyY ?yMax ?figure ?figureLabel ?caption
+             ?conditionSentence ?conditionText ?paper ?paperTitle
+      WHERE {
+        ?curve a sd:Curve ; sd:ofSample ?sample ; prov:wasDerivedFrom ?figure .
+        ?sample sd:compositionString ?composition ; lit:conditionStatedIn ?conditionSentence .
+        OPTIONAL { ?curve sd:propertyY ?propertyY }
+        OPTIONAL { ?curve sd:yMax ?yMax }
+        ?figure rdfs:label ?figureLabel .
+        OPTIONAL { ?figure po:contains ?capNode . ?capNode nif:isString ?caption }
+        ?conditionSentence nif:anchorOf ?conditionText ; prov:wasQuotedFrom ?paper .
+        OPTIONAL { ?paper dcterms:title ?paperTitle }
+        {{#composition}} FILTER(?composition = {{composition}}) {{/composition}}
+      }
+    result:
+      item:
+        curve_iri: curve
+        composition: composition
+        property: propertyY
+        value: { var: yMax, number: true }
+        figure_iri: figure
+        figure_label: figureLabel
+        figure_caption: caption
+        condition_sentence_iri: conditionSentence
+        condition_text: conditionText
+        paper_iri: paper
+        paper_title: paperTitle
