@@ -4,8 +4,9 @@ Status: **承認済・配線着地（コア＋ランタイム＋design-time）**
 ([`experiments/native-json-denormalize-spike/`](../../experiments/native-json-denormalize-spike/))
 で実証、`asterism.tabularize` 製品化＋substrate 自動 tabularize＋propose/inspect の CSV+tabularize
 出力まで実装し ingest 255 / step0 186 緑。**MP 後方互換確認済**（既存 JSONPath RML は無傷で 143 triples）。
-✅ coverage 再計測（PR #192・`…Raw` 0.0%・ゲート 5%）・✅ MP 例 RML の CSV 移行（本 PR・JSONPath 使用ゼロに）。
-残=`{key:[...]}` JSON の record_path・CSV 直取込の予約列ガード・inspect/tabularize の dedup（§8 参照）。
+✅ coverage 再計測（PR #192・`…Raw` 0.0%・ゲート 5%）・✅ MP 例 RML の CSV 移行（JSONPath 使用ゼロに）・
+✅ CSV 直取込の予約列ガード（`sanitize_csv_sources`＋inspect）。残=`{key:[...]}` JSON の record_path・
+inspect/tabularize の dedup（§8 参照）。
 
 決定母体:
 [`ingestion-execution-safety.md`](ingestion-execution-safety.md)（生成コード非実行・Tier0 閉集合のみ）/
@@ -184,8 +185,10 @@ tabularize する（formulation 解析不要・宣言的シグナル）。既存
    「`<stem>.csv`＋`ql:CSV`＋iterator なし・配列列は `json_array`/`json_pluck`」へ。`inspect._flatten_record` に
    `_safe_column`（予約列リネーム・`asterism.tabularize` と同期）。propose §9 の JSON logicalSource／json_pluck
    の native 制約／fallback の「nested TriplesMap」例外を撤去し CSV+tabularize 前提へ。テスト更新済。
-4. **△ 予約列サニタイズの共通防御** — tabularize と inspect は対応済。**残=CSV source 直接取り込み**（JSON 経由でない
-   生 CSV に `subject`/`predicate` 列があるケース）のガード。
+4. **✅ 予約列サニタイズの共通防御** — JSON（tabularize）に加え**直接 CSV 取り込みも対応**: substrate
+   `sanitize_csv_sources`（CSV ヘッダに予約列があれば work-dir コピーで `safe_col` リネーム・無ければ no-op・
+   行ストリームで memory-bounded）＋ inspect の CSV 列にも `_safe_column` 適用。生 CSV の `subject`/`predicate`
+   列が静かに 0 triples になる latent bug を解消（e2e で確認）。
 5. **✅ coverage 再計測（PR #192）**: 3 proposal を新 §9（CSV+tabularize）で再生成→`…Raw` 11.1%→**0.0%**、
    ゲート `DEFAULT_RAW_RATE_GATE` を **0.15→0.05** に締めた。検証レポート Addendum 参照。
 6. **✅ MP 例 RML の CSV 移行（本 PR）**: `mp.rml.ttl` を `ql:CSV`＋`mp.csv` 参照へ移行（dot-path 参照は不変・

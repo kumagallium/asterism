@@ -489,3 +489,20 @@ def test_render_markdown_renders_collisions(tmp_path: Path) -> None:
     # The single-column uniqueness test should show 1 collision
     assert "✗" in md  # at least one row marked non-unique
     assert "✓" in md  # composite key should also appear in the table
+
+
+def test_csv_reserved_column_renamed(tmp_path: Path) -> None:
+    """A CSV column literally named `subject` (Morph-KGC reserved) is reported as
+    `subject_`, so the proposed rml:reference matches the CSV the substrate feeds
+    Morph-KGC (which renames it the same way). Other columns are untouched."""
+    csv_path = _write_csv(
+        tmp_path / "books.csv",
+        """
+        id,subject,note
+        b1,topic,ok
+        """,
+    )
+    ins = inspect_csv(csv_path)
+    names = [c.name for c in ins.columns]
+    assert "subject_" in names and "subject" not in names
+    assert "id" in names and "note" in names  # non-reserved columns unchanged

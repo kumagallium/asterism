@@ -36,7 +36,7 @@ from typing import Protocol
 # Re-exported so callers can `substrate.assert_rml_safe` / catch `substrate.RmlSafetyError`.
 from asterism.rml_safety import RmlSafetyError as RmlSafetyError
 from asterism.rml_safety import assert_rml_safe as assert_rml_safe
-from asterism.tabularize import tabularize_json_to_csv
+from asterism.tabularize import sanitize_csv_columns, tabularize_json_to_csv
 
 # Draft graphs live under /graph/draft/<id>, trivially distinguishable from the
 # canonical per-kind graphs (.../graph/curves, .../graph/papers, ...).
@@ -217,6 +217,33 @@ def tabularize_json_sources(rml_ttl: str, csv_dir: Path | str, work_dir: Path | 
     return _RML_SOURCE.sub(repl, rml_ttl)
 
 
+def sanitize_csv_sources(rml_ttl: str, csv_dir: Path | str, work_dir: Path | str) -> str:
+    """Rewrite a *direct* ``.csv`` source whose header carries a reserved column
+    (``subject`` / ``predicate``) to a work-dir copy with the header sanitized,
+    matching the renamed selectors the inspector/propose emit. Sources with no
+    reserved column, absolute sources, and absent sources are left unchanged
+    (resolved later by :func:`absolutize_rml_sources`). Runs after
+    :func:`tabularize_json_sources`, so JSON-backed sources (already absolute and
+    safe_col-applied) are skipped here.
+    """
+    base = Path(csv_dir)
+    work = Path(work_dir)
+
+    def repl(m: re.Match[str]) -> str:
+        name = Path(m.group(2))
+        if name.is_absolute() or name.suffix.lower() != ".csv":
+            return m.group(0)
+        src = base / name.name
+        if not src.exists():
+            return m.group(0)
+        dest = work / name.name
+        if sanitize_csv_columns(src, dest):
+            return f"{m.group(1)}{dest}{m.group(3)}"
+        return m.group(0)
+
+    return _RML_SOURCE.sub(repl, rml_ttl)
+
+
 def rml_source_names(rml_ttl: str) -> set[str]:
     """Basenames of every ``rml:source "..."`` declared in the mapping.
 
@@ -258,7 +285,8 @@ def materialize_to_graph(
     work.mkdir(parents=True, exist_ok=True)
     mapping_file = work / "mappings.rml.ttl"
     tabularized = tabularize_json_sources(rml_ttl, csv_dir, work)
-    prepared = normalize_fno_namespace(absolutize_rml_sources(tabularized, csv_dir))
+    sanitized = sanitize_csv_sources(tabularized, csv_dir, work)
+    prepared = normalize_fno_namespace(absolutize_rml_sources(sanitized, csv_dir))
     mapping_file.write_text(prepared, encoding="utf-8")
 
     config = (
@@ -335,8 +363,9 @@ def materialize_to_nt_file(
     udfs = Path(udfs_path) if udfs_path else _DEFAULT_UDFS
     mapping_file = work / "mappings.rml.ttl"
     tabularized = tabularize_json_sources(rml_ttl, csv_dir, work)
+    sanitized = sanitize_csv_sources(tabularized, csv_dir, work)
     mapping_file.write_text(
-        normalize_fno_namespace(absolutize_rml_sources(tabularized, csv_dir)),
+        normalize_fno_namespace(absolutize_rml_sources(sanitized, csv_dir)),
         encoding="utf-8",
     )
     out = work / "out.nt"
