@@ -123,12 +123,13 @@ def test_propose_schema_json_record_path(tmp_path: Path) -> None:
 
 
 def test_system_prompt_teaches_json_logical_source() -> None:
-    """§9 must teach the JSON logicalSource shape (ql:JSONPath + iterator) so the
-    LLM emits Morph-KGC-readable RML for JSON sources (#19)."""
-    assert "ql:JSONPath" in SYSTEM_PROMPT
-    assert "rml:iterator" in SYSTEM_PROMPT
-    # Still teaches the CSV shape too (both kinds supported by one cacheable prompt).
+    """§9 must teach that JSON sources are tabularized to CSV at ingest, so the LLM
+    emits a ql:CSV logicalSource (NOT JSONPath / iterator) over the derived `.csv`
+    and explodes array columns with the Tier 0 exploders (native-json-denormalization)."""
     assert "ql:CSV" in SYSTEM_PROMPT
+    assert "tabulariz" in SYSTEM_PROMPT  # JSON → CSV normalization is taught
+    # The native JSONPath path is superseded: the prompt must NOT steer to it.
+    assert "ql:JSONPath" not in SYSTEM_PROMPT
 
 
 def test_propose_schema_returns_canned_llm_output(tmp_path: Path) -> None:
