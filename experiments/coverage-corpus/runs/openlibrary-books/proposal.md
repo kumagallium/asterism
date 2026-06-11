@@ -7,9 +7,10 @@
 
 - Book IRI: `sdr:book/{title}-{first_publish_year}` (title is near-unique; year disambiguates).
 - `author_name` / `isbn` / `language` are **multi-element** string arrays — take the
-  first element with `fn:array_at` (primary author / ISBN / language). `subject`
-  is a multi-element topical list with no fixed position to pick — emit raw
-  (a full subject list needs RML iteration / a nested map at Tier 0).
+  first element with `fn:array_at` (primary author / ISBN / language). `subject` is a
+  multi-element list where every element is wanted → `fn:json_array` explodes each to
+  its own triple (JSON is tabularized to CSV at ingest, so it is a JSON-string cell;
+  the reserved column name `subject` is renamed to `subject_`).
 
 ### 9. RML declarative mapping
 
@@ -24,9 +25,8 @@
 @prefix sdr:  <https://kumagallium.github.io/asterism/resource/> .
 
 <#BookMap> a rr:TriplesMap ;
-  rml:logicalSource [ rml:source "openlibrary-books.json" ;
-                      rml:referenceFormulation ql:JSONPath ;
-                      rml:iterator "$[*]" ] ;
+  rml:logicalSource [ rml:source "openlibrary-books.csv" ;
+                      rml:referenceFormulation ql:CSV ] ;
   rr:subjectMap [ rr:template "https://kumagallium.github.io/asterism/resource/book/{title}-{first_publish_year}" ;
                   rr:class sd:Book ] ;
   rr:predicateObjectMap [ rr:predicate sd:title ;
@@ -56,7 +56,12 @@
         rmlf:input [ rmlf:parameter fn:p_value ;
                      rmlf:inputValueMap [ rml:reference "language" ] ] ;
         rmlf:input [ rmlf:parameter fn:p_index ; rmlf:inputValueMap [ rmlf:constant "0" ] ] ] ] ] ;
-  # fallback: subject is a multi-element topical list (no fixed pick) — not expanded
-  rr:predicateObjectMap [ rr:predicate sd:subjectRaw ;
-    rr:objectMap [ rml:reference "subject" ] ] .
+  # subject — multi-element topical list as a JSON-string cell after tabularize;
+  # json_array explodes each subject to its own triple. NB tabularize renames the
+  # reserved column `subject` → `subject_` (Morph-KGC reserves the term `subject`).
+  rr:predicateObjectMap [ rr:predicate sd:subject ;
+    rr:objectMap [
+      rmlf:functionExecution [ rmlf:function fn:json_array ;
+        rmlf:input [ rmlf:parameter fn:p_value ;
+                     rmlf:inputValueMap [ rml:reference "subject_" ] ] ] ] ] .
 ```

@@ -1,9 +1,9 @@
 {
-  "raw_rate_gate": 0.15,
-  "corpus_raw_rate": 0.1111111111111111,
+  "raw_rate_gate": 0.05,
+  "corpus_raw_rate": 0.0,
   "gate_passes": true,
   "total_computed_columns": 27,
-  "total_raw_fallbacks": 3,
+  "total_raw_fallbacks": 0,
   "function_usage": {
     "array_at": 5,
     "date_iso": 3,
@@ -13,8 +13,10 @@
     "json_array_single": 2,
     "datetime_iso": 2,
     "bool_norm": 2,
+    "json_array": 2,
     "doi_norm": 1,
-    "year_only": 1
+    "year_only": 1,
+    "json_pluck": 1
   },
   "t9_misses": {},
   "demand_by_category": {
@@ -22,8 +24,7 @@
       "function": 1
     },
     "multivalue_or_json": {
-      "function": 7,
-      "raw": 3
+      "function": 10
     },
     "epoch_millis": {
       "function": 2
@@ -96,16 +97,17 @@
       "dataset": "crossref-works",
       "has_rml": true,
       "total_object_maps": 7,
-      "function_maps": 4,
-      "raw_fallbacks": 1,
+      "function_maps": 5,
+      "raw_fallbacks": 0,
       "direct_maps": 2,
-      "fallback_comments": 1,
+      "fallback_comments": 0,
       "computed_columns": 5,
-      "raw_rate": 0.2,
+      "raw_rate": 0.0,
       "function_usage": {
         "json_array_single": 2,
         "doi_norm": 1,
-        "year_only": 1
+        "year_only": 1,
+        "json_pluck": 1
       },
       "t9_misses": {},
       "t9_checked": true,
@@ -168,15 +170,16 @@
       "dataset": "github-repos",
       "has_rml": true,
       "total_object_maps": 11,
-      "function_maps": 2,
-      "raw_fallbacks": 1,
+      "function_maps": 3,
+      "raw_fallbacks": 0,
       "direct_maps": 8,
-      "fallback_comments": 1,
+      "fallback_comments": 0,
       "computed_columns": 3,
-      "raw_rate": 0.3333333333333333,
+      "raw_rate": 0.0,
       "function_usage": {
         "bool_norm": 1,
-        "url_canonical": 1
+        "url_canonical": 1,
+        "json_array": 1
       },
       "t9_misses": {},
       "t9_checked": true,
@@ -203,14 +206,15 @@
       "dataset": "openlibrary-books",
       "has_rml": true,
       "total_object_maps": 7,
-      "function_maps": 3,
-      "raw_fallbacks": 1,
+      "function_maps": 4,
+      "raw_fallbacks": 0,
       "direct_maps": 3,
-      "fallback_comments": 1,
+      "fallback_comments": 0,
       "computed_columns": 4,
-      "raw_rate": 0.25,
+      "raw_rate": 0.0,
       "function_usage": {
-        "array_at": 3
+        "array_at": 3,
+        "json_array": 1
       },
       "t9_misses": {},
       "t9_checked": true,

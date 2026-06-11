@@ -79,27 +79,30 @@ see the caveat below for why it is needed anyway.
 > **Of the columns a proposal treats as needing real computation, fewer than
 > `RAW_RATE_GATE` may fall back to a `…Raw` literal.**
 
-**Initial value: `RAW_RATE_GATE = 0.15`** (`coverage.DEFAULT_RAW_RATE_GATE`).
+**Current value: `RAW_RATE_GATE = 0.05`** (`coverage.DEFAULT_RAW_RATE_GATE`; was
+`0.15`, tightened after `tabularize` — see below).
 
 Rationale:
 
 - It was set as an **A/B acceptance target.** On the original Tier 0 (8
   starrydata-shaped functions) the corpus scored **~64%** — the gate was meant
   to FAIL until the head was filled. After Track A (core functions) + Track B
-  (primitives) + the multi-value "easy wins" landed, it is now **11.1% → PASS**
+  (primitives) + the multi-value "easy wins" it reached **11.1% → PASS**, and
+  after the JSON→CSV `tabularize` boundary (PR #190) it is now **0.0% → PASS**
   (see the snapshot below). The target held its meaning across the whole effort.
-- 15% (the loose end of the handoff's suggested 10–15%) tolerates the genuinely
-  *irreducible* fallbacks — **array-of-object** cells (Crossref `author`) and
-  multi-element scalar arrays where you want *every* element (OpenLibrary
-  `subject`, GitHub `topics`) — which need an RML **nested TriplesMap / iterator**,
-  not a Tier 0 scalar function. The easy wins (single-element arrays →
-  `json_array_single`, fixed-position → `array_at`, flat comma lists → `split`)
-  are now covered.
-- **Recalibrate after each Tier 0 change.** Re-run `report`; the gate now passes,
-  so the open question flips from "is the head enough?" to "can we tighten?".
-  With the denominator now spread across more datasets, **tightening the gate
-  toward 10%** is a reasonable next step (the current 11.1% would then be a near
-  miss, focusing attention on whether any of the 3 remaining raws are reducible).
+- 15% originally tolerated the genuinely *irreducible* fallbacks — **array-of-object**
+  cells (Crossref `author`) and multi-element scalar arrays where you want *every*
+  element (OpenLibrary `subject`, GitHub `topics`). **That premise is gone:** ingest
+  now tabularizes JSON sources to CSV (nested objects → dot-path columns, arrays →
+  JSON-string cells), so the existing `fn:json_array` / `fn:json_pluck` explode them
+  linked to the parent — no nested TriplesMap, no new function
+  (`architecture/native-json-denormalization.md`).
+- **The gate was therefore tightened 0.15 → 0.05.** With no irreducible raw left in
+  the corpus, the loose-gate rationale no longer applies; 5% keeps real pressure
+  (tolerates one genuinely novel irreducible structure — array-of-arrays, a
+  correlated child entity — but trips on a regression) without demanding a brittle 0%.
+- **Recalibrate after each Tier 0 change.** Re-run `report`; tightening further only
+  makes sense if a new irreducible class is shown not to exist.
 
 Tune it without editing code: `asterism-coverage report --gate 0.10`.
 
@@ -126,24 +129,26 @@ Tier 0 milestone (same harness, same corpus method):
 |---|--:|--:|:--:|
 | v0 (original) | 8 | **63.6%** | ❌ FAIL |
 | + Track A (core) + Track B (primitives) | 25 | **36.8%** | ❌ FAIL |
-| + multi-value (`split`/`array_at`/`json_array_single`) + corpus hardening | 28 | **11.1%** | ✅ **PASS** |
+| + multi-value (`split`/`array_at`/`json_array_single`) + corpus hardening | 28 | **11.1%** | ✅ PASS (15%) |
+| + object-array exploders (`json_array`/`json_pluck`) + **JSON→CSV tabularize** | 30 | **0.0%** | ✅ **PASS (5%)** |
 
-As of the current run (28 functions, 14 datasets):
+As of the current run (30 functions, 14 datasets):
 
-- **Gate: corpus `…Raw` rate 11.1% < 15% → ✅ PASS** (3 raw fallbacks of 27
-  computed columns). The 3 remaining raws are **genuinely irreducible** —
-  `crossref-works.author` (array of objects), `openlibrary-books.subject` and
-  `github-repos.topics` (multi-element lists where every element is wanted) —
-  each needs an RML nested TriplesMap / iterator, not a Tier 0 scalar function.
-- **Per-function usage:** now broad — `fn:array_at` (5), `fn:date_iso` (3),
-  `fn:url_canonical` (3), `fn:split` (3), `fn:lookup` (2), `fn:json_array_single`
-  (2), `fn:datetime_iso` (2), `fn:bool_norm` (2), `fn:doi_norm` (1),
-  `fn:year_only` (1). The starrydata-specific `fn:qudt_*` / `fn:float_array_*`
-  stay unused on this generic corpus (as expected).
+- **Gate: corpus `…Raw` rate 0.0% < 5% → ✅ PASS** (0 raw fallbacks of 27 computed
+  columns). The three formerly-irreducible raws — `crossref-works.author` (array of
+  objects), `openlibrary-books.subject` and `github-repos.topics` (multi-element
+  lists) — are now closed: ingest tabularizes the JSON source to CSV, so `fn:json_pluck`
+  (author → family) and `fn:json_array` (subject, topics) explode each element linked
+  to its parent. No nested TriplesMap, no new function.
+- **Per-function usage:** `fn:array_at` (5), `fn:date_iso` (3), `fn:url_canonical`
+  (3), `fn:split` (3), `fn:lookup` (2), `fn:json_array_single` (2), `fn:datetime_iso`
+  (2), `fn:bool_norm` (2), `fn:json_array` (2), `fn:doi_norm` (1), `fn:year_only` (1),
+  `fn:json_pluck` (1). The starrydata-specific `fn:qudt_*` / `fn:float_array_*` stay
+  unused on this generic corpus (as expected).
 - **T9 misses:** none — every referenced function is in the closed set.
 - **Demand by category:** `messy_date` ×2, `epoch_millis` ×2, `url` ×3, `boolean`
-  (2 of 3), `doi` ×1, and most `multivalue_or_json` (7 of 10) are now handled by
-  a **function**. The only category still mapped `direct` is `value_with_unit_name`
+  (2 of 3), `doi` ×1, and **all `multivalue_or_json` (10 of 10)** are now handled by
+  a **function** (0 raw). The only category still mapped `direct` is `value_with_unit_name`
   ×4 (`penguins`/`co2`) — but there the unit lives in the *column name* with a
   clean numeric cell, so `value_of`/`unit_of` (which split an in-cell `"300 K"`)
   correctly do not apply; this is modeling, not a missing function.

@@ -8,7 +8,8 @@
 - Repo IRI: `sdr:repo/{full_name}` (`full_name` = `owner/name`, 100% unique).
 - `archived` is a `true`/`false` string → `fn:bool_norm` (`xsd:boolean`).
 - `html_url` → `fn:url_canonical`. `created_at` is already ISO dateTime → direct.
-- `topics` is a multi-element string array (no fixed pick) → raw fallback.
+- `topics` is a multi-element string array where every element is wanted →
+  `fn:json_array` explodes each topic to its own triple (a JSON-string cell after tabularize).
 - `owner.*` / `license.*` are flat nested scalars (dot-path leaves) → direct.
 
 ### 9. RML declarative mapping
@@ -24,9 +25,8 @@
 @prefix sdr:  <https://kumagallium.github.io/asterism/resource/> .
 
 <#RepoMap> a rr:TriplesMap ;
-  rml:logicalSource [ rml:source "github-repos.json" ;
-                      rml:referenceFormulation ql:JSONPath ;
-                      rml:iterator "$[*]" ] ;
+  rml:logicalSource [ rml:source "github-repos.csv" ;
+                      rml:referenceFormulation ql:CSV ] ;
   rr:subjectMap [ rr:template "https://kumagallium.github.io/asterism/resource/repo/{full_name}" ;
                   rr:class sd:Repository ] ;
   rr:predicateObjectMap [ rr:predicate sd:ownerLogin ;
@@ -58,7 +58,11 @@
       rmlf:functionExecution [ rmlf:function fn:url_canonical ;
         rmlf:input [ rmlf:parameter fn:p_value ;
                      rmlf:inputValueMap [ rml:reference "html_url" ] ] ] ] ] ;
-  # fallback: topics is a multi-element string array (no fixed pick) — not expanded
-  rr:predicateObjectMap [ rr:predicate sd:topicsRaw ;
-    rr:objectMap [ rml:reference "topics" ] ] .
+  # topics — multi-element string array as a JSON-string cell after tabularize;
+  # json_array explodes each topic to its own triple
+  rr:predicateObjectMap [ rr:predicate sd:topic ;
+    rr:objectMap [
+      rmlf:functionExecution [ rmlf:function fn:json_array ;
+        rmlf:input [ rmlf:parameter fn:p_value ;
+                     rmlf:inputValueMap [ rml:reference "topics" ] ] ] ] ] .
 ```

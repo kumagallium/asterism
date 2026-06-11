@@ -1,9 +1,9 @@
 # Tier 0 coverage report
 
-**Gate** — corpus `…Raw` rate 11.1% < target 15.0% → ✅ PASS
+**Gate** — corpus `…Raw` rate 0.0% < target 5.0% → ✅ PASS
 
 - Datasets analysed: 14 (of 14 in corpus)
-- Computed columns (function + `…Raw`): 27; of those, raw fallbacks: 3
+- Computed columns (function + `…Raw`): 27; of those, raw fallbacks: 0
 
 ## Per-dataset
 
@@ -12,13 +12,13 @@
 | airports | 7 | 1 | 0 | 6 | 1 | 0.0% |
 | cars | 9 | 1 | 0 | 8 | 1 | 0.0% |
 | co2-concentration | 3 | 0 | 0 | 3 | 0 | n/a |
-| crossref-works | 7 | 4 | 1 | 2 | 5 | 20.0% |
+| crossref-works | 7 | 5 | 0 | 2 | 5 | 0.0% |
 | disasters | 3 | 0 | 0 | 3 | 0 | n/a |
 | earthquakes | 31 | 10 | 0 | 21 | 10 | 0.0% |
 | gapminder | 7 | 1 | 0 | 6 | 1 | 0.0% |
-| github-repos | 11 | 2 | 1 | 8 | 3 | 33.3% |
+| github-repos | 11 | 3 | 0 | 8 | 3 | 0.0% |
 | movies | 16 | 1 | 0 | 15 | 1 | 0.0% |
-| openlibrary-books | 7 | 3 | 1 | 3 | 4 | 25.0% |
+| openlibrary-books | 7 | 4 | 0 | 3 | 4 | 0.0% |
 | penguins | 7 | 0 | 0 | 7 | 0 | n/a |
 | seattle-weather | 6 | 0 | 0 | 6 | 0 | n/a |
 | stocks | 3 | 1 | 0 | 2 | 1 | 0.0% |
@@ -36,8 +36,10 @@
 | `fn:json_array_single` | 2 |
 | `fn:datetime_iso` | 2 |
 | `fn:bool_norm` | 2 |
+| `fn:json_array` | 2 |
 | `fn:doi_norm` | 1 |
 | `fn:year_only` | 1 |
+| `fn:json_pluck` | 1 |
 
 ## T9 misses (referenced-but-undefined functions = demand signal)
 
@@ -53,7 +55,7 @@ Columns whose values look like they need a transform, and how the proposal actua
 | doi | 1 | 0 | 0 | 0 |
 | epoch_millis | 2 | 0 | 0 | 0 |
 | messy_date | 2 | 0 | 0 | 0 |
-| multivalue_or_json | 7 | 3 | 0 | 0 |
+| multivalue_or_json | 10 | 0 | 0 | 0 |
 | url | 3 | 0 | 0 | 0 |
 | value_with_unit_name | 0 | 0 | 4 | 0 |
 

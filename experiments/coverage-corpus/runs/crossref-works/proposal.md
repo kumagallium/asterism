@@ -10,8 +10,9 @@
 - `DOI` (`10.xxxx/...`) → `fn:doi_norm` (bare lowercase form).
 - `published.date-parts` is a nested date-parts array (`[[2018, 11, 3]]`); the
   honest scalar we can compute is the 4-digit year → `fn:year_only` (xsd:gYear).
-- `title` / `container-title` are JSON arrays and `author` is a multi-valued
-  array of objects; no vetted Tier 0 expander exists, so each uses `…Raw`.
+- JSON is tabularized to CSV at ingest, so arrays arrive as JSON-string cells:
+  `title` / `container-title` (one-element arrays) → `fn:json_array_single`, and
+  `author` (array of objects) → `fn:json_pluck` per sub-field (`family`) — no `…Raw`.
 
 ### 9. RML declarative mapping
 
@@ -26,9 +27,8 @@
 @prefix sdr:  <https://kumagallium.github.io/asterism/resource/> .
 
 <#WorkMap> a rr:TriplesMap ;
-  rml:logicalSource [ rml:source "crossref-works.json" ;
-                      rml:referenceFormulation ql:JSONPath ;
-                      rml:iterator "$[*]" ] ;
+  rml:logicalSource [ rml:source "crossref-works.csv" ;
+                      rml:referenceFormulation ql:CSV ] ;
   rr:subjectMap [ rr:template "https://kumagallium.github.io/asterism/resource/work/{DOI}" ;
                   rr:class sd:Work ] ;
   # DOI — normalize to bare lowercase form
@@ -64,8 +64,13 @@
       rmlf:functionExecution [ rmlf:function fn:json_array_single ;
         rmlf:input [ rmlf:parameter fn:p_value ;
                      rmlf:inputValueMap [ rml:reference "container-title" ] ] ] ] ] ;
-  # fallback: author is an array of OBJECTS ([{given,family},…]) — genuinely
-  # irreducible at Tier 0 (each element has sub-fields → needs a nested TriplesMap)
-  rr:predicateObjectMap [ rr:predicate sd:authorRaw ;
-    rr:objectMap [ rml:reference "author" ] ] .
+  # author — array of OBJECTS ([{given,family},…]) as a JSON-string cell after
+  # tabularize; json_pluck explodes each object's `family` to its own triple
+  rr:predicateObjectMap [ rr:predicate sd:authorFamily ;
+    rr:objectMap [
+      rmlf:functionExecution [ rmlf:function fn:json_pluck ;
+        rmlf:input [ rmlf:parameter fn:p_value ;
+                     rmlf:inputValueMap [ rml:reference "author" ] ] ;
+        rmlf:input [ rmlf:parameter fn:p_field ;
+                     rmlf:inputValueMap [ rmlf:constant "family" ] ] ] ] ] .
 ```

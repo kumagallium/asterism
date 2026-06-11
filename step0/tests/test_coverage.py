@@ -267,7 +267,9 @@ def test_aggregate_pools_raw_rate_and_applies_gate() -> None:
 
 
 def test_gate_default_value() -> None:
-    assert DEFAULT_RAW_RATE_GATE == 0.15
+    # Tightened 0.15 → 0.05 after tabularize made native-JSON nested arrays
+    # reducible (corpus …Raw 11.1% → 0.0%); see native-json-denormalization.md.
+    assert DEFAULT_RAW_RATE_GATE == 0.05
 
 
 def test_gate_none_when_no_computed_columns() -> None:

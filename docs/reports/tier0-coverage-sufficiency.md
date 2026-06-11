@@ -1,6 +1,8 @@
 # Verification report — Tier 0 function library is "enough"
 
-**Date:** 2026-06-11 **Verdict:** ✅ **sufficient** — coverage gate PASS (`…Raw` 11.1% < 15%)
+**Date:** 2026-06-11 **Verdict:** ✅ **sufficient** — gate PASS. Originally `…Raw`
+11.1% < 15%; after the nested-array exploder (`tabularize`) landed the corpus is
+**0.0% < 5%** — see the [Addendum](#addendum-2026-06-11--nested-arrays-closed-gate-15--5).
 **Method/decision of record:** [`architecture/tier0-coverage-gate.md`](../architecture/tier0-coverage-gate.md) ·
 [`experiments/coverage-corpus/`](../../experiments/coverage-corpus/) ·
 harness `asterism_step0.coverage`
@@ -118,6 +120,40 @@ uv run asterism-coverage report \
 Raw outputs: [`experiments/coverage-corpus/report/coverage.md`](../../experiments/coverage-corpus/report/coverage.md)
 and `coverage.json`.
 
+## Addendum (2026-06-11) — nested arrays closed, gate 15% → 5%
+
+The original report (§3–4) called the three residual `…Raw` columns
+(`crossref-works.author`, `openlibrary-books.subject`, `github-repos.topics`)
+**irreducible** and left the gate at 15% because demanding 0% "would penalize the
+correct use of the fallback." That premise no longer holds: the *nested-array
+exploder* it named as the open follow-up has landed.
+
+- **What changed** — JSON sources are now **tabularized to CSV at ingest**
+  (nested objects → dot-path columns, arrays → JSON-string cells), so the existing
+  vetted Tier 0 exploders read them: `fn:json_pluck` for the object array (author),
+  `fn:json_array` for the scalar arrays (subject, topics). No new function — the T9
+  closed set is unchanged. Decision of record:
+  [`architecture/native-json-denormalization.md`](../architecture/native-json-denormalization.md).
+- **Re-measurement** — the three proposals were regenerated under the updated
+  `propose` §9 (which now emits `ql:CSV` + the exploders for JSON sources, not a raw
+  fallback). Same harness, same 14-dataset corpus:
+
+  | Tier 0 + ingest state | corpus `…Raw` rate | gate |
+  |---|--:|:--:|
+  | 30 functions, native-JSON arrays irreducible | 11.1% | 15% ✅ |
+  | 30 functions, **+ JSON→CSV tabularize** | **0.0%** | **5% ✅** |
+
+  Current run: **27 computed columns, 0 `…Raw`**. `fn:json_array` ×2,
+  `fn:json_pluck` ×1 now earn their place; `multivalue_or_json` demand (10 columns)
+  is **100% function-handled, 0 raw**. T9 misses: none.
+- **Gate tightened to `DEFAULT_RAW_RATE_GATE = 0.05`** — with no irreducible raw
+  left in the corpus, the loose-gate rationale is gone. 5% keeps real pressure
+  (tolerates one genuinely novel irreducible structure — array-of-arrays, a
+  correlated child entity — but trips on a regression) without demanding a brittle 0%.
+- **Conclusion strengthened** — Tier 0 + the JSON-tabularize boundary is sufficient
+  for arbitrary datasets at **0.0%** raw across the corpus; the no-codegen safety
+  argument holds with *no* long-tail escape, not merely a small one.
+
 ## History
 
 - **2026-06-09** — harness + corpus landed (PR #168); baseline 63.6% FAIL on the
@@ -125,3 +161,5 @@ and `coverage.json`.
 - **2026-06-10** — recalibrated after Track A + Track B (PR #172); 36.8% FAIL.
 - **2026-06-11** — recalibrated after the multi-value functions + corpus hardening
   to 14 datasets (PR #176); **11.1% PASS** — this report.
+- **2026-06-11** — after JSON→CSV tabularize (PR #190) closed the three nested-array
+  raws, re-measured to **0.0%** and tightened the gate to **5%** — see Addendum.
