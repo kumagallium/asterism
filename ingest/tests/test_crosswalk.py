@@ -117,3 +117,42 @@ def test_singleton_value_is_not_shared() -> None:
     b = _build(CrosswalkConfig((COMPOSITION,)), obs)
     assert b.shared["composition"] == []
     assert b.links["composition"] == {}
+
+
+def test_per_link_provenance_records_raw_string_and_normalizer() -> None:
+    # The SAME normalized composition is reached from DIFFERENT raw spellings; the
+    # per-link provenance must record EACH raw (the audit-relevant join claim), not
+    # just the normalized key.
+    obs = {
+        ("composition", "starrydata"): [("sd:s1", "Bi₂Te₃")],  # unicode subscripts
+        ("composition", "materials_project"): [("mp:m1", "Bi2Te3")],  # ascii
+    }
+    b = _build(CrosswalkConfig((COMPOSITION,)), obs)
+    t = b.turtle
+    assert "a xw:CrosswalkLink" in t
+    # Each link keeps its ORIGINAL raw spelling + the normalizer that joined it.
+    assert 'xw:sourceValue "Bi₂Te₃"' in t  # starrydata's raw, not the "Bi2Te3" key
+    assert 'xw:sourceValue "Bi2Te3"' in t  # materials_project's raw
+    assert 'xw:normalizer "composition"' in t
+    assert "xw:linkSubject <sd:s1>" in t
+    assert "xw:linkSubject <mp:m1>" in t
+    # The link node points at the shared composition entity + the build activity.
+    assert "/crosswalk/resource/composition/Bi2Te3>" in t  # linkObject target exists
+    assert "xw:linkObject <" in t
+    assert t.count("prov:wasGeneratedBy <urn:act>") >= 3  # 1 comp + 2 link nodes
+    # Deterministic link-node IRI per (key, entity).
+    assert "/crosswalk/resource/composition/link/Bi2Te3/sd%3As1>" in t
+
+
+def test_per_link_provenance_can_be_disabled() -> None:
+    obs = {
+        ("composition", "starrydata"): [("sd:s1", "Bi₂Te₃")],
+        ("composition", "materials_project"): [("mp:m1", "Bi2Te3")],
+    }
+    b = _build(CrosswalkConfig((COMPOSITION,), per_link_provenance=False), obs)
+    t = b.turtle
+    # No per-link nodes; the primary queryable link + per-build provenance remain.
+    assert "xw:CrosswalkLink" not in t
+    assert "xw:sourceValue" not in t
+    assert f"<sd:s1> <{XW}hasComposition>" in t
+    assert "prov:wasGeneratedBy <urn:act>" in t  # the minted composition still has it

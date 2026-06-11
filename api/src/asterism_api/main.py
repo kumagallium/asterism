@@ -36,7 +36,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final
 
-from asterism import substrate
+from asterism import crosswalk_runtime, substrate
 from asterism.datasets import load_dataset
 from asterism.exposure import raw_sparql_enabled
 from asterism.ontology_projection import (
@@ -55,6 +55,7 @@ from asterism.watcher import (
     watch,
     watch_tree,
 )
+from asterism_step0.crosswalk_propose import propose_crosswalk_mapping
 from asterism_step0.inspect import inspect_source_set, render_markdown
 from asterism_step0.materialize import materialize_schema
 from asterism_step0.propose import AnthropicLLMClient, LLMClient, propose_schema
@@ -133,6 +134,25 @@ class ToolRunBody(BaseModel):
     args: dict = {}
 
 
+class CrosswalkBuildBody(BaseModel):
+    """Body for POST /api/crosswalk/build (crosswalk-hub.md productize ①). When a
+    ``config`` is given (the authoring flow: which datasets + which concept-bearing
+    predicate participate) it is validated, persisted, and built; omit it to rebuild
+    from the persisted config. The mapping is a human-vetted claim — building it IS
+    that gate (the same way saving a query tool is)."""
+
+    config: dict | None = None
+
+
+class CrosswalkProposeBody(BaseModel):
+    """Body for POST /api/crosswalk/propose: the datasets to crosswalk + the shared
+    concept. The LLM suggests each dataset's concept-bearing predicate (返り値は下書き
+    — never built); the human confirms/edits in the authoring UI (the vet gate)."""
+
+    dataset_ids: list[str] = []
+    concept: str = "composition"
+
+
 # Update-form keywords. Oxigraph's /query endpoint is read-only regardless, but
 # we reject these up front so the escape hatch can never be mistaken for write
 # access and the user gets a clear message.
@@ -141,6 +161,113 @@ _SPARQL_UPDATE = re.compile(
 )
 
 logger = logging.getLogger(__name__)
+
+
+# ----------------------------------------------------------------------------
+# Crosswalk hub auto-rebuild (crosswalk-hub.md productize ②)
+# ----------------------------------------------------------------------------
+# The hub is a derived projection over the canonical scope, so it goes stale when a
+# participating dataset is promoted / appended. promote rebuilds inline (the user
+# just gated a citable change — they expect it reflected); append self-heals via a
+# DEBOUNCED background rebuild, so a burst of device-feed batches coalesces into one
+# rebuild instead of running the O(new-rows) append into an O(all-shared) hub rebuild
+# per batch. Both are idempotent (drop + replace) and best-effort (never block).
+
+
+async def _rebuild_crosswalk_now(client: OxigraphClient, registry_root: Path) -> dict | None:
+    """Rebuild the hub from the persisted config + refresh its registry meta. No-op
+    (returns None) when there is no crosswalk config yet."""
+    config = crosswalk_runtime.load_config(registry_root)
+    if config is None:
+        return None
+    outcome = await crosswalk_runtime.build_hub(
+        client, config, built_at=datetime.now(UTC).isoformat()
+    )
+    crosswalk_runtime.write_registry_scaffold(registry_root, config, outcome)
+    return {
+        "built_at": outcome.built_at,
+        "triple_count": outcome.triple_count,
+        "shared": outcome.shared,
+        "participants_used": outcome.participants_used,
+        "participants_skipped": outcome.participants_skipped,
+    }
+
+
+async def _maybe_rebuild_crosswalk(
+    client: OxigraphClient, registry_root: Path, dataset_id: str
+) -> None:
+    """Inline best-effort rebuild after a promote, IF the dataset participates in the
+    crosswalk. Never raises — a hub-rebuild failure must not fail the promote."""
+    try:
+        config = crosswalk_runtime.load_config(registry_root)
+        if config is not None and dataset_id in config.dataset_ids():
+            await _rebuild_crosswalk_now(client, registry_root)
+    except Exception:  # never block a promote on the derived-hub rebuild
+        logger.exception("crosswalk auto-rebuild after promote failed (continuing)")
+
+
+def _crosswalk_participates(registry_root: Path, dataset_id: str) -> bool:
+    """True iff ``dataset_id`` is a crosswalk participant (so an append to it makes the
+    hub stale). Best-effort: a malformed/absent config reads as 'not participating'."""
+    try:
+        config = crosswalk_runtime.load_config(registry_root)
+        return config is not None and dataset_id in config.dataset_ids()
+    except Exception:
+        return False
+
+
+class CrosswalkRebuilder:
+    """Debounced background rebuilder: ``schedule()`` (re)arms a short timer that
+    coalesces a burst of appends into ONE rebuild. Runs off the request path so an
+    append returns immediately and the hub self-heals shortly after."""
+
+    def __init__(
+        self, client: OxigraphClient, registry_root: Path, *, delay_s: float = 5.0
+    ) -> None:
+        self._client = client
+        self._root = registry_root
+        self._delay = delay_s
+        self._task: asyncio.Task[None] | None = None
+
+    def schedule(self) -> None:
+        if self._task is not None and not self._task.done():
+            self._task.cancel()
+        self._task = asyncio.create_task(self._run(), name="asterism-crosswalk-rebuild")
+
+    async def _run(self) -> None:
+        try:
+            await asyncio.sleep(self._delay)  # debounce window
+        except asyncio.CancelledError:
+            return  # superseded by a newer schedule() — let it run instead
+        try:
+            await _rebuild_crosswalk_now(self._client, self._root)
+        except Exception:
+            logger.exception("debounced crosswalk rebuild failed")
+
+    async def aclose(self) -> None:
+        if self._task is not None and not self._task.done():
+            self._task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._task
+
+
+async def _literal_predicates(client: OxigraphClient, graph_iri: str) -> list[dict]:
+    """Literal-valued predicates of a dataset's live graph, with a sample value and a
+    usage count (most-used first). The crosswalk AI-assist offers these as candidates
+    for the concept-bearing predicate; ``isLiteral`` drops ``rdf:type`` / object links
+    (a composition is a literal), and the sample lets the model judge by VALUES."""
+    q = (
+        f"SELECT ?p (SAMPLE(?v) AS ?ex) (COUNT(*) AS ?n) WHERE {{ GRAPH <{graph_iri}> {{ "
+        f"?e ?p ?v FILTER(isLiteral(?v)) }} }} GROUP BY ?p ORDER BY DESC(?n) LIMIT 40"
+    )
+    data = await client.sparql_select(q)
+    results = data.get("results", {}) if isinstance(data, dict) else {}
+    out: list[dict] = []
+    for b in results.get("bindings", []):
+        p = b.get("p", {})
+        if p.get("type") == "uri":
+            out.append({"iri": p["value"], "sample": b.get("ex", {}).get("value", "")})
+    return out
 
 
 async def _project_ontology_graph(
@@ -455,6 +582,8 @@ async def _append_batch_to_dataset(
     client: OxigraphClient,
     dataset_id: str,
     batch: list[tuple[str, bytes]],
+    *,
+    rebuilder: CrosswalkRebuilder | None = None,
 ) -> dict[str, object]:
     """Append one batch (``[(filename, bytes), …]``) to a dataset's live feed.
 
@@ -465,6 +594,10 @@ async def _append_batch_to_dataset(
     source set (A7), and records :func:`registry.mark_appended`. Returns the response
     payload. Trust model unchanged: Morph-KGC + Tier 0 only; a Graph Store POST, never
     a SPARQL UPDATE.
+
+    crosswalk-hub.md ②: if the dataset is a crosswalk participant, the derived hub is
+    now stale; ``rebuilder`` (when provided) schedules a DEBOUNCED self-heal so a burst
+    of device-feed batches coalesces into one rebuild (the append stays O(new)).
     """
     data = registry.load_dataset(registry_root, dataset_id)
     if data is None:
@@ -547,15 +680,18 @@ async def _append_batch_to_dataset(
         appended_at=datetime.now(UTC).isoformat(),
         append_seq=append_seq,
     )
+    # crosswalk-hub.md ②: the hub is a derived projection over the canonical scope;
+    # this append may have introduced new shared values. Mark stale ONLY if the
+    # dataset participates, and schedule a debounced rebuild (self-healing).
+    crosswalk_stale = _crosswalk_participates(registry_root, dataset_id)
+    if crosswalk_stale and rebuilder is not None:
+        rebuilder.schedule()
     return {
         "dataset_id": dataset_id,
         "live_graph": live_graph,
         "triples_in_batch": triples_in_batch,
         "append_seq": append_seq,
-        # The crosswalk hub is a derived projection over the canonical scope; this
-        # append may have introduced new shared values, so signal a rebuild is due
-        # (ADR §7). The rebuild is idempotent (PUT replace).
-        "crosswalk_stale": True,
+        "crosswalk_stale": crosswalk_stale,
         "dataset": new_meta,
     }
 
@@ -587,6 +723,7 @@ async def _append_watch_loop(
     stop: asyncio.Event,
     *,
     events_source=None,
+    crosswalk_rebuilder: CrosswalkRebuilder | None = None,
 ) -> None:
     """Per-dataset append watcher (ADR incremental-ingest.md §6).
 
@@ -613,7 +750,11 @@ async def _append_watch_loop(
         try:
             content = await asyncio.to_thread(path.read_bytes)
             result = await _append_batch_to_dataset(
-                cfg.registry_root, client, dataset_id, [(name, content)]
+                cfg.registry_root,
+                client,
+                dataset_id,
+                [(name, content)],
+                rebuilder=crosswalk_rebuilder,
             )
             await asyncio.to_thread(path.unlink)  # consume the transient drop file
             _log_append_job(
@@ -761,25 +902,37 @@ def build_app(
             sweeper = asyncio.create_task(
                 _pending_drop_sweeper(client, stop), name="asterism-drop-sweeper"
             )
+        # crosswalk-hub.md ②: a debounced rebuilder self-heals the hub after appends
+        # to a participating dataset (gated on start_watcher so unit tests opt out).
+        crosswalk_rebuilder = (
+            CrosswalkRebuilder(client, cfg.registry_root) if start_watcher else None
+        )
         # Per-dataset append watcher (ADR incremental-ingest.md §6): a CSV/JSON dropped
         # at <append_drop_root>/<id>/ grows that dataset's live feed. Gated on
-        # start_watcher (unit tests opt out) and ASTERISM_APPEND_WATCHER.
+        # start_watcher (unit tests opt out) and ASTERISM_APPEND_WATCHER. It shares the
+        # crosswalk rebuilder so unattended appends self-heal the hub too.
         append_watcher: asyncio.Task[None] | None = None
         if start_watcher and cfg.append_watcher:
             cfg.append_drop_root.mkdir(parents=True, exist_ok=True)
             append_watcher = asyncio.create_task(
-                _append_watch_loop(cfg, client, stop), name="asterism-append-watcher"
+                _append_watch_loop(
+                    cfg, client, stop, crosswalk_rebuilder=crosswalk_rebuilder
+                ),
+                name="asterism-append-watcher",
             )
         app.state.client = client
         app.state.watcher_cfg = watcher_cfg
         app.state.watcher_task = task
         app.state.sweeper_task = sweeper
         app.state.append_watcher_task = append_watcher
+        app.state.crosswalk_rebuilder = crosswalk_rebuilder
         app.state.jobs = JobManager()
         try:
             yield
         finally:
             stop.set()
+            if crosswalk_rebuilder is not None:
+                await crosswalk_rebuilder.aclose()
             for bg in (task, sweeper, append_watcher):
                 if bg is not None:
                     try:
@@ -1392,7 +1545,11 @@ def build_app(
         batch = [(str(f.filename), await f.read()) for f in uploaded]
         try:
             result = await _append_batch_to_dataset(
-                cfg.registry_root, app.state.client, dataset_id, batch
+                cfg.registry_root,
+                app.state.client,
+                dataset_id,
+                batch,
+                rebuilder=getattr(app.state, "crosswalk_rebuilder", None),
             )
         except AppendError as exc:
             raise HTTPException(exc.status, exc.detail) from exc
@@ -1467,6 +1624,9 @@ def build_app(
             canonical_graph=dataset_key,
             live_graph=staged_iri,
         )
+        # crosswalk-hub.md ②: if this dataset participates in the crosswalk, rebuild
+        # the hub now (inline best-effort) so its newly-citable values are joined.
+        await _maybe_rebuild_crosswalk(client, cfg.registry_root, dataset_id)
         return JSONResponse(
             {
                 "dataset_id": dataset_id,
@@ -1577,6 +1737,123 @@ def build_app(
         return JSONResponse(
             {"dataset_id": dataset_id, "deleted": True, "was_promoted": promoted}
         )
+
+    # ----------------------------------------------------------------------
+    # Crosswalk hub (crosswalk-hub.md productize ①④) — author / build / view
+    # ----------------------------------------------------------------------
+
+    @app.get("/api/crosswalk")
+    async def crosswalk_get() -> JSONResponse:
+        """The persisted crosswalk config + the hub's registry meta (stats). Read-only;
+        ``exists:false`` when no hub has been built yet."""
+        config = crosswalk_runtime.load_config(cfg.registry_root)
+        data = registry.load_dataset(cfg.registry_root, crosswalk_runtime.DATASET_ID)
+        return JSONResponse(
+            {
+                "exists": config is not None,
+                "config": crosswalk_runtime.config_to_dict(config) if config else None,
+                "dataset": data["meta"] if data else None,
+            }
+        )
+
+    @app.post("/api/crosswalk/build", dependencies=_write_auth)
+    async def crosswalk_build(body: CrosswalkBuildBody) -> JSONResponse:
+        """Build (or rebuild) the crosswalk hub (productize ①). A ``config`` in the body
+        (the authoring flow) is validated + persisted, then built; omit it to rebuild
+        from the persisted config. Reads each participant's promoted canonical graph,
+        mints the shared entities + per-link provenance, writes the hub graph + control
+        flag (so the FROM-merge unions it). Building the human-declared mapping IS the
+        vet gate."""
+        client: OxigraphClient = app.state.client
+        if body.config is not None:
+            try:
+                config = crosswalk_runtime.parse_config(body.config)
+            except ValueError as exc:
+                raise HTTPException(400, f"invalid crosswalk config: {exc}") from exc
+            crosswalk_runtime.save_config(cfg.registry_root, config)
+        else:
+            config = crosswalk_runtime.load_config(cfg.registry_root)
+            if config is None:
+                raise HTTPException(
+                    400,
+                    "no crosswalk config yet — POST a config (datasets + the "
+                    "concept-bearing predicate of each) to create the hub",
+                )
+        try:
+            outcome = await crosswalk_runtime.build_hub(
+                client, config, built_at=datetime.now(UTC).isoformat()
+            )
+        except Exception as exc:  # surface a build error to the UI
+            raise HTTPException(502, f"crosswalk build failed: {exc}") from exc
+        meta = crosswalk_runtime.write_registry_scaffold(cfg.registry_root, config, outcome)
+        return JSONResponse(
+            {
+                "dataset_id": crosswalk_runtime.DATASET_ID,
+                "hub_graph": outcome.hub_graph,
+                "built_at": outcome.built_at,
+                "triple_count": outcome.triple_count,
+                "shared": outcome.shared,
+                "shared_total": outcome.shared_total,
+                "links": outcome.links,
+                "participants_used": outcome.participants_used,
+                "participants_skipped": outcome.participants_skipped,
+                "dataset": meta,
+            }
+        )
+
+    @app.post("/api/crosswalk/propose", dependencies=_write_auth)
+    async def crosswalk_propose(
+        body: CrosswalkProposeBody, x_api_key: str | None = Header(default=None)
+    ) -> dict[str, object]:
+        """AI-assist (手動選択の補助): suggest each dataset's concept-bearing predicate.
+
+        Samples each selected dataset's literal-valued predicates from the store and
+        asks the LLM (user-brought key, never stored) which one carries the concept.
+        Returns a DRAFT (per-dataset predicate + why) for the human to confirm/edit in
+        the authoring UI — nothing is built here (the human review is the vet gate)."""
+        if not body.dataset_ids:
+            raise HTTPException(400, "dataset_ids is required")
+        if not x_api_key:
+            raise HTTPException(400, "AI suggestion needs an Anthropic API key (header X-API-Key)")
+        client: OxigraphClient = app.state.client
+        datasets: list[dict] = []
+        skipped: list[dict] = []
+        for dsid in body.dataset_ids:
+            data = registry.load_dataset(cfg.registry_root, dsid)
+            if data is None:
+                skipped.append({"dataset_id": dsid, "reason": "not found"})
+                continue
+            meta = data["meta"]
+            if not meta.get("promoted"):
+                skipped.append({"dataset_id": dsid, "reason": "not promoted (no live data)"})
+                continue
+            key = substrate.canonical_graph_iri(dsid)
+            live = await substrate.live_graph_of(client, key) or key
+            datasets.append(
+                {
+                    "dataset_id": dsid,
+                    "label": meta.get("name") or dsid,
+                    "predicates": await _literal_predicates(client, live),
+                }
+            )
+        if not datasets:
+            raise HTTPException(400, "none of dataset_ids is a promoted, sampleable dataset")
+
+        def run() -> list[dict]:
+            return propose_crosswalk_mapping(
+                make_llm(x_api_key), concept=body.concept, datasets=datasets
+            )
+
+        try:
+            participants = await asyncio.to_thread(run)
+        except Exception as exc:  # LLM/parse failure -> 502 with the reason
+            raise HTTPException(502, f"AI suggestion failed: {exc}") from exc
+        return {
+            "concept": body.concept,
+            "participants": participants,
+            "candidates": datasets,
+            "skipped": skipped,
+        }
 
     @app.post("/api/sparql", dependencies=_write_auth)
     async def sparql(body: SparqlRequest) -> JSONResponse:
