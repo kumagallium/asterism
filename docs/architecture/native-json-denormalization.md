@@ -5,8 +5,8 @@ Status: **承認済・配線着地（コア＋ランタイム＋design-time）**
 で実証、`asterism.tabularize` 製品化＋substrate 自動 tabularize＋propose/inspect の CSV+tabularize
 出力まで実装し ingest 255 / step0 186 緑。**MP 後方互換確認済**（既存 JSONPath RML は無傷で 143 triples）。
 ✅ coverage 再計測（PR #192・`…Raw` 0.0%・ゲート 5%）・✅ MP 例 RML の CSV 移行（JSONPath 使用ゼロに）・
-✅ CSV 直取込の予約列ガード（`sanitize_csv_sources`＋inspect）・✅ `{key:[...]}` wrapped 配列の自動検出。
-残=inspect/tabularize の dedup（§8 参照・純粋なコード整理）。
+✅ CSV 直取込の予約列ガード（`sanitize_csv_sources`＋inspect）・✅ `{key:[...]}` wrapped 配列の自動検出・
+✅ inspect↔tabularize の drift 対策（依存結合でなく sync guard・§8.8）。**全 follow-up 完了**。
 
 決定母体:
 [`ingestion-execution-safety.md`](ingestion-execution-safety.md)（生成コード非実行・Tier0 閉集合のみ）/
@@ -198,6 +198,13 @@ tabularize する（formulation 解析不要・宣言的シグナル）。既存
    （最長の array-of-objects 値・inspect の `_detect_iterator` と同流儀）＝`{"docs":[...]}`/`{"data":[...]}`
    のような API レスポンス形（OpenLibrary 実 API がこれ）を record_path なしで explode。substrate の
    auto-tabularize は record_path を渡さないのでこの自動検出が要だった。単一 object 文書は 1 行のまま（非回帰）。
+8. **✅ inspect↔tabularize の drift 対策（依存結合でなく検証）**: `flatten_record`/`safe_col`/予約列集合は
+   `asterism.tabularize` が**正準**だが、step0 は**ハード依存ゼロ設計**（inspect は stdlib のみ・ingest の
+   rdflib/httpx/watchfiles を引かない＝設計原則）なので import 結合は不可。代わりに step0 が軽量ミラーを保持し、
+   **skip-guard 付き等価テスト**（`step0/tests/test_inspect_tabularize_sync.py`・`pytest.importorskip`）が
+   ingest 在席時に両者の一致を検証＝SSOT-by-verification。step0 CI ジョブに ingest を **test-time だけ**導入
+   （pyproject 不変＝standalone 維持）。**棄却案**: step0→ingest 依存（zero-dep 設計違反）／共有 5th パッケージ
+   （30行に過剰）。**判断: 軽量さ（プロダクト原則）を犠牲にせず drift（重複の唯一の実害）を消すのが理想**。
 
 ---
 

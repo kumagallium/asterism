@@ -31,6 +31,13 @@ from pathlib import Path
 # ``rml:reference "subject"`` then resolves to the generated subject IRI instead of
 # the cell, silently yielding zero triples. We rename such columns at the boundary,
 # so any tabular source carrying a ``subject`` / ``predicate`` field stays safe.
+#
+# This is the CANONICAL definition. :mod:`asterism_step0.inspect` keeps a deliberate
+# lightweight mirror (``_RESERVED_SOURCE_COLUMNS`` / ``_safe_column`` /
+# ``_flatten_record``) so the step0 design tool stays installable without the ingest
+# runtime (rdflib/httpx/watchfiles). The mirror is pinned to this module by a
+# skip-guarded equivalence test (``step0/tests/test_inspect_tabularize_sync.py``) —
+# update both sides together if this changes.
 RESERVED_COLUMNS = frozenset({"subject", "predicate"})
 
 
