@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ingestDataset, type IngestProgress, type IngestResult } from './api'
+import { getCrosswalk } from './crosswalkApi'
 import { getSchema } from './demoApi'
 import {
   type AlignmentReport,
@@ -41,9 +42,11 @@ const STATUS_LABEL: Record<CatalogStatusKind, string> = {
 export function GalleryView({
   focusClass,
   onOpenVocab,
+  onOpenCrosswalk,
 }: {
   focusClass?: string | null
   onOpenVocab?: () => void
+  onOpenCrosswalk?: () => void
 }) {
   const [datasets, setDatasets] = useState<CatalogDataset[] | null>(null)
   const [error, setError] = useState('')
@@ -53,6 +56,8 @@ export function GalleryView({
   // Live count of shared classes actually in the store (for the gateway band).
   // null = unavailable (query layer down) → the band omits the number.
   const [sharedClassCount, setSharedClassCount] = useState<number | null>(null)
+  // crosswalk-hub.md ④: # of datasets the live crosswalk joins (for the band CTA).
+  const [crosswalkCount, setCrosswalkCount] = useState<number | null>(null)
 
   function reload() {
     getCatalogDatasets()
@@ -72,6 +77,13 @@ export function GalleryView({
     getSchema()
       .then((s) => !cancelled && setSharedClassCount(s ? s.classes.length : null))
       .catch(() => {})
+    getCrosswalk()
+      .then((c) => {
+        if (cancelled) return
+        const n = c.exists ? (c.config?.concepts.flatMap((x) => x.participants).length ?? 0) : 0
+        setCrosswalkCount(n)
+      })
+      .catch(() => {})
     return () => {
       cancelled = true
     }
@@ -84,7 +96,9 @@ export function GalleryView({
     setPicked(null)
   }
 
-  const list = datasets ?? []
+  // The crosswalk hub is a bridge, not a dataset — it surfaces as the クロスウォーク band
+  // / view below, never as a list card (crosswalk-hub.md ④).
+  const list = (datasets ?? []).filter((d) => !d.isCrosswalk)
   const focused = focusClass ? list.find((d) => d.classes.includes(focusClass)) : undefined
   const selected = list.find((d) => d.id === picked) ?? focused ?? list[0] ?? null
 
@@ -111,7 +125,7 @@ export function GalleryView({
         </p>
       )}
 
-      {datasets && datasets.length === 0 && (
+      {datasets && list.length === 0 && (
         <div className="state-block">
           <span className="state-icon state-icon--primary">
             <SearchIcon size={26} />
@@ -121,14 +135,14 @@ export function GalleryView({
         </div>
       )}
 
-      {datasets && datasets.length > 0 && (
+      {datasets && list.length > 0 && (
         <div className="catalog-grid">
           <div className="catalog-list">
             <div className="catalog-list-head">
               <h3 className="card-h">データセット</h3>
-              <span className="catalog-count">{datasets.length}</span>
+              <span className="catalog-count">{list.length}</span>
             </div>
-            {datasets.map((d) => (
+            {list.map((d) => (
               <DatasetListCard
                 key={d.id}
                 dataset={d}
@@ -172,6 +186,30 @@ export function GalleryView({
           {sharedClassCount != null && (
             <span className="shared-band-users">
               <span className="mono-strong">{sharedClassCount}</span> クラスを共有
+            </span>
+          )}
+          開く <ArrowIcon size={14} />
+        </span>
+      </button>
+
+      {/* crosswalk gateway → the cross-dataset bridge (compositions joined across datasets) */}
+      <button type="button" className="shared-band" onClick={onOpenCrosswalk}>
+        <span className="shared-band-icon">
+          <LinkIcon size={19} />
+        </span>
+        <span className="shared-band-body">
+          <span className="shared-band-title">
+            クロスウォーク <span className="shared-band-en">crosswalk</span>
+          </span>
+          <span className="shared-band-sub">
+            同じ組成を報告する複数のデータセットを<strong>1つの橋でつなぐ</strong>。
+            「この組成は何データセットが報告？」を横断で答えられます。
+          </span>
+        </span>
+        <span className="shared-band-cta">
+          {crosswalkCount != null && crosswalkCount > 0 && (
+            <span className="shared-band-users">
+              <span className="mono-strong">{crosswalkCount}</span> データセットを横断
             </span>
           )}
           開く <ArrowIcon size={14} />

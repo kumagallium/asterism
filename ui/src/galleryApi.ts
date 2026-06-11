@@ -132,6 +132,11 @@ interface DatasetMeta {
   // full term IRIs are the truthful source for "which external vocabularies does
   // this dataset actually reuse" (deriveReuses) — no extra query, no UI minting.
   alignment?: AlignmentReport
+  // crosswalk-hub.md ④: the hub registry dataset is a bridge, not a normal dataset —
+  // it carries these facets and is surfaced as the crosswalk view, not a list card.
+  is_crosswalk?: boolean
+  crosswalk_participants?: string[]
+  crosswalk_shared_compositions?: number
 }
 
 /** Preview which draft terms are Reuse (in canonical) vs New, before promoting. */
@@ -360,6 +365,9 @@ export interface CatalogDataset {
   mermaid?: string
   /** Present for materialized drafts; carries the backend handle for promote. */
   live?: LiveDataset
+  /** The crosswalk hub bridge (crosswalk-hub.md ④): surfaced as its own view, not a
+   * normal list card, and excluded from being a crosswalk participant. */
+  isCrosswalk: boolean
 }
 
 const ARTIFACT_KIND_LABEL: Record<MappingArtifactKind, string> = {
@@ -393,6 +401,7 @@ function liveToCatalog(l: LiveDataset): CatalogDataset {
     })),
     mermaid: l.ontology.mermaid || undefined,
     live: l,
+    isCrosswalk: l.meta.is_crosswalk === true,
   }
 }
 
