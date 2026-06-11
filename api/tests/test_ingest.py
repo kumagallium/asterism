@@ -841,6 +841,8 @@ def test_append_grows_live_feed_and_records_meta(tmp_path: Path, monkeypatch) ->
             f"/api/datasets/{dataset_id}/append",
             files={"files": ("papers.csv", b"SID\n2\n3\n", "text/csv")},
         )
+        # the append signalled the debounced crosswalk rebuilder (§7)
+        assert app.state.crosswalk_dirty.is_set()
     assert r.status_code == 200, r.text
     body = r.json()
     # The batch was POST-merged into the LIVE graph — not a new version graph.

@@ -91,10 +91,21 @@ equality missed (whitespace/subscript variants). The hub tool
 2. **`crosswalk` as a first-class concept** — a participation registry + a build step
    in the substrate. **Done (library)**: `asterism.crosswalk` is a pure, tested,
    **multi-concept** builder (`CrosswalkConfig(concepts=…)`); a concept is a shared
-   class + link predicate + per-dataset rules + a normalizer. **Remaining**: wire a
-   substrate build step (re-run on dataset promote) and **per-link provenance** (this
-   link was normalized from *this* raw string by *this* function — today provenance
-   is per build Activity).
+   class + link predicate + per-dataset rules + a normalizer. **Done (wiring)**: the
+   participation registry is now a loadable YAML config (`load_crosswalk_config`;
+   default `<registry_root>/crosswalk.yaml`, a rule's `dataset` is a substring of the
+   dataset's canonical graph IRI), and the api rebuilds the hub from it —
+   `POST /api/crosswalk/rebuild` (manual) plus a **debounced auto-rebuild after each
+   append** (an append grows the canonical scope the hub projects; ADR
+   `incremental-ingest.md` §7). Rebuild reads each rule's observations from the live
+   canonical graphs, builds the Turtle, **PUT**s the hub graph (replace, so dropped
+   links vanish; new `OxigraphClient.put_turtle_bytes`), then flags it promoted.
+   Verified end-to-end on real Oxigraph + Morph-KGC
+   (`experiments/crosswalk-hub/verify_rebuild.py`): the hub grows 1 → 2 shared
+   compositions as appends add shared values. **Remaining**: re-run on *promote* too
+   (today: on append + manual), a two-pass "shared values first" scale bound on the
+   observation read, and **per-link provenance** (this link was normalized from *this*
+   raw string by *this* function — today provenance is per build Activity).
 3. **Multi-concept upper ontology** — accumulate shared *concepts* (Material,
    Property, Measurement, …) beyond Composition, including **schema-level alignment**
    (map a dataset class/property → an upper class/property via

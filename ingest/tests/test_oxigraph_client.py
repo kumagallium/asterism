@@ -62,6 +62,23 @@ async def test_post_turtle_bytes_sends_correct_request() -> None:
     assert seen["body"] == payload
 
 
+async def test_put_turtle_bytes_uses_put_to_replace_graph() -> None:
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["method"] = request.method
+        seen["graph_param"] = request.url.params.get("graph")
+        return httpx.Response(204)
+
+    payload = b"@prefix ex: <#> . ex:a ex:b ex:c ."
+    async with _make_client(httpx.MockTransport(handler)) as client:
+        n = await client.put_turtle_bytes(payload, GRAPH)
+
+    assert n == len(payload)
+    assert seen["method"] == "PUT"  # PUT = replace (vs POST = merge)
+    assert seen["graph_param"] == GRAPH
+
+
 async def test_post_turtle_bytes_default_graph() -> None:
     seen: dict[str, object] = {}
 

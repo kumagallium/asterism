@@ -20,6 +20,9 @@ from __future__ import annotations
 import urllib.parse
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from pathlib import Path
+
+import yaml
 
 # Crosswalk namespaces (stable — see the rename invariant in CLAUDE.md).
 XW = "https://kumagallium.github.io/asterism/crosswalk/ontology#"
@@ -175,3 +178,62 @@ def build_turtle(
         lines.append("")
     build.turtle = "\n".join(lines) + "\n"
     return build
+
+
+# ----------------------------------------------------------------------------
+# Participation registry (config) — productization path #2 (crosswalk-hub.md)
+# ----------------------------------------------------------------------------
+#
+# The hardcoded rules in the spike become a loadable, per-deployment config so the
+# api can rebuild the hub without code changes. A rule's ``dataset`` is a SUBSTRING
+# that identifies that dataset's canonical graph (e.g. its slug), so versioned graph
+# IRIs (``…/canonical/<slug>-<uuid>/v{n}``) match without hardcoding the uuid/version.
+
+
+def load_crosswalk_config(path: str | Path) -> CrosswalkConfig | None:
+    """Load a crosswalk participation registry (YAML) into a :class:`CrosswalkConfig`.
+
+    Shape::
+
+        min_datasets: 2            # optional, default 2
+        concepts:
+          - name: composition
+            class_iri: https://…/crosswalk/ontology#Composition
+            link_predicate: https://…/crosswalk/ontology#hasComposition
+            normalizer: composition   # optional, default "identity"
+            rules:
+              - dataset: starrydata   # substring identifying the dataset's canonical graph
+                predicate: https://…/starrydata/ontology#compositionString
+
+    Returns ``None`` if the file is absent (crosswalk is opt-in). Raises
+    ``ValueError`` on a malformed file (missing required keys / wrong shape).
+    """
+    p = Path(path)
+    if not p.is_file():
+        return None
+    data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    if not isinstance(data, dict):
+        raise ValueError("crosswalk config must be a YAML mapping")
+    concepts: list[Concept] = []
+    for c in data.get("concepts") or []:
+        if not isinstance(c, dict):
+            raise ValueError("each concept must be a mapping")
+        try:
+            rules = tuple(
+                Rule(dataset=str(r["dataset"]), predicate=str(r["predicate"]))
+                for r in (c.get("rules") or [])
+            )
+            concepts.append(
+                Concept(
+                    name=str(c["name"]),
+                    class_iri=str(c["class_iri"]),
+                    link_predicate=str(c["link_predicate"]),
+                    normalizer=str(c.get("normalizer", "identity")),
+                    rules=rules,
+                )
+            )
+        except (KeyError, TypeError) as exc:
+            raise ValueError(f"malformed crosswalk concept {c.get('name', c)!r}: {exc}") from exc
+    return CrosswalkConfig(
+        concepts=tuple(concepts), min_datasets=int(data.get("min_datasets", 2))
+    )

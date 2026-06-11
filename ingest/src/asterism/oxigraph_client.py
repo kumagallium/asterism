@@ -103,9 +103,10 @@ class OxigraphClient:
         payload = path.read_bytes()
         return await self.post_turtle_bytes(payload, graph_iri)
 
-    async def post_turtle_bytes(
-        self, payload: bytes, graph_iri: str | None = None
+    async def _store_write(
+        self, method: str, payload: bytes, graph_iri: str | None
     ) -> int:
+        """Graph Store Protocol write (``POST`` = merge, ``PUT`` = replace), retried."""
         # SPARQL 1.1 Graph Store Protocol indirect graph identification:
         # ``?default`` (a valueless flag) targets the default graph, while
         # ``?graph=<uri>`` targets a named graph.
@@ -118,7 +119,8 @@ class OxigraphClient:
         last_exc: Exception | None = None
         for attempt in range(self.config.retries):
             try:
-                r = await self._client.post(
+                r = await self._client.request(
+                    method,
                     url,
                     params=params,
                     content=payload,
@@ -131,7 +133,7 @@ class OxigraphClient:
                         write=self.config.store_timeout_s,
                     ),
                 )
-                # Oxigraph returns 200 (graph existed, triples merged) or
+                # Oxigraph returns 200 (graph existed, triples merged/replaced) or
                 # 201 (graph created). Treat both as success.
                 if r.status_code in (200, 201, 204):
                     return len(payload)
@@ -146,6 +148,22 @@ class OxigraphClient:
                     await asyncio.sleep(self.config.backoff_s * (2**attempt))
         assert last_exc is not None
         raise last_exc
+
+    async def post_turtle_bytes(
+        self, payload: bytes, graph_iri: str | None = None
+    ) -> int:
+        """POST Turtle into a graph — **merges** (set semantics; existing triples kept)."""
+        return await self._store_write("POST", payload, graph_iri)
+
+    async def put_turtle_bytes(
+        self, payload: bytes, graph_iri: str | None = None
+    ) -> int:
+        """PUT Turtle into a graph — **replaces** it wholesale (stale triples removed).
+
+        Used to rebuild a derived graph (e.g. the crosswalk hub) in one shot, so a
+        link that no longer holds disappears instead of lingering from a prior build.
+        """
+        return await self._store_write("PUT", payload, graph_iri)
 
     async def sparql_select(self, query: str) -> dict[str, object]:
         """Run a SPARQL SELECT and return the parsed SPARQL-Results JSON.

@@ -1,0 +1,19 @@
+# Crosswalk participation registry (ADR crosswalk-hub.md #2 / incremental-ingest.md §7).
+#
+# Copy to <registry_root>/crosswalk.yaml (or point ASTERISM_CROSSWALK_CONFIG at it) to
+# turn the crosswalk on. The api rebuilds the hub from this — on demand
+# (POST /api/crosswalk/rebuild) and, debounced, after each append. Absent → crosswalk
+# is simply off (opt-in). A rule's `dataset` is a SUBSTRING matched against the promoted
+# canonical graph IRIs (e.g. the dataset slug), so versioned graphs match without
+# hardcoding the uuid/version.
+min_datasets: 2
+concepts:
+  - name: composition
+    class_iri: https://kumagallium.github.io/asterism/crosswalk/ontology#Composition
+    link_predicate: https://kumagallium.github.io/asterism/crosswalk/ontology#hasComposition
+    normalizer: composition   # folds unicode subscripts + whitespace (asterism.crosswalk.NORMALIZERS)
+    rules:
+      - dataset: starrydata
+        predicate: https://kumagallium.github.io/asterism/starrydata/ontology#compositionString
+      - dataset: materials_project
+        predicate: https://kumagallium.github.io/asterism/materials_project/ontology#formula

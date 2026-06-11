@@ -36,7 +36,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final
 
-from asterism import substrate
+from asterism import crosswalk, substrate
 from asterism.datasets import load_dataset
 from asterism.exposure import raw_sparql_enabled
 from asterism.ontology_projection import (
@@ -253,6 +253,18 @@ class Settings:
         self.append_watcher = e.get(
             "ASTERISM_APPEND_WATCHER", "1"
         ).strip().lower() not in ("0", "false", "no")
+        # Crosswalk hub auto-rebuild (ADR incremental-ingest.md §7 / crosswalk-hub.md
+        # #2): an append grows the canonical scope the hub is a derived projection of,
+        # so a debounced rebuilder refreshes it. The participation registry (which
+        # datasets/predicates map into each shared concept) is a YAML config; absent →
+        # crosswalk is simply off (opt-in). Default a sibling of the registry.
+        self.crosswalk_config = Path(
+            e.get("ASTERISM_CROSSWALK_CONFIG", str(self.registry_root / "crosswalk.yaml"))
+        )
+        self.crosswalk_autorebuild = e.get(
+            "ASTERISM_CROSSWALK_AUTOREBUILD", "1"
+        ).strip().lower() not in ("0", "false", "no")
+        self.crosswalk_debounce_s = float(e.get("ASTERISM_CROSSWALK_DEBOUNCE_S", "15"))
 
 
 # ----------------------------------------------------------------------------
@@ -586,6 +598,7 @@ async def _append_watch_loop(
     client: OxigraphClient,
     stop: asyncio.Event,
     *,
+    crosswalk_dirty: asyncio.Event | None = None,
     events_source=None,
 ) -> None:
     """Per-dataset append watcher (ADR incremental-ingest.md §6).
@@ -594,7 +607,9 @@ async def _append_watch_loop(
     appended to that dataset's live feed. The inbox is transient: a successfully
     appended file is **deleted** (the durable record is the live graph + the
     accumulated source set, A7); a failed file is quarantined under ``.error/``. Each
-    outcome is logged to the jobs log. ``events_source`` drives the loop in tests.
+    outcome is logged to the jobs log. A successful append sets ``crosswalk_dirty``
+    (if given) so the debounced hub rebuilder refreshes (§7). ``events_source`` drives
+    the loop in tests.
     """
     # Resolve to match the canonical paths watch_tree dispatches (macOS reports
     # ``/private/var/…`` for a ``/var/…`` symlinked root), so ``relative_to`` below
@@ -616,6 +631,8 @@ async def _append_watch_loop(
                 cfg.registry_root, client, dataset_id, [(name, content)]
             )
             await asyncio.to_thread(path.unlink)  # consume the transient drop file
+            if crosswalk_dirty is not None:
+                crosswalk_dirty.set()  # the canonical scope grew -> hub is stale (§7)
             _log_append_job(
                 cfg,
                 {
@@ -667,6 +684,113 @@ async def _append_watch_loop(
     await watch_tree(
         root, on_ready, settle_s=cfg.settle_s, stop_event=stop, events_source=events_source
     )
+
+
+# ----------------------------------------------------------------------------
+# Crosswalk hub rebuild (ADR incremental-ingest.md §7 / crosswalk-hub.md #2)
+# ----------------------------------------------------------------------------
+#
+# The crosswalk hub is a derived projection over the canonical scope: one shared
+# entity per normalized value present in >= min_datasets datasets, linking each
+# dataset's entities to it. An append grows that scope, so the hub goes stale. This
+# rebuilds it wholesale (PUT, so dropped links disappear) from the participation
+# registry config, reading observations from each participating dataset's live graph.
+
+# Reserved dataset id for the hub: its canonical graph is the merge target the
+# FROM-merge read includes once flagged promoted.
+CROSSWALK_HUB_ID: Final[str] = "crosswalk"
+
+
+async def _rebuild_crosswalk_hub(
+    client: OxigraphClient, config_path: Path, *, built_at: str
+) -> dict[str, object]:
+    """Rebuild the crosswalk hub graph from the participation registry config.
+
+    Reads each rule's (entity, value) pairs from the participating datasets' live
+    canonical graphs (a rule's ``dataset`` is a substring matched against the promoted
+    canonical graph IRIs), builds the hub Turtle via the tested
+    :func:`asterism.crosswalk.build_turtle`, and PUTs it into the hub graph (replace,
+    so stale links vanish), then flags the hub promoted so the FROM-merge read
+    includes it. Returns ``{"built": bool, "graph", "shared", "links"}``. A no-op
+    (``built=False``) when no config exists (crosswalk is opt-in).
+
+    Scale note: this reads every (entity, value) pair of each linking predicate. For a
+    join key (composition, …) the value cardinality is low, so this is modest; a
+    two-pass "shared values first" bound (as in the spike) is a future optimization.
+    """
+    config = crosswalk.load_crosswalk_config(config_path)
+    if config is None or not config.concepts:
+        return {"built": False, "graph": None, "shared": {}, "links": {}}
+    hub_graph = substrate.canonical_graph_iri(CROSSWALK_HUB_ID)
+    live_graphs = [g for g in await substrate.canonical_graphs(client) if g != hub_graph]
+
+    observations: dict[tuple[str, str], list[tuple[str, str]]] = {}
+    for concept in config.concepts:
+        for rule in concept.rules:
+            graphs = [g for g in live_graphs if rule.dataset in g]
+            pairs: list[tuple[str, str]] = []
+            for g in graphs:
+                data = await client.sparql_select(
+                    f"SELECT ?e ?v WHERE {{ GRAPH <{g}> {{ ?e <{rule.predicate}> ?v }} }}"
+                )
+                results = data.get("results", {}) if isinstance(data, dict) else {}
+                for b in results.get("bindings", []):
+                    e = b.get("e", {})
+                    v = b.get("v", {})
+                    if e.get("type") == "uri" and "value" in v:
+                        pairs.append((e["value"], v["value"]))
+            observations[(concept.name, rule.dataset)] = pairs
+
+    build = crosswalk.build_turtle(
+        config,
+        observations,
+        activity_iri=crosswalk.XW_RESOURCE + "build/latest",
+        built_at=built_at,
+    )
+    await client.put_turtle_bytes(build.turtle.encode("utf-8"), graph_iri=hub_graph)
+    await substrate.mark_graph_promoted(client, hub_graph)  # citable in the FROM-merge
+    return {
+        "built": True,
+        "graph": hub_graph,
+        "shared": {k: len(v) for k, v in build.shared.items()},
+        "links": build.links,
+    }
+
+
+async def _crosswalk_rebuild_loop(
+    cfg: Settings,
+    client: OxigraphClient,
+    dirty: asyncio.Event,
+    stop: asyncio.Event,
+    *,
+    debounce_s: float = 15.0,
+) -> None:
+    """Debounced crosswalk rebuilder: after an append marks the hub dirty, wait for a
+    quiet window (no further appends for ``debounce_s``) then rebuild once — so a burst
+    of appends triggers a single rebuild (ADR §7). Runs until cancelled at shutdown.
+    """
+    while not stop.is_set():
+        await dirty.wait()
+        if stop.is_set():
+            return
+        # Debounce: extend the quiet window while appends keep arriving.
+        while not stop.is_set():
+            dirty.clear()
+            try:
+                await asyncio.wait_for(dirty.wait(), timeout=debounce_s)
+                continue  # a new append arrived during the window -> extend
+            except TimeoutError:
+                break  # window stayed quiet -> rebuild
+        if stop.is_set():
+            return
+        try:
+            result = await _rebuild_crosswalk_hub(
+                client, cfg.crosswalk_config, built_at=datetime.now(UTC).isoformat()
+            )
+            if result.get("built"):
+                logger.info("crosswalk hub rebuilt: shared=%s", result.get("shared"))
+        except Exception:  # never let a rebuild error kill the loop
+            logger.exception("crosswalk rebuild failed (continuing)")
 
 
 # ----------------------------------------------------------------------------
@@ -763,24 +887,44 @@ def build_app(
             )
         # Per-dataset append watcher (ADR incremental-ingest.md §6): a CSV/JSON dropped
         # at <append_drop_root>/<id>/ grows that dataset's live feed. Gated on
-        # start_watcher (unit tests opt out) and ASTERISM_APPEND_WATCHER.
+        # start_watcher (unit tests opt out) and ASTERISM_APPEND_WATCHER. A successful
+        # append sets crosswalk_dirty so the debounced hub rebuilder refreshes (§7).
+        crosswalk_dirty = asyncio.Event()
         append_watcher: asyncio.Task[None] | None = None
         if start_watcher and cfg.append_watcher:
             cfg.append_drop_root.mkdir(parents=True, exist_ok=True)
             append_watcher = asyncio.create_task(
-                _append_watch_loop(cfg, client, stop), name="asterism-append-watcher"
+                _append_watch_loop(cfg, client, stop, crosswalk_dirty=crosswalk_dirty),
+                name="asterism-append-watcher",
+            )
+        # Debounced crosswalk hub rebuilder (§7): only when a participation registry
+        # config exists (crosswalk is opt-in) and auto-rebuild is on.
+        crosswalk_task: asyncio.Task[None] | None = None
+        if (
+            start_watcher
+            and cfg.crosswalk_autorebuild
+            and crosswalk.load_crosswalk_config(cfg.crosswalk_config) is not None
+        ):
+            crosswalk_task = asyncio.create_task(
+                _crosswalk_rebuild_loop(
+                    cfg, client, crosswalk_dirty, stop, debounce_s=cfg.crosswalk_debounce_s
+                ),
+                name="asterism-crosswalk-rebuild",
             )
         app.state.client = client
         app.state.watcher_cfg = watcher_cfg
         app.state.watcher_task = task
         app.state.sweeper_task = sweeper
         app.state.append_watcher_task = append_watcher
+        app.state.crosswalk_dirty = crosswalk_dirty
+        app.state.crosswalk_task = crosswalk_task
         app.state.jobs = JobManager()
         try:
             yield
         finally:
             stop.set()
-            for bg in (task, sweeper, append_watcher):
+            crosswalk_dirty.set()  # unblock the rebuild loop so it can observe stop
+            for bg in (task, sweeper, append_watcher, crosswalk_task):
                 if bg is not None:
                     try:
                         await asyncio.wait_for(bg, timeout=2.0)
@@ -1396,6 +1540,25 @@ def build_app(
             )
         except AppendError as exc:
             raise HTTPException(exc.status, exc.detail) from exc
+        # Signal the debounced crosswalk rebuilder (§7): this append grew the canonical
+        # scope the hub is a derived projection of.
+        dirty = getattr(app.state, "crosswalk_dirty", None)
+        if dirty is not None:
+            dirty.set()
+        return JSONResponse(result)
+
+    @app.post("/api/crosswalk/rebuild", dependencies=_write_auth)
+    async def rebuild_crosswalk_hub() -> JSONResponse:
+        """Rebuild the crosswalk hub now (ADR §7 / crosswalk-hub.md #2).
+
+        The manual trigger for what the debounced rebuilder does automatically after
+        an append: re-projects the participation-registry config over the live
+        canonical scope into the hub graph (PUT/replace, then flag promoted). Returns
+        ``built=False`` if no participation config exists (crosswalk is opt-in).
+        """
+        result = await _rebuild_crosswalk_hub(
+            app.state.client, cfg.crosswalk_config, built_at=datetime.now(UTC).isoformat()
+        )
         return JSONResponse(result)
 
     @app.get("/api/datasets/{dataset_id}/alignment")

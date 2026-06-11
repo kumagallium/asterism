@@ -5,12 +5,17 @@ so the join semantics, normalization, growth and provenance are tested in isolat
 """
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
+
 from asterism.crosswalk import (
     XW,
     Concept,
     CrosswalkConfig,
     Rule,
     build_turtle,
+    load_crosswalk_config,
     normalize_composition,
 )
 
@@ -117,3 +122,70 @@ def test_singleton_value_is_not_shared() -> None:
     b = _build(CrosswalkConfig((COMPOSITION,)), obs)
     assert b.shared["composition"] == []
     assert b.links["composition"] == {}
+
+
+# ---- participation registry config loader (load_crosswalk_config) -----------
+
+_CONFIG_YAML = """
+min_datasets: 2
+concepts:
+  - name: composition
+    class_iri: https://kumagallium.github.io/asterism/crosswalk/ontology#Composition
+    link_predicate: https://kumagallium.github.io/asterism/crosswalk/ontology#hasComposition
+    normalizer: composition
+    rules:
+      - dataset: starrydata
+        predicate: https://kumagallium.github.io/asterism/starrydata/ontology#compositionString
+      - dataset: materials_project
+        predicate: https://kumagallium.github.io/asterism/materials_project/ontology#formula
+"""
+
+
+def test_load_crosswalk_config_parses_concepts_and_rules(tmp_path: Path) -> None:
+    p = tmp_path / "crosswalk.yaml"
+    p.write_text(_CONFIG_YAML, encoding="utf-8")
+    cfg = load_crosswalk_config(p)
+    assert cfg is not None
+    assert cfg.min_datasets == 2
+    assert len(cfg.concepts) == 1
+    c = cfg.concepts[0]
+    assert c.name == "composition"
+    assert c.normalizer == "composition"
+    assert [r.dataset for r in c.rules] == ["starrydata", "materials_project"]
+    assert c.rules[0].predicate.endswith("#compositionString")
+    # The loaded config drives the tested builder unchanged.
+    obs = {
+        ("composition", "starrydata"): [("sd:s1", "Bi2Te3")],
+        ("composition", "materials_project"): [("mp:m1", "Bi2Te3")],
+    }
+    b = build_turtle(cfg, obs, activity_iri="x:act", built_at="2026-06-11T00:00:00+00:00")
+    assert b.shared["composition"] == ["Bi2Te3"]
+
+
+def test_load_crosswalk_config_absent_returns_none(tmp_path: Path) -> None:
+    assert load_crosswalk_config(tmp_path / "nope.yaml") is None
+
+
+def test_load_crosswalk_config_defaults_normalizer_and_min_datasets(tmp_path: Path) -> None:
+    p = tmp_path / "c.yaml"
+    p.write_text(
+        "concepts:\n"
+        "  - name: id\n"
+        "    class_iri: x:C\n"
+        "    link_predicate: x:has\n"
+        "    rules:\n"
+        "      - {dataset: a, predicate: x:p}\n",
+        encoding="utf-8",
+    )
+    cfg = load_crosswalk_config(p)
+    assert cfg is not None
+    assert cfg.min_datasets == 2  # default
+    assert cfg.concepts[0].normalizer == "identity"  # default
+
+
+def test_load_crosswalk_config_malformed_raises(tmp_path: Path) -> None:
+    p = tmp_path / "bad.yaml"
+    # a concept missing required keys (class_iri / link_predicate)
+    p.write_text("concepts:\n  - name: x\n    rules: []\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="malformed crosswalk concept"):
+        load_crosswalk_config(p)
