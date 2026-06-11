@@ -11,6 +11,7 @@ the MockTransport Oxigraph client so the chunked ``/store`` POSTs (and the graph
 """
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -18,9 +19,10 @@ import httpx
 from asterism import substrate
 from asterism.oxigraph_client import OxigraphClient, OxigraphConfig
 from fastapi.testclient import TestClient
+from watchfiles import Change
 
 from asterism_api import registry
-from asterism_api.main import Settings, build_app
+from asterism_api.main import Settings, _append_watch_loop, build_app
 
 # Mutating routes are token-gated (fail-closed); tests send _AUTH by default.
 _TEST_TOKEN = "test-token"
@@ -918,3 +920,71 @@ def test_append_unknown_dataset_404(tmp_path: Path) -> None:
             files={"files": ("papers.csv", b"SID\n2\n", "text/csv")},
         )
     assert r.status_code == 404
+
+
+# ---- per-dataset append watcher (drop a CSV -> grow the live feed, ADR §6) ----
+
+
+async def _events_once(pairs):
+    """Yield one watchfiles change set, then end (the loop returns when exhausted)."""
+    yield set(pairs)
+
+
+def test_append_watch_loop_consumes_drop_and_appends(tmp_path: Path, monkeypatch) -> None:
+    dataset_id, live = _promoted_feed_dataset(tmp_path)
+    monkeypatch.setattr(substrate, "materialize_to_nt_file", _fake_nt_materializer(triples=2))
+    oxi = _FeedOxi(live)
+    settings = _settings(tmp_path)
+    drop = settings.append_drop_root / dataset_id
+    drop.mkdir(parents=True)
+    f = drop / "papers.csv"
+    f.write_bytes(b"SID\n2\n3\n")
+
+    asyncio.run(
+        _append_watch_loop(
+            settings,
+            oxi.client,
+            asyncio.Event(),
+            events_source=_events_once([(Change.added, str(f))]),
+        )
+    )
+
+    # The drop file was consumed (deleted), the batch POST-merged into the live graph,
+    # and the append recorded on the dataset meta.
+    assert not f.exists()
+    assert live in oxi.stores
+    meta = registry.load_dataset(settings.registry_root, dataset_id)["meta"]
+    assert meta["feed"] is True
+    assert meta["append_seq"] == 1
+    # An "append" ok entry was logged to the jobs log.
+    rec = json.loads((tmp_path / "jobs.jsonl").read_text(encoding="utf-8").splitlines()[-1])
+    assert rec["kind"] == "append"
+    assert rec["status"] == "ok"
+    assert rec["triples_in_batch"] == 2
+
+
+def test_append_watch_loop_quarantines_failed_drop(tmp_path: Path) -> None:
+    # A designed-but-never-promoted dataset -> AppendError(409) -> the drop is moved
+    # aside under .error/ (not deleted) and logged as an error.
+    dataset_id = _save_dataset_with_rml(tmp_path)
+    oxi = _RecordingOxi()
+    settings = _settings(tmp_path)
+    drop = settings.append_drop_root / dataset_id
+    drop.mkdir(parents=True)
+    f = drop / "papers.csv"
+    f.write_bytes(b"SID\n2\n")
+
+    asyncio.run(
+        _append_watch_loop(
+            settings,
+            oxi.client,
+            asyncio.Event(),
+            events_source=_events_once([(Change.added, str(f))]),
+        )
+    )
+
+    assert not f.exists()  # moved, not left in place
+    assert (settings.append_drop_root / dataset_id / ".error" / "papers.csv").exists()
+    rec = json.loads((tmp_path / "jobs.jsonl").read_text(encoding="utf-8").splitlines()[-1])
+    assert rec["kind"] == "append"
+    assert rec["status"] == "error"

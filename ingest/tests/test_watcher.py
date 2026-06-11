@@ -24,6 +24,7 @@ from asterism.watcher import (
     _classify,
     process_csv,
     watch,
+    watch_tree,
 )
 
 PAPER_CSV = (
@@ -233,3 +234,100 @@ async def test_watch_processes_added_csv(tmp_path: Path) -> None:
     record = json.loads(cfg.jobs_log.read_text(encoding="utf-8").strip().splitlines()[-1])
     assert record["status"] == "ok"
     assert record["rows_in"] == 1
+
+
+# ----------------------------------------------------------------------------
+# Generic drop-tree watcher (watch_tree) — the per-dataset append mechanism
+# ----------------------------------------------------------------------------
+
+
+async def _events_once(
+    pairs: list[tuple[Change, str]],
+) -> AsyncIterator[set[tuple[Change, str]]]:
+    """Yield one change set, then end — the loop returns when the source is exhausted."""
+    yield set(pairs)
+
+
+async def test_watch_tree_dispatches_settled_file(tmp_path: Path) -> None:
+    root = tmp_path / "append"
+    drop = root / "ds-1"
+    drop.mkdir(parents=True)
+    f = drop / "papers.csv"
+    f.write_bytes(b"SID\n1\n")
+    seen: list[Path] = []
+
+    async def on_ready(path: Path) -> None:
+        seen.append(path)
+
+    await watch_tree(
+        root, on_ready, settle_s=0.0, events_source=_events_once([(Change.added, str(f))])
+    )
+    assert seen == [f]
+
+
+async def test_watch_tree_skips_hidden_and_wrong_suffix(tmp_path: Path) -> None:
+    root = tmp_path / "append"
+    ds = root / "ds-1"
+    (ds / ".error").mkdir(parents=True)
+    quarantined = ds / ".error" / "bad.csv"  # under a dot-prefixed component -> skip
+    quarantined.write_bytes(b"x\n")
+    note = ds / "note.txt"  # wrong suffix -> skip
+    note.write_bytes(b"x\n")
+    good = ds / "ok.csv"
+    good.write_bytes(b"SID\n1\n")
+    seen: list[Path] = []
+
+    async def on_ready(path: Path) -> None:
+        seen.append(path)
+
+    await watch_tree(
+        root,
+        on_ready,
+        settle_s=0.0,
+        events_source=_events_once(
+            [
+                (Change.added, str(quarantined)),
+                (Change.added, str(note)),
+                (Change.added, str(good)),
+            ]
+        ),
+    )
+    assert seen == [good]
+
+
+async def test_watch_tree_skips_deleted_events(tmp_path: Path) -> None:
+    root = tmp_path / "append"
+    root.mkdir()
+    gone = root / "ds-1" / "gone.csv"  # a delete event for a file we never see added
+    seen: list[Path] = []
+
+    async def on_ready(path: Path) -> None:
+        seen.append(path)
+
+    await watch_tree(
+        root, on_ready, settle_s=0.0, events_source=_events_once([(Change.deleted, str(gone))])
+    )
+    assert seen == []
+
+
+async def test_watch_tree_resolves_symlinked_root(tmp_path: Path) -> None:
+    """A symlinked root must still dispatch: on macOS awatch reports canonical
+    (``/private/var/…``) paths while the configured root is the ``/var/…`` symlink, so
+    watch_tree resolves the root before the relative-path check (else every event is
+    silently dropped)."""
+    real = tmp_path / "real"
+    (real / "ds").mkdir(parents=True)
+    link = tmp_path / "link"
+    link.symlink_to(real, target_is_directory=True)
+    f = real / "ds" / "d.csv"
+    f.write_bytes(b"SID\n1\n")
+    seen: list[Path] = []
+
+    async def on_ready(path: Path) -> None:
+        seen.append(path)
+
+    # root is the symlink; the (canonical) event path lives under the real dir.
+    await watch_tree(
+        link, on_ready, settle_s=0.0, events_source=_events_once([(Change.added, str(f))])
+    )
+    assert seen == [f]

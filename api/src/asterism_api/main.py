@@ -53,6 +53,7 @@ from asterism.watcher import (
     KINDS,
     WatcherConfig,
     watch,
+    watch_tree,
 )
 from asterism_step0.inspect import inspect_source_set, render_markdown
 from asterism_step0.materialize import materialize_schema
@@ -240,6 +241,18 @@ class Settings:
         self.ontology_iri = e.get("CSV2RDF_ONTOLOGY_IRI", _DEFAULT_ONTOLOGY)
         self.resource_iri = e.get("CSV2RDF_RESOURCE_IRI", _DEFAULT_RESOURCE)
         self.settle_s = float(e.get("CSV2RDF_SETTLE_S", DEFAULT_SETTLE_S))
+        # Per-dataset append inbox (ADR incremental-ingest.md §6): a CSV/JSON dropped
+        # at ``<append_drop_root>/<dataset_id>/<file>`` is appended to that dataset's
+        # live feed by the append watcher. A transient inbox — a consumed file is
+        # deleted (the durable record is the live graph + accumulated source). Default
+        # a sibling of the legacy drop root. Disable the watcher with
+        # ASTERISM_APPEND_WATCHER=0.
+        self.append_drop_root = Path(
+            e.get("ASTERISM_APPEND_DROP_ROOT", str(self.drop_root.parent / "append"))
+        )
+        self.append_watcher = e.get(
+            "ASTERISM_APPEND_WATCHER", "1"
+        ).strip().lower() not in ("0", "false", "no")
 
 
 # ----------------------------------------------------------------------------
@@ -418,6 +431,245 @@ async def _pending_drop_sweeper(
 
 
 # ----------------------------------------------------------------------------
+# Incremental append core (ADR incremental-ingest.md) — shared by the /append
+# endpoint and the per-dataset append watcher
+# ----------------------------------------------------------------------------
+
+
+class AppendError(Exception):
+    """An append precondition / materialization failure carrying an HTTP status.
+
+    The endpoint maps it to an ``HTTPException``; the watcher logs it and moves the
+    offending drop file aside. Keeping the orchestration in one place means both
+    entry points enforce the same gate (promoted-only, rml:source match, …).
+    """
+
+    def __init__(self, status: int, detail: str) -> None:
+        super().__init__(detail)
+        self.status = status
+        self.detail = detail
+
+
+async def _append_batch_to_dataset(
+    registry_root: Path,
+    client: OxigraphClient,
+    dataset_id: str,
+    batch: list[tuple[str, bytes]],
+) -> dict[str, object]:
+    """Append one batch (``[(filename, bytes), …]``) to a dataset's live feed.
+
+    The shared core behind ``POST /api/datasets/{id}/append`` and the append watcher.
+    Validates the preconditions (raising :class:`AppendError`), materializes ONLY the
+    batch in an isolated dir (so Morph-KGC reads just the new rows), POST-merges it
+    into the dataset's live canonical graph, accumulates the batch into the persisted
+    source set (A7), and records :func:`registry.mark_appended`. Returns the response
+    payload. Trust model unchanged: Morph-KGC + Tier 0 only; a Graph Store POST, never
+    a SPARQL UPDATE.
+    """
+    data = registry.load_dataset(registry_root, dataset_id)
+    if data is None:
+        raise AppendError(404, f"dataset {dataset_id!r} not found")
+    meta = data["meta"]
+    rml_ttl = str(data["artifacts"].get("mapping.rml.ttl", "") or "")
+    if not rml_ttl.strip():
+        raise AppendError(400, "this dataset has no declarative RML mapping to append with")
+    if not meta.get("promoted"):
+        raise AppendError(
+            409,
+            "append needs a live canonical graph; ingest then promote the dataset "
+            "first (append grows an already-citable feed in place)",
+        )
+    if meta.get("status") in ("retracted", "deleted"):
+        raise AppendError(
+            409, f"dataset is {meta.get('status')}; reinstate it before appending"
+        )
+    if not batch:
+        raise AppendError(400, "append requires at least one batch source file")
+
+    sources = substrate.rml_source_names(rml_ttl)
+    for name, _ in batch:
+        if not _SAFE_SOURCE_NAME.fullmatch(name):
+            raise AppendError(
+                400, "filename must match [A-Za-z0-9._-]+.(csv|json|geojson) (max 128 chars)"
+            )
+        if sources and name not in sources:
+            raise AppendError(
+                400,
+                f"batch file {name!r} does not match any rml:source in the mapping "
+                f"(expected one of {sorted(sources)})",
+            )
+
+    dataset_key = substrate.canonical_graph_iri(dataset_id)
+    # The live (citable) graph to grow: the version graph liveGraph points at, or the
+    # key graph for a dataset promoted before part5's versioned graphs.
+    live_graph = await substrate.live_graph_of(client, dataset_key) or dataset_key
+    sdir = registry.source_dir(registry_root, dataset_id)
+
+    work = Path(tempfile.mkdtemp(prefix="asterism-append-"))
+    try:
+        provided = {n for n, _ in batch}
+        for name, content in batch:
+            (work / name).write_bytes(content)
+        # For a multi-source RML, give any source the batch does NOT cover a
+        # header-only stand-in (0 new rows) so Morph-KGC can still materialize the
+        # batch without re-reading the full prior source. Best-effort: a CSV source
+        # with a persisted header; otherwise Morph-KGC fails loudly (422 below).
+        for src in sources - provided:
+            persisted = sdir / src if sdir else None
+            if (
+                persisted is not None
+                and persisted.is_file()
+                and persisted.suffix.lower() == ".csv"
+            ):
+                with persisted.open("rb") as fh:
+                    (work / src).write_bytes(fh.readline())
+        try:
+            result = await substrate.run_append_ingest(rml_ttl, work, client, live_graph)
+        except RuntimeError as exc:  # morph-kgc missing / materialization failed
+            raise AppendError(422, str(exc)) from exc
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+    # Accumulate the batch into the persisted source set (additive, A7).
+    if sdir is not None:
+        for name, content in batch:
+            await asyncio.to_thread(_accumulate_source_batch, sdir, name, content)
+    all_files = [p.name for p in registry.list_source_files(registry_root, dataset_id)]
+
+    triples_in_batch = int(result["triples_in_batch"])
+    append_seq = registry.next_append_seq(registry_root, dataset_id)
+    new_meta = registry.mark_appended(
+        registry_root,
+        dataset_id,
+        batch_files=[n for n, _ in batch],
+        source_files=all_files,
+        triples_in_batch=triples_in_batch,
+        appended_at=datetime.now(UTC).isoformat(),
+        append_seq=append_seq,
+    )
+    return {
+        "dataset_id": dataset_id,
+        "live_graph": live_graph,
+        "triples_in_batch": triples_in_batch,
+        "append_seq": append_seq,
+        # The crosswalk hub is a derived projection over the canonical scope; this
+        # append may have introduced new shared values, so signal a rebuild is due
+        # (ADR §7). The rebuild is idempotent (PUT replace).
+        "crosswalk_stale": True,
+        "dataset": new_meta,
+    }
+
+
+def _log_append_job(cfg: Settings, record: dict[str, object]) -> None:
+    """Append one append-watcher outcome as a JSON line to the jobs log (best-effort)."""
+    try:
+        cfg.jobs_log.parent.mkdir(parents=True, exist_ok=True)
+        with cfg.jobs_log.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except OSError:
+        logger.exception("failed to write append job log (continuing)")
+
+
+def _quarantine_drop(root: Path, dataset_id: str, path: Path) -> None:
+    """Move a failed drop file into ``<root>/<dataset_id>/.error/`` (a hidden dir the
+    watcher skips), so it is not reprocessed and is kept for inspection."""
+    try:
+        err_dir = root / dataset_id / ".error"
+        err_dir.mkdir(parents=True, exist_ok=True)
+        os.replace(path, err_dir / path.name)
+    except OSError:
+        logger.exception("failed to quarantine drop file %s (continuing)", path)
+
+
+async def _append_watch_loop(
+    cfg: Settings,
+    client: OxigraphClient,
+    stop: asyncio.Event,
+    *,
+    events_source=None,
+) -> None:
+    """Per-dataset append watcher (ADR incremental-ingest.md §6).
+
+    A settled CSV/JSON dropped at ``<append_drop_root>/<dataset_id>/<file>`` is
+    appended to that dataset's live feed. The inbox is transient: a successfully
+    appended file is **deleted** (the durable record is the live graph + the
+    accumulated source set, A7); a failed file is quarantined under ``.error/``. Each
+    outcome is logged to the jobs log. ``events_source`` drives the loop in tests.
+    """
+    # Resolve to match the canonical paths watch_tree dispatches (macOS reports
+    # ``/private/var/…`` for a ``/var/…`` symlinked root), so ``relative_to`` below
+    # extracts the ``<dataset_id>`` component correctly.
+    root = cfg.append_drop_root.resolve()
+
+    async def on_ready(path: Path) -> None:
+        try:
+            rel = path.relative_to(root)
+        except ValueError:
+            return
+        if len(rel.parts) < 2:  # need <dataset_id>/<file>
+            return
+        dataset_id = rel.parts[0]
+        name = path.name
+        try:
+            content = await asyncio.to_thread(path.read_bytes)
+            result = await _append_batch_to_dataset(
+                cfg.registry_root, client, dataset_id, [(name, content)]
+            )
+            await asyncio.to_thread(path.unlink)  # consume the transient drop file
+            _log_append_job(
+                cfg,
+                {
+                    "kind": "append",
+                    "dataset_id": dataset_id,
+                    "file": name,
+                    "status": "ok",
+                    "triples_in_batch": result["triples_in_batch"],
+                    "append_seq": result["append_seq"],
+                    "ended_at": datetime.now(UTC).isoformat(),
+                },
+            )
+            logger.info(
+                "append-watcher: %s/%s -> +%s triples (seq %s)",
+                dataset_id,
+                name,
+                result["triples_in_batch"],
+                result["append_seq"],
+            )
+        except AppendError as exc:
+            _quarantine_drop(root, dataset_id, path)
+            _log_append_job(
+                cfg,
+                {
+                    "kind": "append",
+                    "dataset_id": dataset_id,
+                    "file": name,
+                    "status": "error",
+                    "error": exc.detail,
+                    "ended_at": datetime.now(UTC).isoformat(),
+                },
+            )
+            logger.warning("append-watcher: %s/%s failed: %s", dataset_id, name, exc.detail)
+        except Exception as exc:  # never let one bad file kill the loop
+            _quarantine_drop(root, dataset_id, path)
+            _log_append_job(
+                cfg,
+                {
+                    "kind": "append",
+                    "dataset_id": dataset_id,
+                    "file": name,
+                    "status": "error",
+                    "error": repr(exc),
+                    "ended_at": datetime.now(UTC).isoformat(),
+                },
+            )
+            logger.exception("append-watcher: %s/%s crashed (continuing)", dataset_id, name)
+
+    await watch_tree(
+        root, on_ready, settle_s=cfg.settle_s, stop_event=stop, events_source=events_source
+    )
+
+
+# ----------------------------------------------------------------------------
 # App builder
 # ----------------------------------------------------------------------------
 
@@ -509,16 +761,26 @@ def build_app(
             sweeper = asyncio.create_task(
                 _pending_drop_sweeper(client, stop), name="asterism-drop-sweeper"
             )
+        # Per-dataset append watcher (ADR incremental-ingest.md §6): a CSV/JSON dropped
+        # at <append_drop_root>/<id>/ grows that dataset's live feed. Gated on
+        # start_watcher (unit tests opt out) and ASTERISM_APPEND_WATCHER.
+        append_watcher: asyncio.Task[None] | None = None
+        if start_watcher and cfg.append_watcher:
+            cfg.append_drop_root.mkdir(parents=True, exist_ok=True)
+            append_watcher = asyncio.create_task(
+                _append_watch_loop(cfg, client, stop), name="asterism-append-watcher"
+            )
         app.state.client = client
         app.state.watcher_cfg = watcher_cfg
         app.state.watcher_task = task
         app.state.sweeper_task = sweeper
+        app.state.append_watcher_task = append_watcher
         app.state.jobs = JobManager()
         try:
             yield
         finally:
             stop.set()
-            for bg in (task, sweeper):
+            for bg in (task, sweeper, append_watcher):
                 if bg is not None:
                     try:
                         await asyncio.wait_for(bg, timeout=2.0)
@@ -1121,111 +1383,20 @@ def build_app(
 
         Trust model unchanged: same Morph-KGC + Tier 0 substrate (no generated code);
         the append is a Graph Store POST (the ingest write path), not a SPARQL UPDATE,
-        so ``/api/sparql`` stays read-only. Append is idempotent — safe to retry.
+        so ``/api/sparql`` stays read-only. Append is idempotent — safe to retry. The
+        same logic runs unattended via the per-dataset append watcher (§6).
         """
-        data = registry.load_dataset(cfg.registry_root, dataset_id)
-        if data is None:
-            raise HTTPException(404, f"dataset {dataset_id!r} not found")
-        meta = data["meta"]
-        rml_ttl = str(data["artifacts"].get("mapping.rml.ttl", "") or "")
-        if not rml_ttl.strip():
-            raise HTTPException(
-                400, "this dataset has no declarative RML mapping to append with"
-            )
-        if not meta.get("promoted"):
-            raise HTTPException(
-                409,
-                "append needs a live canonical graph; ingest then promote the dataset "
-                "first (append grows an already-citable feed in place)",
-            )
-        if meta.get("status") in ("retracted", "deleted"):
-            raise HTTPException(
-                409, f"dataset is {meta.get('status')}; reinstate it before appending"
-            )
         uploaded = [f for f in files if f.filename]
         if not uploaded:
             raise HTTPException(400, "append requires at least one batch source file")
-
-        # Read each small batch file once: it is both materialized (in an isolated
-        # batch dir so Morph-KGC reads ONLY the new rows) and accumulated into the
-        # dataset's source set (so a later snapshot re-ingest reproduces the feed).
-        sources = substrate.rml_source_names(rml_ttl)
-        batch: list[tuple[str, bytes]] = []
-        for upload in uploaded:
-            name = _validate_source_name(upload.filename)
-            if sources and name not in sources:
-                raise HTTPException(
-                    400,
-                    f"batch file {name!r} does not match any rml:source in the mapping "
-                    f"(expected one of {sorted(sources)})",
-                )
-            batch.append((name, await upload.read()))
-
-        client: OxigraphClient = app.state.client
-        dataset_key = substrate.canonical_graph_iri(dataset_id)
-        # The live (citable) graph to grow: the version graph liveGraph points at, or
-        # the key graph for a dataset promoted before part5's versioned graphs.
-        live_graph = await substrate.live_graph_of(client, dataset_key) or dataset_key
-        sdir = registry.source_dir(cfg.registry_root, dataset_id)
-
-        work = Path(tempfile.mkdtemp(prefix="asterism-append-"))
+        batch = [(str(f.filename), await f.read()) for f in uploaded]
         try:
-            provided = {n for n, _ in batch}
-            for name, content in batch:
-                (work / name).write_bytes(content)
-            # For a multi-source RML, give any source the batch does NOT cover a
-            # header-only stand-in (0 new rows) so Morph-KGC can still materialize the
-            # batch without re-reading the full prior source. Best-effort: a CSV source
-            # with a persisted header; otherwise Morph-KGC fails loudly (422 below).
-            for src in sources - provided:
-                persisted = sdir / src if sdir else None
-                if (
-                    persisted is not None
-                    and persisted.is_file()
-                    and persisted.suffix.lower() == ".csv"
-                ):
-                    with persisted.open("rb") as fh:
-                        (work / src).write_bytes(fh.readline())
-            result = await substrate.run_append_ingest(
-                rml_ttl, work, client, live_graph
+            result = await _append_batch_to_dataset(
+                cfg.registry_root, app.state.client, dataset_id, batch
             )
-        except RuntimeError as exc:  # morph-kgc missing / materialization failed
-            raise HTTPException(422, str(exc)) from exc
-        finally:
-            shutil.rmtree(work, ignore_errors=True)
-
-        # Accumulate the batch into the persisted source set (additive, A7).
-        if sdir is not None:
-            for name, content in batch:
-                await asyncio.to_thread(_accumulate_source_batch, sdir, name, content)
-        all_files = [
-            p.name for p in registry.list_source_files(cfg.registry_root, dataset_id)
-        ]
-
-        triples_in_batch = int(result["triples_in_batch"])
-        append_seq = registry.next_append_seq(cfg.registry_root, dataset_id)
-        new_meta = registry.mark_appended(
-            cfg.registry_root,
-            dataset_id,
-            batch_files=[n for n, _ in batch],
-            source_files=all_files,
-            triples_in_batch=triples_in_batch,
-            appended_at=datetime.now(UTC).isoformat(),
-            append_seq=append_seq,
-        )
-        return JSONResponse(
-            {
-                "dataset_id": dataset_id,
-                "live_graph": live_graph,
-                "triples_in_batch": triples_in_batch,
-                "append_seq": append_seq,
-                # The crosswalk hub is a derived projection over the canonical scope;
-                # this append may have introduced new shared values, so signal a
-                # rebuild is due (ADR §7). The rebuild is idempotent (PUT replace).
-                "crosswalk_stale": True,
-                "dataset": new_meta,
-            }
-        )
+        except AppendError as exc:
+            raise HTTPException(exc.status, exc.detail) from exc
+        return JSONResponse(result)
 
     @app.get("/api/datasets/{dataset_id}/alignment")
     async def dataset_alignment(dataset_id: str) -> JSONResponse:
