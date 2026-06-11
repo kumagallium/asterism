@@ -137,6 +137,17 @@ interface DatasetMeta {
   is_crosswalk?: boolean
   crosswalk_participants?: string[]
   crosswalk_shared_compositions?: number
+  // incremental-ingest.md: a live "feed" dataset that has had batches appended
+  // (the device-feed path). append_seq counts appends; appends is the per-batch log.
+  feed?: boolean
+  append_seq?: number
+  triples_appended?: number
+  appends?: {
+    seq: number
+    batch_files: string[]
+    triples_in_batch: number
+    appended_at: string
+  }[]
 }
 
 /** Preview which draft terms are Reuse (in canonical) vs New, before promoting. */
@@ -197,6 +208,37 @@ export async function deleteDataset(datasetId: string, force = false): Promise<v
     headers: authHeaders(),
   })
   if (!res.ok) throw new Error(await _errText(res, 'delete'))
+}
+
+/** Result of an incremental append (ADR incremental-ingest.md): a new batch was
+ * POST-merged into the dataset's live canonical graph (it grew; existing IRIs stay;
+ * re-emitted rows dedupe). */
+export interface AppendResult {
+  dataset_id: string
+  live_graph: string
+  triples_in_batch: number
+  append_seq: number
+  crosswalk_stale: boolean
+  dataset: DatasetMeta
+}
+
+/**
+ * Incremental append: grow a *promoted* dataset's live feed with a new batch
+ * (the device-feed path). Materializes ONLY the batch (O(new)) and merges it into
+ * the live graph, so the new facts are immediately citable while existing
+ * triples/IRIs are untouched (re-emitted rows dedupe). The batch filename(s) must
+ * match the dataset's rml:source. 200 with the result (no SSE — batches are small).
+ */
+export async function appendToDataset(datasetId: string, files: File[]): Promise<AppendResult> {
+  const form = new FormData()
+  for (const file of files) form.append('files', file)
+  const res = await fetch(`${API_BASE}/api/datasets/${encodeURIComponent(datasetId)}/append`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: form,
+  })
+  if (!res.ok) throw new Error(await _errText(res, 'append'))
+  return (await res.json()) as AppendResult
 }
 
 /** A materialized dataset adapted to both layers (ontology + mapping). */
