@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Minimal JATS-shaped sample for the #19-followup document-ontology spike. -->
+<article>
+  <front><article-meta>
+    <article-id pub-id-type="publisher-id">SID-6</article-id>
+  </article-meta></front>
+  <body>
+    <sec id="s3-2"><title>Methods</title>
+      <p id="p4">Samples were measured at 300 K under Ar.</p>
+      <p id="p5">Resistivity was recorded with a four-probe setup.</p>
+    </sec>
+    <sec id="s4"><title>Results</title>
+      <p id="p6">ZT exceeds 1.5 at 600 K for the doped sample.</p>
+    </sec>
+  </body>
+</article>
