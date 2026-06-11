@@ -22,6 +22,9 @@ from asterism.crosswalk_runtime import (
     RuntimeParticipant,
     build_hub,
     config_to_dict,
+    crosswalk_graph_iri,
+    crosswalk_registry_id,
+    list_perspectives,
     load_config,
     parse_config,
     remove_hub,
@@ -197,6 +200,58 @@ def test_write_registry_scaffold_seeds_then_preserves(tmp_path: Path) -> None:
     write_registry_scaffold(tmp_path, cfg, outcome)
     assert "my_custom_tool" in (d / "query_tools.yaml").read_text(encoding="utf-8")
     assert "datasets_for_composition" not in (d / "query_tools.yaml").read_text(encoding="utf-8")
+
+
+def test_perspective_id_scheme() -> None:
+    # default = the legacy composition perspective (back-compat ids/graph)
+    assert crosswalk_graph_iri() == HUB_GRAPH
+    assert crosswalk_registry_id() == "crosswalk-bridge"
+    # a named perspective gets its own graph + registry id
+    assert crosswalk_graph_iri("crystal").endswith("/graph/canonical/crosswalk/crystal")
+    assert crosswalk_registry_id("crystal") == "crosswalk-crystal"
+    assert crosswalk_graph_iri("crystal") != HUB_GRAPH
+
+
+async def test_named_perspective_writes_its_own_graph(tmp_path: Path) -> None:
+    ds = rdflib.Dataset()
+    _seed_dataset(ds, "ds-a", [("urn:a1", "Bi2Te3")])
+    _seed_dataset(ds, "ds-b", [("urn:b1", "Bi2Te3")])
+    client = _DatasetClient(ds)
+    cfg = _composition_config([("ds-a", "starrydata"), ("ds-b", "materials_project")])
+
+    out = await build_hub(
+        client, cfg, built_at="2026-06-11T00:00:00+00:00", perspective_id="crystal"
+    )
+
+    g = crosswalk_graph_iri("crystal")
+    assert out.hub_graph == g
+    assert any(posted == g for posted, _ in client.posted)
+    assert HUB_GRAPH not in [posted for posted, _ in client.posted]  # default untouched
+    # the named perspective is promoted -> the FROM-merge unions it
+    assert g in set(await substrate.canonical_graphs(client))
+
+
+def test_list_perspectives_finds_each_by_flag(tmp_path: Path) -> None:
+    cfg = _composition_config([("ds-a", "a"), ("ds-b", "b")])
+    outcome = BuildOutcome(
+        built_at="2026-06-11T00:00:00+00:00",
+        hub_graph=HUB_GRAPH,
+        triple_count=1,
+        shared={"composition": ["Bi2Te3"]},
+        links={},
+        participants_used=[],
+        participants_skipped=[],
+    )
+    write_registry_scaffold(tmp_path, cfg, outcome)  # default (composition)
+    write_registry_scaffold(tmp_path, cfg, outcome, perspective_id="crystal", name="結晶構造")
+
+    persp = list_perspectives(tmp_path)
+    ids = {m["crosswalk_perspective_id"] for m in persp}
+    assert ids == {"composition", "crystal"}
+    crystal = next(m for m in persp if m["crosswalk_perspective_id"] == "crystal")
+    assert crystal["id"] == "crosswalk-crystal"
+    assert crystal["name"] == "結晶構造"
+    assert crystal["canonical_graph"] == crosswalk_graph_iri("crystal")
 
 
 # --- small SPARQL helpers for assertions -----------------------------------

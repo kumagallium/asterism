@@ -21,6 +21,7 @@ named function; nothing is generated at runtime. The hub is a *derived dated cla
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -37,12 +38,51 @@ from asterism.crosswalk import (
     normalize_identity,
 )
 
-# The hub lives in a per-dataset canonical graph keyed ``crosswalk`` (the registry
-# id is ``crosswalk-bridge``; the graph name stays the short ``crosswalk``). One
-# canonical named graph the FROM-merge already unions (engine unchanged).
-DATASET_ID = "crosswalk-bridge"
+# Multi-perspective crosswalk (ADR crosswalk-multi-perspective.md): the upper ontology
+# is a SET of independent PERSPECTIVES, each its own crosswalk (own graph + config +
+# registry entry), the FROM-merge unioning every promoted one. A perspective is keyed by
+# a slug id; the legacy ``composition`` perspective keeps its historical registry id
+# (``crosswalk-bridge``) + graph (``…/graph/canonical/crosswalk``) for back-compat, while
+# new perspectives live at ``…/graph/canonical/crosswalk/<id>``.
+DEFAULT_PERSPECTIVE_ID = "composition"
+LEGACY_DATASET_ID = "crosswalk-bridge"
+# Back-compat module constants = the default (composition) perspective.
+DATASET_ID = LEGACY_DATASET_ID
 HUB_GRAPH = substrate.canonical_graph_iri("crosswalk")
 ACTIVITY_IRI = "https://kumagallium.github.io/asterism/crosswalk/resource/build/latest"
+
+_PERSPECTIVE_ID = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+
+
+def _check_perspective_id(perspective_id: str) -> None:
+    if perspective_id != DEFAULT_PERSPECTIVE_ID and not _PERSPECTIVE_ID.match(perspective_id):
+        raise ValueError(f"unsafe crosswalk perspective id: {perspective_id!r}")
+
+
+def crosswalk_registry_id(perspective_id: str = DEFAULT_PERSPECTIVE_ID) -> str:
+    """The registry dataset id for a perspective. The legacy composition perspective
+    keeps its historical id; new perspectives are ``crosswalk-<id>``."""
+    _check_perspective_id(perspective_id)
+    if perspective_id == DEFAULT_PERSPECTIVE_ID:
+        return LEGACY_DATASET_ID
+    return f"crosswalk-{perspective_id}"
+
+
+def crosswalk_graph_iri(perspective_id: str = DEFAULT_PERSPECTIVE_ID) -> str:
+    """The canonical named graph for a perspective. The legacy composition perspective
+    keeps ``…/graph/canonical/crosswalk``; new ones use ``…/canonical/crosswalk/<id>``."""
+    _check_perspective_id(perspective_id)
+    if perspective_id == DEFAULT_PERSPECTIVE_ID:
+        return HUB_GRAPH
+    return f"{substrate.CANONICAL_GRAPH_BASE}crosswalk/{perspective_id}"
+
+
+def perspective_activity_iri(perspective_id: str = DEFAULT_PERSPECTIVE_ID) -> str:
+    """The build-provenance Activity IRI for a perspective (legacy = ``…/build/latest``)."""
+    _check_perspective_id(perspective_id)
+    if perspective_id == DEFAULT_PERSPECTIVE_ID:
+        return ACTIVITY_IRI
+    return f"https://kumagallium.github.io/asterism/crosswalk/resource/build/{perspective_id}"
 
 # Default composition concept (the proven one). The config is multi-concept-ready;
 # the authoring UI starts with composition.
@@ -257,14 +297,24 @@ async def _entities_for_values(
 # ---------------------------------------------------------------------------
 
 
-async def build_hub(client, config: RuntimeCrosswalkConfig, *, built_at: str) -> BuildOutcome:
-    """Rebuild the crosswalk hub from the live store (read FROM the promoted canonical
-    graphs, write the hub graph + control flag). Idempotent (drop + replace).
+async def build_hub(
+    client,
+    config: RuntimeCrosswalkConfig,
+    *,
+    built_at: str,
+    perspective_id: str = DEFAULT_PERSPECTIVE_ID,
+) -> BuildOutcome:
+    """Rebuild ONE crosswalk perspective from the live store (read FROM the promoted
+    canonical graphs, write the perspective's graph + control flag). Idempotent (drop +
+    replace).
 
-    ``client`` is an :class:`asterism.oxigraph_client.OxigraphClient` (satisfies the
-    SPARQL select/update + Turtle-post slices). The read is bounded to shared values;
-    normalization happens in Python via the concept's named normalizer.
+    ``perspective_id`` selects which perspective (its own graph) to (re)build — the
+    default is the legacy ``composition`` perspective. ``client`` is an
+    :class:`asterism.oxigraph_client.OxigraphClient`. The read is bounded to shared
+    values; normalization happens in Python via the concept's named normalizer.
     """
+    hub_graph = crosswalk_graph_iri(perspective_id)
+    activity_iri = perspective_activity_iri(perspective_id)
     promoted = set(await substrate.canonical_graphs(client))
     observations: dict[tuple[str, str], list[tuple[str, str]]] = {}
     used_rules: dict[str, list[Rule]] = {}
@@ -336,20 +386,20 @@ async def build_hub(client, config: RuntimeCrosswalkConfig, *, built_at: str) ->
     result = build_turtle(
         CrosswalkConfig(lib_concepts, min_datasets=config.min_datasets),
         observations,
-        activity_iri=ACTIVITY_IRI,
+        activity_iri=activity_iri,
         built_at=built_at,
     )
     triple_count = _count_triples(result.turtle)
 
-    # Write: replace the hub graph (idempotent), flag it promoted so the FROM-merge
-    # unions it. drop_graph is safe here — the hub is small (bounded to shared).
-    await substrate.drop_graph(client, HUB_GRAPH)
-    await client.post_turtle_bytes(result.turtle.encode("utf-8"), graph_iri=HUB_GRAPH)
-    await substrate.mark_graph_promoted(client, HUB_GRAPH)
+    # Write: replace the perspective's graph (idempotent), flag it promoted so the
+    # FROM-merge unions it. drop_graph is safe here — the hub is small (bounded to shared).
+    await substrate.drop_graph(client, hub_graph)
+    await client.post_turtle_bytes(result.turtle.encode("utf-8"), graph_iri=hub_graph)
+    await substrate.mark_graph_promoted(client, hub_graph)
 
     return BuildOutcome(
         built_at=built_at,
-        hub_graph=HUB_GRAPH,
+        hub_graph=hub_graph,
         triple_count=triple_count,
         shared=result.shared,
         links=result.links,
@@ -358,12 +408,13 @@ async def build_hub(client, config: RuntimeCrosswalkConfig, *, built_at: str) ->
     )
 
 
-async def remove_hub(client) -> None:
-    """Tear down the hub: drop the graph and clear its control ``promoted`` flag."""
-    await substrate.drop_graph(client, HUB_GRAPH)
+async def remove_hub(client, perspective_id: str = DEFAULT_PERSPECTIVE_ID) -> None:
+    """Tear down a perspective: drop its graph and clear its control ``promoted`` flag."""
+    hub_graph = crosswalk_graph_iri(perspective_id)
+    await substrate.drop_graph(client, hub_graph)
     await client.sparql_update(
         f"DELETE WHERE {{ GRAPH <{substrate.CONTROL_GRAPH_IRI}> {{ "
-        f"<{HUB_GRAPH}> <{substrate.STATUS_PREDICATE}> ?o }} }}"
+        f"<{hub_graph}> <{substrate.STATUS_PREDICATE}> ?o }} }}"
     )
 
 
@@ -384,22 +435,28 @@ def _count_triples(turtle: str) -> int:
 # ---------------------------------------------------------------------------
 
 
-def _dataset_dir(registry_root: Path | str) -> Path:
-    return Path(registry_root) / DATASET_ID
+def _dataset_dir(registry_root: Path | str, perspective_id: str = DEFAULT_PERSPECTIVE_ID) -> Path:
+    return Path(registry_root) / crosswalk_registry_id(perspective_id)
 
 
-def load_config(registry_root: Path | str) -> RuntimeCrosswalkConfig | None:
-    """Read the persisted crosswalk config, or ``None`` if there is no hub yet."""
-    path = _dataset_dir(registry_root) / _CONFIG_FILE
+def load_config(
+    registry_root: Path | str, perspective_id: str = DEFAULT_PERSPECTIVE_ID
+) -> RuntimeCrosswalkConfig | None:
+    """Read a perspective's persisted config, or ``None`` if it does not exist yet."""
+    path = _dataset_dir(registry_root, perspective_id) / _CONFIG_FILE
     if not path.is_file():
         return None
     data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     return parse_config(data)
 
 
-def save_config(registry_root: Path | str, config: RuntimeCrosswalkConfig) -> Path:
-    """Persist the crosswalk config to ``crosswalk-bridge/crosswalk.yaml``."""
-    d = _dataset_dir(registry_root)
+def save_config(
+    registry_root: Path | str,
+    config: RuntimeCrosswalkConfig,
+    perspective_id: str = DEFAULT_PERSPECTIVE_ID,
+) -> Path:
+    """Persist a perspective's config to ``<registry-id>/crosswalk.yaml``."""
+    d = _dataset_dir(registry_root, perspective_id)
     d.mkdir(parents=True, exist_ok=True)
     path = d / _CONFIG_FILE
     path.write_text(
@@ -409,14 +466,44 @@ def save_config(registry_root: Path | str, config: RuntimeCrosswalkConfig) -> Pa
     return path
 
 
+def list_perspectives(registry_root: Path | str) -> list[dict]:
+    """Every crosswalk perspective's registry meta (newest first). A perspective is any
+    registry dataset flagged ``is_crosswalk`` — so discovery does not depend on the id
+    naming convention (the legacy ``crosswalk-bridge`` is found the same way)."""
+    root = Path(registry_root)
+    if not root.is_dir():
+        return []
+    metas: list[dict] = []
+    for child in root.iterdir():
+        meta_path = child / _META_FILE
+        if not meta_path.is_file():
+            continue
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if meta.get("is_crosswalk"):
+            metas.append(meta)
+    metas.sort(
+        key=lambda m: str(m.get("crosswalk_built_at") or m.get("created_at", "")),
+        reverse=True,
+    )
+    return metas
+
+
 def write_registry_scaffold(
-    registry_root: Path | str, config: RuntimeCrosswalkConfig, outcome: BuildOutcome
+    registry_root: Path | str,
+    config: RuntimeCrosswalkConfig,
+    outcome: BuildOutcome,
+    *,
+    perspective_id: str = DEFAULT_PERSPECTIVE_ID,
+    name: str = "",
 ) -> dict:
-    """Create/refresh the ``crosswalk-bridge`` registry dataset so the catalog lists
-    the hub. Updates meta stats every build; seeds model.yaml / diagram.md and the
-    generic ``datasets_for_composition`` tool **only if absent** (never clobbers
-    human-authored tools like ``zt_by_crystal_structure``)."""
-    d = _dataset_dir(registry_root)
+    """Create/refresh a perspective's registry dataset so the catalog lists it. Updates
+    meta stats every build; seeds model.yaml / diagram.md and the generic
+    ``datasets_for_composition`` tool **only if absent** (never clobbers human-authored
+    tools like ``zt_by_crystal_structure``)."""
+    d = _dataset_dir(registry_root, perspective_id)
     d.mkdir(parents=True, exist_ok=True)
     meta_path = d / _META_FILE
     meta: dict = {}
@@ -428,10 +515,15 @@ def write_registry_scaffold(
 
     classes = sorted({_local_name(c.class_iri) for c in config.concepts})
     participants = sorted({p.label for c in config.concepts for p in c.participants})
+    default_name = (
+        "crosswalk hub (composition across datasets)"
+        if perspective_id == DEFAULT_PERSPECTIVE_ID
+        else f"crosswalk: {perspective_id}"
+    )
     meta.update(
         {
-            "id": DATASET_ID,
-            "name": meta.get("name") or "crosswalk hub (shared concepts across datasets)",
+            "id": crosswalk_registry_id(perspective_id),
+            "name": name or meta.get("name") or default_name,
             "created_at": meta.get("created_at") or outcome.built_at,
             "complete": True,
             "exit_code": 0,
@@ -445,11 +537,12 @@ def write_registry_scaffold(
             "status": "active",
             "triple_count": outcome.triple_count,
             "triples_promoted": outcome.triple_count,
-            "canonical_graph": HUB_GRAPH,
+            "canonical_graph": crosswalk_graph_iri(perspective_id),
             "warnings": [],
             "traps": [],
             # crosswalk-specific facets (the UI + auto-rebuild hook read these).
             "is_crosswalk": True,
+            "crosswalk_perspective_id": perspective_id,
             "crosswalk_participants": participants,
             "crosswalk_shared_compositions": outcome.shared_total,
             "crosswalk_built_at": outcome.built_at,
