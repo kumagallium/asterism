@@ -1,5 +1,33 @@
 # Changelog
 
+## [v0.2.0](https://github.com/kumagallium/asterism/compare/v0.1.1...v0.2.0) - 2026-06-11
+
+- feat(api): JSON source ingest + source persistence (#19 part 3) by @kumagallium in https://github.com/kumagallium/asterism/pull/153
+- feat(tools): AI-assisted query-tool draft (P2, key-gated) by @kumagallium in https://github.com/kumagallium/asterism/pull/154
+- feat(ui): part5 safe-replace — re-ingest + re-promote for promoted/ingested datasets by @kumagallium in https://github.com/kumagallium/asterism/pull/152
+- feat(ui): wire the JSON data source (#19 part 4) by @kumagallium in https://github.com/kumagallium/asterism/pull/156
+- docs(#19): Materials Project JSON-source dogfood + ADR + ROADMAP by @kumagallium in https://github.com/kumagallium/asterism/pull/157
+- fix(ui): ReingestControl source picker follows source_kind (#19) by @kumagallium in https://github.com/kumagallium/asterism/pull/158
+- feat(ui): per-dataset tools workbench — grow verified Ask tools without a PR (P3) by @kumagallium in https://github.com/kumagallium/asterism/pull/159
+- feat(exposure): controlled-exposure profile + MCP-front topology by @kumagallium in https://github.com/kumagallium/asterism/pull/160
+- fix(ui): tools result-mapping arrow direction (列名 → 変数) by @kumagallium in https://github.com/kumagallium/asterism/pull/161
+- feat(propose): ground AI draft in the dataset's RML (real vocabulary, no example.org) by @kumagallium in https://github.com/kumagallium/asterism/pull/162
+- feat(tools): run a verified tool deterministically — key-free, no LLM by @kumagallium in https://github.com/kumagallium/asterism/pull/163
+- feat(ui): run verified tools key-free from the Ask view too by @kumagallium in https://github.com/kumagallium/asterism/pull/164
+- chore(ui): keep Ask for NL Q&A only — verified-tool execution lives in the Catalog by @kumagallium in https://github.com/kumagallium/asterism/pull/165
+- feat(ui): make Ask require an API key (retire the key-free path from the UX) by @kumagallium in https://github.com/kumagallium/asterism/pull/166
+- docs+spike(crosswalk): a thin, growing crosswalk hub across datasets by @kumagallium in https://github.com/kumagallium/asterism/pull/169
+- Track C: Tier 0 coverage measurement over a diverse corpus by @kumagallium in https://github.com/kumagallium/asterism/pull/168
+- feat(tier0): parameterized primitives (lookup / regex_extract / template) + seed tables by @kumagallium in https://github.com/kumagallium/asterism/pull/167
+- feat(tier0): core function expansion — numeric / date / string / bool / id / value+unit (Track A) by @kumagallium in https://github.com/kumagallium/asterism/pull/170
+- feat(crosswalk): tested, multi-concept crosswalk hub builder (asterism.crosswalk) by @kumagallium in https://github.com/kumagallium/asterism/pull/171
+- chore(coverage): recalibrate Tier0 "enough" gate after A/B — …Raw 63.6% → 36.8% by @kumagallium in https://github.com/kumagallium/asterism/pull/172
+- feat(tier0): multi-value "easy wins" — json_array_single / array_at / split by @kumagallium in https://github.com/kumagallium/asterism/pull/173
+- feat(ingest): incremental append — grow a live feed in place (装置 CSV をライブに育てる) by @kumagallium in https://github.com/kumagallium/asterism/pull/174
+- feat(security)!: critical hardening — fail-closed defaults (ingest/exposure/auth/network) by @kumagallium in https://github.com/kumagallium/asterism/pull/175
+- chore(coverage): recalibrate Tier0 gate after multi-value — …Raw 36.8% → 11.1% (PASS) by @kumagallium in https://github.com/kumagallium/asterism/pull/176
+- fix(tagpr): minor/major label config in git-config format by @kumagallium in https://github.com/kumagallium/asterism/pull/177
+
 ## [v0.1.1](https://github.com/kumagallium/asterism/compare/v0.1.0...v0.1.1) - 2026-06-09
 
 - [feat] ワークベンチ: 提案/再生成の進捗カードを追加 (経過時間+不定バー) by @kumagallium in https://github.com/kumagallium/asterism/pull/69
