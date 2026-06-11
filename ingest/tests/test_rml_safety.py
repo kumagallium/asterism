@@ -67,6 +67,13 @@ def test_url_source_rejected(tmp_path: Path) -> None:
         assert_rml_safe(rml, tmp_path)
 
 
+def test_relative_xml_source_passes(tmp_path: Path) -> None:
+    # The document-ontology layer (JATS/TEI) reads XML declaratively via ql:XPath;
+    # .xml is a vetted source extension. It still passes every other gate.
+    rml = _RML_PREFIX + '<#M> rml:source "paper.xml" .\n'
+    assert_rml_safe(rml, tmp_path)
+
+
 def test_disallowed_extension_rejected(tmp_path: Path) -> None:
     rml = _RML_PREFIX + '<#M> rml:source "data.parquet" .\n'
     with pytest.raises(RmlSafetyError, match="csv"):

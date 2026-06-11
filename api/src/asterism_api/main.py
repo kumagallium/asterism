@@ -370,10 +370,11 @@ _DEFAULT_RESOURCE = (
 # (``..`` segments, absolute paths, NULs). We also reject names without a
 # ``.csv`` suffix so the watcher's ``_classify`` actually fires.
 _SAFE_NAME = re.compile(r"^[A-Za-z0-9._-]{1,128}\.csv$")
-# The step0 / source / ingest paths accept JSON too (#19). Morph-KGC reads CSV
-# and JSON (ql:CSV / ql:JSONPath), so both are valid sources; the legacy
-# ``/upload/{kind}`` starrydata drop stays CSV-only (it feeds the CSV watcher).
-_SAFE_SOURCE_NAME = re.compile(r"^[A-Za-z0-9._-]{1,128}\.(csv|json|geojson)$")
+# The step0 / source / ingest paths accept JSON (#19) and XML/JATS (document-
+# ontology layer). Morph-KGC reads all three (ql:CSV / ql:JSONPath / ql:XPath), so
+# all are valid sources; the legacy ``/upload/{kind}`` starrydata drop stays
+# CSV-only (it feeds the CSV watcher).
+_SAFE_SOURCE_NAME = re.compile(r"^[A-Za-z0-9._-]{1,128}\.(csv|json|geojson|xml)$")
 
 
 # ----------------------------------------------------------------------------
@@ -458,7 +459,7 @@ def _validate_source_name(name: str) -> str:
     if not _SAFE_SOURCE_NAME.fullmatch(name):
         raise HTTPException(
             400,
-            "filename must match [A-Za-z0-9._-]+.(csv|json|geojson) (max 128 chars)",
+            "filename must match [A-Za-z0-9._-]+.(csv|json|geojson|xml) (max 128 chars)",
         )
     return name
 
@@ -674,7 +675,7 @@ async def _append_batch_to_dataset(
     for name, _ in batch:
         if not _SAFE_SOURCE_NAME.fullmatch(name):
             raise AppendError(
-                400, "filename must match [A-Za-z0-9._-]+.(csv|json|geojson) (max 128 chars)"
+                400, "filename must match [A-Za-z0-9._-]+.(csv|json|geojson|xml) (max 128 chars)"
             )
         if sources and name not in sources:
             raise AppendError(

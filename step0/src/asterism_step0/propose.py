@@ -148,8 +148,8 @@ the old `http://semweb.mmlab.be/ns/fnml#`):
 ```
 
 **Logical source** — match each `rr:TriplesMap`'s `rml:logicalSource` to the
-source kind shown in the inspection (`## CSV:` vs `## JSON:` blocks). Use the
-filename and (for JSON) the iterator from the inspection block verbatim:
+source kind shown in the inspection (`## CSV:` / `## JSON:` / `## XML:` blocks). Use
+the filename, and (for **XML**) the iterator from the inspection block verbatim:
 - **CSV** sources:
   ```
   rml:logicalSource [ rml:source "<file>.csv" ; rml:referenceFormulation ql:CSV ] ;
@@ -165,8 +165,26 @@ filename and (for JSON) the iterator from the inspection block verbatim:
   **dot-path leaf field exactly as listed** in the inspection (e.g.
   `structure.spacegroup`) — a plain dot-path. An **array column** (type `json-array`)
   holds the array as a JSON string → explode it with `fn:json_array` /
-  `fn:json_pluck` (below), exactly as a CSV "JSON in a cell" column. Tier 0
-  functions, templates, and the HARD RULES below apply identically to either kind.
+  `fn:json_pluck` (below), exactly as a CSV "JSON in a cell" column.
+- **XML / JATS** sources (document-ontology layer) — read declaratively via `ql:XPath`
+  (no tabularization; the article is a structure tree, not records):
+  ```
+  rml:logicalSource [ rml:source "<file>.xml" ;
+                      rml:referenceFormulation ql:XPath ;
+                      rml:iterator "<iterator from the ## XML: table, e.g. /article/body/sec>" ] ;
+  ```
+  `rml:reference` / `rr:template` use **iterator-relative element/attribute paths**
+  (`@id`, `title`, `label`, `.` for the element's text). HARD XML limits (Morph-KGC's
+  XML reader): NO `[@a='v']` predicates and NO parent/ancestor axes in references;
+  it returns only an element's `.text` (mixed content like `<sub>`/`<italic>` is
+  truncated, so faithful verbatim is a post-pass, not RML); every template needs ≥1
+  `{ref}` — so the per-paper IRI base is a CONSTANT (`rr:constant`, the ingest is
+  per-paper). Build `po:contains` parent→child via a multi-valued child reference
+  (`{sec/@id}`, `{fig/@id}`). Use a node's `@id` for its IRI when the inspection
+  marks it stable (✓); nodes without `@id` (e.g. `<p>`) are NOT mapped here — they
+  are the deterministic post-pass's job (a dated `lit:DocumentParsingActivity` claim).
+- Tier 0 functions, templates, and the HARD RULES below apply identically regardless
+  of source kind (e.g. `fn:structural_slug` on a section heading → its structural path).
 
 HARD RULES (a reviewer approves *column→predicate + which vetted function*, not code):
 - May reference ONLY these vetted **Tier 0** functions

@@ -22,8 +22,31 @@ from asterism_step0.inspect import (
     inspect_json,
     inspect_json_set,
     inspect_source_set,
+    inspect_xml,
     render_markdown,
 )
+
+_JATS_SAMPLE = """<?xml version="1.0" encoding="UTF-8"?>
+<article>
+  <front><article-meta>
+    <article-id pub-id-type="pmcid">PMC-TEST</article-id>
+  </article-meta></front>
+  <body>
+    <sec id="s1"><title>1. Introduction</title><p>First paragraph.</p></sec>
+    <sec id="s2"><title>2. Results</title>
+      <sec id="s2-1"><title>2.1. A</title>
+        <p>Body. Second sentence.</p>
+        <fig id="f1"><label>Figure 1</label><caption><p>A caption.</p></caption></fig>
+      </sec>
+    </sec>
+  </body>
+</article>
+"""
+
+
+def _write_xml(path: Path, content: str = _JATS_SAMPLE) -> Path:
+    path.write_text(content, encoding="utf-8")
+    return path
 
 
 def _write_json(path: Path, data: object) -> Path:
@@ -472,6 +495,35 @@ def test_render_markdown_json_header(tmp_path: Path) -> None:
     assert "ql:JSONPath" not in md
     assert "`structure.spacegroup`" in md
     assert "### Columns" in md
+
+
+def test_inspect_xml_reports_jats_structure(tmp_path: Path) -> None:
+    ins = inspect_xml(_write_xml(tmp_path / "paper.xml"))
+    assert ins.source_kind == "xml"
+    assert ins.root_element == "article"
+    assert ins.iterator == "/article/body/sec"
+    by_el = {it.element: it for it in (ins.xml_iterators or [])}
+    assert by_el["section"].count == 2 and by_el["section"].has_id
+    assert by_el["subsection"].count == 1
+    assert by_el["figure"].count == 1 and by_el["figure"].has_id
+    # paragraphs carry no @id → flagged for the deterministic post-pass.
+    assert by_el["paragraph"].has_id is False
+    assert "post-pass" in by_el["paragraph"].note
+
+
+def test_inspect_source_set_dispatches_xml(tmp_path: Path) -> None:
+    insps, _ = inspect_source_set([_write_xml(tmp_path / "p.xml")])
+    assert insps[0].source_kind == "xml"
+
+
+def test_render_markdown_xml_header(tmp_path: Path) -> None:
+    ins = inspect_xml(_write_xml(tmp_path / "paper.xml"))
+    md = render_markdown([ins])
+    assert "## XML: paper.xml" in md
+    assert "ql:XPath" in md
+    assert "`/article/body/sec`" in md
+    assert "### Structural iterators" in md
+    assert "post-pass" in md
 
 
 def test_render_markdown_renders_collisions(tmp_path: Path) -> None:

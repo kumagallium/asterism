@@ -247,13 +247,32 @@ class ForeignKeyCandidate:
 
 
 @dataclass
-class SourceInspection:
-    """Full structured result for one source file (CSV or JSON).
+class XmlIterator:
+    """One structural iterator discovered in an XML/JATS document.
 
-    ``source_kind`` distinguishes the two; ``iterator`` is the JSONPath record
-    iterator for JSON sources (``None`` for CSV). For JSON, ``columns[*].name``
-    holds a dot-path leaf field (e.g. ``structure.spacegroup``) usable verbatim
-    as an ``rml:reference`` under ``ql:JSONPath``.
+    ``iterator`` is the absolute XPath an ``rml:iterator`` would use (Morph-KGC
+    evaluates iterators with full XPath 3.0); ``count`` is how many nodes it
+    matches; ``has_id`` is whether those nodes carry an ``@id`` (so a stable IRI
+    can be templated from ``{@id}`` — false means the node needs a positional /
+    post-pass key). ``note`` carries a short hint (e.g. "no @id → post-pass").
+    """
+
+    iterator: str
+    element: str
+    count: int
+    has_id: bool
+    note: str = ""
+
+
+@dataclass
+class SourceInspection:
+    """Full structured result for one source file (CSV, JSON, or XML/JATS).
+
+    ``source_kind`` distinguishes them; ``iterator`` is the JSONPath record
+    iterator for JSON (or the primary XPath iterator for XML; ``None`` for CSV).
+    For JSON, ``columns[*].name`` holds a dot-path leaf field usable verbatim as an
+    ``rml:reference`` under ``ql:JSONPath``. For XML/JATS the tabular column/uniqueness
+    model does not apply: the document structure is reported via ``xml_iterators``.
     """
 
     path: str  # absolute or relative path as given
@@ -261,8 +280,10 @@ class SourceInspection:
     total_rows: int
     columns: list[ColumnSummary]
     uniqueness_reports: list[UniquenessReport]  # candidate keys evaluated for this source
-    source_kind: str = "csv"  # "csv" | "json"
-    iterator: str | None = None  # JSONPath record iterator for JSON (e.g. "$[*]")
+    source_kind: str = "csv"  # "csv" | "json" | "xml"
+    iterator: str | None = None  # JSONPath/XPath record iterator (None for CSV)
+    xml_iterators: list[XmlIterator] | None = None  # structural iterators for XML/JATS
+    root_element: str | None = None  # XML document root tag
 
     def column(self, name: str) -> ColumnSummary | None:
         return next((c for c in self.columns if c.name == name), None)
@@ -686,6 +707,8 @@ def _value_buckets(ins: SourceInspection) -> dict[str, set[str]]:
     CSV and JSON sources.
     """
     buckets: dict[str, set[str]] = {c.name: set() for c in ins.columns}
+    if ins.source_kind == "xml" or not buckets:
+        return buckets  # XML carries no columns — nothing to bucket for FK detection
     cap = _SAMPLE_RING * 5
     if ins.source_kind == "json":
         rows, _ = _load_json_records(Path(ins.path))
@@ -778,10 +801,82 @@ def inspect_json_set(
 
 
 _JSON_SUFFIXES = {".json", ".geojson"}
+_XML_SUFFIXES = {".xml"}
 
 
 def _is_json_path(path: Path | str) -> bool:
     return Path(path).suffix.lower() in _JSON_SUFFIXES
+
+
+def _is_xml_path(path: Path | str) -> bool:
+    return Path(path).suffix.lower() in _XML_SUFFIXES
+
+
+# Structural iterators probed for a JATS-shaped article (document-ontology layer).
+# Each entry is (absolute XPath for rml:iterator, relative ElementTree path to count
+# from the root). The relative path is what stdlib ElementTree understands; the
+# absolute one is what a mapping's rml:iterator declares.
+_JATS_PROBES: tuple[tuple[str, str, str], ...] = (
+    ("section", "/article/body/sec", "body/sec"),
+    ("subsection", "/article/body/sec/sec", "body/sec/sec"),
+    ("figure", "/article/body//fig", "body//fig"),
+    ("table", "/article/body//table-wrap", "body//table-wrap"),
+    ("paragraph", "/article/body//p", "body//p"),
+)
+
+
+def inspect_xml(path: Path | str) -> SourceInspection:
+    """Inspect a single XML/JATS document (document-ontology layer).
+
+    Unlike CSV/JSON, a JATS article is a structure tree, not a table of records,
+    so this reports the structural *iterators* (``xml_iterators``) — which element
+    types exist under ``<body>``, how many, and whether they carry a stable ``@id``
+    — rather than columns. That is exactly what the propose step needs to author a
+    ``ql:XPath`` mapping: which ``rml:iterator`` to use and whether a node's IRI can
+    be keyed by ``{@id}`` (stable) or needs the deterministic post-pass (no ``@id``,
+    e.g. ``<p>``). Pure stdlib ElementTree (no lxml dependency).
+    """
+    import xml.etree.ElementTree as ET
+
+    p = Path(path)
+    root = ET.parse(p).getroot()
+    iterators: list[XmlIterator] = []
+    for element, abs_xpath, rel_path in _JATS_PROBES:
+        nodes = root.findall(rel_path)
+        if not nodes:
+            continue
+        has_id = any(n.get("id") for n in nodes)
+        note = "" if has_id else "no @id → positional key via the deterministic post-pass"
+        iterators.append(
+            XmlIterator(
+                iterator=abs_xpath, element=element, count=len(nodes), has_id=has_id, note=note
+            )
+        )
+    primary = iterators[0].iterator if iterators else f"/{root.tag}"
+    return SourceInspection(
+        path=str(p),
+        name=p.name,
+        total_rows=sum(it.count for it in iterators),
+        columns=[],
+        uniqueness_reports=[],
+        source_kind="xml",
+        iterator=primary,
+        xml_iterators=iterators,
+        root_element=root.tag,
+    )
+
+
+def _inspect_one(
+    p: Path | str,
+    *,
+    fk_hint_columns: Sequence[str] | None,
+    record_path: str | None,
+) -> SourceInspection:
+    if _is_json_path(p):
+        return inspect_json(p, fk_hint_columns=fk_hint_columns, record_path=record_path)
+    if _is_xml_path(p):
+        return inspect_xml(p)
+    return inspect_csv(p, fk_hint_columns=fk_hint_columns)
 
 
 def inspect_source_set(
@@ -790,18 +885,16 @@ def inspect_source_set(
     fk_hint_columns: Sequence[str] | None = None,
     record_path: str | None = None,
 ) -> tuple[list[SourceInspection], list[ForeignKeyCandidate]]:
-    """Inspect a set of sources, dispatching per file by extension (.json → JSON).
+    """Inspect a set of sources, dispatching per file by extension.
 
-    Mixed CSV/JSON sets are supported; foreign-key candidates are reported across
-    the whole set. This is the source-agnostic entry point the API/CLI use; the
-    per-kind ``inspect_csv_set`` / ``inspect_json_set`` remain for callers that
-    know the kind up front.
+    ``.json``/``.geojson`` → JSON, ``.xml`` → XML/JATS, else CSV. Mixed sets are
+    supported; foreign-key candidates are reported across the tabular (CSV/JSON)
+    sources only (XML carries no columns). This is the source-agnostic entry point
+    the API/CLI use; the per-kind ``inspect_csv_set`` / ``inspect_json_set`` remain
+    for callers that know the kind up front.
     """
     inspections = [
-        inspect_json(p, fk_hint_columns=fk_hint_columns, record_path=record_path)
-        if _is_json_path(p)
-        else inspect_csv(p, fk_hint_columns=fk_hint_columns)
-        for p in paths
+        _inspect_one(p, fk_hint_columns=fk_hint_columns, record_path=record_path) for p in paths
     ]
     fks = _detect_foreign_keys(inspections)
     return inspections, fks
@@ -812,6 +905,40 @@ def inspect_source_set(
 # ----------------------------------------------------------------------------
 
 
+def _render_xml(buf: io.StringIO, ins: SourceInspection) -> None:
+    """Render the ``## XML:`` block for a JATS-shaped document source.
+
+    Reports the structural iterators (not columns): which to use as ``rml:iterator``
+    and whether each node carries a stable ``@id``. This is what the propose step
+    needs to author a ``ql:XPath`` mapping for the document-ontology layer.
+    """
+    buf.write(f"## XML: {ins.name}\n\n")
+    buf.write(f"- Root element: `{ins.root_element}`\n")
+    buf.write(f"- Path: `{ins.path}`\n")
+    buf.write(
+        "- Reference style: declarative `ql:XPath`. Emit "
+        "`rml:referenceFormulation ql:XPath` and an `rml:iterator` from the table "
+        "below. References/templates are **iterator-relative element/attribute paths** "
+        "(`@id`, `title`, `label`, `.` for text) — Morph-KGC's XML reader does NOT "
+        "support `[@a='v']` predicates or parent/ancestor axes, and returns only an "
+        "element's `.text` (mixed content is truncated). Build `po:contains` parent→child "
+        "via a multi-valued child reference (`{sec/@id}`, `{fig/@id}`). The per-paper IRI "
+        "base is a constant (the ingest is per-paper).\n\n"
+    )
+    buf.write("### Structural iterators\n\n")
+    buf.write("| iterator | element | count | stable @id | note |\n")
+    buf.write("|---|---|---|---|---|\n")
+    for it in ins.xml_iterators or []:
+        idmark = "✓" if it.has_id else "✗"
+        buf.write(f"| `{it.iterator}` | {it.element} | {it.count:,} | {idmark} | {it.note} |\n")
+    buf.write(
+        "\nNodes with a stable `@id` (✓) get an `@id`-keyed IRI declaratively; nodes "
+        "without (✗, e.g. paragraphs/sentences) are produced by the deterministic "
+        "post-pass and recorded as a dated `lit:DocumentParsingActivity` claim "
+        "(ADR document-ontology-layer.md).\n\n"
+    )
+
+
 def render_markdown(
     inspections: Sequence[CSVInspection],
     fk_candidates: Sequence[ForeignKeyCandidate] = (),
@@ -819,6 +946,9 @@ def render_markdown(
     """Produce the Markdown body the Step 3 schema-proposal prompt expects."""
     buf = io.StringIO()
     for ins in inspections:
+        if ins.source_kind == "xml":
+            _render_xml(buf, ins)
+            continue
         if ins.source_kind == "json":
             iterator = ins.iterator or "$[*]"
             csv_name = Path(ins.name).stem + ".csv"
@@ -908,12 +1038,15 @@ def _build_arg_parser():  # type: ignore[no-untyped-def]
     p = argparse.ArgumentParser(
         prog="asterism-inspect",
         description=(
-            "Inspect one or more sources (CSV or JSON) and emit the Markdown body "
-            "that the Step 3 schema-proposal prompt expects. The source kind is "
-            "picked per file by extension (.json / .geojson → JSON)."
+            "Inspect one or more sources (CSV, JSON, or XML/JATS) and emit the "
+            "Markdown body that the Step 3 schema-proposal prompt expects. The "
+            "source kind is picked per file by extension (.json / .geojson → JSON, "
+            ".xml → XML/JATS, else CSV)."
         ),
     )
-    p.add_argument("source", type=Path, nargs="+", help="Source file(s) to inspect (CSV or JSON)")
+    p.add_argument(
+        "source", type=Path, nargs="+", help="Source file(s) to inspect (CSV, JSON, or XML)"
+    )
     p.add_argument(
         "--fk",
         dest="fk_hint",

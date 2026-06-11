@@ -261,6 +261,8 @@ def test_source_kind_of_classifies_by_extension() -> None:
     assert registry.source_kind_of(["papers.csv", "samples.csv"]) == "csv"
     assert registry.source_kind_of(["mp.json"]) == "json"
     assert registry.source_kind_of(["a.csv", "b.json"]) == "json"  # any JSON ⇒ json
+    assert registry.source_kind_of(["PMC5951533.xml"]) == "xml"  # JATS document source
+    assert registry.source_kind_of(["a.csv", "p.xml"]) == "xml"  # any XML ⇒ xml
     assert registry.source_kind_of([]) == "csv"
 
 
