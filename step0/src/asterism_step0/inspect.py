@@ -523,6 +523,20 @@ def inspect_csv(path: Path | str, *, fk_hint_columns: Sequence[str] | None = Non
 # ----------------------------------------------------------------------------
 
 
+# Morph-KGC reserves the DataFrame columns named ``subject`` / ``predicate`` when it
+# builds term maps, so a source column with either name silently yields 0 triples.
+# A JSON source is tabularized to CSV at ingest (``asterism.tabularize``), which
+# renames these columns; the inspector must show the SAME renamed selectors so the
+# proposed ``rml:reference`` matches the tabularized CSV. Keep this in sync with the
+# canonical ``RESERVED_COLUMNS`` / ``safe_col`` in ``asterism.tabularize`` (step0 does
+# not depend on the ingest package — dedup into a shared module is a follow-up).
+_RESERVED_SOURCE_COLUMNS = frozenset({"subject", "predicate"})
+
+
+def _safe_column(name: str) -> str:
+    return f"{name}_" if name in _RESERVED_SOURCE_COLUMNS else name
+
+
 def _flatten_record(obj: object, prefix: str = "") -> dict[str, str]:
     """Flatten one JSON record to ``{dot_path: string_cell}``.
 
@@ -530,7 +544,8 @@ def _flatten_record(obj: object, prefix: str = "") -> dict[str, str]:
     recurse into ``a.b`` keys; **list leaves are kept as a JSON-encoded cell**
     (not exploded) so :func:`_detect_json_kind` tags them ``json-array`` — the
     same shape a CSV "JSON in a cell" column has. Scalars stringify; ``None``
-    becomes empty (treated as null, like a blank CSV cell).
+    becomes empty (treated as null, like a blank CSV cell). Reserved column names
+    are renamed via :func:`_safe_column` to match the tabularized CSV.
     """
     out: dict[str, str] = {}
     if isinstance(obj, dict):
@@ -539,17 +554,17 @@ def _flatten_record(obj: object, prefix: str = "") -> dict[str, str]:
             if isinstance(v, dict):
                 out.update(_flatten_record(v, key))
             elif isinstance(v, list):
-                out[key] = json.dumps(v, ensure_ascii=False)
+                out[_safe_column(key)] = json.dumps(v, ensure_ascii=False)
             elif v is None:
-                out[key] = ""
+                out[_safe_column(key)] = ""
             elif isinstance(v, bool):
-                out[key] = "true" if v else "false"
+                out[_safe_column(key)] = "true" if v else "false"
             else:
-                out[key] = str(v)
+                out[_safe_column(key)] = str(v)
     else:
         # A non-object record (scalar or array). Represent it under a synthetic
         # "value" field so it still has a referenceable selector.
-        field_name = prefix or "value"
+        field_name = _safe_column(prefix or "value")
         if isinstance(obj, list):
             out[field_name] = json.dumps(obj, ensure_ascii=False)
         elif obj is None:
@@ -800,13 +815,18 @@ def render_markdown(
     for ins in inspections:
         if ins.source_kind == "json":
             iterator = ins.iterator or "$[*]"
+            csv_name = Path(ins.name).stem + ".csv"
             buf.write(f"## JSON: {ins.name}\n\n")
             buf.write(f"- Records: {ins.total_rows:,} (iterator `{iterator}`)\n")
             buf.write(f"- Path: `{ins.path}`\n")
             buf.write(
-                "- Reference style: dot-path leaf fields (e.g. `structure.spacegroup`) — emit "
-                '`rml:referenceFormulation ql:JSONPath`, `rml:iterator "' + iterator + '"`, '
-                "and `rml:reference` with the dot-paths below.\n\n"
+                f"- Ingest normalizes this JSON to **`{csv_name}`** (tabularized: nested "
+                "objects → dot-path columns, arrays → JSON-string cells). Emit "
+                f'`rml:source "{csv_name}"` with `rml:referenceFormulation ql:CSV` (NOT '
+                "JSONPath / iterator). `rml:reference` / `rr:template` use the dot-path "
+                "columns below verbatim (e.g. `structure.spacegroup`); an array column "
+                "(type `json-array`) holds the array as a JSON string → explode it with "
+                "`fn:json_array` (scalars) or `fn:json_pluck` (objects), not a raw fallback.\n\n"
             )
         else:
             buf.write(f"## CSV: {ins.name}\n\n")

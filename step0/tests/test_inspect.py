@@ -465,7 +465,11 @@ def test_render_markdown_json_header(tmp_path: Path) -> None:
     md = render_markdown([ins])
     assert "## JSON: mp.json" in md
     assert "iterator `$[*]`" in md
-    assert "ql:JSONPath" in md
+    # JSON is tabularized to CSV at ingest, so the render teaches ql:CSV over the
+    # derived `<stem>.csv`, NOT JSONPath / iterator (see native-json-denormalization).
+    assert "mp.csv" in md
+    assert "ql:CSV" in md
+    assert "ql:JSONPath" not in md
     assert "`structure.spacegroup`" in md
     assert "### Columns" in md
 

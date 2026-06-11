@@ -155,16 +155,18 @@ filename and (for JSON) the iterator from the inspection block verbatim:
   rml:logicalSource [ rml:source "<file>.csv" ; rml:referenceFormulation ql:CSV ] ;
   ```
   `rml:reference "col"` and `rr:template "…/{col}"` use the column name.
-- **JSON** sources (#19):
+- **JSON** sources (#19) — ingest **tabularizes the JSON to CSV** (nested objects →
+  dot-path columns, arrays → JSON-string cells), so treat a `## JSON:` block as CSV:
   ```
-  rml:logicalSource [ rml:source "<file>.json" ;
-                      rml:referenceFormulation ql:JSONPath ;
-                      rml:iterator "<iterator from the inspection, e.g. $[*]>" ] ;
+  rml:logicalSource [ rml:source "<file>.csv" ; rml:referenceFormulation ql:CSV ] ;
   ```
-  `rml:reference` / `rr:template` use the **dot-path leaf field exactly as listed**
-  in the inspection (e.g. `structure.spacegroup`) — a plain dot-path, NOT a
-  `$`-prefixed JSONPath and NOT a `$.`-prefix. Tier 0 functions, templates, and
-  the HARD RULES below apply identically regardless of source kind.
+  Use the **`.csv`** name the inspection's JSON block names (the `<file>.json`'s
+  stem), `ql:CSV`, and NO `rml:iterator`. `rml:reference` / `rr:template` use the
+  **dot-path leaf field exactly as listed** in the inspection (e.g.
+  `structure.spacegroup`) — a plain dot-path. An **array column** (type `json-array`)
+  holds the array as a JSON string → explode it with `fn:json_array` /
+  `fn:json_pluck` (below), exactly as a CSV "JSON in a cell" column. Tier 0
+  functions, templates, and the HARD RULES below apply identically to either kind.
 
 HARD RULES (a reviewer approves *column→predicate + which vetted function*, not code):
 - May reference ONLY these vetted **Tier 0** functions
@@ -206,8 +208,9 @@ HARD RULES (a reviewer approves *column→predicate + which vetted function*, no
     JSON **array of objects as a string** (`'[{"family":"Adams"},{"family":"Brown"}]'`)
     → the `field` of each object, one triple each (`field`="family" → Adams, Brown).
     This is the multi-value path for object arrays stored as **string cells** (e.g.
-    starrydata `author`); for a **native JSON-source** nested array, Morph-KGC cannot
-    pass it to a function — use a nested TriplesMap (iterator `$[*].child[*]`) instead.
+    starrydata `author`). A JSON-source nested array arrives here as such a string
+    cell too (ingest tabularizes JSON to CSV), so use `fn:json_pluck` / `fn:json_array`
+    directly — no nested TriplesMap.
   - Parameterized primitives — take the column value(s) PLUS a **constant** config
     argument (a table / regex / template), to absorb the long tail without a new
     function. The config is data, not code:
@@ -239,10 +242,11 @@ HARD RULES (a reviewer approves *column→predicate + which vetted function*, no
   one-element array → `fn:json_array_single`; fixed-position array → `fn:array_at`;
   flat delimited list → `fn:split`; **JSON array of scalars as a string** →
   `fn:json_array`; **JSON array of objects as a string** → `fn:json_pluck` (per
-  sub-field, e.g. each author's family). Reserve the `…Raw` fallback only for what
-  none of these reach: a **native JSON-source** nested array passed to a function
-  (Morph-KGC limitation — use a nested TriplesMap for entities instead), or a deeply
-  irregular structure. Emit the raw string to a `…Raw` predicate with a
+  sub-field, e.g. each author's family) — this covers JSON-source arrays too, since
+  ingest tabularizes them to JSON-string cells. Reserve the `…Raw` fallback only for
+  a deeply irregular structure none of these reach (e.g. an array of arrays, or a
+  child entity needing several correlated fields). Emit the raw string to a `…Raw`
+  predicate with a
   `# fallback: <col> not expanded` comment. DO NOT invent a function. One unmapped
   column must never block the rest of the ingest.
 

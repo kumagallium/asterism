@@ -36,6 +36,7 @@ from typing import Protocol
 # Re-exported so callers can `substrate.assert_rml_safe` / catch `substrate.RmlSafetyError`.
 from asterism.rml_safety import RmlSafetyError as RmlSafetyError
 from asterism.rml_safety import assert_rml_safe as assert_rml_safe
+from asterism.tabularize import tabularize_json_to_csv
 
 # Draft graphs live under /graph/draft/<id>, trivially distinguishable from the
 # canonical per-kind graphs (.../graph/curves, .../graph/papers, ...).
@@ -177,6 +178,45 @@ def normalize_fno_namespace(rml_ttl: str) -> str:
     return rml_ttl.replace(_FNO_OLD_NS, _FNO_NEW_NS)
 
 
+# A JSON source is tabularized to a CSV of JSON-string cells at the ingest boundary
+# so the closed Tier 0 exploders (json_pluck / json_array / split) can read its
+# nested arrays — Morph-KGC's native JSON reader cannot explode a nested array and
+# link it to its parent (it drops object arrays and truncates scalar arrays to the
+# first element). Decision: docs/architecture/native-json-denormalization.md.
+#
+# The signal is purely declarative: a mapping that wants the tabularized form
+# references ``<name>.csv``; if that CSV is absent but a sibling ``<name>.json`` /
+# ``<name>.geojson`` is present, we derive it here. A legacy mapping that reads JSON
+# natively references ``<name>.json`` with ``ql:JSONPath`` and is left untouched (no
+# ``.csv`` is requested), so this is backward-compatible.
+_JSON_SOURCE_SUFFIXES = (".json", ".geojson")
+
+
+def tabularize_json_sources(rml_ttl: str, csv_dir: Path | str, work_dir: Path | str) -> str:
+    """Derive a tabularized CSV for any ``.csv`` source the mapping references that
+    is absent on disk but backed by a sibling JSON file, rewriting that source to the
+    derived CSV's absolute path. Sources with a real CSV present, absolute sources,
+    and non-CSV sources are returned unchanged (resolved later by
+    :func:`absolutize_rml_sources`).
+    """
+    base = Path(csv_dir)
+    work = Path(work_dir)
+
+    def repl(m: re.Match[str]) -> str:
+        name = Path(m.group(2))
+        if name.is_absolute() or name.suffix.lower() != ".csv" or (base / name.name).exists():
+            return m.group(0)
+        for suffix in _JSON_SOURCE_SUFFIXES:
+            json_src = base / (name.stem + suffix)
+            if json_src.exists():
+                dest = work / name.name
+                tabularize_json_to_csv(json_src, dest)
+                return f"{m.group(1)}{dest}{m.group(3)}"
+        return m.group(0)
+
+    return _RML_SOURCE.sub(repl, rml_ttl)
+
+
 def rml_source_names(rml_ttl: str) -> set[str]:
     """Basenames of every ``rml:source "..."`` declared in the mapping.
 
@@ -217,7 +257,8 @@ def materialize_to_graph(
     work = Path(work_dir) if work_dir else Path(tempfile.mkdtemp(prefix="c2r-substrate-"))
     work.mkdir(parents=True, exist_ok=True)
     mapping_file = work / "mappings.rml.ttl"
-    prepared = normalize_fno_namespace(absolutize_rml_sources(rml_ttl, csv_dir))
+    tabularized = tabularize_json_sources(rml_ttl, csv_dir, work)
+    prepared = normalize_fno_namespace(absolutize_rml_sources(tabularized, csv_dir))
     mapping_file.write_text(prepared, encoding="utf-8")
 
     config = (
@@ -293,8 +334,9 @@ def materialize_to_nt_file(
     work.mkdir(parents=True, exist_ok=True)
     udfs = Path(udfs_path) if udfs_path else _DEFAULT_UDFS
     mapping_file = work / "mappings.rml.ttl"
+    tabularized = tabularize_json_sources(rml_ttl, csv_dir, work)
     mapping_file.write_text(
-        normalize_fno_namespace(absolutize_rml_sources(rml_ttl, csv_dir)),
+        normalize_fno_namespace(absolutize_rml_sources(tabularized, csv_dir)),
         encoding="utf-8",
     )
     out = work / "out.nt"
