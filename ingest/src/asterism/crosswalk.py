@@ -89,6 +89,13 @@ class CrosswalkConfig:
 
     concepts: tuple[Concept, ...]
     min_datasets: int = 2
+    # Per-link provenance: record, for EACH crosswalk link, the raw string that was
+    # normalized and the normalizer that produced the join key (a ``xw:CrosswalkLink``
+    # node). The link is the unit that must be vetted ("I claim sd:s1, raw 'Bi₂Te₃',
+    # is the same composition as mp:m1, raw 'Bi2Te3', because normalizer 'composition'
+    # maps both to 'Bi2Te3'"), so the raw spelling is the audit-relevant fact. Off =>
+    # provenance stays per build Activity only (the prior, lighter model).
+    per_link_provenance: bool = True
 
 
 @dataclass
@@ -121,7 +128,10 @@ def build_turtle(
     normalizer, mint one shared entity per value present in >= ``min_datasets``
     datasets, and emit a crosswalk link for each entity of a shared value. Records a
     ``prov:Activity`` (participating datasets, time); every minted entity is
-    ``prov:wasGeneratedBy`` it (the hub is a derived, dated claim).
+    ``prov:wasGeneratedBy`` it (the hub is a derived, dated claim). With
+    ``config.per_link_provenance`` (default on), every link also gets a
+    ``xw:CrosswalkLink`` node recording the *raw* string it normalized and the
+    normalizer used — so each cross-dataset join is independently auditable.
     """
     all_datasets = sorted({r.dataset for c in config.concepts for r in c.rules})
     lines = [
@@ -139,12 +149,14 @@ def build_turtle(
     build = CrosswalkBuild(turtle="")
     for concept in config.concepts:
         normalize = NORMALIZERS.get(concept.normalizer, normalize_identity)
-        # per dataset: normalized value -> [entity IRIs]
-        per_ds: dict[str, dict[str, list[str]]] = {}
+        # per dataset: normalized value -> [(entity IRI, raw value)]. Keep the raw
+        # spelling (not just the entity) so per-link provenance can record what was
+        # normalized — the audit-relevant fact for the join claim.
+        per_ds: dict[str, dict[str, list[tuple[str, str]]]] = {}
         for rule in concept.rules:
             bucket = per_ds.setdefault(rule.dataset, {})
             for entity, raw in observations.get((concept.name, rule.dataset), []):
-                bucket.setdefault(normalize(raw), []).append(entity)
+                bucket.setdefault(normalize(raw), []).append((entity, raw))
         # shared = a value present in >= min_datasets participating datasets
         counts: dict[str, int] = {}
         for bucket in per_ds.values():
@@ -167,11 +179,26 @@ def build_turtle(
                 f"prov:wasGeneratedBy <{activity_iri}> ."
             )
             for dataset in all_datasets:
-                for entity in per_ds.get(dataset, {}).get(key, []):
+                for entity, raw in per_ds.get(dataset, {}).get(key, []):
                     lines.append(f"<{entity}> <{concept.link_predicate}> <{iri}> .")
                     build.links[concept.name][dataset] = (
                         build.links[concept.name].get(dataset, 0) + 1
                     )
+                    if config.per_link_provenance:
+                        # Deterministic link-node IRI per (key, entity): the link is
+                        # the unit of provenance — "<entity> was joined to this shared
+                        # composition by normalizing <raw> with <normalizer>".
+                        link_iri = (
+                            f"{base}link/{urllib.parse.quote(key, safe='')}/"
+                            f"{urllib.parse.quote(entity, safe='')}"
+                        )
+                        lines.append(
+                            f"<{link_iri}> a xw:CrosswalkLink ; "
+                            f"xw:linkSubject <{entity}> ; xw:linkObject <{iri}> ; "
+                            f'xw:sourceValue "{_esc(raw)}" ; '
+                            f'xw:normalizer "{_esc(concept.normalizer)}" ; '
+                            f"prov:wasGeneratedBy <{activity_iri}> ."
+                        )
         lines.append("")
     build.turtle = "\n".join(lines) + "\n"
     return build

@@ -849,7 +849,10 @@ def test_append_grows_live_feed_and_records_meta(tmp_path: Path, monkeypatch) ->
     assert substrate.versioned_graph_iri(dataset_id, 2) not in oxi.stores
     assert body["triples_in_batch"] == 2
     assert body["append_seq"] == 1
-    assert body["crosswalk_stale"] is True
+    # This dataset is not a crosswalk participant, so the hub is NOT stale (the flag is
+    # participation-accurate now, not hardcoded). A participant case is covered in
+    # test_crosswalk_api.py (append -> crosswalk_stale True + a debounced rebuild).
+    assert body["crosswalk_stale"] is False
     meta = body["dataset"]
     assert meta["feed"] is True
     assert meta["append_seq"] == 1
