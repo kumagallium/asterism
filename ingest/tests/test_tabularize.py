@@ -143,6 +143,35 @@ def test_record_path_selects_inner_array(tmp_path: Path) -> None:
     assert [r["id"] for r in read] == ["a", "b"]
 
 
+def test_wrapped_array_auto_detected_without_record_path(tmp_path: Path) -> None:
+    """The common API-response shape `{"docs": [...]}` (OpenLibrary, etc.) is
+    auto-detected as the record array even when no record_path is passed — so the
+    substrate's auto-tabularize (which has no record_path) handles wrapped arrays."""
+    src = tmp_path / "src.json"
+    src.write_text(
+        json.dumps({"numFound": 2, "docs": [{"id": "a"}, {"id": "b"}]}),
+        encoding="utf-8",
+    )
+    dest = tmp_path / "out.csv"
+    tabularize_json_to_csv(src, dest)  # no record_path
+    with dest.open(encoding="utf-8", newline="") as fh:
+        read = list(csv.DictReader(fh))
+    assert [r["id"] for r in read] == ["a", "b"]  # docs[] exploded, not the wrapper
+
+
+def test_plain_object_without_record_array_is_one_row(tmp_path: Path) -> None:
+    """A dict with no array-of-objects value is still a single record (no regression
+    for genuine single-object documents)."""
+    src = tmp_path / "src.json"
+    src.write_text(json.dumps({"id": "solo", "tags": ["x", "y"]}), encoding="utf-8")
+    dest = tmp_path / "out.csv"
+    tabularize_json_to_csv(src, dest)
+    with dest.open(encoding="utf-8", newline="") as fh:
+        read = list(csv.DictReader(fh))
+    assert len(read) == 1 and read[0]["id"] == "solo"
+    assert json.loads(read[0]["tags"]) == ["x", "y"]  # scalar array stays a cell
+
+
 # ---- end-to-end: nested arrays explode and link to the parent ---------------
 #
 # These are the three coverage `…Raw` shapes. Gated on the optional morph-kgc
