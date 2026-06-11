@@ -27,7 +27,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from asterism.primitives import array_at, lookup, regex_extract, split, template
+from asterism.primitives import array_at, json_pluck, lookup, regex_extract, split, template
 from asterism.qudt import quantity_kind_iri, unit_iri
 from asterism.text import (
     parse_float_array,
@@ -38,6 +38,7 @@ from asterism.text import (
 from asterism.transforms import (
     datetime_iso,
     doi_norm,
+    json_array,
     json_array_single,
     nfkc_norm,
     number_clean,
@@ -72,6 +73,7 @@ P_FIELD3 = FN + "p_field3"
 P_FIELD4 = FN + "p_field4"
 P_INDEX = FN + "p_index"
 P_DELIMITER = FN + "p_delimiter"
+P_FIELD = FN + "p_field"
 
 
 # ---- 検証済み関数(既存実装への薄い委譲。FnO 形 str -> str) -------------------
@@ -139,13 +141,15 @@ def bool_norm(value: str) -> str:
 class FunctionSpec:
     """1 関数の FnO 束縛情報。``params`` は {python 引数名: パラメータ IRI}。
 
-    ほぼ全関数は ``str -> str``(該当なし "")。例外は多値関数(``split`` 等)で
-    ``list[str]`` を返し、Morph-KGC が各要素を 1 トリプルへ explode する
-    (宣言的多値経路・入れ子 TriplesMap 不要)。型はこの両形を許容する。
+    ほぼ全関数は ``str -> str``(該当なし "")。例外は多値関数(``split`` /
+    ``json_array`` / ``json_pluck``)で ``list[str]`` を返し、Morph-KGC が各要素を
+    1 トリプルへ explode する(宣言的多値経路・入れ子 TriplesMap 不要)。多値関数は
+    「値なし」を ``None`` で返す(Morph-KGC が explode 前に行を落とす。空 list は
+    explode で NaN 化し直列化を壊すため不可)。型はこの 3 形を許容する。
     """
 
     name: str
-    func: Callable[..., str | list[str]]
+    func: Callable[..., str | list[str] | None]
     params: dict[str, str]
 
     @property
@@ -214,6 +218,13 @@ REGISTRY: list[FunctionSpec] = [
     FunctionSpec(name="array_at", func=array_at, params={"value": P_VALUE, "index": P_INDEX}),
     FunctionSpec(
         name="split", func=split, params={"value": P_VALUE, "delimiter": P_DELIMITER}
+    ),
+    # JSON-string 配列の多値展開(list を返し Morph-KGC が explode)。scalar 配列は
+    # json_array、object 配列の sub-field は json_pluck。native JSON ソースの入れ子は
+    # morph-kgc が関数に配列を渡せないため対象外(入れ子 iterator・substrate 制約)。
+    FunctionSpec(name="json_array", func=json_array, params={"value": P_VALUE}),
+    FunctionSpec(
+        name="json_pluck", func=json_pluck, params={"value": P_VALUE, "field": P_FIELD}
     ),
 ]
 

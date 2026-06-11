@@ -367,6 +367,53 @@ def test_materialize_with_multivalue_functions(tmp_path: Path) -> None:
     assert tags == {"ci", "us"}
 
 
+def test_materialize_json_array_and_pluck_from_string_cells(tmp_path: Path) -> None:
+    """A CSV cell that holds a JSON array (as a string) is exploded into multiple
+    triples *linked to the parent row*: json_array for a scalar array, json_pluck
+    for the sub-field of each object in an object array (the starrydata authors /
+    project_names shape). Gated on the optional morph-kgc extra.
+    """
+    if not _morph_kgc_installed():
+        pytest.skip("morph-kgc not installed; this exercises the real materialize")
+    (tmp_path / "d.csv").write_text(
+        'id,author,projects\n'
+        'w1,"[{""family"":""Adams""},{""family"":""Brown""}]","[""P1"",""P2""]"\n'
+        'w2,"[{""family"":""Clark""}]","[]"\n',
+        encoding="utf-8",
+    )
+    rml = """
+@prefix rr:   <http://www.w3.org/ns/r2rml#> .
+@prefix rml:  <http://semweb.mmlab.be/ns/rml#> .
+@prefix ql:   <http://semweb.mmlab.be/ns/ql#> .
+@prefix rmlf: <http://w3id.org/rml/> .
+@prefix fn:   <https://kumagallium.github.io/asterism/fn/> .
+@prefix ex:   <https://ex/> .
+<#W> a rr:TriplesMap ;
+  rml:logicalSource [ rml:source "d.csv" ; rml:referenceFormulation ql:CSV ] ;
+  rr:subjectMap [ rr:template "https://ex/w/{id}" ] ;
+  rr:predicateObjectMap [ rr:predicate ex:authorFamily ; rr:objectMap [
+    rmlf:functionExecution [ rmlf:function fn:json_pluck ;
+      rmlf:input [ rmlf:parameter fn:p_value ;
+        rmlf:inputValueMap [ rml:reference "author" ] ] ;
+      rmlf:input [ rmlf:parameter fn:p_field ;
+        rmlf:inputValueMap [ rmlf:constant "family" ] ] ] ] ] ;
+  rr:predicateObjectMap [ rr:predicate ex:project ; rr:objectMap [
+    rmlf:functionExecution [ rmlf:function fn:json_array ;
+      rmlf:input [ rmlf:parameter fn:p_value ;
+        rmlf:inputValueMap [ rml:reference "projects" ] ] ] ] ] .
+"""
+    graph = materialize_to_graph(rml, tmp_path)
+    triples = {(str(s), str(p), str(o)) for s, p, o in graph}
+    # json_pluck: each author's family → its own triple, linked to the work
+    assert ("https://ex/w/w1", "https://ex/authorFamily", "Adams") in triples
+    assert ("https://ex/w/w1", "https://ex/authorFamily", "Brown") in triples
+    assert ("https://ex/w/w2", "https://ex/authorFamily", "Clark") in triples
+    # json_array: scalar array exploded; an empty array yields no triple
+    assert ("https://ex/w/w1", "https://ex/project", "P1") in triples
+    assert ("https://ex/w/w1", "https://ex/project", "P2") in triples
+    assert not any(s == "https://ex/w/w2" and p == "https://ex/project" for s, p, _ in triples)
+
+
 # ---- incremental append (ADR incremental-ingest.md) -------------------------
 
 

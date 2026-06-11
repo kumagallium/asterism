@@ -198,8 +198,16 @@ HARD RULES (a reviewer approves *column→predicate + which vetted function*, no
     index of a JSON array (`[lon,lat,depth]`, index `1` → lat); negatives from end
   - `fn:split` (value, **delimiter** const → MULTIPLE values) — split a delimited
     cell into many; returns a list that Morph-KGC **explodes into one triple per
-    element** (`",ci,us,"` with delimiter `","` → two `ex:tag` triples). Use for a
-    flat comma/semicolon list; for an **array of objects** use a nested TriplesMap.
+    element** (`",ci,us,"` with delimiter `","` → two `ex:tag` triples). Flat
+    comma/semicolon lists.
+  - `fn:json_array` (value → MULTIPLE values) — a cell holding a JSON **array of
+    scalars as a string** (`'["P1","P2"]'`) → one triple per element (explodes)
+  - `fn:json_pluck` (value, **field** const → MULTIPLE values) — a cell holding a
+    JSON **array of objects as a string** (`'[{"family":"Adams"},{"family":"Brown"}]'`)
+    → the `field` of each object, one triple each (`field`="family" → Adams, Brown).
+    This is the multi-value path for object arrays stored as **string cells** (e.g.
+    starrydata `author`); for a **native JSON-source** nested array, Morph-KGC cannot
+    pass it to a function — use a nested TriplesMap (iterator `$[*].child[*]`) instead.
   - Parameterized primitives — take the column value(s) PLUS a **constant** config
     argument (a table / regex / template), to absorb the long tail without a new
     function. The config is data, not code:
@@ -226,14 +234,17 @@ HARD RULES (a reviewer approves *column→predicate + which vetted function*, no
   `rmlf:functionExecution [ rmlf:function fn:lookup ;
     rmlf:input [ rmlf:parameter fn:p_value ; rmlf:inputValueMap [ rml:reference "flag" ] ] ;
     rmlf:input [ rmlf:parameter fn:p_table ; rmlf:inputValueMap [ rmlf:constant "bool" ] ] ]`.
-- Multi-valued / nested cells — prefer the vetted multi-value functions over a
-  raw fallback when they fit: a **one-element** array → `fn:json_array_single`; a
-  **fixed-position** array → `fn:array_at`; a **flat delimited** list (comma /
-  semicolon) → `fn:split` (explodes to many triples). Reserve the `…Raw` fallback
-  for the genuinely irreducible case — an **array of objects** (e.g. `authors` =
-  `[{given,family},…]`) where each element has sub-fields: emit the raw string to a
-  `…Raw` predicate with a `# fallback: <col> not expanded` comment. DO NOT invent a
-  function. One unmapped column must never block the rest of the ingest.
+- Multi-valued / nested cells — prefer the vetted multi-value functions over a raw
+  fallback when they fit (each explodes to many triples linked to the row):
+  one-element array → `fn:json_array_single`; fixed-position array → `fn:array_at`;
+  flat delimited list → `fn:split`; **JSON array of scalars as a string** →
+  `fn:json_array`; **JSON array of objects as a string** → `fn:json_pluck` (per
+  sub-field, e.g. each author's family). Reserve the `…Raw` fallback only for what
+  none of these reach: a **native JSON-source** nested array passed to a function
+  (Morph-KGC limitation — use a nested TriplesMap for entities instead), or a deeply
+  irregular structure. Emit the raw string to a `…Raw` predicate with a
+  `# fallback: <col> not expanded` comment. DO NOT invent a function. One unmapped
+  column must never block the rest of the ingest.
 
 ## Self-check before responding (quality traps)
 - [ ] T1: IRI scheme uses uniqueness statistics from inspection?
