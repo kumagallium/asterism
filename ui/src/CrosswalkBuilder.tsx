@@ -13,6 +13,35 @@ import { localName } from './vocab'
 
 const API_KEY_STORAGE = 'asterism.apiKey'
 
+// The crosswalk hub vocabulary namespace (matches the runtime's `XW`). A concept's
+// class + link predicate are minted under here so each concept gets its own term
+// (xw:Composition / xw:hasComposition, xw:CrystalSystem / xw:hasCrystalSystem, …) —
+// the hub is generic, not composition-only (crosswalk-multi-perspective.md).
+const XW_NS = 'https://kumagallium.github.io/asterism/crosswalk/ontology#'
+
+/** PascalCase an ascii concept key for an IRI localname ("crystal_system" →
+ * "CrystalSystem"). Returns '' when the key has no ascii alnum (e.g. pure Japanese),
+ * so the caller can require an ascii key and keep the minted IRI clean + citable. */
+function pascalCase(key: string): string {
+  return key
+    .split(/[^a-zA-Z0-9]+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join('')
+}
+
+/** The hub class IRI minted for a concept key (xw:<PascalCase>). */
+function classIriForConcept(key: string): string {
+  const p = pascalCase(key)
+  return p ? `${XW_NS}${p}` : ''
+}
+
+/** The hub link-predicate IRI minted for a concept key (xw:has<PascalCase>). */
+function linkPredicateForConcept(key: string): string {
+  const p = pascalCase(key)
+  return p ? `${XW_NS}has${p}` : ''
+}
+
 /** A perspective id (slug) from a human name. Falls back to a generated id when the
  * name has no ascii (e.g. a Japanese name) so the id stays IRI-safe. */
 function perspectiveIdFromName(name: string): string {
@@ -47,9 +76,17 @@ export function CrosswalkBuilder() {
   // dataset_id -> AI-sampled candidates (iri + sample value), populated by propose.
   const [candidates, setCandidates] = useState<Record<string, PredicateCandidate[]>>({})
   const [apiKey, setApiKey] = useState(() => sessionStorage.getItem(API_KEY_STORAGE) ?? '')
-  // The join key. 'composition' = conservative (fold subscripts + strip); '
-  // element_canonical' also reorders elements so Bi2Te3 == Te3Bi2 (ADR ①).
+  // The concept these datasets share (the lens's join target). An ascii key minted
+  // into the hub vocabulary (xw:<PascalCase>); 'composition' is just the default, not
+  // a lock — '結晶系' would be 'crystal_system' → xw:CrystalSystem, '著者' → 'author', …
+  const [concept, setConcept] = useState('composition')
+  // The join key normalizer. 'identity' = exact match (the GENERIC default for any
+  // concept); 'composition'/'element_canonical' are materials-chemistry options.
   const [normalizer, setNormalizer] = useState('composition')
+  // Whether the user picked the normalizer by hand. Until then it tracks the concept
+  // (composition → 'composition', anything else → generic 'identity') so a non-material
+  // concept doesn't silently keep a chemistry join key.
+  const [normalizerTouched, setNormalizerTouched] = useState(false)
   // A human name for THIS perspective (a distinct lens, multi-perspective ADR). Empty
   // = the default "composition" perspective (back-compat); named = a new lens.
   const [perspectiveName, setPerspectiveName] = useState('')
@@ -100,7 +137,21 @@ export function CrosswalkBuilder() {
 
   const chosen = (datasets ?? []).filter((d) => selected.has(datasetId(d)))
   const readyCount = chosen.filter((d) => predicate[datasetId(d)]).length
-  const canBuild = !building && readyCount >= 2
+  const conceptKey = concept.trim() || 'composition'
+  const classIri = classIriForConcept(conceptKey)
+  const linkPred = linkPredicateForConcept(conceptKey)
+  // A concept needs an ascii key so the minted hub IRI stays clean + citable.
+  const conceptValid = classIri !== ''
+  const canBuild = !building && readyCount >= 2 && conceptValid
+
+  // Until the user picks a normalizer by hand, default it from the concept: chemistry
+  // join key for composition, generic exact-match otherwise.
+  function onConceptChange(v: string) {
+    setConcept(v)
+    if (!normalizerTouched) {
+      setNormalizer(/^composition$/i.test(v.trim()) ? 'composition' : 'identity')
+    }
+  }
 
   // Predicate options for a dataset: AI-sampled candidates (with example values) if
   // proposed, else the predicates the dataset actually uses (from its alignment).
@@ -116,7 +167,7 @@ export function CrosswalkBuilder() {
     setProposeNote('')
     try {
       const ids = chosen.map(datasetId)
-      const r = await proposeCrosswalkMapping(ids, 'composition', apiKey)
+      const r = await proposeCrosswalkMapping(ids, conceptKey, apiKey)
       const cand: Record<string, PredicateCandidate[]> = {}
       for (const c of r.candidates) cand[c.dataset_id] = c.predicates
       setCandidates((prev) => ({ ...prev, ...cand }))
@@ -127,7 +178,7 @@ export function CrosswalkBuilder() {
       setProposeNote(
         n
           ? `AI が ${n} 件の述語を提案しました（確認・修正してください）。`
-          : 'AI は組成を担う述語を見つけられませんでした。手動で選んでください。',
+          : `AI は「${conceptKey}」を担う述語を見つけられませんでした。手動で選んでください。`,
       )
     } catch (e) {
       setProposeErr(e instanceof Error ? e.message : String(e))
@@ -145,7 +196,9 @@ export function CrosswalkBuilder() {
         min_datasets: 2,
         concepts: [
           {
-            name: 'composition',
+            name: conceptKey,
+            class_iri: classIri,
+            link_predicate: linkPred,
             normalizer,
             participants: chosen
               .filter((d) => predicate[datasetId(d)])
@@ -175,8 +228,8 @@ export function CrosswalkBuilder() {
   return (
     <div className="xw-builder">
       <p className="subtitle">
-        既存の<strong>データセットを2つ以上選び</strong>、それぞれの「<strong>組成を表す列</strong>」を指定すると、
-        共通の組成で<strong>横断してつながる橋（クロスウォーク）</strong>を作れます。
+        既存の<strong>データセットを2つ以上選び</strong>、<strong>つなぐ概念</strong>（組成・結晶系・著者…）と
+        それを表す列を指定すると、共通の値で<strong>横断してつながる橋（クロスウォーク）</strong>を作れます。
         新しい CSV からではなく、<strong>すでにあるデータから作る</strong>オントロジーです。
       </p>
 
@@ -227,7 +280,31 @@ export function CrosswalkBuilder() {
           {chosen.length > 0 && (
             <>
               <div className="ds-subhead">
-                2. 各データセットで「組成を担う述語」を指定する
+                2. つなぐ「概念」を決める
+                <span className="xw-hint-inline">例: composition / crystal_system / author（英数字のキー）</span>
+              </div>
+              <div className="xw-norm-row">
+                <input
+                  type="text"
+                  className="xw-key-input xw-norm-select"
+                  placeholder="composition"
+                  value={concept}
+                  onChange={(e) => onConceptChange(e.target.value)}
+                />
+                <span className="xw-norm-hint">
+                  {conceptValid ? (
+                    <>
+                      橋の語彙: <code>xw:{pascalCase(conceptKey)}</code> /{' '}
+                      <code>xw:has{pascalCase(conceptKey)}</code>
+                    </>
+                  ) : (
+                    '英数字のキーを入力してください（例: crystal_system）。日本語の呼び名は「この視点の名前」へ。'
+                  )}
+                </span>
+              </div>
+
+              <div className="ds-subhead">
+                3. 各データセットで「{conceptKey} を表す述語」を指定する
                 <span className="xw-hint-inline">（人間が確認するマッピング）</span>
               </div>
 
@@ -282,29 +359,35 @@ export function CrosswalkBuilder() {
               </div>
 
               <div className="ds-subhead">
-                3. 同じ組成とみなす基準（正規化）
+                4. 同じ値とみなす基準（正規化）
                 <span className="xw-hint-inline">表記揺れをどこまで同一視するか</span>
               </div>
               <div className="xw-norm-row">
                 <select
                   className="xw-map-select xw-norm-select"
                   value={normalizer}
-                  onChange={(e) => setNormalizer(e.target.value)}
+                  onChange={(e) => {
+                    setNormalizerTouched(true)
+                    setNormalizer(e.target.value)
+                  }}
                 >
-                  <option value="composition">組成（標準・添字/空白を吸収）</option>
+                  <option value="identity">そのまま一致（表記が同じものだけ）</option>
+                  <option value="composition">組成式として揃える（添字/空白を吸収）〔材料向け〕</option>
                   <option value="element_canonical">
-                    組成・元素順も正規化（Bi2Te3 = Te3Bi2）
+                    組成式＋元素順も揃える（Bi2Te3 = Te3Bi2）〔材料向け〕
                   </option>
                 </select>
                 <span className="xw-norm-hint">
                   {normalizer === 'element_canonical'
                     ? '元素の並び順が違っても同じ組成として結合します（化学式＝多重集合）。'
-                    : '添字・空白の違いだけを吸収します（元素順は区別）。'}
+                    : normalizer === 'composition'
+                      ? '添字・空白の違いだけを吸収します（元素順は区別）。'
+                      : '値が完全に一致するものだけを結合します（どの概念でも使える既定）。'}
                 </span>
               </div>
 
               <div className="ds-subhead">
-                4. この視点の名前
+                5. この視点の名前
                 <span className="xw-hint-inline">
                   複数の「視点（つなぎ方）」を区別して持てます
                 </span>
@@ -336,7 +419,9 @@ export function CrosswalkBuilder() {
               </button>
               {!canBuild && !building && (
                 <p className="hint">
-                  述語を指定したデータセットが2つ以上になると構築できます（現在 {readyCount}）。
+                  {!conceptValid
+                    ? '概念を英数字のキーで入力してください（例: crystal_system）。'
+                    : `述語を指定したデータセットが2つ以上になると構築できます（現在 ${readyCount}）。`}
                 </p>
               )}
               {buildErr && <p className="promote-err">構築に失敗しました: {buildErr}</p>}
@@ -352,12 +437,12 @@ export function CrosswalkBuilder() {
                 クロスウォークを構築しました
               </div>
               <p className="xw-result-stat">
-                <strong>{result.shared_total}</strong> 件の組成が
+                <strong>{result.shared_total}</strong> 件の「{conceptKey}」が
                 <strong> {result.participants_used.length} </strong>
                 データセットで共有されています。
               </p>
               <div className="xw-links">
-                {Object.entries(result.links.composition ?? {}).map(([label, n]) => (
+                {Object.entries(result.links[conceptKey] ?? {}).map(([label, n]) => (
                   <span key={label} className="xw-link-chip">
                     {label} <span className="mono-strong">{n}</span> リンク
                   </span>
@@ -370,7 +455,7 @@ export function CrosswalkBuilder() {
                 </p>
               )}
               <p className="xw-result-next">
-                「カタログ → クロスウォーク」で参加データセットやツール（この組成は何データセットが報告？）を確認できます。
+                「カタログ → クロスウォーク」で参加データセットやツール（この値は何データセットが報告？）を確認できます。
               </p>
             </div>
           )}
