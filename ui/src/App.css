@@ -3666,3 +3666,38 @@ textarea:focus {
 .xw-tools-head {
   margin-top: 0.4rem;
 }
+.xw-persp-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.xw-persp-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  text-align: left;
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-soft);
+  padding: 0.5rem 0.8rem;
+  cursor: pointer;
+  color: var(--fg);
+}
+.xw-persp-tab:hover:not(.active) {
+  border-color: var(--border-strong);
+}
+.xw-persp-tab.active {
+  border-color: var(--entity);
+  border-top-width: 3px;
+  box-shadow: var(--shadow);
+}
+.xw-persp-name {
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+.xw-persp-meta {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--faint);
+}
