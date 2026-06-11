@@ -155,6 +155,21 @@ class CrosswalkProposeBody(BaseModel):
     concept: str = "composition"
 
 
+class CrosswalkAlignBody(BaseModel):
+    """Body for POST /api/crosswalk/align (multi-perspective ADR §Phase 2): assert (or,
+    with ``remove``, withdraw) a schema relationship between two perspective terms.
+    ``relation`` is from the closed set (owl:equivalentClass / rdfs:subClassOf /
+    owl:equivalentProperty / rdfs:subPropertyOf). A human-vetted, reversible, citable
+    claim — additive, never auto-reasoned."""
+
+    source: str
+    target: str
+    relation: str = "equivalentClass"
+    from_perspective: str = ""
+    to_perspective: str = ""
+    remove: bool = False
+
+
 # Update-form keywords. Oxigraph's /query endpoint is read-only regardless, but
 # we reject these up front so the escape hatch can never be mistaken for write
 # access and the user gets a clear message.
@@ -1932,8 +1947,55 @@ def build_app(
             "skipped": skipped,
         }
 
+    @app.get("/api/crosswalk/alignments")
+    async def crosswalk_alignments() -> JSONResponse:
+        """The asserted schema alignments BETWEEN perspectives (Phase 2) + the closed
+        set of relations a human may assert. Read-only."""
+        client: OxigraphClient = app.state.client
+        return JSONResponse(
+            {
+                "alignments": await crosswalk_runtime.list_alignments(client),
+                "relations": sorted(crosswalk_runtime.ALIGN_RELATIONS),
+            }
+        )
+
+    @app.post("/api/crosswalk/align", dependencies=_write_auth)
+    async def crosswalk_align(body: CrosswalkAlignBody) -> JSONResponse:
+        """Assert (or, with ``remove``, withdraw) a schema relationship between two
+        perspective terms — "視点をつなぐ". Additive, reversible, human-gated; stored in a
+        promoted alignment graph the FROM-merge unions (a citable, declared fact)."""
+        client: OxigraphClient = app.state.client
+        try:
+            if body.remove:
+                await crosswalk_runtime.remove_alignment(
+                    client, body.source, body.target, body.relation
+                )
+                return JSONResponse(
+                    {
+                        "removed": True,
+                        "source": body.source,
+                        "target": body.target,
+                        "relation": body.relation,
+                    }
+                )
+            res = await crosswalk_runtime.assert_alignment(
+                client,
+                body.source,
+                body.target,
+                body.relation,
+                at=datetime.now(UTC).isoformat(),
+                from_perspective=body.from_perspective,
+                to_perspective=body.to_perspective,
+            )
+            return JSONResponse(res)
+        except ValueError as exc:  # bad relation / non-IRI term
+            raise HTTPException(400, str(exc)) from exc
+        except Exception as exc:  # surface a store error
+            raise HTTPException(502, f"alignment failed: {exc}") from exc
+
     # Parameterized perspective routes are declared AFTER the literal ones
-    # (/crosswalk/build, /crosswalk/propose) so those never bind ``perspective_id``.
+    # (/crosswalk/build, /crosswalk/propose, /crosswalk/align[ments]) so those never
+    # bind ``perspective_id``.
     @app.get("/api/crosswalk/{perspective_id}")
     async def crosswalk_get_one(perspective_id: str) -> JSONResponse:
         """One perspective's config + stats (multi-perspective ADR)."""

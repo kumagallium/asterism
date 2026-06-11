@@ -11,22 +11,27 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 import rdflib
 
 from asterism import substrate
 from asterism.crosswalk_runtime import (
+    ALIGNMENT_GRAPH,
     HUB_GRAPH,
     BuildOutcome,
     RuntimeConcept,
     RuntimeCrosswalkConfig,
     RuntimeParticipant,
+    assert_alignment,
     build_hub,
     config_to_dict,
     crosswalk_graph_iri,
     crosswalk_registry_id,
+    list_alignments,
     list_perspectives,
     load_config,
     parse_config,
+    remove_alignment,
     remove_hub,
     save_config,
     write_registry_scaffold,
@@ -252,6 +257,49 @@ def test_list_perspectives_finds_each_by_flag(tmp_path: Path) -> None:
     assert crystal["id"] == "crosswalk-crystal"
     assert crystal["name"] == "結晶構造"
     assert crystal["canonical_graph"] == crosswalk_graph_iri("crystal")
+
+
+async def test_schema_alignment_assert_list_remove() -> None:
+    ds = rdflib.Dataset()
+    client = _DatasetClient(ds)
+    a = f"{XW}Composition"
+    b = f"{XW}Material"
+    # assert an equivalentClass between two perspectives' concept classes
+    res = await assert_alignment(
+        client, a, b, "equivalentClass",
+        at="2026-06-11T00:00:00+00:00", from_perspective="composition", to_perspective="material",
+    )
+    assert res["relation"] == "equivalentClass"
+    # the semantic owl triple landed in the alignment graph
+    eq = "http://www.w3.org/2002/07/owl#equivalentClass"
+    triple = f"GRAPH <{ALIGNMENT_GRAPH}> {{ <{a}> <{eq}> <{b}> }}"
+    assert await _count(client, triple) == 1
+    # the alignment graph is promoted -> the FROM-merge unions it (citable)
+    assert ALIGNMENT_GRAPH in set(await substrate.canonical_graphs(client))
+
+    listed = await list_alignments(client)
+    assert len(listed) == 1
+    assert listed[0]["source"] == a and listed[0]["target"] == b
+    assert listed[0]["from_perspective"] == "composition"
+
+    # re-assert is idempotent (still one management node)
+    await assert_alignment(client, a, b, "equivalentClass", at="2026-06-11T01:00:00+00:00")
+    assert len(await list_alignments(client)) == 1
+
+    # remove withdraws both the triple and the provenance node
+    await remove_alignment(client, a, b, "equivalentClass")
+    assert await list_alignments(client) == []
+    assert await _count(client, triple) == 0
+
+
+def test_alignment_rejects_bad_relation_and_iri() -> None:
+    import asyncio
+
+    client = _DatasetClient(rdflib.Dataset())
+    with pytest.raises(ValueError):  # relation not in the closed set
+        asyncio.run(assert_alignment(client, f"{XW}A", f"{XW}B", "sameAs", at="t"))
+    with pytest.raises(ValueError):  # not an absolute IRI
+        asyncio.run(assert_alignment(client, "not-an-iri", f"{XW}B", "equivalentClass", at="t"))
 
 
 # --- small SPARQL helpers for assertions -----------------------------------

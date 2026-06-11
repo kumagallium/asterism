@@ -1,6 +1,7 @@
 # ADR: Multi-perspective crosswalk — the upper ontology is plural
 
-Status: **Decision agreed; Phase 1 (runtime generalization) in progress** (2026-06-11).
+Status: **Phase 1 (runtime/api) + Phase 3 (UI list/create) merged; Phase 2 schema
+alignment runtime+api done** (2026-06-11). Remaining: the "視点をつなぐ" UI for Phase 2.
 Extends [`crosswalk-hub.md`](crosswalk-hub.md) (the thin growing bridge). Related:
 [`ontology-canonical-lifecycle.md`](ontology-canonical-lifecycle.md) (2-axis
 TBox/ABox × draft/canonical), [`product_direction_citable_facts`](../../README.md).
@@ -80,10 +81,19 @@ when two perspectives are found to relate.
    no-id endpoints (`GET /api/crosswalk`, `POST /api/crosswalk/build`) keep operating it
    so the current UI keeps working. promote / append auto-rebuild iterate **every**
    perspective the dataset participates in.
-2. **Phase 2 — merge / alignment.** A human-gated step asserts schema-level
-   (`owl:equivalentClass` / `rdfs:subPropertyOf`) or entity-level (`owl:sameAs`)
-   relationships between two perspectives into a dedicated alignment graph (additive,
-   reversible). FROM-merge already unions it.
+2. **Phase 2 — merge / alignment (SCHEMA-level; runtime + api done).** A human-gated
+   step asserts a **schema-level** relationship from a CLOSED set
+   (`owl:equivalentClass` / `rdfs:subClassOf` / `owl:equivalentProperty` /
+   `rdfs:subPropertyOf`) between two perspectives' concept terms (classes / link
+   predicates), into a dedicated, promoted **alignment graph** (`…/graph/canonical/
+   crosswalk/alignment`) the FROM-merge unions. Each assertion carries a dated
+   provenance node so it can be listed + withdrawn (additive, reversible). `asterism.
+   crosswalk_runtime.assert_alignment` / `list_alignments` / `remove_alignment`; api
+   `POST /api/crosswalk/align` (+`remove`) / `GET /api/crosswalk/alignments`.
+   **Caveat (no reasoning):** Oxigraph does not run an OWL reasoner, so an alignment is
+   a human-vetted, **citable, queryable FACT a tool can follow** — it is NOT
+   auto-applied to rewrite queries (consistent with the deterministic / citable product
+   direction). Entity-level (`owl:sameAs`) alignment is a possible later addition.
 3. **Phase 3 — UI.** The catalog "クロスウォーク" surface becomes a **list of
    perspectives** (each viewable / rebuildable / retractable); authoring creates a
    **new named perspective**; a "視点をつなぐ" action drives Phase 2's alignment.

@@ -204,6 +204,50 @@ def test_named_perspective_endpoints(tmp_path: Path) -> None:
     assert "https://kumagallium.github.io/asterism/graph/canonical/crosswalk/crystal" in posted
 
 
+def test_alignment_endpoints(tmp_path: Path) -> None:
+    ds = rdflib.Dataset()
+    app = build_app(_settings(tmp_path), oxigraph_client=_DatasetClient(ds), start_watcher=False)
+    xw = "https://kumagallium.github.io/asterism/crosswalk/ontology#"
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/crosswalk/align",
+            json={
+                "source": f"{xw}Composition",
+                "target": f"{xw}Material",
+                "relation": "equivalentClass",
+                "from_perspective": "composition",
+                "to_perspective": "material",
+            },
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["relation"] == "equivalentClass"
+
+        al = client.get("/api/crosswalk/alignments").json()
+        assert "equivalentClass" in al["relations"]
+        assert len(al["alignments"]) == 1
+        assert al["alignments"][0]["source"] == f"{xw}Composition"
+
+        # a relation outside the closed set is rejected
+        bad = client.post(
+            "/api/crosswalk/align",
+            json={"source": f"{xw}A", "target": f"{xw}B", "relation": "sameAs"},
+        )
+        assert bad.status_code == 400
+
+        # remove withdraws it
+        rm = client.post(
+            "/api/crosswalk/align",
+            json={
+                "source": f"{xw}Composition",
+                "target": f"{xw}Material",
+                "relation": "equivalentClass",
+                "remove": True,
+            },
+        )
+        assert rm.status_code == 200
+        assert client.get("/api/crosswalk/alignments").json()["alignments"] == []
+
+
 class _MockLLM:
     def __init__(self, response: str) -> None:
         self.response = response

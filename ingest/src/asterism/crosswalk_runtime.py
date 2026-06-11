@@ -418,6 +418,132 @@ async def remove_hub(client, perspective_id: str = DEFAULT_PERSPECTIVE_ID) -> No
     )
 
 
+# ---------------------------------------------------------------------------
+# Schema alignment between perspectives (multi-perspective ADR §Phase 2)
+# ---------------------------------------------------------------------------
+# Perspectives are kept DISTINCT; they are connected LATER by ADDITIVELY asserting a
+# schema relationship between their concept terms (classes / link predicates), stored
+# in a dedicated, promoted alignment graph the FROM-merge unions. The relation comes
+# from a CLOSED, vetted set (no arbitrary predicate) and every assertion is a dated,
+# reversible, citable claim. Oxigraph does no OWL reasoning, so an alignment does NOT
+# auto-rewrite queries — it is a human-vetted, queryable FACT that a tool can follow
+# (consistent with the deterministic / citable product direction).
+
+ALIGNMENT_GRAPH = substrate.CANONICAL_GRAPH_BASE + "crosswalk/alignment"
+_ALIGN_RESOURCE = "https://kumagallium.github.io/asterism/crosswalk/resource/alignment/"
+_PROV = "http://www.w3.org/ns/prov#"
+_XSD = "http://www.w3.org/2001/XMLSchema#"
+
+# Closed set of schema-level relations a human may assert between perspective terms.
+ALIGN_RELATIONS: dict[str, str] = {
+    "equivalentClass": "http://www.w3.org/2002/07/owl#equivalentClass",
+    "subClassOf": "http://www.w3.org/2000/01/rdf-schema#subClassOf",
+    "equivalentProperty": "http://www.w3.org/2002/07/owl#equivalentProperty",
+    "subPropertyOf": "http://www.w3.org/2000/01/rdf-schema#subPropertyOf",
+}
+
+# An absolute IRI safe to inject into a SPARQL ``<...>`` (scheme + no delimiters).
+_IRI_RE = re.compile(r'^[a-z][a-z0-9+.\-]*://[^\s<>"{}|\\^`]+$', re.IGNORECASE)
+
+
+def _check_iri(iri: str) -> None:
+    if not _IRI_RE.match(iri):
+        raise ValueError(f"not an absolute IRI: {iri!r}")
+
+
+def _alignment_iri(source: str, relation: str, target: str) -> str:
+    import hashlib
+
+    h = hashlib.sha1(f"{source}|{relation}|{target}".encode()).hexdigest()[:16]
+    return f"{_ALIGN_RESOURCE}{h}"
+
+
+async def assert_alignment(
+    client,
+    source: str,
+    target: str,
+    relation: str,
+    *,
+    at: str,
+    from_perspective: str = "",
+    to_perspective: str = "",
+) -> dict:
+    """Assert a schema relationship (``relation`` from :data:`ALIGN_RELATIONS`) between
+    two perspective terms (``source`` -> ``target``, both absolute IRIs). Additive,
+    idempotent (deterministic alignment node), reversible. Records a dated provenance
+    node so it can be listed + removed. Raises ``ValueError`` on a bad relation / IRI."""
+    if relation not in ALIGN_RELATIONS:
+        raise ValueError(f"relation must be one of {sorted(ALIGN_RELATIONS)}, got {relation!r}")
+    _check_iri(source)
+    _check_iri(target)
+    rel_iri = ALIGN_RELATIONS[relation]
+    align_iri = _alignment_iri(source, relation, target)
+    await client.sparql_update(
+        f"DELETE WHERE {{ GRAPH <{ALIGNMENT_GRAPH}> {{ <{align_iri}> ?p ?o }} }} ;"
+        f"INSERT DATA {{ GRAPH <{ALIGNMENT_GRAPH}> {{ "
+        f"<{source}> <{rel_iri}> <{target}> . "
+        f"<{align_iri}> a <{XW}Alignment> ; "
+        f"<{XW}alignSource> <{source}> ; <{XW}alignTarget> <{target}> ; "
+        f'<{XW}alignRelation> "{relation}" ; '
+        f'<{XW}fromPerspective> "{_sparql_str(from_perspective)}" ; '
+        f'<{XW}toPerspective> "{_sparql_str(to_perspective)}" ; '
+        f'<{_PROV}endedAtTime> "{at}"^^<{_XSD}dateTime> }} }}'
+    )
+    await substrate.mark_graph_promoted(client, ALIGNMENT_GRAPH)
+    return {
+        "alignment_iri": align_iri,
+        "source": source,
+        "target": target,
+        "relation": relation,
+        "relation_iri": rel_iri,
+        "from_perspective": from_perspective,
+        "to_perspective": to_perspective,
+        "at": at,
+    }
+
+
+async def list_alignments(client) -> list[dict]:
+    """Every asserted schema alignment between perspectives (oldest first)."""
+    q = (
+        f"SELECT ?a ?source ?target ?relation ?from ?to ?at WHERE {{ "
+        f"GRAPH <{ALIGNMENT_GRAPH}> {{ "
+        f"?a a <{XW}Alignment> ; <{XW}alignSource> ?source ; <{XW}alignTarget> ?target ; "
+        f"<{XW}alignRelation> ?relation . "
+        f"OPTIONAL {{ ?a <{XW}fromPerspective> ?from }} "
+        f"OPTIONAL {{ ?a <{XW}toPerspective> ?to }} "
+        f"OPTIONAL {{ ?a <{_PROV}endedAtTime> ?at }} }} }} ORDER BY ?at"
+    )
+    out: list[dict] = []
+    for b in await _select_bindings(client, q):
+        out.append(
+            {
+                "alignment_iri": b["a"]["value"],
+                "source": b["source"]["value"],
+                "target": b["target"]["value"],
+                "relation": b["relation"]["value"],
+                "from_perspective": b.get("from", {}).get("value", ""),
+                "to_perspective": b.get("to", {}).get("value", ""),
+                "at": b.get("at", {}).get("value", ""),
+            }
+        )
+    return out
+
+
+async def remove_alignment(client, source: str, target: str, relation: str) -> None:
+    """Withdraw a previously asserted alignment (the semantic triple + its provenance
+    node). Reversible counterpart of :func:`assert_alignment`."""
+    if relation not in ALIGN_RELATIONS:
+        raise ValueError(f"relation must be one of {sorted(ALIGN_RELATIONS)}, got {relation!r}")
+    _check_iri(source)
+    _check_iri(target)
+    rel_iri = ALIGN_RELATIONS[relation]
+    align_iri = _alignment_iri(source, relation, target)
+    await client.sparql_update(
+        f"DELETE DATA {{ GRAPH <{ALIGNMENT_GRAPH}> {{ <{source}> <{rel_iri}> <{target}> }} }} ;"
+        f"DELETE WHERE {{ GRAPH <{ALIGNMENT_GRAPH}> {{ <{align_iri}> ?p ?o }} }}"
+    )
+
+
 def _count_triples(turtle: str) -> int:
     """Count the asserted triples in the hub Turtle: every line ending in ``.`` that
     is not a ``@prefix`` directive or a comment (the builder emits one statement per
