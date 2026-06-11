@@ -50,7 +50,15 @@ _SOURCE_PREDICATES: tuple[str, ...] = (
 )
 
 # Only these data-file extensions may back a logical source.
-_ALLOWED_SOURCE_SUFFIXES = frozenset({".csv", ".tsv", ".json"})
+#
+# ``.xml`` is a *deliberate* addition for the document-ontology layer (the
+# JATS/TEI full-text path, ADR ``document-ontology-layer.md``): Morph-KGC reads
+# XML declaratively via ``rml:referenceFormulation ql:XPath`` — no generated
+# code, same trust model as the CSV/JSON readers. The format is vetted; an XML
+# logical source still passes through every other gate here (confined path,
+# Tier-0-only functions, no SQL/query source), so widening the file-type
+# allowlist does not widen what an RML mapping may *execute* or *reach*.
+_ALLOWED_SOURCE_SUFFIXES = frozenset({".csv", ".tsv", ".json", ".xml"})
 
 _URL_SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
 

@@ -46,6 +46,7 @@ from asterism.transforms import (
     range_max,
     range_min,
     strip_footnote,
+    structural_slug,
     trim_collapse,
     unit_of,
     url_canonical,
@@ -206,6 +207,9 @@ REGISTRY: list[FunctionSpec] = [
     _single("nfkc_norm", nfkc_norm),
     _single("trim_collapse", trim_collapse),
     _single("strip_footnote", strip_footnote),
+    # 文書オントロジー層: 章番号見出し -> 構造パス slug ("3.2"->"3-2", 該当なし "")。
+    # ADR document-ontology-layer.md。append-only・str -> str・REGISTRY 経由で T9 追従。
+    _single("structural_slug", structural_slug),
     _single("bool_norm", bool_norm),
     _single("doi_norm", doi_norm),
     _single("url_canonical", url_canonical),

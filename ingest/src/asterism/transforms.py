@@ -212,6 +212,27 @@ def strip_footnote(value: str) -> str:
     return _FOOTNOTE.sub("", value).strip() if value else ""
 
 
+# A leading dotted ordinal at the head of a structural heading: "3.2", "2.1.",
+# "10.4.1 Foo". Letters are not part of it (so "Appendix A" / "Acknowledgments"
+# have no ordinal and map to ""). Anchored at the start so only the *leading*
+# section number is taken, never a number later in the title.
+_STRUCTURAL_ORDINAL = re.compile(r"^\s*(\d+(?:\.\d+)*)")
+
+
+def structural_slug(value: str) -> str:
+    """Section/structural heading -> dash-joined ordinal slug for a readable IRI path.
+
+    Lifts the *leading* dotted ordinal out of a heading and joins its parts with
+    ``-``: ``"3.2"`` / ``"2.1. The Series"`` -> ``"3-2"`` / ``"2-1"``. Returns
+    ``""`` when there is no leading ordinal (e.g. ``"Acknowledgments"``) — the
+    Tier 0「該当なし」convention (the empty objectMap is dropped downstream). The
+    document-ontology layer uses it to attach a human-readable ``structuralPath``
+    to a ``doco:Section`` whose stable IRI is keyed by the source ``@id``.
+    """
+    m = _STRUCTURAL_ORDINAL.match(value or "")
+    return m.group(1).replace(".", "-") if m else ""
+
+
 # ---------------------------------------------------------------------------
 # Identifiers
 # ---------------------------------------------------------------------------

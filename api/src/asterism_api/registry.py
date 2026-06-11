@@ -41,18 +41,21 @@ _META_FILE = "meta.json"
 # data it was built from (reproducibility — the citable-facts product direction).
 # This lets the catalog ingest a *design*-stage dataset with no re-attach.
 _SOURCE_DIR = "source"
-# Accepted source file extensions (#19): CSV and JSON. Morph-KGC reads both via
-# the RML's referenceFormulation (ql:CSV / ql:JSONPath), so the substrate path is
-# the same — only the persisted file's extension differs.
-_SOURCE_SUFFIXES = (".csv", ".json", ".geojson")
+# Accepted source file extensions: CSV and JSON (#19) and XML/JATS (document-
+# ontology layer). Morph-KGC reads all three via the RML's referenceFormulation
+# (ql:CSV / ql:JSONPath / ql:XPath), so the substrate path is the same — only the
+# persisted file's extension differs.
+_SOURCE_SUFFIXES = (".csv", ".json", ".geojson", ".xml")
 
 
 def source_kind_of(filenames: list[str]) -> str:
-    """Classify a dataset's source as ``"json"`` or ``"csv"`` by extension.
+    """Classify a dataset's source as ``"xml"`` / ``"json"`` / ``"csv"`` by extension.
 
-    JSON wins if any file is JSON (a dataset's source is a single kind in
-    practice); defaults to ``"csv"`` for an empty/CSV set.
+    A dataset's source is a single kind in practice; XML (JATS) wins, then JSON,
+    else CSV (the default for an empty set).
     """
+    if any(Path(n).suffix.lower() == ".xml" for n in filenames):
+        return "xml"
     if any(Path(n).suffix.lower() in (".json", ".geojson") for n in filenames):
         return "json"
     return "csv"

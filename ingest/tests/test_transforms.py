@@ -17,6 +17,7 @@ from asterism.transforms import (
     range_max,
     range_min,
     strip_footnote,
+    structural_slug,
     trim_collapse,
     unit_of,
     url_canonical,
@@ -102,6 +103,16 @@ def test_trim_collapse() -> None:
     assert trim_collapse("  a   b  ") == "a b"
     assert trim_collapse("x\t\ny") == "x y"
     assert trim_collapse("") == ""
+
+
+def test_structural_slug() -> None:
+    assert structural_slug("3.2") == "3-2"
+    assert structural_slug("2.1. The Zr(1-x)HfxNiSn Series") == "2-1"
+    assert structural_slug("1. Introduction") == "1"
+    assert structural_slug("10.4.1 Foo") == "10-4-1"
+    assert structural_slug("Acknowledgments") == ""  # no leading ordinal
+    assert structural_slug("Section 3.2") == ""  # ordinal not at the head
+    assert structural_slug("") == ""
 
 
 def test_strip_footnote() -> None:

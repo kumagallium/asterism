@@ -60,6 +60,7 @@ CORE_A_NAMES = {
     "nfkc_norm",
     "trim_collapse",
     "strip_footnote",
+    "structural_slug",
     "bool_norm",
     "doi_norm",
     "url_canonical",
