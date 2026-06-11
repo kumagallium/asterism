@@ -146,6 +146,14 @@ HARD RULES (a reviewer approves *column→predicate + which vetted function*, no
   - `fn:doi_norm` (value → string) — normalize a DOI to its bare lowercase form
   - `fn:url_canonical` (value → string) — lowercase scheme+host, drop default port / fragment
   - `fn:value_of` / `fn:unit_of` (value → string) — split value+unit (`"300 K"` → `300` / `K`)
+  - `fn:json_array_single` (value → string) — unwrap a **one-element** JSON array
+    (`["X"]` → `X`); multi-element arrays return "" (use `fn:split` / nested map)
+  - `fn:array_at` (value, **index** const → string) — element at a fixed 0-based
+    index of a JSON array (`[lon,lat,depth]`, index `1` → lat); negatives from end
+  - `fn:split` (value, **delimiter** const → MULTIPLE values) — split a delimited
+    cell into many; returns a list that Morph-KGC **explodes into one triple per
+    element** (`",ci,us,"` with delimiter `","` → two `ex:tag` triples). Use for a
+    flat comma/semicolon list; for an **array of objects** use a nested TriplesMap.
   - Parameterized primitives — take the column value(s) PLUS a **constant** config
     argument (a table / regex / template), to absorb the long tail without a new
     function. The config is data, not code:
@@ -172,10 +180,14 @@ HARD RULES (a reviewer approves *column→predicate + which vetted function*, no
   `rmlf:functionExecution [ rmlf:function fn:lookup ;
     rmlf:input [ rmlf:parameter fn:p_value ; rmlf:inputValueMap [ rml:reference "flag" ] ] ;
     rmlf:input [ rmlf:parameter fn:p_table ; rmlf:inputValueMap [ rmlf:constant "bool" ] ] ]`.
-- A column with **no matching function AND multi-valued / nested cell-JSON**
-  (authors, descriptors, project_names): DO NOT invent a function — emit the raw
-  string to a `…Raw` predicate and add a `# fallback: <col> not expanded` comment.
-  One unmapped column must never block the rest of the ingest.
+- Multi-valued / nested cells — prefer the vetted multi-value functions over a
+  raw fallback when they fit: a **one-element** array → `fn:json_array_single`; a
+  **fixed-position** array → `fn:array_at`; a **flat delimited** list (comma /
+  semicolon) → `fn:split` (explodes to many triples). Reserve the `…Raw` fallback
+  for the genuinely irreducible case — an **array of objects** (e.g. `authors` =
+  `[{given,family},…]`) where each element has sub-fields: emit the raw string to a
+  `…Raw` predicate with a `# fallback: <col> not expanded` comment. DO NOT invent a
+  function. One unmapped column must never block the rest of the ingest.
 
 ## Self-check before responding (quality traps)
 - [ ] T1: IRI scheme uses uniqueness statistics from inspection?

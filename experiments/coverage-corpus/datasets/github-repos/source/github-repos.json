@@ -1,0 +1,1143 @@
+[
+ {
+  "full_name": "codecrafters-io/build-your-own-x",
+  "owner": {
+   "login": "codecrafters-io",
+   "type": "Organization"
+  },
+  "language": "Markdown",
+  "license": {
+   "spdx_id": null,
+   "name": null
+  },
+  "topics": [
+   "awesome-list",
+   "free",
+   "programming",
+   "tutorial-code",
+   "tutorial-exercises",
+   "tutorials"
+  ],
+  "stargazers_count": 514083,
+  "forks_count": 48710,
+  "open_issues_count": 504,
+  "archived": false,
+  "created_at": "2018-05-09T12:03:18Z",
+  "html_url": "https://github.com/codecrafters-io/build-your-own-x"
+ },
+ {
+  "full_name": "sindresorhus/awesome",
+  "owner": {
+   "login": "sindresorhus",
+   "type": "User"
+  },
+  "language": null,
+  "license": {
+   "spdx_id": "CC0-1.0",
+   "name": "Creative Commons Zero v1.0 Universal"
+  },
+  "topics": [
+   "awesome",
+   "awesome-list",
+   "lists",
+   "resources",
+   "unicorns"
+  ],
+  "stargazers_count": 474599,
+  "forks_count": 35368,
+  "open_issues_count": 81,
+  "archived": false,
+  "created_at": "2014-07-11T13:42:37Z",
+  "html_url": "https://github.com/sindresorhus/awesome"
+ },
+ {
+  "full_name": "freeCodeCamp/freeCodeCamp",
+  "owner": {
+   "login": "freeCodeCamp",
+   "type": "Organization"
+  },
+  "language": "TypeScript",
+  "license": {
+   "spdx_id": "BSD-3-Clause",
+   "name": "BSD 3-Clause \"New\" or \"Revised\" License"
+  },
+  "topics": [
+   "careers",
+   "certification",
+   "community",
+   "curriculum",
+   "d3",
+   "education",
+   "freecodecamp",
+   "javascript",
+   "learn-to-code",
+   "math",
+   "nodejs",
+   "nonprofits",
+   "programming",
+   "react",
+   "teachers"
+  ],
+  "stargazers_count": 446598,
+  "forks_count": 44877,
+  "open_issues_count": 175,
+  "archived": false,
+  "created_at": "2014-12-24T17:49:19Z",
+  "html_url": "https://github.com/freeCodeCamp/freeCodeCamp"
+ },
+ {
+  "full_name": "public-apis/public-apis",
+  "owner": {
+   "login": "public-apis",
+   "type": "Organization"
+  },
+  "language": "Python",
+  "license": {
+   "spdx_id": "MIT",
+   "name": "MIT License"
+  },
+  "topics": [
+   "api",
+   "apis",
+   "dataset",
+   "development",
+   "free",
+   "list",
+   "lists",
+   "open-source",
+   "public",
+   "public-api",
+   "public-apis",
+   "resources",
+   "software"
+  ],
+  "stargazers_count": 440706,
+  "forks_count": 48292,
+  "open_issues_count": 1364,
+  "archived": false,
+  "created_at": "2016-03-20T23:49:42Z",
+  "html_url": "https://github.com/public-apis/public-apis"
+ },
+ {
+  "full_name": "EbookFoundation/free-programming-books",
+  "owner": {
+   "login": "EbookFoundation",
+   "type": "Organization"
+  },
+  "language": "Python",
+  "license": {
+   "spdx_id": "CC-BY-4.0",
+   "name": "Creative Commons Attribution 4.0 International"
+  },
+  "topics": [
+   "books",
+   "education",
+   "hacktoberfest",
+   "list",
+   "resource"
+  ],
+  "stargazers_count": 390064,
+  "forks_count": 66446,
+  "open_issues_count": 80,
+  "archived": false,
+  "created_at": "2013-10-11T06:50:37Z",
+  "html_url": "https://github.com/EbookFoundation/free-programming-books"
+ },
+ {
+  "full_name": "openclaw/openclaw",
+  "owner": {
+   "login": "openclaw",
+   "type": "Organization"
+  },
+  "language": "TypeScript",
+  "license": {
+   "spdx_id": "NOASSERTION",
+   "name": "Other"
+  },
+  "topics": [
+   "ai",
+   "assistant",
+   "crustacean",
+   "molty",
+   "openclaw",
+   "own-your-data",
+   "personal"
+  ],
+  "stargazers_count": 378008,
+  "forks_count": 79050,
+  "open_issues_count": 7993,
+  "archived": false,
+  "created_at": "2025-11-24T10:16:47Z",
+  "html_url": "https://github.com/openclaw/openclaw"
+ },
+ {
+  "full_name": "nilbuild/developer-roadmap",
+  "owner": {
+   "login": "nilbuild",
+   "type": "User"
+  },
+  "language": "TypeScript",
+  "license": {
+   "spdx_id": "NOASSERTION",
+   "name": "Other"
+  },
+  "topics": [
+   "angular-roadmap",
+   "backend-roadmap",
+   "blockchain-roadmap",
+   "computer-science",
+   "dba-roadmap",
+   "developer-roadmap",
+   "devops-roadmap",
+   "frontend-roadmap",
+   "go-roadmap",
+   "java-roadmap",
+   "javascript-roadmap",
+   "nodejs-roadmap",
+   "python-roadmap",
+   "qa-roadmap",
+   "react-roadmap",
+   "roadmap",
+   "software-architect-roadmap",
+   "vue-roadmap"
+  ],
+  "stargazers_count": 356718,
+  "forks_count": 44192,
+  "open_issues_count": 13,
+  "archived": false,
+  "created_at": "2017-03-15T13:45:52Z",
+  "html_url": "https://github.com/nilbuild/developer-roadmap"
+ },
+ {
+  "full_name": "donnemartin/system-design-primer",
+  "owner": {
+   "login": "donnemartin",
+   "type": "User"
+  },
+  "language": "Python",
+  "license": {
+   "spdx_id": "NOASSERTION",
+   "name": "Other"
+  },
+  "topics": [
+   "design",
+   "design-patterns",
+   "design-system",
+   "development",
+   "interview",
+   "interview-practice",
+   "interview-questions",
+   "programming",
+   "python",
+   "system",
+   "web",
+   "web-application",
+   "webapp"
+  ],
+  "stargazers_count": 352545,
+  "forks_count": 56658,
+  "open_issues_count": 551,
+  "archived": false,
+  "created_at": "2017-02-26T16:15:28Z",
+  "html_url": "https://github.com/donnemartin/system-design-primer"
+ },
+ {
+  "full_name": "jwasham/coding-interview-university",
+  "owner": {
+   "login": "jwasham",
+   "type": "User"
+  },
+  "language": null,
+  "license": {
+   "spdx_id": "CC-BY-SA-4.0",
+   "name": "Creative Commons Attribution Share Alike 4.0 International"
+  },
+  "topics": [
+   "algorithm",
+   "algorithms",
+   "coding-interview",
+   "coding-interviews",
+   "computer-science",
+   "data-structures",
+   "interview",
+   "interview-prep",
+   "interview-preparation",
+   "programming-interviews",
+   "software-engineering",
+   "study-plan"
+  ],
+  "stargazers_count": 351088,
+  "forks_count": 83409,
+  "open_issues_count": 113,
+  "archived": false,
+  "created_at": "2016-06-06T02:34:12Z",
+  "html_url": "https://github.com/jwasham/coding-interview-university"
+ },
+ {
+  "full_name": "vinta/awesome-python",
+  "owner": {
+   "login": "vinta",
+   "type": "User"
+  },
+  "language": "Python",
+  "license": {
+   "spdx_id": "NOASSERTION",
+   "name": "Other"
+  },
+  "topics": [
+   "awesome",
+   "collections",
+   "python",
+   "python-frameworks",
+   "python-libraries",
+   "python-tools"
+  ],
+  "stargazers_count": 302269,
+  "forks_count": 28060,
+  "open_issues_count": 22,
+  "archived": false,
+  "created_at": "2014-06-27T21:00:06Z",
+  "html_url": "https://github.com/vinta/awesome-python"
+ },
+ {
+  "full_name": "awesome-selfhosted/awesome-selfhosted",
+  "owner": {
+   "login": "awesome-selfhosted",
+   "type": "Organization"
+  },
+  "language": null,
+  "license": {
+   "spdx_id": "NOASSERTION",
+   "name": "Other"
+  },
+  "topics": [
+   "awesome",
+   "awesome-list",
+   "cloud",
+   "free-software",
+   "hosting",
+   "privacy",
+   "self-hosted",
+   "selfhosted"
+  ],
+  "stargazers_count": 298395,
+  "forks_count": 13898,
+  "open_issues_count": 0,
+  "archived": false,
+  "created_at": "2015-06-01T02:33:17Z",
+  "html_url": "https://github.com/awesome-selfhosted/awesome-selfhosted"
+ },
+ {
+  "full_name": "996icu/996.ICU",
+  "owner": {
+   "login": "996icu",
+   "type": "User"
+  },
+  "language": null,
+  "license": {
+   "spdx_id": "NOASSERTION",
+   "name": "Other"
+  },
+  "topics": [],
+  "stargazers_count": 276276,
+  "forks_count": 20828,
+  "open_issues_count": 16691,
+  "archived": false,
+  "created_at": "2019-03-26T07:31:14Z",
+  "html_url": "https://github.com/996icu/996.ICU"
+ },
+ {
+  "full_name": "practical-tutorials/project-based-learning",
+  "owner": {
+   "login": "practical-tutorials",
+   "type": "Organization"
+  },
+  "language": null,
+  "license": {
+   "spdx_id": "MIT",
+   "name": "MIT License"
+  },
+  "topics": [
+   "beginner-project",
+   "cpp",
+   "golang",
+   "javascript",
+   "project",
+   "python",
+   "tutorial",
+   "webdevelopment"
+  ],
+  "stargazers_count": 268491,
+  "forks_count": 34798,
+  "open_issues_count": 311,
+  "archived": false,
+  "created_at": "2017-04-12T05:07:46Z",
+  "html_url": "https://github.com/practical-tutorials/project-based-learning"
+ },
+ {
+  "full_name": "react/react",
+  "owner": {
+   "login": "react",
+   "type": "Organization"
+  },
+  "language": "JavaScript",
+  "license": {
+   "spdx_id": "MIT",
+   "name": "MIT License"
+  },
+  "topics": [
+   "declarative",
+   "frontend",
+   "javascript",
+   "library",
+   "react",
+   "ui"
+  ],
+  "stargazers_count": 245743,
+  "forks_count": 51045,
+  "open_issues_count": 1278,
+  "archived": false,
+  "created_at": "2013-05-24T16:15:54Z",
+  "html_url": "https://github.com/react/react"
+ },
+ {
+  "full_name": "torvalds/linux",
+  "owner": {
+   "login": "torvalds",
+   "type": "User"
+  },
+  "language": "C",
+  "license": {
+   "spdx_id": "NOASSERTION",
+   "name": "Other"
+  },
+  "topics": [],
+  "stargazers_count": 236031,
+  "forks_count": 62656,
+  "open_issues_count": 3,
+  "archived": false,
+  "created_at": "2011-09-04T22:48:12Z",
+  "html_url": "https://github.com/torvalds/linux"
+ },
+ {
+  "full_name": "trimstray/the-book-of-secret-knowledge",
+  "owner": {
+   "login": "trimstray",
+   "type": "User"
+  },
+  "language": null,
+  "license": {
+   "spdx_id": "MIT",
+   "name": "MIT License"
+  },
+  "topics": [
+   "awesome",
+   "awesome-list",
+   "bsd",
+   "cheatsheets",
+   "devops",
+   "guidelines",
+   "hacking",
+   "hacks",
+   "howtos",
+   "linux",
+   "lists",
+   "manuals",
+   "one-liners",
+   "pentesters",
+   "resources",
+   "search-engines",
+   "security",
+   "security-researchers",
+   "sysops"
+  ],
+  "stargazers_count": 227627,
+  "forks_count": 13643,
+  "open_issues_count": 155,
+  "archived": false,
+  "created_at": "2018-06-23T10:43:14Z",
+  "html_url": "https://github.com/trimstray/the-book-of-secret-knowledge"
+ },
+ {
+  "full_name": "obra/superpowers",
+  "owner": {
+   "login": "obra",
+   "type": "User"
+  },
+  "language": "Shell",
+  "license": {
+   "spdx_id": "MIT",
+   "name": "MIT License"
+  },
+  "topics": [],
+  "stargazers_count": 223578,
+  "forks_count": 19874,
+  "open_issues_count": 284,
+  "archived": false,
+  "created_at": "2025-10-09T19:45:18Z",
+  "html_url": "https://github.com/obra/superpowers"
+ },
+ {
+  "full_name": "TheAlgorithms/Python",
+  "owner": {
+   "login": "TheAlgorithms",
+   "type": "Organization"
+  },
+  "language": "Python",
+  "license": {
+   "spdx_id": "MIT",
+   "name": "MIT License"
+  },
+  "topics": [
+   "algorithm",
+   "algorithm-competitions",
+   "algorithms-implemented",
+   "algos",
+   "community-driven",
+   "education",
+   "hacktoberfest",
+   "interview",
+   "learn",
+   "practice",
+   "python",
+   "searches",
+   "sorting-algorithms",
+   "sorts"
+  ],
+  "stargazers_count": 221839,
+  "forks_count": 50744,
+  "open_issues_count": 952,
+  "archived": false,
+  "created_at": "2016-07-16T09:44:01Z",
+  "html_url": "https://github.com/TheAlgorithms/Python"
+ },
+ {
+  "full_name": "affaan-m/ECC",
+  "owner": {
+   "login": "affaan-m",
+   "type": "User"
+  },
+  "language": "JavaScript",
+  "license": {
+   "spdx_id": "MIT",
+   "name": "MIT License"
+  },
+  "topics": [
+   "ai-agents",
+   "anthropic",
+   "claude",
+   "claude-code",
+   "developer-tools",
+   "llm",
+   "mcp",
+   "productivity"
+  ],
+  "stargazers_count": 212710,
+  "forks_count": 32673,
+  "open_issues_count": 60,
+  "archived": false,
+  "created_at": "2026-01-18T00:51:51Z",
+  "html_url": "https://github.com/affaan-m/ECC"
+ },
+ {
+  "full_name": "vuejs/vue",
+  "owner": {
+   "login": "vuejs",
+   "type": "Organization"
+  },
+  "language": "TypeScript",
+  "license": {
+   "spdx_id": "MIT",
+   "name": "MIT License"
+  },
+  "topics": [
+   "framework",
+   "frontend",
+   "javascript",
+   "vue"
+  ],
+  "stargazers_count": 209847,
+  "forks_count": 33706,
+  "open_issues_count": 632,
+  "archived": false,
+  "created_at": "2013-07-29T03:24:51Z",
+  "html_url": "https://github.com/vuejs/vue"
+ },
+ {
+  "full_name": "ossu/computer-science",
+  "owner": {
+   "login": "ossu",
+   "type": "Organization"
+  },
+  "language": "HTML",
+  "license": {
+   "spdx_id": "MIT",
+   "name": "MIT License"
+  },
+  "topics": [
+   "awesome-list",
+   "computer-science",
+   "courses",
+   "curriculum"
+  ],
+  "stargazers_count": 204791,
+  "forks_count": 25460,
+  "open_issues_count": 23,
+  "archived": false,
+  "created_at": "2014-05-04T00:18:39Z",
+  "html_url": "https://github.com/ossu/computer-science"
+ },
+ {
+  "full_name": "trekhleb/javascript-algorithms",
+  "owner": {
+   "login": "trekhleb",
+   "type": "User"
+  },
+  "language": "JavaScript",
+  "license": {
+   "spdx_id": "MIT",
+   "name": "MIT License"
+  },
+  "topics": [
+   "algorithm",
+   "algorithms",
+   "computer-science",
+   "data-structures",
+   "interview",
+   "interview-preparation",
+   "javascript",
+   "javascript-algorithms"
+  ],
+  "stargazers_count": 196072,
+  "forks_count": 31058,
+  "open_issues_count": 405,
+  "archived": false,
+  "created_at": "2018-03-24T07:47:04Z",
+  "html_url": "https://github.com/trekhleb/javascript-algorithms"
+ },
+ {
+  "full_name": "tensorflow/tensorflow",
+  "owner": {
+   "login": "tensorflow",
+   "type": "Organization"
+  },
+  "language": "C++",
+  "license": {
+   "spdx_id": "Apache-2.0",
+   "name": "Apache License 2.0"
+  },
+  "topics": [
+   "deep-learning",
+   "deep-neural-networks",
+   "distributed",
+   "machine-learning",
+   "ml",
+   "neural-network",
+   "python",
+   "tensorflow"
+  ],
+  "stargazers_count": 195627,
+  "forks_count": 75182,
+  "open_issues_count": 3350,
+  "archived": false,
+  "created_at": "2015-11-07T01:19:20Z",
+  "html_url": "https://github.com/tensorflow/tensorflow"
+ },
+ {
+  "full_name": "ultraworkers/claw-code",
+  "owner": {
+   "login": "ultraworkers",
+   "type": "Organization"
+  },
+  "language": "Rust",
+  "license": {
+   "spdx_id": "MIT",
+   "name": "MIT License"
+  },
+  "topics": [],
+  "stargazers_count": 193579,
+  "forks_count": 109957,
+  "open_issues_count": 5,
+  "archived": false,
+  "created_at": "2026-03-31T08:58:08Z",
+  "html_url": "https://github.com/ultraworkers/claw-code"
+ },
+ {
+  "full_name": "n8n-io/n8n",
+  "owner": {
+   "login": "n8n-io",
+   "type": "Organization"
+  },
+  "language": "TypeScript",
+  "license": {
+   "spdx_id": "NOASSERTION",
+   "name": "Other"
+  },
+  "topics": [
+   "ai",
+   "apis",
+   "automation",
+   "cli",
+   "data-flow",
+   "development",
+   "integration-framework",
+   "integrations",
+   "ipaas",
+   "low-code",
+   "low-code-platform",
+   "mcp",
+   "mcp-client",
+   "mcp-server",
+   "n8n",
+   "no-code",
+   "self-hosted",
+   "typescript",
+   "workflow",
+   "workflow-automation"
+  ],
+  "stargazers_count": 191968,
+  "forks_count": 58446,
+  "open_issues_count": 1469,
+  "archived": false,
+  "created_at": "2019-06-22T09:24:21Z",
+  "html_url": "https://github.com/n8n-io/n8n"
+ },
+ {
+  "full_name": "NousResearch/hermes-agent",
+  "owner": {
+   "login": "NousResearch",
+   "type": "Organization"
+  },
+  "language": "Python",
+  "license": {
+   "spdx_id": "MIT",
+   "name": "MIT License"
+  },
+  "topics": [
+   "ai",
+   "ai-agent",
+   "ai-agents",
+   "anthropic",
+   "chatgpt",
+   "claude",
+   "claude-code",
+   "clawdbot",
+   "codex",
+   "hermes",
+   "hermes-agent",
+   "llm",
+   "moltbot",
+   "nous-research",
+   "openai",
+   "openclaw"
+  ],
+  "stargazers_count": 189939,
+  "forks_count": 32902,
+  "open_issues_count": 19844,
+  "archived": false,
+  "created_at": "2025-07-22T22:22:28Z",
+  "html_url": "https://github.com/NousResearch/hermes-agent"
+ },
+ {
+  "full_name": "ohmyzsh/ohmyzsh",
+  "owner": {
+   "login": "ohmyzsh",
+   "type": "Organization"
+  },
+  "language": "Shell",
+  "license": {
+   "spdx_id": "MIT",
+   "name": "MIT License"
+  },
+  "topics": [
+   "cli",
+   "cli-app",
+   "oh-my-zsh",
+   "oh-my-zsh-plugin",
+   "oh-my-zsh-theme",
+   "ohmyzsh",
+   "plugin-framework",
+   "plugins",
+   "productivity",
+   "shell",
+   "terminal",
+   "theme",
+   "themes",
+   "zsh",
+   "zsh-configuration"
+  ],
+  "stargazers_count": 187928,
+  "forks_count": 26367,
+  "open_issues_count": 568,
+  "archived": false,
+  "created_at": "2009-08-28T18:15:37Z",
+  "html_url": "https://github.com/ohmyzsh/ohmyzsh"
+ },
+ {
+  "full_name": "microsoft/vscode",
+  "owner": {
+   "login": "microsoft",
+   "type": "Organization"
+  },
+  "language": "TypeScript",
+  "license": {
+   "spdx_id": "MIT",
+   "name": "MIT License"
+  },
+  "topics": [
+   "editor",
+   "electron",
+   "microsoft",
+   "typescript",
+   "visual-studio-code"
+  ],
+  "stargazers_count": 186145,
+  "forks_count": 40337,
+  "open_issues_count": 18351,
+  "archived": false,
+  "created_at": "2015-09-03T20:23:38Z",
+  "html_url": "https://github.com/microsoft/vscode"
+ },
+ {
+  "full_name": "Significant-Gravitas/AutoGPT",
+  "owner": {
+   "login": "Significant-Gravitas",
+   "type": "Organization"
+  },
+  "language": "Python",
+  "license": {
+   "spdx_id": "NOASSERTION",
+   "name": "Other"
+  },
+  "topics": [
+   "agentic-ai",
+   "agents",
+   "ai",
+   "artificial-intelligence",
+   "autonomous-agents",
+   "claude",
+   "gpt",
+   "llama-api",
+   "llm",
+   "openai",
+   "python"
+  ],
+  "stargazers_count": 184880,
+  "forks_count": 46162,
+  "open_issues_count": 441,
+  "archived": false,
+  "created_at": "2023-03-16T09:21:07Z",
+  "html_url": "https://github.com/Significant-Gravitas/AutoGPT"
+ },
+ {
+  "full_name": "getify/You-Dont-Know-JS",
+  "owner": {
+   "login": "getify",
+   "type": "User"
+  },
+  "language": null,
+  "license": {
+   "spdx_id": "NOASSERTION",
+   "name": "Other"
+  },
+  "topics": [
+   "async",
+   "book",
+   "book-series",
+   "closures",
+   "education",
+   "es2015",
+   "es6",
+   "javascript",
+   "learn-to-code",
+   "programming",
+   "prototypes",
+   "training-materials",
+   "training-providers"
+  ],
+  "stargazers_count": 184515,
+  "forks_count": 33527,
+  "open_issues_count": 2,
+  "archived": false,
+  "created_at": "2013-11-16T02:37:24Z",
+  "html_url": "https://github.com/getify/You-Dont-Know-JS"
+ },
+ {
+  "full_name": "CyC2018/CS-Notes",
+  "owner": {
+   "login": "CyC2018",
+   "type": "User"
+  },
+  "language": null,
+  "license": {
+   "spdx_id": null,
+   "name": null
+  },
+  "topics": [
+   "algorithm",
+   "computer-science",
+   "cpp",
+   "interview",
+   "java",
+   "leetcode",
+   "python",
+   "system-design"
+  ],
+  "stargazers_count": 184511,
+  "forks_count": 50892,
+  "open_issues_count": 196,
+  "archived": false,
+  "created_at": "2018-02-13T14:56:24Z",
+  "html_url": "https://github.com/CyC2018/CS-Notes"
+ },
+ {
+  "full_name": "jackfrued/Python-100-Days",
+  "owner": {
+   "login": "jackfrued",
+   "type": "User"
+  },
+  "language": "Jupyter Notebook",
+  "license": {
+   "spdx_id": null,
+   "name": null
+  },
+  "topics": [],
+  "stargazers_count": 183254,
+  "forks_count": 55661,
+  "open_issues_count": 698,
+  "archived": false,
+  "created_at": "2018-03-01T16:05:52Z",
+  "html_url": "https://github.com/jackfrued/Python-100-Days"
+ },
+ {
+  "full_name": "massgravel/Microsoft-Activation-Scripts",
+  "owner": {
+   "login": "massgravel",
+   "type": "Organization"
+  },
+  "language": "Batchfile",
+  "license": {
+   "spdx_id": "GPL-3.0",
+   "name": "GNU General Public License v3.0"
+  },
+  "topics": [
+   "activator",
+   "hwid",
+   "kms",
+   "kms38",
+   "massgrave",
+   "massgravel",
+   "microsoft",
+   "microsoft365",
+   "office",
+   "office365",
+   "ohook",
+   "powershell",
+   "tsforge",
+   "windows",
+   "windows-10",
+   "windows-11"
+  ],
+  "stargazers_count": 177988,
+  "forks_count": 17041,
+  "open_issues_count": 1,
+  "archived": false,
+  "created_at": "2020-01-12T23:03:34Z",
+  "html_url": "https://github.com/massgravel/Microsoft-Activation-Scripts"
+ },
+ {
+  "full_name": "flutter/flutter",
+  "owner": {
+   "login": "flutter",
+   "type": "Organization"
+  },
+  "language": "Dart",
+  "license": {
+   "spdx_id": "BSD-3-Clause",
+   "name": "BSD 3-Clause \"New\" or \"Revised\" License"
+  },
+  "topics": [
+   "android",
+   "app-framework",
+   "cross-platform",
+   "dart",
+   "dart-platform",
+   "desktop",
+   "flutter",
+   "flutter-package",
+   "fuchsia",
+   "ios",
+   "linux-desktop",
+   "macos",
+   "material-design",
+   "mobile",
+   "mobile-development",
+   "skia",
+   "web",
+   "web-framework",
+   "windows"
+  ],
+  "stargazers_count": 176890,
+  "forks_count": 30496,
+  "open_issues_count": 12833,
+  "archived": false,
+  "created_at": "2015-03-06T22:54:58Z",
+  "html_url": "https://github.com/flutter/flutter"
+ },
+ {
+  "full_name": "DigitalPlatDev/FreeDomain",
+  "owner": {
+   "login": "DigitalPlatDev",
+   "type": "Organization"
+  },
+  "language": "HTML",
+  "license": {
+   "spdx_id": "AGPL-3.0",
+   "name": "GNU Affero General Public License v3.0"
+  },
+  "topics": [
+   "digitalplat",
+   "domain",
+   "domain-platform",
+   "domainname",
+   "domains",
+   "free",
+   "freedomain"
+  ],
+  "stargazers_count": 176303,
+  "forks_count": 3531,
+  "open_issues_count": 33,
+  "archived": false,
+  "created_at": "2024-05-30T13:23:00Z",
+  "html_url": "https://github.com/DigitalPlatDev/FreeDomain"
+ },
+ {
+  "full_name": "avelino/awesome-go",
+  "owner": {
+   "login": "avelino",
+   "type": "User"
+  },
+  "language": "Go",
+  "license": {
+   "spdx_id": "MIT",
+   "name": "MIT License"
+  },
+  "topics": [
+   "awesome",
+   "awesome-list",
+   "go",
+   "golang",
+   "golang-library",
+   "hacktoberfest"
+  ],
+  "stargazers_count": 175118,
+  "forks_count": 13302,
+  "open_issues_count": 194,
+  "archived": false,
+  "created_at": "2014-07-06T13:42:15Z",
+  "html_url": "https://github.com/avelino/awesome-go"
+ },
+ {
+  "full_name": "github/gitignore",
+  "owner": {
+   "login": "github",
+   "type": "Organization"
+  },
+  "language": null,
+  "license": {
+   "spdx_id": "CC0-1.0",
+   "name": "Creative Commons Zero v1.0 Universal"
+  },
+  "topics": [
+   "git",
+   "gitignore"
+  ],
+  "stargazers_count": 174373,
+  "forks_count": 82427,
+  "open_issues_count": 66,
+  "archived": false,
+  "created_at": "2010-11-08T20:17:14Z",
+  "html_url": "https://github.com/github/gitignore"
+ },
+ {
+  "full_name": "twbs/bootstrap",
+  "owner": {
+   "login": "twbs",
+   "type": "Organization"
+  },
+  "language": "MDX",
+  "license": {
+   "spdx_id": "MIT",
+   "name": "MIT License"
+  },
+  "topics": [
+   "bootstrap",
+   "css",
+   "css-framework",
+   "html",
+   "javascript",
+   "sass",
+   "scss"
+  ],
+  "stargazers_count": 174300,
+  "forks_count": 78828,
+  "open_issues_count": 447,
+  "archived": false,
+  "created_at": "2011-07-29T21:19:00Z",
+  "html_url": "https://github.com/twbs/bootstrap"
+ },
+ {
+  "full_name": "ollama/ollama",
+  "owner": {
+   "login": "ollama",
+   "type": "Organization"
+  },
+  "language": "Go",
+  "license": {
+   "spdx_id": "MIT",
+   "name": "MIT License"
+  },
+  "topics": [
+   "deepseek",
+   "gemma",
+   "gemma3",
+   "glm",
+   "go",
+   "golang",
+   "gpt-oss",
+   "llama",
+   "llama3",
+   "llm",
+   "llms",
+   "minimax",
+   "mistral",
+   "ollama",
+   "qwen"
+  ],
+  "stargazers_count": 173787,
+  "forks_count": 16544,
+  "open_issues_count": 3380,
+  "archived": false,
+  "created_at": "2023-06-26T19:39:32Z",
+  "html_url": "https://github.com/ollama/ollama"
+ },
+ {
+  "full_name": "multica-ai/andrej-karpathy-skills",
+  "owner": {
+   "login": "multica-ai",
+   "type": "Organization"
+  },
+  "language": null,
+  "license": {
+   "spdx_id": null,
+   "name": null
+  },
+  "topics": [],
+  "stargazers_count": 172817,
+  "forks_count": 17609,
+  "open_issues_count": 120,
+  "archived": false,
+  "created_at": "2026-01-27T03:53:13Z",
+  "html_url": "https://github.com/multica-ai/andrej-karpathy-skills"
+ }
+]

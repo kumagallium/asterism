@@ -36,14 +36,30 @@ upstream sources are noted for attribution; consult vega-datasets' own
 The Crossref slice is whatever the public `/works` endpoint returned at fetch
 time (no query terms), so it is a neutral sample of recent registered works.
 
+## OpenLibrary & GitHub (open APIs — added for the post-A/B recalibration)
+
+These two were added to exercise the **multi-value / nested** functions
+(`split` / `array_at` / `json_array_single`) and the `bool_norm` / `url_canonical`
+core functions, and to widen the gate denominator beyond the two messy datasets
+that originally dominated it.
+
+| id | source | domain | licence |
+|---|---|---|---|
+| `openlibrary-books` | [OpenLibrary search API](https://openlibrary.org/search.json) `?q=science&fields=title,author_name,…` | bibliography (books) | OpenLibrary data is public domain / CC0 (Internet Archive). |
+| `github-repos` | [GitHub repositories search API](https://api.github.com/search/repositories) `?q=stars:>20000&sort=stars` | software repositories | Factual repository metadata (names, counts, topics, dates); GitHub API ToS permits use. Attribution: GitHub. |
+
+Both slices are trimmed to a handful of fields (see `fetch_corpus.py`) and are a
+neutral popularity-/relevance-ranked sample, not a curated extract.
+
 ## Why these
 
-The set is deliberately **non-materials-heavy and cross-domain** (weather,
-cars, film, finance, demography, ecology, disasters, labor, climate, aviation,
-seismology, bibliography) so the coverage numbers reflect *arbitrary* onboarding
-rather than the starrydata shape the Tier 0 library grew up around. Columns that
-need real computation are well represented: messy dates (`movies`, `stocks`),
-epoch-millis timestamps (`earthquakes`), DOIs and multi-valued author arrays
-(`crossref-works`), comma-wrapped multi-value strings (`earthquakes`), units in
-column names (`penguins`, `co2-concentration`), and booleans/enums (`penguins`,
-`seattle-weather`).
+The 14-dataset set is deliberately **non-materials-heavy and cross-domain**
+(weather, cars, film, finance, demography, ecology, disasters, labor, climate,
+aviation, seismology, bibliography ×2, software) so the coverage numbers reflect
+*arbitrary* onboarding rather than the starrydata shape the Tier 0 library grew
+up around. Columns that need real computation are well represented: messy dates
+(`movies`, `stocks`), epoch-millis timestamps (`earthquakes`), DOIs and
+multi-valued author arrays (`crossref-works`), comma-wrapped multi-value strings
+(`earthquakes`), JSON string arrays (`openlibrary-books`, `github-repos`),
+booleans (`github-repos`, `penguins`), URLs (`github-repos`, `earthquakes`), and
+units in column names (`penguins`, `co2-concentration`).

@@ -52,13 +52,20 @@
         rmlf:input [ rmlf:parameter fn:p_value ;
                      rmlf:inputValueMap [ rml:reference "published.date-parts" ] ] ] ;
       rr:datatype xsd:gYear ] ] ;
-  # fallback: title not expanded (JSON array)
-  rr:predicateObjectMap [ rr:predicate sd:titleRaw ;
-    rr:objectMap [ rml:reference "title" ] ] ;
-  # fallback: author not expanded (multi-valued JSON array of objects)
+  # title — one-element JSON array (["Soziale Innovation"]) → fn:json_array_single
+  rr:predicateObjectMap [ rr:predicate sd:title ;
+    rr:objectMap [
+      rmlf:functionExecution [ rmlf:function fn:json_array_single ;
+        rmlf:input [ rmlf:parameter fn:p_value ;
+                     rmlf:inputValueMap [ rml:reference "title" ] ] ] ] ] ;
+  # container-title — one-element JSON array → fn:json_array_single
+  rr:predicateObjectMap [ rr:predicate sd:containerTitle ;
+    rr:objectMap [
+      rmlf:functionExecution [ rmlf:function fn:json_array_single ;
+        rmlf:input [ rmlf:parameter fn:p_value ;
+                     rmlf:inputValueMap [ rml:reference "container-title" ] ] ] ] ] ;
+  # fallback: author is an array of OBJECTS ([{given,family},…]) — genuinely
+  # irreducible at Tier 0 (each element has sub-fields → needs a nested TriplesMap)
   rr:predicateObjectMap [ rr:predicate sd:authorRaw ;
-    rr:objectMap [ rml:reference "author" ] ] ;
-  # fallback: container-title not expanded (JSON array)
-  rr:predicateObjectMap [ rr:predicate sd:containerTitleRaw ;
-    rr:objectMap [ rml:reference "container-title" ] ] .
+    rr:objectMap [ rml:reference "author" ] ] .
 ```

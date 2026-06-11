@@ -83,18 +83,23 @@ see the caveat below for why it is needed anyway.
 
 Rationale:
 
-- It is an **A/B acceptance target, not the current state.** The current Tier 0
-  (8 starrydata-shaped functions) scores **~64%** on this corpus — see the
-  snapshot below — so the gate is comfortably FAILING today, by design.
+- It was set as an **A/B acceptance target.** On the original Tier 0 (8
+  starrydata-shaped functions) the corpus scored **~64%** — the gate was meant
+  to FAIL until the head was filled. After Track A (core functions) + Track B
+  (primitives) + the multi-value "easy wins" landed, it is now **11.1% → PASS**
+  (see the snapshot below). The target held its meaning across the whole effort.
 - 15% (the loose end of the handoff's suggested 10–15%) tolerates the genuinely
-  *irreducible* fallbacks — array-of-object cells like Crossref `author` that
-  need an RML **nested TriplesMap / multi-value expansion**, not a scalar
-  function — while still demanding that the easy wins (single-element arrays,
-  comma-wrapped lists, date-parts) be covered by Track B primitives.
-- **Recalibrate after each A/B landing.** Re-run `report`; as primitives cover
-  the comma-list and single-element-array cases the rate should drop well under
-  15%. Once the corpus is larger (more computation-heavy datasets, so the
-  denominator is less dominated by 2 files) tighten toward 10%.
+  *irreducible* fallbacks — **array-of-object** cells (Crossref `author`) and
+  multi-element scalar arrays where you want *every* element (OpenLibrary
+  `subject`, GitHub `topics`) — which need an RML **nested TriplesMap / iterator**,
+  not a Tier 0 scalar function. The easy wins (single-element arrays →
+  `json_array_single`, fixed-position → `array_at`, flat comma lists → `split`)
+  are now covered.
+- **Recalibrate after each Tier 0 change.** Re-run `report`; the gate now passes,
+  so the open question flips from "is the head enough?" to "can we tighten?".
+  With the denominator now spread across more datasets, **tightening the gate
+  toward 10%** is a reasonable next step (the current 11.1% would then be a near
+  miss, focusing attention on whether any of the 3 remaining raws are reducible).
 
 Tune it without editing code: `asterism-coverage report --gate 0.10`.
 
@@ -112,24 +117,36 @@ function). Read the gate (Track B / expansion signal) and the demand table
 columns move from `direct` → `function`, which *also* lowers `raw_rate` by
 growing the computed denominator.
 
-## Snapshot (current Tier 0 = 8 functions, this corpus)
+## Snapshot — the gate progression
 
-`report/coverage.{md,json}` holds the live numbers. As of the first run:
+`report/coverage.{md,json}` holds the live numbers. The gate was re-run at each
+Tier 0 milestone (same harness, same corpus method):
 
-- **Gate: corpus `…Raw` rate 63.6% ≥ 15% → ❌ FAIL** (7 raw fallbacks of 11
-  computed columns). Concentrated in `crossref-works` (100%) and `earthquakes`
-  (60%); 8 of 12 datasets have no computation-needing columns at all.
-- **Per-function usage:** only `fn:date_iso` (2) and `fn:iri_safe` (2) are used.
-  `fn:qudt_quantity` / `fn:qudt_unit` / `fn:float_array_*` / `fn:slug` go
-  **unused** — empirical confirmation that the array/QUDT functions are
-  starrydata-specific (and that `slug` is largely subsumed by Morph-KGC's
-  automatic template encoding).
-- **T9 misses:** none — the compliant proposals never referenced an undefined
-  function. The closed-set guard-rail holds; demand shows up in the next table.
-- **Demand by category (Track A targets):** `epoch_millis` ×2, `value_with_unit_name`
-  ×4, `boolean` ×2, `doi` ×1 are all mapped `direct`/`unmapped` (no covering
-  function); `multivalue_or_json` ×4 went to `…Raw`. `messy_date` ×2 and `url`
-  ×2 are already satisfied by `date_iso` / `iri_safe`.
+| Tier 0 state | functions | corpus `…Raw` rate | gate |
+|---|--:|--:|:--:|
+| v0 (original) | 8 | **63.6%** | ❌ FAIL |
+| + Track A (core) + Track B (primitives) | 25 | **36.8%** | ❌ FAIL |
+| + multi-value (`split`/`array_at`/`json_array_single`) + corpus hardening | 28 | **11.1%** | ✅ **PASS** |
+
+As of the current run (28 functions, 14 datasets):
+
+- **Gate: corpus `…Raw` rate 11.1% < 15% → ✅ PASS** (3 raw fallbacks of 27
+  computed columns). The 3 remaining raws are **genuinely irreducible** —
+  `crossref-works.author` (array of objects), `openlibrary-books.subject` and
+  `github-repos.topics` (multi-element lists where every element is wanted) —
+  each needs an RML nested TriplesMap / iterator, not a Tier 0 scalar function.
+- **Per-function usage:** now broad — `fn:array_at` (5), `fn:date_iso` (3),
+  `fn:url_canonical` (3), `fn:split` (3), `fn:lookup` (2), `fn:json_array_single`
+  (2), `fn:datetime_iso` (2), `fn:bool_norm` (2), `fn:doi_norm` (1),
+  `fn:year_only` (1). The starrydata-specific `fn:qudt_*` / `fn:float_array_*`
+  stay unused on this generic corpus (as expected).
+- **T9 misses:** none — every referenced function is in the closed set.
+- **Demand by category:** `messy_date` ×2, `epoch_millis` ×2, `url` ×3, `boolean`
+  (2 of 3), `doi` ×1, and most `multivalue_or_json` (7 of 10) are now handled by
+  a **function**. The only category still mapped `direct` is `value_with_unit_name`
+  ×4 (`penguins`/`co2`) — but there the unit lives in the *column name* with a
+  clean numeric cell, so `value_of`/`unit_of` (which split an in-cell `"300 K"`)
+  correctly do not apply; this is modeling, not a missing function.
 
 ## Honest limitations
 
@@ -141,6 +158,14 @@ growing the computed denominator.
   *include* computation-needing columns; the absolute rate reflects that mix.
   The gate is calibrated on this corpus and should be re-checked if the corpus
   changes materially.
+- **Clean public data rarely ships *in-cell* messy scalars.** Open APIs and
+  curated CSVs pre-parse currency/percent/ranges/value+unit (e.g. `movies` gross
+  is already an integer, `penguins` mass is a clean number with the unit in the
+  *column name*). So `number_clean` / `percent_to_ratio` / `range_min`/`range_max`
+  / `value_of` / `unit_of` get little exercise from *this* corpus — they target
+  scraped / hand-maintained / survey onboarding and are covered by the ingest
+  package's own unit tests. The harness measures them whenever such columns
+  appear; add a scraped dataset to exercise them here.
 - **The demand sniffer is heuristic** (regex over a few sample values). It is
   deliberately conservative (a space is required for value+unit so ID codes like
   `1000chmg` do not match) and is advisory only.

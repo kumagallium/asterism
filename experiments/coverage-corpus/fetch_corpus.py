@@ -41,6 +41,11 @@ CROSSREF = (
     "&select=DOI,title,author,published,container-title,type,is-referenced-by-count,subject"
     "&mailto=asterism-coverage@example.org"
 )
+OPENLIBRARY = (
+    "https://openlibrary.org/search.json?q=science&limit=40"
+    "&fields=title,author_name,first_publish_year,isbn,language,subject,number_of_pages_median"
+)
+GITHUB = "https://api.github.com/search/repositories?q=stars:%3E20000&sort=stars&per_page=40"
 
 
 def _curl(url: str) -> bytes:
@@ -104,6 +109,50 @@ def _crossref(raw: bytes, n_keep: int) -> str:
     return json.dumps(items, ensure_ascii=False, indent=1) + "\n"
 
 
+def _openlibrary(raw: bytes, n_keep: int) -> str:
+    """OpenLibrary search docs → trimmed records (multi-valued author/subject/isbn)."""
+    docs = json.loads(raw.decode("utf-8")).get("docs", [])[:n_keep]
+    out = []
+    for d in docs:
+        out.append(
+            {
+                "title": d.get("title"),
+                "author_name": d.get("author_name"),  # array of strings
+                "first_publish_year": d.get("first_publish_year"),
+                "isbn": (d.get("isbn") or [])[:5],  # array; trim
+                "language": d.get("language"),  # array, often ["eng"]
+                "subject": (d.get("subject") or [])[:8],  # array; trim
+                "number_of_pages_median": d.get("number_of_pages_median"),
+            }
+        )
+    return json.dumps(out, ensure_ascii=False, indent=1) + "\n"
+
+
+def _github(raw: bytes, n_keep: int) -> str:
+    """GitHub repo search items → trimmed records (topics[]/owner{}/license{}/bool)."""
+    items = json.loads(raw.decode("utf-8")).get("items", [])[:n_keep]
+    out = []
+    for it in items:
+        owner = it.get("owner") or {}
+        lic = it.get("license") or {}
+        out.append(
+            {
+                "full_name": it.get("full_name"),
+                "owner": {"login": owner.get("login"), "type": owner.get("type")},
+                "language": it.get("language"),
+                "license": {"spdx_id": lic.get("spdx_id"), "name": lic.get("name")},
+                "topics": it.get("topics"),  # array of strings
+                "stargazers_count": it.get("stargazers_count"),
+                "forks_count": it.get("forks_count"),
+                "open_issues_count": it.get("open_issues_count"),
+                "archived": it.get("archived"),  # boolean
+                "created_at": it.get("created_at"),  # ISO dateTime
+                "html_url": it.get("html_url"),
+            }
+        )
+    return json.dumps(out, ensure_ascii=False, indent=1) + "\n"
+
+
 # (dataset id, source filename, url, kind, n_keep)
 SPECS: list[tuple[str, str, str, str, int]] = [
     ("seattle-weather", "seattle-weather.csv", f"{VEGA}/seattle-weather.csv", "csv", 90),
@@ -124,6 +173,8 @@ SPECS: list[tuple[str, str, str, str, int]] = [
     ("airports", "airports.csv", f"{VEGA}/airports.csv", "csv", 90),
     ("earthquakes", "earthquakes.geojson", f"{VEGA}/earthquakes.json", "geojson", 40),
     ("crossref-works", "crossref-works.json", CROSSREF, "crossref", 40),
+    ("openlibrary-books", "openlibrary-books.json", OPENLIBRARY, "openlibrary", 40),
+    ("github-repos", "github-repos.json", GITHUB, "github", 40),
 ]
 
 
@@ -136,6 +187,10 @@ def _render(kind: str, raw: bytes, n_keep: int) -> str:
         return _downsample_geojson(raw, n_keep)
     if kind == "crossref":
         return _crossref(raw, n_keep)
+    if kind == "openlibrary":
+        return _openlibrary(raw, n_keep)
+    if kind == "github":
+        return _github(raw, n_keep)
     raise ValueError(f"unknown kind: {kind}")
 
 
