@@ -366,6 +366,12 @@ def _build_column_summaries(path: Path) -> tuple[list[ColumnSummary], int, list[
     if not rows:
         return [], 0, []
 
+    # Rename Morph-KGC's reserved columns (subject / predicate) so the proposed
+    # rml:reference matches the CSV the substrate feeds Morph-KGC — substrate
+    # sanitizes a direct CSV's header the same way (asterism.tabularize.safe_col).
+    # _safe_column is identity for every other name, so normal CSVs are unaffected.
+    if any(k in _RESERVED_SOURCE_COLUMNS for k in rows[0]):
+        rows = [{_safe_column(k): v for k, v in row.items()} for row in rows]
     columns = list(rows[0].keys())
     return _summarize_rows(rows, columns), len(rows), rows
 

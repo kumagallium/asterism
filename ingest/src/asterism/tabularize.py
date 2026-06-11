@@ -121,6 +121,31 @@ def _load_records(doc: object, record_path: str | None = None) -> list[object]:
     return [doc]
 
 
+def sanitize_csv_columns(source: Path | str, dest: Path | str) -> bool:
+    """Guard a *direct* CSV source against the reserved-column collision.
+
+    A CSV with a header literally named ``subject`` / ``predicate`` hits the same
+    Morph-KGC reservation as a tabularized JSON column: the function input resolves
+    to the generated term IRI, silently yielding zero triples. JSON sidesteps this
+    via :func:`flatten_record`'s :func:`safe_col`, but a CSV is read as-is. So if
+    (and only if) the header carries a reserved name, write ``dest`` with the header
+    renamed via :func:`safe_col` and return ``True``; otherwise leave ``dest``
+    untouched and return ``False`` (the caller reads the original). Rows stream
+    row-by-row, so this stays memory-bounded for large CSVs.
+    """
+    src = Path(source)
+    with src.open(encoding="utf-8-sig", newline="") as fh:
+        reader = csv.reader(fh)
+        header = next(reader, None)
+        if header is None or not any(h in RESERVED_COLUMNS for h in header):
+            return False
+        with Path(dest).open("w", encoding="utf-8", newline="") as out:
+            writer = csv.writer(out)
+            writer.writerow([safe_col(h) for h in header])
+            writer.writerows(reader)  # generator → bounded memory
+    return True
+
+
 def tabularize_json_to_csv(
     source: Path | str,
     dest: Path | str,

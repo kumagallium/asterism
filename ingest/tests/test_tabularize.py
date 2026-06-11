@@ -17,6 +17,7 @@ from asterism.tabularize import (
     RESERVED_COLUMNS,
     flatten_record,
     safe_col,
+    sanitize_csv_columns,
     tabularize_json_to_csv,
     tabularize_records,
 )
@@ -78,6 +79,26 @@ def test_safe_col_renames_only_reserved() -> None:
     assert safe_col("graph") == "graph"
     assert safe_col("subjects") == "subjects"
     assert safe_col("SUBJECT") == "SUBJECT"
+
+
+def test_sanitize_csv_columns_renames_only_when_reserved(tmp_path: Path) -> None:
+    # a CSV with a reserved header → rewritten with the header renamed
+    src = tmp_path / "ol.csv"
+    src.write_text('id,subject,note\nb1,"[""x""]",ok\n', encoding="utf-8")
+    dest = tmp_path / "ol.out.csv"
+    assert sanitize_csv_columns(src, dest) is True
+    with dest.open(encoding="utf-8", newline="") as fh:
+        rows = list(csv.DictReader(fh))
+    assert "subject" not in rows[0] and rows[0]["subject_"] == '["x"]'
+    assert rows[0]["id"] == "b1" and rows[0]["note"] == "ok"  # other columns intact
+
+
+def test_sanitize_csv_columns_noop_without_reserved(tmp_path: Path) -> None:
+    src = tmp_path / "plain.csv"
+    src.write_text("id,name\n1,a\n", encoding="utf-8")
+    dest = tmp_path / "plain.out.csv"
+    assert sanitize_csv_columns(src, dest) is False  # no reserved column → no copy
+    assert not dest.exists()
 
 
 def test_reserved_column_renamed_in_flatten() -> None:
@@ -281,3 +302,27 @@ def test_e2e_substrate_auto_tabularizes_json_source(tmp_path: Path) -> None:
     triples = _materialize(rml, tmp_path)
     assert ("https://ex/w/w1", "https://ex/authorFamily", "Adams") in triples
     assert ("https://ex/w/w1", "https://ex/authorFamily", "Brown") in triples
+
+
+def test_e2e_substrate_sanitizes_direct_csv_reserved_column(tmp_path: Path) -> None:
+    """A direct CSV (not JSON) with a reserved `subject` column materializes once
+    substrate renames the header to `subject_` — without the guard the function
+    input would read the generated IRI and yield 0 triples."""
+    if not _morph_kgc_installed():
+        pytest.skip("morph-kgc not installed; this exercises the real materialize")
+    (tmp_path / "ol.csv").write_text(
+        'id,subject\nb1,"[""Math"", ""Physics""]"\n', encoding="utf-8"
+    )
+    # the mapping references the sanitized selector `subject_` (what inspect/propose emit)
+    rml = _PREFIXES + """
+<#M> a rr:TriplesMap ;
+  rml:logicalSource [ rml:source "ol.csv" ; rml:referenceFormulation ql:CSV ] ;
+  rr:subjectMap [ rr:template "https://ex/b/{id}" ] ;
+  rr:predicateObjectMap [ rr:predicate ex:subject ; rr:objectMap [
+    rmlf:functionExecution [ rmlf:function fn:json_array ;
+      rmlf:input [ rmlf:parameter fn:p_value ;
+        rmlf:inputValueMap [ rml:reference "subject_" ] ] ] ] ] .
+"""
+    triples = _materialize(rml, tmp_path)
+    assert ("https://ex/b/b1", "https://ex/subject", "Math") in triples
+    assert ("https://ex/b/b1", "https://ex/subject", "Physics") in triples
