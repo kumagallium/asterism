@@ -167,6 +167,43 @@ def test_build_without_config_and_none_persisted_is_400(tmp_path: Path) -> None:
         assert client.get("/api/crosswalk").json()["exists"] is False
 
 
+def test_named_perspective_endpoints(tmp_path: Path) -> None:
+    ds = rdflib.Dataset()
+    _seed_promoted(ds, tmp_path / "registry", "ds-a", [("urn:a1", "Bi2Te3")])
+    _seed_promoted(ds, tmp_path / "registry", "ds-b", [("urn:b1", "Bi2Te3")])
+    client_obj = _DatasetClient(ds)
+    app = build_app(_settings(tmp_path), oxigraph_client=client_obj, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        # Build BOTH the default (composition) and a NAMED perspective ("crystal").
+        base = client.post("/api/crosswalk/build", json=_config_body(["ds-a", "ds-b"]))
+        assert base.status_code == 200, base.text
+        r = client.post(
+            "/api/crosswalk/crystal/build",
+            json={**_config_body(["ds-a", "ds-b"]), "name": "結晶構造"},
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["perspective_id"] == "crystal"
+        assert body["dataset_id"] == "crosswalk-crystal"
+        assert body["hub_graph"].endswith("/graph/canonical/crosswalk/crystal")
+        assert body["shared_total"] == 1
+
+        # The list endpoint returns BOTH perspectives, distinctly.
+        persp = client.get("/api/crosswalks").json()["perspectives"]
+        ids = {p["perspective_id"] for p in persp}
+        assert ids == {"composition", "crystal"}
+
+        # GET one named perspective.
+        g = client.get("/api/crosswalk/crystal").json()
+        assert g["exists"] is True
+        assert g["dataset"]["name"] == "結晶構造"
+
+    # The two perspectives wrote to DISTINCT graphs (the legacy + the new sub-path).
+    posted = set(client_obj.posted)
+    assert "https://kumagallium.github.io/asterism/graph/canonical/crosswalk" in posted
+    assert "https://kumagallium.github.io/asterism/graph/canonical/crosswalk/crystal" in posted
+
+
 class _MockLLM:
     def __init__(self, response: str) -> None:
         self.response = response
@@ -245,8 +282,8 @@ def test_debounced_rebuilder_coalesces(tmp_path: Path) -> None:
 
     async def run() -> int:
         rebuilder = CrosswalkRebuilder(client, root, delay_s=0.05)
-        rebuilder.schedule()
-        rebuilder.schedule()  # supersedes the first (a burst of appends -> ONE rebuild)
+        rebuilder.schedule("ds-a")
+        rebuilder.schedule("ds-a")  # supersedes the first (a burst of appends -> ONE rebuild)
         await asyncio.sleep(0.2)
         await rebuilder.aclose()
         return client.posted.count(crosswalk_runtime.HUB_GRAPH)

@@ -135,13 +135,15 @@ class ToolRunBody(BaseModel):
 
 
 class CrosswalkBuildBody(BaseModel):
-    """Body for POST /api/crosswalk/build (crosswalk-hub.md productize ①). When a
-    ``config`` is given (the authoring flow: which datasets + which concept-bearing
-    predicate participate) it is validated, persisted, and built; omit it to rebuild
-    from the persisted config. The mapping is a human-vetted claim — building it IS
-    that gate (the same way saving a query tool is)."""
+    """Body for POST /api/crosswalk[/{perspective_id}]/build (crosswalk-hub.md ①,
+    multi-perspective ADR). When a ``config`` is given (the authoring flow: which
+    datasets + which concept-bearing predicate participate) it is validated, persisted,
+    and built; omit it to rebuild from the persisted config. ``name`` is a human label
+    for a new perspective. The mapping is a human-vetted claim — building it IS that
+    gate (the same way saving a query tool is)."""
 
     config: dict | None = None
+    name: str = ""
 
 
 class CrosswalkProposeBody(BaseModel):
@@ -174,17 +176,24 @@ logger = logging.getLogger(__name__)
 # per batch. Both are idempotent (drop + replace) and best-effort (never block).
 
 
-async def _rebuild_crosswalk_now(client: OxigraphClient, registry_root: Path) -> dict | None:
-    """Rebuild the hub from the persisted config + refresh its registry meta. No-op
-    (returns None) when there is no crosswalk config yet."""
-    config = crosswalk_runtime.load_config(registry_root)
+async def _rebuild_crosswalk_now(
+    client: OxigraphClient,
+    registry_root: Path,
+    perspective_id: str = crosswalk_runtime.DEFAULT_PERSPECTIVE_ID,
+) -> dict | None:
+    """Rebuild ONE perspective from its persisted config + refresh its registry meta.
+    No-op (returns None) when that perspective has no config yet."""
+    config = crosswalk_runtime.load_config(registry_root, perspective_id)
     if config is None:
         return None
     outcome = await crosswalk_runtime.build_hub(
-        client, config, built_at=datetime.now(UTC).isoformat()
+        client, config, built_at=datetime.now(UTC).isoformat(), perspective_id=perspective_id
     )
-    crosswalk_runtime.write_registry_scaffold(registry_root, config, outcome)
+    crosswalk_runtime.write_registry_scaffold(
+        registry_root, config, outcome, perspective_id=perspective_id
+    )
     return {
+        "perspective_id": perspective_id,
         "built_at": outcome.built_at,
         "triple_count": outcome.triple_count,
         "shared": outcome.shared,
@@ -193,33 +202,51 @@ async def _rebuild_crosswalk_now(client: OxigraphClient, registry_root: Path) ->
     }
 
 
+def _perspective_ids_for_dataset(registry_root: Path, dataset_id: str) -> list[str]:
+    """Perspective ids whose config includes ``dataset_id`` — i.e. the perspectives a
+    promote/append of that dataset makes stale (multi-perspective, ADR §Phase 1). The
+    default (composition) perspective is always considered (it may carry a config before
+    its scaffold meta exists)."""
+    ids = {crosswalk_runtime.DEFAULT_PERSPECTIVE_ID}
+    for meta in crosswalk_runtime.list_perspectives(registry_root):
+        ids.add(meta.get("crosswalk_perspective_id") or crosswalk_runtime.DEFAULT_PERSPECTIVE_ID)
+    out: list[str] = []
+    for pid in sorted(ids):
+        try:
+            cfg = crosswalk_runtime.load_config(registry_root, pid)
+        except Exception:
+            cfg = None
+        if cfg is not None and dataset_id in cfg.dataset_ids():
+            out.append(pid)
+    return out
+
+
 async def _maybe_rebuild_crosswalk(
     client: OxigraphClient, registry_root: Path, dataset_id: str
 ) -> None:
-    """Inline best-effort rebuild after a promote, IF the dataset participates in the
-    crosswalk. Never raises — a hub-rebuild failure must not fail the promote."""
+    """Inline best-effort rebuild after a promote of EVERY perspective the dataset
+    participates in. Never raises — a hub-rebuild failure must not fail the promote."""
     try:
-        config = crosswalk_runtime.load_config(registry_root)
-        if config is not None and dataset_id in config.dataset_ids():
-            await _rebuild_crosswalk_now(client, registry_root)
+        for pid in _perspective_ids_for_dataset(registry_root, dataset_id):
+            await _rebuild_crosswalk_now(client, registry_root, pid)
     except Exception:  # never block a promote on the derived-hub rebuild
         logger.exception("crosswalk auto-rebuild after promote failed (continuing)")
 
 
 def _crosswalk_participates(registry_root: Path, dataset_id: str) -> bool:
-    """True iff ``dataset_id`` is a crosswalk participant (so an append to it makes the
-    hub stale). Best-effort: a malformed/absent config reads as 'not participating'."""
+    """True iff ``dataset_id`` participates in ANY crosswalk perspective (so an append
+    to it makes a hub stale). Best-effort: a malformed registry reads as 'no'."""
     try:
-        config = crosswalk_runtime.load_config(registry_root)
-        return config is not None and dataset_id in config.dataset_ids()
+        return bool(_perspective_ids_for_dataset(registry_root, dataset_id))
     except Exception:
         return False
 
 
 class CrosswalkRebuilder:
-    """Debounced background rebuilder: ``schedule()`` (re)arms a short timer that
-    coalesces a burst of appends into ONE rebuild. Runs off the request path so an
-    append returns immediately and the hub self-heals shortly after."""
+    """Debounced background rebuilder: ``schedule(dataset_id)`` (re)arms a short timer
+    that coalesces a burst of appends into ONE rebuild, then rebuilds **every
+    perspective** the accumulated datasets participate in. Runs off the request path so
+    an append returns immediately and the hubs self-heal shortly after."""
 
     def __init__(
         self, client: OxigraphClient, registry_root: Path, *, delay_s: float = 5.0
@@ -228,8 +255,11 @@ class CrosswalkRebuilder:
         self._root = registry_root
         self._delay = delay_s
         self._task: asyncio.Task[None] | None = None
+        self._pending: set[str] = set()  # dataset_ids whose perspectives are stale
 
-    def schedule(self) -> None:
+    def schedule(self, dataset_id: str | None = None) -> None:
+        if dataset_id:
+            self._pending.add(dataset_id)
         if self._task is not None and not self._task.done():
             self._task.cancel()
         self._task = asyncio.create_task(self._run(), name="asterism-crosswalk-rebuild")
@@ -239,8 +269,14 @@ class CrosswalkRebuilder:
             await asyncio.sleep(self._delay)  # debounce window
         except asyncio.CancelledError:
             return  # superseded by a newer schedule() — let it run instead
+        datasets = set(self._pending)
+        self._pending.clear()
         try:
-            await _rebuild_crosswalk_now(self._client, self._root)
+            pids: set[str] = set()
+            for dsid in datasets:
+                pids.update(_perspective_ids_for_dataset(self._root, dsid))
+            for pid in sorted(pids):
+                await _rebuild_crosswalk_now(self._client, self._root, pid)
         except Exception:
             logger.exception("debounced crosswalk rebuild failed")
 
@@ -685,7 +721,7 @@ async def _append_batch_to_dataset(
     # dataset participates, and schedule a debounced rebuild (self-healing).
     crosswalk_stale = _crosswalk_participates(registry_root, dataset_id)
     if crosswalk_stale and rebuilder is not None:
-        rebuilder.schedule()
+        rebuilder.schedule(dataset_id)
     return {
         "dataset_id": dataset_id,
         "live_graph": live_graph,
@@ -1742,53 +1778,63 @@ def build_app(
     # Crosswalk hub (crosswalk-hub.md productize ①④) — author / build / view
     # ----------------------------------------------------------------------
 
-    @app.get("/api/crosswalk")
-    async def crosswalk_get() -> JSONResponse:
-        """The persisted crosswalk config + the hub's registry meta (stats). Read-only;
-        ``exists:false`` when no hub has been built yet."""
-        config = crosswalk_runtime.load_config(cfg.registry_root)
-        data = registry.load_dataset(cfg.registry_root, crosswalk_runtime.DATASET_ID)
-        return JSONResponse(
-            {
-                "exists": config is not None,
-                "config": crosswalk_runtime.config_to_dict(config) if config else None,
-                "dataset": data["meta"] if data else None,
-            }
-        )
+    def _validated_perspective_id(perspective_id: str) -> str:
+        try:
+            crosswalk_runtime.crosswalk_graph_iri(perspective_id)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return perspective_id
 
-    @app.post("/api/crosswalk/build", dependencies=_write_auth)
-    async def crosswalk_build(body: CrosswalkBuildBody) -> JSONResponse:
-        """Build (or rebuild) the crosswalk hub (productize ①). A ``config`` in the body
-        (the authoring flow) is validated + persisted, then built; omit it to rebuild
-        from the persisted config. Reads each participant's promoted canonical graph,
-        mints the shared entities + per-link provenance, writes the hub graph + control
-        flag (so the FROM-merge unions it). Building the human-declared mapping IS the
-        vet gate."""
+    def _crosswalk_view(perspective_id: str) -> dict:
+        config = crosswalk_runtime.load_config(cfg.registry_root, perspective_id)
+        data = registry.load_dataset(
+            cfg.registry_root, crosswalk_runtime.crosswalk_registry_id(perspective_id)
+        )
+        return {
+            "perspective_id": perspective_id,
+            "exists": config is not None,
+            "config": crosswalk_runtime.config_to_dict(config) if config else None,
+            "dataset": data["meta"] if data else None,
+        }
+
+    async def _do_crosswalk_build(
+        perspective_id: str, body: CrosswalkBuildBody
+    ) -> JSONResponse:
+        """Build (or rebuild) ONE perspective. ``config`` in the body (the authoring
+        flow) is validated + persisted, then built; omit it to rebuild from the
+        persisted config. Each perspective is its own graph; the FROM-merge unions
+        them. Building the human-declared mapping IS the vet gate."""
         client: OxigraphClient = app.state.client
         if body.config is not None:
             try:
                 config = crosswalk_runtime.parse_config(body.config)
             except ValueError as exc:
                 raise HTTPException(400, f"invalid crosswalk config: {exc}") from exc
-            crosswalk_runtime.save_config(cfg.registry_root, config)
+            crosswalk_runtime.save_config(cfg.registry_root, config, perspective_id)
         else:
-            config = crosswalk_runtime.load_config(cfg.registry_root)
+            config = crosswalk_runtime.load_config(cfg.registry_root, perspective_id)
             if config is None:
                 raise HTTPException(
                     400,
                     "no crosswalk config yet — POST a config (datasets + the "
-                    "concept-bearing predicate of each) to create the hub",
+                    "concept-bearing predicate of each) to create this perspective",
                 )
         try:
             outcome = await crosswalk_runtime.build_hub(
-                client, config, built_at=datetime.now(UTC).isoformat()
+                client,
+                config,
+                built_at=datetime.now(UTC).isoformat(),
+                perspective_id=perspective_id,
             )
         except Exception as exc:  # surface a build error to the UI
             raise HTTPException(502, f"crosswalk build failed: {exc}") from exc
-        meta = crosswalk_runtime.write_registry_scaffold(cfg.registry_root, config, outcome)
+        meta = crosswalk_runtime.write_registry_scaffold(
+            cfg.registry_root, config, outcome, perspective_id=perspective_id, name=body.name or ""
+        )
         return JSONResponse(
             {
-                "dataset_id": crosswalk_runtime.DATASET_ID,
+                "perspective_id": perspective_id,
+                "dataset_id": meta["id"],
                 "hub_graph": outcome.hub_graph,
                 "built_at": outcome.built_at,
                 "triple_count": outcome.triple_count,
@@ -1800,6 +1846,37 @@ def build_app(
                 "dataset": meta,
             }
         )
+
+    @app.get("/api/crosswalks")
+    async def crosswalks_list() -> JSONResponse:
+        """List every crosswalk PERSPECTIVE (id, name, stats, config) — the upper
+        ontology is plural (multi-perspective ADR)."""
+        out = []
+        for meta in crosswalk_runtime.list_perspectives(cfg.registry_root):
+            pid = (
+                meta.get("crosswalk_perspective_id")
+                or crosswalk_runtime.DEFAULT_PERSPECTIVE_ID
+            )
+            config = crosswalk_runtime.load_config(cfg.registry_root, pid)
+            out.append(
+                {
+                    "perspective_id": pid,
+                    "config": crosswalk_runtime.config_to_dict(config) if config else None,
+                    "dataset": meta,
+                }
+            )
+        return JSONResponse({"perspectives": out})
+
+    @app.get("/api/crosswalk")
+    async def crosswalk_get() -> JSONResponse:
+        """The default (composition) perspective's config + stats (back-compat).
+        ``exists:false`` when it has not been built yet."""
+        return JSONResponse(_crosswalk_view(crosswalk_runtime.DEFAULT_PERSPECTIVE_ID))
+
+    @app.post("/api/crosswalk/build", dependencies=_write_auth)
+    async def crosswalk_build(body: CrosswalkBuildBody) -> JSONResponse:
+        """Build (or rebuild) the default (composition) perspective (back-compat)."""
+        return await _do_crosswalk_build(crosswalk_runtime.DEFAULT_PERSPECTIVE_ID, body)
 
     @app.post("/api/crosswalk/propose", dependencies=_write_auth)
     async def crosswalk_propose(
@@ -1854,6 +1931,21 @@ def build_app(
             "candidates": datasets,
             "skipped": skipped,
         }
+
+    # Parameterized perspective routes are declared AFTER the literal ones
+    # (/crosswalk/build, /crosswalk/propose) so those never bind ``perspective_id``.
+    @app.get("/api/crosswalk/{perspective_id}")
+    async def crosswalk_get_one(perspective_id: str) -> JSONResponse:
+        """One perspective's config + stats (multi-perspective ADR)."""
+        return JSONResponse(_crosswalk_view(_validated_perspective_id(perspective_id)))
+
+    @app.post("/api/crosswalk/{perspective_id}/build", dependencies=_write_auth)
+    async def crosswalk_build_one(
+        perspective_id: str, body: CrosswalkBuildBody
+    ) -> JSONResponse:
+        """Build (or rebuild) a NAMED perspective — author a new lens or refresh one.
+        Each perspective is its own crosswalk graph; the FROM-merge unions them."""
+        return await _do_crosswalk_build(_validated_perspective_id(perspective_id), body)
 
     @app.post("/api/sparql", dependencies=_write_auth)
     async def sparql(body: SparqlRequest) -> JSONResponse:
