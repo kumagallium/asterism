@@ -1,0 +1,28 @@
+# Declared identity of the **papers** example dataset (document-ontology layer).
+#
+# This is the THIRD example dataset (after starrydata and materials_project) and
+# the first of a *different shape*: not tabular facts about materials, but the
+# structured full text of a research paper — section → subsection → paragraph →
+# sentence, plus figures/captions — addressed by resolvable IRIs. It proves the
+# Asterism core proposition (design ontology + stable IRIs + deterministic
+# derivation + PROV + citation) holds for "the shape of prose", not just "the
+# shape of data" (ADR docs/architecture/document-ontology-layer.md).
+#
+# It reuses STANDARD published-document vocabularies verbatim (SPAR: fabio/doco/
+# deo/po; NIF for offsets; prov/dcterms) — the same "引く, don't invent" discipline
+# as QUDT/PROV. The `lit:` namespace below holds ONLY the few dataset-specific
+# terms (pmcid, structuralPath, conditionStatedIn, DocumentParsingActivity,
+# sourceFormat, parser) — addressing + a parse-provenance envelope, nothing about
+# the *meaning* of the prose.
+#
+# The seed paper is real: PMC5951533 (Schwall & Balke, MDPI Materials, CC-BY 4.0),
+# an n-type half-Heusler thermoelectric study — a genuine Starrydata source paper
+# (47 samples). IRIs are data identity: do not rename casually (前提 ADR / IRI 不変).
+
+name = "papers"
+description = "Structured full text of research papers (section/paragraph/sentence/figure) as resolvable, citable IRIs — the document-ontology layer. Seeded with the real CC-BY JATS of PMC5951533, an n-type half-Heusler thermoelectric paper."
+
+ontology_iri = "https://kumagallium.github.io/asterism/papers/ontology#"
+resource_iri = "https://kumagallium.github.io/asterism/papers/resource/"
+graph_base = "https://kumagallium.github.io/asterism/papers/graph/"
+software_agent_iri = "https://github.com/kumagallium/asterism"

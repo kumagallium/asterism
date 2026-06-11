@@ -1,0 +1,90 @@
+# Declarative JATS-source mapping for PMC5951533 (document-ontology layer).
+#
+# This is the ql:XPath twin of the spike (experiments/jats-xpath-spike), proven
+# here on a REAL PMC OA full-text article: Morph-KGC reads the JATS XML
+# declaratively — NO generated code, only the closed Tier 0 function set — and the
+# `po:contains` structure tree (paper → section → subsection → figure) comes out
+# with stable, @id-keyed IRIs and one Tier 0 function (fn:structural_slug) for the
+# human-readable structural path. Same substrate as the CSV/JSON paths (#19); the
+# only difference is `rml:referenceFormulation ql:XPath` and `.xml` on the source
+# allowlist. See ADR docs/architecture/document-ontology-layer.md.
+#
+# What this declarative path covers — and what it deliberately does NOT:
+#   * COVERS the id-bearing structural skeleton: the paper node, every <sec> and
+#     nested <sec> (all carry a stable @id), every <fig> (@id + label), and the
+#     po:contains tree. This is the publisher's authored structure, transcribed
+#     deterministically — the core claim of the spike, now on real data.
+#   * Does NOT cover paragraphs, sentences, character offsets, or faithful verbatim
+#     text. Real JATS <p> elements have NO @id (positional keys are stateful), JATS
+#     has no sentence element, and Morph-KGC's XML reader (stdlib ElementTree)
+#     returns only an element's `.text`, truncating mixed content (titles/captions
+#     with <sub>/<italic>). Those are produced by the deterministic post-pass
+#     (seed/build_paper_graph.py) and recorded as a dated lit:DocumentParsingActivity
+#     claim — exactly the split the handoff §A.4 predicted.
+#
+# morph-kgc XML constraints exercised here (discovered in the spike + this build):
+#   * The ITERATOR uses full XPath 3.0 (elementpath): "/article/body//fig" works.
+#   * REFERENCES/templates use stdlib ElementTree.findall: NO [@attr='val']
+#     predicates (the naive @-split mangles them), NO parent/ancestor axes. So the
+#     paper-IRI base is a per-paper CONSTANT (rr:constant subject — the ingest is
+#     per-paper) and the paper-level scalars (doi) are constants too.
+#   * Containment is parent→child via a multi-valued child reference
+#     ({body/sec/@id}, {sec/@id}, {fig/@id}); one triple per child.
+
+@prefix rr:      <http://www.w3.org/ns/r2rml#> .
+@prefix rml:     <http://semweb.mmlab.be/ns/rml#> .
+@prefix ql:      <http://semweb.mmlab.be/ns/ql#> .
+@prefix rmlf:    <http://w3id.org/rml/> .
+@prefix fabio:   <http://purl.org/spar/fabio/> .
+@prefix doco:    <http://purl.org/spar/doco/> .
+@prefix po:      <http://www.essepuntato.it/2008/12/pattern#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix prov:    <http://www.w3.org/ns/prov#> .
+@prefix rdfs:    <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix lit:     <https://kumagallium.github.io/asterism/papers/ontology#> .
+@prefix fn:      <https://kumagallium.github.io/asterism/fn/> .
+
+# Paper node — constant subject (per-paper injection): the ancestor article-id is
+# unreachable from a child iterator, and a predicate reference is rejected by the
+# XML reader's @-split, so for a per-paper ingest the base IRI and doi are constants.
+<#PaperMap> a rr:TriplesMap ;
+  rml:logicalSource [ rml:source "PMC5951533.xml" ; rml:referenceFormulation ql:XPath ; rml:iterator "/article" ] ;
+  rr:subjectMap [ rr:constant <https://kumagallium.github.io/asterism/papers/resource/paper/PMC5951533> ;
+    rr:class fabio:ResearchPaper, prov:Entity ] ;
+  rr:predicateObjectMap [ rr:predicate dcterms:identifier ; rr:objectMap [ rr:constant "10.3390/ma11040649" ] ] ;
+  rr:predicateObjectMap [ rr:predicate lit:pmcid ; rr:objectMap [ rr:constant "PMC5951533" ] ] ;
+  rr:predicateObjectMap [ rr:predicate po:contains ;
+    rr:objectMap [ rr:template "https://kumagallium.github.io/asterism/papers/resource/paper/PMC5951533/sec/{body/sec/@id}" ; rr:termType rr:IRI ] ] .
+
+# Top-level sections — stable @id IRI; structuralPath via the Tier 0 fn:structural_slug
+# applied to the heading ("4. Materials and Methods" → "4"); po:contains its child
+# subsections and any direct-child figures.
+<#SecMap> a rr:TriplesMap ;
+  rml:logicalSource [ rml:source "PMC5951533.xml" ; rml:referenceFormulation ql:XPath ; rml:iterator "/article/body/sec" ] ;
+  rr:subjectMap [ rr:template "https://kumagallium.github.io/asterism/papers/resource/paper/PMC5951533/sec/{@id}" ; rr:class doco:Section ] ;
+  rr:predicateObjectMap [ rr:predicate lit:structuralPath ;
+    rr:objectMap [ rmlf:functionExecution [ rmlf:function fn:structural_slug ;
+      rmlf:input [ rmlf:parameter fn:p_value ; rmlf:inputValueMap [ rml:reference "title" ] ] ] ] ] ;
+  rr:predicateObjectMap [ rr:predicate po:contains ;
+    rr:objectMap [ rr:template "https://kumagallium.github.io/asterism/papers/resource/paper/PMC5951533/sec/{sec/@id}" ; rr:termType rr:IRI ] ] ;
+  rr:predicateObjectMap [ rr:predicate po:contains ;
+    rr:objectMap [ rr:template "https://kumagallium.github.io/asterism/papers/resource/paper/PMC5951533/fig/{fig/@id}" ; rr:termType rr:IRI ] ] .
+
+# Nested subsections (one level under Results in this paper) — same shape, po:contains
+# its direct-child figures.
+<#SubSecMap> a rr:TriplesMap ;
+  rml:logicalSource [ rml:source "PMC5951533.xml" ; rml:referenceFormulation ql:XPath ; rml:iterator "/article/body/sec/sec" ] ;
+  rr:subjectMap [ rr:template "https://kumagallium.github.io/asterism/papers/resource/paper/PMC5951533/sec/{@id}" ; rr:class doco:Section ] ;
+  rr:predicateObjectMap [ rr:predicate lit:structuralPath ;
+    rr:objectMap [ rmlf:functionExecution [ rmlf:function fn:structural_slug ;
+      rmlf:input [ rmlf:parameter fn:p_value ; rmlf:inputValueMap [ rml:reference "title" ] ] ] ] ] ;
+  rr:predicateObjectMap [ rr:predicate po:contains ;
+    rr:objectMap [ rr:template "https://kumagallium.github.io/asterism/papers/resource/paper/PMC5951533/fig/{fig/@id}" ; rr:termType rr:IRI ] ] .
+
+# Figures — stable @id IRI; the "Figure N" label is clean (no mixed content) so it
+# transcribes faithfully via rml:reference. The caption verbatim is added by the
+# deterministic post-pass (it lives in <caption><p> mixed content).
+<#FigMap> a rr:TriplesMap ;
+  rml:logicalSource [ rml:source "PMC5951533.xml" ; rml:referenceFormulation ql:XPath ; rml:iterator "/article/body//fig" ] ;
+  rr:subjectMap [ rr:template "https://kumagallium.github.io/asterism/papers/resource/paper/PMC5951533/fig/{@id}" ; rr:class doco:Figure ] ;
+  rr:predicateObjectMap [ rr:predicate rdfs:label ; rr:objectMap [ rml:reference "label" ] ] .

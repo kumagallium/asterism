@@ -1,0 +1,50 @@
+# Data↔text FUSION overlay (document-ontology layer §A.6) — DEMO FIXTURE.
+#
+# This wires a measured property curve to the document layer: the FIGURE it was
+# digitized from and the SENTENCE that states how it was measured. It is the
+# headline of the doc layer — a cross-modal join RAG cannot do deterministically
+# ("this number, that figure, this method sentence", all cited).
+#
+# WHY THIS IS A FIXTURE, NOT REAL STARRYDATA ROWS: real Starrydata curve/sample
+# rows are derived from a licensed source and are NOT committed to this public
+# repo (the starrydata demo seed is gitignored). So the curve/sample below are a
+# small, faithful, clearly-namespaced DEMO ABox (sd:-shaped, but living under the
+# papers dataset's …/resource/demo/ space so nobody mistakes them for real rows).
+# Their composition matches the seed paper (an n-type half-Heusler TiZrHf-NiSn);
+# the figure and the condition sentence they point at ARE real nodes in the
+# committed paper graph (seed/paper.ttl, from the CC-BY JATS of PMC5951533).
+#
+# Governance (§A.7-4): crosswalk is for entities and explicit normalized values;
+# prose-location is the document layer's job. So the prose link
+# (lit:conditionStatedIn) hangs off the SAMPLE (an entity), pointing INTO the
+# document — it does NOT put a composition on a sentence, and it does NOT touch
+# the crosswalk hub. Promoting this overlay leaves the hub's shared compositions
+# and tools unchanged (MVP crosswalk-regression gate).
+
+@prefix sd:   <https://kumagallium.github.io/asterism/starrydata/ontology#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix cito: <http://purl.org/spar/cito/> .
+@prefix lit:  <https://kumagallium.github.io/asterism/papers/ontology#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+
+# --- demo sample (sd:-shaped; faithful composition from the seed paper) ----------
+<https://kumagallium.github.io/asterism/papers/resource/demo/sample/hh1>
+  a sd:Sample ;
+  sd:compositionString "Ti0.5Zr0.25Hf0.25NiSn" ;
+  # prose-location: the measurement condition for this sample is stated in §4,
+  # Materials and Methods, paragraph 2, sentence 1 (the PPMS / TTO sentence).
+  lit:conditionStatedIn
+    <https://kumagallium.github.io/asterism/papers/resource/paper/PMC5951533/sec/sec4-materials-11-00649/para/1/sent/0> .
+
+# --- demo ZT curve, digitized from Figure 3 (the transport-properties figure) ----
+<https://kumagallium.github.io/asterism/papers/resource/demo/curve/hh1>
+  a sd:Curve ;
+  sd:ofSample <https://kumagallium.github.io/asterism/papers/resource/demo/sample/hh1> ;
+  sd:propertyY "ZT" ;
+  sd:yMax "1.0"^^xsd:double ;
+  # the curve was derived from a specific FIGURE node, not just "the paper" — the
+  # §A.6 precision: prov:wasDerivedFrom + cito:usesDataFrom point at the figure.
+  prov:wasDerivedFrom
+    <https://kumagallium.github.io/asterism/papers/resource/paper/PMC5951533/fig/materials-11-00649-f003> ;
+  cito:usesDataFrom
+    <https://kumagallium.github.io/asterism/papers/resource/paper/PMC5951533/fig/materials-11-00649-f003> .

@@ -1,0 +1,85 @@
+# papers model — rdf-config form (TBox for the #20 step5 ontology projection).
+#
+# Example-driven: each Subject is one representative instance from the seed paper
+# (PMC5951533); cardinality markers (? * +) show property arity. At promote time
+# asterism.ontology_projection projects this into RDFS/OWL in the per-dataset
+# ontology graph (…/asterism/graph/ontology/papers) so schema_summary can enrich
+# answers with labels and domain/range. Ask still works from ABox introspection
+# alone (the TBox is enrichment, never a dependency).
+#
+# The structural classes are REUSED SPAR/DoCO/NIF terms (fabio:/doco:/nif:) — the
+# "引く, don't invent" discipline. The dataset's OWN terms live in lit:
+# (https://kumagallium.github.io/asterism/papers/ontology#): pmcid / structuralPath
+# (addressing), conditionStatedIn (the data↔text fusion link), and the
+# DocumentParsingActivity envelope (sourceFormat / parser) that frames sentence
+# segmentation as a dated claim, not a verified fact.
+
+- ResearchPaper <https://kumagallium.github.io/asterism/papers/resource/paper/PMC5951533>:
+    - a: fabio:ResearchPaper
+    - lit:pmcid:
+        - pmcid: "PMC5951533"
+    - dcterms:identifier:
+        - doi: "10.3390/ma11040649"
+    - dcterms:title:
+        - paper_title: "On the Phase Separation in n-Type Thermoelectric Half-Heusler Materials"
+    - prov:wasGeneratedBy:
+        - parse_activity: DocumentParsingActivity
+    - po:contains+:
+        - section: Section
+
+- Section <https://kumagallium.github.io/asterism/papers/resource/paper/PMC5951533/sec/sec4-materials-11-00649>:
+    - a: doco:Section
+    - dcterms:title:
+        - section_title: "4. Materials and Methods"
+    - lit:structuralPath?:
+        - structural_path: "4"
+    - po:contains*:
+        - paragraph: Paragraph
+
+- Paragraph <https://kumagallium.github.io/asterism/papers/resource/paper/PMC5951533/sec/sec4-materials-11-00649/para/1>:
+    - a: doco:Paragraph
+    - nif:isString:
+        - paragraph_text: "The transport properties at low temperatures were determined by a physical properties measurement system."
+    - po:contains*:
+        - sentence: Sentence
+
+- Sentence <https://kumagallium.github.io/asterism/papers/resource/paper/PMC5951533/sec/sec4-materials-11-00649/para/1/sent/0>:
+    - a: doco:Sentence
+    - nif:anchorOf:
+        - sentence_text: "The transport properties at low temperatures were determined by a physical properties measurement system (PPMS) using the thermal transport option (TTO)."
+    - nif:referenceContext:
+        - context: Context
+    - nif:beginIndex:
+        - begin: "27209"
+    - nif:endIndex:
+        - end: "27431"
+    - prov:wasQuotedFrom:
+        - quoted_paper: ResearchPaper
+    - prov:wasGeneratedBy:
+        - sentence_parse_activity: DocumentParsingActivity
+
+- Figure <https://kumagallium.github.io/asterism/papers/resource/paper/PMC5951533/fig/materials-11-00649-f003>:
+    - a: doco:Figure
+    - rdfs:label:
+        - figure_label: "Figure 3"
+    - po:contains?:
+        - figure_caption: Caption
+
+- Caption <https://kumagallium.github.io/asterism/papers/resource/paper/PMC5951533/fig/materials-11-00649-f003/caption>:
+    - a: doco:Caption
+    - nif:isString:
+        - caption_text: "Electrical resistivity, Seebeck coefficient, thermal conductivity and figure of merit ZT."
+
+- Context <https://kumagallium.github.io/asterism/papers/resource/paper/PMC5951533/fulltext>:
+    - a: nif:Context
+    - nif:isString:
+        - fulltext: "…the concatenated full text of the paper…"
+
+- DocumentParsingActivity <https://kumagallium.github.io/asterism/papers/resource/activity/parse/PMC5951533/run-2026-06-11>:
+    - a: lit:DocumentParsingActivity
+    - lit:sourceFormat:
+        - source_format: "jats"
+    - lit:parser:
+        - parser: "asterism-jats/0.1"
+    - prov:endedAtTime:
+        - ended_at: "2026-06-11T00:00:00Z"
