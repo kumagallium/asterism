@@ -3,10 +3,11 @@
 This is the JSON twin of ``seed/build_seed.py``: it reads the same real, citable
 facts from ``seed/csv/materials_project.csv`` and emits ``mp.json`` — an array of
 records whose crystal-structure fields are nested under a ``structure`` object.
-The nesting is deliberate: it exercises Asterism's JSON-source path, where a
-nested object flattens to dot-path leaf fields (``structure.space_group_symbol``)
-that Morph-KGC reads via ``rml:referenceFormulation ql:JSONPath`` and the
-companion ``mp.rml.ttl`` references verbatim.
+The nesting is deliberate: it exercises Asterism's JSON-source path, where ingest
+tabularizes the JSON to CSV (``asterism.tabularize``) — a nested object flattens to
+dot-path leaf columns (``structure.space_group_symbol``) — so the companion
+``mp.rml.ttl`` reads ``mp.csv`` via ``rml:referenceFormulation ql:CSV`` and the
+substrate derives that CSV from this snapshot on the fly.
 
 Why a snapshot, not a live API call: Materials Project is an HTTP API, but the
 reproducible, declarative path is *API → JSON snapshot → JSON ingest* (the
