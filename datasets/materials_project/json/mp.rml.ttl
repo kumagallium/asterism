@@ -5,10 +5,12 @@
 # produces the SAME mp:Material / mp:CrystalStructure facts, so the JSON-source
 # path is a drop-in, reproducible alternative to the direct seed.
 #
-# The logical source is a JSON array of records (rml:iterator "$[*]"). Nested
-# crystal-structure fields flatten to dot-path references
-# (structure.space_group_symbol, …) — exactly the leaf paths Asterism's JSON
-# inspector reports and Morph-KGC's JSON reader (pandas.json_normalize) resolves.
+# Ingest tabularizes the JSON array to CSV (asterism.tabularize): nested
+# crystal-structure fields become dot-path columns (structure.space_group_symbol,
+# …) and arrays become JSON-string cells, so the mapping reads mp.csv with
+# rml:referenceFormulation ql:CSV — the leaf paths Asterism's inspector reports.
+# (substrate derives mp.csv from mp.json on the fly; the JSON stays the source of
+# record. See architecture/native-json-denormalization.md.)
 #
 # Tier 0 only / no functions are needed here: every value is a direct reference
 # or an IRI template. The bridge to Starrydata is mp:formula (== sd:compositionString).
@@ -23,9 +25,8 @@
 
 <#MaterialMap> a rr:TriplesMap ;
   rml:logicalSource [
-    rml:source "mp.json" ;
-    rml:referenceFormulation ql:JSONPath ;
-    rml:iterator "$[*]"
+    rml:source "mp.csv" ;
+    rml:referenceFormulation ql:CSV
   ] ;
   rr:subjectMap [
     rr:template "https://kumagallium.github.io/asterism/materials_project/resource/material/{mp_id}" ;
@@ -41,9 +42,8 @@
 
 <#CrystalStructureMap> a rr:TriplesMap ;
   rml:logicalSource [
-    rml:source "mp.json" ;
-    rml:referenceFormulation ql:JSONPath ;
-    rml:iterator "$[*]"
+    rml:source "mp.csv" ;
+    rml:referenceFormulation ql:CSV
   ] ;
   rr:subjectMap [
     rr:template "https://kumagallium.github.io/asterism/materials_project/resource/structure/{mp_id}" ;

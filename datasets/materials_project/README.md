@@ -83,7 +83,7 @@ in canonical scope.
 | `seed/load.py` | load `mp.ttl` into the `canonical/materials_project` named graph |
 | `json/build_json_snapshot.py` | content tool: CSV → **nested** `mp.json` (#19 JSON-source dogfood) |
 | `json/mp.json` | nested JSON snapshot (committed) — the persisted, citable non-CSV source |
-| `json/mp.rml.ttl` | declarative JSONPath RML — produces the *same* facts as `mp.ttl` |
+| `json/mp.rml.ttl` | declarative CSV RML (JSON tabularized at ingest) — produces the *same* facts as `mp.ttl` |
 
 ## JSON source path (#19 — non-CSV ingestion dogfood)
 
@@ -93,9 +93,11 @@ JSON ingest* — the snapshot is the persisted, citable source (a live-API conne
 with auth/paging is a later, heavier step). `json/mp.json` is that snapshot, with
 crystal-structure fields **nested** under a `structure` object on purpose: it
 exercises the JSON path end to end, where a nested object flattens to dot-path
-leaf fields (`structure.space_group_symbol`) that the inspector reports and
-Morph-KGC reads via `rml:referenceFormulation ql:JSONPath` + `rml:iterator "$[*]"`
-(`json/mp.rml.ttl`).
+leaf fields (`structure.space_group_symbol`). Ingest **tabularizes the JSON to CSV**
+(`asterism.tabularize`: nested objects → dot-path columns, arrays → JSON-string
+cells), so `json/mp.rml.ttl` reads `mp.csv` via `rml:referenceFormulation ql:CSV`
+and the substrate derives that CSV from `mp.json` on the fly — the JSON stays the
+citable source of record (see `architecture/native-json-denormalization.md`).
 
 **Proven drop-in (real Morph-KGC + real Oxigraph, disposable stack):**
 `mp.json` + `mp.rml.ttl` materialize to **143 triples, set-equal to the directly

@@ -4,8 +4,8 @@ Status: **承認済・配線着地（コア＋ランタイム＋design-time）**
 ([`experiments/native-json-denormalize-spike/`](../../experiments/native-json-denormalize-spike/))
 で実証、`asterism.tabularize` 製品化＋substrate 自動 tabularize＋propose/inspect の CSV+tabularize
 出力まで実装し ingest 255 / step0 186 緑。**MP 後方互換確認済**（既存 JSONPath RML は無傷で 143 triples）。
-残=MP 例 RML の CSV 移行（任意・uniformity 仕上げ）・coverage 再計測・`{key:[...]}` JSON の record_path・
-inspect/tabularize の dedup（§8 参照）。
+✅ coverage 再計測（PR #192・`…Raw` 0.0%・ゲート 5%）・✅ MP 例 RML の CSV 移行（本 PR・JSONPath 使用ゼロに）。
+残=`{key:[...]}` JSON の record_path・CSV 直取込の予約列ガード・inspect/tabularize の dedup（§8 参照）。
 
 決定母体:
 [`ingestion-execution-safety.md`](ingestion-execution-safety.md)（生成コード非実行・Tier0 閉集合のみ）/
@@ -186,10 +186,11 @@ tabularize する（formulation 解析不要・宣言的シグナル）。既存
    の native 制約／fallback の「nested TriplesMap」例外を撤去し CSV+tabularize 前提へ。テスト更新済。
 4. **△ 予約列サニタイズの共通防御** — tabularize と inspect は対応済。**残=CSV source 直接取り込み**（JSON 経由でない
    生 CSV に `subject`/`predicate` 列があるケース）のガード。
-5. **残 coverage 再計測**: tabularize 前提で proposal を再生成すると 3 raw が解消し `…Raw` 率が下がる見込み。
-   ゲート 10% 締めの判断材料（別タスク）。
-6. **残 MP 例 RML の CSV 移行（任意）**: MP は配列なし＝JSONPath でも 143 triples で動く（後方互換確認済）。
-   uniformity のため `mp.rml.ttl` を `ql:CSV`＋`mp.csv` 参照へ移行可（dot-path 参照は不変）。
+5. **✅ coverage 再計測（PR #192）**: 3 proposal を新 §9（CSV+tabularize）で再生成→`…Raw` 11.1%→**0.0%**、
+   ゲート `DEFAULT_RAW_RATE_GATE` を **0.15→0.05** に締めた。検証レポート Addendum 参照。
+6. **✅ MP 例 RML の CSV 移行（本 PR）**: `mp.rml.ttl` を `ql:CSV`＋`mp.csv` 参照へ移行（dot-path 参照は不変・
+   iterator 削除）。substrate が `mp.json`→`mp.csv` を auto-tabularize＝**143 triples で JSONPath 出力と set 一致**
+   （実 morph-kgc 確認）。最後の `ql:JSONPath` 使用が消え JSON 経路が1本に統一。JSON が citable な source of record。
 7. **残 `{key:[...]}` JSON の record_path**: 現状 substrate の自動 tabularize は top-level 配列既定。
    非 top-level 配列は record_path を RML/サイドカーで伝える必要（コーパス/MP は top-level 配列＝当面不要）。
 
