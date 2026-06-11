@@ -3371,3 +3371,283 @@ textarea:focus {
   flex-direction: column;
   gap: 0.4rem;
 }
+
+/* ---------------------------------------------------------------------------
+ * Crosswalk (crosswalk-hub.md ④): authoring (データを追加) + management (カタログ)
+ * ------------------------------------------------------------------------- */
+.wb-mode-switch {
+  display: inline-flex;
+  gap: 0.3rem;
+  margin-bottom: 1rem;
+  padding: 0.25rem;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+.wb-mode-pill {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  background: none;
+  border: none;
+  border-radius: 999px;
+  padding: 0.4rem 0.95rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+}
+.wb-mode-pill.active {
+  background: var(--primary);
+  color: var(--primary-fg);
+}
+.wb-mode-en {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  opacity: 0.75;
+}
+
+.xw-builder {
+  display: flex;
+  flex-direction: column;
+}
+.xw-hint-inline {
+  margin-left: 0.5rem;
+  font-weight: 400;
+  font-size: 0.72rem;
+  color: var(--faint);
+}
+.xw-ds-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 0.6rem;
+}
+.xw-ds-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  text-align: left;
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-soft);
+  padding: 0.6rem 0.7rem;
+  cursor: pointer;
+  color: var(--fg);
+}
+.xw-ds-card:hover:not(.active) {
+  border-color: var(--border-strong);
+}
+.xw-ds-card.active {
+  border-color: var(--primary);
+  box-shadow: var(--shadow);
+}
+.xw-ds-check {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  border: 1.5px solid var(--border-strong);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  color: var(--primary-fg);
+  margin-top: 0.1rem;
+}
+.xw-ds-card.active .xw-ds-check {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+.xw-ds-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+.xw-ds-name {
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+.xw-ds-sub {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--faint);
+}
+.xw-ai-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 0.4rem;
+}
+.xw-key-input {
+  flex: 1;
+  min-width: 220px;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--fg);
+  font-size: 0.78rem;
+}
+.xw-note {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin: 0.2rem 0 0.5rem;
+}
+.xw-map-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.9rem;
+}
+.xw-map-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.7rem;
+}
+.xw-map-ds {
+  font-weight: 700;
+  font-size: 0.82rem;
+  min-width: 140px;
+}
+.xw-map-select {
+  flex: 1;
+  min-width: 200px;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--fg);
+  font-size: 0.78rem;
+  font-family: var(--font-mono);
+}
+.xw-map-sample {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--faint);
+}
+.xw-build-btn {
+  align-self: flex-start;
+}
+.xw-result {
+  margin-top: 1rem;
+  padding: 1rem 1.1rem;
+  border-left: 3px solid var(--entity);
+}
+.xw-result-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 700;
+  font-size: 0.9rem;
+  margin-bottom: 0.5rem;
+}
+.xw-result-icon {
+  color: var(--entity);
+  display: inline-flex;
+}
+.xw-result-stat {
+  font-size: 0.85rem;
+  color: var(--fg);
+  margin: 0 0 0.6rem;
+}
+.xw-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+}
+.xw-link-chip {
+  font-size: 0.74rem;
+  font-family: var(--font-mono);
+  color: var(--muted);
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.2rem 0.6rem;
+}
+.xw-skip {
+  font-size: 0.76rem;
+  color: var(--warn-fg);
+}
+.xw-result-next {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+/* crosswalk management view */
+.crosswalk-view {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.xw-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  padding: 0.4rem 0.2rem;
+}
+.xw-summary-stat {
+  display: flex;
+  flex-direction: column;
+}
+.xw-summary-num {
+  font-family: var(--font-display);
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: var(--entity);
+}
+.xw-summary-label {
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+.xw-concept {
+  display: flex;
+  flex-direction: column;
+}
+.xw-participants {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.xw-part-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--entity);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 0.35rem 0.65rem;
+  box-shadow: var(--shadow-soft);
+}
+.xw-part-name {
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+.xw-part-pred {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--faint);
+}
+.xw-rebuild-row {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+}
+.xw-built-at {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--faint);
+}
+.xw-tools-head {
+  margin-top: 0.4rem;
+}

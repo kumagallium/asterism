@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import './App.css'
 import { AskView } from './AskView'
+import { CrosswalkView } from './CrosswalkView'
 import { isMockMode } from './demoApi'
 import { GalleryView } from './GalleryView'
 import { HomeView } from './HomeView'
@@ -18,7 +19,7 @@ import { SharedVocabView } from './SharedVocabView'
 import { SparqlView } from './SparqlView'
 import { WorkbenchView } from './WorkbenchView'
 
-type Tab = 'home' | 'workbench' | 'ask' | 'gallery' | 'vocab' | 'jobs' | 'sparql'
+type Tab = 'home' | 'workbench' | 'ask' | 'gallery' | 'vocab' | 'crosswalk' | 'jobs' | 'sparql'
 
 // New IA (design_handoff_asterism_ux): plain-language, verb-led nav that mirrors
 // the user's mental model — ホーム → つくる (入れる) → つかう (問う/見渡す) → 管理.
@@ -50,6 +51,7 @@ const VIEW_META: Record<Tab, { eyebrow: string; title: string; sub: string }> = 
   ask: { eyebrow: 'つかう', title: '質問する', sub: '取り込んだデータに、根拠つきで答える' },
   gallery: { eyebrow: 'つかう', title: 'カタログ', sub: '作ったデータの中身を見渡す' },
   vocab: { eyebrow: 'つかう · カタログ', title: '共有の語彙', sub: '複数のデータセットが共通で使う設計図' },
+  crosswalk: { eyebrow: 'つかう · カタログ', title: 'クロスウォーク', sub: 'データセットを横断でつなぐ橋' },
   jobs: { eyebrow: '管理', title: 'アクティビティ', sub: 'いつ・何が取り込まれたか' },
   sparql: { eyebrow: '管理 · 開発者向け', title: 'SPARQL', sub: '読み取り専用クエリ' },
 }
@@ -140,8 +142,15 @@ function App() {
           {tab === 'home' && <HomeView onNavigate={navTo} />}
           {tab === 'workbench' && <WorkbenchView />}
           {tab === 'ask' && <AskView onShowVocab={showVocab} />}
-          {tab === 'gallery' && <GalleryView focusClass={galleryFocus} onOpenVocab={() => navTo('vocab')} />}
+          {tab === 'gallery' && (
+            <GalleryView
+              focusClass={galleryFocus}
+              onOpenVocab={() => navTo('vocab')}
+              onOpenCrosswalk={() => navTo('crosswalk')}
+            />
+          )}
           {tab === 'vocab' && <SharedVocabView onBack={() => navTo('gallery')} />}
+          {tab === 'crosswalk' && <CrosswalkView onBack={() => navTo('gallery')} />}
           {tab === 'jobs' && <JobsView />}
           {tab === 'sparql' && <SparqlView />}
         </main>

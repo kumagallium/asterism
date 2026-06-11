@@ -12,6 +12,7 @@ import {
   type ProposeResult,
   type RefineResult,
 } from './api'
+import { CrosswalkBuilder } from './CrosswalkBuilder'
 import { SOURCE_ACCEPT, SUPPORTED_SOURCES, type SourceKind } from './datasetsApi'
 import { PRESET_HINTS } from './domainHints'
 import { MaterializePanel } from './MaterializePanel'
@@ -105,6 +106,9 @@ export function WorkbenchView() {
   // Restore generated artifacts saved before a tab switch / reload (once).
   const [snap] = useState(loadSnapshot)
 
+  // Two ways to add data (crosswalk-hub.md ④): from a NEW source (CSV/JSON → AI
+  // designs → save), or by crossing EXISTING datasets into a shared bridge.
+  const [mode, setMode] = useState<'new' | 'crosswalk'>('new')
   const [step, setStep] = useState<Step>(snap.step ?? 1)
   // Selected data-source kind (#19). CSV / JSON are wired; switching kinds clears
   // any picked files since they no longer match the new kind's picker filter.
@@ -369,6 +373,27 @@ export function WorkbenchView() {
 
   return (
     <>
+      <div className="wb-mode-switch" role="group" aria-label="データの追加方法">
+        <button
+          type="button"
+          className={`wb-mode-pill${mode === 'new' ? ' active' : ''}`}
+          onClick={() => setMode('new')}
+        >
+          新しいデータから作る <span className="wb-mode-en">CSV / JSON</span>
+        </button>
+        <button
+          type="button"
+          className={`wb-mode-pill${mode === 'crosswalk' ? ' active' : ''}`}
+          onClick={() => setMode('crosswalk')}
+        >
+          既存データを横断でつなぐ <span className="wb-mode-en">crosswalk</span>
+        </button>
+      </div>
+
+      {mode === 'crosswalk' ? (
+        <CrosswalkBuilder />
+      ) : (
+        <>
       <p className="subtitle">
         データソースをつなぎ、<strong>AI が設計 → 確認・修正 → 保存</strong>の順に進めます。
         保存するとカタログに並びます。構造解析は内部で自動実行するので、
@@ -624,6 +649,8 @@ export function WorkbenchView() {
             <p className="step-guard">先に「AI が設計」でスキーマを生成してください。</p>
           ))}
       </div>
+        </>
+      )}
     </>
   )
 }
