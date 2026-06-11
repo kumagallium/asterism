@@ -12,6 +12,7 @@ from asterism.crosswalk import (
     Rule,
     build_turtle,
     normalize_composition,
+    normalize_element_canonical,
 )
 
 COMPOSITION = Concept(
@@ -156,3 +157,54 @@ def test_per_link_provenance_can_be_disabled() -> None:
     assert "xw:sourceValue" not in t
     assert f"<sd:s1> <{XW}hasComposition>" in t
     assert "prov:wasGeneratedBy <urn:act>" in t  # the minted composition still has it
+
+
+# --- element-canonical normalizer (productization ①: Bi2Te3 == Te3Bi2) -----------
+
+ELEMENT_CANONICAL = Concept(
+    name="composition",
+    class_iri=f"{XW}Composition",
+    link_predicate=f"{XW}hasComposition",
+    normalizer="element_canonical",
+    rules=(Rule("starrydata", "sd:comp"), Rule("materials_project", "mp:formula")),
+)
+
+
+def test_element_canonical_reorders_to_a_stable_key() -> None:
+    # A chemical formula is a multiset — element order does not change the compound.
+    assert normalize_element_canonical("Te3Bi2") == "Bi2Te3"
+    assert normalize_element_canonical("Bi2Te3") == "Bi2Te3"
+    assert normalize_element_canonical("Bi₂Te₃") == "Bi2Te3"  # folds subscripts too
+    assert normalize_element_canonical("TePb") == normalize_element_canonical("PbTe")
+    assert normalize_element_canonical("Sb1.5Bi0.5Te3") == "Bi0.5Sb1.5Te3"  # decimals kept
+
+
+def test_element_canonical_is_case_safe_and_conservative() -> None:
+    # Co (cobalt) must NOT collapse with C+O — case is significant.
+    assert normalize_element_canonical("Co") == "Co"
+    assert normalize_element_canonical("CO") == "CO"
+    assert normalize_element_canonical("Co") != normalize_element_canonical("OC")
+    # Counts are preserved verbatim — stoichiometry is NOT reduced.
+    assert normalize_element_canonical("Bi4Te6") != normalize_element_canonical("Bi2Te3")
+    # A non-formula / unparseable string falls back to composition (no reorder), so it
+    # can never be wrongly merged with another.
+    assert normalize_element_canonical("(Bi,Sb)2Te3") == normalize_composition("(Bi,Sb)2Te3")
+    assert normalize_element_canonical("Xx2Yy3") == normalize_composition("Xx2Yy3")  # not elements
+    assert normalize_element_canonical("sample-001") == normalize_composition("sample-001")
+
+
+def test_element_canonical_joins_reordered_formulas_across_datasets() -> None:
+    # With the plain composition key these would NOT share; element_canonical does.
+    obs = {
+        ("composition", "starrydata"): [("sd:s1", "Te3Bi2")],
+        ("composition", "materials_project"): [("mp:m1", "Bi2Te3")],
+    }
+    plain = _build(CrosswalkConfig((COMPOSITION,)), obs)
+    assert plain.shared["composition"] == []  # Te3Bi2 != Bi2Te3 under composition
+
+    canon = _build(CrosswalkConfig((ELEMENT_CANONICAL,)), obs)
+    assert canon.shared["composition"] == ["Bi2Te3"]  # joined via the canonical key
+    assert canon.links["composition"] == {"starrydata": 1, "materials_project": 1}
+    # per-link provenance records the ORIGINAL raw + the normalizer used
+    assert 'xw:sourceValue "Te3Bi2"' in canon.turtle
+    assert 'xw:normalizer "element_canonical"' in canon.turtle

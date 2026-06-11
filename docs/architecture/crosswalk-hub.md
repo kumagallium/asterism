@@ -91,9 +91,17 @@ equality missed (whitespace/subscript variants). The hub tool
 ## Productization path
 
 1. **Deterministic normalization as a Tier 0 function** (`asterism.functions`), so
-   the join key is vetted, versioned, and reusable. *Partial*: the builder uses
-   **named normalizers** (`asterism.crosswalk.NORMALIZERS`, e.g. `composition`); an
-   element-canonical key (`Bi2Te3 ≡ Te3Bi2`) is a future, separately-vetted one.
+   the join key is vetted, versioned, and reusable. The builder uses **named
+   normalizers** (`asterism.crosswalk.NORMALIZERS`): `composition` (fold subscripts +
+   strip, conservative — no reorder) and **`element_canonical`** (**done**) — an
+   opt-in, order-canonical key so `Bi2Te3 ≡ Te3Bi2` (a formula is a multiset). It is
+   SAFE by construction: it only reorders a string that parses **entirely** into known
+   element symbols + counts (case-significant, so `Co` ≠ `C`+`O`), and falls back to
+   `composition` for anything else (an id, a label, a formula with parentheses /
+   dopants), so distinct strings are never wrongly merged; it does **not** reduce
+   stoichiometry (`Bi4Te6` ≠ `Bi2Te3` — a further, separately-vetted key). A concept
+   selects its normalizer by name (recorded in per-link provenance), so an existing hub
+   is unaffected until re-built with the new normalizer.
 2. **`crosswalk` as a first-class concept** — a participation registry + a build step
    in the substrate. **Done**: `asterism.crosswalk` is a pure, tested, **multi-concept**
    builder (`CrosswalkConfig(concepts=…)`) and now records **per-link provenance**
