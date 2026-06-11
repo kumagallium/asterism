@@ -385,6 +385,81 @@ async def watch(
 
 
 # ----------------------------------------------------------------------------
+# Generic drop-tree watcher (the mechanism behind the per-dataset append watcher)
+# ----------------------------------------------------------------------------
+#
+# ``watch`` above is the starrydata kind-based legacy path (papers/samples/curves
+# -> hardcoded ingesters -> canonical/legacy). ``watch_tree`` is a dataset-neutral
+# primitive: it watches a root recursively and hands each settled, non-hidden file
+# with an accepted suffix to an ``on_ready`` callback. The api supplies an
+# append-dispatching callback so a CSV dropped at ``<root>/<dataset_id>/<file>``
+# grows that dataset's live feed (ADR incremental-ingest.md §6). Keeping the
+# mechanism here (file-watch + settle) and the policy in the api (registry-aware
+# append) avoids a watcher->api dependency.
+
+_SOURCE_SUFFIXES: Final[tuple[str, ...]] = (".csv", ".json", ".geojson")
+
+
+async def watch_tree(
+    root: Path,
+    on_ready: Callable[[Path], Awaitable[None]],
+    *,
+    settle_s: float = DEFAULT_SETTLE_S,
+    stop_event: asyncio.Event | None = None,
+    events_source: AsyncIterator[set[tuple[Change, str]]] | None = None,
+    suffixes: tuple[str, ...] = _SOURCE_SUFFIXES,
+) -> None:
+    """Watch ``root`` recursively; ``await on_ready(path)`` for each settled file.
+
+    A file is dispatched when it has an accepted ``suffixes`` extension and no path
+    component (relative to ``root``) is dot-prefixed — so a ``.error`` / ``.done``
+    sibling is skipped, and a moved-aside processed file never re-triggers. The
+    per-file settle (size+mtime stable) covers a slow ``cp`` of a large drop.
+    ``events_source`` (an async iterator of watchfiles change sets) drives the loop
+    deterministically in tests; production leaves it None and uses
+    ``watchfiles.awatch``. Returns when ``stop_event`` is set or the source ends.
+    """
+    # Resolve the root before watching: on macOS ``awatch`` reports canonical paths
+    # (``/private/var/…``) while ``root`` may be the symlinked ``/var/…`` form, so a
+    # raw ``relative_to`` would raise and silently drop every event. Resolving both
+    # sides keeps the relative-path / hidden-component checks correct.
+    root = root.resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    stop = stop_event or asyncio.Event()
+    if events_source is None:
+        debounce_ms = max(50, int(settle_s * 1000))
+        events_source = awatch(str(root), stop_event=stop, debounce=debounce_ms)
+
+    async for batch in events_source:
+        ready: set[Path] = set()
+        for change_type, raw_path in batch:
+            if change_type == Change.deleted:
+                continue
+            path = Path(raw_path)
+            if path.suffix.lower() not in suffixes:
+                continue
+            try:
+                rel = path.relative_to(root)
+            except ValueError:
+                try:  # a non-canonical event path (symlinked root) — resolve and retry
+                    rel = path.resolve().relative_to(root)
+                except ValueError:
+                    continue
+            if any(part.startswith(".") for part in rel.parts):
+                continue
+            ready.add(path)
+
+        for path in sorted(ready):
+            if not await _settle(path, max(0.05, settle_s)):
+                logger.info("append-watcher: file disappeared before settle: %s", path)
+                continue
+            await on_ready(path)
+
+        if stop.is_set():
+            return
+
+
+# ----------------------------------------------------------------------------
 # CLI entry point (for ad-hoc runs outside docker-compose)
 # ----------------------------------------------------------------------------
 
