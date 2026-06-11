@@ -1,12 +1,13 @@
 # ADR: Tier 0 "enough" coverage gate
 
-状態: **採択＋A/B 後 再較正済（2026-06-10・§5）** — Tier 0 関数ライブラリが「網羅」でなく
+状態: **採択＋多値着地後 GATE PASS（2026-06-11・§5）** — Tier 0 関数ライブラリが「網羅」でなく
 「**十分**」かを、多様コーパス上の計測ゲートで判定する。実装＋方法論＋スナップショットは
 [`experiments/coverage-corpus/README.md`](../../experiments/coverage-corpus/README.md)
-が生きた正。本 ADR は**決定（ゲートの定義と初期値）**のみを固定する。
+が生きた正。**検証レポート（マイルストーン記録）= [`../reports/tier0-coverage-sufficiency.md`](../reports/tier0-coverage-sufficiency.md)**（`…Raw` 63.6%→36.8%→**11.1% PASS**）。本 ADR は**決定（ゲートの定義と初期値）**のみを固定する。
 
 関連: `phase5-declarative-substrate.md` §4/§5（関数ライブラリ・有界性・Tier0/1）/
-`ingestion-execution-safety.md`（閉集合 no-codegen）/ `step0-rml-emission.md` §5.2（T9）。
+`ingestion-execution-safety.md`（閉集合 no-codegen）/ `step0-rml-emission.md` §5.2（T9）/
+[`../reports/tier0-coverage-sufficiency.md`](../reports/tier0-coverage-sufficiency.md)（検証レポート）。
 出所: `handoff_to_claude_code_tier0_functions.md` Track C。
 
 ## 1. 文脈
