@@ -52,6 +52,13 @@ jobs:
           uv venv .venv --python 3.11
           uv pip install -e '.[dev]'
 
+      # step0 has NO hard dep on the ingest package (it stays installable without
+      # the heavy runtime). We install it here for tests only, so the skip-guarded
+      # inspect↔asterism.tabularize sync check actually runs instead of skipping.
+      - name: Install ingest (test-only — enables the cross-package sync check)
+        working-directory: step0
+        run: uv pip install -e ../ingest
+
       - name: Ruff lint
         working-directory: step0
         run: uv run ruff check src tests
