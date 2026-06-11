@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   buildCrosswalk,
+  buildPerspective,
   type BuildResult,
   type CrosswalkConfig,
   type PredicateCandidate,
@@ -11,6 +12,16 @@ import { LinkIcon } from './icons'
 import { localName } from './vocab'
 
 const API_KEY_STORAGE = 'asterism.apiKey'
+
+/** A perspective id (slug) from a human name. Falls back to a generated id when the
+ * name has no ascii (e.g. a Japanese name) so the id stays IRI-safe. */
+function perspectiveIdFromName(name: string): string {
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+  return slug || `p-${Date.now().toString(36)}`
+}
 
 /** Slug a dataset name into a stable crosswalk label (falls back to its id). */
 function labelFor(d: CatalogDataset): string {
@@ -39,6 +50,9 @@ export function CrosswalkBuilder() {
   // The join key. 'composition' = conservative (fold subscripts + strip); '
   // element_canonical' also reorders elements so Bi2Te3 == Te3Bi2 (ADR ①).
   const [normalizer, setNormalizer] = useState('composition')
+  // A human name for THIS perspective (a distinct lens, multi-perspective ADR). Empty
+  // = the default "composition" perspective (back-compat); named = a new lens.
+  const [perspectiveName, setPerspectiveName] = useState('')
   const [proposing, setProposing] = useState(false)
   const [proposeErr, setProposeErr] = useState('')
   const [proposeNote, setProposeNote] = useState('')
@@ -143,7 +157,14 @@ export function CrosswalkBuilder() {
           },
         ],
       }
-      setResult(await buildCrosswalk(config))
+      // A named perspective = a distinct lens (its own graph); empty name = the
+      // default composition perspective (back-compat).
+      const trimmed = perspectiveName.trim()
+      setResult(
+        trimmed
+          ? await buildPerspective(perspectiveIdFromName(trimmed), config, trimmed)
+          : await buildCrosswalk(config),
+      )
     } catch (e) {
       setBuildErr(e instanceof Error ? e.message : String(e))
     } finally {
@@ -279,6 +300,27 @@ export function CrosswalkBuilder() {
                   {normalizer === 'element_canonical'
                     ? '元素の並び順が違っても同じ組成として結合します（化学式＝多重集合）。'
                     : '添字・空白の違いだけを吸収します（元素順は区別）。'}
+                </span>
+              </div>
+
+              <div className="ds-subhead">
+                4. この視点の名前
+                <span className="xw-hint-inline">
+                  複数の「視点（つなぎ方）」を区別して持てます
+                </span>
+              </div>
+              <div className="xw-norm-row">
+                <input
+                  type="text"
+                  className="xw-key-input xw-norm-select"
+                  placeholder="例: 組成で繋ぐ（空欄なら標準の「組成」視点に上書き）"
+                  value={perspectiveName}
+                  onChange={(e) => setPerspectiveName(e.target.value)}
+                />
+                <span className="xw-norm-hint">
+                  {perspectiveName.trim()
+                    ? '新しい独立した視点として作成します（別グラフ・カタログに並びます）。'
+                    : '空欄のときは標準の「組成」視点を作成/更新します。'}
                 </span>
               </div>
 

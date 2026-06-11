@@ -32,6 +32,9 @@ export interface CrosswalkConfig {
 
 /** The hub's registry meta facets (a subset; the catalog reads these). */
 export interface CrosswalkMeta {
+  id?: string
+  name?: string
+  crosswalk_perspective_id?: string
   crosswalk_participants?: string[]
   crosswalk_shared_compositions?: number
   crosswalk_built_at?: string
@@ -40,7 +43,16 @@ export interface CrosswalkMeta {
 }
 
 export interface CrosswalkInfo {
+  perspective_id?: string
   exists: boolean
+  config: CrosswalkConfig | null
+  dataset: CrosswalkMeta | null
+}
+
+/** One crosswalk PERSPECTIVE (multi-perspective ADR): a distinct lens with its own
+ * config + graph + stats. The upper ontology is plural — a set of these. */
+export interface CrosswalkPerspective {
+  perspective_id: string
   config: CrosswalkConfig | null
   dataset: CrosswalkMeta | null
 }
@@ -95,12 +107,37 @@ export async function getCrosswalk(): Promise<CrosswalkInfo> {
   return (await res.json()) as CrosswalkInfo
 }
 
-/** Build (or rebuild) the hub. With a config = author/replace; without = rebuild. */
+/** List every crosswalk PERSPECTIVE (the upper ontology is plural). */
+export async function getCrosswalks(): Promise<CrosswalkPerspective[]> {
+  const res = await fetch(`${API_BASE}/api/crosswalks`)
+  if (!res.ok) throw await asError(res, 'クロスウォーク一覧の取得')
+  return ((await res.json()) as { perspectives?: CrosswalkPerspective[] }).perspectives ?? []
+}
+
+/** Build (or rebuild) the DEFAULT (composition) perspective. With a config =
+ * author/replace; without = rebuild. */
 export async function buildCrosswalk(config?: CrosswalkConfig): Promise<BuildResult> {
   const res = await fetch(`${API_BASE}/api/crosswalk/build`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(config ? { config } : {}),
+  })
+  if (!res.ok) throw await asError(res, 'クロスウォークの構築')
+  return (await res.json()) as BuildResult
+}
+
+/** Build (or rebuild) a NAMED perspective — author a new lens, or (with no config)
+ * rebuild it from its persisted config (multi-perspective ADR). ``name`` is the human
+ * label; ``perspectiveId`` is its slug. */
+export async function buildPerspective(
+  perspectiveId: string,
+  config?: CrosswalkConfig,
+  name?: string,
+): Promise<BuildResult> {
+  const res = await fetch(`${API_BASE}/api/crosswalk/${encodeURIComponent(perspectiveId)}/build`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ ...(config ? { config } : {}), name: name ?? '' }),
   })
   if (!res.ok) throw await asError(res, 'クロスウォークの構築')
   return (await res.json()) as BuildResult
