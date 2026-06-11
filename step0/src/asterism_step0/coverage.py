@@ -460,10 +460,15 @@ class CorpusReport:
         return None if rate is None else rate < self.raw_rate_gate
 
 
-# Initial "enough" gate. Of the columns a proposal treats as needing real
-# computation, fewer than this fraction should fall back to a raw literal.
-# Rationale + how to recalibrate: experiments/coverage-corpus/README.md.
-DEFAULT_RAW_RATE_GATE = 0.15
+# "Enough" gate. Of the columns a proposal treats as needing real computation,
+# fewer than this fraction should fall back to a raw literal. Tightened 0.15 → 0.05
+# once native-JSON nested arrays stopped being irreducible: ingest tabularizes JSON
+# to CSV so json_array / json_pluck explode them (native-json-denormalization.md),
+# driving the corpus from 11.1% to 0.0%. The remaining legitimate raws are deeply
+# irregular structures (array-of-arrays, correlated nested entities); 0.05 tolerates
+# one such novel case while tripping on a real regression. Recalibrate procedure:
+# experiments/coverage-corpus/README.md.
+DEFAULT_RAW_RATE_GATE = 0.05
 
 
 def aggregate(

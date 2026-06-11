@@ -3,7 +3,7 @@
 状態: **採択＋多値着地後 GATE PASS（2026-06-11・§5）** — Tier 0 関数ライブラリが「網羅」でなく
 「**十分**」かを、多様コーパス上の計測ゲートで判定する。実装＋方法論＋スナップショットは
 [`experiments/coverage-corpus/README.md`](../../experiments/coverage-corpus/README.md)
-が生きた正。**検証レポート（マイルストーン記録）= [`../reports/tier0-coverage-sufficiency.md`](../reports/tier0-coverage-sufficiency.md)**（`…Raw` 63.6%→36.8%→**11.1% PASS**）。本 ADR は**決定（ゲートの定義と初期値）**のみを固定する。
+が生きた正。**検証レポート（マイルストーン記録）= [`../reports/tier0-coverage-sufficiency.md`](../reports/tier0-coverage-sufficiency.md)**（`…Raw` 63.6%→36.8%→11.1%→**0.0% PASS**・tabularize 後にゲート 15%→5%）。本 ADR は**決定（ゲートの定義と値）**のみを固定する。
 
 関連: `phase5-declarative-substrate.md` §4/§5（関数ライブラリ・有界性・Tier0/1）/
 `ingestion-execution-safety.md`（閉集合 no-codegen）/ `step0-rml-emission.md` §5.2（T9）/
@@ -23,14 +23,22 @@
 （`raw_rate = raw_fallbacks / (function_maps + raw_fallbacks)`）を、コーパス全体で
 プールした値が **`RAW_RATE_GATE` 未満**であること。
 
-**初期値 `RAW_RATE_GATE = 0.15`**（`coverage.DEFAULT_RAW_RATE_GATE`）。
+**現行値 `RAW_RATE_GATE = 0.05`**（`coverage.DEFAULT_RAW_RATE_GATE`）。当初 `0.15` → A/B+多値で 11.1% PASS → **tabularize 着地後 0.0% を受けて 0.05 へ締めた**（下記更新）。
 
-- これは **A/B の受け入れ指標であって現状値ではない**。現 Tier0（starrydata 形の 8 関数）は
+- これは **A/B の受け入れ指標であって現状値ではない**。当初 Tier0（starrydata 形の 8 関数）は
   本コーパスで **約 64%**＝意図的に FAIL。A/B が進むと自動で改善する数値。
-- 15% は、真に**還元不能**なフォールバック（Crossref `author` 等の object 配列＝スカラ関数
+- 当初 15% は、真に**還元不能**なフォールバック（Crossref `author` 等の object 配列＝スカラ関数
   でなく RML の入れ子 TriplesMap/多値展開が要る）を許容しつつ、容易な勝ち筋（単一要素配列・
-  カンマ区切り・date-parts）は Track B プリミティブで覆うことを要求する水準。
-- **A/B 着地ごとに再較正**。コーパスが大きくなり分母が 2 ファイル支配でなくなったら 10% へ。
+  カンマ区切り・date-parts）は Track B プリミティブで覆うことを要求する水準だった。
+- **A/B 着地ごとに再較正**。
+
+**更新（2026-06-11・決定変更）**: 15% を許容していた根拠＝「object 配列等は還元不能」が
+**tabularize（JSON→CSV 境界正規化・`native-json-denormalization.md`）で消滅**した。native JSON
+入れ子配列は文字列セル化され既存 `fn:json_array`/`fn:json_pluck` で explode＝コーパス `…Raw` が
+**11.1% → 0.0%**。よって「還元不能を織り込んだ緩いゲート」の前提が無効になり、**`RAW_RATE_GATE` を
+0.05 へ締めた**。残る正当な raw は配列の配列・相関子エンティティ等の稀な深い不規則構造のみ＝5% は
+「novel な還元不能を1つ許容し regression で落ちる」guard（脆い 0% は要求しない）。検証=
+[`../reports/tier0-coverage-sufficiency.md`](../reports/tier0-coverage-sufficiency.md) Addendum。
 
 ## 3. 計測の安定インタフェース（A/B 非依存）
 
@@ -70,3 +78,8 @@ A（コア関数）・B（プリミティブ）merge 後、同一コーパス・
 (a) **多値 exploder を別 KPI に分離**し、ゲートは「スカラ未充足（demand 表の raw/unmapped）= 0」を
 判定する形へ精緻化（今回スカラは 0 ＝ PASS 相当）。(b) コーパスを多値の薄い多ドメインで拡張し
 分母を平準化してから 10–15% を再評価。**当面の結論: スカラ Tier0 は「十分」に到達。残課題は多値展開**。
+
+> **後日追記（2026-06-11・上記は #172 当時の判断）**: 残課題だった多値展開は着地済み
+> （多値関数 #173＋object 配列 #179＝11.1% PASS）、さらに **tabularize（#190）で native JSON
+> 入れ子も還元可能化＝0.0%**。「`0.15` を機械的に下げるのは誤り」は当時の「raw は全て未対応多値」
+> という状況に対する判断であり、その状況が解消した今は無効。現行決定は §2 の更新注記（ゲート 0.05）。
