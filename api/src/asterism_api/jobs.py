@@ -57,13 +57,26 @@ class JobManager:
     concern noted in the design doc D2).
     """
 
-    def __init__(self) -> None:
+    def __init__(self, max_jobs: int = 200) -> None:
         self._jobs: dict[str, _Job] = {}
         self._counter = 0
+        # Bound retained jobs so a flood of requests cannot grow this dict (and the
+        # full result + event log each job holds) without limit.
+        self._max_jobs = max(1, max_jobs)
 
     def _next_id(self) -> str:
         self._counter += 1
         return f"job-{self._counter}"
+
+    def _evict(self) -> None:
+        """Drop the oldest TERMINAL jobs once over the cap (running jobs are kept)."""
+        if len(self._jobs) <= self._max_jobs:
+            return
+        for jid in list(self._jobs):  # insertion order = oldest first
+            if len(self._jobs) <= self._max_jobs:
+                break
+            if self._jobs[jid].status in _TERMINAL:
+                del self._jobs[jid]
 
     def start(self, work: Callable[[], Any]) -> str:
         """Schedule ``work`` (a blocking callable) on a worker thread.
@@ -74,6 +87,7 @@ class JobManager:
         """
         job = _Job(job_id=self._next_id())
         self._jobs[job.job_id] = job
+        self._evict()
         job.task = asyncio.create_task(self._run(job, work))
         return job.job_id
 
@@ -105,6 +119,7 @@ class JobManager:
         """
         job = _Job(job_id=self._next_id())
         self._jobs[job.job_id] = job
+        self._evict()
 
         def emit(**data: Any) -> None:
             job.emit("running", **data)

@@ -523,15 +523,28 @@ async def test_schema_summary_collects_classes_predicates_and_shapes() -> None:
     assert shapes[cls_b][0]["iri"] == "https://example.org/size"
 
 
-async def test_schema_summary_scopes_to_named_graph() -> None:
+async def test_schema_summary_rejects_non_canonical_graph() -> None:
+    # M2: an explicit DRAFT (non-canonical) graph is rejected. The allowlist is the
+    # promoted canonical + ontology graphs only — this tool is always-on, so without
+    # it a consumer could probe an unreviewed draft's vocabulary.
     graph = "https://kumagallium.github.io/asterism/graph/draft/d1"
+
+    async with _make_client(lambda r: _rows([], ["cls", "n"])) as client:
+        with pytest.raises(ValueError, match="canonical"):
+            await schema_summary(client, graph=graph)
+
+
+async def test_schema_summary_scopes_to_canonical_named_graph() -> None:
+    from asterism.substrate import canonical_graph_iri
+
+    graph = canonical_graph_iri("d1")
     captured: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         captured.append(request.content.decode())
         return _rows([], ["cls", "n"])
 
-    async with _make_client(handler) as client:
+    async with _make_client(handler, canonical_graphs=[graph]) as client:
         out = await schema_summary(client, graph=graph)
 
     assert out["graph"] == graph

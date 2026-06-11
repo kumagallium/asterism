@@ -1,5 +1,7 @@
 // Thin client for the asterism-api surface (inspect + propose/SSE).
 
+import { authHeaders } from './authToken'
+
 /**
  * POST the given CSV files to /api/inspect and return the inspection Markdown.
  * `fks` are optional foreign-key hint columns (e.g. ["SID"]).
@@ -198,6 +200,7 @@ export async function attachSource(datasetId: string, files: File[]): Promise<At
   }
   const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/source`, {
     method: 'POST',
+    headers: authHeaders(),
     body: form,
   })
   if (!res.ok) {
@@ -248,6 +251,7 @@ export async function ingestDataset(
   }
   const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/ingest`, {
     method: 'POST',
+    headers: authHeaders(),
     body,
   })
   if (!res.ok) {
@@ -295,7 +299,7 @@ export async function materializeSchema(
 ): Promise<MaterializeResult> {
   const res = await fetch('/api/materialize', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ proposal_md: proposalMd, dataset_name: datasetName }),
   })
   if (!res.ok) {

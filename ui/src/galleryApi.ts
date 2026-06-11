@@ -19,6 +19,7 @@
 // /demo/schema). Nothing is fabricated: when a signal is unavailable, the UI
 // shows "—" or an explicit empty state rather than a placeholder.
 
+import { authHeaders } from './authToken'
 import { deriveReuses } from './vocab'
 
 // ---- edit-risk (the layer-distinction signal) -----------------------------
@@ -149,6 +150,7 @@ export async function promoteDataset(
 ): Promise<{ triples_promoted: number; alignment: AlignmentReport }> {
   const res = await fetch(`${API_BASE}/api/datasets/${encodeURIComponent(datasetId)}/promote`, {
     method: 'POST',
+    headers: authHeaders(),
   })
   if (!res.ok) {
     const detail = await res.text().catch(() => '')
@@ -167,6 +169,7 @@ async function _errText(res: Response, op: string): Promise<string> {
 export async function retractDataset(datasetId: string): Promise<void> {
   const res = await fetch(`${API_BASE}/api/datasets/${encodeURIComponent(datasetId)}/retract`, {
     method: 'POST',
+    headers: authHeaders(),
   })
   if (!res.ok) throw new Error(await _errText(res, 'retract'))
 }
@@ -175,6 +178,7 @@ export async function retractDataset(datasetId: string): Promise<void> {
 export async function reinstateDataset(datasetId: string): Promise<void> {
   const res = await fetch(`${API_BASE}/api/datasets/${encodeURIComponent(datasetId)}/reinstate`, {
     method: 'POST',
+    headers: authHeaders(),
   })
   if (!res.ok) throw new Error(await _errText(res, 'reinstate'))
 }
@@ -185,6 +189,7 @@ export async function deleteDataset(datasetId: string, force = false): Promise<v
   const q = force ? '?force=true' : ''
   const res = await fetch(`${API_BASE}/api/datasets/${encodeURIComponent(datasetId)}${q}`, {
     method: 'DELETE',
+    headers: authHeaders(),
   })
   if (!res.ok) throw new Error(await _errText(res, 'delete'))
 }
@@ -404,7 +409,7 @@ async function sparqlScalar(query: string): Promise<number | null> {
   try {
     const res = await fetch(`${API_BASE}/api/sparql`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ query }),
     })
     if (!res.ok) return null

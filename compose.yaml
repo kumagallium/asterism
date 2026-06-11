@@ -27,7 +27,12 @@ services:
       --location /data
       --bind 0.0.0.0:7878
     ports:
-      - "7878:7878"   # SPARQL endpoint (read + write)
+      # Loopback-only. Oxigraph has NO authentication and serves a WRITABLE
+      # /update endpoint — publishing it on all interfaces lets anyone on the
+      # network read the whole graph or DROP it, bypassing every typed-tool gate.
+      # Sibling services reach it in-network via http://oxigraph:7878, so this
+      # host mapping exists only for local debugging.
+      - "127.0.0.1:7878:7878"   # SPARQL endpoint (read + write) — localhost only
     volumes:
       - ./data/oxigraph_store:/data
     # NOTE: Oxigraph image は scratch-like で wget/curl/sh が無いため、TCP/HTTP
@@ -56,7 +61,10 @@ services:
     volumes:
       - ./data/togomcp:/data/togomcp:ro
     ports:
-      - "8000:8000"   # togomcp HTTP transport
+      # Loopback-only: togomcp exposes a GENERIC raw run_sparql that is NOT
+      # governed by ASTERISM_EXPOSE_RAW_SPARQL — do not expose it on the LAN for a
+      # sensitive store (it is a second, ungated SPARQL surface onto the same data).
+      - "127.0.0.1:8000:8000"   # togomcp HTTP transport — localhost only
     restart: unless-stopped
 
   upload-api:
@@ -78,10 +86,13 @@ services:
     volumes:
       - ./data/sources:/data/sources
     ports:
+      # Loopback-only by default: this is the WRITE / ingest / design surface and
+      # it has no built-in authentication. Front it with an authenticating reverse
+      # proxy (and set ASTERISM_API_TOKEN) before exposing beyond localhost.
       # Host port is configurable: on machines where 8080 is already taken
       # (e.g. a running Crucible), set CSV2RDF_UPLOAD_API_PORT=8082 in a local
       # .env (gitignored). Container port stays 8080.
-      - "${CSV2RDF_UPLOAD_API_PORT:-8080}:8080"
+      - "127.0.0.1:${CSV2RDF_UPLOAD_API_PORT:-8080}:8080"
     restart: unless-stopped
 
   asterism:
@@ -97,5 +108,8 @@ services:
     environment:
       CSV2RDF_OXIGRAPH_URL: http://oxigraph:7878
     ports:
-      - "8002:8002"   # FastMCP HTTP transport (path /mcp)
+      # Loopback-only by default (typed-tool MCP front). To register this front
+      # with a platform on another host, publish it through an authenticating
+      # proxy rather than binding 0.0.0.0 directly.
+      - "127.0.0.1:8002:8002"   # FastMCP HTTP transport (path /mcp) — localhost only
     restart: unless-stopped

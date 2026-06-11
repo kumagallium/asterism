@@ -14,9 +14,13 @@ draft graph to canonical (including ontology alignment / merge) is a separate,
 later gate.
 
 No generated code runs: Morph-KGC interprets the declarative mapping, and the
-only functions it may call are the closed Tier 0 set in :mod:`asterism.functions`
-(enforced upstream by step0's T9 closed-set check). ``morph-kgc`` is an optional
-dependency — install with ``pip install 'asterism-ingest[substrate]'``.
+only functions it may call are the closed Tier 0 set in :mod:`asterism.functions`.
+That invariant — plus the rule that a mapping may read only confined CSV/JSON
+files (no DuckDB ``rml:query``, no absolute / traversing / URL sources) — is
+enforced **fail-closed at runtime** by :func:`asterism.rml_safety.assert_rml_safe`,
+called immediately before Morph-KGC is invoked (the offline step0 trap T9 is a
+CI convenience, not the trust boundary). ``morph-kgc`` is an optional dependency
+— install with ``pip install 'asterism-ingest[substrate]'``.
 """
 from __future__ import annotations
 
@@ -28,6 +32,10 @@ import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
+
+# Re-exported so callers can `substrate.assert_rml_safe` / catch `substrate.RmlSafetyError`.
+from asterism.rml_safety import RmlSafetyError as RmlSafetyError
+from asterism.rml_safety import assert_rml_safe as assert_rml_safe
 
 # Draft graphs live under /graph/draft/<id>, trivially distinguishable from the
 # canonical per-kind graphs (.../graph/curves, .../graph/papers, ...).
@@ -191,7 +199,9 @@ def materialize_to_graph(
     """Run Morph-KGC on ``rml_ttl`` (sources resolved under ``csv_dir``).
 
     Returns the produced ``rdflib.Graph``. Raises ``RuntimeError`` if ``morph-kgc``
-    is not installed (it is the optional ``substrate`` extra).
+    is not installed (it is the optional ``substrate`` extra), or
+    :class:`RmlSafetyError` if the mapping references non-Tier-0 code or an
+    out-of-bounds source (validated fail-closed before Morph-KGC is invoked).
     """
     try:
         import morph_kgc
@@ -201,6 +211,8 @@ def materialize_to_graph(
             "install with: pip install 'asterism-ingest[substrate]'"
         ) from exc
 
+    # Trust boundary: validate the mapping before it can reach Morph-KGC.
+    assert_rml_safe(rml_ttl, csv_dir)
     udfs = Path(udfs_path) if udfs_path else _DEFAULT_UDFS
     work = Path(work_dir) if work_dir else Path(tempfile.mkdtemp(prefix="c2r-substrate-"))
     work.mkdir(parents=True, exist_ok=True)
@@ -263,7 +275,9 @@ def materialize_to_nt_file(
     itself recommends for large data. ``number_of_processes: 1`` avoids
     multiprocessing (portable + safe UDF import). Raises ``RuntimeError`` if
     ``morph-kgc`` is absent or materialization fails (caller maps a failure to a
-    user-facing 4xx, as with :func:`materialize_to_graph`).
+    user-facing 4xx, as with :func:`materialize_to_graph`). Raises
+    :class:`RmlSafetyError` if the mapping references non-Tier-0 code or an
+    out-of-bounds source (validated fail-closed before Morph-KGC is invoked).
     """
     try:
         import morph_kgc  # noqa: F401  (presence check; the CLI does the work)
@@ -273,6 +287,8 @@ def materialize_to_nt_file(
             "install with: pip install 'asterism-ingest[substrate]'"
         ) from exc
 
+    # Trust boundary: validate the mapping before it can reach Morph-KGC.
+    assert_rml_safe(rml_ttl, csv_dir)
     work = Path(work_dir) if work_dir else Path(tempfile.mkdtemp(prefix="c2r-substrate-"))
     work.mkdir(parents=True, exist_ok=True)
     udfs = Path(udfs_path) if udfs_path else _DEFAULT_UDFS
@@ -886,6 +902,42 @@ def canonical_from_clauses(graphs: list[str], *, named: bool = False) -> str:
 # caller scoped the read deliberately, so we respect it and inject nothing.
 _HAS_DATASET_CLAUSE: re.Pattern[str] = re.compile(r"\bfrom\b", re.IGNORECASE)
 _WHERE_KEYWORD: re.Pattern[str] = re.compile(r"\bWHERE\b", re.IGNORECASE)
+# SERVICE (federated query) on the read escape is an SSRF / exfiltration vector —
+# a read-only SELECT can stream the graph to an external endpoint or reach internal
+# hosts. The escape is local-only, so SERVICE is rejected outright.
+_SERVICE: re.Pattern[str] = re.compile(r"\bservice\b", re.IGNORECASE)
+# A GRAPH keyword in a query with NO injected FROM NAMED would range over EVERY
+# named graph (incl. unreviewed drafts); disabled until a canonical graph exists.
+_GRAPH_KEYWORD: re.Pattern[str] = re.compile(r"\bgraph\b", re.IGNORECASE)
+# FROM / FROM NAMED head; the IRI itself is read from the original (un-blanked) query.
+_FROM_HEAD: re.Pattern[str] = re.compile(r"\bfrom\b", re.IGNORECASE)
+_FROM_IRI: re.Pattern[str] = re.compile(r"\s*(?:named\b\s*)?<([^>\s]+)>", re.IGNORECASE)
+
+
+async def readable_graph_iris(client: SupportsSparql) -> set[str]:
+    """The only graphs a raw-SPARQL caller may scope to: the promoted canonical
+    graphs plus the projected ontology graphs. Draft / control / legacy graphs are
+    never listed, so a hand-written ``FROM NAMED <draft>`` cannot reach them."""
+    return set(await canonical_graphs(client)) | set(await ontology_graphs(client))
+
+
+def _dataset_clause_iris(query: str) -> list[str] | None:
+    """IRIs named by the query's own ``FROM`` / ``FROM NAMED`` clauses.
+
+    Returns ``None`` when a clause cannot be parsed as an explicit ``<IRI>`` (e.g. a
+    prefixed name) — the caller treats that as "reject", since an unresolvable
+    dataset clause cannot be checked against the allowlist. Locates real ``from``
+    keywords via :func:`_scan_view` (so a ``from`` inside a literal is ignored),
+    then reads the IRI from the original query at the same offset.
+    """
+    view = _scan_view(query)
+    iris: list[str] = []
+    for m in _FROM_HEAD.finditer(view):
+        im = _FROM_IRI.match(query, m.end())
+        if im is None:
+            return None
+        iris.append(im.group(1))
+    return iris
 
 
 def _scan_view(query: str) -> str:
@@ -960,17 +1012,52 @@ async def canonical_merge_query(client: SupportsSparql, query: str) -> str:
     Injects ``FROM <c>`` + ``FROM NAMED <c>`` over every non-retracted canonical
     graph so GRAPH-less patterns join ACROSS datasets through shared vocabulary,
     and an explicit ``GRAPH ?g`` stays scoped to canonical graphs (never reaches
-    draft / control / ontology data). No-ops when the query already declares its
-    own ``FROM`` (caller scoped it) or when no canonical graphs exist yet (the
-    query then reads the real default graph — safe pre-migration behaviour).
+    draft / control / ontology data).
 
-    Returns the (possibly unchanged) query; callers disclose this as the effective
+    Security (the read escape must NEVER let the caller choose an unreviewed graph):
+
+    * ``SERVICE`` (federation) is rejected outright — SSRF / exfiltration vector.
+    * When the caller supplies its OWN ``FROM`` / ``FROM NAMED``, it is NOT trusted
+      verbatim: every referenced graph must be in the canonical + ontology
+      allowlist, else the query is rejected. This closes the ``FROM NAMED <draft>``
+      bypass.
+    * When no canonical graph exists yet, GRAPH-less reads hit the real default
+      graph (safe pre-migration behaviour), but any ``GRAPH`` pattern is rejected —
+      with no injected ``FROM NAMED`` it would otherwise range over every named
+      graph, drafts included.
+
+    Raises :class:`ValueError` on a rejected query (callers map it to a 4xx).
+    Returns the (possibly unchanged) query; callers disclose it as the effective
     query actually executed, so the FROM-merge is visible and reproducible.
     """
-    if _HAS_DATASET_CLAUSE.search(_scan_view(query)):
+    view = _scan_view(query)
+    if _SERVICE.search(view):
+        raise ValueError(
+            "SERVICE (federated query) is not allowed on the read-only SPARQL escape"
+        )
+    if _HAS_DATASET_CLAUSE.search(view):
+        # The caller scoped the read with its own FROM/FROM NAMED — validate it
+        # against the allowlist rather than honouring it blindly.
+        iris = _dataset_clause_iris(query)
+        if iris is None:
+            raise ValueError(
+                "unsupported FROM clause on the read escape — use explicit <IRI> graphs"
+            )
+        allowed = await readable_graph_iris(client)
+        outside = sorted(g for g in iris if g not in allowed)
+        if outside:
+            raise ValueError(
+                "FROM/FROM NAMED may only reference promoted canonical or ontology "
+                f"graphs; rejected: {', '.join(outside)}"
+            )
         return query
     clause = canonical_from_clauses(await canonical_graphs(client), named=True)
     if not clause:
+        if _GRAPH_KEYWORD.search(view):
+            raise ValueError(
+                "no canonical graphs are published yet; GRAPH patterns are disabled "
+                "on the read escape until a dataset is promoted"
+            )
         return query
     return insert_dataset_clause(query, clause)
 

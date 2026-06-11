@@ -17,6 +17,8 @@
 // Vite proxy by default; VITE_API_URL overrides for separate hosting). Real data
 // only — these go through /api (the proxy), so they are live even under the
 // preview's mock demo mode (which only swaps the demo-agent surface).
+import { authHeaders } from './authToken'
+
 const API_BASE = ((import.meta.env.VITE_API_URL as string | undefined) ?? '').replace(/\/+$/, '')
 
 export type ParamType = 'string' | 'number' | 'integer' | 'iri' | 'enum'
@@ -86,7 +88,7 @@ export async function listTools(datasetId: string): Promise<QueryTool[]> {
 export async function saveTool(datasetId: string, tool: QueryTool): Promise<QueryTool[]> {
   const res = await fetch(`${API_BASE}/api/datasets/${encodeURIComponent(datasetId)}/tools`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(tool),
   })
   if (!res.ok) throw await asError(res, 'ツールの保存')
@@ -97,7 +99,7 @@ export async function saveTool(datasetId: string, tool: QueryTool): Promise<Quer
 export async function deleteTool(datasetId: string, name: string): Promise<QueryTool[]> {
   const res = await fetch(
     `${API_BASE}/api/datasets/${encodeURIComponent(datasetId)}/tools/${encodeURIComponent(name)}`,
-    { method: 'DELETE' },
+    { method: 'DELETE', headers: authHeaders() },
   )
   if (!res.ok) throw await asError(res, 'ツールの削除')
   return ((await res.json()) as { tools?: QueryTool[] }).tools ?? []
@@ -118,7 +120,7 @@ export async function proposeTool(
     `${API_BASE}/api/datasets/${encodeURIComponent(datasetId)}/tools/propose`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey, ...authHeaders() },
       body: JSON.stringify({ intent }),
     },
   )

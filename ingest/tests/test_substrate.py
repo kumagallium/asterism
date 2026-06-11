@@ -1015,16 +1015,59 @@ async def test_canonical_merge_query_injects_from_and_from_named() -> None:
     assert out == f"SELECT ?s FROM <{g}>\nFROM NAMED <{g}>\nWHERE {{ ?s ?p ?o }}"
 
 
-async def test_canonical_merge_query_respects_explicit_from() -> None:
-    # A query that already declares a dataset is left untouched (caller scoped it).
+async def test_canonical_merge_query_rejects_from_outside_canonical() -> None:
+    # A caller-supplied FROM that names a non-canonical (e.g. draft) graph is
+    # REJECTED — the read escape must not let the caller pick an unreviewed graph.
     from asterism.substrate import canonical_merge_query
 
-    class _Boom:
+    class _Fake:
         async def sparql_select(self, query: str) -> dict:
-            raise AssertionError("must not enumerate when query has its own FROM")
+            return {"results": {"bindings": []}}  # no canonical / ontology graphs
 
     q = "SELECT ?s FROM <https://ex/x> WHERE { ?s ?p ?o }"
-    assert await canonical_merge_query(_Boom(), q) == q
+    with pytest.raises(ValueError, match="canonical"):
+        await canonical_merge_query(_Fake(), q)
+
+
+async def test_canonical_merge_query_allows_from_canonical_graph() -> None:
+    # A caller FROM naming a PROMOTED canonical graph is allowed (power-user scope).
+    from asterism.substrate import canonical_graph_iri, canonical_merge_query
+
+    g = canonical_graph_iri("a")
+
+    class _Fake:
+        async def sparql_select(self, query: str) -> dict:
+            return {"results": {"bindings": [{"g": {"type": "uri", "value": g}}]}}
+
+    q = f"SELECT ?s FROM <{g}> WHERE {{ ?s ?p ?o }}"
+    assert await canonical_merge_query(_Fake(), q) == q
+
+
+async def test_canonical_merge_query_rejects_service_federation() -> None:
+    # SERVICE federation is an SSRF / exfiltration vector — rejected outright.
+    from asterism.substrate import canonical_merge_query
+
+    class _Fake:
+        async def sparql_select(self, query: str) -> dict:
+            return {"results": {"bindings": []}}
+
+    q = "SELECT ?s WHERE { SERVICE <http://evil/sparql> { ?s ?p ?o } }"
+    with pytest.raises(ValueError, match="SERVICE"):
+        await canonical_merge_query(_Fake(), q)
+
+
+async def test_canonical_merge_query_rejects_graph_when_no_canonical() -> None:
+    # With nothing promoted, a GRAPH pattern would range over EVERY named graph
+    # (drafts included), so it is disabled until a promote.
+    from asterism.substrate import canonical_merge_query
+
+    class _Empty:
+        async def sparql_select(self, query: str) -> dict:
+            return {"results": {"bindings": []}}
+
+    q = "SELECT ?s WHERE { GRAPH ?g { ?s ?p ?o } }"
+    with pytest.raises(ValueError, match="GRAPH"):
+        await canonical_merge_query(_Empty(), q)
 
 
 async def test_canonical_merge_query_noop_without_canonical_graphs() -> None:

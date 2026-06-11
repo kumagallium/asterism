@@ -33,6 +33,7 @@ from asterism.substrate import (
     canonical_from_clauses,
     canonical_graphs,
     canonical_merge_query,
+    ontology_graphs,
 )
 
 _RDFS_LABEL: Final[str] = "http://www.w3.org/2000/01/rdf-schema#label"
@@ -666,6 +667,19 @@ async def schema_summary(
     max_classes = max(1, min(int(max_classes), 500))
     max_predicates = max(1, min(int(max_predicates), 500))
     predicates_per_class = max(1, min(int(predicates_per_class), 200))
+
+    # Security (M2): an explicit graph must be a PROMOTED canonical or ontology
+    # graph. This tool is always-on (it runs even in the typed-only topology-B
+    # profile), so without this an arbitrary `graph=<draft IRI>` would leak the
+    # vocabulary / usage counts of unreviewed data. graph=None (canonical scope)
+    # is always allowed.
+    if graph is not None:
+        allowed = set(await canonical_graphs(client)) | set(await ontology_graphs(client))
+        if graph not in allowed:
+            raise ValueError(
+                "graph must be a promoted canonical or ontology graph; "
+                "draft / control graphs are not exposed via schema_summary"
+            )
 
     # graph=None reads the cross-dataset canonical FROM-merge; an explicit graph
     # reads that one named graph directly (no FROM).
