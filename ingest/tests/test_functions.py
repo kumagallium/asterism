@@ -66,9 +66,10 @@ CORE_A_NAMES = {
     "value_of",
     "unit_of",
 }
-# 多値/ネストの「容易な勝ち筋」。json_array_single は単一入力スカラ、array_at/split は
-# 定数引数つき。split は list[str] を返し Morph-KGC が explode する(唯一の非 str 返り)。
-MULTIVALUE_NAMES = {"json_array_single", "array_at", "split"}
+# 多値/ネストの「容易な勝ち筋」。json_array_single は単一入力スカラ。array_at/split/
+# json_pluck は定数引数つき。json_array/json_pluck/split は list[str] を返し Morph-KGC が
+# explode する(JSON 文字列セルの配列展開。native JSON ソースの入れ子は substrate 制約で対象外)。
+MULTIVALUE_NAMES = {"json_array_single", "array_at", "split", "json_array", "json_pluck"}
 
 
 def test_date_iso_concrete() -> None:
@@ -184,17 +185,21 @@ def test_bool_norm_delegates_to_bool_table() -> None:
     assert bool_norm("maybe") == ""  # 未知語は ""
 
 
-def test_multivalue_specs_and_split_returns_list() -> None:
-    """多値関数の束縛: array_at/split は定数引数つき、split は list[str] を返す
-    (Morph-KGC が explode する唯一の非 str 返り)。json_array_single は単一入力。"""
-    from asterism.functions import P_DELIMITER, P_INDEX
+def test_multivalue_specs_and_list_returns() -> None:
+    """多値関数の束縛: array_at/split/json_pluck は定数引数つき。split/json_array/
+    json_pluck は list[str] を返す(Morph-KGC が explode する非 str 返り)。"""
+    from asterism.functions import P_DELIMITER, P_FIELD, P_INDEX
 
     by_name = {s.name: s for s in REGISTRY}
     assert by_name["json_array_single"].params == {"value": P_VALUE}
     assert by_name["array_at"].params == {"value": P_VALUE, "index": P_INDEX}
     assert by_name["split"].params == {"value": P_VALUE, "delimiter": P_DELIMITER}
-    # split is the one entry point that returns a list (exploded downstream)
+    assert by_name["json_array"].params == {"value": P_VALUE}
+    assert by_name["json_pluck"].params == {"value": P_VALUE, "field": P_FIELD}
+    # the list-returning entry points (exploded downstream)
     assert by_name["split"].func("a,b", ",") == ["a", "b"]
+    assert by_name["json_array"].func('["a", "b"]') == ["a", "b"]
+    assert by_name["json_pluck"].func('[{"f": "A"}, {"f": "B"}]', "f") == ["A", "B"]
 
 
 def test_register_binds_every_function() -> None:

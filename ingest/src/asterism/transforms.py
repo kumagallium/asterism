@@ -300,3 +300,28 @@ def json_array_single(value: str) -> str:
     if isinstance(data, list) and len(data) == 1 and data[0] is not None:
         return str(data[0])
     return ""
+
+
+def json_array(value: str) -> list[str] | None:
+    """A JSON-string array of scalars → its elements as a **list**
+    (``'["a", "b", "c"]'`` -> ``["a", "b", "c"]``).
+
+    Like ``split``, this returns a list that Morph-KGC EXPLODES into one triple per
+    element — the declarative multi-value path for a cell that already holds a JSON
+    array of scalars (common in CSV exports, e.g. starrydata's ``project_names``).
+    Null and nested (object / array) elements are dropped. A non-array / non-JSON /
+    empty input, or an array with no scalar elements, returns ``None`` (dropped
+    pre-explode — an empty list would NaN-crash Morph-KGC serialization). For an
+    array of OBJECTS use :func:`asterism.primitives.json_pluck`; a one-element
+    wrapper uses :func:`json_array_single`.
+    """
+    if not value:
+        return None
+    try:
+        data = json.loads(value)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(data, list):
+        return None
+    out = [str(el) for el in data if el is not None and not isinstance(el, list | dict)]
+    return out or None

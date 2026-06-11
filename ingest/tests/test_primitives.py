@@ -15,6 +15,7 @@ import pytest
 from asterism.primitives import (
     _MAX_REGEX_INPUT,
     array_at,
+    json_pluck,
     load_table,
     lookup,
     regex_extract,
@@ -179,7 +180,25 @@ def test_split_returns_list() -> None:
     assert split(",ci,us,", ",") == ["ci", "us"]  # wrapper commas / blanks dropped
     assert split("a; b ;c", ";") == ["a", "b", "c"]  # tokens trimmed
     assert split("single", ",") == ["single"]  # one token → one-element list
-    # empty input / empty delimiter → [] (no triples)
-    assert split("", ",") == []
-    assert split("a,b", "") == []
-    assert split(",,,", ",") == []  # all-blank → []
+    # nothing to emit → None (Morph-KGC drops the row pre-explode; [] would NaN-crash)
+    assert split("", ",") is None
+    assert split("a,b", "") is None
+    assert split(",,,", ",") is None  # all-blank → None
+
+
+# ---- json_pluck (sub-field of each object in a JSON-string array → list) -----
+
+
+def test_json_pluck() -> None:
+    arr = '[{"given": "A", "family": "Adams"}, {"given": "B", "family": "Brown"}]'
+    assert json_pluck(arr, "family") == ["Adams", "Brown"]
+    assert json_pluck(arr, "given") == ["A", "B"]
+    # objects missing the field (or with null / non-scalar value) are skipped
+    assert json_pluck('[{"family": "X"}, {"given": "Y"}]', "family") == ["X"]
+    assert json_pluck('[{"f": null}, {"f": "ok"}, {"f": [1]}]', "f") == ["ok"]
+    # non-array / non-JSON / empty / empty-field / no matches → None (dropped pre-explode)
+    assert json_pluck('{"family": "X"}', "family") is None
+    assert json_pluck("not json", "family") is None
+    assert json_pluck("", "family") is None
+    assert json_pluck('[{"f": "x"}]', "") is None
+    assert json_pluck('[{"given": "Y"}]', "family") is None  # no object has the field

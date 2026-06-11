@@ -204,17 +204,55 @@ def array_at(value: str, index: str) -> str:
 # ---- split (constant delimiter → MULTIPLE values) ---------------------------
 
 
-def split(value: str, delimiter: str) -> list[str]:
+def split(value: str, delimiter: str) -> list[str] | None:
     """Split ``value`` on a constant ``delimiter`` into **multiple** values.
 
     Unlike every other entry point (which is ``str -> str``), this returns a
     ``list[str]``: Morph-KGC explodes a list result into one triple per element —
     the declarative multi-value path, no nested TriplesMap needed. Surrounding
     whitespace is trimmed and empty tokens are dropped, so a wrapped list like
-    ``",ci,us,"`` yields ``["ci", "us"]`` and an empty / delimiter-less input
-    yields ``[]`` (no triples). For an array-of-objects (each element has its own
-    fields) use a nested TriplesMap instead — split is for flat delimited scalars.
+    ``",ci,us,"`` yields ``["ci", "us"]``. When there is nothing to emit (empty
+    input, no delimiter, all-blank tokens) it returns ``None`` — Morph-KGC drops a
+    ``None`` row *before* exploding, whereas an empty list would explode to a NaN
+    and break serialization. For an array-of-objects use a nested TriplesMap — split
+    is for flat delimited scalars.
     """
     if not value or not delimiter:
-        return []
-    return [token for token in (part.strip() for part in value.split(delimiter)) if token]
+        return None
+    tokens = [token for token in (part.strip() for part in value.split(delimiter)) if token]
+    return tokens or None
+
+
+# ---- json_pluck (sub-field of each object in a JSON-string array → list) -----
+
+
+def json_pluck(value: str, field: str) -> list[str] | None:
+    """From a JSON-string array of OBJECTS, the named ``field`` of each element →
+    a **list** (``'[{"family":"A"},{"family":"B"}]'``, field ``"family"`` ->
+    ``["A", "B"]``).
+
+    Like ``split`` this returns a list that Morph-KGC EXPLODES into one triple per
+    element — so each author / keyword / tag becomes its own value linked to the
+    parent row, without a nested TriplesMap. It operates on a cell that holds the
+    array **as a JSON string** (a CSV / string-valued column, e.g. starrydata's
+    ``author`` = ``[{given, family}, …]``); Morph-KGC does not pass a *native* JSON
+    array into a function, so for a JSON-source nested array use a nested iterator
+    instead. Objects missing the field (or with a null / non-scalar value) are
+    skipped; a non-array / non-JSON / empty input, or no matching fields, returns
+    ``None`` (dropped pre-explode — an empty list would NaN-crash serialization).
+    """
+    if not value or not field:
+        return None
+    try:
+        data = json.loads(value)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(data, list):
+        return None
+    out: list[str] = []
+    for obj in data:
+        if isinstance(obj, dict):
+            element = obj.get(field)
+            if element is not None and not isinstance(element, list | dict):
+                out.append(str(element))
+    return out or None

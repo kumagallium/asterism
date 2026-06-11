@@ -9,6 +9,7 @@ from __future__ import annotations
 from asterism.transforms import (
     datetime_iso,
     doi_norm,
+    json_array,
     json_array_single,
     nfkc_norm,
     number_clean,
@@ -147,6 +148,20 @@ def test_json_array_single() -> None:
     assert json_array_single('{"a": 1}') == ""
     assert json_array_single("not json") == ""
     assert json_array_single("") == ""
+
+
+def test_json_array() -> None:
+    # a JSON-string array of scalars → list (Morph-KGC explodes it)
+    assert json_array('["a", "b", "c"]') == ["a", "b", "c"]
+    assert json_array("[1, 2.5, true]") == ["1", "2.5", "True"]
+    # null and nested (object/array) elements are dropped
+    assert json_array('[1, null, [2], {"a": 1}]') == ["1"]
+    # non-array / non-JSON / empty / no scalar elements → None (dropped pre-explode)
+    assert json_array("[]") is None
+    assert json_array('{"a": 1}') is None
+    assert json_array("not json") is None
+    assert json_array("") is None
+    assert json_array("[null]") is None
 
 
 def test_value_unit_split() -> None:
