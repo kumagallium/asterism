@@ -4,6 +4,8 @@ import { getCrosswalk } from './crosswalkApi'
 import { getSchema } from './demoApi'
 import {
   type AlignmentReport,
+  appendToDataset,
+  type AppendResult,
   type CatalogDataset,
   type CatalogStatusKind,
   datasetStage,
@@ -395,6 +397,9 @@ function DatasetDetail({
           {/* S4 (re-)promote human-gate: first promote of a draft, or re-promote
               of a re-ingested replacement (version bump). */}
           <PromoteControl meta={dataset.live.meta} onChanged={onChanged} />
+          {/* incremental-ingest.md: grow a promoted dataset's live feed by appending
+              a new batch (device-feed path — O(new), no re-ingest of the whole source). */}
+          <AppendControl meta={dataset.live.meta} onChanged={onChanged} />
           {/* part5: safe replace — re-ingest a promoted/ingested dataset into a new
               version graph (gap-free), then re-promote to swap the live pointer. */}
           <ReingestControl meta={dataset.live.meta} onChanged={onChanged} />
@@ -511,6 +516,91 @@ function IngestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChang
       </button>
       {busy && <IngestProgressView progress={progress} />}
       {err && <p className="promote-err">取り込みに失敗しました: {err}</p>}
+    </div>
+  )
+}
+
+/**
+ * incremental-ingest.md: grow a *promoted* dataset's live feed by appending a new
+ * batch (the device-feed path). Materializes ONLY the batch (O(new)) and merges it
+ * into the live canonical graph, so the new facts are immediately citable while
+ * existing triples / IRIs are untouched (re-emitted rows dedupe). The schema + first
+ * version were human-gated at promote, so per-batch appends do not re-gate — only
+ * shown for a promoted, active dataset with declarative RML.
+ */
+function AppendControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChanged: () => void }) {
+  const [files, setFiles] = useState<File[]>([])
+  const [busy, setBusy] = useState(false)
+  const [done, setDone] = useState<AppendResult | null>(null)
+  const [err, setErr] = useState('')
+
+  // Append grows a LIVE feed: a promoted, active dataset with declarative RML.
+  if (datasetStage(meta) !== 'promoted' || meta.status === 'retracted' || !meta.has_rml) {
+    return null
+  }
+
+  const isJson = meta.source_kind === 'json'
+  const sourceLabel = isJson ? 'JSON' : 'CSV'
+  const canAppend = !busy && files.length > 0
+
+  async function onAppend() {
+    setBusy(true)
+    setErr('')
+    try {
+      const r = await appendToDataset(meta.id, files)
+      setDone(r)
+      setFiles([])
+      onChanged() // append_seq / triple counts changed — refresh the catalog
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="ingest-gate">
+      <div className="ds-subhead">ライブに追記（装置フィード）</div>
+      <p className="ingest-note">
+        新しいバッチ{sourceLabel}<strong>だけ</strong>を取り込み、このまま共有データ（live）に追記します
+        （O(新規)）。既存の事実・IRI は変えず、同じ行は重複排除。スキーマと初版は昇格時に承認済みなので、
+        追記はゲートを通りません（装置の連続ログ向け）。ファイル名は RML の <code>rml:source</code> に
+        一致させてください。
+      </p>
+      {(meta.append_seq ?? 0) > 0 && (
+        <p className="ingest-source">
+          これまで {meta.append_seq} バッチ追記済み
+          {meta.triples_appended ? `（+約 ${meta.triples_appended} 件）` : ''}。
+        </p>
+      )}
+      <div className="ingest-pick">
+        <label className="file-btn">
+          {sourceLabel}を選択
+          <input
+            type="file"
+            accept={isJson ? '.json,.geojson' : '.csv'}
+            multiple
+            onChange={(e) => {
+              setFiles(Array.from(e.target.files ?? []))
+              setDone(null)
+            }}
+          />
+        </label>
+        <span className={`file-names${files.length ? '' : ' empty'}`}>
+          {files.length
+            ? files.map((f) => f.name).join('、')
+            : `追記するバッチ${sourceLabel}を選んでください`}
+        </span>
+      </div>
+      <button type="button" className="promote-btn" onClick={onAppend} disabled={!canAppend}>
+        {busy ? '追記中…' : 'ライブに追記'}
+      </button>
+      {done && (
+        <p className="ingest-ok">
+          ✓ 追記しました（+{done.triples_in_batch} 件・バッチ #{done.append_seq}）。Ask から即引用できます。
+        </p>
+      )}
+      {err && <p className="promote-err">追記に失敗しました: {err}</p>}
     </div>
   )
 }
