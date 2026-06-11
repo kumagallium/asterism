@@ -3536,6 +3536,21 @@ textarea:focus {
 .xw-build-btn {
   align-self: flex-start;
 }
+.xw-norm-row {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.9rem;
+}
+.xw-norm-select {
+  flex: none;
+  min-width: 280px;
+}
+.xw-norm-hint {
+  font-size: 0.76rem;
+  color: var(--muted);
+}
 .xw-result {
   margin-top: 1rem;
   padding: 1rem 1.1rem;

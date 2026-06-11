@@ -444,7 +444,9 @@ export async function getGraphStats(): Promise<{
   const [facts, classes, datasets] = await Promise.all([
     sparqlScalar('SELECT (COUNT(*) AS ?n) WHERE { ?s ?p ?o }'),
     sparqlScalar('SELECT (COUNT(DISTINCT ?c) AS ?n) WHERE { ?s a ?c }'),
-    getCatalogDatasets().then((d) => d.length),
+    // The crosswalk hub is a bridge, not a dataset — exclude it from the count so
+    // Home matches the Catalog (which also hides it).
+    getCatalogDatasets().then((d) => d.filter((x) => !x.isCrosswalk).length),
   ])
   return { facts, classes, datasets }
 }
