@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hmac
 import json
 import logging
 import os
@@ -59,7 +60,17 @@ from asterism_step0.propose import AnthropicLLMClient, LLMClient, propose_schema
 from asterism_step0.refine import refine_schema
 from asterism_step0.tool_propose import propose_query_tool
 from asterism_step0.validate import SchemaBundle, validate_schema
-from fastapi import FastAPI, File, Form, Header, HTTPException, Query, Response, UploadFile
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    Header,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+)
 from fastapi import Path as PathParam
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
@@ -214,6 +225,12 @@ class Settings:
         # SPARQL relay (POST /api/sparql) is withheld so a sensitive deployment
         # exposes only the typed tools / vetted endpoints. Default open.
         self.expose_raw_sparql = raw_sparql_enabled(e)
+        # Operator-set shared secret gating the write / design / raw-SPARQL routes.
+        # Unset → those routes fail closed (503) so a sensitive store is never
+        # mutated or root-read anonymously. Read-only catalog / health routes stay
+        # open. Set it (and front the service with an authenticating proxy) before
+        # exposing the api beyond loopback.
+        self.api_token = (e.get("ASTERISM_API_TOKEN") or "").strip() or None
         self.graph_prefix = e.get("CSV2RDF_GRAPH_PREFIX", DEFAULT_GRAPH_PREFIX)
         # Default-graph load keeps GRAPH-less SPARQL (MIE examples) working.
         # Set CSV2RDF_USE_DEFAULT_GRAPH=0 to opt back into per-kind named graphs.
@@ -255,8 +272,28 @@ def _validate_source_name(name: str) -> str:
     return name
 
 
-async def _save_upload(file: UploadFile, dest: Path, chunk_size: int = 1 << 20) -> int:
-    """Stream ``file`` to ``dest`` atomically via a sibling ``.tmp`` file."""
+# Hard cap on a single uploaded file (bytes). Bounds disk-fill / OOM on the write
+# surface (which is fail-closed without ASTERISM_API_TOKEN, but defence in depth).
+# Override with ASTERISM_MAX_UPLOAD_BYTES; 0 disables the cap.
+_MAX_UPLOAD_BYTES: Final[int] = int(
+    os.environ.get("ASTERISM_MAX_UPLOAD_BYTES", str(1 << 30))  # 1 GiB
+)
+
+
+async def _save_upload(
+    file: UploadFile,
+    dest: Path,
+    chunk_size: int = 1 << 20,
+    max_bytes: int | None = None,
+) -> int:
+    """Stream ``file`` to ``dest`` atomically via a sibling ``.tmp`` file.
+
+    Aborts with ``413`` (deleting the partial) the moment the stream exceeds the
+    byte cap — Content-Length is never trusted, the cap is enforced on the bytes
+    actually read. ``max_bytes=None`` resolves to the module default
+    (``_MAX_UPLOAD_BYTES``) at call time; ``0`` disables the cap.
+    """
+    cap = _MAX_UPLOAD_BYTES if max_bytes is None else max_bytes
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(dest.suffix + ".tmp")
     total = 0
@@ -268,10 +305,18 @@ async def _save_upload(file: UploadFile, dest: Path, chunk_size: int = 1 << 20) 
             chunk = await file.read(chunk_size)
             if not chunk:
                 break
-            await asyncio.to_thread(fh.write, chunk)
             total += len(chunk)
-    finally:
+            if cap and total > cap:
+                raise HTTPException(
+                    413, f"upload exceeds the {cap // (1 << 20) or 1} MiB limit"
+                )
+            await asyncio.to_thread(fh.write, chunk)
+    except BaseException:
+        # Clean the partial so a rejected/aborted upload cannot fill the volume.
         await asyncio.to_thread(fh.close)
+        await asyncio.to_thread(tmp.unlink, True)  # missing_ok
+        raise
+    await asyncio.to_thread(fh.close)
     # os.replace is atomic on POSIX; the watcher sees a single rename event
     # rather than partial writes.
     await asyncio.to_thread(os.replace, tmp, dest)
@@ -488,6 +533,37 @@ def build_app(
         lifespan=lifespan,
     )
 
+    def require_write_auth(
+        authorization: str | None = Header(default=None),
+        x_asterism_token: str | None = Header(default=None),
+    ) -> None:
+        """Fail-closed gate for the write / design / raw-SPARQL routes.
+
+        When ``ASTERISM_API_TOKEN`` is unset these routes are *disabled* (503) —
+        the opposite of an anonymously-open default — so a sensitive store is
+        never mutated or root-read without a credential. When it is set, the
+        caller must present it as ``Authorization: Bearer <token>`` or
+        ``X-Asterism-Token: <token>`` (constant-time compared). Read-only
+        catalog / health / job-stream routes stay open.
+        """
+        token = cfg.api_token
+        if not token:
+            raise HTTPException(
+                503,
+                "この操作は ASTERISM_API_TOKEN を設定するまで無効です "
+                "(機微ストアへの匿名の書き込み・生 SPARQL を防ぐ fail-closed)",
+            )
+        presented: str | None = None
+        if authorization and authorization.startswith("Bearer "):
+            presented = authorization[len("Bearer ") :].strip()
+        elif x_asterism_token:
+            presented = x_asterism_token.strip()
+        if not presented or not hmac.compare_digest(presented, token):
+            raise HTTPException(401, "API トークンがありません/一致しません")
+
+    # The set of routes that mutate the store/registry or expose raw SPARQL.
+    _write_auth = [Depends(require_write_auth)]
+
     @app.get("/health")
     async def health() -> JSONResponse:
         client: OxigraphClient = app.state.client
@@ -497,7 +573,7 @@ def build_app(
             status_code=200 if ok else 503,
         )
 
-    @app.post("/upload/{kind}")
+    @app.post("/upload/{kind}", dependencies=_write_auth)
     async def upload(
         file: UploadFile,
         kind: str = PathParam(..., description="papers | samples | curves"),
@@ -644,7 +720,7 @@ def build_app(
         job_id = jobs.start(work)
         return JSONResponse({"job_id": job_id}, status_code=202)
 
-    @app.post("/api/materialize")
+    @app.post("/api/materialize", dependencies=_write_auth)
     async def materialize(body: MaterializeRequest) -> JSONResponse:
         """Phase 4 (M1d): split a proposal into the 4 artifacts and validate.
 
@@ -668,6 +744,11 @@ def build_app(
                         diagram_md=paths.get("mermaid") or paths.get("diagram"),
                         mie_yaml=paths.get("mie_yaml") or paths.get("mie"),
                         ingester_py=paths.get("ingester_py") or paths.get("ingester"),
+                        # Pass the RML so trap T9 (closed-set) actually runs and
+                        # surfaces a non-Tier-0 function to the reviewer at design
+                        # time. The hard gate is at ingest (substrate.assert_rml_safe);
+                        # this makes the violation visible before persistence.
+                        rml_ttl=paths.get("rml_ttl"),
                     )
                 )
                 artifacts = {
@@ -737,7 +818,7 @@ def build_app(
         tools = registry.list_query_tools(cfg.registry_root, dataset_id)
         return {"dataset_id": dataset_id, "tools": tools}
 
-    @app.post("/api/datasets/{dataset_id}/tools")
+    @app.post("/api/datasets/{dataset_id}/tools", dependencies=_write_auth)
     async def save_dataset_tool(dataset_id: str, body: QueryToolBody) -> dict[str, object]:
         """Add/replace one query tool on a dataset (upsert by name).
 
@@ -760,7 +841,7 @@ def build_app(
             "tools": registry.list_query_tools(cfg.registry_root, dataset_id),
         }
 
-    @app.delete("/api/datasets/{dataset_id}/tools/{tool_name}")
+    @app.delete("/api/datasets/{dataset_id}/tools/{tool_name}", dependencies=_write_auth)
     async def delete_dataset_tool(dataset_id: str, tool_name: str) -> dict[str, object]:
         """Remove one declared query tool from a dataset."""
         if registry.load_dataset(cfg.registry_root, dataset_id) is None:
@@ -774,7 +855,7 @@ def build_app(
             "tools": registry.list_query_tools(cfg.registry_root, dataset_id),
         }
 
-    @app.post("/api/datasets/{dataset_id}/tools/propose")
+    @app.post("/api/datasets/{dataset_id}/tools/propose", dependencies=_write_auth)
     async def propose_dataset_tool(
         dataset_id: str,
         body: ToolProposeBody,
@@ -833,7 +914,8 @@ def build_app(
         string-concatenated) and run the result over the canonical FROM-merge — the
         same deterministic path the MCP surface exposes. Needs no API key. Allowed
         even in a typed-only exposure profile: it is NOT the raw-SPARQL escape, it is
-        the typed path that profile is meant to keep. Returns
+        the typed path that profile is meant to keep (so it stays unauthenticated —
+        no graph mutation, no arbitrary SPARQL). Returns
         ``{tool, count, items, truncated, sparql}``."""
         if registry.load_dataset(cfg.registry_root, dataset_id) is None:
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
@@ -856,7 +938,7 @@ def build_app(
         except Exception as exc:  # surface Oxigraph errors to the UI
             raise HTTPException(502, f"tool run failed: {exc}") from exc
 
-    @app.post("/api/datasets/{dataset_id}/source")
+    @app.post("/api/datasets/{dataset_id}/source", dependencies=_write_auth)
     async def attach_source(
         dataset_id: str,
         files: list[UploadFile] = File(
@@ -879,7 +961,7 @@ def build_app(
             {"dataset_id": dataset_id, "source_files": saved, "dataset": meta}
         )
 
-    @app.post("/api/datasets/{dataset_id}/ingest")
+    @app.post("/api/datasets/{dataset_id}/ingest", dependencies=_write_auth)
     async def ingest_dataset(
         dataset_id: str,
         files: list[UploadFile] = File(
@@ -935,6 +1017,15 @@ def build_app(
                 "設計時に添付するか、ここでアップロードしてください",
             )
         source_dir = source_paths[0].parent
+        # Trust boundary (CLAUDE.md「生成コードを実行しない」): refuse a mapping that
+        # would execute non-Tier-0 code or read outside this dataset's source dir.
+        # Fail-closed and synchronous, so a malicious RML is rejected with a clear
+        # 422 before any background job runs (the substrate re-checks before
+        # Morph-KGC as defense in depth).
+        try:
+            substrate.assert_rml_safe(rml_ttl, source_dir)
+        except substrate.RmlSafetyError as exc:
+            raise HTTPException(422, f"unsafe RML mapping: {exc}") from exc
         # part5: stream into a FRESH per-ingest version graph `canonical/{id}/v{n}`
         # — never touching the currently live graph. So a re-ingest needs no
         # un-publish and no DROP on the request path (the old version stays citable
@@ -1003,7 +1094,7 @@ def build_app(
         job_id = jobs.start_coro(ingest_job)
         return JSONResponse({"job_id": job_id}, status_code=202)
 
-    @app.post("/api/datasets/{dataset_id}/append")
+    @app.post("/api/datasets/{dataset_id}/append", dependencies=_write_auth)
     async def append_dataset(
         dataset_id: str,
         files: list[UploadFile] = File(
@@ -1160,7 +1251,7 @@ def build_app(
         report = await substrate.alignment_report(client, staged_iri)
         return JSONResponse({"dataset_id": dataset_id, "alignment": report})
 
-    @app.post("/api/datasets/{dataset_id}/promote")
+    @app.post("/api/datasets/{dataset_id}/promote", dependencies=_write_auth)
     async def promote_dataset(dataset_id: str) -> JSONResponse:
         """Phase 5 (#15 S4): human-gated promotion of a staged version graph to citable.
 
@@ -1223,7 +1314,7 @@ def build_app(
             }
         )
 
-    @app.post("/api/datasets/{dataset_id}/retract")
+    @app.post("/api/datasets/{dataset_id}/retract", dependencies=_write_auth)
     async def retract_dataset(dataset_id: str) -> JSONResponse:
         """#20 P3 step3: withdraw a promoted dataset from the citable corpus.
 
@@ -1245,7 +1336,7 @@ def build_app(
             {"dataset_id": dataset_id, "status": "retracted", "dataset": meta}
         )
 
-    @app.post("/api/datasets/{dataset_id}/reinstate")
+    @app.post("/api/datasets/{dataset_id}/reinstate", dependencies=_write_auth)
     async def reinstate_dataset(dataset_id: str) -> JSONResponse:
         """#20 P3 step3: undo a retract — bring the dataset back into the Ask scope."""
         data = registry.load_dataset(cfg.registry_root, dataset_id)
@@ -1261,7 +1352,7 @@ def build_app(
             {"dataset_id": dataset_id, "status": "active", "dataset": meta}
         )
 
-    @app.delete("/api/datasets/{dataset_id}")
+    @app.delete("/api/datasets/{dataset_id}", dependencies=_write_auth)
     async def delete_dataset_endpoint(
         dataset_id: str, force: bool = Query(False)
     ) -> JSONResponse:
@@ -1316,7 +1407,7 @@ def build_app(
             {"dataset_id": dataset_id, "deleted": True, "was_promoted": promoted}
         )
 
-    @app.post("/api/sparql")
+    @app.post("/api/sparql", dependencies=_write_auth)
     async def sparql(body: SparqlRequest) -> JSONResponse:
         """Read-only SPARQL relay to Oxigraph (advanced escape hatch, ADR §5).
 
@@ -1349,9 +1440,17 @@ def build_app(
         client: OxigraphClient = app.state.client
         try:
             effective = await substrate.canonical_merge_query(client, q)
+        except ValueError as exc:
+            # A rejected query (SERVICE federation, FROM outside the canonical
+            # allowlist, GRAPH before any promote). The message is operator-safe.
+            raise HTTPException(400, str(exc)) from exc
+        try:
             return JSONResponse(await client.sparql_select(effective))
-        except Exception as exc:  # surface Oxigraph errors to the UI
-            raise HTTPException(502, f"SPARQL error: {exc}") from exc
+        except Exception as exc:
+            # Do NOT echo the raw exception: it embeds the internal Oxigraph URL /
+            # connection details (info disclosure). Log server-side, return generic.
+            logger.exception("sparql relay error")
+            raise HTTPException(502, "upstream SPARQL error") from exc
 
     @app.get("/api/jobs/{job_id}/stream")
     async def job_stream(job_id: str) -> StreamingResponse:
@@ -1374,7 +1473,11 @@ def build_app(
 # ----------------------------------------------------------------------------
 
 
-_DEFAULT_HOST: Final[str] = "0.0.0.0"
+# Bind loopback by default: a bare `asterism-api` run is reachable only from the
+# host unless the operator explicitly opts into a wider bind with --host. The
+# container image passes --host 0.0.0.0 (Docker forwards a loopback-bound host
+# port to it), so containerized deployments are unaffected.
+_DEFAULT_HOST: Final[str] = "127.0.0.1"
 _DEFAULT_PORT: Final[int] = 8080
 
 
@@ -1390,6 +1493,11 @@ def _main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
 
     logging.basicConfig(level=args.log_level.upper(), format="%(asctime)s %(message)s")
+    # Private-by-default at-rest: every durable artifact this process (and its
+    # in-process watcher) creates — registry source CSVs, meta.json, materialized
+    # bundles, *.ttl, jobs.jsonl — is made 0600 / dirs 0700, so a shared host or a
+    # bind-mounted data volume does not expose unpublished research data.
+    os.umask(0o077)
     uvicorn.run(
         "asterism_api.main:build_app",
         host=args.host,

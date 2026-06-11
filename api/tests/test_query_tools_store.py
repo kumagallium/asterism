@@ -34,8 +34,13 @@ VALID_TOOL = {
 }
 
 
+# Mutating routes are token-gated (fail-closed); tests send _AUTH by default.
+_TEST_TOKEN = "test-token"
+_AUTH = {"X-Asterism-Token": _TEST_TOKEN}
+
+
 def _settings(tmp: Path) -> Settings:
-    return Settings(
+    s = Settings(
         {
             "CSV2RDF_DROP_ROOT": str(tmp / "csv"),
             "CSV2RDF_RDF_ROOT": str(tmp / "rdf"),
@@ -46,6 +51,8 @@ def _settings(tmp: Path) -> Settings:
             "CSV2RDF_SETTLE_S": "0.0",
         }
     )
+    s.api_token = _TEST_TOKEN
+    return s
 
 
 @pytest.fixture
@@ -80,7 +87,7 @@ def _seed_dataset(reg_root: Path, name: str = "lab") -> str:
 
 def _client(tmp_path: Path, healthy_client: OxigraphClient) -> TestClient:
     app = build_app(_settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False)
-    return TestClient(app)
+    return TestClient(app, headers=_AUTH)
 
 
 # --- registry store unit (no HTTP) -----------------------------------------
@@ -177,7 +184,7 @@ def _client_with_llm(tmp_path: Path, healthy_client: OxigraphClient, llm) -> Tes
         start_watcher=False,
         llm_factory=lambda key: llm,
     )
-    return TestClient(app)
+    return TestClient(app, headers=_AUTH)
 
 
 def test_propose_returns_valid_draft_unsaved(
@@ -256,7 +263,7 @@ def _run_client(tmp_path: Path, healthy_client: OxigraphClient) -> TestClient:
     # not enter the lifespan, so wire the oxigraph client onto state directly.
     app = build_app(_settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False)
     app.state.client = healthy_client
-    return TestClient(app)
+    return TestClient(app, headers=_AUTH)
 
 
 def test_run_tool_binds_args_and_runs_readonly(

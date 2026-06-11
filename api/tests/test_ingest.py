@@ -22,9 +22,13 @@ from fastapi.testclient import TestClient
 from asterism_api import registry
 from asterism_api.main import Settings, build_app
 
+# Mutating routes are token-gated (fail-closed); tests send _AUTH by default.
+_TEST_TOKEN = "test-token"
+_AUTH = {"X-Asterism-Token": _TEST_TOKEN}
+
 
 def _settings(tmp: Path) -> Settings:
-    return Settings(
+    s = Settings(
         {
             "CSV2RDF_DROP_ROOT": str(tmp / "csv"),
             "CSV2RDF_RDF_ROOT": str(tmp / "rdf"),
@@ -35,6 +39,8 @@ def _settings(tmp: Path) -> Settings:
             "CSV2RDF_SETTLE_S": "0.0",
         }
     )
+    s.api_token = _TEST_TOKEN
+    return s
 
 
 class _RecordingOxi:
@@ -157,7 +163,7 @@ def test_ingest_happy_path_streams_canonical_with_progress(tmp_path: Path, monke
     # part5: the first ingest streams into a fresh version graph v1 (staged, not yet
     # citable — the live graph, if any, is untouched, so there is no DROP).
     graph_iri = substrate.versioned_graph_iri(dataset_id, 1)
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         status, events = _drive_ingest(
             client, dataset_id, {"files": ("papers.csv", b"SID\n1\n", "text/csv")}
         )
@@ -185,7 +191,7 @@ def test_ingest_happy_path_streams_canonical_with_progress(tmp_path: Path, monke
 def test_ingest_unknown_dataset_404(tmp_path: Path) -> None:
     oxi = _RecordingOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         r = client.post(
             "/api/datasets/does-not-exist/ingest",
             files={"files": ("papers.csv", b"SID\n1\n", "text/csv")},
@@ -197,7 +203,7 @@ def test_ingest_dataset_without_rml_400(tmp_path: Path) -> None:
     dataset_id = _save_dataset_with_rml(tmp_path, rml="   ")  # blank RML
     oxi = _RecordingOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         r = client.post(
             f"/api/datasets/{dataset_id}/ingest",
             files={"files": ("papers.csv", b"SID\n1\n", "text/csv")},
@@ -216,7 +222,7 @@ def test_ingest_without_morph_kgc_errors_in_job(tmp_path: Path, monkeypatch) -> 
     monkeypatch.setattr(substrate, "materialize_to_nt_file", _raise)
     oxi = _RecordingOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         status, events = _drive_ingest(
             client, dataset_id, {"files": ("papers.csv", b"SID\n1\n", "text/csv")}
         )
@@ -233,7 +239,7 @@ def test_attach_source_persists_csv_and_flags_meta(tmp_path: Path) -> None:
     dataset_id = _save_dataset_with_rml(tmp_path)
     oxi = _RecordingOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         r = client.post(
             f"/api/datasets/{dataset_id}/source",
             files={"files": ("papers.csv", b"SID\n1\n", "text/csv")},
@@ -261,7 +267,7 @@ def test_attach_source_persists_json_and_sets_source_kind(tmp_path: Path) -> Non
     dataset_id = _save_dataset_with_rml(tmp_path)
     oxi = _RecordingOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         r = client.post(
             f"/api/datasets/{dataset_id}/source",
             files={"files": ("mp.json", b'[{"mp_id":"mp-1"}]', "application/json")},
@@ -280,7 +286,7 @@ def test_attach_source_rejects_unsupported_extension(tmp_path: Path) -> None:
     dataset_id = _save_dataset_with_rml(tmp_path)
     oxi = _RecordingOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         r = client.post(
             f"/api/datasets/{dataset_id}/source",
             files={"files": ("data.txt", b"x\n", "text/plain")},
@@ -312,7 +318,7 @@ def test_ingest_uses_persisted_json_source(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(substrate, "materialize_to_nt_file", _materialize)
     oxi = _RecordingOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         assert (
             client.post(
                 f"/api/datasets/{dataset_id}/source",
@@ -332,7 +338,7 @@ def test_ingest_uses_persisted_json_source(tmp_path: Path, monkeypatch) -> None:
 def test_attach_source_unknown_dataset_404(tmp_path: Path) -> None:
     oxi = _RecordingOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         r = client.post(
             "/api/datasets/nope-00000000/source",
             files={"files": ("papers.csv", b"SID\n1\n", "text/csv")},
@@ -346,7 +352,7 @@ def test_ingest_uses_persisted_source_when_no_upload(tmp_path: Path, monkeypatch
     monkeypatch.setattr(substrate, "materialize_to_nt_file", _fake_nt_materializer(triples=1))
     oxi = _RecordingOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         assert (
             client.post(
                 f"/api/datasets/{dataset_id}/source",
@@ -369,7 +375,7 @@ def test_ingest_upload_persists_source_for_reuse(tmp_path: Path, monkeypatch) ->
     monkeypatch.setattr(substrate, "materialize_to_nt_file", _fake_nt_materializer(triples=1))
     oxi = _RecordingOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         status, events = _drive_ingest(
             client, dataset_id, {"files": ("papers.csv", b"SID\n1\n", "text/csv")}
         )
@@ -386,7 +392,7 @@ def test_ingest_without_upload_or_source_400(tmp_path: Path) -> None:
     dataset_id = _save_dataset_with_rml(tmp_path)  # RML present, no source attached
     oxi = _RecordingOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         r = client.post(f"/api/datasets/{dataset_id}/ingest")
         assert r.status_code == 400
         assert "CSV" in r.json()["detail"]
@@ -414,7 +420,7 @@ def test_ingest_stream_failure_errors_and_drops_staged(tmp_path: Path, monkeypat
     oxi = _RecordingOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
     graph_iri = substrate.versioned_graph_iri(dataset_id, 1)
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         status, events = _drive_ingest(
             client, dataset_id, {"files": ("papers.csv", b"SID\n1\n", "text/csv")}
         )
@@ -556,7 +562,7 @@ def test_promote_projects_tbox_into_ontology_graph(tmp_path: Path) -> None:
     )
     oxi = _ProjectOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         body = client.post(f"/api/datasets/{dataset_id}/promote").json()
     ontology_iri = f"https://kumagallium.github.io/asterism/graph/ontology/{dataset_id}"
     assert body["ontology_graph"] == ontology_iri
@@ -570,7 +576,7 @@ def test_alignment_preview_classifies_draft(tmp_path: Path) -> None:
     dataset_id = _ingested_dataset(tmp_path)
     oxi = _PromoteOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         r = client.get(f"/api/datasets/{dataset_id}/alignment")
         assert r.status_code == 200, r.text
         al = r.json()["alignment"]
@@ -585,7 +591,7 @@ def test_promote_flags_canonical_and_marks_meta(tmp_path: Path) -> None:
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
     expected_canon = f"https://kumagallium.github.io/asterism/graph/canonical/{dataset_id}"
     expected_live = f"{expected_canon}/v1"
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         r = client.post(f"/api/datasets/{dataset_id}/promote")
         assert r.status_code == 200, r.text
         body = r.json()
@@ -643,7 +649,7 @@ def test_promote_requires_ingested_draft(tmp_path: Path) -> None:
     dataset_id = _save_dataset_with_rml(tmp_path)  # has RML but never ingested
     oxi = _PromoteOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         r = client.post(f"/api/datasets/{dataset_id}/promote")
         assert r.status_code == 400
     assert oxi.updates == []  # nothing moved
@@ -660,7 +666,7 @@ def test_ingest_morph_kgc_error_surfaces_in_job(tmp_path: Path, monkeypatch) -> 
     monkeypatch.setattr(substrate, "materialize_to_nt_file", _boom)
     oxi = _RecordingOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         status, events = _drive_ingest(
             client, dataset_id, {"files": ("papers.csv", b"SID\n1\n", "text/csv")}
         )
@@ -676,7 +682,7 @@ def test_retract_then_reinstate_roundtrip(tmp_path: Path) -> None:
     oxi = _PromoteOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
     canon = f"https://kumagallium.github.io/asterism/graph/canonical/{dataset_id}"
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         assert client.post(f"/api/datasets/{dataset_id}/promote").status_code == 200
         r = client.post(f"/api/datasets/{dataset_id}/retract")
         assert r.status_code == 200, r.text
@@ -696,7 +702,7 @@ def test_retract_requires_promoted(tmp_path: Path) -> None:
     dataset_id = _save_dataset_with_rml(tmp_path)  # designed but never promoted
     oxi = _PromoteOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         r = client.post(f"/api/datasets/{dataset_id}/retract")
         assert r.status_code == 400
     assert oxi.updates == []  # nothing tombstoned
@@ -708,7 +714,7 @@ def test_delete_staged_only_dataset_no_force(tmp_path: Path) -> None:
     oxi = _PromoteOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
     staged = f"https://kumagallium.github.io/asterism/graph/canonical/{dataset_id}/v1"
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         r = client.delete(f"/api/datasets/{dataset_id}")
         assert r.status_code == 200, r.text
         assert r.json()["deleted"] is True
@@ -725,7 +731,7 @@ def test_delete_promoted_requires_force(tmp_path: Path) -> None:
     dataset_id = _ingested_dataset(tmp_path)
     oxi = _PromoteOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         assert client.post(f"/api/datasets/{dataset_id}/promote").status_code == 200
         r = client.delete(f"/api/datasets/{dataset_id}")  # no force
         assert r.status_code == 409
@@ -739,7 +745,7 @@ def test_delete_promoted_with_force_enqueues_drop_and_tombstones(tmp_path: Path)
     oxi = _PromoteOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
     canon = f"https://kumagallium.github.io/asterism/graph/canonical/{dataset_id}"
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         assert client.post(f"/api/datasets/{dataset_id}/promote").status_code == 200
         r = client.delete(f"/api/datasets/{dataset_id}?force=true")
         assert r.status_code == 200, r.text
@@ -754,7 +760,7 @@ def test_delete_promoted_with_force_enqueues_drop_and_tombstones(tmp_path: Path)
 def test_delete_unknown_dataset_404(tmp_path: Path) -> None:
     oxi = _PromoteOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         assert client.delete("/api/datasets/nope-00000000").status_code == 404
 
 
@@ -828,7 +834,7 @@ def test_append_grows_live_feed_and_records_meta(tmp_path: Path, monkeypatch) ->
     monkeypatch.setattr(substrate, "materialize_to_nt_file", _fake_nt_materializer(triples=2))
     oxi = _FeedOxi(live)
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         r = client.post(
             f"/api/datasets/{dataset_id}/append",
             files={"files": ("papers.csv", b"SID\n2\n3\n", "text/csv")},
@@ -862,7 +868,7 @@ def test_append_second_batch_bumps_seq(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(substrate, "materialize_to_nt_file", _fake_nt_materializer(triples=1))
     oxi = _FeedOxi(live)
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         b1 = client.post(
             f"/api/datasets/{dataset_id}/append",
             files={"files": ("papers.csv", b"SID\n2\n", "text/csv")},
@@ -881,7 +887,7 @@ def test_append_requires_promoted_409(tmp_path: Path) -> None:
     dataset_id = _save_dataset_with_rml(tmp_path)  # designed, never promoted
     oxi = _RecordingOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         r = client.post(
             f"/api/datasets/{dataset_id}/append",
             files={"files": ("papers.csv", b"SID\n2\n", "text/csv")},
@@ -894,7 +900,7 @@ def test_append_rejects_mismatched_batch_name_400(tmp_path: Path) -> None:
     dataset_id, live = _promoted_feed_dataset(tmp_path)
     oxi = _FeedOxi(live)
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         r = client.post(
             f"/api/datasets/{dataset_id}/append",
             files={"files": ("other.csv", b"X\n1\n", "text/csv")},
@@ -906,7 +912,7 @@ def test_append_rejects_mismatched_batch_name_400(tmp_path: Path) -> None:
 def test_append_unknown_dataset_404(tmp_path: Path) -> None:
     oxi = _RecordingOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         r = client.post(
             "/api/datasets/nope-00000000/append",
             files={"files": ("papers.csv", b"SID\n2\n", "text/csv")},

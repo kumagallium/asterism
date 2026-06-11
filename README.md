@@ -46,16 +46,20 @@ git clone https://github.com/kumagallium/asterism
 cd asterism
 docker compose up -d --build
 
-# Drop a CSV into the kind-specific directory; the watcher picks it up.
+# Drop a CSV into the kind-specific directory; the watcher picks it up (no token).
 cp /path/to/starrydata_papers.csv data/sources/csv/papers/
 
-# …or upload via HTTP:
-curl -F file=@papers.csv http://localhost:8080/upload/papers
+# …or upload via HTTP. The write surface is token-gated (fail-closed): set a
+# token first (also put it in .env so the container sees it), then send it.
+export ASTERISM_API_TOKEN=$(openssl rand -hex 32)   # restart compose after setting in .env
+curl -F file=@papers.csv -H "X-Asterism-Token: $ASTERISM_API_TOKEN" \
+  http://localhost:8080/upload/papers
 
-# Inspect ingest history
+# Inspect ingest history (read-only, open)
 curl http://localhost:8080/jobs | jq
 
-# SPARQL directly against Oxigraph
+# SPARQL directly against the (loopback-only) Oxigraph — for local debugging.
+# Oxigraph itself has no auth; never publish 7878 on a shared network.
 curl -G http://localhost:7878/query \
   --data-urlencode 'query=SELECT (COUNT(*) AS ?c) WHERE { ?s ?p ?o }'
 
@@ -91,6 +95,36 @@ asterism-materialize refined.md --name mydata --output-dir out/
 # 5. validate the bundle against the *full* CSV (8-trap check; exit 0/1, CI-friendly)
 asterism-validate --mie out/mydata-mie.yaml --ingester out/mydata.py --csv mydata.csv
 ```
+
+## Security / deploying with sensitive data
+
+The quickstart above is for **local, single-user** use. Asterism is designed to be
+self-hosted over confidential, unpublished data, so the defaults are safe-by-default:
+
+- **Loopback by default.** Every published port in `compose.yaml` (Oxigraph `7878`,
+  upload-api `8080`, togomcp `8000`, MCP front `8002`) and `compose.demo.yaml`
+  (`8090`) binds to `127.0.0.1`. Oxigraph has *no* authentication and a writable
+  `/update` endpoint — never publish `7878` on a shared network. Sibling services
+  reach it in-network via `http://oxigraph:7878`.
+- **Raw SPARQL is off by default.** The arbitrary read-only SPARQL escape (MCP
+  `sparql_query`, `/api/sparql`, `/demo/sparql`) is withheld unless you set
+  `ASTERISM_EXPOSE_RAW_SPARQL=1`. Typed, human-vetted query tools are always on.
+  Even when enabled the escape is **scoped to promoted canonical graphs**: a
+  caller-supplied `FROM`/`FROM NAMED` must name an allowlisted graph (no reaching
+  into unreviewed drafts), `SERVICE` federation is blocked (SSRF/exfiltration), and
+  `schema_summary` only introspects canonical/ontology graphs.
+- **Ingestion never runs generated code.** AI-/operator-authored RML is validated
+  fail-closed before Morph-KGC runs it — only the closed Tier 0 function set
+  (`asterism.functions`) and confined CSV/JSON file sources are allowed (no DuckDB
+  `rml:query`, no absolute / `..` / URL sources). See
+  [`docs/architecture/ingestion-execution-safety.md`](docs/architecture/ingestion-execution-safety.md).
+
+To expose any surface **beyond localhost**: put it behind an authenticating reverse
+proxy (TLS + auth), set `ASTERISM_API_TOKEN` to gate the write/design and SPARQL
+endpoints, keep the store on a network with no outbound egress, and for a sensitive
+*remote* store use the typed-only topology B
+([`compose.mcp-front.yaml`](compose.mcp-front.yaml),
+[`docs/architecture/store-mcp-split.md`](docs/architecture/store-mcp-split.md)).
 
 ## License
 

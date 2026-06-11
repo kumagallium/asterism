@@ -35,5 +35,8 @@ services:
     environment:
       CSV2RDF_OXIGRAPH_URL: http://oxigraph:7878
     ports:
-      - "8090:8090"
+      # Loopback-only: the demo-agent answers from the live store and (when the
+      # raw escape is enabled) proxies SPARQL. Do not expose it on the LAN over a
+      # store holding unpublished data; it also uses wildcard CORS in dev.
+      - "127.0.0.1:8090:8090"
     restart: unless-stopped

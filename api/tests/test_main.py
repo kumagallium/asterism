@@ -16,6 +16,11 @@ from fastapi.testclient import TestClient
 
 from asterism_api.main import Settings, build_app
 
+# Mutating + raw-SPARQL routes are token-gated (fail-closed). The integration
+# tests configure a token and send it by default via TestClient(app, headers=_AUTH).
+_TEST_TOKEN = "test-token"
+_AUTH = {"X-Asterism-Token": _TEST_TOKEN}
+
 
 def _settings(tmp: Path) -> Settings:
     env = {
@@ -27,7 +32,16 @@ def _settings(tmp: Path) -> Settings:
         "CSV2RDF_OXIGRAPH_URL": "http://test",
         "CSV2RDF_SETTLE_S": "0.0",
     }
-    return Settings(env)
+    s = Settings(env)
+    # The raw-SPARQL escape now defaults CLOSED (safe-by-default for a sensitive
+    # store). These integration tests exercise the relay, so enable it
+    # explicitly here; the default-closed behaviour is unit-tested in
+    # ingest/tests/test_exposure.py and test_sparql_disabled_returns_403.
+    s.expose_raw_sparql = True
+    # Token-gated routes are fail-closed when this is None; configure it so the
+    # integration tests (which send _AUTH) can reach the handlers.
+    s.api_token = _TEST_TOKEN
+    return s
 
 
 def _mock_client(handler) -> OxigraphClient:
@@ -64,7 +78,7 @@ def test_health_ok(tmp_path: Path, healthy_client: OxigraphClient) -> None:
     app = build_app(
         _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
     )
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         r = client.get("/health")
         assert r.status_code == 200
         body = r.json()
@@ -78,7 +92,7 @@ def test_health_degraded_when_oxigraph_unreachable(
     app = build_app(
         _settings(tmp_path), oxigraph_client=unreachable_client, start_watcher=False
     )
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         r = client.get("/health")
         assert r.status_code == 503
         body = r.json()
@@ -92,7 +106,7 @@ def test_upload_writes_to_drop_dir(
     app = build_app(
         _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
     )
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         r = client.post(
             "/upload/papers",
             files={"file": ("hello.csv", b"SID,DOI\n1,10.x\n", "text/csv")},
@@ -115,7 +129,7 @@ def test_upload_rejects_bad_kind(
     app = build_app(
         _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
     )
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         r = client.post(
             "/upload/junk",
             files={"file": ("x.csv", b"a,b\n", "text/csv")},
@@ -129,7 +143,7 @@ def test_upload_rejects_unsafe_filename(
     app = build_app(
         _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
     )
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         r = client.post(
             "/upload/papers",
             files={"file": ("../etc/passwd.csv", b"x\n", "text/csv")},
@@ -143,12 +157,33 @@ def test_upload_rejects_non_csv_suffix(
     app = build_app(
         _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
     )
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         r = client.post(
             "/upload/papers",
             files={"file": ("notes.txt", b"x\n", "text/plain")},
         )
         assert r.status_code == 400
+
+
+def test_upload_enforces_byte_cap(
+    tmp_path: Path, healthy_client: OxigraphClient, monkeypatch
+) -> None:
+    """A file larger than the cap is rejected with 413 and leaves no partial."""
+    import asterism_api.main as main_mod
+
+    monkeypatch.setattr(main_mod, "_MAX_UPLOAD_BYTES", 16)
+    app = build_app(
+        _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
+    )
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/upload/papers",
+            files={"file": ("big.csv", b"x" * 64, "text/csv")},
+        )
+        assert r.status_code == 413
+    papers = tmp_path / "csv" / "papers"
+    assert not (papers / "big.csv").exists()
+    assert not (papers / "big.csv.tmp").exists()  # partial cleaned up
 
 
 def test_jobs_returns_recent(
@@ -162,7 +197,7 @@ def test_jobs_returns_recent(
         encoding="utf-8",
     )
     app = build_app(s, oxigraph_client=healthy_client, start_watcher=False)
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         r = client.get("/jobs", params={"limit": 1})
         assert r.status_code == 200
         body = r.json()
@@ -176,7 +211,7 @@ def test_jobs_rejects_invalid_limit(
     app = build_app(
         _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
     )
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         r = client.get("/jobs", params={"limit": 0})
         assert r.status_code == 400
 
@@ -192,7 +227,7 @@ def test_inspect_returns_markdown(
     app = build_app(
         _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
     )
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         r = client.post(
             "/api/inspect",
             files={"files": ("samples.csv", b"SID,sample_id\n1,10\n1,11\n2,10\n", "text/csv")},
@@ -211,7 +246,7 @@ def test_inspect_json_returns_markdown(
     app = build_app(
         _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
     )
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         r = client.post(
             "/api/inspect",
             files={
@@ -236,7 +271,7 @@ def test_inspect_rejects_unsupported_source_extension(
     app = build_app(
         _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
     )
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         r = client.post(
             "/api/inspect",
             files={"files": ("notes.txt", b"hello\n", "text/plain")},
@@ -250,7 +285,7 @@ def test_inspect_multi_csv_with_fk(
     app = build_app(
         _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
     )
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         r = client.post(
             "/api/inspect",
             params={"fk": "SID"},
@@ -271,7 +306,7 @@ def test_inspect_rejects_unsafe_filename(
     app = build_app(
         _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
     )
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         r = client.post(
             "/api/inspect",
             files={"files": ("../../etc/passwd.csv", b"a,b\n1,2\n", "text/csv")},
@@ -321,7 +356,7 @@ def test_propose_starts_job_and_streams_done(
         start_watcher=False,
         llm_factory=lambda key: _MockLLM(captured, key),
     )
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         r = client.post(
             "/api/propose",
             params={"fk": "SID"},
@@ -360,7 +395,7 @@ def test_propose_without_domain_hint(
         start_watcher=False,
         llm_factory=lambda key: _MockLLM(captured, key),
     )
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         r = client.post(
             "/api/propose",
             files={"files": ("s.csv", b"SID,sample_id\n1,10\n2,11\n", "text/csv")},
@@ -387,7 +422,7 @@ def test_propose_error_surfaces_as_error_event(
         start_watcher=False,
         llm_factory=lambda key: _BoomLLM(key),
     )
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         r = client.post(
             "/api/propose",
             data={"domain": "x"},
@@ -412,7 +447,7 @@ def test_refine_starts_job_and_streams_done(
         start_watcher=False,
         llm_factory=lambda key: _MockLLM(captured, key),
     )
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         r = client.post(
             "/api/refine",
             json={
@@ -444,7 +479,7 @@ def test_refine_rejects_empty_comments(
     app = build_app(
         _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
     )
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         r = client.post(
             "/api/refine",
             json={"schema_md": "## x", "comments": ["  "]},
@@ -486,7 +521,7 @@ def test_materialize_extracts_artifacts_and_validates(
     app = build_app(
         _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
     )
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         r = client.post(
             "/api/materialize",
             json={"proposal_md": _MATERIALIZE_MD, "dataset_name": "demo"},
@@ -510,7 +545,7 @@ def test_materialize_rejects_empty(
     app = build_app(
         _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
     )
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         r = client.post("/api/materialize", json={"proposal_md": "   "})
         assert r.status_code == 400
 
@@ -522,7 +557,7 @@ def test_materialize_persists_and_lists_dataset(
     app = build_app(
         _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
     )
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         # Registry starts empty.
         assert client.get("/api/datasets").json() == {"count": 0, "datasets": []}
 
@@ -555,7 +590,7 @@ def test_materialize_persist_false_skips_registry(
     app = build_app(
         _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
     )
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         r = client.post(
             "/api/materialize",
             json={"proposal_md": _MATERIALIZE_MD, "persist": False},
@@ -571,7 +606,7 @@ def test_get_dataset_unknown_returns_404(
     app = build_app(
         _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
     )
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         assert client.get("/api/datasets/nope-12345678").status_code == 404
         # Path-traversal-ish id is rejected as not-found, never escapes root.
         assert client.get("/api/datasets/..%2f..%2fetc").status_code == 404
@@ -594,7 +629,7 @@ def test_sparql_select_relays_results(tmp_path: Path) -> None:
     app = build_app(
         _settings(tmp_path), oxigraph_client=_mock_client(handler), start_watcher=False
     )
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         r = client.post("/api/sparql", json={"query": "SELECT ?s WHERE { ?s ?p ?o } LIMIT 1"})
         assert r.status_code == 200
         assert r.json()["results"]["bindings"][0]["s"]["value"] == "urn:x"
@@ -607,11 +642,61 @@ def test_sparql_disabled_returns_403_when_exposure_off(
     s = _settings(tmp_path)
     s.expose_raw_sparql = False  # topology B / sensitive deployment
     app = build_app(s, oxigraph_client=healthy_client, start_watcher=False)
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         r = client.post(
             "/api/sparql", json={"query": "SELECT ?s WHERE { ?s ?p ?o } LIMIT 1"}
         )
         assert r.status_code == 403
+
+
+def test_write_routes_fail_closed_without_token(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    """No ASTERISM_API_TOKEN -> mutating routes are DISABLED (503), reads stay open."""
+    s = _settings(tmp_path)
+    s.api_token = None  # operator did not configure a token
+    app = build_app(s, oxigraph_client=healthy_client, start_watcher=False)
+    with TestClient(app) as client:  # deliberately no auth header
+        # A mutating route is fail-closed, not anonymously open.
+        assert client.delete("/api/datasets/whatever-00000000").status_code == 503
+        assert (
+            client.post("/api/sparql", json={"query": "ASK {}"}).status_code == 503
+        )
+        # Read-only catalog + health stay open.
+        assert client.get("/api/datasets").status_code == 200
+        assert client.get("/health").status_code in (200, 503)  # 503 only if oxigraph down
+
+
+def test_write_routes_require_valid_token_when_configured(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    """With a token set, mutating routes require it (Bearer or X-Asterism-Token)."""
+    app = build_app(
+        _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
+    )
+    with TestClient(app) as client:  # _settings configures _TEST_TOKEN
+        # Absent / wrong token -> 401 (not 503: the route IS configured).
+        assert client.delete("/api/datasets/whatever-00000000").status_code == 401
+        assert (
+            client.delete(
+                "/api/datasets/whatever-00000000",
+                headers={"X-Asterism-Token": "wrong"},
+            ).status_code
+            == 401
+        )
+        # Correct token passes auth and reaches the handler (404 not-found).
+        assert (
+            client.delete("/api/datasets/whatever-00000000", headers=_AUTH).status_code
+            == 404
+        )
+        # Bearer form is accepted too.
+        assert (
+            client.delete(
+                "/api/datasets/whatever-00000000",
+                headers={"Authorization": f"Bearer {_TEST_TOKEN}"},
+            ).status_code
+            == 404
+        )
 
 
 def test_sparql_rejects_update_and_empty(
@@ -620,7 +705,7 @@ def test_sparql_rejects_update_and_empty(
     app = build_app(
         _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
     )
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         assert client.post("/api/sparql", json={"query": "   "}).status_code == 400
         # Update forms are rejected even though /query is read-only anyway.
         assert (
@@ -663,7 +748,7 @@ def test_sparql_injects_from_merge_when_canonical_graphs_exist(tmp_path: Path) -
     app = build_app(
         _settings(tmp_path), oxigraph_client=_mock_client(handler), start_watcher=False
     )
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         r = client.post("/api/sparql", json={"query": "SELECT ?s WHERE { ?s ?p ?o }"})
         assert r.status_code == 200
     assert f"FROM <{g}>" in seen["relay"]  # cross-dataset scope injected
@@ -691,7 +776,7 @@ def test_startup_migrates_default_into_canonical_legacy(tmp_path: Path) -> None:
     app = build_app(
         _settings(tmp_path), oxigraph_client=_mock_client(handler), start_watcher=False
     )
-    with TestClient(app):
+    with TestClient(app, headers=_AUTH):
         pass  # lifespan startup runs the migration
     legacy = canonical_graph_iri("legacy")
     # Migrate default -> canonical/legacy, then flag legacy promoted (citability is
@@ -708,6 +793,6 @@ def test_job_stream_unknown_id(
     app = build_app(
         _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
     )
-    with TestClient(app) as client:
+    with TestClient(app, headers=_AUTH) as client:
         events = _parse_sse(client.get("/api/jobs/job-999/stream").text)
         assert events and events[0][0] == "error"

@@ -1,5 +1,7 @@
 import { useState } from 'react'
 
+import { authHeaders } from './authToken'
+
 // Same workbench API base as the other clients (same-origin /api via the Vite
 // proxy by default; VITE_API_URL overrides for separate hosting).
 const API_BASE = ((import.meta.env.VITE_API_URL as string | undefined) ?? '').replace(/\/+$/, '')
@@ -40,7 +42,7 @@ export function SparqlView() {
     try {
       const res = await fetch(`${API_BASE}/api/sparql`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ query }),
       })
       if (!res.ok) {

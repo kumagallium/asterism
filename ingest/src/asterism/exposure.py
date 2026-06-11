@@ -19,12 +19,17 @@ Typed tools are **always** available regardless of this switch — they run only
 human-vetted templates with type-safe argument binding (``query_tools.py``), so
 they expose nothing the operator did not deliberately publish.
 
-Config: a single env var, default **open** (backward compatible / topology A)::
+Config: a single env var, default **closed** (safe-by-default for a sensitive
+store). The arbitrary read-only SPARQL escape is withheld unless the operator
+explicitly opts in::
 
-    ASTERISM_EXPOSE_RAW_SPARQL=false   # typed tools only (topology B / sensitive)
+    ASTERISM_EXPOSE_RAW_SPARQL=1   # open the raw escape (topology A / co-located demo)
 
-Falsy values (``0`` / ``false`` / ``no`` / ``off``, case-insensitive) disable the
-escape; anything else (including unset) leaves it on.
+When **unset** the escape is OFF (typed tools only). An explicit value enables it
+unless it is falsy (``0`` / ``false`` / ``no`` / ``off``, case-insensitive), which
+keeps it OFF. This was deliberately flipped from the original backward-compatible
+"open by default": a fresh deployment that ingests confidential data must not
+publish a graph-wide root-extraction escape merely by omission.
 """
 
 from __future__ import annotations
@@ -41,12 +46,14 @@ _FALSY = frozenset({"0", "false", "no", "off"})
 def raw_sparql_enabled(env: Mapping[str, str] | None = None) -> bool:
     """Whether the arbitrary read-only SPARQL escape hatch is exposed.
 
-    Defaults to ``True`` (open) when the var is unset, so existing deployments
-    and the co-located (topology A) compose keep working unchanged. Pass an
-    explicit ``env`` mapping in tests; production reads ``os.environ``.
+    Defaults to ``False`` (closed) when the var is unset — safe-by-default for a
+    sensitive store, so a fresh deployment does not publish a graph-wide
+    root-extraction escape merely by omission. The operator opts in with an
+    explicit non-falsy value. Pass an explicit ``env`` mapping in tests;
+    production reads ``os.environ``.
     """
     e = env if env is not None else os.environ
     raw = e.get(ENV_EXPOSE_RAW_SPARQL)
     if raw is None:
-        return True
+        return False
     return raw.strip().lower() not in _FALSY

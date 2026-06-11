@@ -139,11 +139,22 @@ async def test_declared_property_ranking_call_round_trip() -> None:
 
 async def test_exposure_on_registers_sparql_query() -> None:
     mcp = build_server(
-        Settings({}),  # default: open
+        Settings({"ASTERISM_EXPOSE_RAW_SPARQL": "1"}),  # explicit opt-in
         oxigraph_client=_mock_client(lambda r: _rows_response([], ["g"])),
     )
     names = {t.name for t in await mcp.list_tools()}
     assert "sparql_query" in names
+
+
+async def test_exposure_default_withholds_sparql_query() -> None:
+    # Safe-by-default: with no env var set, the raw escape is NOT registered.
+    mcp = build_server(
+        Settings({}),
+        oxigraph_client=_mock_client(lambda r: _rows_response([], ["g"])),
+    )
+    names = {t.name for t in await mcp.list_tools()}
+    assert "sparql_query" not in names
+    assert "schema_summary" in names  # typed tools stay on
 
 
 async def test_exposure_off_withholds_only_sparql_query() -> None:

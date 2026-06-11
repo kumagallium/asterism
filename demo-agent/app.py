@@ -52,12 +52,23 @@ _ASK_MAX_STEPS = 5  # max run_sparql tool calls before we force an answer
 
 app = FastAPI(title=f"asterism demo-agent ({'real' if _REAL else 'mock'})")
 
-# Dev-only CORS so the Vite UI (different port) can call us. Tighten before any
-# non-local deployment.
+# CORS: only the configured UI origin(s) may read our responses cross-origin. A
+# wildcard would let ANY web page the operator visits drive /demo/ask|/demo/sparql
+# against the live store and read the result (drive-by exfiltration of unpublished
+# data). Override with ASTERISM_DEMO_CORS_ORIGINS (comma-separated); defaults to
+# the local Vite dev origins. allow_credentials stays off (no cookies cross-origin).
+_CORS_ORIGINS = [
+    o.strip()
+    for o in os.environ.get(
+        "ASTERISM_DEMO_CORS_ORIGINS",
+        "http://localhost:5173,http://127.0.0.1:5173",
+    ).split(",")
+    if o.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
+    allow_origins=_CORS_ORIGINS,
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -785,6 +796,15 @@ async def schema(graph: str | None = None) -> dict:
     """Schema-agnostic vocabulary introspection (classes/predicates/shapes)."""
     if not _REAL:
         return _SCHEMA_FIXTURE
+    if graph is not None and not _EXPOSE_RAW_SPARQL:
+        # Introspecting an ARBITRARY named graph (e.g. an unreviewed draft) is part
+        # of the raw escape — in the typed-only profile only the canonical summary
+        # (graph=None) is exposed, so a draft's vocabulary cannot be probed.
+        raise HTTPException(
+            403,
+            "この配備では特定グラフのスキーマ参照は無効です（型付きツールのみ公開）。"
+            "ASTERISM_EXPOSE_RAW_SPARQL=1 で有効化できます。",
+        )
     from asterism_mcp.tools import schema_summary
 
     return await schema_summary(_client(), graph=graph)

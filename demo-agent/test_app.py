@@ -60,6 +60,10 @@ def _real_client(monkeypatch) -> TestClient:
     g.parse(data=_TTL, format="turtle")
     demo._state["client"] = _LocalClient(g)
     monkeypatch.setattr(demo, "_REAL", True)
+    # The raw-SPARQL escape now defaults CLOSED; the real-mode relay tests need it
+    # on. Tests that assert the withheld (topology-B) behaviour override this back
+    # to False explicitly.
+    monkeypatch.setattr(demo, "_EXPOSE_RAW_SPARQL", True)
     return TestClient(demo.app)
 
 
