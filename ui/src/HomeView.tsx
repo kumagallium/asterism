@@ -39,7 +39,9 @@ export function HomeView({ onNavigate }: { onNavigate: (tab: 'workbench' | 'ask'
   }, [])
 
   const fmt = (n: number | null | undefined) => (n == null ? '—' : n.toLocaleString())
-  const recent = (datasets ?? []).slice(0, 5)
+  // The crosswalk hub is a bridge surfaced on its own — keep it out of the dataset
+  // list here, matching the Catalog.
+  const recent = (datasets ?? []).filter((d) => !d.isCrosswalk).slice(0, 5)
 
   return (
     <div className="home">

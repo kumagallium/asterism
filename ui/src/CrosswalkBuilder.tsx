@@ -36,6 +36,9 @@ export function CrosswalkBuilder() {
   // dataset_id -> AI-sampled candidates (iri + sample value), populated by propose.
   const [candidates, setCandidates] = useState<Record<string, PredicateCandidate[]>>({})
   const [apiKey, setApiKey] = useState(() => sessionStorage.getItem(API_KEY_STORAGE) ?? '')
+  // The join key. 'composition' = conservative (fold subscripts + strip); '
+  // element_canonical' also reorders elements so Bi2Te3 == Te3Bi2 (ADR ①).
+  const [normalizer, setNormalizer] = useState('composition')
   const [proposing, setProposing] = useState(false)
   const [proposeErr, setProposeErr] = useState('')
   const [proposeNote, setProposeNote] = useState('')
@@ -129,7 +132,7 @@ export function CrosswalkBuilder() {
         concepts: [
           {
             name: 'composition',
-            normalizer: 'composition',
+            normalizer,
             participants: chosen
               .filter((d) => predicate[datasetId(d)])
               .map((d) => ({
@@ -255,6 +258,28 @@ export function CrosswalkBuilder() {
                     </div>
                   )
                 })}
+              </div>
+
+              <div className="ds-subhead">
+                3. 同じ組成とみなす基準（正規化）
+                <span className="xw-hint-inline">表記揺れをどこまで同一視するか</span>
+              </div>
+              <div className="xw-norm-row">
+                <select
+                  className="xw-map-select xw-norm-select"
+                  value={normalizer}
+                  onChange={(e) => setNormalizer(e.target.value)}
+                >
+                  <option value="composition">組成（標準・添字/空白を吸収）</option>
+                  <option value="element_canonical">
+                    組成・元素順も正規化（Bi2Te3 = Te3Bi2）
+                  </option>
+                </select>
+                <span className="xw-norm-hint">
+                  {normalizer === 'element_canonical'
+                    ? '元素の並び順が違っても同じ組成として結合します（化学式＝多重集合）。'
+                    : '添字・空白の違いだけを吸収します（元素順は区別）。'}
+                </span>
               </div>
 
               <button
