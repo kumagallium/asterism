@@ -223,30 +223,49 @@ questions — just the artifact set.
 
 # Source inspection
 
-## JSON: unemployment-across-industries.json
+## JSON: openlibrary-books.json
 
-- Records: 80 (iterator `$[*]`)
-- Path: `../experiments/coverage-corpus/datasets/unemployment-industry/source/unemployment-across-industries.json`
+- Records: 40 (iterator `$[*]`)
+- Path: `../experiments/coverage-corpus/datasets/openlibrary-books/source/openlibrary-books.json`
 - Reference style: dot-path leaf fields (e.g. `structure.spacegroup`) — emit `rml:referenceFormulation ql:JSONPath`, `rml:iterator "$[*]"`, and `rml:reference` with the dot-paths below.
 
 ### Columns
 
 | name | type | non-null rate | distinct values | sample values |
 |---|---|---|---|---|
-| `series` | xsd:string | 100% | 14 | `Government`, `Government`, `Government` |
-| `year` | xsd:integer | 100% | 11 | `2000`, `2001`, `2003` |
-| `month` | xsd:integer | 100% | 12 | `1`, `11`, `8` |
-| `count` | xsd:integer | 100% | 80 | `430`, `420`, `745` |
-| `rate` | xsd:double | 100% | 52 | `2.1`, `2.1`, `3.7` |
-| `date` | xsd:dateTime | 100% | 80 | `2000-01-01T08:00:00.000Z`, `2001-11-01T08:00:00.000Z`, `2003-08-01T07:00:00.000Z` |
+| `title` | xsd:string | 100% | 38 | `Chemistry`, `The science of getting rich, or, financi`, `Chaos` |
+| `author_name` | json-array | 100% | 40 | `["Theodore L. Brown", "H. Eugene Lemay",`, `["Wallace D. Wattles", "Ruth L Miller", `, `["James Gleick"]` |
+| `first_publish_year` | xsd:integer | 100% | 31 | `1977`, `1910`, `1987` |
+| `isbn` | json-array | 100% | 40 | `["0138281874", "9780555054130", "1110131`, `["1101043288", "1516916816", "9780914295`, `["9781453221044", "9780759581166", "9781` |
+| `language` | json-array | 100% | 11 | `["por", "spa", "ger", "eng"]`, `["eng", "chi", "spa"]`, `["tur", "por", "fre", "eng", "fin"]` |
+| `subject` | json-array | 100% | 40 | `["Textbooks", "Science textbooks", "Chim`, `["Success", "Wealth", "New Thought", "Ri`, `["Chaotic behavior in systems", "Science` |
+| `number_of_pages_median` | xsd:integer | 92% | 35 | `1117`, `102`, `364` |
+
+### JSON columns
+
+- `author_name` (array of string)
+- `isbn` (array of string)
+- `language` (array of string)
+- `subject` (array of string)
 
 ### Uniqueness (★ trap T1 from workflow §6)
 
 | key | rows considered | distinct | collisions | unique? |
 |---|---|---|---|---|
-| (count) | 80 | 80 | 0 | ✓ |
-| (date, count) | 80 | 80 | 0 | ✓ |
-| (date) | 80 | 80 | 0 | ✓ |
+| (title) | 40 | 38 | 2 | ✗ |
+| (author_name, title) | 40 | 40 | 0 | ✓ |
+| (isbn, title) | 40 | 40 | 0 | ✓ |
+| (subject, title) | 40 | 40 | 0 | ✓ |
+| (author_name, isbn, title) | 40 | 40 | 0 | ✓ |
+| (author_name, subject, title) | 40 | 40 | 0 | ✓ |
+| (isbn, subject, title) | 40 | 40 | 0 | ✓ |
+| (author_name) | 40 | 40 | 0 | ✓ |
+| (isbn, author_name) | 40 | 40 | 0 | ✓ |
+| (subject, author_name) | 40 | 40 | 0 | ✓ |
+| (isbn, subject, author_name) | 40 | 40 | 0 | ✓ |
+| (isbn) | 40 | 40 | 0 | ✓ |
+| (subject, isbn) | 40 | 40 | 0 | ✓ |
+| (subject) | 40 | 40 | 0 | ✓ |
 
 
 
@@ -254,8 +273,8 @@ questions — just the artifact set.
 
 ## Domain context
 
-- **Dataset**: US unemployment by industry, monthly (vega-datasets).
-- **Purpose**: model an unemployment time series keyed by (series, year, month).
-- **Entities**: a monthly labor Observation for an industry Series.
-- **Notable columns**: `series` (industry, controlled vocabulary), `year`, `month`, `count` (unemployed, thousands), `rate` (percent), `date` (ISO dateTime).
-- **Synonyms**: series→industry/業種, rate→unemployment rate/失業率.
+- **Dataset**: OpenLibrary search results (books) — public-domain bibliographic metadata.
+- **Purpose**: model each book/work with its title, authors, languages, subjects, ISBNs, and first publication year.
+- **Entities**: a Book (a Work).
+- **Notable columns**: `title`, `author_name` (multi-valued array of strings), `isbn` (array), `language` (array of ISO-639 codes, often multi), `subject` (array of subject headings), `first_publish_year`, `number_of_pages_median`.
+- **Synonyms**: author→creator/著者, subject→topic/件名, isbn→identifier.

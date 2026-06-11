@@ -154,19 +154,43 @@
   rr:predicateObjectMap [ rr:predicate sd:geometryType ;
     rr:objectMap [ rml:reference "geometry.type" ] ] ;
 
-  # fallback: properties.ids is a comma-wrapped multi-value list (,ci37868143,), not expanded
-  rr:predicateObjectMap [ rr:predicate sd:idsRaw ;
-    rr:objectMap [ rml:reference "properties.ids" ] ] ;
+  # properties.ids — comma-wrapped flat list (,ci37868143,) → fn:split explodes to one sd:eventId per id
+  rr:predicateObjectMap [ rr:predicate sd:eventId ;
+    rr:objectMap [
+      rmlf:functionExecution [ rmlf:function fn:split ;
+        rmlf:input [ rmlf:parameter fn:p_value ;
+                     rmlf:inputValueMap [ rml:reference "properties.ids" ] ] ;
+        rmlf:input [ rmlf:parameter fn:p_delimiter ; rmlf:inputValueMap [ rmlf:constant "," ] ] ] ] ] ;
 
-  # fallback: properties.sources is a comma-wrapped multi-value list (,ci,), not expanded
-  rr:predicateObjectMap [ rr:predicate sd:sourcesRaw ;
-    rr:objectMap [ rml:reference "properties.sources" ] ] ;
+  # properties.sources — comma-wrapped flat list (,ci,) → fn:split
+  rr:predicateObjectMap [ rr:predicate sd:source ;
+    rr:objectMap [
+      rmlf:functionExecution [ rmlf:function fn:split ;
+        rmlf:input [ rmlf:parameter fn:p_value ;
+                     rmlf:inputValueMap [ rml:reference "properties.sources" ] ] ;
+        rmlf:input [ rmlf:parameter fn:p_delimiter ; rmlf:inputValueMap [ rmlf:constant "," ] ] ] ] ] ;
 
-  # fallback: properties.types is a comma-wrapped multi-value list (,geoserve,origin,), not expanded
-  rr:predicateObjectMap [ rr:predicate sd:typesRaw ;
-    rr:objectMap [ rml:reference "properties.types" ] ] ;
+  # properties.types — comma-wrapped flat list (,geoserve,origin,) → fn:split
+  rr:predicateObjectMap [ rr:predicate sd:eventType ;
+    rr:objectMap [
+      rmlf:functionExecution [ rmlf:function fn:split ;
+        rmlf:input [ rmlf:parameter fn:p_value ;
+                     rmlf:inputValueMap [ rml:reference "properties.types" ] ] ;
+        rmlf:input [ rmlf:parameter fn:p_delimiter ; rmlf:inputValueMap [ rmlf:constant "," ] ] ] ] ] ;
 
-  # fallback: geometry.coordinates is a JSON array [lon, lat, depth], not expanded
-  rr:predicateObjectMap [ rr:predicate sd:coordinatesRaw ;
-    rr:objectMap [ rml:reference "geometry.coordinates" ] ] .
+  # geometry.coordinates — JSON array [lon, lat, depth] → fn:array_at by fixed index
+  rr:predicateObjectMap [ rr:predicate sd:longitude ;
+    rr:objectMap [
+      rmlf:functionExecution [ rmlf:function fn:array_at ;
+        rmlf:input [ rmlf:parameter fn:p_value ;
+                     rmlf:inputValueMap [ rml:reference "geometry.coordinates" ] ] ;
+        rmlf:input [ rmlf:parameter fn:p_index ; rmlf:inputValueMap [ rmlf:constant "0" ] ] ] ;
+      rr:datatype xsd:double ] ] ;
+  rr:predicateObjectMap [ rr:predicate sd:latitude ;
+    rr:objectMap [
+      rmlf:functionExecution [ rmlf:function fn:array_at ;
+        rmlf:input [ rmlf:parameter fn:p_value ;
+                     rmlf:inputValueMap [ rml:reference "geometry.coordinates" ] ] ;
+        rmlf:input [ rmlf:parameter fn:p_index ; rmlf:inputValueMap [ rmlf:constant "1" ] ] ] ;
+      rr:datatype xsd:double ] ] .
 ```
