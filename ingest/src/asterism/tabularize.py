@@ -110,14 +110,26 @@ def _load_records(doc: object, record_path: str | None = None) -> list[object]:
 
     * top-level array → its elements
     * top-level object + ``record_path`` naming an array value → that array
+    * top-level object **wrapping** a record array (e.g. ``{"docs": [...]}``,
+      ``{"data": [...]}`` — the common API-response shape) → that array,
+      auto-detected as the longest array-of-objects value (mirrors the inspector's
+      ``_detect_iterator`` so the columns line up)
     * otherwise → the document as a single record
     """
     if isinstance(doc, list):
         return doc
-    if isinstance(doc, dict) and record_path is not None:
-        value = doc.get(record_path)
-        if isinstance(value, list):
-            return value
+    if isinstance(doc, dict):
+        if record_path is not None:
+            value = doc.get(record_path)
+            if isinstance(value, list):
+                return value
+        record_arrays = [
+            v
+            for v in doc.values()
+            if isinstance(v, list) and v and all(isinstance(e, dict) for e in v[:10])
+        ]
+        if record_arrays:
+            return max(record_arrays, key=len)
     return [doc]
 
 

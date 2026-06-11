@@ -5,8 +5,8 @@ Status: **承認済・配線着地（コア＋ランタイム＋design-time）**
 で実証、`asterism.tabularize` 製品化＋substrate 自動 tabularize＋propose/inspect の CSV+tabularize
 出力まで実装し ingest 255 / step0 186 緑。**MP 後方互換確認済**（既存 JSONPath RML は無傷で 143 triples）。
 ✅ coverage 再計測（PR #192・`…Raw` 0.0%・ゲート 5%）・✅ MP 例 RML の CSV 移行（JSONPath 使用ゼロに）・
-✅ CSV 直取込の予約列ガード（`sanitize_csv_sources`＋inspect）。残=`{key:[...]}` JSON の record_path・
-inspect/tabularize の dedup（§8 参照）。
+✅ CSV 直取込の予約列ガード（`sanitize_csv_sources`＋inspect）・✅ `{key:[...]}` wrapped 配列の自動検出。
+残=inspect/tabularize の dedup（§8 参照・純粋なコード整理）。
 
 決定母体:
 [`ingestion-execution-safety.md`](ingestion-execution-safety.md)（生成コード非実行・Tier0 閉集合のみ）/
@@ -194,8 +194,10 @@ tabularize する（formulation 解析不要・宣言的シグナル）。既存
 6. **✅ MP 例 RML の CSV 移行（本 PR）**: `mp.rml.ttl` を `ql:CSV`＋`mp.csv` 参照へ移行（dot-path 参照は不変・
    iterator 削除）。substrate が `mp.json`→`mp.csv` を auto-tabularize＝**143 triples で JSONPath 出力と set 一致**
    （実 morph-kgc 確認）。最後の `ql:JSONPath` 使用が消え JSON 経路が1本に統一。JSON が citable な source of record。
-7. **残 `{key:[...]}` JSON の record_path**: 現状 substrate の自動 tabularize は top-level 配列既定。
-   非 top-level 配列は record_path を RML/サイドカーで伝える必要（コーパス/MP は top-level 配列＝当面不要）。
+7. **✅ `{key:[...]}` JSON の wrapped 配列**: `_load_records` が top-level dict から **record 配列を自動検出**
+   （最長の array-of-objects 値・inspect の `_detect_iterator` と同流儀）＝`{"docs":[...]}`/`{"data":[...]}`
+   のような API レスポンス形（OpenLibrary 実 API がこれ）を record_path なしで explode。substrate の
+   auto-tabularize は record_path を渡さないのでこの自動検出が要だった。単一 object 文書は 1 行のまま（非回帰）。
 
 ---
 
