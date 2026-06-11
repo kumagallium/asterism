@@ -88,6 +88,25 @@ export interface ProposeResult {
   skipped: { dataset_id: string; reason: string }[]
 }
 
+/** One asserted schema alignment BETWEEN two perspectives' terms (multi-perspective
+ * ADR §Phase 2 — "視点をつなぐ"). A human-vetted, citable, reversible claim; never
+ * auto-reasoned (Oxigraph runs no OWL reasoner). */
+export interface Alignment {
+  alignment_iri: string
+  source: string
+  target: string
+  relation: string
+  from_perspective: string
+  to_perspective: string
+  at: string
+}
+
+/** The asserted alignments + the CLOSED set of relations a human may assert. */
+export interface AlignmentsResult {
+  alignments: Alignment[]
+  relations: string[]
+}
+
 async function asError(res: Response, op: string): Promise<Error> {
   const text = await res.text().catch(() => '')
   let detail = text
@@ -159,4 +178,51 @@ export async function proposeCrosswalkMapping(
   })
   if (!res.ok) throw await asError(res, 'AI 提案')
   return (await res.json()) as ProposeResult
+}
+
+/** The asserted schema alignments between perspectives + the closed relation set
+ * (read-only). */
+export async function getAlignments(): Promise<AlignmentsResult> {
+  const res = await fetch(`${API_BASE}/api/crosswalk/alignments`)
+  if (!res.ok) throw await asError(res, '視点の整合一覧の取得')
+  const j = (await res.json()) as { alignments?: Alignment[]; relations?: string[] }
+  return { alignments: j.alignments ?? [], relations: j.relations ?? [] }
+}
+
+/**
+ * Assert a schema relationship (``relation`` from the closed set) between two
+ * perspectives' terms — "視点をつなぐ". Additive, reversible, human-gated; needs the
+ * write-auth token. Returns the asserted alignment.
+ */
+export async function align(
+  source: string,
+  target: string,
+  relation: string,
+  fromPerspective?: string,
+  toPerspective?: string,
+): Promise<Alignment> {
+  const res = await fetch(`${API_BASE}/api/crosswalk/align`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({
+      source,
+      target,
+      relation,
+      from_perspective: fromPerspective ?? '',
+      to_perspective: toPerspective ?? '',
+    }),
+  })
+  if (!res.ok) throw await asError(res, '視点をつなぐ')
+  return (await res.json()) as Alignment
+}
+
+/** Withdraw a previously asserted alignment (the reversible counterpart of
+ * {@link align}). Needs the write-auth token. */
+export async function unalign(source: string, target: string, relation: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/crosswalk/align`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ source, target, relation, remove: true }),
+  })
+  if (!res.ok) throw await asError(res, '整合の撤回')
 }

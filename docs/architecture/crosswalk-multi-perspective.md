@@ -1,7 +1,7 @@
 # ADR: Multi-perspective crosswalk — the upper ontology is plural
 
-Status: **Phase 1 (runtime/api) + Phase 3 (UI list/create) merged; Phase 2 schema
-alignment runtime+api done** (2026-06-11). Remaining: the "視点をつなぐ" UI for Phase 2.
+Status: **Phase 1 (runtime/api) + Phase 2 (schema alignment runtime+api) + Phase 3
+(UI: perspective list/create + the "視点をつなぐ" alignment surface) done** (2026-06-11).
 Extends [`crosswalk-hub.md`](crosswalk-hub.md) (the thin growing bridge). Related:
 [`ontology-canonical-lifecycle.md`](ontology-canonical-lifecycle.md) (2-axis
 TBox/ABox × draft/canonical), [`product_direction_citable_facts`](../../README.md).
@@ -94,9 +94,16 @@ when two perspectives are found to relate.
    a human-vetted, **citable, queryable FACT a tool can follow** — it is NOT
    auto-applied to rewrite queries (consistent with the deterministic / citable product
    direction). Entity-level (`owl:sameAs`) alignment is a possible later addition.
-3. **Phase 3 — UI.** The catalog "クロスウォーク" surface becomes a **list of
-   perspectives** (each viewable / rebuildable / retractable); authoring creates a
-   **new named perspective**; a "視点をつなぐ" action drives Phase 2's alignment.
+3. **Phase 3 — UI (done).** The catalog "クロスウォーク" surface is a **list of
+   perspectives** (each viewable / rebuildable); authoring creates a **new named
+   perspective**; a **"視点をつなぐ"** section drives Phase 2's alignment: pick two
+   perspectives' terms (a concept class or its link predicate) + a relation from the
+   CLOSED set, assert (`POST /api/crosswalk/align`), and list/withdraw existing
+   alignments (`GET /api/crosswalk/alignments`, `remove`). The relation set is filtered
+   by term KIND (class relations for a class, property relations for a predicate) and
+   the target term must match the source's kind, so a class can only align to a class.
+   `crosswalkApi.getAlignments` / `align` / `unalign`; `CrosswalkView`'s
+   `PerspectiveAlignment`.
 
 ## Implementation (Phase 1)
 

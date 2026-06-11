@@ -3701,3 +3701,103 @@ textarea:focus {
   font-size: 0.7rem;
   color: var(--faint);
 }
+
+/* 視点をつなぐ (multi-perspective Phase 2 — schema alignment) */
+.xw-align {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  border-top: 1px solid var(--border);
+  padding-top: 1rem;
+  margin-top: 0.4rem;
+}
+.xw-align-form {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.8rem 0.9rem;
+}
+.xw-align-side {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 220px;
+  flex: 1;
+}
+.xw-align-side-label {
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+.xw-align-rel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+}
+.xw-align-arrow {
+  color: var(--faint);
+}
+.xw-align-btn {
+  align-self: flex-end;
+}
+.xw-align-empty-hint,
+.xw-align-none {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin: 0;
+}
+.xw-align-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.xw-align-row {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--entity);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.7rem;
+}
+.xw-align-claim {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.xw-align-term {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--fg);
+}
+.xw-align-relchip {
+  font-size: 0.72rem;
+  color: var(--muted);
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+}
+.xw-align-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  margin-left: auto;
+  text-align: right;
+}
+.xw-align-persp {
+  font-size: 0.72rem;
+  color: var(--faint);
+}
+.xw-align-remove {
+  flex: none;
+}
