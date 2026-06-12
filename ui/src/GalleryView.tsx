@@ -204,8 +204,8 @@ export function GalleryView({
             クロスウォーク <span className="shared-band-en">crosswalk</span>
           </span>
           <span className="shared-band-sub">
-            同じ組成を報告する複数のデータセットを<strong>1つの橋でつなぐ</strong>。
-            「この組成は何データセットが報告？」を横断で答えられます。
+            同じ概念（組成・結晶系・著者…）を共有する複数のデータセットを<strong>1つの橋でつなぐ</strong>。
+            「この値は何データセットが報告？」を横断で答えられます。
           </span>
         </span>
         <span className="shared-band-cta">

@@ -294,7 +294,8 @@ export function CrosswalkBuilder() {
                 <span className="xw-norm-hint">
                   {conceptValid ? (
                     <>
-                      橋の語彙: <code>xw:{pascalCase(conceptKey)}</code> /{' '}
+                      「{conceptKey}」から自動で作る語彙 → クラス{' '}
+                      <code>xw:{pascalCase(conceptKey)}</code> ・ つなぐ述語{' '}
                       <code>xw:has{pascalCase(conceptKey)}</code>
                     </>
                   ) : (
