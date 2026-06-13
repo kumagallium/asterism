@@ -1,0 +1,31 @@
+<sec id="master-services-agreement">
+  <title>Master Services Agreement</title>
+  <sec id="definitions">
+    <title>1. Definitions</title>
+    <p>In this Agreement, “Services” means the services described in
+    Schedule A. “Confidential Information” means any non-public
+    information disclosed by one party to the other.</p>
+  </sec>
+  <sec id="term-and-termination">
+    <title>2. Term and Termination</title>
+    <sec id="term">
+      <title>2.1 Term</title>
+      <p>This Agreement commences on the Effective Date and continues
+      for twelve (12) months unless terminated earlier in accordance
+      with this Article.</p>
+    </sec>
+    <sec id="termination-for-cause">
+      <title>2.2 Termination for Cause</title>
+      <p>Either party may terminate this Agreement upon thirty (30) days
+      written notice if the other party materially breaches any
+      provision and fails to cure such breach within the notice
+      period.</p>
+    </sec>
+  </sec>
+  <sec id="governing-law">
+    <title>3. Governing Law</title>
+    <p>This Agreement shall be governed by and construed in accordance
+    with the laws of Japan, without regard to its conflict-of-laws
+    principles.</p>
+  </sec>
+</sec>
