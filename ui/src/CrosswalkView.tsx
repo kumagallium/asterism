@@ -1,5 +1,14 @@
 import { useEffect, useState } from 'react'
-import { buildPerspective, type CrosswalkPerspective, getCrosswalks } from './crosswalkApi'
+import {
+  align,
+  type Alignment,
+  type AlignmentsResult,
+  buildPerspective,
+  type CrosswalkPerspective,
+  getAlignments,
+  getCrosswalks,
+  unalign,
+} from './crosswalkApi'
 import { ArrowIcon, LinkIcon } from './icons'
 import { ToolsPanel } from './ToolsPanel'
 import { localName } from './vocab'
@@ -192,6 +201,287 @@ export function CrosswalkView({ onBack }: { onBack?: () => void }) {
             </>
           )}
         </>
+      )}
+
+      {perspectives && <PerspectiveAlignment perspectives={list} />}
+    </div>
+  )
+}
+
+// --- 視点をつなぐ (multi-perspective ADR §Phase 2) -------------------------------
+// Assert a human-vetted, citable, reversible SCHEMA relationship between two
+// perspectives' terms (a concept class or its link predicate). Closed relation set;
+// stored in a promoted alignment graph the FROM-merge unions. Oxigraph runs no OWL
+// reasoner, so this is a fact a tool can FOLLOW — it never rewrites queries.
+
+const RELATION_LABEL: Record<string, string> = {
+  equivalentClass: '同値クラス（≡）',
+  subClassOf: '下位クラス（⊑）',
+  equivalentProperty: '同値述語（≡）',
+  subPropertyOf: '下位述語（⊑）',
+}
+const CLASS_RELATIONS = new Set(['equivalentClass', 'subClassOf'])
+
+interface PerspTerm {
+  iri: string
+  kind: 'class' | 'property'
+  conceptName: string
+  name: string
+}
+
+function perspName(p: CrosswalkPerspective): string {
+  return p.dataset?.name || p.perspective_id
+}
+
+/** A perspective's alignable terms: each concept contributes its class + its link
+ * predicate. */
+function perspectiveTerms(p: CrosswalkPerspective | undefined): PerspTerm[] {
+  const out: PerspTerm[] = []
+  for (const c of p?.config?.concepts ?? []) {
+    if (c.class_iri)
+      out.push({ iri: c.class_iri, kind: 'class', conceptName: c.name, name: localName(c.class_iri) })
+    if (c.link_predicate)
+      out.push({
+        iri: c.link_predicate,
+        kind: 'property',
+        conceptName: c.name,
+        name: localName(c.link_predicate),
+      })
+  }
+  return out
+}
+
+function relationLabel(rel: string): string {
+  return RELATION_LABEL[rel] ?? rel
+}
+
+function PerspectiveAlignment({ perspectives }: { perspectives: CrosswalkPerspective[] }) {
+  const [data, setData] = useState<AlignmentsResult | null>(null)
+  const [loadErr, setLoadErr] = useState('')
+  const [srcPid, setSrcPid] = useState('')
+  const [srcIri, setSrcIri] = useState('')
+  const [relation, setRelation] = useState('')
+  const [tgtPid, setTgtPid] = useState('')
+  const [tgtIri, setTgtIri] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [actErr, setActErr] = useState('')
+  const [note, setNote] = useState('')
+  const [removing, setRemoving] = useState('')
+
+  function load() {
+    getAlignments()
+      .then(setData)
+      .catch((e) => setLoadErr(e instanceof Error ? e.message : String(e)))
+  }
+
+  useEffect(() => {
+    let off = false
+    getAlignments()
+      .then((d) => !off && setData(d))
+      .catch((e) => !off && setLoadErr(e instanceof Error ? e.message : String(e)))
+    return () => {
+      off = true
+    }
+  }, [])
+
+  // Effective (fallback-resolved) selections, so the controlled selects stay valid as
+  // the user narrows source kind / perspectives.
+  const srcPersp = perspectives.find((p) => p.perspective_id === srcPid) ?? perspectives[0]
+  const tgtPersp =
+    perspectives.find((p) => p.perspective_id === tgtPid) ?? perspectives[1] ?? perspectives[0]
+  const srcTerms = perspectiveTerms(srcPersp)
+  const srcTerm = srcTerms.find((t) => t.iri === srcIri) ?? srcTerms[0]
+  const kind = srcTerm?.kind ?? 'class'
+  const relOptions = (data?.relations ?? []).filter((r) =>
+    kind === 'class' ? CLASS_RELATIONS.has(r) : !CLASS_RELATIONS.has(r),
+  )
+  const rel = relOptions.includes(relation) ? relation : relOptions[0]
+  // Target term must be the same kind as the source (a class aligns to a class).
+  const tgtTerms = perspectiveTerms(tgtPersp).filter((t) => t.kind === kind)
+  const tgtTerm = tgtTerms.find((t) => t.iri === tgtIri) ?? tgtTerms[0]
+
+  const canAssert = Boolean(srcTerm && tgtTerm && rel && srcTerm.iri !== tgtTerm.iri)
+
+  async function onAssert() {
+    if (!canAssert || !srcTerm || !tgtTerm || !srcPersp || !tgtPersp) return
+    setBusy(true)
+    setActErr('')
+    setNote('')
+    try {
+      await align(srcTerm.iri, tgtTerm.iri, rel, perspName(srcPersp), perspName(tgtPersp))
+      setNote(`つなぎました: ${srcTerm.name} ${relationLabel(rel)} ${tgtTerm.name}`)
+      load()
+    } catch (e) {
+      setActErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function onRemove(a: Alignment) {
+    setRemoving(a.alignment_iri)
+    setActErr('')
+    setNote('')
+    try {
+      await unalign(a.source, a.target, a.relation)
+      load()
+    } catch (e) {
+      setActErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setRemoving('')
+    }
+  }
+
+  const alignments = data?.alignments ?? []
+
+  return (
+    <div className="xw-align">
+      <div className="ds-subhead xw-tools-head">
+        視点をつなぐ
+        <span className="xw-hint-inline">
+          別々に作った視点の概念どうしに関係を主張（引用できる事実・推論はしない・撤回可）
+        </span>
+      </div>
+
+      {loadErr && <pre className="error">{loadErr}</pre>}
+
+      {/* Authoring form: pick two perspectives' terms + a closed-set relation. */}
+      <div className="xw-align-form">
+        <div className="xw-align-side">
+          <span className="xw-align-side-label">起点（source）</span>
+          <select
+            className="xw-map-select"
+            value={srcPersp?.perspective_id ?? ''}
+            onChange={(e) => {
+              setSrcPid(e.target.value)
+              setSrcIri('')
+            }}
+            disabled={perspectives.length === 0}
+          >
+            {perspectives.map((p) => (
+              <option key={p.perspective_id} value={p.perspective_id}>
+                {perspName(p)}
+              </option>
+            ))}
+          </select>
+          <select
+            className="xw-map-select"
+            value={srcTerm?.iri ?? ''}
+            onChange={(e) => setSrcIri(e.target.value)}
+            disabled={srcTerms.length === 0}
+          >
+            {srcTerms.map((t) => (
+              <option key={t.iri} value={t.iri}>
+                {t.kind === 'class' ? 'クラス' : '述語'} · {t.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="xw-align-rel">
+          <select
+            className="xw-map-select"
+            value={rel ?? ''}
+            onChange={(e) => setRelation(e.target.value)}
+            disabled={relOptions.length === 0}
+          >
+            {relOptions.map((r) => (
+              <option key={r} value={r}>
+                {relationLabel(r)}
+              </option>
+            ))}
+          </select>
+          <ArrowIcon size={16} className="xw-align-arrow" />
+        </div>
+
+        <div className="xw-align-side">
+          <span className="xw-align-side-label">対象（target）</span>
+          <select
+            className="xw-map-select"
+            value={tgtPersp?.perspective_id ?? ''}
+            onChange={(e) => {
+              setTgtPid(e.target.value)
+              setTgtIri('')
+            }}
+            disabled={perspectives.length === 0}
+          >
+            {perspectives.map((p) => (
+              <option key={p.perspective_id} value={p.perspective_id}>
+                {perspName(p)}
+              </option>
+            ))}
+          </select>
+          <select
+            className="xw-map-select"
+            value={tgtTerm?.iri ?? ''}
+            onChange={(e) => setTgtIri(e.target.value)}
+            disabled={tgtTerms.length === 0}
+          >
+            {tgtTerms.map((t) => (
+              <option key={t.iri} value={t.iri}>
+                {t.kind === 'class' ? 'クラス' : '述語'} · {t.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <button
+          type="button"
+          className="btn btn--accent btn--sm xw-align-btn"
+          disabled={!canAssert || busy}
+          onClick={onAssert}
+        >
+          {busy ? 'つないでいます…' : 'つなぐ'}
+        </button>
+      </div>
+
+      {!canAssert && perspectives.length > 0 && (
+        <p className="xw-align-empty-hint">
+          {srcTerms.length === 0
+            ? 'この視点には繋げる概念がありません。'
+            : tgtTerms.length === 0
+              ? '同じ種類（クラス／述語）の対象がありません。別の対象視点を選んでください。'
+              : '起点と対象に別々の概念を選んでください（2つ以上の視点があると繋げます）。'}
+        </p>
+      )}
+      {note && <p className="lifecycle-ok">{note}</p>}
+      {actErr && <p className="promote-err">操作に失敗しました: {actErr}</p>}
+
+      {/* The asserted alignments (each withdrawable). */}
+      {alignments.length > 0 ? (
+        <div className="xw-align-list">
+          {alignments.map((a) => (
+            <div className="xw-align-row" key={a.alignment_iri}>
+              <div className="xw-align-claim">
+                <code className="xw-align-term" title={a.source}>
+                  {localName(a.source)}
+                </code>
+                <span className="xw-align-relchip">{relationLabel(a.relation)}</span>
+                <code className="xw-align-term" title={a.target}>
+                  {localName(a.target)}
+                </code>
+              </div>
+              <div className="xw-align-meta">
+                {(a.from_perspective || a.to_perspective) && (
+                  <span className="xw-align-persp">
+                    {a.from_perspective || '—'} → {a.to_perspective || '—'}
+                  </span>
+                )}
+                {a.at && <span className="xw-built-at">{a.at.slice(0, 19).replace('T', ' ')}</span>}
+              </div>
+              <button
+                type="button"
+                className="btn btn--ghost btn--sm xw-align-remove"
+                disabled={removing === a.alignment_iri}
+                onClick={() => onRemove(a)}
+              >
+                {removing === a.alignment_iri ? '撤回中…' : '撤回'}
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        data && <p className="xw-align-none">まだ視点をつなぐ整合はありません。</p>
       )}
     </div>
   )
