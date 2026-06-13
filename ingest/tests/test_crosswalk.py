@@ -3,16 +3,22 @@
 These tests feed OBSERVATIONS directly (no triplestore) — the builder is I/O-free,
 so the join semantics, normalization, growth and provenance are tested in isolation.
 """
+
 from __future__ import annotations
 
 from asterism.crosswalk import (
+    NORMALIZERS,
     XW,
     Concept,
     CrosswalkConfig,
     Rule,
     build_turtle,
+    normalize_casefold,
     normalize_composition,
     normalize_element_canonical,
+    normalize_loose_text,
+    normalize_nfkc,
+    normalize_whitespace,
 )
 
 COMPOSITION = Concept(
@@ -35,6 +41,42 @@ def test_normalize_folds_subscripts_and_whitespace() -> None:
     assert normalize_composition(" Bi2 Te3 ") == "Bi2Te3"
     # conservative: case kept, no element reorder
     assert normalize_composition("Te3Bi2") == "Te3Bi2"
+
+
+def test_generic_text_normalizers_fold_one_variation_each() -> None:
+    # casefold: case-insensitive, trimmed; case-distinct -> NOT for compositions.
+    assert normalize_casefold(" Iron Oxide ") == "iron oxide"
+    assert normalize_casefold("FeO") == normalize_casefold("feo")
+    # whitespace: collapse internal runs + trim; nothing else folded.
+    assert normalize_whitespace("  Bi2   Te3 ") == "Bi2 Te3"
+    assert normalize_whitespace("Bi2Te3") == "Bi2Te3"
+    # nfkc: full-width <-> half-width / compatibility forms + trim. The full-/half-
+    # width inputs are intentional (RUF001 ambiguous-char warning suppressed).
+    assert normalize_nfkc("ＡＢＣ１２３") == "ABC123"  # noqa: RUF001
+    assert normalize_nfkc("ｶﾀｶﾅ") == "カタカナ"
+    # loose_text: NFKC + casefold + collapse whitespace, combined.
+    assert normalize_loose_text("  Ｔａ２Ｏ５  ") == "ta2o5"  # noqa: RUF001
+    assert normalize_loose_text("Bi2  Te3") == normalize_loose_text("bi2 te3")
+
+
+def test_generic_text_normalizers_do_not_reorder_or_drop_tokens() -> None:
+    # Conservative: distinct strings stay distinct (no token reorder / drop).
+    assert normalize_loose_text("Te3Bi2") != normalize_loose_text("Bi2Te3")
+    assert normalize_casefold("AB") != normalize_casefold("BA")
+    assert normalize_whitespace("Bi2Te3") != normalize_whitespace("Bi3Te2")
+
+
+def test_all_named_normalizers_are_registered() -> None:
+    # The closed, vetted set the UI offers (generic core + materials pack).
+    assert set(NORMALIZERS) == {
+        "identity",
+        "casefold",
+        "whitespace",
+        "nfkc",
+        "loose_text",
+        "composition",
+        "element_canonical",
+    }
 
 
 def test_mints_one_shared_entity_with_links_from_both_datasets() -> None:
@@ -67,23 +109,31 @@ def test_provenance_activity_and_generation() -> None:
 
 def test_growth_adding_a_dataset_grows_the_same_hub() -> None:
     # v1: starrydata x MP share exactly Bi2Te3.
-    v1 = _build(CrosswalkConfig((COMPOSITION,)), {
-        ("composition", "starrydata"): [("sd:s1", "Bi2Te3"), ("sd:c1", "Ba8Ge43")],
-        ("composition", "materials_project"): [("mp:m1", "Bi2Te3")],
-    })
+    v1 = _build(
+        CrosswalkConfig((COMPOSITION,)),
+        {
+            ("composition", "starrydata"): [("sd:s1", "Bi2Te3"), ("sd:c1", "Ba8Ge43")],
+            ("composition", "materials_project"): [("mp:m1", "Bi2Te3")],
+        },
+    )
     assert v1.shared["composition"] == ["Bi2Te3"]
 
     # v2: add a third dataset (rule) sharing Ba8Ge43 with starrydata -> hub grows.
     grown = Concept(
-        name="composition", class_iri=COMPOSITION.class_iri,
-        link_predicate=COMPOSITION.link_predicate, normalizer="composition",
+        name="composition",
+        class_iri=COMPOSITION.class_iri,
+        link_predicate=COMPOSITION.link_predicate,
+        normalizer="composition",
         rules=(*COMPOSITION.rules, Rule("demo", "sd:comp")),
     )
-    v2 = _build(CrosswalkConfig((grown,)), {
-        ("composition", "starrydata"): [("sd:s1", "Bi2Te3"), ("sd:c1", "Ba8Ge43")],
-        ("composition", "materials_project"): [("mp:m1", "Bi2Te3")],
-        ("composition", "demo"): [("demo:d1", "Ba8Ge43")],
-    })
+    v2 = _build(
+        CrosswalkConfig((grown,)),
+        {
+            ("composition", "starrydata"): [("sd:s1", "Bi2Te3"), ("sd:c1", "Ba8Ge43")],
+            ("composition", "materials_project"): [("mp:m1", "Bi2Te3")],
+            ("composition", "demo"): [("demo:d1", "Ba8Ge43")],
+        },
+    )
     assert v2.shared["composition"] == ["Ba8Ge43", "Bi2Te3"]  # grew from 1 -> 2
     assert v2.links["composition"]["demo"] == 1
 

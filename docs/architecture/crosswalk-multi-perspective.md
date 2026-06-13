@@ -68,6 +68,15 @@ when two perspectives are found to relate.
   human-gated and lives in its own graph so it can be reviewed / withdrawn.
 - **Premature merging is the risk to avoid** — the whole point is to *not* force a
   relationship. Default is distinct; merging is opt-in.
+- **The authoring UI must stay concept-generic, not composition-only.** The runtime is
+  already generic (a concept = name + class + link predicate + normalizer; `identity`
+  is the domain-neutral join key, `composition`/`element_canonical` are materials
+  add-ons). The crosswalk builder (`CrosswalkBuilder`) therefore lets the human pick the
+  **concept** (an ascii key minted into `xw:<PascalCase>` / `xw:has<PascalCase>`, e.g.
+  `crystal_system` → `xw:CrystalSystem`) and the normalizer (default `identity`, switching
+  to `composition` only when the concept is `composition`). "Composition" is just the
+  default, never a lock — otherwise the UI silently narrows a generic substrate to
+  materials chemistry.
 
 ## Phased plan
 

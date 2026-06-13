@@ -15,9 +15,11 @@ is the caller's job, so this is unit-testable without a triplestore and reusable
 the substrate / api / a CLI. The trust model is the Tier-0 one: the normalization
 (the join key) is a vetted, named function; nothing is generated at runtime.
 """
+
 from __future__ import annotations
 
 import re
+import unicodedata
 import urllib.parse
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -47,6 +49,43 @@ def normalize_composition(value: str) -> str:
 def normalize_identity(value: str) -> str:
     """Exact-match key (only whitespace-trimmed). For values already canonical."""
     return value.strip()
+
+
+# --- Generic text normalizers (domain-neutral join keys) -----------------------
+# These cover the LONG TAIL of non-materials concepts (labels, author / material /
+# place names, ids). They are stateless, deterministic, and CONSERVATIVE: each only
+# folds a single, well-understood text variation, so distinct strings are never
+# reordered or token-dropped (no wrong merges). Domain normalizers that need real
+# knowledge (composition, element_canonical) stay as separately-vetted functions —
+# the closed library grows by curation (crosswalk-normalizer-recipes.md).
+
+
+def normalize_casefold(value: str) -> str:
+    """Case-insensitive key: Unicode case-fold + trim. For text where case is not
+    meaningful (labels, author / material names). NOT for compositions — element
+    case is significant there (``Co`` cobalt != ``CO`` carbon+oxygen)."""
+    return value.strip().casefold()
+
+
+def normalize_whitespace(value: str) -> str:
+    """Whitespace-insensitive key: collapse internal runs of whitespace to one space
+    and trim. For values that differ only in spacing."""
+    return " ".join(value.split())
+
+
+def normalize_nfkc(value: str) -> str:
+    """Unicode-compatibility key: NFKC normalize (full-width <-> half-width, ligatures,
+    compatibility forms) + trim. For text that mixes full-/half-width or compat
+    characters (common in Japanese-authored data)."""
+    return unicodedata.normalize("NFKC", value).strip()
+
+
+def normalize_loose_text(value: str) -> str:
+    """General fuzzy-text key: NFKC + case-fold + collapse whitespace — the domain-
+    neutral "same-ish text" join key (a sensible default for non-materials concepts).
+    Composes the three text folds above; still carries no domain knowledge, so it never
+    reorders or drops tokens (distinct strings stay distinct)."""
+    return " ".join(unicodedata.normalize("NFKC", value).casefold().split())
 
 
 # IUPAC element symbols (H..Og). Validating against the real set is what keeps the
@@ -97,9 +136,15 @@ def normalize_element_canonical(value: str) -> str:
 # Named normalizers (a step toward Tier-0 functions): a concept references one by
 # name, so the join key is explicit, vetted, and recorded in provenance.
 NORMALIZERS = {
+    # Domain-neutral (the generic core — cover the long tail of any concept).
+    "identity": normalize_identity,
+    "casefold": normalize_casefold,
+    "whitespace": normalize_whitespace,
+    "nfkc": normalize_nfkc,
+    "loose_text": normalize_loose_text,
+    # Materials chemistry (separately-vetted domain functions).
     "composition": normalize_composition,
     "element_canonical": normalize_element_canonical,
-    "identity": normalize_identity,
 }
 
 
@@ -215,8 +260,7 @@ def build_turtle(
 
         lines.append(f"# --- concept: {concept.name} (normalizer: {concept.normalizer}) ---")
         lines.append(
-            f'<{concept.class_iri}> a owl:Class ; '
-            f'rdfs:label "{_esc(concept.name)} (crosswalk)" .'
+            f'<{concept.class_iri}> a owl:Class ; rdfs:label "{_esc(concept.name)} (crosswalk)" .'
         )
         base = concept.resource_base()
         for key in shared:
