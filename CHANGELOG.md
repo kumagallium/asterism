@@ -1,5 +1,33 @@
 # Changelog
 
+## [v0.3.0](https://github.com/kumagallium/asterism/compare/v0.2.0...v0.3.0) - 2026-06-13
+
+- docs(reports): verification-report practice + Tier0 sufficiency milestone by @kumagallium in https://github.com/kumagallium/asterism/pull/180
+- feat(tier0): object-array multi-value — json_array / json_pluck (+ split None fix) by @kumagallium in https://github.com/kumagallium/asterism/pull/179
+- feat(watcher): per-dataset append watcher — drop a CSV, the live feed grows by @kumagallium in https://github.com/kumagallium/asterism/pull/178
+- docs(#19): B-2 — real-LLM JSON propose dogfood (AI-design path) by @kumagallium in https://github.com/kumagallium/asterism/pull/183
+- feat(crosswalk): productize ② runtime + per-link provenance by @kumagallium in https://github.com/kumagallium/asterism/pull/182
+- feat(ui): crosswalk authoring (データを追加) + management (カタログ) by @kumagallium in https://github.com/kumagallium/asterism/pull/184
+- feat(crosswalk): element-canonical normalizer (Bi2Te3 ≡ Te3Bi2) by @kumagallium in https://github.com/kumagallium/asterism/pull/185
+- feat(ui): crosswalk normalizer selector + hide hub from Home by @kumagallium in https://github.com/kumagallium/asterism/pull/186
+- feat(ui): catalog "ライブに追記" control — grow a promoted feed by appending by @kumagallium in https://github.com/kumagallium/asterism/pull/187
+- spike(docs-layer): JATS→RDF via ql:XPath — de-risk the document-ontology layer by @kumagallium in https://github.com/kumagallium/asterism/pull/188
+- feat(crosswalk): multi-perspective Phase 1 — the upper ontology is plural by @kumagallium in https://github.com/kumagallium/asterism/pull/189
+- feat(substrate): ingest native-JSON nested arrays via tabularize → Tier 0 explode by @kumagallium in https://github.com/kumagallium/asterism/pull/190
+- feat(ui): crosswalk perspectives — list + author a named lens (Phase 3 partial) by @kumagallium in https://github.com/kumagallium/asterism/pull/191
+- chore(coverage): re-measure after tabularize — …Raw 11.1% → 0.0%, tighten gate 15% → 5% by @kumagallium in https://github.com/kumagallium/asterism/pull/192
+- refactor(materials_project): migrate mp.rml.ttl JSONPath → CSV+tabularize by @kumagallium in https://github.com/kumagallium/asterism/pull/193
+- fix(substrate): guard direct-CSV reserved columns (subject/predicate) — silent 0-triples bug by @kumagallium in https://github.com/kumagallium/asterism/pull/194
+- feat(tabularize): auto-detect wrapped record arrays ({"docs":[...]}) without record_path by @kumagallium in https://github.com/kumagallium/asterism/pull/195
+- feat(crosswalk): Phase 2 — schema alignment between perspectives by @kumagallium in https://github.com/kumagallium/asterism/pull/196
+- chore(step0): pin inspect's flatten/reserved mirror to asterism.tabularize via sync test by @kumagallium in https://github.com/kumagallium/asterism/pull/199
+- feat(substrate): enable .xml/JATS source path for the document-ontology layer by @kumagallium in https://github.com/kumagallium/asterism/pull/197
+- feat(papers): document-ontology layer MVP — structure a real paper + data↔text fusion by @kumagallium in https://github.com/kumagallium/asterism/pull/201
+- spike(docs-layer): unstructured PDF → the same citable document graph (Docling) by @kumagallium in https://github.com/kumagallium/asterism/pull/203
+- spike(docs-layer): Word (.docx) → the same citable document graph (pandoc → JATS) by @kumagallium in https://github.com/kumagallium/asterism/pull/204
+- feat(ui): crosswalk Phase 3 — 視点をつなぐ schema alignment surface by @kumagallium in https://github.com/kumagallium/asterism/pull/200
+- feat(ui): generic crosswalk authoring — any concept + generic join keys by @kumagallium in https://github.com/kumagallium/asterism/pull/202
+
 ## [v0.2.0](https://github.com/kumagallium/asterism/compare/v0.1.1...v0.2.0) - 2026-06-11
 
 - feat(api): JSON source ingest + source persistence (#19 part 3) by @kumagallium in https://github.com/kumagallium/asterism/pull/153
