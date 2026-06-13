@@ -96,6 +96,22 @@ RML の出力は seed（B が出す完全グラフ）の**厳密な部分集合*
 registry dataset（`dataset.toml`/`model.yaml`/`diagram` は README/`query_tools.yaml`）。FROM-merge は
 promoted graph を束ねるので、論文構造グラフは「もう一枚の promoted graph」。
 
+### 4bis. ランタイム文書取り込み（アップロードした文書を UI 経由で文まで・PR-1）
+
+MVP の後段パス(B)は **オフラインの content tool**（`build_paper_graph.py`・例データセット用）。これを
+**再利用ライブラリ `asterism.documents`** に一般化し、**api の取り込み経路に配線**した＝ユーザーが
+カタログから JATS 文書をアップロード→`/api/datasets/{id}/ingest` で**スキーマ設計なしに文まで構造化＋
+引用可能**になる。
+
+- `asterism.documents.structure_jats(xml, *, paper_iri) -> rdflib.Graph`: 汎用 JATS→doco/nif（節木+
+  `structuralPath`+DEO 役割、段落、文+`nif`offset+PROV、図+caption、Context、`DocumentParsingActivity`）。
+  `sentence_spans` は `build_paper_graph` と共有（splitter の単一の真実源）。
+- **api 分岐**: `source_kind == "xml"`（document）は **RML 不要・morph-kgc 不要**で structurer 1 本（`materialize_to_nt_file` の代わりに `documents.document_to_nt_file`）→ 既存の version graph ストリーム＋人間ゲート promote にそのまま乗る。CSV/JSON は従来の RML 経路。
+- **信頼境界（不変）**: structurer は **閉じた・一度 vet した・決定論的パーサ**＝文書から**コードを実行しない**（Tier0/Morph-KGC と同じ trust model）。アップロード XML は untrusted なので **defusedxml** で entity 展開（billion laughs）/外部実体（SSRF・ローカルファイル読み）を拒否（無害な JATS DOCTYPE 宣言は許可）。
+- **決定論/idempotency**: `now()` 不使用（`prov:endedAtTime` は文書の pub-date・activity IRI は内容ハッシュ）＝同一バイトの再取り込みで同一グラフ。
+- **引用ツールは横断**: `search_text`/`quote_with_citation` は dataset 非スコープ（FROM-merge 全体を検索）＝**アップロードした文書も promote 済なら既存ツールでそのまま引用可能**（実機実証済）。
+- **変換前段（PDF/Word）**: `experiments/{pdf-docling,word-pandoc}-spike/` で de-risk 済。変換は **オフライン・PROV `lit:DocumentConversionActivity`(変換器+版+日付)** の日付つき主張＝信頼度ラベル（JATS=高/Word(pandoc)=高/born-digital PDF(Docling)=中/scan=低）。upload 導線への変換統合は後続 PR。
+
 ## 5. recall（文単位の引用）— `query_tools.yaml`
 
 key-free・citable・再現可能な typed ツール（`asterism.query_tools`・FROM-merge・LLM-free）:

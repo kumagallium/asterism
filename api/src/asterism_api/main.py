@@ -36,7 +36,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final
 
-from asterism import crosswalk_runtime, substrate
+from asterism import crosswalk_runtime, documents, substrate
 from asterism.datasets import load_dataset
 from asterism.exposure import raw_sparql_enabled
 from asterism.ontology_projection import (
@@ -375,6 +375,11 @@ _SAFE_NAME = re.compile(r"^[A-Za-z0-9._-]{1,128}\.csv$")
 # all are valid sources; the legacy ``/upload/{kind}`` starrydata drop stays
 # CSV-only (it feeds the CSV watcher).
 _SAFE_SOURCE_NAME = re.compile(r"^[A-Za-z0-9._-]{1,128}\.(csv|json|geojson|xml)$")
+
+# Resolvable IRI base for documents ingested through the API (the document-ontology
+# layer). A document dataset's nodes hang off ``…/document/<dataset_id>/<doc_id>``;
+# the doc layer's own vocabulary lives in the same ``papers/ontology#`` (lit:) space.
+_DOCUMENT_RESOURCE_BASE = "https://kumagallium.github.io/asterism/papers/resource/document"
 
 
 # ----------------------------------------------------------------------------
@@ -1464,11 +1469,11 @@ def build_app(
         data = registry.load_dataset(cfg.registry_root, dataset_id)
         if data is None:
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
-        rml_ttl = str(data["artifacts"].get("mapping.rml.ttl", "") or "")
-        if not rml_ttl.strip():
-            raise HTTPException(
-                400, "this dataset has no declarative RML mapping to ingest"
-            )
+        # A document (JATS/XML) dataset takes the DOCUMENT path: a closed, vetted
+        # deterministic structurer (asterism.documents) — NO RML, NO Morph-KGC, NO
+        # generated code (CLAUDE.md「生成コードを実行しない」). A CSV/JSON dataset
+        # takes the declarative RML path.
+        is_document = str((data.get("meta") or {}).get("source_kind") or "csv") == "xml"
 
         # Uploaded sources (if any) refresh + persist the design-time source; an
         # ingest with no upload reuses whatever source was persisted. (Synchronous
@@ -1480,19 +1485,36 @@ def build_app(
         if not source_paths:
             raise HTTPException(
                 400,
-                "投入には CSV または JSON のソースファイルが必要です。"
+                "投入には CSV / JSON / XML のソースファイルが必要です。"
                 "設計時に添付するか、ここでアップロードしてください",
             )
         source_dir = source_paths[0].parent
-        # Trust boundary (CLAUDE.md「生成コードを実行しない」): refuse a mapping that
-        # would execute non-Tier-0 code or read outside this dataset's source dir.
-        # Fail-closed and synchronous, so a malicious RML is rejected with a clear
-        # 422 before any background job runs (the substrate re-checks before
-        # Morph-KGC as defense in depth).
-        try:
-            substrate.assert_rml_safe(rml_ttl, source_dir)
-        except substrate.RmlSafetyError as exc:
-            raise HTTPException(422, f"unsafe RML mapping: {exc}") from exc
+
+        rml_ttl = ""
+        xml_text = ""
+        paper_iri = ""
+        if is_document:
+            xml_path = next((p for p in source_paths if p.suffix.lower() == ".xml"), None)
+            if xml_path is None:
+                raise HTTPException(400, "document ingest needs a .xml (JATS) source")
+            xml_text = xml_path.read_text(encoding="utf-8")
+            doc_id = documents.derive_doc_id(xml_text, fallback=xml_path.stem)
+            paper_iri = f"{_DOCUMENT_RESOURCE_BASE}/{dataset_id}/{doc_id}"
+        else:
+            rml_ttl = str(data["artifacts"].get("mapping.rml.ttl", "") or "")
+            if not rml_ttl.strip():
+                raise HTTPException(
+                    400, "this dataset has no declarative RML mapping to ingest"
+                )
+            # Trust boundary (CLAUDE.md「生成コードを実行しない」): refuse a mapping that
+            # would execute non-Tier-0 code or read outside this dataset's source dir.
+            # Fail-closed and synchronous, so a malicious RML is rejected with a clear
+            # 422 before any background job runs (the substrate re-checks before
+            # Morph-KGC as defense in depth).
+            try:
+                substrate.assert_rml_safe(rml_ttl, source_dir)
+            except substrate.RmlSafetyError as exc:
+                raise HTTPException(422, f"unsafe RML mapping: {exc}") from exc
         # part5: stream into a FRESH per-ingest version graph `canonical/{id}/v{n}`
         # — never touching the currently live graph. So a re-ingest needs no
         # un-publish and no DROP on the request path (the old version stays citable
@@ -1508,11 +1530,21 @@ def build_app(
             work = Path(tempfile.mkdtemp(prefix="asterism-ingest-"))
             try:
                 emit(phase="materialize", message="RDF を生成中")
-                # Morph-KGC writes N-Triples to a file (memory-bounded); the
-                # subprocess CLI is blocking, so run it off the event loop.
-                nt = await asyncio.to_thread(
-                    substrate.materialize_to_nt_file, rml_ttl, source_dir, work_dir=work
-                )
+                if is_document:
+                    # Document path: the vetted deterministic structurer writes the
+                    # doco/nif graph as N-Triples (no morph-kgc). Blocking → off-loop.
+                    nt = await asyncio.to_thread(
+                        documents.document_to_nt_file,
+                        xml_text,
+                        paper_iri=paper_iri,
+                        work_dir=str(work),
+                    )
+                else:
+                    # Morph-KGC writes N-Triples to a file (memory-bounded); the
+                    # subprocess CLI is blocking, so run it off the event loop.
+                    nt = await asyncio.to_thread(
+                        substrate.materialize_to_nt_file, rml_ttl, source_dir, work_dir=work
+                    )
                 total = substrate.count_nt_lines(nt)
                 emit(phase="materialized", total=total)
                 # The target is a fresh, empty version graph — no clean-slate DROP

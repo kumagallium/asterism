@@ -190,6 +190,66 @@ def test_ingest_happy_path_streams_canonical_with_progress(tmp_path: Path, monke
     assert meta["triple_count"] == 1
 
 
+_JATS_DOC = (
+    '<?xml version="1.0"?><article><front><article-meta>'
+    '<article-id pub-id-type="pmcid">PMC-DEMO</article-id>'
+    "<title-group><article-title>Demo</article-title></title-group>"
+    "</article-meta></front><body>"
+    '<sec id="s1"><title>1. Introduction</title><p>One sentence here. And another.</p></sec>'
+    '<sec id="s2"><title>2. Methods</title><p>Measured under argon. Cited verbatim.</p></sec>'
+    "</body></article>"
+)
+
+
+def _save_document_dataset(tmp: Path, name: str = "docdemo") -> str:
+    """Persist a DOCUMENT (JATS) dataset: source_kind=xml, an .xml source, no RML."""
+    dataset_id = registry.save_dataset(
+        tmp / "registry",
+        name,
+        {"diagram.md": "classDiagram\n  class Document"},
+        complete=True,
+        warnings=[],
+        traps=[],
+        exit_code=0,
+        created_at="2026-06-12T00:00:00+00:00",
+    )["id"]
+    sdir = registry.source_dir(tmp / "registry", dataset_id)
+    sdir.mkdir(parents=True, exist_ok=True)
+    (sdir / "paper.xml").write_text(_JATS_DOC, encoding="utf-8")
+    registry.mark_source_saved(tmp / "registry", dataset_id, ["paper.xml"])
+    return dataset_id
+
+
+def test_ingest_document_path_structures_to_sentences(tmp_path: Path) -> None:
+    # A JATS document dataset (source_kind=xml) ingests via the deterministic
+    # structurer (asterism.documents) — NO RML, NO morph-kgc — and streams a
+    # sentence-level doco/nif graph into the staged version graph.
+    dataset_id = _save_document_dataset(tmp_path)
+    assert registry.load_dataset(tmp_path / "registry", dataset_id)["meta"]["source_kind"] == "xml"
+    oxi = _RecordingOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    graph_iri = substrate.versioned_graph_iri(dataset_id, 1)
+    with TestClient(app, headers=_AUTH) as client:
+        status, events = _drive_ingest(client, dataset_id)  # no upload — reuse persisted source
+        assert status == 202, events
+        result = next(d for n, d in events if n == "done")["result"]
+        assert result["graph_iri"] == graph_iri
+        # paper + 2 sections + 2 paragraphs + 4 sentences + context + parse activity …
+        assert result["triple_count"] > 10
+    assert oxi.store_calls == [graph_iri]
+
+
+def test_ingest_document_without_rml_is_ok(tmp_path: Path) -> None:
+    # The "no RML mapping" 400 must NOT fire for a document dataset (the RML
+    # requirement is CSV/JSON-only; documents take the structurer path).
+    dataset_id = _save_document_dataset(tmp_path, "docnoml")
+    oxi = _RecordingOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        status, _ = _drive_ingest(client, dataset_id)
+        assert status == 202
+
+
 def test_ingest_unknown_dataset_404(tmp_path: Path) -> None:
     oxi = _RecordingOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
