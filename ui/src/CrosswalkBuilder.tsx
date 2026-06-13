@@ -42,6 +42,18 @@ function linkPredicateForConcept(key: string): string {
   return p ? `${XW_NS}has${p}` : ''
 }
 
+// One-line explanation per normalizer (the closed, vetted join-key set — generic core
+// + materials pack; mirrors asterism.crosswalk.NORMALIZERS).
+const NORMALIZER_HINTS: Record<string, string> = {
+  identity: '値が完全に一致するものだけを結合します（どの概念でも使える既定）。',
+  casefold: '大文字・小文字の違いだけを無視します（例: FeO = feo）。組成には不可（Co ≠ CO）。',
+  whitespace: '前後・連続する空白の違いだけを無視します。',
+  nfkc: '全角・半角や互換文字（ﾊﾝｶｸ等）を揃えてから一致を見ます。',
+  loose_text: '大小・空白・全角半角をまとめて無視してゆるく一致（並び替えはしません）。',
+  composition: '添字・空白の違いだけを吸収します（元素順は区別）。',
+  element_canonical: '元素の並び順が違っても同じ組成として結合します（化学式＝多重集合）。',
+}
+
 /** A perspective id (slug) from a human name. Falls back to a generated id when the
  * name has no ascii (e.g. a Japanese name) so the id stays IRI-safe. */
 function perspectiveIdFromName(name: string): string {
@@ -372,19 +384,19 @@ export function CrosswalkBuilder() {
                     setNormalizer(e.target.value)
                   }}
                 >
-                  <option value="identity">そのまま一致（表記が同じものだけ）</option>
-                  <option value="composition">組成式として揃える（添字/空白を吸収）〔材料向け〕</option>
-                  <option value="element_canonical">
-                    組成式＋元素順も揃える（Bi2Te3 = Te3Bi2）〔材料向け〕
-                  </option>
+                  <optgroup label="汎用（どの概念でも）">
+                    <option value="identity">そのまま一致（表記が同じものだけ）</option>
+                    <option value="casefold">大文字・小文字を無視</option>
+                    <option value="whitespace">空白の違いを無視（前後・連続空白を畳む）</option>
+                    <option value="nfkc">全角・半角／互換文字を揃える（NFKC）</option>
+                    <option value="loose_text">ゆるく一致（大小・空白・全角半角をまとめて無視）</option>
+                  </optgroup>
+                  <optgroup label="材料向け">
+                    <option value="composition">組成式として揃える（添字/空白を吸収）</option>
+                    <option value="element_canonical">組成式＋元素順も揃える（Bi2Te3 = Te3Bi2）</option>
+                  </optgroup>
                 </select>
-                <span className="xw-norm-hint">
-                  {normalizer === 'element_canonical'
-                    ? '元素の並び順が違っても同じ組成として結合します（化学式＝多重集合）。'
-                    : normalizer === 'composition'
-                      ? '添字・空白の違いだけを吸収します（元素順は区別）。'
-                      : '値が完全に一致するものだけを結合します（どの概念でも使える既定）。'}
-                </span>
+                <span className="xw-norm-hint">{NORMALIZER_HINTS[normalizer] ?? ''}</span>
               </div>
 
               <div className="ds-subhead">
