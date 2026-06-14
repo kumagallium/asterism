@@ -110,7 +110,7 @@ MVP の後段パス(B)は **オフラインの content tool**（`build_paper_gra
 - **信頼境界（不変）**: structurer は **閉じた・一度 vet した・決定論的パーサ**＝文書から**コードを実行しない**（Tier0/Morph-KGC と同じ trust model）。アップロード XML は untrusted なので **defusedxml** で entity 展開（billion laughs）/外部実体（SSRF・ローカルファイル読み）を拒否（無害な JATS DOCTYPE 宣言は許可）。
 - **決定論/idempotency**: `now()` 不使用（`prov:endedAtTime` は文書の pub-date・activity IRI は内容ハッシュ）＝同一バイトの再取り込みで同一グラフ。
 - **引用ツールは横断**: `search_text`/`quote_with_citation` は dataset 非スコープ（FROM-merge 全体を検索）＝**アップロードした文書も promote 済なら既存ツールでそのまま引用可能**（実機実証済）。
-- **変換前段（PDF/Word）**: `experiments/{pdf-docling,word-pandoc}-spike/` で de-risk 済。変換は **オフライン・PROV `lit:DocumentConversionActivity`(変換器+版+日付)** の日付つき主張＝信頼度ラベル（JATS=高/Word(pandoc)=高/born-digital PDF(Docling)=中/scan=低）。upload 導線への変換統合は後続 PR。
+- **変換前段（Word=PR-2 配線済 / PDF=後続）**: 変換は **PROV `lit:DocumentConversionActivity`(変換器+版)** の開示された主張＝信頼度ラベル（JATS=高/Word(pandoc)=高/born-digital PDF(Docling)=中/scan=低）。**Word(.docx)**= `_persist_source_uploads` が **pandoc を optional・hardened subprocess**（no-shell・timeout・size 上限・stdin/stdout のみ）で `docx→JATS` 変換→`.jats.xml` を source 永続化（原本 .docx も併存）＋`meta.conversion` 記録→PR-1 の文書経路が ingest 時に `conversion` を structurer へ渡し `DocumentConversionActivity` 発行（parse `wasInformedBy`）。pandoc 無は明示 4xx（CSV/JSON/XML は無依存で動く）・変換後 JATS も defusedxml structurer を通る・api image に pandoc 追加（意図的）。**PDF(Docling=heavy ML)** は image 外・後続（別 convert 経路）。spike=`experiments/{pdf-docling,word-pandoc}-spike/`。
 
 ## 5. recall（文単位の引用）— `query_tools.yaml`
 

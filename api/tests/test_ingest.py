@@ -16,13 +16,17 @@ import json
 from pathlib import Path
 
 import httpx
+import pytest
 from asterism import substrate
+from asterism.documents import pandoc_version
 from asterism.oxigraph_client import OxigraphClient, OxigraphConfig
 from fastapi.testclient import TestClient
 from watchfiles import Change
 
 from asterism_api import registry
 from asterism_api.main import Settings, _append_watch_loop, build_app
+
+_NO_PANDOC = pandoc_version() is None
 
 # Mutating routes are token-gated (fail-closed); tests send _AUTH by default.
 _TEST_TOKEN = "test-token"
@@ -248,6 +252,35 @@ def test_ingest_document_without_rml_is_ok(tmp_path: Path) -> None:
     with TestClient(app, headers=_AUTH) as client:
         status, _ = _drive_ingest(client, dataset_id)
         assert status == 202
+
+
+@pytest.mark.skipif(_NO_PANDOC, reason="pandoc not installed")
+def test_attach_word_docx_converts_to_jats_source(tmp_path: Path) -> None:
+    # Attaching a Word .docx converts it to JATS (pandoc), and the resulting .xml
+    # becomes the persisted source (source_kind=xml) with the conversion disclosed.
+    dataset_id = registry.save_dataset(
+        tmp_path / "registry", "worddoc",
+        {"diagram.md": "classDiagram\n  class Document"},
+        complete=True, warnings=[], traps=[], exit_code=0, created_at="2026-06-12T00:00:00+00:00",
+    )["id"]
+    oxi = _RecordingOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    docx = (Path(__file__).resolve().parent / "fixtures" / "sample.docx").read_bytes()
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            f"/api/datasets/{dataset_id}/source",
+            files={"files": ("sample.docx", docx, "application/octet-stream")},
+        )
+        assert r.status_code == 200, r.text
+        # the converted document then ingests via the structurer (no RML)
+        status, events = _drive_ingest(client, dataset_id)
+        assert status == 202, events
+        result = next(d for n, d in events if n == "done")["result"]
+        assert result["triple_count"] > 5
+    meta = json.loads((tmp_path / "registry" / dataset_id / "meta.json").read_text())
+    assert meta["source_kind"] == "xml"
+    assert meta["conversion"]["sourceFormat"] == "docx"
+    assert any(f.endswith(".jats.xml") for f in meta["source_files"])
 
 
 def test_ingest_unknown_dataset_404(tmp_path: Path) -> None:

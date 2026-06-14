@@ -132,7 +132,13 @@ class JatsDocumentError(ValueError):
     """The uploaded XML is not an ingestible JATS document (no <body>)."""
 
 
-def structure_jats(xml_text: str, *, paper_iri: str, parser_id: str = PARSER_ID) -> object:
+def structure_jats(
+    xml_text: str,
+    *,
+    paper_iri: str,
+    parser_id: str = PARSER_ID,
+    conversion: dict[str, str] | None = None,
+) -> object:
     """Structure a JATS document into a ``doco``/``nif`` :class:`rdflib.Graph`.
 
     ``paper_iri`` is the resolvable IRI for the document node; all section / figure /
@@ -141,6 +147,12 @@ def structure_jats(xml_text: str, *, paper_iri: str, parser_id: str = PARSER_ID)
     NIF offsets + PROV, figures + captions, the NIF context, and the dated
     ``lit:DocumentParsingActivity``). Raises :class:`JatsDocumentError` if there is
     no ``<body>``.
+
+    ``conversion`` (optional) records that the JATS was produced from another format
+    by an external converter (e.g. ``{"converter": "pandoc/3.1", "sourceFormat":
+    "docx"}``): a ``lit:DocumentConversionActivity`` is emitted and the parse activity
+    ``prov:wasInformedBy`` it — the "disclosed, version-pinned conversion" claim
+    (vs RAG hiding it). One confidence rung below a native JATS source.
     """
     import rdflib
 
@@ -176,11 +188,23 @@ def structure_jats(xml_text: str, *, paper_iri: str, parser_id: str = PARSER_ID)
     if title_el is not None:
         lit(paper_iri, DCTERMS + "title", _text(title_el))
 
+    # conversion activity — if the JATS came from another format via an external
+    # converter, disclose it as a version-pinned claim (the parse is informed by it).
+    src_format = "jats"
+    if conversion:
+        conv_iri = f"{paper_iri}/activity/convert/run-{run}"
+        iri(conv_iri, RDF.type, LIT + "DocumentConversionActivity")
+        iri(conv_iri, RDF.type, PROV + "Activity")
+        lit(conv_iri, LIT + "converter", conversion.get("converter", ""))
+        lit(conv_iri, LIT + "sourceFormat", conversion.get("sourceFormat", ""))
+        iri(parse_iri, PROV + "wasInformedBy", conv_iri)
+        src_format = f"{conversion.get('sourceFormat', '?')}-via-jats"
+
     # parse activity — a dated claim; endedAtTime from the doc's pub-date if present
     iri(parse_iri, RDF.type, LIT + "DocumentParsingActivity")
     iri(parse_iri, RDF.type, PROV + "Activity")
     iri(parse_iri, PROV + "used", paper_iri)
-    lit(parse_iri, LIT + "sourceFormat", "jats")
+    lit(parse_iri, LIT + "sourceFormat", src_format)
     lit(parse_iri, LIT + "parser", parser_id)
     pub = meta.find(".//pub-date") if meta is not None else None
     if pub is not None:
@@ -268,19 +292,96 @@ def structure_jats(xml_text: str, *, paper_iri: str, parser_id: str = PARSER_ID)
     return g
 
 
-def document_to_nt_file(xml_text: str, *, paper_iri: str, work_dir: str) -> object:
+def document_to_nt_file(
+    xml_text: str, *, paper_iri: str, work_dir: str, conversion: dict[str, str] | None = None
+) -> object:
     """Structure ``xml_text`` and write the graph as N-Triples under ``work_dir``.
 
     Parallel to :func:`asterism.substrate.materialize_to_nt_file` (the RML path): a
     file the API ingest streams into the staged graph in row-chunked POSTs
-    (memory-bounded). Returns the ``pathlib.Path`` to the ``.nt`` file.
+    (memory-bounded). ``conversion`` is forwarded to :func:`structure_jats` so a
+    converted (e.g. Word) source records its ``lit:DocumentConversionActivity``.
+    Returns the ``pathlib.Path`` to the ``.nt`` file.
     """
     from pathlib import Path
 
-    g = structure_jats(xml_text, paper_iri=paper_iri)
+    g = structure_jats(xml_text, paper_iri=paper_iri, conversion=conversion)
     path = Path(work_dir) / "document.nt"
     g.serialize(destination=str(path), format="nt", encoding="utf-8")
     return path
+
+
+# Cap on an uploaded Word file we will hand to pandoc (defence-in-depth alongside
+# the API's own upload byte cap): a .docx is a zip, so this is generous for prose.
+_MAX_DOCX_BYTES = 64 * 1024 * 1024
+
+
+class ConversionError(RuntimeError):
+    """A Word→JATS conversion could not be performed (pandoc missing, timeout, or
+    a malformed / oversized document). The API surfaces this as a clear 4xx."""
+
+
+def pandoc_version() -> str | None:
+    """``"pandoc/<version>"`` if the pandoc binary is available, else ``None``."""
+    import shutil
+    import subprocess
+
+    if shutil.which("pandoc") is None:
+        return None
+    try:
+        out = subprocess.run(
+            ["pandoc", "--version"], capture_output=True, text=True, timeout=10, check=True
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    first = (out.stdout.splitlines() or [""])[0].strip()  # "pandoc 3.1.11.1"
+    return first.replace(" ", "/", 1) if first else "pandoc"
+
+
+def convert_docx_to_jats(docx_bytes: bytes, *, timeout: float = 30.0) -> tuple[str, str]:
+    """Convert a Word ``.docx`` to JATS XML with **pandoc**, returning ``(jats, converter)``.
+
+    pandoc is an OPTIONAL external tool: a ``.docx`` is already structured XML
+    (OOXML), so pandoc recovers headings/paragraphs faithfully and emits JATS
+    (``<sec id><title><p>``) — the exact shape :func:`structure_jats` ingests. This
+    runs pandoc as a hardened subprocess (no shell, fixed argv, timeout, bounded
+    input) and reads ``stdin``/``stdout`` (no temp files, no host paths). The
+    resulting JATS is still parsed by the defusedxml structurer downstream.
+
+    Raises :class:`ConversionError` if pandoc is unavailable, the input is oversized,
+    or the conversion fails/times out.
+    """
+    import subprocess
+
+    version = pandoc_version()
+    if version is None:
+        raise ConversionError(
+            "Word (.docx) ingestion requires the 'pandoc' tool, which is not installed. "
+            "Convert the document to JATS XML first, or install pandoc."
+        )
+    if len(docx_bytes) > _MAX_DOCX_BYTES:
+        raise ConversionError("Word document is too large to convert")
+    try:
+        # -s (standalone) wraps the content in <article><body> — the shape the
+        # structurer ingests (a bare `-t jats` emits a sectionless fragment).
+        proc = subprocess.run(
+            ["pandoc", "-f", "docx", "-t", "jats", "-s", "-o", "-"],
+            input=docx_bytes,
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise ConversionError("Word→JATS conversion timed out") from exc
+    except OSError as exc:
+        raise ConversionError(f"could not run pandoc: {exc}") from exc
+    if proc.returncode != 0:
+        detail = proc.stderr.decode("utf-8", "replace")[:300].strip()
+        raise ConversionError(f"pandoc could not convert the document: {detail}")
+    jats = proc.stdout.decode("utf-8", "replace")
+    if "<body" not in jats:
+        raise ConversionError("the converted document has no body content")
+    return jats, version
 
 
 def derive_doc_id(xml_text: str, *, fallback: str) -> str:
