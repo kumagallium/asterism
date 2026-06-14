@@ -14,6 +14,7 @@ from asterism.crosswalk import (
     XW,
     Concept,
     CrosswalkConfig,
+    KeyPart,
     Rule,
     apply_recipe,
     build_turtle,
@@ -40,6 +41,64 @@ def _build(config, observations):
     return build_turtle(
         config, observations, activity_iri="urn:act", built_at="2026-06-10T00:00:00+00:00"
     )
+
+
+def test_single_part_concept_has_one_implicit_key_part() -> None:
+    # A legacy concept (no key_parts) IS a single key part = its own normalizer.
+    assert COMPOSITION.parts() == (KeyPart("composition", "composition", ()),)
+
+
+def _phase(*key_parts: KeyPart) -> Concept:
+    return Concept(
+        name="phase",
+        class_iri=f"{XW}Phase",
+        link_predicate=f"{XW}hasPhase",
+        key_parts=key_parts,
+        rules=(Rule("sd", "x"), Rule("mp", "y")),
+    )
+
+
+def test_compound_key_joins_on_the_tuple_not_a_single_value() -> None:
+    # phase = (composition, crystal_system). Same composition + DIFFERENT crystal
+    # system must NOT join; only the matching tuple does.
+    phase = _phase(KeyPart("composition", "composition"), KeyPart("crystal_system", "identity"))
+    obs = {
+        ("phase", "sd"): [("sd:1", ("PbTe", "rocksalt")), ("sd:2", ("PbTe", "highP"))],
+        ("phase", "mp"): [("mp:1", ("PbTe", "rocksalt"))],
+    }
+    b = _build(CrosswalkConfig((phase,)), obs)
+    assert b.shared["phase"] == ["PbTe | rocksalt"]  # the shared TUPLE (readable label)
+    assert b.links["phase"] == {"sd": 1, "mp": 1}
+    # tuple key IRI uses the collision-safe unit separator (%1F); label is readable
+    assert "/crosswalk/resource/phase/PbTe%1Frocksalt>" in b.turtle
+    assert 'rdfs:label "PbTe | rocksalt"' in b.turtle
+    # provenance records the raw tuple + each part's normalizer
+    assert 'xw:sourceValue "PbTe | rocksalt"' in b.turtle
+    assert 'xw:normalizer "composition | identity"' in b.turtle
+    # the unshared (PbTe, highP) pair is NOT minted
+    assert "highP" not in b.turtle
+
+
+def test_compound_key_normalizes_each_part_independently() -> None:
+    phase = _phase(KeyPart("composition", "composition"), KeyPart("system", "casefold"))
+    obs = {
+        ("phase", "sd"): [("sd:1", ("Bi₂Te₃", "Rhombohedral"))],  # subscript + caps
+        ("phase", "mp"): [("mp:1", ("Bi2Te3", "rhombohedral"))],  # ascii + lower
+    }
+    b = _build(CrosswalkConfig((phase,)), obs)
+    # composition folds subscripts, system casefolds -> the tuples match
+    assert b.shared["phase"] == ["Bi2Te3 | rhombohedral"]
+
+
+def test_compound_arity_mismatch_is_skipped_never_half_joined() -> None:
+    phase = _phase(KeyPart("a"), KeyPart("b"))
+    obs = {
+        ("phase", "sd"): [("sd:1", ("x", "y")), ("sd:2", ("only-one",))],  # 2nd malformed
+        ("phase", "mp"): [("mp:1", ("x", "y"))],
+    }
+    b = _build(CrosswalkConfig((phase,)), obs)
+    assert b.shared["phase"] == ["x | y"]  # arity-1 observation dropped, no crash
+    assert "only-one" not in b.turtle
 
 
 def test_normalize_folds_subscripts_and_whitespace() -> None:
