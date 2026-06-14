@@ -89,6 +89,46 @@ def test_structure_sentence_has_offsets_and_prov() -> None:
     assert g.value(s, quoted) == rdflib.URIRef(BASE)
 
 
+def _anchors(g: rdflib.Graph) -> list[str]:
+    return [str(o) for _, _, o in g.triples((None, rdflib.URIRef(NIF + "anchorOf"), None))]
+
+
+def test_list_items_are_captured_as_sentences() -> None:
+    # Meeting notes / minutes carry most prose as bullet lists; each <list-item>
+    # must become an addressable sentence (regression: earlier only <sec>/<p> direct
+    # children were read, silently dropping every bullet).
+    xml = (
+        '<article><front><article-meta>'
+        '<article-id pub-id-type="pmcid">PMC-LIST</article-id>'
+        "</article-meta></front><body>"
+        '<sec id="s1"><title>Agenda</title>'
+        "<list><list-item><p>ZT exceeded one point two.</p></list-item>"
+        "<list-item><p>Reproduce the measurement next week.</p></list-item></list>"
+        "<p>A trailing paragraph.</p></sec></body></article>"
+    )
+    g = structure_jats(xml, paper_iri="https://ex/doc/list")
+    anchors = _anchors(g)
+    assert "ZT exceeded one point two." in anchors
+    assert "Reproduce the measurement next week." in anchors
+    assert "A trailing paragraph." in anchors
+
+
+def test_heading_less_body_paragraphs_are_captured() -> None:
+    # Flat documents (no headings) keep prose directly under <body>; capture it under
+    # a body-level section so it is still searchable.
+    xml = (
+        '<article><front><article-meta>'
+        '<article-id pub-id-type="pmcid">PMC-FLAT</article-id>'
+        "</article-meta></front><body>"
+        "<p>This document has no headings at all.</p>"
+        "<p>But it still has citable sentences.</p></body></article>"
+    )
+    g = structure_jats(xml, paper_iri="https://ex/doc/flat")
+    anchors = _anchors(g)
+    assert "This document has no headings at all." in anchors
+    assert "But it still has citable sentences." in anchors
+
+
 def test_figure_and_caption() -> None:
     g = _g()
     assert (rdflib.URIRef(BASE + "/fig/f1"), rdflib.RDF.type,

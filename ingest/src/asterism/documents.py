@@ -119,6 +119,30 @@ def _text(el) -> str:
     return trim_collapse("".join(el.itertext()))
 
 
+def _block_paragraphs(container) -> list[str]:
+    """Prose blocks directly in ``container``, in document order.
+
+    Captures ``<p>`` *and* list items (``<list>/<list-item>``) that are direct
+    content of the section/body — meeting notes, minutes and contracts carry most
+    of their text as bullet lists, which earlier versions dropped. Does NOT descend
+    into nested ``<sec>`` (those are emitted as their own sections), so no text is
+    double-counted. Each top-level ``<list-item>`` becomes one block (its own
+    nested sub-bullets fold into that block's text).
+    """
+    out: list[str] = []
+    for child in container:
+        if child.tag == "p":
+            t = _text(child)
+            if t:
+                out.append(t)
+        elif child.tag == "list":
+            for item in child.findall("list-item"):
+                t = _text(item)
+                if t:
+                    out.append(t)
+    return out
+
+
 def _article_id(meta, kind: str) -> str:
     if meta is None:
         return ""
@@ -235,6 +259,25 @@ def structure_jats(
                 iri(ciri, RDF.type, DOCO + "Caption")
                 lit(ciri, NIF + "isString", ctext)
 
+    def emit_paragraphs(parent_iri: str, texts: list[str]) -> None:
+        for k, ptext in enumerate(texts):
+            piri = f"{parent_iri}/para/{k}"
+            iri(parent_iri, PO + "contains", piri)
+            iri(piri, RDF.type, DOCO + "Paragraph")
+            lit(piri, NIF + "isString", ptext)
+            para_start = sum(len(x) for x in context_parts)
+            context_parts.append(ptext + "\n")
+            for j, (a, b) in enumerate(sentence_spans(ptext)):
+                seniri = f"{piri}/sent/{j}"
+                iri(piri, PO + "contains", seniri)
+                iri(seniri, RDF.type, DOCO + "Sentence")
+                lit(seniri, NIF + "anchorOf", ptext[a:b])
+                iri(seniri, NIF + "referenceContext", context_iri)
+                lit(seniri, NIF + "beginIndex", str(para_start + a), XSD + "nonNegativeInteger")
+                lit(seniri, NIF + "endIndex", str(para_start + b), XSD + "nonNegativeInteger")
+                iri(seniri, PROV + "wasQuotedFrom", paper_iri)
+                iri(seniri, PROV + "wasGeneratedBy", parse_iri)
+
     def emit_section(sec, *, top: bool) -> None:
         sid = sec.get("id")
         if not sid:
@@ -257,26 +300,7 @@ def structure_jats(
             if fig.get("id"):
                 iri(siri, PO + "contains", f"{paper_iri}/fig/{fig.get('id')}")
                 emit_figure(fig)
-        for k, p in enumerate(sec.findall("p")):
-            ptext = _text(p)
-            if not ptext:
-                continue
-            piri = f"{siri}/para/{k}"
-            iri(siri, PO + "contains", piri)
-            iri(piri, RDF.type, DOCO + "Paragraph")
-            lit(piri, NIF + "isString", ptext)
-            para_start = sum(len(x) for x in context_parts)
-            context_parts.append(ptext + "\n")
-            for j, (a, b) in enumerate(sentence_spans(ptext)):
-                seniri = f"{piri}/sent/{j}"
-                iri(piri, PO + "contains", seniri)
-                iri(seniri, RDF.type, DOCO + "Sentence")
-                lit(seniri, NIF + "anchorOf", ptext[a:b])
-                iri(seniri, NIF + "referenceContext", context_iri)
-                lit(seniri, NIF + "beginIndex", str(para_start + a), XSD + "nonNegativeInteger")
-                lit(seniri, NIF + "endIndex", str(para_start + b), XSD + "nonNegativeInteger")
-                iri(seniri, PROV + "wasQuotedFrom", paper_iri)
-                iri(seniri, PROV + "wasGeneratedBy", parse_iri)
+        emit_paragraphs(siri, _block_paragraphs(sec))
         for sub in sec.findall("sec"):
             emit_section(sub, top=False)
 
@@ -286,6 +310,18 @@ def structure_jats(
             iri(paper_iri, PO + "contains", f"{paper_iri}/sec/{sec.get('id')}")
     for sec in top_secs:
         emit_section(sec, top=True)
+
+    # Heading-less documents (notes, minutes, contracts often start flat) keep their
+    # prose as <p>/<list> directly under <body>. Capture it under one body-level
+    # section so it stays paragraph/sentence-addressable and searchable.
+    body_texts = _block_paragraphs(body)
+    if body_texts:
+        biri = f"{paper_iri}/sec/_body"
+        iri(paper_iri, PO + "contains", biri)
+        iri(biri, RDF.type, DOCO + "Section")
+        lit(biri, DCTERMS + "title", "")
+        lit(biri, LIT + "structuralPath", "")
+        emit_paragraphs(biri, body_texts)
 
     iri(context_iri, RDF.type, NIF + "Context")
     lit(context_iri, NIF + "isString", "".join(context_parts))
