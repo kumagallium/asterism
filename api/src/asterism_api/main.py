@@ -36,8 +36,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final
 
+import yaml
 from asterism import crosswalk, crosswalk_runtime, documents, substrate
-from asterism.datasets import load_dataset
+from asterism.datasets import datasets_root, load_dataset
 from asterism.exposure import raw_sparql_enabled
 from asterism.ontology_projection import (
     STANDARD_PREFIXES,
@@ -391,6 +392,27 @@ _SAFE_SOURCE_NAME = re.compile(r"^[A-Za-z0-9._-]{1,128}\.(csv|json|geojson|xml|d
 # layer). A document dataset's nodes hang off ``…/document/<dataset_id>/<doc_id>``;
 # the doc layer's own vocabulary lives in the same ``papers/ontology#`` (lit:) space.
 _DOCUMENT_RESOURCE_BASE = "https://kumagallium.github.io/asterism/papers/resource/document"
+
+# The reusable document recall tools auto-attached to an uploaded document dataset
+# so it is queryable + citable from the catalog with no per-document authoring. They
+# are dataset-agnostic (they run over the canonical FROM-merge), so the same vetted
+# content the papers example declares works for any promoted document graph.
+_DOCUMENT_TOOL_NAMES = ("search_text", "quote_with_citation", "fetch_passage")
+_DOCUMENT_SOURCE_SUFFIXES = (".xml", ".docx")
+
+
+def _document_tool_specs() -> list[dict]:
+    """Raw query-tool dicts (the document recall set) read from the papers example's
+    vetted ``query_tools.yaml`` as content — nothing is generated at runtime."""
+    root = datasets_root()
+    if root is None:
+        return []
+    path = root / "papers" / "query_tools.yaml"
+    if not path.is_file():
+        return []
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    tools = data.get("tools", []) if isinstance(data, dict) else []
+    return [t for t in tools if isinstance(t, dict) and t.get("name") in _DOCUMENT_TOOL_NAMES]
 
 
 # ----------------------------------------------------------------------------
@@ -1485,6 +1507,49 @@ def build_app(
         saved, meta = await _persist_source_uploads(cfg.registry_root, dataset_id, files)
         return JSONResponse(
             {"dataset_id": dataset_id, "source_files": saved, "dataset": meta}
+        )
+
+    @app.post("/api/documents", dependencies=_write_auth)
+    async def create_document_dataset(
+        name: str = Form("document"),
+        file: UploadFile = File(..., description="A JATS .xml or Word .docx document"),
+    ) -> JSONResponse:
+        """Create a DOCUMENT dataset from an uploaded JATS/Word file (no schema design).
+
+        Unlike CSV/JSON — which go through the LLM design → materialize flow — a
+        structured document needs no schema. This creates the registry record,
+        persists the source (a ``.docx`` is converted to JATS by pandoc, sets
+        ``source_kind=xml``), and auto-attaches the reusable document recall tools
+        (``search_text`` / ``quote_with_citation`` / ``fetch_passage``) so the
+        document is queryable + citable from the catalog the moment it is ingested
+        and promoted. Ingest + promote remain explicit human gates.
+        """
+        if file.filename is None:
+            raise HTTPException(400, "missing filename")
+        filename = _validate_source_name(file.filename)
+        if Path(filename).suffix.lower() not in _DOCUMENT_SOURCE_SUFFIXES:
+            raise HTTPException(400, "a document must be a JATS .xml or a Word .docx file")
+        meta = registry.save_dataset(
+            cfg.registry_root,
+            name or "document",
+            {"diagram.md": "classDiagram\n  class Document"},
+            complete=True,
+            warnings=[],
+            traps=[],
+            exit_code=0,
+            created_at=datetime.now(UTC).isoformat(),
+        )
+        dataset_id = meta["id"]
+        try:
+            saved, meta = await _persist_source_uploads(cfg.registry_root, dataset_id, [file])
+        except HTTPException:
+            registry.delete_dataset(cfg.registry_root, dataset_id)  # roll back the empty record
+            raise
+        for tool in _document_tool_specs():
+            registry.save_query_tool(cfg.registry_root, dataset_id, tool)
+        return JSONResponse(
+            {"dataset_id": dataset_id, "source_files": saved, "dataset": meta},
+            status_code=201,
         )
 
     @app.post("/api/datasets/{dataset_id}/ingest", dependencies=_write_auth)
