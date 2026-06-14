@@ -1,5 +1,16 @@
 # Changelog
 
+## [v0.5.0](https://github.com/kumagallium/asterism/compare/v0.4.0...v0.5.0) - 2026-06-14
+
+- docs(crosswalk): design ADR for compound keys (join on N attributes) by @kumagallium in https://github.com/kumagallium/asterism/pull/208
+- feat(documents): Word (.docx) ingest via pandoc — upload a contract, cite a clause by @kumagallium in https://github.com/kumagallium/asterism/pull/210
+- feat(crosswalk): compound keys phase-1a — tuple join keys in the pure builder by @kumagallium in https://github.com/kumagallium/asterism/pull/211
+- feat(api): POST /api/documents — create a document dataset (no schema design) by @kumagallium in https://github.com/kumagallium/asterism/pull/212
+- feat(ui): 文書を追加 mode — upload a JATS/Word document, query it with citations by @kumagallium in https://github.com/kumagallium/asterism/pull/213
+- fix(ui): document as a source kind (not a separate mode); drop JATS jargon by @kumagallium in https://github.com/kumagallium/asterism/pull/214
+- feat(crosswalk): compound keys phase-1b — runtime store-gather + config + API by @kumagallium in https://github.com/kumagallium/asterism/pull/215
+- fix(documents): 箇条書き・見出し無し本文も文として取り込む by @kumagallium in https://github.com/kumagallium/asterism/pull/216
+
 ## [v0.4.0](https://github.com/kumagallium/asterism/compare/v0.3.0...v0.4.0) - 2026-06-14
 
 - feat(documents): runtime JATS-document ingest — uploaded docs citable to the sentence by @kumagallium in https://github.com/kumagallium/asterism/pull/205
