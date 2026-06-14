@@ -25,6 +25,7 @@ import { ProposalView } from './ProposalView'
 const SOURCES: { id: SourceKind; label: string }[] = [
   { id: 'csv', label: '表計算 / CSV' },
   { id: 'json', label: 'JSON' },
+  { id: 'document', label: '文書（Word / XML）' },
   { id: 'api', label: 'API' },
   { id: 'db', label: 'DB' },
 ]
@@ -109,7 +110,7 @@ export function WorkbenchView() {
 
   // Two ways to add data (crosswalk-hub.md ④): from a NEW source (CSV/JSON → AI
   // designs → save), or by crossing EXISTING datasets into a shared bridge.
-  const [mode, setMode] = useState<'new' | 'crosswalk' | 'document'>('new')
+  const [mode, setMode] = useState<'new' | 'crosswalk'>('new')
   const [step, setStep] = useState<Step>(snap.step ?? 1)
   // Selected data-source kind (#19). CSV / JSON are wired; switching kinds clears
   // any picked files since they no longer match the new kind's picker filter.
@@ -389,19 +390,10 @@ export function WorkbenchView() {
         >
           既存データを横断でつなぐ <span className="wb-mode-en">crosswalk</span>
         </button>
-        <button
-          type="button"
-          className={`wb-mode-pill${mode === 'document' ? ' active' : ''}`}
-          onClick={() => setMode('document')}
-        >
-          文書を追加 <span className="wb-mode-en">JATS / Word</span>
-        </button>
       </div>
 
       {mode === 'crosswalk' ? (
         <CrosswalkBuilder />
-      ) : mode === 'document' ? (
-        <DocumentPanel />
       ) : (
         <>
       <p className="subtitle">
@@ -450,8 +442,12 @@ export function WorkbenchView() {
               )
             })}
           </div>
-          <span className="hint source-note">あらゆる構造化ソースに対応予定（現在は CSV / JSON）</span>
+          <span className="hint source-note">あらゆる構造化ソースに対応予定（現在は CSV / JSON / 文書）</span>
         </div>
+        {source === 'document' ? (
+          <DocumentPanel />
+        ) : (
+          <>
         <div className="data-source-row">
           <label className="file-btn">
             {source === 'json' ? 'JSON を選択' : 'CSV を選択'}
@@ -504,9 +500,13 @@ export function WorkbenchView() {
             )}
           </div>
         )}
+          </>
+        )}
       </section>
 
-      {/* Stepper */}
+      {/* Stepper — only for the schema-design (CSV/JSON) flow; a document needs none. */}
+      {source !== 'document' && (
+        <>
       <ol className="stepper">
         {STEPS.map((s, i) => (
           <li key={s.n} className="stepper-item">
@@ -659,6 +659,8 @@ export function WorkbenchView() {
             <p className="step-guard">先に「AI が設計」でスキーマを生成してください。</p>
           ))}
       </div>
+        </>
+      )}
         </>
       )}
     </>
