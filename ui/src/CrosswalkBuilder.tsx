@@ -5,11 +5,27 @@ import {
   type BuildResult,
   type CrosswalkConfig,
   type PredicateCandidate,
+  previewNormalizer,
   proposeCrosswalkMapping,
 } from './crosswalkApi'
 import { type CatalogDataset, getCatalogDatasets } from './galleryApi'
 import { LinkIcon } from './icons'
 import { localName } from './vocab'
+
+// The CLOSED recipe primitives (mirror asterism.crosswalk.RECIPE_PRIMITIVES) + a
+// plain-language label. A recipe = an ordered list of these; the build applies the
+// vetted functions (the preview endpoint is the source of truth for behavior).
+const RECIPE_PRIMITIVE_LABEL: Record<string, string> = {
+  nfkc: '全角・半角／互換文字をそろえる（NFKC）',
+  casefold: '大文字・小文字をなくす',
+  strip: '前後の空白を削る',
+  collapse_ws: '連続する空白を1つにする',
+  remove_ws: '空白をすべて消す',
+  fold_subscripts: '下付き数字をふつうの数字に（₂→2）',
+}
+const RECIPE_PRIMITIVE_IDS = ['nfkc', 'casefold', 'strip', 'collapse_ws', 'remove_ws', 'fold_subscripts']
+// Sentinel select value: author a custom recipe instead of a named normalizer.
+const RECIPE_OPTION = '__recipe__'
 
 const API_KEY_STORAGE = 'asterism.apiKey'
 
@@ -52,6 +68,7 @@ const NORMALIZER_HINTS: Record<string, string> = {
   loose_text: '大小・空白・全角半角をまとめて無視してゆるく一致（並び替えはしません）。',
   composition: '添字・空白の違いだけを吸収します（元素順は区別）。',
   element_canonical: '元素の並び順が違っても同じ組成として結合します（化学式＝多重集合）。',
+  [RECIPE_OPTION]: '手順（プリミティブ）を自分で並べて、独自の「同じ値とみなす基準」を作ります。',
 }
 
 /** A perspective id (slug) from a human name. Falls back to a generated id when the
@@ -108,6 +125,11 @@ export function CrosswalkBuilder() {
   const [building, setBuilding] = useState(false)
   const [buildErr, setBuildErr] = useState('')
   const [result, setResult] = useState<BuildResult | null>(null)
+  // Custom normalizer recipe (active when normalizer === RECIPE_OPTION): an ordered
+  // list of closed primitive ids + a sample whose join key is previewed live.
+  const [recipe, setRecipe] = useState<string[]>(['nfkc', 'casefold', 'collapse_ws'])
+  const [recipeSample, setRecipeSample] = useState('Iron  Oxide')
+  const [recipePreview, setRecipePreview] = useState<string | null>(null)
 
   useEffect(() => {
     let off = false
@@ -154,7 +176,22 @@ export function CrosswalkBuilder() {
   const linkPred = linkPredicateForConcept(conceptKey)
   // A concept needs an ascii key so the minted hub IRI stays clean + citable.
   const conceptValid = classIri !== ''
-  const canBuild = !building && readyCount >= 2 && conceptValid
+  const recipeMode = normalizer === RECIPE_OPTION
+  const canBuild = !building && readyCount >= 2 && conceptValid && (!recipeMode || recipe.length > 0)
+
+  // Live-preview the recipe's join key on the sample (the preview endpoint is the
+  // source of truth for behavior, so the UI never re-implements the primitives).
+  useEffect(() => {
+    let off = false
+    const p =
+      recipeMode && recipe.length > 0
+        ? previewNormalizer(recipe, [recipeSample]).then((r) => r[0]?.output ?? '')
+        : Promise.resolve(null)
+    p.then((out) => !off && setRecipePreview(out)).catch(() => !off && setRecipePreview(null))
+    return () => {
+      off = true
+    }
+  }, [recipeMode, recipe, recipeSample])
 
   // Until the user picks a normalizer by hand, default it from the concept: chemistry
   // join key for composition, generic exact-match otherwise.
@@ -211,7 +248,10 @@ export function CrosswalkBuilder() {
             name: conceptKey,
             class_iri: classIri,
             link_predicate: linkPred,
-            normalizer,
+            // A custom recipe is sent declaratively (the runtime applies the closed
+            // primitives); else the named normalizer.
+            normalizer: recipeMode ? 'recipe' : normalizer,
+            ...(recipeMode ? { normalizer_recipe: recipe } : {}),
             participants: chosen
               .filter((d) => predicate[datasetId(d)])
               .map((d) => ({
@@ -395,9 +435,98 @@ export function CrosswalkBuilder() {
                     <option value="composition">組成式として揃える（添字/空白を吸収）</option>
                     <option value="element_canonical">組成式＋元素順も揃える（Bi2Te3 = Te3Bi2）</option>
                   </optgroup>
+                  <optgroup label="自分で作る">
+                    <option value={RECIPE_OPTION}>カスタム（手順を組む）…</option>
+                  </optgroup>
                 </select>
                 <span className="xw-norm-hint">{NORMALIZER_HINTS[normalizer] ?? ''}</span>
               </div>
+
+              {recipeMode && (
+                <div className="xw-recipe">
+                  {/* The ordered recipe — closed primitives applied top→bottom. */}
+                  <div className="xw-recipe-steps">
+                    {recipe.length === 0 && (
+                      <p className="xw-norm-hint">下の「手順を追加」から組み立ててください。</p>
+                    )}
+                    {recipe.map((op, i) => (
+                      <div className="xw-recipe-step" key={`${op}-${i}`}>
+                        <span className="xw-recipe-num">{i + 1}</span>
+                        <span className="xw-recipe-op">{RECIPE_PRIMITIVE_LABEL[op] ?? op}</span>
+                        <span className="xw-recipe-actions">
+                          <button
+                            type="button"
+                            className="xw-recipe-btn"
+                            disabled={i === 0}
+                            title="上へ"
+                            onClick={() =>
+                              setRecipe((r) => {
+                                const n = [...r]
+                                ;[n[i - 1], n[i]] = [n[i], n[i - 1]]
+                                return n
+                              })
+                            }
+                          >
+                            ↑
+                          </button>
+                          <button
+                            type="button"
+                            className="xw-recipe-btn"
+                            disabled={i === recipe.length - 1}
+                            title="下へ"
+                            onClick={() =>
+                              setRecipe((r) => {
+                                const n = [...r]
+                                ;[n[i + 1], n[i]] = [n[i], n[i + 1]]
+                                return n
+                              })
+                            }
+                          >
+                            ↓
+                          </button>
+                          <button
+                            type="button"
+                            className="xw-recipe-btn xw-recipe-del"
+                            title="削除"
+                            onClick={() => setRecipe((r) => r.filter((_, j) => j !== i))}
+                          >
+                            ×
+                          </button>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="xw-norm-row">
+                    <select
+                      className="xw-map-select xw-norm-select"
+                      value=""
+                      onChange={(e) => {
+                        if (e.target.value) setRecipe((r) => [...r, e.target.value])
+                      }}
+                    >
+                      <option value="">＋ 手順を追加…</option>
+                      {RECIPE_PRIMITIVE_IDS.map((id) => (
+                        <option key={id} value={id}>
+                          {RECIPE_PRIMITIVE_LABEL[id]}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {/* Live preview: what join key this recipe produces for a sample. */}
+                  <div className="xw-recipe-preview">
+                    <span className="xw-recipe-prev-label">プレビュー</span>
+                    <input
+                      type="text"
+                      className="xw-key-input xw-recipe-sample"
+                      value={recipeSample}
+                      onChange={(e) => setRecipeSample(e.target.value)}
+                      placeholder="サンプルの値"
+                    />
+                    <span className="xw-recipe-arrow">→</span>
+                    <code className="xw-recipe-out">{recipePreview ?? '—'}</code>
+                  </div>
+                </div>
+              )}
 
               <div className="ds-subhead">
                 5. この視点の名前

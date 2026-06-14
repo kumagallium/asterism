@@ -178,6 +178,45 @@ def test_config_round_trips_through_dict_and_yaml(tmp_path: Path) -> None:
     assert load_config(tmp_path / "nonexistent") is None
 
 
+def test_config_round_trips_a_normalizer_recipe() -> None:
+    data = {
+        "min_datasets": 2,
+        "concepts": [
+            {
+                "name": "material",
+                "class_iri": "https://x/Material",
+                "link_predicate": "https://x/hasMaterial",
+                "normalizer": "recipe",
+                "normalizer_recipe": ["nfkc", "casefold", "collapse_ws"],
+                "participants": [
+                    {"dataset_id": "ds-a", "predicate": PRED},
+                    {"dataset_id": "ds-b", "predicate": PRED},
+                ],
+            }
+        ],
+    }
+    cfg = parse_config(data)
+    assert cfg.concepts[0].normalizer_recipe == ("nfkc", "casefold", "collapse_ws")
+    # round-trips (and a recipe-free concept omits the key entirely)
+    assert parse_config(config_to_dict(cfg)) == cfg
+    plain = config_to_dict(_composition_config([("ds-a", "starrydata"), ("ds-b", "mp")]))
+    assert "normalizer_recipe" not in plain["concepts"][0]
+
+
+def test_config_rejects_unknown_recipe_primitive() -> None:
+    bad = {
+        "concepts": [
+            {
+                "name": "material",
+                "normalizer_recipe": ["nfkc", "rm -rf"],
+                "participants": [{"dataset_id": "ds-a", "predicate": PRED}],
+            }
+        ],
+    }
+    with pytest.raises(ValueError, match="unknown recipe primitive"):
+        parse_config(bad)
+
+
 def test_write_registry_scaffold_seeds_then_preserves(tmp_path: Path) -> None:
     cfg = _composition_config([("ds-a", "starrydata"), ("ds-b", "materials_project")])
     outcome = BuildOutcome(
