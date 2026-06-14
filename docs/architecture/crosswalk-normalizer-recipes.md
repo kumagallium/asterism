@@ -1,7 +1,8 @@
 # ADR: Crosswalk normalizers — a closed, vetted library that grows by curation
 
-Status: **Increment 1 (generic text core) done; recipes + compound keys are future**
-(2026-06-13). Extends [`crosswalk-hub.md`](crosswalk-hub.md) (the thin growing
+Status: **Increment 1 (generic text core) + Increment 2 (declarative recipes:
+runtime + api + UI composer) done; compound keys (increment 3) are future**
+(2026-06-14). Extends [`crosswalk-hub.md`](crosswalk-hub.md) (the thin growing
 bridge) and [`crosswalk-multi-perspective.md`](crosswalk-multi-perspective.md) (the
 plural upper ontology). Aligns with the product direction (deterministic, citable,
 human-vetted facts) and the **no-generated-code-execution** invariant (`CLAUDE.md`,
@@ -70,11 +71,18 @@ code**:
    `whitespace` (collapse), `nfkc`, and `loose_text` (NFKC + casefold + collapse),
    alongside the existing `identity`. Each folds exactly one well-understood text
    variation and **never reorders or drops tokens**, so distinct strings stay distinct.
-3. **Recipes (future, user-addable in the UI).** A declarative, ordered composition of
-   closed primitives (generic *and* domain ones as black-box steps), authored and saved
-   like a typed query tool — no code. A complex normalizer such as `element_canonical`
-   participates as a single vetted primitive a recipe can reference; recipes **compose**
-   the closed set, they do not let users *write* new complex logic.
+3. **Recipes (done — user-composable in the UI).** A declarative, ordered composition of
+   closed primitives (`asterism.crosswalk.RECIPE_PRIMITIVES`: `nfkc` / `casefold` /
+   `strip` / `collapse_ws` / `remove_ws` / `fold_subscripts`), authored and saved with
+   the perspective like a typed query tool — **data, not code**. A concept carries a
+   `normalizer_recipe` (ordered ids); `resolve_normalizer` prefers it over the named
+   normalizer and `apply_recipe` folds the closed set (an unknown id is rejected — the
+   safety gate). The build records the recipe spec in provenance (`xw:normalizer
+   "recipe(nfkc>casefold>collapse_ws)"`). Recipes **compose** the closed set; they do
+   not let users *write* new complex logic — a domain normalizer like `element_canonical`
+   would join as a single vetted primitive (not yet exposed as a recipe step). A recipe
+   can reproduce the simple named normalizers (`loose_text` = `nfkc>casefold>collapse_ws`,
+   `composition` = `fold_subscripts>remove_ws`); only the domain-knowledge ones cannot.
 
 ### Why a closed, curated library is enough (the "keeps-adding" answer)
 
@@ -107,8 +115,10 @@ code**:
   `Co`/`CO`). Mitigated by clear UI labels (材料向け vs 汎用) and the concept-driven
   default (composition → `composition`, else → `identity`); the human picking it is the
   vet step.
-- Recipes (tier 3) are deferred: they help the medium tail but cannot do the complex
-  cases, so they are lower priority than the generic core + ingestion-time cleaning.
+- Recipes (tier 3) help the medium tail but cannot do the complex cases — they compose
+  the closed set, they don't replace vetted functions. Still lower-leverage than the
+  generic core + ingestion-time cleaning, but they remove the "we must code every combo"
+  bottleneck for the long tail.
 
 ## Increment plan
 
@@ -116,9 +126,17 @@ code**:
    to `NORMALIZERS` (+ unit tests) and surfaced in the crosswalk builder, grouped
    汎用 vs 材料向け with per-option hints. Non-materials concepts get a sensible join key
    without any new code.
-2. **Recipes (future).** A declarative recipe model + an authoring UI that composes the
-   closed primitives (preview on sample values, save = vet), mirroring typed-tool
-   authoring.
+2. **Recipes (done).** A declarative recipe model + an authoring UI that composes the
+   closed primitives. `RECIPE_PRIMITIVES` + `apply_recipe` + `resolve_normalizer` in
+   `asterism.crosswalk`; a concept's `normalizer_recipe` round-trips through
+   `parse_config` / `config_to_dict` (unknown primitive rejected); both normalization
+   sites (runtime bounded read + pure `build_turtle`) use the resolver. api:
+   `GET /api/crosswalk/normalizer/primitives` + `POST /api/crosswalk/normalizer/preview`
+   (pure compute, closed-set gate). UI: a composer in the crosswalk builder
+   (add/reorder/remove steps + a live preview of the join key via the preview endpoint),
+   sent as part of the perspective config (build = the vet gate). Verified live: a recipe
+   perspective joined values by the recipe (lowercased keys) with the recipe recorded in
+   provenance.
 3. **Compound keys (future, design-first).** Joining on more than one concept at once
    ("same composition AND same crystal system") — a multi-attribute key the hub does not
    model today (each concept joins on one value independently).

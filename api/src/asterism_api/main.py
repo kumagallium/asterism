@@ -36,7 +36,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final
 
-from asterism import crosswalk_runtime, documents, substrate
+from asterism import crosswalk, crosswalk_runtime, documents, substrate
 from asterism.datasets import load_dataset
 from asterism.exposure import raw_sparql_enabled
 from asterism.ontology_projection import (
@@ -168,6 +168,16 @@ class CrosswalkAlignBody(BaseModel):
     from_perspective: str = ""
     to_perspective: str = ""
     remove: bool = False
+
+
+class NormalizerPreviewBody(BaseModel):
+    """Body for POST /api/crosswalk/normalizer/preview: try a declarative normalizer
+    recipe (ordered closed primitive ids) on sample values, so the human can see the
+    join key before authoring it (crosswalk-normalizer-recipes.md). Pure compute — no
+    store access; the closed primitive set is the safety gate."""
+
+    recipe: list[str] = []
+    samples: list[str] = []
 
 
 # Update-form keywords. Oxigraph's /query endpoint is read-only regardless, but
@@ -2026,9 +2036,28 @@ def build_app(
         except Exception as exc:  # surface a store error
             raise HTTPException(502, f"alignment failed: {exc}") from exc
 
+    @app.get("/api/crosswalk/normalizer/primitives")
+    async def normalizer_primitives() -> JSONResponse:
+        """The CLOSED set of recipe primitive ids a human may compose into a normalizer
+        (crosswalk-normalizer-recipes.md). Read-only; the UI supplies the labels."""
+        return JSONResponse({"primitives": sorted(crosswalk.RECIPE_PRIMITIVES)})
+
+    @app.post("/api/crosswalk/normalizer/preview")
+    async def normalizer_preview(body: NormalizerPreviewBody) -> JSONResponse:
+        """Apply a declarative recipe to sample values (the join keys it would produce),
+        so a human can vet a normalizer before authoring it. Pure compute, no store."""
+        try:
+            results = [
+                {"input": s, "output": crosswalk.apply_recipe(body.recipe, s)}
+                for s in body.samples
+            ]
+        except ValueError as exc:  # unknown primitive (closed-set gate)
+            raise HTTPException(400, str(exc)) from exc
+        return JSONResponse({"recipe": body.recipe, "results": results})
+
     # Parameterized perspective routes are declared AFTER the literal ones
-    # (/crosswalk/build, /crosswalk/propose, /crosswalk/align[ments]) so those never
-    # bind ``perspective_id``.
+    # (/crosswalk/build, /crosswalk/propose, /crosswalk/align[ments], /crosswalk/
+    # normalizer/*) so those never bind ``perspective_id``.
     @app.get("/api/crosswalk/{perspective_id}")
     async def crosswalk_get_one(perspective_id: str) -> JSONResponse:
         """One perspective's config + stats (multi-perspective ADR)."""

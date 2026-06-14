@@ -6,12 +6,16 @@ so the join semantics, normalization, growth and provenance are tested in isolat
 
 from __future__ import annotations
 
+import pytest
+
 from asterism.crosswalk import (
     NORMALIZERS,
+    RECIPE_PRIMITIVES,
     XW,
     Concept,
     CrosswalkConfig,
     Rule,
+    apply_recipe,
     build_turtle,
     normalize_casefold,
     normalize_composition,
@@ -19,6 +23,8 @@ from asterism.crosswalk import (
     normalize_loose_text,
     normalize_nfkc,
     normalize_whitespace,
+    recipe_label,
+    resolve_normalizer,
 )
 
 COMPOSITION = Concept(
@@ -77,6 +83,68 @@ def test_all_named_normalizers_are_registered() -> None:
         "composition",
         "element_canonical",
     }
+
+
+def test_recipe_applies_primitives_in_order() -> None:
+    # A recipe is an ordered fold of closed primitives.
+    assert apply_recipe(["nfkc", "casefold", "collapse_ws"], "  Ｔａ２Ｏ５  ") == "ta2o5"  # noqa: RUF001
+    assert apply_recipe(["fold_subscripts", "remove_ws"], " Bi₂ Te₃ ") == "Bi2Te3"
+    # Order matters: strip-then-casefold vs casefold-then-strip both fine here, but
+    # remove_ws before fold_subscripts still folds subscripts after.
+    assert apply_recipe([], "AsIs") == "AsIs"  # empty recipe = passthrough
+
+
+def test_recipe_can_reproduce_the_named_generic_normalizers() -> None:
+    # The recipe layer SUBSUMES the simple named normalizers (composition included);
+    # only domain-knowledge ones like element_canonical cannot be a recipe.
+    for v in ["Bi₂Te₃", " Pb Te ", "ＺnO"]:  # noqa: RUF001
+        assert apply_recipe(["nfkc", "casefold", "collapse_ws"], v) == normalize_loose_text(v)
+        assert apply_recipe(["fold_subscripts", "remove_ws"], v) == normalize_composition(v)
+
+
+def test_recipe_rejects_unknown_primitive() -> None:
+    with pytest.raises(ValueError, match="unknown recipe primitive"):
+        apply_recipe(["nfkc", "delete_everything"], "x")
+    assert set(RECIPE_PRIMITIVES) == {
+        "casefold",
+        "strip",
+        "collapse_ws",
+        "nfkc",
+        "fold_subscripts",
+        "remove_ws",
+    }
+
+
+def test_resolve_normalizer_prefers_recipe_over_name() -> None:
+    # With a recipe, the name is ignored; without, the name resolves (identity fallback).
+    fn = resolve_normalizer("composition", ("casefold",))
+    assert fn("FeO") == "feo"  # recipe won (composition would keep case)
+    assert resolve_normalizer("composition", ())("Bi₂Te₃") == "Bi2Te3"
+    assert resolve_normalizer("nonsuch", ())("  x ") == "x"  # unknown name -> identity
+    assert recipe_label("composition", ()) == "composition"
+    assert recipe_label("recipe", ("nfkc", "casefold")) == "recipe(nfkc>casefold)"
+
+
+def test_build_with_a_recipe_joins_and_records_recipe_in_provenance() -> None:
+    # A recipe concept: case-folding lets "FeO" (sd) join "feo" (mp); provenance records
+    # the recipe spec (auditable), not a function name.
+    concept = Concept(
+        name="material",
+        class_iri=f"{XW}Material",
+        link_predicate=f"{XW}hasMaterial",
+        normalizer="recipe",
+        normalizer_recipe=("nfkc", "casefold", "collapse_ws"),
+        rules=(Rule("starrydata", "sd:m"), Rule("materials_project", "mp:m")),
+    )
+    obs = {
+        ("material", "starrydata"): [("sd:s1", "Iron Oxide")],
+        ("material", "materials_project"): [("mp:m1", "iron   oxide")],  # case + spacing differ
+    }
+    b = _build(CrosswalkConfig((concept,)), obs)
+    assert b.shared["material"] == ["iron oxide"]  # joined via the recipe
+    assert b.links["material"] == {"starrydata": 1, "materials_project": 1}
+    assert 'xw:normalizer "recipe(nfkc>casefold>collapse_ws)"' in b.turtle
+    assert 'xw:sourceValue "Iron Oxide"' in b.turtle  # raw spelling preserved
 
 
 def test_mints_one_shared_entity_with_links_from_both_datasets() -> None:

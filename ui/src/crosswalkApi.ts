@@ -22,6 +22,9 @@ export interface CrosswalkConcept {
   class_iri?: string
   link_predicate?: string
   normalizer?: string
+  /** A declarative recipe (ordered closed-primitive ids) — when set, it IS the join
+   * key (normalizer-recipes ADR). Built/saved with the perspective (no code). */
+  normalizer_recipe?: string[]
   participants: CrosswalkParticipant[]
 }
 
@@ -225,4 +228,19 @@ export async function unalign(source: string, target: string, relation: string):
     body: JSON.stringify({ source, target, relation, remove: true }),
   })
   if (!res.ok) throw await asError(res, '整合の撤回')
+}
+
+/** Apply a declarative normalizer recipe to sample values — the join keys it would
+ * produce, so a human can vet a custom normalizer before building it. Read-only. */
+export async function previewNormalizer(
+  recipe: string[],
+  samples: string[],
+): Promise<{ input: string; output: string }[]> {
+  const res = await fetch(`${API_BASE}/api/crosswalk/normalizer/preview`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ recipe, samples }),
+  })
+  if (!res.ok) throw await asError(res, '正規化プレビュー')
+  return ((await res.json()) as { results?: { input: string; output: string }[] }).results ?? []
 }

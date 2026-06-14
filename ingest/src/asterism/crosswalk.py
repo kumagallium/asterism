@@ -21,7 +21,7 @@ from __future__ import annotations
 import re
 import unicodedata
 import urllib.parse
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 
 # Crosswalk namespaces (stable — see the rename invariant in CLAUDE.md).
@@ -86,6 +86,51 @@ def normalize_loose_text(value: str) -> str:
     Composes the three text folds above; still carries no domain knowledge, so it never
     reorders or drops tokens (distinct strings stay distinct)."""
     return " ".join(unicodedata.normalize("NFKC", value).casefold().split())
+
+
+# --- Declarative normalizer recipes (crosswalk-normalizer-recipes.md, tier 3) ------
+# A recipe is an ORDERED list of CLOSED, vetted primitive ids applied in sequence — a
+# user-composable normalizer that is DATA, not code (authored/saved like a typed query
+# tool, no runtime code execution). Each primitive folds exactly one well-understood
+# text variation and never reorders or drops tokens, so any composition stays safe
+# (distinct strings cannot be wrongly merged). Complex, domain-knowledge normalizers
+# (element_canonical) are NOT recipes — they remain separately-vetted functions a recipe
+# could reference as a single step, never logic a user writes.
+RECIPE_PRIMITIVES: dict[str, Callable[[str], str]] = {
+    "casefold": str.casefold,
+    "strip": str.strip,
+    "collapse_ws": lambda s: " ".join(s.split()),
+    "nfkc": lambda s: unicodedata.normalize("NFKC", s),
+    "fold_subscripts": lambda s: s.translate(_SUBS),
+    "remove_ws": lambda s: "".join(s.split()),
+}
+
+
+def apply_recipe(steps: Iterable[str], value: str) -> str:
+    """Apply a recipe (ordered primitive ids) to ``value``. Raises ``ValueError`` on an
+    unknown primitive — the closed set is the safety gate (no arbitrary ops)."""
+    for op in steps:
+        fn = RECIPE_PRIMITIVES.get(op)
+        if fn is None:
+            raise ValueError(
+                f"unknown recipe primitive {op!r}; allowed: {sorted(RECIPE_PRIMITIVES)}"
+            )
+        value = fn(value)
+    return value
+
+
+def recipe_label(name: str, recipe: tuple[str, ...]) -> str:
+    """The join-key label recorded in provenance: a readable recipe spec when a recipe
+    is used (``recipe(nfkc>casefold)``), else the named normalizer."""
+    return f"recipe({'>'.join(recipe)})" if recipe else name
+
+
+def resolve_normalizer(name: str, recipe: tuple[str, ...] = ()) -> Callable[[str], str]:
+    """The join-key function for a concept: the recipe applier when a recipe is given,
+    else the named normalizer (falling back to identity for an unknown name)."""
+    if recipe:
+        return lambda v: apply_recipe(recipe, v)
+    return NORMALIZERS.get(name, normalize_identity)
 
 
 # IUPAC element symbols (H..Og). Validating against the real set is what keeps the
@@ -165,6 +210,9 @@ class Concept:
     class_iri: str
     link_predicate: str
     normalizer: str = "identity"
+    # An optional declarative recipe (ordered primitive ids). When non-empty it IS the
+    # join key (resolve_normalizer prefers it over the named normalizer above).
+    normalizer_recipe: tuple[str, ...] = ()
     rules: tuple[Rule, ...] = ()
 
     def resource_base(self) -> str:
@@ -240,7 +288,8 @@ def build_turtle(
     ]
     build = CrosswalkBuild(turtle="")
     for concept in config.concepts:
-        normalize = NORMALIZERS.get(concept.normalizer, normalize_identity)
+        normalize = resolve_normalizer(concept.normalizer, concept.normalizer_recipe)
+        norm_label = recipe_label(concept.normalizer, concept.normalizer_recipe)
         # per dataset: normalized value -> [(entity IRI, raw value)]. Keep the raw
         # spelling (not just the entity) so per-link provenance can record what was
         # normalized — the audit-relevant fact for the join claim.
@@ -258,7 +307,7 @@ def build_turtle(
         build.shared[concept.name] = shared
         build.links[concept.name] = {}
 
-        lines.append(f"# --- concept: {concept.name} (normalizer: {concept.normalizer}) ---")
+        lines.append(f"# --- concept: {concept.name} (normalizer: {norm_label}) ---")
         lines.append(
             f'<{concept.class_iri}> a owl:Class ; rdfs:label "{_esc(concept.name)} (crosswalk)" .'
         )
@@ -287,7 +336,7 @@ def build_turtle(
                             f"<{link_iri}> a xw:CrosswalkLink ; "
                             f"xw:linkSubject <{entity}> ; xw:linkObject <{iri}> ; "
                             f'xw:sourceValue "{_esc(raw)}" ; '
-                            f'xw:normalizer "{_esc(concept.normalizer)}" ; '
+                            f'xw:normalizer "{_esc(norm_label)}" ; '
                             f"prov:wasGeneratedBy <{activity_iri}> ."
                         )
         lines.append("")

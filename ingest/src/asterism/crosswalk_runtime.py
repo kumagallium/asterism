@@ -18,6 +18,7 @@ module is the I/O half (ADR ``docs/architecture/crosswalk-hub.md`` productize �
 The trust model is the Tier-0 one: the normalization (the join key) is a vetted,
 named function; nothing is generated at runtime. The hub is a *derived dated claim*.
 """
+
 from __future__ import annotations
 
 import json
@@ -29,13 +30,13 @@ import yaml
 
 from asterism import substrate
 from asterism.crosswalk import (
-    NORMALIZERS,
+    RECIPE_PRIMITIVES,
     XW,
     Concept,
     CrosswalkConfig,
     Rule,
     build_turtle,
-    normalize_identity,
+    resolve_normalizer,
 )
 
 # Multi-perspective crosswalk (ADR crosswalk-multi-perspective.md): the upper ontology
@@ -84,6 +85,7 @@ def perspective_activity_iri(perspective_id: str = DEFAULT_PERSPECTIVE_ID) -> st
         return ACTIVITY_IRI
     return f"https://kumagallium.github.io/asterism/crosswalk/resource/build/{perspective_id}"
 
+
 # Default composition concept (the proven one). The config is multi-concept-ready;
 # the authoring UI starts with composition.
 DEFAULT_CONCEPT_NAME = "composition"
@@ -121,6 +123,9 @@ class RuntimeConcept:
     link_predicate: str
     normalizer: str
     participants: tuple[RuntimeParticipant, ...]
+    # Optional declarative recipe (ordered closed-primitive ids). When non-empty it IS
+    # the join key (resolve_normalizer prefers it). normalizer-recipes ADR (tier 3).
+    normalizer_recipe: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -172,6 +177,19 @@ def parse_config(data: dict) -> RuntimeCrosswalkConfig:
                     predicate=pred,
                 )
             )
+        # Optional declarative recipe — validate every step against the CLOSED primitive
+        # set here (the safety gate: no arbitrary ops reach the build).
+        recipe_raw = c.get("normalizer_recipe") or []
+        if not isinstance(recipe_raw, list):
+            raise ValueError("normalizer_recipe must be a list of primitive ids")
+        recipe: list[str] = []
+        for step in recipe_raw:
+            step = str(step).strip()
+            if step not in RECIPE_PRIMITIVES:
+                raise ValueError(
+                    f"unknown recipe primitive {step!r}; allowed: {sorted(RECIPE_PRIMITIVES)}"
+                )
+            recipe.append(step)
         concepts.append(
             RuntimeConcept(
                 name=name,
@@ -179,6 +197,7 @@ def parse_config(data: dict) -> RuntimeCrosswalkConfig:
                 link_predicate=str(c.get("link_predicate") or DEFAULT_LINK_PREDICATE),
                 normalizer=str(c.get("normalizer") or DEFAULT_NORMALIZER),
                 participants=tuple(participants),
+                normalizer_recipe=tuple(recipe),
             )
         )
     min_datasets = int(data.get("min_datasets", 2) or 2)
@@ -195,6 +214,8 @@ def config_to_dict(config: RuntimeCrosswalkConfig) -> dict:
                 "class_iri": c.class_iri,
                 "link_predicate": c.link_predicate,
                 "normalizer": c.normalizer,
+                # Only emit a recipe when present (keeps existing configs unchanged).
+                **({"normalizer_recipe": list(c.normalizer_recipe)} if c.normalizer_recipe else {}),
                 "participants": [
                     {"dataset_id": p.dataset_id, "label": p.label, "predicate": p.predicate}
                     for p in c.participants
@@ -323,7 +344,7 @@ async def build_hub(
     seen_used: set[str] = set()
 
     for concept in config.concepts:
-        normalize = NORMALIZERS.get(concept.normalizer, normalize_identity)
+        normalize = resolve_normalizer(concept.normalizer, concept.normalizer_recipe)
         # Resolve each participant to its EXACT promoted live graph (skip if not
         # citable — draft / retracted / absent never enters the hub).
         live: dict[str, str] = {}
@@ -378,6 +399,7 @@ async def build_hub(
             class_iri=c.class_iri,
             link_predicate=c.link_predicate,
             normalizer=c.normalizer,
+            normalizer_recipe=c.normalizer_recipe,
             rules=tuple(used_rules.get(c.name, ())),
         )
         for c in config.concepts

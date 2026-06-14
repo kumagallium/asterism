@@ -5,6 +5,7 @@ The store is a real in-memory ``rdflib.Dataset`` injected as the app's client, s
 two-pass read, the hub write + promoted flag, and the FROM-merge resolution run for
 real through the endpoints (no triplestore, no network).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -246,6 +247,34 @@ def test_alignment_endpoints(tmp_path: Path) -> None:
         )
         assert rm.status_code == 200
         assert client.get("/api/crosswalk/alignments").json()["alignments"] == []
+
+
+def test_normalizer_recipe_endpoints(tmp_path: Path) -> None:
+    ds = rdflib.Dataset()
+    app = build_app(_settings(tmp_path), oxigraph_client=_DatasetClient(ds), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        prims = client.get("/api/crosswalk/normalizer/primitives").json()["primitives"]
+        assert {"casefold", "nfkc", "collapse_ws", "fold_subscripts", "remove_ws"} <= set(prims)
+
+        # preview applies the recipe to each sample (the join keys it would produce)
+        r = client.post(
+            "/api/crosswalk/normalizer/preview",
+            json={
+                "recipe": ["nfkc", "casefold", "collapse_ws"],
+                "samples": ["Iron  Oxide", "ＦｅＯ"],  # noqa: RUF001 (full-width is intentional)
+            },
+        )
+        assert r.status_code == 200, r.text
+        out = {x["input"]: x["output"] for x in r.json()["results"]}
+        assert out["Iron  Oxide"] == "iron oxide"
+        assert out["ＦｅＯ"] == "feo"  # noqa: RUF001  full-width folded by NFKC then casefolded
+
+        # an unknown primitive is rejected (closed-set gate)
+        bad = client.post(
+            "/api/crosswalk/normalizer/preview",
+            json={"recipe": ["nfkc", "danger"], "samples": ["x"]},
+        )
+        assert bad.status_code == 400
 
 
 class _MockLLM:

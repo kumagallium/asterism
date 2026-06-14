@@ -3551,6 +3551,98 @@ textarea:focus {
   font-size: 0.76rem;
   color: var(--muted);
 }
+
+/* Custom normalizer recipe composer (normalizer-recipes ADR, tier 3) */
+.xw-recipe {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: -0.3rem 0 0.9rem;
+  padding: 0.7rem 0.8rem;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--entity);
+  border-radius: var(--radius-sm);
+}
+.xw-recipe-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.xw-recipe-step {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.3rem 0.5rem;
+}
+.xw-recipe-num {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--faint);
+  min-width: 1.1rem;
+}
+.xw-recipe-op {
+  flex: 1;
+  font-size: 0.82rem;
+}
+.xw-recipe-actions {
+  display: inline-flex;
+  gap: 0.2rem;
+}
+.xw-recipe-btn {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--fg);
+  border-radius: var(--radius-sm);
+  width: 1.5rem;
+  height: 1.5rem;
+  cursor: pointer;
+  font-size: 0.8rem;
+  line-height: 1;
+}
+.xw-recipe-btn:hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+.xw-recipe-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.xw-recipe-del:hover:not(:disabled) {
+  border-color: var(--danger, #c0392b);
+  color: var(--danger, #c0392b);
+}
+.xw-recipe-preview {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.xw-recipe-prev-label {
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+.xw-recipe-sample {
+  flex: 1;
+  min-width: 160px;
+}
+.xw-recipe-arrow {
+  color: var(--faint);
+}
+.xw-recipe-out {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--entity);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.2rem 0.5rem;
+  min-width: 4rem;
+}
 .xw-result {
   margin-top: 1rem;
   padding: 1rem 1.1rem;
