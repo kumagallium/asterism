@@ -39,6 +39,7 @@ from asterism.crosswalk_runtime import (
 
 XW = "https://kumagallium.github.io/asterism/crosswalk/ontology#"
 PRED = "https://kumagallium.github.io/asterism/x/ontology#comp"
+PRED2 = "https://kumagallium.github.io/asterism/x/ontology#cryst"
 
 
 class _DatasetClient:
@@ -354,3 +355,90 @@ async def _count(client: _DatasetClient, where: str) -> int:
 async def _values(client: _DatasetClient, query: str) -> list[str]:
     rows = (await client.sparql_select(query))["results"]["bindings"]
     return [b["v"]["value"] for b in rows]
+
+
+# --- Compound keys (crosswalk-compound-keys.md, phase 1b) ----------------------
+
+
+def _seed_phase(ds: rdflib.Dataset, dataset_id: str, rows: list[tuple]) -> None:
+    """Seed entities with TWO predicates (composition + crystal). A None crystal seeds
+    ONLY composition (a missing part)."""
+    key = substrate.canonical_graph_iri(dataset_id)
+    g = ds.graph(rdflib.URIRef(key))
+    for entity, comp, cryst in rows:
+        g.add((rdflib.URIRef(entity), rdflib.URIRef(PRED), rdflib.Literal(comp)))
+        if cryst is not None:
+            g.add((rdflib.URIRef(entity), rdflib.URIRef(PRED2), rdflib.Literal(cryst)))
+    ds.update(
+        f"INSERT DATA {{ GRAPH <{substrate.CONTROL_GRAPH_IRI}> {{ "
+        f'<{key}> <{substrate.STATUS_PREDICATE}> "promoted" }} }}'
+    )
+
+
+def _phase_config() -> dict:
+    return {
+        "min_datasets": 2,
+        "concepts": [
+            {
+                "name": "phase",
+                "class_iri": f"{XW}Phase",
+                "link_predicate": f"{XW}hasPhase",
+                "key_parts": [
+                    {"name": "composition", "normalizer": "composition"},
+                    {"name": "crystal", "normalizer": "identity"},
+                ],
+                "participants": [
+                    {
+                        "dataset_id": "ds-a",
+                        "label": "sd",
+                        "predicates": {"composition": PRED, "crystal": PRED2},
+                    },
+                    {
+                        "dataset_id": "ds-b",
+                        "label": "mp",
+                        "predicates": {"composition": PRED, "crystal": PRED2},
+                    },
+                ],
+            }
+        ],
+    }
+
+
+async def test_build_hub_compound_key_joins_on_the_tuple() -> None:
+    ds = rdflib.Dataset()
+    # ds-a: (PbTe, rocksalt) + (PbTe, highP) + (SnSe, only composition / missing crystal)
+    _seed_phase(
+        ds,
+        "ds-a",
+        [("u:a1", "PbTe", "rocksalt"), ("u:a2", "PbTe", "highP"), ("u:a3", "SnSe", None)],
+    )
+    _seed_phase(ds, "ds-b", [("u:b1", "Pb Te", "rocksalt"), ("u:b2", "SnSe", "Pnma")])
+    client = _DatasetClient(ds)
+    out = await build_hub(
+        client, parse_config(_phase_config()), built_at="2026-06-14T00:00:00+00:00"
+    )
+
+    # Only (PbTe, rocksalt) is shared by BOTH (composition folds the space in "Pb Te").
+    # (PbTe, highP) is sd-only; SnSe in ds-a has no crystal part -> excluded (no half-join).
+    assert out.shared["phase"] == ["PbTe | rocksalt"]
+    assert out.links["phase"] == {"sd": 1, "mp": 1}
+    n = await _count(client, f"GRAPH <{HUB_GRAPH}> {{ ?s a <{XW}Phase> }}")
+    assert n == 1  # exactly one compound entity minted
+    rdfs = "http://www.w3.org/2000/01/rdf-schema#label"
+    labels = await _values(
+        client, f"SELECT ?v WHERE {{ GRAPH <{HUB_GRAPH}> {{ ?s a <{XW}Phase> ; <{rdfs}> ?v }} }}"
+    )
+    assert labels == ["PbTe | rocksalt"]  # readable tuple label
+
+
+def test_compound_config_round_trips_and_validates() -> None:
+    cfg = parse_config(_phase_config())
+    c = cfg.concepts[0]
+    assert [kp.name for kp in c.key_parts] == ["composition", "crystal"]
+    assert c.participants[0].predicates == (PRED, PRED2)
+    assert parse_config(config_to_dict(cfg)) == cfg  # round-trips
+    # a compound participant missing a part's predicate is rejected
+    bad = _phase_config()
+    del bad["concepts"][0]["participants"][0]["predicates"]["crystal"]
+    with pytest.raises(ValueError, match="needs a predicate for every key part"):
+        parse_config(bad)
