@@ -254,6 +254,58 @@ def test_ingest_document_without_rml_is_ok(tmp_path: Path) -> None:
         assert status == 202
 
 
+def test_create_document_dataset_attaches_tools_and_ingests(tmp_path: Path) -> None:
+    # POST /api/documents creates a document dataset from an uploaded JATS (no
+    # schema design), auto-attaches the recall tools, and is then ingestable.
+    oxi = _RecordingOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/documents",
+            data={"name": "My Paper"},
+            files={"file": ("paper.xml", _JATS_DOC.encode(), "application/xml")},
+        )
+        assert r.status_code == 201, r.text
+        dataset_id = r.json()["dataset_id"]
+        assert r.json()["dataset"]["source_kind"] == "xml"
+        # the recall tools were auto-attached (queryable from the catalog tools tab)
+        tools = client.get(f"/api/datasets/{dataset_id}/tools").json()["tools"]
+        assert {t["name"] for t in tools} >= {"search_text", "quote_with_citation"}
+        # and the document ingests through the structurer (no RML)
+        status, events = _drive_ingest(client, dataset_id)
+        assert status == 202, events
+        assert next(d for n, d in events if n == "done")["result"]["triple_count"] > 10
+
+
+def test_create_document_rejects_csv(tmp_path: Path) -> None:
+    oxi = _RecordingOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/documents",
+            data={"name": "nope"},
+            files={"file": ("data.csv", b"a,b\n1,2\n", "text/csv")},
+        )
+        assert r.status_code == 400
+
+
+@pytest.mark.skipif(_NO_PANDOC, reason="pandoc not installed")
+def test_create_document_dataset_from_word(tmp_path: Path) -> None:
+    oxi = _RecordingOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    docx = (Path(__file__).resolve().parent / "fixtures" / "sample.docx").read_bytes()
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/documents",
+            data={"name": "Sample Agreement"},
+            files={"file": ("sample.docx", docx, "application/octet-stream")},
+        )
+        assert r.status_code == 201, r.text
+        meta = r.json()["dataset"]
+        assert meta["source_kind"] == "xml"  # converted to JATS
+        assert meta["conversion"]["sourceFormat"] == "docx"
+
+
 @pytest.mark.skipif(_NO_PANDOC, reason="pandoc not installed")
 def test_attach_word_docx_converts_to_jats_source(tmp_path: Path) -> None:
     # Attaching a Word .docx converts it to JATS (pandoc), and the resulting .xml
