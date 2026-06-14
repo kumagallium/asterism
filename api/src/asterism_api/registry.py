@@ -156,23 +156,26 @@ def list_source_files(root: Path, dataset_id: str) -> list[Path]:
     )
 
 
-def mark_source_saved(root: Path, dataset_id: str, source_files: list[str]) -> dict | None:
+def mark_source_saved(
+    root: Path, dataset_id: str, source_files: list[str], conversion: dict | None = None
+) -> dict | None:
     """Record on the meta which design-time source files are now persisted.
 
     ``has_source`` lets the catalog offer a no-re-attach ingest; ``source_files``
-    is the recorded filename list; ``source_kind`` (csv | json, #19) lets the UI
-    label the source and pick the right picker. Returns the new meta, or None if
-    id is unsafe / absent.
+    is the recorded filename list; ``source_kind`` (csv | json | xml) lets the UI
+    label the source and pick the right picker. ``conversion`` (optional) records
+    that the persisted source was produced from another format by an external
+    converter (e.g. ``{"converter": "pandoc/3.1", "sourceFormat": "docx"}``), so the
+    document ingest can disclose it as a ``lit:DocumentConversionActivity``. Returns
+    the new meta, or None if id is unsafe / absent.
     """
-    return _update_meta(
-        root,
-        dataset_id,
-        {
-            "has_source": True,
-            "source_files": sorted(source_files),
-            "source_kind": source_kind_of(source_files),
-        },
-    )
+    changes: dict = {
+        "has_source": True,
+        "source_files": sorted(source_files),
+        "source_kind": source_kind_of(source_files),
+    }
+    changes["conversion"] = conversion  # None clears any prior conversion record
+    return _update_meta(root, dataset_id, changes)
 
 
 def next_data_seq(root: Path, dataset_id: str) -> int:

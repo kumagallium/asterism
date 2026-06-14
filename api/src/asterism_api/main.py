@@ -380,11 +380,12 @@ _DEFAULT_RESOURCE = (
 # (``..`` segments, absolute paths, NULs). We also reject names without a
 # ``.csv`` suffix so the watcher's ``_classify`` actually fires.
 _SAFE_NAME = re.compile(r"^[A-Za-z0-9._-]{1,128}\.csv$")
-# The step0 / source / ingest paths accept JSON (#19) and XML/JATS (document-
-# ontology layer). Morph-KGC reads all three (ql:CSV / ql:JSONPath / ql:XPath), so
-# all are valid sources; the legacy ``/upload/{kind}`` starrydata drop stays
-# CSV-only (it feeds the CSV watcher).
-_SAFE_SOURCE_NAME = re.compile(r"^[A-Za-z0-9._-]{1,128}\.(csv|json|geojson|xml)$")
+# The step0 / source / ingest paths accept JSON (#19), XML/JATS, and Word .docx
+# (document-ontology layer). CSV/JSON/XML are ingested directly; a .docx is
+# CONVERTED to JATS (pandoc, optional) at source-attach and the resulting .xml
+# becomes the persisted source. The legacy ``/upload/{kind}`` starrydata drop
+# stays CSV-only (it feeds the CSV watcher).
+_SAFE_SOURCE_NAME = re.compile(r"^[A-Za-z0-9._-]{1,128}\.(csv|json|geojson|xml|docx)$")
 
 # Resolvable IRI base for documents ingested through the API (the document-ontology
 # layer). A document dataset's nodes hang off ``…/document/<dataset_id>/<doc_id>``;
@@ -470,11 +471,11 @@ def _validate_name(name: str) -> str:
 
 
 def _validate_source_name(name: str) -> str:
-    """Validate a step0 / source-attach / ingest upload name (CSV or JSON, #19)."""
+    """Validate a step0 / source-attach / ingest upload name (CSV / JSON / XML / docx)."""
     if not _SAFE_SOURCE_NAME.fullmatch(name):
         raise HTTPException(
             400,
-            "filename must match [A-Za-z0-9._-]+.(csv|json|geojson|xml) (max 128 chars)",
+            "filename must match [A-Za-z0-9._-]+.(csv|json|geojson|xml|docx) (max 128 chars)",
         )
     return name
 
@@ -530,29 +531,72 @@ async def _save_upload(
     return total
 
 
+async def _read_upload_bounded(upload: UploadFile, cap: int) -> bytes:
+    """Read an upload fully into memory, aborting with 413 past ``cap`` bytes."""
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await upload.read(1 << 20)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > cap:
+            raise HTTPException(413, f"document exceeds the {cap // (1 << 20)} MiB limit")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+async def _persist_converted_docx(
+    upload: UploadFile, sdir: Path, name: str
+) -> tuple[str, dict]:
+    """Convert a Word ``.docx`` upload to JATS (pandoc) and persist it as the source.
+
+    Returns ``(jats_filename, conversion_record)``. The converted ``.jats.xml`` is the
+    persisted SOURCE (what gets ingested); the original ``.docx`` is kept alongside
+    for re-conversion / provenance (it is not a listed source — ``.docx`` is not a
+    source suffix). pandoc absence / failure surfaces as a clear 4xx.
+    """
+    data = await _read_upload_bounded(upload, documents._MAX_DOCX_BYTES)
+    try:
+        jats, converter = await asyncio.to_thread(documents.convert_docx_to_jats, data)
+    except documents.ConversionError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    await asyncio.to_thread(sdir.mkdir, parents=True, exist_ok=True)
+    jats_name = f"{Path(name).stem}.jats.xml"
+    await asyncio.to_thread((sdir / jats_name).write_text, jats, "utf-8")
+    await asyncio.to_thread((sdir / name).write_bytes, data)  # keep the original .docx
+    return jats_name, {"converter": converter, "sourceFormat": "docx", "original": name}
+
+
 async def _persist_source_uploads(
     registry_root: Path, dataset_id: str, files: list[UploadFile]
 ) -> tuple[list[str], dict | None]:
     """Persist uploaded sources as the dataset's design-time source (Task E, #19).
 
-    Streams each upload (CSV or JSON) into ``registry_root/<id>/source/``
-    (resetting any prior source so it reflects exactly this upload) and records
-    the filenames + source kind on the meta. This lets a *design*-stage dataset
-    be ingested from the catalog later with no re-attach (reproducibility — the
-    citable-facts direction).
+    Streams each upload into ``registry_root/<id>/source/`` (resetting any prior
+    source so it reflects exactly this upload) and records the filenames + source
+    kind on the meta. A Word ``.docx`` is CONVERTED to JATS (pandoc) and the
+    resulting ``.xml`` becomes the persisted source (the conversion is recorded so
+    the document ingest can disclose it). This lets a *design*-stage dataset be
+    ingested from the catalog later with no re-attach (reproducibility).
     """
     sdir = registry.source_dir(registry_root, dataset_id)
     if sdir is None:
         raise HTTPException(404, f"dataset {dataset_id!r} not found")
     await asyncio.to_thread(shutil.rmtree, sdir, ignore_errors=True)
     saved: list[str] = []
+    conversion: dict | None = None
     for upload in files:
         if upload.filename is None:
             raise HTTPException(400, "missing filename")
         name = _validate_source_name(upload.filename)
-        await _save_upload(upload, sdir / name)
-        saved.append(name)
-    meta = registry.mark_source_saved(registry_root, dataset_id, saved)
+        if name.lower().endswith(".docx"):
+            jats_name, conversion = await _persist_converted_docx(upload, sdir, name)
+            saved.append(jats_name)
+        else:
+            await _save_upload(upload, sdir / name)
+            saved.append(name)
+    meta = registry.mark_source_saved(registry_root, dataset_id, saved, conversion=conversion)
     return saved, meta
 
 
@@ -1503,6 +1547,7 @@ def build_app(
         rml_ttl = ""
         xml_text = ""
         paper_iri = ""
+        conversion = None
         if is_document:
             xml_path = next((p for p in source_paths if p.suffix.lower() == ".xml"), None)
             if xml_path is None:
@@ -1510,6 +1555,8 @@ def build_app(
             xml_text = xml_path.read_text(encoding="utf-8")
             doc_id = documents.derive_doc_id(xml_text, fallback=xml_path.stem)
             paper_iri = f"{_DOCUMENT_RESOURCE_BASE}/{dataset_id}/{doc_id}"
+            # if the source was converted (e.g. from Word), disclose the conversion
+            conversion = (data.get("meta") or {}).get("conversion") or None
         else:
             rml_ttl = str(data["artifacts"].get("mapping.rml.ttl", "") or "")
             if not rml_ttl.strip():
@@ -1548,6 +1595,7 @@ def build_app(
                         xml_text,
                         paper_iri=paper_iri,
                         work_dir=str(work),
+                        conversion=conversion,
                     )
                 else:
                     # Morph-KGC writes N-Triples to a file (memory-bounded); the

@@ -7,6 +7,8 @@ graph), and the security posture (untrusted XML: entity-expansion refused).
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 import rdflib
 from defusedxml.common import EntitiesForbidden
@@ -15,11 +17,17 @@ from asterism.documents import (
     DOCO,
     LIT,
     NIF,
+    ConversionError,
     JatsDocumentError,
+    convert_docx_to_jats,
     derive_doc_id,
+    pandoc_version,
     sentence_spans,
     structure_jats,
 )
+
+_FIXTURES = Path(__file__).resolve().parent / "fixtures"
+_NO_PANDOC = pandoc_version() is None
 
 _JATS = """<?xml version="1.0"?>
 <article>
@@ -127,3 +135,35 @@ def test_entity_expansion_attack_refused() -> None:
     )
     with pytest.raises(EntitiesForbidden):
         structure_jats(bomb, paper_iri=BASE)
+
+
+def test_conversion_activity_emitted() -> None:
+    g = structure_jats(
+        _JATS, paper_iri=BASE, conversion={"converter": "pandoc/3.1", "sourceFormat": "docx"}
+    )
+    conv = list(g.subjects(rdflib.RDF.type, rdflib.URIRef(LIT + "DocumentConversionActivity")))
+    assert len(conv) == 1
+    assert str(g.value(conv[0], rdflib.URIRef(LIT + "converter"))) == "pandoc/3.1"
+    # the parse activity is informed by the conversion (the disclosed-conversion chain).
+    parse = g.value(rdflib.URIRef(BASE), rdflib.URIRef("http://www.w3.org/ns/prov#wasGeneratedBy"))
+    informed = rdflib.URIRef("http://www.w3.org/ns/prov#wasInformedBy")
+    assert (parse, informed, conv[0]) in g
+
+
+def test_pandoc_unavailable_raises(monkeypatch) -> None:
+    monkeypatch.setattr("asterism.documents.pandoc_version", lambda: None)
+    with pytest.raises(ConversionError, match="pandoc"):
+        convert_docx_to_jats(b"PK\x03\x04 not really a docx")
+
+
+@pytest.mark.skipif(_NO_PANDOC, reason="pandoc not installed")
+def test_convert_docx_to_jats_real() -> None:
+    jats, converter = convert_docx_to_jats((_FIXTURES / "sample.docx").read_bytes())
+    assert "<sec id=" in jats and "<body" in jats
+    assert converter.startswith("pandoc/")
+    # the converted JATS structures + cites a clause, with the conversion disclosed.
+    base = "https://kumagallium.github.io/asterism/papers/resource/document/contract/sample"
+    conv = {"converter": converter, "sourceFormat": "docx"}
+    g = structure_jats(jats, paper_iri=base, conversion=conv)
+    texts = [str(o) for _, _, o in g.triples((None, rdflib.URIRef(NIF + "anchorOf"), None))]
+    assert any("thirty (30) days" in t for t in texts)

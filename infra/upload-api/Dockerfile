@@ -17,6 +17,16 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1
 
+# pandoc — the OPTIONAL Word (.docx) -> JATS converter for the document-ontology
+# layer (a .docx is structured OOXML, so pandoc transcribes it deterministically;
+# the result is parsed by the defusedxml structurer downstream). A deliberate
+# image addition: the API only ever runs pandoc as a hardened, bounded subprocess
+# on the source-attach path, and degrades with a clear 4xx if it is absent — so a
+# build that omits this line still works for CSV/JSON/XML, just not Word.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends pandoc \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 # Install the sibling packages in dependency order: ingest + step0 first, then
