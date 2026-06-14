@@ -14,6 +14,7 @@ import {
 } from './api'
 import { CrosswalkBuilder } from './CrosswalkBuilder'
 import { SOURCE_ACCEPT, SUPPORTED_SOURCES, type SourceKind } from './datasetsApi'
+import { DocumentPanel } from './DocumentPanel'
 import { PRESET_HINTS } from './domainHints'
 import { MaterializePanel } from './MaterializePanel'
 import { ProposalView } from './ProposalView'
@@ -108,7 +109,7 @@ export function WorkbenchView() {
 
   // Two ways to add data (crosswalk-hub.md ④): from a NEW source (CSV/JSON → AI
   // designs → save), or by crossing EXISTING datasets into a shared bridge.
-  const [mode, setMode] = useState<'new' | 'crosswalk'>('new')
+  const [mode, setMode] = useState<'new' | 'crosswalk' | 'document'>('new')
   const [step, setStep] = useState<Step>(snap.step ?? 1)
   // Selected data-source kind (#19). CSV / JSON are wired; switching kinds clears
   // any picked files since they no longer match the new kind's picker filter.
@@ -388,10 +389,19 @@ export function WorkbenchView() {
         >
           既存データを横断でつなぐ <span className="wb-mode-en">crosswalk</span>
         </button>
+        <button
+          type="button"
+          className={`wb-mode-pill${mode === 'document' ? ' active' : ''}`}
+          onClick={() => setMode('document')}
+        >
+          文書を追加 <span className="wb-mode-en">JATS / Word</span>
+        </button>
       </div>
 
       {mode === 'crosswalk' ? (
         <CrosswalkBuilder />
+      ) : mode === 'document' ? (
+        <DocumentPanel />
       ) : (
         <>
       <p className="subtitle">

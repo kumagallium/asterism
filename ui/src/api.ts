@@ -210,6 +210,33 @@ export async function attachSource(datasetId: string, files: File[]): Promise<At
   return (await res.json()) as AttachSourceResult
 }
 
+/** Result of creating a document dataset from an uploaded JATS/Word file. */
+export interface CreateDocumentResult {
+  dataset_id: string
+  source_files: string[]
+  dataset: DatasetMeta
+}
+
+/**
+ * Create a DOCUMENT dataset from a single uploaded JATS (.xml) or Word (.docx)
+ * file — no schema design (unlike CSV/JSON). The server persists the source (a
+ * .docx is converted to JATS by pandoc, source_kind=xml) and auto-attaches the
+ * document recall tools (search_text / quote_with_citation / fetch_passage). The
+ * new dataset lands in the catalog at the design stage; ingest + promote are the
+ * usual human gates.
+ */
+export async function createDocumentDataset(name: string, file: File): Promise<CreateDocumentResult> {
+  const form = new FormData()
+  form.append('name', name)
+  form.append('file', file)
+  const res = await fetch('/api/documents', { method: 'POST', headers: authHeaders(), body: form })
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '')
+    throw new Error(`create document failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
+  }
+  return (await res.json()) as CreateDocumentResult
+}
+
 /** A progress frame streamed while a (background) ingest runs. */
 export interface IngestProgress {
   /** "materialize" | "materialized" | "upload" (+ future phases). */
