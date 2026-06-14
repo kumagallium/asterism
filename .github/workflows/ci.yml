@@ -20,6 +20,11 @@ jobs:
       - name: Set up Python 3.11
         run: uv python install 3.11
 
+      # pandoc backs the OPTIONAL Word (.docx) -> JATS converter (asterism.documents);
+      # install it so the conversion tests actually run instead of skipping.
+      - name: Install pandoc (Word converter)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pandoc
+
       - name: Create venv and install ingest package
         working-directory: ingest
         run: |
@@ -94,6 +99,11 @@ jobs:
 
       - name: Set up Python 3.11
         run: uv python install 3.11
+
+      # pandoc backs the OPTIONAL Word (.docx) -> JATS converter — the source-attach
+      # path converts a .docx before ingest; install it so that test runs in CI.
+      - name: Install pandoc (Word converter)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pandoc
 
       - name: Create venv and install api package (depends on ingest)
         working-directory: api
