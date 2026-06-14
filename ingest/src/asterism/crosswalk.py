@@ -202,9 +202,32 @@ class Rule:
 
 
 @dataclass(frozen=True)
+class KeyPart:
+    """One component of a (possibly compound) join key: a name + its normalizer (named
+    or a recipe). A concept's join key is the TUPLE of its parts' normalized values
+    (crosswalk-compound-keys.md). A single-part concept is the legacy single-value join."""
+
+    name: str
+    normalizer: str = "identity"
+    normalizer_recipe: tuple[str, ...] = ()
+
+
+# Tuple-key delimiters (compound keys). The KEY delimiter is a control char that never
+# occurs in real values (collision-safe); the DISPLAY delimiter is human-readable (used
+# in labels + provenance). Single-part keys use neither (byte-identical to the legacy
+# single-value hub).
+_TUPLE_KEY_DELIM = "\x1f"  # ASCII Unit Separator
+_TUPLE_DISPLAY_DELIM = " | "
+
+
+@dataclass(frozen=True)
 class Concept:
     """A shared hub concept (e.g. composition): a class + a link predicate + the
-    per-dataset rules that map into it + the normalizer that is its join key."""
+    per-dataset rules that map into it + the normalizer(s) that form its join key.
+
+    The join key is one value by default; a concept may instead declare ``key_parts``
+    (≥ 1) whose normalized TUPLE is the join key — two entities coincide iff every part
+    matches (crosswalk-compound-keys.md). A single-part concept == the legacy behavior."""
 
     name: str
     class_iri: str
@@ -214,12 +237,22 @@ class Concept:
     # join key (resolve_normalizer prefers it over the named normalizer above).
     normalizer_recipe: tuple[str, ...] = ()
     rules: tuple[Rule, ...] = ()
+    # Compound key: ordered parts whose normalized tuple is the join key. Empty = a
+    # single implicit part from ``normalizer`` / ``normalizer_recipe`` (back-compat).
+    key_parts: tuple[KeyPart, ...] = ()
 
     def resource_base(self) -> str:
         return f"{XW_RESOURCE}{self.name}/"
 
     def datasets(self) -> list[str]:
         return sorted({r.dataset for r in self.rules})
+
+    def parts(self) -> tuple[KeyPart, ...]:
+        """The effective key parts: the explicit ``key_parts`` or a single implicit part
+        from the concept's own normalizer (so single-part is the legacy 1-value join)."""
+        return self.key_parts or (
+            KeyPart(self.name, self.normalizer, self.normalizer_recipe),
+        )
 
 
 @dataclass(frozen=True)
@@ -251,8 +284,10 @@ def _esc(s: str) -> str:
     return s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ")
 
 
-# observations[(concept_name, dataset_label)] -> iterable of (entity_iri, raw_value)
-Observations = dict[tuple[str, str], Iterable[tuple[str, str]]]
+# observations[(concept_name, dataset_label)] -> iterable of (entity_iri, raw_value).
+# raw_value is a string (single-part join) or a tuple of strings (a compound key, one
+# per concept key part — crosswalk-compound-keys.md).
+Observations = dict[tuple[str, str], Iterable[tuple[str, "str | tuple[str, ...]"]]]
 
 
 def build_turtle(
@@ -288,23 +323,40 @@ def build_turtle(
     ]
     build = CrosswalkBuild(turtle="")
     for concept in config.concepts:
-        normalize = resolve_normalizer(concept.normalizer, concept.normalizer_recipe)
-        norm_label = recipe_label(concept.normalizer, concept.normalizer_recipe)
-        # per dataset: normalized value -> [(entity IRI, raw value)]. Keep the raw
-        # spelling (not just the entity) so per-link provenance can record what was
-        # normalized — the audit-relevant fact for the join claim.
+        parts = concept.parts()
+        n_parts = len(parts)
+        normalizers = [resolve_normalizer(p.normalizer, p.normalizer_recipe) for p in parts]
+        part_labels = [recipe_label(p.normalizer, p.normalizer_recipe) for p in parts]
+        # The join key is one value (single part = legacy) or a TUPLE (compound). The KEY
+        # joins normalized parts with a collision-safe control char (single-part = the
+        # value itself, byte-identical to before); LABEL / raw display use " | ".
+        norm_label = part_labels[0] if n_parts == 1 else _TUPLE_DISPLAY_DELIM.join(part_labels)
+        # per dataset: join key -> [(entity IRI, raw display)]. Keep the raw spelling so
+        # per-link provenance records what was normalized (the join claim).
         per_ds: dict[str, dict[str, list[tuple[str, str]]]] = {}
+        key_labels: dict[str, str] = {}  # join key -> human-readable label
         for rule in concept.rules:
             bucket = per_ds.setdefault(rule.dataset, {})
             for entity, raw in observations.get((concept.name, rule.dataset), []):
-                bucket.setdefault(normalize(raw), []).append((entity, raw))
-        # shared = a value present in >= min_datasets participating datasets
+                raw_tuple = raw if isinstance(raw, tuple) else (raw,)
+                if len(raw_tuple) != n_parts:
+                    continue  # arity mismatch (missing/extra part) — never half-join
+                norm = tuple(normalizers[i](raw_tuple[i]) for i in range(n_parts))
+                if n_parts == 1:
+                    key, label, raw_disp = norm[0], norm[0], raw_tuple[0]
+                else:
+                    key = _TUPLE_KEY_DELIM.join(norm)
+                    label = _TUPLE_DISPLAY_DELIM.join(norm)
+                    raw_disp = _TUPLE_DISPLAY_DELIM.join(raw_tuple)
+                key_labels[key] = label
+                bucket.setdefault(key, []).append((entity, raw_disp))
+        # shared = a key present in >= min_datasets participating datasets
         counts: dict[str, int] = {}
         for bucket in per_ds.values():
             for key in bucket:
                 counts[key] = counts.get(key, 0) + 1
         shared = sorted(k for k, n in counts.items() if n >= config.min_datasets)
-        build.shared[concept.name] = shared
+        build.shared[concept.name] = [key_labels[k] for k in shared]
         build.links[concept.name] = {}
 
         lines.append(f"# --- concept: {concept.name} (normalizer: {norm_label}) ---")
@@ -315,7 +367,7 @@ def build_turtle(
         for key in shared:
             iri = f"{base}{urllib.parse.quote(key, safe='')}"
             lines.append(
-                f'<{iri}> a <{concept.class_iri}> ; rdfs:label "{_esc(key)}" ; '
+                f'<{iri}> a <{concept.class_iri}> ; rdfs:label "{_esc(key_labels[key])}" ; '
                 f"prov:wasGeneratedBy <{activity_iri}> ."
             )
             for dataset in all_datasets:

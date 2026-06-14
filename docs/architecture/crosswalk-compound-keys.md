@@ -1,6 +1,7 @@
 # ADR: Crosswalk compound keys — joining on more than one attribute at once
 
-Status: **Proposed (design only; not implemented)** (2026-06-14). Extends
+Status: **Phase 1a (pure builder tuple keys) done; runtime store-gather + config (1b),
+API, UI pending** (2026-06-14). Extends
 [`crosswalk-hub.md`](crosswalk-hub.md) (the thin growing bridge) and
 [`crosswalk-multi-perspective.md`](crosswalk-multi-perspective.md) (plural
 perspectives). Sibling of [`crosswalk-normalizer-recipes.md`](crosswalk-normalizer-recipes.md)
@@ -104,6 +105,15 @@ This is the one place that genuinely changes, and the reason this is design-firs
 and the normalizer applies per-part. The runtime's two-pass bounded read is what carries
 most of the new logic.
 
+**Phase 1a (done — the pure builder).** `asterism.crosswalk` now has `KeyPart` and
+`Concept.key_parts` / `Concept.parts()`; `build_turtle` builds tuple keys (each part
+normalized; the join key joins parts with a collision-safe unit separator `\x1f`, with a
+readable `" | "` label + provenance). A single-part concept is **byte-identical** to
+before (key == value, same IRIs / labels / provenance) — verified by the unchanged
+existing tests plus new compound tests (tuple join, per-part normalization, arity-mismatch
+skip). The runtime still builds single-part concepts, so `key_parts` is **dormant until
+1b wires the store-gather** — no config path can yet produce a wrong compound hub.
+
 ## Consequences / risks
 
 - **Core join logic changes** (`build_turtle` + the runtime bounded read) — the highest
@@ -123,11 +133,18 @@ most of the new logic.
 
 ## Phased plan
 
-1. **Runtime (this ADR's first deliverable, future PR).** Generalize the config
-   (`key_parts` + per-part predicates; single-part back-compat), the observation model,
-   and `build_turtle` to tuple keys. Unit tests for all edge cases above. No UI yet — a
-   compound key is authorable via the config/API and verifiable against a real store.
-2. **API.** Accept the generalized config on build; `propose` stays single-concept for now.
+1a. **Pure builder (done).** `KeyPart` + `Concept.key_parts` / `parts()`; `build_turtle`
+   tuple keys (per-part normalization, collision-safe key, readable label + provenance);
+   single-part byte-identical. Unit tests (back-compat + tuple join + per-part norm +
+   arity-mismatch skip).
+1b. **Runtime store-gather + config (next).** Generalize `RuntimeConcept` /
+   `RuntimeParticipant` (`key_parts` + per-part predicates; single-part back-compat),
+   `parse_config` / `config_to_dict`, and `build_hub`'s bounded read to fetch per-entity
+   tuples (`SELECT ?e ?v0 ?v1 …` inner-joined over the part predicates; multi-valued =
+   SPARQL natural join = cross product; cap per entity + `log`). Edge-case tests against
+   the real-store harness. Then a compound key is authorable via config/API.
+2. **API.** With 1b, the build endpoint accepts the generalized config for free (it just
+   `parse_config` → `build_hub`); `propose` stays single-concept for now.
 3. **UI.** A key-parts composer in the crosswalk builder (add/remove parts, per-part
    normalizer/recipe, per-part-per-dataset predicate), with a preview of sample tuples.
 4. **(Optional) cross-perspective compound** via alignment — out of scope here.
