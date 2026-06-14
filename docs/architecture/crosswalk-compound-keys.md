@@ -1,7 +1,8 @@
 # ADR: Crosswalk compound keys — joining on more than one attribute at once
 
-Status: **Phase 1a (pure builder tuple keys) done; runtime store-gather + config (1b),
-API, UI pending** (2026-06-14). Extends
+Status: **Phase 1a (pure builder) + 1b (runtime store-gather + config) + API done; UI
+pending** (2026-06-14). A compound key is authorable via the config / build API and
+verified against a real store; only the authoring UI remains. Extends
 [`crosswalk-hub.md`](crosswalk-hub.md) (the thin growing bridge) and
 [`crosswalk-multi-perspective.md`](crosswalk-multi-perspective.md) (plural
 perspectives). Sibling of [`crosswalk-normalizer-recipes.md`](crosswalk-normalizer-recipes.md)
@@ -137,14 +138,19 @@ skip). The runtime still builds single-part concepts, so `key_parts` is **dorman
    tuple keys (per-part normalization, collision-safe key, readable label + provenance);
    single-part byte-identical. Unit tests (back-compat + tuple join + per-part norm +
    arity-mismatch skip).
-1b. **Runtime store-gather + config (next).** Generalize `RuntimeConcept` /
-   `RuntimeParticipant` (`key_parts` + per-part predicates; single-part back-compat),
-   `parse_config` / `config_to_dict`, and `build_hub`'s bounded read to fetch per-entity
-   tuples (`SELECT ?e ?v0 ?v1 …` inner-joined over the part predicates; multi-valued =
-   SPARQL natural join = cross product; cap per entity + `log`). Edge-case tests against
-   the real-store harness. Then a compound key is authorable via config/API.
-2. **API.** With 1b, the build endpoint accepts the generalized config for free (it just
-   `parse_config` → `build_hub`); `propose` stays single-concept for now.
+1b. **Runtime store-gather + config (done).** `RuntimeKeyPart` + `RuntimeConcept.key_parts`
+   + `RuntimeParticipant.predicates` (per-part; single-part back-compat); `parse_config` /
+   `config_to_dict` round-trip them (a compound participant missing a part's predicate is
+   rejected). `build_hub` branches: legacy single-part path UNCHANGED; a compound concept
+   gathers per-entity tuples via `_entity_tuples` (`SELECT ?e ?v0 ?v1 …` inner-joined over
+   the part predicates — an entity missing any part never enters; multi-valued = SPARQL
+   natural join = cross product; capped per entity at `_COMPOUND_TUPLE_CAP=256` with a
+   `log`), buckets by the normalized tuple, and feeds tuple observations to the pure
+   builder. Tested against the real-store harness (tuple join; missing-part exclusion;
+   config round-trip + validation) and smoke-built live against Oxigraph.
+2. **API (done by 1b).** The build endpoint accepts the generalized config for free (it
+   just `parse_config` → `build_hub`) — verified live (compound config → 200, persisted
+   with `key_parts`). `propose` stays single-concept for now.
 3. **UI.** A key-parts composer in the crosswalk builder (add/remove parts, per-part
    normalizer/recipe, per-part-per-dataset predicate), with a preview of sample tuples.
 4. **(Optional) cross-perspective compound** via alignment — out of scope here.

@@ -22,6 +22,7 @@ named function; nothing is generated at runtime. The hub is a *derived dated cla
 from __future__ import annotations
 
 import json
+import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -34,10 +35,13 @@ from asterism.crosswalk import (
     XW,
     Concept,
     CrosswalkConfig,
+    KeyPart,
     Rule,
     build_turtle,
     resolve_normalizer,
 )
+
+logger = logging.getLogger(__name__)
 
 # Multi-perspective crosswalk (ADR crosswalk-multi-perspective.md): the upper ontology
 # is a SET of independent PERSPECTIVES, each its own crosswalk (own graph + config +
@@ -106,11 +110,26 @@ _META_FILE = "meta.json"
 class RuntimeParticipant:
     """One dataset's participation in a concept: its registry id (resolves the exact
     promoted graph), a human label (used in provenance + link stats), and the
-    predicate that carries the concept's value (the human-vetted mapping claim)."""
+    predicate that carries the concept's value (the human-vetted mapping claim).
+
+    For a COMPOUND-key concept (``key_parts``), ``predicates`` carries one predicate per
+    part (aligned with the concept's key-part order); ``predicate`` stays the single-part
+    case (crosswalk-compound-keys.md)."""
 
     dataset_id: str
     label: str
     predicate: str
+    predicates: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class RuntimeKeyPart:
+    """One part of a compound join key: a name + its normalizer (named or a recipe).
+    A concept's join key is the tuple of its parts (crosswalk-compound-keys.md)."""
+
+    name: str
+    normalizer: str = "identity"
+    normalizer_recipe: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -126,6 +145,9 @@ class RuntimeConcept:
     # Optional declarative recipe (ordered closed-primitive ids). When non-empty it IS
     # the join key (resolve_normalizer prefers it). normalizer-recipes ADR (tier 3).
     normalizer_recipe: tuple[str, ...] = ()
+    # Compound key: ordered parts whose normalized tuple is the join key. Empty = a
+    # single value from ``normalizer`` (back-compat). crosswalk-compound-keys.md.
+    key_parts: tuple[RuntimeKeyPart, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -139,6 +161,24 @@ class RuntimeCrosswalkConfig:
         """Every registry id that participates in any concept (for the auto-rebuild
         hook: is THIS just-promoted/appended dataset part of the crosswalk?)."""
         return {p.dataset_id for c in self.concepts for p in c.participants}
+
+
+def _parse_recipe(raw: object) -> tuple[str, ...]:
+    """Validate a declarative normalizer recipe (a list of CLOSED primitive ids) — the
+    safety gate so no arbitrary op reaches the build. Raises ``ValueError`` on an unknown
+    primitive. ``None`` / empty -> empty tuple."""
+    raw = raw or []
+    if not isinstance(raw, list):
+        raise ValueError("normalizer_recipe must be a list of primitive ids")
+    out: list[str] = []
+    for step in raw:
+        s = str(step).strip()
+        if s not in RECIPE_PRIMITIVES:
+            raise ValueError(
+                f"unknown recipe primitive {s!r}; allowed: {sorted(RECIPE_PRIMITIVES)}"
+            )
+        out.append(s)
+    return tuple(out)
 
 
 def parse_config(data: dict) -> RuntimeCrosswalkConfig:
@@ -162,34 +202,57 @@ def parse_config(data: dict) -> RuntimeCrosswalkConfig:
         parts_raw = c.get("participants") or []
         if not isinstance(parts_raw, list) or not parts_raw:
             raise ValueError(f"concept {name!r} needs a non-empty 'participants' list")
+        # Optional COMPOUND key: ordered parts (name + normalizer/recipe). When present,
+        # each participant maps EACH part to a predicate (crosswalk-compound-keys.md).
+        key_parts_raw = c.get("key_parts") or []
+        if not isinstance(key_parts_raw, list):
+            raise ValueError("key_parts must be a list")
+        key_parts: list[RuntimeKeyPart] = []
+        for kp in key_parts_raw:
+            if not isinstance(kp, dict):
+                raise ValueError("each key part must be a mapping")
+            kp_name = str(kp.get("name") or "").strip()
+            if not kp_name:
+                raise ValueError("each key part needs a name")
+            key_parts.append(
+                RuntimeKeyPart(
+                    name=kp_name,
+                    normalizer=str(kp.get("normalizer") or "identity"),
+                    normalizer_recipe=_parse_recipe(kp.get("normalizer_recipe")),
+                )
+            )
+        part_names = [kp.name for kp in key_parts]
+
         participants: list[RuntimeParticipant] = []
         for p in parts_raw:
             if not isinstance(p, dict):
                 raise ValueError("each participant must be a mapping")
             dsid = str(p.get("dataset_id") or "").strip()
-            pred = str(p.get("predicate") or "").strip()
-            if not dsid or not pred:
-                raise ValueError("each participant needs dataset_id and predicate")
+            if not dsid:
+                raise ValueError("each participant needs a dataset_id")
+            if key_parts:
+                preds_raw = p.get("predicates") or {}
+                if not isinstance(preds_raw, dict):
+                    raise ValueError("a compound participant needs a 'predicates' mapping")
+                predicates = tuple(str(preds_raw.get(n) or "").strip() for n in part_names)
+                if not all(predicates):
+                    raise ValueError(
+                        f"participant {dsid!r} needs a predicate for every key part {part_names}"
+                    )
+                single_pred = predicates[0]
+            else:
+                single_pred = str(p.get("predicate") or "").strip()
+                if not single_pred:
+                    raise ValueError("each participant needs dataset_id and predicate")
+                predicates = ()
             participants.append(
                 RuntimeParticipant(
                     dataset_id=dsid,
                     label=str(p.get("label") or dsid),
-                    predicate=pred,
+                    predicate=single_pred,
+                    predicates=predicates,
                 )
             )
-        # Optional declarative recipe — validate every step against the CLOSED primitive
-        # set here (the safety gate: no arbitrary ops reach the build).
-        recipe_raw = c.get("normalizer_recipe") or []
-        if not isinstance(recipe_raw, list):
-            raise ValueError("normalizer_recipe must be a list of primitive ids")
-        recipe: list[str] = []
-        for step in recipe_raw:
-            step = str(step).strip()
-            if step not in RECIPE_PRIMITIVES:
-                raise ValueError(
-                    f"unknown recipe primitive {step!r}; allowed: {sorted(RECIPE_PRIMITIVES)}"
-                )
-            recipe.append(step)
         concepts.append(
             RuntimeConcept(
                 name=name,
@@ -197,32 +260,59 @@ def parse_config(data: dict) -> RuntimeCrosswalkConfig:
                 link_predicate=str(c.get("link_predicate") or DEFAULT_LINK_PREDICATE),
                 normalizer=str(c.get("normalizer") or DEFAULT_NORMALIZER),
                 participants=tuple(participants),
-                normalizer_recipe=tuple(recipe),
+                normalizer_recipe=_parse_recipe(c.get("normalizer_recipe")),
+                key_parts=tuple(key_parts),
             )
         )
     min_datasets = int(data.get("min_datasets", 2) or 2)
     return RuntimeCrosswalkConfig(concepts=tuple(concepts), min_datasets=max(2, min_datasets))
 
 
+def _concept_to_dict(c: RuntimeConcept) -> dict:
+    d: dict = {
+        "name": c.name,
+        "class_iri": c.class_iri,
+        "link_predicate": c.link_predicate,
+        "normalizer": c.normalizer,
+    }
+    # Only emit a recipe / key_parts when present (keeps existing configs unchanged).
+    if c.normalizer_recipe:
+        d["normalizer_recipe"] = list(c.normalizer_recipe)
+    if c.key_parts:
+        part_names = [kp.name for kp in c.key_parts]
+        d["key_parts"] = [
+            {
+                "name": kp.name,
+                "normalizer": kp.normalizer,
+                **(
+                    {"normalizer_recipe": list(kp.normalizer_recipe)}
+                    if kp.normalizer_recipe
+                    else {}
+                ),
+            }
+            for kp in c.key_parts
+        ]
+        d["participants"] = [
+            {
+                "dataset_id": p.dataset_id,
+                "label": p.label,
+                "predicates": {n: p.predicates[i] for i, n in enumerate(part_names)},
+            }
+            for p in c.participants
+        ]
+    else:
+        d["participants"] = [
+            {"dataset_id": p.dataset_id, "label": p.label, "predicate": p.predicate}
+            for p in c.participants
+        ]
+    return d
+
+
 def config_to_dict(config: RuntimeCrosswalkConfig) -> dict:
     """Serialize a config back to a plain dict (for yaml persistence / API response)."""
     return {
         "min_datasets": config.min_datasets,
-        "concepts": [
-            {
-                "name": c.name,
-                "class_iri": c.class_iri,
-                "link_predicate": c.link_predicate,
-                "normalizer": c.normalizer,
-                # Only emit a recipe when present (keeps existing configs unchanged).
-                **({"normalizer_recipe": list(c.normalizer_recipe)} if c.normalizer_recipe else {}),
-                "participants": [
-                    {"dataset_id": p.dataset_id, "label": p.label, "predicate": p.predicate}
-                    for p in c.participants
-                ],
-            }
-            for c in config.concepts
-        ],
+        "concepts": [_concept_to_dict(c) for c in config.concepts],
     }
 
 
@@ -313,6 +403,52 @@ async def _entities_for_values(
     return out
 
 
+# Max tuples kept per entity in a compound gather — bounds the cross-product explosion
+# when several parts are multi-valued. Trimming is logged, never silent.
+_COMPOUND_TUPLE_CAP = 256
+
+
+async def _entity_tuples(
+    client, graph: str, predicates: tuple[str, ...]
+) -> list[tuple[str, tuple[str, ...]]]:
+    """Compound gather (crosswalk-compound-keys.md): ``(entity, raw_tuple)`` for entities
+    that have a value for EVERY part predicate — an inner join over the part predicates,
+    so an entity missing any part never enters (no half-join). Multi-valued parts produce
+    the cross product (SPARQL natural join); per-entity tuples are capped (logged)."""
+    sel = " ".join(f"?v{i}" for i in range(len(predicates)))
+    where = " ".join(f"?e <{p}> ?v{i} ." for i, p in enumerate(predicates))
+    rows = await _select_bindings(
+        client, f"SELECT ?e {sel} WHERE {{ GRAPH <{graph}> {{ {where} }} }}"
+    )
+    per_entity: dict[str, list[tuple[str, ...]]] = {}
+    capped = 0
+    for b in rows:
+        e = b.get("e", {})
+        if e.get("type") != "uri":
+            continue
+        cells = [b.get(f"v{i}") for i in range(len(predicates))]
+        if any(c is None or "value" not in c for c in cells):
+            continue  # a part is unbound -> not a complete tuple
+        bucket = per_entity.setdefault(e["value"], [])
+        if len(bucket) >= _COMPOUND_TUPLE_CAP:
+            capped += 1
+            continue
+        bucket.append(tuple(c["value"] for c in cells))
+    if capped:
+        logger.warning(
+            "crosswalk compound gather trimmed %d tuple(s) over the %d/entity cap in %s",
+            capped,
+            _COMPOUND_TUPLE_CAP,
+            graph,
+        )
+    return [(e, t) for e, ts in per_entity.items() for t in ts]
+
+
+def _norm_tuple(part_norms: list, raw_tuple: tuple[str, ...]) -> tuple[str, ...]:
+    """Apply each part's normalizer to its raw value -> the normalized tuple key."""
+    return tuple(part_norms[i](raw_tuple[i]) for i in range(len(part_norms)))
+
+
 # ---------------------------------------------------------------------------
 # Build / remove
 # ---------------------------------------------------------------------------
@@ -344,7 +480,6 @@ async def build_hub(
     seen_used: set[str] = set()
 
     for concept in config.concepts:
-        normalize = resolve_normalizer(concept.normalizer, concept.normalizer_recipe)
         # Resolve each participant to its EXACT promoted live graph (skip if not
         # citable — draft / retracted / absent never enters the hub).
         live: dict[str, str] = {}
@@ -371,6 +506,32 @@ async def build_hub(
         if len(active) < config.min_datasets:
             continue  # nothing can be shared by >= min_datasets participants
 
+        if concept.key_parts:
+            # COMPOUND key: gather per-entity TUPLES (one value per part) and bucket by
+            # the normalized tuple — two entities coincide iff every part matches.
+            part_norms = [
+                resolve_normalizer(kp.normalizer, kp.normalizer_recipe)
+                for kp in concept.key_parts
+            ]
+            rows_by_label: dict[str, list[tuple[str, tuple[str, ...]]]] = {}
+            tuple_counts: dict[tuple[str, ...], int] = {}
+            for p in active:
+                rows = await _entity_tuples(client, live[p.label], p.predicates)
+                rows_by_label[p.label] = rows
+                for k in {_norm_tuple(part_norms, rt) for _, rt in rows}:
+                    tuple_counts[k] = tuple_counts.get(k, 0) + 1
+            shared_t = {k for k, n in tuple_counts.items() if n >= config.min_datasets}
+            if not shared_t:
+                continue
+            for p in active:
+                observations[(concept.name, p.label)] = [
+                    (e, rt)
+                    for e, rt in rows_by_label[p.label]
+                    if _norm_tuple(part_norms, rt) in shared_t
+                ]
+            continue
+
+        normalize = resolve_normalizer(concept.normalizer, concept.normalizer_recipe)
         # Pass 1: distinct raw values per participant -> the shared normalized keys.
         per_label_raws: dict[str, list[str]] = {}
         norm_counts: dict[str, int] = {}
@@ -401,6 +562,9 @@ async def build_hub(
             normalizer=c.normalizer,
             normalizer_recipe=c.normalizer_recipe,
             rules=tuple(used_rules.get(c.name, ())),
+            key_parts=tuple(
+                KeyPart(kp.name, kp.normalizer, kp.normalizer_recipe) for kp in c.key_parts
+            ),
         )
         for c in config.concepts
         if used_rules.get(c.name)
