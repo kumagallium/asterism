@@ -59,14 +59,15 @@ export function DocumentPanel() {
   return (
     <section className="document-panel">
       <p className="step-hint">
-        論文（JATS <code>.xml</code>）や Word <code>.docx</code> の文書をアップロードすると、
-        <strong>設計（AI）不要</strong>で <strong>節 → 段落 → 文</strong> まで構造化し、
-        カタログの「ツール」タブから <strong>全文検索して引用</strong>できるようになります。
+        論文や契約などの文書（<strong>Word</strong> <code>.docx</code> / 構造化XML{' '}
+        <code>.xml</code>）をアップロードすると、<strong>設計（AI）不要</strong>で{' '}
+        <strong>節 → 段落 → 文</strong> まで構造化し、カタログの「ツール」タブから{' '}
+        <strong>全文検索して引用</strong>できるようになります。
       </p>
 
       <div className="data-source-row">
         <label className="file-btn">
-          文書を選択（.xml / .docx）
+          文書を選択（Word / XML）
           <input
             type="file"
             accept=".xml,.docx"
@@ -89,7 +90,7 @@ export function DocumentPanel() {
 
       <div className="data-source-foot">
         <span className="hint">
-          .docx はサーバ側で pandoc が JATS に変換します（変換器・版は来歴に記録）。
+          .docx はサーバ側で構造化XMLに自動変換します（変換ツール・版は来歴に記録）。
         </span>
         <button type="button" onClick={run} disabled={!file || busy}>
           {busy ? (
