@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.4.0](https://github.com/kumagallium/asterism/compare/v0.3.0...v0.4.0) - 2026-06-14
+
+- feat(documents): runtime JATS-document ingest — uploaded docs citable to the sentence by @kumagallium in https://github.com/kumagallium/asterism/pull/205
+- feat(crosswalk): user-composable normalizer recipes (declarative, no code) by @kumagallium in https://github.com/kumagallium/asterism/pull/207
+
 ## [v0.3.0](https://github.com/kumagallium/asterism/compare/v0.2.0...v0.3.0) - 2026-06-13
 
 - docs(reports): verification-report practice + Tier0 sufficiency milestone by @kumagallium in https://github.com/kumagallium/asterism/pull/180
