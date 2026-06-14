@@ -10,6 +10,12 @@ dependencies = [
     "httpx>=0.27",
     "watchfiles>=0.22",
     "pyyaml>=6.0",
+    # Safe XML parsing for the document-ontology layer's structurer
+    # (asterism.documents): uploaded JATS/document XML is untrusted, so we forbid
+    # entity expansion ("billion laughs") and external entities (SSRF / local file
+    # read via a DTD) while still allowing the harmless JATS DOCTYPE declaration —
+    # stdlib xml.etree does not protect against the former.
+    "defusedxml>=0.7",
 ]
 
 [project.optional-dependencies]

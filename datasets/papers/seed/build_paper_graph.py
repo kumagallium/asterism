@@ -38,11 +38,11 @@ Usage (needs the asterism package on the path for the single-sourced slug logic)
 
 from __future__ import annotations
 
-import re
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+from asterism.documents import sentence_spans  # single source of truth for the splitter
 from asterism.transforms import structural_slug, trim_collapse
 
 # --- identity (matches jats/PMC5951533.rml.ttl and dataset.toml — IRIs are data
@@ -91,62 +91,12 @@ _DEO_ROLES = [
     ("conclusion", "Conclusion"),
 ]
 
-# Abbreviations whose trailing "." is NOT a sentence boundary (scientific prose).
-_ABBREV = {
-    "fig", "figs", "eq", "eqs", "ref", "refs", "no", "vs", "etc", "al", "e.g",
-    "i.e", "cf", "approx", "ca", "wt", "vol", "mol", "min", "max", "resp", "calc",
-    "exp", "temp", "ed", "eds", "pp", "vols", "nos", "dr", "prof",
-}
-
-
 # ---------------------------------------------------------------------------
-# text + sentence segmentation (deterministic, LLM-free — a dated claim)
+# text helper (sentence segmentation lives in asterism.documents — shared)
 # ---------------------------------------------------------------------------
 def _text(el: ET.Element) -> str:
     """Faithful, whitespace-collapsed text of an element incl. all mixed content."""
     return trim_collapse("".join(el.itertext()))
-
-
-def sentence_spans(text: str) -> list[tuple[int, int]]:
-    """Split into [start, end) sentence spans over ``text`` (exact substrings).
-
-    Conservative, deterministic rules tuned for scientific prose: a boundary is a
-    ``. ! ?`` followed by whitespace then an uppercase/open-quote/paren (or EOS),
-    UNLESS the char before it is a digit (decimal / "99.95%."-style) or the
-    preceding token is a known abbreviation or a one-letter initial. Imperfect by
-    design — recorded as a ``lit:DocumentParsingActivity`` claim, not a fact.
-    """
-    spans: list[tuple[int, int]] = []
-    start, i, n = 0, 0, len(text)
-    while i < n:
-        if text[i] in ".!?":
-            j = i + 1
-            while j < n and text[j] == " ":
-                j += 1
-            nxt = text[j] if j < n else ""
-            prev = text[i - 1] if i > 0 else ""
-            ends = nxt == "" or nxt.isupper() or nxt in "([“‘\"'"
-            if j > i + 1 and ends and not prev.isdigit():
-                m = re.search(r"(\S+)$", text[start : i + 1])
-                word = m.group(1).rstrip(".!?").lower() if m else ""
-                if word not in _ABBREV and not (len(word) == 1 and word.isalpha()):
-                    spans.append((start, i + 1))
-                    start = j
-                    i = j
-                    continue
-        i += 1
-    if start < n and text[start:].strip():
-        spans.append((start, n))
-    # trim leading/trailing whitespace inside each span while keeping exact offsets
-    out: list[tuple[int, int]] = []
-    for s, e in spans:
-        while s < e and text[s] == " ":
-            s += 1
-        while e > s and text[e - 1] == " ":
-            e -= 1
-        if e > s:
-            out.append((s, e))
-    return out
 
 
 # ---------------------------------------------------------------------------
