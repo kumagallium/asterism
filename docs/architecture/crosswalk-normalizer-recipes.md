@@ -137,6 +137,7 @@ code**:
    sent as part of the perspective config (build = the vet gate). Verified live: a recipe
    perspective joined values by the recipe (lowercased keys) with the recipe recorded in
    provenance.
-3. **Compound keys (future, design-first).** Joining on more than one concept at once
-   ("same composition AND same crystal system") — a multi-attribute key the hub does not
-   model today (each concept joins on one value independently).
+3. **Compound keys (designed, not implemented).** Joining on more than one attribute at
+   once ("same composition AND same crystal system") — a multi-attribute key the hub does
+   not model today (each concept joins on one value independently). Design:
+   [`crosswalk-compound-keys.md`](crosswalk-compound-keys.md).
