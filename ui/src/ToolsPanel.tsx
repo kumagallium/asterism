@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Trans, useTranslation } from 'react-i18next'
 import { ToolRunner } from './ToolRunner'
 import {
   deleteTool,
@@ -102,6 +103,7 @@ function fromForm(f: ToolForm): QueryTool {
  * only — every call goes through /api (no fixture fallback).
  */
 export function ToolsPanel({ datasetId }: { datasetId: string }) {
+  const { t } = useTranslation()
   const [tools, setTools] = useState<QueryTool[] | null>(null)
   const [loadError, setLoadError] = useState('')
   const [busyDelete, setBusyDelete] = useState('')
@@ -218,7 +220,7 @@ export function ToolsPanel({ datasetId }: { datasetId: string }) {
     if (!draft) return
     const tool = fromForm(draft)
     if (!tool.name || !tool.query.trim()) {
-      setSaveError('name と query は必須です。')
+      setSaveError(t('tools:panel.save.required'))
       return
     }
     setSaving(true)
@@ -230,7 +232,7 @@ export function ToolsPanel({ datasetId }: { datasetId: string }) {
       setDraftValid(null)
       setDraftGateError(null)
       setDirty(false)
-      setNotice(`「${tool.name}」を保存しました。Ask の検証済みツールとして使えます。`)
+      setNotice(t('tools:panel.notice.saved', { name: tool.name }))
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -239,13 +241,12 @@ export function ToolsPanel({ datasetId }: { datasetId: string }) {
   }
 
   async function del(name: string) {
-    if (!window.confirm(`ツール「${name}」を削除しますか？\nこのデータセットの Ask から外れます。`))
-      return
+    if (!window.confirm(t('tools:panel.deleteConfirm', { name }))) return
     setBusyDelete(name)
     setLoadError('')
     try {
       setTools(await deleteTool(datasetId, name))
-      setNotice(`「${name}」を削除しました。`)
+      setNotice(t('tools:panel.notice.deleted', { name }))
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -256,12 +257,16 @@ export function ToolsPanel({ datasetId }: { datasetId: string }) {
   return (
     <div className="ds-tab-body tools-panel">
       <div className="ds-section-head">
-        <span className="ds-section-title">ツール（このデータの検証済み Ask 操作）</span>
-        <span className="ds-section-note">{tools ? `${tools.length} 件` : '—'}</span>
+        <span className="ds-section-title">{t('tools:panel.sectionTitle')}</span>
+        <span className="ds-section-note">
+          {tools ? t('tools:panel.count', { n: tools.length }) : '—'}
+        </span>
       </div>
       <p className="tools-intro">
-        このデータセットに、型付き・決定論の<strong>読み取り専用 SPARQL ツール</strong>を足せます。
-        保存したツールは PR なしで <strong>Ask の検証済みツール</strong>になります（保存＝人による確定）。
+        <Trans i18nKey="tools:panel.intro">
+          このデータセットに、型付き・決定論の<strong>読み取り専用 SPARQL ツール</strong>を足せます。
+          保存したツールは PR なしで <strong>Ask の検証済みツール</strong>になります（保存＝人による確定）。
+        </Trans>
       </p>
 
       {loadError && <pre className="error">{loadError}</pre>}
@@ -271,11 +276,11 @@ export function ToolsPanel({ datasetId }: { datasetId: string }) {
       {tools === null && !loadError && (
         <p className="loading-row">
           <span className="spinner" />
-          ツールを読み込み中…
+          {t('tools:panel.loading')}
         </p>
       )}
       {tools && tools.length === 0 && (
-        <p className="ds-empty-note">まだツールはありません。下の「AI で下書き」から作れます。</p>
+        <p className="ds-empty-note">{t('tools:panel.emptyList')}</p>
       )}
       {tools && tools.length > 0 && (
         <div className="tool-list">
@@ -294,17 +299,19 @@ export function ToolsPanel({ datasetId }: { datasetId: string }) {
 
       {/* --- author a new tool --- */}
       <div className="tool-author">
-        <div className="ds-subhead">AI で下書き（やりたいことから 1 つ作る）</div>
+        <div className="ds-subhead">{t('tools:panel.author.subhead')}</div>
         <p className="tools-hint">
-          「やりたいこと」を書くと、このデータの語彙をもとに <strong>AI が読み取り専用 SPARQL ツールを下書き</strong>します。
-          下書きは<strong>その場で編集</strong>でき、<strong>保存して初めて確定</strong>します（保存＝人による検証ゲート）。
-          キーはこのタブ内のみ保持し、保存しません（Ask と共通）。
+          <Trans i18nKey="tools:panel.author.hint">
+            「やりたいこと」を書くと、このデータの語彙をもとに <strong>AI が読み取り専用 SPARQL ツールを下書き</strong>します。
+            下書きは<strong>その場で編集</strong>でき、<strong>保存して初めて確定</strong>します（保存＝人による検証ゲート）。
+            キーはこのタブ内のみ保持し、保存しません（Ask と共通）。
+          </Trans>
         </p>
         <textarea
           className="tool-intent-input"
           rows={2}
           value={intent}
-          placeholder="例: 組成を渡すと結晶構造（空間群・結晶系）を返す"
+          placeholder={t('tools:panel.author.intentPlaceholder')}
           onChange={(e) => setIntent(e.target.value)}
         />
         <div className="tool-author-row">
@@ -312,7 +319,7 @@ export function ToolsPanel({ datasetId }: { datasetId: string }) {
             type="password"
             className="ask-key-input tool-key-input"
             value={apiKey}
-            placeholder="sk-ant-…（AI 下書きに必要）"
+            placeholder={t('tools:panel.author.keyPlaceholder')}
             autoComplete="off"
             onChange={(e) => onApiKeyChange(e.target.value)}
           />
@@ -324,14 +331,14 @@ export function ToolsPanel({ datasetId }: { datasetId: string }) {
             {proposing ? (
               <>
                 <span className="spinner" />
-                下書き中…
+                {t('tools:panel.author.proposing')}
               </>
             ) : (
-              'AI で下書き'
+              t('tools:panel.author.propose')
             )}
           </button>
           <button type="button" className="btn btn--ghost btn--sm" onClick={startEmpty}>
-            空から手で作る
+            {t('tools:panel.author.startEmpty')}
           </button>
         </div>
         {proposeError && <pre className="error">{proposeError}</pre>}
@@ -380,6 +387,7 @@ function ToolCard({
   onEdit: () => void
   onDelete: () => void
 }) {
+  const { t } = useTranslation()
   const params = tool.parameters ?? []
   const [open, setOpen] = useState(false)
 
@@ -394,10 +402,10 @@ function ToolCard({
             className="btn btn--soft btn--sm"
             onClick={() => setOpen((o) => !o)}
           >
-            {open ? '閉じる' : '実行'}
+            {open ? t('tools:card.close') : t('tools:card.run')}
           </button>
           <button type="button" className="btn btn--ghost btn--sm" onClick={onEdit}>
-            編集
+            {t('tools:card.edit')}
           </button>
           <button
             type="button"
@@ -405,7 +413,7 @@ function ToolCard({
             disabled={deleting}
             onClick={onDelete}
           >
-            {deleting ? '削除中…' : '削除'}
+            {deleting ? t('tools:card.deleting') : t('tools:card.delete')}
           </button>
         </span>
       </div>
@@ -416,13 +424,13 @@ function ToolCard({
             <span key={p.name} className="param-chip" title={p.description}>
               <code>{p.name}</code>
               <span className="param-chip-type">{p.type}</span>
-              {p.required && <span className="param-chip-req">必須</span>}
+              {p.required && <span className="param-chip-req">{t('tools:card.required')}</span>}
             </span>
           ))}
         </div>
       )}
       <details className="tool-sparql-details">
-        <summary>SPARQL を見る</summary>
+        <summary>{t('tools:card.sparqlSummary')}</summary>
         <pre className="sparql-block">{tool.query}</pre>
       </details>
 
@@ -464,32 +472,31 @@ function DraftEditor({
   onSave: () => void
   onDiscard: () => void
 }) {
+  const { t } = useTranslation()
   // Validity banner: the AI-draft gate is meaningful only until the user edits;
   // after an edit (or for a hand-built draft) the server re-checks on save.
   const banner =
     valid !== null && !dirty ? (
       valid ? (
-        <p className="draft-gate draft-gate--ok">✓ AI 下書き: 検証 OK（そのまま保存できます）</p>
+        <p className="draft-gate draft-gate--ok">{t('tools:draft.gate.ok')}</p>
       ) : (
         <p className="draft-gate draft-gate--bad">
-          要修正: {gateError}（編集して直してから保存してください）
+          {t('tools:draft.gate.bad', { error: gateError })}
         </p>
       )
     ) : (
-      <p className="draft-gate draft-gate--note">
-        保存時にサーバが検証します（読み取り専用 SELECT/ASK・安全な束縛）。
-      </p>
+      <p className="draft-gate draft-gate--note">{t('tools:draft.gate.note')}</p>
     )
 
   return (
     <div className="draft-editor">
       <div className="draft-editor-head">
-        <span className="draft-editor-title">下書きを確認・編集</span>
+        <span className="draft-editor-title">{t('tools:draft.title')}</span>
       </div>
       {banner}
 
       <label className="draft-field">
-        <span className="draft-label">名前 (snake_case)</span>
+        <span className="draft-label">{t('tools:draft.nameLabel')}</span>
         <input
           className="draft-text"
           value={draft.name}
@@ -498,16 +505,16 @@ function DraftEditor({
         />
       </label>
       <label className="draft-field">
-        <span className="draft-label">タイトル</span>
+        <span className="draft-label">{t('tools:draft.titleLabel')}</span>
         <input
           className="draft-text"
           value={draft.title}
-          placeholder="人が読む短い名前"
+          placeholder={t('tools:draft.titlePlaceholder')}
           onChange={(e) => patch({ title: e.target.value })}
         />
       </label>
       <label className="draft-field">
-        <span className="draft-label">説明</span>
+        <span className="draft-label">{t('tools:draft.descriptionLabel')}</span>
         <textarea
           className="draft-text"
           rows={2}
@@ -517,19 +524,21 @@ function DraftEditor({
       </label>
 
       <div className="draft-subhead">
-        パラメータ
+        {t('tools:draft.params.head')}
         <button type="button" className="btn btn--ghost btn--sm" onClick={addParam}>
-          + 追加
+          {t('tools:draft.params.add')}
         </button>
       </div>
-      {draft.parameters.length === 0 && <p className="ds-empty-note">パラメータはありません。</p>}
+      {draft.parameters.length === 0 && (
+        <p className="ds-empty-note">{t('tools:draft.params.empty')}</p>
+      )}
       {draft.parameters.map((p, i) => (
         <div key={i} className="param-edit">
           <div className="param-edit-row">
             <input
               className="draft-text param-name"
               value={p.name}
-              placeholder="param 名"
+              placeholder={t('tools:draft.params.namePlaceholder')}
               onChange={(e) => updateParam(i, { name: e.target.value })}
             />
             <select
@@ -549,27 +558,27 @@ function DraftEditor({
                 checked={!!p.required}
                 onChange={(e) => updateParam(i, { required: e.target.checked })}
               />
-              必須
+              {t('tools:draft.params.required')}
             </label>
             <button
               type="button"
               className="btn btn--danger btn--sm param-del"
               onClick={() => removeParam(i)}
             >
-              削除
+              {t('tools:draft.params.delete')}
             </button>
           </div>
           <input
             className="draft-text param-desc"
             value={p.description ?? ''}
-            placeholder="説明（任意）"
+            placeholder={t('tools:draft.params.descriptionPlaceholder')}
             onChange={(e) => updateParam(i, { description: e.target.value })}
           />
           <div className="param-edit-extra">
             <input
               className="draft-text param-default"
               value={p.default === undefined ? '' : String(p.default)}
-              placeholder="既定値（任意）"
+              placeholder={t('tools:draft.params.defaultPlaceholder')}
               onChange={(e) =>
                 updateParam(i, { default: e.target.value === '' ? undefined : e.target.value })
               }
@@ -604,7 +613,7 @@ function DraftEditor({
               <input
                 className="draft-text param-enum"
                 value={(p.enum ?? []).join(', ')}
-                placeholder="enum 値（カンマ区切り）"
+                placeholder={t('tools:draft.params.enumPlaceholder')}
                 onChange={(e) =>
                   updateParam(i, {
                     enum: e.target.value
@@ -620,7 +629,7 @@ function DraftEditor({
       ))}
 
       <label className="draft-field">
-        <span className="draft-label">SPARQL（読み取り専用・{'{{param}}'} で束縛）</span>
+        <span className="draft-label">{t('tools:draft.queryLabel', { placeholder: '{{param}}' })}</span>
         <textarea
           className="draft-text draft-query"
           rows={8}
@@ -631,27 +640,27 @@ function DraftEditor({
       </label>
 
       <div className="draft-subhead">
-        出力の対応づけ（任意・列名 → SPARQL 変数）
+        {t('tools:draft.result.head')}
         <button type="button" className="btn btn--ghost btn--sm" onClick={addRow}>
-          + 追加
+          {t('tools:draft.result.add')}
         </button>
       </div>
       {draft.resultRows.length === 0 && (
-        <p className="ds-empty-note">未指定なら変数名がそのまま列名になります。</p>
+        <p className="ds-empty-note">{t('tools:draft.result.empty')}</p>
       )}
       {draft.resultRows.map((r, i) => (
         <div key={i} className="result-edit-row">
           <input
             className="draft-text result-key"
             value={r.key}
-            placeholder="出力の列名 (例: space_group)"
+            placeholder={t('tools:draft.result.keyPlaceholder')}
             onChange={(e) => updateRow(i, { key: e.target.value })}
           />
           <span className="result-arrow">→</span>
           <input
             className="draft-text result-var"
             value={r.var}
-            placeholder="SPARQL 変数 (例: sg)"
+            placeholder={t('tools:draft.result.varPlaceholder')}
             onChange={(e) => updateRow(i, { var: e.target.value })}
           />
           <label className="param-req">
@@ -660,14 +669,14 @@ function DraftEditor({
               checked={r.number}
               onChange={(e) => updateRow(i, { number: e.target.checked })}
             />
-            数値
+            {t('tools:draft.result.number')}
           </label>
           <button
             type="button"
             className="btn btn--danger btn--sm"
             onClick={() => removeRow(i)}
           >
-            削除
+            {t('tools:draft.result.delete')}
           </button>
         </div>
       ))}
@@ -675,10 +684,10 @@ function DraftEditor({
       {saveError && <pre className="error">{saveError}</pre>}
       <div className="draft-actions">
         <button type="button" className="promote-btn" onClick={onSave} disabled={saving}>
-          {saving ? '保存中…' : '保存（確定してツールに追加）'}
+          {saving ? t('tools:draft.saving') : t('tools:draft.save')}
         </button>
         <button type="button" className="btn btn--ghost btn--sm" onClick={onDiscard} disabled={saving}>
-          破棄
+          {t('tools:draft.discard')}
         </button>
       </div>
     </div>

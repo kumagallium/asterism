@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react'
+import { Trans, useTranslation } from 'react-i18next'
 import { getSchema, type SchemaSummary, type SchemaTerm } from './demoApi'
 import { type CatalogDataset, getCatalogDatasets } from './galleryApi'
 import { ArrowIcon, LayersIcon, LinkIcon } from './icons'
 import { deriveReuses, localName } from './vocab'
 
-const STATUS_LABEL: Record<CatalogDataset['statusKind'], string> = {
-  pub: '公開済み',
-  draft: '下書き',
-  design: '設計中',
+const STATUS_KEY: Record<CatalogDataset['statusKind'], string> = {
+  pub: 'vocab:status.pub',
+  draft: 'vocab:status.draft',
+  design: 'vocab:status.design',
 }
 
 /** Reused external vocabularies actually present in the live schema terms. */
@@ -26,6 +27,7 @@ function schemaReuses(schema: SchemaSummary): { prefix: string; what: string }[]
  * is no hardcoded starrydata fixture here.
  */
 export function SharedVocabView({ onBack }: { onBack?: () => void }) {
+  const { t } = useTranslation()
   const [datasets, setDatasets] = useState<CatalogDataset[]>([])
   const [schema, setSchema] = useState<SchemaSummary | null>(null)
   const [schemaTried, setSchemaTried] = useState(false)
@@ -55,7 +57,7 @@ export function SharedVocabView({ onBack }: { onBack?: () => void }) {
     <div className="vocab">
       {onBack && (
         <button type="button" className="link-btn vocab-back" onClick={onBack}>
-          <ArrowIcon size={14} className="vocab-back-arrow" /> カタログに戻る
+          <ArrowIcon size={14} className="vocab-back-arrow" /> {t('vocab:back')}
         </button>
       )}
 
@@ -65,11 +67,15 @@ export function SharedVocabView({ onBack }: { onBack?: () => void }) {
         </span>
         <div>
           <div className="vocab-banner-title">
-            「設計図（語彙）」は無くなりません — <span className="vocab-banner-hl">共有</span>されるだけ
+            <Trans i18nKey="vocab:banner.title">
+              「設計図（語彙）」は無くなりません — <span className="vocab-banner-hl">共有</span>されるだけ
+            </Trans>
           </div>
           <div className="vocab-banner-sub">
-            これは<strong>実データから自動で内省した語彙</strong>です（全データセットを横断・
-            ラベルは各データセットの設計図から投影された TBox 由来）。揃えるほど横断検索・比較が効きます。
+            <Trans i18nKey="vocab:banner.sub">
+              これは<strong>実データから自動で内省した語彙</strong>です（全データセットを横断・
+              ラベルは各データセットの設計図から投影された TBox 由来）。揃えるほど横断検索・比較が効きます。
+            </Trans>
           </div>
         </div>
       </div>
@@ -77,14 +83,12 @@ export function SharedVocabView({ onBack }: { onBack?: () => void }) {
       {!schemaTried && (
         <p className="loading-row">
           <span className="spinner" />
-          読み込み中…
+          {t('vocab:loading')}
         </p>
       )}
 
       {schemaTried && !schema && (
-        <p className="ds-empty-note">
-          実データの語彙を取得できませんでした（クエリ層が応答していません）。
-        </p>
+        <p className="ds-empty-note">{t('vocab:schemaError')}</p>
       )}
 
       {schema && (
@@ -92,31 +96,38 @@ export function SharedVocabView({ onBack }: { onBack?: () => void }) {
           {/* live shared vocabulary (classes + predicates, schema-agnostic) */}
           <div className="card vocab-classes">
             <div className="vocab-card-head">
-              <h3 className="card-h">共有クラス（実データ）</h3>
+              <h3 className="card-h">{t('vocab:classesCard.title')}</h3>
               <span className="vocab-card-meta">
-                {schema.classes.length} クラス · {schema.predicates.length} 述語
+                {t('vocab:classesCard.meta', {
+                  classes: schema.classes.length,
+                  predicates: schema.predicates.length,
+                })}
               </span>
             </div>
             <p className="vocab-live-note">
-              右端の数字＝実データ中の件数。<strong>クラスはインスタンス数</strong>（その型のものが何件あるか）、
-              <strong>述語は使用回数</strong>（そのプロパティを使うトリプル数）。
+              <Trans i18nKey="vocab:classesCard.note1">
+                右端の数字＝実データ中の件数。<strong>クラスはインスタンス数</strong>（その型のものが何件あるか）、
+                <strong>述語は使用回数</strong>（そのプロパティを使うトリプル数）。
+              </Trans>
             </p>
             <p className="vocab-live-note">
-              ※ 数えるのは <strong>canonical（昇格済み・引用可能）データのみ</strong>。
-              下書き（未レビュー）グラフは含みません ── 昇格すると集計に入ります。
+              <Trans i18nKey="vocab:classesCard.note2">
+                ※ 数えるのは <strong>canonical（昇格済み・引用可能）データのみ</strong>。
+                下書き（未レビュー）グラフは含みません ── 昇格すると集計に入ります。
+              </Trans>
             </p>
-            <div className="ds-subhead">クラス（インスタンス数）</div>
+            <div className="ds-subhead">{t('vocab:classesCard.classesSubhead')}</div>
             <LiveTermList title="" terms={schema.classes} />
-            <div className="ds-subhead">主な述語（使用回数）</div>
+            <div className="ds-subhead">{t('vocab:classesCard.predicatesSubhead')}</div>
             <LiveTermList title="" terms={schema.predicates} limit={15} />
             {reuses.length > 0 && (
               <>
-                <div className="ds-subhead">再利用している語彙（実データの名前空間から検出）</div>
+                <div className="ds-subhead">{t('vocab:classesCard.reusesSubhead')}</div>
                 <div className="ds-reuse-list">
                   {reuses.map((r) => (
-                    <span key={r.prefix} className="reuse-chip" title={r.what}>
+                    <span key={r.prefix} className="reuse-chip" title={t(r.what)}>
                       <code>{r.prefix}</code>
-                      <span className="reuse-chip-what">{r.what}</span>
+                      <span className="reuse-chip-what">{t(r.what)}</span>
                     </span>
                   ))}
                 </div>
@@ -127,15 +138,12 @@ export function SharedVocabView({ onBack }: { onBack?: () => void }) {
           {/* datasets that bind to this vocabulary (real, materialized) */}
           <div className="card vocab-users">
             <div className="vocab-card-head">
-              <h3 className="card-h">この語彙を使うデータセット</h3>
+              <h3 className="card-h">{t('vocab:usersCard.title')}</h3>
               <span className="vocab-card-meta">{consumers.length}</span>
             </div>
             <div className="vocab-user-list">
               {loaded && consumers.length === 0 && (
-                <p className="ds-empty-note">
-                  まだ取り込み済みのデータセットがありません。ワークベンチで設計を保存して取り込むと、
-                  ここに横断対象として並びます。
-                </p>
+                <p className="ds-empty-note">{t('vocab:usersCard.empty')}</p>
               )}
               {consumers.map((u) => (
                 <div key={u.id} className="vocab-user">
@@ -145,9 +153,11 @@ export function SharedVocabView({ onBack }: { onBack?: () => void }) {
                     </span>
                     <span className="vocab-user-name">{u.name}</span>
                     <span className={`status-pill status-pill--${u.statusKind}`}>
-                      {STATUS_LABEL[u.statusKind]}
+                      {t(STATUS_KEY[u.statusKind])}
                     </span>
-                    <span className="vocab-user-src">{u.classes.length} クラス</span>
+                    <span className="vocab-user-src">
+                      {t('vocab:usersCard.classCount', { n: u.classes.length })}
+                    </span>
                   </div>
                 </div>
               ))}
@@ -157,9 +167,11 @@ export function SharedVocabView({ onBack }: { onBack?: () => void }) {
                   <LinkIcon size={16} />
                 </span>
                 <div>
-                  <strong>なぜ「要注意」？</strong>{' '}
-                  共有クラスを書き換えると、それを使うデータセットすべての検索・回答に波及します。
-                  変更は<strong>影響範囲のプレビュー</strong>を見てから確定します。
+                  <strong>{t('vocab:usersCard.caution.title')}</strong>{' '}
+                  <Trans i18nKey="vocab:usersCard.caution.body">
+                    共有クラスを書き換えると、それを使うデータセットすべての検索・回答に波及します。
+                    変更は<strong>影響範囲のプレビュー</strong>を見てから確定します。
+                  </Trans>
                 </div>
               </div>
             </div>
@@ -172,10 +184,11 @@ export function SharedVocabView({ onBack }: { onBack?: () => void }) {
 
 /** A ranked list of live classes/predicates: human label + IRI localname + count. */
 function LiveTermList({ title, terms, limit = 50 }: { title: string; terms: SchemaTerm[]; limit?: number }) {
+  const { t } = useTranslation()
   return (
     <div className="vocab-live-col">
       {title && <div className="ds-subhead">{title}</div>}
-      {terms.length === 0 && <p className="ds-empty-note">（なし）</p>}
+      {terms.length === 0 && <p className="ds-empty-note">{t('vocab:termList.none')}</p>}
       <div className="vocab-live-list">
         {terms.slice(0, limit).map((t) => (
           <div key={t.iri} className="vocab-live-term" title={t.iri}>

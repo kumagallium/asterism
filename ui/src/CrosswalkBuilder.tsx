@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Trans, useTranslation } from 'react-i18next'
 import {
   buildCrosswalk,
   buildPerspective,
@@ -12,17 +13,10 @@ import { type CatalogDataset, getCatalogDatasets } from './galleryApi'
 import { LinkIcon } from './icons'
 import { localName } from './vocab'
 
-// The CLOSED recipe primitives (mirror asterism.crosswalk.RECIPE_PRIMITIVES) + a
-// plain-language label. A recipe = an ordered list of these; the build applies the
-// vetted functions (the preview endpoint is the source of truth for behavior).
-const RECIPE_PRIMITIVE_LABEL: Record<string, string> = {
-  nfkc: '全角・半角／互換文字をそろえる（NFKC）',
-  casefold: '大文字・小文字をなくす',
-  strip: '前後の空白を削る',
-  collapse_ws: '連続する空白を1つにする',
-  remove_ws: '空白をすべて消す',
-  fold_subscripts: '下付き数字をふつうの数字に（₂→2）',
-}
+// The CLOSED recipe primitives (mirror asterism.crosswalk.RECIPE_PRIMITIVES). A recipe
+// = an ordered list of these; the build applies the vetted functions (the preview
+// endpoint is the source of truth for behavior). Plain-language labels are resolved at
+// render via t('crosswalk:builder.recipePrimitive.<id>').
 const RECIPE_PRIMITIVE_IDS = ['nfkc', 'casefold', 'strip', 'collapse_ws', 'remove_ws', 'fold_subscripts']
 // Sentinel select value: author a custom recipe instead of a named normalizer.
 const RECIPE_OPTION = '__recipe__'
@@ -59,16 +53,18 @@ function linkPredicateForConcept(key: string): string {
 }
 
 // One-line explanation per normalizer (the closed, vetted join-key set — generic core
-// + materials pack; mirrors asterism.crosswalk.NORMALIZERS).
-const NORMALIZER_HINTS: Record<string, string> = {
-  identity: '値が完全に一致するものだけを結合します（どの概念でも使える既定）。',
-  casefold: '大文字・小文字の違いだけを無視します（例: FeO = feo）。組成には不可（Co ≠ CO）。',
-  whitespace: '前後・連続する空白の違いだけを無視します。',
-  nfkc: '全角・半角や互換文字（ﾊﾝｶｸ等）を揃えてから一致を見ます。',
-  loose_text: '大小・空白・全角半角をまとめて無視してゆるく一致（並び替えはしません）。',
-  composition: '添字・空白の違いだけを吸収します（元素順は区別）。',
-  element_canonical: '元素の並び順が違っても同じ組成として結合します（化学式＝多重集合）。',
-  [RECIPE_OPTION]: '手順（プリミティブ）を自分で並べて、独自の「同じ値とみなす基準」を作ります。',
+// + materials pack; mirrors asterism.crosswalk.NORMALIZERS). Maps the select value to
+// its i18n hint key (RECIPE_OPTION → 'recipe'); resolved at render via
+// t('crosswalk:builder.normHint.<key>').
+const NORMALIZER_HINT_KEYS: Record<string, string> = {
+  identity: 'identity',
+  casefold: 'casefold',
+  whitespace: 'whitespace',
+  nfkc: 'nfkc',
+  loose_text: 'loose_text',
+  composition: 'composition',
+  element_canonical: 'element_canonical',
+  [RECIPE_OPTION]: 'recipe',
 }
 
 /** A perspective id (slug) from a human name. Falls back to a generated id when the
@@ -97,6 +93,7 @@ function labelFor(d: CatalogDataset): string {
  * AI-assisted), and build. The hub then joins them on the shared normalized value.
  */
 export function CrosswalkBuilder() {
+  const { t } = useTranslation()
   const [datasets, setDatasets] = useState<CatalogDataset[] | null>(null)
   const [loadErr, setLoadErr] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -226,8 +223,8 @@ export function CrosswalkBuilder() {
       const n = r.participants.length
       setProposeNote(
         n
-          ? `AI が ${n} 件の述語を提案しました（確認・修正してください）。`
-          : `AI は「${conceptKey}」を担う述語を見つけられませんでした。手動で選んでください。`,
+          ? t('crosswalk:builder.proposeNote', { count: n })
+          : t('crosswalk:builder.proposeNone', { key: conceptKey }),
       )
     } catch (e) {
       setProposeErr(e instanceof Error ? e.message : String(e))
@@ -280,31 +277,30 @@ export function CrosswalkBuilder() {
   return (
     <div className="xw-builder">
       <p className="subtitle">
-        既存の<strong>データセットを2つ以上選び</strong>、<strong>つなぐ概念</strong>（組成・結晶系・著者…）と
-        それを表す列を指定すると、共通の値で<strong>横断してつながる橋（クロスウォーク）</strong>を作れます。
-        新しい CSV からではなく、<strong>すでにあるデータから作る</strong>オントロジーです。
+        <Trans
+          i18nKey="crosswalk:builder.subtitle"
+          components={[<strong />, <strong />, <strong />, <strong />]}
+        />
       </p>
 
       {loadErr && <pre className="error">{loadErr}</pre>}
       {!datasets && !loadErr && (
         <p className="loading-row">
           <span className="spinner" />
-          データセットを読み込み中…
+          {t('crosswalk:builder.loading')}
         </p>
       )}
 
       {datasets && datasets.length < 2 && (
         <div className="state-block">
-          <p className="state-title">横断できる共有データが2つ未満です</p>
-          <p className="state-sub">
-            「共有データに昇格」したデータセットが2つ以上あると、ここで横断クロスウォークを作れます。
-          </p>
+          <p className="state-title">{t('crosswalk:builder.tooFew.title')}</p>
+          <p className="state-sub">{t('crosswalk:builder.tooFew.sub')}</p>
         </div>
       )}
 
       {datasets && datasets.length >= 2 && (
         <>
-          <div className="ds-subhead">1. つなぐデータセットを選ぶ（2つ以上）</div>
+          <div className="ds-subhead">{t('crosswalk:builder.step1')}</div>
           <div className="xw-ds-grid">
             {datasets.map((d) => {
               const id = datasetId(d)
@@ -320,8 +316,12 @@ export function CrosswalkBuilder() {
                   <span className="xw-ds-body">
                     <span className="xw-ds-name">{d.name}</span>
                     <span className="xw-ds-sub">
-                      {d.predicates.length} 述語{' · '}
-                      {(d.counts.find((c) => c.label === '事実')?.value ?? '?') + ' 事実'}
+                      {t('crosswalk:builder.dsSub', {
+                        predicates: d.predicates.length,
+                        facts:
+                          d.counts.find((c) => c.key === 'fact')?.value ??
+                          t('crosswalk:builder.factsUnknown'),
+                      })}
                     </span>
                   </span>
                 </button>
@@ -332,40 +332,40 @@ export function CrosswalkBuilder() {
           {chosen.length > 0 && (
             <>
               <div className="ds-subhead">
-                2. つなぐ「概念」を決める
-                <span className="xw-hint-inline">例: composition / crystal_system / author（英数字のキー）</span>
+                {t('crosswalk:builder.step2')}
+                <span className="xw-hint-inline">{t('crosswalk:builder.step2Hint')}</span>
               </div>
               <div className="xw-norm-row">
                 <input
                   type="text"
                   className="xw-key-input xw-norm-select"
-                  placeholder="composition"
+                  placeholder={t('crosswalk:builder.conceptPlaceholder')}
                   value={concept}
                   onChange={(e) => onConceptChange(e.target.value)}
                 />
                 <span className="xw-norm-hint">
                   {conceptValid ? (
-                    <>
-                      「{conceptKey}」から自動で作る語彙 → クラス{' '}
-                      <code>xw:{pascalCase(conceptKey)}</code> ・ つなぐ述語{' '}
-                      <code>xw:has{pascalCase(conceptKey)}</code>
-                    </>
+                    <Trans
+                      i18nKey="crosswalk:builder.conceptVocab"
+                      values={{ key: conceptKey, className: pascalCase(conceptKey) }}
+                      components={[<code />, <code />]}
+                    />
                   ) : (
-                    '英数字のキーを入力してください（例: crystal_system）。日本語の呼び名は「この視点の名前」へ。'
+                    t('crosswalk:builder.conceptInvalid')
                   )}
                 </span>
               </div>
 
               <div className="ds-subhead">
-                3. 各データセットで「{conceptKey} を表す述語」を指定する
-                <span className="xw-hint-inline">（人間が確認するマッピング）</span>
+                {t('crosswalk:builder.step3', { key: conceptKey })}
+                <span className="xw-hint-inline">{t('crosswalk:builder.step3Hint')}</span>
               </div>
 
               <div className="xw-ai-row">
                 <input
                   type="password"
                   className="xw-key-input"
-                  placeholder="Anthropic API キー（AI 提案に使用・保存は端末内のみ）"
+                  placeholder={t('crosswalk:builder.apiKeyPlaceholder')}
                   value={apiKey}
                   onChange={(e) => onApiKeyChange(e.target.value)}
                 />
@@ -375,11 +375,15 @@ export function CrosswalkBuilder() {
                   disabled={proposing || !apiKey || chosen.length < 1}
                   onClick={onPropose}
                 >
-                  {proposing ? 'AI が提案中…' : 'AI に提案させる'}
+                  {proposing ? t('crosswalk:builder.proposing') : t('crosswalk:builder.propose')}
                 </button>
               </div>
               {proposeNote && <p className="xw-note">{proposeNote}</p>}
-              {proposeErr && <p className="promote-err">AI 提案に失敗しました: {proposeErr}</p>}
+              {proposeErr && (
+                <p className="promote-err">
+                  {t('crosswalk:builder.proposeErr', { detail: proposeErr })}
+                </p>
+              )}
 
               <div className="xw-map-list">
                 {chosen.map((d) => {
@@ -397,23 +401,27 @@ export function CrosswalkBuilder() {
                           setPredicate((prev) => ({ ...prev, [id]: e.target.value }))
                         }
                       >
-                        <option value="">— 述語を選択 —</option>
+                        <option value="">{t('crosswalk:builder.selectPredicate')}</option>
                         {opts.map((o) => (
                           <option key={o.iri} value={o.iri}>
                             {localName(o.iri)}
-                            {o.sample ? ` （例: ${o.sample}）` : ''}
+                            {o.sample ? t('crosswalk:builder.predicateSample', { sample: o.sample }) : ''}
                           </option>
                         ))}
                       </select>
-                      {sel && sample && <span className="xw-map-sample">例: {sample}</span>}
+                      {sel && sample && (
+                        <span className="xw-map-sample">
+                          {t('crosswalk:builder.sampleLabel', { sample })}
+                        </span>
+                      )}
                     </div>
                   )
                 })}
               </div>
 
               <div className="ds-subhead">
-                4. 同じ値とみなす基準（正規化）
-                <span className="xw-hint-inline">表記揺れをどこまで同一視するか</span>
+                {t('crosswalk:builder.step4')}
+                <span className="xw-hint-inline">{t('crosswalk:builder.step4Hint')}</span>
               </div>
               <div className="xw-norm-row">
                 <select
@@ -424,22 +432,28 @@ export function CrosswalkBuilder() {
                     setNormalizer(e.target.value)
                   }}
                 >
-                  <optgroup label="汎用（どの概念でも）">
-                    <option value="identity">そのまま一致（表記が同じものだけ）</option>
-                    <option value="casefold">大文字・小文字を無視</option>
-                    <option value="whitespace">空白の違いを無視（前後・連続空白を畳む）</option>
-                    <option value="nfkc">全角・半角／互換文字を揃える（NFKC）</option>
-                    <option value="loose_text">ゆるく一致（大小・空白・全角半角をまとめて無視）</option>
+                  <optgroup label={t('crosswalk:builder.normGroup.generic')}>
+                    <option value="identity">{t('crosswalk:builder.norm.identity')}</option>
+                    <option value="casefold">{t('crosswalk:builder.norm.casefold')}</option>
+                    <option value="whitespace">{t('crosswalk:builder.norm.whitespace')}</option>
+                    <option value="nfkc">{t('crosswalk:builder.norm.nfkc')}</option>
+                    <option value="loose_text">{t('crosswalk:builder.norm.loose_text')}</option>
                   </optgroup>
-                  <optgroup label="材料向け">
-                    <option value="composition">組成式として揃える（添字/空白を吸収）</option>
-                    <option value="element_canonical">組成式＋元素順も揃える（Bi2Te3 = Te3Bi2）</option>
+                  <optgroup label={t('crosswalk:builder.normGroup.materials')}>
+                    <option value="composition">{t('crosswalk:builder.norm.composition')}</option>
+                    <option value="element_canonical">
+                      {t('crosswalk:builder.norm.element_canonical')}
+                    </option>
                   </optgroup>
-                  <optgroup label="自分で作る">
-                    <option value={RECIPE_OPTION}>カスタム（手順を組む）…</option>
+                  <optgroup label={t('crosswalk:builder.normGroup.custom')}>
+                    <option value={RECIPE_OPTION}>{t('crosswalk:builder.norm.recipe')}</option>
                   </optgroup>
                 </select>
-                <span className="xw-norm-hint">{NORMALIZER_HINTS[normalizer] ?? ''}</span>
+                <span className="xw-norm-hint">
+                  {NORMALIZER_HINT_KEYS[normalizer]
+                    ? t(`crosswalk:builder.normHint.${NORMALIZER_HINT_KEYS[normalizer]}`)
+                    : ''}
+                </span>
               </div>
 
               {recipeMode && (
@@ -447,18 +461,22 @@ export function CrosswalkBuilder() {
                   {/* The ordered recipe — closed primitives applied top→bottom. */}
                   <div className="xw-recipe-steps">
                     {recipe.length === 0 && (
-                      <p className="xw-norm-hint">下の「手順を追加」から組み立ててください。</p>
+                      <p className="xw-norm-hint">{t('crosswalk:builder.recipeEmpty')}</p>
                     )}
                     {recipe.map((op, i) => (
                       <div className="xw-recipe-step" key={`${op}-${i}`}>
                         <span className="xw-recipe-num">{i + 1}</span>
-                        <span className="xw-recipe-op">{RECIPE_PRIMITIVE_LABEL[op] ?? op}</span>
+                        <span className="xw-recipe-op">
+                          {RECIPE_PRIMITIVE_IDS.includes(op)
+                            ? t(`crosswalk:builder.recipePrimitive.${op}`)
+                            : op}
+                        </span>
                         <span className="xw-recipe-actions">
                           <button
                             type="button"
                             className="xw-recipe-btn"
                             disabled={i === 0}
-                            title="上へ"
+                            title={t('crosswalk:builder.recipeUp')}
                             onClick={() =>
                               setRecipe((r) => {
                                 const n = [...r]
@@ -473,7 +491,7 @@ export function CrosswalkBuilder() {
                             type="button"
                             className="xw-recipe-btn"
                             disabled={i === recipe.length - 1}
-                            title="下へ"
+                            title={t('crosswalk:builder.recipeDown')}
                             onClick={() =>
                               setRecipe((r) => {
                                 const n = [...r]
@@ -487,7 +505,7 @@ export function CrosswalkBuilder() {
                           <button
                             type="button"
                             className="xw-recipe-btn xw-recipe-del"
-                            title="削除"
+                            title={t('crosswalk:builder.recipeDelete')}
                             onClick={() => setRecipe((r) => r.filter((_, j) => j !== i))}
                           >
                             ×
@@ -504,23 +522,23 @@ export function CrosswalkBuilder() {
                         if (e.target.value) setRecipe((r) => [...r, e.target.value])
                       }}
                     >
-                      <option value="">＋ 手順を追加…</option>
+                      <option value="">{t('crosswalk:builder.recipeAdd')}</option>
                       {RECIPE_PRIMITIVE_IDS.map((id) => (
                         <option key={id} value={id}>
-                          {RECIPE_PRIMITIVE_LABEL[id]}
+                          {t(`crosswalk:builder.recipePrimitive.${id}`)}
                         </option>
                       ))}
                     </select>
                   </div>
                   {/* Live preview: what join key this recipe produces for a sample. */}
                   <div className="xw-recipe-preview">
-                    <span className="xw-recipe-prev-label">プレビュー</span>
+                    <span className="xw-recipe-prev-label">{t('crosswalk:builder.recipePreviewLabel')}</span>
                     <input
                       type="text"
                       className="xw-key-input xw-recipe-sample"
                       value={recipeSample}
                       onChange={(e) => setRecipeSample(e.target.value)}
-                      placeholder="サンプルの値"
+                      placeholder={t('crosswalk:builder.recipeSamplePlaceholder')}
                     />
                     <span className="xw-recipe-arrow">→</span>
                     <code className="xw-recipe-out">{recipePreview ?? '—'}</code>
@@ -529,23 +547,21 @@ export function CrosswalkBuilder() {
               )}
 
               <div className="ds-subhead">
-                5. この視点の名前
-                <span className="xw-hint-inline">
-                  複数の「視点（つなぎ方）」を区別して持てます
-                </span>
+                {t('crosswalk:builder.step5')}
+                <span className="xw-hint-inline">{t('crosswalk:builder.step5Hint')}</span>
               </div>
               <div className="xw-norm-row">
                 <input
                   type="text"
                   className="xw-key-input xw-norm-select"
-                  placeholder="例: 組成で繋ぐ（空欄なら標準の「組成」視点に上書き）"
+                  placeholder={t('crosswalk:builder.perspectivePlaceholder')}
                   value={perspectiveName}
                   onChange={(e) => setPerspectiveName(e.target.value)}
                 />
                 <span className="xw-norm-hint">
                   {perspectiveName.trim()
-                    ? '新しい独立した視点として作成します（別グラフ・カタログに並びます）。'
-                    : '空欄のときは標準の「組成」視点を作成/更新します。'}
+                    ? t('crosswalk:builder.perspectiveNamed')
+                    : t('crosswalk:builder.perspectiveDefault')}
                 </span>
               </div>
 
@@ -556,17 +572,19 @@ export function CrosswalkBuilder() {
                 onClick={onBuild}
               >
                 {building
-                  ? '構築中…'
-                  : `クロスウォークを構築（${readyCount} データセットを横断）`}
+                  ? t('crosswalk:builder.building')
+                  : t('crosswalk:builder.build', { count: readyCount })}
               </button>
               {!canBuild && !building && (
                 <p className="hint">
                   {!conceptValid
-                    ? '概念を英数字のキーで入力してください（例: crystal_system）。'
-                    : `述語を指定したデータセットが2つ以上になると構築できます（現在 ${readyCount}）。`}
+                    ? t('crosswalk:builder.buildHintInvalid')
+                    : t('crosswalk:builder.buildHintFewer', { count: readyCount })}
                 </p>
               )}
-              {buildErr && <p className="promote-err">構築に失敗しました: {buildErr}</p>}
+              {buildErr && (
+                <p className="promote-err">{t('crosswalk:builder.buildErr', { detail: buildErr })}</p>
+              )}
             </>
           )}
 
@@ -576,29 +594,40 @@ export function CrosswalkBuilder() {
                 <span className="xw-result-icon">
                   <LinkIcon size={18} />
                 </span>
-                クロスウォークを構築しました
+                {t('crosswalk:builder.result.head')}
               </div>
               <p className="xw-result-stat">
-                <strong>{result.shared_total}</strong> 件の「{conceptKey}」が
-                <strong> {result.participants_used.length} </strong>
-                データセットで共有されています。
+                <Trans
+                  i18nKey="crosswalk:builder.result.stat"
+                  values={{
+                    shared: result.shared_total,
+                    key: conceptKey,
+                    count: result.participants_used.length,
+                  }}
+                  components={[<strong />, <strong />]}
+                />
               </p>
               <div className="xw-links">
                 {Object.entries(result.links[conceptKey] ?? {}).map(([label, n]) => (
                   <span key={label} className="xw-link-chip">
-                    {label} <span className="mono-strong">{n}</span> リンク
+                    <Trans
+                      i18nKey="crosswalk:builder.result.linkChip"
+                      values={{ label, n }}
+                      components={[<span className="mono-strong" />]}
+                    />
                   </span>
                 ))}
               </div>
               {result.participants_skipped.length > 0 && (
                 <p className="xw-skip">
-                  除外: {result.participants_skipped.map((s) => s.label || s.dataset_id).join('、')}
-                  （未昇格などで横断対象外）
+                  {t('crosswalk:builder.result.skipped', {
+                    labels: result.participants_skipped
+                      .map((s) => s.label || s.dataset_id)
+                      .join('、'),
+                  })}
                 </p>
               )}
-              <p className="xw-result-next">
-                「カタログ → クロスウォーク」で参加データセットやツール（この値は何データセットが報告？）を確認できます。
-              </p>
+              <p className="xw-result-next">{t('crosswalk:builder.result.next')}</p>
             </div>
           )}
         </>

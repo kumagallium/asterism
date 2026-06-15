@@ -1,10 +1,12 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import './App.css'
 import { AskView } from './AskView'
 import { CrosswalkView } from './CrosswalkView'
 import { isMockMode } from './demoApi'
 import { GalleryView } from './GalleryView'
 import { HomeView } from './HomeView'
+import { LanguageToggle } from './i18n/LanguageToggle'
 import {
   ActivityIcon,
   AddIcon,
@@ -22,42 +24,39 @@ import { WorkbenchView } from './WorkbenchView'
 type Tab = 'home' | 'workbench' | 'ask' | 'gallery' | 'vocab' | 'crosswalk' | 'jobs' | 'sparql'
 
 // New IA (design_handoff_asterism_ux): plain-language, verb-led nav that mirrors
-// the user's mental model — ホーム → つくる (入れる) → つかう (問う/見渡す) → 管理.
+// the user's mental model — Home → Create (add) → Use (ask/browse) → Manage.
 // The pipeline-internal nouns (RDF / SPARQL) are demoted: SPARQL sits apart at
-// the foot as a developer escape hatch.
+// the foot as a developer escape hatch. Labels are resolved via i18n (common.nav.*).
 interface NavItem {
   id: Tab
-  label: string
-  en: string
   icon: typeof AddIcon
 }
-const NAV_SECTIONS: { heading: string; items: NavItem[] }[] = [
-  { heading: '', items: [{ id: 'home', label: 'ホーム', en: 'Home', icon: HomeIcon }] },
-  { heading: 'つくる', items: [{ id: 'workbench', label: 'データを追加', en: 'Add data', icon: AddIcon }] },
+const NAV_SECTIONS: { heading: '' | 'create' | 'use' | 'manage'; items: NavItem[] }[] = [
+  { heading: '', items: [{ id: 'home', icon: HomeIcon }] },
+  { heading: 'create', items: [{ id: 'workbench', icon: AddIcon }] },
   {
-    heading: 'つかう',
+    heading: 'use',
     items: [
-      { id: 'ask', label: '質問する', en: 'Ask', icon: AskIcon },
-      { id: 'gallery', label: 'カタログ', en: 'Catalog', icon: CatalogIcon },
+      { id: 'ask', icon: AskIcon },
+      { id: 'gallery', icon: CatalogIcon },
     ],
   },
-  { heading: '管理', items: [{ id: 'jobs', label: 'アクティビティ', en: 'Activity', icon: ActivityIcon }] },
+  { heading: 'manage', items: [{ id: 'jobs', icon: ActivityIcon }] },
 ]
 
-// Topbar context per view: eyebrow (which phase, amber) + title + a short sub.
-const VIEW_META: Record<Tab, { eyebrow: string; title: string; sub: string }> = {
-  home: { eyebrow: 'はじめに', title: 'ホーム', sub: '今ある「つながったデータ」と次の一手' },
-  workbench: { eyebrow: 'つくる', title: 'データを追加', sub: 'CSV から、AI と一緒に知識グラフを作る' },
-  ask: { eyebrow: 'つかう', title: '質問する', sub: '取り込んだデータに、根拠つきで答える' },
-  gallery: { eyebrow: 'つかう', title: 'カタログ', sub: '作ったデータの中身を見渡す' },
-  vocab: { eyebrow: 'つかう · カタログ', title: '共有の語彙', sub: '複数のデータセットが共通で使う設計図' },
-  crosswalk: { eyebrow: 'つかう · カタログ', title: 'クロスウォーク', sub: 'データセットを横断でつなぐ橋' },
-  jobs: { eyebrow: '管理', title: 'アクティビティ', sub: 'いつ・何が取り込まれたか' },
-  sparql: { eyebrow: '管理 · 開発者向け', title: 'SPARQL', sub: '読み取り専用クエリ' },
-}
-
 function App() {
+  const { t, i18n } = useTranslation()
+  // Keep the existing two-line nav aesthetic: the active language is primary and
+  // the other language sits underneath as a muted gloss.
+  const otherLng = i18n.language.startsWith('en') ? 'ja' : 'en'
+  const glossT = i18n.getFixedT(otherLng, 'common')
   const [tab, setTab] = useState<Tab>('home')
+
+  // Keep the document title and <html lang> in sync with the chosen language.
+  useEffect(() => {
+    document.title = t('docTitle')
+    document.documentElement.lang = i18n.language.startsWith('en') ? 'en' : 'ja'
+  }, [t, i18n.language])
   // Ask⇄Gallery link: a vocabulary class to focus/highlight in the Gallery when
   // the user jumps there from an Ask citation. null = no focus.
   const [galleryFocus, setGalleryFocus] = useState<string | null>(null)
@@ -74,8 +73,6 @@ function App() {
     setTab(id)
   }
 
-  const meta = VIEW_META[tab]
-
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -84,15 +81,17 @@ function App() {
             <BrandMark />
           </span>
           <span className="brand-text">
-            <span className="brand-name">asterism</span>
-            <span className="brand-tag">研究データ → つながったデータ</span>
+            <span className="brand-name">{t('brand.name')}</span>
+            <span className="brand-tag">{t('brand.tag')}</span>
           </span>
         </div>
 
         <nav className="side-nav">
           {NAV_SECTIONS.map((sec) => (
             <div className="side-nav-group" key={sec.heading || 'home'}>
-              {sec.heading && <span className="side-nav-label">{sec.heading}</span>}
+              {sec.heading && (
+                <span className="side-nav-label">{t(`nav.section.${sec.heading}`)}</span>
+              )}
               {sec.items.map((it) => {
                 const Icon = it.icon
                 return (
@@ -103,8 +102,8 @@ function App() {
                     onClick={() => navTo(it.id)}
                   >
                     <Icon className="side-nav-icon" />
-                    <span className="side-nav-text">{it.label}</span>
-                    <span className="side-nav-en">{it.en}</span>
+                    <span className="side-nav-text">{t(`nav.${it.id}`)}</span>
+                    <span className="side-nav-en">{glossT(`nav.${it.id}`)}</span>
                   </button>
                 )
               })}
@@ -119,12 +118,12 @@ function App() {
             onClick={() => navTo('sparql')}
           >
             <CodeIcon className="side-nav-icon" />
-            <span className="side-nav-text">SPARQL</span>
-            <span className="side-nav-en">開発者向け</span>
+            <span className="side-nav-text">{t('nav.sparql')}</span>
+            <span className="side-nav-en">{t('nav.sparqlTag')}</span>
           </button>
           <div className="graph-status">
             <span className={`status-dot ${isMockMode ? 'status-dot--mock' : 'status-dot--live'}`} />
-            {isMockMode ? 'Ask・カタログ: demo データ (mock)' : 'グラフ稼働中'}
+            {isMockMode ? t('status.mock') : t('status.live')}
           </div>
         </div>
       </aside>
@@ -132,10 +131,11 @@ function App() {
       <div className="app-main">
         <header className="topbar">
           <div className="topbar-titles">
-            <span className="topbar-eyebrow">{meta.eyebrow}</span>
-            <h1 className="topbar-title">{meta.title}</h1>
+            <span className="topbar-eyebrow">{t(`view.${tab}.eyebrow`)}</span>
+            <h1 className="topbar-title">{t(`view.${tab}.title`)}</h1>
           </div>
-          <span className="topbar-sub">{meta.sub}</span>
+          <span className="topbar-sub">{t(`view.${tab}.sub`)}</span>
+          <LanguageToggle />
         </header>
 
         <main className="app-content">

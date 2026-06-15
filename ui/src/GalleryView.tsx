@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Trans, useTranslation } from 'react-i18next'
 import { ingestDataset, type IngestProgress, type IngestResult } from './api'
 import { getCrosswalk } from './crosswalkApi'
 import { getSchema } from './demoApi'
@@ -25,10 +26,8 @@ import { localName } from './vocab'
 
 type DetailTab = 'design' | 'rules' | 'tools'
 
-const STATUS_LABEL: Record<CatalogStatusKind, string> = {
-  pub: '公開済み',
-  draft: '下書き',
-  design: '設計中',
+function statusLabel(t: (k: string) => string, kind: CatalogStatusKind): string {
+  return t(`gallery:status.${kind}`)
 }
 
 /**
@@ -50,6 +49,7 @@ export function GalleryView({
   onOpenVocab?: () => void
   onOpenCrosswalk?: () => void
 }) {
+  const { t } = useTranslation()
   const [datasets, setDatasets] = useState<CatalogDataset[] | null>(null)
   const [error, setError] = useState('')
   const [picked, setPicked] = useState<string | null>(null)
@@ -107,14 +107,17 @@ export function GalleryView({
   return (
     <div className="catalog">
       <p className="catalog-intro">
-        作った<strong>データセット</strong>が主役です。各データセットは「<strong>設計図（語彙）</strong>」と
-        「<strong>取り込みルール</strong>」を持ちます。共通で使う語彙は下にまとめています。
+        <Trans i18nKey="gallery:intro">
+          作った<strong>データセット</strong>が主役です。各データセットは「<strong>設計図（語彙）</strong>」と
+          「<strong>取り込みルール</strong>」を持ちます。共通で使う語彙は下にまとめています。
+        </Trans>
       </p>
 
       {focusClass && (
         <div className="vocab-focus-banner">
-          Ask の引用に対応する語彙クラス：<strong>{focusClass}</strong>
-          <span className="vocab-focus-sub">この回答はこのクラスで型付けされたデータに基づきます。</span>
+          {t('gallery:focusBanner.label')}
+          <strong>{focusClass}</strong>
+          <span className="vocab-focus-sub">{t('gallery:focusBanner.sub')}</span>
         </div>
       )}
 
@@ -123,7 +126,7 @@ export function GalleryView({
       {!datasets && !error && (
         <p className="loading-row">
           <span className="spinner" />
-          カタログを読み込み中…
+          {t('gallery:loading')}
         </p>
       )}
 
@@ -132,8 +135,8 @@ export function GalleryView({
           <span className="state-icon state-icon--primary">
             <SearchIcon size={26} />
           </span>
-          <p className="state-title">まだデータセットがありません</p>
-          <p className="state-sub">「データを追加」でデータを取り込むと、ここに並びます。</p>
+          <p className="state-title">{t('gallery:empty.title')}</p>
+          <p className="state-sub">{t('gallery:empty.sub')}</p>
         </div>
       )}
 
@@ -141,7 +144,7 @@ export function GalleryView({
         <div className="catalog-grid">
           <div className="catalog-list">
             <div className="catalog-list-head">
-              <h3 className="card-h">データセット</h3>
+              <h3 className="card-h">{t('gallery:list.head')}</h3>
               <span className="catalog-count">{list.length}</span>
             </div>
             {list.map((d) => (
@@ -177,20 +180,26 @@ export function GalleryView({
         </span>
         <span className="shared-band-body">
           <span className="shared-band-title">
-            共有の語彙 <span className="shared-band-en">shared vocabulary</span>
-            <span className="shared-band-warn">変更は全体に影響 · 要注意</span>
+            {t('gallery:sharedBand.title')} <span className="shared-band-en">{t('gallery:sharedBand.en')}</span>
+            <span className="shared-band-warn">{t('gallery:sharedBand.warn')}</span>
           </span>
           <span className="shared-band-sub">
-            複数のデータセットが共通で使う設計図。揃えておくと<strong>横断して検索・比較</strong>できます。
+            <Trans i18nKey="gallery:sharedBand.sub">
+              複数のデータセットが共通で使う設計図。揃えておくと<strong>横断して検索・比較</strong>できます。
+            </Trans>
           </span>
         </span>
         <span className="shared-band-cta">
           {sharedClassCount != null && (
             <span className="shared-band-users">
-              <span className="mono-strong">{sharedClassCount}</span> クラスを共有
+              <Trans
+                i18nKey="gallery:sharedBand.users"
+                values={{ n: sharedClassCount }}
+                components={[<span className="mono-strong" key="n" />]}
+              />
             </span>
           )}
-          開く <ArrowIcon size={14} />
+          {t('gallery:sharedBand.open')} <ArrowIcon size={14} />
         </span>
       </button>
 
@@ -201,20 +210,26 @@ export function GalleryView({
         </span>
         <span className="shared-band-body">
           <span className="shared-band-title">
-            クロスウォーク <span className="shared-band-en">crosswalk</span>
+            {t('gallery:crosswalkBand.title')} <span className="shared-band-en">{t('gallery:crosswalkBand.en')}</span>
           </span>
           <span className="shared-band-sub">
-            同じ概念（組成・結晶系・著者…）を共有する複数のデータセットを<strong>1つの橋でつなぐ</strong>。
-            「この値は何データセットが報告？」を横断で答えられます。
+            <Trans i18nKey="gallery:crosswalkBand.sub">
+              同じ概念（組成・結晶系・著者…）を共有する複数のデータセットを<strong>1つの橋でつなぐ</strong>。
+              「この値は何データセットが報告？」を横断で答えられます。
+            </Trans>
           </span>
         </span>
         <span className="shared-band-cta">
           {crosswalkCount != null && crosswalkCount > 0 && (
             <span className="shared-band-users">
-              <span className="mono-strong">{crosswalkCount}</span> データセットを横断
+              <Trans
+                i18nKey="gallery:crosswalkBand.users"
+                values={{ n: crosswalkCount }}
+                components={[<span className="mono-strong" key="n" />]}
+              />
             </span>
           )}
-          開く <ArrowIcon size={14} />
+          {t('gallery:crosswalkBand.open')} <ArrowIcon size={14} />
         </span>
       </button>
     </div>
@@ -230,12 +245,13 @@ function DatasetListCard({
   active: boolean
   onSelect: () => void
 }) {
+  const { t } = useTranslation()
   return (
     <button type="button" className={`ds-card${active ? ' active' : ''}`} onClick={onSelect}>
       <div className="ds-card-head">
         <span className="ds-card-name">{dataset.name}</span>
         <span className={`status-pill status-pill--${dataset.statusKind}`}>
-          {STATUS_LABEL[dataset.statusKind]}
+          {statusLabel(t, dataset.statusKind)}
         </span>
       </div>
       <div className="ds-card-sub">{dataset.sub}</div>
@@ -263,12 +279,13 @@ function DatasetDetail({
   highlight?: string | null
   onChanged: () => void
 }) {
+  const { t } = useTranslation()
   return (
     <div className="ds-detail card">
       <div className="ds-detail-head">
         <h2 className="ds-detail-name">{dataset.name}</h2>
         <span className={`status-pill status-pill--${dataset.statusKind}`}>
-          {STATUS_LABEL[dataset.statusKind]}
+          {statusLabel(t, dataset.statusKind)}
         </span>
         <div className="ds-tabs">
           <button
@@ -276,14 +293,14 @@ function DatasetDetail({
             className={`ds-tab${tab === 'design' ? ' active' : ''}`}
             onClick={() => onTab('design')}
           >
-            設計図 <span className="ds-tab-en">ontology</span>
+            {t('gallery:tab.design')} <span className="ds-tab-en">{t('gallery:tab.designEn')}</span>
           </button>
           <button
             type="button"
             className={`ds-tab${tab === 'rules' ? ' active' : ''}`}
             onClick={() => onTab('rules')}
           >
-            取り込みルール <span className="ds-tab-en">mapping</span>
+            {t('gallery:tab.rules')} <span className="ds-tab-en">{t('gallery:tab.rulesEn')}</span>
           </button>
           {dataset.live && (
             <button
@@ -291,7 +308,7 @@ function DatasetDetail({
               className={`ds-tab${tab === 'tools' ? ' active' : ''}`}
               onClick={() => onTab('tools')}
             >
-              ツール <span className="ds-tab-en">tools</span>
+              {t('gallery:tab.tools')} <span className="ds-tab-en">{t('gallery:tab.toolsEn')}</span>
             </button>
           )}
         </div>
@@ -300,7 +317,7 @@ function DatasetDetail({
       {dataset.purposes.length > 0 && (
         <div className="ds-purposes">
           <div className="ds-purposes-label">
-            <SearchIcon size={13} /> このデータが答えられる問い
+            <SearchIcon size={13} /> {t('gallery:purposes.label')}
           </div>
           <div className="ds-purpose-tags">
             {dataset.purposes.map((p) => (
@@ -317,8 +334,8 @@ function DatasetDetail({
       ) : tab === 'design' ? (
         <div className="ds-tab-body">
           <div className="ds-section-head">
-            <span className="ds-section-title">設計図（中身の構造）</span>
-            <span className="ds-section-note">{dataset.classes.length} クラス</span>
+            <span className="ds-section-title">{t('gallery:design.title')}</span>
+            <span className="ds-section-note">{t('gallery:design.classCount', { n: dataset.classes.length })}</span>
           </div>
           {dataset.classes.length > 0 ? (
             <div className="ds-classes">
@@ -329,12 +346,12 @@ function DatasetDetail({
               ))}
             </div>
           ) : (
-            <p className="ds-empty-note">クラス情報はありません。</p>
+            <p className="ds-empty-note">{t('gallery:design.noClasses')}</p>
           )}
 
           {dataset.predicates.length > 0 && (
             <>
-              <div className="ds-subhead">使っている述語（実データの語彙）</div>
+              <div className="ds-subhead">{t('gallery:design.predicatesHead')}</div>
               <div className="ds-classes">
                 {dataset.predicates.map((p) => (
                   <span key={p} className="class-chip" title={p}>
@@ -347,7 +364,7 @@ function DatasetDetail({
 
           {dataset.mermaid && (
             <details className="ds-diagram-details">
-              <summary>クラス図を見る</summary>
+              <summary>{t('gallery:design.diagramSummary')}</summary>
               <div className="onto-diagram">
                 <Mermaid chart={dataset.mermaid} />
               </div>
@@ -356,12 +373,12 @@ function DatasetDetail({
 
           {dataset.reuses.length > 0 && (
             <>
-              <div className="ds-subhead">他から借りている語彙（実データの名前空間から検出）</div>
+              <div className="ds-subhead">{t('gallery:design.reusesHead')}</div>
               <div className="ds-reuse-list">
                 {dataset.reuses.map((r) => (
-                  <span key={r.prefix} className="reuse-chip" title={r.what}>
+                  <span key={r.prefix} className="reuse-chip" title={t(r.what)}>
                     <code>{r.prefix}</code>
-                    <span className="reuse-chip-what">{r.what}</span>
+                    <span className="reuse-chip-what">{t(r.what)}</span>
                   </span>
                 ))}
               </div>
@@ -371,7 +388,7 @@ function DatasetDetail({
       ) : (
         <div className="ds-tab-body">
           <div className="ds-section-head">
-            <span className="ds-section-title">取り込みルール（生成物）</span>
+            <span className="ds-section-title">{t('gallery:rules.title')}</span>
           </div>
           {dataset.artifacts.length > 0 ? (
             <div className="ds-artifacts">
@@ -384,7 +401,7 @@ function DatasetDetail({
               ))}
             </div>
           ) : (
-            <p className="ds-empty-note">取り込みルールの生成物はまだありません。</p>
+            <p className="ds-empty-note">{t('gallery:rules.empty')}</p>
           )}
         </div>
       )}
@@ -426,6 +443,7 @@ function shortIri(iri: string): string {
  * is not yet a citable fact — promote does that. Only shown for design stage.
  */
 function IngestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChanged: () => void }) {
+  const { t } = useTranslation()
   const [files, setFiles] = useState<File[]>([])
   const [busy, setBusy] = useState(false)
   const [progress, setProgress] = useState<IngestProgress | null>(null)
@@ -438,11 +456,8 @@ function IngestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChang
   if (!meta.has_rml) {
     return (
       <div className="ingest-gate">
-        <div className="ds-subhead">取り込み（Oxigraph へ投入）</div>
-        <p className="ingest-hint">
-          この設計には宣言 RML マッピングが無いため取り込めません。ワークベンチの「AI が設計」で
-          §RML（宣言マッピング）を出すと、ここから安全に投入できるようになります。
-        </p>
+        <div className="ds-subhead">{t('gallery:ingest.head')}</div>
+        <p className="ingest-hint">{t('gallery:ingest.noRml')}</p>
       </div>
     )
   }
@@ -450,11 +465,8 @@ function IngestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChang
   if (done) {
     return (
       <div className="ingest-gate">
-        <div className="ds-subhead">取り込み（Oxigraph へ投入）</div>
-        <p className="ingest-ok">
-          ✓ 下書きグラフに取り込みました（{done.triple_count} 件）。次に下の「共有データに昇格」を押すと
-          Ask が引用できます。
-        </p>
+        <div className="ds-subhead">{t('gallery:ingest.head')}</div>
+        <p className="ingest-ok">{t('gallery:ingest.done', { n: done.triple_count })}</p>
       </div>
     )
   }
@@ -481,22 +493,27 @@ function IngestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChang
 
   return (
     <div className="ingest-gate">
-      <div className="ds-subhead">取り込み（Oxigraph へ投入）</div>
+      <div className="ds-subhead">{t('gallery:ingest.head')}</div>
       <p className="ingest-note">
-        承認すると、この宣言 RML を Morph-KGC が実行し（生成コードは走らず、検証済みの Tier 0
-        関数だけ）、結果を<strong>隔離された下書きグラフ</strong>に投入します。Ask
-        の引用面（canonical）は汚しません。
+        <Trans i18nKey="gallery:ingest.note">
+          承認すると、この宣言 RML を Morph-KGC が実行し（生成コードは走らず、検証済みの Tier 0
+          関数だけ）、結果を<strong>隔離された下書きグラフ</strong>に投入します。Ask
+          の引用面（canonical）は汚しません。
+        </Trans>
       </p>
       {hasSource ? (
         <p className="ingest-source">
-          設計時の{sourceLabel}を保存済み
-          {meta.source_files?.length ? `（${meta.source_files.join('、')}）` : ''}
-          。再添付なしで取り込めます。
+          {t('gallery:ingest.sourceSaved', {
+            source: sourceLabel,
+            files: meta.source_files?.length
+              ? t('gallery:ingest.filesSuffix', { names: meta.source_files.join('、') })
+              : '',
+          })}
         </p>
       ) : (
         <div className="ingest-pick">
           <label className="file-btn">
-            {sourceLabel}を選択
+            {t('gallery:ingest.pickLabel', { source: sourceLabel })}
             <input
               type="file"
               accept={isJson ? '.json,.geojson' : '.csv'}
@@ -507,15 +524,15 @@ function IngestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChang
           <span className={`file-names${files.length ? '' : ' empty'}`}>
             {files.length
               ? files.map((f) => f.name).join('、')
-              : `設計に使った${sourceLabel}を選んでください`}
+              : t('gallery:ingest.pickPlaceholder', { source: sourceLabel })}
           </span>
         </div>
       )}
       <button type="button" className="promote-btn" onClick={onIngest} disabled={!canIngest}>
-        {busy ? '取り込み中…' : '取り込み（Oxigraph へ投入）'}
+        {busy ? t('gallery:ingest.submitting') : t('gallery:ingest.submit')}
       </button>
       {busy && <IngestProgressView progress={progress} />}
-      {err && <p className="promote-err">取り込みに失敗しました: {err}</p>}
+      {err && <p className="promote-err">{t('gallery:ingest.error', { message: err })}</p>}
     </div>
   )
 }
@@ -529,6 +546,7 @@ function IngestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChang
  * shown for a promoted, active dataset with declarative RML.
  */
 function AppendControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChanged: () => void }) {
+  const { t } = useTranslation()
   const [files, setFiles] = useState<File[]>([])
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState<AppendResult | null>(null)
@@ -560,22 +578,27 @@ function AppendControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChang
 
   return (
     <div className="ingest-gate">
-      <div className="ds-subhead">ライブに追記（装置フィード）</div>
+      <div className="ds-subhead">{t('gallery:append.head')}</div>
       <p className="ingest-note">
-        新しいバッチ{sourceLabel}<strong>だけ</strong>を取り込み、このまま共有データ（live）に追記します
-        （O(新規)）。既存の事実・IRI は変えず、同じ行は重複排除。スキーマと初版は昇格時に承認済みなので、
-        追記はゲートを通りません（装置の連続ログ向け）。ファイル名は RML の <code>rml:source</code> に
-        一致させてください。
+        <Trans
+          i18nKey="gallery:append.note"
+          values={{ source: sourceLabel }}
+          components={{ strong: <strong />, code: <code /> }}
+        />
       </p>
       {(meta.append_seq ?? 0) > 0 && (
         <p className="ingest-source">
-          これまで {meta.append_seq} バッチ追記済み
-          {meta.triples_appended ? `（+約 ${meta.triples_appended} 件）` : ''}。
+          {t('gallery:append.progress', {
+            seq: meta.append_seq,
+            appended: meta.triples_appended
+              ? t('gallery:append.progressAppended', { n: meta.triples_appended })
+              : '',
+          })}
         </p>
       )}
       <div className="ingest-pick">
         <label className="file-btn">
-          {sourceLabel}を選択
+          {t('gallery:ingest.pickLabel', { source: sourceLabel })}
           <input
             type="file"
             accept={isJson ? '.json,.geojson' : '.csv'}
@@ -589,18 +612,18 @@ function AppendControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChang
         <span className={`file-names${files.length ? '' : ' empty'}`}>
           {files.length
             ? files.map((f) => f.name).join('、')
-            : `追記するバッチ${sourceLabel}を選んでください`}
+            : t('gallery:append.pickPlaceholder', { source: sourceLabel })}
         </span>
       </div>
       <button type="button" className="promote-btn" onClick={onAppend} disabled={!canAppend}>
-        {busy ? '追記中…' : 'ライブに追記'}
+        {busy ? t('gallery:append.submitting') : t('gallery:append.submit')}
       </button>
       {done && (
         <p className="ingest-ok">
-          ✓ 追記しました（+{done.triples_in_batch} 件・バッチ #{done.append_seq}）。Ask から即引用できます。
+          {t('gallery:append.done', { n: done.triples_in_batch, seq: done.append_seq })}
         </p>
       )}
-      {err && <p className="promote-err">追記に失敗しました: {err}</p>}
+      {err && <p className="promote-err">{t('gallery:append.error', { message: err })}</p>}
     </div>
   )
 }
@@ -621,6 +644,7 @@ function AppendControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChang
  *   - neither (design)   → nothing to gate.
  */
 function PromoteControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChanged: () => void }) {
+  const { t } = useTranslation()
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [alignment, setAlignment] = useState<AlignmentReport | null>(null)
@@ -630,8 +654,10 @@ function PromoteControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChan
     if (meta.promoted) {
       return (
         <p className="promote-ok">
-          ✓ 共有データに昇格済み（{meta.triples_promoted ?? 0} 件{version ? `・版 v${version}` : ''}）。Ask
-          が引用できます（正式グラフ＝canonical）。
+          {t('gallery:promote.ok', {
+            n: meta.triples_promoted ?? 0,
+            version: version ? t('gallery:promote.okVersion', { version }) : '',
+          })}
         </p>
       )
     }
@@ -669,45 +695,57 @@ function PromoteControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChan
     <div className="promote-control">
       {isRepromote ? (
         <p className="promote-note">
-          新しい版を下書きグラフに取り込み済みです。「共有データに反映（再昇格）」を押すと、Ask が引用する版が{' '}
-          <strong>v{version} → v{version + 1}</strong>{' '}
-          に上がり、新しいデータに切り替わります。切り替えは一瞬で、旧版は自動で片付けられます（取り込み中も今の版が引用され続けるので途切れません）。
+          <Trans
+            i18nKey="gallery:promote.repromoteNote"
+            values={{ version, next: version + 1 }}
+            components={{ strong: <strong /> }}
+          />
         </p>
       ) : (
         <p className="promote-note">
-          「共有データに昇格」すると、下書きグラフのこのデータが <strong>Ask が引用する正式グラフ
-          （canonical）</strong> に移ります。昇格前に、使っている語彙が既存の再利用か新規かを確認できます。
+          <Trans i18nKey="gallery:promote.note">
+            「共有データに昇格」すると、下書きグラフのこのデータが <strong>Ask が引用する正式グラフ
+            （canonical）</strong> に移ります。昇格前に、使っている語彙が既存の再利用か新規かを確認できます。
+          </Trans>
         </p>
       )}
       {alignment ? (
         <div className="alignment-summary">
           <span>
-            述語: 既存の再利用 {alignment.predicates.reuse.length} / 新規 {alignment.predicates.new.length}{' '}
-            ／ クラス: 既存の再利用 {alignment.classes.reuse.length} / 新規 {alignment.classes.new.length}
+            {t('gallery:promote.alignmentSummary', {
+              predReuse: alignment.predicates.reuse.length,
+              predNew: alignment.predicates.new.length,
+              classReuse: alignment.classes.reuse.length,
+              classNew: alignment.classes.new.length,
+            })}
           </span>
           {alignment.predicates.new.length > 0 && (
             <p className="alignment-new">
-              新規の述語（既存語彙に無い）: {alignment.predicates.new.map(shortIri).join('、')}
+              {t('gallery:promote.alignmentNew', {
+                terms: alignment.predicates.new.map(shortIri).join('、'),
+              })}
             </p>
           )}
         </div>
       ) : (
         <button type="button" className="btn btn--ghost btn--sm" onClick={preview}>
-          語彙の差分を確認（{isRepromote ? '再昇格' : '昇格'}前チェック）
+          {isRepromote ? t('gallery:promote.previewRepromote') : t('gallery:promote.preview')}
         </button>
       )}
       <button type="button" className="promote-btn" onClick={promote} disabled={busy}>
         {busy
           ? isRepromote
-            ? '反映中…'
-            : '昇格中…'
+            ? t('gallery:promote.repromoting')
+            : t('gallery:promote.promoting')
           : isRepromote
-            ? `共有データに反映（再昇格 → v${version + 1}）`
-            : '共有データに昇格（Ask で使えるように）'}
+            ? t('gallery:promote.repromoteSubmit', { next: version + 1 })
+            : t('gallery:promote.submit')}
       </button>
       {err && (
         <p className="promote-err">
-          {isRepromote ? '再昇格' : '昇格'}に失敗しました: {err}
+          {isRepromote
+            ? t('gallery:promote.repromoteError', { message: err })
+            : t('gallery:promote.error', { message: err })}
         </p>
       )}
     </div>
@@ -725,6 +763,7 @@ function PromoteControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChan
  * persisted design-time source is reused.
  */
 function ReingestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChanged: () => void }) {
+  const { t } = useTranslation()
   const [files, setFiles] = useState<File[]>([])
   const [busy, setBusy] = useState(false)
   const [progress, setProgress] = useState<IngestProgress | null>(null)
@@ -765,31 +804,38 @@ function ReingestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onCha
 
   return (
     <div className="ingest-gate">
-      <div className="ds-subhead">データを更新（再取り込み）</div>
+      <div className="ds-subhead">{t('gallery:reingest.head')}</div>
       <p className="ingest-note">
-        新しい{sourceLabel}を<strong>別バージョンのグラフ</strong>（canonical/{shortIri(meta.id)}/v…）に取り込みます。
+        <Trans
+          i18nKey="gallery:reingest.notePrefix"
+          values={{ source: sourceLabel, id: shortIri(meta.id) }}
+          components={{ strong: <strong /> }}
+        />{' '}
         {published ? (
-          <>
-            取り込み中も<strong>今の公開版（v{version}）が Ask に引用され続ける</strong>ので、回答が途切れません。
-            完了したら下の「共有データに反映（再昇格）」で <strong>v{version} → v{version + 1}</strong>{' '}
-            に切り替わり、旧版は自動で片付けられます。
-          </>
+          <Trans
+            i18nKey="gallery:reingest.notePublished"
+            values={{ version, next: version + 1 }}
+            components={{ strong: <strong /> }}
+          />
         ) : (
-          <>
-            まだ公開していない下書きを取り直します（Ask には影響しません）。完了したら下の「共有データに昇格」で公開できます。
-          </>
+          t('gallery:reingest.noteUnpublished')
         )}
       </p>
       {hasSource ? (
         <p className="ingest-source">
-          設計時の{sourceLabel}を保存済み
-          {meta.source_files?.length ? `（${meta.source_files.join('、')}）` : ''}
-          。再添付なしで取り込めます。別の{sourceLabel}に差し替えたい場合は下で選んでください。
+          {t('gallery:reingest.sourceSaved', {
+            source: sourceLabel,
+            files: meta.source_files?.length
+              ? t('gallery:ingest.filesSuffix', { names: meta.source_files.join('、') })
+              : '',
+          })}
         </p>
       ) : null}
       <div className="ingest-pick">
         <label className="file-btn">
-          {hasSource ? `${sourceLabel}を差し替え` : `${sourceLabel}を選択`}
+          {hasSource
+            ? t('gallery:reingest.pickReplace', { source: sourceLabel })
+            : t('gallery:reingest.pickSelect', { source: sourceLabel })}
           <input
             type="file"
             accept={isJson ? '.json,.geojson' : '.csv'}
@@ -801,15 +847,15 @@ function ReingestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onCha
           {files.length
             ? files.map((f) => f.name).join('、')
             : hasSource
-              ? `差し替えない場合は保存済み${sourceLabel}を使います`
-              : `更新に使う${sourceLabel}を選んでください`}
+              ? t('gallery:reingest.placeholderKeep', { source: sourceLabel })
+              : t('gallery:reingest.placeholderSelect', { source: sourceLabel })}
         </span>
       </div>
       <button type="button" className="promote-btn" onClick={onReingest} disabled={!canReingest}>
-        {busy ? '取り込み中…' : '新しいデータで再取り込み'}
+        {busy ? t('gallery:reingest.submitting') : t('gallery:reingest.submit')}
       </button>
       {busy && <IngestProgressView progress={progress} />}
-      {err && <p className="promote-err">再取り込みに失敗しました: {err}</p>}
+      {err && <p className="promote-err">{t('gallery:reingest.error', { message: err })}</p>}
     </div>
   )
 }
@@ -821,6 +867,7 @@ function ReingestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onCha
  * by /api/datasets/{id}/{retract,reinstate} and DELETE /api/datasets/{id}.
  */
 function LifecycleControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChanged: () => void }) {
+  const { t } = useTranslation()
   const [busy, setBusy] = useState('')
   const [err, setErr] = useState('')
   const [msg, setMsg] = useState('')
@@ -843,10 +890,12 @@ function LifecycleControl({ meta, onChanged }: { meta: LiveDataset['meta']; onCh
 
   return (
     <div className="lifecycle-control">
-      <div className="ds-subhead">ライフサイクル操作</div>
+      <div className="ds-subhead">{t('gallery:lifecycle.head')}</div>
       {retracted && (
         <p className="lifecycle-status">
-          状態: <strong>撤回済み</strong>（Ask の引用対象外。データ・IRI は残るので既存の引用は壊れません。復帰できます）
+          <Trans i18nKey="gallery:lifecycle.retractedStatus">
+            状態: <strong>撤回済み</strong>（Ask の引用対象外。データ・IRI は残るので既存の引用は壊れません。復帰できます）
+          </Trans>
         </p>
       )}
       <div className="lifecycle-actions">
@@ -856,16 +905,14 @@ function LifecycleControl({ meta, onChanged }: { meta: LiveDataset['meta']; onCh
             className="btn btn--ghost btn--sm"
             disabled={!!busy}
             onClick={() =>
-              window.confirm(
-                'このデータセットを撤回しますか？\nAsk の引用対象から外しますが、データと IRI は残るので既存の引用は壊れません（後で復帰できます）。',
-              ) &&
+              window.confirm(t('gallery:lifecycle.retractConfirm')) &&
               run('retract', async () => {
                 await retractDataset(meta.id)
-                return '撤回しました（canonical から除外・引用は維持）。'
+                return t('gallery:lifecycle.retractDone')
               })
             }
           >
-            {busy === 'retract' ? '撤回中…' : '撤回（Ask の引用から外す）'}
+            {busy === 'retract' ? t('gallery:lifecycle.retracting') : t('gallery:lifecycle.retract')}
           </button>
         )}
         {retracted && (
@@ -876,11 +923,11 @@ function LifecycleControl({ meta, onChanged }: { meta: LiveDataset['meta']; onCh
             onClick={() =>
               run('reinstate', async () => {
                 await reinstateDataset(meta.id)
-                return '復帰しました（再び Ask の引用対象です）。'
+                return t('gallery:lifecycle.reinstateDone')
               })
             }
           >
-            {busy === 'reinstate' ? '復帰中…' : '復帰（再び引用対象に）'}
+            {busy === 'reinstate' ? t('gallery:lifecycle.reinstating') : t('gallery:lifecycle.reinstate')}
           </button>
         )}
         <button
@@ -891,21 +938,21 @@ function LifecycleControl({ meta, onChanged }: { meta: LiveDataset['meta']; onCh
             const promoted = stage === 'promoted'
             const ok = window.confirm(
               promoted
-                ? 'このデータセットを完全に削除しますか？\n昇格済み（引用可能）なので、既存の引用が 404 になる恐れがあります。通常は「撤回」を推奨します。\n\nそれでも削除しますか？'
-                : 'このデータセットを削除しますか？（未昇格なので安全に削除できます）',
+                ? t('gallery:lifecycle.deleteConfirmPromoted')
+                : t('gallery:lifecycle.deleteConfirm'),
             )
             if (ok)
               run('delete', async () => {
                 await deleteDataset(meta.id, promoted)
-                return '削除しました。'
+                return t('gallery:lifecycle.deleteDone')
               })
           }}
         >
-          {busy === 'delete' ? '削除中…' : '削除'}
+          {busy === 'delete' ? t('gallery:lifecycle.deleting') : t('gallery:lifecycle.delete')}
         </button>
       </div>
       {msg && <p className="lifecycle-ok">{msg}</p>}
-      {err && <p className="lifecycle-err">操作に失敗しました: {err}</p>}
+      {err && <p className="lifecycle-err">{t('gallery:lifecycle.error', { message: err })}</p>}
     </div>
   )
 }

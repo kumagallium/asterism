@@ -1,0 +1,72 @@
+{
+  "docTitle": "asterism — Turn research data into connected data",
+  "brand": {
+    "name": "asterism",
+    "tag": "Research data → connected data"
+  },
+  "langToggle": {
+    "label": "Language",
+    "ja": "日本語",
+    "en": "English"
+  },
+  "nav": {
+    "section": {
+      "create": "Create",
+      "use": "Use",
+      "manage": "Manage"
+    },
+    "home": "Home",
+    "workbench": "Add data",
+    "ask": "Ask",
+    "gallery": "Catalog",
+    "jobs": "Activity",
+    "sparql": "SPARQL",
+    "sparqlTag": "Developer"
+  },
+  "status": {
+    "mock": "Ask / Catalog: demo data (mock)",
+    "live": "Graph live"
+  },
+  "view": {
+    "home": {
+      "eyebrow": "Start",
+      "title": "Home",
+      "sub": "Your connected data, and what to do next"
+    },
+    "workbench": {
+      "eyebrow": "Create",
+      "title": "Add data",
+      "sub": "Build a knowledge graph from a CSV, with AI"
+    },
+    "ask": {
+      "eyebrow": "Use",
+      "title": "Ask",
+      "sub": "Answer questions over your ingested data, with citations"
+    },
+    "gallery": {
+      "eyebrow": "Use",
+      "title": "Catalog",
+      "sub": "Browse what your data contains"
+    },
+    "vocab": {
+      "eyebrow": "Use · Catalog",
+      "title": "Shared vocabulary",
+      "sub": "The blueprint multiple datasets share"
+    },
+    "crosswalk": {
+      "eyebrow": "Use · Catalog",
+      "title": "Crosswalk",
+      "sub": "Bridges that connect datasets across each other"
+    },
+    "jobs": {
+      "eyebrow": "Manage",
+      "title": "Activity",
+      "sub": "When and what was ingested"
+    },
+    "sparql": {
+      "eyebrow": "Manage · Developer",
+      "title": "SPARQL",
+      "sub": "Read-only queries"
+    }
+  }
+}

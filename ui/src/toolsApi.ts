@@ -18,6 +18,7 @@
 // only — these go through /api (the proxy), so they are live even under the
 // preview's mock demo mode (which only swaps the demo-agent surface).
 import { authHeaders } from './authToken'
+import i18n from './i18n'
 
 const API_BASE = ((import.meta.env.VITE_API_URL as string | undefined) ?? '').replace(/\/+$/, '')
 
@@ -80,7 +81,7 @@ async function asError(res: Response, op: string): Promise<Error> {
 /** List a dataset's saved (verified) query tools. */
 export async function listTools(datasetId: string): Promise<QueryTool[]> {
   const res = await fetch(`${API_BASE}/api/datasets/${encodeURIComponent(datasetId)}/tools`)
-  if (!res.ok) throw await asError(res, 'ツール一覧の取得')
+  if (!res.ok) throw await asError(res, i18n.t('tools:error.ops.list'))
   return ((await res.json()) as { tools?: QueryTool[] }).tools ?? []
 }
 
@@ -91,7 +92,7 @@ export async function saveTool(datasetId: string, tool: QueryTool): Promise<Quer
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(tool),
   })
-  if (!res.ok) throw await asError(res, 'ツールの保存')
+  if (!res.ok) throw await asError(res, i18n.t('tools:error.ops.save'))
   return ((await res.json()) as { tools?: QueryTool[] }).tools ?? []
 }
 
@@ -101,7 +102,7 @@ export async function deleteTool(datasetId: string, name: string): Promise<Query
     `${API_BASE}/api/datasets/${encodeURIComponent(datasetId)}/tools/${encodeURIComponent(name)}`,
     { method: 'DELETE', headers: authHeaders() },
   )
-  if (!res.ok) throw await asError(res, 'ツールの削除')
+  if (!res.ok) throw await asError(res, i18n.t('tools:error.ops.delete'))
   return ((await res.json()) as { tools?: QueryTool[] }).tools ?? []
 }
 
@@ -124,7 +125,7 @@ export async function proposeTool(
       body: JSON.stringify({ intent }),
     },
   )
-  if (!res.ok) throw await asError(res, 'AI 下書き')
+  if (!res.ok) throw await asError(res, i18n.t('tools:error.ops.propose'))
   return (await res.json()) as ProposeResult
 }
 
@@ -146,6 +147,6 @@ export async function runTool(
       body: JSON.stringify({ args }),
     },
   )
-  if (!res.ok) throw await asError(res, 'ツールの実行')
+  if (!res.ok) throw await asError(res, i18n.t('tools:error.ops.run'))
   return (await res.json()) as ToolRunResult
 }

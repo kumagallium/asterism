@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Trans, useTranslation } from 'react-i18next'
 import {
   type IngestProgress,
   type IngestResult,
@@ -15,26 +16,12 @@ const STATUS_GLYPH: Record<TrapResult['status'], string> = {
   skip: '·',
 }
 
-// Japanese trap labels (the backend `name` is English). Keyed by trap id so the
-// page reads in Japanese without relying on the browser's auto-translate.
-const TRAP_JA: Record<string, string> = {
-  T1: 'IRI の一意性（複合キーが全体で一意か）',
-  T2: 'BOM（ingester が utf-8-sig で開くか）',
-  T3: '空白ノードなし（bnode-free）',
-  T4: 'MIE のキーワード／カテゴリ（5 個以上）',
-  T5: 'Mermaid のコロン回避（図ラベルに : を含まない）',
-  T6: 'サンプルが実在行か（捏造でないか）',
-  T7: '設計根拠（理由／代替案／トレードオフ）',
-  T8: 'AI 幻覚テスト（任意）',
-}
+// Known trap ids that have a localized label (workbench:trap.<id>). The backend
+// `name` is English and is used as the fallback for unknown ids.
+const TRAP_IDS = ['T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8'] as const
 
-// Plain-language meaning of each status, shown in the legend.
-const STATUS_JA: { status: TrapResult['status']; label: string }[] = [
-  { status: 'pass', label: '合格' },
-  { status: 'skip', label: 'スキップ（実行せず）' },
-  { status: 'warn', label: '警告' },
-  { status: 'fail', label: '不合格（要修正）' },
-]
+// Status order shown in the legend; label is resolved via workbench:status.<key>.
+const STATUS_ORDER: TrapResult['status'][] = ['pass', 'skip', 'warn', 'fail']
 
 function download(filename: string, contents: string) {
   const blob = new Blob([contents], { type: 'text/plain;charset=utf-8' })
@@ -60,10 +47,15 @@ export function MaterializePanel({
   /** The CSVs used to design the schema — needed to run the substrate ingest. */
   csvFiles?: File[]
 }) {
+  const { t } = useTranslation()
   const artifacts = Object.entries(result.artifacts).filter(([, v]) => v) as [string, string][]
+  // Localized trap label, falling back to the backend's English `name` for ids
+  // we don't have a translation for.
+  const trapLabel = (id: string, name: string) =>
+    (TRAP_IDS as readonly string[]).includes(id) ? t(`workbench:trap.${id}`) : name
   return (
     <section className="materialize-panel">
-      <h3 className="section-h">生成物（{artifacts.length}）</h3>
+      <h3 className="section-h">{t('workbench:materialize.artifactsHeading', { n: artifacts.length })}</h3>
       <div className="artifact-list">
         {Object.entries(result.artifacts).map(([name, contents]) => (
           <button
@@ -72,7 +64,11 @@ export function MaterializePanel({
             className="artifact-btn"
             disabled={!contents}
             onClick={() => contents && download(name, contents)}
-            title={contents ? `${name} をダウンロード` : `${name} は抽出されませんでした`}
+            title={
+              contents
+                ? t('workbench:materialize.downloadTitle', { name })
+                : t('workbench:materialize.notExtractedTitle', { name })
+            }
           >
             ⤓ {name}
           </button>
@@ -86,33 +82,35 @@ export function MaterializePanel({
         </ul>
       )}
 
-      <h3 className="section-h">検証（8 つの罠）</h3>
+      <h3 className="section-h">{t('workbench:materialize.validationHeading')}</h3>
       <div className="trap-legend">
-        {STATUS_JA.map((s) => (
-          <span key={s.status} className="trap-legend-item">
-            <span className={`trap-glyph trap-${s.status}`}>{STATUS_GLYPH[s.status]}</span>
-            {s.label}
+        {STATUS_ORDER.map((status) => (
+          <span key={status} className="trap-legend-item">
+            <span className={`trap-glyph trap-${status}`}>{STATUS_GLYPH[status]}</span>
+            {t(`workbench:status.${status}`)}
           </span>
         ))}
       </div>
       <div className="trap-grid">
-        {result.traps.map((t) => (
+        {result.traps.map((tr) => (
           <div
-            key={t.id}
-            className={`trap trap-${t.status}`}
-            title={`${TRAP_JA[t.id] ?? t.name}${t.detail ? ` — ${t.detail}` : ''}`}
+            key={tr.id}
+            className={`trap trap-${tr.status}`}
+            title={`${trapLabel(tr.id, tr.name)}${tr.detail ? ` — ${tr.detail}` : ''}`}
           >
-            <span className="trap-glyph">{STATUS_GLYPH[t.status]}</span>
-            <span className="trap-id">{t.id}</span>
-            <span className="trap-name">{TRAP_JA[t.id] ?? t.name}</span>
+            <span className="trap-glyph">{STATUS_GLYPH[tr.status]}</span>
+            <span className="trap-id">{tr.id}</span>
+            <span className="trap-name">{trapLabel(tr.id, tr.name)}</span>
           </div>
         ))}
       </div>
       <p className="trap-summary">
         {result.exit_code === 0 ? (
-          <span className="trap-ok">ブロッキング失敗なし（exit 0＝保存 OK）</span>
+          <span className="trap-ok">{t('workbench:materialize.summaryOk')}</span>
         ) : (
-          <span className="trap-bad">ブロッキング失敗あり（exit {result.exit_code}＝要修正）</span>
+          <span className="trap-bad">
+            {t('workbench:materialize.summaryBad', { code: result.exit_code })}
+          </span>
         )}
       </p>
 
@@ -127,6 +125,7 @@ export function MaterializePanel({
  * graph by default, so draft data is not a citable fact until promoted.
  */
 function IngestGate({ result, csvFiles }: { result: MaterializeResult; csvFiles: File[] }) {
+  const { t } = useTranslation()
   const rml = (result.artifacts['mapping.rml.ttl'] ?? '').trim()
   const datasetId = result.dataset?.id
   const [busy, setBusy] = useState(false)
@@ -137,11 +136,8 @@ function IngestGate({ result, csvFiles }: { result: MaterializeResult; csvFiles:
   if (!rml) {
     return (
       <div className="ingest-gate">
-        <h3 className="section-h">Oxigraph へ投入（人間ゲート）</h3>
-        <p className="ingest-hint">
-          この設計には宣言 RML マッピングが無いため投入できません。propose が §RML
-          （宣言マッピング）を出すと、ここから安全に投入できるようになります。
-        </p>
+        <h3 className="section-h">{t('workbench:ingest.heading')}</h3>
+        <p className="ingest-hint">{t('workbench:ingest.noRml')}</p>
       </div>
     )
   }
@@ -164,41 +160,34 @@ function IngestGate({ result, csvFiles }: { result: MaterializeResult; csvFiles:
 
   return (
     <div className="ingest-gate">
-      <h3 className="section-h">Oxigraph へ投入（人間ゲート）</h3>
+      <h3 className="section-h">{t('workbench:ingest.heading')}</h3>
       <p className="ingest-note">
-        承認すると、この宣言 RML を Morph-KGC が実行し（生成コードは走らず、検証済みの
-        Tier 0 関数だけ）、結果を<strong>隔離された draft グラフ</strong>に投入します。
-        Ask の既定の引用面（canonical）は汚しません。
+        <Trans i18nKey="workbench:ingest.note" components={{ strong: <strong /> }} />
       </p>
       <details className="rml-preview">
-        <summary>RML マッピングを確認（{rml.split('\n').length} 行）</summary>
+        <summary>
+          {t('workbench:ingest.previewSummary', { n: rml.split('\n').length })}
+        </summary>
         <pre className="rml-pre">{rml}</pre>
       </details>
 
       {done ? (
         <p className="ingest-ok">
-          ✓ draft グラフに投入しました（{done.triple_count} triples）。
+          {t('workbench:ingest.doneCount', { n: done.triple_count })}
           <br />
           <code className="ingest-graph">{done.graph_iri}</code>
         </p>
       ) : (
         <>
           <button type="button" onClick={onIngest} disabled={!canIngest}>
-            {busy ? '投入中…' : 'Oxigraph へ投入（承認）'}
+            {busy ? t('workbench:ingest.ingesting') : t('workbench:ingest.approve')}
           </button>
           {busy && <IngestProgressView progress={progress} />}
-          {!datasetId && (
-            <p className="ingest-hint">
-              この設計はまだ保存されていません（dataset が見つかりません）。
-            </p>
-          )}
+          {!datasetId && <p className="ingest-hint">{t('workbench:ingest.notSaved')}</p>}
           {datasetId && csvFiles.length === 0 && (
-            <p className="ingest-hint">
-              投入には設計に使った CSV が必要です。データソース欄で CSV を選び直してください
-              （リロード後は再選択が必要）。
-            </p>
+            <p className="ingest-hint">{t('workbench:ingest.needCsv')}</p>
           )}
-          {err && <p className="ingest-err">投入に失敗しました: {err}</p>}
+          {err && <p className="ingest-err">{t('workbench:ingest.failed', { message: err })}</p>}
         </>
       )}
     </div>

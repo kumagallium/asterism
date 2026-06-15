@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Trans, useTranslation } from 'react-i18next'
 import { runTool, type QueryTool, type ToolRunResult } from './toolsApi'
 
 function fmt(v: unknown): string {
@@ -14,6 +15,7 @@ function fmt(v: unknown): string {
  * Ask view so a researcher's verified tool is runnable wherever they are.
  */
 export function ToolRunner({ datasetId, tool }: { datasetId: string; tool: QueryTool }) {
+  const { t } = useTranslation()
   const params = tool.parameters ?? []
   const [args, setArgs] = useState<Record<string, string>>(() =>
     Object.fromEntries(
@@ -50,7 +52,9 @@ export function ToolRunner({ datasetId, tool }: { datasetId: string; tool: Query
   return (
     <div className="tool-run">
       <p className="tool-run-hint">
-        検証済みツールを<strong>キー不要・LLM 不要</strong>で実行します（型付き・決定論・引用つき）。
+        <Trans i18nKey="tools:runner.hint">
+          検証済みツールを<strong>キー不要・LLM 不要</strong>で実行します（型付き・決定論・引用つき）。
+        </Trans>
       </p>
       {params.length > 0 && (
         <div className="tool-run-form">
@@ -58,7 +62,7 @@ export function ToolRunner({ datasetId, tool }: { datasetId: string; tool: Query
             <label key={p.name} className="run-field">
               <span className="run-label">
                 {p.name}
-                {p.required && <span className="run-req">必須</span>}
+                {p.required && <span className="run-req">{t('tools:runner.required')}</span>}
                 <span className="run-type">{p.type}</span>
               </span>
               {p.type === 'enum' ? (
@@ -67,7 +71,7 @@ export function ToolRunner({ datasetId, tool }: { datasetId: string; tool: Query
                   value={args[p.name] ?? ''}
                   onChange={(e) => setArgs((a) => ({ ...a, [p.name]: e.target.value }))}
                 >
-                  <option value="">（未指定）</option>
+                  <option value="">{t('tools:runner.enumUnset')}</option>
                   {(p.enum ?? []).map((v) => (
                     <option key={v} value={v}>
                       {v}
@@ -79,7 +83,10 @@ export function ToolRunner({ datasetId, tool }: { datasetId: string; tool: Query
                   className="draft-text"
                   type={p.type === 'number' || p.type === 'integer' ? 'number' : 'text'}
                   value={args[p.name] ?? ''}
-                  placeholder={p.description || (p.default != null ? `既定: ${p.default}` : '')}
+                  placeholder={
+                    p.description ||
+                    (p.default != null ? t('tools:runner.defaultHint', { value: p.default }) : '')
+                  }
                   onChange={(e) => setArgs((a) => ({ ...a, [p.name]: e.target.value }))}
                 />
               )}
@@ -91,17 +98,19 @@ export function ToolRunner({ datasetId, tool }: { datasetId: string; tool: Query
         {running ? (
           <>
             <span className="spinner" />
-            実行中…
+            {t('tools:runner.running')}
           </>
         ) : (
-          '実行（キー不要）'
+          t('tools:runner.run')
         )}
       </button>
       {err && <pre className="error">{err}</pre>}
       {result && (
         <div className="tool-run-result">
           <p className="hint">
-            {result.count} 件{result.truncated && '（上限で切り詰め）'}
+            {result.truncated
+              ? t('tools:runner.result.countTruncated', { n: result.count })
+              : t('tools:runner.result.count', { n: result.count })}
           </p>
           {result.count > 0 ? (
             <div className="table-wrap">
@@ -129,10 +138,10 @@ export function ToolRunner({ datasetId, tool }: { datasetId: string; tool: Query
               </table>
             </div>
           ) : (
-            <p className="ds-empty-note">該当する結果はありません。</p>
+            <p className="ds-empty-note">{t('tools:runner.result.empty')}</p>
           )}
           <details className="tool-sparql-details">
-            <summary>実行した SPARQL（読み取り専用）</summary>
+            <summary>{t('tools:runner.result.sparqlSummary')}</summary>
             <pre className="sparql-block">{result.sparql}</pre>
           </details>
         </div>

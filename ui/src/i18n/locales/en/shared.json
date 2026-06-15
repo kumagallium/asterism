@@ -1,0 +1,51 @@
+{
+  "citation": {
+    "cardTitle": "Click to show the source (provenance)",
+    "untitled": "(untitled)",
+    "traceHint": "Source",
+    "vocabTitle": "Show vocabulary class \"{{className}}\" in the catalog",
+    "vocabLink": "Vocabulary: {{className}} →"
+  },
+  "trace": {
+    "ariaLabel": "Source (provenance trace)",
+    "eyebrow": "Source · provenance",
+    "title": "Trace the provenance",
+    "sub": "Shows where this value came from by tracing <1>which curve, paper, and ingestion</1> it originated from.",
+    "empty": "Select a citation card to see that value's source (curve → sample → paper → ingestion).",
+    "loading": "Resolving provenance…",
+    "legendData": "Data",
+    "legendProcess": "Process",
+    "vocabTitle": "Show vocabulary class \"{{className}}\" in the catalog",
+    "vocabLink": "View vocabulary",
+    "noRecord": "No provenance is recorded for this item."
+  },
+  "step": {
+    "curve": "Measurement curve",
+    "sample": "Sample",
+    "paper": "Paper",
+    "digitization": "Digitization",
+    "ingestion": "Ingestion"
+  },
+  "demo": {
+    "zt": {
+      "answer": "The recorded maximum is SnSe at about 2.6 (curve 1-2-3 / paper 456). A few extreme values >3.5 exist but were excluded as likely axis-label errors.",
+      "curveLabel": "Fig.3 ZT vs T",
+      "note": "Physically impossible ZT (>3.5) was excluded as a likely data error"
+    },
+    "composition": {
+      "answer": "Three SnSe-family samples were found. A representative one is sample 1-2 (SnSe, paper 456). All come with thermoelectric measurements (Seebeck / ZT).",
+      "paperLabel": "Snyder et al. (2014)"
+    },
+    "schema": {
+      "answer": "The newly designed schema has two Widget instances, each with a name (alpha, beta). No typed tool matched, so the schema was introspected to generate and run the SPARQL below."
+    },
+    "fallback": {
+      "answer": "No grounded-answer demo fixture is registered for this question. Try the ZT ranking or composition search examples.",
+      "note": "Mock mode: no fixture matches the question"
+    },
+    "provenance": {
+      "curveLabel": "Fig.3 ZT vs T",
+      "paperLabel": "Snyder et al. (2014)"
+    }
+  }
+}

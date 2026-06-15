@@ -1,0 +1,94 @@
+{
+  "panel": {
+    "sectionTitle": "ツール（このデータの検証済み Ask 操作）",
+    "count": "{{n}} 件",
+    "intro": "このデータセットに、型付き・決定論の<1>読み取り専用 SPARQL ツール</1>を足せます。保存したツールは PR なしで <3>Ask の検証済みツール</3>になります（保存＝人による確定）。",
+    "loading": "ツールを読み込み中…",
+    "emptyList": "まだツールはありません。下の「AI で下書き」から作れます。",
+    "author": {
+      "subhead": "AI で下書き（やりたいことから 1 つ作る）",
+      "hint": "「やりたいこと」を書くと、このデータの語彙をもとに <1>AI が読み取り専用 SPARQL ツールを下書き</1>します。下書きは<3>その場で編集</3>でき、<5>保存して初めて確定</5>します（保存＝人による検証ゲート）。キーはこのタブ内のみ保持し、保存しません（Ask と共通）。",
+      "intentPlaceholder": "例: 組成を渡すと結晶構造（空間群・結晶系）を返す",
+      "keyPlaceholder": "sk-ant-…（AI 下書きに必要）",
+      "proposing": "下書き中…",
+      "propose": "AI で下書き",
+      "startEmpty": "空から手で作る"
+    },
+    "notice": {
+      "saved": "「{{name}}」を保存しました。Ask の検証済みツールとして使えます。",
+      "deleted": "「{{name}}」を削除しました。"
+    },
+    "save": {
+      "required": "name と query は必須です。"
+    },
+    "deleteConfirm": "ツール「{{name}}」を削除しますか？\nこのデータセットの Ask から外れます。"
+  },
+  "card": {
+    "close": "閉じる",
+    "run": "実行",
+    "edit": "編集",
+    "deleting": "削除中…",
+    "delete": "削除",
+    "required": "必須",
+    "sparqlSummary": "SPARQL を見る"
+  },
+  "draft": {
+    "gate": {
+      "ok": "✓ AI 下書き: 検証 OK（そのまま保存できます）",
+      "bad": "要修正: {{error}}（編集して直してから保存してください）",
+      "note": "保存時にサーバが検証します（読み取り専用 SELECT/ASK・安全な束縛）。"
+    },
+    "title": "下書きを確認・編集",
+    "nameLabel": "名前 (snake_case)",
+    "titleLabel": "タイトル",
+    "titlePlaceholder": "人が読む短い名前",
+    "descriptionLabel": "説明",
+    "params": {
+      "head": "パラメータ",
+      "add": "+ 追加",
+      "empty": "パラメータはありません。",
+      "namePlaceholder": "param 名",
+      "required": "必須",
+      "delete": "削除",
+      "descriptionPlaceholder": "説明（任意）",
+      "defaultPlaceholder": "既定値（任意）",
+      "enumPlaceholder": "enum 値（カンマ区切り）"
+    },
+    "queryLabel": "SPARQL（読み取り専用・{{placeholder}} で束縛）",
+    "result": {
+      "head": "出力の対応づけ（任意・列名 → SPARQL 変数）",
+      "add": "+ 追加",
+      "empty": "未指定なら変数名がそのまま列名になります。",
+      "keyPlaceholder": "出力の列名 (例: space_group)",
+      "varPlaceholder": "SPARQL 変数 (例: sg)",
+      "number": "数値",
+      "delete": "削除"
+    },
+    "saving": "保存中…",
+    "save": "保存（確定してツールに追加）",
+    "discard": "破棄"
+  },
+  "runner": {
+    "hint": "検証済みツールを<1>キー不要・LLM 不要</1>で実行します（型付き・決定論・引用つき）。",
+    "required": "必須",
+    "enumUnset": "（未指定）",
+    "defaultHint": "既定: {{value}}",
+    "running": "実行中…",
+    "run": "実行（キー不要）",
+    "result": {
+      "count": "{{n}} 件",
+      "countTruncated": "{{n}} 件（上限で切り詰め）",
+      "empty": "該当する結果はありません。",
+      "sparqlSummary": "実行した SPARQL（読み取り専用）"
+    }
+  },
+  "error": {
+    "ops": {
+      "list": "ツール一覧の取得",
+      "save": "ツールの保存",
+      "delete": "ツールの削除",
+      "propose": "AI 下書き",
+      "run": "ツールの実行"
+    }
+  }
+}

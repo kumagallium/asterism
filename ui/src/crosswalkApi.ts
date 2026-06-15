@@ -8,6 +8,7 @@
 // even under the preview's mock demo mode), and carry the write-auth token for the
 // mutating routes (build/propose).
 import { authHeaders } from './authToken'
+import i18n from './i18n'
 
 const API_BASE = ((import.meta.env.VITE_API_URL as string | undefined) ?? '').replace(/\/+$/, '')
 
@@ -119,20 +120,26 @@ async function asError(res: Response, op: string): Promise<Error> {
   } catch {
     /* not JSON — keep raw text */
   }
-  return new Error(`${op}失敗 (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
+  return new Error(
+    i18n.t('crosswalk:error.failed', {
+      op,
+      status: res.status,
+      detail: detail ? `: ${detail}` : '',
+    }),
+  )
 }
 
 /** The persisted crosswalk config + the hub's stats (exists:false when no hub yet). */
 export async function getCrosswalk(): Promise<CrosswalkInfo> {
   const res = await fetch(`${API_BASE}/api/crosswalk`)
-  if (!res.ok) throw await asError(res, 'クロスウォークの取得')
+  if (!res.ok) throw await asError(res, i18n.t('crosswalk:error.ops.fetch'))
   return (await res.json()) as CrosswalkInfo
 }
 
 /** List every crosswalk PERSPECTIVE (the upper ontology is plural). */
 export async function getCrosswalks(): Promise<CrosswalkPerspective[]> {
   const res = await fetch(`${API_BASE}/api/crosswalks`)
-  if (!res.ok) throw await asError(res, 'クロスウォーク一覧の取得')
+  if (!res.ok) throw await asError(res, i18n.t('crosswalk:error.ops.fetchList'))
   return ((await res.json()) as { perspectives?: CrosswalkPerspective[] }).perspectives ?? []
 }
 
@@ -144,7 +151,7 @@ export async function buildCrosswalk(config?: CrosswalkConfig): Promise<BuildRes
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(config ? { config } : {}),
   })
-  if (!res.ok) throw await asError(res, 'クロスウォークの構築')
+  if (!res.ok) throw await asError(res, i18n.t('crosswalk:error.ops.build'))
   return (await res.json()) as BuildResult
 }
 
@@ -161,7 +168,7 @@ export async function buildPerspective(
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ ...(config ? { config } : {}), name: name ?? '' }),
   })
-  if (!res.ok) throw await asError(res, 'クロスウォークの構築')
+  if (!res.ok) throw await asError(res, i18n.t('crosswalk:error.ops.build'))
   return (await res.json()) as BuildResult
 }
 
@@ -179,7 +186,7 @@ export async function proposeCrosswalkMapping(
     headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey, ...authHeaders() },
     body: JSON.stringify({ dataset_ids: datasetIds, concept }),
   })
-  if (!res.ok) throw await asError(res, 'AI 提案')
+  if (!res.ok) throw await asError(res, i18n.t('crosswalk:error.ops.propose'))
   return (await res.json()) as ProposeResult
 }
 
@@ -187,7 +194,7 @@ export async function proposeCrosswalkMapping(
  * (read-only). */
 export async function getAlignments(): Promise<AlignmentsResult> {
   const res = await fetch(`${API_BASE}/api/crosswalk/alignments`)
-  if (!res.ok) throw await asError(res, '視点の整合一覧の取得')
+  if (!res.ok) throw await asError(res, i18n.t('crosswalk:error.ops.fetchAlignments'))
   const j = (await res.json()) as { alignments?: Alignment[]; relations?: string[] }
   return { alignments: j.alignments ?? [], relations: j.relations ?? [] }
 }
@@ -215,7 +222,7 @@ export async function align(
       to_perspective: toPerspective ?? '',
     }),
   })
-  if (!res.ok) throw await asError(res, '視点をつなぐ')
+  if (!res.ok) throw await asError(res, i18n.t('crosswalk:error.ops.align'))
   return (await res.json()) as Alignment
 }
 
@@ -227,7 +234,7 @@ export async function unalign(source: string, target: string, relation: string):
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ source, target, relation, remove: true }),
   })
-  if (!res.ok) throw await asError(res, '整合の撤回')
+  if (!res.ok) throw await asError(res, i18n.t('crosswalk:error.ops.unalign'))
 }
 
 /** Apply a declarative normalizer recipe to sample values — the join keys it would
@@ -241,6 +248,6 @@ export async function previewNormalizer(
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ recipe, samples }),
   })
-  if (!res.ok) throw await asError(res, '正規化プレビュー')
+  if (!res.ok) throw await asError(res, i18n.t('crosswalk:error.ops.previewNormalizer'))
   return ((await res.json()) as { results?: { input: string; output: string }[] }).results ?? []
 }

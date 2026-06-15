@@ -1,0 +1,51 @@
+{
+  "citation": {
+    "cardTitle": "クリックで出どころ（来歴）を表示",
+    "untitled": "(無題)",
+    "traceHint": "出どころ",
+    "vocabTitle": "カタログで語彙クラス「{{className}}」を表示",
+    "vocabLink": "語彙: {{className}} →"
+  },
+  "trace": {
+    "ariaLabel": "出どころ（来歴トレース）",
+    "eyebrow": "出どころ · provenance",
+    "title": "来歴をたどる",
+    "sub": "この値が<1>どの曲線・論文・取り込み</1>から来たかを、たどって示します。",
+    "empty": "引用カードを選ぶと、その値の出どころ（曲線 → 試料 → 論文 → 取り込み）が表示されます。",
+    "loading": "来歴を解決中…",
+    "legendData": "データ",
+    "legendProcess": "処理",
+    "vocabTitle": "カタログで語彙クラス「{{className}}」を表示",
+    "vocabLink": "語彙を見る",
+    "noRecord": "この項目に対する来歴は記録されていません。"
+  },
+  "step": {
+    "curve": "測定曲線",
+    "sample": "試料",
+    "paper": "論文",
+    "digitization": "デジタル化",
+    "ingestion": "取り込み"
+  },
+  "demo": {
+    "zt": {
+      "answer": "記録上の最大は SnSe の約 2.6（curve 1-2-3 / paper 456）。>3.5 の極端値が数件あるが、軸ラベル誤りの可能性として除外した。",
+      "curveLabel": "Fig.3 ZT vs T",
+      "note": "物理的にあり得ない ZT（>3.5）はデータ誤りの可能性として除外した"
+    },
+    "composition": {
+      "answer": "SnSe 系の試料は 3 件ヒットした。代表は sample 1-2（SnSe, paper 456）。いずれも熱電測定（Seebeck / ZT）を伴う。",
+      "paperLabel": "Snyder et al. (2014)"
+    },
+    "schema": {
+      "answer": "新しく設計したスキーマには Widget クラスが 2 件あり、それぞれ name を持ちます（alpha, beta）。型付きツールに該当が無かったため、スキーマを内省して下の SPARQL を生成・実行しました。"
+    },
+    "fallback": {
+      "answer": "この質問に対する根拠付き回答のデモ fixture は未登録です。ZT ランキング・組成検索の例をお試しください。",
+      "note": "mock モード: 質問に一致する fixture がありません"
+    },
+    "provenance": {
+      "curveLabel": "Fig.3 ZT vs T",
+      "paperLabel": "Snyder et al. (2014)"
+    }
+  }
+}

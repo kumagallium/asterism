@@ -1,0 +1,17 @@
+{
+  "subtitle": "A record of ingested data. A row is added every time a CSV is ingested, so you can see \"when, what, and how much\" was ingested.",
+  "loading": "Loading history…",
+  "empty": {
+    "title": "No ingest records yet",
+    "sub": "Ingest data via \"Add data\" and records will appear here."
+  },
+  "col": {
+    "kind": "Kind",
+    "status": "Status",
+    "file": "File",
+    "rows": "Rows (ok/total)",
+    "triples": "triples",
+    "endedAt": "Ingested at"
+  },
+  "errCount": " (err {{n}})"
+}

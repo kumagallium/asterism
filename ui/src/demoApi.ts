@@ -17,6 +17,8 @@
 //
 // The mock fixtures mirror the contract samples in the demo handoff.
 
+import i18n from './i18n'
+
 // ---- contract types (§3) -------------------------------------------------
 
 // Field values come from real RDF rows: a missing composition/title/DOI arrives
@@ -87,18 +89,21 @@ const CURVE_IRI = 'https://example.org/starrydata/resource/curve/1-2-3'
 const SAMPLE_IRI = 'https://example.org/starrydata/resource/sample/1-2'
 const PAPER_IRI = 'https://example.org/starrydata/resource/paper/456'
 
-const ASK_FIXTURES: { match: (q: string) => boolean; response: AskResponse }[] = [
+// The display strings (answer / notes / human labels) are resolved at CALL time
+// via i18n.t — never frozen at module load — so they follow the active language.
+// The `match` regexes are query-matching LOGIC (they include both Japanese and
+// English keywords) and are intentionally NOT translated.
+const ASK_FIXTURES: { match: (q: string) => boolean; build: () => AskResponse }[] = [
   {
     // (2) ZT ranking — the headline "grounding payoff" demo
     match: (q) => /zt|熱電|ranking|ランキング|最も高い|highest/i.test(q),
-    response: {
-      answer:
-        '記録上の最大は SnSe の約 2.6（curve 1-2-3 / paper 456）。>3.5 の極端値が数件あるが、軸ラベル誤りの可能性として除外した。',
+    build: () => ({
+      answer: i18n.t('shared:demo.zt.answer'),
       citations: [
         {
           iri: CURVE_IRI,
           kind: 'curve',
-          label: 'Fig.3 ZT vs T',
+          label: i18n.t('shared:demo.zt.curveLabel'),
           fields: { propertyY: 'ZT', yMax: 2.6 },
         },
         {
@@ -108,16 +113,15 @@ const ASK_FIXTURES: { match: (q: string) => boolean; response: AskResponse }[] =
           fields: { composition: 'SnSe' },
         },
       ],
-      notes: ['物理的にあり得ない ZT（>3.5）はデータ誤りの可能性として除外した'],
+      notes: [i18n.t('shared:demo.zt.note')],
       sparql: [],
-    },
+    }),
   },
   {
     // (1) composition search
     match: (q) => /組成|composition|SnSe|含む|contain/i.test(q),
-    response: {
-      answer:
-        'SnSe 系の試料は 3 件ヒットした。代表は sample 1-2（SnSe, paper 456）。いずれも熱電測定（Seebeck / ZT）を伴う。',
+    build: () => ({
+      answer: i18n.t('shared:demo.composition.answer'),
       citations: [
         {
           iri: SAMPLE_IRI,
@@ -128,21 +132,20 @@ const ASK_FIXTURES: { match: (q: string) => boolean; response: AskResponse }[] =
         {
           iri: PAPER_IRI,
           kind: 'paper',
-          label: 'Snyder et al. (2014)',
+          label: i18n.t('shared:demo.composition.paperLabel'),
           fields: { DOI: '10.1038/nature13184' },
         },
       ],
       notes: [],
       sparql: [],
-    },
+    }),
   },
   {
     // (3) general / user-designed schema — exercises the LLM SPARQL escape, so
     // the answer comes with the read-only query it ran (disclosure panel).
     match: (q) => /sparql|スキーマ|クエリ|一般|どんな|新しい|widget/i.test(q),
-    response: {
-      answer:
-        '新しく設計したスキーマには Widget クラスが 2 件あり、それぞれ name を持ちます（alpha, beta）。型付きツールに該当が無かったため、スキーマを内省して下の SPARQL を生成・実行しました。',
+    build: () => ({
+      answer: i18n.t('shared:demo.schema.answer'),
       citations: [
         {
           iri: 'https://example.org/w1',
@@ -155,37 +158,45 @@ const ASK_FIXTURES: { match: (q: string) => boolean; response: AskResponse }[] =
       sparql: [
         'SELECT ?w ?n WHERE {\n  ?w a <https://example.org/Widget> ;\n     <https://example.org/name> ?n\n} LIMIT 50',
       ],
-    },
+    }),
   },
 ]
 
-const ASK_FALLBACK: AskResponse = {
-  answer:
-    'この質問に対する根拠付き回答のデモ fixture は未登録です。ZT ランキング・組成検索の例をお試しください。',
-  citations: [],
-  notes: ['mock モード: 質問に一致する fixture がありません'],
-  sparql: [],
+function askFallback(): AskResponse {
+  return {
+    answer: i18n.t('shared:demo.fallback.answer'),
+    citations: [],
+    notes: [i18n.t('shared:demo.fallback.note')],
+    sparql: [],
+  }
 }
 
-const PROVENANCE_FIXTURE: ProvenanceChain = {
-  iri: CURVE_IRI,
-  chain: [
-    { step: 'curve', iri: CURVE_IRI, label: 'Fig.3 ZT vs T', detail: 'yMax=2.6' },
-    { step: 'sample', iri: SAMPLE_IRI, label: 'SnSe', detail: 'composition=SnSe' },
-    { step: 'paper', iri: PAPER_IRI, label: 'Snyder et al. (2014)', detail: 'DOI 10.1038/nature13184' },
-    {
-      step: 'digitization',
-      iri: 'https://example.org/starrydata/resource/digitization/1-2-3',
-      label: 'WebPlotDigitizer',
-      detail: 'from Fig.3',
-    },
-    {
-      step: 'ingestion',
-      iri: 'https://example.org/starrydata/resource/ingestion/2026-05-31',
-      label: 'IngestionActivity',
-      detail: '2026-05-31',
-    },
-  ],
+function provenanceFixture(): ProvenanceChain {
+  return {
+    iri: CURVE_IRI,
+    chain: [
+      { step: 'curve', iri: CURVE_IRI, label: i18n.t('shared:demo.provenance.curveLabel'), detail: 'yMax=2.6' },
+      { step: 'sample', iri: SAMPLE_IRI, label: 'SnSe', detail: 'composition=SnSe' },
+      {
+        step: 'paper',
+        iri: PAPER_IRI,
+        label: i18n.t('shared:demo.provenance.paperLabel'),
+        detail: 'DOI 10.1038/nature13184',
+      },
+      {
+        step: 'digitization',
+        iri: 'https://example.org/starrydata/resource/digitization/1-2-3',
+        label: 'WebPlotDigitizer',
+        detail: 'from Fig.3',
+      },
+      {
+        step: 'ingestion',
+        iri: 'https://example.org/starrydata/resource/ingestion/2026-05-31',
+        label: 'IngestionActivity',
+        detail: '2026-05-31',
+      },
+    ],
+  }
 }
 
 // ---- response normalization (real-data edge cases) -----------------------
@@ -257,7 +268,7 @@ export async function ask(question: string, apiKey?: string): Promise<AskRespons
   if (IS_MOCK) {
     await delay(450) // feel of a real call
     const hit = ASK_FIXTURES.find((f) => f.match(question))
-    return hit ? hit.response : ASK_FALLBACK
+    return hit ? hit.build() : askFallback()
   }
   const key = apiKey ?? sessionStorage.getItem('asterism.apiKey') ?? ''
   const res = await fetch(`${AGENT_BASE}/demo/ask`, {
@@ -280,7 +291,7 @@ export async function provenance(iri: string): Promise<ProvenanceChain> {
   if (IS_MOCK) {
     await delay(250)
     // The mock returns the canonical chain regardless of iri; live mode keys on it.
-    return { ...PROVENANCE_FIXTURE, iri }
+    return { ...provenanceFixture(), iri }
   }
   const res = await fetch(`${AGENT_BASE}/demo/provenance?iri=${encodeURIComponent(iri)}`)
   if (!res.ok) {

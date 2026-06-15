@@ -1,0 +1,155 @@
+{
+  "status": {
+    "pub": "Published",
+    "draft": "Draft",
+    "design": "Designing"
+  },
+  "intro": "Your <1>datasets</1> are the focus. Each dataset has a \"<3>schema (vocabulary)</3>\" and \"<5>ingest rules</5>\". Shared vocabulary is collected below.",
+  "focusBanner": {
+    "label": "Vocabulary class for the Ask citation: ",
+    "sub": "This answer is based on data typed with this class."
+  },
+  "loading": "Loading catalog…",
+  "empty": {
+    "title": "No datasets yet",
+    "sub": "Ingest data via \"Add data\" and it will appear here."
+  },
+  "list": {
+    "head": "Datasets"
+  },
+  "sharedBand": {
+    "title": "Shared vocabulary",
+    "en": "shared vocabulary",
+    "warn": "Changes affect everything · handle with care",
+    "sub": "The schema multiple datasets share. Keeping it aligned lets you <1>search and compare across datasets</1>.",
+    "users": "<0>{{n}}</0> classes shared",
+    "open": "Open"
+  },
+  "crosswalkBand": {
+    "title": "Crosswalk",
+    "en": "crosswalk",
+    "sub": "Connect datasets that share the same concept (composition, crystal system, author…) with <1>a single bridge</1>. It can answer \"how many datasets report this value?\" across datasets.",
+    "users": "<0>{{n}}</0> datasets bridged",
+    "open": "Open"
+  },
+  "tab": {
+    "design": "Schema",
+    "designEn": "ontology",
+    "rules": "Ingest rules",
+    "rulesEn": "mapping",
+    "tools": "Tools",
+    "toolsEn": "tools"
+  },
+  "purposes": {
+    "label": "Questions this data can answer"
+  },
+  "design": {
+    "title": "Schema (structure of the content)",
+    "classCount": "{{n}} classes",
+    "noClasses": "No class information.",
+    "predicatesHead": "Predicates in use (vocabulary of the actual data)",
+    "diagramSummary": "View class diagram",
+    "reusesHead": "Vocabulary borrowed from elsewhere (detected from the actual data namespaces)"
+  },
+  "rules": {
+    "title": "Ingest rules (artifacts)",
+    "empty": "No ingest-rule artifacts yet."
+  },
+  "ingest": {
+    "head": "Ingest (load into Oxigraph)",
+    "noRml": "This design has no declarative RML mapping, so it cannot be ingested. Generate §RML (declarative mapping) via \"AI design\" in the workbench, and you will be able to load it safely from here.",
+    "done": "✓ Ingested into the draft graph ({{n}} triples). Next, press \"Promote to shared data\" below so Ask can cite it.",
+    "note": "On approval, Morph-KGC runs this declarative RML (no generated code runs — only vetted Tier 0 functions) and loads the result into an <1>isolated draft graph</1>. The Ask citation surface (canonical) is left untouched.",
+    "sourceSaved": "The design-time {{source}} is saved{{files}}. Ingest with no re-attach.",
+    "filesSuffix": " ({{names}})",
+    "pickLabel": "Select {{source}}",
+    "pickPlaceholder": "Choose the {{source}} used for the design",
+    "submit": "Ingest (load into Oxigraph)",
+    "submitting": "Ingesting…",
+    "error": "Ingest failed: {{message}}"
+  },
+  "append": {
+    "head": "Append to live (device feed)",
+    "note": "Ingest <strong>only</strong> the new batch {{source}} and append it to the shared data (live) as-is (O(new)). Existing facts/IRIs are unchanged and identical rows are deduplicated. The schema and first version were approved at promotion time, so appends do not go through the gate (for continuous device logs). Match the filename to the RML <code>rml:source</code>.",
+    "progress": "{{seq}} batches appended so far{{appended}}.",
+    "progressAppended": " (+~{{n}} triples)",
+    "pickPlaceholder": "Choose the batch {{source}} to append",
+    "submit": "Append to live",
+    "submitting": "Appending…",
+    "done": "✓ Appended (+{{n}} triples · batch #{{seq}}). Ask can cite it immediately.",
+    "error": "Append failed: {{message}}"
+  },
+  "promote": {
+    "ok": "✓ Promoted to shared data ({{n}} triples{{version}}). Ask can cite it (canonical graph).",
+    "okVersion": " · version v{{version}}",
+    "repromoteNote": "A new version is ingested into the draft graph. Pressing \"Apply to shared data (re-promote)\" bumps the version Ask cites <strong>v{{version}} → v{{next}}</strong> and switches to the new data. The switch is instant and the old version is cleaned up automatically (the current version keeps being cited during ingest, so there is no gap).",
+    "note": "Promoting to shared data moves this data in the draft graph into the <1>canonical graph that Ask cites</1>. Before promoting, you can check whether the vocabulary in use is reused or new.",
+    "alignmentSummary": "Predicates: reuse {{predReuse}} / new {{predNew}} ／ Classes: reuse {{classReuse}} / new {{classNew}}",
+    "alignmentNew": "New predicates (not in existing vocabulary): {{terms}}",
+    "previewRepromote": "Check vocabulary diff (pre-re-promote check)",
+    "preview": "Check vocabulary diff (pre-promote check)",
+    "repromoting": "Applying…",
+    "promoting": "Promoting…",
+    "repromoteSubmit": "Apply to shared data (re-promote → v{{next}})",
+    "submit": "Promote to shared data (make usable in Ask)",
+    "repromoteError": "Re-promote failed: {{message}}",
+    "error": "Promote failed: {{message}}"
+  },
+  "reingest": {
+    "head": "Update data (re-ingest)",
+    "notePrefix": "Ingest the new {{source}} into a <strong>separate version graph</strong> (canonical/{{id}}/v…).",
+    "notePublished": "<strong>The current published version (v{{version}}) keeps being cited by Ask</strong> during ingest, so answers are not interrupted. When done, \"Apply to shared data (re-promote)\" below switches <strong>v{{version}} → v{{next}}</strong> and the old version is cleaned up automatically.",
+    "noteUnpublished": "Re-ingests an unpublished draft (no effect on Ask). When done, you can publish it via \"Promote to shared data\" below.",
+    "sourceSaved": "The design-time {{source}} is saved{{files}}. Ingest with no re-attach. To swap in a different {{source}}, select it below.",
+    "pickReplace": "Replace {{source}}",
+    "pickSelect": "Select {{source}}",
+    "placeholderKeep": "If you do not replace it, the saved {{source}} is used",
+    "placeholderSelect": "Choose the {{source}} for the update",
+    "submit": "Re-ingest with new data",
+    "submitting": "Ingesting…",
+    "error": "Re-ingest failed: {{message}}"
+  },
+  "lifecycle": {
+    "head": "Lifecycle actions",
+    "retractedStatus": "Status: <1>Retracted</1> (excluded from Ask citations. Data and IRIs remain, so existing citations are not broken. You can reinstate it.)",
+    "retractConfirm": "Retract this dataset?\nIt will be removed from Ask citations, but the data and IRIs remain, so existing citations are not broken (you can reinstate it later).",
+    "retractDone": "Retracted (excluded from canonical · citations preserved).",
+    "retracting": "Retracting…",
+    "retract": "Retract (remove from Ask citations)",
+    "reinstateDone": "Reinstated (cited by Ask again).",
+    "reinstating": "Reinstating…",
+    "reinstate": "Reinstate (cite again)",
+    "deleteConfirmPromoted": "Permanently delete this dataset?\nIt is promoted (citable), so existing citations may return 404. \"Retract\" is usually recommended.\n\nDelete anyway?",
+    "deleteConfirm": "Delete this dataset? (Not promoted, so it is safe to delete.)",
+    "deleteDone": "Deleted.",
+    "deleting": "Deleting…",
+    "delete": "Delete",
+    "error": "Action failed: {{message}}"
+  },
+  "api": {
+    "ontologyDescription": "A design materialized in the workbench ({{date}}). A draft before promotion into the shared vocabulary.",
+    "stage": {
+      "designBadge": "Design only (not ingested)",
+      "ingestedBadge": "Ingested into draft",
+      "promotedBadge": "Shared data (usable in Ask)"
+    },
+    "rmlSummary": {
+      "promoted": "Declarative RML (ingested into shared data · {{n}} triples)",
+      "ingested": "Declarative RML (ingested into draft graph · {{n}} triples)",
+      "design": "Declarative RML (not ingested. Can be ingested via the workbench human gate.)"
+    },
+    "ingesterSummary": "Generated ingest script (not run)",
+    "mieSummary": "Generated AI exploration meta",
+    "mappingDescription": {
+      "promoted": "Ingested into shared data (the canonical graph Ask cites) · {{n}} triples. Queryable via SPARQL.",
+      "ingested": "Ingested into the draft graph · {{n}} triples. Once verified, \"Promote to shared data\" makes it an Ask citation target.",
+      "design": "Design only — no RDF generated yet. With declarative RML, it can be ingested via the workbench human gate."
+    },
+    "mappingDataset": "Design saved ({{date}})",
+    "count": {
+      "class": "classes",
+      "fact": "facts"
+    },
+    "catalogSub": "Design saved · {{date}}"
+  }
+}

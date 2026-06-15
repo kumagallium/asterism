@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { getJobs, type IngestJob } from './jobsApi'
 
 // Status → semantic color (mirrors the validation-trap palette).
@@ -33,6 +34,7 @@ function fmtTime(iso: string): string {
  * into Oxigraph and when", not "what designs were materialized".
  */
 export function JobsView() {
+  const { t } = useTranslation()
   const [jobs, setJobs] = useState<IngestJob[] | null>(null)
 
   useEffect(() => {
@@ -47,24 +49,19 @@ export function JobsView() {
 
   return (
     <>
-      <p className="subtitle">
-        データを取り込んだ記録です。CSV が取り込まれるたびに 1 行ずつ増え、
-        「いつ・何が・どれだけ」取り込まれたかを確認できます。
-      </p>
+      <p className="subtitle">{t('jobs:subtitle')}</p>
 
       {!jobs && (
         <p className="loading-row">
           <span className="spinner" />
-          履歴を読み込み中…
+          {t('jobs:loading')}
         </p>
       )}
 
       {jobs && jobs.length === 0 && (
         <div className="empty-state">
-          <p className="empty-title">まだ取り込み記録はありません</p>
-          <p className="empty-sub">
-            「データを追加」でデータを取り込むと、ここに記録が並びます。
-          </p>
+          <p className="empty-title">{t('jobs:empty.title')}</p>
+          <p className="empty-sub">{t('jobs:empty.sub')}</p>
         </div>
       )}
 
@@ -73,12 +70,12 @@ export function JobsView() {
           <table className="jobs-table">
             <thead>
               <tr>
-                <th>種別</th>
-                <th>状態</th>
-                <th>ファイル</th>
-                <th className="num">行 (ok/総数)</th>
-                <th className="num">triples</th>
-                <th>取り込み時刻</th>
+                <th>{t('jobs:col.kind')}</th>
+                <th>{t('jobs:col.status')}</th>
+                <th>{t('jobs:col.file')}</th>
+                <th className="num">{t('jobs:col.rows')}</th>
+                <th className="num">{t('jobs:col.triples')}</th>
+                <th>{t('jobs:col.endedAt')}</th>
               </tr>
             </thead>
             <tbody>
@@ -102,7 +99,9 @@ export function JobsView() {
                   </td>
                   <td className="num">
                     {j.rows_ok}/{j.rows_in}
-                    {j.rows_err > 0 && <span className="job-err-count"> (err {j.rows_err})</span>}
+                    {j.rows_err > 0 && (
+                      <span className="job-err-count">{t('jobs:errCount', { n: j.rows_err })}</span>
+                    )}
                   </td>
                   <td className="num">{j.triples_out.toLocaleString()}</td>
                   <td className="job-time">{fmtTime(j.ended_at)}</td>

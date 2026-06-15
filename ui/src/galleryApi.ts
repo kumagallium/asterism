@@ -20,6 +20,7 @@
 // shows "—" or an explicit empty state rather than a placeholder.
 
 import { authHeaders } from './authToken'
+import i18n from './i18n'
 import { deriveReuses } from './vocab'
 
 // ---- edit-risk (the layer-distinction signal) -----------------------------
@@ -276,7 +277,7 @@ function toOntology(meta: DatasetMeta, mermaid: string): OntologyEntry {
     name: meta.name,
     prefix: '(draft)',
     baseIri: meta.id,
-    description: `ワークベンチで materialize した設計（${meta.created_at.slice(0, 10)}）。共有語彙への昇格前のドラフト。`,
+    description: i18n.t('gallery:api.ontologyDescription', { date: meta.created_at.slice(0, 10) }),
     classes: meta.classes ?? [],
     // Reuse story straight from the real term IRIs this dataset uses (no fixture).
     reuses: deriveReuses(alignmentTermIris(meta.alignment)),
@@ -295,11 +296,14 @@ export function datasetStage(meta: { ingested?: boolean; promoted?: boolean }): 
   return 'design'
 }
 
-/** Short Japanese label + plain description for each lifecycle stage. */
-export const STAGE_INFO: Record<DatasetStage, { badge: string; tone: 'design' | 'ingested' | 'promoted' }> = {
-  design: { badge: '設計のみ（未取り込み）', tone: 'design' },
-  ingested: { badge: '下書きに取り込み済み', tone: 'ingested' },
-  promoted: { badge: '共有データ（Ask 利用可）', tone: 'promoted' },
+/** Short label + tone for each lifecycle stage. Resolved at call time so the
+ *  badge text follows the active language (do not hoist to a module constant). */
+export function stageInfo(): Record<DatasetStage, { badge: string; tone: 'design' | 'ingested' | 'promoted' }> {
+  return {
+    design: { badge: i18n.t('gallery:api.stage.designBadge'), tone: 'design' },
+    ingested: { badge: i18n.t('gallery:api.stage.ingestedBadge'), tone: 'ingested' },
+    promoted: { badge: i18n.t('gallery:api.stage.promotedBadge'), tone: 'promoted' },
+  }
 }
 
 function toMapping(meta: DatasetMeta): MappingEntry {
@@ -309,28 +313,28 @@ function toMapping(meta: DatasetMeta): MappingEntry {
   if (meta.has_rml) {
     const rmlSummary =
       stage === 'promoted'
-        ? `宣言 RML（共有データに取り込み済み・${n} 件）`
+        ? i18n.t('gallery:api.rmlSummary.promoted', { n })
         : stage === 'ingested'
-          ? `宣言 RML（下書きグラフに取り込み済み・${n} 件）`
-          : '宣言 RML（未取り込み。ワークベンチの人間ゲートで取り込める）'
+          ? i18n.t('gallery:api.rmlSummary.ingested', { n })
+          : i18n.t('gallery:api.rmlSummary.design')
     artifacts.push({ kind: 'mapping', name: 'mapping.rml.ttl', summary: rmlSummary })
   }
   if (meta.has_ingester) {
-    artifacts.push({ kind: 'ingester', name: 'ingester.py', summary: '生成された取り込みスクリプト（未実行）' })
+    artifacts.push({ kind: 'ingester', name: 'ingester.py', summary: i18n.t('gallery:api.ingesterSummary') })
   }
   if (meta.has_mie) {
-    artifacts.push({ kind: 'mie', name: 'mie.yaml', summary: '生成された AI 探索メタ' })
+    artifacts.push({ kind: 'mie', name: 'mie.yaml', summary: i18n.t('gallery:api.mieSummary') })
   }
   const description =
     stage === 'promoted'
-      ? `共有データ（Ask が引用する正式グラフ）に取り込み済み・${n} 件。SPARQL で問い合わせ可能。`
+      ? i18n.t('gallery:api.mappingDescription.promoted', { n })
       : stage === 'ingested'
-        ? `下書きグラフに取り込み済み・${n} 件。確認できたら「共有データに昇格」すると Ask の引用対象になる。`
-        : '設計のみ＝まだ RDF を生成していない。宣言 RML があればワークベンチの人間ゲートで取り込める。'
+        ? i18n.t('gallery:api.mappingDescription.ingested', { n })
+        : i18n.t('gallery:api.mappingDescription.design')
   return {
     id: `live-${meta.id}`,
     name: meta.name,
-    dataset: `設計を保存（${meta.created_at.slice(0, 10)}）`,
+    dataset: i18n.t('gallery:api.mappingDataset', { date: meta.created_at.slice(0, 10) }),
     targetOntologyId: `live-${meta.id}`,
     targetOntologyName: meta.name,
     description,
@@ -397,7 +401,8 @@ export interface CatalogDataset {
   name: string
   sub: string
   statusKind: CatalogStatusKind
-  counts: { value: string; label: string }[]
+  /** `key` is a locale-independent id ('fact' | 'class') for data matching; `label` is display-only. */
+  counts: { key?: string; value: string; label: string }[]
   purposes: { tag: string; detail: string }[]
   classes: string[]
   reuses: { prefix: string; what: string }[]
@@ -424,12 +429,15 @@ function liveToCatalog(l: LiveDataset): CatalogDataset {
   const statusKind: CatalogStatusKind =
     stage === 'promoted' ? 'pub' : stage === 'ingested' ? 'draft' : 'design'
   const n = l.meta.triples_promoted ?? l.meta.triple_count
-  const counts = [{ value: String(l.ontology.classes.length), label: 'クラス' }]
-  if (n != null) counts.unshift({ value: n.toLocaleString(), label: '事実' })
+  const counts = [
+    { key: 'class', value: String(l.ontology.classes.length), label: i18n.t('gallery:api.count.class') },
+  ]
+  if (n != null)
+    counts.unshift({ key: 'fact', value: n.toLocaleString(), label: i18n.t('gallery:api.count.fact') })
   return {
     id: l.ontology.id,
     name: l.meta.name,
-    sub: `設計を保存 · ${l.meta.created_at.slice(0, 10)}`,
+    sub: i18n.t('gallery:api.catalogSub', { date: l.meta.created_at.slice(0, 10) }),
     statusKind,
     counts,
     purposes: [],
