@@ -26,7 +26,7 @@ export function DocumentPanel() {
 
   function pick(f: File | null) {
     setFile(f)
-    if (f && !name.trim()) setName(f.name.replace(/\.(xml|docx)$/i, ''))
+    if (f && !name.trim()) setName(f.name.replace(/\.(xml|docx|pdf)$/i, ''))
     setError('')
     setResult(null)
     setPhase('idle')
@@ -66,7 +66,7 @@ export function DocumentPanel() {
           {t('document:pickFile')}
           <input
             type="file"
-            accept=".xml,.docx"
+            accept=".xml,.docx,.pdf"
             disabled={busy}
             onChange={(e) => pick(e.target.files?.[0] ?? null)}
           />

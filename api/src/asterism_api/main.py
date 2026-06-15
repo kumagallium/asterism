@@ -386,7 +386,7 @@ _SAFE_NAME = re.compile(r"^[A-Za-z0-9._-]{1,128}\.csv$")
 # CONVERTED to JATS (pandoc, optional) at source-attach and the resulting .xml
 # becomes the persisted source. The legacy ``/upload/{kind}`` starrydata drop
 # stays CSV-only (it feeds the CSV watcher).
-_SAFE_SOURCE_NAME = re.compile(r"^[A-Za-z0-9._-]{1,128}\.(csv|json|geojson|xml|docx)$")
+_SAFE_SOURCE_NAME = re.compile(r"^[A-Za-z0-9._-]{1,128}\.(csv|json|geojson|xml|docx|pdf)$")
 
 # Resolvable IRI base for documents ingested through the API (the document-ontology
 # layer). A document dataset's nodes hang off ``…/document/<dataset_id>/<doc_id>``;
@@ -398,7 +398,10 @@ _DOCUMENT_RESOURCE_BASE = "https://kumagallium.github.io/asterism/papers/resourc
 # are dataset-agnostic (they run over the canonical FROM-merge), so the same vetted
 # content the papers example declares works for any promoted document graph.
 _DOCUMENT_TOOL_NAMES = ("search_text", "quote_with_citation", "fetch_passage")
-_DOCUMENT_SOURCE_SUFFIXES = (".xml", ".docx")
+# A document upload may be native JATS (.xml), Word (.docx, converted by pandoc at
+# persist time), or born-digital PDF (.pdf, converted by the Docling sidecar at ingest
+# time — see ADR pdf-docling-conversion.md). All three land in the same doco/nif graph.
+_DOCUMENT_SOURCE_SUFFIXES = (".xml", ".docx", ".pdf")
 
 
 def _document_tool_specs() -> list[dict]:
@@ -439,6 +442,10 @@ class Settings:
             e.get("CSV2RDF_REGISTRY_ROOT", "/data/sources/registry")
         )
         self.oxigraph_url = e.get("CSV2RDF_OXIGRAPH_URL", "http://oxigraph:7878")
+        # Docling PDF→structure sidecar (ADR pdf-docling-conversion.md). The ONE place
+        # the document layer runs ML, isolated out of this image. Unset → PDF ingest
+        # fails with a clear 4xx (like absent pandoc); Word/JATS/CSV/JSON are unaffected.
+        self.docling_url = (e.get("ASTERISM_DOCLING_URL") or "").strip().rstrip("/") or None
         # Exposure profile (ADR store-mcp-split): when False, the read-only
         # SPARQL relay (POST /api/sparql) is withheld so a sensitive deployment
         # exposes only the typed tools / vetted endpoints. Default open.
@@ -493,11 +500,11 @@ def _validate_name(name: str) -> str:
 
 
 def _validate_source_name(name: str) -> str:
-    """Validate a step0 / source-attach / ingest upload name (CSV / JSON / XML / docx)."""
+    """Validate a step0 / source-attach / ingest upload name (CSV / JSON / XML / docx / pdf)."""
     if not _SAFE_SOURCE_NAME.fullmatch(name):
         raise HTTPException(
             400,
-            "filename must match [A-Za-z0-9._-]+.(csv|json|geojson|xml|docx) (max 128 chars)",
+            "filename must match [A-Za-z0-9._-]+.(csv|json|geojson|xml|docx|pdf) (max 128 chars)",
         )
     return name
 
@@ -854,6 +861,8 @@ async def _append_document_to_dataset(
     client: OxigraphClient,
     dataset_id: str,
     upload: UploadFile,
+    *,
+    docling_url: str | None = None,
 ) -> dict[str, object]:
     """Append ONE document to an existing, promoted document dataset's live graph.
 
@@ -889,21 +898,41 @@ async def _append_document_to_dataset(
         raise AppendError(400, "missing filename")
     name = _validate_source_name(upload.filename)
     if Path(name).suffix.lower() not in _DOCUMENT_SOURCE_SUFFIXES:
-        raise AppendError(400, "a document must be a JATS .xml or a Word .docx file")
+        raise AppendError(400, "a document must be a JATS .xml, a Word .docx, or a .pdf file")
 
     sdir = registry.source_dir(registry_root, dataset_id)
     if sdir is None:
         raise AppendError(404, f"dataset {dataset_id!r} not found")
     # Persist the new document into the source set ADDITIVELY (no reset — unlike the
-    # design-time _persist_source_uploads), converting Word→JATS and dropping the
-    # per-doc conversion sidecar so provenance survives a later snapshot re-ingest (A7).
+    # design-time _persist_source_uploads) and drop the per-doc conversion sidecar so
+    # provenance survives a later snapshot re-ingest (A7). Word converts via pandoc; a
+    # PDF persists RAW and converts via the Docling sidecar (the JATS is held in memory,
+    # the raw .pdf is the recorded source so a re-ingest re-runs the pinned converter).
+    conversion: dict | None = None
     if name.lower().endswith(".docx"):
         xml_name, conversion = await _persist_converted_docx(upload, sdir, name)
+        xml_text = await asyncio.to_thread((sdir / xml_name).read_text, "utf-8")
+    elif name.lower().endswith(".pdf"):
+        data = await _read_upload_bounded(upload, documents._MAX_PDF_BYTES)
+        await asyncio.to_thread(sdir.mkdir, parents=True, exist_ok=True)
+        await asyncio.to_thread((sdir / name).write_bytes, data)  # raw .pdf = the source
+        try:
+            xml_text, converter = await asyncio.to_thread(
+                documents.convert_pdf_to_jats, data, sidecar_url=docling_url
+            )
+        except documents.ConversionError as exc:
+            raise AppendError(422, str(exc)) from exc
+        conversion = {"converter": converter, "sourceFormat": "pdf", "original": name}
+        await asyncio.to_thread(
+            (sdir / f"{name}.conversion").write_text,
+            json.dumps(conversion, ensure_ascii=False),
+            "utf-8",
+        )
+        xml_name = name
     else:
         await _save_upload(upload, sdir / name)
-        xml_name, conversion = name, None
-    xml_path = sdir / xml_name
-    xml_text = await asyncio.to_thread(xml_path.read_text, "utf-8")
+        xml_name = name
+        xml_text = await asyncio.to_thread((sdir / name).read_text, "utf-8")
     doc_id = documents.derive_doc_id(xml_text, fallback=Path(xml_name).stem)
     paper_iri = f"{_DOCUMENT_RESOURCE_BASE}/{dataset_id}/{doc_id}"
 
@@ -1627,23 +1656,24 @@ def build_app(
     @app.post("/api/documents", dependencies=_write_auth)
     async def create_document_dataset(
         name: str = Form("document"),
-        file: UploadFile = File(..., description="A JATS .xml or Word .docx document"),
+        file: UploadFile = File(..., description="A JATS .xml, Word .docx, or .pdf document"),
     ) -> JSONResponse:
-        """Create a DOCUMENT dataset from an uploaded JATS/Word file (no schema design).
+        """Create a DOCUMENT dataset from an uploaded JATS/Word/PDF file (no schema design).
 
         Unlike CSV/JSON — which go through the LLM design → materialize flow — a
         structured document needs no schema. This creates the registry record,
-        persists the source (a ``.docx`` is converted to JATS by pandoc, sets
-        ``source_kind=xml``), and auto-attaches the reusable document recall tools
-        (``search_text`` / ``quote_with_citation`` / ``fetch_passage``) so the
-        document is queryable + citable from the catalog the moment it is ingested
-        and promoted. Ingest + promote remain explicit human gates.
+        persists the source (a ``.docx`` is converted to JATS by pandoc; a ``.pdf`` is
+        persisted RAW and converted by the Docling sidecar at *ingest* — the slow ML step
+        lives in the async ingest job; both set ``source_kind=xml``), and auto-attaches
+        the reusable document recall tools (``search_text`` / ``quote_with_citation`` /
+        ``fetch_passage``) so the document is queryable + citable from the catalog the
+        moment it is ingested and promoted. Ingest + promote remain explicit human gates.
         """
         if file.filename is None:
             raise HTTPException(400, "missing filename")
         filename = _validate_source_name(file.filename)
         if Path(filename).suffix.lower() not in _DOCUMENT_SOURCE_SUFFIXES:
-            raise HTTPException(400, "a document must be a JATS .xml or a Word .docx file")
+            raise HTTPException(400, "a document must be a JATS .xml, a Word .docx, or a .pdf file")
         meta = registry.save_dataset(
             cfg.registry_root,
             name or "document",
@@ -1670,19 +1700,20 @@ def build_app(
     @app.post("/api/datasets/{dataset_id}/documents", dependencies=_write_auth)
     async def append_document(
         dataset_id: str,
-        file: UploadFile = File(..., description="A JATS .xml or Word .docx document to add"),
+        file: UploadFile = File(..., description="A JATS .xml, .docx, or .pdf document to add"),
     ) -> JSONResponse:
         """Add another document to an existing, promoted document dataset (incremental).
 
         The document analogue of ``POST /api/datasets/{id}/append``: structure just
         this document and POST-merge it into the live graph, so a dataset grows
         document by document (e.g. a running "定例ミーティング" of meeting minutes) and
-        ``search_text`` / ``quote_with_citation`` span every document added.
-        Synchronous — one document structures in milliseconds.
+        ``search_text`` / ``quote_with_citation`` span every document added. Synchronous —
+        a JATS/Word document structures in milliseconds; a ``.pdf`` blocks for the Docling
+        sidecar conversion (one document; full async append is a follow-up).
         """
         try:
             result = await _append_document_to_dataset(
-                cfg.registry_root, app.state.client, dataset_id, file
+                cfg.registry_root, app.state.client, dataset_id, file, docling_url=cfg.docling_url
             )
         except AppendError as exc:
             raise HTTPException(exc.status, exc.detail) from exc
@@ -1751,10 +1782,20 @@ def build_app(
         # structures every .xml source so a snapshot re-ingest reproduces the whole feed
         # from the source set (A7), staying consistent with incremental document append.
         docs_to_structure: list[tuple[str, str, dict | None]] = []
+        pdfs_to_convert: list[Path] = []
         if is_document:
             xml_paths = [p for p in source_paths if p.suffix.lower() == ".xml"]
-            if not xml_paths:
-                raise HTTPException(400, "document ingest needs a .xml (JATS) source")
+            pdfs_to_convert = [p for p in source_paths if p.suffix.lower() == ".pdf"]
+            if not xml_paths and not pdfs_to_convert:
+                raise HTTPException(400, "document ingest needs a .xml (JATS) or .pdf source")
+            # A .pdf needs the Docling sidecar; fail fast with a clear 422 (before the
+            # job) when it is not configured — same graceful degrade as absent pandoc.
+            if pdfs_to_convert and not cfg.docling_url:
+                raise HTTPException(
+                    422,
+                    "PDF ingestion requires the Docling sidecar, which is not configured. "
+                    "Set ASTERISM_DOCLING_URL to its URL, or convert the PDF to JATS/Word first.",
+                )
             meta_conv = (data.get("meta") or {}).get("conversion") or None
             for p in xml_paths:
                 txt = p.read_text(encoding="utf-8")
@@ -1806,6 +1847,42 @@ def build_app(
                             await asyncio.to_thread(
                                 documents.document_to_nt_file,
                                 txt,
+                                paper_iri=piri,
+                                work_dir=str(sub),
+                                conversion=conv,
+                            )
+                        )
+                    # PDF sources: the slow ML conversion (Docling sidecar) lives HERE,
+                    # inside the async job, so the request returned 202 immediately and the
+                    # UI follows SSE progress (ADR pdf-docling-conversion.md). Each PDF is
+                    # converted to JATS, structured identically, and its conversion is
+                    # disclosed (lit:DocumentConversionActivity) + recorded for A7 re-ingest.
+                    for j, pdf_path in enumerate(pdfs_to_convert):
+                        emit(phase="converting", message=f"PDF を変換中 ({pdf_path.name})")
+                        pdf_bytes = await asyncio.to_thread(pdf_path.read_bytes)
+                        jats, converter = await asyncio.to_thread(
+                            documents.convert_pdf_to_jats,
+                            pdf_bytes,
+                            sidecar_url=cfg.docling_url,
+                        )
+                        conv = {
+                            "converter": converter,
+                            "sourceFormat": "pdf",
+                            "original": pdf_path.name,
+                        }
+                        await asyncio.to_thread(
+                            (pdf_path.parent / f"{pdf_path.name}.conversion").write_text,
+                            json.dumps(conv, ensure_ascii=False),
+                            "utf-8",
+                        )
+                        doc_id = documents.derive_doc_id(jats, fallback=pdf_path.stem)
+                        piri = f"{_DOCUMENT_RESOURCE_BASE}/{dataset_id}/{doc_id}"
+                        sub = work / f"pdf_{j}"
+                        sub.mkdir()
+                        nt_paths.append(
+                            await asyncio.to_thread(
+                                documents.document_to_nt_file,
+                                jats,
                                 paper_iri=piri,
                                 work_dir=str(sub),
                                 conversion=conv,
