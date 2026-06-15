@@ -647,6 +647,7 @@ function DocumentAppendControl({
   meta: LiveDataset['meta']
   onChanged: () => void
 }) {
+  const { t } = useTranslation()
   const [file, setFile] = useState<File | null>(null)
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState<DocumentAppendResult | null>(null)
@@ -682,20 +683,27 @@ function DocumentAppendControl({
 
   return (
     <div className="ingest-gate">
-      <div className="ds-subhead">文書を追加（このデータセットに）</div>
+      <div className="ds-subhead">{t('gallery:docAppend.head')}</div>
       <p className="ingest-note">
-        Word <code>.docx</code> / 構造化XML <code>.xml</code> をもう1つ追加すると、
-        節 → 段落 → 文 に構造化して<strong>このまま共有データ（live）に追記</strong>します。
-        以後「ツール」タブの <code>search_text</code> / <code>quote_with_citation</code> が
-        <strong>追加した文書も横断して</strong>検索・引用します（議事録をためていく用途向け）。
-        <code>.docx</code> はサーバ側でXMLに自動変換します（変換ツール・版は来歴に記録）。
+        <Trans
+          i18nKey="gallery:docAppend.note"
+          components={[
+            <code />,
+            <code />,
+            <strong />,
+            <code />,
+            <code />,
+            <strong />,
+            <code />,
+          ]}
+        />
       </p>
       {(meta.append_seq ?? 0) > 0 && (
-        <p className="ingest-source">これまで {meta.append_seq} 文書を追記済み。</p>
+        <p className="ingest-source">{t('gallery:docAppend.appended', { n: meta.append_seq })}</p>
       )}
       <div className="ingest-pick">
         <label className="file-btn">
-          文書を選択（Word / XML）
+          {t('gallery:docAppend.pick')}
           <input
             type="file"
             accept=".xml,.docx"
@@ -706,18 +714,18 @@ function DocumentAppendControl({
           />
         </label>
         <span className={`file-names${file ? '' : ' empty'}`}>
-          {file ? file.name : '追加する文書を選んでください'}
+          {file ? file.name : t('gallery:docAppend.noFile')}
         </span>
       </div>
       <button type="button" className="promote-btn" onClick={onAdd} disabled={!canAdd}>
-        {busy ? '追加中…' : 'この文書を追加'}
+        {busy ? t('gallery:docAppend.busy') : t('gallery:docAppend.submit')}
       </button>
       {done && (
         <p className="ingest-ok">
-          ✓ 文書を追加しました（+{done.triples_in_batch} 件）。「ツール」タブから全文を検索・引用できます。
+          {t('gallery:docAppend.done', { n: done.triples_in_batch })}
         </p>
       )}
-      {err && <p className="promote-err">追加に失敗しました: {err}</p>}
+      {err && <p className="promote-err">{t('gallery:docAppend.error', { err })}</p>}
     </div>
   )
 }

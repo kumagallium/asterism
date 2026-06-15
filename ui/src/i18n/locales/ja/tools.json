@@ -75,6 +75,9 @@
     "defaultHint": "既定: {{value}}",
     "running": "実行中…",
     "run": "実行（キー不要）",
+    "cellCopyTip": "・セルをクリックすると全体をコピーします（例: <0>sentence_iri</0> を <1>quote_with_citation</1> に貼り付け）。",
+    "cellCopyTitle": "クリックで全体をコピー",
+    "cellCopied": "✓ コピー",
     "result": {
       "count": "{{n}} 件",
       "countTruncated": "{{n}} 件（上限で切り詰め）",

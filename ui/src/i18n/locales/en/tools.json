@@ -75,6 +75,9 @@
     "defaultHint": "default: {{value}}",
     "running": "Running…",
     "run": "Run (no key needed)",
+    "cellCopyTip": "· Click a cell to copy its full value (e.g. paste <0>sentence_iri</0> into <1>quote_with_citation</1>).",
+    "cellCopyTitle": "Click to copy the full value",
+    "cellCopied": "✓ Copied",
     "result": {
       "count": "{{n}} rows",
       "countTruncated": "{{n}} rows (truncated at limit)",
