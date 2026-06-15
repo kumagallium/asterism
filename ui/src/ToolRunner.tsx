@@ -5,6 +5,28 @@ function fmt(v: unknown): string {
   return v == null ? '' : String(v)
 }
 
+/** Copy text to the clipboard, with an execCommand fallback for non-secure contexts. */
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch {
+    try {
+      const ta = document.createElement('textarea')
+      ta.value = text
+      ta.style.position = 'fixed'
+      ta.style.opacity = '0'
+      document.body.appendChild(ta)
+      ta.select()
+      const ok = document.execCommand('copy')
+      document.body.removeChild(ta)
+      return ok
+    } catch {
+      return false
+    }
+  }
+}
+
 /**
  * The deterministic, KEY-FREE run panel for one saved (human-vetted) tool: a typed
  * form built from its declared parameters, an execute button, the result table,
@@ -23,6 +45,15 @@ export function ToolRunner({ datasetId, tool }: { datasetId: string; tool: Query
   const [running, setRunning] = useState(false)
   const [result, setResult] = useState<ToolRunResult | null>(null)
   const [err, setErr] = useState('')
+  const [copied, setCopied] = useState<string | null>(null)
+
+  async function copyCell(key: string, value: string) {
+    if (!value) return
+    if (await copyText(value)) {
+      setCopied(key)
+      setTimeout(() => setCopied((k) => (k === key ? null : k)), 1200)
+    }
+  }
 
   async function run() {
     setRunning(true)
@@ -102,6 +133,12 @@ export function ToolRunner({ datasetId, tool }: { datasetId: string; tool: Query
         <div className="tool-run-result">
           <p className="hint">
             {result.count} 件{result.truncated && '（上限で切り詰め）'}
+            {result.count > 0 && (
+              <span className="cell-copy-tip">
+                {' '}・セルをクリックすると全体をコピーします（例: <code>sentence_iri</code> を{' '}
+                <code>quote_with_citation</code> に貼り付け）。
+              </span>
+            )}
           </p>
           {result.count > 0 ? (
             <div className="table-wrap">
@@ -116,13 +153,26 @@ export function ToolRunner({ datasetId, tool }: { datasetId: string; tool: Query
                 <tbody>
                   {result.items.map((row, i) => (
                     <tr key={i}>
-                      {cols.map((c) => (
-                        <td key={c}>
-                          <span className="sparql-cell" title={fmt(row[c])}>
-                            {fmt(row[c])}
-                          </span>
-                        </td>
-                      ))}
+                      {cols.map((c) => {
+                        const val = fmt(row[c])
+                        const key = `${i}:${c}`
+                        if (!val) return <td key={c} />
+                        return (
+                          <td key={c}>
+                            <button
+                              type="button"
+                              className={`cell-copy${copied === key ? ' cell-copied' : ''}`}
+                              title="クリックで全体をコピー"
+                              onClick={() => copyCell(key, val)}
+                            >
+                              <span className="sparql-cell">{val}</span>
+                              <span className="cell-copy-hint" aria-hidden>
+                                {copied === key ? '✓ コピー' : '⧉'}
+                              </span>
+                            </button>
+                          </td>
+                        )
+                      })}
                     </tr>
                   ))}
                 </tbody>
