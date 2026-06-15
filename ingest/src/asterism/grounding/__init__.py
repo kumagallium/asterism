@@ -18,11 +18,14 @@ from asterism.grounding.catalog import (
     load_catalog,
     vocabularies,
 )
+from asterism.grounding.schema import SchemaTermGrounding, ground_model_yaml
 
 __all__ = [
     "Candidate",
+    "SchemaTermGrounding",
     "VocabTerm",
     "Vocabulary",
+    "ground_model_yaml",
     "ground_terms",
     "load_catalog",
     "vocabularies",

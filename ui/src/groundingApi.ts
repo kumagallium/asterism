@@ -19,6 +19,15 @@ export interface GroundVocabulary {
   term_count: number
 }
 
+/** One MINTED schema term + the external-standard candidates it could reuse/align to
+ * (propose-time grounding suggestions). */
+export interface SchemaTermGrounding {
+  name: string
+  kind: 'class' | 'property'
+  source_curie: string
+  candidates: GroundCandidate[]
+}
+
 /** A grounding candidate: a real external term + how strongly it matched the query. */
 export interface GroundCandidate {
   iri: string
@@ -69,4 +78,20 @@ export async function groundTerms(
   const res = await fetch(`${API_BASE}/api/ground?${params.toString()}`)
   if (!res.ok) throw await asError(res, i18n.t('grounding:op.search'))
   return ((await res.json()) as { candidates?: GroundCandidate[] }).candidates ?? []
+}
+
+/**
+ * Propose-time grounding: for each class/predicate the proposed schema would MINT, the
+ * matching standard candidates — so AI-assisted design surfaces "your data could lean on
+ * cmso:/qudt:/…". Deterministic + closed-set (candidates never come from the LLM); the
+ * model.yaml block is extracted from the propose markdown server-side. Read-only.
+ */
+export async function groundSchema(proposalMd: string): Promise<SchemaTermGrounding[]> {
+  const res = await fetch(`${API_BASE}/api/ground/schema`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ proposal_md: proposalMd }),
+  })
+  if (!res.ok) throw await asError(res, i18n.t('grounding:op.schema'))
+  return ((await res.json()) as { terms?: SchemaTermGrounding[] }).terms ?? []
 }
