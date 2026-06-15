@@ -727,7 +727,7 @@ function DocumentAppendControl({
           {t('gallery:docAppend.pick')}
           <input
             type="file"
-            accept=".xml,.docx"
+            accept=".xml,.docx,.pdf"
             onChange={(e) => {
               setFile(e.target.files?.[0] ?? null)
               setDone(null)

@@ -420,6 +420,236 @@ def convert_docx_to_jats(docx_bytes: bytes, *, timeout: float = 30.0) -> tuple[s
     return jats, version
 
 
+# --- PDF (Docling) conversion ----------------------------------------------------
+# Born-digital PDF needs layout-aware ML (Docling) to recover its structure. That ML
+# runs in a SEPARATE sidecar service (ADR pdf-docling-conversion.md), keeping the api
+# image ML-free. The sidecar returns the RAW DoclingDocument dict; the deterministic,
+# vetted dict→JATS adapter below runs HERE (in-repo, unit-tested, no torch). So a PDF
+# lands in the SAME JATS shape structure_jats already ingests — figures/sections get the
+# ``id``s a PDF lacks, synthesised deterministically.
+
+# Cap on a PDF handed to the sidecar (defence-in-depth alongside the sidecar's own cap
+# and the API upload cap). A PDF is far denser than prose.
+_MAX_PDF_BYTES = 64 * 1024 * 1024
+
+# Strip a leading "Figure 3." / "Table 1:" into a JATS <label> for cleaner citations.
+_FIG_LABEL_RE = re.compile(r"^(Fig(?:ure)?\.?\s*\d+|Table\s*\d+|Scheme\s*\d+)[.:]?\s*", re.I)
+
+
+def _docling_ref(node: object) -> str | None:
+    """A DoclingDocument cross-reference string (``"#/texts/0"``) from a ref dict."""
+    if isinstance(node, dict):
+        r = node.get("$ref") or node.get("cref")
+        return r if isinstance(r, str) else None
+    return None
+
+
+def docling_dict_to_jats(doc: dict) -> str:
+    """Convert a Docling ``DoclingDocument.export_to_dict()`` into JATS XML (deterministic).
+
+    The vetted, in-repo half of the PDF path: the sidecar runs the ML and returns this
+    raw dict; this pure, stdlib, deterministic function turns it into the JATS shape
+    :func:`structure_jats` already ingests (``<article><body><sec id><title><p>…``),
+    synthesising the section / figure ``id``s a PDF lacks. No torch, no network — it is
+    unit-tested with a committed fixture.
+
+    Reading order comes from ``body.children`` (followed recursively); section nesting
+    from ``section_header`` levels (markdown-style); lists from list ``groups``; figures
+    from ``pictures`` that carry a caption. Table grids are deferred — a table's caption
+    is kept as prose so it stays searchable / citable (ADR pdf-docling-conversion.md §7).
+    """
+    import xml.etree.ElementTree as ET
+
+    index: dict[str, dict] = {}
+    for key in ("texts", "groups", "pictures", "tables"):
+        for it in doc.get(key) or []:
+            ref = it.get("self_ref")
+            if isinstance(ref, str):
+                index[ref] = it
+
+    # Caption text items are emitted with their figure/table — skip them as body prose.
+    caption_refs: set[str] = set()
+    for key in ("pictures", "tables"):
+        for it in doc.get(key) or []:
+            for cap in it.get("captions") or []:
+                r = _docling_ref(cap)
+                if r:
+                    caption_refs.add(r)
+
+    def item_text(it: dict) -> str:
+        return trim_collapse(it.get("text") or it.get("orig") or "")
+
+    def caption_text(it: dict) -> str:
+        out = []
+        for cap in it.get("captions") or []:
+            r = _docling_ref(cap)
+            c = index.get(r) if r else None
+            if c is not None:
+                t = item_text(c)
+                if t:
+                    out.append(t)
+        return trim_collapse(" ".join(out))
+
+    # Flatten to a linear reading-order token stream; sections are rebuilt from levels.
+    seq: list[tuple] = []
+    seen: set[str] = set()
+
+    def flatten(children: object) -> None:
+        for ch in children or []:
+            ref = _docling_ref(ch)
+            if not ref or ref in seen:
+                continue
+            seen.add(ref)
+            it = index.get(ref)
+            if it is None:
+                continue
+            kind = ref.split("/")[1] if "/" in ref else ""
+            if kind == "groups":
+                if "list" in (it.get("label") or "").lower():
+                    items = []
+                    for li in it.get("children") or []:
+                        lr = _docling_ref(li)
+                        lit = index.get(lr) if lr else None
+                        if lit is not None:
+                            seen.add(lr)
+                            t = item_text(lit)
+                            if t:
+                                items.append(t)
+                    if items:
+                        seq.append(("list", items))
+                else:
+                    flatten(it.get("children"))  # inline / other group: descend
+            elif kind == "pictures":
+                cap = caption_text(it)
+                if cap:
+                    seq.append(("figure", cap))
+            elif kind == "tables":
+                cap = caption_text(it)
+                if cap:
+                    seq.append(("table", cap))
+            elif kind == "texts":
+                if ref in caption_refs:
+                    continue
+                label = (it.get("label") or "").lower()
+                text = item_text(it)
+                if label == "title":
+                    if text:
+                        seq.append(("title", text))
+                elif label == "section_header":
+                    if text:
+                        lvl = it.get("level")
+                        seq.append(("header", lvl if isinstance(lvl, int) and lvl > 0 else 1, text))
+                elif label in ("page_header", "page_footer", "footnote"):
+                    pass  # furniture — not body prose
+                elif label == "list_item":
+                    if text:
+                        seq.append(("list", [text]))
+                elif text:  # text / paragraph / code / formula / ...
+                    seq.append(("para", text))
+                flatten(it.get("children"))  # hierarchical layouts: descend in order
+
+    flatten((doc.get("body") or {}).get("children"))
+
+    # Build the JATS tree (ElementTree handles XML escaping).
+    article = ET.Element("article")
+    ameta = ET.SubElement(ET.SubElement(article, "front"), "article-meta")
+    body_el = ET.SubElement(article, "body")
+
+    title_text = next((t[1] for t in seq if t[0] == "title"), "") or trim_collapse(
+        doc.get("name") or ""
+    )
+    if title_text:
+        ET.SubElement(ET.SubElement(ameta, "title-group"), "article-title").text = title_text
+
+    counters = {"sec": 0, "fig": 0}
+    stack: list[tuple[int, ET.Element]] = []
+
+    def container() -> ET.Element:
+        return stack[-1][1] if stack else body_el
+
+    def paragraph(parent: ET.Element, text: str) -> None:
+        ET.SubElement(parent, "p").text = text
+
+    for tok in seq:
+        head = tok[0]
+        if head == "title":
+            continue
+        if head == "header":
+            _, level, text = tok
+            while stack and stack[-1][0] >= level:
+                stack.pop()
+            parent = stack[-1][1] if stack else body_el
+            counters["sec"] += 1
+            sec = ET.SubElement(parent, "sec", {"id": f"sec-{counters['sec']}"})
+            ET.SubElement(sec, "title").text = text
+            stack.append((level, sec))
+        elif head == "para":
+            paragraph(container(), tok[1])
+        elif head == "list":
+            lst = ET.SubElement(container(), "list")
+            for item in tok[1]:
+                paragraph(ET.SubElement(lst, "list-item"), item)
+        elif head == "figure":
+            counters["fig"] += 1
+            fig = ET.SubElement(container(), "fig", {"id": f"fig-{counters['fig']}"})
+            cap = tok[1]
+            m = _FIG_LABEL_RE.match(cap)
+            if m:
+                ET.SubElement(fig, "label").text = m.group(1)
+                cap = cap[m.end() :].strip()
+            paragraph(ET.SubElement(fig, "caption"), cap or tok[1])
+        elif head == "table":
+            # v1: keep the table caption as prose so it stays searchable / citable.
+            paragraph(container(), tok[1])
+
+    return ET.tostring(article, encoding="unicode")
+
+
+def convert_pdf_to_jats(
+    pdf_bytes: bytes, *, sidecar_url: str | None, timeout: float = 600.0
+) -> tuple[str, str]:
+    """Convert a born-digital PDF to JATS via the Docling sidecar, returning ``(jats, converter)``.
+
+    The sidecar (``ASTERISM_DOCLING_URL``) runs the ML and returns the raw
+    ``DoclingDocument`` dict; :func:`docling_dict_to_jats` (deterministic, in-repo) turns
+    it into JATS here in the trusted runtime. Raises :class:`ConversionError` if the
+    sidecar is not configured / unreachable, the input is oversized, or conversion fails —
+    the API surfaces it as a clear 4xx (graceful degrade, like absent pandoc).
+    """
+    if not sidecar_url:
+        raise ConversionError(
+            "PDF ingestion requires the Docling sidecar, which is not configured. "
+            "Set ASTERISM_DOCLING_URL to its URL, or convert the PDF to JATS/Word first."
+        )
+    if len(pdf_bytes) > _MAX_PDF_BYTES:
+        raise ConversionError("PDF is too large to convert")
+    import httpx
+
+    url = sidecar_url.rstrip("/") + "/convert"
+    try:
+        resp = httpx.post(
+            url, content=pdf_bytes, headers={"content-type": "application/pdf"}, timeout=timeout
+        )
+    except httpx.HTTPError as exc:
+        raise ConversionError(
+            f"could not reach the Docling sidecar at {sidecar_url}: {exc}"
+        ) from exc
+    if resp.status_code != 200:
+        detail = resp.text[:300].strip()
+        raise ConversionError(
+            f"the Docling sidecar could not convert the PDF ({resp.status_code}): {detail}"
+        )
+    try:
+        payload = resp.json()
+    except ValueError as exc:
+        raise ConversionError("the Docling sidecar returned a non-JSON response") from exc
+    jats = docling_dict_to_jats(payload.get("docling_doc") or {})
+    converter = payload.get("converter") or "docling"
+    if "<body" not in jats:
+        raise ConversionError("the converted PDF has no body content")
+    return jats, converter
+
+
 def derive_doc_id(xml_text: str, *, fallback: str) -> str:
     """A stable, IRI-safe document id from the JATS (pmcid > doi-slug > fallback slug)."""
     try:

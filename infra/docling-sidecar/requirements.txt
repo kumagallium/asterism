@@ -1,0 +1,11 @@
+# Docling sidecar runtime deps. Pin docling so the conversion is reproducible — the
+# whole trust model rests on a VERSION-PINNED converter (lit:DocumentConversionActivity).
+# torch is installed CPU-only in the Dockerfile (no CUDA) to keep the image lean; GPU is
+# unnecessary for born-digital PDFs (OCR off).
+#
+# Verified end-to-end at this pin (docs/reports/pdf-docling-production.md): docling
+# 2.102.1 resolves docling-core 2.82.0 + docling-ibm-models 3.13.3 — the converter id
+# stamped onto lit:DocumentConversionActivity.
+docling==2.102.1
+fastapi>=0.110
+uvicorn[standard]>=0.27

@@ -41,20 +41,22 @@ _META_FILE = "meta.json"
 # data it was built from (reproducibility — the citable-facts product direction).
 # This lets the catalog ingest a *design*-stage dataset with no re-attach.
 _SOURCE_DIR = "source"
-# Accepted source file extensions: CSV and JSON (#19) and XML/JATS (document-
-# ontology layer). Morph-KGC reads all three via the RML's referenceFormulation
-# (ql:CSV / ql:JSONPath / ql:XPath), so the substrate path is the same — only the
-# persisted file's extension differs.
-_SOURCE_SUFFIXES = (".csv", ".json", ".geojson", ".xml")
+# Accepted source file extensions: CSV and JSON (#19) and XML/JATS + Word/PDF
+# (document-ontology layer). Morph-KGC reads csv/json/xml via the RML's
+# referenceFormulation (ql:CSV / ql:JSONPath / ql:XPath); a .pdf is a document source
+# converted to JATS by the Docling sidecar at ingest (ADR pdf-docling-conversion.md).
+_SOURCE_SUFFIXES = (".csv", ".json", ".geojson", ".xml", ".pdf")
 
 
 def source_kind_of(filenames: list[str]) -> str:
     """Classify a dataset's source as ``"xml"`` / ``"json"`` / ``"csv"`` by extension.
 
-    A dataset's source is a single kind in practice; XML (JATS) wins, then JSON,
-    else CSV (the default for an empty set).
+    A dataset's source is a single kind in practice; a DOCUMENT source (JATS ``.xml`` or
+    born-digital ``.pdf``) maps to ``"xml"`` (the deterministic structurer path) and wins,
+    then JSON, else CSV (the default for an empty set). ``.pdf`` is converted to JATS at
+    ingest, so it shares the document path under the ``"xml"`` kind.
     """
-    if any(Path(n).suffix.lower() == ".xml" for n in filenames):
+    if any(Path(n).suffix.lower() in (".xml", ".pdf") for n in filenames):
         return "xml"
     if any(Path(n).suffix.lower() in (".json", ".geojson") for n in filenames):
         return "json"

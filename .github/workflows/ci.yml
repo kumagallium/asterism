@@ -120,6 +120,31 @@ jobs:
         working-directory: api
         run: uv run pytest tests/ -v
 
+  docling-sidecar:
+    name: docling sidecar (ruff + import smoke)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Set up Python 3.11
+        run: uv python install 3.11
+
+      # The sidecar's heavy ML deps (docling/torch) are NOT installed in CI — the
+      # deterministic adapter (asterism.documents.docling_dict_to_jats) is covered by the
+      # ingest job's fixture test (no torch). Here we just lint the service and prove it
+      # imports (docling is imported lazily inside handlers, so the module loads without
+      # torch — catching syntax / wiring regressions cheaply).
+      - name: Lint + import smoke
+        working-directory: infra/docling-sidecar
+        run: |
+          uv venv .venv --python 3.11
+          uv pip install ruff fastapi 'uvicorn[standard]'
+          uv run ruff check app.py
+          uv run python -c "import app; assert app.app is not None"
+
   mcp:
     name: asterism tools (ruff + pytest)
     runs-on: ubuntu-latest
