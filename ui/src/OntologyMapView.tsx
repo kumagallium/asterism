@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import {
   type Alignment,
@@ -39,6 +39,7 @@ function buildChart(
   perspectives: CrosswalkPerspective[],
   alignments: Alignment[],
   t: (k: string) => string,
+  showExternal: boolean,
 ): string {
   const dsList = datasets.filter((d) => !d.isCrosswalk)
   // dataset_id (both catalog id and live id) -> the dataset's mermaid node id.
@@ -81,23 +82,55 @@ function buildChart(
     if (from && to && from !== to) edges.add(`  ${from} -. ${esc(a.relation)} .-> ${to}`)
   }
 
+  // Existing standard ontologies each dataset reuses (schema.org / PROV / Dublin Core /
+  // BIBO / QUDT / SKOS — `CatalogDataset.reuses`, derived from real term IRIs). One node
+  // per vocabulary (deduped), a "reuses" edge from each dataset. Opt-in to bound clutter.
+  const extLines: string[] = []
+  const extIds: string[] = []
+  if (showExternal) {
+    const seen = new Set<string>()
+    for (const d of dsList) {
+      const dn = dsNode.get(d.id)
+      for (const r of d.reuses ?? []) {
+        const eid = nodeId('EXT_', r.prefix)
+        if (!seen.has(eid)) {
+          seen.add(eid)
+          extIds.push(eid)
+          extLines.push(`    ${eid}(["${esc(r.prefix)}"])`)
+        }
+        if (dn) edges.add(`  ${dn} -. ${esc(t('map:chart.reuses'))} .-> ${eid}`)
+      }
+    }
+  }
+
   const lines = ['flowchart LR']
   lines.push(`  subgraph datasets["${esc(t('map:chart.datasets'))}"]`, ...dsLines, '  end')
   if (xwLines.length) {
     lines.push(`  subgraph bridges["${esc(t('map:chart.bridges'))}"]`, ...xwLines, '  end')
   }
+  if (extLines.length) {
+    lines.push(`  subgraph external["${esc(t('map:chart.external'))}"]`, ...extLines, '  end')
+  }
   lines.push(...edges)
   if (dsIds.length) lines.push(`  class ${dsIds.join(',')} dsCls`)
   if (xwIds.length) lines.push(`  class ${xwIds.join(',')} xwCls`)
+  if (extIds.length) lines.push(`  class ${extIds.join(',')} extCls`)
   lines.push('  classDef dsCls fill:#eef6ee,stroke:#6aa06a,color:#243;')
   lines.push('  classDef xwCls fill:#fdf3e3,stroke:#d9a44e,color:#523;')
+  lines.push('  classDef extCls fill:#eef0fb,stroke:#7080c0,color:#234;')
   return lines.join('\n')
+}
+
+type MapData = {
+  datasets: CatalogDataset[]
+  perspectives: CrosswalkPerspective[]
+  alignments: Alignment[]
 }
 
 export function OntologyMapView({ onBack }: { onBack?: () => void }) {
   const { t, i18n } = useTranslation()
-  const [chart, setChart] = useState<string | null>(null)
-  const [counts, setCounts] = useState<{ ds: number; xw: number; al: number } | null>(null)
+  const [data, setData] = useState<MapData | null>(null)
+  const [showExternal, setShowExternal] = useState(true)
   const [err, setErr] = useState('')
 
   useEffect(() => {
@@ -105,19 +138,31 @@ export function OntologyMapView({ onBack }: { onBack?: () => void }) {
     Promise.all([getCatalogDatasets(), getCrosswalks(), getAlignments()])
       .then(([datasets, perspectives, al]) => {
         if (off) return
-        setChart(buildChart(datasets, perspectives, al.alignments, t))
-        setCounts({
-          ds: datasets.filter((d) => !d.isCrosswalk).length,
-          xw: perspectives.length,
-          al: al.alignments.length,
-        })
+        setData({ datasets, perspectives, alignments: al.alignments })
       })
       .catch((e) => !off && setErr(e instanceof Error ? e.message : String(e)))
     return () => {
       off = true
     }
-    // Re-fetch + rebuild (the chart's subgraph labels are localized) on language change.
-  }, [t, i18n.language])
+  }, [])
+
+  const counts = data
+    ? {
+        ds: data.datasets.filter((d) => !d.isCrosswalk).length,
+        xw: data.perspectives.length,
+        al: data.alignments.length,
+        ext: new Set(
+          data.datasets.filter((d) => !d.isCrosswalk).flatMap((d) => (d.reuses ?? []).map((r) => r.prefix)),
+        ).size,
+      }
+    : null
+
+  // The chart's subgraph labels are localized, so rebuild on language change too.
+  const chart = useMemo(
+    () =>
+      data ? buildChart(data.datasets, data.perspectives, data.alignments, t, showExternal) : null,
+    [data, showExternal, t, i18n.language],
+  )
 
   const empty = counts && counts.ds === 0 && counts.xw === 0
 
@@ -152,6 +197,19 @@ export function OntologyMapView({ onBack }: { onBack?: () => void }) {
           {counts.al > 0 && (
             <span className="ontomap-chip">{t('map:legend.alignments', { n: counts.al })}</span>
           )}
+          {showExternal && counts.ext > 0 && (
+            <span className="ontomap-chip ontomap-chip--ext">
+              {t('map:legend.external', { n: counts.ext })}
+            </span>
+          )}
+          <label className="ontomap-toggle">
+            <input
+              type="checkbox"
+              checked={showExternal}
+              onChange={(e) => setShowExternal(e.target.checked)}
+            />
+            {t('map:showExternal')}
+          </label>
         </div>
       )}
 
