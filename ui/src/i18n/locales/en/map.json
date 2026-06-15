@@ -5,8 +5,10 @@
   "legend": {
     "datasets": "Datasets {{n}}",
     "crosswalks": "Crosswalks {{n}}",
-    "alignments": "Alignments {{n}}"
+    "alignments": "Alignments {{n}}",
+    "external": "Standard ontologies {{n}}"
   },
+  "showExternal": "Show existing standard ontologies",
   "loading": "Loading…",
   "empty": {
     "title": "No ontologies yet",
@@ -14,6 +16,8 @@
   },
   "chart": {
     "datasets": "Dataset ontologies",
-    "bridges": "Crosswalks (bridges)"
+    "bridges": "Crosswalks (bridges)",
+    "external": "Existing standard ontologies (reused)",
+    "reuses": "reuses"
   }
 }

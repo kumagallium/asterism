@@ -5,8 +5,10 @@
   "legend": {
     "datasets": "データセット {{n}}",
     "crosswalks": "クロスウォーク {{n}}",
-    "alignments": "整合 {{n}}"
+    "alignments": "整合 {{n}}",
+    "external": "標準オントロジー {{n}}"
   },
+  "showExternal": "既存の標準オントロジーも表示",
   "loading": "読み込み中…",
   "empty": {
     "title": "まだオントロジーがありません",
@@ -14,6 +16,8 @@
   },
   "chart": {
     "datasets": "データセットのオントロジー",
-    "bridges": "クロスウォーク（橋）"
+    "bridges": "クロスウォーク（橋）",
+    "external": "既存の標準オントロジー（再利用）",
+    "reuses": "再利用"
   }
 }

@@ -3827,6 +3827,20 @@ textarea:focus {
   background: #fdf3e3;
   color: #523;
 }
+.ontomap-chip--ext {
+  border-color: #7080c0;
+  background: #eef0fb;
+  color: #234;
+}
+.ontomap-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.76rem;
+  color: var(--muted);
+  cursor: pointer;
+  margin-left: auto;
+}
 .ontomap-diagram {
   overflow: auto;
   padding: 0.8rem;
