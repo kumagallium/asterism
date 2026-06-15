@@ -38,6 +38,11 @@
     "dcterms": "Dublin Core terms（identifier / created 等）",
     "bibo": "BIBO（volume / issue / pages）",
     "qudt": "QUDT（物性量・単位の共有語彙）",
-    "skos": "SKOS（概念体系）"
+    "skos": "SKOS（概念体系）",
+    "foaf": "FOAF（人物・組織・関係）",
+    "dcat": "DCAT（データセットのカタログ記述）",
+    "sosa": "SOSA/SSN（観測・センサ・サンプル）",
+    "emmo": "EMMO（材料科学の基盤オントロジー）",
+    "cmso": "CMSO（計算材料サンプル＝結晶構造・組成・欠陥）"
   }
 }

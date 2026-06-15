@@ -38,6 +38,11 @@
     "dcterms": "Dublin Core terms (identifier / created, etc.)",
     "bibo": "BIBO (volume / issue / pages)",
     "qudt": "QUDT (shared vocabulary for quantities and units)",
-    "skos": "SKOS (concept schemes)"
+    "skos": "SKOS (concept schemes)",
+    "foaf": "FOAF (people, organizations, relations)",
+    "dcat": "DCAT (catalog description of datasets)",
+    "sosa": "SOSA/SSN (observations, sensors, samples)",
+    "emmo": "EMMO (foundational ontology for materials science)",
+    "cmso": "CMSO (computational material samples — crystal structure, composition, defects)"
   }
 }

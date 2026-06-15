@@ -20,21 +20,36 @@ export function namespaceOf(iri: string): string {
 }
 
 /**
- * Well-known EXTERNAL vocabularies. When the live data uses a term under one of
- * these namespaces, that vocabulary is being "reused" rather than re-minted.
- * Structural namespaces (rdf/rdfs/owl/xsd) are deliberately not surfaced.
+ * Well-known EXTERNAL vocabularies — a CURATED STARTER PACK of famous, foundational
+ * ontologies Asterism recognizes (generic metadata + per-domain). When the live data
+ * uses a term under one of these namespaces, that vocabulary is being "reused" rather
+ * than re-minted, and we surface it (catalog detail, shared-vocabulary board, ontology
+ * map). Structural namespaces (rdf/rdfs/owl/xsd) are deliberately not surfaced.
  *
- * `what` is an i18n KEY (namespace `vocab`), not a literal — the sole consumer
- * (SharedVocabView) resolves it via `t(v.what)`. `ns`/`prefix` are IRIs and are
- * never translated.
+ * The list grows by CURATION (the famous ones per active domain — like QUDT units or the
+ * Tier-0 library), NOT by mirroring all of LOV/BioPortal (crosswalk-grounding direction,
+ * external-standard-alignment.md). Adding a vocabulary here makes the map RECOGNIZE it;
+ * the data only LINKS to it once a dataset's design reuses/aligns its term IRIs — that
+ * grounding is the separate retrieval + human-vet workstream.
+ *
+ * `what` is an i18n KEY (namespace `vocab`), not a literal — consumers resolve it via
+ * `t(v.what)`. `ns`/`prefix` are IRIs and are never translated. All namespaces are real
+ * (verified), never fabricated.
  */
 export const KNOWN_VOCABS: { ns: string; prefix: string; what: string }[] = [
+  // Generic / cross-domain (metadata, provenance, people, datasets, observations).
   { ns: 'https://schema.org/', prefix: 'schema:', what: 'vocab:known.schema' },
   { ns: 'http://www.w3.org/ns/prov#', prefix: 'prov:', what: 'vocab:known.prov' },
   { ns: 'http://purl.org/dc/terms/', prefix: 'dcterms:', what: 'vocab:known.dcterms' },
   { ns: 'http://purl.org/ontology/bibo/', prefix: 'bibo:', what: 'vocab:known.bibo' },
-  { ns: 'http://qudt.org/schema/qudt/', prefix: 'qudt:', what: 'vocab:known.qudt' },
   { ns: 'http://www.w3.org/2004/02/skos/core#', prefix: 'skos:', what: 'vocab:known.skos' },
+  { ns: 'http://xmlns.com/foaf/0.1/', prefix: 'foaf:', what: 'vocab:known.foaf' },
+  { ns: 'http://www.w3.org/ns/dcat#', prefix: 'dcat:', what: 'vocab:known.dcat' },
+  { ns: 'http://www.w3.org/ns/sosa/', prefix: 'sosa:', what: 'vocab:known.sosa' },
+  // Materials science & engineering (quantities/units + foundational + samples).
+  { ns: 'http://qudt.org/schema/qudt/', prefix: 'qudt:', what: 'vocab:known.qudt' },
+  { ns: 'https://w3id.org/emmo#', prefix: 'emmo:', what: 'vocab:known.emmo' },
+  { ns: 'https://purls.helmholtz-metadaten.de/cmso/', prefix: 'cmso:', what: 'vocab:known.cmso' },
 ]
 
 /** Reused external vocabularies actually present in the given term IRIs. */
