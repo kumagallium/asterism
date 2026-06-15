@@ -19,7 +19,7 @@ import {
   reinstateDataset,
   retractDataset,
 } from './galleryApi'
-import { ArrowIcon, LinkIcon, SearchIcon } from './icons'
+import { ArrowIcon, LayersIcon, LinkIcon, SearchIcon } from './icons'
 import { IngestProgressView } from './IngestProgressView'
 import { Mermaid } from './Mermaid'
 import { ToolsPanel } from './ToolsPanel'
@@ -47,10 +47,12 @@ export function GalleryView({
   focusClass,
   onOpenVocab,
   onOpenCrosswalk,
+  onOpenMap,
 }: {
   focusClass?: string | null
   onOpenVocab?: () => void
   onOpenCrosswalk?: () => void
+  onOpenMap?: () => void
 }) {
   const [datasets, setDatasets] = useState<CatalogDataset[] | null>(null)
   const [error, setError] = useState('')
@@ -216,6 +218,25 @@ export function GalleryView({
               <span className="mono-strong">{crosswalkCount}</span> データセットを横断
             </span>
           )}
+          開く <ArrowIcon size={14} />
+        </span>
+      </button>
+
+      {/* ontology map gateway → the bird's-eye view of all ontologies + their links */}
+      <button type="button" className="shared-band" onClick={onOpenMap}>
+        <span className="shared-band-icon">
+          <LayersIcon size={19} />
+        </span>
+        <span className="shared-band-body">
+          <span className="shared-band-title">
+            オントロジーの全体像 <span className="shared-band-en">ontology map</span>
+          </span>
+          <span className="shared-band-sub">
+            どんなオントロジーがあり、<strong>どうつながっているか</strong>を1枚の図で俯瞰します
+            （データセット × クロスウォークの橋 × 整合）。
+          </span>
+        </span>
+        <span className="shared-band-cta">
           開く <ArrowIcon size={14} />
         </span>
       </button>
