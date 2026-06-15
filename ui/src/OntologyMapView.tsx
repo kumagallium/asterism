@@ -9,6 +9,7 @@ import {
 import { type CatalogDataset, getCatalogDatasets } from './galleryApi'
 import { ArrowIcon, LayersIcon } from './icons'
 import { Mermaid } from './Mermaid'
+import { knownVocabForIri, localName } from './vocab'
 
 /**
  * Ontology map (俯瞰): a single bird's-eye diagram of what ontologies live in Asterism
@@ -44,6 +45,8 @@ function buildChart(
   const dsList = datasets.filter((d) => !d.isCrosswalk)
   // dataset_id (both catalog id and live id) -> the dataset's mermaid node id.
   const dsNode = new Map<string, string>()
+  // dataset display name -> node id (an alignment records its source dataset by name).
+  const dsByName = new Map<string, string>()
   const dsLines: string[] = []
   const dsIds: string[] = []
   for (const d of dsList) {
@@ -54,6 +57,7 @@ function buildChart(
     dsLines.push(`    ${id}["${label}"]`)
     dsNode.set(d.id, id)
     if (d.live?.meta.id) dsNode.set(d.live.meta.id, id)
+    dsByName.set(d.name, id)
   }
 
   const xwLines: string[] = []
@@ -75,16 +79,21 @@ function buildChart(
     }
   }
 
-  // Alignment edges connect two perspectives (best-effort match by display name).
+  // Alignment edges. An alignment to an EXTERNAL standard term (target under a known
+  // vocabulary) is a 整合 edge handled in the external section; the rest connect two
+  // perspectives (best-effort match by display name).
   for (const a of alignments) {
+    if (knownVocabForIri(a.target)) continue // external — drawn below
     const from = xwByName.get(a.from_perspective)
     const to = xwByName.get(a.to_perspective)
     if (from && to && from !== to) edges.add(`  ${from} -. ${esc(a.relation)} .-> ${to}`)
   }
 
-  // Existing standard ontologies each dataset reuses (schema.org / PROV / Dublin Core /
-  // BIBO / QUDT / SKOS — `CatalogDataset.reuses`, derived from real term IRIs). One node
-  // per vocabulary (deduped), a "reuses" edge from each dataset. Opt-in to bound clutter.
+  // Existing standard ontologies, two ways (opt-in via `showExternal` to bound clutter):
+  // (1) REUSE — vocabularies a dataset's term IRIs already live under (`reuses`), one
+  //     deduped node per vocabulary. (2) 整合/LINK — a human-asserted alignment to a
+  //     real external TERM (`cmso:CrystalStructure` etc.), one node per term, an edge
+  //     from the aligned dataset/perspective (external-standard-alignment.md §8).
   const extLines: string[] = []
   const extIds: string[] = []
   if (showExternal) {
@@ -100,6 +109,20 @@ function buildChart(
         }
         if (dn) edges.add(`  ${dn} -. ${esc(t('map:chart.reuses'))} .-> ${eid}`)
       }
+    }
+    for (const a of alignments) {
+      const vocab = knownVocabForIri(a.target)
+      if (!vocab) continue
+      const src = dsByName.get(a.from_perspective) ?? xwByName.get(a.from_perspective)
+      if (!src) continue // can't anchor the edge to a known node
+      const term = `${vocab.prefix}${localName(a.target)}`
+      const eid = nodeId('EXTT_', a.target)
+      if (!seen.has(eid)) {
+        seen.add(eid)
+        extIds.push(eid)
+        extLines.push(`    ${eid}(["${esc(term)}"])`)
+      }
+      edges.add(`  ${src} == ${esc(a.relation)} ==> ${eid}`)
     }
   }
 

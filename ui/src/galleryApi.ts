@@ -302,6 +302,14 @@ function datasetPredicateIris(a?: AlignmentReport): string[] {
   )
 }
 
+/** Real class IRIs the dataset uses (from alignment), minus structural ones. */
+function datasetClassIris(a?: AlignmentReport): string[] {
+  if (!a) return []
+  return [...a.classes.reuse, ...a.classes.new].filter(
+    (c) => !STRUCTURAL_NS.some((ns) => c.startsWith(ns)),
+  )
+}
+
 function toOntology(meta: DatasetMeta, mermaid: string): OntologyEntry {
   return {
     id: `live-${meta.id}`,
@@ -439,6 +447,9 @@ export interface CatalogDataset {
   reuses: { prefix: string; what: string }[]
   /** Real predicate IRIs the dataset uses (from alignment); structural ones dropped. */
   predicates: string[]
+  /** Real class IRIs the dataset uses (from alignment); structural ones dropped. The
+   * grounding/接地 UI grounds the dataset's OWN minted terms to external standards. */
+  classIris: string[]
   artifacts: { kind: string; name: string; detail: string }[]
   mermaid?: string
   /** Present for materialized drafts; carries the backend handle for promote. */
@@ -475,6 +486,7 @@ function liveToCatalog(l: LiveDataset): CatalogDataset {
     classes: l.ontology.classes,
     reuses: l.ontology.reuses,
     predicates: datasetPredicateIris(l.meta.alignment),
+    classIris: datasetClassIris(l.meta.alignment),
     artifacts: l.mapping.artifacts.map((a) => ({
       kind: ARTIFACT_KIND_LABEL[a.kind],
       name: a.name,

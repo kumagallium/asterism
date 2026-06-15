@@ -60,6 +60,14 @@ export const KNOWN_VOCABS: { ns: string; prefix: string; what: string }[] = [
   { ns: 'http://purls.helmholtz-metadaten.de/cmso/', prefix: 'cmso:', what: 'vocab:known.cmso' },
 ]
 
+/** The known external vocabulary whose namespace an IRI belongs to (or undefined). Used
+ * to recognize an alignment TARGET as an external standard term (the map's 整合 edges)
+ * and to render it compactly as `prefix:localName`. */
+export function knownVocabForIri(iri: string): { ns: string; prefix: string; what: string } | undefined {
+  const ns = namespaceOf(iri)
+  return KNOWN_VOCABS.find((v) => v.ns === ns)
+}
+
 /** Reused external vocabularies actually present in the given term IRIs. */
 export function deriveReuses(iris: Iterable<string>): { prefix: string; what: string }[] {
   const present = new Set<string>()
