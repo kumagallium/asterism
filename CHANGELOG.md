@@ -1,5 +1,26 @@
 # Changelog
 
+## [v0.5.0](https://github.com/kumagallium/asterism/compare/v0.4.0...v0.5.0) - 2026-06-15
+
+- docs(crosswalk): design ADR for compound keys (join on N attributes) by @kumagallium in https://github.com/kumagallium/asterism/pull/208
+- feat(documents): Word (.docx) ingest via pandoc — upload a contract, cite a clause by @kumagallium in https://github.com/kumagallium/asterism/pull/210
+- feat(crosswalk): compound keys phase-1a — tuple join keys in the pure builder by @kumagallium in https://github.com/kumagallium/asterism/pull/211
+- feat(api): POST /api/documents — create a document dataset (no schema design) by @kumagallium in https://github.com/kumagallium/asterism/pull/212
+- feat(ui): 文書を追加 mode — upload a JATS/Word document, query it with citations by @kumagallium in https://github.com/kumagallium/asterism/pull/213
+- fix(ui): document as a source kind (not a separate mode); drop JATS jargon by @kumagallium in https://github.com/kumagallium/asterism/pull/214
+- feat(crosswalk): compound keys phase-1b — runtime store-gather + config + API by @kumagallium in https://github.com/kumagallium/asterism/pull/215
+- fix(documents): 箇条書き・見出し無し本文も文として取り込む by @kumagallium in https://github.com/kumagallium/asterism/pull/216
+- feat(ui): compound keys — 追加の一致条件 (AND) in the crosswalk builder by @kumagallium in https://github.com/kumagallium/asterism/pull/217
+- feat(documents): 1データセットに文書を追記していく（定例ミーティング型） by @kumagallium in https://github.com/kumagallium/asterism/pull/218
+- feat(tools): ツール結果セルをクリックで全体コピー by @kumagallium in https://github.com/kumagallium/asterism/pull/220
+- feat(ui): ontology map — bird's-eye view of ontologies and how they link by @kumagallium in https://github.com/kumagallium/asterism/pull/221
+- feat(ui): i18n (ja/en, 日本語ファースト) を UI 全面に導入 by @kumagallium in https://github.com/kumagallium/asterism/pull/219
+- feat(ui): ontology map — layer for existing standard ontologies (reused) by @kumagallium in https://github.com/kumagallium/asterism/pull/222
+- feat(ui): curated starter pack of known ontologies + grounding direction ADR by @kumagallium in https://github.com/kumagallium/asterism/pull/223
+- feat(grounding): closed-set search foundation for external-standard LINK by @kumagallium in https://github.com/kumagallium/asterism/pull/225
+- feat(grounding): adopt UI + ontology-map 整合 edges (external-standard LINK) by @kumagallium in https://github.com/kumagallium/asterism/pull/226
+- feat(grounding): propose-time standard candidate suggestions by @kumagallium in https://github.com/kumagallium/asterism/pull/228
+
 ## [v0.4.0](https://github.com/kumagallium/asterism/compare/v0.3.0...v0.4.0) - 2026-06-14
 
 - feat(documents): runtime JATS-document ingest — uploaded docs citable to the sentence by @kumagallium in https://github.com/kumagallium/asterism/pull/205
