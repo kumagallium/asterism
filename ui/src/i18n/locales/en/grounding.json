@@ -1,7 +1,12 @@
 {
   "op": {
     "vocabularies": "loading standard vocabularies",
-    "search": "searching standard vocabularies"
+    "search": "searching standard vocabularies",
+    "schema": "loading standard candidates for the design"
+  },
+  "schema": {
+    "head": "Standard ontology candidates",
+    "hint": "For the terms this design newly mints, here are matching terms from famous standards (suggestions only — adopt them in the catalog after ingest)."
   },
   "error": {
     "failed": "{{op}} failed ({{status}}){{detail}}"

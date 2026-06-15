@@ -19,6 +19,7 @@ import { DocumentPanel } from './DocumentPanel'
 import { PRESET_HINTS } from './domainHints'
 import { MaterializePanel } from './MaterializePanel'
 import { ProposalView } from './ProposalView'
+import { SchemaGroundingPanel } from './SchemaGroundingPanel'
 
 // Data-source kinds. CSV and JSON (#19) are wired end-to-end (Morph-KGC reads
 // both via the RML's referenceFormulation); API/DB are shown (the redesign's
@@ -626,6 +627,7 @@ export function WorkbenchView() {
                 {refining && <JobProgress label={t('workbench:review.jobLabel')} status={status} />}
               </section>
               {proposeErr && <pre className="error">{proposeErr}</pre>}
+              <SchemaGroundingPanel proposalMd={proposal} />
               <section className="result">
                 <ProposalView markdown={proposal} />
               </section>
