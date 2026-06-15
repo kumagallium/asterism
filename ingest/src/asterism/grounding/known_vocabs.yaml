@@ -1,0 +1,236 @@
+# Curated starter pack of KNOWN EXTERNAL VOCABULARIES — the single source of truth
+# (SoT) for both RECOGNITION (the map / reuse display) and GROUNDING (proposing a real
+# external term for a class/predicate, then a human confirms — external-standard-
+# alignment.md §8).
+#
+# INVARIANT — every term IRI here is REAL, never fabricated. Each was extracted /
+# verified against the AUTHORITATIVE ontology RDF cited in the vocabulary's `source`
+# (retrieved on `retrieved`). The grounding search only ever returns IRIs from this
+# closed set, so the LLM/UI never invents an IRI (the human still vets the choice).
+#
+# CURATION, not mirroring. This grows by hand — the famous / foundational vocabularies
+# per ACTIVE domain (like QUDT units or the Tier-0 function library), NOT by importing
+# all of LOV (~700) / BioPortal. To add a term: confirm its localname exists in the
+# vocabulary's `source` RDF, then append `{ name, kind, label }` (kind = class | property).
+#
+# `iri` of a term = `namespace` + `name`. Keep names verbatim from the source.
+
+vocabularies:
+  # ── Materials science & engineering ──────────────────────────────────────────
+  - prefix: cmso
+    title: Computational Material Sample Ontology (CMSO)
+    # NOTE: the AUTHORITATIVE term IRIs in the published CMSO RDF use http:// (the
+    # ontology IRI is http://purls.helmholtz-metadaten.de/cmso/). The https:// PURL
+    # only 303-redirects to the HTML docs; it is NOT the term identity. Reuse must
+    # match the http:// strings the ontology actually mints, so that is the namespace.
+    namespace: http://purls.helmholtz-metadaten.de/cmso/
+    domain: materials
+    homepage: https://ocdo.github.io/cmso/
+    source: https://raw.githubusercontent.com/OCDO/cmso-ontology/main/cmso.owl
+    retrieved: 2026-06-15
+    version: 0.0.1
+    terms:
+      - { name: CrystalStructure, kind: class, label: Crystal Structure }
+      - { name: Structure, kind: class, label: Structure }
+      - { name: SpaceGroup, kind: class, label: Space Group }
+      - { name: UnitCell, kind: class, label: Unit Cell }
+      - { name: SimulationCell, kind: class, label: Simulation Cell }
+      - { name: Material, kind: class, label: Material }
+      - { name: ComputationalSample, kind: class, label: Computational Sample }
+      - { name: AtomicScaleSample, kind: class, label: Atomic Scale Sample }
+      - { name: MacroscaleSample, kind: class, label: Macroscale Sample }
+      - { name: ChemicalComposition, kind: class, label: Chemical Composition }
+      - { name: ChemicalElement, kind: class, label: Chemical Element }
+      - { name: ChemicalSpecies, kind: class, label: Chemical Species }
+      - { name: Atom, kind: class, label: Atom }
+      - { name: Molecule, kind: class, label: Molecule }
+      - { name: Microstructure, kind: class, label: Microstructure }
+      - { name: CrystalDefect, kind: class, label: Crystal Defect }
+      - { name: LatticeParameter, kind: class, label: Lattice Parameter }
+      - { name: Polycrystal, kind: class, label: Polycrystal }
+      - { name: AmorphousMaterial, kind: class, label: Amorphous Material }
+      - { name: hasStructure, kind: property, label: has structure }
+      - { name: hasSpaceGroup, kind: property, label: has space group }
+      - { name: hasUnitCell, kind: property, label: has unit cell }
+      - { name: hasSimulationCell, kind: property, label: has simulation cell }
+      - { name: hasMaterial, kind: property, label: has material }
+      - { name: hasElement, kind: property, label: has element }
+      - { name: hasSpecies, kind: property, label: has species }
+      - { name: hasLatticeParameter, kind: property, label: has lattice parameter }
+      - { name: hasSpaceGroupNumber, kind: property, label: has space group number }
+      - { name: hasSpaceGroupSymbol, kind: property, label: has space group symbol }
+      - { name: hasChemicalSymbol, kind: property, label: has chemical symbol }
+      - { name: hasElementRatio, kind: property, label: has element ratio }
+      - { name: hasNumberOfAtoms, kind: property, label: has number of atoms }
+      - { name: hasBravaisLattice, kind: property, label: has Bravais lattice }
+      - { name: hasVolume, kind: property, label: has volume }
+
+  - prefix: qudt
+    title: QUDT — Quantities, Units, Dimensions and Types
+    namespace: http://qudt.org/schema/qudt/
+    domain: materials
+    homepage: https://qudt.org/
+    source: https://qudt.org/3.1.0/schema/qudt
+    retrieved: 2026-06-15
+    version: 3.1.0
+    terms:
+      - { name: Quantity, kind: class, label: Quantity }
+      - { name: QuantityKind, kind: class, label: Quantity Kind }
+      - { name: QuantityValue, kind: class, label: Quantity Value }
+      - { name: Unit, kind: class, label: Unit }
+      - { name: hasUnit, kind: property, label: has unit }
+      - { name: hasQuantityKind, kind: property, label: has quantity kind }
+      - { name: value, kind: property, label: value }
+      - { name: numericValue, kind: property, label: numeric value }
+      - { name: symbol, kind: property, label: symbol }
+      - { name: conversionMultiplier, kind: property, label: conversion multiplier }
+      - { name: hasDimensionVector, kind: property, label: has dimension vector }
+
+  # EMMO is RECOGNIZED for the map, but not yet GROUNDABLE: the canonical EMMO mints
+  # opaque IRIs (https://w3id.org/emmo#EMMO_<uuid>), so name/label search needs a
+  # different (annotation-indexed) strategy. Curated terms are deferred — known limit.
+  - prefix: emmo
+    title: Elementary Multiperspective Material Ontology (EMMO)
+    namespace: https://w3id.org/emmo#
+    domain: materials
+    homepage: https://emmo-repo.github.io/
+    terms: []
+
+  # ── Generic / cross-domain (metadata, provenance, people, datasets, observations) ──
+  - prefix: schema
+    title: Schema.org
+    namespace: https://schema.org/
+    domain: generic
+    homepage: https://schema.org/
+    source: https://schema.org/version/latest/schemaorg-current-https.jsonld
+    retrieved: 2026-06-15
+    terms:
+      - { name: Dataset, kind: class, label: Dataset }
+      - { name: Person, kind: class, label: Person }
+      - { name: Organization, kind: class, label: Organization }
+      - { name: ChemicalSubstance, kind: class, label: Chemical Substance }
+      - { name: MolecularEntity, kind: class, label: Molecular Entity }
+      - { name: PropertyValue, kind: class, label: Property Value }
+      - { name: name, kind: property, label: name }
+      - { name: identifier, kind: property, label: identifier }
+      - { name: description, kind: property, label: description }
+      - { name: url, kind: property, label: url }
+      - { name: author, kind: property, label: author }
+      - { name: creator, kind: property, label: creator }
+      - { name: value, kind: property, label: value }
+      - { name: material, kind: property, label: material }
+      - { name: measurementTechnique, kind: property, label: measurement technique }
+
+  - prefix: prov
+    title: PROV-O — The Provenance Ontology
+    namespace: http://www.w3.org/ns/prov#
+    domain: generic
+    homepage: https://www.w3.org/TR/prov-o/
+    source: https://www.w3.org/ns/prov-o
+    retrieved: 2026-06-15
+    terms:
+      - { name: Entity, kind: class, label: Entity }
+      - { name: Activity, kind: class, label: Activity }
+      - { name: Agent, kind: class, label: Agent }
+      - { name: wasDerivedFrom, kind: property, label: was derived from }
+      - { name: wasGeneratedBy, kind: property, label: was generated by }
+      - { name: used, kind: property, label: used }
+      - { name: wasAttributedTo, kind: property, label: was attributed to }
+      - { name: generatedAtTime, kind: property, label: generated at time }
+      - { name: wasInformedBy, kind: property, label: was informed by }
+
+  - prefix: dcterms
+    title: Dublin Core Terms
+    namespace: http://purl.org/dc/terms/
+    domain: generic
+    homepage: https://www.dublincore.org/specifications/dublin-core/dcmi-terms/
+    source: https://www.dublincore.org/specifications/dublin-core/dcmi-terms/dublin_core_terms.ttl
+    retrieved: 2026-06-15
+    terms:
+      - { name: identifier, kind: property, label: identifier }
+      - { name: title, kind: property, label: title }
+      - { name: creator, kind: property, label: creator }
+      - { name: created, kind: property, label: created }
+      - { name: source, kind: property, label: source }
+      - { name: description, kind: property, label: description }
+      - { name: subject, kind: property, label: subject }
+      - { name: license, kind: property, label: license }
+      - { name: hasPart, kind: property, label: has part }
+      - { name: references, kind: property, label: references }
+
+  - prefix: skos
+    title: SKOS — Simple Knowledge Organization System
+    namespace: http://www.w3.org/2004/02/skos/core#
+    domain: generic
+    homepage: https://www.w3.org/TR/skos-reference/
+    source: https://www.w3.org/2009/08/skos-reference/skos.rdf
+    retrieved: 2026-06-15
+    terms:
+      - { name: Concept, kind: class, label: Concept }
+      - { name: ConceptScheme, kind: class, label: Concept Scheme }
+      - { name: prefLabel, kind: property, label: preferred label }
+      - { name: altLabel, kind: property, label: alternative label }
+      - { name: broader, kind: property, label: has broader }
+      - { name: narrower, kind: property, label: has narrower }
+      - { name: related, kind: property, label: has related }
+      - { name: notation, kind: property, label: notation }
+
+  - prefix: foaf
+    title: FOAF — Friend of a Friend
+    namespace: http://xmlns.com/foaf/0.1/
+    domain: generic
+    homepage: http://xmlns.com/foaf/spec/
+    source: http://xmlns.com/foaf/spec/index.rdf
+    retrieved: 2026-06-15
+    terms:
+      - { name: Person, kind: class, label: Person }
+      - { name: Organization, kind: class, label: Organization }
+      - { name: Agent, kind: class, label: Agent }
+      - { name: name, kind: property, label: name }
+      - { name: mbox, kind: property, label: personal mailbox }
+      - { name: homepage, kind: property, label: homepage }
+
+  - prefix: dcat
+    title: DCAT — Data Catalog Vocabulary
+    namespace: http://www.w3.org/ns/dcat#
+    domain: generic
+    homepage: https://www.w3.org/TR/vocab-dcat-2/
+    source: https://www.w3.org/ns/dcat2.ttl
+    retrieved: 2026-06-15
+    terms:
+      - { name: Dataset, kind: class, label: Dataset }
+      - { name: Distribution, kind: class, label: Distribution }
+      - { name: Catalog, kind: class, label: Catalog }
+      - { name: distribution, kind: property, label: distribution }
+      - { name: downloadURL, kind: property, label: download URL }
+      - { name: keyword, kind: property, label: keyword }
+
+  - prefix: sosa
+    title: SOSA — Sensor, Observation, Sample, and Actuator
+    namespace: http://www.w3.org/ns/sosa/
+    domain: generic
+    homepage: https://www.w3.org/TR/vocab-ssn/
+    source: https://www.w3.org/ns/sosa/
+    retrieved: 2026-06-15
+    terms:
+      - { name: Observation, kind: class, label: Observation }
+      - { name: Sensor, kind: class, label: Sensor }
+      - { name: FeatureOfInterest, kind: class, label: Feature of Interest }
+      - { name: observedProperty, kind: property, label: observed property }
+      - { name: hasResult, kind: property, label: has result }
+      - { name: madeObservation, kind: property, label: made observation }
+
+  - prefix: bibo
+    title: BIBO — The Bibliographic Ontology
+    namespace: http://purl.org/ontology/bibo/
+    domain: generic
+    homepage: https://www.dublincore.org/specifications/bibo/
+    source: http://purl.org/ontology/bibo/
+    retrieved: 2026-06-15
+    terms:
+      - { name: Document, kind: class, label: Document }
+      - { name: Article, kind: class, label: Article }
+      - { name: AcademicArticle, kind: class, label: Academic Article }
+      - { name: doi, kind: property, label: doi }
+      - { name: volume, kind: property, label: volume }
+      - { name: issue, kind: property, label: issue }

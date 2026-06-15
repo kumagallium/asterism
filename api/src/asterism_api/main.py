@@ -37,7 +37,7 @@ from pathlib import Path
 from typing import Final
 
 import yaml
-from asterism import crosswalk, crosswalk_runtime, documents, substrate
+from asterism import crosswalk, crosswalk_runtime, documents, grounding, substrate
 from asterism.datasets import datasets_root, load_dataset
 from asterism.exposure import raw_sparql_enabled
 from asterism.ontology_projection import (
@@ -2268,6 +2268,30 @@ def build_app(
                 "relations": sorted(crosswalk_runtime.ALIGN_RELATIONS),
             }
         )
+
+    @app.get("/api/vocabularies")
+    async def grounding_vocabularies() -> JSONResponse:
+        """The curated KNOWN external vocabularies (CMSO / QUDT / schema.org / PROV …)
+        Asterism recognizes + can ground to (external-standard-alignment.md §8). The SoT
+        for both recognition and grounding. Read-only."""
+        return JSONResponse({"vocabularies": [v.to_dict() for v in grounding.vocabularies()]})
+
+    @app.get("/api/ground")
+    async def grounding_search(
+        q: str = Query(description="class / predicate name or label to ground"),
+        kind: str | None = Query(default=None, description='"class" | "property"'),
+        domain: str | None = Query(default=None, description='e.g. "materials"'),
+        limit: int = Query(default=8, ge=1, le=50),
+    ) -> JSONResponse:
+        """Candidate REAL external-standard terms for ``q``, best first — so a human (or
+        AI-assisted propose) can REUSE / ALIGN to a standard instead of re-minting a
+        private term. Closed-set + deterministic: every candidate is a real IRI from the
+        curated catalog (never fabricated); the human still confirms the pick. Read-only."""
+        try:
+            cands = grounding.ground_terms(q, kind=kind, domain=domain, limit=limit)
+        except ValueError as exc:  # bad kind
+            raise HTTPException(400, str(exc)) from exc
+        return JSONResponse({"query": q, "candidates": [c.to_dict() for c in cands]})
 
     @app.post("/api/crosswalk/align", dependencies=_write_auth)
     async def crosswalk_align(body: CrosswalkAlignBody) -> JSONResponse:
