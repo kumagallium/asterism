@@ -119,18 +119,20 @@ tools:
         parsed_at: parsedAt
 
   - name: fetch_passage
-    title: "Fetch a paper's section (or all sections) with paragraph verbatim"
+    title: "Fetch a document's section (or all sections) with paragraph verbatim"
     description: >
-      Return the paragraphs (IRI + verbatim text) of a paper, optionally narrowed
-      to one section by its structural path. Pass the paper by PMCID; pass section
-      as a structural path like "4" (Materials and Methods) or "2-1" (a subsection)
-      to focus, or omit it to walk the whole paper. The structural po:contains tree
-      makes this a deterministic browse, each paragraph individually citable.
+      Return the paragraphs (IRI + verbatim text) of one document, optionally narrowed
+      to a section by its structural path. Identify the document EITHER by its PMCID
+      (the papers example) OR by its paper IRI — the `paper_iri` that search_text /
+      quote_with_citation return — so this works for ANY uploaded document (Word/XML),
+      not only PMC papers. Pass section as a structural path like "4" or "2-1" to focus,
+      or omit it to walk the whole document. The structural po:contains tree makes this
+      a deterministic browse, each paragraph individually citable.
     parameters:
       - name: paper
         type: string
         required: true
-        description: 'the paper PMCID, e.g. "PMC5951533"'
+        description: 'PMCID (e.g. "PMC5951533") OR the document''s paper IRI (from search_text)'
       - name: section
         type: string
         required: false
@@ -143,7 +145,8 @@ tools:
       PREFIX lit: <https://kumagallium.github.io/asterism/papers/ontology#>
       SELECT ?section ?sectionTitle ?structuralPath ?paragraph ?text
       WHERE {
-        ?paperNode lit:pmcid {{paper}} ; po:contains* ?section .
+        { ?paperNode lit:pmcid {{paper}} } UNION { BIND(IRI({{paper}}) AS ?paperNode) }
+        ?paperNode po:contains* ?section .
         ?section a doco:Section ; po:contains ?paragraph .
         OPTIONAL { ?section dcterms:title ?sectionTitle }
         OPTIONAL { ?section lit:structuralPath ?structuralPath }
