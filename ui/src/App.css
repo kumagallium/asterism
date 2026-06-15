@@ -418,6 +418,42 @@
 .sparql-table td {
   white-space: normal;
 }
+/* Click-to-copy a result cell's FULL value: the display stays bounded (truncated)
+   so a very long value can't blow up the layout, while the whole value is one click
+   away — needed to chain e.g. a sentence_iri into quote_with_citation. */
+.cell-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  max-width: 32rem;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+}
+.cell-copy .sparql-cell {
+  cursor: pointer;
+}
+.cell-copy-hint {
+  flex: none;
+  font-size: 0.7rem;
+  color: var(--muted);
+  opacity: 0.4; /* faintly visible so the copy affordance is discoverable */
+  transition: opacity 0.1s ease;
+  white-space: nowrap;
+}
+.cell-copy:hover .cell-copy-hint,
+.cell-copy:focus-visible .cell-copy-hint {
+  opacity: 0.9;
+}
+.cell-copy.cell-copied .cell-copy-hint {
+  opacity: 1;
+  color: var(--success-fg, #1a7f37);
+}
 
 /* ---- M2 ingest-history table + empty state ---- */
 .empty-state {
