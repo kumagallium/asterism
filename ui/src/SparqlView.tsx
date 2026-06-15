@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Trans, useTranslation } from 'react-i18next'
 
 import { authHeaders } from './authToken'
 
@@ -29,6 +30,7 @@ interface SparqlResults {
  * directly. Relays to the read-only POST /api/sparql; update forms are rejected.
  */
 export function SparqlView() {
+  const { t } = useTranslation()
   const [query, setQuery] = useState(EXAMPLE)
   const [results, setResults] = useState<SparqlResults | null>(null)
   const [error, setError] = useState('')
@@ -64,9 +66,11 @@ export function SparqlView() {
   return (
     <>
       <p className="subtitle">
-        取り込み済みの RDF に<strong>読み取り専用</strong>の SPARQL を直接実行します。
-        これは上級者向けの<strong>脱出ハッチ</strong>です（通常は Ask / Gallery をご利用ください）。
-        UPDATE 系（INSERT/DELETE 等）は実行できません。
+        <Trans i18nKey="sparql:subtitle">
+          取り込み済みの RDF に<strong>読み取り専用</strong>の SPARQL を直接実行します。
+          これは上級者向けの<strong>脱出ハッチ</strong>です（通常は Ask / Gallery をご利用ください）。
+          UPDATE 系（INSERT/DELETE 等）は実行できません。
+        </Trans>
       </p>
 
       <section className="sparql-editor">
@@ -88,14 +92,14 @@ export function SparqlView() {
             {running ? (
               <>
                 <span className="spinner" />
-                実行中…
+                {t('sparql:running')}
               </>
             ) : (
-              '実行 (Ctrl+Enter)'
+              t('sparql:run')
             )}
           </button>
           <button className="secondary-btn" onClick={() => setQuery(EXAMPLE)}>
-            例に戻す
+            {t('sparql:reset')}
           </button>
         </div>
       </section>
@@ -104,13 +108,14 @@ export function SparqlView() {
 
       {isAsk && (
         <p className="sparql-bool">
-          結果: <strong>{results?.boolean ? 'true' : 'false'}</strong>
+          {t('sparql:boolResult')}
+          <strong>{results?.boolean ? 'true' : 'false'}</strong>
         </p>
       )}
 
       {!isAsk && results && (
         <>
-          <p className="hint">{bindings.length} 行</p>
+          <p className="hint">{t('sparql:rows', { n: bindings.length })}</p>
           <div className="table-wrap">
             <table className="jobs-table sparql-table">
               <thead>
@@ -135,7 +140,7 @@ export function SparqlView() {
               </tbody>
             </table>
           </div>
-          {bindings.length === 0 && <p className="hint">該当する結果はありません。</p>}
+          {bindings.length === 0 && <p className="hint">{t('sparql:noResults')}</p>}
         </>
       )}
     </>

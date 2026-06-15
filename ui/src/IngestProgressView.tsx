@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { type IngestProgress } from './api'
 
 /**
@@ -6,14 +7,19 @@ import { type IngestProgress } from './api'
  * Replaces the old silent "取り込み中…" with real feedback for large datasets.
  */
 export function IngestProgressView({ progress }: { progress: IngestProgress | null }) {
+  const { t } = useTranslation()
   if (progress?.phase === 'upload' && progress.total) {
     const done = progress.done ?? 0
     const pct = Math.floor((100 * done) / progress.total)
     return (
       <div className="ingest-progress">
         <div className="ingest-progress-label">
-          投入中… <span className="mono-strong">{done.toLocaleString()}</span> /{' '}
-          {progress.total.toLocaleString()} 件（{pct}%）
+          {t('workbench:progress.ingesting')}{' '}
+          <span className="mono-strong">{done.toLocaleString()}</span> /{' '}
+          {t('workbench:progress.ofCount', {
+            total: progress.total.toLocaleString(),
+            pct,
+          })}
         </div>
         <div className="ingest-progress-track">
           <span style={{ width: `${pct}%` }} />
@@ -24,7 +30,7 @@ export function IngestProgressView({ progress }: { progress: IngestProgress | nu
   return (
     <p className="ingest-progress-msg">
       <span className="spinner" />
-      {progress?.message ?? 'RDF を生成中…'}
+      {progress?.message ?? t('workbench:progress.generatingRdf')}
     </p>
   )
 }

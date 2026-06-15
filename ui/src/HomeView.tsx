@@ -1,12 +1,7 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { type CatalogDataset, getCatalogDatasets, getGraphStats } from './galleryApi'
 import { AddIcon, ArrowIcon, AskIcon, ChevronIcon, LayersIcon } from './icons'
-
-const STATUS_LABEL: Record<CatalogDataset['statusKind'], string> = {
-  pub: '公開済み',
-  draft: '下書き',
-  design: '設計中',
-}
 
 interface Stats {
   facts: number | null
@@ -22,6 +17,7 @@ interface Stats {
  * figures.
  */
 export function HomeView({ onNavigate }: { onNavigate: (tab: 'workbench' | 'ask' | 'gallery') => void }) {
+  const { t } = useTranslation()
   const [datasets, setDatasets] = useState<CatalogDataset[] | null>(null)
   const [stats, setStats] = useState<Stats | null>(null)
 
@@ -46,11 +42,11 @@ export function HomeView({ onNavigate }: { onNavigate: (tab: 'workbench' | 'ask'
   return (
     <div className="home">
       <section className="home-band">
-        <div className="home-band-head">今ある「つながったデータ」</div>
+        <div className="home-band-head">{t('home:band.head')}</div>
         <div className="home-stats">
-          <Stat value={fmt(stats?.facts)} label="事実の数 / triples" />
-          <Stat value={stats ? String(stats.datasets) : '—'} label="データセット" />
-          <Stat value={fmt(stats?.classes)} label="語彙のクラス" tone="primary" />
+          <Stat value={fmt(stats?.facts)} label={t('home:stat.facts')} />
+          <Stat value={stats ? String(stats.datasets) : '—'} label={t('home:stat.datasets')} />
+          <Stat value={fmt(stats?.classes)} label={t('home:stat.classes')} tone="primary" />
         </div>
       </section>
 
@@ -60,8 +56,8 @@ export function HomeView({ onNavigate }: { onNavigate: (tab: 'workbench' | 'ask'
             <AddIcon size={21} />
           </span>
           <span className="home-action-body">
-            <span className="home-action-title">データを追加</span>
-            <span className="home-action-sub">CSV などをつなぐと、AI が設計を下書きします</span>
+            <span className="home-action-title">{t('home:action.add.title')}</span>
+            <span className="home-action-sub">{t('home:action.add.sub')}</span>
           </span>
           <span className="home-action-arrow">
             <ArrowIcon size={18} />
@@ -72,8 +68,8 @@ export function HomeView({ onNavigate }: { onNavigate: (tab: 'workbench' | 'ask'
             <AskIcon size={21} />
           </span>
           <span className="home-action-body">
-            <span className="home-action-title">質問する</span>
-            <span className="home-action-sub">取り込んだデータに、根拠つきで答えます</span>
+            <span className="home-action-title">{t('home:action.ask.title')}</span>
+            <span className="home-action-sub">{t('home:action.ask.sub')}</span>
           </span>
           <span className="home-action-arrow">
             <ArrowIcon size={18} />
@@ -83,20 +79,20 @@ export function HomeView({ onNavigate }: { onNavigate: (tab: 'workbench' | 'ask'
 
       <section className="home-recent card">
         <div className="home-recent-head">
-          <h3 className="card-h">最近のデータセット</h3>
+          <h3 className="card-h">{t('home:recent.head')}</h3>
           <button type="button" className="link-btn" onClick={() => onNavigate('gallery')}>
-            カタログで全部見る <ArrowIcon size={14} />
+            {t('home:recent.seeAll')} <ArrowIcon size={14} />
           </button>
         </div>
         {!datasets && (
           <p className="loading-row">
             <span className="spinner" />
-            読み込み中…
+            {t('home:recent.loading')}
           </p>
         )}
         {datasets && recent.length === 0 && (
           <p className="ds-empty-note">
-            まだデータセットがありません。「データを追加」から始めましょう。
+            {t('home:recent.empty')}
           </p>
         )}
         <div className="ds-rows">
@@ -119,6 +115,7 @@ function Stat({ value, label, tone }: { value: string; label: string; tone?: 'pr
 }
 
 function DatasetRow({ dataset, onOpen }: { dataset: CatalogDataset; onOpen: () => void }) {
+  const { t } = useTranslation()
   return (
     <button type="button" className="ds-row" onClick={onOpen}>
       <span className="ds-row-icon">
@@ -135,7 +132,7 @@ function DatasetRow({ dataset, onOpen }: { dataset: CatalogDataset; onOpen: () =
           </span>
         ))}
       </span>
-      <span className={`status-pill status-pill--${dataset.statusKind}`}>{STATUS_LABEL[dataset.statusKind]}</span>
+      <span className={`status-pill status-pill--${dataset.statusKind}`}>{t(`home:status.${dataset.statusKind}`)}</span>
       <span className="ds-row-chevron">
         <ChevronIcon size={16} />
       </span>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Trans, useTranslation } from 'react-i18next'
 import {
   align,
   type Alignment,
@@ -21,6 +22,7 @@ import { localName } from './vocab'
  * 横断でつなぐ (CrosswalkBuilder).
  */
 export function CrosswalkView({ onBack }: { onBack?: () => void }) {
+  const { t } = useTranslation()
   const [perspectives, setPerspectives] = useState<CrosswalkPerspective[] | null>(null)
   const [err, setErr] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -58,7 +60,12 @@ export function CrosswalkView({ onBack }: { onBack?: () => void }) {
     setNote('')
     try {
       const r = await buildPerspective(selected.perspective_id) // no config → rebuild persisted
-      setNote(`再構築しました（${r.shared_total} 件の共有・${r.participants_used.length} データセット）。`)
+      setNote(
+        t('crosswalk:view.rebuildNote', {
+          shared: r.shared_total,
+          count: r.participants_used.length,
+        }),
+      )
       load()
     } catch (e) {
       setRebuildErr(e instanceof Error ? e.message : String(e))
@@ -75,7 +82,7 @@ export function CrosswalkView({ onBack }: { onBack?: () => void }) {
     <div className="crosswalk-view">
       {onBack && (
         <button type="button" className="vocab-back" onClick={onBack}>
-          <ArrowIcon size={14} className="vocab-back-arrow" /> カタログに戻る
+          <ArrowIcon size={14} className="vocab-back-arrow" /> {t('crosswalk:view.back')}
         </button>
       )}
 
@@ -84,10 +91,9 @@ export function CrosswalkView({ onBack }: { onBack?: () => void }) {
           <LinkIcon size={22} />
         </span>
         <div>
-          <h2 className="vocab-banner-title">クロスウォーク（横断をつなぐ橋）</h2>
+          <h2 className="vocab-banner-title">{t('crosswalk:view.bannerTitle')}</h2>
           <p className="vocab-banner-sub">
-            データセットの繋ぎ方は<strong>複数の視点（perspective）</strong>がありえます（組成・結晶構造…）。
-            各視点は<strong>別々の独立した橋</strong>として持て、横断クエリは自動で効きます。
+            <Trans i18nKey="crosswalk:view.bannerSub" components={[<strong />, <strong />]} />
           </p>
         </div>
       </div>
@@ -96,25 +102,23 @@ export function CrosswalkView({ onBack }: { onBack?: () => void }) {
       {!perspectives && !err && (
         <p className="loading-row">
           <span className="spinner" />
-          読み込み中…
+          {t('crosswalk:view.loading')}
         </p>
       )}
 
       {perspectives && list.length === 0 && (
         <div className="state-block">
-          <p className="state-title">まだクロスウォークがありません</p>
-          <p className="state-sub">
-            「データを追加 → 既存データを横断でつなぐ」で、2つ以上のデータセットから橋を作れます。
-          </p>
+          <p className="state-title">{t('crosswalk:view.empty.title')}</p>
+          <p className="state-sub">{t('crosswalk:view.empty.sub')}</p>
         </div>
       )}
 
       {list.length > 0 && (
         <>
           <div className="ds-subhead">
-            視点（perspective）
+            {t('crosswalk:view.perspectiveHead')}
             <span className="xw-hint-inline">
-              {list.length} 件 · それぞれ独立した「つなぎ方」
+              {t('crosswalk:view.perspectiveHint', { count: list.length })}
             </span>
           </div>
           <div className="xw-persp-tabs">
@@ -127,8 +131,10 @@ export function CrosswalkView({ onBack }: { onBack?: () => void }) {
               >
                 <span className="xw-persp-name">{pname(p)}</span>
                 <span className="xw-persp-meta">
-                  {p.dataset?.crosswalk_shared_compositions ?? '—'} 共有 ·{' '}
-                  {p.config?.concepts.flatMap((c) => c.participants).length ?? 0} DS
+                  {t('crosswalk:view.perspMeta', {
+                    shared: p.dataset?.crosswalk_shared_compositions ?? '—',
+                    count: p.config?.concepts.flatMap((c) => c.participants).length ?? 0,
+                  })}
                 </span>
               </button>
             ))}
@@ -139,26 +145,28 @@ export function CrosswalkView({ onBack }: { onBack?: () => void }) {
               <div className="xw-summary">
                 <div className="xw-summary-stat">
                   <span className="xw-summary-num">{shared ?? '—'}</span>
-                  <span className="xw-summary-label">共有された値</span>
+                  <span className="xw-summary-label">{t('crosswalk:view.summary.sharedValues')}</span>
                 </div>
                 <div className="xw-summary-stat">
                   <span className="xw-summary-num">{participants.length}</span>
-                  <span className="xw-summary-label">参加データセット</span>
+                  <span className="xw-summary-label">{t('crosswalk:view.summary.participants')}</span>
                 </div>
                 <div className="xw-summary-stat">
                   <span className="xw-summary-num">{concepts.length}</span>
-                  <span className="xw-summary-label">共有概念</span>
+                  <span className="xw-summary-label">{t('crosswalk:view.summary.concepts')}</span>
                 </div>
               </div>
 
               {concepts.map((c) => (
                 <div className="xw-concept" key={c.name}>
                   <div className="ds-subhead">
-                    概念「{c.name}」
+                    {t('crosswalk:view.conceptHead', { name: c.name })}
                     <span className="xw-hint-inline">
                       {c.key_parts && c.key_parts.length > 0
-                        ? `複合キー（${c.key_parts.map((kp) => kp.name).join(' × ')}）`
-                        : `正規化: ${c.normalizer ?? 'identity'}`}
+                        ? t('crosswalk:view.compoundKeyHint', {
+                            parts: c.key_parts.map((kp) => kp.name).join(' × '),
+                          })
+                        : t('crosswalk:view.normalizerHint', { normalizer: c.normalizer ?? 'identity' })}
                     </span>
                   </div>
                   <div className="xw-participants">
@@ -185,22 +193,26 @@ export function CrosswalkView({ onBack }: { onBack?: () => void }) {
                   disabled={rebuilding}
                   onClick={onRebuild}
                 >
-                  {rebuilding ? '再構築中…' : 'この視点を再構築（最新のデータで）'}
+                  {rebuilding ? t('crosswalk:view.rebuilding') : t('crosswalk:view.rebuild')}
                 </button>
                 {selected.dataset?.crosswalk_built_at && (
                   <span className="xw-built-at">
-                    最終構築: {selected.dataset.crosswalk_built_at.slice(0, 19).replace('T', ' ')}
+                    {t('crosswalk:view.builtAt', {
+                      at: selected.dataset.crosswalk_built_at.slice(0, 19).replace('T', ' '),
+                    })}
                   </span>
                 )}
               </div>
               {note && <p className="lifecycle-ok">{note}</p>}
-              {rebuildErr && <p className="promote-err">再構築に失敗しました: {rebuildErr}</p>}
+              {rebuildErr && (
+                <p className="promote-err">
+                  {t('crosswalk:view.rebuildErr', { detail: rebuildErr })}
+                </p>
+              )}
 
               <div className="ds-subhead xw-tools-head">
-                横断ツール
-                <span className="xw-hint-inline">
-                  この値は何データセットが報告？ など（決定論・引用可・キー不要）
-                </span>
+                {t('crosswalk:view.toolsHead')}
+                <span className="xw-hint-inline">{t('crosswalk:view.toolsHint')}</span>
               </div>
               {/* The hub-resident cross-dataset tools — keyed by perspective so they
                   reload when you switch lens. */}
@@ -224,12 +236,12 @@ export function CrosswalkView({ onBack }: { onBack?: () => void }) {
 // stored in a promoted alignment graph the FROM-merge unions. Oxigraph runs no OWL
 // reasoner, so this is a fact a tool can FOLLOW — it never rewrites queries.
 
-const RELATION_LABEL: Record<string, string> = {
-  equivalentClass: '同値クラス（≡）',
-  subClassOf: '下位クラス（⊑）',
-  equivalentProperty: '同値述語（≡）',
-  subPropertyOf: '下位述語（⊑）',
-}
+const RELATION_KEYS = new Set([
+  'equivalentClass',
+  'subClassOf',
+  'equivalentProperty',
+  'subPropertyOf',
+])
 const CLASS_RELATIONS = new Set(['equivalentClass', 'subClassOf'])
 
 interface PerspTerm {
@@ -261,11 +273,10 @@ function perspectiveTerms(p: CrosswalkPerspective | undefined): PerspTerm[] {
   return out
 }
 
-function relationLabel(rel: string): string {
-  return RELATION_LABEL[rel] ?? rel
-}
-
 function PerspectiveAlignment({ perspectives }: { perspectives: CrosswalkPerspective[] }) {
+  const { t } = useTranslation()
+  const relationLabel = (rel: string): string =>
+    RELATION_KEYS.has(rel) ? t(`crosswalk:relation.${rel}`) : rel
   const [data, setData] = useState<AlignmentsResult | null>(null)
   const [loadErr, setLoadErr] = useState('')
   const [srcPid, setSrcPid] = useState('')
@@ -319,7 +330,13 @@ function PerspectiveAlignment({ perspectives }: { perspectives: CrosswalkPerspec
     setNote('')
     try {
       await align(srcTerm.iri, tgtTerm.iri, rel, perspName(srcPersp), perspName(tgtPersp))
-      setNote(`つなぎました: ${srcTerm.name} ${relationLabel(rel)} ${tgtTerm.name}`)
+      setNote(
+        t('crosswalk:align.assertNote', {
+          source: srcTerm.name,
+          relation: relationLabel(rel),
+          target: tgtTerm.name,
+        }),
+      )
       load()
     } catch (e) {
       setActErr(e instanceof Error ? e.message : String(e))
@@ -347,10 +364,8 @@ function PerspectiveAlignment({ perspectives }: { perspectives: CrosswalkPerspec
   return (
     <div className="xw-align">
       <div className="ds-subhead xw-tools-head">
-        視点をつなぐ
-        <span className="xw-hint-inline">
-          別々に作った視点の概念どうしに関係を主張（引用できる事実・推論はしない・撤回可）
-        </span>
+        {t('crosswalk:align.head')}
+        <span className="xw-hint-inline">{t('crosswalk:align.hint')}</span>
       </div>
 
       {loadErr && <pre className="error">{loadErr}</pre>}
@@ -358,7 +373,7 @@ function PerspectiveAlignment({ perspectives }: { perspectives: CrosswalkPerspec
       {/* Authoring form: pick two perspectives' terms + a closed-set relation. */}
       <div className="xw-align-form">
         <div className="xw-align-side">
-          <span className="xw-align-side-label">起点（source）</span>
+          <span className="xw-align-side-label">{t('crosswalk:align.sourceLabel')}</span>
           <select
             className="xw-map-select"
             value={srcPersp?.perspective_id ?? ''}
@@ -380,9 +395,12 @@ function PerspectiveAlignment({ perspectives }: { perspectives: CrosswalkPerspec
             onChange={(e) => setSrcIri(e.target.value)}
             disabled={srcTerms.length === 0}
           >
-            {srcTerms.map((t) => (
-              <option key={t.iri} value={t.iri}>
-                {t.kind === 'class' ? 'クラス' : '述語'} · {t.name}
+            {srcTerms.map((term) => (
+              <option key={term.iri} value={term.iri}>
+                {t('crosswalk:align.termOption', {
+                  kind: term.kind === 'class' ? t('crosswalk:term.class') : t('crosswalk:term.property'),
+                  name: term.name,
+                })}
               </option>
             ))}
           </select>
@@ -405,7 +423,7 @@ function PerspectiveAlignment({ perspectives }: { perspectives: CrosswalkPerspec
         </div>
 
         <div className="xw-align-side">
-          <span className="xw-align-side-label">対象（target）</span>
+          <span className="xw-align-side-label">{t('crosswalk:align.targetLabel')}</span>
           <select
             className="xw-map-select"
             value={tgtPersp?.perspective_id ?? ''}
@@ -427,9 +445,12 @@ function PerspectiveAlignment({ perspectives }: { perspectives: CrosswalkPerspec
             onChange={(e) => setTgtIri(e.target.value)}
             disabled={tgtTerms.length === 0}
           >
-            {tgtTerms.map((t) => (
-              <option key={t.iri} value={t.iri}>
-                {t.kind === 'class' ? 'クラス' : '述語'} · {t.name}
+            {tgtTerms.map((term) => (
+              <option key={term.iri} value={term.iri}>
+                {t('crosswalk:align.termOption', {
+                  kind: term.kind === 'class' ? t('crosswalk:term.class') : t('crosswalk:term.property'),
+                  name: term.name,
+                })}
               </option>
             ))}
           </select>
@@ -441,21 +462,21 @@ function PerspectiveAlignment({ perspectives }: { perspectives: CrosswalkPerspec
           disabled={!canAssert || busy}
           onClick={onAssert}
         >
-          {busy ? 'つないでいます…' : 'つなぐ'}
+          {busy ? t('crosswalk:align.asserting') : t('crosswalk:align.assert')}
         </button>
       </div>
 
       {!canAssert && perspectives.length > 0 && (
         <p className="xw-align-empty-hint">
           {srcTerms.length === 0
-            ? 'この視点には繋げる概念がありません。'
+            ? t('crosswalk:align.noSrcTerms')
             : tgtTerms.length === 0
-              ? '同じ種類（クラス／述語）の対象がありません。別の対象視点を選んでください。'
-              : '起点と対象に別々の概念を選んでください（2つ以上の視点があると繋げます）。'}
+              ? t('crosswalk:align.noTgtTerms')
+              : t('crosswalk:align.pickDistinct')}
         </p>
       )}
       {note && <p className="lifecycle-ok">{note}</p>}
-      {actErr && <p className="promote-err">操作に失敗しました: {actErr}</p>}
+      {actErr && <p className="promote-err">{t('crosswalk:align.actErr', { detail: actErr })}</p>}
 
       {/* The asserted alignments (each withdrawable). */}
       {alignments.length > 0 ? (
@@ -474,7 +495,10 @@ function PerspectiveAlignment({ perspectives }: { perspectives: CrosswalkPerspec
               <div className="xw-align-meta">
                 {(a.from_perspective || a.to_perspective) && (
                   <span className="xw-align-persp">
-                    {a.from_perspective || '—'} → {a.to_perspective || '—'}
+                    {t('crosswalk:align.perspArrow', {
+                      from: a.from_perspective || '—',
+                      to: a.to_perspective || '—',
+                    })}
                   </span>
                 )}
                 {a.at && <span className="xw-built-at">{a.at.slice(0, 19).replace('T', ' ')}</span>}
@@ -485,13 +509,15 @@ function PerspectiveAlignment({ perspectives }: { perspectives: CrosswalkPerspec
                 disabled={removing === a.alignment_iri}
                 onClick={() => onRemove(a)}
               >
-                {removing === a.alignment_iri ? '撤回中…' : '撤回'}
+                {removing === a.alignment_iri
+                  ? t('crosswalk:align.removing')
+                  : t('crosswalk:align.remove')}
               </button>
             </div>
           ))}
         </div>
       ) : (
-        data && <p className="xw-align-none">まだ視点をつなぐ整合はありません。</p>
+        data && <p className="xw-align-none">{t('crosswalk:align.none')}</p>
       )}
     </div>
   )

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Trans, useTranslation } from 'react-i18next'
 import {
   type Alignment,
   type CrosswalkPerspective,
@@ -37,6 +38,7 @@ function buildChart(
   datasets: CatalogDataset[],
   perspectives: CrosswalkPerspective[],
   alignments: Alignment[],
+  t: (k: string) => string,
 ): string {
   const dsList = datasets.filter((d) => !d.isCrosswalk)
   // dataset_id (both catalog id and live id) -> the dataset's mermaid node id.
@@ -80,9 +82,9 @@ function buildChart(
   }
 
   const lines = ['flowchart LR']
-  lines.push('  subgraph datasets["データセットのオントロジー"]', ...dsLines, '  end')
+  lines.push(`  subgraph datasets["${esc(t('map:chart.datasets'))}"]`, ...dsLines, '  end')
   if (xwLines.length) {
-    lines.push('  subgraph bridges["クロスウォーク（橋）"]', ...xwLines, '  end')
+    lines.push(`  subgraph bridges["${esc(t('map:chart.bridges'))}"]`, ...xwLines, '  end')
   }
   lines.push(...edges)
   if (dsIds.length) lines.push(`  class ${dsIds.join(',')} dsCls`)
@@ -93,6 +95,7 @@ function buildChart(
 }
 
 export function OntologyMapView({ onBack }: { onBack?: () => void }) {
+  const { t, i18n } = useTranslation()
   const [chart, setChart] = useState<string | null>(null)
   const [counts, setCounts] = useState<{ ds: number; xw: number; al: number } | null>(null)
   const [err, setErr] = useState('')
@@ -102,7 +105,7 @@ export function OntologyMapView({ onBack }: { onBack?: () => void }) {
     Promise.all([getCatalogDatasets(), getCrosswalks(), getAlignments()])
       .then(([datasets, perspectives, al]) => {
         if (off) return
-        setChart(buildChart(datasets, perspectives, al.alignments))
+        setChart(buildChart(datasets, perspectives, al.alignments, t))
         setCounts({
           ds: datasets.filter((d) => !d.isCrosswalk).length,
           xw: perspectives.length,
@@ -113,7 +116,8 @@ export function OntologyMapView({ onBack }: { onBack?: () => void }) {
     return () => {
       off = true
     }
-  }, [])
+    // Re-fetch + rebuild (the chart's subgraph labels are localized) on language change.
+  }, [t, i18n.language])
 
   const empty = counts && counts.ds === 0 && counts.xw === 0
 
@@ -121,7 +125,7 @@ export function OntologyMapView({ onBack }: { onBack?: () => void }) {
     <div className="ontomap-view">
       {onBack && (
         <button type="button" className="vocab-back" onClick={onBack}>
-          <ArrowIcon size={14} className="vocab-back-arrow" /> カタログに戻る
+          <ArrowIcon size={14} className="vocab-back-arrow" /> {t('map:back')}
         </button>
       )}
 
@@ -130,11 +134,9 @@ export function OntologyMapView({ onBack }: { onBack?: () => void }) {
           <LayersIcon size={22} />
         </span>
         <div>
-          <h2 className="vocab-banner-title">オントロジーの全体像</h2>
+          <h2 className="vocab-banner-title">{t('map:title')}</h2>
           <p className="vocab-banner-sub">
-            asterism にある<strong>オントロジー</strong>と、その<strong>つながり</strong>を俯瞰します。
-            各データセットは自分のオントロジー（クラス）を持ち、
-            <strong>クロスウォーク（橋）</strong>が共有概念で横断的につなぎます。
+            <Trans i18nKey="map:bannerSub" components={[<strong />, <strong />, <strong />]} />
           </p>
         </div>
       </div>
@@ -142,10 +144,14 @@ export function OntologyMapView({ onBack }: { onBack?: () => void }) {
       {counts && (
         <div className="ontomap-legend">
           <span className="ontomap-chip ontomap-chip--ds">
-            データセット {counts.ds}
+            {t('map:legend.datasets', { n: counts.ds })}
           </span>
-          <span className="ontomap-chip ontomap-chip--xw">クロスウォーク {counts.xw}</span>
-          {counts.al > 0 && <span className="ontomap-chip">整合 {counts.al}</span>}
+          <span className="ontomap-chip ontomap-chip--xw">
+            {t('map:legend.crosswalks', { n: counts.xw })}
+          </span>
+          {counts.al > 0 && (
+            <span className="ontomap-chip">{t('map:legend.alignments', { n: counts.al })}</span>
+          )}
         </div>
       )}
 
@@ -153,13 +159,13 @@ export function OntologyMapView({ onBack }: { onBack?: () => void }) {
       {!chart && !err && (
         <p className="loading-row">
           <span className="spinner" />
-          読み込み中…
+          {t('map:loading')}
         </p>
       )}
       {empty && (
         <div className="state-block">
-          <p className="state-title">まだオントロジーがありません</p>
-          <p className="state-sub">「データを追加」で取り込むと、ここに現れます。</p>
+          <p className="state-title">{t('map:empty.title')}</p>
+          <p className="state-sub">{t('map:empty.sub')}</p>
         </div>
       )}
       {chart && !empty && (

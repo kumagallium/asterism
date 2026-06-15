@@ -1,0 +1,9 @@
+{
+  "subtitle": "Run <1>read-only</1> SPARQL directly against the ingested RDF. This is an <3>escape hatch</3> for advanced users (normally use Ask / Gallery). UPDATE forms (INSERT/DELETE, etc.) cannot be run.",
+  "running": "Running…",
+  "run": "Run (Ctrl+Enter)",
+  "reset": "Reset to example",
+  "boolResult": "Result: ",
+  "rows": "{{n}} rows",
+  "noResults": "No matching results."
+}

@@ -1,0 +1,10 @@
+{
+  "error": {
+    "title": "An error occurred while updating the display",
+    "removeChildBody": "When the browser's <1>page translation</1> or some extensions rewrite the text on screen, it conflicts with this screen's updates and causes this error.<3/>Turn <5>translation off</5> for this screen and reload.",
+    "genericBody": "An unexpected error occurred. You can recover by reloading.",
+    "note": "Your most recent save may already be reflected on the server (check the catalog after reloading).",
+    "reload": "Reload",
+    "detailsSummary": "Error details"
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "back": "Back to catalog",
+  "banner": {
+    "title": "The \"schema (vocabulary)\" does not disappear — it is just <1>shared</1>",
+    "sub": "This is <1>vocabulary automatically introspected from the actual data</1> (across all datasets; labels come from the TBox projected from each dataset's schema). The more it is aligned, the better cross-dataset search and comparison work."
+  },
+  "loading": "Loading…",
+  "schemaError": "Could not fetch the vocabulary of the actual data (the query layer is not responding).",
+  "classesCard": {
+    "title": "Shared classes (actual data)",
+    "meta": "{{classes}} classes · {{predicates}} predicates",
+    "note1": "The number on the right = count in the actual data. <1>Classes are instance counts</1> (how many things of that type exist), <3>predicates are usage counts</3> (number of triples using that property).",
+    "note2": "* Only <1>canonical (promoted, citable) data</1> is counted. Draft (unreviewed) graphs are not included — they enter the tally once promoted.",
+    "classesSubhead": "Classes (instance count)",
+    "predicatesSubhead": "Main predicates (usage count)",
+    "reusesSubhead": "Reused vocabulary (detected from the actual data namespaces)"
+  },
+  "usersCard": {
+    "title": "Datasets using this vocabulary",
+    "empty": "No ingested datasets yet. Once you save a design in the workbench and ingest it, it will appear here as a cross-dataset target.",
+    "classCount": "{{n}} classes",
+    "caution": {
+      "title": "Why \"handle with care\"?",
+      "body": "Rewriting a shared class ripples into the search and answers of every dataset that uses it. Confirm changes after reviewing the <1>impact preview</1>."
+    }
+  },
+  "status": {
+    "pub": "Published",
+    "draft": "Draft",
+    "design": "Designing"
+  },
+  "termList": {
+    "none": "(none)"
+  },
+  "known": {
+    "schema": "schema.org (metadata for people, publications, etc.)",
+    "prov": "PROV-O (provenance Entity / Activity / Agent)",
+    "dcterms": "Dublin Core terms (identifier / created, etc.)",
+    "bibo": "BIBO (volume / issue / pages)",
+    "qudt": "QUDT (shared vocabulary for quantities and units)",
+    "skos": "SKOS (concept schemes)"
+  }
+}

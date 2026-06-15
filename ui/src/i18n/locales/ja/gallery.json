@@ -1,0 +1,166 @@
+{
+  "status": {
+    "pub": "公開済み",
+    "draft": "下書き",
+    "design": "設計中"
+  },
+  "intro": "作った<1>データセット</1>が主役です。各データセットは「<3>設計図（語彙）</3>」と「<5>取り込みルール</5>」を持ちます。共通で使う語彙は下にまとめています。",
+  "focusBanner": {
+    "label": "Ask の引用に対応する語彙クラス：",
+    "sub": "この回答はこのクラスで型付けされたデータに基づきます。"
+  },
+  "loading": "カタログを読み込み中…",
+  "empty": {
+    "title": "まだデータセットがありません",
+    "sub": "「データを追加」でデータを取り込むと、ここに並びます。"
+  },
+  "list": {
+    "head": "データセット"
+  },
+  "sharedBand": {
+    "title": "共有の語彙",
+    "en": "shared vocabulary",
+    "warn": "変更は全体に影響 · 要注意",
+    "sub": "複数のデータセットが共通で使う設計図。揃えておくと<1>横断して検索・比較</1>できます。",
+    "users": "<0>{{n}}</0> クラスを共有",
+    "open": "開く"
+  },
+  "crosswalkBand": {
+    "title": "クロスウォーク",
+    "en": "crosswalk",
+    "sub": "同じ概念（組成・結晶系・著者…）を共有する複数のデータセットを<1>1つの橋でつなぐ</1>。「この値は何データセットが報告？」を横断で答えられます。",
+    "users": "<0>{{n}}</0> データセットを横断",
+    "open": "開く"
+  },
+  "tab": {
+    "design": "設計図",
+    "designEn": "ontology",
+    "rules": "取り込みルール",
+    "rulesEn": "mapping",
+    "tools": "ツール",
+    "toolsEn": "tools"
+  },
+  "purposes": {
+    "label": "このデータが答えられる問い"
+  },
+  "design": {
+    "title": "設計図（中身の構造）",
+    "classCount": "{{n}} クラス",
+    "noClasses": "クラス情報はありません。",
+    "predicatesHead": "使っている述語（実データの語彙）",
+    "diagramSummary": "クラス図を見る",
+    "reusesHead": "他から借りている語彙（実データの名前空間から検出）"
+  },
+  "rules": {
+    "title": "取り込みルール（生成物）",
+    "empty": "取り込みルールの生成物はまだありません。"
+  },
+  "ingest": {
+    "head": "取り込み（Oxigraph へ投入）",
+    "noRml": "この設計には宣言 RML マッピングが無いため取り込めません。ワークベンチの「AI が設計」で §RML（宣言マッピング）を出すと、ここから安全に投入できるようになります。",
+    "done": "✓ 下書きグラフに取り込みました（{{n}} 件）。次に下の「共有データに昇格」を押すと Ask が引用できます。",
+    "note": "承認すると、この宣言 RML を Morph-KGC が実行し（生成コードは走らず、検証済みの Tier 0 関数だけ）、結果を<1>隔離された下書きグラフ</1>に投入します。Ask の引用面（canonical）は汚しません。",
+    "sourceSaved": "設計時の{{source}}を保存済み{{files}}。再添付なしで取り込めます。",
+    "filesSuffix": "（{{names}}）",
+    "pickLabel": "{{source}}を選択",
+    "pickPlaceholder": "設計に使った{{source}}を選んでください",
+    "submit": "取り込み（Oxigraph へ投入）",
+    "submitting": "取り込み中…",
+    "error": "取り込みに失敗しました: {{message}}"
+  },
+  "append": {
+    "head": "ライブに追記（装置フィード）",
+    "note": "新しいバッチ{{source}}<strong>だけ</strong>を取り込み、このまま共有データ（live）に追記します（O(新規)）。既存の事実・IRI は変えず、同じ行は重複排除。スキーマと初版は昇格時に承認済みなので、追記はゲートを通りません（装置の連続ログ向け）。ファイル名は RML の <code>rml:source</code> に一致させてください。",
+    "progress": "これまで {{seq}} バッチ追記済み{{appended}}。",
+    "progressAppended": "（+約 {{n}} 件）",
+    "pickPlaceholder": "追記するバッチ{{source}}を選んでください",
+    "submit": "ライブに追記",
+    "submitting": "追記中…",
+    "done": "✓ 追記しました（+{{n}} 件・バッチ #{{seq}}）。Ask から即引用できます。",
+    "error": "追記に失敗しました: {{message}}"
+  },
+  "promote": {
+    "ok": "✓ 共有データに昇格済み（{{n}} 件{{version}}）。Ask が引用できます（正式グラフ＝canonical）。",
+    "okVersion": "・版 v{{version}}",
+    "repromoteNote": "新しい版を下書きグラフに取り込み済みです。「共有データに反映（再昇格）」を押すと、Ask が引用する版が <strong>v{{version}} → v{{next}}</strong> に上がり、新しいデータに切り替わります。切り替えは一瞬で、旧版は自動で片付けられます（取り込み中も今の版が引用され続けるので途切れません）。",
+    "note": "「共有データに昇格」すると、下書きグラフのこのデータが <1>Ask が引用する正式グラフ（canonical）</1> に移ります。昇格前に、使っている語彙が既存の再利用か新規かを確認できます。",
+    "alignmentSummary": "述語: 既存の再利用 {{predReuse}} / 新規 {{predNew}} ／ クラス: 既存の再利用 {{classReuse}} / 新規 {{classNew}}",
+    "alignmentNew": "新規の述語（既存語彙に無い）: {{terms}}",
+    "previewRepromote": "語彙の差分を確認（再昇格前チェック）",
+    "preview": "語彙の差分を確認（昇格前チェック）",
+    "repromoting": "反映中…",
+    "promoting": "昇格中…",
+    "repromoteSubmit": "共有データに反映（再昇格 → v{{next}}）",
+    "submit": "共有データに昇格（Ask で使えるように）",
+    "repromoteError": "再昇格に失敗しました: {{message}}",
+    "error": "昇格に失敗しました: {{message}}"
+  },
+  "reingest": {
+    "head": "データを更新（再取り込み）",
+    "notePrefix": "新しい{{source}}を<strong>別バージョンのグラフ</strong>（canonical/{{id}}/v…）に取り込みます。",
+    "notePublished": "取り込み中も<strong>今の公開版（v{{version}}）が Ask に引用され続ける</strong>ので、回答が途切れません。完了したら下の「共有データに反映（再昇格）」で <strong>v{{version}} → v{{next}}</strong> に切り替わり、旧版は自動で片付けられます。",
+    "noteUnpublished": "まだ公開していない下書きを取り直します（Ask には影響しません）。完了したら下の「共有データに昇格」で公開できます。",
+    "sourceSaved": "設計時の{{source}}を保存済み{{files}}。再添付なしで取り込めます。別の{{source}}に差し替えたい場合は下で選んでください。",
+    "pickReplace": "{{source}}を差し替え",
+    "pickSelect": "{{source}}を選択",
+    "placeholderKeep": "差し替えない場合は保存済み{{source}}を使います",
+    "placeholderSelect": "更新に使う{{source}}を選んでください",
+    "submit": "新しいデータで再取り込み",
+    "submitting": "取り込み中…",
+    "error": "再取り込みに失敗しました: {{message}}"
+  },
+  "lifecycle": {
+    "head": "ライフサイクル操作",
+    "retractedStatus": "状態: <1>撤回済み</1>（Ask の引用対象外。データ・IRI は残るので既存の引用は壊れません。復帰できます）",
+    "retractConfirm": "このデータセットを撤回しますか？\nAsk の引用対象から外しますが、データと IRI は残るので既存の引用は壊れません（後で復帰できます）。",
+    "retractDone": "撤回しました（canonical から除外・引用は維持）。",
+    "retracting": "撤回中…",
+    "retract": "撤回（Ask の引用から外す）",
+    "reinstateDone": "復帰しました（再び Ask の引用対象です）。",
+    "reinstating": "復帰中…",
+    "reinstate": "復帰（再び引用対象に）",
+    "deleteConfirmPromoted": "このデータセットを完全に削除しますか？\n昇格済み（引用可能）なので、既存の引用が 404 になる恐れがあります。通常は「撤回」を推奨します。\n\nそれでも削除しますか？",
+    "deleteConfirm": "このデータセットを削除しますか？（未昇格なので安全に削除できます）",
+    "deleteDone": "削除しました。",
+    "deleting": "削除中…",
+    "delete": "削除",
+    "error": "操作に失敗しました: {{message}}"
+  },
+  "docAppend": {
+    "head": "文書を追加（このデータセットに）",
+    "note": "Word <0>.docx</0> / 構造化XML <1>.xml</1> をもう1つ追加すると、節 → 段落 → 文 に構造化して<2>このまま共有データ（live）に追記</2>します。以後「ツール」タブの <3>search_text</3> / <4>quote_with_citation</4> が<5>追加した文書も横断して</5>検索・引用します（議事録をためていく用途向け）。<6>.docx</6> はサーバ側でXMLに自動変換します（変換ツール・版は来歴に記録）。",
+    "appended": "これまで {{n}} 文書を追記済み。",
+    "pick": "文書を選択（Word / XML）",
+    "noFile": "追加する文書を選んでください",
+    "busy": "追加中…",
+    "submit": "この文書を追加",
+    "done": "✓ 文書を追加しました（+{{n}} 件）。「ツール」タブから全文を検索・引用できます。",
+    "error": "追加に失敗しました: {{err}}"
+  },
+  "api": {
+    "ontologyDescription": "ワークベンチで materialize した設計（{{date}}）。共有語彙への昇格前のドラフト。",
+    "stage": {
+      "designBadge": "設計のみ（未取り込み）",
+      "ingestedBadge": "下書きに取り込み済み",
+      "promotedBadge": "共有データ（Ask 利用可）"
+    },
+    "rmlSummary": {
+      "promoted": "宣言 RML（共有データに取り込み済み・{{n}} 件）",
+      "ingested": "宣言 RML（下書きグラフに取り込み済み・{{n}} 件）",
+      "design": "宣言 RML（未取り込み。ワークベンチの人間ゲートで取り込める）"
+    },
+    "ingesterSummary": "生成された取り込みスクリプト（未実行）",
+    "mieSummary": "生成された AI 探索メタ",
+    "mappingDescription": {
+      "promoted": "共有データ（Ask が引用する正式グラフ）に取り込み済み・{{n}} 件。SPARQL で問い合わせ可能。",
+      "ingested": "下書きグラフに取り込み済み・{{n}} 件。確認できたら「共有データに昇格」すると Ask の引用対象になる。",
+      "design": "設計のみ＝まだ RDF を生成していない。宣言 RML があればワークベンチの人間ゲートで取り込める。"
+    },
+    "mappingDataset": "設計を保存（{{date}}）",
+    "count": {
+      "class": "クラス",
+      "fact": "事実"
+    },
+    "catalogSub": "設計を保存 · {{date}}"
+  }
+}

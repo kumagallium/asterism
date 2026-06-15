@@ -1,0 +1,126 @@
+{
+  "mode": {
+    "groupLabel": "データの追加方法",
+    "new": "新しいデータから作る",
+    "newTag": "CSV / JSON",
+    "crosswalk": "既存データを横断でつなぐ",
+    "crosswalkTag": "crosswalk"
+  },
+  "intro": "データソースをつなぎ、<strong>AI が設計 → 確認・修正 → 保存</strong>の順に進めます。保存するとカタログに並びます。構造解析は内部で自動実行するので、確認したいときだけ「構造を見る」を押してください。",
+  "restore": {
+    "note": "前回の作業を復元しました（再実行する場合のみソースを選び直してください）。",
+    "clear": "ワークベンチをクリア"
+  },
+  "step": {
+    "design": "AI が設計",
+    "designEn": "design",
+    "review": "確認・修正",
+    "reviewEn": "review",
+    "save": "保存",
+    "saveEn": "save",
+    "guard": "先に「AI が設計」でスキーマを生成してください。"
+  },
+  "source": {
+    "label": "データソース",
+    "kindsGroupLabel": "データソースの種類",
+    "soonTitle": "近日対応",
+    "soonBadge": "近日",
+    "note": "あらゆる構造化ソースに対応予定（現在は CSV / JSON / 文書）",
+    "csv": "表計算 / CSV",
+    "json": "JSON",
+    "db": "DB",
+    "api": "API 連携",
+    "apiShort": "API",
+    "document": "文書（Word / XML）",
+    "pickJson": "JSON を選択",
+    "pickCsv": "CSV を選択",
+    "noFile": "ファイル未選択",
+    "fkJson": "FK フィールドヒント（任意）",
+    "fkCsv": "FK 列ヒント（任意）",
+    "footSelected": "{{n}} file(s) selected — 全ステップで同じソースを使います",
+    "footEmpty": "ここで選んだソースを全ステップで共有します",
+    "inspectHide": "構造解析を隠す",
+    "inspectShow": "構造を見る（任意・LLM 不要）",
+    "analyzing": "解析中…"
+  },
+  "design": {
+    "hint": "AI がデータの<strong>設計図（語彙）</strong>と<strong>取り込みルール</strong>の案を提案します。Anthropic API キーが必要です（このセッションのみ保持・サーバ非保存）。",
+    "apiKeyLabel": "Anthropic API キー (sk-…)",
+    "hintsLegend": "ヒント (任意・当てはまるものにチェックすると精度が上がります)",
+    "domainFreeLabel": "その他の補足 (自由記入・任意)",
+    "domainFreePlaceholder": "例: Seebeck = thermopower = 熱起電力。図は WebPlotDigitizer で読み取った。",
+    "propose": "スキーマを提案",
+    "proposing": "提案中…",
+    "jobLabel": "AI がスキーマを設計中…",
+    "inspectDetails": "この提案が使った構造解析を表示"
+  },
+  "review": {
+    "hint": "提案を確認し、直したい点をコメントすると AI が再生成します（任意）。",
+    "commentLabel": "レビューコメント",
+    "commentPlaceholder": "例: Sample IRI を (SID, sample_id) の複合キーにして。ingester と設計根拠も同期更新して。",
+    "regenerate": "コメントを反映して再生成",
+    "regenerating": "再生成中…",
+    "jobLabel": "AI がスキーマを再生成中…"
+  },
+  "save": {
+    "hint": "スキーマを 4 つの artifact に分割し 8 罠を検証して<strong>カタログに保存</strong>します。",
+    "save": "確定してカタログに保存",
+    "saving": "保存中…"
+  },
+  "job": {
+    "elapsed": "{{mm}}分{{ss}}秒経過 ・ 通常 1〜6 分 ・ 接続は維持されています",
+    "elapsedStatus": "{{mm}}分{{ss}}秒経過 ・ 通常 1〜6 分 ・ 接続は維持されています ・ 状態: {{status}}"
+  },
+  "resume": {
+    "restored": "前回の結果を復元しました",
+    "reconnecting": "前回のジョブに再接続中…"
+  },
+  "materialize": {
+    "artifactsHeading": "生成物（{{n}}）",
+    "downloadTitle": "{{name}} をダウンロード",
+    "notExtractedTitle": "{{name}} は抽出されませんでした",
+    "validationHeading": "検証（8 つの罠）",
+    "summaryOk": "ブロッキング失敗なし（exit 0＝保存 OK）",
+    "summaryBad": "ブロッキング失敗あり（exit {{code}}＝要修正）"
+  },
+  "status": {
+    "pass": "合格",
+    "skip": "スキップ（実行せず）",
+    "warn": "警告",
+    "fail": "不合格（要修正）"
+  },
+  "trap": {
+    "T1": "IRI の一意性（複合キーが全体で一意か）",
+    "T2": "BOM（ingester が utf-8-sig で開くか）",
+    "T3": "空白ノードなし（bnode-free）",
+    "T4": "MIE のキーワード／カテゴリ（5 個以上）",
+    "T5": "Mermaid のコロン回避（図ラベルに : を含まない）",
+    "T6": "サンプルが実在行か（捏造でないか）",
+    "T7": "設計根拠（理由／代替案／トレードオフ）",
+    "T8": "AI 幻覚テスト（任意）"
+  },
+  "ingest": {
+    "heading": "Oxigraph へ投入（人間ゲート）",
+    "noRml": "この設計には宣言 RML マッピングが無いため投入できません。propose が §RML（宣言マッピング）を出すと、ここから安全に投入できるようになります。",
+    "note": "承認すると、この宣言 RML を Morph-KGC が実行し（生成コードは走らず、検証済みの Tier 0 関数だけ）、結果を<strong>隔離された draft グラフ</strong>に投入します。Ask の既定の引用面（canonical）は汚しません。",
+    "previewSummary": "RML マッピングを確認（{{n}} 行）",
+    "doneCount": "✓ draft グラフに投入しました（{{n}} triples）。",
+    "ingesting": "投入中…",
+    "approve": "Oxigraph へ投入（承認）",
+    "notSaved": "この設計はまだ保存されていません（dataset が見つかりません）。",
+    "needCsv": "投入には設計に使った CSV が必要です。データソース欄で CSV を選び直してください（リロード後は再選択が必要）。",
+    "failed": "投入に失敗しました: {{message}}"
+  },
+  "progress": {
+    "ingesting": "投入中…",
+    "ofCount": "{{total}} 件（{{pct}}%）",
+    "generatingRdf": "RDF を生成中…"
+  },
+  "hints": {
+    "compositeKey": "ID 列が他のファイル/論文を跨ぐと重複しうる（複合キーが必要かも）",
+    "prov": "出典・来歴 (PROV-O) を必ず記録したい",
+    "noBnode": "空白ノード (blank node) は使わない",
+    "units": "単位や量を正規化したい（同義語の統一など）",
+    "jsonColumns": "セル内に JSON（配列やオブジェクト）が入っている列がある"
+  }
+}

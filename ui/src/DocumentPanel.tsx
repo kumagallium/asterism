@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Trans, useTranslation } from 'react-i18next'
 import { createDocumentDataset, ingestDataset, type IngestProgress } from './api'
 import { promoteDataset } from './galleryApi'
 
@@ -12,13 +13,8 @@ import { promoteDataset } from './galleryApi'
 
 type Phase = 'idle' | 'creating' | 'ingesting' | 'promoting' | 'done'
 
-const PHASE_LABEL: Record<Exclude<Phase, 'idle' | 'done'>, string> = {
-  creating: '文書を登録中…',
-  ingesting: '構造化して取り込み中…',
-  promoting: '公開中…',
-}
-
 export function DocumentPanel() {
+  const { t } = useTranslation()
   const [file, setFile] = useState<File | null>(null)
   const [name, setName] = useState('')
   const [phase, setPhase] = useState<Phase>('idle')
@@ -59,15 +55,15 @@ export function DocumentPanel() {
   return (
     <section className="document-panel">
       <p className="step-hint">
-        論文や契約などの文書（<strong>Word</strong> <code>.docx</code> / 構造化XML{' '}
-        <code>.xml</code>）をアップロードすると、<strong>設計（AI）不要</strong>で{' '}
-        <strong>節 → 段落 → 文</strong> まで構造化し、カタログの「ツール」タブから{' '}
-        <strong>全文検索して引用</strong>できるようになります。
+        <Trans
+          i18nKey="document:intro"
+          components={[<strong key="0" />, <code key="1" />, <code key="2" />, <strong key="3" />, <strong key="4" />, <strong key="5" />]}
+        />
       </p>
 
       <div className="data-source-row">
         <label className="file-btn">
-          文書を選択（Word / XML）
+          {t('document:pickFile')}
           <input
             type="file"
             accept=".xml,.docx"
@@ -75,13 +71,13 @@ export function DocumentPanel() {
             onChange={(e) => pick(e.target.files?.[0] ?? null)}
           />
         </label>
-        <span className={`file-names${file ? '' : ' empty'}`}>{file ? file.name : 'ファイル未選択'}</span>
+        <span className={`file-names${file ? '' : ' empty'}`}>{file ? file.name : t('document:noFile')}</span>
         <label className="fk-field">
-          <span>文書名（任意）</span>
+          <span>{t('document:nameLabel')}</span>
           <input
             type="text"
             value={name}
-            placeholder="例: 半ホイスラー熱電 / サービス契約"
+            placeholder={t('document:namePlaceholder')}
             disabled={busy}
             onChange={(e) => setName(e.target.value)}
           />
@@ -90,24 +86,24 @@ export function DocumentPanel() {
 
       <div className="data-source-foot">
         <span className="hint">
-          .docx はサーバ側で構造化XMLに自動変換します（変換ツール・版は来歴に記録）。
+          {t('document:convertHint')}
         </span>
         <button type="button" onClick={run} disabled={!file || busy}>
           {busy ? (
             <>
               <span className="spinner" />
-              {PHASE_LABEL[phase as Exclude<Phase, 'idle' | 'done'>]}
+              {t(`document:phase.${phase as Exclude<Phase, 'idle' | 'done'>}`)}
             </>
           ) : (
-            '文書を追加して公開'
+            t('document:submit')
           )}
         </button>
       </div>
 
       {progress && phase === 'ingesting' && (
         <p className="hint">
-          取り込み中…
-          {progress.total ? `（${progress.done ?? 0} / ${progress.total}）` : ''}
+          {t('document:ingesting')}
+          {progress.total ? t('document:ingestProgress', { done: progress.done ?? 0, total: progress.total }) : ''}
         </p>
       )}
 
@@ -116,8 +112,11 @@ export function DocumentPanel() {
       {phase === 'done' && result && (
         <section className="result">
           <p>
-            ✓ <strong>{result.name}</strong> を公開しました。カタログで開き、「ツール」タブの{' '}
-            <code>search_text</code> /<code>quote_with_citation</code> で全文を検索して引用できます。
+            <Trans
+              i18nKey="document:result"
+              values={{ name: result.name }}
+              components={[<strong key="0" />, <code key="1" />, <code key="2" />]}
+            />
           </p>
         </section>
       )}

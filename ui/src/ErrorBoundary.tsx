@@ -1,4 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
+import { Trans } from 'react-i18next'
+import i18n from './i18n'
 
 interface State {
   error: Error | null
@@ -36,27 +38,24 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
     return (
       <div className="app-error-boundary" role="alert">
         <div className="app-error-card">
-          <h1 className="app-error-title">表示の更新でエラーが発生しました</h1>
+          <h1 className="app-error-title">{i18n.t('misc:error.title')}</h1>
           {isRemoveChild ? (
             <p className="app-error-body">
-              ブラウザの<strong>ページ翻訳</strong>や一部の拡張機能が画面の文字を書き換えると、
-              この画面の更新と衝突してこのエラーになります。
-              <br />
-              この画面の<strong>翻訳をオフ</strong>にしてから再読み込みしてください。
+              <Trans
+                i18n={i18n}
+                i18nKey="misc:error.removeChildBody"
+                components={{ 1: <strong />, 3: <br />, 5: <strong /> }}
+              />
             </p>
           ) : (
-            <p className="app-error-body">
-              予期しないエラーが発生しました。再読み込みすると復帰できます。
-            </p>
+            <p className="app-error-body">{i18n.t('misc:error.genericBody')}</p>
           )}
-          <p className="app-error-note">
-            直前の保存はサーバに反映されている場合があります（再読み込み後にカタログをご確認ください）。
-          </p>
+          <p className="app-error-note">{i18n.t('misc:error.note')}</p>
           <button type="button" className="app-error-btn" onClick={() => window.location.reload()}>
-            再読み込み
+            {i18n.t('misc:error.reload')}
           </button>
           <details className="app-error-details">
-            <summary>エラーの詳細</summary>
+            <summary>{i18n.t('misc:error.detailsSummary')}</summary>
             <pre className="app-error-pre">{this.state.error.message}</pre>
           </details>
         </div>

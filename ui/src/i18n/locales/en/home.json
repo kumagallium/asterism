@@ -1,0 +1,31 @@
+{
+  "status": {
+    "pub": "Published",
+    "draft": "Draft",
+    "design": "Designing"
+  },
+  "band": {
+    "head": "Your connected data so far"
+  },
+  "stat": {
+    "facts": "Facts / triples",
+    "datasets": "Datasets",
+    "classes": "Vocabulary classes"
+  },
+  "action": {
+    "add": {
+      "title": "Add data",
+      "sub": "Connect a CSV and the AI drafts the design for you"
+    },
+    "ask": {
+      "title": "Ask a question",
+      "sub": "Get grounded answers from your ingested data"
+    }
+  },
+  "recent": {
+    "head": "Recent datasets",
+    "seeAll": "See all in the catalog",
+    "loading": "Loading…",
+    "empty": "No datasets yet. Start from \"Add data\"."
+  }
+}

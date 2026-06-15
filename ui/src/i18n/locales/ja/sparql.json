@@ -1,0 +1,9 @@
+{
+  "subtitle": "取り込み済みの RDF に<1>読み取り専用</1>の SPARQL を直接実行します。これは上級者向けの<3>脱出ハッチ</3>です（通常は Ask / Gallery をご利用ください）。UPDATE 系（INSERT/DELETE 等）は実行できません。",
+  "running": "実行中…",
+  "run": "実行 (Ctrl+Enter)",
+  "reset": "例に戻す",
+  "boolResult": "結果: ",
+  "rows": "{{n}} 行",
+  "noResults": "該当する結果はありません。"
+}

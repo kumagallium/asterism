@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Trans, useTranslation } from 'react-i18next'
 import { ArrowIcon, TraceIcon } from './icons'
 import { provenance, type Citation, type ProvenanceChain, type ProvenanceStep } from './demoApi'
 import { KIND_TO_CLASS } from './galleryApi'
@@ -18,14 +19,10 @@ function stepColors(step: string): { color: string; ring: string } {
   }
 }
 
-// Human label per step (the chain reads back-in-time: what the datum came from).
-const STEP_JA: Record<string, string> = {
-  curve: '測定曲線',
-  sample: '試料',
-  paper: '論文',
-  digitization: 'デジタル化',
-  ingestion: '取り込み',
-}
+// Steps that have a human label (the chain reads back-in-time: what the datum
+// came from). Resolved per-render via t('shared:step.<step>'); unknown steps fall
+// back to the raw key.
+const KNOWN_STEPS = new Set(['curve', 'sample', 'paper', 'digitization', 'ingestion'])
 
 /**
  * The provenance trace, rendered as a permanent right-hand panel of the Ask
@@ -41,6 +38,7 @@ export function ProvenanceTrace({
   citation: Citation | null
   onShowVocab?: (className: string) => void
 }) {
+  const { t } = useTranslation()
   const iri = citation?.iri ?? ''
   // State is keyed by the IRI it resolved, and only ever written at the async
   // boundary (in then/catch) — never synchronously in the effect body. Loading
@@ -74,12 +72,14 @@ export function ProvenanceTrace({
   const vocabClass = citation ? KIND_TO_CLASS[citation.kind] : undefined
 
   return (
-    <aside className="ask-trace" aria-label="出どころ（来歴トレース）">
+    <aside className="ask-trace" aria-label={t('shared:trace.ariaLabel')}>
       <div className="trace-header">
-        <div className="trace-eyebrow">出どころ · provenance</div>
-        <h3 className="trace-title">来歴をたどる</h3>
+        <div className="trace-eyebrow">{t('shared:trace.eyebrow')}</div>
+        <h3 className="trace-title">{t('shared:trace.title')}</h3>
         <p className="trace-sub">
-          この値が<strong>どの曲線・論文・取り込み</strong>から来たかを、たどって示します。
+          <Trans i18nKey="shared:trace.sub">
+            この値が<strong>どの曲線・論文・取り込み</strong>から来たかを、たどって示します。
+          </Trans>
         </p>
       </div>
 
@@ -88,14 +88,14 @@ export function ProvenanceTrace({
           <span className="trace-empty-icon">
             <TraceIcon size={28} />
           </span>
-          引用カードを選ぶと、その値の出どころ（曲線 → 試料 → 論文 → 取り込み）が表示されます。
+          {t('shared:trace.empty')}
         </div>
       )}
 
       {loading && (
         <p className="trace-loading">
           <span className="spinner" />
-          来歴を解決中…
+          {t('shared:trace.loading')}
         </p>
       )}
       {error && <pre className="error">{error}</pre>}
@@ -112,20 +112,20 @@ export function ProvenanceTrace({
           <div className="trace-foot">
             <span className="trace-legend">
               <span className="trace-legend-dot" style={{ background: 'var(--entity)' }} />
-              データ
+              {t('shared:trace.legendData')}
             </span>
             <span className="trace-legend">
               <span className="trace-legend-dot" style={{ background: 'var(--activity)' }} />
-              処理
+              {t('shared:trace.legendProcess')}
             </span>
             {vocabClass && onShowVocab && (
               <button
                 type="button"
                 className="vocab-link trace-vocab-link"
                 onClick={() => onShowVocab(vocabClass)}
-                title={`カタログで語彙クラス「${vocabClass}」を表示`}
+                title={t('shared:trace.vocabTitle', { className: vocabClass })}
               >
-                語彙を見る <ArrowIcon size={13} />
+                {t('shared:trace.vocabLink')} <ArrowIcon size={13} />
               </button>
             )}
           </div>
@@ -133,13 +133,14 @@ export function ProvenanceTrace({
       )}
 
       {citation && chain && chain.chain.length === 0 && !loading && !error && (
-        <p className="trace-loading">この項目に対する来歴は記録されていません。</p>
+        <p className="trace-loading">{t('shared:trace.noRecord')}</p>
       )}
     </aside>
   )
 }
 
 function TraceNode({ step, last }: { step: ProvenanceStep; last: boolean }) {
+  const { t } = useTranslation()
   const { color, ring } = stepColors(step.step)
   return (
     <li className="trace-node">
@@ -150,7 +151,7 @@ function TraceNode({ step, last }: { step: ProvenanceStep; last: boolean }) {
       <div className="trace-content">
         <div className="trace-step-head">
           <span className="trace-step-badge" style={{ backgroundColor: color }}>
-            {STEP_JA[step.step] ?? step.step}
+            {KNOWN_STEPS.has(step.step) ? t(`shared:step.${step.step}`) : step.step}
           </span>
           <span className="trace-step-label">{step.label}</span>
         </div>

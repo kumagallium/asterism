@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import type { Citation } from './demoApi'
 import { KIND_TO_CLASS } from './galleryApi'
 import { TraceIcon } from './icons'
@@ -37,6 +38,7 @@ export function CitationCard({
   onSelect?: (c: Citation) => void
   onShowVocab?: (className: string) => void
 }) {
+  const { t } = useTranslation()
   const color = kindColor(citation.kind)
   const vocabClass = KIND_TO_CLASS[citation.kind]
   return (
@@ -45,7 +47,7 @@ export function CitationCard({
         type="button"
         className={`citation-card${selected ? ' selected' : ''}`}
         onClick={() => onSelect?.(citation)}
-        title="クリックで出どころ（来歴）を表示"
+        title={t('shared:citation.cardTitle')}
       >
         <span className="citation-bar" style={{ backgroundColor: color }} />
         <span className="citation-body">
@@ -53,9 +55,9 @@ export function CitationCard({
             <span className="citation-kind" style={{ backgroundColor: color }}>
               {citation.kind}
             </span>
-            <span className="citation-label">{citation.label || citation.kind || '(無題)'}</span>
+            <span className="citation-label">{citation.label || citation.kind || t('shared:citation.untitled')}</span>
             <span className="citation-trace-hint">
-              <TraceIcon size={13} /> 出どころ
+              <TraceIcon size={13} /> {t('shared:citation.traceHint')}
             </span>
           </span>
           <span className="citation-fields">
@@ -80,9 +82,9 @@ export function CitationCard({
           type="button"
           className="vocab-link"
           onClick={() => onShowVocab(vocabClass)}
-          title={`カタログで語彙クラス「${vocabClass}」を表示`}
+          title={t('shared:citation.vocabTitle', { className: vocabClass })}
         >
-          語彙: {vocabClass} →
+          {t('shared:citation.vocabLink', { className: vocabClass })}
         </button>
       )}
     </div>

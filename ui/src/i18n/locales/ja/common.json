@@ -1,0 +1,77 @@
+{
+  "docTitle": "asterism — 研究データをつながったデータに",
+  "brand": {
+    "name": "asterism",
+    "tag": "研究データ → つながったデータ"
+  },
+  "langToggle": {
+    "label": "言語",
+    "ja": "日本語",
+    "en": "English"
+  },
+  "nav": {
+    "section": {
+      "create": "つくる",
+      "use": "つかう",
+      "manage": "管理"
+    },
+    "home": "ホーム",
+    "workbench": "データを追加",
+    "ask": "質問する",
+    "gallery": "カタログ",
+    "jobs": "アクティビティ",
+    "sparql": "SPARQL",
+    "sparqlTag": "開発者向け"
+  },
+  "status": {
+    "mock": "Ask・カタログ: demo データ (mock)",
+    "live": "グラフ稼働中"
+  },
+  "view": {
+    "home": {
+      "eyebrow": "はじめに",
+      "title": "ホーム",
+      "sub": "今ある「つながったデータ」と次の一手"
+    },
+    "workbench": {
+      "eyebrow": "つくる",
+      "title": "データを追加",
+      "sub": "CSV から、AI と一緒に知識グラフを作る"
+    },
+    "ask": {
+      "eyebrow": "つかう",
+      "title": "質問する",
+      "sub": "取り込んだデータに、根拠つきで答える"
+    },
+    "gallery": {
+      "eyebrow": "つかう",
+      "title": "カタログ",
+      "sub": "作ったデータの中身を見渡す"
+    },
+    "vocab": {
+      "eyebrow": "つかう · カタログ",
+      "title": "共有の語彙",
+      "sub": "複数のデータセットが共通で使う設計図"
+    },
+    "crosswalk": {
+      "eyebrow": "つかう · カタログ",
+      "title": "クロスウォーク",
+      "sub": "データセットを横断でつなぐ橋"
+    },
+    "map": {
+      "eyebrow": "つかう · カタログ",
+      "title": "オントロジーの全体像",
+      "sub": "どんなオントロジーがあり、どうつながっているか"
+    },
+    "jobs": {
+      "eyebrow": "管理",
+      "title": "アクティビティ",
+      "sub": "いつ・何が取り込まれたか"
+    },
+    "sparql": {
+      "eyebrow": "管理 · 開発者向け",
+      "title": "SPARQL",
+      "sub": "読み取り専用クエリ"
+    }
+  }
+}

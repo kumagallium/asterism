@@ -1,0 +1,97 @@
+{
+  "panel": {
+    "sectionTitle": "Tools (verified Ask operations for this data)",
+    "count": "{{n}}",
+    "intro": "Add typed, deterministic <1>read-only SPARQL tools</1> to this dataset. A saved tool becomes a <3>verified Ask tool</3> with no PR (saving is the human sign-off).",
+    "loading": "Loading tools…",
+    "emptyList": "No tools yet. Create one from \"Draft with AI\" below.",
+    "author": {
+      "subhead": "Draft with AI (build one from what you want)",
+      "hint": "Describe what you want and <1>the AI drafts a read-only SPARQL tool</1> grounded in this data's vocabulary. The draft is <3>editable in place</3> and is <5>only finalized once you save</5> (saving is the human vetting gate). The key is kept only within this tab and never stored (shared with Ask).",
+      "intentPlaceholder": "e.g. given a composition, return the crystal structure (space group, crystal system)",
+      "keyPlaceholder": "sk-ant-… (required for AI drafting)",
+      "proposing": "Drafting…",
+      "propose": "Draft with AI",
+      "startEmpty": "Build by hand from scratch"
+    },
+    "notice": {
+      "saved": "Saved \"{{name}}\". It is now usable as a verified Ask tool.",
+      "deleted": "Deleted \"{{name}}\"."
+    },
+    "save": {
+      "required": "name and query are required."
+    },
+    "deleteConfirm": "Delete the tool \"{{name}}\"?\nIt will be removed from this dataset's Ask."
+  },
+  "card": {
+    "close": "Close",
+    "run": "Run",
+    "edit": "Edit",
+    "deleting": "Deleting…",
+    "delete": "Delete",
+    "required": "required",
+    "sparqlSummary": "View SPARQL"
+  },
+  "draft": {
+    "gate": {
+      "ok": "✓ AI draft: validation OK (you can save as-is)",
+      "bad": "Needs fixing: {{error}} (edit and fix, then save)",
+      "note": "The server validates on save (read-only SELECT/ASK, safe binding)."
+    },
+    "title": "Review and edit the draft",
+    "nameLabel": "Name (snake_case)",
+    "titleLabel": "Title",
+    "titlePlaceholder": "Short human-readable name",
+    "descriptionLabel": "Description",
+    "params": {
+      "head": "Parameters",
+      "add": "+ Add",
+      "empty": "No parameters.",
+      "namePlaceholder": "param name",
+      "required": "required",
+      "delete": "Delete",
+      "descriptionPlaceholder": "Description (optional)",
+      "defaultPlaceholder": "Default value (optional)",
+      "enumPlaceholder": "enum values (comma-separated)"
+    },
+    "queryLabel": "SPARQL (read-only, bind with {{placeholder}})",
+    "result": {
+      "head": "Output mapping (optional, column name → SPARQL variable)",
+      "add": "+ Add",
+      "empty": "If unspecified, the variable name is used as the column name.",
+      "keyPlaceholder": "output column name (e.g. space_group)",
+      "varPlaceholder": "SPARQL variable (e.g. sg)",
+      "number": "Number",
+      "delete": "Delete"
+    },
+    "saving": "Saving…",
+    "save": "Save (finalize and add to tools)",
+    "discard": "Discard"
+  },
+  "runner": {
+    "hint": "Run a verified tool <1>with no key and no LLM</1> (typed, deterministic, with citations).",
+    "required": "required",
+    "enumUnset": "(unset)",
+    "defaultHint": "default: {{value}}",
+    "running": "Running…",
+    "run": "Run (no key needed)",
+    "cellCopyTip": "· Click a cell to copy its full value (e.g. paste <0>sentence_iri</0> into <1>quote_with_citation</1>).",
+    "cellCopyTitle": "Click to copy the full value",
+    "cellCopied": "✓ Copied",
+    "result": {
+      "count": "{{n}} rows",
+      "countTruncated": "{{n}} rows (truncated at limit)",
+      "empty": "No matching results.",
+      "sparqlSummary": "SPARQL that ran (read-only)"
+    }
+  },
+  "error": {
+    "ops": {
+      "list": "Listing tools",
+      "save": "Saving tool",
+      "delete": "Deleting tool",
+      "propose": "AI drafting",
+      "run": "Running tool"
+    }
+  }
+}

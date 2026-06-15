@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Trans, useTranslation } from 'react-i18next'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
@@ -22,12 +23,13 @@ import { ProposalView } from './ProposalView'
 // Data-source kinds. CSV and JSON (#19) are wired end-to-end (Morph-KGC reads
 // both via the RML's referenceFormulation); API/DB are shown (the redesign's
 // "any structured source" promise) but disabled until their connect flow lands.
-const SOURCES: { id: SourceKind; label: string }[] = [
-  { id: 'csv', label: '表計算 / CSV' },
-  { id: 'json', label: 'JSON' },
-  { id: 'document', label: '文書（Word / XML）' },
-  { id: 'api', label: 'API' },
-  { id: 'db', label: 'DB' },
+// `labelKey` is an i18n key (workbench namespace) resolved at render via t().
+const SOURCES: { id: SourceKind; labelKey: string }[] = [
+  { id: 'csv', labelKey: 'workbench:source.csv' },
+  { id: 'json', labelKey: 'workbench:source.json' },
+  { id: 'document', labelKey: 'workbench:source.document' },
+  { id: 'api', labelKey: 'workbench:source.apiShort' },
+  { id: 'db', labelKey: 'workbench:source.db' },
 ]
 
 // D7: the user-brought API key lives only in sessionStorage (cleared when the
@@ -39,10 +41,11 @@ const API_KEY_STORAGE = 'asterism.apiKey'
 // data-source panel ("構造を見る"), and the inspection Propose actually used is
 // shown inline with the proposal.
 type Step = 1 | 2 | 3
-const STEPS: { n: Step; label: string; en: string }[] = [
-  { n: 1, label: 'AI が設計', en: 'design' },
-  { n: 2, label: '確認・修正', en: 'review' },
-  { n: 3, label: '保存', en: 'save' },
+// labelKey/enKey are i18n keys (workbench namespace) resolved at render via t().
+const STEPS: { n: Step; labelKey: string; enKey: string }[] = [
+  { n: 1, labelKey: 'workbench:step.design', enKey: 'workbench:step.designEn' },
+  { n: 2, labelKey: 'workbench:step.review', enKey: 'workbench:step.reviewEn' },
+  { n: 3, labelKey: 'workbench:step.save', enKey: 'workbench:step.saveEn' },
 ]
 
 // Persist the workbench's *generated artifacts* (not secrets) to sessionStorage
@@ -105,6 +108,7 @@ function loadSnapshot(): Partial<WorkbenchSnapshot> {
  * persists the bundle to the registry so it appears in the Gallery.
  */
 export function WorkbenchView() {
+  const { t } = useTranslation()
   // Restore generated artifacts saved before a tab switch / reload (once).
   const [snap] = useState(loadSnapshot)
 
@@ -183,7 +187,7 @@ export function WorkbenchView() {
     const close = resumeJob(job.jobId, {
       onStatus: (m) => {
         markActive()
-        setStatus(m === 'done' ? '前回の結果を復元しました' : '前回のジョブに再接続中…')
+        setStatus(m === 'done' ? t('workbench:resume.restored') : t('workbench:resume.reconnecting'))
       },
       onDone: (result) => {
         if (job.kind === 'propose') {
@@ -375,20 +379,21 @@ export function WorkbenchView() {
 
   return (
     <>
-      <div className="wb-mode-switch" role="group" aria-label="データの追加方法">
+      <div className="wb-mode-switch" role="group" aria-label={t('workbench:mode.groupLabel')}>
         <button
           type="button"
           className={`wb-mode-pill${mode === 'new' ? ' active' : ''}`}
           onClick={() => setMode('new')}
         >
-          新しいデータから作る <span className="wb-mode-en">CSV / JSON</span>
+          {t('workbench:mode.new')} <span className="wb-mode-en">{t('workbench:mode.newTag')}</span>
         </button>
         <button
           type="button"
           className={`wb-mode-pill${mode === 'crosswalk' ? ' active' : ''}`}
           onClick={() => setMode('crosswalk')}
         >
-          既存データを横断でつなぐ <span className="wb-mode-en">crosswalk</span>
+          {t('workbench:mode.crosswalk')}{' '}
+          <span className="wb-mode-en">{t('workbench:mode.crosswalkTag')}</span>
         </button>
       </div>
 
@@ -397,20 +402,14 @@ export function WorkbenchView() {
       ) : (
         <>
       <p className="subtitle">
-        データソースをつなぎ、<strong>AI が設計 → 確認・修正 → 保存</strong>の順に進めます。
-        保存するとカタログに並びます。構造解析は内部で自動実行するので、
-        確認したいときだけ「構造を見る」を押してください。
+        <Trans i18nKey="workbench:intro" components={{ strong: <strong /> }} />
       </p>
 
       {hasArtifacts && (
         <div className="wb-restore-row">
-          {restored && (
-            <span className="wb-restore-note">
-              前回の作業を復元しました（再実行する場合のみソースを選び直してください）。
-            </span>
-          )}
+          {restored && <span className="wb-restore-note">{t('workbench:restore.note')}</span>}
           <button type="button" className="secondary-btn wb-clear-btn" onClick={clearWorkbench}>
-            ワークベンチをクリア
+            {t('workbench:restore.clear')}
           </button>
         </div>
       )}
@@ -418,8 +417,8 @@ export function WorkbenchView() {
       {/* Persistent data source: the CSV is shared across every step. */}
       <section className="data-source">
         <div className="source-switch-row">
-          <span className="data-source-label">データソース</span>
-          <div className="source-switch" role="group" aria-label="データソースの種類">
+          <span className="data-source-label">{t('workbench:source.label')}</span>
+          <div className="source-switch" role="group" aria-label={t('workbench:source.kindsGroupLabel')}>
             {SOURCES.map((s) => {
               const supported = SUPPORTED_SOURCES.includes(s.id)
               return (
@@ -428,7 +427,7 @@ export function WorkbenchView() {
                   type="button"
                   className={`source-pill${s.id === source ? ' active' : ''}`}
                   disabled={!supported}
-                  title={supported ? undefined : '近日対応'}
+                  title={supported ? undefined : t('workbench:source.soonTitle')}
                   onClick={() => {
                     if (s.id === source) return
                     // Switching kinds invalidates the picked files (different picker filter).
@@ -436,13 +435,13 @@ export function WorkbenchView() {
                     setFiles([])
                   }}
                 >
-                  {s.label}
-                  {!supported && <span className="source-soon">近日</span>}
+                  {t(s.labelKey)}
+                  {!supported && <span className="source-soon">{t('workbench:source.soonBadge')}</span>}
                 </button>
               )
             })}
           </div>
-          <span className="hint source-note">あらゆる構造化ソースに対応予定（現在は CSV / JSON / 文書）</span>
+          <span className="hint source-note">{t('workbench:source.note')}</span>
         </div>
         {source === 'document' ? (
           <DocumentPanel />
@@ -450,7 +449,7 @@ export function WorkbenchView() {
           <>
         <div className="data-source-row">
           <label className="file-btn">
-            {source === 'json' ? 'JSON を選択' : 'CSV を選択'}
+            {source === 'json' ? t('workbench:source.pickJson') : t('workbench:source.pickCsv')}
             <input
               type="file"
               accept={SOURCE_ACCEPT[source] ?? '.csv'}
@@ -459,10 +458,10 @@ export function WorkbenchView() {
             />
           </label>
           <span className={`file-names${files.length ? '' : ' empty'}`}>
-            {files.length ? files.map((f) => f.name).join('、') : 'ファイル未選択'}
+            {files.length ? files.map((f) => f.name).join('、') : t('workbench:source.noFile')}
           </span>
           <label className="fk-field">
-            <span>{source === 'json' ? 'FK フィールドヒント（任意）' : 'FK 列ヒント（任意）'}</span>
+            <span>{source === 'json' ? t('workbench:source.fkJson') : t('workbench:source.fkCsv')}</span>
             <input
               type="text"
               value={fk}
@@ -474,12 +473,12 @@ export function WorkbenchView() {
         <div className="data-source-foot">
           <span className="hint">
             {files.length > 0
-              ? `${files.length} file(s) selected — 全ステップで同じソースを使います`
-              : 'ここで選んだソースを全ステップで共有します'}
+              ? t('workbench:source.footSelected', { n: files.length })
+              : t('workbench:source.footEmpty')}
           </span>
           {files.length > 0 && (
             <button type="button" className="secondary-btn inspect-toggle" onClick={onToggleInspect}>
-              {showInspect ? '構造解析を隠す' : '構造を見る（任意・LLM 不要）'}
+              {showInspect ? t('workbench:source.inspectHide') : t('workbench:source.inspectShow')}
             </button>
           )}
         </div>
@@ -489,7 +488,7 @@ export function WorkbenchView() {
             {inspecting && (
               <p className="trace-loading">
                 <span className="spinner" />
-                解析中…
+                {t('workbench:source.analyzing')}
               </p>
             )}
             {inspectErr && <pre className="error">{inspectErr}</pre>}
@@ -517,8 +516,8 @@ export function WorkbenchView() {
             >
               <span className="step-num">{done[s.n] ? '✓' : s.n}</span>
               <span className="step-text">
-                <span className="step-label">{s.label}</span>
-                <span className="step-en">{s.en}</span>
+                <span className="step-label">{t(s.labelKey)}</span>
+                <span className="step-en">{t(s.enKey)}</span>
               </span>
             </button>
             {i < STEPS.length - 1 && <span className="step-connector" aria-hidden="true" />}
@@ -530,12 +529,11 @@ export function WorkbenchView() {
         {step === 1 && (
           <>
             <p className="step-hint">
-              AI がデータの<strong>設計図（語彙）</strong>と<strong>取り込みルール</strong>の案を提案します。
-              Anthropic API キーが必要です（このセッションのみ保持・サーバ非保存）。
+              <Trans i18nKey="workbench:design.hint" components={{ strong: <strong /> }} />
             </p>
             <section className="controls">
               <label>
-                Anthropic API キー (sk-…)
+                {t('workbench:design.apiKeyLabel')}
                 <input
                   type="password"
                   value={apiKey}
@@ -546,7 +544,7 @@ export function WorkbenchView() {
               </label>
 
               <fieldset className="hints">
-                <legend>ヒント (任意・当てはまるものにチェックすると精度が上がります)</legend>
+                <legend>{t('workbench:design.hintsLegend')}</legend>
                 {PRESET_HINTS.map((h) => (
                   <label key={h.id} className="hint-check">
                     <input
@@ -554,15 +552,15 @@ export function WorkbenchView() {
                       checked={presetIds.has(h.id)}
                       onChange={() => togglePreset(h.id)}
                     />
-                    {h.label}
+                    {t(h.label)}
                   </label>
                 ))}
                 <label className="domain-label">
-                  その他の補足 (自由記入・任意)
+                  {t('workbench:design.domainFreeLabel')}
                   <textarea
                     value={domainFree}
                     rows={2}
-                    placeholder="例: Seebeck = thermopower = 熱起電力。図は WebPlotDigitizer で読み取った。"
+                    placeholder={t('workbench:design.domainFreePlaceholder')}
                     onChange={(e) => setDomainFree(e.target.value)}
                   />
                 </label>
@@ -572,13 +570,13 @@ export function WorkbenchView() {
                 {proposing ? (
                   <>
                     <span className="spinner" />
-                    提案中…
+                    {t('workbench:design.proposing')}
                   </>
                 ) : (
-                  'スキーマを提案'
+                  t('workbench:design.propose')
                 )}
               </button>
-              {proposing && <JobProgress label="AI がスキーマを設計中…" status={status} />}
+              {proposing && <JobProgress label={t('workbench:design.jobLabel')} status={status} />}
             </section>
             {proposeErr && <pre className="error">{proposeErr}</pre>}
             {proposal && (
@@ -588,7 +586,7 @@ export function WorkbenchView() {
                 </section>
                 {markdown && (
                   <details className="inspect-details">
-                    <summary>この提案が使った構造解析を表示</summary>
+                    <summary>{t('workbench:design.inspectDetails')}</summary>
                     <section className="result">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdown}</ReactMarkdown>
                     </section>
@@ -602,14 +600,14 @@ export function WorkbenchView() {
         {step === 2 &&
           (proposal ? (
             <>
-              <p className="step-hint">提案を確認し、直したい点をコメントすると AI が再生成します（任意）。</p>
+              <p className="step-hint">{t('workbench:review.hint')}</p>
               <section className="refine-box">
                 <label className="domain-label">
-                  レビューコメント
+                  {t('workbench:review.commentLabel')}
                   <textarea
                     value={comment}
                     rows={2}
-                    placeholder="例: Sample IRI を (SID, sample_id) の複合キーにして。ingester と設計根拠も同期更新して。"
+                    placeholder={t('workbench:review.commentPlaceholder')}
                     onChange={(e) => setComment(e.target.value)}
                   />
                 </label>
@@ -618,14 +616,14 @@ export function WorkbenchView() {
                     {refining ? (
                       <>
                         <span className="spinner" />
-                        再生成中…
+                        {t('workbench:review.regenerating')}
                       </>
                     ) : (
-                      'コメントを反映して再生成'
+                      t('workbench:review.regenerate')
                     )}
                   </button>
                 </div>
-                {refining && <JobProgress label="AI がスキーマを再生成中…" status={status} />}
+                {refining && <JobProgress label={t('workbench:review.jobLabel')} status={status} />}
               </section>
               {proposeErr && <pre className="error">{proposeErr}</pre>}
               <section className="result">
@@ -633,30 +631,30 @@ export function WorkbenchView() {
               </section>
             </>
           ) : (
-            <p className="step-guard">先に「AI が設計」でスキーマを生成してください。</p>
+            <p className="step-guard">{t('workbench:step.guard')}</p>
           ))}
 
         {step === 3 &&
           (proposal ? (
             <>
               <p className="step-hint">
-                スキーマを 4 つの artifact に分割し 8 罠を検証して<strong>カタログに保存</strong>します。
+                <Trans i18nKey="workbench:save.hint" components={{ strong: <strong /> }} />
               </p>
               <button onClick={onMaterialize} disabled={materializing}>
                 {materializing ? (
                   <>
                     <span className="spinner" />
-                    保存中…
+                    {t('workbench:save.saving')}
                   </>
                 ) : (
-                  '確定してカタログに保存'
+                  t('workbench:save.save')
                 )}
               </button>
               {proposeErr && <pre className="error">{proposeErr}</pre>}
               {materialized && <MaterializePanel result={materialized} csvFiles={files} />}
             </>
           ) : (
-            <p className="step-guard">先に「AI が設計」でスキーマを生成してください。</p>
+            <p className="step-guard">{t('workbench:step.guard')}</p>
           ))}
       </div>
         </>
@@ -675,6 +673,7 @@ export function WorkbenchView() {
  * the user can see it's alive and roughly how long to wait.
  */
 function JobProgress({ label, status }: { label: string; status: string }) {
+  const { t } = useTranslation()
   const [elapsed, setElapsed] = useState(0)
   useEffect(() => {
     const start = Date.now()
@@ -683,6 +682,7 @@ function JobProgress({ label, status }: { label: string; status: string }) {
   }, [])
   const mm = Math.floor(elapsed / 60)
   const ss = String(elapsed % 60).padStart(2, '0')
+  const showStatus = status && status !== 'done' && status !== 'refined'
   return (
     <div className="job-progress" role="status" aria-live="polite">
       <div className="job-progress-head">
@@ -693,8 +693,9 @@ function JobProgress({ label, status }: { label: string; status: string }) {
         <span />
       </div>
       <div className="job-progress-meta">
-        {mm}分{ss}秒経過 ・ 通常 1〜6 分 ・ 接続は維持されています
-        {status && status !== 'done' && status !== 'refined' ? ` ・ 状態: ${status}` : ''}
+        {showStatus
+          ? t('workbench:job.elapsedStatus', { mm, ss, status })
+          : t('workbench:job.elapsed', { mm, ss })}
       </div>
     </div>
   )

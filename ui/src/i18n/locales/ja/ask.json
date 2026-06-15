@@ -1,0 +1,43 @@
+{
+  "examples": {
+    "ztHighest": "ZT が最も高い熱電材料は？",
+    "snseSamples": "SnSe を含む組成の試料は？",
+    "schemaClasses": "新しく設計したスキーマにはどんなクラスがある？"
+  },
+  "keyRequiredError": "質問するには Anthropic API キーが必要です（下の欄に入力してください）。",
+  "intro": "自然言語で問うと、AI が<0>検証済みツール</0>を選んで実行し、<1>取り込み済みのデータ</1>に基づく<2>根拠つきの回答</2>と<3>引用</3>・<4>出どころ（来歴）</4>を返します。数値・引用は<5>検証済みツール（固定クエリ）</5>が生成するので再現可能です（AI はツール選択のみ）。<6>質問には API キーが必要です。</6>",
+  "demoBadge": "demo データ (mock)",
+  "inputPlaceholder": "例: ZT が最も高い熱電材料は？",
+  "submitTitle": "先に API キーを入力してください",
+  "answering": "回答中…",
+  "submit": "質問する",
+  "key": {
+    "label": "Anthropic API キー",
+    "required": "必須",
+    "placeholder": "sk-ant-…",
+    "note": "質問の理解（どの検証済みツールを使うか）に AI を使うためキーが必要です。数値・引用は<0>検証済みツール</0>が生成するので再現可能です（AI はツール選択のみ）。キーはこのタブ内のみ保持し、保存しません（ワークベンチ・ツールと共通）。<1>キー無しで確定的にツールを実行</1>したい場合は、カタログのデータセット詳細「ツール」タブからどうぞ。"
+  },
+  "badge": {
+    "verifiedTools": "検証済ツール: {{tools}}",
+    "unverifiedSparql": "AI 生成 SPARQL（未検証）",
+    "grounded": "根拠つきの回答",
+    "plusUnverifiedSparql": "＋ AI 生成 SPARQL（未検証）"
+  },
+  "headNote": {
+    "verified": "人が検証した決定論ツール · 固定クエリ · 再現可能な引用",
+    "unverified": "AI が生成したクエリ · 未検証（下の SPARQL で確認できます）",
+    "grounded": "取り込み済みのデータに基づく"
+  },
+  "citations": {
+    "heading": "根拠（引用）",
+    "hint": "クリックで出どころを表示"
+  },
+  "notes": {
+    "heading": "データ品質メモ"
+  },
+  "sparql": {
+    "summary": "使用した SPARQL（{{n}}）",
+    "readonlyTag": "読み取り専用",
+    "hint": "この回答が実行した読み取り専用クエリです（検証済ツールは固定テンプレ、escape は AI 生成）。"
+  }
+}

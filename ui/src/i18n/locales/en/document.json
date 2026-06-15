@@ -1,0 +1,17 @@
+{
+  "phase": {
+    "creating": "Registering document…",
+    "ingesting": "Structuring and ingesting…",
+    "promoting": "Publishing…"
+  },
+  "intro": "Upload a document such as a paper or contract (<0>Word</0> <1>.docx</1> / structured XML <2>.xml</2>) and, with <3>no AI design needed</3>, it is structured down to <4>section → paragraph → sentence</4>, so you can <5>full-text search and cite</5> it from the catalog's \"Tools\" tab.",
+  "pickFile": "Choose a document (Word / XML)",
+  "noFile": "No file selected",
+  "nameLabel": "Document name (optional)",
+  "namePlaceholder": "e.g. Half-Heusler thermoelectrics / Service agreement",
+  "convertHint": ".docx is automatically converted to structured XML on the server (the conversion tool and version are recorded in the provenance).",
+  "submit": "Add and publish document",
+  "ingesting": "Ingesting…",
+  "ingestProgress": "({{done}} / {{total}})",
+  "result": "✓ Published <0>{{name}}</0>. Open it in the catalog and use <1>search_text</1> /<2>quote_with_citation</2> on the \"Tools\" tab to full-text search and cite it."
+}
