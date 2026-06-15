@@ -32,6 +32,12 @@ export function namespaceOf(iri: string): string {
  * the data only LINKS to it once a dataset's design reuses/aligns its term IRIs — that
  * grounding is the separate retrieval + human-vet workstream.
  *
+ * SoT: the backend `ingest/src/asterism/grounding/known_vocabs.yaml` (served at
+ * `/api/vocabularies`) is the canonical curated list — it additionally carries the real
+ * per-vocabulary TERMS the grounding search (`/api/ground`) returns. The namespaces here
+ * MUST stay in sync with it (a UI mirror for sync detection); consolidating the UI onto
+ * the backend SoT is the next step.
+ *
  * `what` is an i18n KEY (namespace `vocab`), not a literal — consumers resolve it via
  * `t(v.what)`. `ns`/`prefix` are IRIs and are never translated. All namespaces are real
  * (verified), never fabricated.
@@ -49,7 +55,9 @@ export const KNOWN_VOCABS: { ns: string; prefix: string; what: string }[] = [
   // Materials science & engineering (quantities/units + foundational + samples).
   { ns: 'http://qudt.org/schema/qudt/', prefix: 'qudt:', what: 'vocab:known.qudt' },
   { ns: 'https://w3id.org/emmo#', prefix: 'emmo:', what: 'vocab:known.emmo' },
-  { ns: 'https://purls.helmholtz-metadaten.de/cmso/', prefix: 'cmso:', what: 'vocab:known.cmso' },
+  // CMSO's authoritative term IRIs use http:// (the https:// PURL only redirects to the
+  // HTML docs). Match what the ontology actually mints so reuse detection / grounding agree.
+  { ns: 'http://purls.helmholtz-metadaten.de/cmso/', prefix: 'cmso:', what: 'vocab:known.cmso' },
 ]
 
 /** Reused external vocabularies actually present in the given term IRIs. */
