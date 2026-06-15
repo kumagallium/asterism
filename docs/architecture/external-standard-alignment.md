@@ -122,3 +122,26 @@ EMMO 等は学習・整合コストが高く、過剰形式化は導入・採用
 - 静的デモ (§6・[`static-citable-facts-demo.md`](static-citable-facts-demo.md) §7) は現状 (A) インスタンス結合のままで本書と矛盾しない。formal alignment は #19/#20 の深掘りに置く。
 - 最初の (B) 着手候補: PoC の `mp_link_tbox.ttl` の `sd:CrystalStructure`/`sd:PointDefect` を CMSO/PODO へ `rdfs:seeAlso` から `owl` 整合へ昇格 (§2 の判断で再利用 or 橋渡しを選ぶ)。canonical 昇格はプロジェクト規約 (ingester + ttl + Mermaid の 3 点セット) に従う。**ただし §3/§5 に従い、整合を消費する相手 (2 件目データセット = #19) ができるまでは `seeAlso` 据え置きで延期** (2026-06-05 決定)。
 - **LLM による外部語彙の再利用を信頼できる形にするには grounding/検索が要る**: 現状 step0 propose は外部 IRI を LLM の記憶から書く (有名語彙限定・捏造リスク)。OLS/LOV 等を引く検索ツールで実在 term に接地する案を ROADMAP に起案 (本書 §2「直接再利用」を実務で効かせる手段)。
+
+---
+
+## 8. 標準接地を「一級」にする — curated スターターパック (2026-06-15 方向決定)
+
+### Trigger (待っていた消費者が来た)
+ユーザー指摘: 「材料の人が Asterism を使うとき、**材料の有名オントロジー (CMSO/EMMO/QUDT 等) に紐づかない**と体験が悪い。**既存標準にデータが乗ること**こそ Asterism の良さでは?」。これは §2/§3/§5 が延期理由としていた「**整合を消費する相手**」がまさに現れたということ＝再評価トリガー。**方向に同意し、外部標準接地を“あれば良い”から“一級の体験”へ引き上げる。**
+
+### Decision
+Asterism は **有名・基盤オントロジーの curated スターターパック**を標準同梱し、**2つの意味で**使う:
+1. **認識 (RECOGNIZE)** — `ui/src/vocab.ts` の `KNOWN_VOCABS` が「Asterism が知っている標準語彙」のリスト。地図・再利用表示が検出に使う。**本決定で汎用 (FOAF/DCAT/SOSA を追加) ＋材料 (QUDT/EMMO/CMSO) に拡充済**（名前空間は実在を検証: EMMO=`https://w3id.org/emmo#`・CMSO=`https://purls.helmholtz-metadaten.de/cmso/`）。
+2. **接地 (LINK)** — データが実際にその標準の **実在 term IRI を reuse/align** する。これは **retrieval + 人 vet** の grounding ワークストリーム (下記・本書 §2「直接再利用」の実務化)。
+
+**重要**: 1 を増やしても、2 (データが term を使う) が無ければ地図には出ない。今あるデータは汎用 (schema/dcterms/PROV) のみ参照＝材料標準への線はまだ無い。2 を入れて初めて「材料の人がデータを足すと自然に CMSO/QUDT に乗る」体験になる。
+
+### 「キリがない?」への答え — No、curated に有限
+全語彙 (LOV 約700・BioPortal 数百) を網羅する必要はない。**有名・基盤のものを稼働ドメイン毎に数個**で十分 (QUDT 単位・Tier-0・normalizer ライブラリと同じ「**手入れして育つ共有資産**」)。汎用 (schema/dcterms/PROV/SKOS/FOAF/DCAT/SOSA) ＋材料 (QUDT/EMMO/CMSO/PODO/ChEBI…) のように**ドメインパック**で curated に増やす。OBO 系 (ChEBI 等) は `obo/<ONT>_NNN` 形式で名前空間が共有され namespace 検出が効かない (個別対応が要る) ＝既知の制約。
+
+### 実装の段階 (次の一手は別 PR)
+- **(済) 認識層**: `KNOWN_VOCABS` curated 拡充 (本決定)。
+- **(次・本丸) 接地層**: step0 propose に **grounding 検索** — LLM の記憶でなく `KNOWN_VOCABS` (＋OLS/LOV/BioPortal) から**実在 term を retrieval → 候補提示 → 人が確定** (閉集合＋人 vet＝捏造しない・normalizer/ツールと同じ安全モデル)。propose/refine UI に「このクラス = cmso:X」と**外部標準を採用する導線**を追加。
+- **(地図) 整合エッジ**: 「再利用」エッジに加え、`owl:equivalentClass` 等の**整合エッジ**を地図に描けるよう拡張 (今は perspective 間のみ)。
+- `KNOWN_VOCABS` は将来 backend と共有する SoT (YAML 等) に昇格し、UI 検出と propose 接地が**同じ一覧**を使うのが理想。
