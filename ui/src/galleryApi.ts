@@ -117,11 +117,12 @@ interface DatasetMeta {
   triple_count?: number
   graph_iri?: string
   // Task E: design-time source files persisted server-side (lets the catalog
-  // ingest a design-stage dataset with no re-attach). source_kind (#19) is
-  // "csv" | "json" so the UI labels the source and picks the right file picker.
+  // ingest a design-stage dataset with no re-attach). source_kind (#19) labels the
+  // source and picks the right file picker; "xml" marks a document dataset (its
+  // accumulation feed is documents, not CSV/JSON batches).
   has_source?: boolean
   source_files?: string[]
-  source_kind?: 'csv' | 'json'
+  source_kind?: 'csv' | 'json' | 'xml'
   // S4: whether the draft was promoted into the canonical (default) graph.
   promoted?: boolean
   triples_promoted?: number
@@ -239,6 +240,36 @@ export async function appendToDataset(datasetId: string, files: File[]): Promise
   })
   if (!res.ok) throw new Error(await _errText(res, 'append'))
   return (await res.json()) as AppendResult
+}
+
+export interface DocumentAppendResult {
+  dataset_id: string
+  live_graph: string
+  paper_iri: string
+  triples_in_batch: number
+  append_seq: number
+  dataset: DatasetMeta
+}
+
+/**
+ * Add ONE document to an existing, promoted document dataset (the "定例ミーティング"
+ * path). Structures just the new doc (Word→JATS server-side if needed) and merges it
+ * into the live graph, so search_text / quote_with_citation then span every document
+ * added. 200 with the result (no SSE — one document structures in milliseconds).
+ */
+export async function appendDocument(
+  datasetId: string,
+  file: File,
+): Promise<DocumentAppendResult> {
+  const form = new FormData()
+  form.append('file', file)
+  const res = await fetch(`${API_BASE}/api/datasets/${encodeURIComponent(datasetId)}/documents`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: form,
+  })
+  if (!res.ok) throw new Error(await _errText(res, 'append document'))
+  return (await res.json()) as DocumentAppendResult
 }
 
 /** A materialized dataset adapted to both layers (ontology + mapping). */
