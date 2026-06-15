@@ -1,4 +1,10 @@
 {
+  "rename": {
+    "edit": "Edit name",
+    "save": "Save",
+    "cancel": "Cancel",
+    "placeholder": "Dataset name"
+  },
   "status": {
     "pub": "Published",
     "draft": "Draft",
@@ -133,8 +139,11 @@
     "pick": "Choose a document (Word / PDF / XML)",
     "noFile": "Choose a document to add",
     "busy": "Adding…",
+    "busyN": "Adding ({{i}}/{{n}})…",
+    "nFiles": "{{n}} documents",
     "submit": "Add this document",
     "done": "✓ Document added (+{{n}} facts). You can search and cite the full text from the \"Tools\" tab.",
+    "doneN": "✓ Added {{docs}} document(s) (+{{n}} facts). You can search and cite the full text from the \"Tools\" tab.",
     "error": "Failed to add: {{err}}"
   },
   "api": {

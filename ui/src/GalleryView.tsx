@@ -19,6 +19,7 @@ import {
   type LiveDataset,
   promoteDataset,
   reinstateDataset,
+  renameDataset,
   retractDataset,
 } from './galleryApi'
 import { ArrowIcon, LayersIcon, LinkIcon, SearchIcon } from './icons'
@@ -304,13 +305,88 @@ function DatasetDetail({
   onChanged: () => void
 }) {
   const { t } = useTranslation()
+  const [editingName, setEditingName] = useState(false)
+  const [draftName, setDraftName] = useState(dataset.name)
+  const [renaming, setRenaming] = useState(false)
+  const [renameErr, setRenameErr] = useState('')
+
+  async function saveRename() {
+    const n = draftName.trim()
+    if (!n || n === dataset.name) {
+      setEditingName(false)
+      return
+    }
+    setRenaming(true)
+    setRenameErr('')
+    try {
+      // CatalogDataset.id is the synthetic catalog id (`live-<id>`); the registry id is
+      // dataset.live.meta.id (what every other control uses). Strip the prefix as a fallback.
+      const realId = dataset.live?.meta.id ?? dataset.id.replace(/^live-/, '')
+      await renameDataset(realId, n)
+      setEditingName(false)
+      onChanged() // name changed — refresh the catalog list + detail
+    } catch (e) {
+      setRenameErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setRenaming(false)
+    }
+  }
+
   return (
     <div className="ds-detail card">
       <div className="ds-detail-head">
-        <h2 className="ds-detail-name">{dataset.name}</h2>
+        {editingName ? (
+          <span className="ds-rename">
+            <input
+              className="ds-rename-input"
+              type="text"
+              value={draftName}
+              autoFocus
+              disabled={renaming}
+              placeholder={t('gallery:rename.placeholder')}
+              onChange={(e) => setDraftName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') saveRename()
+                if (e.key === 'Escape') setEditingName(false)
+              }}
+            />
+            <button type="button" className="ds-rename-save" onClick={saveRename} disabled={renaming}>
+              {t('gallery:rename.save')}
+            </button>
+            <button
+              type="button"
+              className="ds-rename-cancel"
+              onClick={() => {
+                setEditingName(false)
+                setDraftName(dataset.name)
+                setRenameErr('')
+              }}
+              disabled={renaming}
+            >
+              {t('gallery:rename.cancel')}
+            </button>
+          </span>
+        ) : (
+          <h2 className="ds-detail-name">
+            {dataset.name}
+            <button
+              type="button"
+              className="ds-rename-edit"
+              title={t('gallery:rename.edit')}
+              aria-label={t('gallery:rename.edit')}
+              onClick={() => {
+                setDraftName(dataset.name)
+                setEditingName(true)
+              }}
+            >
+              ✎
+            </button>
+          </h2>
+        )}
         <span className={`status-pill status-pill--${dataset.statusKind}`}>
           {statusLabel(t, dataset.statusKind)}
         </span>
+        {renameErr && <pre className="error">{renameErr}</pre>}
         <div className="ds-tabs">
           <button
             type="button"
@@ -674,9 +750,10 @@ function DocumentAppendControl({
   onChanged: () => void
 }) {
   const { t } = useTranslation()
-  const [file, setFile] = useState<File | null>(null)
+  const [files, setFiles] = useState<File[]>([])
   const [busy, setBusy] = useState(false)
-  const [done, setDone] = useState<DocumentAppendResult | null>(null)
+  const [done, setDone] = useState<{ docs: number; triples: number } | null>(null)
+  const [prog, setProg] = useState<{ i: number; n: number } | null>(null)
   const [err, setErr] = useState('')
 
   // A promoted, active DOCUMENT dataset (documents have no RML; their accumulation is
@@ -689,21 +766,30 @@ function DocumentAppendControl({
     return null
   }
 
-  const canAdd = !busy && file != null
+  const canAdd = !busy && files.length > 0
 
   async function onAdd() {
-    if (!file) return
+    if (!files.length) return
     setBusy(true)
     setErr('')
+    setDone(null)
+    setProg(null)
+    let triples = 0
     try {
-      const r = await appendDocument(meta.id, file)
-      setDone(r)
-      setFile(null)
+      // Append each document sequentially (one POST-merge per doc into the live graph).
+      for (let i = 0; i < files.length; i++) {
+        setProg({ i: i + 1, n: files.length })
+        const r: DocumentAppendResult = await appendDocument(meta.id, files[i])
+        triples += r.triples_in_batch
+      }
+      setDone({ docs: files.length, triples })
+      setFiles([])
       onChanged() // triple counts / doc count changed — refresh the catalog
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
     } finally {
       setBusy(false)
+      setProg(null)
     }
   }
 
@@ -733,22 +819,31 @@ function DocumentAppendControl({
           <input
             type="file"
             accept=".xml,.docx,.pdf"
+            multiple
             onChange={(e) => {
-              setFile(e.target.files?.[0] ?? null)
+              setFiles(Array.from(e.target.files ?? []))
               setDone(null)
             }}
           />
         </label>
-        <span className={`file-names${file ? '' : ' empty'}`}>
-          {file ? file.name : t('gallery:docAppend.noFile')}
+        <span className={`file-names${files.length ? '' : ' empty'}`}>
+          {files.length === 0
+            ? t('gallery:docAppend.noFile')
+            : files.length === 1
+              ? files[0].name
+              : t('gallery:docAppend.nFiles', { n: files.length })}
         </span>
       </div>
       <button type="button" className="promote-btn" onClick={onAdd} disabled={!canAdd}>
-        {busy ? t('gallery:docAppend.busy') : t('gallery:docAppend.submit')}
+        {busy
+          ? prog
+            ? t('gallery:docAppend.busyN', { i: prog.i, n: prog.n })
+            : t('gallery:docAppend.busy')
+          : t('gallery:docAppend.submit')}
       </button>
       {done && (
         <p className="ingest-ok">
-          {t('gallery:docAppend.done', { n: done.triples_in_batch })}
+          {t('gallery:docAppend.doneN', { docs: done.docs, n: done.triples })}
         </p>
       )}
       {err && <p className="promote-err">{t('gallery:docAppend.error', { err })}</p>}

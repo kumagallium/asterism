@@ -369,6 +369,16 @@ def _update_meta(root: Path, dataset_id: str, changes: dict) -> dict | None:
     return meta
 
 
+def rename_dataset(root: Path, dataset_id: str, name: str) -> dict | None:
+    """Change a dataset's DISPLAY name only — the ``id`` (the IRI seed) never changes.
+
+    Names are a human label; identity is the id and the graph IRIs derived from it, so
+    a rename touches only ``meta.name`` and leaves all data / IRIs untouched. Returns
+    the new meta, or None if the id is unsafe / absent.
+    """
+    return _update_meta(root, dataset_id, {"name": name})
+
+
 def mark_retracted(root: Path, dataset_id: str, *, retracted_at: str) -> dict | None:
     """Record that ``dataset_id``'s canonical graph was retracted (#20 P3 step3).
 

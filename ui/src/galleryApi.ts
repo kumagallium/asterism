@@ -212,6 +212,17 @@ export async function deleteDataset(datasetId: string, force = false): Promise<v
   if (!res.ok) throw new Error(await _errText(res, 'delete'))
 }
 
+/** Change a dataset's DISPLAY name only — the id (the IRI seed / data identity) is
+ * immutable, so graphs, IRIs and existing citations are untouched. */
+export async function renameDataset(datasetId: string, name: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/datasets/${encodeURIComponent(datasetId)}/rename`, {
+    method: 'POST',
+    headers: { ...authHeaders(), 'content-type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+  if (!res.ok) throw new Error(await _errText(res, 'rename'))
+}
+
 /** Result of an incremental append (ADR incremental-ingest.md): a new batch was
  * POST-merged into the dataset's live canonical graph (it grew; existing IRIs stay;
  * re-emitted rows dedupe). */

@@ -106,6 +106,12 @@ class SparqlRequest(BaseModel):
     query: str
 
 
+class RenameRequest(BaseModel):
+    """Body for POST /api/datasets/{id}/rename: the new DISPLAY name (id is immutable)."""
+
+    name: str
+
+
 class QueryToolBody(BaseModel):
     """Body for POST /api/datasets/{id}/tools: one declared, parameterized,
     read-only SPARQL tool (same shape as a datasets/<name>/query_tools.yaml entry).
@@ -1688,25 +1694,32 @@ def build_app(
     @app.post("/api/documents", dependencies=_write_auth)
     async def create_document_dataset(
         name: str = Form("document"),
-        file: UploadFile = File(..., description="A JATS .xml, Word .docx, or .pdf document"),
+        files: list[UploadFile] = File(
+            ..., description="One or more JATS .xml, Word .docx, or .pdf documents"
+        ),
     ) -> JSONResponse:
-        """Create a DOCUMENT dataset from an uploaded JATS/Word/PDF file (no schema design).
+        """Create a DOCUMENT dataset from one or MORE uploaded JATS/Word/PDF files.
 
         Unlike CSV/JSON — which go through the LLM design → materialize flow — a
         structured document needs no schema. This creates the registry record,
-        persists the source (a ``.docx`` is converted to JATS by pandoc; a ``.pdf`` is
+        persists the source(s) (a ``.docx`` is converted to JATS by pandoc; a ``.pdf`` is
         persisted RAW and converted by the Docling sidecar at *ingest* — the slow ML step
         lives in the async ingest job; both set ``source_kind=xml``), and auto-attaches
         the reusable document recall tools (``search_text`` / ``quote_with_citation`` /
-        ``fetch_passage``) so the document is queryable + citable from the catalog the
-        moment it is ingested and promoted. Ingest + promote remain explicit human gates.
+        ``fetch_passage``). Multiple documents land in ONE dataset (the accumulating
+        "定例ミーティング" model — ingest structures every source). Ingest + promote remain
+        explicit human gates.
         """
-        if file.filename is None:
-            raise HTTPException(400, "missing filename")
+        uploads = [f for f in files if f.filename]
+        if not uploads:
+            raise HTTPException(400, "no document uploaded")
         # A document accepts ANY filename (sanitized in _persist_source_uploads); only
         # the extension must be a document kind. CSV/JSON keep strict name validation.
-        if Path(file.filename).suffix.lower() not in _DOCUMENT_SOURCE_SUFFIXES:
-            raise HTTPException(400, "a document must be a JATS .xml, a Word .docx, or a .pdf file")
+        for f in uploads:
+            if Path(f.filename).suffix.lower() not in _DOCUMENT_SOURCE_SUFFIXES:
+                raise HTTPException(
+                    400, "a document must be a JATS .xml, a Word .docx, or a .pdf file"
+                )
         meta = registry.save_dataset(
             cfg.registry_root,
             name or "document",
@@ -1719,7 +1732,7 @@ def build_app(
         )
         dataset_id = meta["id"]
         try:
-            saved, meta = await _persist_source_uploads(cfg.registry_root, dataset_id, [file])
+            saved, meta = await _persist_source_uploads(cfg.registry_root, dataset_id, uploads)
         except HTTPException:
             registry.delete_dataset(cfg.registry_root, dataset_id)  # roll back the empty record
             raise
@@ -2153,6 +2166,21 @@ def build_app(
         return JSONResponse(
             {"dataset_id": dataset_id, "status": "active", "dataset": meta}
         )
+
+    @app.post("/api/datasets/{dataset_id}/rename", dependencies=_write_auth)
+    async def rename_dataset_endpoint(dataset_id: str, body: RenameRequest) -> JSONResponse:
+        """Change a dataset's DISPLAY name. The ``id`` is the IRI seed (data identity) and
+        is immutable, so this updates only the human label — graphs, IRIs and existing
+        citations are untouched."""
+        if registry.load_dataset(cfg.registry_root, dataset_id) is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        name = body.name.strip()
+        if not name:
+            raise HTTPException(400, "name must not be empty")
+        if len(name) > 200:
+            raise HTTPException(400, "name is too long (max 200 chars)")
+        meta = registry.rename_dataset(cfg.registry_root, dataset_id, name)
+        return JSONResponse({"dataset_id": dataset_id, "dataset": meta})
 
     @app.delete("/api/datasets/{dataset_id}", dependencies=_write_auth)
     async def delete_dataset_endpoint(

@@ -264,7 +264,7 @@ def test_create_document_dataset_attaches_tools_and_ingests(tmp_path: Path) -> N
         r = client.post(
             "/api/documents",
             data={"name": "My Paper"},
-            files={"file": ("paper.xml", _JATS_DOC.encode(), "application/xml")},
+            files={"files": ("paper.xml", _JATS_DOC.encode(), "application/xml")},
         )
         assert r.status_code == 201, r.text
         dataset_id = r.json()["dataset_id"]
@@ -318,7 +318,7 @@ def test_create_document_dataset_from_pdf_persists_raw(tmp_path: Path) -> None:
         r = client.post(
             "/api/documents",
             data={"name": "My PDF"},
-            files={"file": ("paper.pdf", _PDF_BYTES, "application/pdf")},
+            files={"files": ("paper.pdf", _PDF_BYTES, "application/pdf")},
         )
         assert r.status_code == 201, r.text
         dataset_id = r.json()["dataset_id"]
@@ -391,7 +391,7 @@ def test_create_document_accepts_messy_filename(tmp_path: Path) -> None:
         r = client.post(
             "/api/documents",
             data={"name": "Messy name"},
-            files={"file": ("10+3390 (v2).xml", _JATS_DOC.encode(), "application/xml")},
+            files={"files": ("10+3390 (v2).xml", _JATS_DOC.encode(), "application/xml")},
         )
         assert r.status_code == 201, r.text
         dataset_id = r.json()["dataset_id"]
@@ -411,9 +411,50 @@ def test_create_document_still_rejects_unknown_extension(tmp_path: Path) -> None
         r = client.post(
             "/api/documents",
             data={"name": "x"},
-            files={"file": ("notes.txt", b"hello", "text/plain")},
+            files={"files": ("notes.txt", b"hello", "text/plain")},
         )
         assert r.status_code == 400
+
+
+def test_create_document_dataset_multiple_files(tmp_path: Path) -> None:
+    # Select MORE than one document at once → ONE dataset holding both; ingest structures
+    # every source (the accumulating "定例ミーティング" model).
+    oxi = _RecordingOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/documents",
+            data={"name": "Two docs"},
+            files=[
+                ("files", ("a.xml", _JATS_DOC.encode(), "application/xml")),
+                ("files", ("b.xml", _JATS_DOC2.encode(), "application/xml")),
+            ],
+        )
+        assert r.status_code == 201, r.text
+        dataset_id = r.json()["dataset_id"]
+        assert len(r.json()["source_files"]) == 2
+        status, events = _drive_ingest(client, dataset_id)
+        assert status == 202, events
+        result = next(d for n, d in events if n == "done")["result"]
+        assert result["triple_count"] > 20  # both documents structured into one graph
+
+
+def test_rename_dataset_changes_display_name_only(tmp_path: Path) -> None:
+    # Rename touches only the human label; the id (IRI seed / data identity) is immutable.
+    dataset_id = _save_document_dataset(tmp_path, "old name")
+    oxi = _RecordingOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(f"/api/datasets/{dataset_id}/rename", json={"name": "Brand New Name"})
+        assert r.status_code == 200, r.text
+        assert r.json()["dataset"]["name"] == "Brand New Name"
+        assert r.json()["dataset"]["id"] == dataset_id  # id unchanged
+        blank = client.post(f"/api/datasets/{dataset_id}/rename", json={"name": "  "})
+        assert blank.status_code == 400  # empty name rejected
+        missing = client.post("/api/datasets/does-not-exist/rename", json={"name": "x"})
+        assert missing.status_code == 404  # unknown dataset
+    meta = json.loads((tmp_path / "registry" / dataset_id / "meta.json").read_text())
+    assert meta["name"] == "Brand New Name"
 
 
 _JATS_DOC2 = (
@@ -497,7 +538,7 @@ def test_create_document_rejects_csv(tmp_path: Path) -> None:
         r = client.post(
             "/api/documents",
             data={"name": "nope"},
-            files={"file": ("data.csv", b"a,b\n1,2\n", "text/csv")},
+            files={"files": ("data.csv", b"a,b\n1,2\n", "text/csv")},
         )
         assert r.status_code == 400
 
@@ -511,7 +552,7 @@ def test_create_document_dataset_from_word(tmp_path: Path) -> None:
         r = client.post(
             "/api/documents",
             data={"name": "Sample Agreement"},
-            files={"file": ("sample.docx", docx, "application/octet-stream")},
+            files={"files": ("sample.docx", docx, "application/octet-stream")},
         )
         assert r.status_code == 201, r.text
         meta = r.json()["dataset"]
