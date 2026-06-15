@@ -14,7 +14,18 @@ const API_BASE = ((import.meta.env.VITE_API_URL as string | undefined) ?? '').re
 export interface CrosswalkParticipant {
   dataset_id: string
   label: string
-  predicate: string
+  predicate?: string
+  /** Compound key: one predicate per key part, keyed by part name (the participant maps
+   * each part to a predicate). Used instead of ``predicate`` (compound-keys ADR). */
+  predicates?: Record<string, string>
+}
+
+/** One part of a (possibly compound) join key: a name + its normalizer (named or a
+ * recipe). compound-keys ADR. */
+export interface CrosswalkKeyPart {
+  name: string
+  normalizer?: string
+  normalizer_recipe?: string[]
 }
 
 export interface CrosswalkConcept {
@@ -25,6 +36,10 @@ export interface CrosswalkConcept {
   /** A declarative recipe (ordered closed-primitive ids) — when set, it IS the join
    * key (normalizer-recipes ADR). Built/saved with the perspective (no code). */
   normalizer_recipe?: string[]
+  /** Compound key: the join key is the TUPLE of these parts' normalized values (every
+   * part must match). Empty/absent = a single value from ``normalizer`` (compound-keys
+   * ADR). */
+  key_parts?: CrosswalkKeyPart[]
   participants: CrosswalkParticipant[]
 }
 

@@ -155,15 +155,25 @@ export function CrosswalkView({ onBack }: { onBack?: () => void }) {
                 <div className="xw-concept" key={c.name}>
                   <div className="ds-subhead">
                     概念「{c.name}」
-                    <span className="xw-hint-inline">正規化: {c.normalizer ?? 'identity'}</span>
+                    <span className="xw-hint-inline">
+                      {c.key_parts && c.key_parts.length > 0
+                        ? `複合キー（${c.key_parts.map((kp) => kp.name).join(' × ')}）`
+                        : `正規化: ${c.normalizer ?? 'identity'}`}
+                    </span>
                   </div>
                   <div className="xw-participants">
-                    {c.participants.map((p) => (
-                      <span key={p.dataset_id} className="xw-part-chip" title={p.predicate}>
-                        <span className="xw-part-name">{p.label}</span>
-                        <code className="xw-part-pred">{localName(p.predicate)}</code>
-                      </span>
-                    ))}
+                    {c.participants.map((p) => {
+                      // single-part = one predicate; compound = one per key part.
+                      const preds = p.predicate
+                        ? [p.predicate]
+                        : Object.values(p.predicates ?? {})
+                      return (
+                        <span key={p.dataset_id} className="xw-part-chip" title={preds.join(', ')}>
+                          <span className="xw-part-name">{p.label}</span>
+                          <code className="xw-part-pred">{preds.map(localName).join(' · ')}</code>
+                        </span>
+                      )
+                    })}
                   </div>
                 </div>
               ))}
