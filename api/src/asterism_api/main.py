@@ -587,7 +587,27 @@ async def _persist_converted_docx(
     jats_name = f"{Path(name).stem}.jats.xml"
     await asyncio.to_thread((sdir / jats_name).write_text, jats, "utf-8")
     await asyncio.to_thread((sdir / name).write_bytes, data)  # keep the original .docx
-    return jats_name, {"converter": converter, "sourceFormat": "docx", "original": name}
+    conversion = {"converter": converter, "sourceFormat": "docx", "original": name}
+    # Drop a per-document conversion sidecar (NOT a .json — that is a source suffix)
+    # so multi-document ingest and document append can disclose THIS doc's conversion
+    # provenance faithfully; the meta hint only holds the most-recent conversion.
+    await asyncio.to_thread(
+        (sdir / f"{jats_name}.conversion").write_text,
+        json.dumps(conversion, ensure_ascii=False),
+        "utf-8",
+    )
+    return jats_name, conversion
+
+
+def _doc_conversion_for(xml_path: Path) -> dict | None:
+    """Read the per-document conversion sidecar next to ``xml_path`` (or None)."""
+    side = xml_path.parent / f"{xml_path.name}.conversion"
+    if side.is_file():
+        try:
+            return json.loads(side.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+    return None
 
 
 async def _persist_source_uploads(
@@ -825,6 +845,101 @@ async def _append_batch_to_dataset(
         "triples_in_batch": triples_in_batch,
         "append_seq": append_seq,
         "crosswalk_stale": crosswalk_stale,
+        "dataset": new_meta,
+    }
+
+
+async def _append_document_to_dataset(
+    registry_root: Path,
+    client: OxigraphClient,
+    dataset_id: str,
+    upload: UploadFile,
+) -> dict[str, object]:
+    """Append ONE document to an existing, promoted document dataset's live graph.
+
+    The document analogue of :func:`_append_batch_to_dataset`. A document dataset has
+    no RML — it uses the closed, deterministic structurer — so this structures just the
+    new doc and POST-merges its triples into the dataset's live canonical graph. Each
+    document is namespaced by its filename (its ``paper_iri``), so documents accumulate
+    without collision and re-appending a file dedupes by deterministic IRIs (set
+    semantics). This lets a "定例ミーティング"-style dataset grow document by document,
+    with ``search_text`` / ``quote_with_citation`` spanning every document added. Trust
+    model unchanged: no generated code (Tier 0 structurer), a Graph Store POST not a
+    SPARQL UPDATE.
+    """
+    data = registry.load_dataset(registry_root, dataset_id)
+    if data is None:
+        raise AppendError(404, f"dataset {dataset_id!r} not found")
+    meta = data["meta"]
+    if str((meta or {}).get("source_kind") or "csv") != "xml":
+        raise AppendError(
+            400, "this dataset is not a document dataset (create one via POST /api/documents)"
+        )
+    if not meta.get("promoted"):
+        raise AppendError(
+            409,
+            "append needs a live canonical graph; ingest then promote the first "
+            "document before adding more (append grows an already-citable feed)",
+        )
+    if meta.get("status") in ("retracted", "deleted"):
+        raise AppendError(
+            409, f"dataset is {meta.get('status')}; reinstate it before appending"
+        )
+    if upload.filename is None:
+        raise AppendError(400, "missing filename")
+    name = _validate_source_name(upload.filename)
+    if Path(name).suffix.lower() not in _DOCUMENT_SOURCE_SUFFIXES:
+        raise AppendError(400, "a document must be a JATS .xml or a Word .docx file")
+
+    sdir = registry.source_dir(registry_root, dataset_id)
+    if sdir is None:
+        raise AppendError(404, f"dataset {dataset_id!r} not found")
+    # Persist the new document into the source set ADDITIVELY (no reset — unlike the
+    # design-time _persist_source_uploads), converting Word→JATS and dropping the
+    # per-doc conversion sidecar so provenance survives a later snapshot re-ingest (A7).
+    if name.lower().endswith(".docx"):
+        xml_name, conversion = await _persist_converted_docx(upload, sdir, name)
+    else:
+        await _save_upload(upload, sdir / name)
+        xml_name, conversion = name, None
+    xml_path = sdir / xml_name
+    xml_text = await asyncio.to_thread(xml_path.read_text, "utf-8")
+    doc_id = documents.derive_doc_id(xml_text, fallback=Path(xml_name).stem)
+    paper_iri = f"{_DOCUMENT_RESOURCE_BASE}/{dataset_id}/{doc_id}"
+
+    dataset_key = substrate.canonical_graph_iri(dataset_id)
+    live_graph = await substrate.live_graph_of(client, dataset_key) or dataset_key
+
+    work = Path(tempfile.mkdtemp(prefix="asterism-doc-append-"))
+    try:
+        nt = await asyncio.to_thread(
+            documents.document_to_nt_file,
+            xml_text,
+            paper_iri=paper_iri,
+            work_dir=str(work),
+            conversion=conversion,
+        )
+        triples = await substrate.stream_nt_file_to_oxigraph(nt, client, live_graph)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+    all_files = [p.name for p in registry.list_source_files(registry_root, dataset_id)]
+    append_seq = registry.next_append_seq(registry_root, dataset_id)
+    new_meta = registry.mark_appended(
+        registry_root,
+        dataset_id,
+        batch_files=[xml_name],
+        source_files=all_files,
+        triples_in_batch=triples,
+        appended_at=datetime.now(UTC).isoformat(),
+        append_seq=append_seq,
+    )
+    return {
+        "dataset_id": dataset_id,
+        "live_graph": live_graph,
+        "paper_iri": paper_iri,
+        "triples_in_batch": triples,
+        "append_seq": append_seq,
         "dataset": new_meta,
     }
 
@@ -1552,6 +1667,27 @@ def build_app(
             status_code=201,
         )
 
+    @app.post("/api/datasets/{dataset_id}/documents", dependencies=_write_auth)
+    async def append_document(
+        dataset_id: str,
+        file: UploadFile = File(..., description="A JATS .xml or Word .docx document to add"),
+    ) -> JSONResponse:
+        """Add another document to an existing, promoted document dataset (incremental).
+
+        The document analogue of ``POST /api/datasets/{id}/append``: structure just
+        this document and POST-merge it into the live graph, so a dataset grows
+        document by document (e.g. a running "定例ミーティング" of meeting minutes) and
+        ``search_text`` / ``quote_with_citation`` span every document added.
+        Synchronous — one document structures in milliseconds.
+        """
+        try:
+            result = await _append_document_to_dataset(
+                cfg.registry_root, app.state.client, dataset_id, file
+            )
+        except AppendError as exc:
+            raise HTTPException(exc.status, exc.detail) from exc
+        return JSONResponse(result, status_code=200)
+
     @app.post("/api/datasets/{dataset_id}/ingest", dependencies=_write_auth)
     async def ingest_dataset(
         dataset_id: str,
@@ -1610,18 +1746,24 @@ def build_app(
         source_dir = source_paths[0].parent
 
         rml_ttl = ""
-        xml_text = ""
-        paper_iri = ""
-        conversion = None
+        # Each item: (xml_text, paper_iri, conversion|None). A document dataset can hold
+        # MORE THAN ONE document (a "定例ミーティング" of accumulated minutes); ingest
+        # structures every .xml source so a snapshot re-ingest reproduces the whole feed
+        # from the source set (A7), staying consistent with incremental document append.
+        docs_to_structure: list[tuple[str, str, dict | None]] = []
         if is_document:
-            xml_path = next((p for p in source_paths if p.suffix.lower() == ".xml"), None)
-            if xml_path is None:
+            xml_paths = [p for p in source_paths if p.suffix.lower() == ".xml"]
+            if not xml_paths:
                 raise HTTPException(400, "document ingest needs a .xml (JATS) source")
-            xml_text = xml_path.read_text(encoding="utf-8")
-            doc_id = documents.derive_doc_id(xml_text, fallback=xml_path.stem)
-            paper_iri = f"{_DOCUMENT_RESOURCE_BASE}/{dataset_id}/{doc_id}"
-            # if the source was converted (e.g. from Word), disclose the conversion
-            conversion = (data.get("meta") or {}).get("conversion") or None
+            meta_conv = (data.get("meta") or {}).get("conversion") or None
+            for p in xml_paths:
+                txt = p.read_text(encoding="utf-8")
+                doc_id = documents.derive_doc_id(txt, fallback=p.stem)
+                piri = f"{_DOCUMENT_RESOURCE_BASE}/{dataset_id}/{doc_id}"
+                # Per-doc conversion from the sidecar; fall back to the meta hint only
+                # when there is a single document (preserves the original behaviour).
+                conv = _doc_conversion_for(p) or (meta_conv if len(xml_paths) == 1 else None)
+                docs_to_structure.append((txt, piri, conv))
         else:
             rml_ttl = str(data["artifacts"].get("mapping.rml.ttl", "") or "")
             if not rml_ttl.strip():
@@ -1652,37 +1794,49 @@ def build_app(
             work = Path(tempfile.mkdtemp(prefix="asterism-ingest-"))
             try:
                 emit(phase="materialize", message="RDF を生成中")
+                nt_paths: list[Path] = []
                 if is_document:
-                    # Document path: the vetted deterministic structurer writes the
-                    # doco/nif graph as N-Triples (no morph-kgc). Blocking → off-loop.
-                    nt = await asyncio.to_thread(
-                        documents.document_to_nt_file,
-                        xml_text,
-                        paper_iri=paper_iri,
-                        work_dir=str(work),
-                        conversion=conversion,
-                    )
+                    # Document path: the vetted deterministic structurer writes each
+                    # document's doco/nif graph as N-Triples (no morph-kgc). Blocking →
+                    # off-loop. One sub-dir per doc so the .nt files do not collide.
+                    for i, (txt, piri, conv) in enumerate(docs_to_structure):
+                        sub = work / f"doc_{i}"
+                        sub.mkdir()
+                        nt_paths.append(
+                            await asyncio.to_thread(
+                                documents.document_to_nt_file,
+                                txt,
+                                paper_iri=piri,
+                                work_dir=str(sub),
+                                conversion=conv,
+                            )
+                        )
                 else:
                     # Morph-KGC writes N-Triples to a file (memory-bounded); the
                     # subprocess CLI is blocking, so run it off the event loop.
-                    nt = await asyncio.to_thread(
-                        substrate.materialize_to_nt_file, rml_ttl, source_dir, work_dir=work
+                    nt_paths.append(
+                        await asyncio.to_thread(
+                            substrate.materialize_to_nt_file, rml_ttl, source_dir, work_dir=work
+                        )
                     )
-                total = substrate.count_nt_lines(nt)
+                total = sum(substrate.count_nt_lines(p) for p in nt_paths)
                 emit(phase="materialized", total=total)
                 # The target is a fresh, empty version graph — no clean-slate DROP
                 # needed (and the live graph is untouched, so Ask keeps serving the
                 # current version throughout the re-stream).
                 emit(phase="preparing", message="取り込み先グラフを準備中")
                 try:
-                    triple_count = await substrate.stream_nt_file_to_oxigraph(
-                        nt,
-                        client,
-                        staged_iri,
-                        on_progress=lambda done, tot: emit(
-                            phase="upload", done=done, total=tot
-                        ),
-                    )
+                    triple_count = 0
+                    for nt in nt_paths:
+                        base = triple_count
+                        triple_count += await substrate.stream_nt_file_to_oxigraph(
+                            nt,
+                            client,
+                            staged_iri,
+                            on_progress=lambda done, tot, base=base: emit(
+                                phase="upload", done=base + done, total=total
+                            ),
+                        )
                 except Exception:
                     # D6: never leave a partial version graph behind on failure (it
                     # was never live, so reclaiming it cannot affect a reader). Use a

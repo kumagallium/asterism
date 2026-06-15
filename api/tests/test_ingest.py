@@ -277,6 +277,80 @@ def test_create_document_dataset_attaches_tools_and_ingests(tmp_path: Path) -> N
         assert next(d for n, d in events if n == "done")["result"]["triple_count"] > 10
 
 
+_JATS_DOC2 = (
+    '<?xml version="1.0"?><article><front><article-meta>'
+    '<article-id pub-id-type="pmcid">PMC-DEMO2</article-id>'
+    "<title-group><article-title>Demo Two</article-title></title-group>"
+    "</article-meta></front><body>"
+    '<sec id="s1"><title>1. Notes</title><p>Second document sentence. Another one here.</p></sec>'
+    "</body></article>"
+)
+
+
+def _add_xml_source(tmp: Path, dataset_id: str, filename: str, xml: str) -> None:
+    sdir = registry.source_dir(tmp / "registry", dataset_id)
+    (sdir / filename).write_text(xml, encoding="utf-8")
+    files = sorted(p.name for p in registry.list_source_files(tmp / "registry", dataset_id))
+    registry.mark_source_saved(tmp / "registry", dataset_id, files)
+
+
+def test_ingest_document_multi_source_structures_every_doc(tmp_path: Path) -> None:
+    # A document dataset can hold MORE THAN ONE document (a "定例ミーティング" of
+    # accumulated minutes); ingest must structure EVERY .xml source so a snapshot
+    # re-ingest reproduces the whole feed (consistent with incremental append).
+    two_doc = _save_document_dataset(tmp_path, "twodoc")
+    _add_xml_source(tmp_path, two_doc, "paper2.xml", _JATS_DOC2)
+    solo = _save_document_dataset(tmp_path, "solo")  # single-document baseline
+    oxi = _RecordingOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        _, e1 = _drive_ingest(client, solo)
+        solo_triples = next(d for n, d in e1 if n == "done")["result"]["triple_count"]
+        status, events = _drive_ingest(client, two_doc)
+        assert status == 202, events
+        two_triples = next(d for n, d in events if n == "done")["result"]["triple_count"]
+    # both documents were structured into the one staged graph → strictly more triples
+    assert two_triples > solo_triples
+
+
+def test_append_document_requires_promoted(tmp_path: Path) -> None:
+    # Append grows an already-citable feed: a not-yet-promoted document dataset is 409.
+    dataset_id = _save_document_dataset(tmp_path, "notpromoted")
+    oxi = _RecordingOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            f"/api/datasets/{dataset_id}/documents",
+            files={"file": ("paper2.xml", _JATS_DOC2.encode(), "application/xml")},
+        )
+        assert r.status_code == 409, r.text
+    assert oxi.store_calls == []  # nothing merged before the gate
+
+
+def test_append_document_rejects_non_document_dataset(tmp_path: Path) -> None:
+    # A CSV/RML dataset is not a document dataset — appending a document is 400.
+    dataset_id = _save_dataset_with_rml(tmp_path)
+    oxi = _RecordingOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            f"/api/datasets/{dataset_id}/documents",
+            files={"file": ("paper.xml", _JATS_DOC.encode(), "application/xml")},
+        )
+        assert r.status_code == 400, r.text
+
+
+def test_append_document_404_for_missing_dataset(tmp_path: Path) -> None:
+    oxi = _RecordingOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/datasets/does-not-exist/documents",
+            files={"file": ("paper.xml", _JATS_DOC.encode(), "application/xml")},
+        )
+        assert r.status_code == 404, r.text
+
+
 def test_create_document_rejects_csv(tmp_path: Path) -> None:
     oxi = _RecordingOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)

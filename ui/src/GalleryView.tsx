@@ -5,12 +5,14 @@ import { getCrosswalk } from './crosswalkApi'
 import { getSchema } from './demoApi'
 import {
   type AlignmentReport,
+  appendDocument,
   appendToDataset,
   type AppendResult,
   type CatalogDataset,
   type CatalogStatusKind,
   datasetStage,
   deleteDataset,
+  type DocumentAppendResult,
   getAlignment,
   getCatalogDatasets,
   type LiveDataset,
@@ -417,6 +419,9 @@ function DatasetDetail({
           {/* incremental-ingest.md: grow a promoted dataset's live feed by appending
               a new batch (device-feed path — O(new), no re-ingest of the whole source). */}
           <AppendControl meta={dataset.live.meta} onChanged={onChanged} />
+          {/* document layer: add another document to a promoted document dataset
+              (the "定例ミーティング" path — one doc at a time, searchable across all). */}
+          <DocumentAppendControl meta={dataset.live.meta} onChanged={onChanged} />
           {/* part5: safe replace — re-ingest a promoted/ingested dataset into a new
               version graph (gap-free), then re-promote to swap the live pointer. */}
           <ReingestControl meta={dataset.live.meta} onChanged={onChanged} />
@@ -624,6 +629,95 @@ function AppendControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChang
         </p>
       )}
       {err && <p className="promote-err">{t('gallery:append.error', { message: err })}</p>}
+    </div>
+  )
+}
+
+/**
+ * Document layer: add another document to a *promoted* document dataset. The doc
+ * analogue of AppendControl — structures just the new document (Word→JATS server-side
+ * when needed) and merges it into the live graph, so the dataset accumulates documents
+ * (a running "定例ミーティング" of minutes) and search_text / quote_with_citation span
+ * every one. Only shown for a promoted, active document dataset (source_kind === xml).
+ */
+function DocumentAppendControl({
+  meta,
+  onChanged,
+}: {
+  meta: LiveDataset['meta']
+  onChanged: () => void
+}) {
+  const [file, setFile] = useState<File | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [done, setDone] = useState<DocumentAppendResult | null>(null)
+  const [err, setErr] = useState('')
+
+  // A promoted, active DOCUMENT dataset (documents have no RML; their accumulation is
+  // the source-kind=xml feed). Hidden otherwise.
+  if (
+    datasetStage(meta) !== 'promoted' ||
+    meta.status === 'retracted' ||
+    meta.source_kind !== 'xml'
+  ) {
+    return null
+  }
+
+  const canAdd = !busy && file != null
+
+  async function onAdd() {
+    if (!file) return
+    setBusy(true)
+    setErr('')
+    try {
+      const r = await appendDocument(meta.id, file)
+      setDone(r)
+      setFile(null)
+      onChanged() // triple counts / doc count changed — refresh the catalog
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="ingest-gate">
+      <div className="ds-subhead">文書を追加（このデータセットに）</div>
+      <p className="ingest-note">
+        Word <code>.docx</code> / 構造化XML <code>.xml</code> をもう1つ追加すると、
+        節 → 段落 → 文 に構造化して<strong>このまま共有データ（live）に追記</strong>します。
+        以後「ツール」タブの <code>search_text</code> / <code>quote_with_citation</code> が
+        <strong>追加した文書も横断して</strong>検索・引用します（議事録をためていく用途向け）。
+        <code>.docx</code> はサーバ側でXMLに自動変換します（変換ツール・版は来歴に記録）。
+      </p>
+      {(meta.append_seq ?? 0) > 0 && (
+        <p className="ingest-source">これまで {meta.append_seq} 文書を追記済み。</p>
+      )}
+      <div className="ingest-pick">
+        <label className="file-btn">
+          文書を選択（Word / XML）
+          <input
+            type="file"
+            accept=".xml,.docx"
+            onChange={(e) => {
+              setFile(e.target.files?.[0] ?? null)
+              setDone(null)
+            }}
+          />
+        </label>
+        <span className={`file-names${file ? '' : ' empty'}`}>
+          {file ? file.name : '追加する文書を選んでください'}
+        </span>
+      </div>
+      <button type="button" className="promote-btn" onClick={onAdd} disabled={!canAdd}>
+        {busy ? '追加中…' : 'この文書を追加'}
+      </button>
+      {done && (
+        <p className="ingest-ok">
+          ✓ 文書を追加しました（+{done.triples_in_batch} 件）。「ツール」タブから全文を検索・引用できます。
+        </p>
+      )}
+      {err && <p className="promote-err">追加に失敗しました: {err}</p>}
     </div>
   )
 }

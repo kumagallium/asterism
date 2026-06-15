@@ -3677,6 +3677,38 @@ textarea:focus {
   padding: 0.2rem 0.5rem;
   min-width: 4rem;
 }
+
+/* Compound key — extra match conditions (compound-keys ADR) */
+.xw-conds {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-bottom: 0.9rem;
+}
+.xw-cond-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.7rem 0.8rem;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--entity);
+  border-radius: var(--radius-sm);
+}
+.xw-cond-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.xw-cond-name {
+  flex: 1;
+  min-width: 160px;
+}
+.xw-cond-norm {
+  flex: none;
+  min-width: 200px;
+}
 .xw-result {
   margin-top: 1rem;
   padding: 1rem 1.1rem;

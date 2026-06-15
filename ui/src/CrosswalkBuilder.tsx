@@ -127,6 +127,15 @@ export function CrosswalkBuilder() {
   const [recipe, setRecipe] = useState<string[]>(['nfkc', 'casefold', 'collapse_ws'])
   const [recipeSample, setRecipeSample] = useState('Iron  Oxide')
   const [recipePreview, setRecipePreview] = useState<string | null>(null)
+  // Compound key (crosswalk-compound-keys.md): EXTRA match conditions ANDed with the
+  // primary concept. Empty = a single-value join (legacy, byte-identical). Each extra
+  // part has its own name + normalizer + per-dataset predicate; >= 1 makes the build a
+  // compound (tuple) key.
+  const [extraParts, setExtraParts] = useState<{ id: string; name: string; normalizer: string }[]>(
+    [],
+  )
+  // extra-part id -> dataset_id -> predicate IRI
+  const [extraPred, setExtraPred] = useState<Record<string, Record<string, string>>>({})
 
   useEffect(() => {
     let off = false
@@ -174,7 +183,21 @@ export function CrosswalkBuilder() {
   // A concept needs an ascii key so the minted hub IRI stays clean + citable.
   const conceptValid = classIri !== ''
   const recipeMode = normalizer === RECIPE_OPTION
-  const canBuild = !building && readyCount >= 2 && conceptValid && (!recipeMode || recipe.length > 0)
+  const readyDatasets = chosen.filter((d) => predicate[datasetId(d)])
+  const compound = extraParts.length > 0
+  // Every extra condition needs a distinct non-empty name (≠ the concept) and a
+  // predicate for every participating dataset.
+  const extraNames = extraParts.map((ep) => ep.name.trim())
+  const extraComplete =
+    extraNames.every((n) => n && n !== conceptKey) &&
+    new Set(extraNames).size === extraNames.length &&
+    extraParts.every((ep) => readyDatasets.every((d) => extraPred[ep.id]?.[datasetId(d)]))
+  const canBuild =
+    !building &&
+    readyCount >= 2 &&
+    conceptValid &&
+    (!recipeMode || recipe.length > 0) &&
+    (!compound || extraComplete)
 
   // Live-preview the recipe's join key on the sample (the preview endpoint is the
   // source of truth for behavior, so the UI never re-implements the primitives).
@@ -233,32 +256,69 @@ export function CrosswalkBuilder() {
     }
   }
 
+  function addPart() {
+    setExtraParts((p) => [
+      ...p,
+      { id: `p${Date.now().toString(36)}${p.length}`, name: '', normalizer: 'identity' },
+    ])
+  }
+  function removePart(id: string) {
+    setExtraParts((p) => p.filter((x) => x.id !== id))
+  }
+  function patchPart(id: string, patch: Partial<{ name: string; normalizer: string }>) {
+    setExtraParts((p) => p.map((x) => (x.id === id ? { ...x, ...patch } : x)))
+  }
+  function setPartPred(id: string, dsid: string, pred: string) {
+    setExtraPred((prev) => ({ ...prev, [id]: { ...(prev[id] ?? {}), [dsid]: pred } }))
+  }
+
   async function onBuild() {
     setBuilding(true)
     setBuildErr('')
     setResult(null)
     try {
-      const config: CrosswalkConfig = {
-        min_datasets: 2,
-        concepts: [
-          {
+      // The primary part = the concept's own normalizer (named or recipe). Extra parts
+      // (compound) carry their own normalizer + per-dataset predicate.
+      const primaryNorm = recipeMode ? 'recipe' : normalizer
+      const concept0 = compound
+        ? {
             name: conceptKey,
             class_iri: classIri,
             link_predicate: linkPred,
-            // A custom recipe is sent declaratively (the runtime applies the closed
-            // primitives); else the named normalizer.
-            normalizer: recipeMode ? 'recipe' : normalizer,
+            key_parts: [
+              {
+                name: conceptKey,
+                normalizer: primaryNorm,
+                ...(recipeMode ? { normalizer_recipe: recipe } : {}),
+              },
+              ...extraParts.map((ep) => ({ name: ep.name.trim(), normalizer: ep.normalizer })),
+            ],
+            participants: readyDatasets.map((d) => ({
+              dataset_id: datasetId(d),
+              label: labelFor(d),
+              predicates: {
+                [conceptKey]: predicate[datasetId(d)],
+                ...Object.fromEntries(
+                  extraParts.map((ep) => [ep.name.trim(), extraPred[ep.id]?.[datasetId(d)] ?? '']),
+                ),
+              },
+            })),
+          }
+        : {
+            // Single value (legacy, byte-identical): a custom recipe is sent
+            // declaratively; else the named normalizer.
+            name: conceptKey,
+            class_iri: classIri,
+            link_predicate: linkPred,
+            normalizer: primaryNorm,
             ...(recipeMode ? { normalizer_recipe: recipe } : {}),
-            participants: chosen
-              .filter((d) => predicate[datasetId(d)])
-              .map((d) => ({
-                dataset_id: datasetId(d),
-                label: labelFor(d),
-                predicate: predicate[datasetId(d)],
-              })),
-          },
-        ],
-      }
+            participants: readyDatasets.map((d) => ({
+              dataset_id: datasetId(d),
+              label: labelFor(d),
+              predicate: predicate[datasetId(d)],
+            })),
+          }
+      const config: CrosswalkConfig = { min_datasets: 2, concepts: [concept0] }
       // A named perspective = a distinct lens (its own graph); empty name = the
       // default composition perspective (back-compat).
       const trimmed = perspectiveName.trim()
@@ -545,6 +605,89 @@ export function CrosswalkBuilder() {
                   </div>
                 </div>
               )}
+
+              <div className="ds-subhead">
+                {t('crosswalk:builder.extraCond')}
+                <span className="xw-hint-inline">
+                  <Trans i18nKey="crosswalk:builder.extraCondHint" components={[<strong />]} />
+                </span>
+              </div>
+              <div className="xw-conds">
+                {extraParts.map((ep) => (
+                  <div className="xw-cond-card" key={ep.id}>
+                    <div className="xw-cond-head">
+                      <input
+                        type="text"
+                        className="xw-key-input xw-cond-name"
+                        placeholder={t('crosswalk:builder.condNamePlaceholder')}
+                        value={ep.name}
+                        onChange={(e) => patchPart(ep.id, { name: e.target.value })}
+                      />
+                      <select
+                        className="xw-map-select xw-cond-norm"
+                        value={ep.normalizer}
+                        onChange={(e) => patchPart(ep.id, { normalizer: e.target.value })}
+                      >
+                        <optgroup label={t('crosswalk:builder.normGroup.generic')}>
+                          <option value="identity">{t('crosswalk:builder.norm.identity')}</option>
+                          <option value="casefold">{t('crosswalk:builder.norm.casefold')}</option>
+                          <option value="whitespace">{t('crosswalk:builder.norm.whitespace')}</option>
+                          <option value="nfkc">{t('crosswalk:builder.norm.nfkc')}</option>
+                          <option value="loose_text">{t('crosswalk:builder.norm.loose_text')}</option>
+                        </optgroup>
+                        <optgroup label={t('crosswalk:builder.normGroup.materials')}>
+                          <option value="composition">{t('crosswalk:builder.norm.composition')}</option>
+                          <option value="element_canonical">
+                            {t('crosswalk:builder.norm.element_canonical')}
+                          </option>
+                        </optgroup>
+                      </select>
+                      <button
+                        type="button"
+                        className="xw-recipe-btn xw-recipe-del"
+                        title={t('crosswalk:builder.condDelete')}
+                        onClick={() => removePart(ep.id)}
+                      >
+                        ×
+                      </button>
+                    </div>
+                    <div className="xw-map-list">
+                      {readyDatasets.map((d) => {
+                        const id = datasetId(d)
+                        const opts = optionsFor(d)
+                        return (
+                          <div className="xw-map-row" key={id}>
+                            <span className="xw-map-ds">{d.name}</span>
+                            <select
+                              className="xw-map-select"
+                              value={extraPred[ep.id]?.[id] ?? ''}
+                              onChange={(e) => setPartPred(ep.id, id, e.target.value)}
+                            >
+                              <option value="">{t('crosswalk:builder.selectPredicate')}</option>
+                              {opts.map((o) => (
+                                <option key={o.iri} value={o.iri}>
+                                  {localName(o.iri)}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--sm"
+                  onClick={addPart}
+                  disabled={chosen.length < 1}
+                >
+                  {t('crosswalk:builder.addCond')}
+                </button>
+                {compound && !extraComplete && (
+                  <p className="xw-norm-hint">{t('crosswalk:builder.extraCondIncomplete')}</p>
+                )}
+              </div>
 
               <div className="ds-subhead">
                 {t('crosswalk:builder.step5')}
