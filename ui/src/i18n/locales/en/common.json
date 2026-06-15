@@ -58,6 +58,11 @@
       "title": "Crosswalk",
       "sub": "Bridges that connect datasets across each other"
     },
+    "map": {
+      "eyebrow": "Use · Catalog",
+      "title": "Ontology map",
+      "sub": "What ontologies exist and how they connect"
+    },
     "jobs": {
       "eyebrow": "Manage",
       "title": "Activity",

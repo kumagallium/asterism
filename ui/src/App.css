@@ -3797,6 +3797,47 @@ textarea:focus {
   flex-direction: column;
   gap: 1rem;
 }
+
+/* ontology map (俯瞰) */
+.ontomap-view {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.ontomap-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.ontomap-chip {
+  font-size: 0.76rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.2rem 0.7rem;
+  background: var(--surface-alt);
+  color: var(--muted);
+}
+.ontomap-chip--ds {
+  border-color: #6aa06a;
+  background: #eef6ee;
+  color: #243;
+}
+.ontomap-chip--xw {
+  border-color: #d9a44e;
+  background: #fdf3e3;
+  color: #523;
+}
+.ontomap-diagram {
+  overflow: auto;
+  padding: 0.8rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-soft);
+}
+.ontomap-diagram svg {
+  max-width: none;
+}
 .xw-summary {
   display: flex;
   flex-wrap: wrap;

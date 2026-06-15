@@ -17,11 +17,21 @@ import {
   HomeIcon,
 } from './icons'
 import { JobsView } from './JobsView'
+import { OntologyMapView } from './OntologyMapView'
 import { SharedVocabView } from './SharedVocabView'
 import { SparqlView } from './SparqlView'
 import { WorkbenchView } from './WorkbenchView'
 
-type Tab = 'home' | 'workbench' | 'ask' | 'gallery' | 'vocab' | 'crosswalk' | 'jobs' | 'sparql'
+type Tab =
+  | 'home'
+  | 'workbench'
+  | 'ask'
+  | 'gallery'
+  | 'vocab'
+  | 'crosswalk'
+  | 'map'
+  | 'jobs'
+  | 'sparql'
 
 // New IA (design_handoff_asterism_ux): plain-language, verb-led nav that mirrors
 // the user's mental model — Home → Create (add) → Use (ask/browse) → Manage.
@@ -147,10 +157,12 @@ function App() {
               focusClass={galleryFocus}
               onOpenVocab={() => navTo('vocab')}
               onOpenCrosswalk={() => navTo('crosswalk')}
+              onOpenMap={() => navTo('map')}
             />
           )}
           {tab === 'vocab' && <SharedVocabView onBack={() => navTo('gallery')} />}
           {tab === 'crosswalk' && <CrosswalkView onBack={() => navTo('gallery')} />}
+          {tab === 'map' && <OntologyMapView onBack={() => navTo('gallery')} />}
           {tab === 'jobs' && <JobsView />}
           {tab === 'sparql' && <SparqlView />}
         </main>

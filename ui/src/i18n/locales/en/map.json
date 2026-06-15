@@ -1,0 +1,19 @@
+{
+  "back": "Back to catalog",
+  "title": "Ontology map",
+  "bannerSub": "A bird's-eye view of the <0>ontologies</0> in Asterism and how they <1>connect</1>. Each dataset has its own ontology (its classes), and <2>crosswalks (bridges)</2> link them across shared concepts.",
+  "legend": {
+    "datasets": "Datasets {{n}}",
+    "crosswalks": "Crosswalks {{n}}",
+    "alignments": "Alignments {{n}}"
+  },
+  "loading": "Loading…",
+  "empty": {
+    "title": "No ontologies yet",
+    "sub": "Ingest data via \"Add data\" and it will appear here."
+  },
+  "chart": {
+    "datasets": "Dataset ontologies",
+    "bridges": "Crosswalks (bridges)"
+  }
+}
