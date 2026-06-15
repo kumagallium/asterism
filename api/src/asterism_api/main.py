@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import hmac
 import json
 import logging
@@ -509,6 +510,31 @@ def _validate_source_name(name: str) -> str:
     return name
 
 
+def _sanitize_document_name(filename: str) -> str:
+    """Map an arbitrary uploaded DOCUMENT filename to a safe ``[A-Za-z0-9._-]+.<ext>``.
+
+    A document (xml / docx / pdf) is NOT referenced by an RML mapping — unlike a CSV /
+    JSON source, whose filename must match ``rml:source`` — so a human filename with
+    spaces, parentheses, non-ASCII or ``+`` is *slugified* rather than rejected: the
+    friend uploads ``会議メモ (6月).pdf`` / ``10+3390__x.pdf`` and it just works. The result
+    is a single safe path component (no separators, never ``.``/``..``), capped under the
+    128-char source-name limit, and the extension is one already checked by the caller.
+
+    Identity is filename-based (the existing append model: same name ⇒ same document).
+    When too little of the stem survives slugging (e.g. an all-non-ASCII name), a short
+    hash of the ORIGINAL filename is appended so distinct uploads stay distinct and the
+    same upload stays idempotent (deterministic — no ``now()``/random)."""
+    ext = Path(filename).suffix.lower()
+    stem = Path(filename).stem
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", stem).strip("-._")
+    slug = re.sub(r"-{2,}", "-", slug)
+    if len(slug) < 3 or set(slug) <= {".", "-", "_"}:
+        h = hashlib.sha256(filename.encode("utf-8")).hexdigest()[:8]
+        base = re.sub(r"[^A-Za-z0-9]+", "", slug)
+        slug = f"{base}-{h}" if base else f"document-{h}"
+    return f"{slug[:120]}{ext}"
+
+
 # Hard cap on a single uploaded file (bytes). Bounds disk-fill / OOM on the write
 # surface (which is fail-closed without ASTERISM_API_TOKEN, but defence in depth).
 # Override with ASTERISM_MAX_UPLOAD_BYTES; 0 disables the cap.
@@ -638,7 +664,12 @@ async def _persist_source_uploads(
     for upload in files:
         if upload.filename is None:
             raise HTTPException(400, "missing filename")
-        name = _validate_source_name(upload.filename)
+        # Documents (xml/docx/pdf) accept ANY filename (slugified — not RML-referenced);
+        # CSV/JSON stay strict (their name must match the mapping's rml:source).
+        if Path(upload.filename).suffix.lower() in _DOCUMENT_SOURCE_SUFFIXES:
+            name = _sanitize_document_name(upload.filename)
+        else:
+            name = _validate_source_name(upload.filename)
         if name.lower().endswith(".docx"):
             jats_name, conversion = await _persist_converted_docx(upload, sdir, name)
             saved.append(jats_name)
@@ -896,9 +927,10 @@ async def _append_document_to_dataset(
         )
     if upload.filename is None:
         raise AppendError(400, "missing filename")
-    name = _validate_source_name(upload.filename)
-    if Path(name).suffix.lower() not in _DOCUMENT_SOURCE_SUFFIXES:
+    if Path(upload.filename).suffix.lower() not in _DOCUMENT_SOURCE_SUFFIXES:
         raise AppendError(400, "a document must be a JATS .xml, a Word .docx, or a .pdf file")
+    # Accept any human filename — a document is not RML-referenced (slugify, don't reject).
+    name = _sanitize_document_name(upload.filename)
 
     sdir = registry.source_dir(registry_root, dataset_id)
     if sdir is None:
@@ -1671,8 +1703,9 @@ def build_app(
         """
         if file.filename is None:
             raise HTTPException(400, "missing filename")
-        filename = _validate_source_name(file.filename)
-        if Path(filename).suffix.lower() not in _DOCUMENT_SOURCE_SUFFIXES:
+        # A document accepts ANY filename (sanitized in _persist_source_uploads); only
+        # the extension must be a document kind. CSV/JSON keep strict name validation.
+        if Path(file.filename).suffix.lower() not in _DOCUMENT_SOURCE_SUFFIXES:
             raise HTTPException(400, "a document must be a JATS .xml, a Word .docx, or a .pdf file")
         meta = registry.save_dataset(
             cfg.registry_root,

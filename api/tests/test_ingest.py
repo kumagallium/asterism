@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from pathlib import Path
 
 import httpx
@@ -24,7 +25,7 @@ from fastapi.testclient import TestClient
 from watchfiles import Change
 
 from asterism_api import registry
-from asterism_api.main import Settings, _append_watch_loop, build_app
+from asterism_api.main import Settings, _append_watch_loop, _sanitize_document_name, build_app
 
 _NO_PANDOC = pandoc_version() is None
 
@@ -364,6 +365,55 @@ def test_ingest_pdf_converts_via_sidecar(tmp_path: Path, monkeypatch) -> None:
     sdir = registry.source_dir(tmp_path / "registry", dataset_id)
     conv = json.loads((sdir / "paper.pdf.conversion").read_text(encoding="utf-8"))
     assert conv["sourceFormat"] == "pdf" and conv["converter"].startswith("docling/")
+
+
+def test_sanitize_document_name_accepts_any_filename() -> None:
+    san = _sanitize_document_name
+    assert san("ma11040649.pdf") == "ma11040649.pdf"  # already safe — unchanged
+    assert san("10+3390__ma11040649.pdf") == "10-3390__ma11040649.pdf"  # '+' → '-'
+    assert san("Report (final v2).docx") == "Report-final-v2.docx"  # spaces / parens
+    assert san("paper.PDF").endswith(".pdf")  # extension lowercased
+    # An all-non-ASCII stem is disambiguated by a deterministic hash of the original
+    # name: distinct uploads stay distinct, the same upload stays idempotent.
+    a, b = san("会議メモ.pdf"), san("議事録.pdf")
+    assert a != b and a == san("会議メモ.pdf")
+    # Path traversal / separators never survive — always one safe component.
+    for n in ["a/b/c.pdf", "../../etc/passwd.pdf", "   .pdf", "日本語.docx"]:
+        assert re.fullmatch(r"[A-Za-z0-9._-]+\.(pdf|docx|xml)", san(n)), n
+
+
+def test_create_document_accepts_messy_filename(tmp_path: Path) -> None:
+    # The friend uploads a document with a human filename (spaces / parens / '+') — it is
+    # slugified, not rejected (documents are not RML-referenced). CSV/JSON stay strict.
+    oxi = _RecordingOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/documents",
+            data={"name": "Messy name"},
+            files={"file": ("10+3390 (v2).xml", _JATS_DOC.encode(), "application/xml")},
+        )
+        assert r.status_code == 201, r.text
+        dataset_id = r.json()["dataset_id"]
+        assert r.json()["dataset"]["source_kind"] == "xml"
+    sdir = registry.source_dir(tmp_path / "registry", dataset_id)
+    names = [p.name for p in sdir.iterdir() if p.is_file()]
+    assert names and all(
+        re.fullmatch(r"[A-Za-z0-9._-]+\.(xml|docx|pdf)(\.conversion)?", n) for n in names
+    ), names
+
+
+def test_create_document_still_rejects_unknown_extension(tmp_path: Path) -> None:
+    # Sanitization relaxes the NAME, not the KIND — a non-document extension is still 400.
+    oxi = _RecordingOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/documents",
+            data={"name": "x"},
+            files={"file": ("notes.txt", b"hello", "text/plain")},
+        )
+        assert r.status_code == 400
 
 
 _JATS_DOC2 = (
