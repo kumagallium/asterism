@@ -130,6 +130,15 @@ export function CrosswalkBuilder() {
   const [recipe, setRecipe] = useState<string[]>(['nfkc', 'casefold', 'collapse_ws'])
   const [recipeSample, setRecipeSample] = useState('Iron  Oxide')
   const [recipePreview, setRecipePreview] = useState<string | null>(null)
+  // Compound key (crosswalk-compound-keys.md): EXTRA match conditions ANDed with the
+  // primary concept. Empty = a single-value join (legacy, byte-identical). Each extra
+  // part has its own name + normalizer + per-dataset predicate; >= 1 makes the build a
+  // compound (tuple) key.
+  const [extraParts, setExtraParts] = useState<{ id: string; name: string; normalizer: string }[]>(
+    [],
+  )
+  // extra-part id -> dataset_id -> predicate IRI
+  const [extraPred, setExtraPred] = useState<Record<string, Record<string, string>>>({})
 
   useEffect(() => {
     let off = false
@@ -177,7 +186,21 @@ export function CrosswalkBuilder() {
   // A concept needs an ascii key so the minted hub IRI stays clean + citable.
   const conceptValid = classIri !== ''
   const recipeMode = normalizer === RECIPE_OPTION
-  const canBuild = !building && readyCount >= 2 && conceptValid && (!recipeMode || recipe.length > 0)
+  const readyDatasets = chosen.filter((d) => predicate[datasetId(d)])
+  const compound = extraParts.length > 0
+  // Every extra condition needs a distinct non-empty name (≠ the concept) and a
+  // predicate for every participating dataset.
+  const extraNames = extraParts.map((ep) => ep.name.trim())
+  const extraComplete =
+    extraNames.every((n) => n && n !== conceptKey) &&
+    new Set(extraNames).size === extraNames.length &&
+    extraParts.every((ep) => readyDatasets.every((d) => extraPred[ep.id]?.[datasetId(d)]))
+  const canBuild =
+    !building &&
+    readyCount >= 2 &&
+    conceptValid &&
+    (!recipeMode || recipe.length > 0) &&
+    (!compound || extraComplete)
 
   // Live-preview the recipe's join key on the sample (the preview endpoint is the
   // source of truth for behavior, so the UI never re-implements the primitives).
@@ -236,32 +259,69 @@ export function CrosswalkBuilder() {
     }
   }
 
+  function addPart() {
+    setExtraParts((p) => [
+      ...p,
+      { id: `p${Date.now().toString(36)}${p.length}`, name: '', normalizer: 'identity' },
+    ])
+  }
+  function removePart(id: string) {
+    setExtraParts((p) => p.filter((x) => x.id !== id))
+  }
+  function patchPart(id: string, patch: Partial<{ name: string; normalizer: string }>) {
+    setExtraParts((p) => p.map((x) => (x.id === id ? { ...x, ...patch } : x)))
+  }
+  function setPartPred(id: string, dsid: string, pred: string) {
+    setExtraPred((prev) => ({ ...prev, [id]: { ...(prev[id] ?? {}), [dsid]: pred } }))
+  }
+
   async function onBuild() {
     setBuilding(true)
     setBuildErr('')
     setResult(null)
     try {
-      const config: CrosswalkConfig = {
-        min_datasets: 2,
-        concepts: [
-          {
+      // The primary part = the concept's own normalizer (named or recipe). Extra parts
+      // (compound) carry their own normalizer + per-dataset predicate.
+      const primaryNorm = recipeMode ? 'recipe' : normalizer
+      const concept0 = compound
+        ? {
             name: conceptKey,
             class_iri: classIri,
             link_predicate: linkPred,
-            // A custom recipe is sent declaratively (the runtime applies the closed
-            // primitives); else the named normalizer.
-            normalizer: recipeMode ? 'recipe' : normalizer,
+            key_parts: [
+              {
+                name: conceptKey,
+                normalizer: primaryNorm,
+                ...(recipeMode ? { normalizer_recipe: recipe } : {}),
+              },
+              ...extraParts.map((ep) => ({ name: ep.name.trim(), normalizer: ep.normalizer })),
+            ],
+            participants: readyDatasets.map((d) => ({
+              dataset_id: datasetId(d),
+              label: labelFor(d),
+              predicates: {
+                [conceptKey]: predicate[datasetId(d)],
+                ...Object.fromEntries(
+                  extraParts.map((ep) => [ep.name.trim(), extraPred[ep.id]?.[datasetId(d)] ?? '']),
+                ),
+              },
+            })),
+          }
+        : {
+            // Single value (legacy, byte-identical): a custom recipe is sent
+            // declaratively; else the named normalizer.
+            name: conceptKey,
+            class_iri: classIri,
+            link_predicate: linkPred,
+            normalizer: primaryNorm,
             ...(recipeMode ? { normalizer_recipe: recipe } : {}),
-            participants: chosen
-              .filter((d) => predicate[datasetId(d)])
-              .map((d) => ({
-                dataset_id: datasetId(d),
-                label: labelFor(d),
-                predicate: predicate[datasetId(d)],
-              })),
-          },
-        ],
-      }
+            participants: readyDatasets.map((d) => ({
+              dataset_id: datasetId(d),
+              label: labelFor(d),
+              predicate: predicate[datasetId(d)],
+            })),
+          }
+      const config: CrosswalkConfig = { min_datasets: 2, concepts: [concept0] }
       // A named perspective = a distinct lens (its own graph); empty name = the
       // default composition perspective (back-compat).
       const trimmed = perspectiveName.trim()
@@ -527,6 +587,89 @@ export function CrosswalkBuilder() {
                   </div>
                 </div>
               )}
+
+              <div className="ds-subhead">
+                追加の一致条件（すべて一致 = AND）
+                <span className="xw-hint-inline">
+                  例: 組成 <strong>かつ</strong> 結晶系。空なら1つの値だけで一致します
+                </span>
+              </div>
+              <div className="xw-conds">
+                {extraParts.map((ep) => (
+                  <div className="xw-cond-card" key={ep.id}>
+                    <div className="xw-cond-head">
+                      <input
+                        type="text"
+                        className="xw-key-input xw-cond-name"
+                        placeholder="条件名（英数字・例: crystal_system）"
+                        value={ep.name}
+                        onChange={(e) => patchPart(ep.id, { name: e.target.value })}
+                      />
+                      <select
+                        className="xw-map-select xw-cond-norm"
+                        value={ep.normalizer}
+                        onChange={(e) => patchPart(ep.id, { normalizer: e.target.value })}
+                      >
+                        <optgroup label="汎用（どの概念でも）">
+                          <option value="identity">そのまま一致</option>
+                          <option value="casefold">大文字・小文字を無視</option>
+                          <option value="whitespace">空白の違いを無視</option>
+                          <option value="nfkc">全角・半角をそろえる（NFKC）</option>
+                          <option value="loose_text">ゆるく一致</option>
+                        </optgroup>
+                        <optgroup label="材料向け">
+                          <option value="composition">組成式として揃える</option>
+                          <option value="element_canonical">組成式＋元素順</option>
+                        </optgroup>
+                      </select>
+                      <button
+                        type="button"
+                        className="xw-recipe-btn xw-recipe-del"
+                        title="この条件を削除"
+                        onClick={() => removePart(ep.id)}
+                      >
+                        ×
+                      </button>
+                    </div>
+                    <div className="xw-map-list">
+                      {readyDatasets.map((d) => {
+                        const id = datasetId(d)
+                        const opts = optionsFor(d)
+                        return (
+                          <div className="xw-map-row" key={id}>
+                            <span className="xw-map-ds">{d.name}</span>
+                            <select
+                              className="xw-map-select"
+                              value={extraPred[ep.id]?.[id] ?? ''}
+                              onChange={(e) => setPartPred(ep.id, id, e.target.value)}
+                            >
+                              <option value="">— 述語を選択 —</option>
+                              {opts.map((o) => (
+                                <option key={o.iri} value={o.iri}>
+                                  {localName(o.iri)}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--sm"
+                  onClick={addPart}
+                  disabled={chosen.length < 1}
+                >
+                  ＋ 一致条件を追加
+                </button>
+                {compound && !extraComplete && (
+                  <p className="xw-norm-hint">
+                    各条件に名前（重複なし・概念名と別）と、各データセットの述語を指定してください。
+                  </p>
+                )}
+              </div>
 
               <div className="ds-subhead">
                 5. この視点の名前

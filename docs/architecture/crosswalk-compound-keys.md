@@ -1,8 +1,9 @@
 # ADR: Crosswalk compound keys — joining on more than one attribute at once
 
-Status: **Phase 1a (pure builder) + 1b (runtime store-gather + config) + API done; UI
-pending** (2026-06-14). A compound key is authorable via the config / build API and
-verified against a real store; only the authoring UI remains. Extends
+Status: **Done — Phase 1a (pure builder) + 1b (runtime + config) + API + UI** (2026-06-14).
+A compound key is authorable end-to-end: the crosswalk builder lets a human add extra
+"一致条件 (AND)" parts (each with its own normalizer + per-dataset predicate), and the
+build sends a `key_parts` config the runtime tuple-joins. Verified live (Oxigraph). Extends
 [`crosswalk-hub.md`](crosswalk-hub.md) (the thin growing bridge) and
 [`crosswalk-multi-perspective.md`](crosswalk-multi-perspective.md) (plural
 perspectives). Sibling of [`crosswalk-normalizer-recipes.md`](crosswalk-normalizer-recipes.md)
@@ -151,8 +152,13 @@ skip). The runtime still builds single-part concepts, so `key_parts` is **dorman
 2. **API (done by 1b).** The build endpoint accepts the generalized config for free (it
    just `parse_config` → `build_hub`) — verified live (compound config → 200, persisted
    with `key_parts`). `propose` stays single-concept for now.
-3. **UI.** A key-parts composer in the crosswalk builder (add/remove parts, per-part
-   normalizer/recipe, per-part-per-dataset predicate), with a preview of sample tuples.
+3. **UI (done).** The crosswalk builder keeps the single-value flow as default and adds
+   an **"追加の一致条件 (AND)"** section: add/remove extra parts, each with a name + a
+   normalizer + a per-dataset predicate. With ≥ 1 extra part the build sends `key_parts`
+   + per-participant `predicates`; with none it sends the legacy single-value config
+   (byte-identical). v1 limitation: extra parts use a named normalizer (the recipe
+   composer stays on the primary part). `CrosswalkView` shows compound concepts
+   ("複合キー（a × b）") + per-part predicates.
 4. **(Optional) cross-perspective compound** via alignment — out of scope here.
 
 ## Alternatives considered
