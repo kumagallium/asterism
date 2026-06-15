@@ -1,0 +1,29 @@
+{
+  "op": {
+    "vocabularies": "標準語彙の取得",
+    "search": "標準語彙の検索"
+  },
+  "error": {
+    "failed": "{{op}}に失敗しました（{{status}}）{{detail}}"
+  },
+  "kind": {
+    "class": "クラス",
+    "property": "述語"
+  },
+  "picker": {
+    "placeholder": "標準の用語を検索（例: crystal structure）",
+    "cancel": "やめる",
+    "searching": "検索中…",
+    "none": "一致する標準の用語が見つかりません。語を変えて試してください。"
+  },
+  "adopt": {
+    "head": "外部標準に接地（ground）",
+    "hint": "このデータセット独自の用語を、有名な標準オントロジーの実在 term に対応づけます（候補は閉集合から検索・確定は人）。",
+    "ground": "接地する",
+    "done": "「{{source}}」を {{target}} に接地しました。",
+    "withdraw": "解除",
+    "withdrawing": "解除中…",
+    "err": "操作に失敗しました: {{detail}}",
+    "noTerms": "接地できる独自の用語がまだありません（取り込み後に語彙が確定すると並びます）。"
+  }
+}

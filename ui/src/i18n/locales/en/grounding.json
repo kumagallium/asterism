@@ -1,0 +1,29 @@
+{
+  "op": {
+    "vocabularies": "loading standard vocabularies",
+    "search": "searching standard vocabularies"
+  },
+  "error": {
+    "failed": "{{op}} failed ({{status}}){{detail}}"
+  },
+  "kind": {
+    "class": "class",
+    "property": "property"
+  },
+  "picker": {
+    "placeholder": "Search a standard term (e.g. crystal structure)",
+    "cancel": "Cancel",
+    "searching": "Searching…",
+    "none": "No matching standard term. Try different words."
+  },
+  "adopt": {
+    "head": "Ground to an external standard",
+    "hint": "Map this dataset's own terms to a real term in a famous standard ontology (candidates come from a closed set; a human confirms).",
+    "ground": "Ground",
+    "done": "Grounded \"{{source}}\" to {{target}}.",
+    "withdraw": "Withdraw",
+    "withdrawing": "Withdrawing…",
+    "err": "Action failed: {{detail}}",
+    "noTerms": "No own terms to ground yet (they appear once the vocabulary is settled after ingest)."
+  }
+}

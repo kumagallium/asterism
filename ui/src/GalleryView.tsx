@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import { ingestDataset, type IngestProgress, type IngestResult } from './api'
 import { getCrosswalk } from './crosswalkApi'
+import { DatasetGrounding } from './DatasetGrounding'
 import { getSchema } from './demoApi'
 import {
   type AlignmentReport,
@@ -406,6 +407,10 @@ function DatasetDetail({
                 ))}
               </div>
             </>
+          )}
+
+          {dataset.classIris.length + dataset.predicates.length > 0 && (
+            <DatasetGrounding dataset={dataset} />
           )}
         </div>
       ) : (
