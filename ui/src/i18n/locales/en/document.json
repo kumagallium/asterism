@@ -4,7 +4,7 @@
     "ingesting": "Structuring and ingesting…",
     "promoting": "Publishing…"
   },
-  "intro": "Upload a document such as a paper or contract (<0>Word</0> <1>.docx</1> / PDF / structured XML <2>.xml</2>) and, with <3>no AI design needed</3>, it is structured down to <4>section → paragraph → sentence</4>, so you can <5>full-text search and cite</5> it from the catalog's \"Tools\" tab.",
+  "intro": "Upload a document such as a paper or contract (<0>Word</0> <1>.docx</1> / PDF / structured XML <2>.xml</2>) and, with <3>no AI design needed</3>, it is structured down to <4>section → paragraph → sentence</4>, so you can <5>full-text search and cite</5> it from the dataset's \"Tools\" tab.",
   "pickFile": "Choose a document (Word / PDF / XML)",
   "noFile": "No file selected",
   "nFiles": "{{n}} documents",
@@ -14,5 +14,5 @@
   "submit": "Add and publish document",
   "ingesting": "Ingesting…",
   "ingestProgress": "({{done}} / {{total}})",
-  "result": "✓ Published <0>{{name}}</0>. Open it in the catalog and use <1>search_text</1> /<2>quote_with_citation</2> on the \"Tools\" tab to full-text search and cite it."
+  "result": "✓ Published <0>{{name}}</0>. Open it in Datasets and use <1>search_text</1> /<2>quote_with_citation</2> on the \"Tools\" tab to full-text search and cite it."
 }

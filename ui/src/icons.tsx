@@ -179,6 +179,61 @@ export function LinkIcon(p: IconProps) {
   )
 }
 
+/** Four connected nodes — connections / crosswalk (つながり). */
+export function ConnectIcon(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <circle cx="6" cy="6" r="2.4" />
+      <circle cx="18" cy="18" r="2.4" />
+      <circle cx="18" cy="6" r="2.4" />
+      <circle cx="6" cy="18" r="2.4" />
+      <path d="M8.4 6H15.6M6 8.4V15.6M8.4 18H15.6M18 8.4V15.6" />
+    </Icon>
+  )
+}
+
+/** Document with lines — shared terms / vocabulary (共通の言葉). */
+export function TermsIcon(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M5 4h11l3 3v13H5z" />
+      <path d="M9 9h6M9 13h6M9 17h3" />
+    </Icon>
+  )
+}
+
+/** Globe — a world-wide external standard. */
+export function GlobeIcon(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M3 12h18" />
+      <path d="M12 3c2.6 2.7 2.6 15.3 0 18M12 3c-2.6 2.7-2.6 15.3 0 18" />
+    </Icon>
+  )
+}
+
+/** Document — an ingested file. */
+export function FileIcon(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+      <path d="M14 3v5h5" />
+    </Icon>
+  )
+}
+
+/** Database cylinder — a dataset (データセット). */
+export function DataIcon(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <ellipse cx="12" cy="6" rx="7.5" ry="3" />
+      <path d="M4.5 6v12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3V6" />
+      <path d="M4.5 12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3" />
+    </Icon>
+  )
+}
+
 /** Solid dot — small marker. */
 export function DotIcon({ className, size = 12 }: IconProps) {
   return (

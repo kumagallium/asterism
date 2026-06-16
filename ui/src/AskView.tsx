@@ -24,11 +24,6 @@ import { LlmGate } from './settings/LlmGate'
  */
 export function AskView({ onShowVocab }: { onShowVocab?: (className: string) => void }) {
   const { t } = useTranslation()
-  const examples = [
-    t('ask:examples.ztHighest'),
-    t('ask:examples.snseSamples'),
-    t('ask:examples.schemaClasses'),
-  ]
   const [question, setQuestion] = useState('')
   const [result, setResult] = useState<AskResponse | null>(null)
   const [error, setError] = useState('')
@@ -113,22 +108,6 @@ export function AskView({ onShowVocab }: { onShowVocab?: (className: string) => 
         </section>
 
         {!isMockMode && <LlmGate />}
-
-        <div className="ask-examples">
-          {examples.map((ex) => (
-            <button
-              key={ex}
-              type="button"
-              className="example-chip"
-              onClick={() => {
-                setQuestion(ex)
-                run(ex)
-              }}
-            >
-              {ex}
-            </button>
-          ))}
-        </div>
 
         {error && <pre className="error">{error}</pre>}
 

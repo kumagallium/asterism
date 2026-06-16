@@ -2,7 +2,7 @@
   "docTitle": "asterism — Turn research data into connected data",
   "brand": {
     "name": "asterism",
-    "tag": "Research data → connected data"
+    "tag": "Research data, connected"
   },
   "langToggle": {
     "label": "Language",
@@ -10,22 +10,19 @@
     "en": "English"
   },
   "nav": {
-    "section": {
-      "create": "Create",
-      "use": "Use",
-      "manage": "Manage"
-    },
     "home": "Home",
-    "workbench": "Add data",
+    "gallery": "Datasets",
+    "crosswalk": "Crosswalk",
     "ask": "Ask",
-    "gallery": "Catalog",
+    "vocab": "Shared terms",
     "jobs": "Activity",
-    "sparql": "SPARQL",
-    "sparqlTag": "Developer"
+    "workbench": "Add data",
+    "sparql": "Advanced",
+    "sparqlTag": "SPARQL"
   },
   "status": {
-    "mock": "Ask / Catalog: demo data (mock)",
-    "live": "Graph live"
+    "mock": "Ask / Datasets: demo data (mock)",
+    "live": "Data live"
   },
   "view": {
     "home": {
@@ -36,7 +33,7 @@
     "workbench": {
       "eyebrow": "Create",
       "title": "Add data",
-      "sub": "Build a knowledge graph from a CSV, with AI"
+      "sub": "Build connected data from a CSV or JSON, with AI"
     },
     "ask": {
       "eyebrow": "Use",
@@ -44,24 +41,24 @@
       "sub": "Answer questions over your ingested data, with citations"
     },
     "gallery": {
-      "eyebrow": "Use",
-      "title": "Catalog",
-      "sub": "Browse what your data contains"
+      "eyebrow": "Data",
+      "title": "Datasets",
+      "sub": "Your datasets — open one to see its contents, files and connections"
     },
     "vocab": {
-      "eyebrow": "Use · Catalog",
-      "title": "Shared vocabulary",
-      "sub": "The blueprint multiple datasets share"
+      "eyebrow": "Shared",
+      "title": "Shared terms",
+      "sub": "Agreeing on one name for the same thing across datasets"
     },
     "crosswalk": {
-      "eyebrow": "Use · Catalog",
+      "eyebrow": "Connect",
       "title": "Crosswalk",
-      "sub": "Bridges that connect datasets across each other"
+      "sub": "Connect separate datasets by a shared value"
     },
     "map": {
-      "eyebrow": "Use · Catalog",
-      "title": "Ontology map",
-      "sub": "What ontologies exist and how they connect"
+      "eyebrow": "Connect",
+      "title": "Overview",
+      "sub": "What data exists and how it connects"
     },
     "jobs": {
       "eyebrow": "Manage",
@@ -69,7 +66,7 @@
       "sub": "When and what was ingested"
     },
     "sparql": {
-      "eyebrow": "Manage · Developer",
+      "eyebrow": "Developer",
       "title": "SPARQL",
       "sub": "Read-only queries"
     }

@@ -24,7 +24,7 @@
   },
   "recent": {
     "head": "Recent datasets",
-    "seeAll": "See all in the catalog",
+    "seeAll": "See all datasets",
     "loading": "Loading…",
     "empty": "No datasets yet. Start from \"Add data\"."
   }

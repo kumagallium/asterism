@@ -7,141 +7,143 @@ import {
   getCrosswalks,
 } from './crosswalkApi'
 import { type CatalogDataset, getCatalogDatasets } from './galleryApi'
-import { ArrowIcon, LayersIcon } from './icons'
-import { Mermaid } from './Mermaid'
-import { knownVocabForIri, localName } from './vocab'
+import { ArrowIcon, ConnectIcon, DataIcon, LayersIcon } from './icons'
 
 /**
- * Ontology map (俯瞰): a single bird's-eye diagram of what ontologies live in Asterism
- * and how they connect. Each DATASET has its own ontology (its classes); each CROSSWALK
- * PERSPECTIVE is a thin bridge ontology that joins datasets on a shared concept; and
- * ALIGNMENTS relate two perspectives' terms (crosswalk-multi-perspective.md). The graph
- * is derived from the live catalog + crosswalk APIs — no new endpoint. Per-dataset class
- * diagrams live in the catalog; this view is the high-level connectivity.
+ * 全体像 (overview): a readable, left→right THREE-LANE map of what data lives in
+ * Asterism and how it connects — replacing the old auto-laid-out "毛玉" mermaid
+ * graph (design_handoff v2, ScreenMap). Lanes: datasets (left, green) → crosswalk
+ * bridges (center, blue) → external standards (right, grey). Edges: dataset→bridge
+ * solid blue ("connect"), dataset→standard dashed grey ("reuse"). Derived from the
+ * live catalog + crosswalk APIs — no new endpoint. Per-dataset class diagrams live
+ * in the dataset detail; this view is the high-level connectivity.
  */
 
-/** A mermaid-safe node id from an arbitrary registry id. */
-function nodeId(prefix: string, raw: string): string {
-  return prefix + raw.replace(/[^a-zA-Z0-9]/g, '_')
+// Fixed coordinate canvas (scrolls if it grows). Three lanes at fixed x; nodes are
+// distributed vertically within each lane.
+const LANE_DS = { x: 0, w: 250 }
+const LANE_HUB = { x: 372, w: 224 }
+const LANE_EXT = { x: 744, w: 200 }
+const H_DS = 116
+const H_HUB = 86
+const H_EXT = 54
+const GAP = 22
+const TOP = 40 // room for lane headers
+
+type Box = { x: number; y: number; w: number; h: number }
+type DsBox = Box & { d: CatalogDataset }
+type HubBox = Box & { p: CrosswalkPerspective; name: string; concepts: string }
+type ExtBox = Box & { prefix: string; what: string }
+type Edge = { from: Box; to: Box; dsId?: string }
+
+type Layout = {
+  ds: DsBox[]
+  hubs: HubBox[]
+  ext: ExtBox[]
+  solid: Edge[]
+  dotted: Edge[]
+  width: number
+  height: number
 }
 
-/** Escape a label fragment for a mermaid quoted node label (no quotes / angle brackets,
- * bounded length — the diagram is an overview, not a data dump). */
-function esc(s: string): string {
-  return s
-    .replace(/["<>]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 48)
-}
-
-function buildChart(
+function buildLayout(
   datasets: CatalogDataset[],
   perspectives: CrosswalkPerspective[],
-  alignments: Alignment[],
-  t: (k: string) => string,
   showExternal: boolean,
-): string {
+): Layout {
   const dsList = datasets.filter((d) => !d.isCrosswalk)
-  // dataset_id (both catalog id and live id) -> the dataset's mermaid node id.
-  const dsNode = new Map<string, string>()
-  // dataset display name -> node id (an alignment records its source dataset by name).
-  const dsByName = new Map<string, string>()
-  const dsLines: string[] = []
-  const dsIds: string[] = []
-  for (const d of dsList) {
-    const id = nodeId('DS_', d.id)
-    dsIds.push(id)
-    const classes = d.classes.slice(0, 4).join(' · ') + (d.classes.length > 4 ? ' …' : '')
-    const label = esc(d.name) + (classes ? `<br/>${esc(classes)}` : '')
-    dsLines.push(`    ${id}["${label}"]`)
-    dsNode.set(d.id, id)
-    if (d.live?.meta.id) dsNode.set(d.live.meta.id, id)
-    dsByName.set(d.name, id)
+
+  // Datasets — left lane.
+  const ds: DsBox[] = dsList.map((d, i) => ({
+    d,
+    x: LANE_DS.x,
+    y: TOP + i * (H_DS + GAP),
+    w: LANE_DS.w,
+    h: H_DS,
+  }))
+  const dsById = new Map<string, DsBox>()
+  for (const n of ds) {
+    dsById.set(n.d.id, n)
+    if (n.d.live?.meta.id) dsById.set(n.d.live.meta.id, n)
   }
 
-  const xwLines: string[] = []
-  const xwIds: string[] = []
-  const xwByName = new Map<string, string>()
-  const edges = new Set<string>()
-  for (const p of perspectives) {
-    const id = nodeId('XW_', p.perspective_id)
-    xwIds.push(id)
-    const pname = p.dataset?.name || p.perspective_id
-    const concepts = (p.config?.concepts ?? []).map((c) => c.name).join(' · ')
-    xwLines.push(`    ${id}{{"${esc(pname)}${concepts ? `<br/>${esc(concepts)}` : ''}"}}`)
-    xwByName.set(pname, id)
-    for (const c of p.config?.concepts ?? []) {
-      for (const part of c.participants) {
-        const dn = dsNode.get(part.dataset_id)
-        if (dn) edges.add(`  ${dn} --> ${id}`)
+  // Crosswalk bridges — center lane.
+  const hubs: HubBox[] = perspectives.map((p, i) => ({
+    p,
+    name: p.dataset?.name || p.perspective_id,
+    concepts: (p.config?.concepts ?? []).map((c) => c.name).join(' · '),
+    x: LANE_HUB.x,
+    y: TOP + i * (H_HUB + GAP),
+    w: LANE_HUB.w,
+    h: H_HUB,
+  }))
+
+  // External standards — right lane (unique reuse prefixes across datasets).
+  const extMap = new Map<string, { prefix: string; what: string }>()
+  if (showExternal) {
+    for (const d of dsList) {
+      for (const r of d.reuses ?? []) {
+        if (!extMap.has(r.prefix)) extMap.set(r.prefix, r)
       }
     }
   }
+  const ext: ExtBox[] = [...extMap.values()].map((r, i) => ({
+    ...r,
+    x: LANE_EXT.x,
+    y: TOP + i * (H_EXT + GAP),
+    w: LANE_EXT.w,
+    h: H_EXT,
+  }))
+  const extByPrefix = new Map(ext.map((n) => [n.prefix, n]))
 
-  // Alignment edges. An alignment to an EXTERNAL standard term (target under a known
-  // vocabulary) is a 整合 edge handled in the external section; the rest connect two
-  // perspectives (best-effort match by display name).
-  for (const a of alignments) {
-    if (knownVocabForIri(a.target)) continue // external — drawn below
-    const from = xwByName.get(a.from_perspective)
-    const to = xwByName.get(a.to_perspective)
-    if (from && to && from !== to) edges.add(`  ${from} -. ${esc(a.relation)} .-> ${to}`)
+  // Edges. dataset → bridge (solid). dataset → standard (dotted, "reuse").
+  const solidSeen = new Set<string>()
+  const solid: Edge[] = []
+  for (const hn of hubs) {
+    for (const c of hn.p.config?.concepts ?? []) {
+      for (const part of c.participants) {
+        const dn = dsById.get(part.dataset_id)
+        if (!dn) continue
+        const key = `${dn.d.id}->${hn.p.perspective_id}`
+        if (solidSeen.has(key)) continue
+        solidSeen.add(key)
+        solid.push({ from: dn, to: hn, dsId: dn.d.id })
+      }
+    }
   }
-
-  // Existing standard ontologies, two ways (opt-in via `showExternal` to bound clutter):
-  // (1) REUSE — vocabularies a dataset's term IRIs already live under (`reuses`), one
-  //     deduped node per vocabulary. (2) 整合/LINK — a human-asserted alignment to a
-  //     real external TERM (`cmso:CrystalStructure` etc.), one node per term, an edge
-  //     from the aligned dataset/perspective (external-standard-alignment.md §8).
-  const extLines: string[] = []
-  const extIds: string[] = []
+  const dotted: Edge[] = []
   if (showExternal) {
     const seen = new Set<string>()
-    for (const d of dsList) {
-      const dn = dsNode.get(d.id)
-      for (const r of d.reuses ?? []) {
-        const eid = nodeId('EXT_', r.prefix)
-        if (!seen.has(eid)) {
-          seen.add(eid)
-          extIds.push(eid)
-          extLines.push(`    ${eid}(["${esc(r.prefix)}"])`)
-        }
-        if (dn) edges.add(`  ${dn} -. ${esc(t('map:chart.reuses'))} .-> ${eid}`)
+    for (const dn of ds) {
+      for (const r of dn.d.reuses ?? []) {
+        const en = extByPrefix.get(r.prefix)
+        if (!en) continue
+        const key = `${dn.d.id}->${r.prefix}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        dotted.push({ from: dn, to: en, dsId: dn.d.id })
       }
-    }
-    for (const a of alignments) {
-      const vocab = knownVocabForIri(a.target)
-      if (!vocab) continue
-      const src = dsByName.get(a.from_perspective) ?? xwByName.get(a.from_perspective)
-      if (!src) continue // can't anchor the edge to a known node
-      const term = `${vocab.prefix}${localName(a.target)}`
-      const eid = nodeId('EXTT_', a.target)
-      if (!seen.has(eid)) {
-        seen.add(eid)
-        extIds.push(eid)
-        extLines.push(`    ${eid}(["${esc(term)}"])`)
-      }
-      edges.add(`  ${src} == ${esc(a.relation)} ==> ${eid}`)
     }
   }
 
-  const lines = ['flowchart LR']
-  lines.push(`  subgraph datasets["${esc(t('map:chart.datasets'))}"]`, ...dsLines, '  end')
-  if (xwLines.length) {
-    lines.push(`  subgraph bridges["${esc(t('map:chart.bridges'))}"]`, ...xwLines, '  end')
-  }
-  if (extLines.length) {
-    lines.push(`  subgraph external["${esc(t('map:chart.external'))}"]`, ...extLines, '  end')
-  }
-  lines.push(...edges)
-  if (dsIds.length) lines.push(`  class ${dsIds.join(',')} dsCls`)
-  if (xwIds.length) lines.push(`  class ${xwIds.join(',')} xwCls`)
-  if (extIds.length) lines.push(`  class ${extIds.join(',')} extCls`)
-  lines.push('  classDef dsCls fill:#eef6ee,stroke:#6aa06a,color:#243;')
-  lines.push('  classDef xwCls fill:#fdf3e3,stroke:#d9a44e,color:#523;')
-  lines.push('  classDef extCls fill:#eef0fb,stroke:#7080c0,color:#234;')
-  return lines.join('\n')
+  const laneCounts = [
+    ds.length * (H_DS + GAP),
+    hubs.length * (H_HUB + GAP),
+    ext.length * (H_EXT + GAP),
+    H_DS + GAP,
+  ]
+  const height = TOP + Math.max(...laneCounts) + 8
+  return { ds, hubs, ext, solid, dotted, width: LANE_EXT.x + LANE_EXT.w, height }
+}
+
+// Cubic bezier from a box's right edge to another box's left edge.
+function edgePath(e: Edge): string {
+  const x1 = e.from.x + e.from.w
+  const y1 = e.from.y + e.from.h / 2
+  const x2 = e.to.x
+  const y2 = e.to.y + e.to.h / 2
+  const dx = Math.max(40, (x2 - x1) * 0.5)
+  return `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`
 }
 
 type MapData = {
@@ -150,10 +152,33 @@ type MapData = {
   alignments: Alignment[]
 }
 
+function LaneHead({
+  x,
+  w,
+  color,
+  label,
+  en,
+}: {
+  x: number
+  w: number
+  color: string
+  label: string
+  en: string
+}) {
+  return (
+    <div className="ontomap-lane-head" style={{ left: x, width: w }}>
+      <span className="ontomap-lane-dot" style={{ background: color }} />
+      <span className="ontomap-lane-label">{label}</span>
+      <span className="ontomap-lane-en">{en}</span>
+    </div>
+  )
+}
+
 export function OntologyMapView({ onBack }: { onBack?: () => void }) {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const [data, setData] = useState<MapData | null>(null)
   const [showExternal, setShowExternal] = useState(true)
+  const [selected, setSelected] = useState<string | null>(null)
   const [err, setErr] = useState('')
 
   useEffect(() => {
@@ -175,16 +200,16 @@ export function OntologyMapView({ onBack }: { onBack?: () => void }) {
         xw: data.perspectives.length,
         al: data.alignments.length,
         ext: new Set(
-          data.datasets.filter((d) => !d.isCrosswalk).flatMap((d) => (d.reuses ?? []).map((r) => r.prefix)),
+          data.datasets
+            .filter((d) => !d.isCrosswalk)
+            .flatMap((d) => (d.reuses ?? []).map((r) => r.prefix)),
         ).size,
       }
     : null
 
-  // The chart's subgraph labels are localized, so rebuild on language change too.
-  const chart = useMemo(
-    () =>
-      data ? buildChart(data.datasets, data.perspectives, data.alignments, t, showExternal) : null,
-    [data, showExternal, t, i18n.language],
+  const layout = useMemo(
+    () => (data ? buildLayout(data.datasets, data.perspectives, showExternal) : null),
+    [data, showExternal],
   )
 
   const empty = counts && counts.ds === 0 && counts.xw === 0
@@ -204,7 +229,7 @@ export function OntologyMapView({ onBack }: { onBack?: () => void }) {
         <div>
           <h2 className="vocab-banner-title">{t('map:title')}</h2>
           <p className="vocab-banner-sub">
-            <Trans i18nKey="map:bannerSub" components={[<strong />, <strong />, <strong />]} />
+            <Trans i18nKey="map:bannerSub" components={[<strong />, <strong />]} />
           </p>
         </div>
       </div>
@@ -225,6 +250,17 @@ export function OntologyMapView({ onBack }: { onBack?: () => void }) {
               {t('map:legend.external', { n: counts.ext })}
             </span>
           )}
+          <span className="ontomap-legend-keys">
+            <span className="ontomap-key">
+              <span className="ontomap-key-line ontomap-key-line--solid" /> {t('map:line.connect')}
+            </span>
+            <span className="ontomap-key">
+              <span className="ontomap-key-line ontomap-key-line--dotted" /> {t('map:line.reuse')}
+            </span>
+            <span className="ontomap-key">
+              <span className="ontomap-key-box" /> {t('map:line.selected')}
+            </span>
+          </span>
           <label className="ontomap-toggle">
             <input
               type="checkbox"
@@ -237,7 +273,7 @@ export function OntologyMapView({ onBack }: { onBack?: () => void }) {
       )}
 
       {err && <pre className="error">{err}</pre>}
-      {!chart && !err && (
+      {!layout && !err && (
         <p className="loading-row">
           <span className="spinner" />
           {t('map:loading')}
@@ -249,9 +285,162 @@ export function OntologyMapView({ onBack }: { onBack?: () => void }) {
           <p className="state-sub">{t('map:empty.sub')}</p>
         </div>
       )}
-      {chart && !empty && (
-        <div className="ontomap-diagram">
-          <Mermaid chart={chart} />
+
+      {layout && !empty && (
+        <div className="ontomap-card">
+          <div
+            className="ontomap-canvas"
+            style={{ width: layout.width, height: layout.height }}
+          >
+            <LaneHead
+              x={LANE_DS.x}
+              w={LANE_DS.w}
+              color="var(--entity)"
+              label={t('map:lane.datasets')}
+              en={t('map:lane.datasetsEn')}
+            />
+            <LaneHead
+              x={LANE_HUB.x}
+              w={LANE_HUB.w}
+              color="var(--link)"
+              label={t('map:lane.bridges')}
+              en={t('map:lane.bridgesEn')}
+            />
+            {layout.ext.length > 0 && (
+              <LaneHead
+                x={LANE_EXT.x}
+                w={LANE_EXT.w}
+                color="var(--faint)"
+                label={t('map:lane.external')}
+                en={t('map:lane.externalEn')}
+              />
+            )}
+
+            {/* edges */}
+            <svg
+              className="ontomap-edges"
+              width={layout.width}
+              height={layout.height}
+              aria-hidden="true"
+            >
+              <defs>
+                <marker
+                  id="om-arrow"
+                  markerWidth="8"
+                  markerHeight="8"
+                  refX="6"
+                  refY="4"
+                  orient="auto"
+                >
+                  <path d="M1,1 L6,4 L1,7" fill="none" stroke="var(--link)" strokeWidth="1.6" />
+                </marker>
+                <marker
+                  id="om-arrow-faint"
+                  markerWidth="8"
+                  markerHeight="8"
+                  refX="6"
+                  refY="4"
+                  orient="auto"
+                >
+                  <path d="M1,1 L6,4 L1,7" fill="none" stroke="var(--faint)" strokeWidth="1.4" />
+                </marker>
+              </defs>
+              {layout.dotted.map((e, i) => (
+                <path
+                  key={`d${i}`}
+                  d={edgePath(e)}
+                  className="ontomap-edge ontomap-edge--dotted"
+                  markerEnd="url(#om-arrow-faint)"
+                  opacity={selected && e.dsId !== selected ? 0.25 : 0.8}
+                />
+              ))}
+              {layout.solid.map((e, i) => {
+                const on = selected != null && e.dsId === selected
+                return (
+                  <path
+                    key={`s${i}`}
+                    d={edgePath(e)}
+                    className={`ontomap-edge ontomap-edge--solid${on ? ' is-on' : ''}`}
+                    markerEnd="url(#om-arrow)"
+                    opacity={selected && !on ? 0.3 : 1}
+                  />
+                )
+              })}
+            </svg>
+
+            {/* dataset nodes */}
+            {layout.ds.map((n) => {
+              const on = selected === n.d.id
+              const std = [...new Set((n.d.reuses ?? []).map((r) => r.prefix))].slice(0, 3)
+              return (
+                <button
+                  type="button"
+                  key={n.d.id}
+                  className={`ontomap-node ontomap-node--ds${on ? ' is-selected' : ''}`}
+                  style={{ left: n.x, top: n.y, width: n.w, height: n.h }}
+                  onClick={() => setSelected(on ? null : n.d.id)}
+                >
+                  <span className="ontomap-node-head">
+                    <span className="ontomap-node-chip ontomap-node-chip--ds">
+                      <DataIcon size={14} />
+                    </span>
+                    <span className="ontomap-node-name">{n.d.name}</span>
+                    {on && <span className="ontomap-node-badge">{t('map:line.selected')}</span>}
+                  </span>
+                  {n.d.classes.length > 0 && (
+                    <span className="ontomap-node-pills">
+                      {n.d.classes.slice(0, 4).map((c) => (
+                        <span key={c} className="ontomap-pill">
+                          {c}
+                        </span>
+                      ))}
+                    </span>
+                  )}
+                  {std.length > 0 && (
+                    <span className="ontomap-node-std">
+                      <span className="ontomap-node-std-label">{t('map:node.connectStd')}</span>
+                      {std.map((s) => (
+                        <span key={s} className="ontomap-node-std-tok">
+                          {s}
+                        </span>
+                      ))}
+                    </span>
+                  )}
+                </button>
+              )
+            })}
+
+            {/* crosswalk hubs */}
+            {layout.hubs.map((n) => (
+              <div
+                key={n.p.perspective_id}
+                className="ontomap-node ontomap-node--hub"
+                style={{ left: n.x, top: n.y, width: n.w, height: n.h }}
+              >
+                <span className="ontomap-node-head">
+                  <span className="ontomap-node-chip ontomap-node-chip--hub">
+                    <ConnectIcon size={14} />
+                  </span>
+                  <span className="ontomap-node-name">{n.name}</span>
+                </span>
+                {n.concepts && (
+                  <span className="ontomap-hub-key">{t('map:node.crossBy', { key: n.concepts })}</span>
+                )}
+              </div>
+            ))}
+
+            {/* external standards */}
+            {layout.ext.map((n) => (
+              <div
+                key={n.prefix}
+                className="ontomap-node ontomap-node--ext"
+                style={{ left: n.x, top: n.y, width: n.w, height: n.h }}
+              >
+                <span className="ontomap-ext-tok">{n.prefix}</span>
+                <span className="ontomap-ext-what">{n.what}</span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>

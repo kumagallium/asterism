@@ -3,7 +3,7 @@
     "cardTitle": "クリックで出どころ（来歴）を表示",
     "untitled": "(無題)",
     "traceHint": "出どころ",
-    "vocabTitle": "カタログで語彙クラス「{{className}}」を表示",
+    "vocabTitle": "データセットで「{{className}}」の語彙を表示",
     "vocabLink": "語彙: {{className}} →"
   },
   "trace": {
@@ -15,7 +15,7 @@
     "loading": "来歴を解決中…",
     "legendData": "データ",
     "legendProcess": "処理",
-    "vocabTitle": "カタログで語彙クラス「{{className}}」を表示",
+    "vocabTitle": "データセットで「{{className}}」の語彙を表示",
     "vocabLink": "語彙を見る",
     "noRecord": "この項目に対する来歴は記録されていません。"
   },
