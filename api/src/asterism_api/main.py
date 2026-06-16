@@ -59,13 +59,14 @@ from asterism.watcher import (
 )
 from asterism_step0.crosswalk_propose import propose_crosswalk_mapping
 from asterism_step0.inspect import inspect_source_set, render_markdown
+from asterism_step0.llm import make_llm as build_llm_client
 from asterism_step0.materialize import (
     _MODEL_HEADERS,
     _pick_block,
     extract_code_blocks,
     materialize_schema,
 )
-from asterism_step0.propose import AnthropicLLMClient, LLMClient, propose_schema
+from asterism_step0.propose import LLMClient, propose_schema
 from asterism_step0.refine import refine_schema
 from asterism_step0.tool_propose import propose_query_tool
 from asterism_step0.validate import SchemaBundle, validate_schema
@@ -85,6 +86,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from asterism_api import registry
+from asterism_api import usage as usage_ledger
 from asterism_api.jobs import JobManager
 
 
@@ -201,6 +203,62 @@ class GroundSchemaBody(BaseModel):
 
     proposal_md: str = ""
     model_yaml: str = ""
+
+
+class UsageEventBody(BaseModel):
+    """Body for POST /api/usage: one LLM-usage event (token counts only — no cost).
+
+    The api's own endpoints record usage in-process; this route is the receiver for
+    the demo-agent's agentic Ask, which runs in a separate process and POSTs its
+    accumulated tokens here so all spend lands in one ledger (write-gated)."""
+
+    feature: str = "ask"
+    provider: str = ""
+    model_id: str = ""
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+
+
+def _llm_coords(
+    x_api_key: str | None,
+    x_llm_provider: str | None,
+    x_llm_model: str | None,
+    x_llm_api_base: str | None,
+) -> tuple[str, str | None, str | None, str | None]:
+    """Resolve the per-request LLM coordinates from headers.
+
+    Absent ``X-LLM-Provider`` → ``"anthropic"`` so requests that send only the
+    legacy ``X-API-Key`` keep the exact Anthropic-default behavior."""
+    provider = (x_llm_provider or "anthropic").strip().lower() or "anthropic"
+    return provider, (x_llm_model or None), (x_llm_api_base or None), x_api_key
+
+
+def _record_llm_usage(
+    registry_root: Path, feature: str, provider: str, llm: object, model_hint: str | None
+) -> None:
+    """Append the client's ``last_usage`` to the ledger (best-effort, skips zeros).
+
+    Mocks (and any client that returns bare text) have no ``last_usage`` → no-op,
+    so tests never write a usage file."""
+    usage = getattr(llm, "last_usage", None)
+    if usage is None or getattr(usage, "total_tokens", 0) <= 0:
+        return
+    model_id = getattr(llm, "model", None) or model_hint or provider
+    try:
+        usage_ledger.record_usage(
+            registry_root,
+            feature,
+            provider,
+            str(model_id),
+            input_tokens=getattr(usage, "input_tokens", 0),
+            output_tokens=getattr(usage, "output_tokens", 0),
+            cache_read_tokens=getattr(usage, "cache_read_tokens", 0),
+            cache_write_tokens=getattr(usage, "cache_write_tokens", 0),
+        )
+    except OSError:
+        logger.exception("failed to append LLM usage event (continuing)")
 
 
 # Update-form keywords. Oxigraph's /query endpoint is read-only regardless, but
@@ -1151,16 +1209,41 @@ def build_app(
     oxigraph_client: OxigraphClient | None = None,
     start_watcher: bool = True,
     llm_factory: Callable[[str | None], LLMClient] | None = None,
+    llm_resolver: Callable[[str, str | None, str | None, str | None], LLMClient]
+    | None = None,
 ) -> FastAPI:
     """Build the FastAPI app.
 
-    ``llm_factory`` maps an optional user-brought API key to an
-    :class:`LLMClient` for one propose/refine run. Defaults to constructing an
-    :class:`AnthropicLLMClient` with that key. Tests inject a factory returning
-    a mock so no real key / network is needed.
+    LLM client construction goes through ``_resolve_llm(provider, model, api_base,
+    key)``, built once here:
+
+    * ``llm_resolver`` — provider-aware injection (new tests use this to exercise
+      multi-provider routing without a network).
+    * ``llm_factory`` — legacy 1-arg (key → client) injection; kept so existing
+      tests that inject a mock keep working. Only the key is honored; provider /
+      model / api_base are ignored (those tests never send provider headers).
+    * default — :func:`asterism_step0.llm.make_llm`, which returns the Anthropic
+      default when no provider is selected (byte-for-byte the historical path) and
+      an OpenAI-compatible client otherwise (Sakura AI Engine via a custom base_url,
+      etc.).
     """
     cfg = settings or Settings()
-    make_llm = llm_factory or (lambda key: AnthropicLLMClient(api_key=key))
+    if llm_resolver is not None:
+        _resolve_llm = llm_resolver
+    elif llm_factory is not None:
+
+        def _resolve_llm(
+            provider: str, model: str | None, api_base: str | None, api_key: str | None
+        ) -> LLMClient:
+            return llm_factory(api_key)
+    else:
+
+        def _resolve_llm(
+            provider: str, model: str | None, api_base: str | None, api_key: str | None
+        ) -> LLMClient:
+            return build_llm_client(
+                provider, model=model, api_base=api_base, api_key=api_key
+            )
     watcher_cfg = WatcherConfig(
         drop_root=cfg.drop_root,
         rdf_root=cfg.rdf_root,
@@ -1383,7 +1466,15 @@ def build_app(
         fk: list[str] = Query(default=[], description="FK hint column (repeatable)"),
         x_api_key: str | None = Header(
             default=None,
-            description="User-brought Anthropic API key (D7: used for this run only, never stored)",
+            description="User-brought API key (D7: used for this run only, never stored)",
+        ),
+        x_llm_provider: str | None = Header(
+            default=None,
+            description="LLM provider (anthropic | openai | openai-compatible); absent → anthropic",
+        ),
+        x_llm_model: str | None = Header(default=None, description="Model id override"),
+        x_llm_api_base: str | None = Header(
+            default=None, description="Custom base URL (OpenAI-compatible, e.g. Sakura AI Engine)"
         ),
     ) -> JSONResponse:
         """Phase 4 (M1a): start an async schema-proposal job; return its job_id.
@@ -1408,7 +1499,10 @@ def build_app(
             await _save_upload(upload, dest)
             paths.append(dest)
 
-        llm = make_llm(x_api_key)
+        provider, model, api_base, key = _llm_coords(
+            x_api_key, x_llm_provider, x_llm_model, x_llm_api_base
+        )
+        llm = _resolve_llm(provider, model, api_base, key)
         fk_cols = fk or None
 
         def work() -> dict[str, object]:
@@ -1416,6 +1510,7 @@ def build_app(
                 proposal = propose_schema(
                     list(paths), domain, fk_hint_columns=fk_cols, llm=llm
                 )
+                _record_llm_usage(cfg.registry_root, "propose", provider, llm, model)
                 return {
                     "proposal_md": proposal.proposal_md,
                     "inspection_md": proposal.csv_inspection_md,
@@ -1432,6 +1527,9 @@ def build_app(
     async def refine(
         body: RefineRequest,
         x_api_key: str | None = Header(default=None),
+        x_llm_provider: str | None = Header(default=None),
+        x_llm_model: str | None = Header(default=None),
+        x_llm_api_base: str | None = Header(default=None),
     ) -> JSONResponse:
         """Phase 4 (M1c): start an async refine job; return its job_id.
 
@@ -1445,10 +1543,14 @@ def build_app(
         if not comments:
             raise HTTPException(400, "at least one non-empty comment is required")
 
-        llm = make_llm(x_api_key)
+        provider, model, api_base, key = _llm_coords(
+            x_api_key, x_llm_provider, x_llm_model, x_llm_api_base
+        )
+        llm = _resolve_llm(provider, model, api_base, key)
 
         def work() -> dict[str, object]:
             result = refine_schema(body.schema_md, comments, llm=llm)
+            _record_llm_usage(cfg.registry_root, "refine", provider, llm, model)
             # Surface the truncation guard: `refined_md` stays the raw output for
             # transparency; `effective_schema_md` is what's safe to materialize
             # next (the previous complete schema when the refine was truncated).
@@ -1464,6 +1566,39 @@ def build_app(
         jobs: JobManager = app.state.jobs
         job_id = jobs.start(work)
         return JSONResponse({"job_id": job_id}, status_code=202)
+
+    @app.get("/api/usage")
+    async def usage_get(
+        since: str | None = Query(default=None, description="ISO-8601 lower bound on ts"),
+        until: str | None = Query(default=None, description="ISO-8601 upper bound on ts"),
+    ) -> JSONResponse:
+        """The LLM-usage ledger: raw events + monthly rollups (token counts only).
+
+        Read-only — the UI joins these with its user-editable per-model rate table
+        to compute cost at display time, so cost lives in the browser, not here."""
+        events = await asyncio.to_thread(
+            usage_ledger.read_usage, cfg.registry_root, since=since, until=until
+        )
+        monthly = usage_ledger.summarize_monthly(events)
+        return JSONResponse({"events": events, "monthly": monthly})
+
+    @app.post("/api/usage", dependencies=_write_auth)
+    async def usage_post(body: UsageEventBody) -> JSONResponse:
+        """Append one usage event (write-gated). The receiver for the demo-agent's
+        agentic Ask, which runs out-of-process and POSTs its accumulated tokens so
+        all LLM spend lands in one ledger."""
+        event = await asyncio.to_thread(
+            usage_ledger.record_usage,
+            cfg.registry_root,
+            body.feature,
+            body.provider,
+            body.model_id,
+            input_tokens=body.input_tokens,
+            output_tokens=body.output_tokens,
+            cache_read_tokens=body.cache_read_tokens,
+            cache_write_tokens=body.cache_write_tokens,
+        )
+        return JSONResponse({"recorded": event})
 
     @app.post("/api/materialize", dependencies=_write_auth)
     async def materialize(body: MaterializeRequest) -> JSONResponse:
@@ -1605,6 +1740,9 @@ def build_app(
         dataset_id: str,
         body: ToolProposeBody,
         x_api_key: str | None = Header(default=None),
+        x_llm_provider: str | None = Header(default=None),
+        x_llm_model: str | None = Header(default=None),
+        x_llm_api_base: str | None = Header(default=None),
     ) -> dict[str, object]:
         """P2: AI-draft ONE query tool from a natural-language intent.
 
@@ -1620,12 +1758,16 @@ def build_app(
         if not body.intent.strip():
             raise HTTPException(400, "intent is required")
         if not x_api_key:
-            raise HTTPException(400, "AI draft needs an Anthropic API key (header X-API-Key)")
+            raise HTTPException(400, "AI draft needs an API key (header X-API-Key)")
         arts = data["artifacts"]
+        provider, model, api_base, key = _llm_coords(
+            x_api_key, x_llm_provider, x_llm_model, x_llm_api_base
+        )
+        llm = _resolve_llm(provider, model, api_base, key)
 
         def run() -> dict:
             return propose_query_tool(
-                make_llm(x_api_key),
+                llm,
                 intent=body.intent,
                 model_yaml=arts.get("model.yaml", "") or "",
                 mie_yaml=arts.get("mie.yaml", "") or "",
@@ -1639,6 +1781,9 @@ def build_app(
             draft = await asyncio.to_thread(run)
         except Exception as exc:  # LLM/parse failure -> 502 with the reason
             raise HTTPException(502, f"AI draft failed: {exc}") from exc
+        await asyncio.to_thread(
+            _record_llm_usage, cfg.registry_root, "tool.propose", provider, llm, model
+        )
 
         valid, error = True, None
         try:
@@ -2358,7 +2503,11 @@ def build_app(
 
     @app.post("/api/crosswalk/propose", dependencies=_write_auth)
     async def crosswalk_propose(
-        body: CrosswalkProposeBody, x_api_key: str | None = Header(default=None)
+        body: CrosswalkProposeBody,
+        x_api_key: str | None = Header(default=None),
+        x_llm_provider: str | None = Header(default=None),
+        x_llm_model: str | None = Header(default=None),
+        x_llm_api_base: str | None = Header(default=None),
     ) -> dict[str, object]:
         """AI-assist (手動選択の補助): suggest each dataset's concept-bearing predicate.
 
@@ -2369,7 +2518,11 @@ def build_app(
         if not body.dataset_ids:
             raise HTTPException(400, "dataset_ids is required")
         if not x_api_key:
-            raise HTTPException(400, "AI suggestion needs an Anthropic API key (header X-API-Key)")
+            raise HTTPException(400, "AI suggestion needs an API key (header X-API-Key)")
+        provider, model, api_base, api_key_val = _llm_coords(
+            x_api_key, x_llm_provider, x_llm_model, x_llm_api_base
+        )
+        llm = _resolve_llm(provider, model, api_base, api_key_val)
         client: OxigraphClient = app.state.client
         datasets: list[dict] = []
         skipped: list[dict] = []
@@ -2396,13 +2549,16 @@ def build_app(
 
         def run() -> list[dict]:
             return propose_crosswalk_mapping(
-                make_llm(x_api_key), concept=body.concept, datasets=datasets
+                llm, concept=body.concept, datasets=datasets
             )
 
         try:
             participants = await asyncio.to_thread(run)
         except Exception as exc:  # LLM/parse failure -> 502 with the reason
             raise HTTPException(502, f"AI suggestion failed: {exc}") from exc
+        await asyncio.to_thread(
+            _record_llm_usage, cfg.registry_root, "crosswalk.propose", provider, llm, model
+        )
         return {
             "concept": body.concept,
             "participants": participants,

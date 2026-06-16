@@ -1,0 +1,253 @@
+"""Multi-provider LLM client seam for asterism Step 0.
+
+A tiny, mockable abstraction over chat LLMs. The api builds one client per
+request from user-brought coordinates (provider / model / api_base / key) via
+:func:`make_llm` and passes it to the Step 0 functions (propose / refine /
+tool.propose / crosswalk.propose), each of which makes a single
+``complete(system, user)`` call and uses the returned text.
+
+Providers:
+  * ``anthropic`` (default) — Claude via the Anthropic SDK, streamed, with
+    adaptive thinking + prompt caching. ``make_llm(None, ...)`` reproduces the
+    original Anthropic-only behavior byte-for-byte, so requests that send no
+    provider header are unaffected.
+  * ``openai`` / ``openai-compatible`` — any OpenAI Chat Completions endpoint.
+    ``openai-compatible`` is how a custom ``base_url`` plugs in: Sakura AI Engine
+    (国内向け), Groq, Ollama, vLLM, LM Studio, … No Anthropic-only params
+    (``thinking`` / ``output_config`` / ``cache_control``) are ever sent there.
+
+Token usage (input / output / cache) is captured off each response and exposed
+two ways: on the returned :class:`LLMCompletion` AND on the client's
+``last_usage`` attribute. The api reads ``last_usage`` to append one event to the
+usage ledger (:mod:`asterism_api.usage`) without threading usage through every
+Step 0 return type — cost itself is computed in the UI from a user-editable rate
+table at display time.
+
+The SDKs are lazy-imported inside ``complete()`` so this module — and the whole
+``asterism_step0`` package — stays importable (and unit-testable with a mock)
+without ``anthropic`` / ``openai`` present.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Protocol, runtime_checkable
+
+# Default model ids per provider, used when the caller does not pin one. The
+# Anthropic default matches the historical hard-coded value so the no-provider
+# path is unchanged.
+DEFAULT_ANTHROPIC_MODEL = "claude-opus-4-7"
+DEFAULT_OPENAI_MODEL = "gpt-4o"
+
+
+@dataclass(frozen=True)
+class LLMUsage:
+    """Token counts for one LLM call. Cache fields are 0 when unsupported."""
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+
+    @classmethod
+    def zero(cls) -> LLMUsage:
+        return cls()
+
+    @property
+    def total_tokens(self) -> int:
+        return (
+            self.input_tokens
+            + self.output_tokens
+            + self.cache_read_tokens
+            + self.cache_write_tokens
+        )
+
+    def __add__(self, other: LLMUsage) -> LLMUsage:
+        return LLMUsage(
+            self.input_tokens + other.input_tokens,
+            self.output_tokens + other.output_tokens,
+            self.cache_read_tokens + other.cache_read_tokens,
+            self.cache_write_tokens + other.cache_write_tokens,
+        )
+
+
+@dataclass(frozen=True)
+class LLMCompletion:
+    """One LLM call's text output plus its token usage."""
+
+    text: str
+    usage: LLMUsage = field(default_factory=LLMUsage.zero)
+
+
+def as_completion(value: LLMCompletion | str) -> LLMCompletion:
+    """Normalize a ``complete()`` return into an :class:`LLMCompletion`.
+
+    Real clients return :class:`LLMCompletion`; test mocks (and any legacy
+    client) may return a bare ``str`` — wrap those as zero-usage so the Step 0
+    callers can uniformly use ``.text``.
+    """
+    if isinstance(value, LLMCompletion):
+        return value
+    return LLMCompletion(text=value, usage=LLMUsage.zero())
+
+
+@runtime_checkable
+class LLMClient(Protocol):
+    """Minimal protocol for the single chat call the Step 0 functions make.
+
+    The real implementations return an :class:`LLMCompletion`; mocks may return a
+    bare ``str`` (normalized via :func:`as_completion`). Implementations should
+    return ONLY the assistant's text (concatenated text blocks, no thinking).
+    """
+
+    def complete(self, system_prompt: str, user_message: str) -> LLMCompletion | str:
+        ...
+
+
+def _anthropic_usage(u: object) -> LLMUsage:
+    if u is None:
+        return LLMUsage.zero()
+    return LLMUsage(
+        input_tokens=getattr(u, "input_tokens", 0) or 0,
+        output_tokens=getattr(u, "output_tokens", 0) or 0,
+        cache_read_tokens=getattr(u, "cache_read_input_tokens", 0) or 0,
+        cache_write_tokens=getattr(u, "cache_creation_input_tokens", 0) or 0,
+    )
+
+
+def _openai_usage(u: object) -> LLMUsage:
+    if u is None:
+        return LLMUsage.zero()
+    # OpenAI's automatic prompt caching, when present, surfaces as a nested
+    # ``prompt_tokens_details.cached_tokens``; most compat servers omit it.
+    cached = 0
+    details = getattr(u, "prompt_tokens_details", None)
+    if details is not None:
+        cached = getattr(details, "cached_tokens", 0) or 0
+    return LLMUsage(
+        input_tokens=getattr(u, "prompt_tokens", 0) or 0,
+        output_tokens=getattr(u, "completion_tokens", 0) or 0,
+        cache_read_tokens=cached,
+        cache_write_tokens=0,
+    )
+
+
+@dataclass
+class AnthropicLLMClient:
+    """Default :class:`LLMClient` — wraps the Anthropic SDK.
+
+    Caches the system prompt via ``cache_control: ephemeral`` (large + stable)
+    and **streams** the response so a generous ``max_tokens`` does not risk the
+    SDK's ~10-minute non-streaming timeout on long schema proposals. Lazy-imports
+    the SDK so the package stays installable without ``anthropic``.
+
+    When ``api_key`` is None the SDK reads ``ANTHROPIC_API_KEY`` from the
+    environment (the CLI / dogfood path). The Phase 4 UI passes a user-brought
+    key per request and never persists it (design doc D7).
+    """
+
+    model: str = DEFAULT_ANTHROPIC_MODEL
+    max_tokens: int = 32000
+    effort: str = "xhigh"
+    api_key: str | None = None
+    last_usage: LLMUsage | None = field(default=None, init=False, compare=False)
+
+    def complete(self, system_prompt: str, user_message: str) -> LLMCompletion:
+        import anthropic
+
+        client = (
+            anthropic.Anthropic(api_key=self.api_key) if self.api_key else anthropic.Anthropic()
+        )
+        with client.messages.stream(
+            model=self.model,
+            max_tokens=self.max_tokens,
+            thinking={"type": "adaptive"},
+            output_config={"effort": self.effort},
+            system=[
+                {
+                    "type": "text",
+                    "text": system_prompt,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
+            messages=[{"role": "user", "content": user_message}],
+        ) as stream:
+            message = stream.get_final_message()
+        text_parts = [b.text for b in message.content if b.type == "text"]
+        usage = _anthropic_usage(getattr(message, "usage", None))
+        self.last_usage = usage
+        return LLMCompletion("\n".join(text_parts), usage)
+
+
+@dataclass
+class OpenAICompatibleLLMClient:
+    """:class:`LLMClient` for any OpenAI Chat Completions endpoint.
+
+    ``base_url`` selects the endpoint: None → ``api.openai.com``; set it for
+    Sakura AI Engine / Groq / Ollama / vLLM / LM Studio. Only the portable
+    Chat Completions surface is used — no Anthropic-only parameters. Non-streaming
+    by default for the widest compatibility (some compat servers reject
+    ``stream_options``) and so ``response.usage`` is always available.
+
+    Note: a few compat servers expect ``max_completion_tokens`` instead of
+    ``max_tokens``, or cap it lower; that is a known per-server divergence.
+    """
+
+    model: str = DEFAULT_OPENAI_MODEL
+    max_tokens: int = 32000
+    api_key: str | None = None
+    base_url: str | None = None
+    last_usage: LLMUsage | None = field(default=None, init=False, compare=False)
+
+    def complete(self, system_prompt: str, user_message: str) -> LLMCompletion:
+        from openai import OpenAI
+
+        client = OpenAI(api_key=self.api_key, base_url=self.base_url or None)
+        resp = client.chat.completions.create(
+            model=self.model,
+            max_tokens=self.max_tokens,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message},
+            ],
+        )
+        choice = resp.choices[0]
+        text = choice.message.content or ""
+        usage = _openai_usage(getattr(resp, "usage", None))
+        self.last_usage = usage
+        return LLMCompletion(text, usage)
+
+
+# Provider aliases accepted by make_llm (case-insensitive). Everything in the
+# OpenAI-compatible family routes to OpenAICompatibleLLMClient; the only thing
+# that differs at runtime is the base_url the caller supplies.
+_ANTHROPIC_ALIASES = frozenset({"", "anthropic", "claude"})
+_OPENAI_ALIASES = frozenset(
+    {"openai", "openai-compatible", "openai_compatible", "compatible", "sakura", "groq", "ollama"}
+)
+
+
+def make_llm(
+    provider: str | None,
+    *,
+    model: str | None = None,
+    api_base: str | None = None,
+    api_key: str | None = None,
+) -> LLMClient:
+    """Build an :class:`LLMClient` for the given provider coordinates.
+
+    ``provider`` None / "" / "anthropic" returns the default Anthropic client
+    (byte-for-byte the historical behavior). "openai" / "openai-compatible"
+    returns an :class:`OpenAICompatibleLLMClient`; pass ``api_base`` for a custom
+    endpoint (Sakura AI Engine etc.). Unknown providers raise ``ValueError``.
+    """
+    p = (provider or "anthropic").strip().lower()
+    if p in _ANTHROPIC_ALIASES:
+        return AnthropicLLMClient(model=model or DEFAULT_ANTHROPIC_MODEL, api_key=api_key)
+    if p in _OPENAI_ALIASES:
+        return OpenAICompatibleLLMClient(
+            model=model or DEFAULT_OPENAI_MODEL,
+            api_key=api_key,
+            base_url=api_base or None,
+        )
+    raise ValueError(f"unknown LLM provider: {provider!r}")

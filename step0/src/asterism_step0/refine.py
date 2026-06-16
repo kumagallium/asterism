@@ -27,8 +27,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from asterism_step0.llm import AnthropicLLMClient, LLMClient, as_completion
 from asterism_step0.materialize import materialize_schema
-from asterism_step0.propose import AnthropicLLMClient, LLMClient
 
 # ----------------------------------------------------------------------------
 # Incomplete-output guard
@@ -240,7 +240,7 @@ def refine_schema(
         f"# Current schema\n\n{current_schema_md.strip()}\n\n"
         f"# Review comments\n\n{numbered}\n"
     )
-    refined = llm.complete(SYSTEM_PROMPT, user_message)
+    refined = as_completion(llm.complete(SYSTEM_PROMPT, user_message)).text
 
     # Truncation guard: if the refined output lost an artifact the input had,
     # the round was likely cut off mid-document. Keep the previous complete

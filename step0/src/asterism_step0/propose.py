@@ -29,9 +29,32 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import Any
 
 from asterism_step0.inspect import inspect_source_set, render_markdown
+
+# The LLM client seam lives in asterism_step0.llm (multi-provider). These names
+# are re-exported here so existing imports (`from asterism_step0.propose import
+# LLMClient, AnthropicLLMClient`) keep working.
+from asterism_step0.llm import (
+    AnthropicLLMClient,
+    LLMClient,
+    LLMCompletion,
+    LLMUsage,
+    as_completion,
+    make_llm,
+)
+
+__all__ = [
+    "AnthropicLLMClient",
+    "LLMClient",
+    "LLMCompletion",
+    "LLMUsage",
+    "SchemaProposal",
+    "as_completion",
+    "make_llm",
+    "propose_schema",
+]
 
 # ----------------------------------------------------------------------------
 # System prompt — frozen, cacheable, embeds the §3.1 prompt template
@@ -298,99 +321,6 @@ questions — just the artifact set.
 
 
 # ----------------------------------------------------------------------------
-# LLM client protocol (mockable for tests)
-# ----------------------------------------------------------------------------
-
-
-@runtime_checkable
-class LLMClient(Protocol):
-    """Minimal protocol for the LLM call propose_schema makes.
-
-    The real implementation uses Anthropic SDK with prompt caching; tests
-    can supply a mock that records the prompts and returns canned text.
-    """
-
-    def complete(self, system_prompt: str, user_message: str) -> str:
-        """Return the model's text output for one Claude call.
-
-        Implementations should:
-        - Mark ``system_prompt`` with ``cache_control: ephemeral`` (it's
-          large and stable; the user message is small and varies).
-        - Use ``model="claude-opus-4-7"`` + ``thinking={"type": "adaptive"}``
-          + ``output_config={"effort": "xhigh"}`` per claude-api skill guidance.
-        - NOT pass ``temperature`` / ``top_p`` / ``top_k`` (removed on Opus 4.7).
-        - **Stream** the response with a generous ``max_tokens`` — a full
-          schema proposal is long and a non-streaming request would either
-          truncate (small cap) or hit the SDK's ~10-minute timeout (large cap).
-        - Return ONLY the assistant's text content (concatenate text blocks if
-          multiple, drop thinking blocks).
-        """
-        ...
-
-
-@dataclass
-class AnthropicLLMClient:
-    """Default :class:`LLMClient` — wraps the Anthropic SDK.
-
-    Caches the system prompt via ``cache_control: ephemeral`` to amortize
-    cost across repeated calls (e.g. dogfooding many CSVs in one session).
-
-    Requires ``ANTHROPIC_API_KEY`` in the environment. Lazy-imports the
-    SDK so the package stays installable without ``anthropic``.
-
-    Args:
-        model: model ID (default ``claude-opus-4-7``).
-        max_tokens: output cap. Default 32000 — a full 8-section proposal on
-            a real dataset (Mermaid + rdf-config model.yaml + MIE extras +
-            ingester) runs 6-15k tokens; 16000 truncated the MIE section in
-            dogfooding. We **stream** the response so a large cap does not
-            risk the SDK's ~10-minute non-streaming HTTP timeout (the SDK
-            refuses non-streaming requests above ~16k anyway).
-        effort: ``output_config.effort`` value. ``xhigh`` is recommended
-            for coding/agentic per Opus 4.7 guidance; lower to ``high`` or
-            ``medium`` for cost-sensitive workloads.
-    """
-
-    model: str = "claude-opus-4-7"
-    max_tokens: int = 32000
-    effort: str = "xhigh"
-    api_key: str | None = None
-    """Explicit API key. If None, the SDK reads ``ANTHROPIC_API_KEY`` from the
-    environment. The Phase 4 UI passes a *user-brought* key here per request and
-    never persists it (design doc D7)."""
-
-    def complete(self, system_prompt: str, user_message: str) -> str:
-        import anthropic
-
-        # Pass api_key only when provided; otherwise the SDK falls back to the
-        # ANTHROPIC_API_KEY env var (the CLI / dogfood path).
-        client = (
-            anthropic.Anthropic(api_key=self.api_key) if self.api_key else anthropic.Anthropic()
-        )
-        # Stream so large proposals complete without hitting the SDK's
-        # non-streaming timeout guard. get_final_message() reassembles the
-        # whole response for us.
-        with client.messages.stream(
-            model=self.model,
-            max_tokens=self.max_tokens,
-            thinking={"type": "adaptive"},
-            output_config={"effort": self.effort},
-            system=[
-                {
-                    "type": "text",
-                    "text": system_prompt,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ],
-            messages=[{"role": "user", "content": user_message}],
-        ) as stream:
-            message = stream.get_final_message()
-        # Concatenate text blocks; ignore thinking blocks (they're internal).
-        text_parts = [b.text for b in message.content if b.type == "text"]
-        return "\n".join(text_parts)
-
-
-# ----------------------------------------------------------------------------
 # propose_schema
 # ----------------------------------------------------------------------------
 
@@ -452,7 +382,7 @@ def propose_schema(
     user_message = (
         f"# Source inspection\n\n{inspection_md}\n\n# Domain context\n\n{domain_hint.strip()}\n"
     )
-    proposal_md = llm.complete(SYSTEM_PROMPT, user_message)
+    proposal_md = as_completion(llm.complete(SYSTEM_PROMPT, user_message)).text
 
     return SchemaProposal(
         csv_inspection_md=inspection_md,

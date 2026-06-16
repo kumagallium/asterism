@@ -20,6 +20,8 @@ import { PRESET_HINTS } from './domainHints'
 import { MaterializePanel } from './MaterializePanel'
 import { ProposalView } from './ProposalView'
 import { SchemaGroundingPanel } from './SchemaGroundingPanel'
+import { useLlmSettings } from './settings/context'
+import { LlmGate } from './settings/LlmGate'
 
 // Data-source kinds. CSV and JSON (#19) are wired end-to-end (Morph-KGC reads
 // both via the RML's referenceFormulation); API/DB are shown (the redesign's
@@ -32,10 +34,6 @@ const SOURCES: { id: SourceKind; labelKey: string }[] = [
   { id: 'api', labelKey: 'workbench:source.apiShort' },
   { id: 'db', labelKey: 'workbench:source.db' },
 ]
-
-// D7: the user-brought API key lives only in sessionStorage (cleared when the
-// tab closes) and is sent as a per-request header. It is never persisted.
-const API_KEY_STORAGE = 'asterism.apiKey'
 
 // Inspect is NOT a step: Propose re-runs the deterministic inspection itself,
 // so a separate Inspect gate is redundant. It's available on demand from the
@@ -131,8 +129,8 @@ export function WorkbenchView() {
   const [inspecting, setInspecting] = useState(false)
   const [showInspect, setShowInspect] = useState(false)
 
-  // Propose
-  const [apiKey, setApiKey] = useState(() => sessionStorage.getItem(API_KEY_STORAGE) ?? '')
+  // Propose — the active model + its key come from Settings (shared, never on disk).
+  const { isReady, getActiveCredentials } = useLlmSettings()
   const [presetIds, setPresetIds] = useState<Set<string>>(() => new Set(snap.presetIds ?? []))
   const [domainFree, setDomainFree] = useState(snap.domainFree ?? '')
   const [proposal, setProposal] = useState(snap.proposal ?? '')
@@ -239,11 +237,6 @@ export function WorkbenchView() {
     if (next && !markdown && files.length > 0) onInspect()
   }
 
-  function onApiKeyChange(value: string) {
-    setApiKey(value)
-    sessionStorage.setItem(API_KEY_STORAGE, value)
-  }
-
   function togglePreset(id: string) {
     setPresetIds((prev) => {
       const next = new Set(prev)
@@ -268,7 +261,7 @@ export function WorkbenchView() {
     setProposing(true)
     closeRef.current?.()
     try {
-      closeRef.current = await proposeCsvs(files, composedDomain(), fks(), apiKey, {
+      closeRef.current = await proposeCsvs(files, composedDomain(), fks(), getActiveCredentials(), {
         onStart: (jobId) => saveJob(jobId, 'propose'),
         onStatus: (m) => setStatus(m),
         onDone: (result) => {
@@ -303,7 +296,7 @@ export function WorkbenchView() {
     setRefining(true)
     refineCloseRef.current?.()
     try {
-      refineCloseRef.current = await refineSchema(proposal, [c], apiKey, {
+      refineCloseRef.current = await refineSchema(proposal, [c], getActiveCredentials(), {
         onStart: (jobId) => saveJob(jobId, 'refine'),
         onStatus: (m) => setStatus(m),
         onDone: (result) => {
@@ -533,16 +526,7 @@ export function WorkbenchView() {
               <Trans i18nKey="workbench:design.hint" components={{ strong: <strong /> }} />
             </p>
             <section className="controls">
-              <label>
-                {t('workbench:design.apiKeyLabel')}
-                <input
-                  type="password"
-                  value={apiKey}
-                  placeholder="sk-ant-…"
-                  onChange={(e) => onApiKeyChange(e.target.value)}
-                  autoComplete="off"
-                />
-              </label>
+              <LlmGate />
 
               <fieldset className="hints">
                 <legend>{t('workbench:design.hintsLegend')}</legend>
@@ -567,7 +551,7 @@ export function WorkbenchView() {
                 </label>
               </fieldset>
 
-              <button onClick={onPropose} disabled={proposing || files.length === 0 || !apiKey}>
+              <button onClick={onPropose} disabled={proposing || files.length === 0 || !isReady}>
                 {proposing ? (
                   <>
                     <span className="spinner" />
@@ -613,7 +597,7 @@ export function WorkbenchView() {
                   />
                 </label>
                 <div className="refine-actions">
-                  <button onClick={onRefine} disabled={refining || !apiKey || !comment.trim()}>
+                  <button onClick={onRefine} disabled={refining || !isReady || !comment.trim()}>
                     {refining ? (
                       <>
                         <span className="spinner" />

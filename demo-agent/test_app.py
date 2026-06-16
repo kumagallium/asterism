@@ -527,3 +527,144 @@ def test_content_tool_defs_includes_registry_tools(monkeypatch, tmp_path) -> Non
     names = {d["name"] for d in defs}
     assert "my-dataset-abc12345__t1" in names
     assert registry_map["my-dataset-abc12345__t1"][0] == "my-dataset-abc12345"
+
+
+# --- multi-provider Ask: OpenAI-compatible (Sakura AI Engine etc.) -----------
+
+
+def _oai_tool_call(call_id: str, name: str, args: dict) -> types.SimpleNamespace:
+    return types.SimpleNamespace(
+        id=call_id,
+        type="function",
+        function=types.SimpleNamespace(name=name, arguments=json.dumps(args)),
+    )
+
+
+def _oai_resp(tool_calls=None, content=None, usage=None) -> types.SimpleNamespace:
+    msg = types.SimpleNamespace(content=content, tool_calls=tool_calls)
+    return types.SimpleNamespace(
+        choices=[types.SimpleNamespace(message=msg)], usage=usage
+    )
+
+
+class _FakeOpenAICompletions:
+    def __init__(self, outer: "_FakeOpenAI") -> None:
+        self._outer = outer
+
+    def create(self, **kwargs):
+        self._outer.calls.append(kwargs)
+        resp = self._outer.scripted[self._outer.i]
+        self._outer.i += 1
+        return resp
+
+
+class _FakeOpenAI:
+    """Scripts chat.completions.create responses (OpenAI function-calling shape)."""
+
+    def __init__(self, scripted: list) -> None:
+        self.scripted = scripted
+        self.i = 0
+        self.calls: list[dict] = []
+        self.chat = types.SimpleNamespace(completions=_FakeOpenAICompletions(self))
+
+
+def test_openai_compatible_ask_routes_executes_and_answers(monkeypatch) -> None:
+    # The Sakura/OpenAI path: the model function-calls run_sparql, the result is
+    # fed back, then it submit_answers — the same contract as the Anthropic loop.
+    select = f"SELECT ?w ?n WHERE {{ ?w a <{_EX}Widget> ; <{_EX}name> ?n }}"
+    captured_base: list = []
+    fake = _FakeOpenAI(
+        [
+            _oai_resp(
+                tool_calls=[_oai_tool_call("c1", "run_sparql", {"query": select})],
+                usage=types.SimpleNamespace(prompt_tokens=100, completion_tokens=20),
+            ),
+            _oai_resp(
+                tool_calls=[
+                    _oai_tool_call(
+                        "c2",
+                        "submit_answer",
+                        {
+                            "answer": "Widget は 2 件あります。",
+                            "citations": [{"iri": f"{_EX}w1", "kind": "Widget", "label": "alpha"}],
+                        },
+                    )
+                ],
+                usage=types.SimpleNamespace(prompt_tokens=130, completion_tokens=15),
+            ),
+        ]
+    )
+    g = rdflib.ConjunctiveGraph()
+    g.parse(data=_CUSTOM_TTL, format="turtle")
+    demo._state["client"] = _LocalClient(g)
+    monkeypatch.setattr(demo, "_REAL", True)
+
+    def factory(api_key, base_url):
+        captured_base.append(base_url)
+        return fake
+
+    monkeypatch.setitem(demo._state, "openai_factory", factory)
+
+    body = TestClient(demo.app).post(
+        "/demo/ask",
+        json={"question": "Widget は何件？"},
+        headers={
+            "X-API-Key": "sk-sakura",
+            "X-LLM-Provider": "openai-compatible",
+            "X-LLM-Model": "gpt-oss-120b",
+            "X-LLM-Api-Base": "https://api.ai.sakura.ad.jp/v1",
+        },
+    ).json()
+
+    assert "Widget" in body["answer"]
+    assert body["citations"][0]["iri"] == f"{_EX}w1"
+    assert select in body["sparql"]
+    # The base_url from the header reached the client factory.
+    assert captured_base == ["https://api.ai.sakura.ad.jp/v1"]
+    # The first call used OpenAI function-calling tool shape + the pinned model.
+    first = fake.calls[0]
+    assert first["model"] == "gpt-oss-120b"
+    assert first["tools"][0]["type"] == "function"
+    # The tool result was fed back as a role=tool message on turn 2.
+    fed_back = json.dumps(fake.calls[1]["messages"], ensure_ascii=False)
+    assert "alpha" in fed_back
+
+
+def test_ask_records_usage_to_ledger(monkeypatch) -> None:
+    # Accumulated token usage is reported to the api ledger (here captured instead
+    # of POSTed). The Anthropic path's usage fields map to the ledger event.
+    captured: dict = {}
+
+    async def fake_post(provider, model, usage):
+        captured.update({"provider": provider, "model": model, "usage": usage})
+
+    monkeypatch.setattr(demo, "_post_usage", fake_post)
+    fake = _FakeAnthropic(
+        [
+            _block(
+                content=[
+                    _block(
+                        type="tool_use",
+                        id="t1",
+                        name="submit_answer",
+                        input={"answer": "ok", "citations": []},
+                    )
+                ],
+                usage=types.SimpleNamespace(
+                    input_tokens=200,
+                    output_tokens=40,
+                    cache_read_input_tokens=10,
+                    cache_creation_input_tokens=5,
+                ),
+            )
+        ]
+    )
+    client = _custom_schema_client(monkeypatch, fake)
+    client.post(
+        "/demo/ask", json={"question": "Widget は何件？"}, headers={"X-API-Key": "sk-test"}
+    )
+    assert captured["provider"] == "anthropic"
+    assert captured["usage"]["input_tokens"] == 200
+    assert captured["usage"]["output_tokens"] == 40
+    assert captured["usage"]["cache_read_tokens"] == 10
+    assert captured["usage"]["cache_write_tokens"] == 5

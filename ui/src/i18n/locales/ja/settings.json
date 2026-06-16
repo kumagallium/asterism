@@ -1,0 +1,70 @@
+{
+  "title": "設定",
+  "open": "設定",
+  "close": "閉じる",
+  "save": "保存",
+  "cancel": "キャンセル",
+  "tabs": {
+    "models": "モデル",
+    "usage": "API使用量"
+  },
+  "models": {
+    "intro": "AI が使うモデルを登録します。Anthropic（Claude）のほか、OpenAI や OpenAI 互換エンドポイント（さくらの AI Engine・Groq・Ollama など）を base URL を入れるだけで追加できます。選択中のモデルが提案・Ask など全機能で使われます。",
+    "empty": "まだモデルがありません。「+ モデルを追加」から登録してください。",
+    "activeBadge": "使用中",
+    "keySet": "APIキー設定済み",
+    "keyMissing": "APIキー未設定",
+    "edit": "編集",
+    "delete": "削除",
+    "confirmDelete": "削除する",
+    "add": "モデルを追加"
+  },
+  "form": {
+    "addTitle": "モデルを追加",
+    "editTitle": "モデルを編集",
+    "provider": "プロバイダ",
+    "apiBase": "エンドポイント（base URL）",
+    "modelId": "モデルID",
+    "name": "表示名",
+    "namePlaceholder": "（省略するとモデルIDを表示）",
+    "apiKey": "APIキー",
+    "remember": "このブラウザに記憶する",
+    "rememberOn": "キーは localStorage に保存され、再読み込み・再起動後も残ります。",
+    "rememberOff": "キーは sessionStorage のみ。タブを閉じると消えます（ディスク非保存）。",
+    "rate": "トークン単価（コスト計算用・任意）",
+    "rateHelp": "100万トークンあたりの入力/出力単価。設定するとコストを概算します（未設定でもトークン数は記録・コストは「—」表示）。最新の公開価格は各プロバイダの料金ページで確認してください（API での自動取得は不可・JPY も可）。",
+    "rateInput": "入力",
+    "rateOutput": "出力",
+    "cacheNote": "キャッシュの単価は入力単価から自動計算します（Anthropic: 読取 0.1×・書込 1.25×。OpenAI 互換はキャッシュ未使用）。",
+    "currency": "通貨"
+  },
+  "usage": {
+    "placeholder": "使用量ダッシュボードは Phase C で実装します。",
+    "intro": "各 AI 呼び出しで使ったトークンをサーバが記録し、ここで集計・概算コストを表示します。コストはモデルの単価表から表示時に計算します。",
+    "loading": "読み込み中…",
+    "empty": "まだ使用量の記録がありません。提案や Ask を実行すると記録されます。",
+    "error": "使用量の取得に失敗しました。",
+    "totalTokens": "総トークン",
+    "totalCost": "概算コスト",
+    "granularity": { "day": "日", "month": "月", "year": "年" },
+    "usdJpyRate": "USD→JPY レート",
+    "feature": "機能",
+    "model": "モデル",
+    "tokens": "トークン",
+    "cost": "コスト",
+    "features": {
+      "propose": "スキーマ提案",
+      "refine": "スキーマ改訂",
+      "tool.propose": "ツール提案",
+      "crosswalk.propose": "横断マッピング提案",
+      "ask": "Ask"
+    }
+  },
+  "gate": {
+    "using": "使用モデル:",
+    "change": "変更",
+    "noModel": "AI を使うにはモデルを設定してください。",
+    "openSettings": "設定を開く",
+    "noKey": "選択中のモデルにAPIキーが未設定です。"
+  }
+}

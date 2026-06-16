@@ -10,6 +10,12 @@ dependencies = [
     # [tool.uv.sources] below. step0's inspect path is dependency-free.
     "asterism-ingest",
     "asterism-step0",
+    # Both LLM provider SDKs for the multi-provider client seam (asterism_step0.llm):
+    # Anthropic (default Claude) + OpenAI (any OpenAI-compatible endpoint, e.g.
+    # Sakura AI Engine via a custom base_url). Pinned here so the api venv always
+    # has them; step0 lazy-imports them inside complete().
+    "anthropic>=0.40",
+    "openai>=1.40",
     "fastapi>=0.110",
     "python-multipart>=0.0.9",
     "uvicorn[standard]>=0.30",

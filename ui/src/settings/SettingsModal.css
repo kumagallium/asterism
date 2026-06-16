@@ -1,0 +1,427 @@
+/* Settings modal — model registry + usage. Uses the app design tokens
+   (index.css :root) so it matches the forest theme. */
+
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 35, 22, 0.32);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 6vh 16px 16px;
+  z-index: 100;
+  overflow-y: auto;
+}
+
+.settings-modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-2);
+  width: min(720px, 100%);
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.settings-head h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  color: var(--fg);
+}
+.settings-close {
+  border: none;
+  background: transparent;
+  font-size: 1.4rem;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 6px;
+  border-radius: var(--radius-sm);
+}
+.settings-close:hover {
+  color: var(--fg);
+  background: var(--surface-alt);
+}
+
+.settings-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 16px 0;
+  border-bottom: 1px solid var(--border);
+}
+.settings-tab {
+  border: none;
+  background: transparent;
+  padding: 8px 14px;
+  font-size: 0.9rem;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.settings-tab:hover {
+  color: var(--fg);
+}
+.settings-tab.active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+  font-weight: 600;
+}
+
+.settings-body {
+  padding: 18px 20px 22px;
+  overflow-y: auto;
+}
+
+.settings-intro {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+.settings-empty {
+  color: var(--faint);
+  font-size: 0.9rem;
+  padding: 12px 0;
+}
+
+/* ---- model list ---- */
+.model-list {
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.model-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.model-row.active {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+.model-pick {
+  padding-top: 2px;
+}
+.model-main {
+  flex: 1;
+  min-width: 0;
+}
+.model-name {
+  font-weight: 600;
+  color: var(--fg);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.model-badge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--primary-fg);
+  background: var(--primary);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+.model-sub {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin-top: 4px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.model-sub .model-id,
+.model-sub .model-base {
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+}
+.model-base {
+  color: var(--faint);
+  word-break: break-all;
+}
+.model-key {
+  margin-top: 6px;
+  font-size: 0.76rem;
+}
+.model-key.ok {
+  color: var(--success-fg);
+}
+.model-key.missing {
+  color: var(--warn-fg);
+}
+.model-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-end;
+}
+
+/* ---- form ---- */
+.model-form {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 16px;
+  background: var(--surface-alt);
+}
+.model-form h3 {
+  margin: 0 0 12px;
+  font-size: 0.95rem;
+  color: var(--fg);
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+.field > span {
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+.field .req {
+  color: var(--error-fg);
+  font-style: normal;
+}
+.field input,
+.field select {
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--fg);
+}
+.field input:focus,
+.field select:focus {
+  outline: 2px solid var(--primary-soft);
+  border-color: var(--primary);
+}
+.field-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: var(--fg);
+  margin-bottom: 4px;
+}
+.field-help {
+  margin: 0 0 12px;
+  font-size: 0.76rem;
+  color: var(--faint);
+  line-height: 1.5;
+}
+
+.rate-fieldset {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  margin: 4px 0 14px;
+}
+.rate-fieldset legend {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 0 6px;
+}
+.rate-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 12px;
+}
+.rate-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.currency-toggle,
+.settings-seg {
+  display: inline-flex;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.currency-btn,
+.settings-seg button {
+  border: none;
+  background: var(--surface);
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+.currency-btn.active,
+.settings-seg button.active {
+  background: var(--primary);
+  color: var(--primary-fg);
+  font-weight: 600;
+}
+
+.form-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.settings-add {
+  margin-top: 4px;
+}
+
+/* shared small buttons (ghost/danger) layered on top of the app .btn system */
+.btn--danger {
+  font: inherit;
+  font-size: 0.82rem;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--error-border);
+  background: var(--error-bg);
+  color: var(--error-fg);
+  cursor: pointer;
+}
+.btn--danger:hover {
+  background: var(--error-fg);
+  color: #fff;
+}
+
+/* ---- usage dashboard ---- */
+.usage-totals {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  margin: 8px 0 16px;
+}
+.usage-total {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.usage-total .num {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--fg);
+}
+.usage-total .lbl {
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+.usage-controls {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.usage-rate-input {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.usage-rate-input input {
+  width: 86px;
+  font: inherit;
+  font-size: 0.82rem;
+  padding: 5px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+
+.usage-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 120px;
+  padding: 8px 0 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 12px;
+}
+.usage-bar {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  height: 100%;
+  justify-content: flex-end;
+}
+.usage-bar .bar {
+  width: 70%;
+  background: var(--primary);
+  border-radius: 3px 3px 0 0;
+  min-height: 2px;
+}
+.usage-bar .bk {
+  font-size: 0.64rem;
+  color: var(--faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.usage-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+.usage-table th,
+.usage-table td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.usage-table th {
+  color: var(--muted);
+  font-weight: 600;
+}
+.usage-table td.num,
+.usage-table th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.usage-table .feat {
+  font-weight: 600;
+  color: var(--fg);
+}
+.usage-table .mdl {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+}
+.usage-empty {
+  color: var(--faint);
+  font-size: 0.9rem;
+  padding: 16px 0;
+}
+
+@media (max-width: 560px) {
+  .rate-grid {
+    grid-template-columns: 1fr;
+  }
+  .model-row {
+    flex-wrap: wrap;
+  }
+}

@@ -1,6 +1,7 @@
 // Thin client for the asterism-api surface (inspect + propose/SSE).
 
 import { authHeaders } from './authToken'
+import { type LlmCredentials, llmHeaders } from './settings/store'
 
 /**
  * POST the given CSV files to /api/inspect and return the inspection Markdown.
@@ -46,15 +47,15 @@ export interface ProposeHandlers {
 /**
  * Start a schema-proposal job and subscribe to its SSE stream.
  *
- * The API key (D7: user-brought, never persisted server-side) is sent as the
- * `X-API-Key` header on the POST only. Returns a cleanup function that closes
- * the EventSource — call it on unmount or when starting a new run.
+ * The active model's credentials (D7: user-brought, never persisted server-side)
+ * are sent as `X-API-Key` + `X-LLM-*` headers on the POST only. Returns a cleanup
+ * function that closes the EventSource — call it on unmount or a new run.
  */
 export async function proposeCsvs(
   files: File[],
   domain: string,
   fks: string[],
-  apiKey: string,
+  creds: LlmCredentials | null,
   handlers: ProposeHandlers,
 ): Promise<() => void> {
   const form = new FormData()
@@ -72,7 +73,7 @@ export async function proposeCsvs(
   const res = await fetch(url, {
     method: 'POST',
     body: form,
-    headers: apiKey ? { 'X-API-Key': apiKey } : {},
+    headers: llmHeaders(creds),
   })
   if (!res.ok) {
     const detail = await res.text().catch(() => '')
@@ -103,14 +104,14 @@ export interface RefineHandlers {
 export async function refineSchema(
   schemaMd: string,
   comments: string[],
-  apiKey: string,
+  creds: LlmCredentials | null,
   handlers: RefineHandlers,
 ): Promise<() => void> {
   const res = await fetch('/api/refine', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      ...(apiKey ? { 'X-API-Key': apiKey } : {}),
+      ...llmHeaders(creds),
     },
     body: JSON.stringify({ schema_md: schemaMd, comments }),
   })

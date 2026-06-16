@@ -14,11 +14,13 @@ import {
   CodeIcon,
   ConnectIcon,
   DataIcon,
+  GearIcon,
   HomeIcon,
   TermsIcon,
 } from './icons'
 import { JobsView } from './JobsView'
 import { OntologyMapView } from './OntologyMapView'
+import { useLlmSettings } from './settings/context'
 import { SharedVocabView } from './SharedVocabView'
 import { SparqlView } from './SparqlView'
 import { WorkbenchView } from './WorkbenchView'
@@ -61,6 +63,9 @@ function App() {
   const otherLng = i18n.language.startsWith('en') ? 'ja' : 'en'
   const glossT = i18n.getFixedT(otherLng, 'common')
   const [tab, setTab] = useState<Tab>('home')
+  const { openSettings } = useLlmSettings()
+  const tSettings = i18n.getFixedT(i18n.language, 'settings')
+  const glossSettingsT = i18n.getFixedT(otherLng, 'settings')
 
   // Keep the document title and <html lang> in sync with the chosen language.
   useEffect(() => {
@@ -117,6 +122,15 @@ function App() {
         </nav>
 
         <div className="sidebar-foot">
+          <button
+            type="button"
+            className="side-nav-item side-nav-settings"
+            onClick={openSettings}
+          >
+            <GearIcon className="side-nav-icon" />
+            <span className="side-nav-text">{tSettings('open')}</span>
+            <span className="side-nav-en">{glossSettingsT('open')}</span>
+          </button>
           <button
             type="button"
             className={`side-nav-item side-nav-dev${tab === 'sparql' ? ' active' : ''}`}
