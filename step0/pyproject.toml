@@ -21,6 +21,15 @@ anthropic = [
     # stays installable in minimal CI.
     "anthropic>=0.40",
 ]
+llm = [
+    # Both provider SDKs for the multi-provider client seam (asterism_step0.llm):
+    # Anthropic for the default Claude path, OpenAI for any OpenAI-compatible
+    # endpoint (Sakura AI Engine / Groq / Ollama / vLLM, via a custom base_url).
+    # Lazy-imported inside complete() so the package stays installable without
+    # them; the api installs this extra so its venv has both SDKs.
+    "anthropic>=0.40",
+    "openai>=1.40",
+]
 validate = [
     # validate_schema parses TBox TTLs (rdflib) and MIE YAMLs (PyYAML).
     "rdflib>=7.0",

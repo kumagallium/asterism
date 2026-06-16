@@ -34,6 +34,10 @@ services:
       - oxigraph
     environment:
       CSV2RDF_OXIGRAPH_URL: http://oxigraph:7878
+      # Report Ask token usage to the api's ledger (best-effort; omit to disable).
+      # ASTERISM_API_TOKEN must match the api's write token when that route is gated.
+      ASTERISM_API_URL: http://upload-api:8080
+      ASTERISM_API_TOKEN: ${ASTERISM_API_TOKEN:-}
     ports:
       # Loopback-only: the demo-agent answers from the live store and (when the
       # raw escape is enabled) proxies SPARQL. Do not expose it on the LAN over a

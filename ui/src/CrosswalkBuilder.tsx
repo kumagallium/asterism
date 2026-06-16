@@ -11,6 +11,8 @@ import {
 } from './crosswalkApi'
 import { type CatalogDataset, getCatalogDatasets } from './galleryApi'
 import { LinkIcon } from './icons'
+import { useLlmSettings } from './settings/context'
+import { LlmGate } from './settings/LlmGate'
 import { localName } from './vocab'
 
 // The CLOSED recipe primitives (mirror asterism.crosswalk.RECIPE_PRIMITIVES). A recipe
@@ -20,8 +22,6 @@ import { localName } from './vocab'
 const RECIPE_PRIMITIVE_IDS = ['nfkc', 'casefold', 'strip', 'collapse_ws', 'remove_ws', 'fold_subscripts']
 // Sentinel select value: author a custom recipe instead of a named normalizer.
 const RECIPE_OPTION = '__recipe__'
-
-const API_KEY_STORAGE = 'asterism.apiKey'
 
 // The crosswalk hub vocabulary namespace (matches the runtime's `XW`). A concept's
 // class + link predicate are minted under here so each concept gets its own term
@@ -101,7 +101,7 @@ export function CrosswalkBuilder() {
   const [predicate, setPredicate] = useState<Record<string, string>>({})
   // dataset_id -> AI-sampled candidates (iri + sample value), populated by propose.
   const [candidates, setCandidates] = useState<Record<string, PredicateCandidate[]>>({})
-  const [apiKey, setApiKey] = useState(() => sessionStorage.getItem(API_KEY_STORAGE) ?? '')
+  const { isReady, getActiveCredentials } = useLlmSettings()
   // The concept these datasets share (the lens's join target). An ascii key minted
   // into the hub vocabulary (xw:<PascalCase>); 'composition' is just the default, not
   // a lock — '結晶系' would be 'crystal_system' → xw:CrystalSystem, '著者' → 'author', …
@@ -170,11 +170,6 @@ export function CrosswalkBuilder() {
     })
   }
 
-  function onApiKeyChange(v: string) {
-    setApiKey(v)
-    sessionStorage.setItem(API_KEY_STORAGE, v)
-  }
-
   const chosen = (datasets ?? []).filter((d) => selected.has(datasetId(d)))
   const readyCount = chosen.filter((d) => predicate[datasetId(d)]).length
   const conceptKey = concept.trim() || 'composition'
@@ -236,7 +231,7 @@ export function CrosswalkBuilder() {
     setProposeNote('')
     try {
       const ids = chosen.map(datasetId)
-      const r = await proposeCrosswalkMapping(ids, conceptKey, apiKey)
+      const r = await proposeCrosswalkMapping(ids, conceptKey, getActiveCredentials())
       const cand: Record<string, PredicateCandidate[]> = {}
       for (const c of r.candidates) cand[c.dataset_id] = c.predicates
       setCandidates((prev) => ({ ...prev, ...cand }))
@@ -421,18 +416,12 @@ export function CrosswalkBuilder() {
                 <span className="xw-hint-inline">{t('crosswalk:builder.step3Hint')}</span>
               </div>
 
+              <LlmGate />
               <div className="xw-ai-row">
-                <input
-                  type="password"
-                  className="xw-key-input"
-                  placeholder={t('crosswalk:builder.apiKeyPlaceholder')}
-                  value={apiKey}
-                  onChange={(e) => onApiKeyChange(e.target.value)}
-                />
                 <button
                   type="button"
                   className="btn btn--ghost btn--sm"
-                  disabled={proposing || !apiKey || chosen.length < 1}
+                  disabled={proposing || !isReady || chosen.length < 1}
                   onClick={onPropose}
                 >
                   {proposing ? t('crosswalk:builder.proposing') : t('crosswalk:builder.propose')}

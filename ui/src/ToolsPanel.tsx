@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import { ToolRunner } from './ToolRunner'
+import { useLlmSettings } from './settings/context'
+import { LlmGate } from './settings/LlmGate'
 import {
   deleteTool,
   listTools,
@@ -12,9 +14,8 @@ import {
   saveTool,
 } from './toolsApi'
 
-// Shared with Ask (same user-brought key, sessionStorage, never persisted to
-// disk). Listing/saving/deleting tools need no key; the AI draft (propose) does.
-const API_KEY_STORAGE = 'asterism.apiKey'
+// Listing/saving/deleting tools need no key; the AI draft (propose) uses the
+// active model from Settings (shared across the app, never persisted to disk).
 
 interface ResultRow {
   key: string
@@ -109,8 +110,8 @@ export function ToolsPanel({ datasetId }: { datasetId: string }) {
   const [busyDelete, setBusyDelete] = useState('')
 
   // Authoring (draft) state.
+  const { isReady, getActiveCredentials } = useLlmSettings()
   const [intent, setIntent] = useState('')
-  const [apiKey, setApiKey] = useState(() => sessionStorage.getItem(API_KEY_STORAGE) ?? '')
   const [proposing, setProposing] = useState(false)
   const [proposeError, setProposeError] = useState('')
   const [draft, setDraft] = useState<ToolForm | null>(null)
@@ -132,11 +133,6 @@ export function ToolsPanel({ datasetId }: { datasetId: string }) {
     }
   }, [datasetId])
 
-  function onApiKeyChange(v: string) {
-    setApiKey(v)
-    if (v) sessionStorage.setItem(API_KEY_STORAGE, v)
-    else sessionStorage.removeItem(API_KEY_STORAGE)
-  }
 
   // Any edit to the draft invalidates the AI-draft gate → re-checked on save.
   function patch(p: Partial<ToolForm>) {
@@ -198,12 +194,12 @@ export function ToolsPanel({ datasetId }: { datasetId: string }) {
   }
 
   async function propose() {
-    if (!intent.trim() || !apiKey.trim()) return
+    if (!intent.trim() || !isReady) return
     setProposing(true)
     setProposeError('')
     setNotice('')
     try {
-      const res = await proposeTool(datasetId, intent.trim(), apiKey.trim())
+      const res = await proposeTool(datasetId, intent.trim(), getActiveCredentials())
       setDraft(toForm(res.draft))
       setDraftValid(res.valid)
       setDraftGateError(res.error)
@@ -314,19 +310,12 @@ export function ToolsPanel({ datasetId }: { datasetId: string }) {
           placeholder={t('tools:panel.author.intentPlaceholder')}
           onChange={(e) => setIntent(e.target.value)}
         />
+        <LlmGate />
         <div className="tool-author-row">
-          <input
-            type="password"
-            className="ask-key-input tool-key-input"
-            value={apiKey}
-            placeholder={t('tools:panel.author.keyPlaceholder')}
-            autoComplete="off"
-            onChange={(e) => onApiKeyChange(e.target.value)}
-          />
           <button
             type="button"
             onClick={propose}
-            disabled={proposing || !intent.trim() || !apiKey.trim()}
+            disabled={proposing || !intent.trim() || !isReady}
           >
             {proposing ? (
               <>

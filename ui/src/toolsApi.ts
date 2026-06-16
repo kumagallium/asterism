@@ -18,6 +18,7 @@
 // only — these go through /api (the proxy), so they are live even under the
 // preview's mock demo mode (which only swaps the demo-agent surface).
 import { authHeaders } from './authToken'
+import { type LlmCredentials, llmHeaders } from './settings/store'
 import i18n from './i18n'
 
 const API_BASE = ((import.meta.env.VITE_API_URL as string | undefined) ?? '').replace(/\/+$/, '')
@@ -115,13 +116,13 @@ export async function deleteTool(datasetId: string, name: string): Promise<Query
 export async function proposeTool(
   datasetId: string,
   intent: string,
-  apiKey: string,
+  creds: LlmCredentials | null,
 ): Promise<ProposeResult> {
   const res = await fetch(
     `${API_BASE}/api/datasets/${encodeURIComponent(datasetId)}/tools/propose`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey, ...authHeaders() },
+      headers: { 'Content-Type': 'application/json', ...llmHeaders(creds), ...authHeaders() },
       body: JSON.stringify({ intent }),
     },
   )

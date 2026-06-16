@@ -44,7 +44,7 @@
     "analyzing": "解析中…"
   },
   "design": {
-    "hint": "AI がデータの<strong>設計図（語彙）</strong>と<strong>取り込みルール</strong>の案を提案します。Anthropic API キーが必要です（このセッションのみ保持・サーバ非保存）。",
+    "hint": "AI がデータの<strong>設計図（語彙）</strong>と<strong>取り込みルール</strong>の案を提案します。AI には、設定で選択中のモデルを使います。",
     "apiKeyLabel": "Anthropic API キー (sk-…)",
     "hintsLegend": "ヒント (任意・当てはまるものにチェックすると精度が上がります)",
     "domainFreeLabel": "その他の補足 (自由記入・任意)",

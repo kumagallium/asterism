@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import re
 
-from asterism_step0.propose import LLMClient
+from asterism_step0.llm import LLMClient, as_completion
 
 _SYSTEM = """\
 You design ONE read-only SPARQL "query tool" for a dataset: a named,
@@ -124,7 +124,9 @@ def propose_query_tool(
     """
     if not intent.strip():
         raise ValueError("intent is required")
-    text = llm.complete(_SYSTEM, _user_message(intent, model_yaml, mie_yaml, rml_ttl))
+    text = as_completion(
+        llm.complete(_SYSTEM, _user_message(intent, model_yaml, mie_yaml, rml_ttl))
+    ).text
     tool = _extract_json_object(text)
     if "name" not in tool or "query" not in tool:
         raise ValueError("draft is missing required keys (name, query)")

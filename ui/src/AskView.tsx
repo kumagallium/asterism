@@ -6,13 +6,14 @@ import { CitationCard } from './CitationCard'
 import { ask, isMockMode, type AskResponse, type Citation } from './demoApi'
 import { AskIcon, CheckIcon } from './icons'
 import { ProvenanceTrace } from './ProvenanceTrace'
+import { useLlmSettings } from './settings/context'
+import { LlmGate } from './settings/LlmGate'
 
-// Shared with the workbench (same user-brought key, sessionStorage, never
-// persisted to disk). Ask REQUIRES a key: the AI uses it to route the question to
-// the verified tools (it only picks the tool + args; the facts/citations come from
-// the deterministic tool, not the AI). For key-free deterministic tool execution,
-// use the catalog's ツール tab instead.
-const API_KEY_STORAGE = 'asterism.apiKey'
+// Ask REQUIRES a configured model: the AI uses it to route the question to the
+// verified tools (it only picks the tool + args; the facts/citations come from the
+// deterministic tool, not the AI). The active model + its key come from Settings
+// (shared across the app); for key-free deterministic tool execution, use the
+// catalog's ツール tab instead.
 
 /**
  * Ask view: natural-language question -> grounded answer + clickable citation
@@ -33,15 +34,9 @@ export function AskView({ onShowVocab }: { onShowVocab?: (className: string) => 
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [selected, setSelected] = useState<Citation | null>(null)
-  const [apiKey, setApiKey] = useState(() => sessionStorage.getItem(API_KEY_STORAGE) ?? '')
+  const { isReady, getActiveCredentials } = useLlmSettings()
 
-  function onApiKeyChange(v: string) {
-    setApiKey(v)
-    if (v) sessionStorage.setItem(API_KEY_STORAGE, v)
-    else sessionStorage.removeItem(API_KEY_STORAGE)
-  }
-
-  const keyMissing = !apiKey.trim() && !isMockMode
+  const keyMissing = !isReady && !isMockMode
 
   async function run(q: string) {
     const query = q.trim()
@@ -55,7 +50,7 @@ export function AskView({ onShowVocab }: { onShowVocab?: (className: string) => 
     setSelected(null)
     setLoading(true)
     try {
-      setResult(await ask(query, apiKey || undefined))
+      setResult(await ask(query, getActiveCredentials()))
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -117,23 +112,7 @@ export function AskView({ onShowVocab }: { onShowVocab?: (className: string) => 
           </button>
         </section>
 
-        <section className={`ask-key-row${keyMissing ? ' ask-key-row--needed' : ''}`}>
-          <label className="ask-key-label" htmlFor="ask-key">
-            {t('ask:key.label')} <span className="ask-key-required">{t('ask:key.required')}</span>
-          </label>
-          <input
-            id="ask-key"
-            type="password"
-            className="ask-key-input"
-            value={apiKey}
-            placeholder={t('ask:key.placeholder')}
-            autoComplete="off"
-            onChange={(e) => onApiKeyChange(e.target.value)}
-          />
-          <p className="ask-key-note">
-            <Trans i18nKey="ask:key.note" components={[<strong key="0" />, <strong key="1" />]} />
-          </p>
-        </section>
+        {!isMockMode && <LlmGate />}
 
         <div className="ask-examples">
           {examples.map((ex) => (

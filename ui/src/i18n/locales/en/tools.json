@@ -7,7 +7,7 @@
     "emptyList": "No tools yet. Create one from \"Draft with AI\" below.",
     "author": {
       "subhead": "Draft with AI (build one from what you want)",
-      "hint": "Describe what you want and <1>the AI drafts a read-only SPARQL tool</1> grounded in this data's vocabulary. The draft is <3>editable in place</3> and is <5>only finalized once you save</5> (saving is the human vetting gate). The key is kept only within this tab and never stored (shared with Ask).",
+      "hint": "Describe what you want and <1>the AI drafts a read-only SPARQL tool</1> grounded in this data's vocabulary. The draft is <3>editable in place</3> and is <5>only finalized once you save</5> (saving is the human vetting gate). It uses the model selected in Settings.",
       "intentPlaceholder": "e.g. given a composition, return the crystal structure (space group, crystal system)",
       "keyPlaceholder": "sk-ant-… (required for AI drafting)",
       "proposing": "Drafting…",

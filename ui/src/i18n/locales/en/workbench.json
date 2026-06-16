@@ -44,7 +44,7 @@
     "analyzing": "Analyzing…"
   },
   "design": {
-    "hint": "The AI proposes a draft of the data's <strong>blueprint (vocabulary)</strong> and <strong>ingestion rules</strong>. An Anthropic API key is required (kept for this session only, never stored on the server).",
+    "hint": "The AI proposes a draft of the data's <strong>blueprint (vocabulary)</strong> and <strong>ingestion rules</strong>. It uses the model selected in Settings.",
     "apiKeyLabel": "Anthropic API key (sk-…)",
     "hintsLegend": "Hints (optional — checking the ones that apply improves accuracy)",
     "domainFreeLabel": "Other notes (free text, optional)",

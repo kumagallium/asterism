@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import re
 
-from asterism_step0.propose import LLMClient
+from asterism_step0.llm import LLMClient, as_completion
 
 _SYSTEM = """\
 You map datasets onto a SHARED CROSSWALK CONCEPT. For each dataset you are given its
@@ -92,7 +92,7 @@ def propose_crosswalk_mapping(
         str(d.get("dataset_id")): {str(p.get("iri")) for p in (d.get("predicates") or [])}
         for d in datasets
     }
-    text = llm.complete(_SYSTEM, _user_message(concept, datasets))
+    text = as_completion(llm.complete(_SYSTEM, _user_message(concept, datasets))).text
     obj = _extract_json_object(text)
     out: list[dict] = []
     for entry in obj.get("participants") or []:

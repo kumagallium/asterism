@@ -1,0 +1,416 @@
+import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import './SettingsModal.css'
+import { useLlmSettings } from './context'
+import { UsageTab } from './UsageTab'
+import {
+  API_BASE_HINTS,
+  PROVIDERS,
+  type LlmModelConfig,
+  type Provider,
+  type RateCurrency,
+  type TokenRate,
+  credentialGroup,
+  getKey,
+  isRemembered,
+  makeModel,
+} from './store'
+
+type Tab = 'models' | 'usage'
+
+export function SettingsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { t } = useTranslation('settings')
+  const [tab, setTab] = useState<Tab>('models')
+
+  // Close on Escape.
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, onClose])
+
+  if (!open) return null
+
+  return (
+    <div className="settings-overlay" onClick={onClose}>
+      <div
+        className="settings-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('title')}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="settings-head">
+          <h2>{t('title')}</h2>
+          <button type="button" className="settings-close" aria-label={t('close')} onClick={onClose}>
+            ×
+          </button>
+        </header>
+        <nav className="settings-tabs">
+          <button
+            type="button"
+            className={`settings-tab${tab === 'models' ? ' active' : ''}`}
+            onClick={() => setTab('models')}
+          >
+            {t('tabs.models')}
+          </button>
+          <button
+            type="button"
+            className={`settings-tab${tab === 'usage' ? ' active' : ''}`}
+            onClick={() => setTab('usage')}
+          >
+            {t('tabs.usage')}
+          </button>
+        </nav>
+        <div className="settings-body">
+          {tab === 'models' ? <ModelsTab /> : <UsageTab />}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Models tab
+// ---------------------------------------------------------------------------
+
+function ModelsTab() {
+  const { t } = useTranslation('settings')
+  const settings = useLlmSettings()
+  const [editing, setEditing] = useState<LlmModelConfig | null>(null)
+  const [adding, setAdding] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
+
+  const showForm = adding || editing !== null
+
+  return (
+    <div className="models-tab">
+      <p className="settings-intro">{t('models.intro')}</p>
+
+      {settings.models.length === 0 && !showForm && (
+        <p className="settings-empty">{t('models.empty')}</p>
+      )}
+
+      {!showForm && (
+        <ul className="model-list">
+          {settings.models.map((m) => {
+            const active = m.id === settings.activeModelId
+            const keySet = settings.hasKeyForModel(m)
+            return (
+              <li key={m.id} className={`model-row${active ? ' active' : ''}`}>
+                <label className="model-pick">
+                  <input
+                    type="radio"
+                    name="active-model"
+                    checked={active}
+                    onChange={() => settings.setActiveModel(m.id)}
+                  />
+                </label>
+                <div className="model-main">
+                  <div className="model-name">
+                    {m.name}
+                    {active && <span className="model-badge">{t('models.activeBadge')}</span>}
+                  </div>
+                  <div className="model-sub">
+                    <span className="model-provider">{providerName(m.provider)}</span>
+                    <span className="model-id">{m.modelId}</span>
+                    {m.apiBase && <span className="model-base">{m.apiBase}</span>}
+                  </div>
+                  <div className={`model-key ${keySet ? 'ok' : 'missing'}`}>
+                    {keySet ? t('models.keySet') : t('models.keyMissing')}
+                  </div>
+                </div>
+                <div className="model-actions">
+                  <button type="button" className="btn--ghost" onClick={() => setEditing(m)}>
+                    {t('models.edit')}
+                  </button>
+                  {confirmDelete === m.id ? (
+                    <>
+                      <button
+                        type="button"
+                        className="btn--danger"
+                        onClick={() => {
+                          settings.removeModel(m.id)
+                          setConfirmDelete(null)
+                        }}
+                      >
+                        {t('models.confirmDelete')}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn--ghost"
+                        onClick={() => setConfirmDelete(null)}
+                      >
+                        {t('cancel')}
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn--ghost"
+                      onClick={() => setConfirmDelete(m.id)}
+                    >
+                      {t('models.delete')}
+                    </button>
+                  )}
+                </div>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+
+      {showForm ? (
+        <ModelForm
+          model={editing}
+          onCancel={() => {
+            setAdding(false)
+            setEditing(null)
+          }}
+          onSaved={() => {
+            setAdding(false)
+            setEditing(null)
+          }}
+        />
+      ) : (
+        <button type="button" className="btn settings-add" onClick={() => setAdding(true)}>
+          + {t('models.add')}
+        </button>
+      )}
+    </div>
+  )
+}
+
+function providerName(id: string): string {
+  return PROVIDERS.find((p) => p.id === id)?.name ?? id
+}
+
+// ---------------------------------------------------------------------------
+// Add / edit form
+// ---------------------------------------------------------------------------
+
+function ModelForm({
+  model,
+  onCancel,
+  onSaved,
+}: {
+  model: LlmModelConfig | null
+  onCancel: () => void
+  onSaved: () => void
+}) {
+  const { t } = useTranslation('settings')
+  const settings = useLlmSettings()
+  const editing = model !== null
+
+  const [provider, setProvider] = useState<Provider>(model?.provider ?? 'anthropic')
+  const [name, setName] = useState(model?.name ?? '')
+  const [modelId, setModelId] = useState(model?.modelId ?? '')
+  const [apiBase, setApiBase] = useState(model?.apiBase ?? '')
+  const initialGroup = credentialGroup(
+    model?.provider ?? 'anthropic',
+    model?.apiBase ?? (model ? null : ''),
+  )
+  const [apiKey, setApiKey] = useState(() => (model ? getKey(initialGroup) : ''))
+  const [remember, setRemember] = useState(() => (model ? isRemembered(initialGroup) : true))
+
+  // Rate (strings in the form; parsed on save). Input + output only — cache cost
+  // is derived from the input price at display time (model-pricing.cacheMultipliers).
+  const [rateInput, setRateInput] = useState(model?.rate ? String(model.rate.input) : '')
+  const [rateOutput, setRateOutput] = useState(model?.rate ? String(model.rate.output) : '')
+  const [currency, setCurrency] = useState<RateCurrency>(model?.rate?.currency ?? 'usd')
+
+  const providerMeta = PROVIDERS.find((p) => p.id === provider)
+  const needsApiBase = providerMeta?.needsApiBase ?? false
+  const baseNormalized = apiBase.trim() || null
+
+  // When provider/apiBase change (in the add form), prefill the key from that
+  // credential group so a second model on the same endpoint reuses its key.
+  function onProviderOrBaseChange(nextProvider: Provider, nextBase: string) {
+    const group = credentialGroup(nextProvider, nextBase.trim() || null)
+    const existing = getKey(group)
+    if (existing) {
+      setApiKey(existing)
+      setRemember(isRemembered(group))
+    }
+  }
+
+  const idTrimmed = modelId.trim()
+  const canSave = idTrimmed.length > 0 && (!needsApiBase || baseNormalized !== null)
+
+  function buildRate(): TokenRate | undefined {
+    const inp = Number.parseFloat(rateInput)
+    const out = Number.parseFloat(rateOutput)
+    if (!Number.isFinite(inp) || !Number.isFinite(out)) return undefined
+    return { input: inp, output: out, currency }
+  }
+
+  function onSubmit() {
+    if (!canSave) return
+    const rate = buildRate()
+    const displayName = name.trim() || idTrimmed
+    if (editing && model) {
+      settings.updateModel(model.id, {
+        provider,
+        name: displayName,
+        modelId: idTrimmed,
+        apiBase: baseNormalized,
+        rate,
+      })
+      settings.setKeyForModel(
+        { ...model, provider, apiBase: baseNormalized },
+        apiKey.trim(),
+        remember,
+      )
+    } else {
+      const created = makeModel({
+        provider,
+        name: displayName,
+        modelId: idTrimmed,
+        apiBase: baseNormalized,
+        rate,
+      })
+      settings.addModel(created)
+      if (apiKey.trim()) settings.setKeyForModel(created, apiKey.trim(), remember)
+    }
+    onSaved()
+  }
+
+  return (
+    <div className="model-form">
+      <h3>{editing ? t('form.editTitle') : t('form.addTitle')}</h3>
+
+      <label className="field">
+        <span>{t('form.provider')}</span>
+        <select
+          value={provider}
+          onChange={(e) => {
+            const next = e.target.value as Provider
+            setProvider(next)
+            onProviderOrBaseChange(next, apiBase)
+          }}
+        >
+          {PROVIDERS.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className="field">
+        <span>
+          {t('form.apiBase')}
+          {needsApiBase && <em className="req"> *</em>}
+        </span>
+        <input
+          type="text"
+          value={apiBase}
+          placeholder={API_BASE_HINTS[provider] ?? ''}
+          onChange={(e) => setApiBase(e.target.value)}
+          onBlur={() => onProviderOrBaseChange(provider, apiBase)}
+        />
+      </label>
+
+      <label className="field">
+        <span>{t('form.modelId')}</span>
+        <input
+          type="text"
+          value={modelId}
+          placeholder={modelIdPlaceholder(provider)}
+          onChange={(e) => setModelId(e.target.value)}
+        />
+      </label>
+
+      <label className="field">
+        <span>{t('form.name')}</span>
+        <input
+          type="text"
+          value={name}
+          placeholder={idTrimmed || t('form.namePlaceholder')}
+          onChange={(e) => setName(e.target.value)}
+        />
+      </label>
+
+      <label className="field">
+        <span>{t('form.apiKey')}</span>
+        <input
+          type="password"
+          value={apiKey}
+          autoComplete="off"
+          placeholder={apiKeyPlaceholder(provider)}
+          onChange={(e) => setApiKey(e.target.value)}
+        />
+      </label>
+
+      <label className="field-check">
+        <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+        <span>{t('form.remember')}</span>
+      </label>
+      <p className="field-help">{remember ? t('form.rememberOn') : t('form.rememberOff')}</p>
+
+      <fieldset className="rate-fieldset">
+        <legend>{t('form.rate')}</legend>
+        <p className="field-help">{t('form.rateHelp')}</p>
+        <div className="rate-grid">
+          <label className="field">
+            <span>{t('form.rateInput')}</span>
+            <input
+              type="number"
+              step="any"
+              min="0"
+              value={rateInput}
+              onChange={(e) => setRateInput(e.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span>{t('form.rateOutput')}</span>
+            <input
+              type="number"
+              step="any"
+              min="0"
+              value={rateOutput}
+              onChange={(e) => setRateOutput(e.target.value)}
+            />
+          </label>
+        </div>
+        <p className="field-help">{t('form.cacheNote')}</p>
+        <div className="rate-controls">
+          <div className="currency-toggle" role="group" aria-label={t('form.currency')}>
+            {(['usd', 'jpy'] as RateCurrency[]).map((c) => (
+              <button
+                key={c}
+                type="button"
+                className={`currency-btn${currency === c ? ' active' : ''}`}
+                onClick={() => setCurrency(c)}
+              >
+                {c === 'usd' ? 'USD ($)' : 'JPY (¥)'}
+              </button>
+            ))}
+          </div>
+        </div>
+      </fieldset>
+
+      <div className="form-actions">
+        <button type="button" className="btn" disabled={!canSave} onClick={onSubmit}>
+          {t('save')}
+        </button>
+        <button type="button" className="btn--ghost" onClick={onCancel}>
+          {t('cancel')}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function modelIdPlaceholder(provider: string): string {
+  if (provider === 'anthropic') return 'claude-opus-4-7'
+  if (provider === 'openai') return 'gpt-4o'
+  return 'gpt-oss-120b'
+}
+
+function apiKeyPlaceholder(provider: string): string {
+  return provider === 'anthropic' ? 'sk-ant-...' : 'sk-...'
+}

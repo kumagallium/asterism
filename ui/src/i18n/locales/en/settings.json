@@ -1,0 +1,70 @@
+{
+  "title": "Settings",
+  "open": "Settings",
+  "close": "Close",
+  "save": "Save",
+  "cancel": "Cancel",
+  "tabs": {
+    "models": "Models",
+    "usage": "API usage"
+  },
+  "models": {
+    "intro": "Register the models the AI uses. Besides Anthropic (Claude), add OpenAI or any OpenAI-compatible endpoint (Sakura AI Engine, Groq, Ollama, …) just by entering a base URL. The active model is used across propose, Ask and every AI feature.",
+    "empty": "No models yet. Add one with “+ Add model”.",
+    "activeBadge": "active",
+    "keySet": "API key set",
+    "keyMissing": "API key missing",
+    "edit": "Edit",
+    "delete": "Delete",
+    "confirmDelete": "Delete",
+    "add": "Add model"
+  },
+  "form": {
+    "addTitle": "Add model",
+    "editTitle": "Edit model",
+    "provider": "Provider",
+    "apiBase": "Endpoint (base URL)",
+    "modelId": "Model ID",
+    "name": "Display name",
+    "namePlaceholder": "(defaults to the model ID)",
+    "apiKey": "API key",
+    "remember": "Remember on this browser",
+    "rememberOn": "The key is saved in localStorage and persists across reloads and restarts.",
+    "rememberOff": "The key stays in sessionStorage only — cleared when the tab closes (never written to disk).",
+    "rate": "Token rate (for cost — optional)",
+    "rateHelp": "Input/output price per 1M tokens. Set it to estimate cost (without it, tokens are still tracked but cost shows “—”). There's no pricing API to auto-fetch current prices — check the provider's pricing page (JPY is fine).",
+    "rateInput": "Input",
+    "rateOutput": "Output",
+    "cacheNote": "Cache prices are derived from the input price (Anthropic: read 0.1×, write 1.25×; the OpenAI-compatible path uses no caching).",
+    "currency": "Currency"
+  },
+  "usage": {
+    "placeholder": "The usage dashboard ships in Phase C.",
+    "intro": "The server records the tokens used by each AI call; this tab aggregates them and estimates cost from your model rate table at display time.",
+    "loading": "Loading…",
+    "empty": "No usage recorded yet. Running propose or Ask will record events.",
+    "error": "Failed to load usage.",
+    "totalTokens": "Total tokens",
+    "totalCost": "Estimated cost",
+    "granularity": { "day": "Day", "month": "Month", "year": "Year" },
+    "usdJpyRate": "USD→JPY rate",
+    "feature": "Feature",
+    "model": "Model",
+    "tokens": "Tokens",
+    "cost": "Cost",
+    "features": {
+      "propose": "Schema propose",
+      "refine": "Schema refine",
+      "tool.propose": "Tool propose",
+      "crosswalk.propose": "Crosswalk propose",
+      "ask": "Ask"
+    }
+  },
+  "gate": {
+    "using": "Model:",
+    "change": "Change",
+    "noModel": "Configure a model to use AI.",
+    "openSettings": "Open settings",
+    "noKey": "The active model has no API key set."
+  }
+}

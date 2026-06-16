@@ -9,6 +9,7 @@
 // mutating routes (build/propose).
 import { authHeaders } from './authToken'
 import i18n from './i18n'
+import { type LlmCredentials, llmHeaders } from './settings/store'
 
 const API_BASE = ((import.meta.env.VITE_API_URL as string | undefined) ?? '').replace(/\/+$/, '')
 
@@ -194,11 +195,11 @@ export async function buildPerspective(
 export async function proposeCrosswalkMapping(
   datasetIds: string[],
   concept: string,
-  apiKey: string,
+  creds: LlmCredentials | null,
 ): Promise<ProposeResult> {
   const res = await fetch(`${API_BASE}/api/crosswalk/propose`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey, ...authHeaders() },
+    headers: { 'Content-Type': 'application/json', ...llmHeaders(creds), ...authHeaders() },
     body: JSON.stringify({ dataset_ids: datasetIds, concept }),
   })
   if (!res.ok) throw await asError(res, i18n.t('crosswalk:error.ops.propose'))

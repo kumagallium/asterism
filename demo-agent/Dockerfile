@@ -5,9 +5,11 @@ WORKDIR /app
 # Install the in-repo asterism packages so real mode can import the typed tools
 # (asterism_mcp.tools) + the Oxigraph client (asterism.oxigraph_client), plus the
 # web deps. mcp pulls fastmcp; that is fine inside this consuming container.
+# anthropic + openai back the multi-provider Ask loop (Claude + any OpenAI-compatible
+# endpoint, e.g. Sakura AI Engine); httpx (for the usage POST) comes via ingest.
 COPY ingest /src/ingest
 COPY mcp /src/mcp
-RUN pip install --no-cache-dir /src/ingest /src/mcp fastapi "uvicorn[standard]"
+RUN pip install --no-cache-dir /src/ingest /src/mcp fastapi "uvicorn[standard]" anthropic openai
 
 # #20 P2-2b: ship the dataset content (identity descriptors + the QUDT map) so the
 # engine reads its source of truth from datasets/ in prod, not embedded fallbacks.

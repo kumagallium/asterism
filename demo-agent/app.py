@@ -31,6 +31,7 @@ import json
 import os
 import re
 
+import httpx
 from asterism.exposure import raw_sparql_enabled
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -48,7 +49,16 @@ _EXPOSE_RAW_SPARQL = raw_sparql_enabled()
 # #18 LLM NL->SPARQL escape config. Model is overridable for cost tuning; the
 # escape only fires when the deterministic typed path finds nothing (see ask()).
 _ASK_MODEL = os.environ.get("ASTERISM_ASK_MODEL", "claude-sonnet-4-6")
+# Default model when the request selects an OpenAI / OpenAI-compatible provider
+# but pins no model id (the UI normally sends the active model's id via header).
+_OPENAI_ASK_MODEL = os.environ.get("ASTERISM_OPENAI_ASK_MODEL", "gpt-4o")
+_OPENAI_PROVIDERS = frozenset({"openai", "openai-compatible", "openai_compatible", "sakura"})
 _ASK_MAX_STEPS = 5  # max run_sparql tool calls before we force an answer
+
+# Where to report Ask token usage (the api owns the ledger; demo-agent runs in a
+# separate process). Best-effort: if unset, usage simply isn't recorded.
+_USAGE_API_URL = (os.environ.get("ASTERISM_API_URL") or "").strip().rstrip("/")
+_USAGE_API_TOKEN = os.environ.get("ASTERISM_API_TOKEN")
 
 app = FastAPI(title=f"asterism demo-agent ({'real' if _REAL else 'mock'})")
 
@@ -422,6 +432,80 @@ def _anthropic_client(api_key: str):
     return anthropic.Anthropic(api_key=api_key)
 
 
+def _openai_client(api_key: str, base_url: str | None):
+    """Build an OpenAI (Chat Completions) client for any OpenAI-compatible endpoint
+    — ``base_url`` selects it (Sakura AI Engine / Groq / Ollama / vLLM). Overridable
+    via ``_state['openai_factory']`` so tests inject a fake without a network call."""
+    factory = _state.get("openai_factory")
+    if factory is not None:
+        return factory(api_key, base_url)
+    from openai import OpenAI
+
+    return OpenAI(api_key=api_key, base_url=base_url or None)
+
+
+def _to_openai_tools(tools: list[dict]) -> list[dict]:
+    """Convert our Anthropic-shaped tool defs to OpenAI function-calling shape."""
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": t["name"],
+                "description": t.get("description", ""),
+                "parameters": t["input_schema"],
+            },
+        }
+        for t in tools
+    ]
+
+
+def _parse_json_args(raw: str | None) -> dict:
+    """Parse an OpenAI tool-call ``arguments`` JSON string, tolerating junk."""
+    if not raw:
+        return {}
+    try:
+        obj = json.loads(raw)
+        return obj if isinstance(obj, dict) else {}
+    except (json.JSONDecodeError, TypeError):
+        return {}
+
+
+def _add_anthropic_usage(acc: dict, u: object) -> None:
+    if u is None:
+        return
+    acc["input_tokens"] += getattr(u, "input_tokens", 0) or 0
+    acc["output_tokens"] += getattr(u, "output_tokens", 0) or 0
+    acc["cache_read_tokens"] += getattr(u, "cache_read_input_tokens", 0) or 0
+    acc["cache_write_tokens"] += getattr(u, "cache_creation_input_tokens", 0) or 0
+
+
+def _add_openai_usage(acc: dict, u: object) -> None:
+    if u is None:
+        return
+    acc["input_tokens"] += getattr(u, "prompt_tokens", 0) or 0
+    acc["output_tokens"] += getattr(u, "completion_tokens", 0) or 0
+
+
+async def _post_usage(provider: str, model: str, usage: dict) -> None:
+    """Append the Ask call's token usage to the api ledger (best-effort).
+
+    The api owns the usage ledger; demo-agent is a separate process, so it POSTs.
+    No-op if ``ASTERISM_API_URL`` is unset or the call fails — never block the answer."""
+    if not _USAGE_API_URL:
+        return
+    if sum(int(usage.get(k, 0) or 0) for k in usage) <= 0:
+        return
+    body = {"feature": "ask", "provider": provider, "model_id": model, **usage}
+    headers = {"Content-Type": "application/json"}
+    if _USAGE_API_TOKEN:
+        headers["X-Asterism-Token"] = _USAGE_API_TOKEN
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as c:
+            await c.post(f"{_USAGE_API_URL}/api/usage", json=body, headers=headers)
+    except Exception:  # best-effort telemetry — never fail the answer on this
+        pass
+
+
 def _render_schema(schema: dict) -> str:
     """Compact text rendering of schema_summary for the system prompt."""
     lines: list[str] = ["Classes:"]
@@ -505,17 +589,27 @@ def _content_tool_defs(exclude: set[str] | None = None) -> tuple[list[dict], dic
     return defs, registry
 
 
-async def _llm_answer(question: str, api_key: str) -> dict:
+async def _llm_answer_via(
+    question: str,
+    api_key: str,
+    *,
+    provider: str,
+    model: str | None,
+    api_base: str | None,
+) -> tuple[dict, dict]:
     """Schema-grounded LLM agent: it PICKS among the deterministic VERIFIED tools
     (starrydata property_ranking / sample_search + every other dataset's declared
     query tools, e.g. Materials Project's structure_by_composition) and raw
     read-only SPARQL (run_sparql, the unverified escape), grounding the answer in
     real results (P4-2b — the LLM does the routing).
 
-    Returns the same ``{answer, citations, notes}`` contract as the typed path,
-    plus a ``sparql`` list of the queries actually run (disclosure). All store
-    access is read-only (typed tools + the ``sparql_query`` guard), so the LLM
-    cannot mutate the store.
+    Works across providers: Anthropic uses its tool-use loop; OpenAI / any
+    OpenAI-compatible endpoint (Sakura AI Engine etc.) uses the function-calling
+    loop. The tool DEFINITIONS and EXECUTION are shared — only the wire format
+    differs. Returns ``(answer, usage)`` where answer is the
+    ``{answer, citations, notes, sparql, verified_tools, unverified_sparql}``
+    contract and usage is the accumulated token counts (for the ledger). All store
+    access is read-only, so the LLM cannot mutate the store.
     """
     from asterism.query_tools import run_query_tool
     from asterism_mcp.tools import (
@@ -553,17 +647,121 @@ async def _llm_answer(question: str, api_key: str) -> dict:
             "honestly via submit_answer — do not attempt arbitrary SPARQL."
         )
     tools.append(_SUBMIT_ANSWER_TOOL)
-    messages: list[dict] = [{"role": "user", "content": question}]
+
     used_sparql: list[str] = []
     verified_used: list[dict] = []  # provenance: vetted tools the answer used
-    unverified = False  # provenance: whether the unverified SPARQL escape was used
-    anthropic = _anthropic_client(api_key)
+    state = {"unverified": False}  # whether the unverified SPARQL escape was used
+    usage: dict = {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+    }
 
+    # Provider-agnostic tool execution: the loops differ only in wire format; this
+    # runs the actual (read-only) tool by name and returns the JSON-able result.
+    async def execute_tool(name: str, inp: dict) -> dict:
+        try:
+            if name == "run_sparql":
+                state["unverified"] = True  # the unverified escape was used
+                q = inp.get("query", "")
+                result = await sparql_query(q, client, max_rows=50)
+                # Disclose the query that ACTUALLY ran: sparql_query rewrites a
+                # plain SELECT to read the cross-dataset canonical FROM-merge (#20),
+                # so the user sees the real, reproducible query string.
+                used_sparql.append(result.get("effective_query") or q)
+                return result
+            if name == "property_ranking":
+                result = await property_ranking(
+                    client,
+                    property_y=inp.get("property_y", ""),
+                    top_n=int(inp.get("top_n") or 10),
+                    max_plausible=inp.get("max_plausible"),
+                )
+                verified_used.append(
+                    {"dataset": "starrydata", "name": "property_ranking", "title": "property_ranking"}
+                )
+                return result
+            if name == "sample_search":
+                result = await sample_search(
+                    client,
+                    composition=inp.get("composition"),
+                    property_y=inp.get("property_y"),
+                    limit=20,
+                )
+                verified_used.append(
+                    {"dataset": "starrydata", "name": "sample_search", "title": "sample_search"}
+                )
+                return result
+            if name in content_registry:
+                # A declared (verified) query tool from another dataset, e.g.
+                # Materials Project's thermoelectric_structure — run the fixed
+                # template through the canonical FROM-merge (cross-dataset).
+                dataset, qt = content_registry[name]
+                out = await run_query_tool(client, qt, dict(inp), max_rows=50)
+                if out.get("sparql"):
+                    used_sparql.append(out["sparql"])
+                verified_used.append({"dataset": dataset, "name": qt.name, "title": qt.title})
+                return {
+                    "count": out["count"],
+                    "items": out["items"],
+                    "truncated": out["truncated"],
+                }
+            return {"error": f"unknown tool {name!r}"}
+        except Exception as exc:  # never let a bad tool call kill the loop
+            if name == "run_sparql":
+                used_sparql.append(inp.get("query", ""))
+            return {"error": str(exc)}
+
+    def finalize(data: dict) -> dict:
+        # Queries are disclosed via the dedicated ``sparql`` field (UI panel).
+        return {
+            "answer": data.get("answer", ""),
+            "citations": data.get("citations") or [],
+            "notes": list(data.get("notes") or []),
+            "sparql": used_sparql,
+            "verified_tools": verified_used,
+            "unverified_sparql": state["unverified"],
+        }
+
+    def finalize_text(text: str) -> dict:
+        return finalize({"answer": text or "回答を生成できませんでした。"})
+
+    if provider in _OPENAI_PROVIDERS:
+        answer = await _openai_agent_loop(
+            _openai_client(api_key, api_base),
+            model or _OPENAI_ASK_MODEL,
+            system,
+            _to_openai_tools(tools),
+            question,
+            execute_tool,
+            usage,
+            finalize,
+            finalize_text,
+        )
+    else:
+        answer = await _anthropic_agent_loop(
+            _anthropic_client(api_key),
+            model or _ASK_MODEL,
+            system,
+            tools,
+            question,
+            execute_tool,
+            usage,
+            finalize,
+            finalize_text,
+        )
+    return answer, usage
+
+
+async def _anthropic_agent_loop(
+    anthropic, model, system, tools, question, execute_tool, usage, finalize, finalize_text
+):
+    messages: list[dict] = [{"role": "user", "content": question}]
     for step in range(_ASK_MAX_STEPS):
-        # Force the final answer on the last step so we never loop forever.
-        force_final = step == _ASK_MAX_STEPS - 1
+        force_final = step == _ASK_MAX_STEPS - 1  # never loop forever
         kwargs = {
-            "model": _ASK_MODEL,
+            "model": model,
             "max_tokens": 2000,
             "system": system,
             "tools": tools,
@@ -572,90 +770,20 @@ async def _llm_answer(question: str, api_key: str) -> dict:
         if force_final:
             kwargs["tool_choice"] = {"type": "tool", "name": "submit_answer"}
         resp = await asyncio.to_thread(anthropic.messages.create, **kwargs)
+        _add_anthropic_usage(usage, getattr(resp, "usage", None))
 
         tool_uses = [b for b in resp.content if getattr(b, "type", None) == "tool_use"]
         submit = next((b for b in tool_uses if b.name == "submit_answer"), None)
         if submit is not None:
-            data = submit.input or {}
-            # The queries are disclosed via the dedicated ``sparql`` field (the UI
-            # renders them in a panel); we no longer stuff them into ``notes``.
-            return {
-                "answer": data.get("answer", ""),
-                "citations": data.get("citations") or [],
-                "notes": list(data.get("notes") or []),
-                "sparql": used_sparql,
-                "verified_tools": verified_used,
-                "unverified_sparql": unverified,
-            }
-
+            return finalize(submit.input or {})
         if not tool_uses:
-            # The model replied with text but no tool call — surface that text.
             text = " ".join(b.text for b in resp.content if getattr(b, "type", None) == "text")
-            return {
-                "answer": text or "回答を生成できませんでした。",
-                "citations": [],
-                "notes": [],
-                "sparql": used_sparql,
-                "verified_tools": verified_used,
-                "unverified_sparql": unverified,
-            }
+            return finalize_text(text)
 
-        # Execute every tool call and feed the results back.
         messages.append({"role": "assistant", "content": _blocks_to_dicts(resp.content)})
         tool_results: list[dict] = []
         for tu in tool_uses:
-            inp = tu.input or {}
-            try:
-                if tu.name == "run_sparql":
-                    unverified = True  # the unverified escape was used
-                    q = inp.get("query", "")
-                    result = await sparql_query(q, client, max_rows=50)
-                    # Disclose the query that ACTUALLY ran: sparql_query rewrites a
-                    # plain SELECT to read the cross-dataset canonical FROM-merge
-                    # (#20), so the user sees the real, reproducible query string.
-                    used_sparql.append(result.get("effective_query") or q)
-                elif tu.name == "property_ranking":
-                    result = await property_ranking(
-                        client,
-                        property_y=inp.get("property_y", ""),
-                        top_n=int(inp.get("top_n") or 10),
-                        max_plausible=inp.get("max_plausible"),
-                    )
-                    verified_used.append(
-                        {"dataset": "starrydata", "name": "property_ranking", "title": "property_ranking"}
-                    )
-                elif tu.name == "sample_search":
-                    result = await sample_search(
-                        client,
-                        composition=inp.get("composition"),
-                        property_y=inp.get("property_y"),
-                        limit=20,
-                    )
-                    verified_used.append(
-                        {"dataset": "starrydata", "name": "sample_search", "title": "sample_search"}
-                    )
-                elif tu.name in content_registry:
-                    # A declared (verified) query tool from another dataset, e.g.
-                    # Materials Project's thermoelectric_structure — run the fixed
-                    # template through the canonical FROM-merge (cross-dataset).
-                    dataset, qt = content_registry[tu.name]
-                    out = await run_query_tool(client, qt, dict(inp), max_rows=50)
-                    if out.get("sparql"):
-                        used_sparql.append(out["sparql"])
-                    verified_used.append(
-                        {"dataset": dataset, "name": qt.name, "title": qt.title}
-                    )
-                    result = {
-                        "count": out["count"],
-                        "items": out["items"],
-                        "truncated": out["truncated"],
-                    }
-                else:
-                    result = {"error": f"unknown tool {tu.name!r}"}
-            except Exception as exc:  # never let a bad tool call kill the loop
-                if tu.name == "run_sparql":
-                    used_sparql.append(inp.get("query", ""))
-                result = {"error": str(exc)}
+            result = await execute_tool(tu.name, tu.input or {})
             tool_results.append(
                 {
                     "type": "tool_result",
@@ -665,15 +793,68 @@ async def _llm_answer(question: str, api_key: str) -> dict:
             )
         messages.append({"role": "user", "content": tool_results})
 
-    # Exhausted steps without a submit_answer (should be rare given force_final).
-    return {
-        "answer": "回答を生成できませんでした（試行回数の上限に達しました）。",
-        "citations": [],
-        "notes": [],
-        "sparql": used_sparql,
-        "verified_tools": verified_used,
-        "unverified_sparql": unverified,
-    }
+    return finalize_text("回答を生成できませんでした（試行回数の上限に達しました）。")
+
+
+async def _openai_agent_loop(
+    openai, model, system, oai_tools, question, execute_tool, usage, finalize, finalize_text
+):
+    messages: list[dict] = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": question},
+    ]
+    for step in range(_ASK_MAX_STEPS):
+        force_final = step == _ASK_MAX_STEPS - 1  # never loop forever
+        kwargs: dict = {
+            "model": model,
+            "max_tokens": 2000,
+            "messages": messages,
+            "tools": oai_tools,
+            "tool_choice": (
+                {"type": "function", "function": {"name": "submit_answer"}}
+                if force_final
+                else "auto"
+            ),
+        }
+        resp = await asyncio.to_thread(openai.chat.completions.create, **kwargs)
+        _add_openai_usage(usage, getattr(resp, "usage", None))
+
+        msg = resp.choices[0].message
+        tool_calls = list(getattr(msg, "tool_calls", None) or [])
+        submit = next((tc for tc in tool_calls if tc.function.name == "submit_answer"), None)
+        if submit is not None:
+            return finalize(_parse_json_args(submit.function.arguments))
+        if not tool_calls:
+            return finalize_text(msg.content or "")
+
+        messages.append(
+            {
+                "role": "assistant",
+                "content": msg.content or "",
+                "tool_calls": [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments,
+                        },
+                    }
+                    for tc in tool_calls
+                ],
+            }
+        )
+        for tc in tool_calls:
+            result = await execute_tool(tc.function.name, _parse_json_args(tc.function.arguments))
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": json.dumps(result, ensure_ascii=False),
+                }
+            )
+
+    return finalize_text("回答を生成できませんでした（試行回数の上限に達しました）。")
 
 
 # ---------------------------------------------------------------------------
@@ -730,6 +911,9 @@ async def _typed_answer(question: str) -> dict:
 async def ask(
     req: AskRequest,
     x_api_key: str | None = Header(default=None),
+    x_llm_provider: str | None = Header(default=None),
+    x_llm_model: str | None = Header(default=None),
+    x_llm_api_base: str | None = Header(default=None),
 ) -> dict:
     if not _REAL:
         # MOCK: same grounded fixture regardless of question.
@@ -739,9 +923,22 @@ async def ask(
     # typed tools (property_ranking / sample_search, which it can call for a clean
     # fit) and raw SPARQL (cross-dataset / anything else). This replaces the brittle
     # keyword router for exploration: a "ZT by crystal structure" question is no
-    # longer short-circuited to a single-property ranking.
+    # longer short-circuited to a single-property ranking. The provider/model come
+    # from the active model selected in Settings (absent → Anthropic default).
     if x_api_key:
-        return await _llm_answer(req.question, x_api_key)
+        provider = (x_llm_provider or "anthropic").strip().lower() or "anthropic"
+        model = x_llm_model or (
+            _OPENAI_ASK_MODEL if provider in _OPENAI_PROVIDERS else _ASK_MODEL
+        )
+        answer, usage = await _llm_answer_via(
+            req.question,
+            x_api_key,
+            provider=provider,
+            model=model,
+            api_base=x_llm_api_base,
+        )
+        await _post_usage(provider, model, usage)
+        return answer
 
     # No key: the free, deterministic typed showcase (the example chips). A question
     # the typed tools cannot answer gets an honest hint that the general path needs

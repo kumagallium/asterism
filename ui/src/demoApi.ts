@@ -18,6 +18,7 @@
 // The mock fixtures mirror the contract samples in the demo handoff.
 
 import i18n from './i18n'
+import { type LlmCredentials, llmHeaders } from './settings/store'
 
 // ---- contract types (§3) -------------------------------------------------
 
@@ -264,18 +265,20 @@ function normalizeChain(raw: unknown, iri: string): ProvenanceChain {
  * SPARQL — that path needs a key. We reuse the workbench's user-brought key
  * (sessionStorage, never persisted) so a question over a freshly-designed
  * schema "just works" without a second key prompt. */
-export async function ask(question: string, apiKey?: string): Promise<AskResponse> {
+export async function ask(
+  question: string,
+  creds?: LlmCredentials | null,
+): Promise<AskResponse> {
   if (IS_MOCK) {
     await delay(450) // feel of a real call
     const hit = ASK_FIXTURES.find((f) => f.match(question))
     return hit ? hit.build() : askFallback()
   }
-  const key = apiKey ?? sessionStorage.getItem('asterism.apiKey') ?? ''
   const res = await fetch(`${AGENT_BASE}/demo/ask`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      ...(key ? { 'X-API-Key': key } : {}),
+      ...llmHeaders(creds ?? null),
     },
     body: JSON.stringify({ question }),
   })
