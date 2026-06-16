@@ -2853,6 +2853,61 @@ textarea:focus {
   font-size: 0.72rem;
   white-space: nowrap;
 }
+
+/* Propose-time standard-candidate suggestions (read-only discovery) */
+.schema-grounding {
+  margin: 0.9rem 0;
+  padding: 0.7rem 0.85rem;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.schema-grounding-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-top: 0;
+}
+.schema-grounding-list {
+  list-style: none;
+  margin: 0.4rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.schema-grounding-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.schema-grounding-src {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.schema-grounding-term {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--fg);
+}
+.schema-grounding-arrow {
+  color: var(--muted);
+}
+.schema-grounding-cands {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+}
+.schema-grounding-cand {
+  cursor: default;
+}
+.schema-grounding-err {
+  color: var(--muted);
+}
 .ds-artifacts {
   display: flex;
   flex-wrap: wrap;

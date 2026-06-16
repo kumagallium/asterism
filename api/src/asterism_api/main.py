@@ -59,7 +59,12 @@ from asterism.watcher import (
 )
 from asterism_step0.crosswalk_propose import propose_crosswalk_mapping
 from asterism_step0.inspect import inspect_source_set, render_markdown
-from asterism_step0.materialize import materialize_schema
+from asterism_step0.materialize import (
+    _MODEL_HEADERS,
+    _pick_block,
+    extract_code_blocks,
+    materialize_schema,
+)
 from asterism_step0.propose import AnthropicLLMClient, LLMClient, propose_schema
 from asterism_step0.refine import refine_schema
 from asterism_step0.tool_propose import propose_query_tool
@@ -180,6 +185,16 @@ class NormalizerPreviewBody(BaseModel):
 
     recipe: list[str] = []
     samples: list[str] = []
+
+
+class GroundSchemaBody(BaseModel):
+    """Body for POST /api/ground/schema: attach external-standard candidates to a PROPOSED
+    schema (external-standard-alignment.md §8). Give the propose markdown (its rdf-config
+    model.yaml block is extracted) or the model.yaml directly. Read-only + deterministic —
+    candidates come only from the closed catalog, never from the LLM."""
+
+    proposal_md: str = ""
+    model_yaml: str = ""
 
 
 # Update-form keywords. Oxigraph's /query endpoint is read-only regardless, but
@@ -2402,6 +2417,28 @@ def build_app(
         except ValueError as exc:  # bad kind
             raise HTTPException(400, str(exc)) from exc
         return JSONResponse({"query": q, "candidates": [c.to_dict() for c in cands]})
+
+    @app.post("/api/ground/schema")
+    async def grounding_for_schema(body: GroundSchemaBody) -> JSONResponse:
+        """External-standard candidates for the MINTED class/predicate of a PROPOSED schema
+        (the rdf-config model.yaml) — so AI-assisted design surfaces "your data could lean
+        on cmso:/qudt:/…" (external-standard-alignment.md §8). Pass the propose markdown
+        (its model.yaml block is extracted) or model.yaml directly. Deterministic +
+        closed-set: candidates come only from the curated catalog, never from the LLM.
+        Reused (known-namespace) terms are skipped. Read-only."""
+        model_yaml = body.model_yaml
+        if not model_yaml and body.proposal_md:
+            model_yaml = (
+                _pick_block(
+                    extract_code_blocks(body.proposal_md),
+                    header_keywords=_MODEL_HEADERS,
+                    language_prefs=("yaml", "yml"),
+                    allow_lang_only=False,
+                )
+                or ""
+            )
+        terms = grounding.ground_model_yaml(model_yaml) if model_yaml.strip() else []
+        return JSONResponse({"terms": [t.to_dict() for t in terms]})
 
     @app.post("/api/crosswalk/align", dependencies=_write_auth)
     async def crosswalk_align(body: CrosswalkAlignBody) -> JSONResponse:
