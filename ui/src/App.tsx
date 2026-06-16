@@ -9,12 +9,13 @@ import { HomeView } from './HomeView'
 import { LanguageToggle } from './i18n/LanguageToggle'
 import {
   ActivityIcon,
-  AddIcon,
   AskIcon,
   BrandMark,
-  CatalogIcon,
   CodeIcon,
+  ConnectIcon,
+  DataIcon,
   HomeIcon,
+  TermsIcon,
 } from './icons'
 import { JobsView } from './JobsView'
 import { OntologyMapView } from './OntologyMapView'
@@ -33,25 +34,24 @@ type Tab =
   | 'jobs'
   | 'sparql'
 
-// New IA (design_handoff_asterism_ux): plain-language, verb-led nav that mirrors
-// the user's mental model — Home → Create (add) → Use (ask/browse) → Manage.
-// The pipeline-internal nouns (RDF / SPARQL) are demoted: SPARQL sits apart at
-// the foot as a developer escape hatch. Labels are resolved via i18n (common.nav.*).
+// v2 IA (design_handoff_asterism_ux/v2): a flat, object-axis nav — the sidebar
+// lists only "places to look" (nouns). Creation is inline (the Home action and
+// the Datasets add-tile), so there is NO global create button and "データを追加"
+// (workbench) is reachable but not a nav entry. Crosswalk (つながり) and shared
+// terms (共通の言葉) are promoted to first-class places; the ontology map (全体像)
+// is reached from つながり. SPARQL sits apart at the foot as a developer escape
+// hatch. Labels are resolved via i18n (common.nav.*).
 interface NavItem {
   id: Tab
-  icon: typeof AddIcon
+  icon: typeof HomeIcon
 }
-const NAV_SECTIONS: { heading: '' | 'create' | 'use' | 'manage'; items: NavItem[] }[] = [
-  { heading: '', items: [{ id: 'home', icon: HomeIcon }] },
-  { heading: 'create', items: [{ id: 'workbench', icon: AddIcon }] },
-  {
-    heading: 'use',
-    items: [
-      { id: 'ask', icon: AskIcon },
-      { id: 'gallery', icon: CatalogIcon },
-    ],
-  },
-  { heading: 'manage', items: [{ id: 'jobs', icon: ActivityIcon }] },
+const NAV_ITEMS: NavItem[] = [
+  { id: 'home', icon: HomeIcon },
+  { id: 'gallery', icon: DataIcon },
+  { id: 'crosswalk', icon: ConnectIcon },
+  { id: 'ask', icon: AskIcon },
+  { id: 'vocab', icon: TermsIcon },
+  { id: 'jobs', icon: ActivityIcon },
 ]
 
 function App() {
@@ -97,28 +97,23 @@ function App() {
         </div>
 
         <nav className="side-nav">
-          {NAV_SECTIONS.map((sec) => (
-            <div className="side-nav-group" key={sec.heading || 'home'}>
-              {sec.heading && (
-                <span className="side-nav-label">{t(`nav.section.${sec.heading}`)}</span>
-              )}
-              {sec.items.map((it) => {
-                const Icon = it.icon
-                return (
-                  <button
-                    key={it.id}
-                    type="button"
-                    className={`side-nav-item${tab === it.id ? ' active' : ''}`}
-                    onClick={() => navTo(it.id)}
-                  >
-                    <Icon className="side-nav-icon" />
-                    <span className="side-nav-text">{t(`nav.${it.id}`)}</span>
-                    <span className="side-nav-en">{glossT(`nav.${it.id}`)}</span>
-                  </button>
-                )
-              })}
-            </div>
-          ))}
+          <div className="side-nav-group">
+            {NAV_ITEMS.map((it) => {
+              const Icon = it.icon
+              return (
+                <button
+                  key={it.id}
+                  type="button"
+                  className={`side-nav-item${tab === it.id ? ' active' : ''}`}
+                  onClick={() => navTo(it.id)}
+                >
+                  <Icon className="side-nav-icon" />
+                  <span className="side-nav-text">{t(`nav.${it.id}`)}</span>
+                  <span className="side-nav-en">{glossT(`nav.${it.id}`)}</span>
+                </button>
+              )
+            })}
+          </div>
         </nav>
 
         <div className="sidebar-foot">
@@ -155,14 +150,14 @@ function App() {
           {tab === 'gallery' && (
             <GalleryView
               focusClass={galleryFocus}
-              onOpenVocab={() => navTo('vocab')}
               onOpenCrosswalk={() => navTo('crosswalk')}
               onOpenMap={() => navTo('map')}
+              onAddData={() => navTo('workbench')}
             />
           )}
-          {tab === 'vocab' && <SharedVocabView onBack={() => navTo('gallery')} />}
-          {tab === 'crosswalk' && <CrosswalkView onBack={() => navTo('gallery')} />}
-          {tab === 'map' && <OntologyMapView onBack={() => navTo('gallery')} />}
+          {tab === 'vocab' && <SharedVocabView />}
+          {tab === 'crosswalk' && <CrosswalkView onOpenMap={() => navTo('map')} />}
+          {tab === 'map' && <OntologyMapView onBack={() => navTo('crosswalk')} />}
           {tab === 'jobs' && <JobsView />}
           {tab === 'sparql' && <SparqlView />}
         </main>

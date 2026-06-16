@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import { ingestDataset, type IngestProgress, type IngestResult } from './api'
-import { getCrosswalk } from './crosswalkApi'
+import { type CrosswalkPerspective, getCrosswalks } from './crosswalkApi'
 import { DatasetGrounding } from './DatasetGrounding'
-import { getSchema } from './demoApi'
 import {
   type AlignmentReport,
   appendDocument,
@@ -21,13 +20,27 @@ import {
   reinstateDataset,
   retractDataset,
 } from './galleryApi'
-import { ArrowIcon, LayersIcon, LinkIcon, SearchIcon } from './icons'
+import { ArrowIcon, ConnectIcon, DataIcon, FileIcon, LayersIcon, SearchIcon } from './icons'
 import { IngestProgressView } from './IngestProgressView'
 import { Mermaid } from './Mermaid'
 import { ToolsPanel } from './ToolsPanel'
 import { localName } from './vocab'
 
-type DetailTab = 'design' | 'rules' | 'tools'
+type DetailTab = 'structure' | 'files' | 'connect' | 'design'
+
+/** Display label for a dataset's source kind (used as the small mono type tag). */
+function sourceTag(meta?: LiveDataset['meta']): string {
+  const k = meta?.source_kind
+  return k === 'json' ? 'JSON' : k === 'xml' ? 'DOC' : 'CSV'
+}
+
+/** How many crosswalk perspectives this dataset participates in (for the card meta). */
+function connectionCount(d: CatalogDataset, perspectives: CrosswalkPerspective[]): number {
+  const ids = new Set([d.id, d.live?.meta.id].filter(Boolean) as string[])
+  return perspectives.filter((p) =>
+    (p.config?.concepts ?? []).some((c) => c.participants.some((part) => ids.has(part.dataset_id))),
+  ).length
+}
 
 function statusLabel(t: (k: string) => string, kind: CatalogStatusKind): string {
   return t(`gallery:status.${kind}`)
@@ -45,26 +58,26 @@ function statusLabel(t: (k: string) => string, kind: CatalogStatusKind): string 
  */
 export function GalleryView({
   focusClass,
-  onOpenVocab,
   onOpenCrosswalk,
   onOpenMap,
+  onAddData,
 }: {
   focusClass?: string | null
-  onOpenVocab?: () => void
   onOpenCrosswalk?: () => void
   onOpenMap?: () => void
+  onAddData?: () => void
 }) {
   const { t } = useTranslation()
   const [datasets, setDatasets] = useState<CatalogDataset[] | null>(null)
   const [error, setError] = useState('')
   const [picked, setPicked] = useState<string | null>(null)
   const [seenFocus, setSeenFocus] = useState<string | null | undefined>(focusClass)
-  const [tab, setTab] = useState<DetailTab>('design')
-  // Live count of shared classes actually in the store (for the gateway band).
-  // null = unavailable (query layer down) → the band omits the number.
-  const [sharedClassCount, setSharedClassCount] = useState<number | null>(null)
-  // crosswalk-hub.md ④: # of datasets the live crosswalk joins (for the band CTA).
-  const [crosswalkCount, setCrosswalkCount] = useState<number | null>(null)
+  const [tab, setTab] = useState<DetailTab>('structure')
+  // Crosswalk perspectives — used by each dataset's つながり (connections) tab and
+  // for the per-card connection count.
+  const [perspectives, setPerspectives] = useState<CrosswalkPerspective[]>([])
+  // Client-side dataset search (by name) over the full-width grid.
+  const [query, setQuery] = useState('')
 
   function reload() {
     getCatalogDatasets()
@@ -81,15 +94,8 @@ export function GalleryView({
       .catch((e) => {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e))
       })
-    getSchema()
-      .then((s) => !cancelled && setSharedClassCount(s ? s.classes.length : null))
-      .catch(() => {})
-    getCrosswalk()
-      .then((c) => {
-        if (cancelled) return
-        const n = c.exists ? (c.config?.concepts.flatMap((x) => x.participants).length ?? 0) : 0
-        setCrosswalkCount(n)
-      })
+    getCrosswalks()
+      .then((r) => !cancelled && setPerspectives(r))
       .catch(() => {})
     return () => {
       cancelled = true
@@ -98,34 +104,21 @@ export function GalleryView({
 
   // Reset the explicit pick when arriving with a new Ask focus (setState during
   // render — the "adjust state on prop change" pattern; avoids effect cascades).
+  const list = (datasets ?? []).filter((d) => !d.isCrosswalk)
+  // Arriving with a new Ask focus opens that dataset's detail directly.
   if (focusClass !== seenFocus) {
     setSeenFocus(focusClass)
-    setPicked(null)
+    const f = focusClass ? list.find((d) => d.classes.includes(focusClass)) : undefined
+    setPicked(f ? f.id : null)
   }
-
-  // The crosswalk hub is a bridge, not a dataset — it surfaces as the クロスウォーク band
-  // / view below, never as a list card (crosswalk-hub.md ④).
-  const list = (datasets ?? []).filter((d) => !d.isCrosswalk)
-  const focused = focusClass ? list.find((d) => d.classes.includes(focusClass)) : undefined
-  const selected = list.find((d) => d.id === picked) ?? focused ?? list[0] ?? null
+  // Default view is the full-width grid; a dataset is opened on demand (v2 #5).
+  const selected = picked ? (list.find((d) => d.id === picked) ?? null) : null
+  const filtered = query.trim()
+    ? list.filter((d) => d.name.toLowerCase().includes(query.trim().toLowerCase()))
+    : list
 
   return (
     <div className="catalog">
-      <p className="catalog-intro">
-        <Trans i18nKey="gallery:intro">
-          作った<strong>データセット</strong>が主役です。各データセットは「<strong>設計図（語彙）</strong>」と
-          「<strong>取り込みルール</strong>」を持ちます。共通で使う語彙は下にまとめています。
-        </Trans>
-      </p>
-
-      {focusClass && (
-        <div className="vocab-focus-banner">
-          {t('gallery:focusBanner.label')}
-          <strong>{focusClass}</strong>
-          <span className="vocab-focus-sub">{t('gallery:focusBanner.sub')}</span>
-        </div>
-      )}
-
       {error && <pre className="error">{error}</pre>}
 
       {!datasets && !error && (
@@ -142,149 +135,129 @@ export function GalleryView({
           </span>
           <p className="state-title">{t('gallery:empty.title')}</p>
           <p className="state-sub">{t('gallery:empty.sub')}</p>
+          {onAddData && (
+            <button type="button" className="promote-btn" onClick={onAddData}>
+              {t('gallery:grid.addTitle')}
+            </button>
+          )}
         </div>
       )}
 
-      {datasets && list.length > 0 && (
-        <div className="catalog-grid">
-          <div className="catalog-list">
-            <div className="catalog-list-head">
-              <h3 className="card-h">{t('gallery:list.head')}</h3>
-              <span className="catalog-count">{list.length}</span>
-            </div>
-            {list.map((d) => (
-              <DatasetListCard
-                key={d.id}
-                dataset={d}
-                active={d.id === selected?.id}
-                onSelect={() => setPicked(d.id)}
+      {/* Detail (full width). Back returns to the grid; keyed by id so each
+          dataset's controls remount fresh (no state leak across datasets). */}
+      {datasets && selected && (
+        <DatasetDetail
+          key={selected.id}
+          dataset={selected}
+          perspectives={perspectives}
+          tab={tab}
+          onTab={setTab}
+          highlight={focusClass}
+          onChanged={reload}
+          onBack={() => setPicked(null)}
+          onOpenCrosswalk={onOpenCrosswalk}
+          onOpenMap={onOpenMap}
+        />
+      )}
+
+      {/* Full-width 3-column grid (v2 ScreenDatasets) + add tile. */}
+      {datasets && !selected && list.length > 0 && (
+        <>
+          <div className="catalog-toolbar">
+            <p className="catalog-intro">
+              <Trans i18nKey="gallery:intro">
+                作った<strong>データセット</strong>が主役です。各データセットは「<strong>設計図（語彙）</strong>」と
+                「<strong>取り込みルール</strong>」を持ちます。共通で使う語彙は下にまとめています。
+              </Trans>
+            </p>
+            <label className="catalog-search">
+              <SearchIcon size={15} />
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={t('gallery:grid.search')}
               />
-            ))}
+            </label>
           </div>
 
-          {selected && (
-            // Key by dataset id so the detail (and its controls' local state —
-            // IngestControl's done/files, PromoteControl's promoted/alignment)
-            // remounts fresh when switching datasets, never leaking across them.
-            <DatasetDetail
-              key={selected.id}
-              dataset={selected}
-              tab={tab}
-              onTab={setTab}
-              highlight={focusClass}
-              onChanged={reload}
-            />
+          {focusClass && (
+            <div className="vocab-focus-banner">
+              {t('gallery:focusBanner.label')}
+              <strong>{focusClass}</strong>
+              <span className="vocab-focus-sub">{t('gallery:focusBanner.sub')}</span>
+            </div>
           )}
-        </div>
+
+          <div className="ds-grid">
+            {filtered.map((d) => (
+              <DatasetGridCard
+                key={d.id}
+                dataset={d}
+                connections={connectionCount(d, perspectives)}
+                onSelect={() => {
+                  setTab('structure')
+                  setPicked(d.id)
+                }}
+              />
+            ))}
+            {onAddData && (
+              <button type="button" className="ds-add-tile" onClick={onAddData}>
+                <span className="ds-add-plus">+</span>
+                <span className="ds-add-title">{t('gallery:grid.addTitle')}</span>
+                <span className="ds-add-sub">{t('gallery:grid.addSub')}</span>
+              </button>
+            )}
+          </div>
+        </>
       )}
 
-      {/* shared vocabulary gateway → the live cross-dataset vocabulary board */}
-      <button type="button" className="shared-band" onClick={onOpenVocab}>
-        <span className="shared-band-icon">
-          <LinkIcon size={19} />
-        </span>
-        <span className="shared-band-body">
-          <span className="shared-band-title">
-            {t('gallery:sharedBand.title')} <span className="shared-band-en">{t('gallery:sharedBand.en')}</span>
-            <span className="shared-band-warn">{t('gallery:sharedBand.warn')}</span>
-          </span>
-          <span className="shared-band-sub">
-            <Trans i18nKey="gallery:sharedBand.sub">
-              複数のデータセットが共通で使う設計図。揃えておくと<strong>横断して検索・比較</strong>できます。
-            </Trans>
-          </span>
-        </span>
-        <span className="shared-band-cta">
-          {sharedClassCount != null && (
-            <span className="shared-band-users">
-              <Trans
-                i18nKey="gallery:sharedBand.users"
-                values={{ n: sharedClassCount }}
-                components={[<span className="mono-strong" key="n" />]}
-              />
-            </span>
-          )}
-          {t('gallery:sharedBand.open')} <ArrowIcon size={14} />
-        </span>
-      </button>
-
-      {/* crosswalk gateway → the cross-dataset bridge (compositions joined across datasets) */}
-      <button type="button" className="shared-band" onClick={onOpenCrosswalk}>
-        <span className="shared-band-icon">
-          <LinkIcon size={19} />
-        </span>
-        <span className="shared-band-body">
-          <span className="shared-band-title">
-            {t('gallery:crosswalkBand.title')} <span className="shared-band-en">{t('gallery:crosswalkBand.en')}</span>
-          </span>
-          <span className="shared-band-sub">
-            <Trans i18nKey="gallery:crosswalkBand.sub">
-              同じ概念（組成・結晶系・著者…）を共有する複数のデータセットを<strong>1つの橋でつなぐ</strong>。
-              「この値は何データセットが報告？」を横断で答えられます。
-            </Trans>
-          </span>
-        </span>
-        <span className="shared-band-cta">
-          {crosswalkCount != null && crosswalkCount > 0 && (
-            <span className="shared-band-users">
-              <Trans
-                i18nKey="gallery:crosswalkBand.users"
-                values={{ n: crosswalkCount }}
-                components={[<span className="mono-strong" key="n" />]}
-              />
-            </span>
-          )}
-          {t('gallery:crosswalkBand.open')} <ArrowIcon size={14} />
-        </span>
-      </button>
-
-      {/* ontology map gateway → the bird's-eye view of all ontologies + their links */}
-      <button type="button" className="shared-band" onClick={onOpenMap}>
-        <span className="shared-band-icon">
-          <LayersIcon size={19} />
-        </span>
-        <span className="shared-band-body">
-          <span className="shared-band-title">
-            オントロジーの全体像 <span className="shared-band-en">ontology map</span>
-          </span>
-          <span className="shared-band-sub">
-            どんなオントロジーがあり、<strong>どうつながっているか</strong>を1枚の図で俯瞰します
-            （データセット × クロスウォークの橋 × 整合）。
-          </span>
-        </span>
-        <span className="shared-band-cta">
-          開く <ArrowIcon size={14} />
-        </span>
-      </button>
     </div>
   )
 }
 
-function DatasetListCard({
+function DatasetGridCard({
   dataset,
-  active,
+  connections,
   onSelect,
 }: {
   dataset: CatalogDataset
-  active: boolean
+  connections: number
   onSelect: () => void
 }) {
   const { t } = useTranslation()
+  const meta = dataset.live?.meta
+  const files = meta?.source_files?.length ?? 0
+  const updated = meta?.created_at?.slice(0, 10) ?? ''
   return (
-    <button type="button" className={`ds-card${active ? ' active' : ''}`} onClick={onSelect}>
-      <div className="ds-card-head">
-        <span className="ds-card-name">{dataset.name}</span>
+    <button type="button" className="ds-grid-card" onClick={onSelect}>
+      <div className="ds-grid-card-head">
+        <span className="ds-grid-card-icon">
+          <DataIcon size={18} />
+        </span>
+        <span className="ds-grid-card-titles">
+          <span className="ds-grid-card-name">{dataset.name}</span>
+          <span className="ds-grid-card-type">{sourceTag(meta)}</span>
+        </span>
         <span className={`status-pill status-pill--${dataset.statusKind}`}>
           {statusLabel(t, dataset.statusKind)}
         </span>
       </div>
-      <div className="ds-card-sub">{dataset.sub}</div>
-      <div className="ds-card-counts">
+      <div className="ds-grid-card-counts">
         {dataset.counts.map((c) => (
           <span className="ds-row-count" key={c.label}>
             <span className="ds-row-count-val">{c.value}</span> {c.label}
           </span>
         ))}
+      </div>
+      <div className="ds-grid-card-meta">
+        <span className="ds-grid-card-metaitem">
+          <FileIcon size={13} /> {t('gallery:grid.metaFiles')} <b>{files}</b>
+        </span>
+        <span className="ds-grid-card-metaitem">
+          <ConnectIcon size={13} /> {t('gallery:grid.metaLinks')} <b>{connections}</b>
+        </span>
+        {updated && <span className="ds-grid-card-updated">{updated}</span>}
       </div>
     </button>
   )
@@ -292,49 +265,78 @@ function DatasetListCard({
 
 function DatasetDetail({
   dataset,
+  perspectives,
   tab,
   onTab,
   highlight,
   onChanged,
+  onBack,
+  onOpenCrosswalk,
+  onOpenMap,
 }: {
   dataset: CatalogDataset
+  perspectives: CrosswalkPerspective[]
   tab: DetailTab
   onTab: (t: DetailTab) => void
   highlight?: string | null
   onChanged: () => void
+  onBack?: () => void
+  onOpenCrosswalk?: () => void
+  onOpenMap?: () => void
 }) {
   const { t } = useTranslation()
+  const meta = dataset.live?.meta
+  // 取り込んだファイル: the design-time source + every appended batch (no dedupe
+  // detection yet — that needs a backend content hash; surfaced as a note).
+  const fileRows: { name: string; type: string; when: string; tag: string }[] = []
+  if (meta) {
+    const typeLabel = sourceTag(meta)
+    for (const f of meta.source_files ?? [])
+      fileRows.push({ name: f, type: typeLabel, when: meta.created_at.slice(0, 10), tag: t('gallery:files.source') })
+    for (const a of meta.appends ?? [])
+      for (const bf of a.batch_files)
+        fileRows.push({
+          name: bf,
+          type: typeLabel,
+          when: a.appended_at.slice(0, 10),
+          tag: t('gallery:files.batch', { seq: a.seq }),
+        })
+  }
+  // つながり: the crosswalk perspectives this dataset participates in.
+  const myIds = new Set([dataset.id, meta?.id].filter(Boolean) as string[])
+  const myPersp = perspectives.filter((p) =>
+    (p.config?.concepts ?? []).some((c) => c.participants.some((part) => myIds.has(part.dataset_id))),
+  )
+  const tabs: [DetailTab, string][] = [
+    ['structure', t('gallery:tab.structure')],
+    ['files', t('gallery:tab.files')],
+    ['connect', t('gallery:tab.connect')],
+    ['design', t('gallery:tab.design')],
+  ]
   return (
-    <div className="ds-detail card">
+    <div className="ds-detail-wrap">
+      {onBack && (
+        <button type="button" className="vocab-back ds-detail-back" onClick={onBack}>
+          <ArrowIcon size={14} className="vocab-back-arrow" /> {t('gallery:detail.back')}
+        </button>
+      )}
+      <div className="ds-detail card">
       <div className="ds-detail-head">
         <h2 className="ds-detail-name">{dataset.name}</h2>
         <span className={`status-pill status-pill--${dataset.statusKind}`}>
           {statusLabel(t, dataset.statusKind)}
         </span>
         <div className="ds-tabs">
-          <button
-            type="button"
-            className={`ds-tab${tab === 'design' ? ' active' : ''}`}
-            onClick={() => onTab('design')}
-          >
-            {t('gallery:tab.design')} <span className="ds-tab-en">{t('gallery:tab.designEn')}</span>
-          </button>
-          <button
-            type="button"
-            className={`ds-tab${tab === 'rules' ? ' active' : ''}`}
-            onClick={() => onTab('rules')}
-          >
-            {t('gallery:tab.rules')} <span className="ds-tab-en">{t('gallery:tab.rulesEn')}</span>
-          </button>
-          {dataset.live && (
+          {tabs.map(([id, label]) => (
             <button
+              key={id}
               type="button"
-              className={`ds-tab${tab === 'tools' ? ' active' : ''}`}
-              onClick={() => onTab('tools')}
+              className={`ds-tab${tab === id ? ' active' : ''}`}
+              onClick={() => onTab(id)}
             >
-              {t('gallery:tab.tools')} <span className="ds-tab-en">{t('gallery:tab.toolsEn')}</span>
+              {label}
             </button>
-          )}
+          ))}
         </div>
       </div>
 
@@ -353,9 +355,8 @@ function DatasetDetail({
         </div>
       )}
 
-      {tab === 'tools' && dataset.live ? (
-        <ToolsPanel datasetId={dataset.live.meta.id} />
-      ) : tab === 'design' ? (
+      {/* 中身 (contents): the dataset's structure + the tools it can answer with. */}
+      {tab === 'structure' && (
         <div className="ds-tab-body">
           <div className="ds-section-head">
             <span className="ds-section-title">{t('gallery:design.title')}</span>
@@ -395,6 +396,129 @@ function DatasetDetail({
             </details>
           )}
 
+          {dataset.live && (
+            <div className="ds-tools-block">
+              <div className="ds-subhead">{t('gallery:detail.tools')}</div>
+              <ToolsPanel datasetId={dataset.live.meta.id} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 取り込んだファイル (files): every file that makes up this dataset. */}
+      {tab === 'files' && (
+        <div className="ds-tab-body">
+          <p className="ds-dedupe-note">
+            <span className="ds-dedupe-check">✓</span> {t('gallery:files.dedupe')}
+          </p>
+          {fileRows.length > 0 ? (
+            <div className="ds-files-table">
+              <div className="ds-files-head">
+                <span>{t('gallery:files.colName')}</span>
+                <span>{t('gallery:files.colType')}</span>
+                <span>{t('gallery:files.colWhen')}</span>
+                <span>{t('gallery:files.colStatus')}</span>
+              </div>
+              {fileRows.map((f, i) => (
+                <div className="ds-files-row" key={`${f.name}-${i}`}>
+                  <span className="ds-file-name">
+                    <FileIcon size={14} /> <code>{f.name}</code>
+                  </span>
+                  <span>{f.type}</span>
+                  <span className="ds-file-when">
+                    {f.when} <span className="ds-file-tag">{f.tag}</span>
+                  </span>
+                  <span className="ds-file-status">✓ {t('gallery:files.statusIngested')}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="ds-empty-note">{t('gallery:files.none')}</p>
+          )}
+          <p className="ds-files-future">{t('gallery:files.futureDedup')}</p>
+
+          {/* Operations on this dataset's ingested data live here (the natural home
+              for ingest / append / re-ingest / promote / lifecycle). State-gated, so
+              usually only one or two are visible for a given dataset stage. */}
+          {dataset.live && (
+            <div className="ds-detail-controls">
+              {/* Task E: ingest gate for design-stage datasets (no facts yet). */}
+              <IngestControl meta={dataset.live.meta} onChanged={onChanged} />
+              {/* S4 (re-)promote human-gate. */}
+              <PromoteControl meta={dataset.live.meta} onChanged={onChanged} />
+              {/* incremental-ingest.md: append a new batch to a promoted live feed. */}
+              <AppendControl meta={dataset.live.meta} onChanged={onChanged} />
+              {/* document layer: add another document to a promoted document dataset. */}
+              <DocumentAppendControl meta={dataset.live.meta} onChanged={onChanged} />
+              {/* part5: safe replace — re-ingest into a new version, then re-promote. */}
+              <ReingestControl meta={dataset.live.meta} onChanged={onChanged} />
+              {/* #20 P3 lifecycle: retract / reinstate / delete (human-gated). */}
+              <LifecycleControl meta={dataset.live.meta} onChanged={onChanged} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* つながり (connections): the crosswalks this dataset takes part in. */}
+      {tab === 'connect' && (
+        <div className="ds-tab-body">
+          <div className="ds-section-head">
+            <span className="ds-section-title">{t('gallery:connect.head')}</span>
+          </div>
+          {myPersp.length > 0 ? (
+            <div className="ds-conn-list">
+              {myPersp.map((p) => (
+                <div className="ds-conn-item" key={p.perspective_id}>
+                  <span className="ds-conn-icon">
+                    <ConnectIcon size={15} />
+                  </span>
+                  <span className="ds-conn-name">{p.dataset?.name || p.perspective_id}</span>
+                  <span className="ds-conn-concept">
+                    {t('gallery:connect.concept', {
+                      concept: (p.config?.concepts ?? []).map((c) => c.name).join(' · '),
+                    })}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="ds-empty-note">{t('gallery:connect.none')}</p>
+          )}
+          <div className="ds-conn-links">
+            {onOpenCrosswalk && (
+              <button type="button" className="btn btn--ghost btn--sm" onClick={onOpenCrosswalk}>
+                <ConnectIcon size={14} /> {t('gallery:connect.seeAll')}
+              </button>
+            )}
+            {onOpenMap && (
+              <button type="button" className="btn btn--ghost btn--sm" onClick={onOpenMap}>
+                <LayersIcon size={14} /> {t('gallery:connect.seeMap')}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 設計 (design): the ingest rules, reused vocabularies, and grounding. */}
+      {tab === 'design' && (
+        <div className="ds-tab-body">
+          <div className="ds-section-head">
+            <span className="ds-section-title">{t('gallery:rules.title')}</span>
+          </div>
+          {dataset.artifacts.length > 0 ? (
+            <div className="ds-artifacts">
+              {dataset.artifacts.map((a) => (
+                <div key={a.name} className="ds-artifact">
+                  <span className="ds-artifact-kind">{a.kind}</span>
+                  <code className="ds-artifact-name">{a.name}</code>
+                  <span className="ds-artifact-detail">{a.detail}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="ds-empty-note">{t('gallery:rules.empty')}</p>
+          )}
+
           {dataset.reuses.length > 0 && (
             <>
               <div className="ds-subhead">{t('gallery:design.reusesHead')}</div>
@@ -413,48 +537,8 @@ function DatasetDetail({
             <DatasetGrounding dataset={dataset} />
           )}
         </div>
-      ) : (
-        <div className="ds-tab-body">
-          <div className="ds-section-head">
-            <span className="ds-section-title">{t('gallery:rules.title')}</span>
-          </div>
-          {dataset.artifacts.length > 0 ? (
-            <div className="ds-artifacts">
-              {dataset.artifacts.map((a) => (
-                <div key={a.name} className="ds-artifact">
-                  <span className="ds-artifact-kind">{a.kind}</span>
-                  <code className="ds-artifact-name">{a.name}</code>
-                  <span className="ds-artifact-detail">{a.detail}</span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="ds-empty-note">{t('gallery:rules.empty')}</p>
-          )}
-        </div>
       )}
-
-      {/* Dataset-level controls — shown under BOTH tabs (not mapping-specific). */}
-      {dataset.live && (
-        <div className="ds-detail-controls">
-          {/* Task E: ingest gate for design-stage datasets (no facts yet). */}
-          <IngestControl meta={dataset.live.meta} onChanged={onChanged} />
-          {/* S4 (re-)promote human-gate: first promote of a draft, or re-promote
-              of a re-ingested replacement (version bump). */}
-          <PromoteControl meta={dataset.live.meta} onChanged={onChanged} />
-          {/* incremental-ingest.md: grow a promoted dataset's live feed by appending
-              a new batch (device-feed path — O(new), no re-ingest of the whole source). */}
-          <AppendControl meta={dataset.live.meta} onChanged={onChanged} />
-          {/* document layer: add another document to a promoted document dataset
-              (the "定例ミーティング" path — one doc at a time, searchable across all). */}
-          <DocumentAppendControl meta={dataset.live.meta} onChanged={onChanged} />
-          {/* part5: safe replace — re-ingest a promoted/ingested dataset into a new
-              version graph (gap-free), then re-promote to swap the live pointer. */}
-          <ReingestControl meta={dataset.live.meta} onChanged={onChanged} />
-          {/* #20 P3 lifecycle: retract / reinstate / delete (human-gated). */}
-          <LifecycleControl meta={dataset.live.meta} onChanged={onChanged} />
-        </div>
-      )}
+      </div>
     </div>
   )
 }

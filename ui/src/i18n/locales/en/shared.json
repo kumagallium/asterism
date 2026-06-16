@@ -3,7 +3,7 @@
     "cardTitle": "Click to show the source (provenance)",
     "untitled": "(untitled)",
     "traceHint": "Source",
-    "vocabTitle": "Show vocabulary class \"{{className}}\" in the catalog",
+    "vocabTitle": "Show the \"{{className}}\" vocabulary in Datasets",
     "vocabLink": "Vocabulary: {{className}} →"
   },
   "trace": {
@@ -15,7 +15,7 @@
     "loading": "Resolving provenance…",
     "legendData": "Data",
     "legendProcess": "Process",
-    "vocabTitle": "Show vocabulary class \"{{className}}\" in the catalog",
+    "vocabTitle": "Show the \"{{className}}\" vocabulary in Datasets",
     "vocabLink": "View vocabulary",
     "noRecord": "No provenance is recorded for this item."
   },

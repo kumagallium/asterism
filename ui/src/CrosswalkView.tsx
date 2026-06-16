@@ -10,7 +10,7 @@ import {
   getCrosswalks,
   unalign,
 } from './crosswalkApi'
-import { ArrowIcon, LinkIcon } from './icons'
+import { ArrowIcon, LayersIcon, LinkIcon } from './icons'
 import { ToolsPanel } from './ToolsPanel'
 import { localName } from './vocab'
 
@@ -21,7 +21,13 @@ import { localName } from './vocab'
  * manual rebuild. Creation (incl. naming a new perspective) lives in データを追加 →
  * 横断でつなぐ (CrosswalkBuilder).
  */
-export function CrosswalkView({ onBack }: { onBack?: () => void }) {
+export function CrosswalkView({
+  onBack,
+  onOpenMap,
+}: {
+  onBack?: () => void
+  onOpenMap?: () => void
+}) {
   const { t } = useTranslation()
   const [perspectives, setPerspectives] = useState<CrosswalkPerspective[] | null>(null)
   const [err, setErr] = useState('')
@@ -96,6 +102,11 @@ export function CrosswalkView({ onBack }: { onBack?: () => void }) {
             <Trans i18nKey="crosswalk:view.bannerSub" components={[<strong />, <strong />]} />
           </p>
         </div>
+        {onOpenMap && (
+          <button type="button" className="btn btn--ghost btn--sm crosswalk-map-btn" onClick={onOpenMap}>
+            <LayersIcon size={14} /> {t('crosswalk:view.seeMap')}
+          </button>
+        )}
       </div>
 
       {err && <pre className="error">{err}</pre>}
@@ -142,6 +153,7 @@ export function CrosswalkView({ onBack }: { onBack?: () => void }) {
 
           {selected && (
             <>
+              <div className="card xw-detail-card">
               <div className="xw-summary">
                 <div className="xw-summary-stat">
                   <span className="xw-summary-num">{shared ?? '—'}</span>
@@ -156,6 +168,9 @@ export function CrosswalkView({ onBack }: { onBack?: () => void }) {
                   <span className="xw-summary-label">{t('crosswalk:view.summary.concepts')}</span>
                 </div>
               </div>
+              <p className="xw-summary-note">
+                {t('crosswalk:view.summary.note', { concept: concepts[0]?.name ?? '—' })}
+              </p>
 
               {concepts.map((c) => (
                 <div className="xw-concept" key={c.name}>
@@ -209,17 +224,20 @@ export function CrosswalkView({ onBack }: { onBack?: () => void }) {
                   {t('crosswalk:view.rebuildErr', { detail: rebuildErr })}
                 </p>
               )}
-
-              <div className="ds-subhead xw-tools-head">
-                {t('crosswalk:view.toolsHead')}
-                <span className="xw-hint-inline">{t('crosswalk:view.toolsHint')}</span>
               </div>
-              {/* The hub-resident cross-dataset tools — keyed by perspective so they
-                  reload when you switch lens. */}
-              <ToolsPanel
-                key={selected.perspective_id}
-                datasetId={selected.dataset?.id ?? 'crosswalk-bridge'}
-              />
+
+              <div className="card xw-tools-card">
+                <div className="ds-subhead xw-tools-head">
+                  {t('crosswalk:view.toolsHead')}
+                  <span className="xw-hint-inline">{t('crosswalk:view.toolsHint')}</span>
+                </div>
+                {/* The hub-resident cross-dataset tools — keyed by perspective so they
+                    reload when you switch lens. */}
+                <ToolsPanel
+                  key={selected.perspective_id}
+                  datasetId={selected.dataset?.id ?? 'crosswalk-bridge'}
+                />
+              </div>
             </>
           )}
         </>

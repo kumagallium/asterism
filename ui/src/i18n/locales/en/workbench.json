@@ -6,7 +6,7 @@
     "crosswalk": "Bridge existing datasets",
     "crosswalkTag": "crosswalk"
   },
-  "intro": "Connect a data source, then go <strong>AI designs → review & refine → save</strong>. Once saved it appears in the catalog. Structure analysis runs automatically in the background, so press \"View structure\" only when you want to check it.",
+  "intro": "Connect a data source, then go <strong>AI designs → review & refine → save</strong>. Once saved it appears in your datasets. Structure analysis runs automatically in the background, so press \"View structure\" only when you want to check it.",
   "restore": {
     "note": "Restored your previous work (re-select the source only if you need to re-run).",
     "clear": "Clear workbench"
@@ -63,8 +63,8 @@
     "jobLabel": "AI is regenerating the schema…"
   },
   "save": {
-    "hint": "Split the schema into 4 artifacts, validate the 8 traps, and <strong>save to the catalog</strong>.",
-    "save": "Confirm & save to catalog",
+    "hint": "Split the schema into 4 artifacts, validate the 8 traps, and <strong>save to your datasets</strong>.",
+    "save": "Confirm & save",
     "saving": "Saving…"
   },
   "job": {

@@ -1,5 +1,5 @@
 {
-  "back": "Back to catalog",
+  "back": "Back",
   "banner": {
     "title": "The \"schema (vocabulary)\" does not disappear — it is just <1>shared</1>",
     "sub": "This is <1>vocabulary automatically introspected from the actual data</1> (across all datasets; labels come from the TBox projected from each dataset's schema). The more it is aligned, the better cross-dataset search and comparison work."

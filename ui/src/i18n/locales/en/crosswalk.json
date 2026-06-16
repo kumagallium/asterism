@@ -1,6 +1,7 @@
 {
   "view": {
-    "back": "Back to catalog",
+    "back": "Back",
+    "seeMap": "View overview",
     "bannerTitle": "Crosswalk (the bridge that connects across datasets)",
     "bannerSub": "There can be <0>several perspectives</0> on how to connect datasets (composition, crystal structure…). Each perspective is kept as its <1>own independent bridge</1>, and cross-dataset queries just work.",
     "loading": "Loading…",
@@ -14,7 +15,8 @@
     "summary": {
       "sharedValues": "Shared values",
       "participants": "Participating datasets",
-      "concepts": "Shared concepts"
+      "concepts": "Shared concepts",
+      "note": "\"Shared values\" is how many \"{{concept}}\" values matched across datasets (not the total number of facts/triples). \"Shared concepts\" is how many concepts (composition, crystal system…) this bridge connects on."
     },
     "conceptHead": "Concept \"{{name}}\"",
     "normalizerHint": "Normalization: {{normalizer}}",
@@ -132,7 +134,7 @@
     "step5": "5. This perspective's name",
     "step5Hint": "You can keep multiple \"perspectives (ways to connect)\" distinct",
     "perspectivePlaceholder": "e.g. Connect by composition (leave blank to overwrite the standard \"composition\" perspective)",
-    "perspectiveNamed": "Creates a new independent perspective (its own graph, listed in the catalog).",
+    "perspectiveNamed": "Creates a new independent perspective (its own graph, listed in your datasets).",
     "perspectiveDefault": "When blank, creates/updates the standard \"composition\" perspective.",
     "build": "Build crosswalk (across {{count}} datasets)",
     "building": "Building…",
@@ -144,7 +146,7 @@
       "stat": "<0>{{shared}}</0> \"{{key}}\" values are shared across<1> {{count}} </1>datasets.",
       "linkChip": "{{label}} <0>{{n}}</0> links",
       "skipped": "Excluded: {{labels}} (out of scope, e.g. not promoted)",
-      "next": "In \"Catalog → Crosswalk\" you can check the participating datasets and tools (which datasets report this value?)."
+      "next": "In \"Crosswalk\" you can check the participating datasets and tools (which datasets report this value?)."
     }
   },
   "error": {
