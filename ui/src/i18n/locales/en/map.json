@@ -1,23 +1,34 @@
 {
-  "back": "Back to catalog",
-  "title": "Ontology map",
-  "bannerSub": "A bird's-eye view of the <0>ontologies</0> in Asterism and how they <1>connect</1>. Each dataset has its own ontology (its classes), and <2>crosswalks (bridges)</2> link them across shared concepts.",
+  "back": "Back",
+  "title": "What data exists and how it connects",
+  "bannerSub": "Each dataset has its own words; <0>connections (bridges)</0> link them across shared concepts. On the right are the <1>external standards</1> everyone shares.",
   "legend": {
     "datasets": "Datasets {{n}}",
-    "crosswalks": "Crosswalks {{n}}",
+    "crosswalks": "Connections {{n}}",
     "alignments": "Alignments {{n}}",
-    "external": "Standard ontologies {{n}}"
+    "external": "External standards {{n}}"
   },
-  "showExternal": "Show existing standard ontologies",
+  "showExternal": "Show external standards",
   "loading": "Loading…",
   "empty": {
-    "title": "No ontologies yet",
+    "title": "No data yet",
     "sub": "Ingest data via \"Add data\" and it will appear here."
   },
-  "chart": {
-    "datasets": "Dataset ontologies",
-    "bridges": "Crosswalks (bridges)",
-    "external": "Existing standard ontologies (reused)",
-    "reuses": "reuses"
+  "lane": {
+    "datasets": "Datasets",
+    "datasetsEn": "datasets",
+    "bridges": "Connections (bridges)",
+    "bridgesEn": "crosswalk",
+    "external": "External standards",
+    "externalEn": "reused"
+  },
+  "node": {
+    "connectStd": "Linked to",
+    "crossBy": "across {{key}}"
+  },
+  "line": {
+    "connect": "connect",
+    "reuse": "reuse standard",
+    "selected": "selected"
   }
 }

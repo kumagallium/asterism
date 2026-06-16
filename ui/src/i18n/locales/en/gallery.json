@@ -10,12 +10,12 @@
     "draft": "Draft",
     "design": "Designing"
   },
-  "intro": "Your <1>datasets</1> are the focus. Each dataset has a \"<3>schema (vocabulary)</3>\" and \"<5>ingest rules</5>\". Shared vocabulary is collected below.",
+  "intro": "Your <1>datasets</1> are the focus. Each dataset has a \"<3>schema (vocabulary)</3>\" and \"<5>ingest rules</5>\".",
   "focusBanner": {
     "label": "Vocabulary class for the Ask citation: ",
     "sub": "This answer is based on data typed with this class."
   },
-  "loading": "Loading catalog…",
+  "loading": "Loading datasets…",
   "empty": {
     "title": "No datasets yet",
     "sub": "Ingest data via \"Add data\" and it will appear here."
@@ -24,27 +24,66 @@
     "head": "Datasets"
   },
   "sharedBand": {
-    "title": "Shared vocabulary",
-    "en": "shared vocabulary",
+    "title": "Shared terms",
+    "en": "shared terms",
     "warn": "Changes affect everything · handle with care",
     "sub": "The schema multiple datasets share. Keeping it aligned lets you <1>search and compare across datasets</1>.",
     "users": "<0>{{n}}</0> classes shared",
     "open": "Open"
   },
   "crosswalkBand": {
-    "title": "Crosswalk",
+    "title": "Connections",
     "en": "crosswalk",
     "sub": "Connect datasets that share the same concept (composition, crystal system, author…) with <1>a single bridge</1>. It can answer \"how many datasets report this value?\" across datasets.",
     "users": "<0>{{n}}</0> datasets bridged",
     "open": "Open"
   },
   "tab": {
-    "design": "Schema",
-    "designEn": "ontology",
-    "rules": "Ingest rules",
-    "rulesEn": "mapping",
-    "tools": "Tools",
-    "toolsEn": "tools"
+    "structure": "Contents",
+    "structureEn": "contents",
+    "files": "Files",
+    "filesEn": "files",
+    "connect": "Connections",
+    "connectEn": "connections",
+    "design": "Design",
+    "designEn": "design"
+  },
+  "grid": {
+    "search": "Search by dataset name",
+    "metaFiles": "files",
+    "metaLinks": "connections",
+    "addTitle": "New dataset",
+    "addSub": "Create by ingesting files"
+  },
+  "detail": {
+    "back": "Datasets",
+    "tools": "Tools (answer from this data)"
+  },
+  "files": {
+    "head": "Ingested files",
+    "dedupe": "Every file that makes up this dataset. Files with the same name or contents are detected automatically at ingest time, so you never wonder \"did I add this already?\".",
+    "futureDedup": "* Content-hash duplicate detection is coming; for now you can check by file name.",
+    "colName": "File name",
+    "colType": "Type",
+    "colWhen": "Ingested",
+    "colStatus": "Status",
+    "statusIngested": "Ingested",
+    "source": "design source",
+    "batch": "batch #{{seq}}",
+    "none": "No ingested-file records yet. Use the operations below to ingest."
+  },
+  "connect": {
+    "head": "This dataset's connections",
+    "concept": "across {{concept}}",
+    "none": "This dataset is not yet connected to other data.",
+    "seeAll": "Manage connections",
+    "seeMap": "View overview"
+  },
+  "mapBand": {
+    "title": "Overview",
+    "en": "overview",
+    "sub": "See <1>what data exists and how it connects</1> in a single map.",
+    "open": "Open"
   },
   "purposes": {
     "label": "Questions this data can answer"

@@ -6,7 +6,7 @@
   },
   "schema": {
     "head": "Standard ontology candidates",
-    "hint": "For the terms this design newly mints, here are matching terms from famous standards (suggestions only — adopt them in the catalog after ingest)."
+    "hint": "For the terms this design newly mints, here are matching terms from famous standards (suggestions only — adopt them in the dataset after ingest)."
   },
   "error": {
     "failed": "{{op}} failed ({{status}}){{detail}}"
@@ -25,10 +25,40 @@
     "head": "Ground to an external standard",
     "hint": "Map this dataset's own terms to a real term in a famous standard ontology (candidates come from a closed set; a human confirms).",
     "ground": "Ground",
-    "done": "Grounded \"{{source}}\" to {{target}}.",
+    "done": "Aligned \"{{source}}\" to {{target}}.",
     "withdraw": "Withdraw",
     "withdrawing": "Withdrawing…",
     "err": "Action failed: {{detail}}",
-    "noTerms": "No own terms to ground yet (they appear once the vocabulary is settled after ingest)."
-  }
+    "noTerms": "No own terms to align yet (they appear once the vocabulary is settled after ingest)."
+  },
+  "banner": {
+    "title": "Align your words to the world's standard words",
+    "sub": "Link this data's own words to commonly used standard terms. Once aligned, your data connects automatically with others, and external tools and AI understand it directly."
+  },
+  "progress": "{{done}} / {{total}} aligned",
+  "group": {
+    "classes": "Things",
+    "classesEn": "classes",
+    "fields": "Fields",
+    "fieldsEn": "fields"
+  },
+  "state": {
+    "done": "Aligned",
+    "suggest": "AI suggestion",
+    "none": "No matching standard yet"
+  },
+  "confirm": "Confirm",
+  "search": "Find candidates",
+  "why": {
+    "head": "Why align?",
+    "p1": "Connect to other data with the same meaning, automatically",
+    "p2": "External tools and AI understand it directly",
+    "p3": "Searchable by the world's common terms too"
+  },
+  "detected": {
+    "head": "Standards found automatically",
+    "badge": "detected",
+    "sub": "Well-known vocabularies already used inside the data."
+  },
+  "caution": "Candidates are found by AI; a human confirms. Similar words can mean subtly different things, so only what you confirm gets aligned."
 }
