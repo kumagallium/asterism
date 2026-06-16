@@ -128,9 +128,9 @@
   },
   "docAppend": {
     "head": "Add a document (to this dataset)",
-    "note": "Add one more Word <0>.docx</0> / structured XML <1>.xml</1>, and it is structured into sections → paragraphs → sentences and <2>appended directly to the shared data (live)</2>. From then on, <3>search_text</3> / <4>quote_with_citation</4> in the \"Tools\" tab <5>search and cite the added document too</5> (for accumulating meeting minutes). <6>.docx</6> is auto-converted to XML server-side (the converter and version are recorded in provenance).",
+    "note": "Add one more Word <0>.docx</0> / structured XML <1>.xml</1> / PDF, and it is structured into sections → paragraphs → sentences and <2>appended directly to the shared data (live)</2>. From then on, <3>search_text</3> / <4>quote_with_citation</4> in the \"Tools\" tab <5>search and cite the added document too</5> (for accumulating meeting minutes). <6>.docx</6> and PDF are auto-converted to XML server-side (the converter and version are recorded in provenance).",
     "appended": "{{n}} document(s) appended so far.",
-    "pick": "Choose a document (Word / XML)",
+    "pick": "Choose a document (Word / PDF / XML)",
     "noFile": "Choose a document to add",
     "busy": "Adding…",
     "submit": "Add this document",

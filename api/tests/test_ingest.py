@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from pathlib import Path
 
 import httpx
@@ -24,7 +25,7 @@ from fastapi.testclient import TestClient
 from watchfiles import Change
 
 from asterism_api import registry
-from asterism_api.main import Settings, _append_watch_loop, build_app
+from asterism_api.main import Settings, _append_watch_loop, _sanitize_document_name, build_app
 
 _NO_PANDOC = pandoc_version() is None
 
@@ -277,6 +278,144 @@ def test_create_document_dataset_attaches_tools_and_ingests(tmp_path: Path) -> N
         assert next(d for n, d in events if n == "done")["result"]["triple_count"] > 10
 
 
+# ---- PDF (Docling sidecar) path -------------------------------------------------
+# A .pdf is persisted RAW and converted by the Docling sidecar at INGEST (the slow ML
+# step lives in the async job). The sidecar is mocked here so the tests need no torch.
+_PDF_BYTES = b"%PDF-1.7\n%minimal test pdf\n"
+
+
+def _settings_with_docling(tmp: Path, url: str | None) -> Settings:
+    s = _settings(tmp)
+    s.docling_url = url
+    return s
+
+
+def _save_document_dataset_pdf(tmp: Path, name: str = "pdfdemo") -> str:
+    """Persist a DOCUMENT dataset whose source is a RAW .pdf (source_kind=xml)."""
+    dataset_id = registry.save_dataset(
+        tmp / "registry",
+        name,
+        {"diagram.md": "classDiagram\n  class Document"},
+        complete=True,
+        warnings=[],
+        traps=[],
+        exit_code=0,
+        created_at="2026-06-15T00:00:00+00:00",
+    )["id"]
+    sdir = registry.source_dir(tmp / "registry", dataset_id)
+    sdir.mkdir(parents=True, exist_ok=True)
+    (sdir / "paper.pdf").write_bytes(_PDF_BYTES)
+    registry.mark_source_saved(tmp / "registry", dataset_id, ["paper.pdf"])
+    return dataset_id
+
+
+def test_create_document_dataset_from_pdf_persists_raw(tmp_path: Path) -> None:
+    # POST /api/documents with a .pdf: the RAW PDF is persisted (NOT converted at create
+    # — the slow Docling step happens in the async ingest job), source_kind=xml.
+    oxi = _RecordingOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/documents",
+            data={"name": "My PDF"},
+            files={"file": ("paper.pdf", _PDF_BYTES, "application/pdf")},
+        )
+        assert r.status_code == 201, r.text
+        dataset_id = r.json()["dataset_id"]
+        assert r.json()["dataset"]["source_kind"] == "xml"
+    sdir = registry.source_dir(tmp_path / "registry", dataset_id)
+    assert (sdir / "paper.pdf").read_bytes() == _PDF_BYTES  # raw, not converted at create
+
+
+def test_ingest_pdf_without_sidecar_is_422(tmp_path: Path) -> None:
+    # A .pdf source with no ASTERISM_DOCLING_URL fails fast with a clear 422 (graceful
+    # degrade, like absent pandoc) — synchronously, before any background job starts.
+    dataset_id = _save_document_dataset_pdf(tmp_path, "pdfnosc")
+    oxi = _RecordingOxi()
+    app = build_app(
+        _settings_with_docling(tmp_path, None), oxigraph_client=oxi.client, start_watcher=False
+    )
+    with TestClient(app, headers=_AUTH) as client:
+        status, _ = _drive_ingest(client, dataset_id)
+        assert status == 422
+
+
+def test_ingest_pdf_converts_via_sidecar(tmp_path: Path, monkeypatch) -> None:
+    # With the sidecar configured, the ingest job converts the PDF (sidecar mocked),
+    # emits a "converting" progress phase, structures to sentences, and discloses the
+    # conversion (a .conversion sidecar so a snapshot re-ingest reproduces provenance, A7).
+    def _fake_convert(pdf_bytes, *, sidecar_url, timeout=600.0):
+        assert pdf_bytes == _PDF_BYTES and sidecar_url == "http://docling-test"
+        return _JATS_DOC, "docling/2.x (test; ocr=off)"
+
+    monkeypatch.setattr("asterism.documents.convert_pdf_to_jats", _fake_convert)
+    dataset_id = _save_document_dataset_pdf(tmp_path, "pdfok")
+    oxi = _RecordingOxi()
+    app = build_app(
+        _settings_with_docling(tmp_path, "http://docling-test"),
+        oxigraph_client=oxi.client,
+        start_watcher=False,
+    )
+    with TestClient(app, headers=_AUTH) as client:
+        status, events = _drive_ingest(client, dataset_id)
+        assert status == 202, events
+        running = [d for n, d in events if n == "running"]
+        assert any(d.get("phase") == "converting" for d in running), running
+        assert next(d for n, d in events if n == "done")["result"]["triple_count"] > 10
+    sdir = registry.source_dir(tmp_path / "registry", dataset_id)
+    conv = json.loads((sdir / "paper.pdf.conversion").read_text(encoding="utf-8"))
+    assert conv["sourceFormat"] == "pdf" and conv["converter"].startswith("docling/")
+
+
+def test_sanitize_document_name_accepts_any_filename() -> None:
+    san = _sanitize_document_name
+    assert san("ma11040649.pdf") == "ma11040649.pdf"  # already safe — unchanged
+    assert san("10+3390__ma11040649.pdf") == "10-3390__ma11040649.pdf"  # '+' → '-'
+    assert san("Report (final v2).docx") == "Report-final-v2.docx"  # spaces / parens
+    assert san("paper.PDF").endswith(".pdf")  # extension lowercased
+    # An all-non-ASCII stem is disambiguated by a deterministic hash of the original
+    # name: distinct uploads stay distinct, the same upload stays idempotent.
+    a, b = san("会議メモ.pdf"), san("議事録.pdf")
+    assert a != b and a == san("会議メモ.pdf")
+    # Path traversal / separators never survive — always one safe component.
+    for n in ["a/b/c.pdf", "../../etc/passwd.pdf", "   .pdf", "日本語.docx"]:
+        assert re.fullmatch(r"[A-Za-z0-9._-]+\.(pdf|docx|xml)", san(n)), n
+
+
+def test_create_document_accepts_messy_filename(tmp_path: Path) -> None:
+    # The friend uploads a document with a human filename (spaces / parens / '+') — it is
+    # slugified, not rejected (documents are not RML-referenced). CSV/JSON stay strict.
+    oxi = _RecordingOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/documents",
+            data={"name": "Messy name"},
+            files={"file": ("10+3390 (v2).xml", _JATS_DOC.encode(), "application/xml")},
+        )
+        assert r.status_code == 201, r.text
+        dataset_id = r.json()["dataset_id"]
+        assert r.json()["dataset"]["source_kind"] == "xml"
+    sdir = registry.source_dir(tmp_path / "registry", dataset_id)
+    names = [p.name for p in sdir.iterdir() if p.is_file()]
+    assert names and all(
+        re.fullmatch(r"[A-Za-z0-9._-]+\.(xml|docx|pdf)(\.conversion)?", n) for n in names
+    ), names
+
+
+def test_create_document_still_rejects_unknown_extension(tmp_path: Path) -> None:
+    # Sanitization relaxes the NAME, not the KIND — a non-document extension is still 400.
+    oxi = _RecordingOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/documents",
+            data={"name": "x"},
+            files={"file": ("notes.txt", b"hello", "text/plain")},
+        )
+        assert r.status_code == 400
+
+
 _JATS_DOC2 = (
     '<?xml version="1.0"?><article><front><article-meta>'
     '<article-id pub-id-type="pmcid">PMC-DEMO2</article-id>'
@@ -482,6 +621,7 @@ def test_source_kind_of_classifies_by_extension() -> None:
     assert registry.source_kind_of(["a.csv", "b.json"]) == "json"  # any JSON ⇒ json
     assert registry.source_kind_of(["PMC5951533.xml"]) == "xml"  # JATS document source
     assert registry.source_kind_of(["a.csv", "p.xml"]) == "xml"  # any XML ⇒ xml
+    assert registry.source_kind_of(["paper.pdf"]) == "xml"  # a PDF is a document source
     assert registry.source_kind_of([]) == "csv"
 
 
