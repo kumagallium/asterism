@@ -218,17 +218,21 @@ export interface CreateDocumentResult {
 }
 
 /**
- * Create a DOCUMENT dataset from a single uploaded JATS (.xml) or Word (.docx)
- * file — no schema design (unlike CSV/JSON). The server persists the source (a
- * .docx is converted to JATS by pandoc, source_kind=xml) and auto-attaches the
- * document recall tools (search_text / quote_with_citation / fetch_passage). The
+ * Create a DOCUMENT dataset from one or MORE uploaded JATS (.xml) / Word (.docx) /
+ * PDF (.pdf) files — no schema design (unlike CSV/JSON). The server persists the
+ * source(s) (a .docx is converted to JATS by pandoc, a .pdf by the Docling sidecar at
+ * ingest; source_kind=xml) and auto-attaches the document recall tools (search_text /
+ * quote_with_citation / fetch_passage). Multiple documents land in ONE dataset. The
  * new dataset lands in the catalog at the design stage; ingest + promote are the
  * usual human gates.
  */
-export async function createDocumentDataset(name: string, file: File): Promise<CreateDocumentResult> {
+export async function createDocumentDataset(
+  name: string,
+  files: File[],
+): Promise<CreateDocumentResult> {
   const form = new FormData()
   form.append('name', name)
-  form.append('file', file)
+  for (const file of files) form.append('files', file)
   const res = await fetch('/api/documents', { method: 'POST', headers: authHeaders(), body: form })
   if (!res.ok) {
     const detail = await res.text().catch(() => '')

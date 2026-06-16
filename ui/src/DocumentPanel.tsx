@@ -15,7 +15,7 @@ type Phase = 'idle' | 'creating' | 'ingesting' | 'promoting' | 'done'
 
 export function DocumentPanel() {
   const { t } = useTranslation()
-  const [file, setFile] = useState<File | null>(null)
+  const [files, setFiles] = useState<File[]>([])
   const [name, setName] = useState('')
   const [phase, setPhase] = useState<Phase>('idle')
   const [progress, setProgress] = useState<IngestProgress | null>(null)
@@ -24,21 +24,22 @@ export function DocumentPanel() {
 
   const busy = phase !== 'idle' && phase !== 'done'
 
-  function pick(f: File | null) {
-    setFile(f)
-    if (f && !name.trim()) setName(f.name.replace(/\.(xml|docx|pdf)$/i, ''))
+  function pick(list: FileList | null) {
+    const arr = Array.from(list ?? [])
+    setFiles(arr)
+    if (arr.length && !name.trim()) setName(arr[0].name.replace(/\.(xml|docx|pdf)$/i, ''))
     setError('')
     setResult(null)
     setPhase('idle')
   }
 
   async function run() {
-    if (!file) return
+    if (!files.length) return
     setError('')
     setProgress(null)
     try {
       setPhase('creating')
-      const created = await createDocumentDataset(name.trim() || file.name, file)
+      const created = await createDocumentDataset(name.trim() || files[0].name, files)
       const id = created.dataset_id
       setPhase('ingesting')
       await ingestDataset(id, [], (p) => setProgress(p))
@@ -67,11 +68,18 @@ export function DocumentPanel() {
           <input
             type="file"
             accept=".xml,.docx,.pdf"
+            multiple
             disabled={busy}
-            onChange={(e) => pick(e.target.files?.[0] ?? null)}
+            onChange={(e) => pick(e.target.files)}
           />
         </label>
-        <span className={`file-names${file ? '' : ' empty'}`}>{file ? file.name : t('document:noFile')}</span>
+        <span className={`file-names${files.length ? '' : ' empty'}`}>
+          {files.length === 0
+            ? t('document:noFile')
+            : files.length === 1
+              ? files[0].name
+              : t('document:nFiles', { n: files.length })}
+        </span>
         <label className="fk-field">
           <span>{t('document:nameLabel')}</span>
           <input
@@ -88,7 +96,7 @@ export function DocumentPanel() {
         <span className="hint">
           {t('document:convertHint')}
         </span>
-        <button type="button" onClick={run} disabled={!file || busy}>
+        <button type="button" onClick={run} disabled={!files.length || busy}>
           {busy ? (
             <>
               <span className="spinner" />
