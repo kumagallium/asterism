@@ -31,7 +31,7 @@
     "db": "DB",
     "api": "API 連携",
     "apiShort": "API",
-    "document": "文書（Word / XML）",
+    "document": "文書（Word / PDF / XML）",
     "pickJson": "JSON を選択",
     "pickCsv": "CSV を選択",
     "noFile": "ファイル未選択",

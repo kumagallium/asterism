@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.6.0](https://github.com/kumagallium/asterism/compare/v0.5.0...v0.6.0) - 2026-06-16
+
+- feat(documents): ingest born-digital PDF via an isolated Docling sidecar by @kumagallium in https://github.com/kumagallium/asterism/pull/227
+- feat(documents,catalog): multi-file document upload + dataset rename by @kumagallium in https://github.com/kumagallium/asterism/pull/231
+
 ## [v0.5.0](https://github.com/kumagallium/asterism/compare/v0.4.0...v0.5.0) - 2026-06-15
 
 - docs(crosswalk): design ADR for compound keys (join on N attributes) by @kumagallium in https://github.com/kumagallium/asterism/pull/208
