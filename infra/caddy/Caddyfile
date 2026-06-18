@@ -1,0 +1,53 @@
+# Asterism — production reverse proxy / SPA host / site gate.
+#
+# A single front for the whole product (the "Private 完結" 1-box bundle):
+#   - terminates TLS,
+#   - serves the built React SPA (ui/dist, baked into this image at /srv),
+#   - reverse-proxies  /api + /jobs -> asterism-api,  /demo -> demo-agent,
+#   - gates the WHOLE site behind HTTP Basic auth (registered users only).
+#
+# TLS is env-driven so the same image works with or without a domain:
+#   ASTERISM_DOMAIN     unset/empty -> site address ":443" (no DNS needed)
+#                       a FQDN (e.g. asterism.e4m.jp) -> Caddy gets the cert for it
+#   ASTERISM_TLS_EMAIL  "internal" (default) -> self-signed local CA (browser warning)
+#                       an email (you@e4m.jp) -> Let's Encrypt (real cert; needs a FQDN
+#                                                 + DNS A record + ports 80/443 reachable)
+#
+# Switching from self-signed to a real cert later is two env vars, no file edit.
+#
+# NOTE on auth headers: the api's own write/design token travels in the
+# X-Asterism-Token header (see ui/src/authToken.ts), NOT Authorization — so it
+# does not collide with the `Authorization: Basic` this gate uses. The browser
+# attaches Basic auth automatically after the first login; the SPA adds the
+# X-Asterism-Token on top for write routes.
+
+{$ASTERISM_DOMAIN::443} {
+	tls {$ASTERISM_TLS_EMAIL:internal}
+
+	encode gzip zstd
+
+	# Whole-site gate — only registered users reach anything (UI / Ask / catalog).
+	# Generate the bcrypt hash with:
+	#   docker run --rm caddy:2-alpine caddy hash-password --plaintext 'YOURPASS'
+	basic_auth {
+		{$ASTERISM_BASIC_AUTH_USER:asterism} {$ASTERISM_BASIC_AUTH_HASH}
+	}
+
+	# Workbench API + the (no-/api-prefix) ingest-history endpoint.
+	@api path /api/* /jobs /jobs/*
+	handle @api {
+		reverse_proxy api:8080
+	}
+
+	# Grounded-answer (Ask) service.
+	handle /demo/* {
+		reverse_proxy demo-agent:8090
+	}
+
+	# Everything else: the SPA. Client-side routing falls back to index.html.
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}
