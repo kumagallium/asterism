@@ -34,6 +34,11 @@
 https://{$ASTERISM_DOMAIN} {
 	tls {$ASTERISM_TLS_EMAIL:internal}
 
+	log {
+		output stdout
+		format console
+	}
+
 	encode gzip zstd
 
 	# Whole-site gate — only registered users reach anything (UI / Ask / catalog).
