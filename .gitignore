@@ -90,6 +90,8 @@ experiments/phase05b/togopackage-virtuoso/data/.duckdb/
 # Env
 .env
 .env.local
+# Production operator config / secrets (template = asterism.env.example IS committed)
+asterism.env
 
 # Build artefacts
 dist/

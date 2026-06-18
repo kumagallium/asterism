@@ -6,3 +6,11 @@
 # and must not be redistributed. The seed loader (load.py) is source and stays.
 datasets/*/seed/csv/
 datasets/*/seed/*.ttl
+
+# Never copy host-installed node deps or build output into a build context — every
+# image installs/builds fresh (the caddy image builds ui/dist itself).
+**/node_modules
+**/dist
+
+# Operator secrets must never enter an image layer.
+asterism.env

@@ -1,0 +1,124 @@
+# Asterism — production stack (the "Private 完結" 1-box bundle).
+#
+# One host runs the whole product so it can be handed over as a single,
+# self-contained deployment unit (ADR production-deployment.md):
+#
+#   caddy ──────── TLS + Basic-auth + SPA + routing (the only public surface)
+#     ├─ /api,/jobs ─▶ api (asterism-api: propose/materialize/ingest/promote/sparql)
+#     └─ /demo ──────▶ demo-agent (grounded Ask)
+#   api, demo-agent ─▶ oxigraph (SPARQL store, INTERNAL only — never published)
+#   api ────────────▶ docling (PDF→structure ML sidecar, INTERNAL only)
+#
+# Two networks keep the store off the public edge:
+#   web  = caddy <-> api, demo-agent
+#   data = api, demo-agent <-> oxigraph, docling   (caddy is NOT on this net)
+#
+# Secrets/operator config live in `asterism.env` (loaded via env_file). Compose
+# DOES interpolate env_file values, so the bcrypt Basic-auth hash must have its
+# `$` doubled to `$$` in that file (asterism.env.example shows the one-liner that
+# does it). Copy asterism.env.example -> asterism.env and fill it in.
+#
+# Build + run ON the x86_64 host (the api/docling images carry amd64 wheels;
+# do not build on an arm64 laptop):
+#   docker compose -f compose.prod.yaml up -d --build
+#
+# Private Crucible is a SEPARATE compose (its own product) brought up alongside
+# this one on the same host once the product is verified — see the ADR.
+
+name: asterism-prod
+
+services:
+  oxigraph:
+    image: ghcr.io/oxigraph/oxigraph:latest
+    container_name: asterism_prod_oxigraph
+    command: ["serve", "--location", "/data", "--bind", "0.0.0.0:7878"]
+    volumes:
+      - oxigraph-data:/data
+    networks: [data]
+    restart: unless-stopped
+    # Deliberately NO host port: Oxigraph has no auth and a writable /update
+    # endpoint. Siblings reach it in-network at http://oxigraph:7878.
+
+  docling:
+    # PDF→structure ML sidecar (CPU torch, OCR off, concurrency 1). Self-contained
+    # build context (its own dir). The api degrades with a clear 4xx if it is down,
+    # so non-PDF ingest is unaffected by a docling outage.
+    build:
+      context: infra/docling-sidecar
+    container_name: asterism_prod_docling
+    networks: [data]
+    restart: unless-stopped
+
+  api:
+    # The full workbench (propose→materialize→ingest→promote, catalog, /api/sparql)
+    # + the append watcher. Image name is historical ("upload-api") but it runs
+    # `asterism-api`. Includes morph-kgc (ingest[substrate]) and the Anthropic SDK
+    # (step0) so propose/materialize/ingest all work in prod.
+    build:
+      context: .
+      dockerfile: infra/upload-api/Dockerfile
+    container_name: asterism_prod_api
+    env_file: [asterism.env]          # ASTERISM_API_TOKEN (write/design gate)
+    environment:
+      CSV2RDF_OXIGRAPH_URL: http://oxigraph:7878
+      ASTERISM_DOCLING_URL: http://docling:8090
+    volumes:
+      - asterism-data:/data/sources    # registry + sources + jobs + append inbox
+    depends_on: [oxigraph]
+    networks: [web, data]
+    restart: unless-stopped
+
+  demo-agent:
+    # Grounded Ask (LLM routing over the typed tools). Reads the same registry the
+    # api writes, so it sees promoted datasets. The user's Anthropic key is sent
+    # per request (X-API-Key) — never baked in.
+    build:
+      context: .
+      dockerfile: demo-agent/Dockerfile
+    container_name: asterism_prod_demo_agent
+    env_file: [asterism.env]          # ASTERISM_DEMO_CORS_ORIGINS
+    environment:
+      CSV2RDF_OXIGRAPH_URL: http://oxigraph:7878
+      CSV2RDF_REGISTRY_ROOT: /data/sources/registry
+    volumes:
+      - asterism-data:/data/sources:ro
+    depends_on: [oxigraph]
+    networks: [web, data]
+    restart: unless-stopped
+
+  authgate:
+    # Session-cookie login gate (stdlib-only, no deps). Caddy forward_auths to it.
+    # Public surface is only via caddy (/__auth/*); not published on the host.
+    build:
+      context: infra/authgate
+    container_name: asterism_prod_authgate
+    env_file: [asterism.env]          # ASTERISM_GATE_PASSWORD, ASTERISM_GATE_SECRET
+    networks: [web]
+    restart: unless-stopped
+
+  caddy:
+    # The only public surface: TLS, session-cookie gate (via authgate), SPA, routing.
+    build:
+      context: .
+      dockerfile: infra/caddy/Dockerfile
+    container_name: asterism_prod_caddy
+    env_file: [asterism.env]          # ASTERISM_DOMAIN / TLS_EMAIL
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy-data:/data               # ACME certs / local CA — persist across restarts
+      - caddy-config:/config
+    depends_on: [api, demo-agent, authgate]
+    networks: [web]
+    restart: unless-stopped
+
+networks:
+  web:
+  data:
+
+volumes:
+  oxigraph-data:
+  asterism-data:
+  caddy-data:
+  caddy-config:
