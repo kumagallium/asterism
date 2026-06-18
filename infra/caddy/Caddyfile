@@ -1,10 +1,15 @@
-# Asterism — production reverse proxy / SPA host / site gate.
+# Asterism — production reverse proxy / SPA host / session-cookie gate.
 #
 # A single front for the whole product (the "Private 完結" 1-box bundle):
 #   - terminates TLS,
 #   - serves the built React SPA (ui/dist, baked into this image at /srv),
 #   - reverse-proxies  /api + /jobs -> asterism-api,  /demo -> demo-agent,
-#   - gates the WHOLE site behind HTTP Basic auth (registered users only).
+#   - gates the WHOLE site behind a SESSION-COOKIE login (the authgate service).
+#
+# Why a cookie, not HTTP Basic: a session cookie rides on every request — page
+# loads, fetch/XHR, SSE — so it never re-prompts, works from anywhere (no VPN),
+# on a bare IP, over a self-signed cert. Browser-native Basic auth re-prompts on
+# every refresh/navigation in exactly this setup (SPA + self-signed).
 #
 # TLS is env-driven so the same image works by IP or by domain:
 #   ASTERISM_DOMAIN     the host clients use. An IP (e.g. 133.125.93.179) -> a
@@ -20,11 +25,8 @@
 # bare IP sends NO SNI, so without a default Caddy can't pick the cert and the
 # handshake dies with "internal error". It is harmless in FQDN mode (SNI is sent).
 #
-# NOTE on auth headers: the api's own write/design token travels in the
-# X-Asterism-Token header (see ui/src/authToken.ts), NOT Authorization — so it
-# does not collide with the `Authorization: Basic` this gate uses. The browser
-# attaches Basic auth automatically after the first login; the SPA adds the
-# X-Asterism-Token on top for write routes.
+# The api's own write/design token travels in the X-Asterism-Token header (see
+# ui/src/authToken.ts), independent of this gate's cookie.
 
 {
 	# Cert to serve when the client sends no SNI (IP access — see header note).
@@ -41,28 +43,34 @@ https://{$ASTERISM_DOMAIN} {
 
 	encode gzip zstd
 
-	# Whole-site gate — only registered users reach anything (UI / Ask / catalog).
-	# Generate the bcrypt hash with:
-	#   docker run --rm caddy:2-alpine caddy hash-password --plaintext 'YOURPASS'
-	basic_auth {
-		{$ASTERISM_BASIC_AUTH_USER:asterism} {$ASTERISM_BASIC_AUTH_HASH}
+	# The login gate's own endpoints (login form, verify, logout) are PUBLIC — they
+	# must be reachable without a session, or login itself would be locked out.
+	handle /__auth/* {
+		reverse_proxy authgate:9000
 	}
 
-	# Workbench API + the (no-/api-prefix) ingest-history endpoint.
-	@api path /api/* /jobs /jobs/*
-	handle @api {
-		reverse_proxy api:8080
-	}
-
-	# Grounded-answer (Ask) service.
-	handle /demo/* {
-		reverse_proxy demo-agent:8090
-	}
-
-	# Everything else: the SPA. Client-side routing falls back to index.html.
+	# Everything else requires a valid session cookie. `route` keeps the order
+	# explicit: forward_auth runs FIRST — it calls the gate's /__auth/verify with the
+	# request's Cookie; 2xx -> the request falls through to the routing below; a 302
+	# (no/expired cookie) is returned straight to the browser, sending it to login.
 	handle {
-		root * /srv
-		try_files {path} /index.html
-		file_server
+		route {
+			forward_auth authgate:9000 {
+				uri /__auth/verify
+			}
+
+			# Workbench API + the (no-/api-prefix) ingest-history endpoint.
+			reverse_proxy /api/* api:8080
+			reverse_proxy /jobs api:8080
+			reverse_proxy /jobs/* api:8080
+
+			# Grounded-answer (Ask) service.
+			reverse_proxy /demo/* demo-agent:8090
+
+			# Everything else: the SPA. Client-side routing falls back to index.html.
+			root * /srv
+			try_files {path} /index.html
+			file_server
+		}
 	}
 }

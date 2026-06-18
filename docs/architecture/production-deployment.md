@@ -35,7 +35,8 @@ Asterism を「本番と同じように運用」するための構成。`compose
 
 | サービス | コンテナ内 | 公開 | 役割・接続 |
 |---|---|---|---|
-| caddy | 80/443 | **80/443** | TLS・Basic 認証・`ui/dist` 静的配信・`/api`/`/jobs`→api・`/demo`→demo-agent |
+| caddy | 80/443 | **80/443** | TLS・`forward_auth`→authgate・`ui/dist` 静的配信・`/api`/`/jobs`→api・`/demo`→demo-agent |
+| authgate | 9000 | なし | セッション Cookie ログイン（標準ライブラリのみ）。caddy が `/__auth/verify` を検証 |
 | api（asterism-api） | 8080 | なし | フルワークベンチ＋watcher。`CSV2RDF_OXIGRAPH_URL`・`ASTERISM_DOCLING_URL` |
 | demo-agent | 8090 | なし | 接地 Ask。registry を read 共有・Anthropic キーは毎リクエスト持参 |
 | oxigraph | 7878 | **なし** | SPARQL ストア。認証なし＝**絶対に公開しない**。`oxigraph-data` volume |
@@ -50,10 +51,14 @@ Asterism を「本番と同じように運用」するための構成。`compose
   をメールにすると Let's Encrypt。自己署名→実証明書の切替は**env 2本のみ・ファイル編集不要**。
   Caddy グローバル `default_sni {$ASTERISM_DOMAIN}` が必須＝**IP アクセスは TLS が SNI を送らない**ため、
   これが無いとハンドシェイクが `internal error` で落ちる。
-- **サイト全体を Basic 認証で保護**（Private 完結＝登録利用者のみ）。`basic_auth`。
-- **api の write/設計トークンは別ヘッダ `X-Asterism-Token`**（`Authorization: Bearer` も可）
-  ＝ caddy の `Authorization: Basic` と**衝突しない**。SPA は [`ui/src/authToken.ts`](../../ui/src/authToken.ts) で
-  `X-Asterism-Token` を送る。Anthropic キーは `X-API-Key`。3ヘッダが分離している。
+- **サイト全体をセッション Cookie ログインで保護**（Private 完結＝登録利用者のみ）。caddy が
+  `forward_auth` で全リクエストを `authgate`（`infra/authgate/`・標準ライブラリのみの極小サービス）の
+  `/__auth/verify` に問い合わせ、**HMAC 署名付き・期限付き・HttpOnly・Secure・SameSite=Lax Cookie**を検証。
+  **なぜ Basic 認証でないか**：SPA＋自己署名では**ブラウザ native Basic が更新/ナビ毎に再プロンプト**する
+  （資格情報を保持しない）。Cookie は全リクエスト（ページ・fetch・SSE）に自動で乗り、IP/自己署名でも
+  どこからでも動く。`/__auth/*`（ログイン画面・verify・logout）のみ非ゲート。失敗時ディレイでブルートフォース緩和。
+- **api の write/設計トークンは別ヘッダ `X-Asterism-Token`**（`Authorization: Bearer` も可）＝ゲートの
+  Cookie とも独立。SPA は [`ui/src/authToken.ts`](../../ui/src/authToken.ts) で送る。Anthropic キーは `X-API-Key`。
 - caddy が SPA・`/api`・`/demo` を**同一オリジン**で配るので、ブラウザ↔backend は CORS 不要。
 - **store 境界**：oxigraph は `data` 網のみ。将来 Private Crucible が deploy する公開フロントは
   raw oxigraph でなく **api の read-only `/api/sparql`** を読む（`ASTERISM_EXPOSE_RAW_SPARQL` 既定 open）。
@@ -61,11 +66,10 @@ Asterism を「本番と同じように運用」するための構成。`compose
 ## シークレット / 設定（`asterism.env`）
 
 `asterism.env`（gitignore・テンプレ = `asterism.env.example`）を **`env_file` でコンテナに注入**する。
-**落とし穴**：新しい Compose は **env_file の値も `${}` 補間する**ので、bcrypt ハッシュ中の `$` は変数参照と誤解され壊れる。
-→ **ハッシュは `$`→`$$` にエスケープして書く**（Compose が `$$`→`$` に戻す）。生成と同時にエスケープ:
-`docker run --rm caddy:2-alpine caddy hash-password --plaintext 'PW' | sed 's/\$/$$/g'`。
-必須：`ASTERISM_API_TOKEN`（未設定で write 系 503）・`ASTERISM_BASIC_AUTH_HASH`。
-トークンは `$` を含まない値（`openssl rand -hex 32`）にすればエスケープ不要。
+**落とし穴**：新しい Compose は **env_file の値も `${}` 補間する**ので、値に `$` があると変数参照と誤解される
+（`$`→`$$` でエスケープ）。必須：`ASTERISM_API_TOKEN`（未設定で write 系 503）・`ASTERISM_GATE_PASSWORD`
+（ログインパスワード）・`ASTERISM_GATE_SECRET`（Cookie 署名 HMAC 鍵）。いずれも `openssl rand -hex 32` 等
+**`$` を含まない値**にすればエスケープ不要。
 
 ## 永続データ（volumes）
 

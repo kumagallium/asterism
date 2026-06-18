@@ -86,20 +86,30 @@ services:
     networks: [web, data]
     restart: unless-stopped
 
+  authgate:
+    # Session-cookie login gate (stdlib-only, no deps). Caddy forward_auths to it.
+    # Public surface is only via caddy (/__auth/*); not published on the host.
+    build:
+      context: infra/authgate
+    container_name: asterism_prod_authgate
+    env_file: [asterism.env]          # ASTERISM_GATE_PASSWORD, ASTERISM_GATE_SECRET
+    networks: [web]
+    restart: unless-stopped
+
   caddy:
-    # The only public surface: TLS, whole-site Basic auth, SPA hosting, routing.
+    # The only public surface: TLS, session-cookie gate (via authgate), SPA, routing.
     build:
       context: .
       dockerfile: infra/caddy/Dockerfile
     container_name: asterism_prod_caddy
-    env_file: [asterism.env]          # ASTERISM_DOMAIN / TLS_EMAIL / BASIC_AUTH_*
+    env_file: [asterism.env]          # ASTERISM_DOMAIN / TLS_EMAIL
     ports:
       - "80:80"
       - "443:443"
     volumes:
       - caddy-data:/data               # ACME certs / local CA — persist across restarts
       - caddy-config:/config
-    depends_on: [api, demo-agent]
+    depends_on: [api, demo-agent, authgate]
     networks: [web]
     restart: unless-stopped
 
