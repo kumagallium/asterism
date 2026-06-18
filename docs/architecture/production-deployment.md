@@ -89,19 +89,19 @@ Asterism を「本番と同じように運用」するための構成。`compose
 git clone https://github.com/kumagallium/asterism.git
 cd asterism && git checkout <この構成のブランチ/タグ>
 
-# 2. 設定
-cp asterism.env.example asterism.env
-#   - ASTERISM_API_TOKEN を openssl rand -hex 32 で
-#   - ASTERISM_BASIC_AUTH_HASH を `docker run --rm caddy:2-alpine caddy hash-password --plaintext '...'` で
-#   - （ドメインがあれば）ASTERISM_DOMAIN / ASTERISM_TLS_EMAIL を設定
-$EDITOR asterism.env
+# 2. シークレット生成（強乱数を自動充填し chmod 600 で asterism.env を作る）
+#    引数 = clients が使うホスト（サーバ IP で自己署名／FQDN なら実証明書）。
+#    ログインパスワードと API トークンが端末に表示されるので保存すること。
+./scripts/init-secrets.sh 203.0.113.10
+#    実証明書にする場合: ASTERISM_TLS_EMAIL=you@example.com ./scripts/init-secrets.sh asterism.example.com
+#    （手で作る場合は cp asterism.env.example asterism.env して編集でも可）
 
 # 3. 起動（docling のビルドはモデル DL 込みで初回数分かかる）
 docker compose -f compose.prod.yaml up -d --build
 
-# 4. 確認
+# 4. 確認（NAT ヘアピンを避け --resolve で自ホストを叩く）
 docker compose -f compose.prod.yaml ps
-curl -k https://localhost/api/health    # caddy 越し（Basic 認証が要るので -u も）
+curl -sk --resolve 203.0.113.10:443:127.0.0.1 https://203.0.113.10/   # -> 302 (login へ)
 ```
 
 ## 検証（本番機で end-to-end）
