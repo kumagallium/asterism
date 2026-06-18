@@ -58,10 +58,12 @@ Asterism を「本番と同じように運用」するための構成。`compose
 
 ## シークレット / 設定（`asterism.env`）
 
-`asterism.env`（gitignore・テンプレ = `asterism.env.example`）を **`env_file` でコンテナに直接注入**する。
-`.env` という名前を避けるのは、Compose の自動ロード＋`${}`置換が **bcrypt ハッシュ中の `$` を壊す**ため。
+`asterism.env`（gitignore・テンプレ = `asterism.env.example`）を **`env_file` でコンテナに注入**する。
+**落とし穴**：新しい Compose は **env_file の値も `${}` 補間する**ので、bcrypt ハッシュ中の `$` は変数参照と誤解され壊れる。
+→ **ハッシュは `$`→`$$` にエスケープして書く**（Compose が `$$`→`$` に戻す）。生成と同時にエスケープ:
+`docker run --rm caddy:2-alpine caddy hash-password --plaintext 'PW' | sed 's/\$/$$/g'`。
 必須：`ASTERISM_API_TOKEN`（未設定で write 系 503）・`ASTERISM_BASIC_AUTH_HASH`。
-トークンは `$` を含まない値（`openssl rand -hex 32`）にする。
+トークンは `$` を含まない値（`openssl rand -hex 32`）にすればエスケープ不要。
 
 ## 永続データ（volumes）
 

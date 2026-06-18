@@ -13,9 +13,10 @@
 #   web  = caddy <-> api, demo-agent
 #   data = api, demo-agent <-> oxigraph, docling   (caddy is NOT on this net)
 #
-# Secrets/operator config live in `asterism.env` (NOT `.env`, so Compose never
-# runs ${}-substitution over them — a bcrypt Basic-auth hash contains `$` and
-# would be mangled). Copy asterism.env.example -> asterism.env and fill it in.
+# Secrets/operator config live in `asterism.env` (loaded via env_file). Compose
+# DOES interpolate env_file values, so the bcrypt Basic-auth hash must have its
+# `$` doubled to `$$` in that file (asterism.env.example shows the one-liner that
+# does it). Copy asterism.env.example -> asterism.env and fill it in.
 #
 # Build + run ON the x86_64 host (the api/docling images carry amd64 wheels;
 # do not build on an arm64 laptop):
