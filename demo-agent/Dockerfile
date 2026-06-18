@@ -7,6 +7,10 @@ WORKDIR /app
 # web deps. mcp pulls fastmcp; that is fine inside this consuming container.
 # anthropic + openai back the multi-provider Ask loop (Claude + any OpenAI-compatible
 # endpoint, e.g. Sakura AI Engine); httpx (for the usage POST) comes via ingest.
+# ingest/ and mcp/ pyproject.toml both set `readme = "../README.md"`, so hatchling
+# needs /src/README.md to exist when it builds their metadata (the api image does
+# the same). Without this the build fails: "Readme file does not exist: ../README.md".
+COPY README.md /src/README.md
 COPY ingest /src/ingest
 COPY mcp /src/mcp
 RUN pip install --no-cache-dir /src/ingest /src/mcp fastapi "uvicorn[standard]" anthropic openai
