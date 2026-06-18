@@ -45,9 +45,11 @@ Asterism を「本番と同じように運用」するための構成。`compose
 
 ## TLS / 認証モデル
 
-- **TLS は env 駆動**（`infra/caddy/Caddyfile`）。`ASTERISM_DOMAIN` 未設定＝`:443` で自己署名
-  （DNS 不要・即起動）、FQDN を入れ `ASTERISM_TLS_EMAIL` をメールにすると Let's Encrypt。
-  自己署名→実証明書の切替は**env 2本のみ・ファイル編集不要**。
+- **TLS は env 駆動**（`infra/caddy/Caddyfile`）。`ASTERISM_DOMAIN` に**サーバ IP**を入れると
+  その IP の自己署名証明書（DNS 不要・即起動・ブラウザ警告）、**FQDN**を入れ `ASTERISM_TLS_EMAIL`
+  をメールにすると Let's Encrypt。自己署名→実証明書の切替は**env 2本のみ・ファイル編集不要**。
+  Caddy グローバル `default_sni {$ASTERISM_DOMAIN}` が必須＝**IP アクセスは TLS が SNI を送らない**ため、
+  これが無いとハンドシェイクが `internal error` で落ちる。
 - **サイト全体を Basic 認証で保護**（Private 完結＝登録利用者のみ）。`basic_auth`。
 - **api の write/設計トークンは別ヘッダ `X-Asterism-Token`**（`Authorization: Bearer` も可）
   ＝ caddy の `Authorization: Basic` と**衝突しない**。SPA は [`ui/src/authToken.ts`](../../ui/src/authToken.ts) で

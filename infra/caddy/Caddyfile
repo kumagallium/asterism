@@ -6,14 +6,19 @@
 #   - reverse-proxies  /api + /jobs -> asterism-api,  /demo -> demo-agent,
 #   - gates the WHOLE site behind HTTP Basic auth (registered users only).
 #
-# TLS is env-driven so the same image works with or without a domain:
-#   ASTERISM_DOMAIN     unset/empty -> site address ":443" (no DNS needed)
-#                       a FQDN (e.g. asterism.e4m.jp) -> Caddy gets the cert for it
+# TLS is env-driven so the same image works by IP or by domain:
+#   ASTERISM_DOMAIN     the host clients use. An IP (e.g. 133.125.93.179) -> a
+#                       self-signed cert for that IP; a FQDN (e.g. asterism.e4m.jp)
+#                       -> Caddy gets a cert for it. ALWAYS set it (no empty default).
 #   ASTERISM_TLS_EMAIL  "internal" (default) -> self-signed local CA (browser warning)
 #                       an email (you@e4m.jp) -> Let's Encrypt (real cert; needs a FQDN
 #                                                 + DNS A record + ports 80/443 reachable)
 #
-# Switching from self-signed to a real cert later is two env vars, no file edit.
+# Switching from self-signed-by-IP to a real cert later is two env vars, no file edit.
+#
+# `default_sni` (global) is essential for IP access: a TLS client connecting to a
+# bare IP sends NO SNI, so without a default Caddy can't pick the cert and the
+# handshake dies with "internal error". It is harmless in FQDN mode (SNI is sent).
 #
 # NOTE on auth headers: the api's own write/design token travels in the
 # X-Asterism-Token header (see ui/src/authToken.ts), NOT Authorization — so it
@@ -21,7 +26,12 @@
 # attaches Basic auth automatically after the first login; the SPA adds the
 # X-Asterism-Token on top for write routes.
 
-{$ASTERISM_DOMAIN::443} {
+{
+	# Cert to serve when the client sends no SNI (IP access — see header note).
+	default_sni {$ASTERISM_DOMAIN}
+}
+
+https://{$ASTERISM_DOMAIN} {
 	tls {$ASTERISM_TLS_EMAIL:internal}
 
 	encode gzip zstd
