@@ -11,7 +11,11 @@
 FROM node:22-alpine AS ui-build
 WORKDIR /ui
 COPY ui/package.json ui/package-lock.json ./
-RUN npm ci
+# Prefer the reproducible `npm ci`; fall back to `npm install` when the committed
+# lockfile drifts from package.json (e.g. platform-specific optional deps like
+# @emnapi/* that npm prunes per-platform). `npm install` reconciles in-container
+# on linux/amd64. Pre-existing lockfile drift on main is worth fixing separately.
+RUN npm ci || npm install
 COPY ui/ ./
 # tsc -b && vite build -> /ui/dist (the SPA is served at the site root, base "/").
 RUN npm run build
