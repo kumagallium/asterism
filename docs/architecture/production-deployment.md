@@ -57,8 +57,11 @@ Asterism を「本番と同じように運用」するための構成。`compose
   **なぜ Basic 認証でないか**：SPA＋自己署名では**ブラウザ native Basic が更新/ナビ毎に再プロンプト**する
   （資格情報を保持しない）。Cookie は全リクエスト（ページ・fetch・SSE）に自動で乗り、IP/自己署名でも
   どこからでも動く。`/__auth/*`（ログイン画面・verify・logout）のみ非ゲート。失敗時ディレイでブルートフォース緩和。
-- **api の write/設計トークンは別ヘッダ `X-Asterism-Token`**（`Authorization: Bearer` も可）＝ゲートの
-  Cookie とも独立。SPA は [`ui/src/authToken.ts`](../../ui/src/authToken.ts) で送る。Anthropic キーは `X-API-Key`。
+- **api の write/設計ルートは `ASTERISM_API_TOKEN` で fail-closed**（`X-Asterism-Token` ヘッダ）。
+  **caddy が「Cookie ゲートを通った＝認証済み」リクエストにこのトークンを `header_up` で注入**するので、
+  ユーザーはトークンを UI に入れる必要がない（＝**ログイン1回が唯一の認証**）。トークンは caddy↔api の
+  サーバ内共有秘密（`asterism.env`）でブラウザには出ない。`header_up` は SET なのでクライアント詐称も不可。
+  Anthropic キーは別の `X-API-Key`（ユーザーが毎回持参・Ask/propose 用）。
 - caddy が SPA・`/api`・`/demo` を**同一オリジン**で配るので、ブラウザ↔backend は CORS 不要。
 - **store 境界**：oxigraph は `data` 網のみ。将来 Private Crucible が deploy する公開フロントは
   raw oxigraph でなく **api の read-only `/api/sparql`** を読む（`ASTERISM_EXPOSE_RAW_SPARQL` 既定 open）。
