@@ -60,9 +60,14 @@ https://{$ASTERISM_DOMAIN} {
 			}
 
 			# Workbench API + the (no-/api-prefix) ingest-history endpoint.
-			reverse_proxy /api/* api:8080
-			reverse_proxy /jobs api:8080
-			reverse_proxy /jobs/* api:8080
+			# The cookie gate above IS the access control. caddy vouches for an
+			# authenticated request by injecting the api's write token, so the
+			# operator never has to paste it into the UI. `header_up` SETS (replaces)
+			# the header, so a logged-in client can't spoof a different token.
+			@api path /api/* /jobs /jobs/*
+			reverse_proxy @api api:8080 {
+				header_up X-Asterism-Token {$ASTERISM_API_TOKEN}
+			}
 
 			# Grounded-answer (Ask) service.
 			reverse_proxy /demo/* demo-agent:8090
