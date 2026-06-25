@@ -1170,3 +1170,187 @@ def test_normalize_fno_namespace_noop_for_new() -> None:
     from asterism.substrate import normalize_fno_namespace
     rml = '@prefix rmlf: <http://w3id.org/rml/> .'
     assert normalize_fno_namespace(rml) == rml
+
+
+# ---- UTF-8 BOM stripping on direct CSV sources (ingest robustness) -----------
+
+
+def test_strip_bom_sources_rewrites_bom_csv_to_clean_copy(tmp_path: Path) -> None:
+    from asterism.substrate import strip_bom_sources
+
+    work = tmp_path / "work"
+    work.mkdir()
+    # A CSV whose bytes begin with the UTF-8 BOM (EF BB BF) then a normal header.
+    (tmp_path / "curves.csv").write_bytes("﻿SID,DOI\n1,d\n".encode())
+    out = strip_bom_sources('rml:source "curves.csv"', tmp_path, work)
+
+    # The source is rewritten to the work-dir copy ...
+    assert f'rml:source "{work / "curves.csv"}"' in out
+    # ... and that copy has the BOM stripped, so pandas reads "SID" not "﻿SID".
+    copied = (work / "curves.csv").read_bytes()
+    assert not copied.startswith(b"\xef\xbb\xbf")
+    assert copied.decode("utf-8").splitlines()[0] == "SID,DOI"
+
+
+def test_strip_bom_sources_noop_without_bom(tmp_path: Path) -> None:
+    from asterism.substrate import strip_bom_sources
+
+    work = tmp_path / "work"
+    work.mkdir()
+    (tmp_path / "curves.csv").write_text("SID,DOI\n1,d\n", encoding="utf-8")
+    rml = 'rml:source "curves.csv"'
+    # No BOM -> source unchanged (read in place), no copy written.
+    assert strip_bom_sources(rml, tmp_path, work) == rml
+    assert not (work / "curves.csv").exists()
+
+
+def test_strip_bom_sources_leaves_absolute_and_absent_sources(tmp_path: Path) -> None:
+    from asterism.substrate import strip_bom_sources
+
+    work = tmp_path / "work"
+    work.mkdir()
+    abs_rml = 'rml:source "/already/abs/curves.csv"'
+    assert strip_bom_sources(abs_rml, tmp_path, work) == abs_rml  # absolute untouched
+    absent_rml = 'rml:source "missing.csv"'
+    assert strip_bom_sources(absent_rml, tmp_path, work) == absent_rml  # absent untouched
+
+
+# ---- {__run_id__} template substitution (ingest robustness) ------------------
+
+
+def test_substitute_run_id_reference_free_template_becomes_iri_constant() -> None:
+    # A template whose ONLY reference was {__run_id__} is constant after
+    # substitution; it must become rr:constant <IRI> (Morph-KGC rejects an empty
+    # template, and an IRI node keeps the activity a URIRef).
+    from asterism.substrate import substitute_run_id
+
+    rml = (
+        'rr:template "https://kumagallium.github.io/asterism/resource/'
+        'starrydata/activity/ingest/{__run_id__}"'
+    )
+    out = substitute_run_id(rml, "run-20260625T021500Z")
+    assert "{__run_id__}" not in out
+    assert "rr:template" not in out  # rewritten away
+    assert (
+        "rr:constant <https://kumagallium.github.io/asterism/resource/"
+        "starrydata/activity/ingest/run-20260625T021500Z>"
+    ) in out
+
+
+def test_substitute_run_id_keeps_template_when_real_column_remains() -> None:
+    # A template that ALSO references a real {column} still has a reference after
+    # substitution, so it stays a valid rr:template (only the placeholder changes).
+    from asterism.substrate import substitute_run_id
+
+    rml = 'rr:template "https://ex/{SID}/ingest/{__run_id__}"'
+    out = substitute_run_id(rml, "run-X")
+    assert out == 'rr:template "https://ex/{SID}/ingest/run-X"'  # {SID} preserved
+    assert "{__run_id__}" not in out
+
+
+def test_substitute_run_id_noop_without_placeholder() -> None:
+    from asterism.substrate import substitute_run_id
+
+    rml = 'rr:template "https://ex/{SID}"'
+    assert substitute_run_id(rml, "run-X") == rml  # unchanged, no placeholder
+
+
+def test_generate_run_id_format() -> None:
+    import re as _re
+
+    from asterism.substrate import generate_run_id
+
+    # Mirrors asterism.starrydata's run-<UTC compact timestamp> shape.
+    assert _re.fullmatch(r"run-\d{8}T\d{6}Z", generate_run_id())
+
+
+# ---- Morph-KGC end-to-end: BOM + {__run_id__} (gated on the extra) -----------
+
+
+def test_materialize_strips_bom_so_first_column_resolves(tmp_path: Path) -> None:
+    """Bug 1: a source CSV with a UTF-8 BOM materializes correctly — the RML
+    references the clean first column ``SID`` and Morph-KGC finds it (no
+    "columns expected but not found: ['SID']"). Gated on the optional extra."""
+    if not _morph_kgc_installed():
+        pytest.skip("morph-kgc not installed; this exercises the real BOM-strip path")
+    # The header starts with the BOM, exactly the starrydata curves.csv failure.
+    (tmp_path / "curves.csv").write_bytes(
+        "﻿SID,DOI\n1,10.1/x\n2,10.1/y\n".encode()
+    )
+    rml = """
+@prefix rr:   <http://www.w3.org/ns/r2rml#> .
+@prefix rml:  <http://semweb.mmlab.be/ns/rml#> .
+@prefix ql:   <http://semweb.mmlab.be/ns/ql#> .
+@prefix ex:   <https://ex/> .
+<#M> a rr:TriplesMap ;
+  rml:logicalSource [ rml:source "curves.csv" ; rml:referenceFormulation ql:CSV ] ;
+  rr:subjectMap [ rr:template "https://ex/c/{SID}" ] ;
+  rr:predicateObjectMap [ rr:predicate ex:doi ; rr:objectMap [ rml:reference "DOI" ] ] .
+"""
+    graph = materialize_to_graph(rml, tmp_path)
+    triples = {(str(s), str(p), str(o)) for s, p, o in graph}
+    # The first column (SID) resolved despite the BOM -> subjects + the DOI triple.
+    assert ("https://ex/c/1", "https://ex/doi", "10.1/x") in triples
+    assert ("https://ex/c/2", "https://ex/doi", "10.1/y") in triples
+
+
+def test_materialize_substitutes_run_id_template(tmp_path: Path) -> None:
+    """Bug 2: RML minting an activity IRI with ``{__run_id__}`` (a runtime-only,
+    non-column placeholder) materializes — the placeholder is substituted with a
+    constant run-id before Morph-KGC runs, so it is not added to pandas' usecols
+    (no "columns expected but not found: ['__run_id__']"). Gated on the extra."""
+    if not _morph_kgc_installed():
+        pytest.skip("morph-kgc not installed; this exercises the real run-id path")
+    (tmp_path / "curves.csv").write_text("SID,DOI\n1,10.1/x\n2,10.1/y\n", encoding="utf-8")
+    rml = """
+@prefix rr:   <http://www.w3.org/ns/r2rml#> .
+@prefix rml:  <http://semweb.mmlab.be/ns/rml#> .
+@prefix ql:   <http://semweb.mmlab.be/ns/ql#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix ex:   <https://ex/> .
+<#M> a rr:TriplesMap ;
+  rml:logicalSource [ rml:source "curves.csv" ; rml:referenceFormulation ql:CSV ] ;
+  rr:subjectMap [ rr:template "https://ex/c/{SID}" ] ;
+  rr:predicateObjectMap [ rr:predicate prov:wasGeneratedBy ; rr:objectMap [
+    rr:template "https://ex/activity/ingest/{__run_id__}" ] ] .
+"""
+    graph = materialize_to_graph(rml, tmp_path)
+    triples = {(str(s), str(p), str(o)) for s, p, o in graph}
+    gen = "http://www.w3.org/ns/prov#wasGeneratedBy"
+    # Every row mints the SAME activity IRI (one activity per ingest run).
+    activities = {o for s, p, o in triples if p == gen}
+    assert len(activities) == 1
+    activity = activities.pop()
+    assert activity.startswith("https://ex/activity/ingest/run-")
+    assert "{__run_id__}" not in activity
+    assert ("https://ex/c/1", gen, activity) in triples
+    assert ("https://ex/c/2", gen, activity) in triples
+
+
+def test_materialize_bom_and_run_id_together(tmp_path: Path) -> None:
+    """Both bugs at once — the real starrydata failure shape: a BOM'd CSV whose RML
+    also mints an activity IRI via ``{__run_id__}``. Gated on the optional extra."""
+    if not _morph_kgc_installed():
+        pytest.skip("morph-kgc not installed; this exercises both real fixes together")
+    (tmp_path / "curves.csv").write_bytes("﻿SID,DOI\n1,10.1/x\n".encode())
+    rml = """
+@prefix rr:   <http://www.w3.org/ns/r2rml#> .
+@prefix rml:  <http://semweb.mmlab.be/ns/rml#> .
+@prefix ql:   <http://semweb.mmlab.be/ns/ql#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix ex:   <https://ex/> .
+<#M> a rr:TriplesMap ;
+  rml:logicalSource [ rml:source "curves.csv" ; rml:referenceFormulation ql:CSV ] ;
+  rr:subjectMap [ rr:template "https://ex/c/{SID}" ] ;
+  rr:predicateObjectMap [ rr:predicate ex:doi ; rr:objectMap [ rml:reference "DOI" ] ] ;
+  rr:predicateObjectMap [ rr:predicate prov:wasGeneratedBy ; rr:objectMap [
+    rr:template "https://ex/activity/ingest/{__run_id__}" ] ] .
+"""
+    graph = materialize_to_graph(rml, tmp_path)
+    triples = {(str(s), str(p), str(o)) for s, p, o in graph}
+    assert ("https://ex/c/1", "https://ex/doi", "10.1/x") in triples
+    gen = "http://www.w3.org/ns/prov#wasGeneratedBy"
+    assert any(
+        s == "https://ex/c/1" and p == gen and o.startswith("https://ex/activity/ingest/run-")
+        for s, p, o in triples
+    )

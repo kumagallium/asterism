@@ -30,6 +30,7 @@ import subprocess
 import sys
 import tempfile
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
 
@@ -244,6 +245,106 @@ def sanitize_csv_sources(rml_ttl: str, csv_dir: Path | str, work_dir: Path | str
     return _RML_SOURCE.sub(repl, rml_ttl)
 
 
+# A UTF-8 BOM (EF BB BF) at the head of a CSV makes pandas — Morph-KGC's CSV
+# reader — read the *first* header as ``﻿SID`` instead of ``SID``. The RML
+# (authored from the BOM-stripped inspect, which opens CSVs ``utf-8-sig``) names
+# the clean column, so Morph-KGC can't find it ("columns expected but not found:
+# ['SID']"). We strip a leading BOM into a work-dir copy at the ingest boundary so
+# Morph-KGC reads the clean header. Only the 3 BOM bytes are checked/stripped.
+_UTF8_BOM: bytes = b"\xef\xbb\xbf"
+
+
+def strip_bom_sources(rml_ttl: str, csv_dir: Path | str, work_dir: Path | str) -> str:
+    """Rewrite a *direct* ``.csv`` source whose file starts with a UTF-8 BOM to a
+    work-dir copy with the BOM stripped, so Morph-KGC's pandas reader sees the clean
+    first-column name the RML references. Sources with no BOM, absolute sources, and
+    absent sources are left unchanged (resolved later by
+    :func:`absolutize_rml_sources`). Runs after :func:`sanitize_csv_sources`, so a
+    source already rewritten to an absolute work-dir copy is skipped here (the copy
+    was written ``utf-8`` with no BOM); only the cheap 3-byte head is read to decide,
+    and the strip is a streamed byte copy (memory-bounded for large CSVs).
+    """
+    base = Path(csv_dir)
+    work = Path(work_dir)
+
+    def repl(m: re.Match[str]) -> str:
+        name = Path(m.group(2))
+        if name.is_absolute() or name.suffix.lower() != ".csv":
+            return m.group(0)
+        src = base / name.name
+        if not src.exists():
+            return m.group(0)
+        with src.open("rb") as fh:
+            if fh.read(len(_UTF8_BOM)) != _UTF8_BOM:
+                return m.group(0)  # no BOM -> read the original in place
+            dest = work / name.name
+            with dest.open("wb") as out:
+                for chunk in iter(lambda: fh.read(1 << 16), b""):
+                    out.write(chunk)
+        return f"{m.group(1)}{dest}{m.group(3)}"
+
+    return _RML_SOURCE.sub(repl, rml_ttl)
+
+
+# AI-authored RML mints the per-run ingestion-activity IRI with a template like
+# ``rr:template ".../activity/ingest/{__run_id__}"``. ``__run_id__`` is NOT a CSV
+# column — it's a runtime value the hardcoded ingester supplies programmatically
+# (``asterism.starrydata`` uses ``run-<UTC timestamp>``). Morph-KGC, seeing the
+# template reference, adds ``__run_id__`` to pandas' usecols → "columns expected
+# but not found: ['__run_id__']". We substitute the placeholder with one generated
+# run-id before Morph-KGC runs, so every row shares one constant ingestion-activity
+# IRI (one activity per ingest run — semantically correct).
+_RUN_ID_PLACEHOLDER: str = "{__run_id__}"
+
+# A template whose ONLY reference was ``{__run_id__}`` becomes a constant after
+# substitution — but Morph-KGC rejects a reference-free ``rr:template`` ("invalid
+# template"). So such a template is rewritten to ``rr:constant <IRI>`` (an IRI node,
+# which yields a URIRef object — the activity IRI is an entity, not a literal). A
+# template that ALSO references a real column (e.g. ``.../{SID}/ingest/{__run_id__}``)
+# keeps a reference after substitution, so it stays a valid ``rr:template``.
+# Matches ``rr:template "<...{__run_id__}...>"`` (quoted literal value).
+_RR_TEMPLATE_WITH_RUN_ID: re.Pattern[str] = re.compile(
+    r'rr:template\s+"([^"]*\{__run_id__\}[^"]*)"'
+)
+_TEMPLATE_REF: re.Pattern[str] = re.compile(r"(?<!\\)\{")
+
+
+def generate_run_id() -> str:
+    """A run-id literal for one ingest run: ``run-<UTC timestamp>`` (matches the
+    hardcoded ingester's format in :mod:`asterism.starrydata`)."""
+    return "run-" + datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+
+
+def substitute_run_id(rml_ttl: str, run_id: str | None = None) -> str:
+    """Substitute the runtime-only ``{__run_id__}`` template placeholder.
+
+    ``__run_id__`` is a runtime value (no such CSV column), so left in place it
+    crashes Morph-KGC's usecols check. We replace it with one generated run-id, so
+    every row shares the same ingestion-activity IRI — the intended semantics (one
+    activity per ingest run). A ``rr:template`` whose only reference was the
+    placeholder is reference-free after substitution (which Morph-KGC rejects), so it
+    is rewritten to ``rr:constant <IRI>``; a template that still references a real
+    column stays a ``rr:template``. No-op for RML without the placeholder. ``run_id``
+    defaults to a fresh :func:`generate_run_id`; pass an existing one to reuse a
+    run-id already threaded through the call. Only the exact ``{__run_id__}`` token is
+    touched — never another ``{column}`` reference.
+    """
+    if _RUN_ID_PLACEHOLDER not in rml_ttl:
+        return rml_ttl
+    rid = run_id or generate_run_id()
+
+    def repl(m: re.Match[str]) -> str:
+        resolved = m.group(1).replace(_RUN_ID_PLACEHOLDER, rid)
+        if _TEMPLATE_REF.search(resolved):
+            # Still has a real {column} reference → a valid template.
+            return f'rr:template "{resolved}"'
+        # Reference-free → emit an IRI constant (Morph-KGC rejects empty templates,
+        # and an IRI node keeps the activity a URIRef, not a literal).
+        return f"rr:constant <{resolved}>"
+
+    return _RR_TEMPLATE_WITH_RUN_ID.sub(repl, rml_ttl)
+
+
 def rml_source_names(rml_ttl: str) -> set[str]:
     """Basenames of every ``rml:source "..."`` declared in the mapping.
 
@@ -284,9 +385,11 @@ def materialize_to_graph(
     work = Path(work_dir) if work_dir else Path(tempfile.mkdtemp(prefix="c2r-substrate-"))
     work.mkdir(parents=True, exist_ok=True)
     mapping_file = work / "mappings.rml.ttl"
-    tabularized = tabularize_json_sources(rml_ttl, csv_dir, work)
+    run_id_subst = substitute_run_id(rml_ttl)
+    tabularized = tabularize_json_sources(run_id_subst, csv_dir, work)
     sanitized = sanitize_csv_sources(tabularized, csv_dir, work)
-    prepared = normalize_fno_namespace(absolutize_rml_sources(sanitized, csv_dir))
+    bom_stripped = strip_bom_sources(sanitized, csv_dir, work)
+    prepared = normalize_fno_namespace(absolutize_rml_sources(bom_stripped, csv_dir))
     mapping_file.write_text(prepared, encoding="utf-8")
 
     config = (
@@ -362,10 +465,12 @@ def materialize_to_nt_file(
     work.mkdir(parents=True, exist_ok=True)
     udfs = Path(udfs_path) if udfs_path else _DEFAULT_UDFS
     mapping_file = work / "mappings.rml.ttl"
-    tabularized = tabularize_json_sources(rml_ttl, csv_dir, work)
+    run_id_subst = substitute_run_id(rml_ttl)
+    tabularized = tabularize_json_sources(run_id_subst, csv_dir, work)
     sanitized = sanitize_csv_sources(tabularized, csv_dir, work)
+    bom_stripped = strip_bom_sources(sanitized, csv_dir, work)
     mapping_file.write_text(
-        normalize_fno_namespace(absolutize_rml_sources(sanitized, csv_dir)),
+        normalize_fno_namespace(absolutize_rml_sources(bom_stripped, csv_dir)),
         encoding="utf-8",
     )
     out = work / "out.nt"
