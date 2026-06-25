@@ -10,7 +10,7 @@
     "title": "Shared classes (actual data)",
     "meta": "{{classes}} classes · {{predicates}} predicates",
     "note1": "The number on the right = count in the actual data. <1>Classes are instance counts</1> (how many things of that type exist), <3>predicates are usage counts</3> (number of triples using that property).",
-    "note2": "* Only <1>canonical (promoted, citable) data</1> is counted. Draft (unreviewed) graphs are not included — they enter the tally once promoted.",
+    "note2": "* Only <1>canonical (published, citable) data</1> is counted. Draft (unreviewed) graphs are not included — they enter the tally once published.",
     "classesSubhead": "Classes (instance count)",
     "predicatesSubhead": "Main predicates (usage count)",
     "reusesSubhead": "Reused vocabulary (detected from the actual data namespaces)"

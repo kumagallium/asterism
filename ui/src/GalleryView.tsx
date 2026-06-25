@@ -27,7 +27,7 @@ import { Mermaid } from './Mermaid'
 import { ToolsPanel } from './ToolsPanel'
 import { localName } from './vocab'
 
-type DetailTab = 'structure' | 'files' | 'connect' | 'design'
+type DetailTab = 'structure' | 'tools' | 'files' | 'connect' | 'design'
 
 /** Display label for a dataset's source kind (used as the small mono type tag). */
 function sourceTag(meta?: LiveDataset['meta']): string {
@@ -310,6 +310,7 @@ function DatasetDetail({
   )
   const tabs: [DetailTab, string][] = [
     ['structure', t('gallery:tab.structure')],
+    ['tools', t('gallery:tab.tools')],
     ['files', t('gallery:tab.files')],
     ['connect', t('gallery:tab.connect')],
     ['design', t('gallery:tab.design')],
@@ -432,7 +433,17 @@ function DatasetDetail({
         </div>
       )}
 
-      {/* 中身 (contents): the dataset's structure + the tools it can answer with. */}
+      {/* Dataset-level management — retract / reinstate / delete, surfaced here
+          (not buried inside the files tab) so it is discoverable per dataset.
+          Always visible regardless of the active tab; human-gated via confirm. */}
+      {dataset.live && (
+        <div className="ds-manage">
+          <LifecycleControl meta={dataset.live.meta} onChanged={onChanged} />
+        </div>
+      )}
+
+      {/* 設計図 (schema): the dataset's structure — classes, predicates, and the
+          class diagram (always shown, the centerpiece of this page). */}
       {tab === 'structure' && (
         <div className="ds-tab-body">
           <div className="ds-section-head">
@@ -465,19 +476,26 @@ function DatasetDetail({
           )}
 
           {dataset.mermaid && (
-            <details className="ds-diagram-details">
-              <summary>{t('gallery:design.diagramSummary')}</summary>
+            <div className="ds-diagram-block">
+              <div className="ds-subhead">{t('gallery:design.diagramSummary')}</div>
               <div className="onto-diagram">
                 <Mermaid chart={dataset.mermaid} />
               </div>
-            </details>
-          )}
-
-          {dataset.live && (
-            <div className="ds-tools-block">
-              <div className="ds-subhead">{t('gallery:detail.tools')}</div>
-              <ToolsPanel datasetId={dataset.live.meta.id} />
             </div>
+          )}
+        </div>
+      )}
+
+      {/* ツール (tools): the typed tools this dataset can answer questions with. */}
+      {tab === 'tools' && (
+        <div className="ds-tab-body">
+          <div className="ds-section-head">
+            <span className="ds-section-title">{t('gallery:detail.tools')}</span>
+          </div>
+          {dataset.live ? (
+            <ToolsPanel datasetId={dataset.live.meta.id} />
+          ) : (
+            <p className="ds-empty-note">{t('gallery:tools.none')}</p>
           )}
         </div>
       )}
@@ -529,8 +547,6 @@ function DatasetDetail({
               <DocumentAppendControl meta={dataset.live.meta} onChanged={onChanged} />
               {/* part5: safe replace — re-ingest into a new version, then re-promote. */}
               <ReingestControl meta={dataset.live.meta} onChanged={onChanged} />
-              {/* #20 P3 lifecycle: retract / reinstate / delete (human-gated). */}
-              <LifecycleControl meta={dataset.live.meta} onChanged={onChanged} />
             </div>
           )}
         </div>
@@ -1012,8 +1028,8 @@ function PromoteControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChan
       ) : (
         <p className="promote-note">
           <Trans i18nKey="gallery:promote.note">
-            「共有データに昇格」すると、下書きグラフのこのデータが <strong>Ask が引用する正式グラフ
-            （canonical）</strong> に移ります。昇格前に、使っている語彙が既存の再利用か新規かを確認できます。
+            「検索対象として公開」すると、下書きグラフのこのデータが <strong>Ask が引用する正式グラフ
+            （canonical）</strong> に移ります。公開前に、使っている語彙が既存の再利用か新規かを確認できます。
           </Trans>
         </p>
       )}

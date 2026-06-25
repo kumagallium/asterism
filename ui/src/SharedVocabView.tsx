@@ -112,8 +112,8 @@ export function SharedVocabView({ onBack }: { onBack?: () => void }) {
             </p>
             <p className="vocab-live-note">
               <Trans i18nKey="vocab:classesCard.note2">
-                ※ 数えるのは <strong>canonical（昇格済み・引用可能）データのみ</strong>。
-                下書き（未レビュー）グラフは含みません ── 昇格すると集計に入ります。
+                ※ 数えるのは <strong>canonical（公開済み・引用可能）データのみ</strong>。
+                下書き（未レビュー）グラフは含みません ── 公開すると集計に入ります。
               </Trans>
             </p>
             <div className="ds-subhead">{t('vocab:classesCard.classesSubhead')}</div>

@@ -62,7 +62,7 @@
     "loading": "Loading datasets…",
     "tooFew": {
       "title": "Fewer than two shared datasets to connect",
-      "sub": "Once two or more datasets have been \"promoted to shared data\", you can build a cross-dataset crosswalk here."
+      "sub": "Once two or more datasets have been \"published for search\", you can build a cross-dataset crosswalk here."
     },
     "step1": "1. Pick the datasets to connect (two or more)",
     "dsSub": "{{predicates}} predicates · {{facts}} facts",
@@ -145,7 +145,7 @@
       "head": "Crosswalk built",
       "stat": "<0>{{shared}}</0> \"{{key}}\" values are shared across<1> {{count}} </1>datasets.",
       "linkChip": "{{label}} <0>{{n}}</0> links",
-      "skipped": "Excluded: {{labels}} (out of scope, e.g. not promoted)",
+      "skipped": "Excluded: {{labels}} (out of scope, e.g. not published)",
       "next": "In \"Crosswalk\" you can check the participating datasets and tools (which datasets report this value?)."
     }
   },

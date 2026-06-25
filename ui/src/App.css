@@ -2161,6 +2161,14 @@ textarea:focus {
   padding: 0 1.1rem 1.1rem;
 }
 
+/* Dataset management band — surfaces the lifecycle controls (retract / reinstate
+   / delete) at the detail level (above the tabs' content), so they are
+   discoverable without digging into the files tab. Aligns with the tab body
+   padding; the inner .lifecycle-control already draws its own top border. */
+.ds-manage {
+  padding: 0 1.1rem;
+}
+
 /* #20 P3 lifecycle controls (retract / reinstate / delete) */
 .lifecycle-control {
   margin-top: 1rem;
@@ -2911,17 +2919,9 @@ textarea:focus {
   font-size: 0.7rem;
   color: var(--faint);
 }
-.ds-diagram-details {
+/* Class diagram — always shown in the 設計図 (schema) tab (no longer toggled). */
+.ds-diagram-block {
   margin-top: 0.8rem;
-}
-.ds-diagram-details > summary {
-  cursor: pointer;
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--muted);
-}
-.ds-diagram-details[open] > summary {
-  margin-bottom: 0.5rem;
 }
 /* Section subheading — a clear, dark section title (gives pages メリハリ). */
 .ds-subhead {
