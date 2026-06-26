@@ -39,6 +39,31 @@ from typing import Protocol, runtime_checkable
 DEFAULT_ANTHROPIC_MODEL = "claude-opus-4-7"
 DEFAULT_OPENAI_MODEL = "gpt-4o"
 
+# Output token cap for a single generation. A full schema proposal ends with the
+# §9 RML mapping (the longest block), so the cap must be generous: a small cap
+# truncates the response mid-RML and yields an EMPTY mapping.rml.ttl with no
+# clear signal (the bug this default guards against). claude-opus-4-7 / 4-8 both
+# support up to 128K output tokens; we leave headroom below that for adaptive
+# thinking tokens and rely on streaming (no ~10-min non-streaming timeout) plus
+# the continuation loop below to finish proposals that still exceed one cap.
+DEFAULT_MAX_TOKENS = 96000
+
+# How many times complete() will ask the model to CONTINUE after a max_tokens
+# stop before giving up. A large proposal usually finishes within one or two
+# continuations; the cap bounds cost and prevents an infinite loop if the model
+# never reaches a natural stop.
+MAX_CONTINUATIONS = 5
+
+
+class LLMTruncatedError(RuntimeError):
+    """Raised when an LLM response is still truncated after the continuation cap.
+
+    The Step 0 callers (propose / refine) let this propagate so the api surfaces
+    a CLEAR message — "the design was too large to generate fully; try a smaller
+    or simpler input" — instead of silently yielding a partial proposal whose
+    §RML block (and thus ``mapping.rml.ttl``) is empty.
+    """
+
 
 @dataclass(frozen=True)
 class LLMUsage:
@@ -147,9 +172,10 @@ class AnthropicLLMClient:
     """
 
     model: str = DEFAULT_ANTHROPIC_MODEL
-    max_tokens: int = 32000
+    max_tokens: int = DEFAULT_MAX_TOKENS
     effort: str = "xhigh"
     api_key: str | None = None
+    max_continuations: int = MAX_CONTINUATIONS
     last_usage: LLMUsage | None = field(default=None, init=False, compare=False)
 
     def complete(self, system_prompt: str, user_message: str) -> LLMCompletion:
@@ -158,25 +184,70 @@ class AnthropicLLMClient:
         client = (
             anthropic.Anthropic(api_key=self.api_key) if self.api_key else anthropic.Anthropic()
         )
-        with client.messages.stream(
-            model=self.model,
-            max_tokens=self.max_tokens,
-            thinking={"type": "adaptive"},
-            output_config={"effort": self.effort},
-            system=[
+
+        # A large proposal ends with the §9 RML block (the longest section), so a
+        # single generation can hit max_tokens and stop mid-RML. We CONTINUE on a
+        # max_tokens stop: append the partial assistant text + a short "continue"
+        # user turn and ask the model to resume, concatenating the parts until it
+        # reaches a normal stop or we hit the safety cap (then fail loud).
+        messages: list[dict[str, object]] = [{"role": "user", "content": user_message}]
+        parts: list[str] = []
+        total_usage = LLMUsage.zero()
+        stop_reason: str | None = None
+
+        for _ in range(self.max_continuations + 1):
+            with client.messages.stream(
+                model=self.model,
+                max_tokens=self.max_tokens,
+                thinking={"type": "adaptive"},
+                output_config={"effort": self.effort},
+                system=[
+                    {
+                        "type": "text",
+                        "text": system_prompt,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ],
+                messages=messages,
+            ) as stream:
+                message = stream.get_final_message()
+
+            part = "\n".join(b.text for b in message.content if b.type == "text")
+            parts.append(part)
+            total_usage = total_usage + _anthropic_usage(getattr(message, "usage", None))
+            stop_reason = getattr(message, "stop_reason", None)
+
+            if stop_reason != "max_tokens":
+                break
+
+            # Truncated: feed the partial back as an assistant turn and ask the
+            # model to continue from exactly where it stopped (no overlap, no gap).
+            messages.append({"role": "assistant", "content": part})
+            messages.append(
                 {
-                    "type": "text",
-                    "text": system_prompt,
-                    "cache_control": {"type": "ephemeral"},
+                    "role": "user",
+                    "content": (
+                        "Your previous message was cut off because it hit the output "
+                        "token limit. Continue the document from exactly where you "
+                        "stopped — do not repeat any text you already wrote and do not "
+                        "add a preamble. Pick up mid-token if necessary."
+                    ),
                 }
-            ],
-            messages=[{"role": "user", "content": user_message}],
-        ) as stream:
-            message = stream.get_final_message()
-        text_parts = [b.text for b in message.content if b.type == "text"]
-        usage = _anthropic_usage(getattr(message, "usage", None))
-        self.last_usage = usage
-        return LLMCompletion("\n".join(text_parts), usage)
+            )
+
+        self.last_usage = total_usage
+
+        if stop_reason == "max_tokens":
+            raise LLMTruncatedError(
+                "The schema design was too large to generate fully: the model's "
+                f"output was still truncated after {self.max_continuations} "
+                "continuation(s). Try a smaller or simpler input (fewer columns / "
+                "sources), then re-run."
+            )
+
+        # The continuation prompt asks for no overlap, so plain concatenation
+        # reassembles the full document.
+        return LLMCompletion("".join(parts), total_usage)
 
 
 @dataclass
@@ -194,28 +265,66 @@ class OpenAICompatibleLLMClient:
     """
 
     model: str = DEFAULT_OPENAI_MODEL
-    max_tokens: int = 32000
+    max_tokens: int = DEFAULT_MAX_TOKENS
     api_key: str | None = None
     base_url: str | None = None
+    max_continuations: int = MAX_CONTINUATIONS
     last_usage: LLMUsage | None = field(default=None, init=False, compare=False)
 
     def complete(self, system_prompt: str, user_message: str) -> LLMCompletion:
         from openai import OpenAI
 
         client = OpenAI(api_key=self.api_key, base_url=self.base_url or None)
-        resp = client.chat.completions.create(
-            model=self.model,
-            max_tokens=self.max_tokens,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message},
-            ],
-        )
-        choice = resp.choices[0]
-        text = choice.message.content or ""
-        usage = _openai_usage(getattr(resp, "usage", None))
-        self.last_usage = usage
-        return LLMCompletion(text, usage)
+
+        # Same continuation-on-truncation strategy as the Anthropic client: the
+        # OpenAI analog of stop_reason == "max_tokens" is finish_reason == "length".
+        messages: list[dict[str, object]] = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message},
+        ]
+        parts: list[str] = []
+        total_usage = LLMUsage.zero()
+        finish_reason: str | None = None
+
+        for _ in range(self.max_continuations + 1):
+            resp = client.chat.completions.create(
+                model=self.model,
+                max_tokens=self.max_tokens,
+                messages=messages,
+            )
+            choice = resp.choices[0]
+            part = choice.message.content or ""
+            parts.append(part)
+            total_usage = total_usage + _openai_usage(getattr(resp, "usage", None))
+            finish_reason = getattr(choice, "finish_reason", None)
+
+            if finish_reason != "length":
+                break
+
+            messages.append({"role": "assistant", "content": part})
+            messages.append(
+                {
+                    "role": "user",
+                    "content": (
+                        "Your previous message was cut off because it hit the output "
+                        "token limit. Continue the document from exactly where you "
+                        "stopped — do not repeat any text you already wrote and do not "
+                        "add a preamble. Pick up mid-token if necessary."
+                    ),
+                }
+            )
+
+        self.last_usage = total_usage
+
+        if finish_reason == "length":
+            raise LLMTruncatedError(
+                "The schema design was too large to generate fully: the model's "
+                f"output was still truncated after {self.max_continuations} "
+                "continuation(s). Try a smaller or simpler input (fewer columns / "
+                "sources), then re-run."
+            )
+
+        return LLMCompletion("".join(parts), total_usage)
 
 
 # Provider aliases accepted by make_llm (case-insensitive). Everything in the

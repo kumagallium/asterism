@@ -50,7 +50,7 @@ def test_make_llm_default_is_anthropic_with_default_model() -> None:
     assert isinstance(client, AnthropicLLMClient)
     assert client.model == DEFAULT_ANTHROPIC_MODEL
     assert client.api_key == "sk-test"
-    assert client.max_tokens == 32000
+    assert client.max_tokens == 96000
     assert client.effort == "xhigh"
 
 
