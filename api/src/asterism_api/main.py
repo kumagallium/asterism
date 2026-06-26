@@ -105,6 +105,11 @@ class MaterializeRequest(BaseModel):
     # When true (default), persist the bundle to the registry so it shows up in
     # the Gallery. Set false for a throwaway validation-only run.
     persist: bool = True
+    # Redesign target: when set, re-materialize OVERWRITES this existing dataset's
+    # artifacts/design IN PLACE (same id — graphs / IRIs / lifecycle / source
+    # preserved) instead of minting a new dataset. The user re-applies data via the
+    # existing re-ingest controls. Ignored when persist is false.
+    dataset_id: str | None = None
 
 
 class SparqlRequest(BaseModel):
@@ -1656,16 +1661,34 @@ def build_app(
                 }
                 # Persist so the bundle appears in the Gallery (authoring→catalog).
                 if body.persist:
-                    meta = registry.save_dataset(
-                        cfg.registry_root,
-                        body.dataset_name,
-                        artifacts,
-                        complete=mat.complete,
-                        warnings=mat.warnings,
-                        traps=traps,
-                        exit_code=exit_code,
-                        created_at=datetime.now(UTC).isoformat(),
-                    )
+                    if body.dataset_id:
+                        # Redesign: re-materialize the SAME dataset in place (keep its
+                        # id / graphs / lifecycle / source). Re-design changes only the
+                        # mapping; the user re-applies data via the re-ingest controls.
+                        meta = registry.update_dataset_artifacts(
+                            cfg.registry_root,
+                            body.dataset_id,
+                            artifacts,
+                            complete=mat.complete,
+                            warnings=mat.warnings,
+                            traps=traps,
+                            exit_code=exit_code,
+                            proposal_md=body.proposal_md,
+                        )
+                        if meta is None:
+                            raise HTTPException(404, f"dataset {body.dataset_id!r} not found")
+                    else:
+                        meta = registry.save_dataset(
+                            cfg.registry_root,
+                            body.dataset_name,
+                            artifacts,
+                            complete=mat.complete,
+                            warnings=mat.warnings,
+                            traps=traps,
+                            exit_code=exit_code,
+                            created_at=datetime.now(UTC).isoformat(),
+                            proposal_md=body.proposal_md,
+                        )
                     result["dataset"] = meta
                 return result
             finally:
@@ -1687,6 +1710,26 @@ def build_app(
         if data is None:
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
         return data
+
+    @app.get("/api/datasets/{dataset_id}/proposal")
+    async def get_dataset_proposal(dataset_id: str) -> dict[str, object]:
+        """Return a dataset's stored design (propose/refine Markdown) for re-design.
+
+        The "見直す" (redesign) flow reopens this in the workbench so the user can
+        refine/edit it and re-materialize the SAME dataset. Read-only. 404 when the
+        dataset is absent; ``proposal_md`` is empty (and ``has_proposal`` false) for
+        datasets materialized before the design was persisted — the UI then steers
+        the user to recreate rather than re-open."""
+        data = registry.load_dataset(cfg.registry_root, dataset_id)
+        if data is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        proposal_md = registry.load_proposal(cfg.registry_root, dataset_id) or ""
+        return {
+            "dataset_id": dataset_id,
+            "dataset_name": data["meta"].get("name", dataset_id),
+            "proposal_md": proposal_md,
+            "has_proposal": bool(proposal_md.strip()),
+        }
 
     @app.get("/api/datasets/{dataset_id}/tools")
     async def list_dataset_tools(dataset_id: str) -> dict[str, object]:

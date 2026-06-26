@@ -11,6 +11,10 @@
     "note": "Restored your previous work (re-select the source only if you need to re-run).",
     "clear": "Clear workbench"
   },
+  "redesign": {
+    "badge": "Redesign",
+    "banner": "Revising the design of the existing dataset <strong>{{name}}</strong>. Saving updates this same dataset's mapping (apply the data via \"Update data (re-ingest)\")."
+  },
   "step": {
     "design": "AI designs",
     "designEn": "design",

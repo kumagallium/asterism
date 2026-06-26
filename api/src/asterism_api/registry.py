@@ -84,6 +84,13 @@ def mermaid_of(diagram_md: str) -> str:
     return (m.group(1) if m else (diagram_md or "")).strip()
 
 
+# The propose/refine Markdown the bundle was materialized from. Persisted so a
+# dataset's design can be RE-OPENED in the workbench (refine/edit → re-materialize)
+# without losing the dataset — the "見直す" (redesign) flow. It is the source the 4
+# artifacts are extracted from, so it round-trips a full re-design.
+_PROPOSAL_FILE = "proposal.md"
+
+
 def save_dataset(
     root: Path,
     name: str,
@@ -94,13 +101,16 @@ def save_dataset(
     traps: list[dict],
     exit_code: int,
     created_at: str,
+    proposal_md: str = "",
 ) -> dict:
     """Persist a materialized bundle under ``root/<id>/``; return its meta dict.
 
     ``artifacts`` maps the 4 logical names (diagram.md / model.yaml / mie.yaml /
     ingester.py) to their text contents. A ``meta.json`` summary (name, time,
     validation outcome, extracted class list) is written alongside so the
-    listing endpoint stays cheap (no re-parsing of artifacts).
+    listing endpoint stays cheap (no re-parsing of artifacts). ``proposal_md``
+    (the design source) is persisted so the dataset can later be re-opened in the
+    workbench for a redesign (refine/edit → re-materialize in place).
     """
     dataset_id = f"{_slug(name)}-{uuid.uuid4().hex[:8]}"
     dest = root / dataset_id
@@ -108,6 +118,7 @@ def save_dataset(
 
     for key, filename in _ARTIFACT_FILES.items():
         (dest / filename).write_text(artifacts.get(key, "") or "", encoding="utf-8")
+    (dest / _PROPOSAL_FILE).write_text(proposal_md or "", encoding="utf-8")
 
     classes = extract_classes(mermaid_of(artifacts.get("diagram.md", "")))
     meta = {
@@ -125,9 +136,85 @@ def save_dataset(
         # Phase 5: whether a declarative RML mapping is present (ingestable), and
         # whether it has been ingested into a draft graph yet.
         "has_rml": bool((artifacts.get("mapping.rml.ttl") or "").strip()),
+        # The design (propose/refine Markdown) is stored — so the catalog can offer
+        # a "見直す" (redesign) action that reopens it in the workbench.
+        "has_proposal": bool((proposal_md or "").strip()),
         "ingested": False,
     }
     (dest / _META_FILE).write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    return meta
+
+
+def load_proposal(root: Path, dataset_id: str) -> str | None:
+    """Return the persisted design (propose/refine Markdown) for ``dataset_id``.
+
+    None when the id is unsafe, the dataset is absent, or no proposal was stored
+    (datasets materialized before proposal persistence have none). The empty
+    string is a valid (but unusable) stored value and is returned as-is.
+    """
+    if not _ID_RE.fullmatch(dataset_id):
+        return None
+    dest = root / dataset_id
+    if not (dest / _META_FILE).is_file():
+        return None
+    path = dest / _PROPOSAL_FILE
+    if not path.is_file():
+        return None
+    return path.read_text(encoding="utf-8")
+
+
+def update_dataset_artifacts(
+    root: Path,
+    dataset_id: str,
+    artifacts: dict[str, str],
+    *,
+    complete: bool,
+    warnings: list[str],
+    traps: list[dict],
+    exit_code: int,
+    proposal_md: str = "",
+) -> dict | None:
+    """Re-materialize a dataset IN PLACE — overwrite its artifacts + design, keep its id.
+
+    The redesign counterpart of :func:`save_dataset`: the user reopened an existing
+    dataset's design in the workbench, refined/edited it, and re-materialized. We must
+    update the SAME registry record (so IRIs / graphs / lifecycle / source are
+    preserved) rather than mint a duplicate. Overwrites the 4 artifact files + the
+    stored ``proposal_md`` and refreshes the design-derived meta (classes, has_rml, …)
+    while leaving identity + lifecycle/source fields (``id`` / ``promoted`` /
+    ``ingested`` / ``has_source`` / ``version`` / …) untouched. Re-design changes the
+    MAPPING only; the user re-applies data via the existing re-ingest controls.
+
+    Returns the new meta, or ``None`` if the id is unsafe / absent.
+    """
+    if not _ID_RE.fullmatch(dataset_id):
+        return None
+    dest = root / dataset_id
+    meta_path = dest / _META_FILE
+    if not meta_path.is_file():
+        return None
+
+    for key, filename in _ARTIFACT_FILES.items():
+        (dest / filename).write_text(artifacts.get(key, "") or "", encoding="utf-8")
+    (dest / _PROPOSAL_FILE).write_text(proposal_md or "", encoding="utf-8")
+
+    classes = extract_classes(mermaid_of(artifacts.get("diagram.md", "")))
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    meta.update(
+        {
+            "complete": complete,
+            "warnings": warnings,
+            "exit_code": exit_code,
+            "traps": traps,
+            "classes": classes,
+            "class_count": len(classes),
+            "has_ingester": bool((artifacts.get("ingester.py") or "").strip()),
+            "has_mie": bool((artifacts.get("mie.yaml") or "").strip()),
+            "has_rml": bool((artifacts.get("mapping.rml.ttl") or "").strip()),
+            "has_proposal": bool((proposal_md or "").strip()),
+        }
+    )
+    meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     return meta
 
 

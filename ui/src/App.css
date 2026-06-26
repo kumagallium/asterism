@@ -1486,6 +1486,56 @@ textarea:focus {
   color: var(--body);
 }
 
+/* Redesign banner: shown in the workbench when revising an existing dataset's
+   design (so the user knows save updates that dataset, not creates a new one). */
+.wb-redesign-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  background: var(--info-bg);
+  border: 1px solid var(--info-border);
+  border-radius: var(--radius);
+  padding: 0.7rem 1rem;
+  margin-bottom: 1.1rem;
+  font-size: 0.92rem;
+  color: var(--info-fg);
+}
+.wb-redesign-badge {
+  flex: none;
+  font-size: 0.74rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 0.12rem 0.5rem;
+  border-radius: 999px;
+  background: var(--info-border);
+  color: var(--fg);
+}
+.wb-redesign-text strong {
+  color: var(--fg);
+}
+
+/* Redesign entry point on the dataset detail (設計 tab): a one-line note + the
+   "見直す" button that reopens this dataset's stored design in the workbench. */
+.ds-redesign {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  padding: 0.8rem 1rem;
+  margin-bottom: 1rem;
+  background: var(--info-bg);
+  border: 1px solid var(--info-border);
+  border-radius: var(--radius);
+}
+.ds-redesign-text {
+  flex: 1 1 18rem;
+  min-width: 0;
+}
+.ds-redesign .ds-subhead {
+  margin-top: 0;
+}
+
 .trace-vocab-link {
   margin-left: auto;
   align-self: center;

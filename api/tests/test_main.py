@@ -600,6 +600,93 @@ def test_materialize_persist_false_skips_registry(
         assert client.get("/api/datasets").json()["count"] == 0
 
 
+def test_materialize_persists_proposal_for_redesign(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    """Redesign: materialize stores the design markdown so it can be reopened."""
+    app = build_app(
+        _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
+    )
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/materialize",
+            json={"proposal_md": _MATERIALIZE_MD, "dataset_name": "thermo"},
+        )
+        meta = r.json()["dataset"]
+        assert meta["has_proposal"] is True
+
+        # The stored design round-trips via the read-only proposal endpoint.
+        prop = client.get(f"/api/datasets/{meta['id']}/proposal").json()
+        assert prop["dataset_id"] == meta["id"]
+        assert prop["dataset_name"] == "thermo"
+        assert prop["has_proposal"] is True
+        assert prop["proposal_md"] == _MATERIALIZE_MD
+
+
+def test_proposal_unknown_returns_404(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    app = build_app(
+        _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
+    )
+    with TestClient(app, headers=_AUTH) as client:
+        assert client.get("/api/datasets/nope-12345678/proposal").status_code == 404
+
+
+def test_redesign_re_materialize_updates_in_place(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    """Re-materializing with dataset_id overwrites the SAME dataset (no duplicate)."""
+    app = build_app(
+        _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
+    )
+    with TestClient(app, headers=_AUTH) as client:
+        first = client.post(
+            "/api/materialize",
+            json={"proposal_md": _MATERIALIZE_MD, "dataset_name": "thermo"},
+        ).json()["dataset"]
+        ds_id = first["id"]
+        assert client.get("/api/datasets").json()["count"] == 1
+
+        # Re-design: a tweaked proposal (drop the Paper class) re-materialized in place.
+        redesigned_md = _MATERIALIZE_MD.replace("class Paper\n", "")
+        again = client.post(
+            "/api/materialize",
+            json={
+                "proposal_md": redesigned_md,
+                "dataset_name": "thermo",
+                "dataset_id": ds_id,
+            },
+        ).json()["dataset"]
+
+        # SAME id, NOT a duplicate; the design-derived meta reflects the new design.
+        assert again["id"] == ds_id
+        assert client.get("/api/datasets").json()["count"] == 1
+        assert set(again["classes"]) == {"Sample"}
+
+        # The reopened design now returns the redesigned markdown.
+        prop = client.get(f"/api/datasets/{ds_id}/proposal").json()
+        assert prop["proposal_md"] == redesigned_md
+
+
+def test_redesign_unknown_dataset_id_404(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    app = build_app(
+        _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
+    )
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/materialize",
+            json={
+                "proposal_md": _MATERIALIZE_MD,
+                "dataset_name": "thermo",
+                "dataset_id": "nope-12345678",
+            },
+        )
+        assert r.status_code == 404
+
+
 def test_get_dataset_unknown_returns_404(
     tmp_path: Path, healthy_client: OxigraphClient
 ) -> None:

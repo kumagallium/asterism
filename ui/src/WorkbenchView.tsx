@@ -88,6 +88,22 @@ interface WorkbenchSnapshot {
   presetIds: string[]
   proposal: string
   materialized: MaterializeResult | null
+  // Redesign: when the workbench was opened to revise an existing dataset's
+  // design, the target id/name persist so a tab switch / reload keeps editing
+  // the SAME dataset (re-materialize in place) instead of minting a new one.
+  redesignId?: string
+  redesignName?: string
+}
+
+/**
+ * A dataset whose stored design the workbench should reopen for a redesign
+ * (refine/edit → re-materialize in place). Passed by the catalog's "見直す"
+ * action; null/undefined keeps the normal new-design flow.
+ */
+export interface RedesignTarget {
+  datasetId: string
+  datasetName: string
+  proposalMd: string
 }
 
 function loadSnapshot(): Partial<WorkbenchSnapshot> {
@@ -106,7 +122,16 @@ function loadSnapshot(): Partial<WorkbenchSnapshot> {
  * the stepper shows progress (✓ when a step has produced output) and step 4
  * persists the bundle to the registry so it appears in the Gallery.
  */
-export function WorkbenchView() {
+export function WorkbenchView({
+  redesignTarget,
+  onRedesignConsumed,
+}: {
+  /** When set, the workbench opens on an EXISTING dataset's design to revise it. */
+  redesignTarget?: RedesignTarget | null
+  /** Called once the redesign target has seeded the workbench (so the parent can
+   *  clear it and a later tab switch doesn't re-seed over the user's edits). */
+  onRedesignConsumed?: () => void
+} = {}) {
   const { t } = useTranslation()
   // Restore generated artifacts saved before a tab switch / reload (once).
   const [snap] = useState(loadSnapshot)
@@ -115,6 +140,11 @@ export function WorkbenchView() {
   // designs → save), or by crossing EXISTING datasets into a shared bridge.
   const [mode, setMode] = useState<'new' | 'crosswalk'>('new')
   const [step, setStep] = useState<Step>(snap.step ?? 1)
+  // Redesign target: the existing dataset being revised (id + display name). Seeded
+  // from a passed `redesignTarget` or restored from the snapshot. When set, save
+  // (materialize) re-materializes that SAME dataset in place rather than minting one.
+  const [redesignId, setRedesignId] = useState<string | undefined>(snap.redesignId)
+  const [redesignName, setRedesignName] = useState<string | undefined>(snap.redesignName)
   // Selected data-source kind (#19). CSV / JSON are wired; switching kinds clears
   // any picked files since they no longer match the new kind's picker filter.
   const [source, setSource] = useState<SourceKind>(snap.source ?? 'csv')
@@ -161,13 +191,38 @@ export function WorkbenchView() {
       presetIds: [...presetIds],
       proposal,
       materialized,
+      redesignId,
+      redesignName,
     }
     try {
       sessionStorage.setItem(WB_STORAGE, JSON.stringify(snapshot))
     } catch {
       // sessionStorage may be unavailable (private mode quota) — non-fatal.
     }
-  }, [step, source, fk, markdown, domainFree, presetIds, proposal, materialized])
+  }, [step, source, fk, markdown, domainFree, presetIds, proposal, materialized, redesignId, redesignName])
+
+  // Seed the workbench from a redesign target during render (the "adjust state on
+  // prop change" pattern — same as GalleryView's focusClass handling — so we avoid a
+  // synchronous setState-in-effect cascade). When a NEW target id arrives we load the
+  // existing dataset's design into the proposal and jump straight to review (step 2),
+  // so the user can refine/edit then re-materialize the SAME dataset. `seededTarget`
+  // remembers the last-seeded id so we seed once per target and don't clobber edits;
+  // `onRedesignConsumed` lets the parent clear the prop after this lands.
+  const [seededTarget, setSeededTarget] = useState<string | null>(null)
+  if (redesignTarget && redesignTarget.datasetId !== seededTarget) {
+    setSeededTarget(redesignTarget.datasetId)
+    setMode('new')
+    setRedesignId(redesignTarget.datasetId)
+    setRedesignName(redesignTarget.datasetName)
+    setProposal(redesignTarget.proposalMd)
+    setMarkdown('')
+    setProposeErr('')
+    setComment('')
+    setMaterialized(null)
+    setStatus('')
+    setStep(2)
+    onRedesignConsumed?.()
+  }
 
   // Resume an in-flight propose/refine job after a reload/crash/disconnect: the
   // server replays the job's events, so a result that completed while the UI was
@@ -259,6 +314,10 @@ export function WorkbenchView() {
     setProposal('')
     setStatus('starting…')
     setProposing(true)
+    // A fresh AI design is a NEW dataset — drop any redesign target so it doesn't
+    // overwrite the dataset the user was previously revising.
+    setRedesignId(undefined)
+    setRedesignName(undefined)
     closeRef.current?.()
     try {
       closeRef.current = await proposeCsvs(files, composedDomain(), fks(), getActiveCredentials(), {
@@ -326,7 +385,13 @@ export function WorkbenchView() {
     setProposeErr('')
     setMaterializing(true)
     try {
-      const result = await materializeSchema(proposal)
+      // Redesign: re-materialize the SAME dataset in place (pass its id + keep its
+      // display name) so graphs / IRIs / lifecycle / persisted source are preserved.
+      const result = await materializeSchema(
+        proposal,
+        redesignName ?? 'dataset',
+        redesignId,
+      )
       setMaterialized(result)
       // Task E: persist the design-time CSVs alongside the saved dataset so it
       // can be ingested from the catalog later with no re-attach. Best-effort —
@@ -357,6 +422,8 @@ export function WorkbenchView() {
     setComment('')
     setMaterialized(null)
     setStatus('')
+    setRedesignId(undefined)
+    setRedesignName(undefined)
     sessionStorage.removeItem(WB_STORAGE)
   }
 
@@ -398,6 +465,19 @@ export function WorkbenchView() {
       <p className="subtitle">
         <Trans i18nKey="workbench:intro" components={{ strong: <strong /> }} />
       </p>
+
+      {redesignId && (
+        <div className="wb-redesign-banner" role="status">
+          <span className="wb-redesign-badge">{t('workbench:redesign.badge')}</span>
+          <span className="wb-redesign-text">
+            <Trans
+              i18nKey="workbench:redesign.banner"
+              values={{ name: redesignName ?? redesignId }}
+              components={{ strong: <strong /> }}
+            />
+          </span>
+        </div>
+      )}
 
       {hasArtifacts && (
         <div className="wb-restore-row">

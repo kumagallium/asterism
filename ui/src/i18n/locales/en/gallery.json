@@ -167,6 +167,13 @@
     "submitting": "Ingesting…",
     "error": "Re-ingest failed: {{message}}"
   },
+  "redesign": {
+    "head": "Revise the design",
+    "note": "Reopen this schema and ingest rules in the workbench to fix or adjust them, then save (it updates the same dataset — no need to delete and recreate). After saving, apply the data via \"Update data (re-ingest)\".",
+    "noProposal": "This dataset has no stored design to reopen in the workbench (it was created before the design was persisted). Please recreate it instead.",
+    "open": "Revise the design",
+    "loading": "Loading the design…"
+  },
   "lifecycle": {
     "head": "Lifecycle actions",
     "retractedStatus": "Status: <1>Retracted</1> (excluded from Ask citations. Data and IRIs remain, so existing citations are not broken. You can reinstate it.)",

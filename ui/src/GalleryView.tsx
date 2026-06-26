@@ -2,11 +2,13 @@ import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent
 import { useEffect, useState } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import {
+  fetchProposal,
   ingestDataset,
   IngestValidationError,
   type IngestProgress,
   type IngestResult,
 } from './api'
+import type { RedesignTarget } from './WorkbenchView'
 import { type CrosswalkPerspective, getCrosswalks } from './crosswalkApi'
 import { DatasetGrounding } from './DatasetGrounding'
 import {
@@ -68,11 +70,14 @@ export function GalleryView({
   onOpenCrosswalk,
   onOpenMap,
   onAddData,
+  onRedesign,
 }: {
   focusClass?: string | null
   onOpenCrosswalk?: () => void
   onOpenMap?: () => void
   onAddData?: () => void
+  /** Open the workbench on this dataset's stored design to revise it ("見直す"). */
+  onRedesign?: (target: RedesignTarget) => void
 }) {
   const { t } = useTranslation()
   const [datasets, setDatasets] = useState<CatalogDataset[] | null>(null)
@@ -164,6 +169,7 @@ export function GalleryView({
           onBack={() => setPicked(null)}
           onOpenCrosswalk={onOpenCrosswalk}
           onOpenMap={onOpenMap}
+          onRedesign={onRedesign}
         />
       )}
 
@@ -460,6 +466,7 @@ function DatasetDetail({
   onBack,
   onOpenCrosswalk,
   onOpenMap,
+  onRedesign,
 }: {
   dataset: CatalogDataset
   perspectives: CrosswalkPerspective[]
@@ -470,6 +477,7 @@ function DatasetDetail({
   onBack?: () => void
   onOpenCrosswalk?: () => void
   onOpenMap?: () => void
+  onRedesign?: (target: RedesignTarget) => void
 }) {
   const { t } = useTranslation()
   const meta = dataset.live?.meta
@@ -778,6 +786,12 @@ function DatasetDetail({
       {/* 設計 (design): the ingest rules, reused vocabularies, and grounding. */}
       {tab === 'design' && (
         <div className="ds-tab-body">
+          {/* Reopen this dataset's design in the workbench to refine/edit it and
+              re-materialize the SAME dataset (fix a wrong column/function without
+              delete+recreate). Mapping-only — the user re-applies data via re-ingest. */}
+          {dataset.live && onRedesign && (
+            <RedesignControl meta={dataset.live.meta} onRedesign={onRedesign} />
+          )}
           <div className="ds-section-head">
             <span className="ds-section-title">{t('gallery:rules.title')}</span>
           </div>
@@ -822,6 +836,71 @@ function DatasetDetail({
 function shortIri(iri: string): string {
   const m = iri.split(/[#/]/).filter(Boolean)
   return m.length ? m[m.length - 1] : iri
+}
+
+/**
+ * "設計を見直す" (redesign): reopen this dataset's STORED design in the workbench so
+ * the user can refine/edit it (e.g. fix a wrong column reference or function param now
+ * surfaced by ingest validation) and re-materialize the SAME dataset — no delete +
+ * recreate, identity / graphs / lifecycle / source preserved. It loads the persisted
+ * proposal markdown (fetchProposal), then hands a RedesignTarget to the workbench.
+ *
+ * Disabled with a hint when the dataset has no stored design (`has_proposal` false) —
+ * those were materialized before the design was persisted, so reopening would lose the
+ * existing artifacts; the user recreates instead.
+ */
+function RedesignControl({
+  meta,
+  onRedesign,
+}: {
+  meta: LiveDataset['meta']
+  onRedesign: (target: RedesignTarget) => void
+}) {
+  const { t } = useTranslation()
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const hasProposal = meta.has_proposal !== false
+
+  async function onClick() {
+    setBusy(true)
+    setErr('')
+    try {
+      const p = await fetchProposal(meta.id)
+      if (!p.has_proposal || !p.proposal_md.trim()) {
+        setErr(t('gallery:redesign.noProposal'))
+        return
+      }
+      onRedesign({
+        datasetId: meta.id,
+        datasetName: p.dataset_name || meta.name,
+        proposalMd: p.proposal_md,
+      })
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="ds-redesign">
+      <div className="ds-redesign-text">
+        <div className="ds-subhead">{t('gallery:redesign.head')}</div>
+        <p className="ingest-hint">
+          {hasProposal ? t('gallery:redesign.note') : t('gallery:redesign.noProposal')}
+        </p>
+      </div>
+      <button
+        type="button"
+        className="btn btn--soft btn--sm"
+        disabled={busy || !hasProposal}
+        onClick={onClick}
+      >
+        {busy ? t('gallery:redesign.loading') : t('gallery:redesign.open')}
+      </button>
+      {err && <p className="promote-err">{err}</p>}
+    </div>
+  )
 }
 
 /**
