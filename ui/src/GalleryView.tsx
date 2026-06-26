@@ -1,3 +1,4 @@
+import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react'
 import { useEffect, useState } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import { ingestDataset, type IngestProgress, type IngestResult } from './api'
@@ -196,10 +197,11 @@ export function GalleryView({
                 key={d.id}
                 dataset={d}
                 connections={connectionCount(d, perspectives)}
-                onSelect={() => {
-                  setTab('structure')
+                onSelect={(t) => {
+                  setTab(t ?? 'structure')
                   setPicked(d.id)
                 }}
+                onChanged={reload}
               />
             ))}
             {onAddData && (
@@ -221,17 +223,36 @@ function DatasetGridCard({
   dataset,
   connections,
   onSelect,
+  onChanged,
 }: {
   dataset: CatalogDataset
   connections: number
-  onSelect: () => void
+  onSelect: (tab?: DetailTab) => void
+  onChanged: () => void
 }) {
   const { t } = useTranslation()
   const meta = dataset.live?.meta
   const files = meta?.source_files?.length ?? 0
   const updated = meta?.created_at?.slice(0, 10) ?? ''
+  // The card is the click target to open the detail; the action footer holds
+  // real <button>s, so the card itself is a clickable div (not a <button>, which
+  // cannot legally nest interactive children).
+  function open(tab?: DetailTab) {
+    onSelect(tab)
+  }
   return (
-    <button type="button" className="ds-grid-card" onClick={onSelect}>
+    <div
+      className="ds-grid-card"
+      role="button"
+      tabIndex={0}
+      onClick={() => open()}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          open()
+        }
+      }}
+    >
       <div className="ds-grid-card-head">
         <span className="ds-grid-card-icon">
           <DataIcon size={18} />
@@ -260,7 +281,167 @@ function DatasetGridCard({
         </span>
         {updated && <span className="ds-grid-card-updated">{updated}</span>}
       </div>
-    </button>
+      {meta && <CardActions meta={meta} onChanged={onChanged} onOpen={open} />}
+    </div>
+  )
+}
+
+/**
+ * Dataset-level state actions on the catalog card (moved here from the detail's
+ * always-visible band — that band showed on every tab and felt awkward). State is
+ * derived from `meta` with the SAME logic the detail uses (datasetStage / status /
+ * version) and the SAME galleryApi calls (promote / retract / reinstate / delete),
+ * so card and detail never disagree.
+ *
+ *   - ingested (draft) → 「検索対象として公開」(promote) primary CTA. A re-stage of an
+ *     already-published version (version ≥ 1) is a re-promote whose alignment preview
+ *     lives in the detail, so that case opens the detail instead of one-clicking.
+ *   - promoted, active → 「撤回」(retract, confirm).
+ *   - promoted, retracted → 「復帰」(reinstate).
+ *   - always → 「削除」(delete) tucked behind a compact ⋯ menu (window.confirm gated).
+ *
+ * The richer flows (first ingest needing a CSV, promote preview/options, append,
+ * re-ingest) stay in the detail; the card only carries quick one-click actions.
+ */
+function CardActions({
+  meta,
+  onChanged,
+  onOpen,
+}: {
+  meta: LiveDataset['meta']
+  onChanged: () => void
+  onOpen: (tab?: DetailTab) => void
+}) {
+  const { t } = useTranslation()
+  const [busy, setBusy] = useState('')
+  const [err, setErr] = useState('')
+  const [menu, setMenu] = useState(false)
+  const stage = datasetStage(meta)
+  const retracted = meta.status === 'retracted'
+  const version = meta.version ?? 0
+
+  // Stop card-open when interacting with the action footer.
+  function stop(e: ReactMouseEvent | ReactKeyboardEvent) {
+    e.stopPropagation()
+  }
+
+  async function run(label: string, fn: () => Promise<void>) {
+    setBusy(label)
+    setErr('')
+    try {
+      await fn()
+      onChanged()
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy('')
+      setMenu(false)
+    }
+  }
+
+  // A staged draft of an already-published dataset (version ≥ 1) is a re-promote;
+  // its alignment preview / version bump belongs in the detail (Files tab), so the
+  // card "publish" routes there rather than one-clicking.
+  const isRepromote = stage === 'ingested' && version >= 1
+
+  return (
+    <div className="ds-card-actions" onClick={stop} onKeyDown={stop} role="presentation">
+      {stage === 'ingested' &&
+        (isRepromote ? (
+          <button
+            type="button"
+            className="btn btn--soft btn--sm ds-card-cta"
+            onClick={() => onOpen('files')}
+          >
+            {t('gallery:card.publish')}
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="btn btn--soft btn--sm ds-card-cta"
+            disabled={!!busy}
+            onClick={() =>
+              run('promote', async () => {
+                await promoteDataset(meta.id)
+              })
+            }
+          >
+            {busy === 'promote' ? t('gallery:promote.promoting') : t('gallery:card.publish')}
+          </button>
+        ))}
+
+      {stage === 'promoted' && !retracted && (
+        <button
+          type="button"
+          className="btn btn--ghost btn--sm"
+          disabled={!!busy}
+          onClick={() =>
+            window.confirm(t('gallery:lifecycle.retractConfirm')) &&
+            run('retract', async () => {
+              await retractDataset(meta.id)
+            })
+          }
+        >
+          {busy === 'retract' ? t('gallery:lifecycle.retracting') : t('gallery:card.retract')}
+        </button>
+      )}
+
+      {retracted && (
+        <button
+          type="button"
+          className="btn btn--ghost btn--sm"
+          disabled={!!busy}
+          onClick={() =>
+            run('reinstate', async () => {
+              await reinstateDataset(meta.id)
+            })
+          }
+        >
+          {busy === 'reinstate' ? t('gallery:lifecycle.reinstating') : t('gallery:card.reinstate')}
+        </button>
+      )}
+
+      {/* Compact ⋯ menu keeps the destructive action out of the way. */}
+      <div className="ds-card-menu-wrap">
+        <button
+          type="button"
+          className="ds-card-menu-btn"
+          aria-label={t('gallery:card.more')}
+          aria-haspopup="menu"
+          aria-expanded={menu}
+          disabled={!!busy}
+          onClick={() => setMenu((m) => !m)}
+        >
+          ⋯
+        </button>
+        {menu && (
+          <div className="ds-card-menu" role="menu">
+            <button
+              type="button"
+              role="menuitem"
+              className="ds-card-menu-item ds-card-menu-item--danger"
+              disabled={!!busy}
+              onClick={() => {
+                const promoted = stage === 'promoted'
+                const ok = window.confirm(
+                  promoted
+                    ? t('gallery:lifecycle.deleteConfirmPromoted')
+                    : t('gallery:lifecycle.deleteConfirm'),
+                )
+                if (ok)
+                  run('delete', async () => {
+                    await deleteDataset(meta.id, promoted)
+                  })
+              }}
+            >
+              {busy === 'delete' ? t('gallery:lifecycle.deleting') : t('gallery:lifecycle.delete')}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {err && <p className="ds-card-err">{t('gallery:lifecycle.error', { message: err })}</p>}
+    </div>
   )
 }
 
@@ -433,14 +614,11 @@ function DatasetDetail({
         </div>
       )}
 
-      {/* Dataset-level management — retract / reinstate / delete, surfaced here
-          (not buried inside the files tab) so it is discoverable per dataset.
-          Always visible regardless of the active tab; human-gated via confirm. */}
-      {dataset.live && (
-        <div className="ds-manage">
-          <LifecycleControl meta={dataset.live.meta} onChanged={onChanged} />
-        </div>
-      )}
+      {/* Dataset-level state actions (retract / reinstate / delete / quick publish)
+          now live on the catalog cards (CardActions), not in an always-visible band
+          here — that band showed on every tab and felt awkward. The detail keeps the
+          richer flows (first ingest, promote preview, append, re-ingest) in the
+          Files tab below. */}
 
       {/* 設計図 (schema): the dataset's structure — classes, predicates, and the
           class diagram (always shown, the centerpiece of this page). */}
@@ -1184,99 +1362,3 @@ function ReingestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onCha
   )
 }
 
-/**
- * #20 P3 lifecycle controls (human-gated): retract (withdraw from the citable
- * corpus — tombstone, IRIs kept), reinstate (undo), and delete (hard removal;
- * a promoted/citable dataset requires an explicit force confirm). Backend-backed
- * by /api/datasets/{id}/{retract,reinstate} and DELETE /api/datasets/{id}.
- */
-function LifecycleControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChanged: () => void }) {
-  const { t } = useTranslation()
-  const [busy, setBusy] = useState('')
-  const [err, setErr] = useState('')
-  const [msg, setMsg] = useState('')
-  const retracted = meta.status === 'retracted'
-  const stage = datasetStage(meta)
-
-  async function run(label: string, fn: () => Promise<string>) {
-    setBusy(label)
-    setErr('')
-    setMsg('')
-    try {
-      setMsg(await fn())
-      onChanged()
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e))
-    } finally {
-      setBusy('')
-    }
-  }
-
-  return (
-    <div className="lifecycle-control">
-      <div className="ds-subhead">{t('gallery:lifecycle.head')}</div>
-      {retracted && (
-        <p className="lifecycle-status">
-          <Trans i18nKey="gallery:lifecycle.retractedStatus">
-            状態: <strong>撤回済み</strong>（Ask の引用対象外。データ・IRI は残るので既存の引用は壊れません。復帰できます）
-          </Trans>
-        </p>
-      )}
-      <div className="lifecycle-actions">
-        {stage === 'promoted' && !retracted && (
-          <button
-            type="button"
-            className="btn btn--ghost btn--sm"
-            disabled={!!busy}
-            onClick={() =>
-              window.confirm(t('gallery:lifecycle.retractConfirm')) &&
-              run('retract', async () => {
-                await retractDataset(meta.id)
-                return t('gallery:lifecycle.retractDone')
-              })
-            }
-          >
-            {busy === 'retract' ? t('gallery:lifecycle.retracting') : t('gallery:lifecycle.retract')}
-          </button>
-        )}
-        {retracted && (
-          <button
-            type="button"
-            className="btn btn--ghost btn--sm"
-            disabled={!!busy}
-            onClick={() =>
-              run('reinstate', async () => {
-                await reinstateDataset(meta.id)
-                return t('gallery:lifecycle.reinstateDone')
-              })
-            }
-          >
-            {busy === 'reinstate' ? t('gallery:lifecycle.reinstating') : t('gallery:lifecycle.reinstate')}
-          </button>
-        )}
-        <button
-          type="button"
-          className="btn btn--danger btn--sm"
-          disabled={!!busy}
-          onClick={() => {
-            const promoted = stage === 'promoted'
-            const ok = window.confirm(
-              promoted
-                ? t('gallery:lifecycle.deleteConfirmPromoted')
-                : t('gallery:lifecycle.deleteConfirm'),
-            )
-            if (ok)
-              run('delete', async () => {
-                await deleteDataset(meta.id, promoted)
-                return t('gallery:lifecycle.deleteDone')
-              })
-          }}
-        >
-          {busy === 'delete' ? t('gallery:lifecycle.deleting') : t('gallery:lifecycle.delete')}
-        </button>
-      </div>
-      {msg && <p className="lifecycle-ok">{msg}</p>}
-      {err && <p className="lifecycle-err">{t('gallery:lifecycle.error', { message: err })}</p>}
-    </div>
-  )
-}

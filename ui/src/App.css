@@ -2161,14 +2161,6 @@ textarea:focus {
   padding: 0 1.1rem 1.1rem;
 }
 
-/* Dataset management band — surfaces the lifecycle controls (retract / reinstate
-   / delete) at the detail level (above the tabs' content), so they are
-   discoverable without digging into the files tab. Aligns with the tab body
-   padding; the inner .lifecycle-control already draws its own top border. */
-.ds-manage {
-  padding: 0 1.1rem;
-}
-
 /* #20 P3 lifecycle controls (retract / reinstate / delete) */
 .lifecycle-control {
   margin-top: 1rem;
@@ -2616,6 +2608,90 @@ textarea:focus {
 .ds-grid-card-updated {
   margin-left: auto;
   font-variant-numeric: tabular-nums;
+}
+
+/* Dataset-level state actions on the card (promote / retract / reinstate + a
+   compact ⋯ menu for delete). Moved here from the detail's always-visible band. */
+.ds-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--border);
+}
+.ds-card-cta {
+  flex: 1;
+  justify-content: center;
+}
+.ds-card-menu-wrap {
+  position: relative;
+  margin-left: auto;
+}
+.ds-card-menu-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.ds-card-menu-btn:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  color: var(--fg);
+}
+.ds-card-menu-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.ds-card-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.3rem);
+  z-index: 5;
+  min-width: 8rem;
+  padding: 0.25rem;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+}
+.ds-card-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.4rem 0.6rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font-size: 0.82rem;
+  cursor: pointer;
+  color: var(--fg);
+}
+.ds-card-menu-item:hover:not(:disabled) {
+  background: var(--surface-alt);
+}
+.ds-card-menu-item--danger {
+  color: var(--error-fg);
+}
+.ds-card-menu-item--danger:hover:not(:disabled) {
+  background: var(--error-bg);
+}
+.ds-card-menu-item:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.ds-card-err {
+  flex-basis: 100%;
+  margin: 0.2rem 0 0;
+  font-size: 0.78rem;
+  color: var(--error-fg);
 }
 .ds-add-tile {
   display: flex;

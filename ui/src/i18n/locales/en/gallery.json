@@ -57,6 +57,13 @@
     "addTitle": "New dataset",
     "addSub": "Create by ingesting files"
   },
+  "card": {
+    "publish": "Publish for search",
+    "retract": "Retract",
+    "reinstate": "Reinstate",
+    "more": "More actions",
+    "delete": "Delete"
+  },
   "detail": {
     "back": "Datasets",
     "tools": "Tools (answer from this data)"

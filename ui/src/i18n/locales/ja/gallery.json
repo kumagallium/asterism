@@ -57,6 +57,13 @@
     "addTitle": "新しいデータセット",
     "addSub": "ファイルを取り込んで作る"
   },
+  "card": {
+    "publish": "検索対象として公開",
+    "retract": "撤回",
+    "reinstate": "復帰",
+    "more": "その他の操作",
+    "delete": "削除"
+  },
   "detail": {
     "back": "データセット",
     "tools": "ツール（このデータで答える）"
