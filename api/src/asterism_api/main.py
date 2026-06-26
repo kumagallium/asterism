@@ -928,6 +928,8 @@ async def _append_batch_to_dataset(
                     (work / src).write_bytes(fh.readline())
         try:
             result = await substrate.run_append_ingest(rml_ttl, work, client, live_graph)
+        except substrate.RmlValidationError as exc:  # malformed design vs real data
+            raise AppendError(422, "; ".join(exc.issues)) from exc
         except RuntimeError as exc:  # morph-kgc missing / materialization failed
             raise AppendError(422, str(exc)) from exc
     finally:
@@ -2026,6 +2028,26 @@ def build_app(
                 substrate.assert_rml_safe(rml_ttl, source_dir)
             except substrate.RmlSafetyError as exc:
                 raise HTTPException(422, f"unsafe RML mapping: {exc}") from exc
+            # Design validation (also synchronous, before any job): catch a column
+            # reference to a non-existent column or a wrong/missing Tier 0 function
+            # parameter, returning a structured 422 whose `issues` list the UI renders
+            # as a readable bullet list — instead of letting it surface as an opaque
+            # Morph-KGC crash deep inside the background job. Validate the run-id-
+            # substituted form so the runtime-only `{__run_id__}` placeholder (not a
+            # CSV column) is never flagged. The substrate re-validates the prepared RML
+            # before Morph-KGC as defense in depth.
+            try:
+                substrate.validate_rml_design(
+                    substrate.substitute_run_id(rml_ttl), source_dir
+                )
+            except substrate.RmlValidationError as exc:
+                raise HTTPException(
+                    422,
+                    detail={
+                        "error": "RML design validation failed",
+                        "issues": exc.issues,
+                    },
+                ) from exc
         # part5: stream into a FRESH per-ingest version graph `canonical/{id}/v{n}`
         # — never touching the currently live graph. So a re-ingest needs no
         # un-publish and no DROP on the request path (the old version stays citable

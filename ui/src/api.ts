@@ -242,6 +242,39 @@ export async function createDocumentDataset(
   return (await res.json()) as CreateDocumentResult
 }
 
+/**
+ * RML design validation failed (the server returned a 422 whose body carries a
+ * structured `issues` list): a referenced column is absent from the CSV, or a
+ * function execution has a wrong/missing parameter. Carries the per-issue
+ * messages so the UI can render a readable bulleted list instead of a raw string.
+ */
+export class IngestValidationError extends Error {
+  issues: string[]
+  constructor(issues: string[]) {
+    super(issues.join('; '))
+    this.name = 'IngestValidationError'
+    this.issues = issues
+  }
+}
+
+/**
+ * Pull the `issues` array out of a design-validation 422 body
+ * (`{detail: {error, issues: [...]}}`). Returns the string[] when present (and
+ * non-empty), else null — so a plain error body falls back to the raw message.
+ */
+function parseIngestIssues(body: string): string[] | null {
+  try {
+    const parsed = JSON.parse(body) as { detail?: { issues?: unknown } }
+    const issues = parsed?.detail?.issues
+    if (Array.isArray(issues) && issues.length > 0) {
+      return issues.map((i) => String(i))
+    }
+  } catch {
+    /* not JSON — fall through to the raw-message path */
+  }
+  return null
+}
+
 /** A progress frame streamed while a (background) ingest runs. */
 export interface IngestProgress {
   /** "materialize" | "materialized" | "upload" (+ future phases). */
@@ -287,8 +320,12 @@ export async function ingestDataset(
     body,
   })
   if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new Error(`ingest failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
+    const body = await res.text().catch(() => '')
+    // A design-validation 422 carries {detail: {error, issues: [...]}} — surface the
+    // structured issues so the UI renders a readable bulleted list, not a raw string.
+    const issues = parseIngestIssues(body)
+    if (issues) throw new IngestValidationError(issues)
+    throw new Error(`ingest failed (HTTP ${res.status})${body ? `: ${body}` : ''}`)
   }
   const { job_id } = (await res.json()) as { job_id: string }
   return new Promise<IngestResult>((resolve, reject) => {

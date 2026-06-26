@@ -37,6 +37,11 @@ from typing import Protocol
 # Re-exported so callers can `substrate.assert_rml_safe` / catch `substrate.RmlSafetyError`.
 from asterism.rml_safety import RmlSafetyError as RmlSafetyError
 from asterism.rml_safety import assert_rml_safe as assert_rml_safe
+
+# Re-exported so callers can `substrate.validate_rml_design` / catch
+# `substrate.RmlValidationError` (mapped to a 422 with a structured `issues` list).
+from asterism.rml_validate import RmlValidationError as RmlValidationError
+from asterism.rml_validate import validate_rml_design as validate_rml_design
 from asterism.tabularize import sanitize_csv_columns, tabularize_json_to_csv
 
 # Draft graphs live under /graph/draft/<id>, trivially distinguishable from the
@@ -367,9 +372,12 @@ def materialize_to_graph(
     """Run Morph-KGC on ``rml_ttl`` (sources resolved under ``csv_dir``).
 
     Returns the produced ``rdflib.Graph``. Raises ``RuntimeError`` if ``morph-kgc``
-    is not installed (it is the optional ``substrate`` extra), or
+    is not installed (it is the optional ``substrate`` extra),
     :class:`RmlSafetyError` if the mapping references non-Tier-0 code or an
-    out-of-bounds source (validated fail-closed before Morph-KGC is invoked).
+    out-of-bounds source (validated fail-closed before Morph-KGC is invoked), or
+    :class:`RmlValidationError` if a referenced column is absent from its CSV or a
+    function execution has a wrong/missing parameter (a structured ``issues`` list,
+    so the failure is a clear message rather than a cryptic Morph-KGC crash).
     """
     try:
         import morph_kgc
@@ -390,6 +398,12 @@ def materialize_to_graph(
     sanitized = sanitize_csv_sources(tabularized, csv_dir, work)
     bom_stripped = strip_bom_sources(sanitized, csv_dir, work)
     prepared = normalize_fno_namespace(absolutize_rml_sources(bom_stripped, csv_dir))
+    # Design validation: catch a column-reference typo or a wrong/missing function
+    # parameter against the REAL CSVs + Tier 0 signatures, with a clear `issues`
+    # list, instead of letting it surface as a cryptic Morph-KGC crash. Runs on the
+    # prepared RML (sources already absolute, {__run_id__} already substituted) so
+    # the columns checked are exactly what Morph-KGC will read.
+    validate_rml_design(prepared, csv_dir)
     mapping_file.write_text(prepared, encoding="utf-8")
 
     config = (
@@ -449,7 +463,9 @@ def materialize_to_nt_file(
     ``morph-kgc`` is absent or materialization fails (caller maps a failure to a
     user-facing 4xx, as with :func:`materialize_to_graph`). Raises
     :class:`RmlSafetyError` if the mapping references non-Tier-0 code or an
-    out-of-bounds source (validated fail-closed before Morph-KGC is invoked).
+    out-of-bounds source (validated fail-closed before Morph-KGC is invoked), or
+    :class:`RmlValidationError` if a referenced column is absent from its CSV or a
+    function execution has a wrong/missing parameter (a structured ``issues`` list).
     """
     try:
         import morph_kgc  # noqa: F401  (presence check; the CLI does the work)
@@ -469,10 +485,12 @@ def materialize_to_nt_file(
     tabularized = tabularize_json_sources(run_id_subst, csv_dir, work)
     sanitized = sanitize_csv_sources(tabularized, csv_dir, work)
     bom_stripped = strip_bom_sources(sanitized, csv_dir, work)
-    mapping_file.write_text(
-        normalize_fno_namespace(absolutize_rml_sources(bom_stripped, csv_dir)),
-        encoding="utf-8",
-    )
+    prepared = normalize_fno_namespace(absolutize_rml_sources(bom_stripped, csv_dir))
+    # Design validation before Morph-KGC (see materialize_to_graph): turn a missing
+    # column / wrong function parameter into a structured RmlValidationError instead
+    # of an opaque engine exit.
+    validate_rml_design(prepared, csv_dir)
+    mapping_file.write_text(prepared, encoding="utf-8")
     out = work / "out.nt"
     config_file = work / "config.ini"
     config_file.write_text(

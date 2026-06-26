@@ -1,7 +1,12 @@
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react'
 import { useEffect, useState } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
-import { ingestDataset, type IngestProgress, type IngestResult } from './api'
+import {
+  ingestDataset,
+  IngestValidationError,
+  type IngestProgress,
+  type IngestResult,
+} from './api'
 import { type CrosswalkPerspective, getCrosswalks } from './crosswalkApi'
 import { DatasetGrounding } from './DatasetGrounding'
 import {
@@ -828,13 +833,42 @@ function shortIri(iri: string): string {
  * the CSV here. Loads into an isolated draft graph (Ask cites canonical), so it
  * is not yet a citable fact — promote does that. Only shown for design stage.
  */
+/**
+ * Render an ingest failure. A design-validation error (IngestValidationError)
+ * carries a structured `issues` list that we show as a readable bulleted list
+ * with a heading; any other error keeps the single-line message rendering.
+ */
+function IngestError({
+  err,
+  errorKey,
+}: {
+  err: unknown
+  errorKey: string
+}) {
+  const { t } = useTranslation()
+  if (err instanceof IngestValidationError && err.issues.length > 0) {
+    return (
+      <div className="promote-err ingest-issues">
+        <p className="ingest-issues-head">{t('gallery:ingest.validationHead')}</p>
+        <ul>
+          {err.issues.map((issue, i) => (
+            <li key={i}>{issue}</li>
+          ))}
+        </ul>
+      </div>
+    )
+  }
+  const message = err instanceof Error ? err.message : String(err)
+  return <p className="promote-err">{t(errorKey, { message })}</p>
+}
+
 function IngestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChanged: () => void }) {
   const { t } = useTranslation()
   const [files, setFiles] = useState<File[]>([])
   const [busy, setBusy] = useState(false)
   const [progress, setProgress] = useState<IngestProgress | null>(null)
   const [done, setDone] = useState<IngestResult | null>(null)
-  const [err, setErr] = useState('')
+  const [err, setErr] = useState<unknown>(null)
 
   // Only design-stage needs this gate: ingested → promote, promoted → done.
   if (datasetStage(meta) !== 'design') return null
@@ -864,14 +898,14 @@ function IngestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChang
 
   async function onIngest() {
     setBusy(true)
-    setErr('')
+    setErr(null)
     setProgress(null)
     try {
       // hasSource → ingest with no upload (server uses the persisted source).
       setDone(await ingestDataset(meta.id, hasSource ? [] : files, setProgress))
       onChanged() // design → draft: refresh so promote control appears
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e))
+      setErr(e)
     } finally {
       setBusy(false)
     }
@@ -918,7 +952,7 @@ function IngestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChang
         {busy ? t('gallery:ingest.submitting') : t('gallery:ingest.submit')}
       </button>
       {busy && <IngestProgressView progress={progress} />}
-      {err && <p className="promote-err">{t('gallery:ingest.error', { message: err })}</p>}
+      {err != null && <IngestError err={err} errorKey="gallery:ingest.error" />}
     </div>
   )
 }
@@ -1269,7 +1303,7 @@ function ReingestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onCha
   const [files, setFiles] = useState<File[]>([])
   const [busy, setBusy] = useState(false)
   const [progress, setProgress] = useState<IngestProgress | null>(null)
-  const [err, setErr] = useState('')
+  const [err, setErr] = useState<unknown>(null)
 
   const stage = datasetStage(meta)
   // design → IngestControl owns the first ingest; retracted → reinstate first.
@@ -1288,7 +1322,7 @@ function ReingestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onCha
 
   async function onReingest() {
     setBusy(true)
-    setErr('')
+    setErr(null)
     setProgress(null)
     try {
       // hasSource → no upload (server reuses the persisted source); else upload.
@@ -1298,7 +1332,7 @@ function ReingestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onCha
       // gate (PromoteControl) appears with the new staged version.
       onChanged()
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e))
+      setErr(e)
     } finally {
       setBusy(false)
     }
@@ -1357,7 +1391,7 @@ function ReingestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onCha
         {busy ? t('gallery:reingest.submitting') : t('gallery:reingest.submit')}
       </button>
       {busy && <IngestProgressView progress={progress} />}
-      {err && <p className="promote-err">{t('gallery:reingest.error', { message: err })}</p>}
+      {err != null && <IngestError err={err} errorKey="gallery:reingest.error" />}
     </div>
   )
 }

@@ -123,7 +123,8 @@
     "pickPlaceholder": "設計に使った{{source}}を選んでください",
     "submit": "データを取り込む",
     "submitting": "取り込み中…",
-    "error": "取り込みに失敗しました: {{message}}"
+    "error": "取り込みに失敗しました: {{message}}",
+    "validationHead": "RML マッピングを取り込み前に検証したところ、次の問題が見つかりました（修正してから再実行してください）:"
   },
   "append": {
     "head": "ライブに追記（装置フィード）",

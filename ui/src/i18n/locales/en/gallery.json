@@ -123,7 +123,8 @@
     "pickPlaceholder": "Choose the {{source}} used for the design",
     "submit": "Import data",
     "submitting": "Ingesting…",
-    "error": "Ingest failed: {{message}}"
+    "error": "Ingest failed: {{message}}",
+    "validationHead": "Validating the RML mapping before ingest found these problems (fix them and try again):"
   },
   "append": {
     "head": "Append to live (device feed)",

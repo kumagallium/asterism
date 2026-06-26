@@ -1988,6 +1988,19 @@ textarea:focus {
   margin: 0;
 }
 
+/* Design-validation failures: a heading + a readable bulleted list of issues. */
+.ingest-issues .ingest-issues-head {
+  margin: 0 0 0.35rem;
+  font-weight: 600;
+}
+.ingest-issues ul {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+.ingest-issues li {
+  margin: 0.15rem 0;
+}
+
 /* ---- shared atoms & states (forest kit) ---- */
 
 /* Inline jargon: plain word + dotted underline + ? superscript (title = en). */

@@ -195,6 +195,43 @@ def test_ingest_happy_path_streams_canonical_with_progress(tmp_path: Path, monke
     assert meta["triple_count"] == 1
 
 
+def test_ingest_missing_column_returns_422_with_issues(tmp_path: Path) -> None:
+    # Design validation runs SYNCHRONOUSLY (no background job): an RML that
+    # references a column the persisted CSV lacks gets a clear 422 whose body
+    # carries a structured `issues` list — never an opaque Morph-KGC crash.
+    rml = (
+        "@prefix rr:  <http://www.w3.org/ns/r2rml#> .\n"
+        "@prefix rml: <http://semweb.mmlab.be/ns/rml#> .\n"
+        "@prefix ql:  <http://semweb.mmlab.be/ns/ql#> .\n"
+        '<#M> a rr:TriplesMap ;\n'
+        '  rml:logicalSource [ rml:source "papers.csv" ; rml:referenceFormulation ql:CSV ] ;\n'
+        '  rr:subjectMap [ rr:template "https://ex/paper/{SID}" ] ;\n'
+        '  rr:predicateObjectMap [ rr:predicate <https://ex/p> ;\n'
+        '    rr:objectMap [ rml:reference "project_slug" ] ] .\n'
+    )
+    dataset_id = _save_dataset_with_rml(tmp_path, rml=rml)
+    oxi = _RecordingOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        # Persist a CSV whose header is SID,project_names (no project_slug).
+        assert (
+            client.post(
+                f"/api/datasets/{dataset_id}/source",
+                files={"files": ("papers.csv", b"SID,project_names\n1,p\n", "text/csv")},
+            ).status_code
+            == 200
+        )
+        r = client.post(f"/api/datasets/{dataset_id}/ingest")
+        assert r.status_code == 422, r.text
+        detail = r.json()["detail"]
+        assert isinstance(detail["issues"], list)
+        assert any("project_slug" in m for m in detail["issues"])
+        # The "did you mean" suggestion surfaces the real, similar column.
+        assert any("project_names" in m for m in detail["issues"])
+    # No streaming POST happened — the request was rejected before the job started.
+    assert oxi.store_calls == []
+
+
 _JATS_DOC = (
     '<?xml version="1.0"?><article><front><article-meta>'
     '<article-id pub-id-type="pmcid">PMC-DEMO</article-id>'
