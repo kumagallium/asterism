@@ -1020,6 +1020,57 @@ textarea:focus {
   font-size: 0.82rem;
 }
 
+/* Save (materialize) outcome: explicit success + prominent incompleteness warning,
+   shown at save time instead of leaving a live button that re-POSTs a duplicate. */
+.materialize-outcome {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin: 0.4rem 0 0.2rem;
+}
+.materialize-added {
+  margin: 0;
+  padding: 0.55rem 0.8rem;
+  border-radius: var(--radius);
+  background: var(--success-bg);
+  border: 1px solid var(--success-border);
+  color: var(--success-fg);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.materialize-incomplete {
+  padding: 0.6rem 0.8rem;
+  border-radius: var(--radius);
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+  color: var(--warn-fg);
+}
+.materialize-incomplete-head {
+  display: block;
+  font-size: 0.9rem;
+}
+.materialize-incomplete-body {
+  margin: 0.35rem 0 0;
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+.materialize-incomplete-warnlabel {
+  margin: 0.5rem 0 0.1rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.materialize-incomplete-warnings {
+  margin: 0;
+  padding-left: 1.2rem;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+.materialize-duplicate-note {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
 .trap-legend {
   display: flex;
   flex-wrap: wrap;

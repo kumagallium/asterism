@@ -381,7 +381,11 @@ export function WorkbenchView({
   }
 
   async function onMaterialize() {
-    if (!proposal) return
+    // Guard: a request in flight, or a result already minted, must NOT POST again.
+    // Each materialize mints a new dataset, so a stray second click would create a
+    // duplicate (the very bug this prevents). "Create again" clears `materialized`
+    // first, so an intentional redo is still possible.
+    if (!proposal || materializing || materialized) return
     setProposeErr('')
     setMaterializing(true)
     try {
@@ -411,6 +415,14 @@ export function WorkbenchView({
     }
   }
 
+  // "Create again": clear the prior materialize result so the save button re-enables
+  // for an *intentional* redo (the in-flight/done guard otherwise blocks re-POST to
+  // prevent accidental duplicates). Keeps the proposal so the user stays on step 3.
+  function onMaterializeAgain() {
+    setMaterialized(null)
+    setProposeErr('')
+  }
+
   // (JobProgress defined at module scope below.)
 
   function clearWorkbench() {
@@ -433,6 +445,17 @@ export function WorkbenchView({
     2: false,
     3: materialized !== null,
   }
+  // Materialize usability (surfaced at save time, not buried in the ingest gate):
+  // a result is only ingestable when it carries a non-empty declarative RML mapping
+  // AND the backend marked it complete with no warnings. Otherwise (the AI proposal
+  // had no §RML block, etc.) the dataset is saved but stuck — we warn prominently.
+  const materializeHasRml = !!(materialized?.artifacts['mapping.rml.ttl'] ?? '').trim()
+  const materializeUsable =
+    !!materialized &&
+    materializeHasRml &&
+    materialized.complete &&
+    materialized.warnings.length === 0
+
   // Artifacts that were restored from a previous session (proposal exists but
   // the File objects, which can't be persisted, are gone).
   const restored = proposal !== '' && files.length === 0
@@ -706,16 +729,63 @@ export function WorkbenchView({
               <p className="step-hint">
                 <Trans i18nKey="workbench:save.hint" components={{ strong: <strong /> }} />
               </p>
-              <button onClick={onMaterialize} disabled={materializing}>
-                {materializing ? (
-                  <>
-                    <span className="spinner" />
-                    {t('workbench:save.saving')}
-                  </>
-                ) : (
-                  t('workbench:save.save')
-                )}
-              </button>
+              {/* Done state: the materialize succeeded. We replace the live save button
+                  with an explicit confirmation + an opt-in "Create again" — leaving an
+                  enabled button here would let a second click mint a DUPLICATE dataset
+                  (each materialize POST creates a new one). */}
+              {materialized ? (
+                <div className="materialize-outcome">
+                  <p className="materialize-added" role="status">
+                    ✓{' '}
+                    {redesignId
+                      ? t('workbench:save.addedRedesign')
+                      : t('workbench:save.added')}
+                  </p>
+                  {!materializeUsable && (
+                    <div className="materialize-incomplete" role="alert">
+                      <strong className="materialize-incomplete-head">
+                        ⚠ {t('workbench:save.incompleteHeading')}
+                      </strong>
+                      <p className="materialize-incomplete-body">
+                        {materializeHasRml
+                          ? t('workbench:save.incomplete')
+                          : t('workbench:save.noRml')}
+                      </p>
+                      {materialized.warnings.length > 0 && (
+                        <>
+                          <p className="materialize-incomplete-warnlabel">
+                            {t('workbench:save.warningsLabel')}
+                          </p>
+                          <ul className="materialize-incomplete-warnings">
+                            {materialized.warnings.map((w, i) => (
+                              <li key={i}>{w}</li>
+                            ))}
+                          </ul>
+                        </>
+                      )}
+                    </div>
+                  )}
+                  <p className="materialize-duplicate-note">{t('workbench:save.duplicateNote')}</p>
+                  <button
+                    type="button"
+                    className="secondary-btn"
+                    onClick={onMaterializeAgain}
+                  >
+                    {t('workbench:save.again')}
+                  </button>
+                </div>
+              ) : (
+                <button onClick={onMaterialize} disabled={materializing}>
+                  {materializing ? (
+                    <>
+                      <span className="spinner" />
+                      {t('workbench:save.saving')}
+                    </>
+                  ) : (
+                    t('workbench:save.save')
+                  )}
+                </button>
+              )}
               {proposeErr && <pre className="error">{proposeErr}</pre>}
               {materialized && <MaterializePanel result={materialized} csvFiles={files} />}
             </>

@@ -69,7 +69,15 @@
   "save": {
     "hint": "Split the schema into 4 artifacts, validate the 8 traps, and <strong>save to your datasets</strong>.",
     "save": "Confirm & save",
-    "saving": "Saving…"
+    "saving": "Adding…",
+    "added": "Added to your datasets.",
+    "addedRedesign": "Updated the dataset's design.",
+    "duplicateNote": "The save button is disabled to prevent creating a duplicate. Use the button below if you need to redo it.",
+    "again": "Create again",
+    "incompleteHeading": "The design was saved, but it can't be ingested as-is",
+    "noRml": "No conversion rule (RML) was generated, so this data can't be ingested. Redesign it, or fill it in via \"Review & refine\".",
+    "incomplete": "The design is incomplete, so it can't be ingested as-is. Redesign it, or fill it in via \"Review & refine\".",
+    "warningsLabel": "Warnings detected:"
   },
   "job": {
     "elapsed": "{{mm}}m {{ss}}s elapsed · usually 1–6 min · connection is kept alive",
