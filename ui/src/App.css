@@ -1071,6 +1071,33 @@ textarea:focus {
   color: var(--muted);
 }
 
+/* One-click "ask AI to fix": shown when the materialize traps report blocking
+   failures / warnings. Framed like the warn alert so it reads as a remedy. */
+.wb-fix-box {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0.8rem 0 0.2rem;
+  padding: 0.7rem 0.8rem;
+  border-radius: var(--radius);
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+}
+.wb-fix-hint {
+  margin: 0;
+  font-size: 0.84rem;
+  line-height: 1.55;
+  color: var(--warn-fg);
+}
+.wb-fix-btn {
+  align-self: flex-start;
+}
+.wb-fix-note {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
 .trap-legend {
   display: flex;
   flex-wrap: wrap;

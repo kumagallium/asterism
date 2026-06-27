@@ -79,6 +79,14 @@
     "incomplete": "The design is incomplete, so it can't be ingested as-is. Redesign it, or fill it in via \"Review & refine\".",
     "warningsLabel": "Warnings detected:"
   },
+  "fix": {
+    "groupLabel": "Auto-fix validation errors",
+    "hint": "The validation above reported failures and/or warnings. In one click, hand those specifics to the AI to rebuild the design (including §RML). After it regenerates, press \"Confirm & save\" again to re-validate.",
+    "fix": "Ask AI to fix",
+    "fixing": "AI is fixing…",
+    "needKey": "To let the AI fix this, set up a model and key in Settings.",
+    "commentIntro": "Fix the following validation errors and rebuild §RML (use only the allowed Tier 0 functions; do not reference columns that don't exist):"
+  },
   "job": {
     "elapsed": "{{mm}}m {{ss}}s elapsed · usually 1–6 min · connection is kept alive",
     "elapsedStatus": "{{mm}}m {{ss}}s elapsed · usually 1–6 min · connection is kept alive · status: {{status}}"

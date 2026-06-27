@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
@@ -347,15 +348,18 @@ export function WorkbenchView({
     }
   }
 
-  async function onRefine() {
-    const c = comment.trim()
-    if (!c || !proposal) return
+  // Shared refine driver: sends one or more review comments through the existing
+  // refine flow (SSE / in-flight guard / credentials). Both the manual comment box
+  // (onRefine) and the one-click "ask AI to fix" (onFixFailures) call this, so the
+  // recovery/replay machinery is reused exactly. `refining` guards double-trigger.
+  async function runRefine(comments: string[]) {
+    if (!proposal || refining || comments.length === 0) return
     setProposeErr('')
     setStatus('refining…')
     setRefining(true)
     refineCloseRef.current?.()
     try {
-      refineCloseRef.current = await refineSchema(proposal, [c], getActiveCredentials(), {
+      refineCloseRef.current = await refineSchema(proposal, comments, getActiveCredentials(), {
         onStart: (jobId) => saveJob(jobId, 'refine'),
         onStatus: (m) => setStatus(m),
         onDone: (result) => {
@@ -378,6 +382,24 @@ export function WorkbenchView({
       setStatus('')
       setRefining(false)
     }
+  }
+
+  async function onRefine() {
+    const c = comment.trim()
+    if (!c) return
+    await runRefine([c])
+  }
+
+  // One-click "ask AI to fix": compose a corrective refine comment from the
+  // materialize result's failing traps + warnings (so the AI gets the SPECIFIC
+  // trap / function / column that broke) and send it through the SAME refine
+  // flow. The user then re-materializes to re-check the traps.
+  async function onFixFailures() {
+    const c = composeFixComment(materialized, t)
+    if (!c) return
+    // Pre-fill the manual box too, so the user sees exactly what was sent.
+    setComment(c)
+    await runRefine([c])
   }
 
   async function onMaterialize() {
@@ -455,6 +477,14 @@ export function WorkbenchView({
     materializeHasRml &&
     materialized.complete &&
     materialized.warnings.length === 0
+  // Whether the one-click "ask AI to fix" has something actionable: a blocking
+  // failure (exit != 0 / a FAIL trap) or any warning. Drives whether the fix
+  // button is shown (and guarantees composeFixComment returns a non-empty string).
+  const materializeHasFixable =
+    !!materialized &&
+    (materialized.exit_code !== 0 ||
+      materialized.warnings.length > 0 ||
+      materialized.traps.some((tr) => tr.status === 'fail'))
 
   // Artifacts that were restored from a previous session (proposal exists but
   // the File objects, which can't be persisted, are gone).
@@ -788,6 +818,33 @@ export function WorkbenchView({
               )}
               {proposeErr && <pre className="error">{proposeErr}</pre>}
               {materialized && <MaterializePanel result={materialized} csvFiles={files} />}
+              {/* One-click corrective refine: when the materialize traps reported
+                  blocking failures and/or warnings, compose a refine comment from
+                  those specifics and send it through the SAME refine flow. The user
+                  then re-materializes (the existing save flow) to re-check. */}
+              {materialized && materializeHasFixable && (
+                <section className="wb-fix-box" role="group" aria-label={t('workbench:fix.groupLabel')}>
+                  <p className="wb-fix-hint">{t('workbench:fix.hint')}</p>
+                  <button
+                    type="button"
+                    className="wb-fix-btn"
+                    onClick={onFixFailures}
+                    disabled={refining || !isReady}
+                    title={!isReady ? t('workbench:fix.needKey') : undefined}
+                  >
+                    {refining ? (
+                      <>
+                        <span className="spinner" />
+                        {t('workbench:fix.fixing')}
+                      </>
+                    ) : (
+                      t('workbench:fix.fix')
+                    )}
+                  </button>
+                  {refining && <JobProgress label={t('workbench:review.jobLabel')} status={status} />}
+                  {!isReady && <p className="wb-fix-note">{t('workbench:fix.needKey')}</p>}
+                </section>
+              )}
             </>
           ) : (
             <p className="step-guard">{t('workbench:step.guard')}</p>
@@ -799,6 +856,33 @@ export function WorkbenchView({
       )}
     </>
   )
+}
+
+// Trap ids that have a localized label (workbench:trap.<id>); others fall back to
+// the backend's English `name`. Mirrors MaterializePanel's TRAP_IDS.
+const FIX_TRAP_IDS = ['T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8']
+
+/**
+ * Compose a corrective refine comment from a materialize result's *failing* traps
+ * and warnings, so the one-click "ask AI to fix" hands the LLM the SPECIFIC
+ * trap / function / column that broke (pulled from each trap's `detail` and the
+ * `warnings` list) instead of a vague "please fix" request. Returns '' when there
+ * is nothing actionable (no fails, no warnings) so the caller can no-op.
+ */
+function composeFixComment(result: MaterializeResult | null, t: TFunction): string {
+  if (!result) return ''
+  const trapLabel = (id: string, name: string) =>
+    FIX_TRAP_IDS.includes(id) ? t(`workbench:trap.${id}`) : name
+  const lines: string[] = []
+  for (const tr of result.traps) {
+    if (tr.status !== 'fail') continue
+    const label = trapLabel(tr.id, tr.name)
+    lines.push(tr.detail ? `${tr.id} ${label}: ${tr.detail}` : `${tr.id} ${label}`)
+  }
+  for (const w of result.warnings) lines.push(w)
+  if (lines.length === 0) return ''
+  const bullets = lines.map((l) => `- ${l}`).join('\n')
+  return `${t('workbench:fix.commentIntro')}\n${bullets}`
 }
 
 /**
