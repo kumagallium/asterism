@@ -1205,6 +1205,43 @@ async def _append_watch_loop(
     )
 
 
+def _validate_design_at_materialize(
+    registry_root: Path, dataset_id: str | None, rml_ttl: str | None
+) -> list[str]:
+    """Advisory design validation for the materialize response (NEVER raises).
+
+    Runs the SAME ``validate_rml_design`` the ingest gate runs — column references +
+    Tier 0 function parameters against the dataset's REAL persisted source CSVs — but
+    catches :class:`RmlValidationError` and returns its ``issues`` list instead of
+    raising, so a bad column / wrong function parameter surfaces at materialize (where
+    the one-click "ask AI to fix" lives) without failing the save.
+
+    Returns ``[]`` when the design is clean OR when nothing can be checked: no RML, no
+    ``dataset_id`` (a brand-new design has no persisted source yet — the workbench
+    attaches it AFTER materialize), or no readable source files. The hard ingest gate
+    still catches a bad design once a source is attached; this is purely advisory and
+    best-effort (any unexpected error degrades to "no advice", never a 500).
+    """
+    if not (rml_ttl or "").strip() or not dataset_id:
+        return []
+    try:
+        source_paths = registry.list_source_files(registry_root, dataset_id)
+        if not source_paths:
+            return []
+        source_dir = source_paths[0].parent
+        # Validate the run-id-substituted form so the runtime-only {__run_id__}
+        # placeholder is never flagged (matches the ingest gate exactly).
+        substrate.validate_rml_design(
+            substrate.substitute_run_id(rml_ttl), source_dir
+        )
+        return []
+    except substrate.RmlValidationError as exc:
+        return list(exc.issues)
+    except Exception:  # advisory only — a check failure must never break materialize
+        logger.exception("advisory design validation at materialize failed (continuing)")
+        return []
+
+
 # ----------------------------------------------------------------------------
 # App builder
 # ----------------------------------------------------------------------------
@@ -1652,12 +1689,36 @@ def build_app(
                     for r in report.results
                 ]
                 exit_code = report.exit_code()
+                # Advisory design validation AT MATERIALIZE: run the SAME check the
+                # ingest gate runs (validate_rml_design — column references + Tier 0
+                # function parameters against the REAL source CSVs), so a typo'd
+                # column or a wrong/missing function parameter surfaces here, at the
+                # review/save step where the one-click "ask AI to fix" lives, not only
+                # later at ingest. It is advisory: materialize still saves the design;
+                # the issues are returned so the user fixes them before ingest. The
+                # hard 422 ingest gate (below in /ingest) is unchanged.
+                #
+                # The check needs the dataset's persisted source CSVs. A brand-new
+                # design has none yet (the workbench attaches source AFTER materialize),
+                # so validation runs only when source is available — a redesign /
+                # re-materialize in place (`dataset_id` set), whose registry already
+                # holds the source from the prior round. With no readable source the
+                # field is simply absent (no false issues); the ingest gate still
+                # catches it once a source is attached.
+                validation_issues = _validate_design_at_materialize(
+                    cfg.registry_root,
+                    body.dataset_id,
+                    artifacts.get("mapping.rml.ttl"),
+                )
                 result: dict[str, object] = {
                     "artifacts": artifacts,
                     "complete": mat.complete,
                     "warnings": mat.warnings,
                     "traps": traps,
                     "exit_code": exit_code,
+                    # Advisory list (one readable message per design issue), empty when
+                    # the design is clean OR no source was available to check against.
+                    "validation_issues": validation_issues,
                 }
                 # Persist so the bundle appears in the Gallery (authoring→catalog).
                 if body.persist:

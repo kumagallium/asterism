@@ -883,3 +883,100 @@ def test_job_stream_unknown_id(
     with TestClient(app, headers=_AUTH) as client:
         events = _parse_sse(client.get("/api/jobs/job-999/stream").text)
         assert events and events[0][0] == "error"
+
+
+# A proposal whose §RML block references a column the source CSV does NOT have
+# (`comp` vs the real `composition`). Materialize succeeds (the design is saved);
+# the advisory design validation reports the bad column so the user can fix it at
+# review time — before ingest — via the one-click "ask AI to fix".
+_MATERIALIZE_MD_BAD_COLUMN = """## Schema proposal
+
+### Class diagram
+```mermaid
+classDiagram
+    class Sample
+```
+
+### MIE
+```yaml
+schema_info:
+  title: Demo
+  keywords: [thermoelectric, seebeck, zt, sample, composition]
+  categories: [materials]
+```
+
+### Ingester
+```python
+import csv
+def emit(path):
+    open(path, encoding="utf-8-sig")
+```
+
+### RML
+```turtle
+@prefix rr:  <http://www.w3.org/ns/r2rml#> .
+@prefix rml: <http://semweb.mmlab.be/ns/rml#> .
+@prefix ql:  <http://semweb.mmlab.be/ns/ql#> .
+<#M> a rr:TriplesMap ;
+  rml:logicalSource [ rml:source "data.csv" ; rml:referenceFormulation ql:CSV ] ;
+  rr:subjectMap [ rr:template "https://ex/sample/{SID}" ] ;
+  rr:predicateObjectMap [ rr:predicate <https://ex/hasComposition> ;
+    rr:objectMap [ rml:reference "comp" ] ] .
+```
+"""
+
+
+def test_materialize_reports_advisory_validation_issues_when_source_present(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    """Advisory design validation runs AT MATERIALIZE against the persisted source.
+
+    A brand-new design has no source yet (it is attached after materialize), so the
+    first materialize reports no advisory issues. After the source is attached, a
+    re-materialize in place (the redesign path, `dataset_id` set) validates the RML
+    against the REAL CSV header — a bad column reference surfaces in
+    ``validation_issues`` — and materialize STILL succeeds (200): the issues are
+    advisory, the design is saved regardless.
+    """
+    app = build_app(
+        _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
+    )
+    with TestClient(app, headers=_AUTH) as client:
+        # 1) First materialize (brand-new): no source persisted yet → no advisory
+        #    issues even though the RML references a column the CSV will lack.
+        first = client.post(
+            "/api/materialize",
+            json={"proposal_md": _MATERIALIZE_MD_BAD_COLUMN, "dataset_name": "thermo"},
+        )
+        assert first.status_code == 200
+        body = first.json()
+        assert body["validation_issues"] == []
+        ds_id = body["dataset"]["id"]
+
+        # 2) Attach a source whose header has `composition` (not `comp`).
+        assert (
+            client.post(
+                f"/api/datasets/{ds_id}/source",
+                files={"files": ("data.csv", b"SID,composition\n1,Bi2Te3\n", "text/csv")},
+            ).status_code
+            == 200
+        )
+
+        # 3) Re-materialize in place (redesign path) — now the source is available, so
+        #    the advisory validation flags the bad `comp` column; materialize SUCCEEDS.
+        again = client.post(
+            "/api/materialize",
+            json={
+                "proposal_md": _MATERIALIZE_MD_BAD_COLUMN,
+                "dataset_name": "thermo",
+                "dataset_id": ds_id,
+            },
+        )
+        assert again.status_code == 200, again.text
+        issues = again.json()["validation_issues"]
+        assert isinstance(issues, list)
+        assert any("comp" in m for m in issues), issues
+        # The "did you mean" suggestion surfaces the real, similar column.
+        assert any("composition" in m for m in issues), issues
+        # Materialize still persisted the design (advisory, not a gate).
+        assert client.get(f"/api/datasets/{ds_id}").status_code == 200

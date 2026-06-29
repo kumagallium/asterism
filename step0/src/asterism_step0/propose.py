@@ -269,6 +269,26 @@ HARD RULES (a reviewer approves *column→predicate + which vetted function*, no
       columns (e.g. `"{1}-{2}"`). Missing field ⇒ "". (For simple IRI/string
       composition prefer a plain `rr:template` term map.)
 - Direct column: `rr:objectMap [ rml:reference "col" ]`. Composite IRI: `rr:template "…/{a}-{b}"`.
+- IRI from a DATA value MUST be made IRI-safe: when a subject/object `rr:template` /
+  `rml:template` builds an IRI from a free-text or data-derived column (composition,
+  title, name, comment, label, formula, …), pass that column through `fn:iri_safe`
+  FIRST and template on the function's OUTPUT — never `{raw_col}` directly. A raw value
+  with `<`, a space, a quote, `{`/`}` etc. produces an invalid IRI that fails at load
+  ("Invalid IRI code point"). A value already known to be a clean id/slug (a numeric
+  SID, an existing URL) needs no wrapping. WRONG: `rr:template "…/composition/{composition}"`
+  (raw value → invalid IRI). RIGHT: compute an IRI-safe segment, then template on it:
+  ```
+  <#CompMap> a rr:TriplesMap ;
+    rml:logicalSource [ rml:source "data.csv" ; rml:referenceFormulation ql:CSV ] ;
+    rr:subjectMap [ rr:template "sdr:composition/{comp_iri}" ] ;
+    rr:predicateObjectMap [ rr:predicate <…/hasFormula> ;
+      rr:objectMap [ rml:reference "composition" ] ] .   # keep the raw value as a literal
+  ```
+  where `comp_iri` is the `fn:iri_safe` output of the `composition` column, produced by a
+  function objectMap exactly like the others (param `fn:p_value`):
+  `rmlf:functionExecution [ rmlf:function fn:iri_safe ;
+    rmlf:input [ rmlf:parameter fn:p_value ;
+                 rmlf:inputValueMap [ rml:reference "composition" ] ] ]`.
 - Function objectMap: `rmlf:functionExecution [ rmlf:function fn:NAME ;
   rmlf:input [ rmlf:parameter fn:p_value ; rmlf:inputValueMap [ rml:reference "col" ] ] ]`.
   2-input (`fn:float_array_count`): two `rmlf:input`, params `fn:p_value1` / `fn:p_value2`.

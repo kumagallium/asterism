@@ -2128,6 +2128,19 @@ textarea:focus {
 .ingest-issues li {
   margin: 0.15rem 0;
 }
+/* Advisory design validation surfaced at materialize (review/save step): a warm,
+   warning-toned card so a bad column / function parameter reads as "fix before
+   ingest", reusing the .ingest-issues bulleted-list layout. */
+.materialize-validation {
+  margin: 0.5rem 0;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--warn-border);
+  border-radius: var(--radius);
+  background: var(--warn-bg);
+}
+.materialize-validation .ingest-issues-head {
+  color: var(--warn-fg);
+}
 
 /* ---- shared atoms & states (forest kit) ---- */
 

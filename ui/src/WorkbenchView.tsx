@@ -477,13 +477,19 @@ export function WorkbenchView({
     materializeHasRml &&
     materialized.complete &&
     materialized.warnings.length === 0
+  // Advisory design-validation issues (bad column / wrong function parameter,
+  // checked at materialize against the real source CSVs). Shown prominently and
+  // fed to the one-click fix so they're corrected during design, not only at ingest.
+  const validationIssues = materialized?.validation_issues ?? []
   // Whether the one-click "ask AI to fix" has something actionable: a blocking
-  // failure (exit != 0 / a FAIL trap) or any warning. Drives whether the fix
-  // button is shown (and guarantees composeFixComment returns a non-empty string).
+  // failure (exit != 0 / a FAIL trap), any warning, or a design-validation issue.
+  // Drives whether the fix button is shown (and guarantees composeFixComment
+  // returns a non-empty string).
   const materializeHasFixable =
     !!materialized &&
     (materialized.exit_code !== 0 ||
       materialized.warnings.length > 0 ||
+      validationIssues.length > 0 ||
       materialized.traps.some((tr) => tr.status === 'fail'))
 
   // Artifacts that were restored from a previous session (proposal exists but
@@ -771,6 +777,21 @@ export function WorkbenchView({
                       ? t('workbench:save.addedRedesign')
                       : t('workbench:save.added')}
                   </p>
+                  {/* Advisory design validation (run at materialize against the real
+                      source): a bad column reference or wrong Tier 0 function parameter
+                      is surfaced here — prominently, as a readable bulleted list (the
+                      same rendering the ingest gate uses) — so the user fixes it BEFORE
+                      ingest via the one-click "ask AI to fix" below. */}
+                  {validationIssues.length > 0 && (
+                    <div className="ingest-issues materialize-validation" role="alert">
+                      <p className="ingest-issues-head">{t('workbench:save.validationHead')}</p>
+                      <ul>
+                        {validationIssues.map((issue, i) => (
+                          <li key={i}>{issue}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                   {!materializeUsable && (
                     <div className="materialize-incomplete" role="alert">
                       <strong className="materialize-incomplete-head">
@@ -880,6 +901,10 @@ function composeFixComment(result: MaterializeResult | null, t: TFunction): stri
     lines.push(tr.detail ? `${tr.id} ${label}: ${tr.detail}` : `${tr.id} ${label}`)
   }
   for (const w of result.warnings) lines.push(w)
+  // Advisory design-validation issues (bad column / wrong function parameter,
+  // checked against the real source) — fed to the AI so the one-click fix can
+  // correct them at design time, in one click, instead of only at ingest.
+  for (const issue of result.validation_issues ?? []) lines.push(issue)
   if (lines.length === 0) return ''
   const bullets = lines.map((l) => `- ${l}`).join('\n')
   return `${t('workbench:fix.commentIntro')}\n${bullets}`

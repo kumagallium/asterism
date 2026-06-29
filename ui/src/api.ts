@@ -174,6 +174,14 @@ export interface MaterializeResult {
   exit_code: number
   /** Present when the bundle was persisted to the registry (the default). */
   dataset?: DatasetMeta
+  /**
+   * Advisory design-validation issues (column references + Tier 0 function
+   * parameters checked against the real source CSVs), surfaced at materialize so
+   * the user can fix them BEFORE ingest. Empty/absent when the design is clean or
+   * no source was available to check against (e.g. a brand-new design whose source
+   * is attached after materialize). The hard ingest gate still re-checks.
+   */
+  validation_issues?: string[]
 }
 
 /** Result of the human-gated substrate ingest. */
