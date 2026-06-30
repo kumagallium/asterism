@@ -15,8 +15,12 @@ signatures, in ways that surface only as a cryptic Morph-KGC crash:
    for ``json_pluck`` whose registered param is ``fn:p_field``) → the required
    positional argument is unbound and the Tier 0 callable dies with
    ``TypeError: json_pluck() missing 1 required positional argument: 'field'``.
+3. An ``rml:source`` names a file the data dir does **not** have (e.g. an AI-invented
+   ``<name>_preprocessed.csv`` when the real file is the plain ``<name>.csv``) → the
+   source is skipped by the column check (no header to read) and then Morph-KGC's
+   pandas reader dies with a ``FileNotFoundError`` deep inside the engine.
 
-This module catches both classes **up front**, COLLECTS ALL issues (it never
+This module catches all three classes **up front**, COLLECTS ALL issues (it never
 stops at the first), and raises a structured :class:`RmlValidationError` whose
 ``issues`` list carries one human-readable, actionable message per problem. The
 api maps the error to a ``422`` that carries the ``issues`` list so the UI can
@@ -166,6 +170,57 @@ def _local_name(iri: str) -> str:
 # ---------------------------------------------------------------------------
 # The checks (each collects ALL its issues)
 # ---------------------------------------------------------------------------
+
+
+def _check_sources(graph, csv_dir: Path) -> list[str]:
+    """Flag every ``rml:source`` whose resolved file is absent on disk.
+
+    Runs on the *prepared* RML, where the substrate has already rewritten sources
+    to absolute paths (a real CSV, a tabularized-JSON work-dir copy, a BOM-stripped
+    copy, …) — every one of which exists. A source left pointing at a non-existent
+    file is therefore exactly an AI mistake: a renamed / invented filename (an
+    ``rml:source`` the inspection never listed). The column check skips it silently
+    (no header to read), so without this check it surfaces only as a cryptic
+    ``FileNotFoundError`` inside Morph-KGC. A "did you mean" (against the real files
+    in the data dir) is appended when a close real filename exists, otherwise the
+    available files are listed so the AI can pick the right one.
+    """
+    import rdflib
+
+    issues: list[str] = []
+    sub_pred = rdflib.URIRef
+    try:
+        available = sorted(p.name for p in csv_dir.iterdir() if p.is_file())
+    except OSError:
+        available = []
+    seen: set[str] = set()
+    for s_pred in _SOURCE_PREDS:
+        for src in graph.objects(None, sub_pred(s_pred)):
+            raw = str(src).strip()
+            if not raw:
+                continue
+            path = Path(raw)
+            if not path.is_absolute():
+                path = csv_dir / raw
+            if path.exists():
+                continue
+            name = path.name
+            if name in seen:
+                continue
+            seen.add(name)
+            suggestion = difflib.get_close_matches(name, available, n=_SUGGEST_N, cutoff=0.6)
+            if suggestion:
+                hint = f" Did you mean: {', '.join(suggestion)}?"
+            elif available:
+                hint = f" Available files: {', '.join(available)}."
+            else:
+                hint = ""
+            issues.append(
+                f"source file {name!r} referenced by rml:source does not exist; "
+                f"use a source filename exactly as the inspection lists it (do not "
+                f"rename or add a suffix).{hint}"
+            )
+    return issues
 
 
 def _check_columns(graph, csv_dir: Path) -> list[str]:
@@ -337,9 +392,9 @@ def _reachable_nodes(graph, root):
 
 
 def validate_rml_design(rml_ttl: str, csv_dir: Path | str) -> None:
-    """Validate prepared RML against the real CSV columns + Tier 0 signatures.
+    """Validate prepared RML against the real source files, CSV columns + Tier 0 signatures.
 
-    Collects ALL column-reference and function-parameter issues and raises a single
+    Collects ALL missing-source, column-reference and function-parameter issues and raises a single
     :class:`RmlValidationError` carrying every one. Returns ``None`` when the design
     is valid. A Turtle parse error is left to :func:`asterism.rml_safety.assert_rml_safe`
     (which runs first and already fails closed on unparseable RML); if the RML is
@@ -355,6 +410,10 @@ def validate_rml_design(rml_ttl: str, csv_dir: Path | str) -> None:
         return  # rml_safety owns the parse-error rejection
 
     base = Path(csv_dir)
-    issues = _check_columns(graph, base) + _check_function_params(graph)
+    issues = (
+        _check_sources(graph, base)
+        + _check_columns(graph, base)
+        + _check_function_params(graph)
+    )
     if issues:
         raise RmlValidationError(issues)

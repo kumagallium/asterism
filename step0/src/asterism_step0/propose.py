@@ -174,6 +174,10 @@ the old `http://semweb.mmlab.be/ns/fnml#`):
 
 **Logical source** — match each `rr:TriplesMap`'s `rml:logicalSource` to the
 source kind shown in the inspection (`## CSV:` / `## JSON:` / `## XML:` blocks). Use
+the filename **exactly as the inspection lists it** — copy it character-for-character,
+NEVER append, rename, or invent a suffix (no `_preprocessed`, `_clean`, `_v2`, …). The
+ingest reads the real files on disk; a renamed source does not exist and the run fails.
+All value cleaning is done by the Tier 0 functions below, not by a different file. Use
 the filename, and (for **XML**) the iterator from the inspection block verbatim:
 - **CSV** sources:
   ```

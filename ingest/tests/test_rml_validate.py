@@ -1,9 +1,10 @@
 """Design validation for declarative RML (asterism.rml_validate.validate_rml_design).
 
-These cover the two malformed-design classes that otherwise surface only as a
-cryptic Morph-KGC crash: a column reference to a column the CSV does not have, and
-an FnO function execution with a wrong / missing parameter IRI. The validator only
-parses RML + reads CSV headers, so these run WITHOUT the Morph-KGC engine.
+These cover the three malformed-design classes that otherwise surface only as a
+cryptic Morph-KGC crash: a column reference to a column the CSV does not have, an
+FnO function execution with a wrong / missing parameter IRI, and an `rml:source`
+naming a file the data dir does not have. The validator only parses RML + reads CSV
+headers / dir listings, so these run WITHOUT the Morph-KGC engine.
 """
 from __future__ import annotations
 
@@ -200,15 +201,73 @@ def test_run_id_placeholder_already_substituted_is_not_flagged(tmp_path: Path) -
     validate_rml_design(rml, tmp_path)  # no raise
 
 
-def test_unreadable_source_is_skipped_not_flagged(tmp_path: Path) -> None:
-    # When the CSV is absent (no header to check) we cannot verify columns; we must
-    # NOT invent a missing-column issue (the safety/containment gate owns that).
+# ---- source-file check ------------------------------------------------------
+
+
+def test_missing_source_file_is_flagged_with_suggestion(tmp_path: Path) -> None:
+    # The real file is `papers.csv`; the RML invents `papers_preprocessed.csv`. The
+    # source check flags it (so it never reaches Morph-KGC as a FileNotFoundError),
+    # with a "did you mean" pointing at the real file.
+    _write_csv(tmp_path, "papers.csv", "SID,title")
     rml = _PREFIXES + (
         '<#M> a rr:TriplesMap ;\n'
-        '  rml:logicalSource [ rml:source "absent.csv" ; rml:referenceFormulation ql:CSV ] ;\n'
+        '  rml:logicalSource [ rml:source "papers_preprocessed.csv" ; '
+        'rml:referenceFormulation ql:CSV ] ;\n'
+        '  rr:subjectMap [ rr:template "http://x/{SID}" ] ;\n'
+        '  rr:predicateObjectMap [ rr:predicate <http://x/n> ;\n'
+        '    rr:objectMap [ rml:reference "title" ] ] .\n'
+    )
+    with pytest.raises(RmlValidationError) as exc:
+        validate_rml_design(rml, tmp_path)
+    issues = exc.value.issues
+    assert any("papers_preprocessed.csv" in m and "does not exist" in m for m in issues)
+    assert any("papers.csv" in m for m in issues)  # did-you-mean / available list
+    # The absent source has no header, so the column reference is NOT also flagged
+    # (we report the single root cause — the missing file — not a phantom column).
+    assert not any("title" in m and "is not in" in m for m in issues)
+
+
+def test_missing_source_lists_available_files_when_no_close_match(tmp_path: Path) -> None:
+    # When no real filename is similar, the available files are listed so the AI can
+    # pick the right one rather than guessing again.
+    _write_csv(tmp_path, "measurements.csv", "SID,value")
+    rml = _PREFIXES + (
+        '<#M> a rr:TriplesMap ;\n'
+        '  rml:logicalSource [ rml:source "totally_different.csv" ; '
+        'rml:referenceFormulation ql:CSV ] ;\n'
+        '  rr:subjectMap [ rr:template "http://x/{SID}" ] .\n'
+    )
+    with pytest.raises(RmlValidationError) as exc:
+        validate_rml_design(rml, tmp_path)
+    assert any("Available files: measurements.csv" in m for m in exc.value.issues)
+
+
+def test_present_but_empty_source_is_not_flagged(tmp_path: Path) -> None:
+    # A source file that exists but has no header row is present (not missing), so the
+    # source check passes; the column check cannot read a header and skips it — no
+    # missing-source and no phantom-column issue.
+    (tmp_path / "empty.csv").write_text("", encoding="utf-8")
+    rml = _PREFIXES + (
+        '<#M> a rr:TriplesMap ;\n'
+        '  rml:logicalSource [ rml:source "empty.csv" ; rml:referenceFormulation ql:CSV ] ;\n'
         '  rr:subjectMap [ rr:template "http://x/{SID}" ] ;\n'
         '  rr:predicateObjectMap [ rr:predicate <http://x/n> ;\n'
         '    rr:objectMap [ rml:reference "whatever" ] ] .\n'
+    )
+    validate_rml_design(rml, tmp_path)  # no raise
+
+
+def test_absolute_source_path_that_exists_is_not_flagged(tmp_path: Path) -> None:
+    # The substrate rewrites sources to absolute paths before validation; an absolute
+    # path to a real file (e.g. a work-dir copy) must pass the source check.
+    _write_csv(tmp_path, "papers.csv", "SID,title")
+    abspath = str((tmp_path / "papers.csv").resolve())
+    rml = _PREFIXES + (
+        '<#M> a rr:TriplesMap ;\n'
+        f'  rml:logicalSource [ rml:source "{abspath}" ; rml:referenceFormulation ql:CSV ] ;\n'
+        '  rr:subjectMap [ rr:template "http://x/{SID}" ] ;\n'
+        '  rr:predicateObjectMap [ rr:predicate <http://x/n> ;\n'
+        '    rr:objectMap [ rml:reference "title" ] ] .\n'
     )
     validate_rml_design(rml, tmp_path)  # no raise
 
