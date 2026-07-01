@@ -175,6 +175,9 @@ def test_propose_records_usage_with_provider_headers(
     with TestClient(app, headers=_AUTH) as client:
         r = client.post(
             "/api/propose",
+            # autocorrect=0 → single propose call → exactly one usage event to assert on
+            # (the per-round 'propose.autocorrect' tagging is covered in test_design_loop).
+            params={"autocorrect": 0},
             data={"domain": "demo"},
             files={"files": ("s.csv", b"SID,x\n1,10\n2,11\n", "text/csv")},
             headers={

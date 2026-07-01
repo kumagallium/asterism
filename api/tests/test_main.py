@@ -359,7 +359,9 @@ def test_propose_starts_job_and_streams_done(
     with TestClient(app, headers=_AUTH) as client:
         r = client.post(
             "/api/propose",
-            params={"fk": "SID"},
+            # autocorrect=0 → plain single-shot propose (the self-correction loop has its
+            # own tests in test_design_loop.py); this test pins the base propose + SSE.
+            params={"fk": "SID", "autocorrect": 0},
             data={"domain": "thermoelectric measurement curves; PROV-O; no bnodes"},
             files={"files": ("samples.csv", b"SID,sample_id\n1,10\n1,11\n2,10\n", "text/csv")},
             headers={"X-API-Key": "sk-user-test"},
@@ -398,12 +400,75 @@ def test_propose_without_domain_hint(
     with TestClient(app, headers=_AUTH) as client:
         r = client.post(
             "/api/propose",
+            params={"autocorrect": 0},
             files={"files": ("s.csv", b"SID,sample_id\n1,10\n2,11\n", "text/csv")},
         )
         assert r.status_code == 202
         job_id = r.json()["job_id"]
         events = _parse_sse(client.get(f"/api/jobs/{job_id}/stream").text)
         assert "done" in [n for n, _ in events]
+
+
+_RML_MD_TMPL = (
+    "## Schema proposal\n\n### RML\n\n```turtle\n"
+    "@prefix rr:  <http://www.w3.org/ns/r2rml#> .\n"
+    "@prefix rml: <http://semweb.mmlab.be/ns/rml#> .\n"
+    "@prefix ql:  <http://semweb.mmlab.be/ns/ql#> .\n"
+    "<#M> a rr:TriplesMap ;\n"
+    '  rml:logicalSource [ rml:source "samples.csv" ; rml:referenceFormulation ql:CSV ] ;\n'
+    '  rr:subjectMap [ rr:template "http://x/{SID}" ] ;\n'
+    "  rr:predicateObjectMap [ rr:predicate <http://x/c> ;\n"
+    '    rr:objectMap [ rml:reference "%s" ] ] .\n'
+    "```\n"
+)
+
+
+class _ScriptedSSELLM:
+    """Bad design first, then a corrected one — so /api/propose's loop runs one refine
+    round and converges. Returns the last response once exhausted."""
+
+    def __init__(self, key: str | None) -> None:
+        self._responses = [_RML_MD_TMPL % "sample_idX", _RML_MD_TMPL % "sample_id"]
+        self.key = key
+
+    def complete(self, system_prompt: str, user_message: str) -> str:
+        if len(self._responses) > 1:
+            return self._responses.pop(0)
+        return self._responses[0]
+
+
+def test_propose_autocorrect_loop_streams_rounds_and_converges(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    """The self-correction loop (TODO ④) runs inside /api/propose: it streams per-round
+    progress frames and the done result carries the autocorrect summary. The scripted
+    LLM emits a bad column then the real one → the loop converges in one refine round."""
+    app = build_app(
+        _settings(tmp_path),
+        oxigraph_client=healthy_client,
+        start_watcher=False,
+        llm_factory=lambda key: _ScriptedSSELLM(key),
+    )
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/propose",
+            params={"autocorrect": 2},
+            files={"files": ("samples.csv", b"SID,sample_id\n1,10\n2,11\n", "text/csv")},
+        )
+        assert r.status_code == 202
+        job_id = r.json()["job_id"]
+        events = _parse_sse(client.get(f"/api/jobs/{job_id}/stream").text)
+        # Per-round progress frames streamed as `running` events with phase/round.
+        phases = [d.get("phase") for n, d in events if n == "running" and "phase" in d]
+        assert "propose" in phases
+        assert "refine" in phases  # a correction round actually ran
+        done = next(d for n, d in events if n == "done")
+        ac = done["result"]["autocorrect"]
+        assert ac["converged"] is True
+        assert ac["terminal_reason"] == "converged"
+        assert ac["initial_issue_count"] == 1
+        assert ac["final_issue_count"] == 0
+        assert "sample_id" in done["result"]["proposal_md"]
 
 
 def test_propose_error_surfaces_as_error_event(

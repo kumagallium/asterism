@@ -66,7 +66,7 @@ from asterism_step0.materialize import (
     extract_code_blocks,
     materialize_schema,
 )
-from asterism_step0.propose import LLMClient, propose_schema
+from asterism_step0.propose import LLMClient
 from asterism_step0.refine import refine_schema
 from asterism_step0.tool_propose import propose_query_tool
 from asterism_step0.validate import SchemaBundle, validate_schema
@@ -85,7 +85,7 @@ from fastapi import Path as PathParam
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
-from asterism_api import registry
+from asterism_api import design_loop, registry
 from asterism_api import usage as usage_ledger
 from asterism_api.jobs import JobManager
 
@@ -562,6 +562,14 @@ class Settings:
         self.append_watcher = e.get(
             "ASTERISM_APPEND_WATCHER", "1"
         ).strip().lower() not in ("0", "false", "no")
+        # Propose self-correction loop (ADR propose-self-correction-loop.md, TODO ④):
+        # how many refine rounds propose may run to auto-fix a design against the real
+        # source + Tier-0 signatures before returning. 0 disables the loop (plain
+        # propose). Per-request ``?autocorrect=N`` overrides this default.
+        try:
+            self.autocorrect_rounds = max(0, int(e.get("ASTERISM_AUTOCORRECT_ROUNDS", "3")))
+        except ValueError:
+            self.autocorrect_rounds = 3
 
 
 # ----------------------------------------------------------------------------
@@ -1508,6 +1516,14 @@ def build_app(
             description="Domain hint (Markdown). Optional — improves quality but not required.",
         ),
         fk: list[str] = Query(default=[], description="FK hint column (repeatable)"),
+        autocorrect: int | None = Query(
+            default=None,
+            description=(
+                "Self-correction rounds (TODO ④): propose auto-fixes the design against "
+                "the real source + Tier-0 signatures for up to N refine rounds. Absent → "
+                "server default (ASTERISM_AUTOCORRECT_ROUNDS); 0 = plain propose."
+            ),
+        ),
         x_api_key: str | None = Header(
             default=None,
             description="User-brought API key (D7: used for this run only, never stored)",
@@ -1548,23 +1564,61 @@ def build_app(
         )
         llm = _resolve_llm(provider, model, api_base, key)
         fk_cols = fk or None
+        rounds = cfg.autocorrect_rounds if autocorrect is None else max(0, autocorrect)
 
-        def work() -> dict[str, object]:
+        async def propose_job(emit: Callable[..., None]) -> dict[str, object]:
+            # The self-correction loop (TODO ④) is a blocking, synchronous orchestrator;
+            # run it in ONE worker thread and bridge its per-round progress back onto the
+            # event loop via call_soon_threadsafe (emit is ONLY safe from the loop, never
+            # from the worker thread — jobs.py). Usage is recorded per LLM call inside the
+            # thread (best-effort file append, safe off-loop). The temp source dir the
+            # loop validates against is cleaned up here, AFTER the loop returns.
+            loop = asyncio.get_running_loop()
+
+            def on_progress(data: dict[str, object]) -> None:
+                loop.call_soon_threadsafe(lambda: emit(**data))
+
+            def on_llm_call(feature: str) -> None:
+                _record_llm_usage(cfg.registry_root, feature, provider, llm, model)
+
             try:
-                proposal = propose_schema(
-                    list(paths), domain, fk_hint_columns=fk_cols, llm=llm
+                result = await asyncio.to_thread(
+                    design_loop.run_design_loop,
+                    list(paths),
+                    domain,
+                    Path(tmpdir),
+                    fk_hint_columns=fk_cols,
+                    llm=llm,
+                    max_rounds=rounds,
+                    on_progress=on_progress,
+                    on_llm_call=on_llm_call,
                 )
-                _record_llm_usage(cfg.registry_root, "propose", provider, llm, model)
-                return {
-                    "proposal_md": proposal.proposal_md,
-                    "inspection_md": proposal.csv_inspection_md,
-                    "metadata": proposal.metadata,
-                }
             finally:
                 shutil.rmtree(tmpdir, ignore_errors=True)
+            return {
+                "proposal_md": result.proposal_md,
+                "inspection_md": result.csv_inspection_md,
+                "metadata": result.metadata,
+                # Additive self-correction summary (TODO ④). Absent fields keep the
+                # response backward-compatible with clients that only read proposal_md.
+                "autocorrect": {
+                    "enabled": rounds > 0,
+                    "converged": result.converged,
+                    "terminal_reason": result.terminal_reason,
+                    "initial_issue_count": result.initial_issue_count,
+                    "final_issue_count": len(result.remaining_issues),
+                    "rounds": [
+                        {"n": r.n, "issue_count": r.issue_count, "categories": r.categories}
+                        for r in result.rounds
+                    ],
+                    "remaining_issues": result.remaining_issues,
+                    "tabular_only": result.tabular_only,
+                    "coverage_dropped": result.coverage_dropped,
+                },
+            }
 
         jobs: JobManager = app.state.jobs
-        job_id = jobs.start(work)
+        job_id = jobs.start_coro(propose_job)
         return JSONResponse({"job_id": job_id}, status_code=202)
 
     @app.post("/api/refine")

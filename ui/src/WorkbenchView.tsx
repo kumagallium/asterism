@@ -11,6 +11,7 @@ import {
   refineSchema,
   resumeJob,
   validateDesign,
+  type AutocorrectSummary,
   type MaterializeResult,
   type ProposeResult,
   type RefineResult,
@@ -166,6 +167,9 @@ export function WorkbenchView({
   const [presetIds, setPresetIds] = useState<Set<string>>(() => new Set(snap.presetIds ?? []))
   const [domainFree, setDomainFree] = useState(snap.domainFree ?? '')
   const [proposal, setProposal] = useState(snap.proposal ?? '')
+  // Self-correction loop summary (TODO ④), surfaced on the review step. Transient
+  // (not persisted in the snapshot) — it describes the just-completed propose run.
+  const [autocorrect, setAutocorrect] = useState<AutocorrectSummary | null>(null)
   const [status, setStatus] = useState('')
   const [proposeErr, setProposeErr] = useState('')
   const [proposing, setProposing] = useState(false)
@@ -250,9 +254,11 @@ export function WorkbenchView({
           const r = result as ProposeResult
           setProposal(r.proposal_md)
           setMarkdown(r.inspection_md)
+          applyAutocorrect(r.autocorrect)
           setStep(2)
         } else {
           setProposal((result as RefineResult).refined_md)
+          setAutocorrect(null) // a refine replaced the design — the summary is stale
         }
         setMaterialized(null)
         setStatus('done')
@@ -311,9 +317,23 @@ export function WorkbenchView({
     return parts.join('\n\n')
   }
 
+  // Apply the self-correction summary the propose run returned: remember it for the
+  // review banner and, when it did NOT converge, pre-fill the manual fix box with the
+  // remaining issues so one click on "AI に修正を依頼" continues where the loop stopped.
+  function applyAutocorrect(ac: AutocorrectSummary | undefined) {
+    setAutocorrect(ac ?? null)
+    if (ac && !ac.converged && ac.remaining_issues.length > 0) {
+      setComment(
+        `${t('workbench:fix.commentIntro')}\n` +
+          ac.remaining_issues.map((m) => `- ${m}`).join('\n'),
+      )
+    }
+  }
+
   async function onPropose() {
     setProposeErr('')
     setProposal('')
+    setAutocorrect(null)
     setStatus('starting…')
     setProposing(true)
     // A fresh AI design is a NEW dataset — drop any redesign target so it doesn't
@@ -329,6 +349,7 @@ export function WorkbenchView({
           setProposal(result.proposal_md)
           // Surface the inspection Propose actually used (no separate step).
           setMarkdown(result.inspection_md)
+          applyAutocorrect(result.autocorrect)
           setMaterialized(null)
           setStatus('done')
           setProposing(false)
@@ -365,6 +386,7 @@ export function WorkbenchView({
         onStatus: (m) => setStatus(m),
         onDone: (result) => {
           setProposal(result.refined_md)
+          setAutocorrect(null) // a manual refine replaced the design — clear the loop summary
           setMaterialized(null)
           setComment('')
           setStatus('refined')
@@ -739,6 +761,7 @@ export function WorkbenchView({
           (proposal ? (
             <>
               <p className="step-hint">{t('workbench:review.hint')}</p>
+              <AutocorrectBanner summary={autocorrect} />
               <section className="refine-box">
                 <label className="domain-label">
                   {t('workbench:review.commentLabel')}
@@ -922,6 +945,50 @@ function composeFixComment(result: MaterializeResult | null, t: TFunction): stri
   if (lines.length === 0) return ''
   const bullets = lines.map((l) => `- ${l}`).join('\n')
   return `${t('workbench:fix.commentIntro')}\n${bullets}`
+}
+
+/**
+ * Honest summary of the server-side self-correction loop (TODO ④). Green when the loop
+ * converged (zero remaining static issues); amber and DISTINCT when it stopped best-effort
+ * with issues remaining — the user must NOT read a non-converged result as success. Always
+ * qualifies the guarantee (static check against the source, not "ingest-ready"; JSON/XML
+ * refs unchecked; coverage may have dropped) so the green check never over-promises.
+ */
+function AutocorrectBanner({ summary }: { summary: AutocorrectSummary | null }) {
+  const { t } = useTranslation()
+  if (!summary || !summary.enabled) return null
+  const rounds = summary.rounds.length > 0 ? summary.rounds.length - 1 : 0 // exclude round 0
+  const ok = summary.converged
+  const headline = ok
+    ? rounds === 0
+      ? t('workbench:autocorrect.cleanFirst')
+      : t('workbench:autocorrect.converged', { rounds })
+    : t('workbench:autocorrect.bestEffort', { rounds, count: summary.final_issue_count })
+  return (
+    <div className={`autocorrect-banner ${ok ? 'ok' : 'warn'}`} role="status">
+      <div className="autocorrect-head">
+        <span aria-hidden="true">{ok ? '✓' : '⚠'}</span> {headline}
+      </div>
+      {!ok && summary.remaining_issues.length > 0 && (
+        <>
+          <div className="autocorrect-remaining-label">
+            {t('workbench:autocorrect.remainingLabel')}
+          </div>
+          <ul className="autocorrect-remaining">
+            {summary.remaining_issues.map((m, i) => (
+              <li key={i}>{m}</li>
+            ))}
+          </ul>
+          <div className="autocorrect-prefill">{t('workbench:autocorrect.prefillFix')}</div>
+        </>
+      )}
+      <div className="autocorrect-caveats">
+        <div>{t('workbench:autocorrect.caveat')}</div>
+        {!summary.tabular_only && <div>{t('workbench:autocorrect.tabularCaveat')}</div>}
+        {summary.coverage_dropped && <div>{t('workbench:autocorrect.coverageCaveat')}</div>}
+      </div>
+    </div>
+  )
 }
 
 /**
