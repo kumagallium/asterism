@@ -17,6 +17,15 @@ COPY ui/package.json ui/package-lock.json ./
 # on linux/amd64. Pre-existing lockfile drift on main is worth fixing separately.
 RUN npm ci || npm install
 COPY ui/ ./
+# Production build talks to the REAL backends:
+#   VITE_DEMO_MODE=live      -> Ask/demo uses the live demo-agent, not mock fixtures.
+#   VITE_DEMO_AGENT_URL="/"   -> the code trims trailing slashes, so "/" becomes ""
+#                               => relative /demo/* (caddy proxies it to the demo-agent,
+#                               same origin). Works for ANY domain without a rebuild
+#                               (vs the dev default http://localhost:8090). "/" (not "")
+#                               so vite reliably exposes the non-empty value.
+ENV VITE_DEMO_MODE=live
+ENV VITE_DEMO_AGENT_URL="/"
 # tsc -b && vite build -> /ui/dist (the SPA is served at the site root, base "/").
 RUN npm run build
 

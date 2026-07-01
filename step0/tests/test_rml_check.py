@@ -111,3 +111,38 @@ def test_primitive_passes_closed_set_when_allowed() -> None:
     assert closed_set_violations(_RML_PRIMITIVE, allowed) == []
     # ...and is flagged when not in the vetted set
     assert closed_set_violations(_RML_PRIMITIVE, {_iri("date_iso")}) == [_iri("lookup")]
+
+
+# --- Prompt ⇄ live T9 allowed-set contract -------------------------------------
+#
+# T9's allowed set is derived from the live ``asterism.functions.REGISTRY`` via
+# ``load_registry_fn_iris``. The propose SYSTEM_PROMPT advertises a "Tier 0
+# functions" list that the AI uses verbatim. If the prompt advertises a function
+# the registry does not contain, the AI's faithful output will ALWAYS fail T9 and
+# refine cannot recover. This guard ties the two together in the env where the
+# ingest package is importable (monorepo / CI); it skips when it is not.
+
+
+def test_prompt_advertised_functions_all_pass_live_t9() -> None:
+    import re
+
+    from asterism_step0 import propose
+
+    asterism_functions = pytest.importorskip("asterism.functions")
+    from asterism_step0.rml_check import load_registry_fn_iris
+
+    # Parse the fn:NAME function names out of the prompt (exclude fn:p_* params
+    # and the fn:NAME placeholder), then map them to their function IRIs.
+    body = propose.SYSTEM_PROMPT
+    names = {m.group(1) for m in re.finditer(r"fn:([a-zA-Z_][a-zA-Z0-9_]*)", body)}
+    advertised = {n for n in names if not n.startswith("p_") and n != "NAME"}
+    advertised_iris = {asterism_functions.FN + n for n in advertised}
+
+    allowed = load_registry_fn_iris()
+    # Every advertised function must be in the live T9 allowed set (else the AI is
+    # told about a function it cannot legally use).
+    not_allowed = sorted(advertised_iris - allowed)
+    assert not not_allowed, f"prompt advertises functions T9 rejects: {not_allowed}"
+    # ...and the prompt and registry describe exactly the same set (no dead, never
+    # advertised registry entries either).
+    assert advertised_iris == allowed

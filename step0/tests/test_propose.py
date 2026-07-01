@@ -238,9 +238,11 @@ def test_anthropic_client_satisfies_llm_protocol() -> None:
     # Default values per the claude-api skill (Opus 4.7 + xhigh effort)
     assert client.model == "claude-opus-4-7"
     assert client.effort == "xhigh"
-    # 32000 (not 16000) — a full proposal truncated at 16000 in dogfooding;
-    # the client streams so the larger cap is safe.
-    assert client.max_tokens == 32000
+    # 96000 (not 16000/32000) — a full proposal ends with the long §9 RML block,
+    # which truncated at the smaller caps in dogfooding. The client streams (so
+    # the larger cap dodges the non-streaming timeout) and continues on a
+    # max_tokens stop, so the generous cap is safe.
+    assert client.max_tokens == 96000
 
 
 def test_anthropic_client_lazy_imports_anthropic() -> None:

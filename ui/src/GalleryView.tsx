@@ -1,6 +1,14 @@
+import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react'
 import { useEffect, useState } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
-import { ingestDataset, type IngestProgress, type IngestResult } from './api'
+import {
+  fetchProposal,
+  ingestDataset,
+  IngestValidationError,
+  type IngestProgress,
+  type IngestResult,
+} from './api'
+import type { RedesignTarget } from './WorkbenchView'
 import { type CrosswalkPerspective, getCrosswalks } from './crosswalkApi'
 import { DatasetGrounding } from './DatasetGrounding'
 import {
@@ -27,7 +35,7 @@ import { Mermaid } from './Mermaid'
 import { ToolsPanel } from './ToolsPanel'
 import { localName } from './vocab'
 
-type DetailTab = 'structure' | 'files' | 'connect' | 'design'
+type DetailTab = 'structure' | 'tools' | 'files' | 'connect' | 'design'
 
 /** Display label for a dataset's source kind (used as the small mono type tag). */
 function sourceTag(meta?: LiveDataset['meta']): string {
@@ -62,11 +70,14 @@ export function GalleryView({
   onOpenCrosswalk,
   onOpenMap,
   onAddData,
+  onRedesign,
 }: {
   focusClass?: string | null
   onOpenCrosswalk?: () => void
   onOpenMap?: () => void
   onAddData?: () => void
+  /** Open the workbench on this dataset's stored design to revise it ("見直す"). */
+  onRedesign?: (target: RedesignTarget) => void
 }) {
   const { t } = useTranslation()
   const [datasets, setDatasets] = useState<CatalogDataset[] | null>(null)
@@ -158,6 +169,7 @@ export function GalleryView({
           onBack={() => setPicked(null)}
           onOpenCrosswalk={onOpenCrosswalk}
           onOpenMap={onOpenMap}
+          onRedesign={onRedesign}
         />
       )}
 
@@ -196,10 +208,11 @@ export function GalleryView({
                 key={d.id}
                 dataset={d}
                 connections={connectionCount(d, perspectives)}
-                onSelect={() => {
-                  setTab('structure')
+                onSelect={(t) => {
+                  setTab(t ?? 'structure')
                   setPicked(d.id)
                 }}
+                onChanged={reload}
               />
             ))}
             {onAddData && (
@@ -221,17 +234,36 @@ function DatasetGridCard({
   dataset,
   connections,
   onSelect,
+  onChanged,
 }: {
   dataset: CatalogDataset
   connections: number
-  onSelect: () => void
+  onSelect: (tab?: DetailTab) => void
+  onChanged: () => void
 }) {
   const { t } = useTranslation()
   const meta = dataset.live?.meta
   const files = meta?.source_files?.length ?? 0
   const updated = meta?.created_at?.slice(0, 10) ?? ''
+  // The card is the click target to open the detail; the action footer holds
+  // real <button>s, so the card itself is a clickable div (not a <button>, which
+  // cannot legally nest interactive children).
+  function open(tab?: DetailTab) {
+    onSelect(tab)
+  }
   return (
-    <button type="button" className="ds-grid-card" onClick={onSelect}>
+    <div
+      className="ds-grid-card"
+      role="button"
+      tabIndex={0}
+      onClick={() => open()}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          open()
+        }
+      }}
+    >
       <div className="ds-grid-card-head">
         <span className="ds-grid-card-icon">
           <DataIcon size={18} />
@@ -260,7 +292,167 @@ function DatasetGridCard({
         </span>
         {updated && <span className="ds-grid-card-updated">{updated}</span>}
       </div>
-    </button>
+      {meta && <CardActions meta={meta} onChanged={onChanged} onOpen={open} />}
+    </div>
+  )
+}
+
+/**
+ * Dataset-level state actions on the catalog card (moved here from the detail's
+ * always-visible band — that band showed on every tab and felt awkward). State is
+ * derived from `meta` with the SAME logic the detail uses (datasetStage / status /
+ * version) and the SAME galleryApi calls (promote / retract / reinstate / delete),
+ * so card and detail never disagree.
+ *
+ *   - ingested (draft) → 「検索対象として公開」(promote) primary CTA. A re-stage of an
+ *     already-published version (version ≥ 1) is a re-promote whose alignment preview
+ *     lives in the detail, so that case opens the detail instead of one-clicking.
+ *   - promoted, active → 「撤回」(retract, confirm).
+ *   - promoted, retracted → 「復帰」(reinstate).
+ *   - always → 「削除」(delete) tucked behind a compact ⋯ menu (window.confirm gated).
+ *
+ * The richer flows (first ingest needing a CSV, promote preview/options, append,
+ * re-ingest) stay in the detail; the card only carries quick one-click actions.
+ */
+function CardActions({
+  meta,
+  onChanged,
+  onOpen,
+}: {
+  meta: LiveDataset['meta']
+  onChanged: () => void
+  onOpen: (tab?: DetailTab) => void
+}) {
+  const { t } = useTranslation()
+  const [busy, setBusy] = useState('')
+  const [err, setErr] = useState('')
+  const [menu, setMenu] = useState(false)
+  const stage = datasetStage(meta)
+  const retracted = meta.status === 'retracted'
+  const version = meta.version ?? 0
+
+  // Stop card-open when interacting with the action footer.
+  function stop(e: ReactMouseEvent | ReactKeyboardEvent) {
+    e.stopPropagation()
+  }
+
+  async function run(label: string, fn: () => Promise<void>) {
+    setBusy(label)
+    setErr('')
+    try {
+      await fn()
+      onChanged()
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy('')
+      setMenu(false)
+    }
+  }
+
+  // A staged draft of an already-published dataset (version ≥ 1) is a re-promote;
+  // its alignment preview / version bump belongs in the detail (Files tab), so the
+  // card "publish" routes there rather than one-clicking.
+  const isRepromote = stage === 'ingested' && version >= 1
+
+  return (
+    <div className="ds-card-actions" onClick={stop} onKeyDown={stop} role="presentation">
+      {stage === 'ingested' &&
+        (isRepromote ? (
+          <button
+            type="button"
+            className="btn btn--soft btn--sm ds-card-cta"
+            onClick={() => onOpen('files')}
+          >
+            {t('gallery:card.publish')}
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="btn btn--soft btn--sm ds-card-cta"
+            disabled={!!busy}
+            onClick={() =>
+              run('promote', async () => {
+                await promoteDataset(meta.id)
+              })
+            }
+          >
+            {busy === 'promote' ? t('gallery:promote.promoting') : t('gallery:card.publish')}
+          </button>
+        ))}
+
+      {stage === 'promoted' && !retracted && (
+        <button
+          type="button"
+          className="btn btn--ghost btn--sm"
+          disabled={!!busy}
+          onClick={() =>
+            window.confirm(t('gallery:lifecycle.retractConfirm')) &&
+            run('retract', async () => {
+              await retractDataset(meta.id)
+            })
+          }
+        >
+          {busy === 'retract' ? t('gallery:lifecycle.retracting') : t('gallery:card.retract')}
+        </button>
+      )}
+
+      {retracted && (
+        <button
+          type="button"
+          className="btn btn--ghost btn--sm"
+          disabled={!!busy}
+          onClick={() =>
+            run('reinstate', async () => {
+              await reinstateDataset(meta.id)
+            })
+          }
+        >
+          {busy === 'reinstate' ? t('gallery:lifecycle.reinstating') : t('gallery:card.reinstate')}
+        </button>
+      )}
+
+      {/* Compact ⋯ menu keeps the destructive action out of the way. */}
+      <div className="ds-card-menu-wrap">
+        <button
+          type="button"
+          className="ds-card-menu-btn"
+          aria-label={t('gallery:card.more')}
+          aria-haspopup="menu"
+          aria-expanded={menu}
+          disabled={!!busy}
+          onClick={() => setMenu((m) => !m)}
+        >
+          ⋯
+        </button>
+        {menu && (
+          <div className="ds-card-menu" role="menu">
+            <button
+              type="button"
+              role="menuitem"
+              className="ds-card-menu-item ds-card-menu-item--danger"
+              disabled={!!busy}
+              onClick={() => {
+                const promoted = stage === 'promoted'
+                const ok = window.confirm(
+                  promoted
+                    ? t('gallery:lifecycle.deleteConfirmPromoted')
+                    : t('gallery:lifecycle.deleteConfirm'),
+                )
+                if (ok)
+                  run('delete', async () => {
+                    await deleteDataset(meta.id, promoted)
+                  })
+              }}
+            >
+              {busy === 'delete' ? t('gallery:lifecycle.deleting') : t('gallery:lifecycle.delete')}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {err && <p className="ds-card-err">{t('gallery:lifecycle.error', { message: err })}</p>}
+    </div>
   )
 }
 
@@ -274,6 +466,7 @@ function DatasetDetail({
   onBack,
   onOpenCrosswalk,
   onOpenMap,
+  onRedesign,
 }: {
   dataset: CatalogDataset
   perspectives: CrosswalkPerspective[]
@@ -284,6 +477,7 @@ function DatasetDetail({
   onBack?: () => void
   onOpenCrosswalk?: () => void
   onOpenMap?: () => void
+  onRedesign?: (target: RedesignTarget) => void
 }) {
   const { t } = useTranslation()
   const meta = dataset.live?.meta
@@ -310,6 +504,7 @@ function DatasetDetail({
   )
   const tabs: [DetailTab, string][] = [
     ['structure', t('gallery:tab.structure')],
+    ['tools', t('gallery:tab.tools')],
     ['files', t('gallery:tab.files')],
     ['connect', t('gallery:tab.connect')],
     ['design', t('gallery:tab.design')],
@@ -432,7 +627,14 @@ function DatasetDetail({
         </div>
       )}
 
-      {/* 中身 (contents): the dataset's structure + the tools it can answer with. */}
+      {/* Dataset-level state actions (retract / reinstate / delete / quick publish)
+          now live on the catalog cards (CardActions), not in an always-visible band
+          here — that band showed on every tab and felt awkward. The detail keeps the
+          richer flows (first ingest, promote preview, append, re-ingest) in the
+          Files tab below. */}
+
+      {/* 設計図 (schema): the dataset's structure — classes, predicates, and the
+          class diagram (always shown, the centerpiece of this page). */}
       {tab === 'structure' && (
         <div className="ds-tab-body">
           <div className="ds-section-head">
@@ -465,19 +667,26 @@ function DatasetDetail({
           )}
 
           {dataset.mermaid && (
-            <details className="ds-diagram-details">
-              <summary>{t('gallery:design.diagramSummary')}</summary>
+            <div className="ds-diagram-block">
+              <div className="ds-subhead">{t('gallery:design.diagramSummary')}</div>
               <div className="onto-diagram">
                 <Mermaid chart={dataset.mermaid} />
               </div>
-            </details>
-          )}
-
-          {dataset.live && (
-            <div className="ds-tools-block">
-              <div className="ds-subhead">{t('gallery:detail.tools')}</div>
-              <ToolsPanel datasetId={dataset.live.meta.id} />
             </div>
+          )}
+        </div>
+      )}
+
+      {/* ツール (tools): the typed tools this dataset can answer questions with. */}
+      {tab === 'tools' && (
+        <div className="ds-tab-body">
+          <div className="ds-section-head">
+            <span className="ds-section-title">{t('gallery:detail.tools')}</span>
+          </div>
+          {dataset.live ? (
+            <ToolsPanel datasetId={dataset.live.meta.id} />
+          ) : (
+            <p className="ds-empty-note">{t('gallery:tools.none')}</p>
           )}
         </div>
       )}
@@ -529,8 +738,6 @@ function DatasetDetail({
               <DocumentAppendControl meta={dataset.live.meta} onChanged={onChanged} />
               {/* part5: safe replace — re-ingest into a new version, then re-promote. */}
               <ReingestControl meta={dataset.live.meta} onChanged={onChanged} />
-              {/* #20 P3 lifecycle: retract / reinstate / delete (human-gated). */}
-              <LifecycleControl meta={dataset.live.meta} onChanged={onChanged} />
             </div>
           )}
         </div>
@@ -579,6 +786,12 @@ function DatasetDetail({
       {/* 設計 (design): the ingest rules, reused vocabularies, and grounding. */}
       {tab === 'design' && (
         <div className="ds-tab-body">
+          {/* Reopen this dataset's design in the workbench to refine/edit it and
+              re-materialize the SAME dataset (fix a wrong column/function without
+              delete+recreate). Mapping-only — the user re-applies data via re-ingest. */}
+          {dataset.live && onRedesign && (
+            <RedesignControl meta={dataset.live.meta} onRedesign={onRedesign} />
+          )}
           <div className="ds-section-head">
             <span className="ds-section-title">{t('gallery:rules.title')}</span>
           </div>
@@ -626,6 +839,71 @@ function shortIri(iri: string): string {
 }
 
 /**
+ * "設計を見直す" (redesign): reopen this dataset's STORED design in the workbench so
+ * the user can refine/edit it (e.g. fix a wrong column reference or function param now
+ * surfaced by ingest validation) and re-materialize the SAME dataset — no delete +
+ * recreate, identity / graphs / lifecycle / source preserved. It loads the persisted
+ * proposal markdown (fetchProposal), then hands a RedesignTarget to the workbench.
+ *
+ * Disabled with a hint when the dataset has no stored design (`has_proposal` false) —
+ * those were materialized before the design was persisted, so reopening would lose the
+ * existing artifacts; the user recreates instead.
+ */
+function RedesignControl({
+  meta,
+  onRedesign,
+}: {
+  meta: LiveDataset['meta']
+  onRedesign: (target: RedesignTarget) => void
+}) {
+  const { t } = useTranslation()
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const hasProposal = meta.has_proposal !== false
+
+  async function onClick() {
+    setBusy(true)
+    setErr('')
+    try {
+      const p = await fetchProposal(meta.id)
+      if (!p.has_proposal || !p.proposal_md.trim()) {
+        setErr(t('gallery:redesign.noProposal'))
+        return
+      }
+      onRedesign({
+        datasetId: meta.id,
+        datasetName: p.dataset_name || meta.name,
+        proposalMd: p.proposal_md,
+      })
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="ds-redesign">
+      <div className="ds-redesign-text">
+        <div className="ds-subhead">{t('gallery:redesign.head')}</div>
+        <p className="ingest-hint">
+          {hasProposal ? t('gallery:redesign.note') : t('gallery:redesign.noProposal')}
+        </p>
+      </div>
+      <button
+        type="button"
+        className="btn btn--soft btn--sm"
+        disabled={busy || !hasProposal}
+        onClick={onClick}
+      >
+        {busy ? t('gallery:redesign.loading') : t('gallery:redesign.open')}
+      </button>
+      {err && <p className="promote-err">{err}</p>}
+    </div>
+  )
+}
+
+/**
  * Task E: ingest a *design*-stage dataset straight from the catalog. A design
  * dataset has a saved schema + declarative RML but no facts (0 triples) until
  * its RML is run through the substrate into a draft graph — previously only
@@ -634,13 +912,42 @@ function shortIri(iri: string): string {
  * the CSV here. Loads into an isolated draft graph (Ask cites canonical), so it
  * is not yet a citable fact — promote does that. Only shown for design stage.
  */
+/**
+ * Render an ingest failure. A design-validation error (IngestValidationError)
+ * carries a structured `issues` list that we show as a readable bulleted list
+ * with a heading; any other error keeps the single-line message rendering.
+ */
+function IngestError({
+  err,
+  errorKey,
+}: {
+  err: unknown
+  errorKey: string
+}) {
+  const { t } = useTranslation()
+  if (err instanceof IngestValidationError && err.issues.length > 0) {
+    return (
+      <div className="promote-err ingest-issues">
+        <p className="ingest-issues-head">{t('gallery:ingest.validationHead')}</p>
+        <ul>
+          {err.issues.map((issue, i) => (
+            <li key={i}>{issue}</li>
+          ))}
+        </ul>
+      </div>
+    )
+  }
+  const message = err instanceof Error ? err.message : String(err)
+  return <p className="promote-err">{t(errorKey, { message })}</p>
+}
+
 function IngestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChanged: () => void }) {
   const { t } = useTranslation()
   const [files, setFiles] = useState<File[]>([])
   const [busy, setBusy] = useState(false)
   const [progress, setProgress] = useState<IngestProgress | null>(null)
   const [done, setDone] = useState<IngestResult | null>(null)
-  const [err, setErr] = useState('')
+  const [err, setErr] = useState<unknown>(null)
 
   // Only design-stage needs this gate: ingested → promote, promoted → done.
   if (datasetStage(meta) !== 'design') return null
@@ -670,14 +977,14 @@ function IngestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChang
 
   async function onIngest() {
     setBusy(true)
-    setErr('')
+    setErr(null)
     setProgress(null)
     try {
       // hasSource → ingest with no upload (server uses the persisted source).
       setDone(await ingestDataset(meta.id, hasSource ? [] : files, setProgress))
       onChanged() // design → draft: refresh so promote control appears
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e))
+      setErr(e)
     } finally {
       setBusy(false)
     }
@@ -724,7 +1031,7 @@ function IngestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChang
         {busy ? t('gallery:ingest.submitting') : t('gallery:ingest.submit')}
       </button>
       {busy && <IngestProgressView progress={progress} />}
-      {err && <p className="promote-err">{t('gallery:ingest.error', { message: err })}</p>}
+      {err != null && <IngestError err={err} errorKey="gallery:ingest.error" />}
     </div>
   )
 }
@@ -1012,8 +1319,8 @@ function PromoteControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChan
       ) : (
         <p className="promote-note">
           <Trans i18nKey="gallery:promote.note">
-            「共有データに昇格」すると、下書きグラフのこのデータが <strong>Ask が引用する正式グラフ
-            （canonical）</strong> に移ります。昇格前に、使っている語彙が既存の再利用か新規かを確認できます。
+            「検索対象として公開」すると、下書きグラフのこのデータが <strong>Ask が引用する正式グラフ
+            （canonical）</strong> に移ります。公開前に、使っている語彙が既存の再利用か新規かを確認できます。
           </Trans>
         </p>
       )}
@@ -1075,7 +1382,7 @@ function ReingestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onCha
   const [files, setFiles] = useState<File[]>([])
   const [busy, setBusy] = useState(false)
   const [progress, setProgress] = useState<IngestProgress | null>(null)
-  const [err, setErr] = useState('')
+  const [err, setErr] = useState<unknown>(null)
 
   const stage = datasetStage(meta)
   // design → IngestControl owns the first ingest; retracted → reinstate first.
@@ -1094,7 +1401,7 @@ function ReingestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onCha
 
   async function onReingest() {
     setBusy(true)
-    setErr('')
+    setErr(null)
     setProgress(null)
     try {
       // hasSource → no upload (server reuses the persisted source); else upload.
@@ -1104,7 +1411,7 @@ function ReingestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onCha
       // gate (PromoteControl) appears with the new staged version.
       onChanged()
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e))
+      setErr(e)
     } finally {
       setBusy(false)
     }
@@ -1163,104 +1470,8 @@ function ReingestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onCha
         {busy ? t('gallery:reingest.submitting') : t('gallery:reingest.submit')}
       </button>
       {busy && <IngestProgressView progress={progress} />}
-      {err && <p className="promote-err">{t('gallery:reingest.error', { message: err })}</p>}
+      {err != null && <IngestError err={err} errorKey="gallery:reingest.error" />}
     </div>
   )
 }
 
-/**
- * #20 P3 lifecycle controls (human-gated): retract (withdraw from the citable
- * corpus — tombstone, IRIs kept), reinstate (undo), and delete (hard removal;
- * a promoted/citable dataset requires an explicit force confirm). Backend-backed
- * by /api/datasets/{id}/{retract,reinstate} and DELETE /api/datasets/{id}.
- */
-function LifecycleControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChanged: () => void }) {
-  const { t } = useTranslation()
-  const [busy, setBusy] = useState('')
-  const [err, setErr] = useState('')
-  const [msg, setMsg] = useState('')
-  const retracted = meta.status === 'retracted'
-  const stage = datasetStage(meta)
-
-  async function run(label: string, fn: () => Promise<string>) {
-    setBusy(label)
-    setErr('')
-    setMsg('')
-    try {
-      setMsg(await fn())
-      onChanged()
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e))
-    } finally {
-      setBusy('')
-    }
-  }
-
-  return (
-    <div className="lifecycle-control">
-      <div className="ds-subhead">{t('gallery:lifecycle.head')}</div>
-      {retracted && (
-        <p className="lifecycle-status">
-          <Trans i18nKey="gallery:lifecycle.retractedStatus">
-            状態: <strong>撤回済み</strong>（Ask の引用対象外。データ・IRI は残るので既存の引用は壊れません。復帰できます）
-          </Trans>
-        </p>
-      )}
-      <div className="lifecycle-actions">
-        {stage === 'promoted' && !retracted && (
-          <button
-            type="button"
-            className="btn btn--ghost btn--sm"
-            disabled={!!busy}
-            onClick={() =>
-              window.confirm(t('gallery:lifecycle.retractConfirm')) &&
-              run('retract', async () => {
-                await retractDataset(meta.id)
-                return t('gallery:lifecycle.retractDone')
-              })
-            }
-          >
-            {busy === 'retract' ? t('gallery:lifecycle.retracting') : t('gallery:lifecycle.retract')}
-          </button>
-        )}
-        {retracted && (
-          <button
-            type="button"
-            className="btn btn--ghost btn--sm"
-            disabled={!!busy}
-            onClick={() =>
-              run('reinstate', async () => {
-                await reinstateDataset(meta.id)
-                return t('gallery:lifecycle.reinstateDone')
-              })
-            }
-          >
-            {busy === 'reinstate' ? t('gallery:lifecycle.reinstating') : t('gallery:lifecycle.reinstate')}
-          </button>
-        )}
-        <button
-          type="button"
-          className="btn btn--danger btn--sm"
-          disabled={!!busy}
-          onClick={() => {
-            const promoted = stage === 'promoted'
-            const ok = window.confirm(
-              promoted
-                ? t('gallery:lifecycle.deleteConfirmPromoted')
-                : t('gallery:lifecycle.deleteConfirm'),
-            )
-            if (ok)
-              run('delete', async () => {
-                await deleteDataset(meta.id, promoted)
-                return t('gallery:lifecycle.deleteDone')
-              })
-          }}
-        >
-          {busy === 'delete' ? t('gallery:lifecycle.deleting') : t('gallery:lifecycle.delete')}
-        </button>
-      </div>
-      {msg && <p className="lifecycle-ok">{msg}</p>}
-      {err && <p className="lifecycle-err">{t('gallery:lifecycle.error', { message: err })}</p>}
-    </div>
-  )
-}

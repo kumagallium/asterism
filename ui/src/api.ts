@@ -161,6 +161,9 @@ export interface DatasetMeta {
   // dataset can be ingested from the catalog with no re-attach).
   has_source?: boolean
   source_files?: string[]
+  // Redesign: whether the design (propose/refine Markdown) was persisted, so the
+  // catalog can offer a "見直す" action that reopens it in the workbench.
+  has_proposal?: boolean
 }
 
 export interface MaterializeResult {
@@ -171,6 +174,14 @@ export interface MaterializeResult {
   exit_code: number
   /** Present when the bundle was persisted to the registry (the default). */
   dataset?: DatasetMeta
+  /**
+   * Advisory design-validation issues (column references + Tier 0 function
+   * parameters checked against the real source CSVs), surfaced at materialize so
+   * the user can fix them BEFORE ingest. Empty/absent when the design is clean or
+   * no source was available to check against (e.g. a brand-new design whose source
+   * is attached after materialize). The hard ingest gate still re-checks.
+   */
+  validation_issues?: string[]
 }
 
 /** Result of the human-gated substrate ingest. */
@@ -242,6 +253,39 @@ export async function createDocumentDataset(
   return (await res.json()) as CreateDocumentResult
 }
 
+/**
+ * RML design validation failed (the server returned a 422 whose body carries a
+ * structured `issues` list): a referenced column is absent from the CSV, or a
+ * function execution has a wrong/missing parameter. Carries the per-issue
+ * messages so the UI can render a readable bulleted list instead of a raw string.
+ */
+export class IngestValidationError extends Error {
+  issues: string[]
+  constructor(issues: string[]) {
+    super(issues.join('; '))
+    this.name = 'IngestValidationError'
+    this.issues = issues
+  }
+}
+
+/**
+ * Pull the `issues` array out of a design-validation 422 body
+ * (`{detail: {error, issues: [...]}}`). Returns the string[] when present (and
+ * non-empty), else null — so a plain error body falls back to the raw message.
+ */
+function parseIngestIssues(body: string): string[] | null {
+  try {
+    const parsed = JSON.parse(body) as { detail?: { issues?: unknown } }
+    const issues = parsed?.detail?.issues
+    if (Array.isArray(issues) && issues.length > 0) {
+      return issues.map((i) => String(i))
+    }
+  } catch {
+    /* not JSON — fall through to the raw-message path */
+  }
+  return null
+}
+
 /** A progress frame streamed while a (background) ingest runs. */
 export interface IngestProgress {
   /** "materialize" | "materialized" | "upload" (+ future phases). */
@@ -287,8 +331,12 @@ export async function ingestDataset(
     body,
   })
   if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new Error(`ingest failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
+    const body = await res.text().catch(() => '')
+    // A design-validation 422 carries {detail: {error, issues: [...]}} — surface the
+    // structured issues so the UI renders a readable bulleted list, not a raw string.
+    const issues = parseIngestIssues(body)
+    if (issues) throw new IngestValidationError(issues)
+    throw new Error(`ingest failed (HTTP ${res.status})${body ? `: ${body}` : ''}`)
   }
   const { job_id } = (await res.json()) as { job_id: string }
   return new Promise<IngestResult>((resolve, reject) => {
@@ -324,21 +372,56 @@ export async function ingestDataset(
 /**
  * Split a proposal Markdown into the 4 artifacts and run the 8-trap validator.
  * Synchronous on the server (no LLM); returns artifact contents + trap report.
+ *
+ * `datasetId` (the redesign path) re-materializes that EXISTING dataset in place
+ * — same id / graphs / lifecycle / source preserved — instead of minting a new
+ * one. Omit it for the normal new-design flow.
  */
 export async function materializeSchema(
   proposalMd: string,
   datasetName = 'dataset',
+  datasetId?: string,
 ): Promise<MaterializeResult> {
+  const body: Record<string, unknown> = {
+    proposal_md: proposalMd,
+    dataset_name: datasetName,
+  }
+  if (datasetId) body.dataset_id = datasetId
   const res = await fetch('/api/materialize', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ proposal_md: proposalMd, dataset_name: datasetName }),
+    body: JSON.stringify(body),
   })
   if (!res.ok) {
     const detail = await res.text().catch(() => '')
     throw new Error(`materialize failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
   }
   return (await res.json()) as MaterializeResult
+}
+
+/** A dataset's stored design (propose/refine Markdown) for the redesign flow. */
+export interface DatasetProposal {
+  dataset_id: string
+  dataset_name: string
+  proposal_md: string
+  has_proposal: boolean
+}
+
+/**
+ * Fetch a dataset's stored design so the workbench can reopen it for a redesign
+ * (refine/edit → re-materialize the same dataset). `has_proposal` is false for
+ * datasets materialized before the design was persisted (the UI then steers the
+ * user to recreate instead of reopen).
+ */
+export async function fetchProposal(datasetId: string): Promise<DatasetProposal> {
+  const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/proposal`, {
+    headers: authHeaders(),
+  })
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '')
+    throw new Error(`load design failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
+  }
+  return (await res.json()) as DatasetProposal
 }
 
 // Shared SSE subscription for propose/refine jobs. Returns a cleanup function

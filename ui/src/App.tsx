@@ -23,7 +23,7 @@ import { OntologyMapView } from './OntologyMapView'
 import { useLlmSettings } from './settings/context'
 import { SharedVocabView } from './SharedVocabView'
 import { SparqlView } from './SparqlView'
-import { WorkbenchView } from './WorkbenchView'
+import { type RedesignTarget, WorkbenchView } from './WorkbenchView'
 
 type Tab =
   | 'home'
@@ -76,10 +76,21 @@ function App() {
   // the user jumps there from an Ask citation. null = no focus.
   const [galleryFocus, setGalleryFocus] = useState<string | null>(null)
 
+  // Gallery→Workbench redesign link: the existing dataset whose stored design the
+  // workbench should reopen for a revision. Cleared once the workbench consumes it.
+  const [redesignTarget, setRedesignTarget] = useState<RedesignTarget | null>(null)
+
   // Jump from a grounded answer to the ontology class that backs it.
   function showVocab(className: string) {
     setGalleryFocus(className)
     setTab('gallery')
+  }
+
+  // Open the workbench on an existing dataset's design (the catalog "見直す" action).
+  function redesignDataset(target: RedesignTarget) {
+    setGalleryFocus(null)
+    setRedesignTarget(target)
+    setTab('workbench')
   }
 
   // Manual nav clears any pending vocabulary focus.
@@ -159,7 +170,12 @@ function App() {
 
         <main className="app-content">
           {tab === 'home' && <HomeView onNavigate={navTo} />}
-          {tab === 'workbench' && <WorkbenchView />}
+          {tab === 'workbench' && (
+            <WorkbenchView
+              redesignTarget={redesignTarget}
+              onRedesignConsumed={() => setRedesignTarget(null)}
+            />
+          )}
           {tab === 'ask' && <AskView onShowVocab={showVocab} />}
           {tab === 'gallery' && (
             <GalleryView
@@ -167,6 +183,7 @@ function App() {
               onOpenCrosswalk={() => navTo('crosswalk')}
               onOpenMap={() => navTo('map')}
               onAddData={() => navTo('workbench')}
+              onRedesign={redesignDataset}
             />
           )}
           {tab === 'vocab' && <SharedVocabView />}

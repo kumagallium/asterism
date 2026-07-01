@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
@@ -88,6 +89,22 @@ interface WorkbenchSnapshot {
   presetIds: string[]
   proposal: string
   materialized: MaterializeResult | null
+  // Redesign: when the workbench was opened to revise an existing dataset's
+  // design, the target id/name persist so a tab switch / reload keeps editing
+  // the SAME dataset (re-materialize in place) instead of minting a new one.
+  redesignId?: string
+  redesignName?: string
+}
+
+/**
+ * A dataset whose stored design the workbench should reopen for a redesign
+ * (refine/edit → re-materialize in place). Passed by the catalog's "見直す"
+ * action; null/undefined keeps the normal new-design flow.
+ */
+export interface RedesignTarget {
+  datasetId: string
+  datasetName: string
+  proposalMd: string
 }
 
 function loadSnapshot(): Partial<WorkbenchSnapshot> {
@@ -106,7 +123,16 @@ function loadSnapshot(): Partial<WorkbenchSnapshot> {
  * the stepper shows progress (✓ when a step has produced output) and step 4
  * persists the bundle to the registry so it appears in the Gallery.
  */
-export function WorkbenchView() {
+export function WorkbenchView({
+  redesignTarget,
+  onRedesignConsumed,
+}: {
+  /** When set, the workbench opens on an EXISTING dataset's design to revise it. */
+  redesignTarget?: RedesignTarget | null
+  /** Called once the redesign target has seeded the workbench (so the parent can
+   *  clear it and a later tab switch doesn't re-seed over the user's edits). */
+  onRedesignConsumed?: () => void
+} = {}) {
   const { t } = useTranslation()
   // Restore generated artifacts saved before a tab switch / reload (once).
   const [snap] = useState(loadSnapshot)
@@ -115,6 +141,11 @@ export function WorkbenchView() {
   // designs → save), or by crossing EXISTING datasets into a shared bridge.
   const [mode, setMode] = useState<'new' | 'crosswalk'>('new')
   const [step, setStep] = useState<Step>(snap.step ?? 1)
+  // Redesign target: the existing dataset being revised (id + display name). Seeded
+  // from a passed `redesignTarget` or restored from the snapshot. When set, save
+  // (materialize) re-materializes that SAME dataset in place rather than minting one.
+  const [redesignId, setRedesignId] = useState<string | undefined>(snap.redesignId)
+  const [redesignName, setRedesignName] = useState<string | undefined>(snap.redesignName)
   // Selected data-source kind (#19). CSV / JSON are wired; switching kinds clears
   // any picked files since they no longer match the new kind's picker filter.
   const [source, setSource] = useState<SourceKind>(snap.source ?? 'csv')
@@ -161,13 +192,38 @@ export function WorkbenchView() {
       presetIds: [...presetIds],
       proposal,
       materialized,
+      redesignId,
+      redesignName,
     }
     try {
       sessionStorage.setItem(WB_STORAGE, JSON.stringify(snapshot))
     } catch {
       // sessionStorage may be unavailable (private mode quota) — non-fatal.
     }
-  }, [step, source, fk, markdown, domainFree, presetIds, proposal, materialized])
+  }, [step, source, fk, markdown, domainFree, presetIds, proposal, materialized, redesignId, redesignName])
+
+  // Seed the workbench from a redesign target during render (the "adjust state on
+  // prop change" pattern — same as GalleryView's focusClass handling — so we avoid a
+  // synchronous setState-in-effect cascade). When a NEW target id arrives we load the
+  // existing dataset's design into the proposal and jump straight to review (step 2),
+  // so the user can refine/edit then re-materialize the SAME dataset. `seededTarget`
+  // remembers the last-seeded id so we seed once per target and don't clobber edits;
+  // `onRedesignConsumed` lets the parent clear the prop after this lands.
+  const [seededTarget, setSeededTarget] = useState<string | null>(null)
+  if (redesignTarget && redesignTarget.datasetId !== seededTarget) {
+    setSeededTarget(redesignTarget.datasetId)
+    setMode('new')
+    setRedesignId(redesignTarget.datasetId)
+    setRedesignName(redesignTarget.datasetName)
+    setProposal(redesignTarget.proposalMd)
+    setMarkdown('')
+    setProposeErr('')
+    setComment('')
+    setMaterialized(null)
+    setStatus('')
+    setStep(2)
+    onRedesignConsumed?.()
+  }
 
   // Resume an in-flight propose/refine job after a reload/crash/disconnect: the
   // server replays the job's events, so a result that completed while the UI was
@@ -259,6 +315,10 @@ export function WorkbenchView() {
     setProposal('')
     setStatus('starting…')
     setProposing(true)
+    // A fresh AI design is a NEW dataset — drop any redesign target so it doesn't
+    // overwrite the dataset the user was previously revising.
+    setRedesignId(undefined)
+    setRedesignName(undefined)
     closeRef.current?.()
     try {
       closeRef.current = await proposeCsvs(files, composedDomain(), fks(), getActiveCredentials(), {
@@ -288,15 +348,18 @@ export function WorkbenchView() {
     }
   }
 
-  async function onRefine() {
-    const c = comment.trim()
-    if (!c || !proposal) return
+  // Shared refine driver: sends one or more review comments through the existing
+  // refine flow (SSE / in-flight guard / credentials). Both the manual comment box
+  // (onRefine) and the one-click "ask AI to fix" (onFixFailures) call this, so the
+  // recovery/replay machinery is reused exactly. `refining` guards double-trigger.
+  async function runRefine(comments: string[]) {
+    if (!proposal || refining || comments.length === 0) return
     setProposeErr('')
     setStatus('refining…')
     setRefining(true)
     refineCloseRef.current?.()
     try {
-      refineCloseRef.current = await refineSchema(proposal, [c], getActiveCredentials(), {
+      refineCloseRef.current = await refineSchema(proposal, comments, getActiveCredentials(), {
         onStart: (jobId) => saveJob(jobId, 'refine'),
         onStatus: (m) => setStatus(m),
         onDone: (result) => {
@@ -321,12 +384,40 @@ export function WorkbenchView() {
     }
   }
 
+  async function onRefine() {
+    const c = comment.trim()
+    if (!c) return
+    await runRefine([c])
+  }
+
+  // One-click "ask AI to fix": compose a corrective refine comment from the
+  // materialize result's failing traps + warnings (so the AI gets the SPECIFIC
+  // trap / function / column that broke) and send it through the SAME refine
+  // flow. The user then re-materializes to re-check the traps.
+  async function onFixFailures() {
+    const c = composeFixComment(materialized, t)
+    if (!c) return
+    // Pre-fill the manual box too, so the user sees exactly what was sent.
+    setComment(c)
+    await runRefine([c])
+  }
+
   async function onMaterialize() {
-    if (!proposal) return
+    // Guard: a request in flight, or a result already minted, must NOT POST again.
+    // Each materialize mints a new dataset, so a stray second click would create a
+    // duplicate (the very bug this prevents). "Create again" clears `materialized`
+    // first, so an intentional redo is still possible.
+    if (!proposal || materializing || materialized) return
     setProposeErr('')
     setMaterializing(true)
     try {
-      const result = await materializeSchema(proposal)
+      // Redesign: re-materialize the SAME dataset in place (pass its id + keep its
+      // display name) so graphs / IRIs / lifecycle / persisted source are preserved.
+      const result = await materializeSchema(
+        proposal,
+        redesignName ?? 'dataset',
+        redesignId,
+      )
       setMaterialized(result)
       // Task E: persist the design-time CSVs alongside the saved dataset so it
       // can be ingested from the catalog later with no re-attach. Best-effort —
@@ -346,6 +437,14 @@ export function WorkbenchView() {
     }
   }
 
+  // "Create again": clear the prior materialize result so the save button re-enables
+  // for an *intentional* redo (the in-flight/done guard otherwise blocks re-POST to
+  // prevent accidental duplicates). Keeps the proposal so the user stays on step 3.
+  function onMaterializeAgain() {
+    setMaterialized(null)
+    setProposeErr('')
+  }
+
   // (JobProgress defined at module scope below.)
 
   function clearWorkbench() {
@@ -357,6 +456,8 @@ export function WorkbenchView() {
     setComment('')
     setMaterialized(null)
     setStatus('')
+    setRedesignId(undefined)
+    setRedesignName(undefined)
     sessionStorage.removeItem(WB_STORAGE)
   }
 
@@ -366,6 +467,31 @@ export function WorkbenchView() {
     2: false,
     3: materialized !== null,
   }
+  // Materialize usability (surfaced at save time, not buried in the ingest gate):
+  // a result is only ingestable when it carries a non-empty declarative RML mapping
+  // AND the backend marked it complete with no warnings. Otherwise (the AI proposal
+  // had no §RML block, etc.) the dataset is saved but stuck — we warn prominently.
+  const materializeHasRml = !!(materialized?.artifacts['mapping.rml.ttl'] ?? '').trim()
+  const materializeUsable =
+    !!materialized &&
+    materializeHasRml &&
+    materialized.complete &&
+    materialized.warnings.length === 0
+  // Advisory design-validation issues (bad column / wrong function parameter,
+  // checked at materialize against the real source CSVs). Shown prominently and
+  // fed to the one-click fix so they're corrected during design, not only at ingest.
+  const validationIssues = materialized?.validation_issues ?? []
+  // Whether the one-click "ask AI to fix" has something actionable: a blocking
+  // failure (exit != 0 / a FAIL trap), any warning, or a design-validation issue.
+  // Drives whether the fix button is shown (and guarantees composeFixComment
+  // returns a non-empty string).
+  const materializeHasFixable =
+    !!materialized &&
+    (materialized.exit_code !== 0 ||
+      materialized.warnings.length > 0 ||
+      validationIssues.length > 0 ||
+      materialized.traps.some((tr) => tr.status === 'fail'))
+
   // Artifacts that were restored from a previous session (proposal exists but
   // the File objects, which can't be persisted, are gone).
   const restored = proposal !== '' && files.length === 0
@@ -398,6 +524,19 @@ export function WorkbenchView() {
       <p className="subtitle">
         <Trans i18nKey="workbench:intro" components={{ strong: <strong /> }} />
       </p>
+
+      {redesignId && (
+        <div className="wb-redesign-banner" role="status">
+          <span className="wb-redesign-badge">{t('workbench:redesign.badge')}</span>
+          <span className="wb-redesign-text">
+            <Trans
+              i18nKey="workbench:redesign.banner"
+              values={{ name: redesignName ?? redesignId }}
+              components={{ strong: <strong /> }}
+            />
+          </span>
+        </div>
+      )}
 
       {hasArtifacts && (
         <div className="wb-restore-row">
@@ -626,18 +765,107 @@ export function WorkbenchView() {
               <p className="step-hint">
                 <Trans i18nKey="workbench:save.hint" components={{ strong: <strong /> }} />
               </p>
-              <button onClick={onMaterialize} disabled={materializing}>
-                {materializing ? (
-                  <>
-                    <span className="spinner" />
-                    {t('workbench:save.saving')}
-                  </>
-                ) : (
-                  t('workbench:save.save')
-                )}
-              </button>
+              {/* Done state: the materialize succeeded. We replace the live save button
+                  with an explicit confirmation + an opt-in "Create again" — leaving an
+                  enabled button here would let a second click mint a DUPLICATE dataset
+                  (each materialize POST creates a new one). */}
+              {materialized ? (
+                <div className="materialize-outcome">
+                  <p className="materialize-added" role="status">
+                    ✓{' '}
+                    {redesignId
+                      ? t('workbench:save.addedRedesign')
+                      : t('workbench:save.added')}
+                  </p>
+                  {/* Advisory design validation (run at materialize against the real
+                      source): a bad column reference or wrong Tier 0 function parameter
+                      is surfaced here — prominently, as a readable bulleted list (the
+                      same rendering the ingest gate uses) — so the user fixes it BEFORE
+                      ingest via the one-click "ask AI to fix" below. */}
+                  {validationIssues.length > 0 && (
+                    <div className="ingest-issues materialize-validation" role="alert">
+                      <p className="ingest-issues-head">{t('workbench:save.validationHead')}</p>
+                      <ul>
+                        {validationIssues.map((issue, i) => (
+                          <li key={i}>{issue}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {!materializeUsable && (
+                    <div className="materialize-incomplete" role="alert">
+                      <strong className="materialize-incomplete-head">
+                        ⚠ {t('workbench:save.incompleteHeading')}
+                      </strong>
+                      <p className="materialize-incomplete-body">
+                        {materializeHasRml
+                          ? t('workbench:save.incomplete')
+                          : t('workbench:save.noRml')}
+                      </p>
+                      {materialized.warnings.length > 0 && (
+                        <>
+                          <p className="materialize-incomplete-warnlabel">
+                            {t('workbench:save.warningsLabel')}
+                          </p>
+                          <ul className="materialize-incomplete-warnings">
+                            {materialized.warnings.map((w, i) => (
+                              <li key={i}>{w}</li>
+                            ))}
+                          </ul>
+                        </>
+                      )}
+                    </div>
+                  )}
+                  <p className="materialize-duplicate-note">{t('workbench:save.duplicateNote')}</p>
+                  <button
+                    type="button"
+                    className="secondary-btn"
+                    onClick={onMaterializeAgain}
+                  >
+                    {t('workbench:save.again')}
+                  </button>
+                </div>
+              ) : (
+                <button onClick={onMaterialize} disabled={materializing}>
+                  {materializing ? (
+                    <>
+                      <span className="spinner" />
+                      {t('workbench:save.saving')}
+                    </>
+                  ) : (
+                    t('workbench:save.save')
+                  )}
+                </button>
+              )}
               {proposeErr && <pre className="error">{proposeErr}</pre>}
               {materialized && <MaterializePanel result={materialized} csvFiles={files} />}
+              {/* One-click corrective refine: when the materialize traps reported
+                  blocking failures and/or warnings, compose a refine comment from
+                  those specifics and send it through the SAME refine flow. The user
+                  then re-materializes (the existing save flow) to re-check. */}
+              {materialized && materializeHasFixable && (
+                <section className="wb-fix-box" role="group" aria-label={t('workbench:fix.groupLabel')}>
+                  <p className="wb-fix-hint">{t('workbench:fix.hint')}</p>
+                  <button
+                    type="button"
+                    className="wb-fix-btn"
+                    onClick={onFixFailures}
+                    disabled={refining || !isReady}
+                    title={!isReady ? t('workbench:fix.needKey') : undefined}
+                  >
+                    {refining ? (
+                      <>
+                        <span className="spinner" />
+                        {t('workbench:fix.fixing')}
+                      </>
+                    ) : (
+                      t('workbench:fix.fix')
+                    )}
+                  </button>
+                  {refining && <JobProgress label={t('workbench:review.jobLabel')} status={status} />}
+                  {!isReady && <p className="wb-fix-note">{t('workbench:fix.needKey')}</p>}
+                </section>
+              )}
             </>
           ) : (
             <p className="step-guard">{t('workbench:step.guard')}</p>
@@ -649,6 +877,37 @@ export function WorkbenchView() {
       )}
     </>
   )
+}
+
+// Trap ids that have a localized label (workbench:trap.<id>); others fall back to
+// the backend's English `name`. Mirrors MaterializePanel's TRAP_IDS.
+const FIX_TRAP_IDS = ['T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8']
+
+/**
+ * Compose a corrective refine comment from a materialize result's *failing* traps
+ * and warnings, so the one-click "ask AI to fix" hands the LLM the SPECIFIC
+ * trap / function / column that broke (pulled from each trap's `detail` and the
+ * `warnings` list) instead of a vague "please fix" request. Returns '' when there
+ * is nothing actionable (no fails, no warnings) so the caller can no-op.
+ */
+function composeFixComment(result: MaterializeResult | null, t: TFunction): string {
+  if (!result) return ''
+  const trapLabel = (id: string, name: string) =>
+    FIX_TRAP_IDS.includes(id) ? t(`workbench:trap.${id}`) : name
+  const lines: string[] = []
+  for (const tr of result.traps) {
+    if (tr.status !== 'fail') continue
+    const label = trapLabel(tr.id, tr.name)
+    lines.push(tr.detail ? `${tr.id} ${label}: ${tr.detail}` : `${tr.id} ${label}`)
+  }
+  for (const w of result.warnings) lines.push(w)
+  // Advisory design-validation issues (bad column / wrong function parameter,
+  // checked against the real source) — fed to the AI so the one-click fix can
+  // correct them at design time, in one click, instead of only at ingest.
+  for (const issue of result.validation_issues ?? []) lines.push(issue)
+  if (lines.length === 0) return ''
+  const bullets = lines.map((l) => `- ${l}`).join('\n')
+  return `${t('workbench:fix.commentIntro')}\n${bullets}`
 }
 
 /**

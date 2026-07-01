@@ -43,7 +43,13 @@ def closed_set_violations(rml_ttl: str, allowed_fn_iris: set[str]) -> list[str]:
     Empty list ⇒ the mapping is closed over the allowed set (T9 passes). The
     result is sorted for deterministic reporting.
     """
-    used = referenced_function_iris(rml_ttl)
+    try:
+        used = referenced_function_iris(rml_ttl)
+    except ImportError:
+        raise  # rdflib unavailable — caller treats as "skip", not a content failure.
+    except Exception as exc:  # malformed Turtle: report it CLEARLY, never crash/mislead.
+        first = str(exc).splitlines()[0] if str(exc) else exc.__class__.__name__
+        return [f"RML が不正な Turtle 構文です / RML is not valid Turtle: {first}"]
     return sorted(used - allowed_fn_iris)
 
 

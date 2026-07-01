@@ -105,6 +105,11 @@ class MaterializeRequest(BaseModel):
     # When true (default), persist the bundle to the registry so it shows up in
     # the Gallery. Set false for a throwaway validation-only run.
     persist: bool = True
+    # Redesign target: when set, re-materialize OVERWRITES this existing dataset's
+    # artifacts/design IN PLACE (same id — graphs / IRIs / lifecycle / source
+    # preserved) instead of minting a new dataset. The user re-applies data via the
+    # existing re-ingest controls. Ignored when persist is false.
+    dataset_id: str | None = None
 
 
 class SparqlRequest(BaseModel):
@@ -928,6 +933,8 @@ async def _append_batch_to_dataset(
                     (work / src).write_bytes(fh.readline())
         try:
             result = await substrate.run_append_ingest(rml_ttl, work, client, live_graph)
+        except substrate.RmlValidationError as exc:  # malformed design vs real data
+            raise AppendError(422, "; ".join(exc.issues)) from exc
         except RuntimeError as exc:  # morph-kgc missing / materialization failed
             raise AppendError(422, str(exc)) from exc
     finally:
@@ -1196,6 +1203,43 @@ async def _append_watch_loop(
     await watch_tree(
         root, on_ready, settle_s=cfg.settle_s, stop_event=stop, events_source=events_source
     )
+
+
+def _validate_design_at_materialize(
+    registry_root: Path, dataset_id: str | None, rml_ttl: str | None
+) -> list[str]:
+    """Advisory design validation for the materialize response (NEVER raises).
+
+    Runs the SAME ``validate_rml_design`` the ingest gate runs — column references +
+    Tier 0 function parameters against the dataset's REAL persisted source CSVs — but
+    catches :class:`RmlValidationError` and returns its ``issues`` list instead of
+    raising, so a bad column / wrong function parameter surfaces at materialize (where
+    the one-click "ask AI to fix" lives) without failing the save.
+
+    Returns ``[]`` when the design is clean OR when nothing can be checked: no RML, no
+    ``dataset_id`` (a brand-new design has no persisted source yet — the workbench
+    attaches it AFTER materialize), or no readable source files. The hard ingest gate
+    still catches a bad design once a source is attached; this is purely advisory and
+    best-effort (any unexpected error degrades to "no advice", never a 500).
+    """
+    if not (rml_ttl or "").strip() or not dataset_id:
+        return []
+    try:
+        source_paths = registry.list_source_files(registry_root, dataset_id)
+        if not source_paths:
+            return []
+        source_dir = source_paths[0].parent
+        # Validate the run-id-substituted form so the runtime-only {__run_id__}
+        # placeholder is never flagged (matches the ingest gate exactly).
+        substrate.validate_rml_design(
+            substrate.substitute_run_id(rml_ttl), source_dir
+        )
+        return []
+    except substrate.RmlValidationError as exc:
+        return list(exc.issues)
+    except Exception:  # advisory only — a check failure must never break materialize
+        logger.exception("advisory design validation at materialize failed (continuing)")
+        return []
 
 
 # ----------------------------------------------------------------------------
@@ -1645,25 +1689,67 @@ def build_app(
                     for r in report.results
                 ]
                 exit_code = report.exit_code()
+                # Advisory design validation AT MATERIALIZE: run the SAME check the
+                # ingest gate runs (validate_rml_design — column references + Tier 0
+                # function parameters against the REAL source CSVs), so a typo'd
+                # column or a wrong/missing function parameter surfaces here, at the
+                # review/save step where the one-click "ask AI to fix" lives, not only
+                # later at ingest. It is advisory: materialize still saves the design;
+                # the issues are returned so the user fixes them before ingest. The
+                # hard 422 ingest gate (below in /ingest) is unchanged.
+                #
+                # The check needs the dataset's persisted source CSVs. A brand-new
+                # design has none yet (the workbench attaches source AFTER materialize),
+                # so validation runs only when source is available — a redesign /
+                # re-materialize in place (`dataset_id` set), whose registry already
+                # holds the source from the prior round. With no readable source the
+                # field is simply absent (no false issues); the ingest gate still
+                # catches it once a source is attached.
+                validation_issues = _validate_design_at_materialize(
+                    cfg.registry_root,
+                    body.dataset_id,
+                    artifacts.get("mapping.rml.ttl"),
+                )
                 result: dict[str, object] = {
                     "artifacts": artifacts,
                     "complete": mat.complete,
                     "warnings": mat.warnings,
                     "traps": traps,
                     "exit_code": exit_code,
+                    # Advisory list (one readable message per design issue), empty when
+                    # the design is clean OR no source was available to check against.
+                    "validation_issues": validation_issues,
                 }
                 # Persist so the bundle appears in the Gallery (authoring→catalog).
                 if body.persist:
-                    meta = registry.save_dataset(
-                        cfg.registry_root,
-                        body.dataset_name,
-                        artifacts,
-                        complete=mat.complete,
-                        warnings=mat.warnings,
-                        traps=traps,
-                        exit_code=exit_code,
-                        created_at=datetime.now(UTC).isoformat(),
-                    )
+                    if body.dataset_id:
+                        # Redesign: re-materialize the SAME dataset in place (keep its
+                        # id / graphs / lifecycle / source). Re-design changes only the
+                        # mapping; the user re-applies data via the re-ingest controls.
+                        meta = registry.update_dataset_artifacts(
+                            cfg.registry_root,
+                            body.dataset_id,
+                            artifacts,
+                            complete=mat.complete,
+                            warnings=mat.warnings,
+                            traps=traps,
+                            exit_code=exit_code,
+                            proposal_md=body.proposal_md,
+                        )
+                        if meta is None:
+                            raise HTTPException(404, f"dataset {body.dataset_id!r} not found")
+                    else:
+                        meta = registry.save_dataset(
+                            cfg.registry_root,
+                            body.dataset_name,
+                            artifacts,
+                            complete=mat.complete,
+                            warnings=mat.warnings,
+                            traps=traps,
+                            exit_code=exit_code,
+                            created_at=datetime.now(UTC).isoformat(),
+                            proposal_md=body.proposal_md,
+                        )
                     result["dataset"] = meta
                 return result
             finally:
@@ -1685,6 +1771,26 @@ def build_app(
         if data is None:
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
         return data
+
+    @app.get("/api/datasets/{dataset_id}/proposal")
+    async def get_dataset_proposal(dataset_id: str) -> dict[str, object]:
+        """Return a dataset's stored design (propose/refine Markdown) for re-design.
+
+        The "見直す" (redesign) flow reopens this in the workbench so the user can
+        refine/edit it and re-materialize the SAME dataset. Read-only. 404 when the
+        dataset is absent; ``proposal_md`` is empty (and ``has_proposal`` false) for
+        datasets materialized before the design was persisted — the UI then steers
+        the user to recreate rather than re-open."""
+        data = registry.load_dataset(cfg.registry_root, dataset_id)
+        if data is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        proposal_md = registry.load_proposal(cfg.registry_root, dataset_id) or ""
+        return {
+            "dataset_id": dataset_id,
+            "dataset_name": data["meta"].get("name", dataset_id),
+            "proposal_md": proposal_md,
+            "has_proposal": bool(proposal_md.strip()),
+        }
 
     @app.get("/api/datasets/{dataset_id}/tools")
     async def list_dataset_tools(dataset_id: str) -> dict[str, object]:
@@ -2026,6 +2132,26 @@ def build_app(
                 substrate.assert_rml_safe(rml_ttl, source_dir)
             except substrate.RmlSafetyError as exc:
                 raise HTTPException(422, f"unsafe RML mapping: {exc}") from exc
+            # Design validation (also synchronous, before any job): catch a column
+            # reference to a non-existent column or a wrong/missing Tier 0 function
+            # parameter, returning a structured 422 whose `issues` list the UI renders
+            # as a readable bullet list — instead of letting it surface as an opaque
+            # Morph-KGC crash deep inside the background job. Validate the run-id-
+            # substituted form so the runtime-only `{__run_id__}` placeholder (not a
+            # CSV column) is never flagged. The substrate re-validates the prepared RML
+            # before Morph-KGC as defense in depth.
+            try:
+                substrate.validate_rml_design(
+                    substrate.substitute_run_id(rml_ttl), source_dir
+                )
+            except substrate.RmlValidationError as exc:
+                raise HTTPException(
+                    422,
+                    detail={
+                        "error": "RML design validation failed",
+                        "issues": exc.issues,
+                    },
+                ) from exc
         # part5: stream into a FRESH per-ingest version graph `canonical/{id}/v{n}`
         # — never touching the currently live graph. So a re-ingest needs no
         # un-publish and no DROP on the request path (the old version stays citable

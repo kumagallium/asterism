@@ -114,6 +114,9 @@ interface DatasetMeta {
   has_mie?: boolean
   // Phase 5: declarative RML presence + draft-graph ingest status.
   has_rml?: boolean
+  // Redesign: whether the design (propose/refine Markdown) was persisted, so the
+  // catalog can offer a "見直す" action that reopens it in the workbench.
+  has_proposal?: boolean
   ingested?: boolean
   triple_count?: number
   graph_iri?: string

@@ -600,6 +600,93 @@ def test_materialize_persist_false_skips_registry(
         assert client.get("/api/datasets").json()["count"] == 0
 
 
+def test_materialize_persists_proposal_for_redesign(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    """Redesign: materialize stores the design markdown so it can be reopened."""
+    app = build_app(
+        _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
+    )
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/materialize",
+            json={"proposal_md": _MATERIALIZE_MD, "dataset_name": "thermo"},
+        )
+        meta = r.json()["dataset"]
+        assert meta["has_proposal"] is True
+
+        # The stored design round-trips via the read-only proposal endpoint.
+        prop = client.get(f"/api/datasets/{meta['id']}/proposal").json()
+        assert prop["dataset_id"] == meta["id"]
+        assert prop["dataset_name"] == "thermo"
+        assert prop["has_proposal"] is True
+        assert prop["proposal_md"] == _MATERIALIZE_MD
+
+
+def test_proposal_unknown_returns_404(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    app = build_app(
+        _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
+    )
+    with TestClient(app, headers=_AUTH) as client:
+        assert client.get("/api/datasets/nope-12345678/proposal").status_code == 404
+
+
+def test_redesign_re_materialize_updates_in_place(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    """Re-materializing with dataset_id overwrites the SAME dataset (no duplicate)."""
+    app = build_app(
+        _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
+    )
+    with TestClient(app, headers=_AUTH) as client:
+        first = client.post(
+            "/api/materialize",
+            json={"proposal_md": _MATERIALIZE_MD, "dataset_name": "thermo"},
+        ).json()["dataset"]
+        ds_id = first["id"]
+        assert client.get("/api/datasets").json()["count"] == 1
+
+        # Re-design: a tweaked proposal (drop the Paper class) re-materialized in place.
+        redesigned_md = _MATERIALIZE_MD.replace("class Paper\n", "")
+        again = client.post(
+            "/api/materialize",
+            json={
+                "proposal_md": redesigned_md,
+                "dataset_name": "thermo",
+                "dataset_id": ds_id,
+            },
+        ).json()["dataset"]
+
+        # SAME id, NOT a duplicate; the design-derived meta reflects the new design.
+        assert again["id"] == ds_id
+        assert client.get("/api/datasets").json()["count"] == 1
+        assert set(again["classes"]) == {"Sample"}
+
+        # The reopened design now returns the redesigned markdown.
+        prop = client.get(f"/api/datasets/{ds_id}/proposal").json()
+        assert prop["proposal_md"] == redesigned_md
+
+
+def test_redesign_unknown_dataset_id_404(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    app = build_app(
+        _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
+    )
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/materialize",
+            json={
+                "proposal_md": _MATERIALIZE_MD,
+                "dataset_name": "thermo",
+                "dataset_id": "nope-12345678",
+            },
+        )
+        assert r.status_code == 404
+
+
 def test_get_dataset_unknown_returns_404(
     tmp_path: Path, healthy_client: OxigraphClient
 ) -> None:
@@ -796,3 +883,100 @@ def test_job_stream_unknown_id(
     with TestClient(app, headers=_AUTH) as client:
         events = _parse_sse(client.get("/api/jobs/job-999/stream").text)
         assert events and events[0][0] == "error"
+
+
+# A proposal whose §RML block references a column the source CSV does NOT have
+# (`comp` vs the real `composition`). Materialize succeeds (the design is saved);
+# the advisory design validation reports the bad column so the user can fix it at
+# review time — before ingest — via the one-click "ask AI to fix".
+_MATERIALIZE_MD_BAD_COLUMN = """## Schema proposal
+
+### Class diagram
+```mermaid
+classDiagram
+    class Sample
+```
+
+### MIE
+```yaml
+schema_info:
+  title: Demo
+  keywords: [thermoelectric, seebeck, zt, sample, composition]
+  categories: [materials]
+```
+
+### Ingester
+```python
+import csv
+def emit(path):
+    open(path, encoding="utf-8-sig")
+```
+
+### RML
+```turtle
+@prefix rr:  <http://www.w3.org/ns/r2rml#> .
+@prefix rml: <http://semweb.mmlab.be/ns/rml#> .
+@prefix ql:  <http://semweb.mmlab.be/ns/ql#> .
+<#M> a rr:TriplesMap ;
+  rml:logicalSource [ rml:source "data.csv" ; rml:referenceFormulation ql:CSV ] ;
+  rr:subjectMap [ rr:template "https://ex/sample/{SID}" ] ;
+  rr:predicateObjectMap [ rr:predicate <https://ex/hasComposition> ;
+    rr:objectMap [ rml:reference "comp" ] ] .
+```
+"""
+
+
+def test_materialize_reports_advisory_validation_issues_when_source_present(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    """Advisory design validation runs AT MATERIALIZE against the persisted source.
+
+    A brand-new design has no source yet (it is attached after materialize), so the
+    first materialize reports no advisory issues. After the source is attached, a
+    re-materialize in place (the redesign path, `dataset_id` set) validates the RML
+    against the REAL CSV header — a bad column reference surfaces in
+    ``validation_issues`` — and materialize STILL succeeds (200): the issues are
+    advisory, the design is saved regardless.
+    """
+    app = build_app(
+        _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
+    )
+    with TestClient(app, headers=_AUTH) as client:
+        # 1) First materialize (brand-new): no source persisted yet → no advisory
+        #    issues even though the RML references a column the CSV will lack.
+        first = client.post(
+            "/api/materialize",
+            json={"proposal_md": _MATERIALIZE_MD_BAD_COLUMN, "dataset_name": "thermo"},
+        )
+        assert first.status_code == 200
+        body = first.json()
+        assert body["validation_issues"] == []
+        ds_id = body["dataset"]["id"]
+
+        # 2) Attach a source whose header has `composition` (not `comp`).
+        assert (
+            client.post(
+                f"/api/datasets/{ds_id}/source",
+                files={"files": ("data.csv", b"SID,composition\n1,Bi2Te3\n", "text/csv")},
+            ).status_code
+            == 200
+        )
+
+        # 3) Re-materialize in place (redesign path) — now the source is available, so
+        #    the advisory validation flags the bad `comp` column; materialize SUCCEEDS.
+        again = client.post(
+            "/api/materialize",
+            json={
+                "proposal_md": _MATERIALIZE_MD_BAD_COLUMN,
+                "dataset_name": "thermo",
+                "dataset_id": ds_id,
+            },
+        )
+        assert again.status_code == 200, again.text
+        issues = again.json()["validation_issues"]
+        assert isinstance(issues, list)
+        assert any("comp" in m for m in issues), issues
+        # The "did you mean" suggestion surfaces the real, similar column.
+        assert any("composition" in m for m in issues), issues
+        # Materialize still persisted the design (advisory, not a gate).
+        assert client.get(f"/api/datasets/{ds_id}").status_code == 200

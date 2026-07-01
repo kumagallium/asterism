@@ -1020,6 +1020,84 @@ textarea:focus {
   font-size: 0.82rem;
 }
 
+/* Save (materialize) outcome: explicit success + prominent incompleteness warning,
+   shown at save time instead of leaving a live button that re-POSTs a duplicate. */
+.materialize-outcome {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin: 0.4rem 0 0.2rem;
+}
+.materialize-added {
+  margin: 0;
+  padding: 0.55rem 0.8rem;
+  border-radius: var(--radius);
+  background: var(--success-bg);
+  border: 1px solid var(--success-border);
+  color: var(--success-fg);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.materialize-incomplete {
+  padding: 0.6rem 0.8rem;
+  border-radius: var(--radius);
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+  color: var(--warn-fg);
+}
+.materialize-incomplete-head {
+  display: block;
+  font-size: 0.9rem;
+}
+.materialize-incomplete-body {
+  margin: 0.35rem 0 0;
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+.materialize-incomplete-warnlabel {
+  margin: 0.5rem 0 0.1rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.materialize-incomplete-warnings {
+  margin: 0;
+  padding-left: 1.2rem;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+.materialize-duplicate-note {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+/* One-click "ask AI to fix": shown when the materialize traps report blocking
+   failures / warnings. Framed like the warn alert so it reads as a remedy. */
+.wb-fix-box {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0.8rem 0 0.2rem;
+  padding: 0.7rem 0.8rem;
+  border-radius: var(--radius);
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+}
+.wb-fix-hint {
+  margin: 0;
+  font-size: 0.84rem;
+  line-height: 1.55;
+  color: var(--warn-fg);
+}
+.wb-fix-btn {
+  align-self: flex-start;
+}
+.wb-fix-note {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
 .trap-legend {
   display: flex;
   flex-wrap: wrap;
@@ -1484,6 +1562,56 @@ textarea:focus {
 .vocab-focus-sub {
   font-size: 0.8rem;
   color: var(--body);
+}
+
+/* Redesign banner: shown in the workbench when revising an existing dataset's
+   design (so the user knows save updates that dataset, not creates a new one). */
+.wb-redesign-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  background: var(--info-bg);
+  border: 1px solid var(--info-border);
+  border-radius: var(--radius);
+  padding: 0.7rem 1rem;
+  margin-bottom: 1.1rem;
+  font-size: 0.92rem;
+  color: var(--info-fg);
+}
+.wb-redesign-badge {
+  flex: none;
+  font-size: 0.74rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 0.12rem 0.5rem;
+  border-radius: 999px;
+  background: var(--info-border);
+  color: var(--fg);
+}
+.wb-redesign-text strong {
+  color: var(--fg);
+}
+
+/* Redesign entry point on the dataset detail (設計 tab): a one-line note + the
+   "見直す" button that reopens this dataset's stored design in the workbench. */
+.ds-redesign {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  padding: 0.8rem 1rem;
+  margin-bottom: 1rem;
+  background: var(--info-bg);
+  border: 1px solid var(--info-border);
+  border-radius: var(--radius);
+}
+.ds-redesign-text {
+  flex: 1 1 18rem;
+  min-width: 0;
+}
+.ds-redesign .ds-subhead {
+  margin-top: 0;
 }
 
 .trace-vocab-link {
@@ -1986,6 +2114,32 @@ textarea:focus {
   font-size: 0.82rem;
   color: var(--error-fg);
   margin: 0;
+}
+
+/* Design-validation failures: a heading + a readable bulleted list of issues. */
+.ingest-issues .ingest-issues-head {
+  margin: 0 0 0.35rem;
+  font-weight: 600;
+}
+.ingest-issues ul {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+.ingest-issues li {
+  margin: 0.15rem 0;
+}
+/* Advisory design validation surfaced at materialize (review/save step): a warm,
+   warning-toned card so a bad column / function parameter reads as "fix before
+   ingest", reusing the .ingest-issues bulleted-list layout. */
+.materialize-validation {
+  margin: 0.5rem 0;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--warn-border);
+  border-radius: var(--radius);
+  background: var(--warn-bg);
+}
+.materialize-validation .ingest-issues-head {
+  color: var(--warn-fg);
 }
 
 /* ---- shared atoms & states (forest kit) ---- */
@@ -2609,6 +2763,90 @@ textarea:focus {
   margin-left: auto;
   font-variant-numeric: tabular-nums;
 }
+
+/* Dataset-level state actions on the card (promote / retract / reinstate + a
+   compact ⋯ menu for delete). Moved here from the detail's always-visible band. */
+.ds-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--border);
+}
+.ds-card-cta {
+  flex: 1;
+  justify-content: center;
+}
+.ds-card-menu-wrap {
+  position: relative;
+  margin-left: auto;
+}
+.ds-card-menu-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.ds-card-menu-btn:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  color: var(--fg);
+}
+.ds-card-menu-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.ds-card-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.3rem);
+  z-index: 5;
+  min-width: 8rem;
+  padding: 0.25rem;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+}
+.ds-card-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.4rem 0.6rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font-size: 0.82rem;
+  cursor: pointer;
+  color: var(--fg);
+}
+.ds-card-menu-item:hover:not(:disabled) {
+  background: var(--surface-alt);
+}
+.ds-card-menu-item--danger {
+  color: var(--error-fg);
+}
+.ds-card-menu-item--danger:hover:not(:disabled) {
+  background: var(--error-bg);
+}
+.ds-card-menu-item:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.ds-card-err {
+  flex-basis: 100%;
+  margin: 0.2rem 0 0;
+  font-size: 0.78rem;
+  color: var(--error-fg);
+}
 .ds-add-tile {
   display: flex;
   flex-direction: column;
@@ -2911,17 +3149,9 @@ textarea:focus {
   font-size: 0.7rem;
   color: var(--faint);
 }
-.ds-diagram-details {
+/* Class diagram — always shown in the 設計図 (schema) tab (no longer toggled). */
+.ds-diagram-block {
   margin-top: 0.8rem;
-}
-.ds-diagram-details > summary {
-  cursor: pointer;
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--muted);
-}
-.ds-diagram-details[open] > summary {
-  margin-bottom: 0.5rem;
 }
 /* Section subheading — a clear, dark section title (gives pages メリハリ). */
 .ds-subhead {

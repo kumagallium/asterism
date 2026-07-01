@@ -11,6 +11,10 @@
     "note": "Restored your previous work (re-select the source only if you need to re-run).",
     "clear": "Clear workbench"
   },
+  "redesign": {
+    "badge": "Redesign",
+    "banner": "Revising the design of the existing dataset <strong>{{name}}</strong>. Saving updates this same dataset's mapping (apply the data via \"Update data (re-ingest)\")."
+  },
   "step": {
     "design": "AI designs",
     "designEn": "design",
@@ -65,7 +69,24 @@
   "save": {
     "hint": "Split the schema into 4 artifacts, validate the 8 traps, and <strong>save to your datasets</strong>.",
     "save": "Confirm & save",
-    "saving": "Saving…"
+    "saving": "Adding…",
+    "added": "Added to your datasets.",
+    "addedRedesign": "Updated the dataset's design.",
+    "duplicateNote": "The save button is disabled to prevent creating a duplicate. Use the button below if you need to redo it.",
+    "again": "Create again",
+    "incompleteHeading": "The design was saved, but it can't be ingested as-is",
+    "noRml": "No conversion rule (RML) was generated, so this data can't be ingested. Redesign it, or fill it in via \"Review & refine\".",
+    "incomplete": "The design is incomplete, so it can't be ingested as-is. Redesign it, or fill it in via \"Review & refine\".",
+    "warningsLabel": "Warnings detected:",
+    "validationHead": "Validating the design against the source data found these problems (fix them here before ingest):"
+  },
+  "fix": {
+    "groupLabel": "Auto-fix validation errors",
+    "hint": "The validation above reported failures and/or warnings. In one click, hand those specifics to the AI to rebuild the design (including §RML). After it regenerates, press \"Confirm & save\" again to re-validate.",
+    "fix": "Ask AI to fix",
+    "fixing": "AI is fixing…",
+    "needKey": "To let the AI fix this, set up a model and key in Settings.",
+    "commentIntro": "Fix the following validation errors and rebuild §RML (use only the allowed Tier 0 functions; do not reference columns that don't exist):"
   },
   "job": {
     "elapsed": "{{mm}}m {{ss}}s elapsed · usually 1–6 min · connection is kept alive",
@@ -100,13 +121,13 @@
     "T8": "AI hallucination test (optional)"
   },
   "ingest": {
-    "heading": "Ingest into Oxigraph (human gate)",
+    "heading": "Import data (human gate)",
     "noRml": "This design has no declarative RML mapping, so it cannot be ingested. Once propose emits §RML (the declarative mapping), you can safely ingest from here.",
     "note": "When you approve, Morph-KGC runs this declarative RML (no generated code runs — only the verified Tier 0 functions) and ingests the result into an <strong>isolated draft graph</strong>. It does not touch Ask's default citation surface (canonical).",
     "previewSummary": "Review the RML mapping ({{n}} lines)",
     "doneCount": "✓ Ingested into the draft graph ({{n}} triples).",
     "ingesting": "Ingesting…",
-    "approve": "Ingest into Oxigraph (approve)",
+    "approve": "Import data (approve)",
     "notSaved": "This design has not been saved yet (no dataset found).",
     "needCsv": "Ingestion needs the CSV used in the design. Re-select the CSV in the data source panel (re-selection is required after a reload).",
     "failed": "Ingestion failed: {{message}}"
