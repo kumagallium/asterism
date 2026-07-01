@@ -424,6 +424,27 @@ export async function fetchProposal(datasetId: string): Promise<DatasetProposal>
   return (await res.json()) as DatasetProposal
 }
 
+/**
+ * Advisory design validation against the dataset's PERSISTED source (read-only).
+ * Called after {@link attachSource} lands so a brand-new design gets the same
+ * pre-ingest advice a redesign already gets at materialize (a fresh design has no
+ * persisted source at materialize time, so its inline `validation_issues` is empty).
+ * Never throws on a bad design — it returns the issue list; only a missing dataset
+ * or transport error rejects.
+ */
+export async function validateDesign(datasetId: string): Promise<string[]> {
+  const res = await fetch(
+    `/api/datasets/${encodeURIComponent(datasetId)}/validate-design`,
+    { headers: authHeaders() },
+  )
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '')
+    throw new Error(`validate design failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
+  }
+  const data = (await res.json()) as { validation_issues?: string[] }
+  return data.validation_issues ?? []
+}
+
 // Shared SSE subscription for propose/refine jobs. Returns a cleanup function
 // that closes the EventSource.
 function subscribeJob<T>(

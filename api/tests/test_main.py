@@ -980,3 +980,79 @@ def test_materialize_reports_advisory_validation_issues_when_source_present(
         assert any("composition" in m for m in issues), issues
         # Materialize still persisted the design (advisory, not a gate).
         assert client.get(f"/api/datasets/{ds_id}").status_code == 200
+
+
+def test_validate_design_endpoint_flags_after_attach_without_rematerialize(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    """GET /validate-design surfaces advisory issues once the source is attached.
+
+    This closes the brand-new-design gap without a re-materialize: the workbench
+    materializes (no source yet → empty advisory), attaches the source, then calls
+    this read-only endpoint to get the SAME advice a redesign gets inline. A clean
+    design returns []; a missing dataset is 404.
+    """
+    app = build_app(
+        _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
+    )
+    with TestClient(app, headers=_AUTH) as client:
+        first = client.post(
+            "/api/materialize",
+            json={"proposal_md": _MATERIALIZE_MD_BAD_COLUMN, "dataset_name": "thermo"},
+        )
+        assert first.status_code == 200
+        ds_id = first.json()["dataset"]["id"]
+        # Before attach: no source → nothing to check → [] (not a false issue).
+        pre = client.get(f"/api/datasets/{ds_id}/validate-design")
+        assert pre.status_code == 200
+        assert pre.json()["validation_issues"] == []
+
+        assert (
+            client.post(
+                f"/api/datasets/{ds_id}/source",
+                files={"files": ("data.csv", b"SID,composition\n1,Bi2Te3\n", "text/csv")},
+            ).status_code
+            == 200
+        )
+        # After attach: the same read-only endpoint flags the bad `comp` column with
+        # a "did you mean" — no re-materialize needed.
+        post = client.get(f"/api/datasets/{ds_id}/validate-design")
+        assert post.status_code == 200
+        issues = post.json()["validation_issues"]
+        assert any("comp" in m for m in issues), issues
+        assert any("composition" in m for m in issues), issues
+
+    # A missing dataset is a 404 (not an empty advisory).
+    with TestClient(app, headers=_AUTH) as client:
+        assert client.get("/api/datasets/nope/validate-design").status_code == 404
+
+
+def test_validate_design_endpoint_clean_design_returns_empty(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    """A design whose every column IS present returns [] after attach.
+
+    Reuses the same RML (which references `comp` + `SID`) but attaches a header that
+    actually HAS `comp`, so the column check passes — proving the endpoint returns []
+    for a correct design, not only when there is no RML.
+    """
+    app = build_app(
+        _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
+    )
+    with TestClient(app, headers=_AUTH) as client:
+        first = client.post(
+            "/api/materialize",
+            json={"proposal_md": _MATERIALIZE_MD_BAD_COLUMN, "dataset_name": "thermo"},
+        )
+        assert first.status_code == 200
+        ds_id = first.json()["dataset"]["id"]
+        assert (
+            client.post(
+                f"/api/datasets/{ds_id}/source",
+                files={"files": ("data.csv", b"SID,comp\n1,Bi2Te3\n", "text/csv")},
+            ).status_code
+            == 200
+        )
+        got = client.get(f"/api/datasets/{ds_id}/validate-design")
+        assert got.status_code == 200
+        assert got.json()["validation_issues"] == []
