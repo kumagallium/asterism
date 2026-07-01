@@ -10,6 +10,7 @@ import {
   proposeCsvs,
   refineSchema,
   resumeJob,
+  validateDesign,
   type MaterializeResult,
   type ProposeResult,
   type RefineResult,
@@ -426,6 +427,19 @@ export function WorkbenchView({
       if (datasetId && files.length > 0) {
         try {
           await attachSource(datasetId, files)
+          // Now that the source is persisted, re-run the advisory design check so a
+          // BRAND-NEW design gets the same pre-ingest advice a redesign gets inline
+          // (at materialize a fresh design has no source yet, so `validation_issues`
+          // came back empty). Merge the issues into the shown result. Best-effort —
+          // the hard ingest gate still re-checks, so a hiccup here never blocks.
+          try {
+            const issues = await validateDesign(datasetId)
+            setMaterialized((prev) =>
+              prev ? { ...prev, validation_issues: issues } : prev,
+            )
+          } catch {
+            /* advisory re-check is best-effort; ingest gate is the hard check */
+          }
         } catch {
           /* source persistence is a convenience, not required */
         }

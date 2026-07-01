@@ -1772,6 +1772,29 @@ def build_app(
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
         return data
 
+    @app.get("/api/datasets/{dataset_id}/validate-design")
+    async def validate_dataset_design(dataset_id: str) -> dict[str, object]:
+        """Advisory design validation against the dataset's persisted source (read-only).
+
+        Same check as the materialize response (``validate_rml_design`` — missing
+        source files, column references, Tier 0 function parameters against the REAL
+        persisted CSVs), but callable AFTER the source is attached. This closes the
+        brand-new-design gap: at materialize a fresh design has no persisted source
+        yet (the workbench attaches it right after), so the inline advisory returns
+        nothing; the workbench calls this once the attach lands to surface the same
+        issues before ingest — where the one-click "ask AI to fix" lives. Never
+        raises on a bad design (returns its ``issues``); 404 only when the dataset is
+        absent. ``validation_issues`` is ``[]`` when the design is clean OR nothing
+        could be checked (no RML, no readable source)."""
+        data = registry.load_dataset(cfg.registry_root, dataset_id)
+        if data is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        rml_ttl = (data.get("artifacts") or {}).get("mapping.rml.ttl")
+        issues = await asyncio.to_thread(
+            _validate_design_at_materialize, cfg.registry_root, dataset_id, rml_ttl
+        )
+        return {"dataset_id": dataset_id, "validation_issues": issues}
+
     @app.get("/api/datasets/{dataset_id}/proposal")
     async def get_dataset_proposal(dataset_id: str) -> dict[str, object]:
         """Return a dataset's stored design (propose/refine Markdown) for re-design.
