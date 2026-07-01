@@ -344,6 +344,49 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Self-correction loop summary (TODO ④). Green = converged; amber = best-effort with
+   issues remaining (visually distinct so it never reads as success). */
+.autocorrect-banner {
+  border-radius: var(--radius);
+  padding: var(--space-6, 0.6rem) var(--space-8, 0.8rem);
+  margin: var(--space-6, 0.6rem) 0;
+  font-size: 0.9rem;
+  border: 1px solid transparent;
+}
+.autocorrect-banner.ok {
+  background: var(--success-bg);
+  border-color: var(--success-border);
+  color: var(--success-fg, #1a7f37);
+}
+.autocorrect-banner.warn {
+  background: var(--warn-bg);
+  border-color: var(--warn-border);
+  color: var(--warn-fg);
+}
+.autocorrect-head {
+  font-weight: 600;
+}
+.autocorrect-remaining-label {
+  margin-top: var(--space-4, 0.4rem);
+  font-weight: 600;
+}
+.autocorrect-remaining {
+  margin: var(--space-2, 0.2rem) 0 0;
+  padding-left: 1.2rem;
+}
+.autocorrect-remaining li {
+  margin: 0.1rem 0;
+}
+.autocorrect-prefill {
+  margin-top: var(--space-4, 0.4rem);
+  font-size: 0.82rem;
+}
+.autocorrect-caveats {
+  margin-top: var(--space-4, 0.4rem);
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
 /* Custom file picker: hide the native input, use a styled label as a button. */
 .file-btn {
   display: inline-flex;

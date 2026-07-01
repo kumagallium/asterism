@@ -27,11 +27,33 @@ export async function inspectCsvs(files: File[], fks: string[]): Promise<string>
   return res.text()
 }
 
+/**
+ * Summary of the server-side self-correction loop (TODO ④): propose auto-fixes the
+ * design against the real source + Tier-0 signatures across `rounds` refine rounds.
+ * `converged` = zero remaining static issues; otherwise `remaining_issues` are the
+ * messages for the RETURNED (best) schema. NOTE: convergence means "passed the static
+ * gates", strictly weaker than "ingests cleanly" — the hard ingest gate is the real
+ * gate. `tabular_only` false ⇒ JSON/XML field refs were NOT column-checked.
+ */
+export interface AutocorrectSummary {
+  enabled: boolean
+  converged: boolean
+  terminal_reason: string
+  initial_issue_count: number
+  final_issue_count: number
+  rounds: { n: number; issue_count: number; categories: Record<string, number> }[]
+  remaining_issues: string[]
+  tabular_only: boolean
+  coverage_dropped: boolean
+}
+
 /** Result payload carried by the SSE `done` event for a propose job. */
 export interface ProposeResult {
   proposal_md: string
   inspection_md: string
   metadata: Record<string, unknown>
+  /** Present when the self-correction loop ran (TODO ④). */
+  autocorrect?: AutocorrectSummary
 }
 
 /** Callbacks for the lifecycle events streamed while a propose job runs. */

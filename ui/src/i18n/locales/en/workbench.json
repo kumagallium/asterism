@@ -88,6 +88,17 @@
     "needKey": "To let the AI fix this, set up a model and key in Settings.",
     "commentIntro": "Fix the following validation errors and rebuild §RML (use only the allowed Tier 0 functions; do not reference columns that don't exist):"
   },
+  "autocorrect": {
+    "converged": "The AI auto-validated the design (resolved every issue in {{rounds}} self-correction round(s))",
+    "bestEffort": "The AI self-corrected {{rounds}} round(s) but {{count}} issue(s) remain",
+    "cleanFirst": "The AI's first design had no static issues",
+    "advisoryOnly": "The AI found {{count}} issue(s) (self-correction disabled)",
+    "remainingLabel": "Remaining issues:",
+    "prefillFix": "Copied the remaining issues into the fix box below — use “Ask AI to fix” to retry.",
+    "caveat": "This is a static check against the real data; convergence does NOT guarantee it will ingest (the ingest gate re-checks).",
+    "tabularCaveat": "References into JSON/XML sources were NOT column-checked.",
+    "coverageCaveat": "The self-correction may have reduced how much of the source is mapped — review the design's coverage."
+  },
   "job": {
     "elapsed": "{{mm}}m {{ss}}s elapsed · usually 1–6 min · connection is kept alive",
     "elapsedStatus": "{{mm}}m {{ss}}s elapsed · usually 1–6 min · connection is kept alive · status: {{status}}"
