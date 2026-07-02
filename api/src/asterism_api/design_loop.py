@@ -349,6 +349,7 @@ def run_design_loop(
     max_rounds: int = 3,
     on_progress: Callable[[dict[str, Any]], None] | None = None,
     on_llm_call: Callable[[str], None] | None = None,
+    language: str | None = None,
 ) -> DesignLoopResult:
     """Run the propose→validate→refine self-correction loop.
 
@@ -357,8 +358,11 @@ def run_design_loop(
     called with a dict per phase (for SSE). ``on_llm_call(feature)`` is called right
     after each LLM call so the caller can record usage (``last_usage`` is overwritten per
     call): feature is ``"propose"`` for round 0 and ``"propose.autocorrect"`` for refines.
-    Never raises for a bad design; only a round-0 propose failure (or the caller's LLM
-    raising) propagates. See the module docstring for the stop conditions.
+    ``language`` is the output language for the schema's human-readable prose; it is
+    forwarded to BOTH propose and every refine round (otherwise an autocorrect round
+    would silently flip the prose back to English). Never raises for a bad design; only
+    a round-0 propose failure (or the caller's LLM raising) propagates. See the module
+    docstring for the stop conditions.
     """
     paths = [Path(p) for p in csv_paths]
     base = Path(source_dir)
@@ -366,7 +370,12 @@ def run_design_loop(
 
     _emit(on_progress, phase="propose", round=0, message="初期設計を生成中")
     proposal = propose_schema(
-        paths, domain_hint, fk_hint_columns=fk_hint_columns, record_path=record_path, llm=llm
+        paths,
+        domain_hint,
+        fk_hint_columns=fk_hint_columns,
+        record_path=record_path,
+        llm=llm,
+        language=language,
     )
     if on_llm_call is not None:
         on_llm_call("propose")
@@ -435,7 +444,7 @@ def run_design_loop(
         _emit(on_progress, phase="refine", round=n, issue_count=len(prev_issues),
               categories=_cats(prev_issues), message=f"{len(prev_issues)} 件の問題を修正中")
         try:
-            ref = refine_schema(schema_md, comments, llm=llm)
+            ref = refine_schema(schema_md, comments, llm=llm, language=language)
         except LLMTruncatedError as exc:
             rounds.append(RoundRecord(n, len(prev_issues), _cats(prev_issues),
                                       refine_truncated=True, env_error=f"truncated: {exc}"))

@@ -79,12 +79,16 @@ export async function proposeCsvs(
   fks: string[],
   creds: LlmCredentials | null,
   handlers: ProposeHandlers,
+  language?: string,
 ): Promise<() => void> {
   const form = new FormData()
   for (const file of files) {
     form.append('files', file)
   }
   form.append('domain', domain)
+  // Output language for the proposal's prose (i18next code, e.g. 'ja').
+  // Headings / identifiers stay English server-side (materialize contract).
+  if (language) form.append('language', language)
   const params = new URLSearchParams()
   for (const fk of fks) {
     params.append('fk', fk)
@@ -128,6 +132,7 @@ export async function refineSchema(
   comments: string[],
   creds: LlmCredentials | null,
   handlers: RefineHandlers,
+  language?: string,
 ): Promise<() => void> {
   const res = await fetch('/api/refine', {
     method: 'POST',
@@ -135,7 +140,7 @@ export async function refineSchema(
       'Content-Type': 'application/json',
       ...llmHeaders(creds),
     },
-    body: JSON.stringify({ schema_md: schemaMd, comments }),
+    body: JSON.stringify({ schema_md: schemaMd, comments, language: language || undefined }),
   })
   if (!res.ok) {
     const detail = await res.text().catch(() => '')
