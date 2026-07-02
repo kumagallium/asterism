@@ -360,3 +360,42 @@ def make_llm(
             base_url=api_base or None,
         )
     raise ValueError(f"unknown LLM provider: {provider!r}")
+
+
+def list_available_models(
+    provider: str | None,
+    *,
+    api_key: str | None = None,
+    api_base: str | None = None,
+) -> list[dict[str, str]]:
+    """List the models the given credentials can use (model picker #②).
+
+    Mirrors :func:`make_llm`'s provider aliases:
+    - anthropic → Anthropic SDK ``client.models.list()``.
+    - openai / openai-compatible → OpenAI SDK ``client.models.list().data``
+      (``api_base`` selects the endpoint: Sakura AI Engine / Groq / Ollama / …).
+
+    Returns ``[{"id", "display_name"}]`` sorted as the provider returns them.
+    Network / auth errors propagate to the caller (the API layer maps them to a
+    4xx/5xx). **The caller must SSRF-validate ``api_base`` before calling this
+    for an openai-compatible endpoint** — this helper trusts the URL it is given.
+    """
+    p = (provider or "anthropic").strip().lower()
+    if p in _ANTHROPIC_ALIASES:
+        import anthropic
+
+        client = anthropic.Anthropic(api_key=api_key) if api_key else anthropic.Anthropic()
+        return [
+            {"id": m.id, "display_name": getattr(m, "display_name", None) or m.id}
+            for m in client.models.list()
+        ]
+    if p in _OPENAI_ALIASES:
+        from openai import OpenAI
+
+        client = OpenAI(api_key=api_key, base_url=api_base or None)
+        return [
+            {"id": m.id, "display_name": m.id}
+            for m in client.models.list().data
+            if getattr(m, "id", None)
+        ]
+    raise ValueError(f"unknown LLM provider: {provider!r}")
