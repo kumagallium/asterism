@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from asterism_step0.tool_propose import propose_query_tool
+from asterism_step0.tool_propose import _SYSTEM, propose_query_tool
 
 _VALID = (
     '{"name":"by_formula","title":"By formula",'
@@ -74,3 +74,21 @@ def test_unparseable_output_raises() -> None:
 def test_empty_intent_raises() -> None:
     with pytest.raises(ValueError, match="intent"):
         propose_query_tool(_FakeLLM(_VALID), intent="   ")
+
+
+def test_language_rides_user_message_only() -> None:
+    """language= appends the Output-language block to the USER message; the
+    cacheable system prompt stays byte-stable (prompt-caching contract)."""
+    llm = _FakeLLM(_VALID)
+    propose_query_tool(llm, intent="x", language="ja")
+    system, user = llm.calls[0]
+    assert "# Output language" in user
+    assert "Japanese (日本語)" in user
+    assert system == _SYSTEM
+    assert "# Output language" not in system
+
+
+def test_no_language_keeps_legacy_message() -> None:
+    llm = _FakeLLM(_VALID)
+    propose_query_tool(llm, intent="x")
+    assert "# Output language" not in llm.calls[0][1]

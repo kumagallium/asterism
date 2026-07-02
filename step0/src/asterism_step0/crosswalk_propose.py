@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import re
 
+from asterism_step0.language import language_instruction
 from asterism_step0.llm import LLMClient, as_completion
 
 _SYSTEM = """\
@@ -76,7 +77,7 @@ def _extract_json_object(text: str) -> dict:
 
 
 def propose_crosswalk_mapping(
-    llm: LLMClient, *, concept: str, datasets: list[dict]
+    llm: LLMClient, *, concept: str, datasets: list[dict], language: str | None = None
 ) -> list[dict]:
     """Suggest the concept-bearing predicate per dataset.
 
@@ -85,6 +86,12 @@ def propose_crosswalk_mapping(
     predicate is one of that dataset's candidate IRIs (a guard against an invented
     IRI), so the UI can pre-fill its dropdowns safely. Never raises on an
     unmappable dataset (it is simply omitted).
+
+    ``language`` (e.g. ``"ja"``) switches the human-readable ``why`` reasons;
+    ``dataset_id`` and the predicate IRIs are copied verbatim (machine-matched
+    against the candidates). The directive rides the user message only, so
+    ``_SYSTEM`` stays byte-stable for prompt caching (see
+    :mod:`asterism_step0.language`). ``None`` → English.
     """
     if not datasets:
         return []
@@ -92,7 +99,16 @@ def propose_crosswalk_mapping(
         str(d.get("dataset_id")): {str(p.get("iri")) for p in (d.get("predicates") or [])}
         for d in datasets
     }
-    text = as_completion(llm.complete(_SYSTEM, _user_message(concept, datasets))).text
+    user_message = _user_message(concept, datasets)
+    lang_block = language_instruction(language)
+    if lang_block:
+        user_message += (
+            f"\n{lang_block}\n\n"
+            'In THIS JSON draft the human-readable prose means the "why" values:\n'
+            'write those in the language above. "dataset_id" and the predicate\n'
+            "IRIs are copied verbatim from the candidates (never translated).\n"
+        )
+    text = as_completion(llm.complete(_SYSTEM, user_message)).text
     obj = _extract_json_object(text)
     out: list[dict] = []
     for entry in obj.get("participants") or []:

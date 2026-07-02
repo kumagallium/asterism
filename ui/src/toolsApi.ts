@@ -123,7 +123,9 @@ export async function proposeTool(
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...llmHeaders(creds), ...authHeaders() },
-      body: JSON.stringify({ intent }),
+      // Draft prose (title/description) follows the UI language; name/SPARQL/
+      // IRIs stay English server-side (machine-consumed).
+      body: JSON.stringify({ intent, language: i18n.language || undefined }),
     },
   )
   if (!res.ok) throw await asError(res, i18n.t('tools:error.ops.propose'))

@@ -249,6 +249,29 @@ def test_propose_flags_invalid_draft(tmp_path: Path, healthy_client: OxigraphCli
     assert body["valid"] is False and body["error"]
 
 
+def test_propose_forwards_language_to_llm(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    # body.language reaches the LLM's USER message (the draft's title/description
+    # prose follows the UI language); absent = no directive (legacy English).
+    cap: dict = {}
+    client = _client_with_llm(tmp_path, healthy_client, _DraftLLM(_VALID_DRAFT, cap))
+    ds = _seed_dataset(tmp_path / "registry")
+    r = client.post(
+        f"/api/datasets/{ds}/tools/propose",
+        json={"intent": "x", "language": "ja"},
+        headers={"X-API-Key": "sk"},
+    )
+    assert r.status_code == 200, r.text
+    assert "# Output language" in cap["user"] and "Japanese (日本語)" in cap["user"]
+
+    r2 = client.post(
+        f"/api/datasets/{ds}/tools/propose", json={"intent": "x"}, headers={"X-API-Key": "sk"}
+    )
+    assert r2.status_code == 200, r2.text
+    assert "# Output language" not in cap["user"]
+
+
 def test_propose_requires_key(tmp_path: Path, healthy_client: OxigraphClient) -> None:
     client = _client_with_llm(tmp_path, healthy_client, _DraftLLM(_VALID_DRAFT))
     ds = _seed_dataset(tmp_path / "registry")

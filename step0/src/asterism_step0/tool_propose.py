@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import re
 
+from asterism_step0.language import language_instruction
 from asterism_step0.llm import LLMClient, as_completion
 
 _SYSTEM = """\
@@ -107,6 +108,7 @@ def propose_query_tool(
     model_yaml: str = "",
     mie_yaml: str = "",
     rml_ttl: str = "",
+    language: str | None = None,
 ) -> dict:
     """Draft one query_tool dict from ``intent`` + the dataset's vocabulary.
 
@@ -118,15 +120,29 @@ def propose_query_tool(
     model invents a placeholder namespace (``http://example.org/…``) and the tool
     returns zero rows. Passing the RML lets it use the actual vocabulary.
 
+    ``language`` (e.g. ``"ja"``) switches the draft's human-readable prose —
+    ``title`` / ``description`` / parameter descriptions; ``name``, JSON keys,
+    the SPARQL, PREFIXes and IRIs stay English (they are machine-consumed). The
+    directive rides the user message only, so ``_SYSTEM`` stays byte-stable for
+    prompt caching (see :mod:`asterism_step0.language`). ``None`` → English.
+
     Raises ``ValueError`` if the model's output cannot be parsed into a tool with
     at least ``name`` and ``query``. The caller validates the draft with
     ``asterism.query_tools.parse_query_tools`` before it is offered for saving.
     """
     if not intent.strip():
         raise ValueError("intent is required")
-    text = as_completion(
-        llm.complete(_SYSTEM, _user_message(intent, model_yaml, mie_yaml, rml_ttl))
-    ).text
+    user_message = _user_message(intent, model_yaml, mie_yaml, rml_ttl)
+    lang_block = language_instruction(language)
+    if lang_block:
+        user_message += (
+            f"\n{lang_block}\n\n"
+            'In THIS JSON draft the human-readable prose means the "title" and\n'
+            '"description" values (including each parameter\'s "description"):\n'
+            'write those in the language above. "name", JSON keys, enum values,\n'
+            "the SPARQL query, PREFIXes and IRIs stay English.\n"
+        )
+    text = as_completion(llm.complete(_SYSTEM, user_message)).text
     tool = _extract_json_object(text)
     if "name" not in tool or "query" not in tool:
         raise ValueError("draft is missing required keys (name, query)")

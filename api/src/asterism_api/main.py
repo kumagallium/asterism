@@ -146,9 +146,12 @@ class QueryToolBody(BaseModel):
 class ToolProposeBody(BaseModel):
     """Body for POST /api/datasets/{id}/tools/propose: a natural-language intent
     the AI drafts a query tool for (P2). The draft is returned for human review,
-    never auto-saved."""
+    never auto-saved. ``language`` (i18next code, e.g. ``"ja"``) switches the
+    draft's human-readable prose (title/description) — name/SPARQL/IRIs stay
+    English; absent = English (legacy)."""
 
     intent: str
+    language: str | None = None
 
 
 class ToolRunBody(BaseModel):
@@ -174,10 +177,13 @@ class CrosswalkBuildBody(BaseModel):
 class CrosswalkProposeBody(BaseModel):
     """Body for POST /api/crosswalk/propose: the datasets to crosswalk + the shared
     concept. The LLM suggests each dataset's concept-bearing predicate (返り値は下書き
-    — never built); the human confirms/edits in the authoring UI (the vet gate)."""
+    — never built); the human confirms/edits in the authoring UI (the vet gate).
+    ``language`` (i18next code) switches the human-readable ``why`` reasons —
+    predicate IRIs stay verbatim; absent = English (legacy)."""
 
     dataset_ids: list[str] = []
     concept: str = "composition"
+    language: str | None = None
 
 
 class CrosswalkAlignBody(BaseModel):
@@ -2204,6 +2210,7 @@ def build_app(
                 # predicate/class IRIs — without it a seed dataset's stub model.yaml
                 # makes the LLM invent a placeholder namespace (a 0-row tool).
                 rml_ttl=arts.get("mapping.rml.ttl", "") or "",
+                language=body.language,
             )
 
         try:
@@ -3015,7 +3022,7 @@ def build_app(
 
         def run() -> list[dict]:
             return propose_crosswalk_mapping(
-                llm, concept=body.concept, datasets=datasets
+                llm, concept=body.concept, datasets=datasets, language=body.language
             )
 
         try:
