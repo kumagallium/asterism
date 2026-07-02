@@ -12,6 +12,8 @@
   "namePlaceholder": "例: 半ホイスラー熱電 / サービス契約",
   "convertHint": "Word(.docx)・PDF(.pdf) はサーバ側で構造化XMLに自動変換します（変換ツール・版は来歴に記録）。PDF はレイアウト認識のため変換に少し時間がかかります。",
   "submit": "文書を追加して公開",
+  "retrySubmit": "取り込みをやり直す",
+  "retryResumes": "前回の作成は完了しています。やり直しても新しいデータセットは作らず、同じ文書「{{name}}」の取り込みから再開します。",
   "ingesting": "取り込み中…",
   "ingestProgress": "（{{done}} / {{total}}）",
   "result": "✓ <0>{{name}}</0> を公開しました。データセットで開き、「ツール」タブの <1>search_text</1> /<2>quote_with_citation</2> で全文を検索して引用できます。"

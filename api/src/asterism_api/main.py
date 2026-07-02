@@ -2327,17 +2327,27 @@ def build_app(
             created_at=datetime.now(UTC).isoformat(),
         )
         dataset_id = meta["id"]
+        # Roll back the just-created (still empty) record unless creation FULLY
+        # succeeds — not only on HTTPException. A client disconnect mid-upload
+        # (starlette ClientDisconnect) or an OSError (disk full, permission) raises a
+        # non-HTTPException that the old `except HTTPException` let escape, leaving a
+        # source-less orphan dataset for a re-upload to duplicate. A `finally` guard
+        # also covers cancellation; the delete is best-effort so it never masks the
+        # original error.
+        created_ok = False
         try:
             saved, meta = await _persist_source_uploads(cfg.registry_root, dataset_id, uploads)
-        except HTTPException:
-            registry.delete_dataset(cfg.registry_root, dataset_id)  # roll back the empty record
-            raise
-        for tool in _document_tool_specs():
-            registry.save_query_tool(cfg.registry_root, dataset_id, tool)
-        return JSONResponse(
-            {"dataset_id": dataset_id, "source_files": saved, "dataset": meta},
-            status_code=201,
-        )
+            for tool in _document_tool_specs():
+                registry.save_query_tool(cfg.registry_root, dataset_id, tool)
+            created_ok = True
+            return JSONResponse(
+                {"dataset_id": dataset_id, "source_files": saved, "dataset": meta},
+                status_code=201,
+            )
+        finally:
+            if not created_ok:
+                with contextlib.suppress(Exception):
+                    registry.delete_dataset(cfg.registry_root, dataset_id)
 
     @app.post("/api/datasets/{dataset_id}/documents", dependencies=_write_auth)
     async def append_document(
