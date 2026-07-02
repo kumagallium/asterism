@@ -100,7 +100,7 @@ def _fake_nt_materializer(*, triples: int = 1):
     against the recording client.
     """
 
-    def _materialize(rml_ttl, csv_dir, *, udfs_path=None, work_dir=None) -> Path:
+    def _materialize(rml_ttl, csv_dir, *, udfs_path=None, work_dir=None, run_id=None) -> Path:
         out = Path(work_dir) / "out.nt"
         out.write_bytes(
             b"".join(
@@ -1325,6 +1325,66 @@ def test_append_second_batch_bumps_seq(tmp_path: Path, monkeypatch) -> None:
     assert b2["append_seq"] == 2
     assert [a["seq"] for a in b2["dataset"]["appends"]] == [1, 2]
     assert b2["dataset"]["triple_count"] == 3  # 1 promoted + 1 + 1
+
+
+def test_append_same_batch_twice_is_idempotent_replay(tmp_path: Path, monkeypatch) -> None:
+    """Server success → client timeout → retry with the SAME batch is a no-op: the
+    persisted source is not double-accumulated (else a later snapshot re-ingest would
+    re-materialize duplicate rows), the seq/counters do not bump, and no second
+    appends-log entry is recorded (incremental-ingest §3 / A3). The response flags the
+    replay so the caller can tell it apart from a fresh append."""
+    dataset_id, live = _promoted_feed_dataset(tmp_path)
+    monkeypatch.setattr(substrate, "materialize_to_nt_file", _fake_nt_materializer(triples=2))
+    oxi = _FeedOxi(live)
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    payload = {"files": ("papers.csv", b"SID\n2\n3\n", "text/csv")}
+    with TestClient(app, headers=_AUTH) as client:
+        first = client.post(f"/api/datasets/{dataset_id}/append", files=payload).json()
+        second = client.post(f"/api/datasets/{dataset_id}/append", files=payload).json()
+
+    assert first["idempotent_replay"] is False
+    assert first["append_seq"] == 1
+    # The retry is recognised as the same batch and short-circuited.
+    assert second["idempotent_replay"] is True
+    assert second["append_seq"] == 1  # NOT 2 — seq did not advance
+    assert second["triples_in_batch"] == 2  # the original outcome is echoed back
+    meta = second["dataset"]
+    assert meta["append_seq"] == 1
+    assert len(meta["appends"]) == 1  # exactly one recorded append, not two
+    assert meta["triple_count"] == 3  # 1 promoted + 2 appended, not double-counted
+    # The persisted source has the batch's rows exactly once (header deduped).
+    src = (tmp_path / "registry" / dataset_id / "source" / "papers.csv").read_text()
+    assert src.splitlines() == ["SID", "1", "2", "3"]
+
+
+def test_accumulate_batch_sources_is_idempotent_via_marker(tmp_path: Path) -> None:
+    """The source-accumulation guard (``_accumulate_batch_sources``): folding the SAME
+    batch twice appends its rows once. Covers a FAILED attempt that accumulated the
+    source before erroring — not short-circuited by the append log — where the retry
+    must not double the rows a later snapshot re-ingest would read."""
+    from asterism_api.main import _accumulate_batch_sources
+
+    sdir = tmp_path / "source"
+    sdir.mkdir()
+    (sdir / "papers.csv").write_bytes(b"SID\n1\n")
+    batch = [("papers.csv", b"SID\n2\n3\n")]
+    batch_id = substrate.batch_fingerprint(batch)
+
+    _accumulate_batch_sources(sdir, batch, batch_id)
+    _accumulate_batch_sources(sdir, batch, batch_id)  # retry — must be a no-op
+    assert (sdir / "papers.csv").read_text().splitlines() == ["SID", "1", "2", "3"]
+
+    # The marker is recorded, and it lives in a hidden dir — not a *.csv/*.json source
+    # file — so the source listing (suffix-filtered, non-recursive) never sees it.
+    assert (sdir / ".applied_batches" / batch_id).exists()
+    assert [p.name for p in sdir.iterdir() if p.is_file() and p.suffix == ".csv"] == [
+        "papers.csv"
+    ]
+
+    # A genuinely different batch still accumulates.
+    batch2 = [("papers.csv", b"SID\n4\n")]
+    _accumulate_batch_sources(sdir, batch2, substrate.batch_fingerprint(batch2))
+    assert (sdir / "papers.csv").read_text().splitlines() == ["SID", "1", "2", "3", "4"]
 
 
 def test_append_requires_promoted_409(tmp_path: Path) -> None:
