@@ -28,6 +28,7 @@
     "fetchModels": "Fetch models",
     "fetchingModels": "Fetching…",
     "modelsFetched": "Fetched {{count}} models",
+    "pickFetchedModel": "Pick from the fetched list ({{count}})",
     "name": "Display name",
     "namePlaceholder": "(defaults to the model ID)",
     "apiKey": "API key",

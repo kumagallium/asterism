@@ -367,7 +367,6 @@ function ModelForm({
         <div className="model-id-row">
           <input
             type="text"
-            list="model-id-options"
             value={modelId}
             placeholder={modelIdPlaceholder(provider)}
             onChange={(e) => setModelId(e.target.value)}
@@ -385,19 +384,25 @@ function ModelForm({
             {fetchingModels ? t('form.fetchingModels') : t('form.fetchModels')}
           </button>
         </div>
+        {/* Native <select> (not a <datalist>): a datalist filters its options by
+            the input's current value, so once a full id is chosen you can't see
+            the others to re-pick. A select always lists all fetched models. The
+            text input above still takes a custom id. */}
         {availableModels.length > 0 && (
-          <datalist id="model-id-options">
+          <select
+            className="model-id-select"
+            value={availableModels.some((m) => m.id === modelId) ? modelId : ''}
+            onChange={(e) => setModelId(e.target.value)}
+          >
+            <option value="">{t('form.pickFetchedModel', { count: availableModels.length })}</option>
             {availableModels.map((m) => (
               <option key={m.id} value={m.id}>
                 {m.display_name}
               </option>
             ))}
-          </datalist>
+          </select>
         )}
         {modelsError && <p className="field-help field-error">{modelsError}</p>}
-        {!modelsError && availableModels.length > 0 && (
-          <p className="field-help">{t('form.modelsFetched', { count: availableModels.length })}</p>
-        )}
       </label>
 
       <label className="field">
