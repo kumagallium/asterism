@@ -228,6 +228,10 @@
   flex-shrink: 0;
   white-space: nowrap;
 }
+.model-id-select {
+  margin-top: 6px;
+  width: 100%;
+}
 .field-check {
   display: flex;
   align-items: center;

@@ -28,6 +28,7 @@
     "fetchModels": "モデル一覧を取得",
     "fetchingModels": "取得中…",
     "modelsFetched": "{{count}} 件のモデルを取得しました",
+    "pickFetchedModel": "取得した一覧から選ぶ（{{count}} 件）",
     "name": "表示名",
     "namePlaceholder": "（省略するとモデルIDを表示）",
     "apiKey": "APIキー",
