@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from asterism_step0.language import language_instruction
 from asterism_step0.llm import AnthropicLLMClient, LLMClient, as_completion
 from asterism_step0.materialize import materialize_schema
 
@@ -213,6 +214,7 @@ def refine_schema(
     comments: list[str],
     *,
     llm: LLMClient | None = None,
+    language: str | None = None,
 ) -> RefinementResult:
     """Apply ``comments`` to ``current_schema_md`` via the LLM.
 
@@ -225,6 +227,9 @@ def refine_schema(
             resolution log.
         llm: An :class:`LLMClient`. Defaults to :class:`AnthropicLLMClient`
             (requires ``ANTHROPIC_API_KEY``). Tests pass a mock.
+        language: Output language for the resolution log and the schema's
+            human-readable prose (e.g. ``"ja"``). Headings / identifiers /
+            code stay English (see :mod:`asterism_step0.language`).
 
     Returns:
         :class:`RefinementResult` with the input schema, the comments, and
@@ -240,6 +245,9 @@ def refine_schema(
         f"# Current schema\n\n{current_schema_md.strip()}\n\n"
         f"# Review comments\n\n{numbered}\n"
     )
+    lang_block = language_instruction(language)
+    if lang_block:
+        user_message += f"\n{lang_block}\n"
     refined = as_completion(llm.complete(SYSTEM_PROMPT, user_message)).text
 
     # Truncation guard: if the refined output lost an artifact the input had,
@@ -323,6 +331,14 @@ def _build_arg_parser():  # type: ignore[no-untyped-def]
         choices=["low", "medium", "high", "xhigh", "max"],
         help="output_config.effort (default: xhigh).",
     )
+    p.add_argument(
+        "--language",
+        default=None,
+        help=(
+            "Output language for the resolution log / schema prose (e.g. 'ja'). "
+            "Headings / identifiers / code stay English. Default: English."
+        ),
+    )
     return p
 
 
@@ -346,7 +362,7 @@ def _main(argv: list[str] | None = None) -> int:
 
     schema_md = args.schema.read_text(encoding="utf-8")
     llm = AnthropicLLMClient(model=args.model, effort=args.effort)
-    result = refine_schema(schema_md, comments, llm=llm)
+    result = refine_schema(schema_md, comments, llm=llm, language=args.language)
 
     for w in result.warnings:
         sys.stderr.write(f"warning: {w}\n")

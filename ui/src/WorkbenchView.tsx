@@ -144,7 +144,7 @@ export function WorkbenchView({
    *  clear it and a later tab switch doesn't re-seed over the user's edits). */
   onRedesignConsumed?: () => void
 } = {}) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   // Restore generated artifacts saved before a tab switch / reload (once).
   const [snap] = useState(loadSnapshot)
 
@@ -373,27 +373,34 @@ export function WorkbenchView({
     }
     closeRef.current?.()
     try {
-      closeRef.current = await proposeCsvs(files, composedDomain(), fks(), getActiveCredentials(), {
-        onStart: (jobId) => saveJob(jobId, 'propose'),
-        onStatus: (m) => setStatus(m),
-        onDone: (result) => {
-          setProposal(result.proposal_md)
-          // Surface the inspection Propose actually used (no separate step).
-          setMarkdown(result.inspection_md)
-          applyAutocorrect(result.autocorrect)
-          setMaterialized(null)
-          setStatus('done')
-          setProposing(false)
-          clearJob()
-          setStep(2) // guide to review once a proposal exists
+      closeRef.current = await proposeCsvs(
+        files,
+        composedDomain(),
+        fks(),
+        getActiveCredentials(),
+        {
+          onStart: (jobId) => saveJob(jobId, 'propose'),
+          onStatus: (m) => setStatus(m),
+          onDone: (result) => {
+            setProposal(result.proposal_md)
+            // Surface the inspection Propose actually used (no separate step).
+            setMarkdown(result.inspection_md)
+            applyAutocorrect(result.autocorrect)
+            setMaterialized(null)
+            setStatus('done')
+            setProposing(false)
+            clearJob()
+            setStep(2) // guide to review once a proposal exists
+          },
+          onError: (m) => {
+            setProposeErr(m)
+            setStatus('')
+            setProposing(false)
+            clearJob()
+          },
         },
-        onError: (m) => {
-          setProposeErr(m)
-          setStatus('')
-          setProposing(false)
-          clearJob()
-        },
-      })
+        i18n.language,
+      )
     } catch (e) {
       setProposeErr(e instanceof Error ? e.message : String(e))
       setStatus('')
@@ -412,25 +419,31 @@ export function WorkbenchView({
     setRefining(true)
     refineCloseRef.current?.()
     try {
-      refineCloseRef.current = await refineSchema(proposal, comments, getActiveCredentials(), {
-        onStart: (jobId) => saveJob(jobId, 'refine'),
-        onStatus: (m) => setStatus(m),
-        onDone: (result) => {
-          setProposal(result.refined_md)
-          setAutocorrect(null) // a manual refine replaced the design — clear the loop summary
-          setMaterialized(null)
-          setComment('')
-          setStatus('refined')
-          setRefining(false)
-          clearJob()
+      refineCloseRef.current = await refineSchema(
+        proposal,
+        comments,
+        getActiveCredentials(),
+        {
+          onStart: (jobId) => saveJob(jobId, 'refine'),
+          onStatus: (m) => setStatus(m),
+          onDone: (result) => {
+            setProposal(result.refined_md)
+            setAutocorrect(null) // a manual refine replaced the design — clear the loop summary
+            setMaterialized(null)
+            setComment('')
+            setStatus('refined')
+            setRefining(false)
+            clearJob()
+          },
+          onError: (m) => {
+            setProposeErr(m)
+            setStatus('')
+            setRefining(false)
+            clearJob()
+          },
         },
-        onError: (m) => {
-          setProposeErr(m)
-          setStatus('')
-          setRefining(false)
-          clearJob()
-        },
-      })
+        i18n.language,
+      )
     } catch (e) {
       setProposeErr(e instanceof Error ? e.message : String(e))
       setStatus('')

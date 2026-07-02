@@ -157,6 +157,22 @@ def test_refine_schema_strips_comment_whitespace() -> None:
     assert "2. and me" in msg
 
 
+def test_refine_schema_language_rides_user_message_only() -> None:
+    """language= appends the Output-language block to the USER message; the
+    cacheable system prompt stays byte-stable (prompt-caching contract)."""
+    mock = _RecordingLLM()
+    refine_schema("schema", ["c"], llm=mock, language="ja")
+    assert "# Output language" in mock.user_messages[0]
+    assert "Japanese (日本語)" in mock.user_messages[0]
+    assert mock.system_prompts[0] == SYSTEM_PROMPT
+
+
+def test_refine_schema_no_language_keeps_legacy_message() -> None:
+    mock = _RecordingLLM()
+    refine_schema("schema", ["c"], llm=mock)
+    assert "# Output language" not in mock.user_messages[0]
+
+
 # ----------------------------------------------------------------------------
 # Truncation guard (incomplete refine output)
 # ----------------------------------------------------------------------------

@@ -96,6 +96,10 @@ class RefineRequest(BaseModel):
 
     schema_md: str
     comments: list[str]
+    # Output language for the resolution log / schema prose (e.g. "ja").
+    # Absent/empty → English (legacy behaviour). Headings / identifiers stay
+    # English regardless — materialize extracts artifacts by English headings.
+    language: str | None = None
 
 
 class MaterializeRequest(BaseModel):
@@ -1732,6 +1736,13 @@ def build_app(
             default="",
             description="Domain hint (Markdown). Optional — improves quality but not required.",
         ),
+        language: str = Form(
+            default="",
+            description=(
+                "Output language for the proposal's human-readable prose (e.g. 'ja'). "
+                "Empty → English. Headings / identifiers / code stay English."
+            ),
+        ),
         fk: list[str] = Query(default=[], description="FK hint column (repeatable)"),
         autocorrect: int | None = Query(
             default=None,
@@ -1809,6 +1820,7 @@ def build_app(
                     max_rounds=rounds,
                     on_progress=on_progress,
                     on_llm_call=on_llm_call,
+                    language=language or None,
                 )
             finally:
                 shutil.rmtree(tmpdir, ignore_errors=True)
@@ -1864,7 +1876,7 @@ def build_app(
         llm = _resolve_llm(provider, model, api_base, key)
 
         def work() -> dict[str, object]:
-            result = refine_schema(body.schema_md, comments, llm=llm)
+            result = refine_schema(body.schema_md, comments, llm=llm, language=body.language)
             _record_llm_usage(cfg.registry_root, "refine", provider, llm, model)
             # Surface the truncation guard: `refined_md` stays the raw output for
             # transparency; `effective_schema_md` is what's safe to materialize
