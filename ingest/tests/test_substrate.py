@@ -842,6 +842,118 @@ async def test_repromote_legacy_dataset_orphans_key_graph() -> None:
     assert len(ds.graph(rdflib.URIRef(v1))) == 1
 
 
+# ---- orphan version-graph reclamation (part5 storage-leak fix) --------------
+
+
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+async def test_set_staged_graph_orphans_superseded_staged() -> None:
+    # ①: a re-ingest BEFORE promotion overwrites the staged pointer; the superseded
+    # staged version (never promoted → no liveGraph ever named it) is enqueued for a
+    # background drop, so a re-ingest after a misread SSE disconnect no longer leaks
+    # version graphs. Re-recording the SAME version is a no-op enqueue.
+    from asterism.substrate import (
+        pending_drops,
+        set_staged_graph,
+        sweep_pending_drops,
+    )
+
+    ds = rdflib.Dataset()
+    ex = rdflib.Namespace("https://ex#")
+    key = canonical_graph_iri("ds1")
+    v1, v2 = versioned_graph_iri("ds1", 1), versioned_graph_iri("ds1", 2)
+    ds.graph(rdflib.URIRef(v1)).add((ex.a, ex.p, rdflib.Literal("v1")))
+    ds.graph(rdflib.URIRef(v2)).add((ex.b, ex.p, rdflib.Literal("v2")))
+    client = _RWClient(ds)
+
+    # first ingest -> stage v1 (nothing superseded)
+    assert await set_staged_graph(client, key, v1) is None
+    assert await pending_drops(client) == []
+    # re-ingest before promoting -> stage v2, v1 superseded + enqueued
+    assert await set_staged_graph(client, key, v2) == v1
+    assert await pending_drops(client) == [v1]
+    # re-recording the SAME staged version never drops the graph it points at
+    assert await set_staged_graph(client, key, v2) is None
+    assert await pending_drops(client) == [v1]
+    # the sweeper reclaims only the orphaned v1; v2 (still staged) is untouched
+    assert await sweep_pending_drops(client) == [v1]
+    assert len(ds.graph(rdflib.URIRef(v1))) == 0
+    assert len(ds.graph(rdflib.URIRef(v2))) == 1
+
+
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+async def test_all_version_graphs_scoped_and_global() -> None:
+    # ④/②: version-graph enumeration matches only …/v{n} (never the per-dataset key
+    # graph or the legacy graph), and the dataset-scoped form returns just that
+    # dataset's versions — with a prefix-collision guard (alpha must not match alphabet).
+    from asterism.substrate import all_version_graphs
+
+    ds = rdflib.Dataset()
+    ex = rdflib.Namespace("https://ex#")
+    a1, a2 = versioned_graph_iri("alpha", 1), versioned_graph_iri("alpha", 2)
+    b1 = versioned_graph_iri("beta", 1)
+    ab1 = versioned_graph_iri("alphabet", 1)  # collision guard: alpha/v vs alphabet/v
+    key = canonical_graph_iri("alpha")  # no /v suffix -> excluded
+    legacy = canonical_graph_iri("legacy")  # no /v suffix -> excluded
+    for g in (a1, a2, b1, ab1, key, legacy):
+        ds.graph(rdflib.URIRef(g)).add((ex.s, ex.p, rdflib.Literal(g)))
+    client = _RWClient(ds)
+
+    assert await all_version_graphs(client) == sorted([a1, a2, ab1, b1])
+    assert await all_version_graphs(client, dataset_id="alpha") == [a1, a2]  # not ab1
+    assert await all_version_graphs(client, dataset_id="beta") == [b1]
+
+
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+async def test_reconcile_orphan_versions_enqueues_only_unreferenced() -> None:
+    # ②: startup reconciliation enqueues every version graph that no liveGraph/
+    # stagedGraph pointer names (a re-ingest orphan, a crash partial, a deleted
+    # dataset's leftover), while a live version and a staged-awaiting-promote version
+    # are kept. The key graph and legacy graph (no /v) are ignored. Idempotent.
+    from asterism.substrate import (
+        CONTROL_GRAPH_IRI,
+        LIVE_GRAPH_PREDICATE,
+        STAGED_GRAPH_PREDICATE,
+        pending_drops,
+        reconcile_orphan_versions,
+    )
+
+    ds = rdflib.Dataset()
+    ex = rdflib.Namespace("https://ex#")
+    live = versioned_graph_iri("ds1", 3)  # liveGraph names it -> keep
+    staged = versioned_graph_iri("ds2", 1)  # stagedGraph names it -> keep
+    orphan_a = versioned_graph_iri("ds1", 2)  # superseded re-ingest -> drop
+    orphan_b = versioned_graph_iri("gone", 5)  # deleted dataset leftover -> drop
+    key = canonical_graph_iri("ds1")  # key graph (no /v) with data -> ignore
+    legacy = canonical_graph_iri("legacy")  # legacy graph (no /v) -> ignore
+    for g in (live, staged, orphan_a, orphan_b, key, legacy):
+        ds.graph(rdflib.URIRef(g)).add((ex.s, ex.p, rdflib.Literal(g)))
+    control = ds.graph(rdflib.URIRef(CONTROL_GRAPH_IRI))
+    control.add(
+        (
+            rdflib.URIRef(canonical_graph_iri("ds1")),
+            rdflib.URIRef(LIVE_GRAPH_PREDICATE),
+            rdflib.URIRef(live),
+        )
+    )
+    control.add(
+        (
+            rdflib.URIRef(canonical_graph_iri("ds2")),
+            rdflib.URIRef(STAGED_GRAPH_PREDICATE),
+            rdflib.URIRef(staged),
+        )
+    )
+    client = _RWClient(ds)
+
+    want = sorted([orphan_a, orphan_b])
+    assert await reconcile_orphan_versions(client) == want
+    assert await pending_drops(client) == want
+    # live + staged versions are never enqueued
+    assert live not in await pending_drops(client)
+    assert staged not in await pending_drops(client)
+    # idempotent: a second pass re-marks the same orphans, no error
+    assert await reconcile_orphan_versions(client) == want
+
+
 # ---- retract / reinstate (#20 P3 step3) -------------------------------------
 
 

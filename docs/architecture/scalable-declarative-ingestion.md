@@ -137,6 +137,28 @@ status: 実装済み（substrate + api + registry + 背景スイーパ・全 bac
 
 **実測（使い捨て 8GB Oxigraph・5M×2 再取り込み）**: stream v1 ピーク 2.08GiB／**v1 を live のまま v2 再ストリーム（10M 同居）ピーク 2.38GiB**／**re-promote 0.010s（O(1)）**／**5M v1 のチャンク sweep ピーク 4.23GiB・OOM なし**（同じ 5M を**単発 `DROP GRAPH`** すると 8GB を超えて OOM-kill＝V7 の根拠）。全経路でメモリ一定・コンテナ無傷（RestartCount 0）。
 
+#### part5-leak: 孤児バージョングラフの回収（リトライ起因ゴミ増殖の監査 residual #2）
+
+status: 実装済み（substrate + api + registry・backend テスト緑）
+
+part5 のバージョングラフには**回収漏れ**があった。バージョングラフ `canonical/{id}/v{n}` は ingest で作られ、`stagedGraph`→（promote で）`liveGraph` に順に指される。だが `data_seq` は**成功時の `mark_ingested` でしか前進しない**ため、次の 4 経路で**どのポインタからも指されない孤児**が Oxigraph に無限に溜まった（最大級・非有界の leak）:
+
+- **A. 成功 ingest の再実行**（SSE 切断を失敗と誤認する既知 failure mode が典型）: `set_staged_graph` はポインタを上書きするだけで旧 staged 版を enqueue せず→旧 `v{n}` が孤児化。
+- **B. 失敗リトライ**: `data_seq` 不変ゆえ同 `v{n}` を DROP 無しで再利用。プロセス kill / `CancelledError`（`except Exception` は `BaseException` 非捕捉）で残った部分グラフと**マージ**され、stale 行・per-attempt な `{__run_id__}` activity IRI が citable に昇格する恐れ。
+- **C. delete**: 現行 live/staged のみ enqueue＝再取り込みで溜まった孤児版を取り残す。
+- **D. 修正前から既存**の孤児（本機構導入前に leak した版）。
+
+**修正＝ライフサイクル全体の多層防御**（各層は独立の穴を塞ぐ）:
+
+| 層 | 対象 | 決定 |
+|---|---|---|
+| L1 | A（根本） | `set_staged_graph` が**上書きされる旧 staged 版を `pendingDrop` へ enqueue**（`promote_to_canonical` が旧 live を enqueue するのと対称）。set された staged は必ず未 promoted（promote が staged ポインタを clear する不変条件）ゆえ live を誤ドロップしない。同一版の再記録は no-op enqueue。 |
+| L2 | B（残骸マージ） | ingest 開始時に `reserve_data_seq` で**バージョン番号を毎回 persist 予約**（従来 `next_data_seq` は非永続 peek）。失敗・kill・cancel でも次の試行は**必ず新しい空グラフ**＝再利用が起きない＝残骸とマージしない。放棄された版は失敗経路の drop か L3 が回収（単調性はギャップを許容）。 |
+| L3 | A/B/D（安全網） | **起動時 reconciliation** `reconcile_orphan_versions`＝`liveGraph`/`stagedGraph` のどちらからも指されないバージョングラフを全列挙し enqueue。起動時のみ（in-flight ingest 無し＝ポインタ未書込の投入中グラフを孤児と誤認しない）。既存 leak・クラッシュgap の孤児も回収。 |
+| L4 | C | delete が `all_version_graphs(dataset_id)` で**当該 dataset の全 `v{n}` を列挙**して enqueue（live/staged ポインタが指さない孤児版も削除時に確実回収・再起動を待たない）。 |
+
+列挙（`all_version_graphs`/`referenced_version_graphs`）は空 GGP `GRAPH ?g {}` + name filter＝**graph 名インデックス直読み**（triple 非走査・O(#graphs)）で V2 の perf 特性を維持。回収本体は既存の `pendingDrop`→背景スイーパ→`chunked_drop_graph`（V6/V7）に委譲＝リクエスト経路外・メモリ有界。**不変条件維持**: 孤児版は定義上 promoted されていない＝never citable ゆえ、その回収が reader に影響しない。関連＝[[asterism-incremental-append]]（append リトライの run-id 決定化は residual #3・別 PR）。
+
 ### 見積（修正後）
 
 full starrydata 1,200万件が **RAM 4〜8 GB / SSD 30〜50 GB** の小型クラウド1台で回る（MOVE 方式が要求した 18〜28 GB が不要に）。

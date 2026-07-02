@@ -283,6 +283,36 @@ def next_data_seq(root: Path, dataset_id: str) -> int:
     return int(meta.get("data_seq", 0)) + 1
 
 
+def reserve_data_seq(root: Path, dataset_id: str) -> int:
+    """Reserve (persist) and return the next monotonic ingest sequence.
+
+    Unlike :func:`next_data_seq` (a pure read of ``data_seq + 1``), this *advances and
+    writes* ``data_seq`` immediately, so the version number is claimed the moment an
+    ingest starts — before it streams. Every attempt, success or failure, therefore
+    targets a FRESH version graph: a retry never reuses the number of a previous attempt
+    that died before its cleanup ran (a process kill / cancelled job bypasses the
+    failure-path drop), so it never streams into — and merges with — a partial left in
+    that version graph (stale rows / duplicated per-run activity IRIs promoted as citable
+    garbage). The abandoned version becomes an orphan reclaimed by the failure-path drop
+    or startup reconciliation (``asterism.substrate.reconcile_orphan_versions``);
+    monotonicity tolerates the gap — version graphs are never reused, so they never
+    collide (the invariant :func:`next_data_seq` documents).
+
+    Returns 1 *without persisting* if the id is unsafe / absent — the caller validates
+    the id separately and fails before streaming, so no number is burned.
+    """
+    if not re.fullmatch(r"[a-z0-9-]{1,128}", dataset_id):
+        return 1
+    meta_path = root / dataset_id / _META_FILE
+    if not meta_path.is_file():
+        return 1
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    seq = int(meta.get("data_seq", 0)) + 1
+    meta["data_seq"] = seq
+    meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    return seq
+
+
 def mark_ingested(
     root: Path,
     dataset_id: str,
