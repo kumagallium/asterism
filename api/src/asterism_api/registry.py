@@ -344,6 +344,7 @@ def mark_appended(
     triples_in_batch: int,
     appended_at: str,
     append_seq: int,
+    batch_id: str,
 ) -> dict | None:
     """Record an incremental append batch on the dataset's meta (incremental-ingest ADR).
 
@@ -353,6 +354,15 @@ def mark_appended(
     ``feed``, appends this batch to an append-only ``appends`` log (mirroring
     ``versions``), refreshes the union ``source_files`` (+ ``source_kind``), and bumps
     the running ``triples_appended`` counter and ``append_seq``.
+
+    ``batch_id`` is the batch's content fingerprint
+    (:func:`asterism.substrate.batch_fingerprint`) recorded as the append's
+    idempotency key: :func:`find_append_by_batch_id` lets the caller short-circuit a
+    re-delivered batch (a retry after a client-side timeout that the server had
+    already applied) so its rows are not double-accumulated and its counters not
+    double-bumped. This write is the append's commit point — it runs last, after the
+    POST-merge and the source accumulation, so a recorded ``batch_id`` means the whole
+    append completed.
 
     ``triple_count`` is advanced by ``triples_in_batch`` as a best-effort UPPER bound:
     re-emitted rows dedupe in the store, so the true count may be lower. The
@@ -381,12 +391,36 @@ def mark_appended(
             "batch_files": sorted(batch_files),
             "triples_in_batch": int(triples_in_batch),
             "appended_at": appended_at,
+            "batch_id": batch_id,
         }
     )
     meta_path.write_text(
         json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     return meta
+
+
+def find_append_by_batch_id(root: Path, dataset_id: str, batch_id: str) -> dict | None:
+    """The recorded ``appends`` log entry for ``batch_id``, or ``None`` if not applied.
+
+    The append idempotency lookup (incremental-ingest ADR, A3): a batch is identified
+    by its content fingerprint (:func:`asterism.substrate.batch_fingerprint`), so a
+    re-delivered batch — e.g. a retry after the server applied it but the client timed
+    out reading the response — is recognised here and short-circuited by the caller
+    (no double source accumulation, no double counter bump, no new ``append_seq``)
+    while still returning the original outcome. ``None`` for an unsafe / absent id, an
+    un-appended dataset, or a genuinely new batch.
+    """
+    if not re.fullmatch(r"[a-z0-9-]{1,128}", dataset_id):
+        return None
+    meta_path = root / dataset_id / _META_FILE
+    if not meta_path.is_file():
+        return None
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    for entry in meta.get("appends", []):
+        if isinstance(entry, dict) and entry.get("batch_id") == batch_id:
+            return entry
+    return None
 
 
 def mark_promoted(

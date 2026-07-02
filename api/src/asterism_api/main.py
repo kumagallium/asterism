@@ -873,6 +873,41 @@ def _accumulate_source_batch(sdir: Path, name: str, content: bytes) -> None:
         dest.write_bytes(content)
 
 
+# Per-dataset marker dir (under source/) recording which batch fingerprints have been
+# folded into the persisted source set. A subdirectory (not a *.csv/*.json file), so
+# ``registry.list_source_files`` — which enumerates only source-suffixed files,
+# non-recursively — never picks it up, and a design-time source reset (rmtree of
+# source/) clears it along with the accumulated rows it tracks.
+_APPLIED_BATCHES_DIR = ".applied_batches"
+
+
+def _accumulate_batch_sources(sdir: Path, batch: list[tuple[str, bytes]], batch_id: str) -> None:
+    """Fold a batch's rows into the persisted source set at most once (A7, idempotent).
+
+    Guards :func:`_accumulate_source_batch` with an atomic per-batch marker so a batch
+    already folded is not appended again. The succeeded-then-retry case is
+    short-circuited earlier (by the append log); this covers the narrower case where a
+    *failed* attempt got as far as accumulating the source before erroring — without
+    the guard, the retry would append the same rows a second time and a later snapshot
+    re-ingest would re-materialize duplicates. The marker is created BEFORE the append
+    (``O_EXCL``), favouring "no duplicate rows" — the reported harm — over the
+    vanishingly small window where a crash between the marker and the single append
+    write leaves those rows only in the live graph (recoverable by a snapshot
+    re-baseline, which reads the accumulated source).
+    """
+    sdir.mkdir(parents=True, exist_ok=True)
+    applied = sdir / _APPLIED_BATCHES_DIR
+    applied.mkdir(parents=True, exist_ok=True)
+    marker = applied / batch_id
+    try:
+        fd = os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError:
+        return  # already folded into the source set — idempotent
+    os.close(fd)
+    for name, content in batch:
+        _accumulate_source_batch(sdir, name, content)
+
+
 def _tail_jsonl(path: Path, limit: int) -> list[dict[str, object]]:
     if not path.exists():
         return []
@@ -990,6 +1025,26 @@ async def _append_batch_to_dataset(
     live_graph = await substrate.live_graph_of(client, dataset_key) or dataset_key
     sdir = registry.source_dir(registry_root, dataset_id)
 
+    # Idempotency (ADR incremental-ingest §3 / A3): identify the batch by its content
+    # fingerprint. A re-delivered batch — a retry after the server applied it but the
+    # client timed out reading the 200 — is recognised here and short-circuited, so it
+    # is NOT re-accumulated into the persisted source (a later snapshot re-ingest would
+    # otherwise re-materialize duplicate rows) and its counters/seq are not bumped
+    # again. The graph itself is already dedupe-safe via deterministic IRIs (including
+    # the provenance activity, pinned below to a content-derived run-id).
+    batch_id = substrate.batch_fingerprint(batch)
+    prior = registry.find_append_by_batch_id(registry_root, dataset_id, batch_id)
+    if prior is not None:
+        return {
+            "dataset_id": dataset_id,
+            "live_graph": live_graph,
+            "triples_in_batch": int(prior.get("triples_in_batch", 0)),
+            "append_seq": int(prior.get("seq", 0)),
+            "crosswalk_stale": False,
+            "dataset": meta,
+            "idempotent_replay": True,
+        }
+
     work = Path(tempfile.mkdtemp(prefix="asterism-append-"))
     try:
         provided = {n for n, _ in batch}
@@ -1009,7 +1064,16 @@ async def _append_batch_to_dataset(
                 with persisted.open("rb") as fh:
                     (work / src).write_bytes(fh.readline())
         try:
-            result = await substrate.run_append_ingest(rml_ttl, work, client, live_graph)
+            # Pin the {__run_id__} provenance activity to a content-derived run-id so a
+            # retried batch re-mints the SAME activity IRI (dedupe) instead of orphaning
+            # the prior attempt's activity/provenance subtree in the live graph.
+            result = await substrate.run_append_ingest(
+                rml_ttl,
+                work,
+                client,
+                live_graph,
+                run_id=substrate.run_id_for_batch(batch_id),
+            )
         except substrate.RmlValidationError as exc:  # malformed design vs real data
             raise AppendError(422, "; ".join(exc.issues)) from exc
         except RuntimeError as exc:  # morph-kgc missing / materialization failed
@@ -1017,10 +1081,12 @@ async def _append_batch_to_dataset(
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
-    # Accumulate the batch into the persisted source set (additive, A7).
+    # Accumulate the batch into the persisted source set (additive, A7) — once. The
+    # succeeded-then-retry case is already short-circuited above; this guards the
+    # narrower case where a FAILED attempt got as far as accumulating the source before
+    # erroring, so a retry does not append the same rows twice.
     if sdir is not None:
-        for name, content in batch:
-            await asyncio.to_thread(_accumulate_source_batch, sdir, name, content)
+        await asyncio.to_thread(_accumulate_batch_sources, sdir, batch, batch_id)
     all_files = [p.name for p in registry.list_source_files(registry_root, dataset_id)]
 
     triples_in_batch = int(result["triples_in_batch"])
@@ -1033,6 +1099,7 @@ async def _append_batch_to_dataset(
         triples_in_batch=triples_in_batch,
         appended_at=datetime.now(UTC).isoformat(),
         append_seq=append_seq,
+        batch_id=batch_id,
     )
     # crosswalk-hub.md ②: the hub is a derived projection over the canonical scope;
     # this append may have introduced new shared values. Mark stale ONLY if the
@@ -1047,6 +1114,7 @@ async def _append_batch_to_dataset(
         "append_seq": append_seq,
         "crosswalk_stale": crosswalk_stale,
         "dataset": new_meta,
+        "idempotent_replay": False,
     }
 
 
@@ -1149,6 +1217,12 @@ async def _append_document_to_dataset(
 
     all_files = [p.name for p in registry.list_source_files(registry_root, dataset_id)]
     append_seq = registry.next_append_seq(registry_root, dataset_id)
+    # The document's content fingerprint as the append idempotency key (parallel to the
+    # CSV/RML path). A document dataset is already graph-idempotent (paper_iri is
+    # content-derived) and source-idempotent (each doc persists by filename overwrite,
+    # not row accumulation), so this records the key without a short-circuit — no
+    # duplicate rows can accrue, unlike the growing CSV source.
+    batch_id = substrate.batch_fingerprint([(xml_name, xml_text.encode("utf-8"))])
     new_meta = registry.mark_appended(
         registry_root,
         dataset_id,
@@ -1157,6 +1231,7 @@ async def _append_document_to_dataset(
         triples_in_batch=triples,
         appended_at=datetime.now(UTC).isoformat(),
         append_seq=append_seq,
+        batch_id=batch_id,
     )
     return {
         "dataset_id": dataset_id,
