@@ -9,6 +9,7 @@ browser-supplied key still wins.
 from __future__ import annotations
 
 import json
+import stat
 from pathlib import Path
 
 import httpx
@@ -18,7 +19,7 @@ from fastapi.testclient import TestClient
 from asterism_api import main as main_mod
 from asterism_api import server_keys
 from asterism_api.main import _llm_coords, build_app
-from tests.test_main import _mock_client, _settings
+from tests.test_main import _AUTH, _mock_client, _settings
 
 _PROVIDER_ENVS = (
     "ASTERISM_LLM_KEY_ANTHROPIC",
@@ -128,3 +129,86 @@ def test_models_available_uses_server_key(
         r = client.post("/api/models/available", json={"provider": "anthropic"})  # no api_key
         assert r.status_code == 200
         assert seen["key"] == "sk-op"  # fell back to the operator key
+
+
+# --- file store (UI-set shared keys) ------------------------------------------
+
+
+def test_set_and_resolve_file_store(tmp_path: Path) -> None:
+    server_keys.set_server_key(tmp_path, "anthropic", "sk-file")
+    assert server_keys.resolve("anthropic", tmp_path) == ("sk-file", None)
+    assert server_keys.server_key_for("anthropic", tmp_path) == "sk-file"
+
+
+def test_file_store_wins_over_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ASTERISM_LLM_KEY_ANTHROPIC", "sk-env")
+    server_keys.set_server_key(tmp_path, "anthropic", "sk-file")
+    assert server_keys.server_key_for("anthropic", tmp_path) == "sk-file"
+
+
+def test_set_blank_clears(tmp_path: Path) -> None:
+    server_keys.set_server_key(tmp_path, "anthropic", "sk-file")
+    server_keys.set_server_key(tmp_path, "anthropic", "")
+    assert server_keys.server_key_for("anthropic", tmp_path) is None
+
+
+def test_openai_compatible_pins_base(tmp_path: Path) -> None:
+    server_keys.set_server_key(tmp_path, "openai-compatible", "sk-c", "https://api.x/v1")
+    assert server_keys.resolve("openai-compatible", tmp_path) == ("sk-c", "https://api.x/v1")
+
+
+def test_store_file_is_0600(tmp_path: Path) -> None:
+    server_keys.set_server_key(tmp_path, "anthropic", "sk-file")
+    mode = stat.S_IMODE((tmp_path / "_llm" / "server_keys.json").stat().st_mode)
+    assert mode == 0o600
+
+
+def test_coords_pins_openai_compatible_base(tmp_path: Path) -> None:
+    server_keys.set_server_key(tmp_path, "openai-compatible", "sk-c", "https://pinned/v1")
+    # No request key + a user-controlled base → the pinned base wins (no leak).
+    _provider, _model, api_base, key = _llm_coords(
+        None, "openai-compatible", None, "https://user-controlled/v1", tmp_path
+    )
+    assert key == "sk-c"
+    assert api_base == "https://pinned/v1"
+
+
+# --- POST /api/llm/server-keys (write-gated) ----------------------------------
+
+
+def test_post_sets_key_and_get_reflects(tmp_path: Path) -> None:
+    app = build_app(_settings(tmp_path), oxigraph_client=_healthy(tmp_path), start_watcher=False)
+    with TestClient(app) as client:
+        r = client.post(
+            "/api/llm/server-keys",
+            json={"provider": "anthropic", "api_key": "sk-op"},
+            headers=_AUTH,
+        )
+        assert r.status_code == 200
+        assert r.json()["providers"]["anthropic"] is True
+        assert client.get("/api/llm/server-keys").json()["providers"]["anthropic"] is True
+        # Blank key clears it.
+        client.post(
+            "/api/llm/server-keys", json={"provider": "anthropic", "api_key": ""}, headers=_AUTH
+        )
+        assert client.get("/api/llm/server-keys").json()["providers"]["anthropic"] is False
+
+
+def test_post_requires_write_auth(tmp_path: Path) -> None:
+    app = build_app(_settings(tmp_path), oxigraph_client=_healthy(tmp_path), start_watcher=False)
+    with TestClient(app) as client:
+        r = client.post(
+            "/api/llm/server-keys", json={"provider": "anthropic", "api_key": "sk-op"}
+        )  # no token
+        assert r.status_code == 401
+
+
+def test_post_openai_compatible_requires_base(tmp_path: Path) -> None:
+    app = build_app(_settings(tmp_path), oxigraph_client=_healthy(tmp_path), start_watcher=False)
+    with TestClient(app) as client:
+        r = client.post(
+            "/api/llm/server-keys",
+            json={"provider": "openai-compatible", "api_key": "sk-c"},  # no api_base
+            headers=_AUTH,
+        )
+        assert r.status_code == 400
