@@ -2,7 +2,7 @@
 concept-bearing predicate per dataset. The LLM is faked here (no network)."""
 from __future__ import annotations
 
-from asterism_step0.crosswalk_propose import propose_crosswalk_mapping
+from asterism_step0.crosswalk_propose import _SYSTEM, propose_crosswalk_mapping
 
 _DATASETS = [
     {
@@ -69,3 +69,21 @@ def test_tolerates_code_fence_and_passes_samples() -> None:
     user = llm.calls[0][1]
     # samples + candidate IRIs reached the model
     assert "Bi2Te3" in user and "compositionString" in user
+
+
+def test_language_rides_user_message_only() -> None:
+    """language= appends the Output-language block to the USER message; the
+    cacheable system prompt stays byte-stable (prompt-caching contract)."""
+    llm = _FakeLLM('{"participants": []}')
+    propose_crosswalk_mapping(llm, concept="composition", datasets=_DATASETS, language="ja")
+    system, user = llm.calls[0]
+    assert "# Output language" in user
+    assert "Japanese (日本語)" in user
+    assert system == _SYSTEM
+    assert "# Output language" not in system
+
+
+def test_no_language_keeps_legacy_message() -> None:
+    llm = _FakeLLM('{"participants": []}')
+    propose_crosswalk_mapping(llm, concept="composition", datasets=_DATASETS)
+    assert "# Output language" not in llm.calls[0][1]

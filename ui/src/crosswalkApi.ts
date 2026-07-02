@@ -200,7 +200,8 @@ export async function proposeCrosswalkMapping(
   const res = await fetch(`${API_BASE}/api/crosswalk/propose`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...llmHeaders(creds), ...authHeaders() },
-    body: JSON.stringify({ dataset_ids: datasetIds, concept }),
+    // The "why" reasons follow the UI language; predicate IRIs stay verbatim.
+    body: JSON.stringify({ dataset_ids: datasetIds, concept, language: i18n.language || undefined }),
   })
   if (!res.ok) throw await asError(res, i18n.t('crosswalk:error.ops.propose'))
   return (await res.json()) as ProposeResult

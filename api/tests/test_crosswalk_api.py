@@ -280,8 +280,10 @@ def test_normalizer_recipe_endpoints(tmp_path: Path) -> None:
 class _MockLLM:
     def __init__(self, response: str) -> None:
         self.response = response
+        self.calls: list[tuple[str, str]] = []
 
     def complete(self, system_prompt: str, user_message: str) -> str:
+        self.calls.append((system_prompt, user_message))
         return self.response
 
 
@@ -314,6 +316,30 @@ def test_propose_suggests_predicates(tmp_path: Path) -> None:
         }
         # The store-sampled candidates are returned so the UI can populate dropdowns.
         assert any(c["dataset_id"] == "ds-a" for c in body["candidates"])
+
+
+def test_propose_forwards_language_to_llm(tmp_path: Path) -> None:
+    # body.language reaches the LLM's USER message (the "why" prose follows the UI
+    # language); the system prompt stays free of the directive (prompt caching).
+    ds = rdflib.Dataset()
+    _seed_promoted(ds, tmp_path / "registry", "ds-a", [("urn:a1", "Bi2Te3")])
+    llm = _MockLLM('{"participants": []}')
+    app = build_app(
+        _settings(tmp_path),
+        oxigraph_client=_DatasetClient(ds),
+        start_watcher=False,
+        llm_factory=lambda key: llm,
+    )
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/crosswalk/propose",
+            json={"dataset_ids": ["ds-a"], "concept": "composition", "language": "ja"},
+            headers={"X-API-Key": "sk-test"},
+        )
+        assert r.status_code == 200, r.text
+        system, user = llm.calls[0]
+        assert "# Output language" in user and "Japanese (日本語)" in user
+        assert "# Output language" not in system
 
 
 def test_propose_requires_key(tmp_path: Path) -> None:
