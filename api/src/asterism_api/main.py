@@ -86,10 +86,9 @@ from fastapi import Path as PathParam
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
-from asterism_api import design_loop, registry
+from asterism_api import design_loop, registry, server_keys
 from asterism_api import usage as usage_ledger
 from asterism_api.jobs import JobManager
-from asterism_api.server_keys import configured_providers, server_key_for
 
 
 class RefineRequest(BaseModel):
@@ -239,6 +238,17 @@ class ModelsAvailableBody(BaseModel):
     api_base: str | None = None
 
 
+class ServerKeyBody(BaseModel):
+    """Body for POST /api/llm/server-keys — set/clear the shared server-side key.
+
+    A blank ``api_key`` clears the provider's key. ``api_base`` is required for
+    openai-compatible (the endpoint the shared key is pinned to)."""
+
+    provider: str = "anthropic"
+    api_key: str = ""
+    api_base: str | None = None
+
+
 def _validate_llm_api_base(api_base: str) -> None:
     """Fail-closed SSRF guard for a user-supplied OpenAI-compatible base URL.
 
@@ -279,18 +289,24 @@ def _llm_coords(
     x_llm_provider: str | None,
     x_llm_model: str | None,
     x_llm_api_base: str | None,
+    registry_root: Path | str | None = None,
 ) -> tuple[str, str | None, str | None, str | None]:
     """Resolve the per-request LLM coordinates from headers.
 
     Absent ``X-LLM-Provider`` → ``"anthropic"`` so requests that send only the
     legacy ``X-API-Key`` keep the exact Anthropic-default behavior. When the
-    request carries no key, fall back to the operator's server-side key for the
-    provider (``ASTERISM_LLM_KEY_<PROVIDER>``) — unset by default, so a
-    browser-brought key still wins and is still required unless the operator
-    opts in (see :mod:`asterism_api.server_keys`)."""
+    request carries no key, fall back to the operator's server-side key (UI/file
+    store first, then ``ASTERISM_LLM_KEY_<PROVIDER>``) — unset by default, so a
+    browser-brought key still wins and is still required unless the operator opts
+    in. For an openai-compatible shared key the stored ``api_base`` is PINNED
+    (overrides the request's base) so the shared key is never sent to a
+    user-controlled endpoint (see :mod:`asterism_api.server_keys`)."""
     provider = (x_llm_provider or "anthropic").strip().lower() or "anthropic"
-    key = x_api_key or server_key_for(provider)
-    return provider, (x_llm_model or None), (x_llm_api_base or None), key
+    if x_api_key:
+        return provider, (x_llm_model or None), (x_llm_api_base or None), x_api_key
+    key, pinned_base = server_keys.resolve(provider, registry_root)
+    api_base = pinned_base or (x_llm_api_base or None)
+    return provider, (x_llm_model or None), api_base, key
 
 
 def _record_llm_usage(
@@ -1572,13 +1588,18 @@ def build_app(
         key). ``api_base`` is SSRF-guarded for openai-compatible providers.
         """
         provider = (body.provider or "anthropic").strip().lower()
-        if body.api_base and provider not in ("", "anthropic", "claude"):
-            _validate_llm_api_base(body.api_base)
-        api_key = body.api_key or server_key_for(provider)
+        api_key = body.api_key
+        api_base = body.api_base
+        if not api_key:
+            # Fall back to the operator's shared key; for openai-compatible use its
+            # PINNED base (not the request's) so the shared key is never sent out.
+            api_key, pinned = server_keys.resolve(provider, cfg.registry_root)
+            if pinned:
+                api_base = pinned
+        if api_base and provider not in ("", "anthropic", "claude"):
+            _validate_llm_api_base(api_base)
         try:
-            models = list_available_models(
-                provider, api_key=api_key, api_base=body.api_base
-            )
+            models = list_available_models(provider, api_key=api_key, api_base=api_base)
         except HTTPException:
             raise
         except ValueError as exc:
@@ -1593,9 +1614,39 @@ def build_app(
 
         Booleans only — never the key. Lets the UI let a user proceed (and fetch
         models / Ask / propose) without typing a key when the server already has
-        one for that provider. Read-open (reveals no secret); all-false unless the
-        operator set ``ASTERISM_LLM_KEY_<PROVIDER>`` (opt-in)."""
-        return JSONResponse({"providers": configured_providers()})
+        one for that provider. Read-open (reveals no secret); all-false unless a
+        key was set via env or ``POST /api/llm/server-keys`` (opt-in)."""
+        return JSONResponse(
+            {"providers": server_keys.configured_providers(cfg.registry_root)}
+        )
+
+    @app.post("/api/llm/server-keys", dependencies=_write_auth)
+    def set_llm_server_key(body: ServerKeyBody) -> JSONResponse:
+        """Set (blank key = clear) the shared server-side key for a provider.
+
+        Write-gated (login + ``ASTERISM_API_TOKEN``) — same trust as the other
+        write routes (on the deployed box the SPA sends the token for any
+        logged-in user). Persisted server-side and never returned. For
+        openai-compatible the ``api_base`` is required + SSRF-guarded and gets
+        pinned to the key. Returns the updated booleans (never the key)."""
+        provider = (body.provider or "").strip().lower()
+        if provider not in server_keys.PROVIDERS:
+            raise HTTPException(400, f"unknown provider: {body.provider!r}")
+        key = (body.api_key or "").strip()
+        base = (body.api_base or "").strip() or None
+        if key and provider == "openai-compatible":
+            if not base:
+                raise HTTPException(
+                    400, "openai-compatible の共有キーには endpoint (api_base) が必要です"
+                )
+            _validate_llm_api_base(base)
+        try:
+            server_keys.set_server_key(cfg.registry_root, provider, key, base)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return JSONResponse(
+            {"providers": server_keys.configured_providers(cfg.registry_root)}
+        )
 
     @app.post("/api/propose")
     async def propose(
@@ -1651,7 +1702,7 @@ def build_app(
             paths.append(dest)
 
         provider, model, api_base, key = _llm_coords(
-            x_api_key, x_llm_provider, x_llm_model, x_llm_api_base
+            x_api_key, x_llm_provider, x_llm_model, x_llm_api_base, cfg.registry_root
         )
         llm = _resolve_llm(provider, model, api_base, key)
         fk_cols = fk or None
@@ -1733,7 +1784,7 @@ def build_app(
             raise HTTPException(400, "at least one non-empty comment is required")
 
         provider, model, api_base, key = _llm_coords(
-            x_api_key, x_llm_provider, x_llm_model, x_llm_api_base
+            x_api_key, x_llm_provider, x_llm_model, x_llm_api_base, cfg.registry_root
         )
         llm = _resolve_llm(provider, model, api_base, key)
 
@@ -2033,7 +2084,7 @@ def build_app(
             raise HTTPException(400, "intent is required")
         arts = data["artifacts"]
         provider, model, api_base, key = _llm_coords(
-            x_api_key, x_llm_provider, x_llm_model, x_llm_api_base
+            x_api_key, x_llm_provider, x_llm_model, x_llm_api_base, cfg.registry_root
         )
         if not key:
             raise HTTPException(
@@ -2816,7 +2867,7 @@ def build_app(
         if not body.dataset_ids:
             raise HTTPException(400, "dataset_ids is required")
         provider, model, api_base, api_key_val = _llm_coords(
-            x_api_key, x_llm_provider, x_llm_model, x_llm_api_base
+            x_api_key, x_llm_provider, x_llm_model, x_llm_api_base, cfg.registry_root
         )
         if not api_key_val:
             raise HTTPException(

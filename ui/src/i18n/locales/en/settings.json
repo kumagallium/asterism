@@ -72,5 +72,15 @@
     "openSettings": "Open settings",
     "noKey": "The active model has no API key set.",
     "serverKey": "server default key"
+  },
+  "serverKeys": {
+    "title": "Shared key for this instance (stored server-side, used by everyone)",
+    "intro": "A key set here is stored on the server and used by users who haven't entered one (any logged-in user can set it). The value is never shown. For OpenAI-compatible the endpoint is pinned alongside it.",
+    "set": "set",
+    "unset": "not set",
+    "keyPlaceholder": "API key (Save to apply; use Clear to remove)",
+    "basePlaceholder": "Endpoint (base URL)",
+    "save": "Save",
+    "clear": "Clear"
   }
 }

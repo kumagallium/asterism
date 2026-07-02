@@ -232,6 +232,74 @@
   margin-top: 6px;
   width: 100%;
 }
+.serverkeys {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.serverkeys-title {
+  margin: 0 0 4px;
+  font-size: 0.9rem;
+  color: var(--fg);
+}
+.serverkey-row {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-alt);
+}
+.serverkey-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.serverkey-name {
+  font-weight: 600;
+  font-size: 0.86rem;
+  color: var(--fg);
+}
+.serverkey-status {
+  font-size: 0.72rem;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+}
+.serverkey-status.ok {
+  border-color: var(--success-border);
+  color: var(--fg);
+}
+.serverkey-status.off {
+  color: var(--faint);
+}
+.serverkey-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.serverkey-controls input {
+  flex: 1;
+  min-width: 0;
+}
+.serverkey-base {
+  width: 100%;
+  margin-bottom: 6px;
+}
+.serverkey-base,
+.serverkey-controls input {
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--fg);
+}
+.serverkey-controls button {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
 .field-check {
   display: flex;
   align-items: center;
