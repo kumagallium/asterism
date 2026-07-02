@@ -833,9 +833,25 @@ async def live_graph_of(client: SupportsSparql, dataset_key: str) -> str | None:
 
 async def set_staged_graph(
     client: SupportsSparql, dataset_key: str, staged_iri: str
-) -> None:
-    """Record the just-ingested (not-yet-citable) version graph for ``dataset_key``."""
+) -> str | None:
+    """Record the just-ingested (not-yet-citable) version graph for ``dataset_key``.
+
+    Returns the *superseded* staged version graph — now enqueued for a background
+    drop — or ``None`` if there was none. A re-ingest before promotion overwrites
+    this pointer; a set staged pointer always names an *un-promoted* version (promote
+    clears it), so no ``liveGraph`` ever pointed at the old one and, left un-reclaimed,
+    it would leak unbounded — the re-ingest-after-a-misread-disconnect case that makes
+    version graphs pile up. Symmetric with :func:`promote_to_canonical`, which already
+    enqueues a superseded *live* graph. Dropping the old staged graph cannot affect a
+    reader: it was never citable. No-op enqueue when the pointer is unchanged (the same
+    version re-recorded), so it never drops the graph it is currently pointing at.
+    """
+    prior = await _control_iri_object(client, dataset_key, STAGED_GRAPH_PREDICATE)
     await _set_control_iri(client, dataset_key, STAGED_GRAPH_PREDICATE, staged_iri)
+    if prior and prior != staged_iri:
+        await mark_pending_drop(client, prior)
+        return prior
+    return None
 
 
 async def clear_staged_graph(client: SupportsSparql, dataset_key: str) -> None:
@@ -938,6 +954,108 @@ async def sweep_pending_drops(client: SupportsSparql, *, limit: int = 50) -> lis
         await _clear_control_predicate(client, g, PENDING_DROP_PREDICATE)
         done.append(g)
     return done
+
+
+# --- orphan reclamation (part5): version graphs no pointer references ------------
+#
+# A versioned data graph ``…/canonical/{id}/v{n}`` is created by an ingest and becomes
+# referenced by ``stagedGraph`` (at ingest) then ``liveGraph`` (at promote). A version
+# that NEITHER pointer names is an orphan: a re-ingest before promotion whose old staged
+# pointer was overwritten, a crash partial left before its staged pointer was written,
+# or a deleted dataset's leftover version. All are safe to reclaim — a never-referenced
+# version was never live/citable. ``set_staged_graph`` / ``promote_to_canonical`` enqueue
+# the version they supersede at the source; the reconciliation below is the startup
+# safety net that also catches an orphan from a crash in the gap *before* a pointer was
+# written, and any orphan that predates this machinery (a store that leaked before it).
+
+# A versioned data graph's IRI ends in ``/v<digits>`` — distinguishes it from the
+# per-dataset key graph ``canonical/{id}`` and the ``canonical/legacy`` graph.
+_VERSION_SUFFIX_RE: str = "/v[0-9]+$"
+
+
+async def all_version_graphs(
+    client: SupportsSparql, *, dataset_id: str | None = None
+) -> list[str]:
+    """Enumerate versioned data graphs ``…/canonical/{id}/v{n}`` in the store, sorted.
+
+    Scoped to one ``dataset_id`` when given (delete reclaims every version of the
+    dataset it removes); otherwise every dataset's versions (startup reconciliation).
+    Enumerates via the graph-name index (empty group ``GRAPH ?g {}`` + a name filter),
+    NOT a triple scan, so it stays O(#graphs) even against a multi-million-triple store
+    (the property that made the old name-scan slow — see :func:`canonical_graphs`). The
+    ``/v<digits>`` filter matches only version graphs, so the per-dataset key graph
+    (``canonical/{id}``) and the ``legacy`` graph are never returned.
+    """
+    if dataset_id is not None:
+        if not _DATASET_ID.match(dataset_id):
+            raise ValueError(f"unsafe dataset_id for graph IRI: {dataset_id!r}")
+        prefix = f"{CANONICAL_GRAPH_BASE}{dataset_id}/v"
+    else:
+        prefix = CANONICAL_GRAPH_BASE
+    q = (
+        "SELECT DISTINCT ?g WHERE { "
+        "GRAPH ?g {} "
+        f'FILTER(STRSTARTS(STR(?g), "{prefix}") && REGEX(STR(?g), "{_VERSION_SUFFIX_RE}")) '
+        "} ORDER BY ?g"
+    )
+    data = await client.sparql_select(q)
+    results = data.get("results", {}) if isinstance(data, dict) else {}
+    out: list[str] = []
+    for b in results.get("bindings", []):
+        v = b.get("g", {})
+        if v.get("type") == "uri":
+            out.append(v["value"])
+    return out
+
+
+async def referenced_version_graphs(client: SupportsSparql) -> set[str]:
+    """Every version graph a ``liveGraph`` or ``stagedGraph`` pointer currently names.
+
+    These must never be reclaimed: ``liveGraph`` is the citable data, ``stagedGraph``
+    is an ingested version awaiting a promote gate. Read from the control graph
+    (O(#datasets), no triple scan). Both pointers survive a restart (the control graph
+    is durable), so a legitimately-staged-awaiting-promote version is never mistaken for
+    an orphan after a restart.
+    """
+    q = (
+        "SELECT DISTINCT ?g WHERE { "
+        f"GRAPH <{CONTROL_GRAPH_IRI}> {{ "
+        "?c ?p ?g . "
+        f"FILTER(?p = <{LIVE_GRAPH_PREDICATE}> || ?p = <{STAGED_GRAPH_PREDICATE}>) "
+        "} }"
+    )
+    data = await client.sparql_select(q)
+    results = data.get("results", {}) if isinstance(data, dict) else {}
+    out: set[str] = set()
+    for b in results.get("bindings", []):
+        v = b.get("g", {})
+        if v.get("type") == "uri":
+            out.add(v["value"])
+    return out
+
+
+async def reconcile_orphan_versions(client: SupportsSparql) -> list[str]:
+    """Enqueue for a background drop every version graph no pointer references.
+
+    The startup safety net for the part5 versioned-graph scheme: a re-ingest before
+    promotion, a crash before the staged pointer was written, or a deleted dataset can
+    leave a ``…/canonical/{id}/v{n}`` graph that neither ``liveGraph`` nor ``stagedGraph``
+    names. Such a version was never citable, so reclaiming it cannot affect a reader.
+    Returns the orphan IRIs enqueued (the sweeper drops them off the request path).
+
+    **Run at startup only.** It infers "referenced by no pointer" ⇒ "orphan", which holds
+    only when no ingest is in flight — an ingest streams into its version graph *before*
+    writing the staged pointer, so a concurrent reconciliation could mistake an in-flight
+    target for an orphan and drop it mid-stream. At startup (before the server accepts
+    requests) there is no in-flight ingest, so the inference is sound. Idempotent: an
+    already-queued graph is re-marked harmlessly.
+    """
+    versions = set(await all_version_graphs(client))
+    referenced = await referenced_version_graphs(client)
+    orphans = sorted(versions - referenced)
+    for g in orphans:
+        await mark_pending_drop(client, g)
+    return orphans
 
 
 # ----------------------------------------------------------------------------

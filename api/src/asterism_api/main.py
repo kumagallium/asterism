@@ -1493,6 +1493,19 @@ def build_app(
                     await substrate.mark_graph_promoted(
                         client, cg, live_graph=meta.get("live_graph")
                     )
+            # part5 storage reclaim: enqueue any orphaned version graph — a
+            # `canonical/{id}/v{n}` that neither a liveGraph nor a stagedGraph pointer
+            # names. A re-ingest that overwrote its staged pointer, a crash partial left
+            # before the staged pointer was written, a deleted dataset's leftover
+            # version, or an orphan that predates this reclamation all end up here. It is
+            # sound only because startup has no ingest in flight (an in-flight target has
+            # no pointer yet); it runs before the server accepts requests. Idempotent;
+            # the sweeper drops the enqueued graphs off the request path.
+            orphans = await substrate.reconcile_orphan_versions(client)
+            if orphans:
+                logger.info(
+                    "enqueued %d orphaned version graph(s) for reclaim", len(orphans)
+                )
         except Exception:  # never block startup on the migration / backfill
             logger.exception(
                 "default->canonical/legacy migration or promote-flag backfill failed (continuing)"
@@ -2456,8 +2469,15 @@ def build_app(
         # until promote swaps the live pointer; it is dropped in the background
         # afterwards). The version graph stays out of the Ask scope until promote
         # points the dataset's liveGraph at it (draft isolation, flag-based).
+        #
+        # `reserve_data_seq` (not `next_data_seq`) *persists* the number now, so every
+        # attempt — even one whose predecessor was killed / cancelled before its
+        # cleanup ran — gets a fresh, empty version graph. A retry therefore never
+        # streams into a partial left by a prior attempt (no stale-row / duplicate-
+        # activity merge); the abandoned version is reclaimed by the failure-path drop
+        # below or by startup reconciliation.
         dataset_key = substrate.canonical_graph_iri(dataset_id)
-        data_seq = registry.next_data_seq(cfg.registry_root, dataset_id)
+        data_seq = registry.reserve_data_seq(cfg.registry_root, dataset_id)
         staged_iri = substrate.versioned_graph_iri(dataset_id, data_seq)
         client: OxigraphClient = app.state.client
 
@@ -2804,6 +2824,12 @@ def build_app(
         staged = meta.get("graph_iri")
         if meta.get("ingested") and staged:
             to_drop.add(staged)
+        # part5: also reclaim EVERY version graph of this dataset — a re-ingest before
+        # promotion leaves superseded `…/v{n}` versions that neither the live nor the
+        # staged pointer names, so the two adds above would miss them. Enumerated by the
+        # graph-name index (cheap), so delete stays complete without waiting for a
+        # restart's reconciliation pass.
+        to_drop.update(await substrate.all_version_graphs(client, dataset_id=dataset_id))
         for g in sorted(to_drop):
             await substrate.mark_pending_drop(client, g)
         if promoted:
