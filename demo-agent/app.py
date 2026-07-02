@@ -60,6 +60,17 @@ _ASK_MAX_STEPS = 5  # max run_sparql tool calls before we force an answer
 _USAGE_API_URL = (os.environ.get("ASTERISM_API_URL") or "").strip().rstrip("/")
 _USAGE_API_TOKEN = os.environ.get("ASTERISM_API_TOKEN")
 
+
+def _server_llm_key(provider: str | None) -> str | None:
+    """Operator fallback LLM key for Ask, or ``None`` (opt-in, off by default).
+
+    Mirrors the api's ``ASTERISM_LLM_KEY_<PROVIDER>`` scheme
+    (``asterism_api.server_keys``) so a Private, login-gated instance can hold
+    keys once and users need not type one to Ask. Unset by default → ``None`` →
+    the free deterministic typed showcase stays the no-key behavior."""
+    slug = (provider or "anthropic").strip().lower().replace("-", "_")
+    return (os.environ.get(f"ASTERISM_LLM_KEY_{slug.upper()}") or "").strip() or None
+
 app = FastAPI(title=f"asterism demo-agent ({'real' if _REAL else 'mock'})")
 
 # CORS: only the configured UI origin(s) may read our responses cross-origin. A
@@ -925,14 +936,18 @@ async def ask(
     # keyword router for exploration: a "ZT by crystal structure" question is no
     # longer short-circuited to a single-property ranking. The provider/model come
     # from the active model selected in Settings (absent → Anthropic default).
-    if x_api_key:
-        provider = (x_llm_provider or "anthropic").strip().lower() or "anthropic"
+    provider = (x_llm_provider or "anthropic").strip().lower() or "anthropic"
+    # No browser key → fall back to the operator's server-side key (opt-in). This
+    # is what lets a login-gated instance answer general questions without each
+    # user pasting a key.
+    key = x_api_key or _server_llm_key(provider)
+    if key:
         model = x_llm_model or (
             _OPENAI_ASK_MODEL if provider in _OPENAI_PROVIDERS else _ASK_MODEL
         )
         answer, usage = await _llm_answer_via(
             req.question,
-            x_api_key,
+            key,
             provider=provider,
             model=model,
             api_base=x_llm_api_base,

@@ -7,7 +7,7 @@ import { useLlmSettings } from './context'
 // when not. Used by every LLM-invoking view so keys live in one place.
 export function LlmGate() {
   const { t } = useTranslation('settings')
-  const { isReady, activeModel, openSettings } = useLlmSettings()
+  const { isReady, activeModel, activeUsesServerKey, openSettings } = useLlmSettings()
 
   if (isReady && activeModel) {
     return (
@@ -16,6 +16,9 @@ export function LlmGate() {
         <span className="llm-gate-text">
           {t('gate.using')}
           <strong className="llm-gate-model">{activeModel.name}</strong>
+          {activeUsesServerKey && (
+            <span className="llm-gate-serverkey">{t('gate.serverKey')}</span>
+          )}
         </span>
         <button type="button" className="llm-gate-link" onClick={openSettings}>
           {t('gate.change')}
