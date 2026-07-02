@@ -1,5 +1,19 @@
 # Changelog
 
+## [v0.7.0](https://github.com/kumagallium/asterism/compare/v0.6.0...v0.7.0) - 2026-07-02
+
+- feat(ui): v2 UX redesign — visibility, object-axis IA, dataset tabs, ScreenGround/Map by @kumagallium in https://github.com/kumagallium/asterism/pull/232
+- feat: マルチプロバイダ LLM + 設定UI + API使用量計測 by @kumagallium in https://github.com/kumagallium/asterism/pull/234
+- infra: 本番デプロイ構成（Private 完結・1箱バンドル） by @kumagallium in https://github.com/kumagallium/asterism/pull/235
+- infra(caddy): 認証済みリクエストに書き込みトークン注入（#235 follow-up） by @kumagallium in https://github.com/kumagallium/asterism/pull/236
+- 設計品質ループの改善を main へ追従（検証/再設計/自動修正/RML 堅牢化） by @kumagallium in https://github.com/kumagallium/asterism/pull/237
+- 設計検証を新規設計でも効かせる（attach 後の read-only 検証エンドポイント） by @kumagallium in https://github.com/kumagallium/asterism/pull/238
+- propose 自己修正ループ（設計品質の底上げ・TODO ④） by @kumagallium in https://github.com/kumagallium/asterism/pull/239
+- feat(settings): モデルピッカー — プロバイダから利用可能モデル一覧を取得 by @kumagallium in https://github.com/kumagallium/asterism/pull/240
+- feat(settings): サーバ側運用者 LLM キー（opt-in）＋ APIキー欄を endpoint 直下へ by @kumagallium in https://github.com/kumagallium/asterism/pull/242
+- fix(settings): モデルピッカーで一覧から選び直せない問題を修正 by @kumagallium in https://github.com/kumagallium/asterism/pull/243
+- fix(workbench): リトライのたびに重複データセットが増えるバグ — 初回保存の id を採用して in-place 更新に by @kumagallium in https://github.com/kumagallium/asterism/pull/241
+
 ## [v0.6.0](https://github.com/kumagallium/asterism/compare/v0.5.0...v0.6.0) - 2026-06-16
 
 - feat(documents): ingest born-digital PDF via an isolated Docling sidecar by @kumagallium in https://github.com/kumagallium/asterism/pull/227
