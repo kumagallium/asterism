@@ -232,6 +232,9 @@ function ModelForm({
   const providerMeta = PROVIDERS.find((p) => p.id === provider)
   const needsApiBase = providerMeta?.needsApiBase ?? false
   const baseNormalized = apiBase.trim() || null
+  // When the server has an operator key for this provider, a browser key is
+  // optional: the fetch button and LLM calls fall back to the server key.
+  const providerHasServerKey = settings.hasServerKey(provider)
 
   // A fetched list belongs to one provider+endpoint; drop it (and any error) so
   // the datalist never offers a different provider's model ids. Called from the
@@ -346,6 +349,20 @@ function ModelForm({
       </label>
 
       <label className="field">
+        <span>{t('form.apiKey')}</span>
+        <input
+          type="password"
+          value={apiKey}
+          autoComplete="off"
+          placeholder={apiKeyPlaceholder(provider)}
+          onChange={(e) => setApiKey(e.target.value)}
+        />
+        {providerHasServerKey && !apiKey.trim() && (
+          <p className="field-help">{t('form.apiKeyServerHint')}</p>
+        )}
+      </label>
+
+      <label className="field">
         <span>{t('form.modelId')}</span>
         <div className="model-id-row">
           <input
@@ -359,7 +376,11 @@ function ModelForm({
             type="button"
             className="btn--ghost"
             onClick={onFetchModels}
-            disabled={fetchingModels || !apiKey.trim() || (needsApiBase && baseNormalized === null)}
+            disabled={
+              fetchingModels ||
+              (needsApiBase && baseNormalized === null) ||
+              (!apiKey.trim() && !providerHasServerKey)
+            }
           >
             {fetchingModels ? t('form.fetchingModels') : t('form.fetchModels')}
           </button>
@@ -386,17 +407,6 @@ function ModelForm({
           value={name}
           placeholder={idTrimmed || t('form.namePlaceholder')}
           onChange={(e) => setName(e.target.value)}
-        />
-      </label>
-
-      <label className="field">
-        <span>{t('form.apiKey')}</span>
-        <input
-          type="password"
-          value={apiKey}
-          autoComplete="off"
-          placeholder={apiKeyPlaceholder(provider)}
-          onChange={(e) => setApiKey(e.target.value)}
         />
       </label>
 

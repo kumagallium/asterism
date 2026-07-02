@@ -3,10 +3,11 @@
 // clients are plain functions, so components read `getActiveCredentials()` (via
 // useLlmSettings) and pass the result through `llmHeaders(creds)` on the call.
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { SettingsModal } from './SettingsModal'
 import { type LlmSettings, SettingsCtx } from './context'
+import { fetchServerKeyProviders, type ServerKeyProviders } from './serverKeysApi'
 import {
   getKey,
   groupOfModel,
@@ -23,6 +24,19 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const [keysVersion, setKeysVersion] = useState(0)
   // The modal is owned here so any view can open it via openSettings().
   const [modalOpen, setModalOpen] = useState(false)
+  // Which providers the server has an operator key for (Option A). Fetched once;
+  // {} until then / on failure, so we simply require a browser key in that case.
+  const [serverKeyProviders, setServerKeyProviders] = useState<ServerKeyProviders>({})
+
+  useEffect(() => {
+    let alive = true
+    fetchServerKeyProviders().then((p) => {
+      if (alive) setServerKeyProviders(p)
+    })
+    return () => {
+      alive = false
+    }
+  }, [])
 
   const persist = useCallback((next: typeof state) => {
     saveModelsState(next)
@@ -35,10 +49,14 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   )
 
   const value = useMemo<LlmSettings>(() => {
+    const hasServerKey = (provider: string) => !!serverKeyProviders[provider]
     const getActiveCredentials = () => {
       if (!activeModel) return null
       const apiKey = getKey(groupOfModel(activeModel))
-      if (!apiKey) return null
+      // No browser key is OK when the server has one for this provider: send the
+      // other coordinates with an empty key so llmHeaders omits X-API-Key and the
+      // backend falls back to its operator key.
+      if (!apiKey && !hasServerKey(activeModel.provider)) return null
       return {
         provider: activeModel.provider,
         modelId: activeModel.modelId,
@@ -46,12 +64,17 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         apiKey,
       }
     }
+    const activeHasBrowserKey = !!activeModel && hasKey(groupOfModel(activeModel))
+    const activeHasServerKey = !!activeModel && hasServerKey(activeModel.provider)
     return {
       models: state.models,
       activeModelId: state.activeModelId,
       activeModel,
       getActiveCredentials,
-      isReady: !!activeModel && hasKey(groupOfModel(activeModel)),
+      isReady: activeHasBrowserKey || activeHasServerKey,
+      serverKeyProviders,
+      activeUsesServerKey: !activeHasBrowserKey && activeHasServerKey,
+      hasServerKey,
       setActiveModel: (id) => persist({ ...state, activeModelId: id }),
       addModel: (m) =>
         persist({
@@ -79,7 +102,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     }
     // keysVersion is a dependency so key-derived fields recompute on key writes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, activeModel, persist, keysVersion])
+  }, [state, activeModel, persist, keysVersion, serverKeyProviders])
 
   return (
     <SettingsCtx.Provider value={value}>

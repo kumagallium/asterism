@@ -272,11 +272,41 @@ def test_llm_escape_discloses_from_merged_query(monkeypatch) -> None:
 
 def test_llm_escape_requires_key(monkeypatch) -> None:
     # Same empty-typed-path situation, but no API key → no LLM, just a hint.
+    monkeypatch.delenv("ASTERISM_LLM_KEY_ANTHROPIC", raising=False)  # no server fallback
     fake = _FakeAnthropic([])
     client = _custom_schema_client(monkeypatch, fake)
     body = client.post("/demo/ask", json={"question": "Widget は何件？"}).json()
     assert fake.calls == []  # the LLM was never invoked
     assert any("API キー" in n for n in body["notes"])
+
+
+def test_server_key_fallback_fires_without_header_key(monkeypatch) -> None:
+    # Option A: no X-API-Key header, but the operator configured a server-side key
+    # (ASTERISM_LLM_KEY_ANTHROPIC) → the escape must fire using that fallback key.
+    select = f"SELECT ?w ?n WHERE {{ ?w a <{_EX}Widget> ; <{_EX}name> ?n }}"
+    fake = _FakeAnthropic(
+        [
+            _block(content=[_block(type="tool_use", id="t1", name="run_sparql", input={"query": select})]),
+            _block(
+                content=[
+                    _block(
+                        type="tool_use",
+                        id="t2",
+                        name="submit_answer",
+                        input={
+                            "answer": "Widget は 2 件あります。",
+                            "citations": [{"iri": f"{_EX}w1", "kind": "Widget", "label": "alpha"}],
+                        },
+                    )
+                ]
+            ),
+        ]
+    )
+    monkeypatch.setenv("ASTERISM_LLM_KEY_ANTHROPIC", "sk-operator")
+    client = _custom_schema_client(monkeypatch, fake)
+    body = client.post("/demo/ask", json={"question": "Widget は何件？"}).json()  # no header
+    assert fake.calls  # the LLM WAS invoked, via the server-side fallback key
+    assert "Widget" in body["answer"]
 
 
 def test_no_key_typed_showcase_answers_zt(monkeypatch) -> None:

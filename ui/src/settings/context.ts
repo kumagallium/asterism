@@ -2,6 +2,7 @@
 // provider file can satisfy react-refresh's component-only-export rule.
 
 import { createContext, useContext } from 'react'
+import type { ServerKeyProviders } from './serverKeysApi'
 import type { LlmCredentials, LlmModelConfig } from './store'
 
 export interface LlmSettings {
@@ -10,8 +11,16 @@ export interface LlmSettings {
   activeModel: LlmModelConfig | null
   /** The active model + its key, or null when nothing usable is configured. */
   getActiveCredentials: () => LlmCredentials | null
-  /** True when an active model exists AND its key is set (ready to call). */
+  /** True when an active model exists AND a key is available — either typed in
+   *  this browser OR configured server-side for its provider (Option A). */
   isReady: boolean
+  /** Providers the server has an operator-configured fallback key for. */
+  serverKeyProviders: ServerKeyProviders
+  /** True when the active model is usable ONLY via the server-side key (no
+   *  browser key set) — so the gate/form can say "using the server default". */
+  activeUsesServerKey: boolean
+  /** True if the given provider has a server-side key (form/gate helper). */
+  hasServerKey: (provider: string) => boolean
   setActiveModel: (id: string) => void
   addModel: (m: LlmModelConfig) => void
   updateModel: (id: string, patch: Partial<Omit<LlmModelConfig, 'id'>>) => void

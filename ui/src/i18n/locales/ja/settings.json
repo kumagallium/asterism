@@ -31,6 +31,7 @@
     "name": "表示名",
     "namePlaceholder": "（省略するとモデルIDを表示）",
     "apiKey": "APIキー",
+    "apiKeyServerHint": "このプロバイダはサーバに既定キーがあります。空欄のままなら自動でそれを使います。",
     "remember": "このブラウザに記憶する",
     "rememberOn": "キーは localStorage に保存され、再読み込み・再起動後も残ります。",
     "rememberOff": "キーは sessionStorage のみ。タブを閉じると消えます（ディスク非保存）。",
@@ -68,6 +69,7 @@
     "change": "変更",
     "noModel": "AI を使うにはモデルを設定してください。",
     "openSettings": "設定を開く",
-    "noKey": "選択中のモデルにAPIキーが未設定です。"
+    "noKey": "選択中のモデルにAPIキーが未設定です。",
+    "serverKey": "サーバの既定キー"
   }
 }

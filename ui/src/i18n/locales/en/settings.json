@@ -31,6 +31,7 @@
     "name": "Display name",
     "namePlaceholder": "(defaults to the model ID)",
     "apiKey": "API key",
+    "apiKeyServerHint": "This provider has a server-side default key — leave blank to use it.",
     "remember": "Remember on this browser",
     "rememberOn": "The key is saved in localStorage and persists across reloads and restarts.",
     "rememberOff": "The key stays in sessionStorage only — cleared when the tab closes (never written to disk).",
@@ -68,6 +69,7 @@
     "change": "Change",
     "noModel": "Configure a model to use AI.",
     "openSettings": "Open settings",
-    "noKey": "The active model has no API key set."
+    "noKey": "The active model has no API key set.",
+    "serverKey": "server default key"
   }
 }

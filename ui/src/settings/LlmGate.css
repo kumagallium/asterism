@@ -31,6 +31,15 @@
   margin-left: 6px;
   color: var(--fg);
 }
+.llm-gate-serverkey {
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: 0.72rem;
+  color: var(--muted);
+}
 .llm-gate-link {
   border: none;
   background: transparent;

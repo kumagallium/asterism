@@ -89,6 +89,7 @@ from pydantic import BaseModel
 from asterism_api import design_loop, registry
 from asterism_api import usage as usage_ledger
 from asterism_api.jobs import JobManager
+from asterism_api.server_keys import configured_providers, server_key_for
 
 
 class RefineRequest(BaseModel):
@@ -282,9 +283,14 @@ def _llm_coords(
     """Resolve the per-request LLM coordinates from headers.
 
     Absent ``X-LLM-Provider`` → ``"anthropic"`` so requests that send only the
-    legacy ``X-API-Key`` keep the exact Anthropic-default behavior."""
+    legacy ``X-API-Key`` keep the exact Anthropic-default behavior. When the
+    request carries no key, fall back to the operator's server-side key for the
+    provider (``ASTERISM_LLM_KEY_<PROVIDER>``) — unset by default, so a
+    browser-brought key still wins and is still required unless the operator
+    opts in (see :mod:`asterism_api.server_keys`)."""
     provider = (x_llm_provider or "anthropic").strip().lower() or "anthropic"
-    return provider, (x_llm_model or None), (x_llm_api_base or None), x_api_key
+    key = x_api_key or server_key_for(provider)
+    return provider, (x_llm_model or None), (x_llm_api_base or None), key
 
 
 def _record_llm_usage(
@@ -1559,16 +1565,19 @@ def build_app(
 
         ``anthropic`` → Anthropic ``models.list()``; openai-compatible →
         ``client.models.list()``. The key is used only for this call and never
-        stored (D7). Sync ``def`` so FastAPI runs the blocking SDK call in a
+        stored (D7). Falls back to the operator's server-side key when the body
+        omits one (so the picker works without typing a key on an instance that
+        opted in). Sync ``def`` so FastAPI runs the blocking SDK call in a
         threadpool. No write-auth — same trust model as propose (the caller's own
         key). ``api_base`` is SSRF-guarded for openai-compatible providers.
         """
         provider = (body.provider or "anthropic").strip().lower()
         if body.api_base and provider not in ("", "anthropic", "claude"):
             _validate_llm_api_base(body.api_base)
+        api_key = body.api_key or server_key_for(provider)
         try:
             models = list_available_models(
-                provider, api_key=body.api_key, api_base=body.api_base
+                provider, api_key=api_key, api_base=body.api_base
             )
         except HTTPException:
             raise
@@ -1577,6 +1586,16 @@ def build_app(
         except Exception as exc:  # network / auth / provider-side failure
             raise HTTPException(502, f"could not list models: {exc}") from exc
         return JSONResponse({"models": models})
+
+    @app.get("/api/llm/server-keys")
+    def llm_server_keys() -> JSONResponse:
+        """Which providers have an operator-configured server-side key.
+
+        Booleans only — never the key. Lets the UI let a user proceed (and fetch
+        models / Ask / propose) without typing a key when the server already has
+        one for that provider. Read-open (reveals no secret); all-false unless the
+        operator set ``ASTERISM_LLM_KEY_<PROVIDER>`` (opt-in)."""
+        return JSONResponse({"providers": configured_providers()})
 
     @app.post("/api/propose")
     async def propose(
@@ -2012,12 +2031,16 @@ def build_app(
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
         if not body.intent.strip():
             raise HTTPException(400, "intent is required")
-        if not x_api_key:
-            raise HTTPException(400, "AI draft needs an API key (header X-API-Key)")
         arts = data["artifacts"]
         provider, model, api_base, key = _llm_coords(
             x_api_key, x_llm_provider, x_llm_model, x_llm_api_base
         )
+        if not key:
+            raise HTTPException(
+                400,
+                "AI draft needs an API key — set one in Settings, or have the "
+                "operator configure a server-side key (ASTERISM_LLM_KEY_<PROVIDER>)",
+            )
         llm = _resolve_llm(provider, model, api_base, key)
 
         def run() -> dict:
@@ -2792,11 +2815,15 @@ def build_app(
         the authoring UI — nothing is built here (the human review is the vet gate)."""
         if not body.dataset_ids:
             raise HTTPException(400, "dataset_ids is required")
-        if not x_api_key:
-            raise HTTPException(400, "AI suggestion needs an API key (header X-API-Key)")
         provider, model, api_base, api_key_val = _llm_coords(
             x_api_key, x_llm_provider, x_llm_model, x_llm_api_base
         )
+        if not api_key_val:
+            raise HTTPException(
+                400,
+                "AI suggestion needs an API key — set one in Settings, or have the "
+                "operator configure a server-side key (ASTERISM_LLM_KEY_<PROVIDER>)",
+            )
         llm = _resolve_llm(provider, model, api_base, api_key_val)
         client: OxigraphClient = app.state.client
         datasets: list[dict] = []
