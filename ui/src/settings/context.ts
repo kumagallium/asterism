@@ -21,6 +21,8 @@ export interface LlmSettings {
   activeUsesServerKey: boolean
   /** True if the given provider has a server-side key (form/gate helper). */
   hasServerKey: (provider: string) => boolean
+  /** Re-fetch the server-side key providers (after setting/clearing one). */
+  refreshServerKeys: () => void
   setActiveModel: (id: string) => void
   addModel: (m: LlmModelConfig) => void
   updateModel: (id: string, patch: Partial<Omit<LlmModelConfig, 'id'>>) => void

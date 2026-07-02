@@ -4,6 +4,7 @@ import type { TFunction } from 'i18next'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
+  ApiError,
   attachSource,
   inspectCsvs,
   materializeSchema,
@@ -91,11 +92,19 @@ interface WorkbenchSnapshot {
   presetIds: string[]
   proposal: string
   materialized: MaterializeResult | null
-  // Redesign: when the workbench was opened to revise an existing dataset's
-  // design, the target id/name persist so a tab switch / reload keeps editing
-  // the SAME dataset (re-materialize in place) instead of minting a new one.
+  // Save target: when set, save (materialize) updates this SAME dataset in place
+  // instead of minting a new record. Persisted so a tab switch / reload keeps
+  // editing the SAME dataset. Two origins: 'catalog' = the user reopened an
+  // existing dataset via 見直す; 'adopted' = THIS session created the record on
+  // its first save, and every later save (やり直し / AI 修正後の再保存) updates it —
+  // otherwise each retry of a failed save would leave one garbage record behind.
   redesignId?: string
   redesignName?: string
+  redesignOrigin?: 'catalog' | 'adopted'
+  // Whether the last save created the record or updated it in place — drives the
+  // ✓ message after a save (state, not derived: the created id is adopted in the
+  // same commit, so `redesignId` alone can no longer tell the two apart).
+  lastSaveKind?: 'created' | 'updated'
 }
 
 /**
@@ -143,11 +152,18 @@ export function WorkbenchView({
   // designs → save), or by crossing EXISTING datasets into a shared bridge.
   const [mode, setMode] = useState<'new' | 'crosswalk'>('new')
   const [step, setStep] = useState<Step>(snap.step ?? 1)
-  // Redesign target: the existing dataset being revised (id + display name). Seeded
-  // from a passed `redesignTarget` or restored from the snapshot. When set, save
-  // (materialize) re-materializes that SAME dataset in place rather than minting one.
+  // Save target: the dataset that save (materialize) updates IN PLACE rather than
+  // minting a new record. Seeded from a passed `redesignTarget` (catalog 見直す),
+  // adopted from this session's own first save, or restored from the snapshot.
   const [redesignId, setRedesignId] = useState<string | undefined>(snap.redesignId)
   const [redesignName, setRedesignName] = useState<string | undefined>(snap.redesignName)
+  // Pre-origin snapshots only ever had catalog-seeded targets.
+  const [redesignOrigin, setRedesignOrigin] = useState<'catalog' | 'adopted' | undefined>(
+    snap.redesignOrigin ?? (snap.redesignId ? 'catalog' : undefined),
+  )
+  const [lastSaveKind, setLastSaveKind] = useState<'created' | 'updated' | undefined>(
+    snap.lastSaveKind,
+  )
   // Selected data-source kind (#19). CSV / JSON are wired; switching kinds clears
   // any picked files since they no longer match the new kind's picker filter.
   const [source, setSource] = useState<SourceKind>(snap.source ?? 'csv')
@@ -199,13 +215,15 @@ export function WorkbenchView({
       materialized,
       redesignId,
       redesignName,
+      redesignOrigin,
+      lastSaveKind,
     }
     try {
       sessionStorage.setItem(WB_STORAGE, JSON.stringify(snapshot))
     } catch {
       // sessionStorage may be unavailable (private mode quota) — non-fatal.
     }
-  }, [step, source, fk, markdown, domainFree, presetIds, proposal, materialized, redesignId, redesignName])
+  }, [step, source, fk, markdown, domainFree, presetIds, proposal, materialized, redesignId, redesignName, redesignOrigin, lastSaveKind])
 
   // Seed the workbench from a redesign target during render (the "adjust state on
   // prop change" pattern — same as GalleryView's focusClass handling — so we avoid a
@@ -220,6 +238,8 @@ export function WorkbenchView({
     setMode('new')
     setRedesignId(redesignTarget.datasetId)
     setRedesignName(redesignTarget.datasetName)
+    setRedesignOrigin('catalog')
+    setLastSaveKind(undefined)
     setProposal(redesignTarget.proposalMd)
     setMarkdown('')
     setProposeErr('')
@@ -336,10 +356,21 @@ export function WorkbenchView({
     setAutocorrect(null)
     setStatus('starting…')
     setProposing(true)
-    // A fresh AI design is a NEW dataset — drop any redesign target so it doesn't
-    // overwrite the dataset the user was previously revising.
-    setRedesignId(undefined)
-    setRedesignName(undefined)
+    // A fresh AI design forks a NEW dataset — EXCEPT while retrying a failed save.
+    // A 'catalog' target (an existing dataset reopened via 見直す) must never be
+    // clobbered by a from-scratch design, and a design whose last save was usable
+    // is a finished record someone may ingest later. But when THIS session's own
+    // adopted record is unusable as saved (incomplete / no RML / validation
+    // issues) — or was cleared for a redo — a re-propose is the retry loop: keep
+    // the target so the next save recycles the failed record instead of leaving
+    // one garbage dataset per attempt.
+    const startNewRecord =
+      redesignOrigin !== 'adopted' || (materializeUsable && validationIssues.length === 0)
+    if (startNewRecord) {
+      setRedesignId(undefined)
+      setRedesignName(undefined)
+      setRedesignOrigin(undefined)
+    }
     closeRef.current?.()
     try {
       closeRef.current = await proposeCsvs(
@@ -439,22 +470,41 @@ export function WorkbenchView({
   }
 
   async function onMaterialize() {
-    // Guard: a request in flight, or a result already minted, must NOT POST again.
-    // Each materialize mints a new dataset, so a stray second click would create a
-    // duplicate (the very bug this prevents). "Create again" clears `materialized`
-    // first, so an intentional redo is still possible.
+    // Guard: a request in flight, or a result already shown, must NOT POST again
+    // (a stray second click on a fresh design would mint a duplicate). "保存し直す"
+    // clears `materialized` first, so an intentional redo is still possible.
     if (!proposal || materializing || materialized) return
     setProposeErr('')
     setMaterializing(true)
     try {
-      // Redesign: re-materialize the SAME dataset in place (pass its id + keep its
-      // display name) so graphs / IRIs / lifecycle / persisted source are preserved.
-      const result = await materializeSchema(
-        proposal,
-        redesignName ?? 'dataset',
-        redesignId,
-      )
+      // With a target id the server re-materializes that SAME dataset in place
+      // (id / graphs / lifecycle / persisted source preserved); without one it
+      // mints a new record, which is then ADOPTED below.
+      let created = !redesignId
+      let result: MaterializeResult
+      try {
+        result = await materializeSchema(proposal, redesignName ?? 'dataset', redesignId)
+      } catch (e) {
+        if (!redesignId || !(e instanceof ApiError) || e.status !== 404) throw e
+        // The target vanished (deleted in the catalog meanwhile) — drop it and
+        // recreate ONCE, so the save is never dead-ended on a stale id.
+        setRedesignId(undefined)
+        setRedesignName(undefined)
+        setRedesignOrigin(undefined)
+        result = await materializeSchema(proposal, 'dataset')
+        created = true
+      }
       setMaterialized(result)
+      setLastSaveKind(created ? 'created' : 'updated')
+      // Adopt the minted record as this session's save target: every further save
+      // (やり直し / AI 修正後の再保存, and — via the snapshot — after a reload)
+      // then updates the SAME record in place instead of leaving one duplicate
+      // dataset per retry.
+      if (created && result.dataset?.id) {
+        setRedesignId(result.dataset.id)
+        setRedesignName(result.dataset.name)
+        setRedesignOrigin('adopted')
+      }
       // Task E: persist the design-time CSVs alongside the saved dataset so it
       // can be ingested from the catalog later with no re-attach. Best-effort —
       // never block the save (ingest can still re-upload if this fails).
@@ -486,9 +536,10 @@ export function WorkbenchView({
     }
   }
 
-  // "Create again": clear the prior materialize result so the save button re-enables
-  // for an *intentional* redo (the in-flight/done guard otherwise blocks re-POST to
-  // prevent accidental duplicates). Keeps the proposal so the user stays on step 3.
+  // "保存し直す": clear the prior materialize result so the save button re-enables
+  // for an *intentional* redo (the in-flight/done guard otherwise blocks re-POST).
+  // The session's record stays adopted as the save target, so the redo UPDATES it
+  // in place — it does not mint another dataset. Keeps the proposal (step 3).
   function onMaterializeAgain() {
     setMaterialized(null)
     setProposeErr('')
@@ -507,6 +558,8 @@ export function WorkbenchView({
     setStatus('')
     setRedesignId(undefined)
     setRedesignName(undefined)
+    setRedesignOrigin(undefined)
+    setLastSaveKind(undefined)
     sessionStorage.removeItem(WB_STORAGE)
   }
 
@@ -576,10 +629,20 @@ export function WorkbenchView({
 
       {redesignId && (
         <div className="wb-redesign-banner" role="status">
-          <span className="wb-redesign-badge">{t('workbench:redesign.badge')}</span>
+          <span className="wb-redesign-badge">
+            {t(
+              redesignOrigin === 'adopted'
+                ? 'workbench:redesign.badgeAdopted'
+                : 'workbench:redesign.badge',
+            )}
+          </span>
           <span className="wb-redesign-text">
             <Trans
-              i18nKey="workbench:redesign.banner"
+              i18nKey={
+                redesignOrigin === 'adopted'
+                  ? 'workbench:redesign.bannerAdopted'
+                  : 'workbench:redesign.banner'
+              }
               values={{ name: redesignName ?? redesignId }}
               components={{ strong: <strong /> }}
             />
@@ -816,14 +879,15 @@ export function WorkbenchView({
                 <Trans i18nKey="workbench:save.hint" components={{ strong: <strong /> }} />
               </p>
               {/* Done state: the materialize succeeded. We replace the live save button
-                  with an explicit confirmation + an opt-in "Create again" — leaving an
-                  enabled button here would let a second click mint a DUPLICATE dataset
-                  (each materialize POST creates a new one). */}
+                  with an explicit confirmation + an opt-in "保存し直す" (which now
+                  UPDATES the adopted record in place — see onMaterialize). The ✓ label
+                  is keyed off lastSaveKind, not redesignId: the created id is adopted
+                  in the same commit, so redesignId is set even right after a create. */}
               {materialized ? (
                 <div className="materialize-outcome">
                   <p className="materialize-added" role="status">
                     ✓{' '}
-                    {redesignId
+                    {(lastSaveKind ?? (redesignId ? 'updated' : 'created')) === 'updated'
                       ? t('workbench:save.addedRedesign')
                       : t('workbench:save.added')}
                   </p>

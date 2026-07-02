@@ -21,6 +21,7 @@ from asterism.substrate import (
     ONTOLOGY_GRAPH_BASE,
     absolutize_rml_sources,
     alignment_report,
+    batch_fingerprint,
     canonical_graph_iri,
     classify_alignment,
     count_nt_lines,
@@ -31,6 +32,7 @@ from asterism.substrate import (
     ontology_graph_iri,
     rml_source_names,
     run_append_ingest,
+    run_id_for_batch,
     run_substrate_ingest,
     stream_nt_file_to_oxigraph,
     versioned_graph_iri,
@@ -455,7 +457,7 @@ async def test_run_append_ingest_merges_idempotently(
     deterministic IRIs, so this runs without morph-kgc."""
     nt = b'<https://ex/r/3> <https://ex/name> "c" .\n'
 
-    def _fixed_materialize(rml_ttl, csv_dir, *, udfs_path=None, work_dir=None):
+    def _fixed_materialize(rml_ttl, csv_dir, *, udfs_path=None, work_dir=None, run_id=None):
         out = Path(work_dir) / "out.nt"
         out.write_bytes(nt)
         return out
@@ -517,6 +519,68 @@ async def test_run_append_ingest_real_morph_kgc_grows_and_dedupes(tmp_path: Path
     # Re-append the identical batch -> idempotent (deterministic IRI dedupes).
     await run_append_ingest(rml, batch, store, live)
     assert store.count(live) == 3
+
+
+async def test_run_append_ingest_threads_run_id_into_materialize(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The caller-supplied ``run_id`` reaches ``substitute_run_id`` via
+    ``materialize_to_nt_file`` — the seam that pins the {__run_id__} provenance
+    activity to a content-derived (attempt-independent) id. A fake materializer
+    records the run_id it was handed."""
+    seen: list[str | None] = []
+
+    def _spy_materialize(rml_ttl, csv_dir, *, udfs_path=None, work_dir=None, run_id=None):
+        seen.append(run_id)
+        out = Path(work_dir) / "out.nt"
+        out.write_bytes(b'<https://ex/r/1> <https://ex/name> "a" .\n')
+        return out
+
+    monkeypatch.setattr("asterism.substrate.materialize_to_nt_file", _spy_materialize)
+    store = _NTStore()
+    live = "https://kumagallium.github.io/asterism/graph/canonical/feed/v1"
+    await run_append_ingest("<rml>", tmp_path, store, live, run_id="run-deadbeef")
+    assert seen == ["run-deadbeef"]
+
+
+async def test_run_append_ingest_deterministic_run_id_no_orphan_activity(
+    tmp_path: Path,
+) -> None:
+    """The orphan-provenance fix (incremental-ingest §3 / A8): an RML that mints a
+    per-run ingestion activity via {__run_id__} appended TWICE with a content-derived
+    run-id leaves exactly ONE activity IRI in the live graph — the retried activity
+    dedupes instead of orphaning the prior attempt's subtree. Gated on morph-kgc."""
+    if not _morph_kgc_installed():
+        pytest.skip("morph-kgc not installed; this exercises the real run-id path")
+    rml = """
+@prefix rr:   <http://www.w3.org/ns/r2rml#> .
+@prefix rml:  <http://semweb.mmlab.be/ns/rml#> .
+@prefix ql:   <http://semweb.mmlab.be/ns/ql#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix ex:   <https://ex/> .
+<#M> a rr:TriplesMap ;
+  rml:logicalSource [ rml:source "d.csv" ; rml:referenceFormulation ql:CSV ] ;
+  rr:subjectMap [ rr:template "https://ex/r/{id}" ] ;
+  rr:predicateObjectMap [ rr:predicate prov:wasGeneratedBy ;
+    rr:objectMap [ rr:template "https://ex/activity/ingest/{__run_id__}" ] ] .
+"""
+    batch = tmp_path / "batch"
+    batch.mkdir()
+    (batch / "d.csv").write_text("id\n1\n2\n", encoding="utf-8")
+
+    store = _NTStore()
+    live = "https://kumagallium.github.io/asterism/graph/canonical/feed/v1"
+
+    run_id = run_id_for_batch(batch_fingerprint([("d.csv", (batch / "d.csv").read_bytes())]))
+    await run_append_ingest(rml, batch, store, live, run_id=run_id)
+    await run_append_ingest(rml, batch, store, live, run_id=run_id)  # retry, same run-id
+
+    g = store.ds.graph(rdflib.URIRef(live))
+    activities = set(g.objects(predicate=rdflib.URIRef("http://www.w3.org/ns/prov#wasGeneratedBy")))
+    # Exactly one ingestion-activity IRI (both appends minted the same one -> dedupe),
+    # NOT one-per-attempt. Contrast: a fresh timestamp run-id would leave two.
+    assert len(activities) == 1
+    assert str(next(iter(activities))) == f"https://ex/activity/ingest/{run_id}"
 
 
 # ---- streaming N-Triples load (scalable path) -------------------------------
@@ -1262,6 +1326,39 @@ def test_generate_run_id_format() -> None:
 
     # Mirrors asterism.starrydata's run-<UTC compact timestamp> shape.
     assert _re.fullmatch(r"run-\d{8}T\d{6}Z", generate_run_id())
+
+
+# ---- content-derived batch identity (append idempotency, incremental-ingest A3) --
+
+
+def test_batch_fingerprint_is_deterministic_and_order_independent() -> None:
+    a = [("d.csv", b"id,name\n3,c\n"), ("e.csv", b"x\n1\n")]
+    # Same files in a different order -> same fingerprint (a batch is a set of files).
+    assert batch_fingerprint(a) == batch_fingerprint(list(reversed(a)))
+    # Stable across calls (a retry re-derives the same id).
+    assert batch_fingerprint(a) == batch_fingerprint(a)
+
+
+def test_batch_fingerprint_distinguishes_content_and_is_unambiguous() -> None:
+    base = [("d.csv", b"id,name\n3,c\n")]
+    assert batch_fingerprint(base) != batch_fingerprint([("d.csv", b"id,name\n4,d\n")])
+    # A different filename with the same bytes is a different batch.
+    assert batch_fingerprint(base) != batch_fingerprint([("e.csv", b"id,name\n3,c\n")])
+    # Length-delimited fields: ("ab","c") and ("a","bc") must not collide.
+    assert batch_fingerprint([("ab", b"c")]) != batch_fingerprint([("a", b"bc")])
+
+
+def test_run_id_for_batch_shape_and_determinism() -> None:
+    import re as _re
+
+    fp = batch_fingerprint([("d.csv", b"id\n1\n")])
+    rid = run_id_for_batch(fp)
+    # IRI-safe, shares the run- shape the {__run_id__} substitution expects.
+    assert _re.fullmatch(r"run-[0-9a-f]{16}", rid)
+    # A retry of the same batch mints the SAME activity run-id (no orphan provenance).
+    assert run_id_for_batch(fp) == rid
+    # A different batch mints a different run-id.
+    assert run_id_for_batch(batch_fingerprint([("d.csv", b"id\n2\n")])) != rid
 
 
 # ---- Morph-KGC end-to-end: BOM + {__run_id__} (gated on the extra) -----------

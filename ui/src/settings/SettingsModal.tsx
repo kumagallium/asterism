@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import './SettingsModal.css'
+import { ServerKeysSection } from './ServerKeysSection'
 import { useLlmSettings } from './context'
 import { UsageTab } from './UsageTab'
 import { fetchAvailableModels, type AvailableModel } from './modelsApi'
@@ -181,6 +182,7 @@ function ModelsTab() {
           + {t('models.add')}
         </button>
       )}
+      {!showForm && <ServerKeysSection />}
     </div>
   )
 }

@@ -28,15 +28,13 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   // {} until then / on failure, so we simply require a browser key in that case.
   const [serverKeyProviders, setServerKeyProviders] = useState<ServerKeyProviders>({})
 
-  useEffect(() => {
-    let alive = true
-    fetchServerKeyProviders().then((p) => {
-      if (alive) setServerKeyProviders(p)
-    })
-    return () => {
-      alive = false
-    }
+  const refreshServerKeys = useCallback(() => {
+    fetchServerKeyProviders().then(setServerKeyProviders)
   }, [])
+
+  useEffect(() => {
+    refreshServerKeys()
+  }, [refreshServerKeys])
 
   const persist = useCallback((next: typeof state) => {
     saveModelsState(next)
@@ -75,6 +73,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       serverKeyProviders,
       activeUsesServerKey: !activeHasBrowserKey && activeHasServerKey,
       hasServerKey,
+      refreshServerKeys,
       setActiveModel: (id) => persist({ ...state, activeModelId: id }),
       addModel: (m) =>
         persist({
@@ -102,7 +101,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     }
     // keysVersion is a dependency so key-derived fields recompute on key writes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, activeModel, persist, keysVersion, serverKeyProviders])
+  }, [state, activeModel, persist, keysVersion, serverKeyProviders, refreshServerKeys])
 
   return (
     <SettingsCtx.Provider value={value}>

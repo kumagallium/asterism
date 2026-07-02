@@ -25,11 +25,12 @@ CI convenience, not the trust boundary). ``morph-kgc`` is an optional dependency
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import re
 import subprocess
 import sys
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
@@ -320,6 +321,43 @@ def generate_run_id() -> str:
     return "run-" + datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
 
 
+def batch_fingerprint(files: Iterable[tuple[str, bytes]]) -> str:
+    """A deterministic content fingerprint (hex sha256) for an append batch.
+
+    Order-independent over the batch's ``(filename, bytes)`` files (a batch is a
+    *set* of source files), and unambiguous (each field length-delimited so
+    ``("a", b"bc")`` and ``("ab", b"c")`` never collide). Identical batch content
+    → identical fingerprint, so a retried batch (ADR incremental-ingest §3 / A3)
+    is recognised as the same batch regardless of when or how many times it is
+    re-delivered — the seam that makes both provenance (a content-derived run-id,
+    :func:`run_id_for_batch`) and source accumulation idempotent.
+    """
+    h = hashlib.sha256()
+    for name, content in sorted(files):
+        h.update(str(len(name)).encode("ascii"))
+        h.update(b":")
+        h.update(name.encode("utf-8"))
+        h.update(str(len(content)).encode("ascii"))
+        h.update(b":")
+        h.update(content)
+    return h.hexdigest()
+
+
+def run_id_for_batch(fingerprint: str) -> str:
+    """A *content-derived* append run-id ``run-<hex16>`` from a batch fingerprint.
+
+    Unlike :func:`generate_run_id` (a fresh timestamp per call), this is a pure
+    function of the batch content, so a retried batch re-mints the **same**
+    ingestion-activity IRI via ``{__run_id__}``. Set-semantics then dedupe it on
+    the POST-merge instead of leaving an orphan activity/provenance subtree per
+    attempt — the append path's determinism requirement (ADR incremental-ingest
+    §3, A8: the data graph stays a pure, idempotent materialization). Keeps the
+    ``run-`` shape the hardcoded ingester and template substitution expect; hex is
+    IRI-safe. 16 hex chars (64 bits) is ample to keep distinct batches distinct.
+    """
+    return "run-" + fingerprint[:16]
+
+
 def substitute_run_id(rml_ttl: str, run_id: str | None = None) -> str:
     """Substitute the runtime-only ``{__run_id__}`` template placeholder.
 
@@ -452,6 +490,7 @@ def materialize_to_nt_file(
     *,
     udfs_path: Path | str | None = None,
     work_dir: Path | str | None = None,
+    run_id: str | None = None,
 ) -> Path:
     """Run Morph-KGC and write the triples to an N-Triples file; return its path.
 
@@ -481,7 +520,11 @@ def materialize_to_nt_file(
     work.mkdir(parents=True, exist_ok=True)
     udfs = Path(udfs_path) if udfs_path else _DEFAULT_UDFS
     mapping_file = work / "mappings.rml.ttl"
-    run_id_subst = substitute_run_id(rml_ttl)
+    # ``run_id`` pins the ``{__run_id__}`` ingestion-activity IRI. The append path
+    # passes a content-derived id (:func:`run_id_for_batch`) so a retried batch
+    # re-mints the SAME activity (idempotent); None keeps the per-call fresh
+    # timestamp used by snapshot ingest (each version graph is its own activity).
+    run_id_subst = substitute_run_id(rml_ttl, run_id)
     tabularized = tabularize_json_sources(run_id_subst, csv_dir, work)
     sanitized = sanitize_csv_sources(tabularized, csv_dir, work)
     bom_stripped = strip_bom_sources(sanitized, csv_dir, work)
@@ -614,6 +657,7 @@ async def run_append_ingest(
     work_dir: Path | str | None = None,
     chunk_lines: int = DEFAULT_CHUNK_LINES,
     on_progress: Callable[[int, int], None] | None = None,
+    run_id: str | None = None,
 ) -> dict[str, object]:
     """Append one batch's materialized triples into an existing graph (incremental).
 
@@ -621,17 +665,29 @@ async def run_append_ingest(
     O(new). The N-Triples are POST-merged into ``graph_iri`` — the dataset's live
     canonical graph the caller resolved, NOT a draft graph: append grows a citable
     feed in place because the human gate was given when the dataset was first promoted
-    (ADR §A6). This is the shared seam for ``POST /api/datasets/{id}/append`` and a
-    future per-dataset watcher. The blocking Morph-KGC subprocess runs off the event
-    loop. Returns ``{"graph_iri": ..., "triples_in_batch": ...}``.
+    (ADR §A6). This is the shared seam for ``POST /api/datasets/{id}/append`` and the
+    per-dataset watcher. The blocking Morph-KGC subprocess runs off the event loop.
+    Returns ``{"graph_iri": ..., "triples_in_batch": ...}``.
 
-    Append is idempotent and safe to retry: a partially-streamed batch leaves only
-    triples that re-appear (and dedupe) on retry, so — unlike the version-graph ingest
-    — no rollback DROP is needed on failure.
+    Append is idempotent and safe to retry *when the batch's IRIs are deterministic*:
+    a partially-streamed (or fully re-delivered) batch leaves only triples that
+    re-appear and dedupe on retry, so — unlike the version-graph ingest — no rollback
+    DROP is needed on failure. The one non-deterministic seam is the ``{__run_id__}``
+    ingestion-activity IRI: left to a fresh timestamp it would mint a NEW activity per
+    attempt, orphaning the prior attempt's provenance subtree in the live graph. So
+    the caller passes ``run_id`` derived from the batch content
+    (:func:`run_id_for_batch`), making the activity IRI itself deterministic → the
+    retried activity dedupes too. ``run_id=None`` keeps the per-call fresh timestamp
+    (snapshot ingest, where each version graph is its own activity).
     """
     work = Path(work_dir) if work_dir else Path(tempfile.mkdtemp(prefix="c2r-append-"))
     nt = await asyncio.to_thread(
-        materialize_to_nt_file, rml_ttl, csv_dir, udfs_path=udfs_path, work_dir=work
+        materialize_to_nt_file,
+        rml_ttl,
+        csv_dir,
+        udfs_path=udfs_path,
+        work_dir=work,
+        run_id=run_id,
     )
     triples = await stream_nt_file_to_oxigraph(
         nt, client, graph_iri, chunk_lines=chunk_lines, on_progress=on_progress
