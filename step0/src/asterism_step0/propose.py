@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any
 
 from asterism_step0.inspect import inspect_source_set, render_markdown
+from asterism_step0.language import language_instruction
 
 # The LLM client seam lives in asterism_step0.llm (multi-provider). These names
 # are re-exported here so existing imports (`from asterism_step0.propose import
@@ -375,6 +376,7 @@ def propose_schema(
     fk_hint_columns: list[str] | None = None,
     record_path: str | None = None,
     llm: LLMClient | None = None,
+    language: str | None = None,
 ) -> SchemaProposal:
     """Run Step 1 (inspect) and Step 3 (propose) end-to-end.
 
@@ -390,6 +392,9 @@ def propose_schema(
             the key holding the array of records (auto-detected when omitted).
         llm: An :class:`LLMClient`. Defaults to :class:`AnthropicLLMClient`
             (requires ``ANTHROPIC_API_KEY``). Tests pass a mock.
+        language: Output language for the proposal's human-readable prose
+            (e.g. ``"ja"``). Headings / identifiers / code stay English (see
+            :mod:`asterism_step0.language`). ``None`` → English.
 
     Returns:
         :class:`SchemaProposal` with the inspection Markdown, the domain hint,
@@ -408,6 +413,9 @@ def propose_schema(
     user_message = (
         f"# Source inspection\n\n{inspection_md}\n\n# Domain context\n\n{domain_hint.strip()}\n"
     )
+    lang_block = language_instruction(language)
+    if lang_block:
+        user_message += f"\n{lang_block}\n"
     proposal_md = as_completion(llm.complete(SYSTEM_PROMPT, user_message)).text
 
     return SchemaProposal(
@@ -478,6 +486,14 @@ def _build_arg_parser():  # type: ignore[no-untyped-def]
         choices=["low", "medium", "high", "xhigh", "max"],
         help="output_config.effort (default: xhigh — best for coding/agentic on Opus 4.7).",
     )
+    p.add_argument(
+        "--language",
+        default=None,
+        help=(
+            "Output language for the proposal's prose (e.g. 'ja'). Headings / "
+            "identifiers / code stay English. Default: English."
+        ),
+    )
     return p
 
 
@@ -491,6 +507,7 @@ def _main(argv: list[str] | None = None) -> int:
         fk_hint_columns=args.fk_hint or None,
         record_path=args.record_path,
         llm=llm,
+        language=args.language,
     )
     if args.output is None:
         print(proposal.proposal_md)

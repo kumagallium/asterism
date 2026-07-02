@@ -160,6 +160,36 @@ def test_propose_schema_records_metadata(tmp_path: Path) -> None:
     assert proposal.metadata["llm_class"] == "_RecordingLLM"
 
 
+def test_propose_schema_language_rides_user_message_only(tmp_path: Path) -> None:
+    """language= appends the Output-language block to the USER message; the
+    cacheable system prompt stays byte-stable (prompt-caching contract)."""
+    csv_path = _write_csv(
+        tmp_path / "x.csv",
+        """
+        id
+        1
+        """,
+    )
+    mock = _RecordingLLM()
+    propose_schema([csv_path], domain_hint="x", llm=mock, language="ja")
+    assert "# Output language" in mock.user_messages[0]
+    assert "Japanese (日本語)" in mock.user_messages[0]
+    assert mock.system_prompts[0] == SYSTEM_PROMPT
+
+
+def test_propose_schema_no_language_keeps_legacy_message(tmp_path: Path) -> None:
+    csv_path = _write_csv(
+        tmp_path / "x.csv",
+        """
+        id
+        1
+        """,
+    )
+    mock = _RecordingLLM()
+    propose_schema([csv_path], domain_hint="x", llm=mock)
+    assert "# Output language" not in mock.user_messages[0]
+
+
 # ----------------------------------------------------------------------------
 # System prompt invariants (the cacheable surface)
 # ----------------------------------------------------------------------------

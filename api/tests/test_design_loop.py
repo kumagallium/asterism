@@ -129,6 +129,22 @@ def test_clean_first_shot_makes_no_refine_call(tmp_path: Path) -> None:
     assert features == ["propose"]
 
 
+def test_language_reaches_propose_and_every_refine_round(tmp_path: Path) -> None:
+    # The output-language directive must ride EVERY round's user message — otherwise an
+    # autocorrect round would silently flip the prose back to English. System prompts
+    # stay directive-free (byte-stable, cacheable).
+    llm = _ScriptedLLM([_MD_BAD, _MD_GOOD])
+    result = run_design_loop(
+        _write_csv(tmp_path), "domain hint", tmp_path, llm=llm, max_rounds=3, language="ja"
+    )
+    assert result.converged is True
+    assert len(llm.calls) == 2  # propose + one refine
+    for system, user in llm.calls:
+        assert "# Output language" in user
+        assert "Japanese (日本語)" in user
+        assert "# Output language" not in system
+
+
 # ---- stop conditions --------------------------------------------------------
 
 
