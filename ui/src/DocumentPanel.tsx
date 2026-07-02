@@ -21,8 +21,16 @@ export function DocumentPanel() {
   const [progress, setProgress] = useState<IngestProgress | null>(null)
   const [error, setError] = useState('')
   const [result, setResult] = useState<{ id: string; name: string } | null>(null)
+  // Adopt the id minted by the first successful create (mirrors the workbench
+  // 'adopted' pattern, PR #241): if create succeeds but the later ingest/promote
+  // fails, a retry RESUMES from ingest on this same dataset instead of POSTing
+  // /api/documents again — which would mint a fresh slug-uuid8 id and leave a
+  // duplicate record. Cleared when the user picks different files (a new dataset).
+  const [created, setCreated] = useState<{ id: string; name: string } | null>(null)
 
   const busy = phase !== 'idle' && phase !== 'done'
+  // A retry is pending when a prior attempt created the dataset but did not finish.
+  const resuming = created !== null && phase === 'idle'
 
   function pick(list: FileList | null) {
     const arr = Array.from(list ?? [])
@@ -30,22 +38,31 @@ export function DocumentPanel() {
     if (arr.length && !name.trim()) setName(arr[0].name.replace(/\.(xml|docx|pdf)$/i, ''))
     setError('')
     setResult(null)
+    setCreated(null) // new files → a new dataset (do not resume the previous create)
     setPhase('idle')
   }
 
   async function run() {
-    if (!files.length) return
+    if (!files.length && !created) return
     setError('')
     setProgress(null)
     try {
-      setPhase('creating')
-      const created = await createDocumentDataset(name.trim() || files[0].name, files)
-      const id = created.dataset_id
+      // Resume an already-created dataset (a prior attempt got past create); only
+      // create when there is none yet — so retry-after-failure is idempotent and
+      // never mints a duplicate record.
+      let target = created
+      if (!target) {
+        setPhase('creating')
+        const res = await createDocumentDataset(name.trim() || files[0].name, files)
+        target = { id: res.dataset_id, name: res.dataset.name ?? name }
+        setCreated(target)
+      }
       setPhase('ingesting')
-      await ingestDataset(id, [], (p) => setProgress(p))
+      await ingestDataset(target.id, [], (p) => setProgress(p))
       setPhase('promoting')
-      await promoteDataset(id)
-      setResult({ id, name: created.dataset.name ?? name })
+      await promoteDataset(target.id)
+      setResult(target)
+      setCreated(null) // published — a further run starts a fresh dataset
       setPhase('done')
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -96,14 +113,14 @@ export function DocumentPanel() {
         <span className="hint">
           {t('document:convertHint')}
         </span>
-        <button type="button" onClick={run} disabled={!files.length || busy}>
+        <button type="button" onClick={run} disabled={(!files.length && !created) || busy}>
           {busy ? (
             <>
               <span className="spinner" />
               {t(`document:phase.${phase as Exclude<Phase, 'idle' | 'done'>}`)}
             </>
           ) : (
-            t('document:submit')
+            t(resuming ? 'document:retrySubmit' : 'document:submit')
           )}
         </button>
       </div>
@@ -116,6 +133,10 @@ export function DocumentPanel() {
       )}
 
       {error && <pre className="error">{error}</pre>}
+
+      {resuming && created && (
+        <p className="hint">{t('document:retryResumes', { name: created.name })}</p>
+      )}
 
       {phase === 'done' && result && (
         <section className="result">

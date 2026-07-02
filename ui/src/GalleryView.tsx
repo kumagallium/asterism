@@ -952,7 +952,15 @@ function IngestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChang
   // Only design-stage needs this gate: ingested → promote, promoted → done.
   if (datasetStage(meta) !== 'design') return null
 
-  if (!meta.has_rml) {
+  // A document dataset (source_kind=xml) has NO RML — it ingests through the
+  // deterministic structurer, not Morph-KGC. So the "no RML" dead-end is CSV/JSON-
+  // only. A document created via the "文書を追加" panel whose ingest failed (Docling
+  // down, a disconnect) lands here at the design stage; because its source was
+  // persisted at create, it can be re-ingested straight from the catalog with no
+  // re-upload — instead of forcing a re-upload that would mint a duplicate dataset.
+  const isDocument = meta.source_kind === 'xml'
+
+  if (!isDocument && !meta.has_rml) {
     return (
       <div className="ingest-gate">
         <div className="ds-subhead">{t('gallery:ingest.head')}</div>
@@ -972,7 +980,8 @@ function IngestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChang
 
   const hasSource = !!meta.has_source
   const isJson = meta.source_kind === 'json'
-  const sourceLabel = isJson ? 'JSON' : 'CSV'
+  const sourceLabel = isDocument ? t('gallery:ingest.sourceDocument') : isJson ? 'JSON' : 'CSV'
+  const accept = isDocument ? '.xml,.docx,.pdf' : isJson ? '.json,.geojson' : '.csv'
   const canIngest = !busy && (hasSource || files.length > 0)
 
   async function onIngest() {
@@ -994,11 +1003,15 @@ function IngestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChang
     <div className="ingest-gate">
       <div className="ds-subhead">{t('gallery:ingest.head')}</div>
       <p className="ingest-note">
-        <Trans i18nKey="gallery:ingest.note">
-          承認すると、この宣言 RML を Morph-KGC が実行し（生成コードは走らず、検証済みの Tier 0
-          関数だけ）、結果を<strong>隔離された下書きグラフ</strong>に投入します。Ask
-          の引用面（canonical）は汚しません。
-        </Trans>
+        {isDocument ? (
+          t('gallery:ingest.noteDocument')
+        ) : (
+          <Trans i18nKey="gallery:ingest.note">
+            承認すると、この宣言 RML を Morph-KGC が実行し（生成コードは走らず、検証済みの Tier 0
+            関数だけ）、結果を<strong>隔離された下書きグラフ</strong>に投入します。Ask
+            の引用面（canonical）は汚しません。
+          </Trans>
+        )}
       </p>
       {hasSource ? (
         <p className="ingest-source">
@@ -1015,7 +1028,7 @@ function IngestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChang
             {t('gallery:ingest.pickLabel', { source: sourceLabel })}
             <input
               type="file"
-              accept={isJson ? '.json,.geojson' : '.csv'}
+              accept={accept}
               multiple
               onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
             />

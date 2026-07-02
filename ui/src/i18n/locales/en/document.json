@@ -12,6 +12,8 @@
   "namePlaceholder": "e.g. Half-Heusler thermoelectrics / Service agreement",
   "convertHint": "Word (.docx) and PDF (.pdf) are automatically converted to structured XML on the server (the conversion tool and version are recorded in the provenance). PDF takes a little longer for layout-aware conversion.",
   "submit": "Add and publish document",
+  "retrySubmit": "Resume ingestion",
+  "retryResumes": "The dataset was already created. Retrying resumes ingesting the same document \"{{name}}\" — it does not create a duplicate.",
   "ingesting": "Ingesting…",
   "ingestProgress": "({{done}} / {{total}})",
   "result": "✓ Published <0>{{name}}</0>. Open it in Datasets and use <1>search_text</1> /<2>quote_with_citation</2> on the \"Tools\" tab to full-text search and cite it."

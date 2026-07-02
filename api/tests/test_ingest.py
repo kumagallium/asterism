@@ -315,6 +315,52 @@ def test_create_document_dataset_attaches_tools_and_ingests(tmp_path: Path) -> N
         assert next(d for n, d in events if n == "done")["result"]["triple_count"] > 10
 
 
+def test_create_document_rolls_back_on_non_http_error(tmp_path: Path, monkeypatch) -> None:
+    # A failure DURING source persistence must leave NO orphan dataset — even when it
+    # is NOT an HTTPException (a client disconnect mid-upload, an OSError on a full
+    # disk). The old narrow `except HTTPException` let those escape, orphaning the
+    # just-created (source-less) record for a re-upload to duplicate.
+    import asterism_api.main as main_mod
+
+    async def _boom(*_a, **_k):
+        raise OSError("disk full")  # a non-HTTPException raised mid-upload
+
+    monkeypatch.setattr(main_mod, "_persist_source_uploads", _boom)
+    oxi = _RecordingOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client, pytest.raises(OSError):
+        client.post(
+            "/api/documents",
+            data={"name": "Doomed"},
+            files={"files": ("paper.xml", _JATS_DOC.encode(), "application/xml")},
+        )
+    # The just-created record was rolled back — no source-less orphan remains.
+    assert registry.list_datasets(tmp_path / "registry") == []
+
+
+def test_create_document_rolls_back_on_http_error(tmp_path: Path, monkeypatch) -> None:
+    # The existing HTTPException rollback still fires (now via the finally guard): a
+    # persistence failure surfaced as an HTTPException also leaves no orphan.
+    from fastapi import HTTPException
+
+    import asterism_api.main as main_mod
+
+    async def _boom(*_a, **_k):
+        raise HTTPException(400, "bad source")
+
+    monkeypatch.setattr(main_mod, "_persist_source_uploads", _boom)
+    oxi = _RecordingOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/documents",
+            data={"name": "Doomed"},
+            files={"files": ("paper.xml", _JATS_DOC.encode(), "application/xml")},
+        )
+        assert r.status_code == 400
+    assert registry.list_datasets(tmp_path / "registry") == []
+
+
 # ---- PDF (Docling sidecar) path -------------------------------------------------
 # A .pdf is persisted RAW and converted by the Docling sidecar at INGEST (the slow ML
 # step lives in the async job). The sidecar is mocked here so the tests need no torch.
