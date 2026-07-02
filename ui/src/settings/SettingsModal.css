@@ -215,6 +215,19 @@
   outline: 2px solid var(--primary-soft);
   border-color: var(--primary);
 }
+.model-id-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.model-id-row input {
+  flex: 1;
+  min-width: 0;
+}
+.model-id-row button {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
 .field-check {
   display: flex;
   align-items: center;

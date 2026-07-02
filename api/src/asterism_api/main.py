@@ -59,6 +59,7 @@ from asterism.watcher import (
 )
 from asterism_step0.crosswalk_propose import propose_crosswalk_mapping
 from asterism_step0.inspect import inspect_source_set, render_markdown
+from asterism_step0.llm import list_available_models
 from asterism_step0.llm import make_llm as build_llm_client
 from asterism_step0.materialize import (
     _MODEL_HEADERS,
@@ -224,6 +225,52 @@ class UsageEventBody(BaseModel):
     output_tokens: int = 0
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
+
+
+class ModelsAvailableBody(BaseModel):
+    """Body for POST /api/models/available (model picker #②).
+
+    User-brought credentials used only to list the models they can use; never
+    persisted server-side (D7). ``api_base`` is for openai-compatible providers."""
+
+    provider: str = "anthropic"
+    api_key: str | None = None
+    api_base: str | None = None
+
+
+def _validate_llm_api_base(api_base: str) -> None:
+    """Fail-closed SSRF guard for a user-supplied OpenAI-compatible base URL.
+
+    Rejects non-http(s) schemes and hosts resolving to a private / loopback /
+    link-local / reserved address, so an operator-hosted API cannot be turned
+    into an internal port scanner or a cloud-metadata exfil vector. Local LLM
+    servers (Ollama, vLLM on localhost) are a legitimate use, so private targets
+    are allowed when ``ASTERISM_ALLOW_PRIVATE_LLM_BASE=1`` (set on local dev,
+    leave unset in shared deployments — fail-closed by default)."""
+    import ipaddress
+    import socket
+    from urllib.parse import urlparse
+
+    parsed = urlparse(api_base)
+    if parsed.scheme not in ("http", "https"):
+        raise HTTPException(400, "api_base must be an http(s) URL")
+    host = parsed.hostname
+    if not host:
+        raise HTTPException(400, "api_base has no host")
+    if os.environ.get("ASTERISM_ALLOW_PRIVATE_LLM_BASE") == "1":
+        return
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except socket.gaierror as exc:
+        raise HTTPException(400, f"api_base host does not resolve: {host}") from exc
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+            raise HTTPException(
+                400,
+                f"api_base resolves to a non-public address ({ip}); set "
+                "ASTERISM_ALLOW_PRIVATE_LLM_BASE=1 to allow a local LLM server",
+            )
 
 
 def _llm_coords(
@@ -1505,6 +1552,31 @@ def build_app(
             inspections, fks = inspect_source_set(paths, fk_hint_columns=fk or None)
             markdown = render_markdown(inspections, fks)
         return Response(content=markdown, media_type="text/markdown")
+
+    @app.post("/api/models/available")
+    def models_available(body: ModelsAvailableBody) -> JSONResponse:
+        """List the models a user-brought key can use (model picker #②).
+
+        ``anthropic`` → Anthropic ``models.list()``; openai-compatible →
+        ``client.models.list()``. The key is used only for this call and never
+        stored (D7). Sync ``def`` so FastAPI runs the blocking SDK call in a
+        threadpool. No write-auth — same trust model as propose (the caller's own
+        key). ``api_base`` is SSRF-guarded for openai-compatible providers.
+        """
+        provider = (body.provider or "anthropic").strip().lower()
+        if body.api_base and provider not in ("", "anthropic", "claude"):
+            _validate_llm_api_base(body.api_base)
+        try:
+            models = list_available_models(
+                provider, api_key=body.api_key, api_base=body.api_base
+            )
+        except HTTPException:
+            raise
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except Exception as exc:  # network / auth / provider-side failure
+            raise HTTPException(502, f"could not list models: {exc}") from exc
+        return JSONResponse({"models": models})
 
     @app.post("/api/propose")
     async def propose(

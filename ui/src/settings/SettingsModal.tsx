@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import './SettingsModal.css'
 import { useLlmSettings } from './context'
 import { UsageTab } from './UsageTab'
+import { fetchAvailableModels, type AvailableModel } from './modelsApi'
 import {
   API_BASE_HINTS,
   PROVIDERS,
@@ -222,9 +223,23 @@ function ModelForm({
   const [rateOutput, setRateOutput] = useState(model?.rate ? String(model.rate.output) : '')
   const [currency, setCurrency] = useState<RateCurrency>(model?.rate?.currency ?? 'usd')
 
+  // Model picker (#②): the fetched list feeds the datalist next to the modelId
+  // input so the user can pick instead of typing an exact id from memory.
+  const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
+  const [fetchingModels, setFetchingModels] = useState(false)
+  const [modelsError, setModelsError] = useState('')
+
   const providerMeta = PROVIDERS.find((p) => p.id === provider)
   const needsApiBase = providerMeta?.needsApiBase ?? false
   const baseNormalized = apiBase.trim() || null
+
+  // A fetched list belongs to one provider+endpoint; drop it (and any error) so
+  // the datalist never offers a different provider's model ids. Called from the
+  // provider/apiBase change handlers (not an effect — that cascades renders).
+  function clearFetchedModels() {
+    setAvailableModels([])
+    setModelsError('')
+  }
 
   // When provider/apiBase change (in the add form), prefill the key from that
   // credential group so a second model on the same endpoint reuses its key.
@@ -239,6 +254,18 @@ function ModelForm({
 
   const idTrimmed = modelId.trim()
   const canSave = idTrimmed.length > 0 && (!needsApiBase || baseNormalized !== null)
+
+  async function onFetchModels() {
+    setFetchingModels(true)
+    setModelsError('')
+    try {
+      setAvailableModels(await fetchAvailableModels(provider, apiKey.trim(), baseNormalized))
+    } catch (e) {
+      setModelsError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setFetchingModels(false)
+    }
+  }
 
   function buildRate(): TokenRate | undefined {
     const inp = Number.parseFloat(rateInput)
@@ -290,6 +317,7 @@ function ModelForm({
             const next = e.target.value as Provider
             setProvider(next)
             onProviderOrBaseChange(next, apiBase)
+            clearFetchedModels()
           }}
         >
           {PROVIDERS.map((p) => (
@@ -309,19 +337,46 @@ function ModelForm({
           type="text"
           value={apiBase}
           placeholder={API_BASE_HINTS[provider] ?? ''}
-          onChange={(e) => setApiBase(e.target.value)}
+          onChange={(e) => {
+            setApiBase(e.target.value)
+            clearFetchedModels()
+          }}
           onBlur={() => onProviderOrBaseChange(provider, apiBase)}
         />
       </label>
 
       <label className="field">
         <span>{t('form.modelId')}</span>
-        <input
-          type="text"
-          value={modelId}
-          placeholder={modelIdPlaceholder(provider)}
-          onChange={(e) => setModelId(e.target.value)}
-        />
+        <div className="model-id-row">
+          <input
+            type="text"
+            list="model-id-options"
+            value={modelId}
+            placeholder={modelIdPlaceholder(provider)}
+            onChange={(e) => setModelId(e.target.value)}
+          />
+          <button
+            type="button"
+            className="btn--ghost"
+            onClick={onFetchModels}
+            disabled={fetchingModels || !apiKey.trim() || (needsApiBase && baseNormalized === null)}
+          >
+            {fetchingModels ? t('form.fetchingModels') : t('form.fetchModels')}
+          </button>
+        </div>
+        {availableModels.length > 0 && (
+          <datalist id="model-id-options">
+            {availableModels.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.display_name}
+              </option>
+            ))}
+          </datalist>
+        )}
+        {modelsError && <p className="field-help field-error">{modelsError}</p>}
+        {!modelsError && availableModels.length > 0 && (
+          <p className="field-help">{t('form.modelsFetched', { count: availableModels.length })}</p>
+        )}
       </label>
 
       <label className="field">
