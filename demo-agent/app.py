@@ -61,15 +61,26 @@ _USAGE_API_URL = (os.environ.get("ASTERISM_API_URL") or "").strip().rstrip("/")
 _USAGE_API_TOKEN = os.environ.get("ASTERISM_API_TOKEN")
 
 
-def _server_llm_key(provider: str | None) -> str | None:
-    """Operator fallback LLM key for Ask, or ``None`` (opt-in, off by default).
+def _server_llm(provider: str | None) -> tuple[str | None, str | None]:
+    """Operator fallback ``(api_key, api_base)`` for Ask, or ``(None, None)``.
 
-    Mirrors the api's ``ASTERISM_LLM_KEY_<PROVIDER>`` scheme
-    (``asterism_api.server_keys``) so a Private, login-gated instance can hold
-    keys once and users need not type one to Ask. Unset by default → ``None`` →
-    the free deterministic typed showcase stays the no-key behavior."""
-    slug = (provider or "anthropic").strip().lower().replace("-", "_")
-    return (os.environ.get(f"ASTERISM_LLM_KEY_{slug.upper()}") or "").strip() or None
+    Mirrors ``asterism_api.server_keys``: the UI/file store the api writes (the
+    registry, mounted read-only here) first, then ``ASTERISM_LLM_KEY_<PROVIDER>``.
+    For an openai-compatible shared key the stored ``api_base`` is pinned. Unset
+    by default → ``(None, None)`` → the free typed showcase stays the no-key path."""
+    p = (provider or "anthropic").strip().lower()
+    root = os.environ.get("CSV2RDF_REGISTRY_ROOT")
+    if root:
+        try:
+            with open(os.path.join(root, "_llm", "server_keys.json"), encoding="utf-8") as fh:
+                data = json.load(fh)
+            entry = data.get(p) if isinstance(data, dict) else None
+            if isinstance(entry, dict) and str(entry.get("api_key") or "").strip():
+                return entry["api_key"].strip(), (str(entry.get("api_base") or "").strip() or None)
+        except (OSError, ValueError):
+            pass
+    env = (os.environ.get(f"ASTERISM_LLM_KEY_{p.replace('-', '_').upper()}") or "").strip()
+    return (env or None), None
 
 app = FastAPI(title=f"asterism demo-agent ({'real' if _REAL else 'mock'})")
 
@@ -939,8 +950,14 @@ async def ask(
     provider = (x_llm_provider or "anthropic").strip().lower() or "anthropic"
     # No browser key → fall back to the operator's server-side key (opt-in). This
     # is what lets a login-gated instance answer general questions without each
-    # user pasting a key.
-    key = x_api_key or _server_llm_key(provider)
+    # user pasting a key. For an openai-compatible shared key its stored base is
+    # pinned (don't send the shared key to a per-request endpoint).
+    key = x_api_key
+    api_base = x_llm_api_base
+    if not key:
+        key, pinned = _server_llm(provider)
+        if pinned:
+            api_base = pinned
     if key:
         model = x_llm_model or (
             _OPENAI_ASK_MODEL if provider in _OPENAI_PROVIDERS else _ASK_MODEL
@@ -950,7 +967,7 @@ async def ask(
             key,
             provider=provider,
             model=model,
-            api_base=x_llm_api_base,
+            api_base=api_base,
         )
         await _post_usage(provider, model, usage)
         return answer

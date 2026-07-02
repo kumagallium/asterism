@@ -176,6 +176,16 @@ export interface TrapResult {
   detail: string
 }
 
+/** Error carrying the HTTP status so callers can branch (e.g. 404 → recreate). */
+export class ApiError extends Error {
+  readonly status: number
+
+  constructor(message: string, status: number) {
+    super(message)
+    this.status = status
+  }
+}
+
 /** Registry meta for a persisted dataset (subset the workbench needs). */
 export interface DatasetMeta {
   id: string
@@ -421,7 +431,10 @@ export async function materializeSchema(
   })
   if (!res.ok) {
     const detail = await res.text().catch(() => '')
-    throw new Error(`materialize failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
+    throw new ApiError(
+      `materialize failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`,
+      res.status,
+    )
   }
   return (await res.json()) as MaterializeResult
 }
