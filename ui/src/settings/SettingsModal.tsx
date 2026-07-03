@@ -225,6 +225,10 @@ function ModelForm({
   const [rateOutput, setRateOutput] = useState(model?.rate ? String(model.rate.output) : '')
   const [currency, setCurrency] = useState<RateCurrency>(model?.rate?.currency ?? 'usd')
 
+  // Max output tokens (string in the form; parsed on save). Empty → server
+  // default (96000); small-context models (qwen3 etc.) need a lower cap.
+  const [maxTokens, setMaxTokens] = useState(model?.maxTokens ? String(model.maxTokens) : '')
+
   // Model picker (#②): the fetched list feeds the datalist next to the modelId
   // input so the user can pick instead of typing an exact id from memory.
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
@@ -279,6 +283,12 @@ function ModelForm({
     return { input: inp, output: out, currency }
   }
 
+  /** Empty / non-positive → null (use the server default). */
+  function buildMaxTokens(): number | null {
+    const n = Number.parseInt(maxTokens, 10)
+    return Number.isFinite(n) && n > 0 ? n : null
+  }
+
   function onSubmit() {
     if (!canSave) return
     const rate = buildRate()
@@ -290,6 +300,7 @@ function ModelForm({
         modelId: idTrimmed,
         apiBase: baseNormalized,
         rate,
+        maxTokens: buildMaxTokens(),
       })
       settings.setKeyForModel(
         { ...model, provider, apiBase: baseNormalized },
@@ -303,6 +314,7 @@ function ModelForm({
         modelId: idTrimmed,
         apiBase: baseNormalized,
         rate,
+        maxTokens: buildMaxTokens(),
       })
       settings.addModel(created)
       if (apiKey.trim()) settings.setKeyForModel(created, apiKey.trim(), remember)
@@ -415,6 +427,19 @@ function ModelForm({
           placeholder={idTrimmed || t('form.namePlaceholder')}
           onChange={(e) => setName(e.target.value)}
         />
+      </label>
+
+      <label className="field">
+        <span>{t('form.maxTokens')}</span>
+        <input
+          type="number"
+          step="1"
+          min="1"
+          value={maxTokens}
+          placeholder="96000"
+          onChange={(e) => setMaxTokens(e.target.value)}
+        />
+        <p className="field-help">{t('form.maxTokensHelp')}</p>
       </label>
 
       <label className="field-check">

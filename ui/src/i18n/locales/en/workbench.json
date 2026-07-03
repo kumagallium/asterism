@@ -103,7 +103,12 @@
   },
   "job": {
     "elapsed": "{{mm}}m {{ss}}s elapsed · usually 1–6 min · connection is kept alive",
-    "elapsedStatus": "{{mm}}m {{ss}}s elapsed · usually 1–6 min · connection is kept alive · status: {{status}}"
+    "elapsedStatus": "{{mm}}m {{ss}}s elapsed · usually 1–6 min · connection is kept alive · status: {{status}}",
+    "pulse": "Server responded {{s}}s ago",
+    "silent": "No server response for {{s}}s (auto-reconnecting…)",
+    "cancel": "Cancel",
+    "cancelling": "Cancelling…",
+    "cancelled": "Cancelled"
   },
   "resume": {
     "restored": "Restored the previous result",

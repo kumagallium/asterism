@@ -64,14 +64,22 @@ export interface ProposeHandlers {
   onStatus?: (message: string) => void
   onDone: (result: ProposeResult) => void
   onError: (message: string) => void
+  /** Fired on EVERY server-sent event (started/running/done/error/heartbeat/
+   *  cancelled) — a pure liveness signal so the UI can show "server responded
+   *  Ns ago" during a minutes-long LLM call. */
+  onPulse?: () => void
+  /** Fired on the terminal `cancelled` event (user-requested stop). When absent,
+   *  the cancel falls back to onError('cancelled'). */
+  onCancelled?: () => void
 }
 
 /**
  * Start a schema-proposal job and subscribe to its SSE stream.
  *
  * The active model's credentials (D7: user-brought, never persisted server-side)
- * are sent as `X-API-Key` + `X-LLM-*` headers on the POST only. Returns a cleanup
- * function that closes the EventSource — call it on unmount or a new run.
+ * are sent as `X-API-Key` + `X-LLM-*` headers on the POST only. Returns a
+ * {@link JobHandle} — call `close()` on unmount or a new run, `cancel()` to stop
+ * the job server-side.
  */
 export async function proposeCsvs(
   files: File[],
@@ -80,7 +88,7 @@ export async function proposeCsvs(
   creds: LlmCredentials | null,
   handlers: ProposeHandlers,
   language?: string,
-): Promise<() => void> {
+): Promise<JobHandle> {
   const form = new FormData()
   for (const file of files) {
     form.append('files', file)
@@ -121,6 +129,10 @@ export interface RefineHandlers {
   onStatus?: (message: string) => void
   onDone: (result: RefineResult) => void
   onError: (message: string) => void
+  /** Liveness signal — see {@link ProposeHandlers.onPulse}. */
+  onPulse?: () => void
+  /** Terminal `cancelled` event — see {@link ProposeHandlers.onCancelled}. */
+  onCancelled?: () => void
 }
 
 /**
@@ -133,7 +145,7 @@ export async function refineSchema(
   creds: LlmCredentials | null,
   handlers: RefineHandlers,
   language?: string,
-): Promise<() => void> {
+): Promise<JobHandle> {
   const res = await fetch('/api/refine', {
     method: 'POST',
     headers: {
@@ -156,16 +168,36 @@ export interface ResumeHandlers {
   onStatus?: (message: string) => void
   onDone: (result: unknown) => void
   onError: (message: string) => void
+  /** Liveness signal — see {@link ProposeHandlers.onPulse}. */
+  onPulse?: () => void
+  /** Terminal `cancelled` event — see {@link ProposeHandlers.onCancelled}. */
+  onCancelled?: () => void
 }
 
 /**
  * Re-subscribe to an already-started job's SSE stream (no new POST). The server
  * JobManager replays started/running/done(/error), so a job that finished while
  * the UI was gone is recovered, and a still-running one keeps streaming. Returns
- * a cleanup function that closes the EventSource.
+ * a {@link JobHandle} whose `close()` releases the EventSource.
  */
-export function resumeJob(jobId: string, handlers: ResumeHandlers): () => void {
+export function resumeJob(jobId: string, handlers: ResumeHandlers): JobHandle {
   return subscribeJob(jobId, handlers)
+}
+
+/**
+ * Request a server-side cancel of a running job (POST /api/jobs/{id}/cancel —
+ * idempotent). The job's SSE stream then ends with a terminal `cancelled` event,
+ * which is what settles the subscribed UI; this call only *requests* the stop.
+ */
+export async function cancelJob(jobId: string): Promise<void> {
+  const res = await fetch(`/api/jobs/${encodeURIComponent(jobId)}/cancel`, {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '')
+    throw new Error(`cancel failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
+  }
 }
 
 /** One trap result from the 8-trap validator. */
@@ -389,6 +421,12 @@ export async function ingestDataset(
       es.close()
       resolve(JSON.parse((e as MessageEvent).data).result as IngestResult)
     })
+    // Terminal `cancelled` (e.g. cancelled out-of-band via the jobs API): settle
+    // the promise instead of hanging forever on a stream that ended.
+    es.addEventListener('cancelled', () => {
+      es.close()
+      reject(new Error('cancelled'))
+    })
     es.addEventListener('error', (e) => {
       const msg = (e as MessageEvent).data
       if (msg) {
@@ -485,28 +523,61 @@ export async function validateDesign(datasetId: string): Promise<string[]> {
   return data.validation_issues ?? []
 }
 
-// Shared SSE subscription for propose/refine jobs. Returns a cleanup function
-// that closes the EventSource.
+/** Live handle on a subscribed job: `close()` releases the EventSource (the
+ *  server-side job keeps running); `cancel()` asks the server to stop the job
+ *  (the stream then ends with the terminal `cancelled` event). */
+export interface JobHandle {
+  jobId: string
+  close: () => void
+  cancel: () => Promise<void>
+}
+
+// Shared SSE subscription for propose/refine jobs. Returns a JobHandle whose
+// close() releases the EventSource.
 function subscribeJob<T>(
   jobId: string,
-  handlers: { onStatus?: (m: string) => void; onDone: (r: T) => void; onError: (m: string) => void },
-): () => void {
+  handlers: {
+    onStatus?: (m: string) => void
+    onDone: (r: T) => void
+    onError: (m: string) => void
+    /** Fired on EVERY server-sent event (incl. heartbeats) — liveness signal. */
+    onPulse?: () => void
+    /** Terminal `cancelled` event; absent → falls back to onError('cancelled'). */
+    onCancelled?: () => void
+  },
+): JobHandle {
   const es = new EventSource(`/api/jobs/${jobId}/stream`)
   const close = () => es.close()
 
-  es.addEventListener('started', () => handlers.onStatus?.('started'))
+  es.addEventListener('started', () => {
+    handlers.onPulse?.()
+    handlers.onStatus?.('started')
+  })
   es.addEventListener('running', (e) => {
+    handlers.onPulse?.()
     const data = JSON.parse((e as MessageEvent).data)
     handlers.onStatus?.(data.message ?? 'running')
   })
+  // Keep-alive sent every ~15s while the job is idle (a minutes-long LLM call):
+  // no state change — just proof the server and the stream are alive.
+  es.addEventListener('heartbeat', () => handlers.onPulse?.())
   es.addEventListener('done', (e) => {
+    handlers.onPulse?.()
     const data = JSON.parse((e as MessageEvent).data)
     handlers.onDone(data.result as T)
+    close()
+  })
+  // Terminal user-requested cancel: the server stopped the job; the stream ends.
+  es.addEventListener('cancelled', () => {
+    handlers.onPulse?.()
+    if (handlers.onCancelled) handlers.onCancelled()
+    else handlers.onError('cancelled')
     close()
   })
   es.addEventListener('error', (e) => {
     const msg = (e as MessageEvent).data
     if (msg) {
+      handlers.onPulse?.()
       // A server-sent `error` event: the job genuinely failed. Fatal.
       handlers.onError(JSON.parse(msg).message ?? 'unknown error')
       close()
@@ -522,5 +593,5 @@ function subscribeJob<T>(
     // result) is recovered without losing progress or clearing the saved job.
   })
 
-  return close
+  return { jobId, close, cancel: () => cancelJob(jobId) }
 }

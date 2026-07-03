@@ -60,6 +60,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         modelId: activeModel.modelId,
         apiBase: activeModel.apiBase,
         apiKey,
+        maxTokens: activeModel.maxTokens ?? null,
       }
     }
     const activeHasBrowserKey = !!activeModel && hasKey(groupOfModel(activeModel))

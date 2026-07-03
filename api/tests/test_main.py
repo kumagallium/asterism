@@ -7,6 +7,8 @@ the filesystem outside ``tmp_path``.
 from __future__ import annotations
 
 import json
+import threading
+import time
 from pathlib import Path
 
 import httpx
@@ -550,6 +552,156 @@ def test_refine_rejects_empty_comments(
             json={"schema_md": "## x", "comments": ["  "]},
         )
         assert r.status_code == 400
+
+
+# ----------------------------------------------------------------------------
+# Job cancel endpoint (POST /api/jobs/{id}/cancel)
+# ----------------------------------------------------------------------------
+
+
+class _BlockingLLM:
+    """Blocks in complete() until released — a stand-in for a stuck LLM call."""
+
+    def __init__(self, key: str | None) -> None:
+        self.started = threading.Event()
+        self.release = threading.Event()
+
+    def complete(self, system_prompt: str, user_message: str) -> str:
+        self.started.set()
+        self.release.wait(timeout=10)
+        return "## Proposed schema\n\nLATE RESULT"
+
+
+def test_cancel_endpoint_cancels_running_job_and_discards_late_result(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    blocking = _BlockingLLM(None)
+    app = build_app(
+        _settings(tmp_path),
+        oxigraph_client=healthy_client,
+        start_watcher=False,
+        llm_factory=lambda key: blocking,
+    )
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/refine",
+            json={"schema_md": "## Proposed schema\n\nX", "comments": ["fix it"]},
+        )
+        assert r.status_code == 202
+        job_id = r.json()["job_id"]
+        # Wait until the worker thread is actually inside the LLM call.
+        assert blocking.started.wait(timeout=10)
+
+        r = client.post(f"/api/jobs/{job_id}/cancel")
+        assert r.status_code == 200
+        assert r.json() == {"status": "cancelled"}
+
+        # The SSE stream ends on the cancelled event.
+        events = _parse_sse(client.get(f"/api/jobs/{job_id}/stream").text)
+        names = [n for n, _ in events]
+        assert "cancelled" in names
+        assert "done" not in names
+
+        # Let the worker finish LATE: its result must be discarded silently —
+        # the job stays cancelled and no done event is appended.
+        job = app.state.jobs.get(job_id)
+        assert job is not None
+        blocking.release.set()
+        for _ in range(500):
+            if job.task is not None and job.task.done():
+                break
+            time.sleep(0.01)
+        assert job.status == "cancelled"
+        assert all(e["event"] != "done" for e in job.events)
+
+        # Idempotent: cancelling a terminal job is still a 200.
+        assert client.post(f"/api/jobs/{job_id}/cancel").status_code == 200
+
+
+def test_cancel_endpoint_unknown_job_is_404(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    app = build_app(
+        _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
+    )
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post("/api/jobs/job-does-not-exist/cancel")
+        assert r.status_code == 404
+        assert "unknown job_id" in r.text
+
+
+# ----------------------------------------------------------------------------
+# X-LLM-Max-Tokens header → _resolve_llm(max_tokens=...)
+# ----------------------------------------------------------------------------
+
+
+def _max_tokens_app(tmp_path: Path, healthy_client: OxigraphClient, captured: dict):
+    """An app whose llm_resolver records the max_tokens keyword it receives."""
+
+    def resolver(provider, model, api_base, key, max_tokens=None):
+        captured["max_tokens"] = max_tokens
+        return _MockLLM(captured, key)
+
+    return build_app(
+        _settings(tmp_path),
+        oxigraph_client=healthy_client,
+        start_watcher=False,
+        llm_resolver=resolver,
+    )
+
+
+def test_max_tokens_header_reaches_resolver(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    captured: dict[str, object] = {}
+    app = _max_tokens_app(tmp_path, healthy_client, captured)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/propose",
+            params={"autocorrect": 0},
+            files={"files": ("s.csv", b"SID,x\n1,10\n", "text/csv")},
+            headers={"X-API-Key": "sk-user", "X-LLM-Max-Tokens": "32000"},
+        )
+        assert r.status_code == 202
+        # Drain the job so nothing is mid-flight at lifespan shutdown.
+        client.get(f"/api/jobs/{r.json()['job_id']}/stream")
+    assert captured["max_tokens"] == 32000
+
+
+def test_max_tokens_header_absent_is_none(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    captured: dict[str, object] = {}
+    app = _max_tokens_app(tmp_path, healthy_client, captured)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/propose",
+            params={"autocorrect": 0},
+            files={"files": ("s.csv", b"SID,x\n1,10\n", "text/csv")},
+            headers={"X-API-Key": "sk-user"},
+        )
+        assert r.status_code == 202
+        client.get(f"/api/jobs/{r.json()['job_id']}/stream")
+    assert captured["max_tokens"] is None
+
+
+@pytest.mark.parametrize("bad", ["abc", "0", "-5"])
+def test_max_tokens_header_invalid_is_400(
+    tmp_path: Path, healthy_client: OxigraphClient, bad: str
+) -> None:
+    captured: dict[str, object] = {}
+    app = _max_tokens_app(tmp_path, healthy_client, captured)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/propose",
+            params={"autocorrect": 0},
+            files={"files": ("s.csv", b"SID,x\n1,10\n", "text/csv")},
+            headers={"X-API-Key": "sk-user", "X-LLM-Max-Tokens": bad},
+        )
+        assert r.status_code == 400
+        assert "positive integer" in r.text
+    # Rejected before any LLM client was built.
+    assert "max_tokens" not in captured
 
 
 _MATERIALIZE_MD = """## Schema proposal

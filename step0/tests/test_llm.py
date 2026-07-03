@@ -12,6 +12,7 @@ import pytest
 
 from asterism_step0.llm import (
     DEFAULT_ANTHROPIC_MODEL,
+    DEFAULT_MAX_TOKENS,
     DEFAULT_OPENAI_MODEL,
     AnthropicLLMClient,
     LLMCompletion,
@@ -86,3 +87,19 @@ def test_clients_start_with_no_recorded_usage() -> None:
     # until complete() runs, so nothing is recorded for a never-called client.
     assert make_llm(None).last_usage is None  # type: ignore[union-attr]
     assert make_llm("openai").last_usage is None  # type: ignore[union-attr]
+
+
+def test_make_llm_max_tokens_override_plumbs_to_both_providers() -> None:
+    a = make_llm(None, max_tokens=12000)
+    assert isinstance(a, AnthropicLLMClient)
+    assert a.max_tokens == 12000
+    o = make_llm("openai", max_tokens=12000)
+    assert isinstance(o, OpenAICompatibleLLMClient)
+    assert o.max_tokens == 12000
+
+
+def test_make_llm_max_tokens_none_or_nonpositive_keeps_default() -> None:
+    # None (the wire default) and junk values keep the generous default cap.
+    assert make_llm("openai").max_tokens == DEFAULT_MAX_TOKENS  # type: ignore[union-attr]
+    assert make_llm("openai", max_tokens=0).max_tokens == DEFAULT_MAX_TOKENS  # type: ignore[union-attr]
+    assert make_llm(None, max_tokens=-5).max_tokens == DEFAULT_MAX_TOKENS  # type: ignore[union-attr]

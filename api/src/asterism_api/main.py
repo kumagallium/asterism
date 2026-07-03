@@ -319,6 +319,46 @@ def _llm_coords(
     return provider, (x_llm_model or None), api_base, key
 
 
+def _llm_max_tokens(value: str | None) -> int | None:
+    """Parse the optional ``X-LLM-Max-Tokens`` header into an output-token cap.
+
+    Absent / blank → None (the provider default). A weak OpenAI-compatible model
+    (qwen3-class via vLLM) can reject step0's generous default cap outright, so
+    the UI lets the user pin a smaller one per model. Anything that is not a
+    positive integer is a client error (400), not a silent fallback."""
+    if value is None or not value.strip():
+        return None
+    try:
+        parsed = int(value.strip())
+    except ValueError:
+        parsed = 0
+    if parsed < 1:
+        raise HTTPException(400, "X-LLM-Max-Tokens must be a positive integer")
+    return parsed
+
+
+def _arm_llm_callbacks(
+    llm: object,
+    *,
+    should_cancel: Callable[[], bool] | None = None,
+    on_generation: Callable[[int, int], None] | None = None,
+    on_note: Callable[[str], None] | None = None,
+) -> None:
+    """Attach a job's cooperative hooks to a real LLM client (best-effort).
+
+    The step0 clients declare mutable ``should_cancel`` / ``on_generation`` /
+    ``on_note`` attributes; a bare test mock (whose whole surface is
+    ``complete``) declares none. Set only what the client already has, so mocks
+    — and any legacy client — are left untouched."""
+    for name, value in (
+        ("should_cancel", should_cancel),
+        ("on_generation", on_generation),
+        ("on_note", on_note),
+    ):
+        if value is not None and hasattr(llm, name):
+            setattr(llm, name, value)
+
+
 def _record_llm_usage(
     registry_root: Path, feature: str, provider: str, llm: object, model_hint: str | None
 ) -> None:
@@ -649,6 +689,14 @@ class Settings:
             self.autocorrect_rounds = max(0, int(e.get("ASTERISM_AUTOCORRECT_ROUNDS", "3")))
         except ValueError:
             self.autocorrect_rounds = 3
+        # Wall-clock cap on ONE background job (propose / refine / ingest). A stuck
+        # LLM call otherwise runs forever with no signal (the 400-minute propose).
+        # "0" disables the cap (None → JobManager runs jobs unbounded, as before).
+        try:
+            timeout_s = float(e.get("ASTERISM_JOB_TIMEOUT_SECONDS", "3600"))
+        except ValueError:
+            timeout_s = 3600.0
+        self.job_timeout_seconds: float | None = timeout_s if timeout_s > 0 else None
 
 
 # ----------------------------------------------------------------------------
@@ -1415,19 +1463,20 @@ def build_app(
     oxigraph_client: OxigraphClient | None = None,
     start_watcher: bool = True,
     llm_factory: Callable[[str | None], LLMClient] | None = None,
-    llm_resolver: Callable[[str, str | None, str | None, str | None], LLMClient]
-    | None = None,
+    llm_resolver: Callable[..., LLMClient] | None = None,
 ) -> FastAPI:
     """Build the FastAPI app.
 
     LLM client construction goes through ``_resolve_llm(provider, model, api_base,
-    key)``, built once here:
+    key, max_tokens=None)``, built once here:
 
     * ``llm_resolver`` — provider-aware injection (new tests use this to exercise
-      multi-provider routing without a network).
+      multi-provider routing without a network). Must accept the keyword
+      ``max_tokens`` (the parsed ``X-LLM-Max-Tokens`` header, None when absent).
     * ``llm_factory`` — legacy 1-arg (key → client) injection; kept so existing
       tests that inject a mock keep working. Only the key is honored; provider /
-      model / api_base are ignored (those tests never send provider headers).
+      model / api_base / max_tokens are ignored (those tests never send provider
+      headers).
     * default — :func:`asterism_step0.llm.make_llm`, which returns the Anthropic
       default when no provider is selected (byte-for-byte the historical path) and
       an OpenAI-compatible client otherwise (Sakura AI Engine via a custom base_url,
@@ -1439,16 +1488,25 @@ def build_app(
     elif llm_factory is not None:
 
         def _resolve_llm(
-            provider: str, model: str | None, api_base: str | None, api_key: str | None
+            provider: str,
+            model: str | None,
+            api_base: str | None,
+            api_key: str | None,
+            max_tokens: int | None = None,
         ) -> LLMClient:
             return llm_factory(api_key)
     else:
 
         def _resolve_llm(
-            provider: str, model: str | None, api_base: str | None, api_key: str | None
+            provider: str,
+            model: str | None,
+            api_base: str | None,
+            api_key: str | None,
+            max_tokens: int | None = None,
         ) -> LLMClient:
             return build_llm_client(
-                provider, model=model, api_base=api_base, api_key=api_key
+                provider, model=model, api_base=api_base, api_key=api_key,
+                max_tokens=max_tokens,
             )
     watcher_cfg = WatcherConfig(
         drop_root=cfg.drop_root,
@@ -1558,7 +1616,7 @@ def build_app(
         app.state.sweeper_task = sweeper
         app.state.append_watcher_task = append_watcher
         app.state.crosswalk_rebuilder = crosswalk_rebuilder
-        app.state.jobs = JobManager()
+        app.state.jobs = JobManager(job_timeout_seconds=cfg.job_timeout_seconds)
         try:
             yield
         finally:
@@ -1783,6 +1841,10 @@ def build_app(
         x_llm_api_base: str | None = Header(
             default=None, description="Custom base URL (OpenAI-compatible, e.g. Sakura AI Engine)"
         ),
+        x_llm_max_tokens: str | None = Header(
+            default=None,
+            description="Output-token cap override (positive integer); absent → provider default",
+        ),
     ) -> JSONResponse:
         """Phase 4 (M1a): start an async schema-proposal job; return its job_id.
 
@@ -1794,6 +1856,9 @@ def build_app(
         """
         if not files:
             raise HTTPException(400, "no files uploaded")
+        # Parse (and 400 on) the cap header BEFORE the upload dir exists so a bad
+        # header cannot leak a temp dir.
+        max_tokens = _llm_max_tokens(x_llm_max_tokens)
 
         import tempfile as _tempfile
 
@@ -1809,11 +1874,13 @@ def build_app(
         provider, model, api_base, key = _llm_coords(
             x_api_key, x_llm_provider, x_llm_model, x_llm_api_base, cfg.registry_root
         )
-        llm = _resolve_llm(provider, model, api_base, key)
+        llm = _resolve_llm(provider, model, api_base, key, max_tokens=max_tokens)
         fk_cols = fk or None
         rounds = cfg.autocorrect_rounds if autocorrect is None else max(0, autocorrect)
 
-        async def propose_job(emit: Callable[..., None]) -> dict[str, object]:
+        async def propose_job(
+            emit: Callable[..., None], should_cancel: Callable[[], bool]
+        ) -> dict[str, object]:
             # The self-correction loop (TODO ④) is a blocking, synchronous orchestrator;
             # run it in ONE worker thread and bridge its per-round progress back onto the
             # event loop via call_soon_threadsafe (emit is ONLY safe from the loop, never
@@ -1828,6 +1895,24 @@ def build_app(
             def on_llm_call(feature: str) -> None:
                 _record_llm_usage(cfg.registry_root, feature, provider, llm, model)
 
+            # In-call progress from the LLM client itself (multi-generation
+            # continuations / auto-downgrade notes), bridged thread→loop like
+            # on_progress. Message style matches design_loop's Japanese frames.
+            def on_generation(current: int, total: int) -> None:
+                loop.call_soon_threadsafe(
+                    lambda: emit(phase="llm", message=f"モデル生成中 (パート {current}/{total})")
+                )
+
+            def on_note(note: str) -> None:
+                loop.call_soon_threadsafe(lambda: emit(phase="llm", message=note))
+
+            _arm_llm_callbacks(
+                llm,
+                should_cancel=should_cancel,
+                on_generation=on_generation,
+                on_note=on_note,
+            )
+
             try:
                 result = await asyncio.to_thread(
                     design_loop.run_design_loop,
@@ -1840,6 +1925,7 @@ def build_app(
                     on_progress=on_progress,
                     on_llm_call=on_llm_call,
                     language=language or None,
+                    should_cancel=should_cancel,
                 )
             finally:
                 shutil.rmtree(tmpdir, ignore_errors=True)
@@ -1876,6 +1962,10 @@ def build_app(
         x_llm_provider: str | None = Header(default=None),
         x_llm_model: str | None = Header(default=None),
         x_llm_api_base: str | None = Header(default=None),
+        x_llm_max_tokens: str | None = Header(
+            default=None,
+            description="Output-token cap override (positive integer); absent → provider default",
+        ),
     ) -> JSONResponse:
         """Phase 4 (M1c): start an async refine job; return its job_id.
 
@@ -1892,9 +1982,14 @@ def build_app(
         provider, model, api_base, key = _llm_coords(
             x_api_key, x_llm_provider, x_llm_model, x_llm_api_base, cfg.registry_root
         )
-        llm = _resolve_llm(provider, model, api_base, key)
+        llm = _resolve_llm(
+            provider, model, api_base, key, max_tokens=_llm_max_tokens(x_llm_max_tokens)
+        )
 
-        def work() -> dict[str, object]:
+        def work(should_cancel: Callable[[], bool]) -> dict[str, object]:
+            # Cooperative cancel only (jobs.start has no emit to bridge progress
+            # through): the client checks it before each generation.
+            _arm_llm_callbacks(llm, should_cancel=should_cancel)
             result = refine_schema(body.schema_md, comments, llm=llm, language=body.language)
             _record_llm_usage(cfg.registry_root, "refine", provider, llm, model)
             # Surface the truncation guard: `refined_md` stays the raw output for
@@ -2174,6 +2269,10 @@ def build_app(
         x_llm_provider: str | None = Header(default=None),
         x_llm_model: str | None = Header(default=None),
         x_llm_api_base: str | None = Header(default=None),
+        x_llm_max_tokens: str | None = Header(
+            default=None,
+            description="Output-token cap override (positive integer); absent → provider default",
+        ),
     ) -> dict[str, object]:
         """P2: AI-draft ONE query tool from a natural-language intent.
 
@@ -2198,7 +2297,9 @@ def build_app(
                 "AI draft needs an API key — set one in Settings, or have the "
                 "operator configure a server-side key (ASTERISM_LLM_KEY_<PROVIDER>)",
             )
-        llm = _resolve_llm(provider, model, api_base, key)
+        llm = _resolve_llm(
+            provider, model, api_base, key, max_tokens=_llm_max_tokens(x_llm_max_tokens)
+        )
 
         def run() -> dict:
             return propose_query_tool(
@@ -2510,7 +2611,11 @@ def build_app(
         staged_iri = substrate.versioned_graph_iri(dataset_id, data_seq)
         client: OxigraphClient = app.state.client
 
-        async def ingest_job(emit: Callable[..., None]) -> dict[str, object]:
+        # ``should_cancel`` is part of the start_coro contract; ingest does not
+        # poll it (its Oxigraph writes are already versioned + reclaimed).
+        async def ingest_job(
+            emit: Callable[..., None], should_cancel: Callable[[], bool]
+        ) -> dict[str, object]:
             work = Path(tempfile.mkdtemp(prefix="asterism-ingest-"))
             try:
                 emit(phase="materialize", message="RDF を生成中")
@@ -2987,6 +3092,10 @@ def build_app(
         x_llm_provider: str | None = Header(default=None),
         x_llm_model: str | None = Header(default=None),
         x_llm_api_base: str | None = Header(default=None),
+        x_llm_max_tokens: str | None = Header(
+            default=None,
+            description="Output-token cap override (positive integer); absent → provider default",
+        ),
     ) -> dict[str, object]:
         """AI-assist (手動選択の補助): suggest each dataset's concept-bearing predicate.
 
@@ -3005,7 +3114,10 @@ def build_app(
                 "AI suggestion needs an API key — set one in Settings, or have the "
                 "operator configure a server-side key (ASTERISM_LLM_KEY_<PROVIDER>)",
             )
-        llm = _resolve_llm(provider, model, api_base, api_key_val)
+        llm = _resolve_llm(
+            provider, model, api_base, api_key_val,
+            max_tokens=_llm_max_tokens(x_llm_max_tokens),
+        )
         client: OxigraphClient = app.state.client
         datasets: list[dict] = []
         skipped: list[dict] = []
@@ -3233,6 +3345,20 @@ def build_app(
                 "X-Accel-Buffering": "no",  # disable proxy buffering for SSE
             },
         )
+
+    @app.post("/api/jobs/{job_id}/cancel")
+    async def job_cancel(job_id: str) -> JSONResponse:
+        """Cancel one background job (idempotent — cancelling a finished job is OK).
+
+        Unauthenticated by the same reasoning as the stream route above: job ids
+        are per-process handles whose stream (the full result) is already open,
+        so cancel adds no new exposure. The SSE stream ends with a ``cancelled``
+        event; the job's cooperative ``should_cancel`` stops the LLM work at its
+        next checkpoint and its late result is discarded."""
+        jobs: JobManager = app.state.jobs
+        if not jobs.cancel(job_id):
+            raise HTTPException(404, "unknown job_id")
+        return JSONResponse({"status": "cancelled"})
 
     return app
 

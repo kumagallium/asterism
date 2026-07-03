@@ -11,7 +11,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from asterism_step0.llm import LLMTruncatedError
+import pytest
+from asterism_step0.llm import LLMCancelledError, LLMTruncatedError
 
 from asterism_api import design_loop
 from asterism_api.design_loop import (
@@ -197,6 +198,43 @@ def test_provider_exception_bails_not_crash(tmp_path: Path) -> None:
     assert result.converged is False
     assert result.terminal_reason == "env_error"
     assert result.proposal_md == _MD_BAD
+
+
+def test_cancel_before_propose_raises_without_llm_call(tmp_path: Path) -> None:
+    # A cancel pending BEFORE round 0 must spend NO LLM call: the loop raises
+    # LLMCancelledError immediately and the job runner discards the run.
+    llm = _ScriptedLLM([_MD_GOOD])
+    with pytest.raises(LLMCancelledError):
+        run_design_loop(
+            _write_csv(tmp_path), "domain hint", tmp_path, llm=llm,
+            should_cancel=lambda: True,
+        )
+    assert llm.calls == []  # the mock LLM was never called
+
+
+def test_cancel_between_rounds_raises_before_refine(tmp_path: Path) -> None:
+    # A cancel arriving after round 0 stops the loop BEFORE the next refine call.
+    llm = _ScriptedLLM([_MD_BAD, _MD_GOOD])
+    calls = {"n": 0}
+
+    def should_cancel() -> bool:
+        calls["n"] += 1
+        return calls["n"] > 1  # False before propose, True before refine round 1
+
+    with pytest.raises(LLMCancelledError):
+        run_design_loop(
+            _write_csv(tmp_path), "domain hint", tmp_path, llm=llm,
+            should_cancel=should_cancel,
+        )
+    assert len(llm.calls) == 1  # propose only, no refine
+
+
+def test_llm_cancelled_error_is_not_swallowed_into_env_error(tmp_path: Path) -> None:
+    # The refine-round handler swallows generic provider exceptions into
+    # env_error; a cancel raised INSIDE the LLM client must propagate instead.
+    llm = _RaisingLLM(_MD_BAD, LLMCancelledError("cancelled"))
+    with pytest.raises(LLMCancelledError):
+        _run(tmp_path, llm)
 
 
 def test_autocorrect_zero_is_plain_propose(tmp_path: Path) -> None:
