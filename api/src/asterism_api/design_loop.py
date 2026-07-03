@@ -26,7 +26,9 @@ Design (ADR ``propose-self-correction-loop.md``)
   exact parameter local-names) — the closed menu that stops a weak model from
   re-hallucinating. It is passed to refine as a SINGLE joined comment (the proven manual
   shape), in the USER message only (cache-safe).
-* Stop conditions (priority): converged (zero issues); env-bail (any LLM exception +
+* Stop conditions (priority): converged (zero issues); cancelled (``should_cancel`` /
+  ``LLMCancelledError`` → raise, never swallowed into env-bail — the job runner turns
+  it into the cancelled state); env-bail (any other LLM exception +
   registry/rdflib import failure → keep best, do NOT iterate); refine truncated
   (``complete`` False → keep the prior complete ``effective_schema_md``, stop); no-progress
   (normalized issue key-set unchanged or seen before → stop); ``max_rounds`` cap
@@ -54,7 +56,7 @@ from typing import Any
 from asterism import substrate
 from asterism.functions import REGISTRY
 from asterism.rml_validate import read_csv_header
-from asterism_step0.llm import LLMTruncatedError
+from asterism_step0.llm import LLMCancelledError, LLMTruncatedError
 from asterism_step0.materialize import materialize_schema
 from asterism_step0.propose import propose_schema
 from asterism_step0.refine import refine_schema
@@ -350,6 +352,7 @@ def run_design_loop(
     on_progress: Callable[[dict[str, Any]], None] | None = None,
     on_llm_call: Callable[[str], None] | None = None,
     language: str | None = None,
+    should_cancel: Callable[[], bool] | None = None,
 ) -> DesignLoopResult:
     """Run the propose→validate→refine self-correction loop.
 
@@ -360,14 +363,20 @@ def run_design_loop(
     call): feature is ``"propose"`` for round 0 and ``"propose.autocorrect"`` for refines.
     ``language`` is the output language for the schema's human-readable prose; it is
     forwarded to BOTH propose and every refine round (otherwise an autocorrect round
-    would silently flip the prose back to English). Never raises for a bad design; only
-    a round-0 propose failure (or the caller's LLM raising) propagates. See the module
-    docstring for the stop conditions.
+    would silently flip the prose back to English). ``should_cancel`` is the job's
+    cooperative cancel poll: checked before round-0 propose and before every refine
+    round; when it reports True the loop raises :class:`LLMCancelledError` instead of
+    spending another LLM call. Never raises for a bad design; only a round-0 propose
+    failure (or the caller's LLM raising) and a cancel (``LLMCancelledError`` — never
+    swallowed into ``env_error``) propagate. See the module docstring for the stop
+    conditions.
     """
     paths = [Path(p) for p in csv_paths]
     base = Path(source_dir)
     tabular_only = all(p.suffix.lower() in _TABULAR_SUFFIXES for p in paths)
 
+    if should_cancel is not None and should_cancel():
+        raise LLMCancelledError("cancelled")
     _emit(on_progress, phase="propose", round=0, message="初期設計を生成中")
     proposal = propose_schema(
         paths,
@@ -434,6 +443,10 @@ def run_design_loop(
     seen_keysets: set[frozenset[tuple[str, str]]] = set()
     prev_issues = issues
     for n in range(1, max_rounds + 1):
+        # A pending cancel outranks every stop condition: raise before spending
+        # another LLM call (the job runner turns this into the cancelled state).
+        if should_cancel is not None and should_cancel():
+            raise LLMCancelledError("cancelled")
         keyset = frozenset(i.key for i in prev_issues)
         if keyset in seen_keysets:  # cycle / no-progress (checked before spending a round)
             return _result(best_schema, best_issues, rounds, converged=False,
@@ -445,6 +458,10 @@ def run_design_loop(
               categories=_cats(prev_issues), message=f"{len(prev_issues)} 件の問題を修正中")
         try:
             ref = refine_schema(schema_md, comments, llm=llm, language=language)
+        except LLMCancelledError:
+            # A user cancel is NOT an env failure — it must reach the job runner
+            # (which discards the run), never be swallowed into env_error below.
+            raise
         except LLMTruncatedError as exc:
             rounds.append(RoundRecord(n, len(prev_issues), _cats(prev_issues),
                                       refine_truncated=True, env_error=f"truncated: {exc}"))

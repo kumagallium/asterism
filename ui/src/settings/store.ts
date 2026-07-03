@@ -31,6 +31,10 @@ export interface LlmModelConfig {
   /** Custom base URL. Required for openai-compatible (Sakura/Groq/Ollama/...). */
   apiBase: string | null
   rate?: TokenRate
+  /** Max output tokens per generation. Unset/null → the server default (96000).
+   *  Small-context models (qwen3 via vLLM etc.) reject the default and need a
+   *  lower cap like 16000-32000. */
+  maxTokens?: number | null
 }
 
 /** Coordinates an LLM-invoking call needs: which model + the key for it. */
@@ -39,6 +43,8 @@ export interface LlmCredentials {
   modelId: string
   apiBase: string | null
   apiKey: string
+  /** Per-model max output tokens (null → server default). */
+  maxTokens: number | null
 }
 
 export interface ProviderMeta {
@@ -57,6 +63,10 @@ export function llmHeaders(creds: LlmCredentials | null): Record<string, string>
   if (creds.provider) h['X-LLM-Provider'] = creds.provider
   if (creds.modelId) h['X-LLM-Model'] = creds.modelId
   if (creds.apiBase) h['X-LLM-Api-Base'] = creds.apiBase
+  // Only a positive number overrides the server-side default (96000).
+  if (typeof creds.maxTokens === 'number' && creds.maxTokens > 0) {
+    h['X-LLM-Max-Tokens'] = String(creds.maxTokens)
+  }
   return h
 }
 

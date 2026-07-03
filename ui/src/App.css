@@ -343,6 +343,33 @@
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
+/* Cancel button inside the progress card head (small, ghost-style, right-aligned). */
+.job-cancel-btn {
+  margin-left: auto;
+  font-size: 0.78rem;
+  font-weight: 500;
+  padding: 0.25rem 0.7rem;
+}
+/* Liveness line: age of the last server pulse; warn-colored past 45s of silence. */
+.job-progress-pulse {
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.job-progress-pulse.warn {
+  color: var(--warn-fg);
+}
+/* Informational job outcome (e.g. user-cancelled) — neutral, not error-styled. */
+.job-cancelled-note {
+  margin: 0;
+  max-width: 32rem;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 0.55rem 0.8rem;
+  border-radius: var(--radius);
+  font-size: 0.85rem;
+}
 
 /* Self-correction loop summary (TODO ④). Green = converged; amber = best-effort with
    issues remaining (visually distinct so it never reads as success). */

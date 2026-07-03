@@ -31,6 +31,8 @@
     "pickFetchedModel": "Pick from the fetched list ({{count}})",
     "name": "Display name",
     "namePlaceholder": "(defaults to the model ID)",
+    "maxTokens": "Max output tokens (optional)",
+    "maxTokensHelp": "Defaults to 96000 when unset. Models with a small context window (qwen3 etc.) need 16000–32000.",
     "apiKey": "API key",
     "apiKeyServerHint": "This provider has a server-side default key — leave blank to use it.",
     "remember": "Remember on this browser",

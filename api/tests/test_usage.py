@@ -162,7 +162,7 @@ def test_propose_records_usage_with_provider_headers(
 ) -> None:
     captured: dict[str, object] = {}
 
-    def resolver(provider, model, api_base, key):
+    def resolver(provider, model, api_base, key, max_tokens=None):
         captured["coords"] = (provider, model, api_base, key)
         return _UsageLLM()
 

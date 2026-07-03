@@ -31,6 +31,8 @@
     "pickFetchedModel": "取得した一覧から選ぶ（{{count}} 件）",
     "name": "表示名",
     "namePlaceholder": "（省略するとモデルIDを表示）",
+    "maxTokens": "最大出力トークン（任意）",
+    "maxTokensHelp": "未設定なら既定の 96000 を使います。コンテキストが小さいモデル（qwen3 など）は 16000〜32000 を指定してください。",
     "apiKey": "APIキー",
     "apiKeyServerHint": "このプロバイダはサーバに既定キーがあります。空欄のままなら自動でそれを使います。",
     "remember": "このブラウザに記憶する",

@@ -13,6 +13,7 @@ import {
   resumeJob,
   validateDesign,
   type AutocorrectSummary,
+  type JobHandle,
   type MaterializeResult,
   type ProposeResult,
   type RefineResult,
@@ -189,12 +190,20 @@ export function WorkbenchView({
   const [status, setStatus] = useState('')
   const [proposeErr, setProposeErr] = useState('')
   const [proposing, setProposing] = useState(false)
-  const closeRef = useRef<(() => void) | null>(null)
+  const proposeJobRef = useRef<JobHandle | null>(null)
 
   // Refine
   const [comment, setComment] = useState('')
   const [refining, setRefining] = useState(false)
-  const refineCloseRef = useRef<(() => void) | null>(null)
+  const refineJobRef = useRef<JobHandle | null>(null)
+
+  // Liveness of the in-flight LLM job (propose/refine/fix — at most one runs at
+  // a time): epoch ms of the last server-sent SSE event, incl. ~15s heartbeats.
+  // Drives the "サーバ応答: N秒前" line (and the >45s silence warning) in JobProgress.
+  const [lastPulseAt, setLastPulseAt] = useState<number | null>(null)
+  // Informational (non-error) job outcome — currently only "キャンセルしました",
+  // shown where errors are shown but styled neutral.
+  const [jobNotice, setJobNotice] = useState('')
 
   // Materialize
   const [materialized, setMaterialized] = useState<MaterializeResult | null>(
@@ -264,7 +273,11 @@ export function WorkbenchView({
       setRefining(false)
       clearJob()
     }
-    const close = resumeJob(job.jobId, {
+    const handle = resumeJob(job.jobId, {
+      onPulse: () => {
+        markActive()
+        setLastPulseAt(Date.now())
+      },
       onStatus: (m) => {
         markActive()
         setStatus(m === 'done' ? t('workbench:resume.restored') : t('workbench:resume.reconnecting'))
@@ -289,8 +302,19 @@ export function WorkbenchView({
         setStatus('')
         finish()
       },
+      onCancelled: () => {
+        // Terminal like done/error: clear the saved job so a reload doesn't
+        // re-resume a stopped one, and say so where errors are shown.
+        setJobNotice(t('workbench:job.cancelled'))
+        setStatus('')
+        finish()
+      },
     })
-    return () => close()
+    // Keep the handle in the matching ref so the JobProgress cancel button also
+    // works on a resumed job.
+    if (job.kind === 'propose') proposeJobRef.current = handle
+    else refineJobRef.current = handle
+    return () => handle.close()
     // Mount-only: resume whatever job was persisted before this mount.
   }, [])
 
@@ -352,10 +376,12 @@ export function WorkbenchView({
 
   async function onPropose() {
     setProposeErr('')
+    setJobNotice('')
     setProposal('')
     setAutocorrect(null)
     setStatus('starting…')
     setProposing(true)
+    setLastPulseAt(null)
     // A fresh AI design forks a NEW dataset — EXCEPT while retrying a failed save.
     // A 'catalog' target (an existing dataset reopened via 見直す) must never be
     // clobbered by a from-scratch design, and a design whose last save was usable
@@ -371,9 +397,9 @@ export function WorkbenchView({
       setRedesignName(undefined)
       setRedesignOrigin(undefined)
     }
-    closeRef.current?.()
+    proposeJobRef.current?.close()
     try {
-      closeRef.current = await proposeCsvs(
+      proposeJobRef.current = await proposeCsvs(
         files,
         composedDomain(),
         fks(),
@@ -381,6 +407,7 @@ export function WorkbenchView({
         {
           onStart: (jobId) => saveJob(jobId, 'propose'),
           onStatus: (m) => setStatus(m),
+          onPulse: () => setLastPulseAt(Date.now()),
           onDone: (result) => {
             setProposal(result.proposal_md)
             // Surface the inspection Propose actually used (no separate step).
@@ -394,6 +421,13 @@ export function WorkbenchView({
           },
           onError: (m) => {
             setProposeErr(m)
+            setStatus('')
+            setProposing(false)
+            clearJob()
+          },
+          onCancelled: () => {
+            // User-requested stop: terminal like error, but informational.
+            setJobNotice(t('workbench:job.cancelled'))
             setStatus('')
             setProposing(false)
             clearJob()
@@ -415,17 +449,20 @@ export function WorkbenchView({
   async function runRefine(comments: string[]) {
     if (!proposal || refining || comments.length === 0) return
     setProposeErr('')
+    setJobNotice('')
     setStatus('refining…')
     setRefining(true)
-    refineCloseRef.current?.()
+    setLastPulseAt(null)
+    refineJobRef.current?.close()
     try {
-      refineCloseRef.current = await refineSchema(
+      refineJobRef.current = await refineSchema(
         proposal,
         comments,
         getActiveCredentials(),
         {
           onStart: (jobId) => saveJob(jobId, 'refine'),
           onStatus: (m) => setStatus(m),
+          onPulse: () => setLastPulseAt(Date.now()),
           onDone: (result) => {
             setProposal(result.refined_md)
             setAutocorrect(null) // a manual refine replaced the design — clear the loop summary
@@ -437,6 +474,13 @@ export function WorkbenchView({
           },
           onError: (m) => {
             setProposeErr(m)
+            setStatus('')
+            setRefining(false)
+            clearJob()
+          },
+          onCancelled: () => {
+            // User-requested stop: terminal like error, but informational.
+            setJobNotice(t('workbench:job.cancelled'))
             setStatus('')
             setRefining(false)
             clearJob()
@@ -455,6 +499,15 @@ export function WorkbenchView({
     const c = comment.trim()
     if (!c) return
     await runRefine([c])
+  }
+
+  // Ask the server to STOP the in-flight LLM job (400-minute runaway guard).
+  // This only *requests* the cancel — the stream's terminal `cancelled` event
+  // (onCancelled above) is what settles the spinner/saved-job state. Rethrows on
+  // failure so JobProgress can re-arm its button.
+  function cancelActiveJob(kind: JobKind): Promise<void> {
+    const handle = kind === 'propose' ? proposeJobRef.current : refineJobRef.current
+    return handle ? handle.cancel() : Promise.resolve()
   }
 
   // One-click "ask AI to fix": compose a corrective refine comment from the
@@ -553,6 +606,7 @@ export function WorkbenchView({
     setInspectErr('')
     setProposal('')
     setProposeErr('')
+    setJobNotice('')
     setComment('')
     setMaterialized(null)
     setStatus('')
@@ -812,8 +866,20 @@ export function WorkbenchView({
                   t('workbench:design.propose')
                 )}
               </button>
-              {proposing && <JobProgress label={t('workbench:design.jobLabel')} status={status} />}
+              {proposing && (
+                <JobProgress
+                  label={t('workbench:design.jobLabel')}
+                  status={status}
+                  lastPulseAt={lastPulseAt}
+                  onCancel={() => cancelActiveJob('propose')}
+                />
+              )}
             </section>
+            {jobNotice && (
+              <p className="job-cancelled-note" role="status">
+                {jobNotice}
+              </p>
+            )}
             {proposeErr && <pre className="error">{proposeErr}</pre>}
             {proposal && (
               <>
@@ -860,8 +926,20 @@ export function WorkbenchView({
                     )}
                   </button>
                 </div>
-                {refining && <JobProgress label={t('workbench:review.jobLabel')} status={status} />}
+                {refining && (
+                  <JobProgress
+                    label={t('workbench:review.jobLabel')}
+                    status={status}
+                    lastPulseAt={lastPulseAt}
+                    onCancel={() => cancelActiveJob('refine')}
+                  />
+                )}
               </section>
+              {jobNotice && (
+                <p className="job-cancelled-note" role="status">
+                  {jobNotice}
+                </p>
+              )}
               {proposeErr && <pre className="error">{proposeErr}</pre>}
               <SchemaGroundingPanel proposalMd={proposal} />
               <section className="result">
@@ -951,6 +1029,11 @@ export function WorkbenchView({
                   )}
                 </button>
               )}
+              {jobNotice && (
+                <p className="job-cancelled-note" role="status">
+                  {jobNotice}
+                </p>
+              )}
               {proposeErr && <pre className="error">{proposeErr}</pre>}
               {materialized && <MaterializePanel result={materialized} csvFiles={files} />}
               {/* One-click corrective refine: when the materialize traps reported
@@ -976,7 +1059,14 @@ export function WorkbenchView({
                       t('workbench:fix.fix')
                     )}
                   </button>
-                  {refining && <JobProgress label={t('workbench:review.jobLabel')} status={status} />}
+                  {refining && (
+                  <JobProgress
+                    label={t('workbench:review.jobLabel')}
+                    status={status}
+                    lastPulseAt={lastPulseAt}
+                    onCancel={() => cancelActiveJob('refine')}
+                  />
+                )}
                   {!isReady && <p className="wb-fix-note">{t('workbench:fix.needKey')}</p>}
                 </section>
               )}
@@ -1070,27 +1160,73 @@ function AutocorrectBanner({ summary }: { summary: AutocorrectSummary | null }) 
 
 /**
  * Reassuring progress card for the long (1-6 min) LLM jobs. The backend streams
- * lifecycle events (started/running) + a 15s keep-alive, not token-by-token
- * text, so we can't show a real % — instead we show a live elapsed timer, an
- * indeterminate animated bar, the expected duration, and the last status, so
- * the user can see it's alive and roughly how long to wait.
+ * lifecycle events (started/running + generation progress) and a ~15s heartbeat,
+ * not token-by-token text, so we can't show a real % — instead we show a live
+ * elapsed timer, an indeterminate animated bar, the expected duration, the last
+ * status, and a liveness line ("server responded Ns ago", switching to a warning
+ * past 45s of silence while EventSource auto-reconnects). The cancel button asks
+ * the server to STOP the job (the 400-minute-runaway guard) — it disables itself
+ * on the first click and the stream's terminal `cancelled` event settles the UI.
  */
-function JobProgress({ label, status }: { label: string; status: string }) {
+function JobProgress({
+  label,
+  status,
+  lastPulseAt,
+  onCancel,
+}: {
+  label: string
+  status: string
+  /** Epoch ms of the last server-sent SSE event (incl. heartbeats); null until one. */
+  lastPulseAt: number | null
+  /** Requests a server-side cancel. A rejection re-arms the button for a retry. */
+  onCancel: () => void | Promise<void>
+}) {
   const { t } = useTranslation()
   const [elapsed, setElapsed] = useState(0)
+  // Wall-clock "now", advanced by the same 1s interval as `elapsed` (render must
+  // stay pure, so Date.now() lives in the effect, not the render body).
+  const [now, setNow] = useState<number | null>(null)
+  const [cancelRequested, setCancelRequested] = useState(false)
   useEffect(() => {
     const start = Date.now()
-    const id = setInterval(() => setElapsed(Math.floor((Date.now() - start) / 1000)), 1000)
+    const tick = () => {
+      setElapsed(Math.floor((Date.now() - start) / 1000))
+      setNow(Date.now())
+    }
+    tick()
+    const id = setInterval(tick, 1000)
     return () => clearInterval(id)
   }, [])
   const mm = Math.floor(elapsed / 60)
   const ss = String(elapsed % 60).padStart(2, '0')
   const showStatus = status && status !== 'done' && status !== 'refined'
+  // Liveness, re-derived on the same 1s tick as `elapsed`. The server pulses at
+  // least every ~15s (heartbeat), so >45s of silence means the connection is
+  // down and EventSource is auto-reconnecting — worth a visible warning.
+  const pulseAgeSec =
+    lastPulseAt === null || now === null
+      ? null
+      : Math.max(0, Math.floor((now - lastPulseAt) / 1000))
+  const silent = pulseAgeSec !== null && pulseAgeSec * 1000 > 45000
+  function onCancelClick() {
+    setCancelRequested(true)
+    Promise.resolve()
+      .then(() => onCancel())
+      .catch(() => setCancelRequested(false))
+  }
   return (
     <div className="job-progress" role="status" aria-live="polite">
       <div className="job-progress-head">
         <span className="spinner" />
         {label}
+        <button
+          type="button"
+          className="secondary-btn job-cancel-btn"
+          onClick={onCancelClick}
+          disabled={cancelRequested}
+        >
+          {cancelRequested ? t('workbench:job.cancelling') : t('workbench:job.cancel')}
+        </button>
       </div>
       <div className="job-progress-bar" aria-hidden="true">
         <span />
@@ -1100,6 +1236,13 @@ function JobProgress({ label, status }: { label: string; status: string }) {
           ? t('workbench:job.elapsedStatus', { mm, ss, status })
           : t('workbench:job.elapsed', { mm, ss })}
       </div>
+      {pulseAgeSec !== null && (
+        <div className={`job-progress-pulse${silent ? ' warn' : ''}`}>
+          {silent
+            ? t('workbench:job.silent', { s: pulseAgeSec })
+            : t('workbench:job.pulse', { s: pulseAgeSec })}
+        </div>
+      )}
     </div>
   )
 }
