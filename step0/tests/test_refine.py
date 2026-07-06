@@ -195,7 +195,7 @@ def test_refine_truncated_output_is_flagged_and_keeps_previous() -> None:
     assert result.complete is False
     # Both dropped artifacts are reported by their human-readable names.
     assert "ingester Python" in result.missing_artifacts
-    assert "RML mapping" in result.missing_artifacts
+    assert "declarative mapping (§9)" in result.missing_artifacts
     assert len(result.warnings) == 1 and "incomplete" in result.warnings[0]
     # The raw (truncated) output is preserved for inspection...
     assert result.refined_md == _TRUNCATED_OUTPUT

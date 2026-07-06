@@ -6,12 +6,13 @@ reference a **closed, once-vetted set of functions** — and trap T9
 ``asterism.functions.REGISTRY``.
 
 But T9 can only ever *pass* if the AI is told the truth about which functions
-exist. The propose ``SYSTEM_PROMPT`` (``asterism_step0.propose``) advertises a
-"Tier 0 functions" list with ``fn:NAME`` signatures, and the AI faithfully uses
-exactly those. If the prompt advertises a function that is **not** in REGISTRY,
-the AI will emit it, T9 will flag it, and refine can never fix it (the prompt
+exist. The propose ``SYSTEM_PROMPT`` (``asterism_step0.propose``) advertises the
+§9 Tier-0 MENU — one ``- `name` (…)`` bullet per function, bare names, the
+Mapping IR contract (ADR mapping-ir-compiler.md) — and the AI chooses exactly
+from it. If the menu lists a function that is **not** in REGISTRY, the AI will
+emit it, compilation/T9 will flag it, and refine can never fix it (the prompt
 keeps leading the AI back to the same un-registered name). Conversely, a
-registered function the prompt never mentions is dead — the AI can't reach it.
+registered function the menu never mentions is dead — the AI can't reach it.
 
 So the product invariant is: **the set of functions the prompt advertises ==
 the set of functions REGISTRY registers.** This test locks that invariant in the
@@ -41,10 +42,10 @@ _PROPOSE_PY = (
     / "propose.py"
 )
 
-# fn:NAME tokens the prompt uses. ``fn:p_*`` are *parameter* IRIs (not functions)
-# and ``fn:NAME`` is the literal placeholder in the functionExecution example —
-# both are excluded so we compare only the advertised *function* set.
-_FN_TOKEN = re.compile(r"fn:([a-zA-Z_][a-zA-Z0-9_]*)")
+# Backticked names on a §9 menu bullet line ("- `name` (…" possibly with
+# "`a` / `b`" pairs). Only the part before the first "(" is parsed so prose
+# examples inside the description never register as advertised functions.
+_MENU_NAME = re.compile(r"`([a-z0-9_]+)`")
 
 # The functions a real user's generated RML used (from the bug report). Every one
 # must be REGISTERED or the AI's faithful output fails T9 with no path to fix.
@@ -66,7 +67,7 @@ _USER_RML_FUNCTIONS = {
 
 
 def _advertised_function_names() -> set[str]:
-    """The ``fn:NAME`` function names the propose SYSTEM_PROMPT advertises."""
+    """The function names on the propose SYSTEM_PROMPT's §9 Tier-0 menu."""
     if not _PROPOSE_PY.exists():  # standalone ingest install — nothing to compare
         pytest.skip(f"step0 propose prompt not present at {_PROPOSE_PY}")
     src = _PROPOSE_PY.read_text(encoding="utf-8")
@@ -74,8 +75,15 @@ def _advertised_function_names() -> set[str]:
     start = src.index(marker)
     end = src.index('"""', start + len(marker))
     body = src[start:end]
-    names = {m.group(1) for m in _FN_TOKEN.finditer(body)}
-    return {n for n in names if not n.startswith("p_") and n != "NAME"}
+    _, _, menu = body.partition("Vetted **Tier 0** functions")
+    menu, _, _ = menu.partition("## Self-check")
+    assert menu, "the §9 Tier-0 menu section is missing from the prompt"
+    names: set[str] = set()
+    for line in menu.splitlines():
+        if not line.startswith("- `"):
+            continue
+        names.update(_MENU_NAME.findall(line.split("(", 1)[0]))
+    return names
 
 
 def _registered_names() -> set[str]:
