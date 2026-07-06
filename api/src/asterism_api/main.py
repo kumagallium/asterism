@@ -2077,9 +2077,14 @@ def build_app(
                     "model.yaml": mat.rdf_config_model,
                     "mie.yaml": mat.mie_yaml,
                     "ingester.py": mat.ingester_py,
-                    # Phase 5: the declarative RML mapping (may be None/absent on
-                    # older proposals — persisted so the human-gated ingest can run it).
+                    # Phase 5: the declarative RML mapping — compiled from the §9
+                    # mapping spec on new proposals, or the raw legacy block on
+                    # older ones (may be None — persisted so the human-gated
+                    # ingest can run it).
                     "mapping.rml.ttl": mat.rml_ttl,
+                    # The reviewed §9 mapping spec itself (ADR mapping-ir-compiler):
+                    # persisted for re-edit/re-compile; absent on legacy proposals.
+                    "mapping.yaml": mat.mapping_ir_yaml,
                 }
                 traps = [
                     {"id": r.trap_id, "name": r.name, "status": r.status, "detail": r.detail}
@@ -2107,6 +2112,10 @@ def build_app(
                     body.dataset_id,
                     artifacts.get("mapping.rml.ttl"),
                 )
+                # Mapping-spec parse/compile problems are the same class of
+                # advisory, readable design issue — surface them first (when the
+                # spec does not compile there IS no RML for the check above).
+                validation_issues = [*mat.mapping_ir_issues, *validation_issues]
                 result: dict[str, object] = {
                     "artifacts": artifacts,
                     "complete": mat.complete,

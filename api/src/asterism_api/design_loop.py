@@ -15,12 +15,17 @@ Design (ADR ``propose-self-correction-loop.md``)
 * Round 0 = ``propose_schema`` (once). Rounds 1..N = ``refine_schema`` REUSED as-is —
   no new multi-turn LLM entrypoint (``complete()`` is single-turn by contract), and the
   cacheable SYSTEM_PROMPT stays byte-stable (per-round feedback rides the USER message).
-* Each round: ``materialize_schema(write=False)`` to extract the §9 RML; if it is absent
-  emit "§RML missing" and stop collecting (nothing else is checkable). Otherwise
-  ``substitute_run_id`` then run ``assert_rml_safe`` FIRST (the ONLY layer that flags
-  invalid Turtle — ``validate_rml_design`` silently returns [] on unparseable Turtle),
-  then ``validate_rml_design`` against the REAL uploaded source dir (the strongest
-  feedback: column / param / source-file moles with difflib "Did you mean X?").
+* Each round: ``materialize_schema(write=False)`` to extract the §9 design; if it is
+  absent emit "mapping spec missing" and stop collecting (nothing else is checkable).
+  NEW proposals carry a §9 **mapping spec** (Mapping IR, ADR mapping-ir-compiler.md):
+  validation is front-loaded at the IR level — parse → real files/columns/function-menu
+  checks with difflib "Did you mean X?" → deterministic compile — so the feedback is
+  always at a granularity a weak model can act on (never a Turtle parse error), and the
+  unchanged RML gates run on the compiled output as backstop. LEGACY proposals (raw §9
+  RML) keep the original pipeline: ``substitute_run_id`` then ``assert_rml_safe`` FIRST
+  (the ONLY layer that flags invalid Turtle — ``validate_rml_design`` silently returns
+  [] on unparseable Turtle), then ``validate_rml_design`` against the REAL uploaded
+  source dir.
 * Feedback = ``composeFixComment``'s server twin PLUS a deterministic **Tier-0 oracle**
   appendix (exact filenames, BOM-safe real columns, every REGISTRY function with its
   exact parameter local-names) — the closed menu that stops a weak model from
@@ -54,20 +59,27 @@ from pathlib import Path
 from typing import Any
 
 from asterism import substrate
-from asterism.functions import REGISTRY
 from asterism.rml_validate import read_csv_header
 from asterism_step0.llm import LLMCancelledError, LLMTruncatedError
+from asterism_step0.mapping_ir import (
+    MappingIRParseError,
+    catalog_from_registry,
+    parse_mapping_ir,
+    validate_mapping_ir,
+)
 from asterism_step0.materialize import materialize_schema
 from asterism_step0.propose import propose_schema
 from asterism_step0.refine import refine_schema
+from asterism_step0.rml_compile import RmlCompileError, compile_mapping_ir
 
 _TABULAR_SUFFIXES = frozenset({".csv", ".tsv"})
 
 # The refine comment intro (server twin of the UI's workbench:fix.commentIntro).
 _FIX_INTRO = (
     "Fix ONLY the following design issues; keep everything else unchanged. Do not "
-    "introduce new columns, functions, or source files — correct the mapping to match "
-    "the real data and the vetted Tier-0 functions listed at the end."
+    "introduce new columns, functions, or source files — correct the §9 mapping "
+    "spec (and any other named artifact) to match the real data and the vetted "
+    "Tier-0 functions listed at the end."
 )
 
 
@@ -100,6 +112,11 @@ _RE_COLUMN = re.compile(r"column '([^']+)'")
 _RE_FN_EXTRA = re.compile(r"^(\S+) does not accept parameter '([^']+)'")
 _RE_FN_MISSING = re.compile(r"^(\S+) is missing required parameter '([^']+)'")
 _RE_QUOTED = re.compile(r"'([^']+)'")
+# Mapping-IR message shapes (asterism_step0.mapping_ir / rml_compile).
+_RE_IR_FUNCTION = re.compile(r"function '([^']+)' is not in the vetted")
+_RE_IR_ARG_EXTRA = re.compile(r"(\w+) does not take a constant arg '([^']+)'")
+_RE_IR_ARG_MISSING = re.compile(r"(\w+) requires the constant arg '([^']+)'")
+_RE_IR_UNKNOWN_FIELD = re.compile(r"unknown field '([^']+)'")
 
 # Message stems that mean the validator ENVIRONMENT is broken (missing rdflib /
 # unimportable Tier-0 registry), NOT that the LLM made a mistake. The loop bails on
@@ -127,6 +144,15 @@ def classify(message: str) -> Issue:
         return Issue("function", f"{mm.group(1)}/+{mm.group(2)}", m)
     if (mm := _RE_FN_MISSING.match(m)):
         return Issue("function", f"{mm.group(1)}/-{mm.group(2)}", m)
+    # Mapping-IR shapes (checked before the generic fallbacks).
+    if (mm := _RE_IR_FUNCTION.search(m)):
+        return Issue("function", mm.group(1), m)
+    if (mm := _RE_IR_ARG_EXTRA.search(m)):
+        return Issue("function", f"{mm.group(1)}/+{mm.group(2)}", m)
+    if (mm := _RE_IR_ARG_MISSING.search(m)):
+        return Issue("function", f"{mm.group(1)}/-{mm.group(2)}", m)
+    if (mm := _RE_IR_UNKNOWN_FIELD.search(m)):
+        return Issue("structural", mm.group(1), m)
     # assert_rml_safe shapes
     if "outside the closed Tier 0 set" in m:
         return Issue("function-set", _fn_set_subject(m), m)
@@ -151,20 +177,17 @@ def _fn_set_subject(msg: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _local_name(iri: str) -> str:
-    """Trailing path/fragment segment of an IRI (e.g. …/p_field → p_field)."""
-    return iri.rsplit("#", 1)[-1].rsplit("/", 1)[-1] or iri
-
-
 def build_oracle(source_dir: Path | str, csv_paths: list[Path | str]) -> str:
     """A deterministic 'closed menu' appendix for the refine USER message.
 
     Enumerates (1) the exact legal source filenames, (2) each tabular file's real
     columns via the SAME BOM-safe header reader the validator uses (so the menu can't
     teach a column name the validator would then reject), and (3) every vetted Tier-0
-    function with its exact FnO parameter local-names. This turns each refine round from
-    "you were wrong, try again" (which weak models re-break) into "pick only from this
-    menu" — the single strongest lever for weak-model convergence. Pure + LLM-free.
+    function with its column-input count and constant-arg names (the Mapping IR
+    surface — FnO parameter IRIs are the compiler's business now). This turns each
+    refine round from "you were wrong, try again" (which weak models re-break) into
+    "pick only from this menu" — the single strongest lever for weak-model
+    convergence. Pure + LLM-free.
     """
     base = Path(source_dir)
     names = sorted({Path(p).name for p in csv_paths})
@@ -180,12 +203,18 @@ def build_oracle(source_dir: Path | str, csv_paths: list[Path | str]) -> str:
         else:
             lines.append(f"  • {name}")
     lines.append(
-        "Vetted Tier-0 functions (fn:) with their EXACT parameter names — reference no "
-        "other function and no other parameter name:"
+        "Vetted Tier-0 functions for the §9 mapping spec (bare names in "
+        "'function:'/'transform:'; constants by name in 'args:') — use no other "
+        "function and no other arg name:"
     )
-    for spec in REGISTRY:
-        params = ", ".join(f"fn:{_local_name(iri)}" for iri in spec.params.values())
-        lines.append(f"  • fn:{spec.name}({params})")
+    for fn in catalog_from_registry():
+        n_cols = len(fn.column_params)
+        parts = [f"{n_cols} column input" + ("s" if n_cols != 1 else "")]
+        if fn.constant_params:
+            parts.append("args: " + ", ".join(sorted(fn.constant_params)))
+        if fn.multivalued:
+            parts.append("multi-valued (one triple per element)")
+        lines.append(f"  • {fn.name} — {'; '.join(parts)}")
     return "\n".join(lines)
 
 
@@ -236,24 +265,84 @@ class _LoopEnvError(Exception):
     """
 
 
-def collect_issues(rml_ttl: str | None, source_dir: Path) -> list[Issue]:
+def collect_issues(
+    ir_yaml: str | None, rml_ttl: str | None, source_dir: Path
+) -> list[Issue]:
     """Deterministic, LLM-free machine feedback for ONE candidate design.
 
-    Order matters: a missing §RML block short-circuits (nothing else is checkable);
-    ``assert_rml_safe`` runs BEFORE ``validate_rml_design`` because it is the only layer
-    that flags invalid Turtle (the design validator silently returns [] on unparseable
-    Turtle — the "convergence hole"). Raises :class:`_LoopEnvError` when the validators
-    themselves are unavailable.
+    NEW proposals carry a §9 mapping spec (``ir_yaml``, ADR mapping-ir-compiler):
+    validation is FRONT-LOADED at the IR level — parse (structural issues in the
+    IR's vocabulary), environment checks (real files/columns with did-you-mean,
+    the closed function menu), then deterministic compilation, and finally the
+    unchanged RML gates on the compiled output as defense in depth. The feedback
+    a weak model receives is therefore always at a granularity it can act on
+    ("column 'titel' is not in papers.csv. Did you mean: title?"), never a
+    Turtle parse error.
+
+    LEGACY proposals (raw ``rml_ttl``, no spec) keep the original pipeline:
+    ``assert_rml_safe`` BEFORE ``validate_rml_design`` because it is the only
+    layer that flags invalid Turtle (the design validator silently returns []
+    on unparseable Turtle — the "convergence hole").
+
+    Raises :class:`_LoopEnvError` when the validators themselves are unavailable.
     """
+    if ir_yaml and ir_yaml.strip():
+        return _collect_ir_issues(ir_yaml, source_dir)
     if not rml_ttl or not rml_ttl.strip():
         return [
             Issue(
                 "structural",
-                "rml",
-                "The §RML declarative-mapping block is missing or empty. Emit a complete "
-                "```turtle fenced block under an 'RML' / 'Declarative mapping' heading.",
+                "mapping-spec",
+                "The §9 mapping spec is missing or empty. Emit a complete ```yaml "
+                "fenced block under a 'Declarative mapping spec' heading (version/"
+                "prefixes/maps).",
             )
         ]
+    return _collect_rml_issues(rml_ttl, source_dir)
+
+
+def _collect_ir_issues(ir_yaml: str, source_dir: Path) -> list[Issue]:
+    """The front-loaded IR pipeline: parse → environment validation → compile →
+    RML gates (backstop)."""
+    try:
+        ir = parse_mapping_ir(ir_yaml)
+    except MappingIRParseError as exc:
+        return _dedup([classify(m) for m in exc.issues])
+    except ImportError as exc:  # PyYAML missing — an environment failure
+        raise _LoopEnvError(str(exc)) from exc
+
+    try:
+        catalog = catalog_from_registry()
+    except ImportError as exc:  # Tier-0 registry not importable
+        raise _LoopEnvError(str(exc)) from exc
+    try:
+        files = sorted(p.name for p in Path(source_dir).iterdir() if p.is_file())
+    except OSError:
+        files = []
+    headers = {
+        f: (read_csv_header(Path(source_dir) / f) or None)
+        for f in files
+        if Path(f).suffix.lower() in _TABULAR_SUFFIXES
+    }
+    messages = validate_mapping_ir(ir, files=files, headers=headers, catalog=catalog)
+    if messages:
+        return _dedup([classify(m) for m in messages])
+
+    try:
+        compiled = compile_mapping_ir(ir, catalog)
+    except RmlCompileError as exc:
+        # Validation passed but compilation refused — surface verbatim (usually a
+        # validator blind spot the LLM can still fix by restructuring the spec).
+        return _dedup([classify(m) for m in exc.issues])
+
+    # Defense in depth: the compiled RML still passes the unchanged gates. Any
+    # issue here is a compiler bug or a validator blind spot — surfaced honestly,
+    # never silently dropped.
+    return _collect_rml_issues(compiled, source_dir)
+
+
+def _collect_rml_issues(rml_ttl: str, source_dir: Path) -> list[Issue]:
+    """The original RML pipeline (legacy proposals + backstop for compiled specs)."""
     prepared = substrate.substitute_run_id(rml_ttl)
     issues: list[Issue] = []
     # Safety FIRST — catches non-Tier-0 fn / SQL source / path escape AND invalid Turtle.
@@ -280,10 +369,22 @@ def collect_issues(rml_ttl: str | None, source_dir: Path) -> list[Issue]:
     return _dedup(issues)
 
 
-def _reference_count(rml_ttl: str | None) -> int:
-    """A cheap proxy for how much of the source a mapping covers: the number of
-    ``rml:reference`` uses. Used only to surface a soft ``coverage_dropped`` signal
-    (a cornered weak model can delete mappings to reach zero issues)."""
+def _reference_count(ir_yaml: str | None, rml_ttl: str | None) -> int:
+    """A cheap proxy for how much of the source a design covers. Used only to
+    surface a soft ``coverage_dropped`` signal (a cornered weak model can delete
+    mappings to reach zero issues).
+
+    With a mapping spec the proxy is the number of property rows (more accurate
+    than the old ``rml:reference`` count); an unparseable spec counts its
+    ``predicate:`` lines instead (still monotone in mapped rows). Legacy raw RML
+    keeps the original ``rml:reference`` count.
+    """
+    if ir_yaml and ir_yaml.strip():
+        try:
+            ir = parse_mapping_ir(ir_yaml)
+        except Exception:
+            return len(re.findall(r"^\s*-\s*predicate\s*:", ir_yaml, re.MULTILINE))
+        return sum(len(m.properties) for m in ir.maps)
     if not rml_ttl:
         return 0
     return len(re.findall(r"\brml:reference\b", rml_ttl))
@@ -413,15 +514,18 @@ def run_design_loop(
             initial_issue_count=initial,
             tabular_only=tabular_only,
             coverage_dropped=(
-                _reference_count(_extract_rml(best_schema)) < base_refs if base_refs else False
+                _reference_count(*_extract_design(best_schema)) < base_refs
+                if base_refs
+                else False
             ),
         )
 
-    base_refs = _reference_count(_extract_rml(schema_md))
+    base_refs = _reference_count(*_extract_design(schema_md))
 
     # Evaluate round 0.
     try:
-        issues = collect_issues(_extract_rml(schema_md), base)
+        ir_yaml, rml_ttl = _extract_design(schema_md)
+        issues = collect_issues(ir_yaml, rml_ttl, base)
     except _LoopEnvError as exc:
         return _result(
             schema_md, [], [RoundRecord(0, 0, {}, env_error=str(exc))],
@@ -483,7 +587,8 @@ def run_design_loop(
         schema_md = ref.effective_schema_md  # == ref.refined_md when complete
 
         try:
-            issues = collect_issues(_extract_rml(schema_md), base)
+            ir_yaml, rml_ttl = _extract_design(schema_md)
+            issues = collect_issues(ir_yaml, rml_ttl, base)
         except _LoopEnvError as exc:
             rounds.append(RoundRecord(n, len(prev_issues), _cats(prev_issues), env_error=str(exc)))
             return _result(best_schema, best_issues, rounds, converged=False,
@@ -503,10 +608,15 @@ def run_design_loop(
                    reason="max_rounds", initial=initial, base_refs=base_refs)
 
 
-def _extract_rml(schema_md: str) -> str | None:
-    """Pull the §RML turtle string out of a schema Markdown via the SAME deterministic
-    extractor the materialize endpoint uses (no LLM). None when no RML block is present
-    (a dropped/renamed §RML — a structural failure, not a clean design)."""
+def _extract_design(schema_md: str) -> tuple[str | None, str | None]:
+    """Pull the §9 design out of a schema Markdown via the SAME deterministic
+    extractor the materialize endpoint uses (no LLM): ``(mapping_ir_yaml,
+    rml_ttl)``. New proposals carry the mapping spec (first slot); legacy ones
+    carry raw RML (second slot); ``(None, None)`` = a dropped/renamed §9 — a
+    structural failure, not a clean design. The loop re-parses/compiles the
+    spec itself (``_collect_ir_issues``) so the extraction stays extraction."""
     with tempfile.TemporaryDirectory(prefix="asterism-loop-mat-") as tmp:
         mat = materialize_schema(schema_md, tmp, "design", write=False)
-    return mat.rml_ttl
+    if mat.mapping_ir_yaml is not None:
+        return mat.mapping_ir_yaml, None
+    return None, mat.rml_ttl

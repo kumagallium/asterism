@@ -264,7 +264,8 @@ def test_missing_rml_is_a_structural_issue(tmp_path: Path) -> None:
     llm = _ScriptedLLM([_MD_NO_RML])
     result, _ = _run(tmp_path, llm, max_rounds=0)
     assert result.converged is False
-    assert any("§RML" in m or "RML declarative" in m for m in result.remaining_issues)
+    # The structural message asks for the §9 mapping spec (the IR contract).
+    assert any("mapping spec" in m for m in result.remaining_issues)
 
 
 # ---- pure helpers -----------------------------------------------------------
@@ -304,20 +305,19 @@ def test_render_feedback_single_comment_with_oracle(tmp_path: Path) -> None:
     assert "closed menu" in comments[0]
 
 
-def test_oracle_lists_exact_columns_and_param_local_names(tmp_path: Path) -> None:
+def test_oracle_lists_exact_columns_and_function_menu(tmp_path: Path) -> None:
     _write_csv(tmp_path)
     oracle = build_oracle(tmp_path, [tmp_path / "data.csv"])
     assert "data.csv" in oracle
     assert "SID, composition" in oracle  # exact real header
-    # Exact FnO parameter local-names: json_pluck's field param is p_field (the
-    # p_field1-vs-p_field mole the loop targets), while template legitimately has
-    # p_field1..p_field4 — both must be rendered with their OWN correct params.
-    assert "fn:json_pluck(fn:p_value, fn:p_field)" in oracle
-    assert (
-        "fn:template(fn:p_template, fn:p_field1, fn:p_field2, fn:p_field3, fn:p_field4)"
-        in oracle
-    )
-    assert "fn:iri_safe(fn:p_value)" in oracle
+    # The menu speaks the Mapping IR surface (bare names, column counts, args by
+    # NAME) — FnO parameter IRIs are the compiler's business now, so the old
+    # p_field1-vs-p_field mole is not even expressible.
+    assert "json_pluck — 1 column input; args: field; multi-valued" in oracle
+    assert "template — 4 column inputs; args: template" in oracle
+    assert "float_array_count — 2 column inputs" in oracle
+    assert "iri_safe — 1 column input" in oracle
+    assert "fn:p_" not in oracle
 
 
 def test_system_prompt_byte_stable_across_rounds(tmp_path: Path) -> None:
