@@ -211,6 +211,20 @@ def _sdk_client_settings() -> tuple[float, int]:
     return timeout, retries
 
 
+def _streaming_enabled() -> bool:
+    """Resolve the OpenAI-compatible streaming kill-switch at call time.
+
+    Reads ``ASTERISM_LLM_STREAM`` lazily (once per ``complete()`` call), like
+    :func:`_sdk_client_settings`, so tests can monkeypatch the env and operators
+    can flip a deployment without code changes. Streaming is ON by default;
+    only an explicit "0" / "false" / "no" (case-insensitive) disables it — any
+    other value falls back to True so a bad env var cannot silently change
+    transports.
+    """
+    raw = (os.environ.get("ASTERISM_LLM_STREAM") or "").strip().lower()
+    return raw not in {"0", "false", "no"}
+
+
 @dataclass
 class AnthropicLLMClient:
     """Default :class:`LLMClient` — wraps the Anthropic SDK.
@@ -335,6 +349,15 @@ _CONTEXT_LENGTH_ERROR_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Streaming-related 400 classification. Some compat servers stream fine but
+# reject the ``stream_options`` parameter (drop usage reporting, keep
+# streaming); a few reject streaming outright (fall back to non-streaming for
+# the rest of the call). Both are checked AFTER the token-param and
+# context-length patterns so e.g. a context-length message can never
+# mis-trigger the broad ``stream`` pattern.
+_STREAM_OPTIONS_ERROR_RE = re.compile(r"stream_options", re.IGNORECASE)
+_STREAM_UNSUPPORTED_ERROR_RE = re.compile(r"stream", re.IGNORECASE)
+
 # Reasoning models (qwen3 / DeepSeek-R1 style) served over plain Chat
 # Completions can leak chain-of-thought inline as a <think>…</think> prefix in
 # message.content instead of a separate reasoning field — strip it so only the
@@ -354,9 +377,13 @@ class OpenAICompatibleLLMClient:
 
     ``base_url`` selects the endpoint: None → ``api.openai.com``; set it for
     Sakura AI Engine / Groq / Ollama / vLLM / LM Studio. Only the portable
-    Chat Completions surface is used — no Anthropic-only parameters. Non-streaming
-    by default for the widest compatibility (some compat servers reject
-    ``stream_options``) and so ``response.usage`` is always available.
+    Chat Completions surface is used — no Anthropic-only parameters. Streaming
+    by default: a multi-minute generation from a large thinking model otherwise
+    sits silent behind one HTTP request until a provider gateway kills it with
+    a 504 — flowing chunks keep the connection alive. ``ASTERISM_LLM_STREAM=0``
+    is the kill-switch back to the non-streaming transport. Cooperative cancel
+    takes effect between chunks and closes the HTTP stream, aborting the
+    in-flight generation server-side.
 
     Known per-server divergences are auto-handled inside ``complete()`` (each
     adjustment retries the SAME request without consuming a continuation slot):
@@ -368,6 +395,11 @@ class OpenAICompatibleLLMClient:
       outright (vLLM: "maximum context length is …") get the cap halved
       (floor 4096, at most 4 times); each downgrade is recorded in
       ``last_notes`` and surfaced live via ``on_note``.
+    * ``stream_options`` rejected — some compat servers stream fine but reject
+      the ``stream_options`` parameter; the request is retried without it
+      (usage reporting disabled, zero usage recorded) while still streaming.
+    * streaming rejected — servers that reject ``stream=true`` outright fall
+      back to the non-streaming transport for the rest of the call.
     * reasoning models — inline ``<think>…</think>`` leakage is stripped, and
       a response whose whole budget went to reasoning fails loud
       (:class:`LLMTruncatedError` / :class:`LLMEmptyOutputError`) instead of
@@ -412,10 +444,14 @@ class OpenAICompatibleLLMClient:
 
         # Per-call auto-adjustment state (see the class docstring): which token
         # parameter this server accepts, the effective output cap after any
-        # context-length downgrades, and the notes surfaced to the caller.
+        # context-length downgrades, whether to stream (and ask for usage on
+        # the final chunk), and the notes surfaced to the caller. Each flag
+        # flips at most once per call, so the retry loop below terminates.
         token_param = "max_tokens"
         effective_max_tokens = self.max_tokens
         downgrades = 0
+        use_stream = _streaming_enabled()
+        include_usage = True
         self.last_notes = []
 
         # Same continuation-on-truncation strategy as the Anthropic client: the
@@ -436,15 +472,22 @@ class OpenAICompatibleLLMClient:
                     self.on_generation(i + 1, self.max_continuations + 1)
 
             # Issue the request, retrying the SAME request (no continuation
-            # slot consumed) across the two known compat-server divergences:
-            # token-param fallback, then context-length downgrade.
+            # slot consumed) across the known compat-server divergences, in
+            # this order: token-param fallback, context-length downgrade,
+            # stream_options rejection, streaming rejection.
             while True:
+                request_kwargs: dict[str, object] = {
+                    "model": self.model,
+                    "messages": messages,
+                    token_param: effective_max_tokens,
+                }
+                if use_stream:
+                    request_kwargs["stream"] = True
+                    if include_usage:
+                        # Lets compat servers report usage on the final chunk.
+                        request_kwargs["stream_options"] = {"include_usage": True}
                 try:
-                    resp = client.chat.completions.create(
-                        model=self.model,
-                        messages=messages,
-                        **{token_param: effective_max_tokens},
-                    )
+                    resp = client.chat.completions.create(**request_kwargs)
                     break
                 except BadRequestError as exc:
                     err_text = str(exc)
@@ -463,39 +506,48 @@ class OpenAICompatibleLLMClient:
                     ):
                         downgrades += 1
                         lowered = max(effective_max_tokens // 2, _MIN_DOWNGRADED_MAX_TOKENS)
-                        note = (
+                        self._record_note(
                             f"max_tokens {effective_max_tokens} -> {lowered} "
                             "after provider context-length rejection"
                         )
                         effective_max_tokens = lowered
-                        self.last_notes.append(note)
-                        if self.on_note:
-                            with contextlib.suppress(Exception):
-                                self.on_note(note)
+                        continue
+                    # Servers that stream fine but reject the stream_options
+                    # parameter: retry without it (usage stays zero).
+                    if use_stream and include_usage and _STREAM_OPTIONS_ERROR_RE.search(err_text):
+                        include_usage = False
+                        self._record_note(
+                            "usage reporting disabled (server rejected stream_options)"
+                        )
+                        continue
+                    # Servers that reject streaming outright: fall back to the
+                    # non-streaming transport for the rest of this call. The
+                    # broad pattern is safe because it is checked LAST — a
+                    # token-param / context-length / stream_options message is
+                    # classified above before this can mis-trigger.
+                    if use_stream and _STREAM_UNSUPPORTED_ERROR_RE.search(err_text):
+                        use_stream = False
+                        self._record_note("streaming disabled (server rejected stream=true)")
                         continue
                     raise
 
-            choice = resp.choices[0]
-            message = choice.message
-            part = message.content or ""
+            # Both transports converge on the same (text, reasoning, finish,
+            # usage) tuple so everything below is transport-agnostic.
+            if use_stream:
+                raw_text, reasoning_text, finish_reason, usage_obj = self._consume_stream(resp)
+            else:
+                raw_text, reasoning_text, finish_reason, usage_obj = self._consume_response(resp)
+
             # Reasoning models leaking chain-of-thought inline: drop closed
-            # <think>…</think> blocks; a remaining leading <think> means the
-            # block never closed — the whole part is reasoning, no answer yet.
-            part = _THINK_TAG_RE.sub("", part)
+            # <think>…</think> blocks — stripped on the JOINED text, so tags
+            # split across stream chunk boundaries still match; a remaining
+            # leading <think> means the block never closed — the whole part is
+            # reasoning, no answer yet.
+            part = _THINK_TAG_RE.sub("", raw_text)
             if part.startswith("<think>"):
                 part = ""
-            # Out-of-band reasoning (vLLM reasoning parsers etc.) arrives as
-            # message.reasoning_content or under model_extra; it is only used
-            # to pick the more precise error message below, never as output.
-            extra = getattr(message, "model_extra", None) or {}
-            reasoning_text = (
-                getattr(message, "reasoning_content", None)
-                or extra.get("reasoning_content")
-                or extra.get("reasoning")
-            )
 
-            total_usage = total_usage + _openai_usage(getattr(resp, "usage", None))
-            finish_reason = getattr(choice, "finish_reason", None)
+            total_usage = total_usage + _openai_usage(usage_obj)
 
             if not part.strip():
                 if finish_reason == "length":
@@ -555,6 +607,89 @@ class OpenAICompatibleLLMClient:
             )
 
         return LLMCompletion("".join(parts), total_usage)
+
+    def _record_note(self, note: str) -> None:
+        """Record an auto-adjustment note and surface it live via ``on_note``.
+
+        The callback is guarded — a broken ``on_note`` must never kill the call.
+        """
+        self.last_notes.append(note)
+        if self.on_note:
+            with contextlib.suppress(Exception):
+                self.on_note(note)
+
+    def _consume_stream(self, resp: object) -> tuple[str, str | None, str | None, object | None]:
+        """Drain a streaming response into ``(text, reasoning, finish, usage)``.
+
+        ``resp`` is an ``openai`` ``Stream`` — a context manager over chunks.
+        Cancel is polled before each chunk; raising inside the ``with`` block
+        closes the HTTP stream, which makes vLLM-class servers abort the
+        in-flight generation instead of finishing it in the background. With
+        ``stream_options={"include_usage": True}`` the server sends usage on a
+        FINAL chunk whose ``choices`` list is EMPTY, so choices are optional
+        per chunk — and ``finish_reason`` may arrive on a chunk separate from
+        the usage chunk. Content / out-of-band reasoning deltas are joined
+        after the loop so downstream processing sees whole texts.
+        """
+        text_parts: list[str] = []
+        reasoning_parts: list[str] = []
+        finish_reason: str | None = None
+        usage_obj: object | None = None
+        with resp as stream_iter:  # type: ignore[attr-defined]
+            for chunk in stream_iter:
+                if self.should_cancel and self.should_cancel():
+                    raise LLMCancelledError("cancelled")
+                if getattr(chunk, "usage", None):
+                    usage_obj = chunk.usage
+                choices = getattr(chunk, "choices", None) or []
+                if not choices:
+                    continue
+                choice = choices[0]
+                delta = getattr(choice, "delta", None)
+                if delta is not None:
+                    content = getattr(delta, "content", None)
+                    if content:
+                        text_parts.append(content)
+                    extra = getattr(delta, "model_extra", None) or {}
+                    reasoning_delta = (
+                        getattr(delta, "reasoning_content", None)
+                        or extra.get("reasoning_content")
+                        or extra.get("reasoning")
+                    )
+                    if reasoning_delta:
+                        reasoning_parts.append(reasoning_delta)
+                if getattr(choice, "finish_reason", None) is not None:
+                    finish_reason = choice.finish_reason
+        return (
+            "".join(text_parts),
+            "".join(reasoning_parts) or None,
+            finish_reason,
+            usage_obj,
+        )
+
+    @staticmethod
+    def _consume_response(resp: object) -> tuple[str, str | None, str | None, object | None]:
+        """Read a non-streaming response into the same tuple as ``_consume_stream``.
+
+        Out-of-band reasoning (vLLM reasoning parsers etc.) arrives as
+        ``message.reasoning_content`` or under ``model_extra``; it is only used
+        to pick the more precise error message in ``complete()``, never as
+        output.
+        """
+        choice = resp.choices[0]  # type: ignore[attr-defined]
+        message = choice.message
+        extra = getattr(message, "model_extra", None) or {}
+        reasoning_text = (
+            getattr(message, "reasoning_content", None)
+            or extra.get("reasoning_content")
+            or extra.get("reasoning")
+        )
+        return (
+            message.content or "",
+            reasoning_text,
+            getattr(choice, "finish_reason", None),
+            getattr(resp, "usage", None),
+        )
 
 
 # Provider aliases accepted by make_llm (case-insensitive). Everything in the
