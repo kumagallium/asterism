@@ -73,6 +73,12 @@ def test_unknown_fields_are_errors_with_suggestion() -> None:
     assert any("unknown field 'datatyp'" in i and "datatype" in i for i in issues)
 
 
+def test_unknown_optional_field_gets_implicitness_hint() -> None:
+    bad = MINIMAL.replace("column: name", "column: name\n        optional: true")
+    issues = parse_issues(bad)
+    assert any("unknown field 'optional'" in i and "drop the field" in i for i in issues)
+
+
 def test_exactly_one_object_form() -> None:
     bad = MINIMAL.replace(
         "column: name", 'column: name\n        constant: "x"'
@@ -317,6 +323,23 @@ def test_validate_missing_column_did_you_mean() -> None:
 
 def test_validate_unreadable_header_skips_columns() -> None:
     assert validate(MINIMAL, ["data.csv"], {"data.csv": None}) == []
+
+
+def test_validate_pipe_filter_in_placeholder_steers_to_transform() -> None:
+    bad = MINIMAL.replace('template: "exr:thing/{id}"', 'template: "exr:thing/{id|slug}"')
+    issues = validate(bad, ["data.csv"], {"data.csv": ["id", "name"]})
+    assert any("'|' is not a filter" in i and "transform: { id: slug }" in i for i in issues)
+
+
+def test_validate_column_from_another_source_gets_move_hint() -> None:
+    two = MINIMAL.replace(
+        "column: name", "column: name\n      - predicate: ex:other\n        column: extra"
+    )
+    issues = validate(
+        two, ["data.csv", "other.csv"],
+        {"data.csv": ["id", "name"], "other.csv": ["extra"]},
+    )
+    assert any("it exists in other.csv" in i and "move this property" in i for i in issues)
 
 
 def test_validate_unknown_function_menu() -> None:

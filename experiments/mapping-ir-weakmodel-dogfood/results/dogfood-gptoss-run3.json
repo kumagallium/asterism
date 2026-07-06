@@ -1,0 +1,57 @@
+{
+  "model": "gpt-oss-120b",
+  "api_base": "https://api.ai.sakura.ad.jp/v1",
+  "rows_per_csv": 40,
+  "max_rounds": 3,
+  "contract": "mapping-ir (ADR mapping-ir-compiler.md)",
+  "rounds": [
+    {
+      "round": 0,
+      "issue_count": 7,
+      "categories": {
+        "structural": 2,
+        "other": 5
+      }
+    },
+    {
+      "round": 1,
+      "issue_count": 7,
+      "categories": {
+        "other": 6,
+        "structural": 1
+      }
+    },
+    {
+      "round": 2,
+      "issue_count": 1,
+      "categories": {
+        "column": 1
+      }
+    },
+    {
+      "round": 3,
+      "issue_count": 0,
+      "categories": {}
+    }
+  ],
+  "wall_clock_s": 152.8,
+  "last_usage": {
+    "input_tokens": 9780,
+    "output_tokens": 8349
+  },
+  "converged": true,
+  "terminal_reason": "converged",
+  "initial_issue_count": 7,
+  "remaining_issues": [],
+  "coverage_dropped": true,
+  "syntax_class_issue_rounds": [],
+  "syntax_class_zero": true,
+  "final_design": {
+    "has_mapping_spec": true,
+    "mapping_ir_issues": [],
+    "compiled": true,
+    "assert_rml_safe": "pass",
+    "validate_rml_design": "pass",
+    "morph_kgc_triples": 1468
+  }
+}

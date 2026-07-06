@@ -37,4 +37,4 @@ verdict, add a dated addendum rather than silently editing the numbers.
 | date | report | verdict |
 |---|---|---|
 | 2026-06-11 | [Tier 0 function library — sufficiency](tier0-coverage-sufficiency.md) | ✅ sufficient (gate PASS) |
-| 2026-07-06 | [Mapping IR — deterministic RML compilation equivalence](mapping-ir-compiler-equivalence.md) | ✅ equivalent + syntax classes eliminated · ⏳ live weak-model run pending |
+| 2026-07-06 | [Mapping IR — deterministic RML compilation equivalence](mapping-ir-compiler-equivalence.md) | ✅ equivalent + syntax classes eliminated · ✅ live Qwen3.6/gpt-oss both converge (0 syntax issues in 5 runs) |

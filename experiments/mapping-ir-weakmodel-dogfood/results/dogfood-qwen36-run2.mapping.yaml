@@ -1,0 +1,114 @@
+version: 1
+prefixes:
+  sd:  "https://kumagallium.github.io/asterism/starrydata/ontology#"
+  sdr: "https://kumagallium.github.io/asterism/starrydata/resource/"
+  schema: "https://schema.org/"
+  dcterms: "http://purl.org/dc/terms/"
+  bibo: "http://purl.org/ontology/bibo/"
+  prov: "http://www.w3.org/ns/prov#"
+maps:
+  - name: paper
+    source: papers.csv
+    subject:
+      template: "sdr:paper/{SID}"
+      classes: [sd:Paper, schema:ScholarlyArticle]
+    properties:
+      - predicate: schema:name
+        column: title
+      - predicate: dcterms:identifier
+        column: DOI
+      - predicate: schema:url
+        column: URL
+        function: iri_safe
+        object_type: iri
+      - predicate: sd:issuedJson
+        column: issued
+      - predicate: dcterms:publisher
+        column: publisher
+      - predicate: bibo:volume
+        column: volume
+      - predicate: bibo:issue
+        column: issue
+      - predicate: dcterms:extent
+        column: page
+      - predicate: sd:projectName
+        column: project_names
+        function: json_array
+      - predicate: sd:authorsRaw
+        column: author
+        fallback: true
+      - predicate: sd:isPartOf
+        object_template: "sdr:periodical/{container_title}"
+        transform: { container_title: slug }
+      - predicate: prov:generatedAtTime
+        column: created_at
+        function: datetime_iso
+  - name: sample
+    source: samples.csv
+    subject:
+      template: "sdr:sample/{sample_id}"
+      classes: [sd:Sample]
+    properties:
+      - predicate: schema:name
+        column: sample_name
+      - predicate: dcterms:identifier
+        column: sample_id
+      - predicate: schema:composition
+        column: composition
+      - predicate: sd:compositionDetails
+        column: composition_details
+      - predicate: sd:sampleInfoJson
+        column: sample_info
+      - predicate: sd:hasPaper
+        object_template: "sdr:paper/{SID}"
+      - predicate: prov:generatedAtTime
+        column: created_at
+        function: datetime_iso
+      - predicate: prov:updatedAt
+        column: updated_at
+        function: datetime_iso
+  - name: curve
+    source: curves.csv
+    subject:
+      template: "sdr:curve/{sample_id}"
+      classes: [sd:Curve]
+    properties:
+      - predicate: sd:figureId
+        column: figure_id
+      - predicate: sd:figureName
+        column: figure_name
+      - predicate: sd:propX
+        column: prop_x
+      - predicate: sd:propY
+        column: prop_y
+      - predicate: sd:unitX
+        column: unit_x
+      - predicate: sd:unitY
+        column: unit_y
+      - predicate: sd:xRaw
+        column: x
+      - predicate: sd:yRaw
+        column: y
+      - predicate: sd:xMin
+        column: x
+        function: float_array_min
+      - predicate: sd:xMax
+        column: x
+        function: float_array_max
+      - predicate: sd:yMin
+        column: y
+        function: float_array_min
+      - predicate: sd:yMax
+        column: y
+        function: float_array_max
+      - predicate: sd:projectName
+        column: project_names
+        function: json_array
+      - predicate: sd:hasSample
+        object_template: "sdr:sample/{sample_id}"
+      - predicate: prov:generatedAtTime
+        column: created_at
+        function: datetime_iso
+      - predicate: prov:updatedAt
+        column: updated_at
+        function: datetime_iso

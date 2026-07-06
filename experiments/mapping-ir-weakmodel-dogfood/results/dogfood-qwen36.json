@@ -1,0 +1,64 @@
+{
+  "model": "preview/Qwen3.6-35B-A3B",
+  "api_base": "https://api.ai.sakura.ad.jp/v1",
+  "rows_per_csv": 40,
+  "max_rounds": 3,
+  "contract": "mapping-ir (ADR mapping-ir-compiler.md)",
+  "rounds": [
+    {
+      "round": 0,
+      "issue_count": 6,
+      "categories": {
+        "other": 6
+      }
+    },
+    {
+      "round": 1,
+      "issue_count": 4,
+      "categories": {
+        "other": 4
+      }
+    },
+    {
+      "round": 2,
+      "issue_count": 4,
+      "categories": {
+        "other": 4
+      }
+    },
+    {
+      "round": 3,
+      "issue_count": 4,
+      "categories": {
+        "other": 4
+      }
+    }
+  ],
+  "wall_clock_s": 162.7,
+  "last_usage": {
+    "input_tokens": 6034,
+    "output_tokens": 8696
+  },
+  "converged": false,
+  "terminal_reason": "max_rounds",
+  "initial_issue_count": 6,
+  "remaining_issues": [
+    "map 'paper'.properties[4] (schema:author*).function requires 'column' (or 'columns' for multi-input).",
+    "map 'paper'.properties[5] (bibo:journal).function requires 'column' (or 'columns' for multi-input).",
+    "map 'sample'.properties[3] (sd:project*).function requires 'column' (or 'columns' for multi-input).",
+    "map 'curve'.properties[8] (sd:project*).function requires 'column' (or 'columns' for multi-input)."
+  ],
+  "coverage_dropped": false,
+  "syntax_class_issue_rounds": [],
+  "syntax_class_zero": true,
+  "final_design": {
+    "has_mapping_spec": true,
+    "mapping_ir_issues": [
+      "map 'paper'.properties[4] (schema:author*).function requires 'column' (or 'columns' for multi-input).",
+      "map 'paper'.properties[5] (bibo:journal).function requires 'column' (or 'columns' for multi-input).",
+      "map 'sample'.properties[3] (sd:project*).function requires 'column' (or 'columns' for multi-input).",
+      "map 'curve'.properties[8] (sd:project*).function requires 'column' (or 'columns' for multi-input)."
+    ],
+    "compiled": false
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "model": "gpt-oss-120b",
+  "api_base": "https://api.ai.sakura.ad.jp/v1",
+  "rows_per_csv": 40,
+  "max_rounds": 3,
+  "contract": "mapping-ir (ADR mapping-ir-compiler.md)",
+  "rounds": [
+    {
+      "round": 0,
+      "issue_count": 9,
+      "categories": {
+        "structural": 5,
+        "other": 4
+      }
+    },
+    {
+      "round": 1,
+      "issue_count": 2,
+      "categories": {
+        "column": 2
+      }
+    },
+    {
+      "round": 2,
+      "issue_count": 2,
+      "categories": {
+        "other": 1,
+        "structural": 1
+      }
+    },
+    {
+      "round": 3,
+      "issue_count": 2,
+      "categories": {
+        "other": 2
+      }
+    }
+  ],
+  "wall_clock_s": 135.2,
+  "last_usage": {
+    "input_tokens": 8617,
+    "output_tokens": 7595
+  },
+  "converged": false,
+  "terminal_reason": "max_rounds",
+  "initial_issue_count": 9,
+  "remaining_issues": [
+    "map 'paper': column 'container_title|slug' is not in papers.csv (columns: SID, DOI, URL, issued, author, title, container_title, container_title_short, volume, issue, page, ISSN, publisher, project_names, created_at). Did you mean: container_title, container_title_short?",
+    "map 'sample': column 'project_names' is not in samples.csv (columns: sample_name, sample_id, composition, composition_details, SID, DOI, created_at, updated_at, sample_info)."
+  ],
+  "coverage_dropped": false,
+  "syntax_class_issue_rounds": [],
+  "syntax_class_zero": true,
+  "final_design": {
+    "has_mapping_spec": true,
+    "mapping_ir_issues": [],
+    "compiled": true,
+    "assert_rml_safe": "pass",
+    "validate_rml_design": "issues: RML design validation failed:\n- column 'container_title|slug' referenced by the mapping is not in papers.csv (columns: SID, DOI, URL, issued, author, title, container_title, container_title_short, volume, issue, page, ISSN, publisher, project_names, created_at). Did you mean: container_title, container_title_short?\n- column 'project_names' referenced by the mapping is not in samples.csv (columns: sample_name, sample_id, composition, composition_details, SID, DOI, created_at, updated_at, sample_info).",
+    "morph_kgc_triples": "FAIL: RML design validation failed:\n- column 'container_title|slug' referenced by the mapping is not in papers.csv (columns: SID, DOI, URL, issued, author, title, container_title, container_title_short, volume, issue, page, ISSN, publisher, project_names, created_at). Did you mean: container_title, container_title_short?\n- column 'project_names' referenced by the mapping is not in samples.csv (columns: sample_name, sample_id, composition, composition_details, SID, DOI, created_at, updated_at, sample_info)."
+  }
+}

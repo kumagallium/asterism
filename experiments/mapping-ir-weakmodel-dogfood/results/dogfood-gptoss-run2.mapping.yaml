@@ -1,0 +1,117 @@
+version: 1
+prefixes:
+  sd:  "https://kumagallium.github.io/asterism/starrydata/ontology#"
+  sdr: "https://kumagallium.github.io/asterism/starrydata/resource/"
+  schema: "https://schema.org/"
+  dcterms: "http://purl.org/dc/terms/"
+maps:
+  - name: paper
+    source: papers.csv
+    subject:
+      template: "sdr:paper/{SID}"
+      classes: [sd:Paper, schema:ScholarlyArticle]
+    properties:
+      - predicate: dcterms:identifier
+        column: DOI
+      - predicate: schema:url
+        column: URL
+        function: iri_safe
+        object_type: iri
+      - predicate: schema:name
+        column: title
+      - predicate: schema:datePublished
+        column: issued.date_parts[0]
+        function: date_iso
+        datatype: xsd:date
+      - predicate: sd:containerTitle
+        column: container_title
+      - predicate: sd:containerTitleShort
+        column: container_title_short
+        optional: true
+      - predicate: sd:volume
+        column: volume
+        optional: true
+      - predicate: sd:issue
+        column: issue
+        optional: true
+      - predicate: sd:pageRange
+        column: page
+      - predicate: sd:issn*      # multi‑valued literal list
+        column: ISSN
+        function: split
+        args: {delimiter: ","}
+      - predicate: sd:hasProject*
+        column: project_names
+        function: json_array
+      - predicate: schema:author*
+        column: author
+        function: json_pluck
+        args: {field: "family"}   # we will later compose full IRI via `person_iri`
+      - predicate: sd:isPartOf?
+        column: container_title
+        transform: {container_title: slug}
+        object_template: "sdr:periodical/{container_title}"
+  - name: sample
+    source: samples.csv
+    subject:
+      template: "sdr:sample/{sample_id}"
+      classes: [sd:Sample]
+    properties:
+      - predicate: sd:sampleName
+        column: sample_name
+      - predicate: dcterms:identifier
+        column: sample_id
+      - predicate: sd:composition
+        column: composition
+      - predicate: sd:compositionDetails
+        column: composition_details
+        optional: true
+      - predicate: sd:isSampleOf
+        object_template: "sdr:paper/{SID}"
+      - predicate: sd:hasProject*
+        column: project_names
+        function: json_array
+      - predicate: sd:sampleInfoRaw?
+        column: sample_info
+        function: json_array_single   # keep as raw JSON literal
+  - name: curve
+    source: curves.csv
+    subject:
+      template: "sdr:curve/{sample_id}/{slug(composition)}"
+      classes: [sd:Curve]
+    properties:
+      - predicate: sd:xValues
+        column: x
+        function: json_array_single   # keep raw JSON string
+      - predicate: sd:yValues
+        column: y
+        function: json_array_single
+      - predicate: sd:xMin
+        column: x
+        function: float_array_min
+        datatype: xsd:double
+      - predicate: sd:xMax
+        column: x
+        function: float_array_max
+        datatype: xsd:double
+      - predicate: sd:yMin
+        column: y
+        function: float_array_min
+        datatype: xsd:double
+      - predicate: sd:yMax
+        column: y
+        function: float_array_max
+        datatype: xsd:double
+      - predicate: sd:propX
+        constant: "Temperature"
+      - predicate: sd:unitX
+        constant: "K"
+      - predicate: sd:propY
+        constant: "Seebeck coefficient"
+      - predicate: sd:unitY
+        constant: "V*K^(-1)"
+      - predicate: sd:isCurveOf
+        object_template: "sdr:sample/{sample_id}"
+      - predicate: sd:hasProject*
+        column: project_names
+        function: json_array

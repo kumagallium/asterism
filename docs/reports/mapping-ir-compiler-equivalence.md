@@ -2,9 +2,11 @@
 
 **Date:** 2026-07-06 **Verdict:** ✅ **equivalence + structural elimination verified**
 (graph-isomorphic goldens, real-Morph-KGC parity with the handwritten Materials
-Project mapping, full pipeline over the real Starrydata export) — ⏳ the **live
-weak-model measurement** (real Qwen3.6-35B-A3B / gpt-oss-120b) is prepared but
-pending an LLM key; harness committed.
+Project mapping, full pipeline over the real Starrydata export) — ✅ **live
+weak-model measurement done same day** ([Addendum](#addendum-2026-07-06--live-weak-model-measurement)):
+**syntax-class issues = 0 in every round of every run (5 runs)**, and both
+target models — real **Qwen3.6-35B-A3B** and **gpt-oss-120b** — converge to
+gate-passing, Morph-KGC-materializable designs (1388 / 1468 triples).
 **Method/decision of record:** [`architecture/mapping-ir-compiler.md`](../architecture/mapping-ir-compiler.md) ·
 harness [`experiments/mapping-ir-weakmodel-dogfood/`](../../experiments/mapping-ir-weakmodel-dogfood/)
 
@@ -99,21 +101,67 @@ unchanged.
 
 ## 5. Limitations
 
-- **The scripted weak model is not a real one.** The decisive measurement —
-  real Qwen3.6-35B-A3B / gpt-oss-120b proposing over the same CSVs, with the
-  prediction *syntax-class issues = 0 and the loop converges or leaves only
-  semantic issues* — is prepared (`run_dogfood.py`) but needs a Sakura AI
-  Engine key; it was not runnable from this session. Whether weak models
-  reliably emit *valid YAML* and *good semantic choices* is exactly what that
-  run will measure; YAML errors are caught by the parser at the same
-  fixable granularity, but their frequency is unknown.
 - Convergence still ≠ ingest-ready (the 422 gate remains the real gate);
   XML/XPath references are still not column-validated; erase-to-green is
   still only surfaced softly (`coverage_dropped`, now counted on IR property
-  rows).
+  rows — it fired once in the addendum runs, see there).
 - Equivalence was shown on the corpus shapes we have (CSV, tabularized JSON,
   XML skeleton). Shapes the IR deliberately cannot express (arbitrary nested
   function composition, joins) are absent from the corpus by design.
+- Live runs are n=1 per final configuration and weak-model round-0 output has
+  visible run-to-run variance (gpt-oss produced different §6-leak shapes on
+  each run); the *syntax-class-zero* claim is structural (unrepresentable),
+  but convergence-rate statistics would need repeated runs.
+- Semantic quality remains the model's job: both converged designs carry
+  imperfect key choices (e.g. `curve/{sample_id}` instead of the composite
+  `SID-figure_id-sample_id`) and minted predicates where standard ones exist.
+  The human gate reviews exactly this — now as a readable YAML table.
+
+## Addendum (2026-07-06) — live weak-model measurement
+
+Same day, with a Sakura AI Engine key: the harness ran the REAL models over
+40-record CSV-safe subsets of the same Starrydata export as the production
+failure (`dataset-548d5ca3`), `max_rounds=3`. Feedback gaps found by the first
+run of each model were fixed and committed before its re-run — that iteration
+is part of the result (the moles are now semantic and whackable in the
+validator's vocabulary, instead of unfixable RML syntax).
+
+| run | model | issues / round | outcome | gates on final design |
+|---|---|---|---|---|
+| qwen36 #1 | `preview/Qwen3.6-35B-A3B` | 6 → 4 → 4 → 4 | max_rounds (stall) | correctly **blocked** |
+| qwen36 #2 | `preview/Qwen3.6-35B-A3B` | 1 → **0** | **converged**, 109.6 s | pass · **1388 triples** |
+| gpt-oss #1 | `gpt-oss-120b` | 9 → 2 → 2 → 2 | max_rounds (stall) | correctly **blocked** |
+| gpt-oss #2 | `gpt-oss-120b` | 7 → (refine truncated) | harness cap too low | correctly **blocked** |
+| gpt-oss #3 | `gpt-oss-120b` | 7 → 7 → 1 → **0** | **converged**, 152.8 s | pass · **1468 triples** |
+
+- **Syntax-class issues: 0 across all 17 validated rounds of all 5 runs** —
+  no unparseable Turtle, no FnO parameter IRIs, no `fnml#`, no non-Tier-0
+  function IRIs. The error class the old contract died on did not occur once.
+  For scale: the same Qwen model + data under the old contract produced RML
+  with **zero** correct `rmlf:functionExecution` uses and T9-fatal Turtle that
+  no number of refine rounds could fix; now it reaches a materializable design
+  in **109.6 seconds**.
+- **Every stall was a §6/model.yaml habit or template micro-syntax leaking
+  into the spec**, each answered with a targeted validator message the same
+  day: `schema:author*` cardinality markers; a function piped into an
+  `object_template`; a Jinja-style `{container_title|slug}` pipe filter
+  (steered to `transform:`); a column referenced from another file's map
+  (steered to "move the property"); an invented `optional: true` field
+  (optionality is implicit). All five guidance messages are now unit-tested.
+- **The gates held every time**: non-converged designs were blocked by
+  `validate_rml_design` before Morph-KGC; converged designs passed
+  `assert_rml_safe` + `validate_rml_design` and materialized for real.
+- gpt-oss #2's truncation was a harness setting (a 16384-token cap is too
+  tight for a reasoning model rewriting the full document), not a contract
+  failure — the default 96 k cap is correct; the truncation guard kept the
+  prior complete design as designed.
+- gpt-oss #3 surfaced `coverage_dropped` (final 35 property rows after
+  removing round-0's invented shapes — a legitimate reduction, honestly
+  flagged). Function usage in the converged designs: Qwen 9 distinct Tier-0
+  functions incl. a `slug` transform for the shared periodical node and the
+  `…Raw` author fallback exactly as steered; gpt-oss 6 distinct + 1 fallback.
+- Evidence: `experiments/mapping-ir-weakmodel-dogfood/results/` (per-run JSON
+  records + the proposal / mapping spec / compiled RML artifacts).
 
 ## 6. Reproduce
 
@@ -129,9 +177,10 @@ cd step0 && uv run pytest tests/test_rml_compile_morph.py -v
 # live weak-model dogfood (needs a key; writes JSON + artifacts for this report)
 export SAKURA_API_KEY=...
 step0/.venv/bin/python experiments/mapping-ir-weakmodel-dogfood/run_dogfood.py \
-  --model Qwen3.6-35B-A3B --api-base https://api.ai.sakura.ad.jp/v1 \
+  --model preview/Qwen3.6-35B-A3B --api-base https://api.ai.sakura.ad.jp/v1 \
   --papers  ../starrydata_dataset/starrydata_papers.csv \
   --samples ../starrydata_dataset/starrydata_samples.csv \
   --curves  ../starrydata_dataset/starrydata_curves.csv \
   --rows 40 --materialize --out dogfood-qwen.json
+# (gpt-oss-120b: same command with --model gpt-oss-120b; keep the default token cap)
 ```

@@ -1,0 +1,78 @@
+version: 1
+prefixes:
+  sd:  "https://kumagallium.github.io/asterism/starrydata/ontology#"
+  sdr: "https://kumagallium.github.io/asterism/starrydata/resource/"
+  schema: "https://schema.org/"
+  dcterms: "http://purl.org/dc/terms/"
+  bibo: "http://purl.org/ontology/bibo/"
+maps:
+  - name: paper
+    source: papers.csv
+    subject:
+      template: "sdr:paper/{SID}"
+      classes: [sd:Paper, schema:ScholarlyArticle]
+    properties:
+      - predicate: schema:name
+        column: title
+      - predicate: dcterms:identifier
+        column: DOI
+      - predicate: schema:datePublished
+        column: issued
+        function: date_iso
+        datatype: xsd:date
+      - predicate: schema:issn
+        column: ISSN
+      - predicate: schema:author*
+        function: json_pluck
+        args: { field: family }
+        object_type: iri
+        object_template: "sdr:author/{SID}_{value}"
+      - predicate: bibo:journal
+        function: slug
+        object_type: iri
+        object_template: "sdr:journal/{value}"
+  - name: sample
+    source: samples.csv
+    subject:
+      template: "sdr:sample/{sample_id}"
+      classes: [sd:Sample]
+    properties:
+      - predicate: schema:name
+        column: sample_name
+      - predicate: sd:composition
+        column: composition
+      - predicate: dcterms:description
+        column: composition_details
+      - predicate: sd:project*
+        function: json_array
+        object_type: iri
+        object_template: "sdr:project/{value}"
+  - name: curve
+    source: curves.csv
+    subject:
+      template: "sdr:curve/{sample_id}"
+      classes: [sd:Curve]
+    properties:
+      - predicate: sd:measurePropertyX
+        column: prop_x
+      - predicate: sd:measurePropertyY
+        column: prop_y
+      - predicate: sd:unitX
+        column: unit_x
+      - predicate: sd:unitY
+        column: unit_y
+      - predicate: sd:pointCount
+        columns: [x, y]
+        function: float_array_count
+        datatype: xsd:integer
+      - predicate: sd:dataX
+        column: x
+      - predicate: sd:dataY
+        column: y
+      - predicate: sd:hasSample
+        object_type: iri
+        object_template: "sdr:sample/{sample_id}"
+      - predicate: sd:project*
+        function: json_array
+        object_type: iri
+        object_template: "sdr:project/{value}"

@@ -276,14 +276,29 @@ def _expect_str(value: Any, where: str, issues: list[str]) -> str | None:
     return None
 
 
+# §6 model.yaml habits that leak in as invented fields (observed live:
+# ``optional: true``). Cardinality/optionality are implicit in a mapping —
+# a missing value simply emits no triple — so the fix is always "drop it".
+_IMPLICIT_FIELD_HINTS = frozenset(
+    {"optional", "required", "cardinality", "multivalued", "multi_valued"}
+)
+
+
 def _check_unknown_keys(
     obj: Mapping[str, Any], allowed: Sequence[str], where: str, issues: list[str]
 ) -> None:
     for key in obj:
         if key not in allowed:
+            hint = _suggest(str(key), list(allowed))
+            if str(key).lower() in _IMPLICIT_FIELD_HINTS:
+                hint = (
+                    " Optionality/cardinality are implicit here: a missing value "
+                    "simply emits no triple, and multi-value expansion comes from "
+                    "the function choice — drop the field."
+                )
             issues.append(
                 f"{where} has an unknown field {key!r}; allowed fields: "
-                f"{', '.join(allowed)}.{_suggest(str(key), list(allowed))}"
+                f"{', '.join(allowed)}.{hint}"
             )
 
 
@@ -759,11 +774,38 @@ def validate_mapping_ir(
         if columns:
             col_set = set(columns)
             for col in sorted(referenced_columns(m)):
-                if col not in col_set:
+                if col in col_set:
+                    continue
+                if "|" in col and col.split("|", 1)[0] in col_set:
+                    # Jinja-style pipe filter invented inside a placeholder
+                    # (observed live: {container_title|slug}) — name the
+                    # sanctioned mechanism instead of a bare missing-column.
+                    base, _, fn = col.partition("|")
                     issues.append(
-                        f"{where}: column {col!r} is not in {m.source} (columns: "
-                        f"{', '.join(columns)}).{_suggest(col, list(columns))}"
+                        f"{where}: {{{col}}} is not a column — placeholders are "
+                        f"bare column names and '|' is not a filter. Write "
+                        f"{{{base}}} and declare transform: {{ {base}: {fn} }} "
+                        f"on that template instead."
                     )
+                    continue
+                elsewhere = sorted(
+                    other
+                    for other, cols in headers.items()
+                    if other != m.source and cols and col in cols
+                )
+                if elsewhere:
+                    # The column is real but lives in another source — the fix
+                    # is structural (move the property), not a spelling fix.
+                    issues.append(
+                        f"{where}: column {col!r} is not in {m.source} — it exists "
+                        f"in {', '.join(elsewhere)}. Each map reads only its own "
+                        f"source: move this property to that source's map, or drop it."
+                    )
+                    continue
+                issues.append(
+                    f"{where}: column {col!r} is not in {m.source} (columns: "
+                    f"{', '.join(columns)}).{_suggest(col, list(columns))}"
+                )
 
         for slot, fn_name in m.subject.transform.items():
             issues.extend(_check_transform(fn_name, slot, f"{where}.subject", catalog))
