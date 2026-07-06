@@ -1,0 +1,56 @@
+# IR transcription of experiments/phase5-morph-kgc-spike/e2e/mappings.rml.ttl —
+# the golden test asserts the compiled output is graph-isomorphic with that
+# handwritten reference (test_rml_compile.py).
+version: 1
+prefixes:
+  sd: "https://kumagallium.github.io/asterism/starrydata/ontology#"
+  sdr: "https://kumagallium.github.io/asterism/starrydata/resource/"
+  schema: "https://schema.org/"
+  dcterms: "http://purl.org/dc/terms/"
+maps:
+  - name: paper
+    source: papers.csv
+    subject:
+      template: "sdr:paper/{SID}"
+      classes: [sd:Paper]
+    properties:
+      - predicate: schema:name
+        column: title
+      - predicate: dcterms:identifier
+        column: DOI
+      - predicate: schema:datePublished
+        column: issued
+        function: date_iso
+        datatype: xsd:date
+  - name: sample
+    source: samples.csv
+    subject:
+      template: "sdr:sample/{SID}-{sample_id}"
+      classes: [sd:Sample]
+    properties:
+      - predicate: sd:compositionString
+        column: composition
+      - predicate: schema:name
+        column: sample_name
+      - predicate: sd:fromPaper
+        object_template: "sdr:paper/{SID}"
+  - name: curve
+    source: curves.csv
+    subject:
+      template: "sdr:curve/{SID}-{figure_id}-{sample_id}"
+      classes: [sd:Curve]
+    properties:
+      - predicate: sd:propertyY
+        column: prop_y
+      - predicate: sd:figureName
+        column: figure_name
+      - predicate: sd:ofSample
+        object_template: "sdr:sample/{SID}-{sample_id}"
+      - predicate: sd:yMax
+        column: y
+        function: float_array_max
+        datatype: xsd:double
+      - predicate: sd:pointCount
+        columns: [x, y]
+        function: float_array_count
+        datatype: xsd:integer
