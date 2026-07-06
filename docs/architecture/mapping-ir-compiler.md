@@ -1,6 +1,6 @@
 # ADR: Mapping IR — propose の段階分割と RML の決定論コンパイル（E 案）
 
-Status: Proposed (2026-07-06・ユーザー合意待ち)
+Status: Accepted (2026-07-06)
 Related: [step0-rml-emission.md](step0-rml-emission.md),
 [propose-self-correction-loop.md](propose-self-correction-loop.md),
 [phase5-declarative-substrate.md](phase5-declarative-substrate.md),
@@ -34,7 +34,7 @@ SYSTEM_PROMPT の HARD RULES ~90 行として LLM に「暗記」させている
 
 ## 2. 決定（提案）
 
-1. **Mapping IR を新設**する: 「ソース → subject（クラス・キー・iri_safe）→ プロパティ行の表
+1. **Mapping IR を新設**する: 「ソース → subject（クラス・キー・transform）→ プロパティ行の表
    （列・述語・Tier-0 関数・datatype・termType）」だけを表す小さな YAML スペック（§3）。
    YAML は JSON の上位集合なので、guided JSON（vLLM 系の構造化出力）を使えるプロバイダでは
    IR の構文エラーも原理消滅させられる（任意・プロバイダ依存）。
@@ -99,15 +99,23 @@ maps:
       - predicate: sd:authorsRaw        # 生文字列フォールバック（未展開フラグ）
         column: author
         fallback: true
-  - name: composition                   # データ由来 IRI は iri_safe 宣言（コンパイラが包む）
-    source: samples.csv
+  - name: composition                   # データ由来 IRI は生 template で安全（engine が
+    source: samples.csv                 # R2RML 準拠 percent-encode。probe 実証・§4）
     subject:
       template: "sdr:composition/{composition}"
-      iri_safe: [composition]
       classes: [sd:Composition]
     properties:
       - predicate: sd:hasFormula
         column: composition             # 生値はリテラルとして温存
+  - name: periodical                    # 可読な IRI セグメントが欲しい共有ノードは
+    source: papers.csv                  # transform（Tier-0 の単一入力関数）を宣言
+    subject:
+      template: "sdr:periodical/{container_title}"
+      transform: { container_title: slug }
+      classes: [sd:Periodical]
+    properties:
+      - predicate: schema:name
+        column: container_title
   - name: section                       # XML（文書層）: iterator + 定数 subject
     source: PMC5951533.xml
     iterator: "/article/body/sec"
@@ -131,7 +139,7 @@ maps:
 | `maps[].iterator` | XML のみ: XPath iterator | XML ソース時のみ許可 |
 | `subject.template` / `subject.constant` | subject IRI（排他） | プレースホルダ列の**実在チェック** |
 | `subject.classes` | `rr:class`（複数可） | CURIE 解決可能 |
-| `subject.iri_safe` | IRI-safe 化が要る template 内列 | template 内の列に限る |
+| `subject.transform` / `properties[].transform` | template 内列の可読セグメント化（`{列: slug}` 等） | プレースホルダに限る・単一入力 Tier-0 のみ・多値不可・≤4 プレースホルダ |
 | `properties[].predicate` | 述語 | CURIE 解決可能 |
 | `properties[].column` / `columns` | 列参照（単/多入力） | **実在チェック**（tabular のみ・did-you-mean） |
 | `properties[].function` | Tier-0 関数名 | **REGISTRY 照合**（閉集合） |
@@ -143,7 +151,7 @@ maps:
 | `properties[].language` | `rr:language`（任意） | BCP47 形式 |
 | `properties[].fallback` | `…Raw` 未展開フラグ（coverage 計測用メタ） | bool |
 
-**IR に書けないこと（意図的）**: 関数の入れ子合成（iri_safe は subject 宣言で足りる）、
+**IR に書けないこと（意図的）**: 関数の任意入れ子合成（可読セグメントは transform 宣言で足りる）、
 rr:joinCondition（IRI 決定論のリンクは template で足りる・現行コーパスに join ゼロ）、named
 graph（substrate が取り込み時に決める）、来歴配線（substrate 定数・従来通り範囲外）。多値展開は
 **関数の選択が含意**する（`split`/`json_array`/`json_pluck` は list 返却＝explode）— LLM に
@@ -171,12 +179,25 @@ model.yaml を拡張して束縛を混ぜると外部フォーマット（dbcls/
   展開しない — LLM が最も踏む罠のひとつ）。`{`/`}` エスケープも所有。
 - termType/datatype/language の付与規則（IRI 関数は `rr:termType rr:IRI`、リテラル template は
   `rr:termType rr:Literal`、リンク template は IRI）。
-- `subject.iri_safe` の emission 戦略（データ由来 IRI セグメントの IRI-safe 化）。**単一の
-  blessed パターン**をコンパイラが持つ — 候補は (a) subjectMap への functionExecution 直載せ、
-  (b) `fn:template` と `fn:iri_safe` の入れ子合成。実 Morph-KGC probe で確定し golden + e2e で
-  固定する（現 HARD RULES のこの箇所は記述が曖昧で、まさに「LLM に書かせられない知識」の実例）。
 - CSV / tabularized-JSON（= CSV 扱い）/ XML（`ql:XPath` + iterator + 定数 subject）の
   logicalSource 形。
+
+**データ由来 IRI の扱い（実 Morph-KGC probe で確定・2026-07-06）** — 現 HARD RULES の
+iri_safe 前処理指針は probe の結果**そもそも意味的に壊れていた**（`fn:iri_safe`=safe_url は
+URL 以外の文字列に `""` を返す → composition 等に使うと行ごと消える）。確定した設計:
+
+1. **生 template は安全**: Morph-KGC は `rr:template` のプレースホルダ値を R2RML 準拠で
+   percent-encode する（空白/引用符/`<>`/バックスラッシュ/Unicode 全て有効 IRI 化・strict NT
+   round-trip PASS）。よって IRI-safe ラップは**不要** — 既存 template ベースのデータと IRI が
+   完全一致する（IRI 安定性の最善解）。この挙動は gated 回帰テストでピン留め（将来の
+   morph-kgc 更新で挙動が変われば本番 ingest でなくテストが落ちる）。
+2. **可読セグメントが欲しい場合だけ `transform`**（periodical の slug パターン等）: コンパイラは
+   `fn:template`（定数 template + 位置トークン）に**入れ子 functionExecution**（`fn:slug` 等の
+   単一入力 Tier-0）を合成して emit する。入れ子は実 morph-kgc で動作実証済み。
+3. **bare column の IRI 化（`rml:reference` + `rr:termType rr:IRI`）は禁止**: reference 値は
+   エンコードされず、空白入り値が invalid IRI としてストア投入で即死する（probe 実証 —
+   本番の「Invalid IRI code point」の正体）。パーサ/コンパイラ両方が拒否し、URL 列は
+   `function: iri_safe` + `object_type: iri`（clean URL には恒等）へ誘導する。
 
 **fail-closed 原則**: コンパイラは閉集合を**狭める方向にのみ**働く。catalog に無い関数名・仕様外
 フィールド・未解決 CURIE・引数名の過不足は**コンパイルエラー**（該当なしをでっち上げない・関数を
@@ -220,7 +241,7 @@ model.yaml を拡張して束縛を混ぜると外部フォーマット（dbcls/
 - **propose SYSTEM_PROMPT**: §9 の見出しは「### 9. Declarative mapping spec」（materialize の
   `_RML_HEADERS` は "declarative mapping" で命中・英語見出し契約維持）。中身は ```yaml フェンス 1 個。
   HARD RULES ~90 行（RML 構文）は削除され、(a) IR スキーマの簡潔な記述、(b) Tier-0 関数メニュー
-  （名前・引数名・一行意味 — これは意味選択なので残る）、(c) ファイル名/列名コピー厳守・iri_safe
+  （名前・引数名・一行意味 — これは意味選択なので残る）、(c) ファイル名/列名コピー厳守・transform
   宣言・fallback 規則、に縮む。byte-stable・cache 安定は不変。
 - **materialize**: IR ブロックを抽出する `mapping_ir` を追加（header keyword + yaml、model/MIE の
   yaml ブロックと既存の優先順位ロジックで確実に排他）。IR があれば `{name}-mapping.yaml`（レビュー・
@@ -273,7 +294,7 @@ model.yaml を拡張して束縛を混ぜると外部フォーマット（dbcls/
    コーパス proposal 数件）を IR に書き起こし、コンパイル出力がグラフ同型（rdflib パース後の
    トリプル集合一致・byte 一致は要求しない）。
 2. **実 Morph-KGC e2e**（gated）: コンパイル済み RML の materialize 結果が既存 RML と triple 集合
-   一致。iri_safe blessed パターンの probe を含む。
+   一致。template percent-encode / 入れ子 transform / 多値 explode の回帰ピンを含む。
 3. **実測（本丸）**: `dataset-548d5ca3` と同じ Starrydata CSV を **Qwen3.6-35B-A3B /
    gpt-oss-120b** で propose:
    - T9 / Turtle 構文 / パラメータ IRI / fnml 名前空間の issue が **0 件**（原理消滅の実証）
@@ -285,8 +306,8 @@ model.yaml を拡張して束縛を混ぜると外部フォーマット（dbcls/
 
 ## 11. 既知の限界（正直に）
 
-- **意味エラーは残る**: 述語の選択ミス・キー列の選択ミス・iri_safe 宣言漏れ（データ由来 IRI の
-  判断は意味判断）は IR でも起きる。ループの列実在チェックと oracle が押し戻すが、保証はしない —
+- **意味エラーは残る**: 述語の選択ミス・キー列の選択ミス・transform の付け忘れ（可読 IRI に
+  するかは意味判断。妥当性は engine encoding が守るので壊れはしない）は IR でも起きる。ループの列実在チェックと oracle が押し戻すが、保証はしない —
   従来同様 422 gate と人間ゲートが最終防衛線。
 - **XML ソースの参照（XPath）は列レベル検証されない**（従来の JSON/XML 盲点と同じ・tabular のみ）。
 - **IR の表現力は意図的に狭い**: 入れ子関数合成・join・条件分岐は書けない。書けない要求が実データで
