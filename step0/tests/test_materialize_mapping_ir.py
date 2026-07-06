@@ -102,7 +102,12 @@ def test_ir_parse_issues_are_collected_not_fatal(tmp_path: Path) -> None:
     assert not (tmp_path / "demo-mapping.rml.ttl").exists()
 
 
-def test_ir_wins_over_stale_turtle_block(tmp_path: Path) -> None:
+def test_ir_wins_over_stale_turtle_block_without_warning(tmp_path: Path) -> None:
+    """A leftover/stray turtle block next to a mapping spec is inert — and NOT
+    a warning: the UI treats any warning as "cannot be ingested"
+    (materializeUsable requires warnings == []) and feeds warnings verbatim to
+    the one-click AI fix, so an informational note here wrongly blocked a
+    perfectly ingestable design (live production report, 2026-07-06)."""
     with_turtle = PROPOSAL_WITH_IR + (
         "\n### 9b. RML declarative mapping (legacy)\n\n"
         "```turtle\n@prefix rr: <http://www.w3.org/ns/r2rml#> .\n```\n"
@@ -112,7 +117,25 @@ def test_ir_wins_over_stale_turtle_block(tmp_path: Path) -> None:
     assert result.rml_ttl is not None
     assert "r2rml" in result.rml_ttl  # compiled output, not the stale block…
     assert "rr:TriplesMap" in result.rml_ttl  # …which had no TriplesMap at all
-    assert any("turtle block is ignored" in w for w in result.warnings)
+    assert result.warnings == []
+    assert result.complete
+
+
+def test_stray_sample_turtle_fence_does_not_warn_or_block(tmp_path: Path) -> None:
+    """The live false positive: a model rendering §7 sample_rdf_entries as a
+    ```turtle fence. The old lone-turtle language fallback claimed it as a
+    legacy §9 and the both-blocks warning blocked the save."""
+    with_sample = PROPOSAL_WITH_IR.replace(
+        "### 8. Ingester sketch",
+        "### 7b. Sample RDF entries\n\n"
+        "```turtle\n<https://example.org/r/thing/1> a <https://example.org/ns#Thing> .\n```\n\n"
+        "### 8. Ingester sketch",
+    )
+    result = materialize_schema(with_sample, tmp_path, "demo", write=False)
+    assert result.mapping_ir_yaml is not None
+    assert result.rml_ttl is not None and "rr:TriplesMap" in result.rml_ttl
+    assert result.warnings == []
+    assert result.complete
 
 
 def test_legacy_turtle_only_proposal_unchanged(tmp_path: Path) -> None:

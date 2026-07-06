@@ -298,21 +298,23 @@ def materialize_schema(
         blocks, header_keywords=_INGESTER_HEADERS, language_prefs=("python", "py")
     )
 
-    # Legacy raw-RML artifact. Turtle is unambiguous in a proposal (only the RML
-    # block uses it), so a lone turtle block routes by language. When a mapping
-    # spec is present it wins — a stale turtle block must not mask IR errors.
-    legacy_rml = _pick_block(
-        blocks, header_keywords=_RML_HEADERS, language_prefs=("turtle", "ttl")
-    )
+    # §9 precedence: with a mapping spec present, the spec IS the design — the
+    # legacy turtle extraction is not even attempted. Any stray ```turtle fence
+    # (an MIE sample-RDF snippet, a leftover legacy block after a redesign) is
+    # inert by construction and deliberately NOT worth a warning: the UI treats
+    # `warnings` as "this design cannot be ingested" (materializeUsable) and
+    # feeds them verbatim to the one-click AI fix, so an informational note
+    # here would wrongly block the save and send the model chasing a non-issue.
+    # Warnings stay reserved for genuinely blocking states (missing core
+    # artifact / spec that does not compile / compiler unavailable).
     if result.mapping_ir_yaml is not None:
         result.rml_ttl = _compile_mapping_spec(result)
-        if legacy_rml is not None:
-            result.warnings.append(
-                "Both a mapping spec (yaml) and a raw RML (turtle) block are "
-                "present; the mapping spec wins and the turtle block is ignored."
-            )
     else:
-        result.rml_ttl = legacy_rml
+        # Legacy raw-RML artifact. Turtle is unambiguous in a proposal (only
+        # the RML block uses it), so a lone turtle block routes by language.
+        result.rml_ttl = _pick_block(
+            blocks, header_keywords=_RML_HEADERS, language_prefs=("turtle", "ttl")
+        )
 
     # ----- warnings -----
     # Note: rml_ttl is intentionally NOT warned-on when absent — it is additive.
