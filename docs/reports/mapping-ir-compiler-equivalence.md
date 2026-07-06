@@ -184,3 +184,21 @@ step0/.venv/bin/python experiments/mapping-ir-weakmodel-dogfood/run_dogfood.py \
   --rows 40 --materialize --out dogfood-qwen.json
 # (gpt-oss-120b: same command with --model gpt-oss-120b; keep the default token cap)
 ```
+
+## Addendum (2026-07-07) — Phase 2a: guided JSON surgical repair, live probe
+
+ADR [`mapping-ir-phase2-guided-repair.md`](../architecture/mapping-ir-phase2-guided-repair.md)
+landed: the autocorrect fix rounds now regenerate ONLY the §9 spec under a
+JSON-Schema contract (Tier-0 menu as an enum, unknown fields and cardinality
+suffixes unrepresentable), spliced back deterministically.
+
+Live probe against real **gpt-oss-120b on Sakura AI Engine**: a spec carrying
+ALL THREE observed invention families at once (`function: str` ×2,
+`optional: true`, `sd:author*`) plus a typo'd column was repaired in **one
+guided call** — functions dropped, field dropped, marker stripped, `titel` →
+`title`, `json_pluck`+`args` preserved. The result passed the JSON Schema, the
+strict validator (0 issues) and compiled. `last_notes: []` — **Sakura's vLLM
+accepts `response_format: json_schema` natively** (no degrade), so guided
+decoding is fully active on the production provider. Fix rounds drop from ~8k
+to hundreds of output tokens, and the whole-document truncation failure mode
+(gpt-oss run #2 above) is structurally gone.
