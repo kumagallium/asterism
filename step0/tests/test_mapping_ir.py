@@ -94,10 +94,15 @@ def test_columns_and_args_require_function() -> None:
 
 
 def test_function_requires_column() -> None:
+    # function + constant is the combined-form error (targeted guidance)…
     bad = MINIMAL.replace(
         "column: name", 'constant: "x"\n        function: date_iso'
     )
     issues = parse_issues(bad)
+    assert any("cannot be combined with object_template" in i for i in issues)
+    # …while a function with NO object form at all gets the plain requirement.
+    none = MINIMAL.replace("column: name", "function: date_iso")
+    issues = parse_issues(none)
     assert any("requires 'column'" in i for i in issues)
 
 
@@ -204,6 +209,28 @@ def test_transform_key_must_be_placeholder() -> None:
     )
     issues = parse_issues(bad)
     assert any("not a placeholder" in i for i in issues)
+
+
+def test_cardinality_marker_on_predicate_is_flagged() -> None:
+    bad = MINIMAL.replace("predicate: ex:name", "predicate: ex:name*")
+    issues = parse_issues(bad)
+    assert any("cardinality marker" in i and "'ex:name'" in i for i in issues)
+
+
+def test_function_with_object_template_gets_targeted_guidance() -> None:
+    """The live-dogfood invention (function output piped into a template) must
+    get the three sanctioned alternatives, not a bare shape error."""
+    bad = MINIMAL.replace(
+        "column: name",
+        'object_template: "exr:author/{id}"\n'
+        "        function: json_pluck\n"
+        "        args: { field: family }",
+    )
+    issues = parse_issues(bad)
+    assert any("cannot be combined with object_template" in i for i in issues)
+    assert any("fallback: true" in i for i in issues)
+    # the unhelpful generic message must NOT also fire for the same row
+    assert not any(".function requires 'column'" in i for i in issues)
 
 
 def test_fallback_requires_bare_column() -> None:

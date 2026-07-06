@@ -112,11 +112,16 @@ _RE_COLUMN = re.compile(r"column '([^']+)'")
 _RE_FN_EXTRA = re.compile(r"^(\S+) does not accept parameter '([^']+)'")
 _RE_FN_MISSING = re.compile(r"^(\S+) is missing required parameter '([^']+)'")
 _RE_QUOTED = re.compile(r"'([^']+)'")
-# Mapping-IR message shapes (asterism_step0.mapping_ir / rml_compile).
+# Mapping-IR message shapes (asterism_step0.mapping_ir / rml_compile). Keys are
+# predicate/term-based, NOT property-index-based — a model reshuffling rows must
+# not defeat the no-progress (oscillation) detection.
 _RE_IR_FUNCTION = re.compile(r"function '([^']+)' is not in the vetted")
 _RE_IR_ARG_EXTRA = re.compile(r"(\w+) does not take a constant arg '([^']+)'")
 _RE_IR_ARG_MISSING = re.compile(r"(\w+) requires the constant arg '([^']+)'")
 _RE_IR_UNKNOWN_FIELD = re.compile(r"unknown field '([^']+)'")
+_RE_IR_FN_PLUS_TEMPLATE = re.compile(r"\(([^)]+)\): 'function' cannot be combined")
+_RE_IR_FN_NEEDS_COLUMN = re.compile(r"\(([^)]+)\)\.function requires 'column'")
+_RE_IR_CARDINALITY = re.compile(r"'([^']+)' carries a cardinality marker")
 
 # Message stems that mean the validator ENVIRONMENT is broken (missing rdflib /
 # unimportable Tier-0 registry), NOT that the LLM made a mistake. The loop bails on
@@ -153,6 +158,12 @@ def classify(message: str) -> Issue:
         return Issue("function", f"{mm.group(1)}/-{mm.group(2)}", m)
     if (mm := _RE_IR_UNKNOWN_FIELD.search(m)):
         return Issue("structural", mm.group(1), m)
+    if (mm := _RE_IR_FN_PLUS_TEMPLATE.search(m)):
+        return Issue("structural", f"fn+template/{mm.group(1)}", m)
+    if (mm := _RE_IR_FN_NEEDS_COLUMN.search(m)):
+        return Issue("function", f"{mm.group(1)}/-column", m)
+    if (mm := _RE_IR_CARDINALITY.search(m)):
+        return Issue("structural", f"cardinality/{mm.group(1)}", m)
     # assert_rml_safe shapes
     if "outside the closed Tier 0 set" in m:
         return Issue("function-set", _fn_set_subject(m), m)

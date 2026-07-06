@@ -236,7 +236,13 @@ RULES (a reviewer approves *column→predicate + which vetted function*, not cod
   functions below — bare names, no `fn:` prefix, no other function, no inline
   code, no new logic. Constant args go in `args:` by name.
 - Exactly ONE object form per property: `column` | `columns` |
-  `object_template` | `constant`.
+  `object_template` | `constant`. NEVER combine `function` with
+  `object_template`/`constant` — a function's output IS the object (one
+  literal per value; multi-value functions emit one literal per element).
+  Per-element entity IRIs from an in-cell array are NOT expressible — use the
+  `…Raw` fallback for that column instead.
+- Predicates/classes are plain terms: NO cardinality markers (`schema:author`,
+  never `schema:author*` — the `*`/`?` suffixes belong to §6 model.yaml only).
 - A bare `column` can NEVER be an IRI: for a URL column use
   `function: iri_safe` + `object_type: iri`; for an entity link use
   `object_template`. Raw data columns inside templates are IRI-encoded

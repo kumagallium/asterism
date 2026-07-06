@@ -253,6 +253,22 @@ def referenced_columns(m: TriplesMapIR) -> set[str]:
     return cols
 
 
+def _check_cardinality_marker(term: str, where: str, issues: list[str]) -> None:
+    """Flag rdf-config cardinality suffixes leaking into the mapping spec.
+
+    §6 model.yaml writes ``property*`` / ``property?`` — a weak model reuses
+    that habit here (observed live: ``schema:author*``), which would mint a
+    wrong IRI. Multi-valued expansion is implied by the function choice, so
+    the fix is always "drop the marker"."""
+    if term and term[-1] in "*?+":
+        issues.append(
+            f"{where}: {term!r} carries a cardinality marker — that syntax belongs "
+            f"to §6 model.yaml, not the mapping spec. Write {term.rstrip('*?+')!r}; "
+            f"multi-valued expansion is implied by choosing a multi-value function "
+            f"(split / json_array / json_pluck)."
+        )
+
+
 def _expect_str(value: Any, where: str, issues: list[str]) -> str | None:
     if isinstance(value, str) and value.strip():
         return value.strip()
@@ -346,6 +362,7 @@ def _parse_subject(raw: Any, where: str, issues: list[str]) -> SubjectIR:
         for i, c in enumerate(classes_raw):
             c_s = _expect_str(c, f"{where}.subject.classes[{i}]", issues)
             if c_s is not None:
+                _check_cardinality_marker(c_s, f"{where}.subject.classes", issues)
                 classes.append(c_s)
     transform = _parse_transform(
         raw.get("transform"), template if isinstance(template, str) else None,
@@ -368,6 +385,7 @@ def _parse_property(raw: Any, where: str, issues: list[str]) -> PropertyIR | Non
     if predicate is None:
         return None
     where = f"{where} ({predicate})"
+    _check_cardinality_marker(predicate, where, issues)
 
     column = raw.get("column")
     if column is not None:
@@ -425,6 +443,19 @@ def _parse_property(raw: Any, where: str, issues: list[str]) -> PropertyIR | Non
             issues.append(f"{where}.columns requires 'function' (a multi-input Tier-0 function).")
         if args:
             issues.append(f"{where}.args requires 'function'.")
+    elif object_template is not None or constant is not None:
+        # The single most common weak-model invention (observed in the live
+        # dogfood): piping a function's output into a template. Say exactly what
+        # the sanctioned alternatives are instead of a bare shape error.
+        issues.append(
+            f"{where}: 'function' cannot be combined with object_template/constant — "
+            f"a function's output IS the object. Choose one: (a) predicate + column + "
+            f"function → one LITERAL per value (multi-value functions emit one literal "
+            f"per element); (b) object_template with transform: {{column: slug}} for a "
+            f"readable IRI segment (single-input functions only); (c) per-element "
+            f"entity IRIs from an in-cell array are NOT expressible — map the raw cell "
+            f"to a …Raw predicate with fallback: true instead."
+        )
     elif column is None and not columns:
         issues.append(f"{where}.function requires 'column' (or 'columns' for multi-input).")
 

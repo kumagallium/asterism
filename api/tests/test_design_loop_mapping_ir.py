@@ -127,6 +127,31 @@ def test_collect_issues_ir_parse_errors_are_ir_vocabulary(tmp_path: Path) -> Non
     assert all("Turtle" not in i.message for i in issues)
 
 
+def test_classify_ir_shapes_key_on_predicate_not_index() -> None:
+    """Row indices shift when a model reshuffles properties; the canonical keys
+    must survive that so oscillation (no-progress) detection still fires."""
+    from asterism_api.design_loop import classify
+
+    a = classify(
+        "map 'paper'.properties[4] (schema:author): 'function' cannot be combined "
+        "with object_template/constant — a function's output IS the object."
+    )
+    b = classify(
+        "map 'paper'.properties[7] (schema:author): 'function' cannot be combined "
+        "with object_template/constant — a function's output IS the object."
+    )
+    assert a.key == b.key and a.category == "structural"
+
+    c = classify("map 'x'.properties[1] (sd:p).function requires 'column' (or 'columns').")
+    d = classify("map 'x'.properties[3] (sd:p).function requires 'column' (or 'columns').")
+    assert c.key == d.key and c.category == "function"
+
+    e = classify(
+        "map 'x'.properties[0].predicate: 'sd:project*' carries a cardinality marker — …"
+    )
+    assert e.category == "structural" and "sd:project*" in e.subject
+
+
 def test_reference_count_counts_ir_property_rows() -> None:
     ir_yaml = (
         "version: 1\n"
