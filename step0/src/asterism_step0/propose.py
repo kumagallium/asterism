@@ -155,168 +155,160 @@ Python skeleton (`ingest/src/asterism/{dataset}.py` template):
 - Error log path (jsonl)
 NOT a complete implementation — just the public API + helper signatures.
 
-### 9. RML declarative mapping (declarative substrate path)
-A single ` ```turtle ` block: an R2RML/RML mapping run by the **Morph-KGC
-substrate with NO generated code** (the safe, RCE-free path). One
-`rr:TriplesMap` per row type, prefixes/predicates matching §2/§3. Full spec:
-`docs/architecture/step0-rml-emission.md`.
+### 9. Declarative mapping spec
+A single ` ```yaml ` block: a small **mapping spec** that a deterministic
+compiler turns into the RML mapping run by the **Morph-KGC substrate with NO
+generated code** (the safe, RCE-free path). You do NOT write RML/Turtle — the
+compiler owns all of that syntax. One map per row type, prefixes/predicates
+matching §2/§3. Full spec: `docs/architecture/mapping-ir-compiler.md`.
 
-Declare these prefixes **verbatim** at the top of the block (the function-execution
-vocab MUST use the `http://w3id.org/rml/` namespace — Morph-KGC does NOT support
-the old `http://semweb.mmlab.be/ns/fnml#`):
+Shape (all fields shown; unknown fields are ERRORS — never invent one):
+```yaml
+version: 1
+prefixes:                     # every prefix used below; xsd: is builtin
+  sd:  "https://kumagallium.github.io/asterism/starrydata/ontology#"
+  sdr: "https://kumagallium.github.io/asterism/starrydata/resource/"
+  schema: "https://schema.org/"
+maps:
+  - name: paper               # unique identifier per map
+    source: papers.csv        # filename EXACTLY as the inspection lists it
+    subject:
+      template: "sdr:paper/{SID}"     # {column} placeholders; smallest unique key (§2)
+      classes: [sd:Paper, schema:ScholarlyArticle]
+    properties:
+      - predicate: schema:name        # direct column → literal
+        column: title
+      - predicate: schema:datePublished
+        column: issued
+        function: date_iso            # vetted Tier-0 function (menu below)
+        datatype: xsd:date
+      - predicate: schema:url
+        column: URL
+        function: iri_safe
+        object_type: iri              # IRI-returning functions need this
+      - predicate: sd:pointCount
+        columns: [x, y]               # multi-input function
+        function: float_array_count
+        datatype: xsd:integer
+      - predicate: sd:tag
+        column: tags
+        function: split
+        args: { delimiter: "," }      # constant args by NAME (table/pattern/…)
+      - predicate: sd:fromPaper       # link to another entity: IRI template
+        object_template: "sdr:paper/{SID}"
+      - predicate: dcterms:identifier # literal composed of several columns
+        object_template: "{SID}-{sample_id}"
+        object_type: literal
+      - predicate: sd:isPartOf        # readable IRI segment from messy text
+        object_template: "sdr:periodical/{container_title}"
+        transform: { container_title: slug }
+      - predicate: sd:authorsRaw      # no fitting function → raw passthrough
+        column: author
+        fallback: true
 ```
-@prefix rr:   <http://www.w3.org/ns/r2rml#> .
-@prefix rml:  <http://semweb.mmlab.be/ns/rml#> .
-@prefix ql:   <http://semweb.mmlab.be/ns/ql#> .
-@prefix rmlf: <http://w3id.org/rml/> .
-@prefix fn:   <https://kumagallium.github.io/asterism/fn/> .
-@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
-```
 
-**Logical source** — match each `rr:TriplesMap`'s `rml:logicalSource` to the
-source kind shown in the inspection (`## CSV:` / `## JSON:` / `## XML:` blocks). Use
-the filename **exactly as the inspection lists it** — copy it character-for-character,
-NEVER append, rename, or invent a suffix (no `_preprocessed`, `_clean`, `_v2`, …). The
-ingest reads the real files on disk; a renamed source does not exist and the run fails.
-All value cleaning is done by the Tier 0 functions below, not by a different file. Use
-the filename, and (for **XML**) the iterator from the inspection block verbatim:
-- **CSV** sources:
-  ```
-  rml:logicalSource [ rml:source "<file>.csv" ; rml:referenceFormulation ql:CSV ] ;
-  ```
-  `rml:reference "col"` and `rr:template "…/{col}"` use the column name.
-- **JSON** sources (#19) — ingest **tabularizes the JSON to CSV** (nested objects →
-  dot-path columns, arrays → JSON-string cells), so treat a `## JSON:` block as CSV:
-  ```
-  rml:logicalSource [ rml:source "<file>.csv" ; rml:referenceFormulation ql:CSV ] ;
-  ```
-  Use the **`.csv`** name the inspection's JSON block names (the `<file>.json`'s
-  stem), `ql:CSV`, and NO `rml:iterator`. `rml:reference` / `rr:template` use the
-  **dot-path leaf field exactly as listed** in the inspection (e.g.
-  `structure.spacegroup`) — a plain dot-path. An **array column** (type `json-array`)
-  holds the array as a JSON string → explode it with `fn:json_array` /
-  `fn:json_pluck` (below), exactly as a CSV "JSON in a cell" column.
-- **XML / JATS** sources (document-ontology layer) — read declaratively via `ql:XPath`
-  (no tabularization; the article is a structure tree, not records):
-  ```
-  rml:logicalSource [ rml:source "<file>.xml" ;
-                      rml:referenceFormulation ql:XPath ;
-                      rml:iterator "<iterator from the ## XML: table, e.g. /article/body/sec>" ] ;
-  ```
-  `rml:reference` / `rr:template` use **iterator-relative element/attribute paths**
-  (`@id`, `title`, `label`, `.` for the element's text). HARD XML limits (Morph-KGC's
-  XML reader): NO `[@a='v']` predicates and NO parent/ancestor axes in references;
-  it returns only an element's `.text` (mixed content like `<sub>`/`<italic>` is
-  truncated, so faithful verbatim is a post-pass, not RML); every template needs ≥1
-  `{ref}` — so the per-paper IRI base is a CONSTANT (`rr:constant`, the ingest is
-  per-paper). Build `po:contains` parent→child via a multi-valued child reference
-  (`{sec/@id}`, `{fig/@id}`). Use a node's `@id` for its IRI when the inspection
-  marks it stable (✓); nodes without `@id` (e.g. `<p>`) are NOT mapped here — they
-  are the deterministic post-pass's job (a dated `lit:DocumentParsingActivity` claim).
-- Tier 0 functions, templates, and the HARD RULES below apply identically regardless
-  of source kind (e.g. `fn:structural_slug` on a section heading → its structural path).
+**Source kinds** — match `source` to the inspection (`## CSV:` / `## JSON:` /
+`## XML:` blocks). Copy the filename character-for-character; NEVER append,
+rename, or invent a suffix (no `_preprocessed`, `_clean`, `_v2`, …) — the
+ingest reads the real files on disk. All value cleaning is done by the Tier-0
+functions, not by a different file.
+- **CSV**: `source: <file>.csv`, no `iterator`. Columns are the header names.
+- **JSON** (#19): ingest tabularizes the JSON to CSV (nested objects →
+  dot-path columns, arrays → JSON-string cells). Use the **`.csv`** name the
+  inspection's JSON block names, no `iterator`; columns are the **dot-path
+  leaf fields exactly as listed** (e.g. `structure.spacegroup`). An array
+  column (type `json-array`) holds the array as a JSON string → explode it
+  with `json_array` / `json_pluck`, exactly as a CSV "JSON in a cell" column.
+- **XML / JATS** (document-ontology layer): `source: <file>.xml` plus
+  `iterator:` copied verbatim from the `## XML:` table (e.g.
+  `/article/body/sec`). Columns/placeholders are **iterator-relative
+  element/attribute paths** (`@id`, `title`, `{sec/@id}`, `.` for the
+  element's text). HARD XML limits (Morph-KGC's reader): NO `[@a='v']`
+  predicates and NO parent/ancestor axes; only an element's `.text` is read
+  (mixed content like `<sub>` is truncated — faithful verbatim is a
+  post-pass, not this mapping); the per-document IRI base is a subject
+  `constant:` (the ingest is per-document). Build `po:contains` parent→child
+  via a multi-valued child placeholder (`{sec/@id}`, `{fig/@id}`). Nodes
+  without a stable `@id` (e.g. `<p>`) are NOT mapped here.
 
-HARD RULES (a reviewer approves *column→predicate + which vetted function*, not code):
-- May reference ONLY these vetted **Tier 0** functions
-  (`@prefix fn: <https://kumagallium.github.io/asterism/fn/>`). No other
-  function, no inline code, no new logic:
-  - `fn:date_iso` (value → `xsd:date`) — messy date → ISO 8601
-  - `fn:float_array_max` / `fn:float_array_min` (value → `xsd:double`)
-    — numeric JSON array → max / min
-  - `fn:float_array_count` (value1, value2 → `xsd:integer`)
-    — x,y arrays → `min(len)` = point count (2 inputs)
-  - `fn:qudt_quantity` / `fn:qudt_unit` (value → IRI)
-    — property name / unit → QUDT IRI (empty ⇒ triple skipped)
-  - `fn:iri_safe` (value → IRI) — URL → IRI-safe
-  - `fn:slug` (value → string) — string → IRI segment
-  - `fn:number_clean` (value → `xsd:double`) — strip thousands sep / currency /
-    accounting parens (`"$1,234.50"` → `1234.50`)
-  - `fn:percent_to_ratio` (value → `xsd:double`) — `"12%"` → `0.12`
-  - `fn:range_min` / `fn:range_max` (value → `xsd:double`) — `"10-20"` → low / high end
-  - `fn:datetime_iso` (value → `xsd:dateTime`) — messy datetime OR epoch (ms/s) → ISO 8601
-  - `fn:year_only` (value → `xsd:gYear`) — extract a 4-digit year
-  - `fn:nfkc_norm` (value → string) — Unicode NFKC (fold full-width / compatibility)
-  - `fn:trim_collapse` (value → string) — trim + collapse internal whitespace
-  - `fn:strip_footnote` (value → string) — drop trailing footnote markers (`"x[1]"` → `"x"`)
-  - `fn:bool_norm` (value → `xsd:boolean`) — `Yes/1/on` → `true`, `No/0/off` → `false`
-  - `fn:doi_norm` (value → string) — normalize a DOI to its bare lowercase form
-  - `fn:url_canonical` (value → string) — lowercase scheme+host, drop default port / fragment
-  - `fn:value_of` / `fn:unit_of` (value → string) — split value+unit (`"300 K"` → `300` / `K`)
-  - `fn:json_array_single` (value → string) — unwrap a **one-element** JSON array
-    (`["X"]` → `X`); multi-element arrays return "" (use `fn:split` / nested map)
-  - `fn:array_at` (value, **index** const → string) — element at a fixed 0-based
-    index of a JSON array (`[lon,lat,depth]`, index `1` → lat); negatives from end
-  - `fn:split` (value, **delimiter** const → MULTIPLE values) — split a delimited
-    cell into many; returns a list that Morph-KGC **explodes into one triple per
-    element** (`",ci,us,"` with delimiter `","` → two `ex:tag` triples). Flat
-    comma/semicolon lists.
-  - `fn:json_array` (value → MULTIPLE values) — a cell holding a JSON **array of
-    scalars as a string** (`'["P1","P2"]'`) → one triple per element (explodes)
-  - `fn:json_pluck` (value, **field** const → MULTIPLE values) — a cell holding a
-    JSON **array of objects as a string** (`'[{"family":"Adams"},{"family":"Brown"}]'`)
-    → the `field` of each object, one triple each (`field`="family" → Adams, Brown).
-    This is the multi-value path for object arrays stored as **string cells** (e.g.
-    starrydata `author`). A JSON-source nested array arrives here as such a string
-    cell too (ingest tabularizes JSON to CSV), so use `fn:json_pluck` / `fn:json_array`
-    directly — no nested TriplesMap.
-  - Parameterized primitives — take the column value(s) PLUS a **constant** config
-    argument (a table / regex / template), to absorb the long tail without a new
-    function. The config is data, not code:
-    - `fn:lookup` (value, table → string) — map a value via a vetted seed table.
-      Tables: `bool` (Yes/No/1/0/… → `true`/`false`), `country_iso3166` (country
-      name → ISO alpha-2), `unit_alias` (unit spelling → symbol, e.g. `kelvin`→`K`;
-      chain into `fn:qudt_unit` for the IRI). Miss ⇒ "" (triple skipped).
-    - `fn:regex_extract` (value, pattern → string) — extract a substring: a named
-      group `(?P<v>…)` if present, else group 1, else the whole match. Use a
-      **re2-compatible** pattern (no backreferences, no look-around). Miss ⇒ "".
-    - `fn:template` (template, field1…field4 → string) — safe interpolation: the
-      constant template uses positional tokens `{1}`…`{4}` filled by the field
-      columns (e.g. `"{1}-{2}"`). Missing field ⇒ "". (For simple IRI/string
-      composition prefer a plain `rr:template` term map.)
-- Direct column: `rr:objectMap [ rml:reference "col" ]`. Composite IRI: `rr:template "…/{a}-{b}"`.
-- IRI from a DATA value MUST be made IRI-safe: when a subject/object `rr:template` /
-  `rml:template` builds an IRI from a free-text or data-derived column (composition,
-  title, name, comment, label, formula, …), pass that column through `fn:iri_safe`
-  FIRST and template on the function's OUTPUT — never `{raw_col}` directly. A raw value
-  with `<`, a space, a quote, `{`/`}` etc. produces an invalid IRI that fails at load
-  ("Invalid IRI code point"). A value already known to be a clean id/slug (a numeric
-  SID, an existing URL) needs no wrapping. WRONG: `rr:template "…/composition/{composition}"`
-  (raw value → invalid IRI). RIGHT: compute an IRI-safe segment, then template on it:
-  ```
-  <#CompMap> a rr:TriplesMap ;
-    rml:logicalSource [ rml:source "data.csv" ; rml:referenceFormulation ql:CSV ] ;
-    rr:subjectMap [ rr:template "sdr:composition/{comp_iri}" ] ;
-    rr:predicateObjectMap [ rr:predicate <…/hasFormula> ;
-      rr:objectMap [ rml:reference "composition" ] ] .   # keep the raw value as a literal
-  ```
-  where `comp_iri` is the `fn:iri_safe` output of the `composition` column, produced by a
-  function objectMap exactly like the others (param `fn:p_value`):
-  `rmlf:functionExecution [ rmlf:function fn:iri_safe ;
-    rmlf:input [ rmlf:parameter fn:p_value ;
-                 rmlf:inputValueMap [ rml:reference "composition" ] ] ]`.
-- Function objectMap: `rmlf:functionExecution [ rmlf:function fn:NAME ;
-  rmlf:input [ rmlf:parameter fn:p_value ; rmlf:inputValueMap [ rml:reference "col" ] ] ]`.
-  2-input (`fn:float_array_count`): two `rmlf:input`, params `fn:p_value1` / `fn:p_value2`.
-- Constant primitive arguments (table / pattern / template) are passed with
-  `rmlf:inputValueMap [ rmlf:constant "…" ]` — note `rmlf:constant` (the
-  `http://w3id.org/rml/` namespace); the legacy `rml:` namespace has no `constant`.
-  Primitive param IRIs: `fn:p_table` / `fn:p_pattern` / `fn:p_template` /
-  `fn:p_field1`…`fn:p_field4`. Example (lookup = value column + constant table):
-  `rmlf:functionExecution [ rmlf:function fn:lookup ;
-    rmlf:input [ rmlf:parameter fn:p_value ; rmlf:inputValueMap [ rml:reference "flag" ] ] ;
-    rmlf:input [ rmlf:parameter fn:p_table ; rmlf:inputValueMap [ rmlf:constant "bool" ] ] ]`.
-- Multi-valued / nested cells — prefer the vetted multi-value functions over a raw
-  fallback when they fit (each explodes to many triples linked to the row):
-  one-element array → `fn:json_array_single`; fixed-position array → `fn:array_at`;
-  flat delimited list → `fn:split`; **JSON array of scalars as a string** →
-  `fn:json_array`; **JSON array of objects as a string** → `fn:json_pluck` (per
-  sub-field, e.g. each author's family) — this covers JSON-source arrays too, since
-  ingest tabularizes them to JSON-string cells. Reserve the `…Raw` fallback only for
-  a deeply irregular structure none of these reach (e.g. an array of arrays, or a
-  child entity needing several correlated fields). Emit the raw string to a `…Raw`
-  predicate with a
-  `# fallback: <col> not expanded` comment. DO NOT invent a function. One unmapped
-  column must never block the rest of the ingest.
+RULES (a reviewer approves *column→predicate + which vetted function*, not code):
+- `function:` / `transform:` values may name ONLY the vetted **Tier 0**
+  functions below — bare names, no `fn:` prefix, no other function, no inline
+  code, no new logic. Constant args go in `args:` by name.
+- Exactly ONE object form per property: `column` | `columns` |
+  `object_template` | `constant`. NEVER combine `function` with
+  `object_template`/`constant` — a function's output IS the object (one
+  literal per value; multi-value functions emit one literal per element).
+  Per-element entity IRIs from an in-cell array are NOT expressible — use the
+  `…Raw` fallback for that column instead.
+- Predicates/classes are plain terms: NO cardinality markers (`schema:author`,
+  never `schema:author*` — the `*`/`?` suffixes belong to §6 model.yaml only).
+- A bare `column` can NEVER be an IRI: for a URL column use
+  `function: iri_safe` + `object_type: iri`; for an entity link use
+  `object_template`. Raw data columns inside templates are IRI-encoded
+  automatically by the engine — do not invent cleaning. When a segment should
+  be a *readable* slug instead (shared nodes like periodicals), declare
+  `transform: { column: slug }`.
+- An `object_template` is an IRI link unless you mark it
+  `object_type: literal` (identifiers composed of several columns).
+- Multi-valued / nested cells — prefer the vetted multi-value functions over
+  a raw fallback (each explodes into one triple per element automatically):
+  one-element array → `json_array_single`; fixed position → `array_at`; flat
+  delimited list → `split`; JSON array of scalars as a string → `json_array`;
+  JSON array of objects as a string → `json_pluck` (per sub-field — covers
+  JSON-source arrays too, since ingest tabularizes them to string cells).
+  Reserve the `…Raw` fallback (`fallback: true` on a bare column, predicate
+  named `…Raw`) only for deeply irregular structures none of these reach.
+  DO NOT invent a function. One unmapped column must never block the ingest.
+
+Vetted **Tier 0** functions (the complete closed set — choose only from here):
+- `date_iso` (1 column → `xsd:date`) — messy date → ISO 8601
+- `float_array_max` / `float_array_min` (1 column → `xsd:double`)
+  — numeric JSON array → max / min
+- `float_array_count` (2 columns → `xsd:integer`)
+  — x,y arrays → `min(len)` = point count
+- `qudt_quantity` / `qudt_unit` (1 column → IRI, needs `object_type: iri`)
+  — property name / unit → QUDT IRI (no match ⇒ triple skipped)
+- `iri_safe` (1 column → IRI, needs `object_type: iri`) — URL → IRI-safe
+- `slug` (1 column → string) — string → readable IRI segment (also the usual
+  `transform:` function)
+- `structural_slug` (1 column → string) — numbered heading → structural path
+  (`"3.2 Results"` → `"3-2"`)
+- `number_clean` (1 column → `xsd:double`) — strip thousands sep / currency /
+  accounting parens (`"$1,234.50"` → `1234.50`)
+- `percent_to_ratio` (1 column → `xsd:double`) — `"12%"` → `0.12`
+- `range_min` / `range_max` (1 column → `xsd:double`) — `"10-20"` → low / high end
+- `datetime_iso` (1 column → `xsd:dateTime`) — messy datetime OR epoch (ms/s) → ISO 8601
+- `year_only` (1 column → `xsd:gYear`) — extract a 4-digit year
+- `nfkc_norm` (1 column → string) — Unicode NFKC (fold full-width / compatibility)
+- `trim_collapse` (1 column → string) — trim + collapse internal whitespace
+- `strip_footnote` (1 column → string) — drop trailing footnote markers (`"x[1]"` → `"x"`)
+- `bool_norm` (1 column → `xsd:boolean`) — `Yes/1/on` → `true`, `No/0/off` → `false`
+- `doi_norm` (1 column → string) — normalize a DOI to its bare lowercase form
+- `url_canonical` (1 column → string) — lowercase scheme+host, drop default port / fragment
+- `value_of` / `unit_of` (1 column → string) — split value+unit (`"300 K"` → `300` / `K`)
+- `json_array_single` (1 column → string) — unwrap a **one-element** JSON array
+  (`["X"]` → `X`); multi-element arrays return "" (use `split` / `json_array`)
+- `array_at` (1 column, `args: {index: "1"}` → string) — element at a fixed
+  0-based index of a JSON array; negatives count from the end
+- `split` (1 column, `args: {delimiter: ","}` → MULTIPLE values) — split a
+  delimited cell; one triple per element. Flat comma/semicolon lists.
+- `json_array` (1 column → MULTIPLE values) — a cell holding a JSON **array of
+  scalars as a string** (`'["P1","P2"]'`) → one triple per element
+- `json_pluck` (1 column, `args: {field: "family"}` → MULTIPLE values) — a cell
+  holding a JSON **array of objects as a string** → that field of each object,
+  one triple each (e.g. starrydata `author` → each family name)
+- `lookup` (1 column, `args: {table: …}` → string) — map a value via a vetted
+  seed table: `bool` (Yes/No/1/0/… → `true`/`false`), `country_iso3166`
+  (country name → ISO alpha-2), `unit_alias` (unit spelling → symbol, e.g.
+  `kelvin`→`K`; chain into `qudt_unit` for the IRI). Miss ⇒ "" (triple skipped).
+- `regex_extract` (1 column, `args: {pattern: …}` → string) — extract a
+  substring: named group `(?P<v>…)` if present, else group 1, else the whole
+  match. **re2-compatible** patterns only (no backreferences, no look-around).
+  Miss ⇒ "".
+- `template` (up to 4 columns, `args: {template: "{1}-{2}"}` → string) — safe
+  positional interpolation of the column values. (For simple IRI/string
+  composition prefer a plain `object_template`.)
 
 ## Self-check before responding (quality traps)
 - [ ] T1: IRI scheme uses uniqueness statistics from inspection?
@@ -327,8 +319,10 @@ HARD RULES (a reviewer approves *column→predicate + which vetted function*, no
 - [ ] T6: sample_rdf_entries reference REAL row values from the inspection?
 - [ ] T7: every non-trivial design choice has Why / Alternatives / Trade-offs?
 - [ ] T8: domain-specific synonyms (jp / formulas / aliases) propagated to MIE keywords?
-- [ ] T9: §9 RML references ONLY `fn:*` Tier 0 functions (no other functions, no
-      code); unmappable multi-valued columns use the `…Raw` fallback?
+- [ ] T9: §9 mapping spec names ONLY Tier 0 functions from the menu (in
+      `function:` / `transform:`), uses only real columns/files from the
+      inspection, and unmappable multi-valued columns use the `…Raw`
+      fallback (`fallback: true`)?
 
 ## What you receive (user message)
 

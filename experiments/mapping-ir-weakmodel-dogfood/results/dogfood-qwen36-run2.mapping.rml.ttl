@@ -1,0 +1,154 @@
+# Compiled by the Asterism mapping-spec compiler — do not edit by hand;
+# edit the mapping spec (YAML) and re-materialize instead.
+
+@prefix rr: <http://www.w3.org/ns/r2rml#> .
+@prefix rml: <http://semweb.mmlab.be/ns/rml#> .
+@prefix ql: <http://semweb.mmlab.be/ns/ql#> .
+@prefix rmlf: <http://w3id.org/rml/> .
+@prefix fn: <https://kumagallium.github.io/asterism/fn/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix bibo: <http://purl.org/ontology/bibo/> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix schema: <https://schema.org/> .
+@prefix sd: <https://kumagallium.github.io/asterism/starrydata/ontology#> .
+@prefix sdr: <https://kumagallium.github.io/asterism/starrydata/resource/> .
+
+<#PaperMap> a rr:TriplesMap ;
+  rml:logicalSource [ rml:source "papers.csv" ; rml:referenceFormulation ql:CSV ] ;
+  rr:subjectMap [
+    rr:template "https://kumagallium.github.io/asterism/starrydata/resource/paper/{SID}" ;
+    rr:class sd:Paper, schema:ScholarlyArticle ] ;
+  rr:predicateObjectMap [ rr:predicate schema:name ;
+    rr:objectMap [ rml:reference "title" ] ] ;
+  rr:predicateObjectMap [ rr:predicate dcterms:identifier ;
+    rr:objectMap [ rml:reference "DOI" ] ] ;
+  rr:predicateObjectMap [ rr:predicate schema:url ;
+    rr:objectMap [ rmlf:functionExecution [
+          rmlf:function fn:iri_safe ;
+          rmlf:input [ rmlf:parameter <https://kumagallium.github.io/asterism/fn/p_value> ;
+                       rmlf:inputValueMap [ rml:reference "URL" ] ] ] ;
+      rr:termType rr:IRI ] ] ;
+  rr:predicateObjectMap [ rr:predicate sd:issuedJson ;
+    rr:objectMap [ rml:reference "issued" ] ] ;
+  rr:predicateObjectMap [ rr:predicate dcterms:publisher ;
+    rr:objectMap [ rml:reference "publisher" ] ] ;
+  rr:predicateObjectMap [ rr:predicate bibo:volume ;
+    rr:objectMap [ rml:reference "volume" ] ] ;
+  rr:predicateObjectMap [ rr:predicate bibo:issue ;
+    rr:objectMap [ rml:reference "issue" ] ] ;
+  rr:predicateObjectMap [ rr:predicate dcterms:extent ;
+    rr:objectMap [ rml:reference "page" ] ] ;
+  rr:predicateObjectMap [ rr:predicate sd:projectName ;
+    rr:objectMap [ rmlf:functionExecution [
+          rmlf:function fn:json_array ;
+          rmlf:input [ rmlf:parameter <https://kumagallium.github.io/asterism/fn/p_value> ;
+                       rmlf:inputValueMap [ rml:reference "project_names" ] ] ] ] ] ;
+  # fallback: author not expanded
+  rr:predicateObjectMap [ rr:predicate sd:authorsRaw ;
+    rr:objectMap [ rml:reference "author" ] ] ;
+  rr:predicateObjectMap [ rr:predicate sd:isPartOf ;
+    rr:objectMap [ rmlf:functionExecution [
+          rmlf:function fn:template ;
+          rmlf:input [ rmlf:parameter <https://kumagallium.github.io/asterism/fn/p_field1> ;
+                       rmlf:inputValueMap [ rmlf:functionExecution [
+                  rmlf:function fn:slug ;
+                  rmlf:input [ rmlf:parameter <https://kumagallium.github.io/asterism/fn/p_value> ;
+                               rmlf:inputValueMap [ rml:reference "container_title" ] ] ] ] ] ;
+          rmlf:input [ rmlf:parameter <https://kumagallium.github.io/asterism/fn/p_template> ;
+                       rmlf:inputValueMap [ rmlf:constant "https://kumagallium.github.io/asterism/starrydata/resource/periodical/{1}" ] ] ] ;
+      rr:termType rr:IRI ] ] ;
+  rr:predicateObjectMap [ rr:predicate prov:generatedAtTime ;
+    rr:objectMap [ rmlf:functionExecution [
+          rmlf:function fn:datetime_iso ;
+          rmlf:input [ rmlf:parameter <https://kumagallium.github.io/asterism/fn/p_value> ;
+                       rmlf:inputValueMap [ rml:reference "created_at" ] ] ] ] ] .
+
+<#SampleMap> a rr:TriplesMap ;
+  rml:logicalSource [ rml:source "samples.csv" ; rml:referenceFormulation ql:CSV ] ;
+  rr:subjectMap [
+    rr:template "https://kumagallium.github.io/asterism/starrydata/resource/sample/{sample_id}" ;
+    rr:class sd:Sample ] ;
+  rr:predicateObjectMap [ rr:predicate schema:name ;
+    rr:objectMap [ rml:reference "sample_name" ] ] ;
+  rr:predicateObjectMap [ rr:predicate dcterms:identifier ;
+    rr:objectMap [ rml:reference "sample_id" ] ] ;
+  rr:predicateObjectMap [ rr:predicate schema:composition ;
+    rr:objectMap [ rml:reference "composition" ] ] ;
+  rr:predicateObjectMap [ rr:predicate sd:compositionDetails ;
+    rr:objectMap [ rml:reference "composition_details" ] ] ;
+  rr:predicateObjectMap [ rr:predicate sd:sampleInfoJson ;
+    rr:objectMap [ rml:reference "sample_info" ] ] ;
+  rr:predicateObjectMap [ rr:predicate sd:hasPaper ;
+    rr:objectMap [ rr:template "https://kumagallium.github.io/asterism/starrydata/resource/paper/{SID}" ;
+      rr:termType rr:IRI ] ] ;
+  rr:predicateObjectMap [ rr:predicate prov:generatedAtTime ;
+    rr:objectMap [ rmlf:functionExecution [
+          rmlf:function fn:datetime_iso ;
+          rmlf:input [ rmlf:parameter <https://kumagallium.github.io/asterism/fn/p_value> ;
+                       rmlf:inputValueMap [ rml:reference "created_at" ] ] ] ] ] ;
+  rr:predicateObjectMap [ rr:predicate prov:updatedAt ;
+    rr:objectMap [ rmlf:functionExecution [
+          rmlf:function fn:datetime_iso ;
+          rmlf:input [ rmlf:parameter <https://kumagallium.github.io/asterism/fn/p_value> ;
+                       rmlf:inputValueMap [ rml:reference "updated_at" ] ] ] ] ] .
+
+<#CurveMap> a rr:TriplesMap ;
+  rml:logicalSource [ rml:source "curves.csv" ; rml:referenceFormulation ql:CSV ] ;
+  rr:subjectMap [
+    rr:template "https://kumagallium.github.io/asterism/starrydata/resource/curve/{sample_id}" ;
+    rr:class sd:Curve ] ;
+  rr:predicateObjectMap [ rr:predicate sd:figureId ;
+    rr:objectMap [ rml:reference "figure_id" ] ] ;
+  rr:predicateObjectMap [ rr:predicate sd:figureName ;
+    rr:objectMap [ rml:reference "figure_name" ] ] ;
+  rr:predicateObjectMap [ rr:predicate sd:propX ;
+    rr:objectMap [ rml:reference "prop_x" ] ] ;
+  rr:predicateObjectMap [ rr:predicate sd:propY ;
+    rr:objectMap [ rml:reference "prop_y" ] ] ;
+  rr:predicateObjectMap [ rr:predicate sd:unitX ;
+    rr:objectMap [ rml:reference "unit_x" ] ] ;
+  rr:predicateObjectMap [ rr:predicate sd:unitY ;
+    rr:objectMap [ rml:reference "unit_y" ] ] ;
+  rr:predicateObjectMap [ rr:predicate sd:xRaw ;
+    rr:objectMap [ rml:reference "x" ] ] ;
+  rr:predicateObjectMap [ rr:predicate sd:yRaw ;
+    rr:objectMap [ rml:reference "y" ] ] ;
+  rr:predicateObjectMap [ rr:predicate sd:xMin ;
+    rr:objectMap [ rmlf:functionExecution [
+          rmlf:function fn:float_array_min ;
+          rmlf:input [ rmlf:parameter <https://kumagallium.github.io/asterism/fn/p_value> ;
+                       rmlf:inputValueMap [ rml:reference "x" ] ] ] ] ] ;
+  rr:predicateObjectMap [ rr:predicate sd:xMax ;
+    rr:objectMap [ rmlf:functionExecution [
+          rmlf:function fn:float_array_max ;
+          rmlf:input [ rmlf:parameter <https://kumagallium.github.io/asterism/fn/p_value> ;
+                       rmlf:inputValueMap [ rml:reference "x" ] ] ] ] ] ;
+  rr:predicateObjectMap [ rr:predicate sd:yMin ;
+    rr:objectMap [ rmlf:functionExecution [
+          rmlf:function fn:float_array_min ;
+          rmlf:input [ rmlf:parameter <https://kumagallium.github.io/asterism/fn/p_value> ;
+                       rmlf:inputValueMap [ rml:reference "y" ] ] ] ] ] ;
+  rr:predicateObjectMap [ rr:predicate sd:yMax ;
+    rr:objectMap [ rmlf:functionExecution [
+          rmlf:function fn:float_array_max ;
+          rmlf:input [ rmlf:parameter <https://kumagallium.github.io/asterism/fn/p_value> ;
+                       rmlf:inputValueMap [ rml:reference "y" ] ] ] ] ] ;
+  rr:predicateObjectMap [ rr:predicate sd:projectName ;
+    rr:objectMap [ rmlf:functionExecution [
+          rmlf:function fn:json_array ;
+          rmlf:input [ rmlf:parameter <https://kumagallium.github.io/asterism/fn/p_value> ;
+                       rmlf:inputValueMap [ rml:reference "project_names" ] ] ] ] ] ;
+  rr:predicateObjectMap [ rr:predicate sd:hasSample ;
+    rr:objectMap [ rr:template "https://kumagallium.github.io/asterism/starrydata/resource/sample/{sample_id}" ;
+      rr:termType rr:IRI ] ] ;
+  rr:predicateObjectMap [ rr:predicate prov:generatedAtTime ;
+    rr:objectMap [ rmlf:functionExecution [
+          rmlf:function fn:datetime_iso ;
+          rmlf:input [ rmlf:parameter <https://kumagallium.github.io/asterism/fn/p_value> ;
+                       rmlf:inputValueMap [ rml:reference "created_at" ] ] ] ] ] ;
+  rr:predicateObjectMap [ rr:predicate prov:updatedAt ;
+    rr:objectMap [ rmlf:functionExecution [
+          rmlf:function fn:datetime_iso ;
+          rmlf:input [ rmlf:parameter <https://kumagallium.github.io/asterism/fn/p_value> ;
+                       rmlf:inputValueMap [ rml:reference "updated_at" ] ] ] ] ] .

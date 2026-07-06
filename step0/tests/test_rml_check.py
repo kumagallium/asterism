@@ -116,14 +116,16 @@ def test_primitive_passes_closed_set_when_allowed() -> None:
 # --- Prompt ⇄ live T9 allowed-set contract -------------------------------------
 #
 # T9's allowed set is derived from the live ``asterism.functions.REGISTRY`` via
-# ``load_registry_fn_iris``. The propose SYSTEM_PROMPT advertises a "Tier 0
-# functions" list that the AI uses verbatim. If the prompt advertises a function
-# the registry does not contain, the AI's faithful output will ALWAYS fail T9 and
-# refine cannot recover. This guard ties the two together in the env where the
-# ingest package is importable (monorepo / CI); it skips when it is not.
+# ``load_registry_fn_iris``. The propose SYSTEM_PROMPT advertises the §9 Tier-0
+# MENU (bare function names, one `- `name`` bullet per entry — the Mapping IR
+# contract, ADR mapping-ir-compiler.md) that the AI chooses from verbatim. If
+# the menu lists a function the registry does not contain, the AI's faithful
+# spec will ALWAYS fail compilation/T9 and refine cannot recover. This guard
+# ties the two together in the env where the ingest package is importable
+# (monorepo / CI); it skips when it is not.
 
 
-def test_prompt_advertised_functions_all_pass_live_t9() -> None:
+def test_prompt_menu_matches_live_t9_set() -> None:
     import re
 
     from asterism_step0 import propose
@@ -131,18 +133,26 @@ def test_prompt_advertised_functions_all_pass_live_t9() -> None:
     asterism_functions = pytest.importorskip("asterism.functions")
     from asterism_step0.rml_check import load_registry_fn_iris
 
-    # Parse the fn:NAME function names out of the prompt (exclude fn:p_* params
-    # and the fn:NAME placeholder), then map them to their function IRIs.
+    # Parse the menu bullets: every line of the form
+    #   - `name` (…       or       - `name_a` / `name_b` (…
+    # inside the "Vetted **Tier 0** functions" section of §9.
     body = propose.SYSTEM_PROMPT
-    names = {m.group(1) for m in re.finditer(r"fn:([a-zA-Z_][a-zA-Z0-9_]*)", body)}
-    advertised = {n for n in names if not n.startswith("p_") and n != "NAME"}
+    _, _, menu = body.partition("Vetted **Tier 0** functions")
+    menu, _, _ = menu.partition("## Self-check")
+    assert menu, "the §9 Tier-0 menu section is missing from the prompt"
+    advertised: set[str] = set()
+    for line in menu.splitlines():
+        if not line.startswith("- `"):
+            continue
+        head = line.split("(", 1)[0]
+        advertised.update(re.findall(r"`([a-z0-9_]+)`", head))
     advertised_iris = {asterism_functions.FN + n for n in advertised}
 
     allowed = load_registry_fn_iris()
-    # Every advertised function must be in the live T9 allowed set (else the AI is
-    # told about a function it cannot legally use).
+    # Every advertised function must be in the live T9 allowed set (else the AI
+    # is told about a function it cannot legally use).
     not_allowed = sorted(advertised_iris - allowed)
     assert not not_allowed, f"prompt advertises functions T9 rejects: {not_allowed}"
-    # ...and the prompt and registry describe exactly the same set (no dead, never
-    # advertised registry entries either).
+    # ...and the menu and registry describe exactly the same set (no dead,
+    # never-advertised registry entries either).
     assert advertised_iris == allowed

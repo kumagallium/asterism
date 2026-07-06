@@ -18,6 +18,8 @@ from __future__ import annotations
 from pathlib import Path
 from textwrap import dedent
 
+import pytest
+
 from asterism_step0.propose import (
     SYSTEM_PROMPT,
     AnthropicLLMClient,
@@ -122,14 +124,15 @@ def test_propose_schema_json_record_path(tmp_path: Path) -> None:
     assert "iterator `$.data[*]`" in mock.user_messages[0]
 
 
-def test_system_prompt_teaches_json_logical_source() -> None:
-    """§9 must teach that JSON sources are tabularized to CSV at ingest, so the LLM
-    emits a ql:CSV logicalSource (NOT JSONPath / iterator) over the derived `.csv`
-    and explodes array columns with the Tier 0 exploders (native-json-denormalization)."""
-    assert "ql:CSV" in SYSTEM_PROMPT
+def test_system_prompt_teaches_json_source_as_csv() -> None:
+    """§9 must teach that JSON sources are tabularized to CSV at ingest, so the
+    LLM writes the derived `.csv` as the map's `source` (no iterator) and
+    explodes array columns with the Tier 0 exploders
+    (native-json-denormalization)."""
     assert "tabulariz" in SYSTEM_PROMPT  # JSON → CSV normalization is taught
+    assert "dot-path" in SYSTEM_PROMPT  # columns are the flattened leaf fields
     # The native JSONPath path is superseded: the prompt must NOT steer to it.
-    assert "ql:JSONPath" not in SYSTEM_PROMPT
+    assert "JSONPath" not in SYSTEM_PROMPT
 
 
 def test_propose_schema_returns_canned_llm_output(tmp_path: Path) -> None:
@@ -201,27 +204,27 @@ def test_system_prompt_embeds_trap_validators() -> None:
         assert trap in SYSTEM_PROMPT, f"trap {trap} missing from system prompt"
 
 
-def test_system_prompt_emits_rml_section_with_tier0_only() -> None:
-    """§9 must instruct a declarative RML block restricted to the Tier 0 functions."""
-    # A turtle RML artifact is requested under an RML-keyworded header.
-    assert "RML" in SYSTEM_PROMPT
-    assert "turtle" in SYSTEM_PROMPT
-    # Exactly the 8 vetted Tier 0 functions are advertised (closed set).
-    for fn in (
-        "fn:date_iso",
-        "fn:float_array_max",
-        "fn:float_array_min",
-        "fn:float_array_count",
-        "fn:qudt_quantity",
-        "fn:qudt_unit",
-        "fn:iri_safe",
-        "fn:slug",
-    ):
-        assert fn in SYSTEM_PROMPT, f"{fn} missing from §9 function table"
+def test_system_prompt_emits_mapping_spec_section_with_tier0_menu() -> None:
+    """§9 must instruct a yaml MAPPING SPEC (not raw RML) restricted to the
+    vetted Tier 0 menu (ADR mapping-ir-compiler.md)."""
+    # A yaml mapping-spec artifact is requested under a header materialize's
+    # _MAPPING_IR_HEADERS recognizes.
+    assert "Declarative mapping spec" in SYSTEM_PROMPT
+    assert "```yaml" in SYSTEM_PROMPT
     # The guardrails: Tier 0 only, raw-string fallback, no inline code.
     assert "Tier 0" in SYSTEM_PROMPT
     assert "fallback" in SYSTEM_PROMPT.lower()
-    assert "p_value1" in SYSTEM_PROMPT and "p_value2" in SYSTEM_PROMPT  # 2-input binding
+
+
+def test_system_prompt_menu_covers_the_whole_registry() -> None:
+    """Every vetted Tier-0 function must be on the §9 menu (bare name) — the
+    menu is the closed set the LLM chooses from, so an unlisted function is
+    unreachable and a listed-but-unregistered one would fail compilation."""
+    functions = pytest.importorskip("asterism.functions")
+    for spec in functions.REGISTRY:
+        assert (
+            f"`{spec.name}`" in SYSTEM_PROMPT
+        ), f"Tier-0 function {spec.name} missing from the §9 menu"
 
 
 def test_system_prompt_mentions_rdf_config_output_format() -> None:
@@ -288,9 +291,19 @@ def test_anthropic_client_lazy_imports_anthropic() -> None:
     assert hasattr(propose, "propose_schema")
 
 
-def test_system_prompt_pins_morph_kgc_fno_namespace() -> None:
-    """§9 must pin the FnO function-execution vocab to the Morph-KGC-supported
-    namespace (the old fnml# namespace produces a silent materialize failure)."""
-    assert "http://w3id.org/rml/" in SYSTEM_PROMPT
-    # And explicitly warn against the old one.
-    assert "semweb.mmlab.be/ns/fnml" in SYSTEM_PROMPT
+def test_system_prompt_carries_no_rml_syntax() -> None:
+    """The RML/FnO syntax knowledge moved INTO the compiler (ADR
+    mapping-ir-compiler.md): the prompt must not teach namespaces, parameter
+    IRIs or term-map shapes anymore — the LLM only picks from closed menus.
+    (The namespace pin now lives in rml_compile and is asserted by its tests.)"""
+    for syntax in (
+        "http://w3id.org/rml/",
+        "semweb.mmlab.be",
+        "functionExecution",
+        "p_value",
+        "rr:template",
+        "rml:reference",
+        "rmlf:",
+        "```turtle",
+    ):
+        assert syntax not in SYSTEM_PROMPT, f"RML syntax leaked into the prompt: {syntax}"

@@ -50,7 +50,7 @@ _ARTIFACT_LABELS: dict[str, str] = {
     "rdf_config_model": "rdf-config model.yaml",
     "mie_yaml": "MIE YAML",
     "ingester_py": "ingester Python",
-    "rml_ttl": "RML mapping",
+    "rml_ttl": "declarative mapping (§9)",
 }
 
 
@@ -59,9 +59,22 @@ def _artifacts_present(schema_md: str) -> set[str]:
 
     Pure extraction (``write=False``): no files touched. Used to compare the
     input schema against the refined output for the truncation guard.
+
+    The §9 artifact counts as PRESENT when the block exists in either form — a
+    mapping spec (``mapping_ir_yaml``, even one with design errors awaiting the
+    next fix round) or legacy raw RML (``rml_ttl``). Keying presence on the
+    compiled ``rml_ttl`` alone would misread "spec present but not compilable
+    yet" as "the refine dropped the block" and wrongly freeze the schema.
     """
     res = materialize_schema(schema_md, ".", "guard", write=False)
-    return {attr for attr in _ARTIFACT_LABELS if getattr(res, attr) is not None}
+    present = {
+        attr
+        for attr in _ARTIFACT_LABELS
+        if attr != "rml_ttl" and getattr(res, attr) is not None
+    }
+    if res.rml_ttl is not None or res.mapping_ir_yaml is not None:
+        present.add("rml_ttl")
+    return present
 
 # ----------------------------------------------------------------------------
 # System prompt — frozen, cacheable
@@ -118,9 +131,11 @@ needs external input), still log it with **Status: deferred** and explain why.
 Return the **full updated proposal** — same Markdown structure as the Step
 3 output (Class hierarchy → IRI scheme → Property design → JSON column
 strategy → Design rationale → rdf-config model.yaml → MIE extras →
-Ingester sketch). Do NOT emit a diff or "only the changed sections" — the
-output must be reusable as the input to another refine call or to
-materialize.
+Ingester sketch → Declarative mapping spec). Do NOT emit a diff or "only
+the changed sections" — the output must be reusable as the input to another
+refine call or to materialize. When the schema carries a §9 mapping block,
+keep its form as-is (a yaml mapping spec stays a yaml mapping spec under the
+same heading; never convert it to RML/Turtle or drop it).
 
 ## Constraints (same 8 traps as Step 3)
 

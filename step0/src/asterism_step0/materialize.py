@@ -16,14 +16,23 @@ splits the blocks into files on disk:
   the shape_expressions are filled in afterward by running rdf-config)
 * The ``python`` block under the "Ingester" section →
   ``{out}/{name}.py``
-* (optional) The ``turtle`` block under the "RML" / "declarative mapping"
-  section → ``{out}/{name}-mapping.rml.ttl`` — the declarative substrate path
-  (Morph-KGC + ``asterism.functions``). See
-  ``docs/architecture/step0-rml-emission.md``. This block is *additive*: it is
-  absent from older proposals, so its absence is not a warning and does not
-  affect :attr:`MaterializeResult.complete` (the 4 core artifacts).
+* (optional) The ``yaml`` **mapping spec** block under the "Declarative
+  mapping spec" section → ``{out}/{name}-mapping.yaml`` (the reviewed/refined
+  IR artifact) **plus** its deterministic compilation →
+  ``{out}/{name}-mapping.rml.ttl``. The LLM writes the small Mapping IR; the
+  compiler (:mod:`asterism_step0.rml_compile`) owns all RML/FnO syntax. See
+  ``docs/architecture/mapping-ir-compiler.md``.
+* (legacy) The ``turtle`` block under the "RML" / "declarative mapping"
+  section → ``{out}/{name}-mapping.rml.ttl`` — older proposals carried raw RML
+  directly. Extraction is kept so existing designs re-materialize unchanged;
+  when a mapping-spec block is present it WINS (a stale turtle block must not
+  mask IR errors). Both blocks are *additive*: absence is not a warning and
+  does not affect :attr:`MaterializeResult.complete` (the 4 core artifacts).
 
-No LLM call — pure text extraction, so it's fully testable and CI-safe.
+No LLM call for extraction — pure text splitting. Compiling the mapping spec
+is equally deterministic but needs the vetted Tier-0 catalog
+(``asterism.functions``); when that package is absent the spec is still
+extracted and a warning explains why no RML was produced.
 
 The section matching is keyword-based (case-insensitive) rather than exact,
 so it tolerates the LLM varying the header wording slightly. When a target
@@ -117,6 +126,9 @@ _MODEL_HEADERS = ("rdf-config", "model.yaml")
 _MIE_HEADERS = ("mie",)
 _INGESTER_HEADERS = ("ingester", "ingest")
 _RML_HEADERS = ("rml", "declarative mapping", "宣言マッピング")
+# The Mapping IR block shares the §9 headers (a yaml block under the mapping
+# section); "mapping spec" is the canonical §9 heading of the IR contract.
+_MAPPING_IR_HEADERS = ("mapping spec", *_RML_HEADERS)
 
 
 @dataclass
@@ -127,7 +139,12 @@ class MaterializeResult:
     rdf_config_model: str | None = None
     mie_yaml: str | None = None
     ingester_py: str | None = None
-    rml_ttl: str | None = None  # optional declarative-mapping artifact (additive)
+    rml_ttl: str | None = None  # compiled from the mapping spec, or legacy raw RML
+    mapping_ir_yaml: str | None = None  # the extracted Mapping IR block (additive)
+    mapping_ir_issues: list[str] = field(default_factory=list)
+    """Parse/compile problems of the mapping spec, in the IR's own vocabulary
+    (the design loop feeds them back to the LLM). Empty when there is no
+    mapping-spec block or it compiled cleanly."""
     written_paths: dict[str, str] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
 
@@ -183,6 +200,32 @@ def _pick_block(
     return None
 
 
+def _compile_mapping_spec(result: MaterializeResult) -> str | None:
+    """Compile the extracted mapping spec to RML; record problems on ``result``.
+
+    Parse/compile problems land in :attr:`MaterializeResult.mapping_ir_issues`
+    (the design loop's feedback source). A missing compiler dependency (the
+    vetted Tier-0 catalog / PyYAML) is an environment warning, not a design
+    issue — the spec is still extracted and persisted.
+    """
+    from asterism_step0.mapping_ir import MappingIRParseError, parse_mapping_ir
+    from asterism_step0.rml_compile import RmlCompileError, compile_mapping_ir
+
+    assert result.mapping_ir_yaml is not None
+    try:
+        ir = parse_mapping_ir(result.mapping_ir_yaml)
+        return compile_mapping_ir(ir)
+    except (MappingIRParseError, RmlCompileError) as exc:
+        result.mapping_ir_issues = list(exc.issues)
+        result.warnings.append(
+            "The mapping spec could not be compiled to RML "
+            f"({len(exc.issues)} issue(s)); see mapping_ir_issues."
+        )
+    except ImportError as exc:
+        result.warnings.append(f"Mapping-spec compiler unavailable: {exc}")
+    return None
+
+
 def materialize_schema(
     proposal_md: str,
     output_dir: Path | str,
@@ -219,11 +262,33 @@ def materialize_schema(
         language_prefs=("yaml", "yml"),
         allow_lang_only=False,  # don't grab a lone MIE block as the model
     )
-    # For MIE, exclude the block we already chose as the model.
-    mie_candidates = [
+    # The Mapping IR block (§9, yaml). Picked BEFORE the MIE block so the MIE
+    # lang-only fallback can never claim a mapping spec (e.g. on a truncated
+    # proposal missing its MIE section), and only ever by header
+    # (allow_lang_only=False) so a lone model/MIE block is never mistaken for
+    # a mapping spec.
+    # Candidates are restricted to yaml-tagged blocks up front: a LEGACY §9 block
+    # (turtle under the same headers) must never be picked as a mapping spec by
+    # the header-only fallback.
+    ir_candidates = [
         b
         for b in blocks
         if b.language in ("yaml", "yml") and b.body != result.rdf_config_model
+    ]
+    result.mapping_ir_yaml = _pick_block(
+        ir_candidates,
+        header_keywords=_MAPPING_IR_HEADERS,
+        language_prefs=("yaml", "yml"),
+        allow_lang_only=False,
+    )
+
+    # For MIE, exclude the blocks already claimed as the model / mapping spec.
+    mie_candidates = [
+        b
+        for b in blocks
+        if b.language in ("yaml", "yml")
+        and b.body != result.rdf_config_model
+        and b.body != result.mapping_ir_yaml
     ]
     result.mie_yaml = _pick_block(
         mie_candidates, header_keywords=_MIE_HEADERS, language_prefs=("yaml", "yml")
@@ -233,11 +298,21 @@ def materialize_schema(
         blocks, header_keywords=_INGESTER_HEADERS, language_prefs=("python", "py")
     )
 
-    # Optional declarative-mapping artifact. Turtle is unambiguous in a proposal
-    # (only the RML block uses it), so a lone turtle block routes by language.
-    result.rml_ttl = _pick_block(
+    # Legacy raw-RML artifact. Turtle is unambiguous in a proposal (only the RML
+    # block uses it), so a lone turtle block routes by language. When a mapping
+    # spec is present it wins — a stale turtle block must not mask IR errors.
+    legacy_rml = _pick_block(
         blocks, header_keywords=_RML_HEADERS, language_prefs=("turtle", "ttl")
     )
+    if result.mapping_ir_yaml is not None:
+        result.rml_ttl = _compile_mapping_spec(result)
+        if legacy_rml is not None:
+            result.warnings.append(
+                "Both a mapping spec (yaml) and a raw RML (turtle) block are "
+                "present; the mapping spec wins and the turtle block is ignored."
+            )
+    else:
+        result.rml_ttl = legacy_rml
 
     # ----- warnings -----
     # Note: rml_ttl is intentionally NOT warned-on when absent — it is additive.
@@ -274,6 +349,10 @@ def materialize_schema(
             p = out / f"{dataset_name}.py"
             p.write_text(result.ingester_py + "\n", encoding="utf-8")
             result.written_paths["ingester_py"] = str(p)
+        if result.mapping_ir_yaml is not None:
+            p = out / f"{dataset_name}-mapping.yaml"
+            p.write_text(result.mapping_ir_yaml + "\n", encoding="utf-8")
+            result.written_paths["mapping_ir"] = str(p)
         if result.rml_ttl is not None:
             p = out / f"{dataset_name}-mapping.rml.ttl"
             p.write_text(result.rml_ttl + "\n", encoding="utf-8")
@@ -328,6 +407,7 @@ def _main(argv: list[str] | None = None) -> int:
             ("rdf_config_model", result.rdf_config_model is not None),
             ("mie_yaml", result.mie_yaml is not None),
             ("ingester_py", result.ingester_py is not None),
+            ("mapping_ir (optional)", result.mapping_ir_yaml is not None),
             ("rml_ttl (optional)", result.rml_ttl is not None),
         ):
             sys.stdout.write(f"  {'✓' if present else '✗'} {name}\n")

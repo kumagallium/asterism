@@ -76,6 +76,18 @@ P_INDEX = FN + "p_index"
 P_DELIMITER = FN + "p_delimiter"
 P_FIELD = FN + "p_field"
 
+# 「定数(固定値)引数」を指すパラメータ IRI の閉じた集合。RML ではこれらを
+# rmlf:inputValueMap [ rmlf:constant "…" ] で渡す(列参照 rml:reference は不可)。
+# ここに無いパラメータ IRI(p_value 系・p_field1..4)は列参照で渡す。Mapping IR
+# コンパイラ(step0)が args=定数 / column(s)=列 の束縛を決める単一の真実源。
+CONSTANT_PARAM_IRIS: frozenset[str] = frozenset(
+    {P_TABLE, P_PATTERN, P_TEMPLATE, P_INDEX, P_DELIMITER, P_FIELD}
+)
+
+# list[str] を返し Morph-KGC が要素毎に 1 トリプルへ explode する多値関数の集合。
+# スカラ 1 値が要る文脈(IRI テンプレートのセグメント変換等)では使えない。
+MULTIVALUED_FUNCTIONS: frozenset[str] = frozenset({"split", "json_array", "json_pluck"})
+
 
 # ---- 検証済み関数(既存実装への薄い委譲。FnO 形 str -> str) -------------------
 

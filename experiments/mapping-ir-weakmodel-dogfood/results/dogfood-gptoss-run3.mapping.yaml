@@ -1,0 +1,119 @@
+version: 1
+prefixes:
+  sd:  "https://kumagallium.github.io/asterism/starrydata/ontology#"
+  sdr: "https://kumagallium.github.io/asterism/starrydata/resource/"
+  schema: "https://schema.org/"
+  dcterms: "http://purl.org/dc/terms/"
+  prov:   "http://www.w3.org/ns/prov#"
+
+maps:
+  - name: paper
+    source: papers.csv
+    subject:
+      template: "sdr:paper/{SID}"
+      classes: [sd:Paper, schema:ScholarlyArticle]
+    properties:
+      - predicate: dcterms:identifier
+        column: DOI
+      - predicate: schema:url
+        column: URL
+        function: iri_safe
+        object_type: iri
+      - predicate: schema:datePublished
+        column: issued
+        function: date_iso
+        datatype: xsd:date
+      - predicate: schema:name
+        column: title
+      - predicate: sd:containerTitle
+        column: container_title
+      - predicate: sd:containerTitleShort
+        column: container_title_short
+      - predicate: sd:volume
+        column: volume
+      - predicate: sd:issue
+        column: issue
+      - predicate: sd:pageRange
+        column: page
+      - predicate: sd:issn
+        column: ISSN
+      - predicate: sd:publisher
+        column: publisher
+      - predicate: sd:isPartOf
+        object_template: "sdr:periodical/{container_title}"
+        transform: {container_title: slug}
+      - predicate: sd:hasProject
+        column: project_names
+        function: json_array
+      - predicate: schema:author
+        column: author
+        fallback: true
+      - predicate: prov:wasGeneratedBy
+        constant: "sdr:ingestActivity/papers"
+
+  - name: sample
+    source: samples.csv
+    subject:
+      template: "sdr:sample/{sample_id}"
+      classes: [sd:Sample]
+    properties:
+      - predicate: sd:sampleName
+        column: sample_name
+      - predicate: sd:composition
+        column: composition
+      - predicate: sd:compositionDetails
+        column: composition_details
+      - predicate: sd:createdAt
+        column: created_at
+        function: date_iso
+        datatype: xsd:dateTime
+      - predicate: sd:updatedAt
+        column: updated_at
+        function: date_iso
+        datatype: xsd:dateTime
+      - predicate: sd:describedIn
+        object_template: "sdr:paper/{SID}"
+      - predicate: prov:wasGeneratedBy
+        constant: "sdr:ingestActivity/samples"
+
+  - name: curve
+    source: curves.csv
+    subject:
+      template: "sdr:curve/{sample_id}/{figure_id}"
+      classes: [sd:Curve]
+    properties:
+      - predicate: sd:xRaw
+        column: x
+      - predicate: sd:yRaw
+        column: y
+      - predicate: sd:xMin
+        column: x
+        function: float_array_min
+        datatype: xsd:double
+      - predicate: sd:xMax
+        column: x
+        function: float_array_max
+        datatype: xsd:double
+      - predicate: sd:yMin
+        column: y
+        function: float_array_min
+        datatype: xsd:double
+      - predicate: sd:yMax
+        column: y
+        function: float_array_max
+        datatype: xsd:double
+      - predicate: sd:unitX
+        column: unit_x
+      - predicate: sd:unitY
+        column: unit_y
+      - predicate: sd:propX
+        column: prop_x
+      - predicate: sd:propY
+        column: prop_y
+      - predicate: sd:forSample
+        object_template: "sdr:sample/{sample_id}"
+      - predicate: sd:hasProject
+        column: project_names
+        function: json_array
+      - predicate: prov:wasGeneratedBy
+        constant: "sdr:ingestActivity/curves"

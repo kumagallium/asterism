@@ -1,0 +1,107 @@
+version: 1
+prefixes:
+  sd:  "https://kumagallium.github.io/asterism/starrydata/ontology#"
+  sdr: "https://kumagallium.github.io/asterism/starrydata/resource/"
+  schema: "https://schema.org/"
+  dcterms: "http://purl.org/dc/terms/"
+maps:
+  - name: paper
+    source: papers.csv
+    subject:
+      template: "sdr:paper/{SID}"
+      classes: [sd:Paper, schema:ScholarlyArticle]
+    properties:
+      - predicate: dcterms:identifier
+        column: SID
+        datatype: xsd:integer
+      - predicate: schema:identifier
+        column: DOI
+      - predicate: schema:url
+        column: URL
+        function: iri_safe
+        object_type: iri
+      - predicate: schema:name
+        column: title
+      - predicate: sd:issuedRaw
+        column: issued
+        # keep raw JSON literal
+      - predicate: sd:isPartOf
+        object_template: "sdr:periodical/{container_title|slug}"
+      - predicate: sd:hasAuthor
+        column: author
+        function: json_pluck
+        args:
+          field: "family"
+        # multi‑valued literals (family names)
+      - predicate: sd:hasProject
+        column: project_names
+        function: json_array
+        # multi‑valued literals (project names)
+
+  - name: sample
+    source: samples.csv
+    subject:
+      template: "sdr:sample/{sample_name}"
+      classes: [sd:Sample, schema:Thing]
+    properties:
+      - predicate: dcterms:identifier
+        column: sample_id
+        datatype: xsd:integer
+      - predicate: schema:name
+        column: sample_name
+      - predicate: sd:composition
+        column: composition
+      - predicate: sd:compositionDetails
+        column: composition_details
+        # optional literal
+      - predicate: sd:sampleInfoRaw
+        column: sample_info
+      - predicate: sd:isPartOf
+        object_template: "sdr:paper/{SID}"
+      - predicate: sd:hasProject
+        column: project_names
+        function: json_array
+
+  - name: curve
+    source: curves.csv
+    subject:
+      template: "sdr:curve/{sample_id}/{figure_id}"
+      classes: [sd:Curve, schema:Observation]
+    properties:
+      - predicate: sd:propX
+        column: prop_x
+      - predicate: sd:unitX
+        column: unit_x
+      - predicate: sd:propY
+        column: prop_y
+      - predicate: sd:unitY
+        column: unit_y
+      - predicate: sd:xRaw
+        column: x
+      - predicate: sd:yRaw
+        column: y
+      - predicate: sd:xMin
+        column: x
+        function: float_array_min
+        datatype: xsd:double
+      - predicate: sd:xMax
+        column: x
+        function: float_array_max
+        datatype: xsd:double
+      - predicate: sd:yMin
+        column: y
+        function: float_array_min
+        datatype: xsd:double
+      - predicate: sd:yMax
+        column: y
+        function: float_array_max
+        datatype: xsd:double
+      - predicate: sd:pointCount
+        columns: [x, y]
+        function: float_array_count
+        datatype: xsd:integer
+      - predicate: sd:isPartOf
+        object_template: "sdr:sample/{sample_id}"
+      - predicate: sd:hasProject
+        column: project_names
+        function: json_array

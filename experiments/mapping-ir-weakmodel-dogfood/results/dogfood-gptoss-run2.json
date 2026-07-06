@@ -1,0 +1,55 @@
+{
+  "model": "gpt-oss-120b",
+  "api_base": "https://api.ai.sakura.ad.jp/v1",
+  "rows_per_csv": 40,
+  "max_rounds": 3,
+  "contract": "mapping-ir (ADR mapping-ir-compiler.md)",
+  "rounds": [
+    {
+      "round": 0,
+      "issue_count": 7,
+      "categories": {
+        "structural": 6,
+        "other": 1
+      }
+    }
+  ],
+  "wall_clock_s": 67.3,
+  "last_usage": {
+    "input_tokens": 8737,
+    "output_tokens": 7442
+  },
+  "converged": false,
+  "terminal_reason": "refine_truncated",
+  "initial_issue_count": 7,
+  "remaining_issues": [
+    "map 'paper'.properties[5] has an unknown field 'optional'; allowed fields: predicate, column, columns, function, args, object_template, constant, object_type, datatype, language, transform, fallback.",
+    "map 'paper'.properties[9] (sd:issn*): 'sd:issn*' carries a cardinality marker — that syntax belongs to §6 model.yaml, not the mapping spec. Write 'sd:issn'; multi-valued expansion is implied by choosing a multi-value function (split / json_array / json_pluck).",
+    "map 'paper'.properties[10] (sd:hasProject*): 'sd:hasProject*' carries a cardinality marker — that syntax belongs to §6 model.yaml, not the mapping spec. Write 'sd:hasProject'; multi-valued expansion is implied by choosing a multi-value function (split / json_array / json_pluck).",
+    "map 'paper'.properties[11] (schema:author*): 'schema:author*' carries a cardinality marker — that syntax belongs to §6 model.yaml, not the mapping spec. Write 'schema:author'; multi-valued expansion is implied by choosing a multi-value function (split / json_array / json_pluck).",
+    "map 'paper'.properties[12] (sd:isPartOf?): 'sd:isPartOf?' carries a cardinality marker — that syntax belongs to §6 model.yaml, not the mapping spec. Write 'sd:isPartOf'; multi-valued expansion is implied by choosing a multi-value function (split / json_array / json_pluck).",
+    "map 'paper'.properties[12] (sd:isPartOf?) must use exactly one object form of column / columns / object_template / constant (got: column, object_template).",
+    "map 'sample'.properties[6] (sd:sampleInfoRaw?): 'sd:sampleInfoRaw?' carries a cardinality marker — that syntax belongs to §6 model.yaml, not the mapping spec. Write 'sd:sampleInfoRaw'; multi-valued expansion is implied by choosing a multi-value function (split / json_array / json_pluck)."
+  ],
+  "coverage_dropped": false,
+  "syntax_class_issue_rounds": [],
+  "syntax_class_zero": true,
+  "final_design": {
+    "has_mapping_spec": true,
+    "mapping_ir_issues": [
+      "map 'paper'.properties[5] has an unknown field 'optional'; allowed fields: predicate, column, columns, function, args, object_template, constant, object_type, datatype, language, transform, fallback.",
+      "map 'paper'.properties[6] has an unknown field 'optional'; allowed fields: predicate, column, columns, function, args, object_template, constant, object_type, datatype, language, transform, fallback.",
+      "map 'paper'.properties[7] has an unknown field 'optional'; allowed fields: predicate, column, columns, function, args, object_template, constant, object_type, datatype, language, transform, fallback.",
+      "map 'paper'.properties[9] (sd:issn*): 'sd:issn*' carries a cardinality marker — that syntax belongs to §6 model.yaml, not the mapping spec. Write 'sd:issn'; multi-valued expansion is implied by choosing a multi-value function (split / json_array / json_pluck).",
+      "map 'paper'.properties[10] (sd:hasProject*): 'sd:hasProject*' carries a cardinality marker — that syntax belongs to §6 model.yaml, not the mapping spec. Write 'sd:hasProject'; multi-valued expansion is implied by choosing a multi-value function (split / json_array / json_pluck).",
+      "map 'paper'.properties[11] (schema:author*): 'schema:author*' carries a cardinality marker — that syntax belongs to §6 model.yaml, not the mapping spec. Write 'schema:author'; multi-valued expansion is implied by choosing a multi-value function (split / json_array / json_pluck).",
+      "map 'paper'.properties[12] (sd:isPartOf?): 'sd:isPartOf?' carries a cardinality marker — that syntax belongs to §6 model.yaml, not the mapping spec. Write 'sd:isPartOf'; multi-valued expansion is implied by choosing a multi-value function (split / json_array / json_pluck).",
+      "map 'paper'.properties[12] (sd:isPartOf?) must use exactly one object form of column / columns / object_template / constant (got: column, object_template).",
+      "map 'sample'.properties[3] has an unknown field 'optional'; allowed fields: predicate, column, columns, function, args, object_template, constant, object_type, datatype, language, transform, fallback.",
+      "map 'sample'.properties[5] (sd:hasProject*): 'sd:hasProject*' carries a cardinality marker — that syntax belongs to §6 model.yaml, not the mapping spec. Write 'sd:hasProject'; multi-valued expansion is implied by choosing a multi-value function (split / json_array / json_pluck).",
+      "map 'sample'.properties[6] (sd:sampleInfoRaw?): 'sd:sampleInfoRaw?' carries a cardinality marker — that syntax belongs to §6 model.yaml, not the mapping spec. Write 'sd:sampleInfoRaw'; multi-valued expansion is implied by choosing a multi-value function (split / json_array / json_pluck).",
+      "map 'curve'.properties[11] (sd:hasProject*): 'sd:hasProject*' carries a cardinality marker — that syntax belongs to §6 model.yaml, not the mapping spec. Write 'sd:hasProject'; multi-valued expansion is implied by choosing a multi-value function (split / json_array / json_pluck)."
+    ],
+    "compiled": false
+  }
+}
