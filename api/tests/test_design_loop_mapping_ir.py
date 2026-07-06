@@ -152,6 +152,19 @@ def test_classify_ir_shapes_key_on_predicate_not_index() -> None:
     assert e.category == "structural" and "sd:project*" in e.subject
 
 
+def test_classify_type_cast_keys_on_function_name() -> None:
+    from asterism_api.design_loop import classify
+
+    a = classify(
+        "map 'papers' property schema:name: 'str' is a type, not a Tier-0 function — …"
+    )
+    b = classify(
+        "map 'papers' property dcterms:identifier: 'str' is a type, not a Tier-0 function — …"
+    )
+    assert a.category == "function" and a.subject == "typecast/str"
+    assert a.key == b.key  # 23 identical inventions dedup to ONE feedback line
+
+
 def test_reference_count_counts_ir_property_rows() -> None:
     ir_yaml = (
         "version: 1\n"

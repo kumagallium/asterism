@@ -253,6 +253,38 @@ def referenced_columns(m: TriplesMapIR) -> set[str]:
     return cols
 
 
+# Type-cast pseudo-functions weak models invent (``function: str`` on every
+# literal property — observed live in production). These are not typos of menu
+# entries, so a difflib did-you-mean cannot steer them; the fix is always
+# "drop function: / use datatype:", said explicitly.
+_TYPE_CAST_PSEUDO_FUNCTIONS = frozenset(
+    {
+        "str", "string", "text",
+        "int", "integer", "float", "double", "number", "decimal",
+        "bool", "boolean",
+        "date", "datetime", "time",
+        "url", "uri",
+    }
+)
+
+
+def type_cast_guidance(fn_name: str, where: str) -> str | None:
+    """The targeted message for a type-cast pseudo-function, or None.
+
+    Shared by the environment validator and the compiler so the LLM gets the
+    same actionable text no matter which layer catches it first."""
+    if fn_name.lower() not in _TYPE_CAST_PSEUDO_FUNCTIONS:
+        return None
+    return (
+        f"{where}: {fn_name!r} is a type, not a Tier-0 function — 'function:' "
+        f"never casts. A bare column already emits a string literal: DROP the "
+        f"'function:' line. For a typed literal add 'datatype: xsd:…' (e.g. "
+        f"xsd:double, xsd:integer, xsd:dateTime); for messy date/datetime "
+        f"VALUES use function: date_iso / datetime_iso; for a URL column use "
+        f"function: iri_safe with object_type: iri."
+    )
+
+
 def _check_cardinality_marker(term: str, where: str, issues: list[str]) -> None:
     """Flag rdf-config cardinality suffixes leaking into the mapping spec.
 
@@ -823,10 +855,14 @@ def _check_function(p: PropertyIR, where: str, catalog: FunctionCatalog) -> list
     issues: list[str] = []
     fn = catalog.get(p.function or "")
     if fn is None:
+        guidance = type_cast_guidance(p.function or "", where)
         issues.append(
-            f"{where}: function {p.function!r} is not in the vetted Tier-0 set; "
-            f"choose one of: {', '.join(catalog.names())}."
-            f"{_suggest(p.function or '', catalog.names())}"
+            guidance
+            or (
+                f"{where}: function {p.function!r} is not in the vetted Tier-0 set; "
+                f"choose one of: {', '.join(catalog.names())}."
+                f"{_suggest(p.function or '', catalog.names())}"
+            )
         )
         return issues
 
@@ -859,9 +895,13 @@ def _check_transform(
 ) -> list[str]:
     fn = catalog.get(fn_name)
     if fn is None:
+        guidance = type_cast_guidance(fn_name, where)
         return [
-            f"{where}: transform function {fn_name!r} (for {{{slot}}}) is not in the "
-            f"vetted Tier-0 set.{_suggest(fn_name, catalog.names())}"
+            guidance
+            or (
+                f"{where}: transform function {fn_name!r} (for {{{slot}}}) is not in "
+                f"the vetted Tier-0 set.{_suggest(fn_name, catalog.names())}"
+            )
         ]
     if fn.multivalued:
         return [

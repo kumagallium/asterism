@@ -243,6 +243,9 @@ RULES (a reviewer approves *column→predicate + which vetted function*, not cod
   `…Raw` fallback for that column instead.
 - Predicates/classes are plain terms: NO cardinality markers (`schema:author`,
   never `schema:author*` — the `*`/`?` suffixes belong to §6 model.yaml only).
+- `function:` NEVER casts types (`function: str` / `int` / `date` are errors).
+  A bare column already emits a string literal; type a literal with
+  `datatype: xsd:…`; use `function:` only for the cleaning menu below.
 - A bare `column` can NEVER be an IRI: for a URL column use
   `function: iri_safe` + `object_type: iri`; for an entity link use
   `object_template`. Raw data columns inside templates are IRI-encoded

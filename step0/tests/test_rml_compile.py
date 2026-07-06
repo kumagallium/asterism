@@ -300,6 +300,35 @@ def test_unknown_function_fails_compile() -> None:
     assert any("made_up" in i for i in exc.value.issues)
 
 
+def test_compile_type_cast_pseudo_function_gets_drop_guidance() -> None:
+    """The compiler is the layer that runs in the plain materialize path (no
+    source dir), so ITS unknown-function message must carry the fix too."""
+    ir_yaml = BASE_IR.replace(
+        "__EXTRA__",
+        "      - predicate: ex:issn\n"
+        "        column: name\n"
+        "        function: str\n",
+    )
+    with pytest.raises(RmlCompileError) as exc:
+        compile_text(ir_yaml)
+    text = "\n".join(exc.value.issues)
+    assert "is a type, not a Tier-0 function" in text
+    assert "DROP the 'function:' line" in text
+
+
+def test_compile_unknown_function_message_includes_menu() -> None:
+    ir_yaml = BASE_IR.replace(
+        "__EXTRA__",
+        "      - predicate: ex:x\n"
+        "        column: name\n"
+        "        function: normalize_stuff\n",
+    )
+    with pytest.raises(RmlCompileError) as exc:
+        compile_text(ir_yaml)
+    text = "\n".join(exc.value.issues)
+    assert "choose one of:" in text and "date_iso" in text
+
+
 def test_transformed_template_max_four_placeholders() -> None:
     ir_yaml = """
 version: 1
