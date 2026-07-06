@@ -67,10 +67,17 @@ from asterism_step0.mapping_ir import (
     parse_mapping_ir,
     validate_mapping_ir,
 )
+from asterism_step0.mapping_ir_schema import mapping_ir_json_schema
 from asterism_step0.materialize import materialize_schema
 from asterism_step0.propose import propose_schema
 from asterism_step0.refine import refine_schema
 from asterism_step0.rml_compile import RmlCompileError, compile_mapping_ir
+from asterism_step0.spec_repair import (
+    SPEC_REPAIR_SYSTEM_PROMPT,
+    build_spec_repair_user,
+    parse_spec_json,
+    replace_mapping_spec_block,
+)
 
 _TABULAR_SUFFIXES = frozenset({".csv", ".tsv"})
 
@@ -450,6 +457,43 @@ def _emit(on_progress: Callable[[dict[str, Any]], None] | None, **data: Any) -> 
         on_progress(data)
 
 
+def _surgical_spec_repair(
+    llm: Any,
+    schema_md: str,
+    ir_yaml: str,
+    issues: list[Issue],
+    oracle: str,
+) -> str:
+    """One repair round that regenerates ONLY the §9 mapping spec (Phase 2).
+
+    Sets the guided-JSON schema on the client when it supports the attribute
+    (OpenAI-compatible; others ignore it and answer from the prompt contract —
+    the output is parsed either way and re-gated by the normal round checks).
+    Returns the schema_md with the repaired spec spliced in. Raises
+    ``ValueError`` (loop-feedable) when the repair output cannot be parsed or
+    spliced; LLM errors propagate exactly like refine's.
+    """
+    try:
+        function_names = [f.name for f in catalog_from_registry()]
+    except ImportError:
+        function_names = None
+    user = build_spec_repair_user(ir_yaml, [i.message for i in issues], oracle)
+    schema = mapping_ir_json_schema(function_names)
+    had_attr = hasattr(llm, "response_schema")
+    prior = getattr(llm, "response_schema", None)
+    try:
+        if had_attr:
+            llm.response_schema = schema
+        from asterism_step0.llm import as_completion
+
+        raw = as_completion(llm.complete(SPEC_REPAIR_SYSTEM_PROMPT, user)).text
+    finally:
+        if had_attr:
+            llm.response_schema = prior
+    new_spec = parse_spec_json(raw)
+    return replace_mapping_spec_block(schema_md, new_spec)
+
+
 # ---------------------------------------------------------------------------
 # The orchestrator (synchronous + fully unit-testable with a mock LLM)
 # ---------------------------------------------------------------------------
@@ -571,11 +615,28 @@ def run_design_loop(
                            reason="no_progress", initial=initial, base_refs=base_refs)
         seen_keysets.add(keyset)
 
-        comments = render_feedback(prev_issues, oracle)  # non-empty by construction
+        # Phase 2 surgical repair (ADR mapping-ir-phase2-guided-repair): with a
+        # mapping spec present, ONLY the §9 block is regenerated — guided JSON
+        # where the provider supports it — and spliced back deterministically.
+        # ~10x fewer output tokens per round, no whole-document truncation
+        # risk, and unrelated sections are byte-untouched. The legacy raw-RML
+        # path keeps the whole-document refine.
+        surgical = bool(ir_yaml and ir_yaml.strip())
         _emit(on_progress, phase="refine", round=n, issue_count=len(prev_issues),
-              categories=_cats(prev_issues), message=f"{len(prev_issues)} 件の問題を修正中")
+              categories=_cats(prev_issues),
+              message=(
+                  f"{len(prev_issues)} 件の問題を修正中 (§9 仕様のみ再生成)"
+                  if surgical
+                  else f"{len(prev_issues)} 件の問題を修正中"
+              ))
         try:
-            ref = refine_schema(schema_md, comments, llm=llm, language=language)
+            if surgical:
+                schema_md = _surgical_spec_repair(
+                    llm, schema_md, ir_yaml or "", prev_issues, oracle
+                )
+            else:
+                comments = render_feedback(prev_issues, oracle)  # non-empty by construction
+                ref = refine_schema(schema_md, comments, llm=llm, language=language)
         except LLMCancelledError:
             # A user cancel is NOT an env failure — it must reach the job runner
             # (which discards the run), never be swallowed into env_error below.
@@ -585,6 +646,16 @@ def run_design_loop(
                                       refine_truncated=True, env_error=f"truncated: {exc}"))
             return _result(best_schema, best_issues, rounds, converged=False,
                            reason="refine_truncated", initial=initial, base_refs=base_refs)
+        except ValueError as exc:
+            # Unparseable/unspliceable surgical output — an LLM-quality flake,
+            # not an env failure: record the round (schema unchanged) and let
+            # the next iteration's seen-keyset check stop as no_progress if it
+            # repeats. Guided decoding makes this rare by construction.
+            if on_llm_call is not None:
+                on_llm_call("propose.autocorrect")
+            rounds.append(RoundRecord(n, len(prev_issues), _cats(prev_issues),
+                                      env_error=f"spec repair discarded: {exc}"))
+            continue
         except Exception as exc:  # provider 429/quota/etc — non-loopable, keep best
             rounds.append(RoundRecord(n, len(prev_issues), _cats(prev_issues), env_error=str(exc)))
             return _result(best_schema, best_issues, rounds, converged=False,
@@ -592,13 +663,14 @@ def run_design_loop(
         if on_llm_call is not None:
             on_llm_call("propose.autocorrect")
 
-        if not ref.complete:  # refine dropped an artifact (truncation) → keep prior complete
-            rounds.append(
-                RoundRecord(n, len(prev_issues), _cats(prev_issues), refine_truncated=True)
-            )
-            return _result(best_schema, best_issues, rounds, converged=False,
-                           reason="refine_truncated", initial=initial, base_refs=base_refs)
-        schema_md = ref.effective_schema_md  # == ref.refined_md when complete
+        if not surgical:
+            if not ref.complete:  # refine dropped an artifact (truncation) → keep prior
+                rounds.append(
+                    RoundRecord(n, len(prev_issues), _cats(prev_issues), refine_truncated=True)
+                )
+                return _result(best_schema, best_issues, rounds, converged=False,
+                               reason="refine_truncated", initial=initial, base_refs=base_refs)
+            schema_md = ref.effective_schema_md  # == ref.refined_md when complete
 
         try:
             ir_yaml, rml_ttl = _extract_design(schema_md)

@@ -357,6 +357,10 @@ _CONTEXT_LENGTH_ERROR_RE = re.compile(
 # mis-trigger the broad ``stream`` pattern.
 _STREAM_OPTIONS_ERROR_RE = re.compile(r"stream_options", re.IGNORECASE)
 _STREAM_UNSUPPORTED_ERROR_RE = re.compile(r"stream", re.IGNORECASE)
+# Structured-output rejections: servers that don't know response_format at all,
+# or know json_object but not json_schema (guided decoding). Checked before the
+# broad stream pattern so a response_format message is never mis-classified.
+_RESPONSE_FORMAT_ERROR_RE = re.compile(r"response_format|json_schema|guided", re.IGNORECASE)
 
 # Reasoning models (qwen3 / DeepSeek-R1 style) served over plain Chat
 # Completions can leak chain-of-thought inline as a <think>…</think> prefix in
@@ -419,6 +423,14 @@ class OpenAICompatibleLLMClient:
     should_cancel: Callable[[], bool] | None = field(default=None, compare=False)
     on_generation: Callable[[int, int], None] | None = field(default=None, compare=False)
     on_note: Callable[[str], None] | None = field(default=None, compare=False)
+    # Structured output (Phase 2, ADR mapping-ir-phase2-guided-repair): a JSON
+    # Schema set as a mutable attribute BEFORE a complete() call (same pattern
+    # as the hooks above — the LLMClient protocol stays unchanged). When set,
+    # the request carries response_format json_schema so a guided-decoding
+    # server (vLLM etc.) makes off-schema output unrepresentable; servers that
+    # reject it degrade per call: json_schema → json_object → off (each step
+    # noted in last_notes). Callers that need plain text again must clear it.
+    response_schema: dict | None = field(default=None, compare=False)
     last_usage: LLMUsage | None = field(default=None, init=False, compare=False)
     # Human-readable notes about auto-adjustments made during the last
     # complete() call (context-length downgrades); reset on each call.
@@ -452,6 +464,9 @@ class OpenAICompatibleLLMClient:
         downgrades = 0
         use_stream = _streaming_enabled()
         include_usage = True
+        # Structured-output mode for THIS call: full schema when the caller set
+        # one, degrading per server capability (each step flips at most once).
+        response_mode = "schema" if self.response_schema else "off"
         self.last_notes = []
 
         # Same continuation-on-truncation strategy as the Anthropic client: the
@@ -481,6 +496,13 @@ class OpenAICompatibleLLMClient:
                     "messages": messages,
                     token_param: effective_max_tokens,
                 }
+                if response_mode == "schema":
+                    request_kwargs["response_format"] = {
+                        "type": "json_schema",
+                        "json_schema": {"name": "mapping_spec", "schema": self.response_schema},
+                    }
+                elif response_mode == "json_object":
+                    request_kwargs["response_format"] = {"type": "json_object"}
                 if use_stream:
                     request_kwargs["stream"] = True
                     if include_usage:
@@ -511,6 +533,24 @@ class OpenAICompatibleLLMClient:
                             "after provider context-length rejection"
                         )
                         effective_max_tokens = lowered
+                        continue
+                    # Structured-output rejections: degrade json_schema →
+                    # json_object → off, one step per 400. Checked BEFORE the
+                    # stream patterns so a response_format message never
+                    # mis-triggers the broad stream fallback.
+                    if response_mode == "schema" and _RESPONSE_FORMAT_ERROR_RE.search(err_text):
+                        response_mode = "json_object"
+                        self._record_note(
+                            "guided json_schema rejected by server — retrying with json_object"
+                        )
+                        continue
+                    if response_mode == "json_object" and _RESPONSE_FORMAT_ERROR_RE.search(
+                        err_text
+                    ):
+                        response_mode = "off"
+                        self._record_note(
+                            "response_format rejected by server — structured output disabled"
+                        )
                         continue
                     # Servers that stream fine but reject the stream_options
                     # parameter: retry without it (usage stays zero).
