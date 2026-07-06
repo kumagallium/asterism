@@ -12,16 +12,25 @@ These mock the SDK clients entirely (no network, no API key): a fake
 import inside ``complete()`` picks up the stub. The stub yields a scripted
 sequence of (text, stop_reason) tuples so we can simulate
 ``max_tokens`` → ``max_tokens`` → ``end_turn`` and a never-finishing case.
-The OpenAI script also accepts Exception instances (raised by ``create()``)
-and prebuilt ``_OAIResponse`` objects, to exercise the compat-server
-robustness paths: token-param fallback, context-length downgrade, reasoning
-(<think>) handling, cancel, and progress reporting.
+The OpenAI script also accepts Exception instances (raised by ``create()``),
+prebuilt ``_OAIResponse`` objects, and ``_OAIStream`` objects (a fake
+``openai.Stream``: a context manager over scripted chunks that records
+close/exit), to exercise the compat-server robustness paths: token-param
+fallback, context-length downgrade, reasoning (<think>) handling, cancel,
+progress reporting, and the streaming transport (assembly across chunks,
+``stream_options`` / ``stream`` rejection fallbacks, mid-stream cancel, the
+``ASTERISM_LLM_STREAM=0`` kill-switch).
+
+The OpenAI-compatible client streams BY DEFAULT; tests that script plain
+non-streaming responses pin the legacy transport via the ``nonstreaming``
+fixture, which doubles as coverage of the kill-switch path.
 """
 
 from __future__ import annotations
 
 import sys
 import types
+from collections.abc import Iterator
 
 import pytest
 
@@ -33,6 +42,7 @@ from asterism_step0.llm import (
     LLMEmptyOutputError,
     LLMTruncatedError,
     OpenAICompatibleLLMClient,
+    _streaming_enabled,
 )
 
 # ----------------------------------------------------------------------------
@@ -236,9 +246,84 @@ class _OAIResponse:
         self.usage = _OAIUsage()
 
 
+class _OAIStreamDelta:
+    def __init__(
+        self,
+        content: str | None = None,
+        reasoning_content: str | None = None,
+        model_extra: dict[str, object] | None = None,
+    ) -> None:
+        self.content = content
+        self.reasoning_content = reasoning_content
+        self.model_extra = model_extra
+
+
+class _OAIStreamChoice:
+    def __init__(self, delta: _OAIStreamDelta, finish_reason: str | None = None) -> None:
+        self.delta = delta
+        self.finish_reason = finish_reason
+
+
+class _OAIStreamChunk:
+    """One SSE chunk: a content/reasoning delta, a finish_reason, and/or usage.
+
+    Pass ``choices=[]`` (with ``usage=``) to build the FINAL include_usage
+    chunk, whose choices list is empty in the real protocol.
+    """
+
+    def __init__(
+        self,
+        content: str | None = None,
+        *,
+        reasoning_content: str | None = None,
+        model_extra: dict[str, object] | None = None,
+        finish_reason: str | None = None,
+        usage: _OAIUsage | None = None,
+        choices: list[_OAIStreamChoice] | None = None,
+    ) -> None:
+        if choices is None:
+            choices = [
+                _OAIStreamChoice(
+                    _OAIStreamDelta(content, reasoning_content, model_extra), finish_reason
+                )
+            ]
+        self.choices = choices
+        self.usage = usage
+
+
+def _usage_chunk() -> _OAIStreamChunk:
+    """The final include_usage chunk: EMPTY choices list + the usage payload."""
+    return _OAIStreamChunk(choices=[], usage=_OAIUsage())
+
+
+class _OAIStream:
+    """Fake ``openai.Stream``: a context manager iterating scripted chunks.
+
+    Records enter/close so tests can assert the client used the ``with`` block
+    (closing the HTTP stream is what aborts an in-flight generation on cancel).
+    """
+
+    def __init__(self, chunks: list[_OAIStreamChunk]) -> None:
+        self._chunks = chunks
+        self.entered = False
+        self.closed = False
+
+    def __enter__(self) -> _OAIStream:
+        self.entered = True
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.closed = True
+        return None
+
+    def __iter__(self) -> Iterator[_OAIStreamChunk]:
+        return iter(self._chunks)
+
+
 # A scripted item is a (content, finish_reason) tuple, a prebuilt _OAIResponse
-# (for reasoning_content / model_extra cases), or an Exception to raise.
-_ScriptItem = tuple[str, str] | _OAIResponse | Exception
+# (for reasoning_content / model_extra cases), a prebuilt _OAIStream (for the
+# streaming transport), or an Exception to raise.
+_ScriptItem = tuple[str, str] | _OAIResponse | _OAIStream | Exception
 
 
 class _OAICompletions:
@@ -246,16 +331,17 @@ class _OAICompletions:
         self._scripted = iter(scripted)
         self.calls: list[list[dict[str, object]]] = []
         # Full kwargs of each create() call, so tests can assert which token
-        # parameter was sent and with what value.
+        # parameter was sent and with what value — and whether stream /
+        # stream_options were passed.
         self.kwargs_calls: list[dict[str, object]] = []
 
-    def create(self, **kwargs: object) -> _OAIResponse:
+    def create(self, **kwargs: object) -> _OAIResponse | _OAIStream:
         self.calls.append(list(kwargs["messages"]))  # type: ignore[arg-type]
         self.kwargs_calls.append(dict(kwargs))
         item = next(self._scripted)
         if isinstance(item, Exception):
             raise item
-        if isinstance(item, _OAIResponse):
+        if isinstance(item, _OAIResponse | _OAIStream):
             return item
         content, finish = item
         return _OAIResponse(content, finish)
@@ -289,6 +375,15 @@ def _install_fake_openai(
     return fake_client
 
 
+@pytest.fixture
+def nonstreaming(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin the non-streaming transport (kill-switch) for tests whose scripts
+    return plain ``_OAIResponse`` objects — they keep covering that path now
+    that the client streams by default."""
+    monkeypatch.setenv("ASTERISM_LLM_STREAM", "0")
+
+
+@pytest.mark.usefixtures("nonstreaming")
 def test_openai_continues_on_length_then_concatenates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -311,6 +406,7 @@ def test_openai_continues_on_length_then_concatenates(
     assert second_call[2] == {"role": "assistant", "content": "head "}
 
 
+@pytest.mark.usefixtures("nonstreaming")
 def test_openai_raises_clear_error_when_never_finishes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -336,6 +432,7 @@ def test_anthropic_passes_explicit_timeout_and_retries_to_sdk(
     assert fake.constructor_kwargs["max_retries"] == DEFAULT_SDK_RETRIES
 
 
+@pytest.mark.usefixtures("nonstreaming")
 def test_openai_passes_explicit_timeout_and_retries_to_sdk(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -347,6 +444,7 @@ def test_openai_passes_explicit_timeout_and_retries_to_sdk(
     assert fake.constructor_kwargs["max_retries"] == DEFAULT_SDK_RETRIES
 
 
+@pytest.mark.usefixtures("nonstreaming")
 def test_sdk_settings_env_overrides_are_read_lazily(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -388,6 +486,7 @@ def test_anthropic_cancel_raises_before_any_http_call(
     assert fake.messages.calls == []
 
 
+@pytest.mark.usefixtures("nonstreaming")
 def test_openai_cancel_between_continuations(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -402,6 +501,7 @@ def test_openai_cancel_between_continuations(
     assert len(fake.chat.completions.calls) == 1
 
 
+@pytest.mark.usefixtures("nonstreaming")
 def test_openai_on_generation_reports_progress(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -439,6 +539,7 @@ def test_anthropic_on_generation_called_and_broken_callback_swallowed(
 # ----------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("nonstreaming")
 def test_openai_switches_to_max_completion_tokens_and_remembers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -460,6 +561,7 @@ def test_openai_switches_to_max_completion_tokens_and_remembers(
     assert len(kw) == 3  # rejected attempt + retry + one continuation
 
 
+@pytest.mark.usefixtures("nonstreaming")
 def test_openai_token_param_fallback_checked_before_context_downgrade(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -481,6 +583,7 @@ def test_openai_token_param_fallback_checked_before_context_downgrade(
 # ----------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("nonstreaming")
 def test_openai_context_length_downgrade_halves_and_notes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -503,6 +606,7 @@ def test_openai_context_length_downgrade_halves_and_notes(
     assert live_notes == client.last_notes
 
 
+@pytest.mark.usefixtures("nonstreaming")
 def test_openai_context_length_downgrade_floors_at_4096(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -536,6 +640,7 @@ def test_openai_context_length_gives_up_after_four_halvings(
 # ----------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("nonstreaming")
 def test_openai_strips_closed_think_tags(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -546,6 +651,7 @@ def test_openai_strips_closed_think_tags(
     assert out.text == "real answer"
 
 
+@pytest.mark.usefixtures("nonstreaming")
 def test_openai_continuation_turn_uses_stripped_part(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -559,6 +665,7 @@ def test_openai_continuation_turn_uses_stripped_part(
     assert second_call[2] == {"role": "assistant", "content": "head "}
 
 
+@pytest.mark.usefixtures("nonstreaming")
 def test_openai_unclosed_think_tag_is_all_reasoning(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -569,6 +676,7 @@ def test_openai_unclosed_think_tag_is_all_reasoning(
         OpenAICompatibleLLMClient(api_key="k").complete("sys", "user")
 
 
+@pytest.mark.usefixtures("nonstreaming")
 def test_openai_unclosed_think_with_length_raises_reasoning_truncation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -579,6 +687,7 @@ def test_openai_unclosed_think_with_length_raises_reasoning_truncation(
     assert len(fake.chat.completions.calls) == 1
 
 
+@pytest.mark.usefixtures("nonstreaming")
 def test_openai_empty_content_with_length_raises_reasoning_truncation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -589,6 +698,7 @@ def test_openai_empty_content_with_length_raises_reasoning_truncation(
     assert len(fake.chat.completions.calls) == 1
 
 
+@pytest.mark.usefixtures("nonstreaming")
 def test_openai_reasoning_only_response_raises_empty_output(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -598,6 +708,7 @@ def test_openai_reasoning_only_response_raises_empty_output(
         OpenAICompatibleLLMClient(api_key="k").complete("sys", "user")
 
 
+@pytest.mark.usefixtures("nonstreaming")
 def test_openai_model_extra_reasoning_detected(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -607,6 +718,7 @@ def test_openai_model_extra_reasoning_detected(
         OpenAICompatibleLLMClient(api_key="k").complete("sys", "user")
 
 
+@pytest.mark.usefixtures("nonstreaming")
 def test_openai_plain_empty_response_raises_empty_output(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -615,6 +727,7 @@ def test_openai_plain_empty_response_raises_empty_output(
         OpenAICompatibleLLMClient(api_key="k").complete("sys", "user")
 
 
+@pytest.mark.usefixtures("nonstreaming")
 def test_openai_empty_continuation_is_natural_stop(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -624,3 +737,274 @@ def test_openai_empty_continuation_is_natural_stop(
     out = OpenAICompatibleLLMClient(api_key="k").complete("sys", "user")
     assert out.text == "head "
     assert len(fake.chat.completions.calls) == 2
+
+
+# ----------------------------------------------------------------------------
+# OpenAI-compatible streaming transport (the default)
+# ----------------------------------------------------------------------------
+
+
+def _default_stream_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ensure the streaming default is in effect regardless of the host env."""
+    monkeypatch.delenv("ASTERISM_LLM_STREAM", raising=False)
+
+
+def test_streaming_enabled_env_parsing(monkeypatch: pytest.MonkeyPatch) -> None:
+    _default_stream_env(monkeypatch)
+    assert _streaming_enabled() is True
+    for off in ("0", "false", "FALSE", "no", "No"):
+        monkeypatch.setenv("ASTERISM_LLM_STREAM", off)
+        assert _streaming_enabled() is False, off
+    # Invalid / affirmative values fall back to the default (streaming ON).
+    for on in ("1", "true", "yes", "banana", ""):
+        monkeypatch.setenv("ASTERISM_LLM_STREAM", on)
+        assert _streaming_enabled() is True, on
+
+
+def test_openai_streams_by_default_and_assembles_chunks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _default_stream_env(monkeypatch)
+    # finish_reason arrives on a content chunk; usage arrives later, on the
+    # final chunk whose choices list is EMPTY — both must be picked up.
+    stream = _OAIStream(
+        [
+            _OAIStreamChunk("Hello "),
+            _OAIStreamChunk("world", finish_reason="stop"),
+            _usage_chunk(),
+        ]
+    )
+    fake = _install_fake_openai(monkeypatch, [stream])
+    client = OpenAICompatibleLLMClient(api_key="k")
+    out = client.complete("sys", "user")
+    assert out.text == "Hello world"
+    assert out.usage.input_tokens == 10
+    assert out.usage.output_tokens == 5
+    assert client.last_usage == out.usage
+    kw = fake.chat.completions.kwargs_calls[0]
+    assert kw["stream"] is True
+    assert kw["stream_options"] == {"include_usage": True}
+    assert stream.entered and stream.closed  # consumed via the context manager
+
+
+def test_openai_stream_options_rejected_retries_streaming_without_usage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _default_stream_env(monkeypatch)
+    err = _FakeBadRequestError("Unknown parameter: 'stream_options'.")
+    # The retry stays streaming; this server never reports usage (no usage chunk).
+    stream = _OAIStream([_OAIStreamChunk("answer", finish_reason="stop")])
+    fake = _install_fake_openai(monkeypatch, [err, stream])
+    client = OpenAICompatibleLLMClient(api_key="k")
+    out = client.complete("sys", "user")
+    assert out.text == "answer"
+    kw = fake.chat.completions.kwargs_calls
+    assert kw[0]["stream"] is True and "stream_options" in kw[0]
+    assert kw[1]["stream"] is True and "stream_options" not in kw[1]
+    assert client.last_notes == [
+        "usage reporting disabled (server rejected stream_options)"
+    ]
+    # Zero usage is tolerated — the ledger records nothing rather than failing.
+    assert out.usage.total_tokens == 0
+
+
+def test_openai_streaming_rejected_falls_back_to_non_streaming(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _default_stream_env(monkeypatch)
+    err = _FakeBadRequestError("This model does not support streaming.")
+    fake = _install_fake_openai(monkeypatch, [err, ("answer", "stop")])
+    client = OpenAICompatibleLLMClient(api_key="k")
+    live_notes: list[str] = []
+    client.on_note = live_notes.append
+    out = client.complete("sys", "user")
+    assert out.text == "answer"
+    kw = fake.chat.completions.kwargs_calls
+    assert kw[0]["stream"] is True
+    assert "stream" not in kw[1] and "stream_options" not in kw[1]
+    assert client.last_notes == ["streaming disabled (server rejected stream=true)"]
+    assert live_notes == client.last_notes
+    # The non-streaming fallback still reports usage off the response object.
+    assert out.usage.output_tokens == 5
+
+
+def test_openai_kill_switch_env_disables_streaming(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _install_fake_openai(monkeypatch, [("ok", "stop")])
+    monkeypatch.setenv("ASTERISM_LLM_STREAM", "0")
+    out = OpenAICompatibleLLMClient(api_key="k").complete("sys", "user")
+    assert out.text == "ok"
+    kw = fake.chat.completions.kwargs_calls[0]
+    assert "stream" not in kw and "stream_options" not in kw
+
+
+def test_openai_think_tag_split_across_chunks_is_stripped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _default_stream_env(monkeypatch)
+    # The <think> tag straddles chunk boundaries; the strip runs on the JOINED
+    # text so it must still be removed.
+    stream = _OAIStream(
+        [
+            _OAIStreamChunk("<thi"),
+            _OAIStreamChunk("nk>x</think>ans"),
+            _OAIStreamChunk("wer", finish_reason="stop"),
+            _usage_chunk(),
+        ]
+    )
+    _install_fake_openai(monkeypatch, [stream])
+    out = OpenAICompatibleLLMClient(api_key="k").complete("sys", "user")
+    assert out.text == "answer"
+
+
+def test_openai_streamed_reasoning_only_with_stop_raises_empty_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _default_stream_env(monkeypatch)
+    # Out-of-band reasoning deltas, no content deltas, natural stop: the model
+    # reasoned but never answered.
+    stream = _OAIStream(
+        [
+            _OAIStreamChunk(reasoning_content="pondering "),
+            _OAIStreamChunk(reasoning_content="the schema", finish_reason="stop"),
+            _usage_chunk(),
+        ]
+    )
+    _install_fake_openai(monkeypatch, [stream])
+    with pytest.raises(LLMEmptyOutputError, match="only reasoning"):
+        OpenAICompatibleLLMClient(api_key="k").complete("sys", "user")
+
+
+def test_openai_streamed_model_extra_reasoning_detected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _default_stream_env(monkeypatch)
+    stream = _OAIStream(
+        [
+            _OAIStreamChunk(model_extra={"reasoning": "chain of thought"}),
+            _OAIStreamChunk(finish_reason="stop"),
+            _usage_chunk(),
+        ]
+    )
+    _install_fake_openai(monkeypatch, [stream])
+    with pytest.raises(LLMEmptyOutputError, match="only reasoning"):
+        OpenAICompatibleLLMClient(api_key="k").complete("sys", "user")
+
+
+def test_openai_streamed_reasoning_only_with_length_raises_reasoning_truncation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _default_stream_env(monkeypatch)
+    stream = _OAIStream(
+        [
+            _OAIStreamChunk(reasoning_content="reason reason", finish_reason="length"),
+            _usage_chunk(),
+        ]
+    )
+    fake = _install_fake_openai(monkeypatch, [stream])
+    with pytest.raises(LLMTruncatedError, match="output budget"):
+        OpenAICompatibleLLMClient(api_key="k").complete("sys", "user")
+    # It must NOT loop with an empty assistant turn.
+    assert len(fake.chat.completions.calls) == 1
+
+
+def test_openai_streamed_continuation_across_generations(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _default_stream_env(monkeypatch)
+    first = _OAIStream(
+        [
+            _OAIStreamChunk("head "),
+            _OAIStreamChunk(finish_reason="length"),
+            _usage_chunk(),
+        ]
+    )
+    second = _OAIStream(
+        [
+            _OAIStreamChunk("tail", finish_reason="stop"),
+            _usage_chunk(),
+        ]
+    )
+    fake = _install_fake_openai(monkeypatch, [first, second])
+    client = OpenAICompatibleLLMClient(api_key="k")
+    out = client.complete("sys", "user")
+    assert out.text == "head tail"
+    calls = fake.chat.completions.calls
+    assert len(calls) == 2
+    # The continuation appended the partial as an assistant turn + the
+    # "continue" user turn after the original system+user pair.
+    assert calls[1][2] == {"role": "assistant", "content": "head "}
+    assert calls[1][3]["role"] == "user"
+    assert "cut off" in calls[1][3]["content"]  # type: ignore[operator]
+    for kw in fake.chat.completions.kwargs_calls:
+        assert kw["stream"] is True
+    # Usage summed across both generations (2 x completion_tokens=5).
+    assert out.usage.output_tokens == 10
+
+
+def test_openai_cancel_mid_stream_raises_and_closes_stream(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _default_stream_env(monkeypatch)
+    stream = _OAIStream(
+        [
+            _OAIStreamChunk("head "),
+            _OAIStreamChunk("tail", finish_reason="stop"),
+            _usage_chunk(),
+        ]
+    )
+    fake = _install_fake_openai(monkeypatch, [stream])
+    client = OpenAICompatibleLLMClient(api_key="k")
+    # Poll #1 = loop top (before the HTTP call), poll #2 = before chunk 1,
+    # poll #3 = before chunk 2 → cancel takes effect between chunks.
+    answers = iter([False, False, True])
+    client.should_cancel = lambda: next(answers)
+    with pytest.raises(LLMCancelledError):
+        client.complete("sys", "user")
+    assert len(fake.chat.completions.calls) == 1
+    # The context manager exited → the HTTP stream was closed, which is what
+    # aborts the in-flight generation on vLLM-class servers.
+    assert stream.closed is True
+
+
+def test_openai_token_param_and_context_downgrade_work_while_streaming(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _default_stream_env(monkeypatch)
+    param_err = _FakeBadRequestError(
+        "Unsupported parameter: 'max_tokens' is not supported with this model. "
+        "Use 'max_completion_tokens' instead."
+    )
+    ctx_err = _FakeBadRequestError(
+        "This model's maximum context length is 32768 tokens; please reduce "
+        "the length of the messages or completion."
+    )
+    stream = _OAIStream(
+        [_OAIStreamChunk("ok", finish_reason="stop"), _usage_chunk()]
+    )
+    fake = _install_fake_openai(monkeypatch, [param_err, ctx_err, stream])
+    client = OpenAICompatibleLLMClient(api_key="k")
+    out = client.complete("sys", "user")
+    assert out.text == "ok"
+    kw = fake.chat.completions.kwargs_calls
+    assert kw[0]["max_tokens"] == 96000 and kw[0]["stream"] is True
+    assert kw[1]["max_completion_tokens"] == 96000 and kw[1]["stream"] is True
+    assert kw[2]["max_completion_tokens"] == 48000 and kw[2]["stream"] is True
+    assert client.last_notes == [
+        "max_tokens 96000 -> 48000 after provider context-length rejection"
+    ]
+
+
+def test_openai_stream_without_usage_chunk_records_zero_usage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _default_stream_env(monkeypatch)
+    stream = _OAIStream([_OAIStreamChunk("ok", finish_reason="stop")])
+    _install_fake_openai(monkeypatch, [stream])
+    client = OpenAICompatibleLLMClient(api_key="k")
+    out = client.complete("sys", "user")
+    assert out.text == "ok"
+    assert out.usage.total_tokens == 0
+    assert client.last_usage is not None
+    assert client.last_usage.total_tokens == 0
