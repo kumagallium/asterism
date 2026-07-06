@@ -166,8 +166,17 @@ class _Compiler:
         """
         fn = self.catalog.get(fn_name)
         if fn is None:
+            from asterism_step0.mapping_ir import type_cast_guidance
+
+            # The same actionable text the validator emits — the compiler is
+            # the layer that runs in the plain materialize path (no source
+            # dir), so its message must carry the fix too, incl. the menu.
             self._fail(
-                f"{where}: function {fn_name!r} is not in the vetted Tier-0 set."
+                type_cast_guidance(fn_name, where)
+                or (
+                    f"{where}: function {fn_name!r} is not in the vetted Tier-0 "
+                    f"set; choose one of: {', '.join(self.catalog.names())}."
+                )
             )
             return "[ ]"
         nested_inputs = nested_inputs or {}

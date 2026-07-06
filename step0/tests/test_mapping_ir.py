@@ -369,6 +369,17 @@ def test_validate_constant_args() -> None:
     assert any("'tabel'" in i and "table" in i for i in issues)
 
 
+def test_validate_type_cast_pseudo_function_gets_drop_guidance() -> None:
+    """The live invention: function: str on every literal property (a type
+    cast). Not a typo of any menu entry, so did-you-mean cannot steer it —
+    the message must say 'drop function: / use datatype:' explicitly."""
+    bad = MINIMAL.replace("column: name", "column: name\n        function: str")
+    issues = validate(bad, ["data.csv"], {"data.csv": ["id", "name"]})
+    assert any("is a type, not a Tier-0 function" in i for i in issues)
+    assert any("DROP the 'function:' line" in i for i in issues)
+    assert any("datatype: xsd:" in i for i in issues)
+
+
 def test_validate_transform_rules() -> None:
     multival = MINIMAL.replace(
         "classes: [ex:Thing]",

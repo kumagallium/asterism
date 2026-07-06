@@ -122,6 +122,7 @@ _RE_IR_UNKNOWN_FIELD = re.compile(r"unknown field '([^']+)'")
 _RE_IR_FN_PLUS_TEMPLATE = re.compile(r"\(([^)]+)\): 'function' cannot be combined")
 _RE_IR_FN_NEEDS_COLUMN = re.compile(r"\(([^)]+)\)\.function requires 'column'")
 _RE_IR_CARDINALITY = re.compile(r"'([^']+)' carries a cardinality marker")
+_RE_IR_TYPE_CAST = re.compile(r"'([^']+)' is a type, not a Tier-0 function")
 
 # Message stems that mean the validator ENVIRONMENT is broken (missing rdflib /
 # unimportable Tier-0 registry), NOT that the LLM made a mistake. The loop bails on
@@ -164,6 +165,8 @@ def classify(message: str) -> Issue:
         return Issue("function", f"{mm.group(1)}/-column", m)
     if (mm := _RE_IR_CARDINALITY.search(m)):
         return Issue("structural", f"cardinality/{mm.group(1)}", m)
+    if (mm := _RE_IR_TYPE_CAST.search(m)):
+        return Issue("function", f"typecast/{mm.group(1)}", m)
     # assert_rml_safe shapes
     if "outside the closed Tier 0 set" in m:
         return Issue("function-set", _fn_set_subject(m), m)
