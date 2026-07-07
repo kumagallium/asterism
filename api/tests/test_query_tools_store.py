@@ -321,3 +321,96 @@ def test_run_unknown_tool_is_404(tmp_path: Path, healthy_client: OxigraphClient)
     assert (
         client.post(f"/api/datasets/{ds}/tools/nope/run", json={"args": {}}).status_code == 404
     )
+
+
+# --- lint gate (the query_tools counterpart of the RML design checks) --------
+
+# The exact bug shape observed in production: an AI-drafted tool that uses
+# prov: without declaring it. It parses as a "declaration" (read-only, sane
+# placeholders) but every execution dies with an opaque store 400.
+BROKEN_PREFIX_TOOL = {
+    "name": "high_zt_materials",
+    "title": "ZT curves",
+    "query": (
+        "PREFIX sd: <https://ex/sd#>\n"
+        "SELECT ?c ?t WHERE { ?c a sd:Curve ; prov:generatedAtTime ?t . "
+        "FILTER(CONTAINS(STR(?c), {{q}})) } LIMIT 5"
+    ),
+    "parameters": [{"name": "q", "type": "string", "required": True}],
+}
+
+
+def test_broken_prefix_tool_is_400_with_reason_and_not_saved(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    client = _client(tmp_path, healthy_client)
+    ds = _seed_dataset(tmp_path / "registry")
+    r = client.post(f"/api/datasets/{ds}/tools", json=BROKEN_PREFIX_TOOL)
+    assert r.status_code == 400
+    assert "prov:" in r.json()["detail"]  # actionable reason, not an opaque 400
+    assert client.get(f"/api/datasets/{ds}/tools").json()["tools"] == []
+
+
+def test_save_surfaces_lint_warnings_but_saves(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    # A filter over a variable no pattern binds is legal SPARQL (parses fine)
+    # but can never match — the save succeeds and tells the reviewer.
+    tool = {
+        "name": "suspicious",
+        "title": "S",
+        "query": (
+            "SELECT ?s WHERE { ?s a <https://ex/C> . "
+            "FILTER(CONTAINS(STR(?ghost), {{q}})) } LIMIT 5"
+        ),
+        "parameters": [{"name": "q", "type": "string", "required": True}],
+    }
+    client = _client(tmp_path, healthy_client)
+    ds = _seed_dataset(tmp_path / "registry")
+    r = client.post(f"/api/datasets/{ds}/tools", json=tool)
+    assert r.status_code == 200, r.text
+    assert any("?ghost" in w for w in r.json()["warnings"])
+    assert [t["name"] for t in client.get(f"/api/datasets/{ds}/tools").json()["tools"]] == [
+        "suspicious"
+    ]
+
+
+def test_propose_flags_undeclared_prefix_draft(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    # The draft passes parse_query_tools (it IS read-only with sane placeholders)
+    # but the lint gate marks it invalid NOW, so the reviewer sees the defect
+    # before trying to save.
+    draft = json.dumps(BROKEN_PREFIX_TOOL)
+    client = _client_with_llm(tmp_path, healthy_client, _DraftLLM(draft))
+    ds = _seed_dataset(tmp_path / "registry")
+    body = client.post(
+        f"/api/datasets/{ds}/tools/propose", json={"intent": "x"}, headers={"X-API-Key": "sk"}
+    ).json()
+    assert body["valid"] is False
+    assert "prov:" in body["error"]
+
+
+def test_run_pre_gate_broken_tool_is_400_with_lint_detail(tmp_path: Path) -> None:
+    # A broken tool saved BEFORE this gate existed (the production incident):
+    # the store rejects the rendered query; the endpoint must answer 400 with
+    # the lint reason — not a bare 502 "Bad Request" the Ask agent cannot act on.
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = request.content.decode()
+        if "prov:" in body:
+            return httpx.Response(400, text="error at 2:30: Prefix not found")
+        return httpx.Response(
+            200,
+            text=json.dumps({"head": {"vars": []}, "results": {"bindings": []}}),
+            headers={"content-type": "application/sparql-results+json"},
+        )
+
+    inner = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://test")
+    rejecting = OxigraphClient(OxigraphConfig(base_url="http://test"), client=inner)
+    client = _run_client(tmp_path, rejecting)
+    ds = _seed_dataset(tmp_path / "registry")
+    registry.save_query_tool(tmp_path / "registry", ds, BROKEN_PREFIX_TOOL)  # bypass the gate
+    r = client.post(f"/api/datasets/{ds}/tools/high_zt_materials/run", json={"args": {"q": "zt"}})
+    assert r.status_code == 400
+    detail = r.json()["detail"]
+    assert "prov:" in detail and "query_tools.yaml" in detail

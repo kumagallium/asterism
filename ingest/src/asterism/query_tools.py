@@ -22,10 +22,22 @@ Safety: parameters are serialized per their declared type (string -> escaped
 literal, number/integer -> validated+clamped numeric, iri -> validated <IRI>,
 enum -> whitelist), so a value can never inject SPARQL. Templates are validated
 read-only (SELECT/ASK, no update forms) at load time.
+
+Quality gate (:func:`lint_query_tool`): the RML path learned that an LLM-drafted
+artifact must be verified *before* it is stored, with the same parser the
+execution engine uses — otherwise the authoring mistake surfaces as an opaque
+runtime failure (observed live: a drafted tool used ``prov:generatedAtTime``
+without declaring the prefix; it saved fine and then every Ask call died with an
+Oxigraph ``400``). The lint renders the template with placeholder arguments and
+parses it with pyoxigraph (same parser as the store), plus deterministic checks
+(undeclared prefixes, filter-only variables). Save/propose paths gate on it;
+loading is *lenient* (a broken declaration is skipped with a warning, never
+taking the whole typed surface down with it).
 """
 from __future__ import annotations
 
 import contextlib
+import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -34,7 +46,9 @@ from typing import Any
 import yaml
 
 from asterism.datasets import datasets_root
-from asterism.substrate import canonical_merge_query
+from asterism.substrate import _scan_view, canonical_merge_query
+
+_log = logging.getLogger(__name__)
 
 # Update-form keywords — a declared template must be a read-only SELECT/ASK.
 _UPDATE_FORM = re.compile(
@@ -186,12 +200,39 @@ def parse_query_tools(data: Any) -> list[QueryTool]:
     return tools
 
 
+def parse_query_tools_lenient(data: Any) -> tuple[list[QueryTool], list[str]]:
+    """Parse per-tool, skipping broken declarations instead of failing the bundle.
+
+    Returns ``(tools, issues)`` where each issue names the skipped tool and why.
+    Strictness lives at *save* time (:func:`parse_query_tools` + the lint gate);
+    at *load* time one broken declaration must not take down every other typed
+    tool of the dataset — availability of the vetted surface wins.
+    """
+    tools_raw = (data or {}).get("tools", []) if isinstance(data, dict) else []
+    tools: list[QueryTool] = []
+    issues: list[str] = []
+    seen: set[str] = set()
+    for raw in tools_raw:
+        label = raw.get("name", "?") if isinstance(raw, dict) else "?"
+        try:
+            tool = parse_query_tools({"tools": [raw]})[0]
+            if tool.name in seen:
+                raise QueryToolError(f"duplicate tool name: {tool.name!r}")
+            seen.add(tool.name)
+            tools.append(tool)
+        except QueryToolError as exc:
+            issues.append(f"tool {label!r}: {exc}")
+    return tools, issues
+
+
 def load_query_tools(name: str, root: Path | str | None = None) -> list[QueryTool]:
     """Load dataset ``name``'s declared query tools, or ``[]`` if none.
 
-    Best-effort on a *missing* file (returns ``[]``, mirroring ``load_dataset``),
-    but a *malformed* declaration raises :class:`QueryToolError` — a broken
-    content file is an authoring bug we want surfaced, not silently dropped.
+    Best-effort on a *missing* file (returns ``[]``, mirroring ``load_dataset``)
+    AND on a malformed declaration: broken tools are skipped with a logged
+    warning (see :func:`parse_query_tools_lenient`). The authoring bug is
+    surfaced where it belongs — at save/propose time by the strict parse + lint
+    gate — not by killing the whole dataset's typed surface at load.
     """
     base = Path(root) if root is not None else datasets_root()
     if base is None:
@@ -199,8 +240,15 @@ def load_query_tools(name: str, root: Path | str | None = None) -> list[QueryToo
     path = base / name / "query_tools.yaml"
     if not path.is_file():
         return []
-    data = yaml.safe_load(path.read_text(encoding="utf-8"))
-    return parse_query_tools(data)
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        _log.warning("query_tools[%s]: unreadable YAML, skipping bundle: %s", name, exc)
+        return []
+    tools, issues = parse_query_tools_lenient(data)
+    for msg in issues:
+        _log.warning("query_tools[%s]: skipped %s", name, msg)
+    return tools
 
 
 def available_datasets(root: Path | str | None = None) -> list[str]:
@@ -315,6 +363,188 @@ def render_query(tool: QueryTool, args: dict[str, Any]) -> str:
 
 
 # ----------------------------------------------------------------------------
+# Lint — the save-time quality gate (schema-agnostic, engine-parser-true)
+# ----------------------------------------------------------------------------
+
+# ``PREFIX foo:`` declarations (SPARQL, case-insensitive; group 1 = prefix label,
+# None for the empty prefix). Scanned on a _scan_view so literals/IRIs/comments
+# cannot fake one.
+_PREFIX_DECL = re.compile(r"(?i)\bPREFIX\s+([A-Za-z][\w.-]*)?\s*:")
+# A prefixed-name USE like ``sd:Curve`` / ``xsd:float``. The lookbehind keeps us
+# off variables (?x), IRIs (scrubbed anyway), and double-colon artifacts.
+_PNAME_USE = re.compile(r"(?<![\w:<?$-])([A-Za-z][\w.-]*):")
+_FILTER_KW = re.compile(r"(?i)\bFILTER\b")
+_VAR = re.compile(r"[?$](\w+)")
+
+
+@dataclass(frozen=True)
+class QueryToolLint:
+    """Outcome of :func:`lint_query_tool`.
+
+    ``errors`` are defects that WILL fail at execution time (broken syntax,
+    undeclared prefix) — save paths must reject on them. ``warnings`` are
+    almost-certainly-bugs that still parse (e.g. a variable used only inside a
+    FILTER, so the filter can never match) — save paths surface them for the
+    human vet but do not block.
+    """
+
+    errors: tuple[str, ...] = ()
+    warnings: tuple[str, ...] = ()
+
+    @property
+    def ok(self) -> bool:
+        return not self.errors
+
+
+def _placeholder_value(p: ToolParam) -> Any:
+    """A type-correct dummy value for rendering the template at lint time."""
+    if p.default is not None:
+        return p.default
+    if p.type == "integer":
+        with contextlib.suppress(TypeError, ValueError):
+            if p.minimum is not None:
+                return int(p.minimum)
+        return 1
+    if p.type == "number":
+        with contextlib.suppress(TypeError, ValueError):
+            if p.minimum is not None:
+                return float(p.minimum)
+        return 0.0
+    if p.type == "iri":
+        return "http://example.invalid/lint"
+    if p.type == "enum":
+        return p.enum[0] if p.enum else "lint"
+    return "lint"
+
+
+def _render_variants(tool: QueryTool) -> list[str]:
+    """Render the template in the shapes execution can produce.
+
+    Two variants cover every section state a caller can reach: all parameters
+    provided (every ``{{#p}}`` block kept) and only required parameters provided
+    (optional blocks dropped, ``{{^p}}`` inverse blocks kept).
+    """
+    full = {p.name: _placeholder_value(p) for p in tool.params}
+    variants = [render_query(tool, full)]
+    minimal = {p.name: _placeholder_value(p) for p in tool.params if p.required}
+    if minimal != full:
+        variants.append(render_query(tool, minimal))
+    return variants
+
+
+def _undeclared_prefixes(rendered: str) -> list[str]:
+    """Prefix labels used as ``label:name`` but never declared with PREFIX."""
+    view = _scan_view(rendered)
+    declared: set[str] = set()
+
+    def _blank(m: re.Match[str]) -> str:
+        declared.add(m.group(1) or "")
+        return " " * len(m.group(0))
+
+    scrubbed = _PREFIX_DECL.sub(_blank, view)
+    used = {m.group(1) for m in _PNAME_USE.finditer(scrubbed)}
+    return sorted(u for u in used if u not in declared)
+
+
+def _sparql_syntax_error(rendered: str) -> str | None:
+    """Parse ``rendered`` with the SAME engine the store runs (pyoxigraph).
+
+    An empty in-memory store makes this a pure parse+plan check (milliseconds),
+    with zero dialect gap to the real Oxigraph — the exact property that made
+    the observed prefix bug reach production. Returns the parser message, or
+    None if the query is well-formed (or pyoxigraph is unavailable, in which
+    case the deterministic checks still stand).
+    """
+    try:
+        import pyoxigraph
+    except ImportError:  # pragma: no cover - dependency is declared, belt+braces
+        return None
+    try:
+        pyoxigraph.Store().query(rendered)
+    # pyoxigraph 0.4+ raises SyntaxError; the 0.3 line (pinned by morph-kgc)
+    # raises ValueError for the same parse failures.
+    except (SyntaxError, ValueError) as exc:
+        return str(exc)
+    except Exception:  # pragma: no cover - non-syntax store issues are not lint's
+        return None
+    return None
+
+
+def _filter_only_vars(rendered: str) -> list[str]:
+    """Variables that appear ONLY inside FILTER(...) — never bound by a pattern.
+
+    Legal SPARQL, but the filter can never match (observed live in an AI-drafted
+    tool: ``FILTER(CONTAINS(LCASE(?comments), ...))`` with no ``?comments``
+    triple). ``FILTER EXISTS { ... }`` blocks are skipped — they bind patterns.
+    """
+    view = _scan_view(rendered)
+    spans: list[tuple[int, int]] = []
+    for m in _FILTER_KW.finditer(view):
+        i = view.find("(", m.end())
+        if i == -1:
+            continue
+        between = view[m.end() : i]
+        if "{" in between or re.search(r"(?i)\bEXISTS\b", between):
+            continue
+        depth, j = 0, i
+        while j < len(view):
+            if view[j] == "(":
+                depth += 1
+            elif view[j] == ")":
+                depth -= 1
+                if depth == 0:
+                    break
+            j += 1
+        spans.append((i, j + 1))
+    in_filter: set[str] = set()
+    for a, b in spans:
+        in_filter |= {m.group(1) for m in _VAR.finditer(view[a:b])}
+    outside = list(view)
+    for a, b in spans:
+        outside[a:b] = " " * (b - a)
+    out_vars = {m.group(1) for m in _VAR.finditer("".join(outside))}
+    return sorted(in_filter - out_vars)
+
+
+def lint_query_tool(tool: QueryTool) -> QueryToolLint:
+    """Lint one parsed tool: will its template actually run against the store?
+
+    This is the query_tools counterpart of the RML design checks
+    (``asterism.rml_validate``): deterministic, vocabulary-agnostic, and run
+    BEFORE the artifact is persisted, so an authoring mistake (human or
+    LLM-drafted) surfaces as an actionable message at save time instead of an
+    opaque store error at ask time.
+    """
+    try:
+        variants = _render_variants(tool)
+    except QueryToolError as exc:
+        return QueryToolLint(errors=(f"template cannot be rendered: {exc}",))
+    errors: list[str] = []
+    warnings: list[str] = []
+    for rendered in variants:
+        missing = _undeclared_prefixes(rendered)
+        if missing:
+            for p in missing:
+                msg = f"uses prefix '{p}:' without a PREFIX declaration"
+                if msg not in errors:
+                    errors.append(msg)
+        else:
+            err = _sparql_syntax_error(rendered)
+            if err:
+                msg = f"SPARQL syntax error: {err}"
+                if msg not in errors:
+                    errors.append(msg)
+        for v in _filter_only_vars(rendered):
+            msg = (
+                f"variable ?{v} is used only inside FILTER and never bound by a "
+                "graph pattern — that filter can never match"
+            )
+            if msg not in warnings:
+                warnings.append(msg)
+    return QueryToolLint(errors=tuple(errors), warnings=tuple(warnings))
+
+
+# ----------------------------------------------------------------------------
 # Execution (read-only, via the canonical FROM-merge)
 # ----------------------------------------------------------------------------
 
@@ -348,8 +578,29 @@ async def run_query_tool(
     """
     max_rows = max(1, min(int(max_rows), 2000))
     sparql = render_query(tool, args)
-    effective = await canonical_merge_query(client, sparql)
-    raw = await client.sparql_select(effective)
+    try:
+        effective = await canonical_merge_query(client, sparql)
+    except ValueError as exc:
+        # The canonical read scope rejected the template (e.g. a GRAPH pattern
+        # with no canonical graphs published yet) — a content/state problem the
+        # caller can act on, not an opaque server failure.
+        raise QueryToolError(f"tool {tool.name!r}: {exc}") from exc
+    try:
+        raw = await client.sparql_select(effective)
+    except Exception as exc:
+        # If the template itself is broken (a pre-gate saved tool, or content
+        # edited out-of-band), say WHY instead of leaking a bare store 400 —
+        # the Ask agent relays this message to the user. A clean-linting
+        # template that still fails is a real store/transport problem: re-raise
+        # so callers keep treating it as a 5xx.
+        lint = lint_query_tool(tool)
+        if lint.errors:
+            raise QueryToolError(
+                f"tool {tool.name!r}: broken SPARQL template "
+                f"({'; '.join(lint.errors)}) — fix the dataset's query_tools.yaml; "
+                f"store said: {exc}"
+            ) from exc
+        raise
     results = raw.get("results", {}) if isinstance(raw, dict) else {}
     bindings = results.get("bindings", []) if isinstance(results, dict) else []
     truncated = len(bindings) > max_rows
