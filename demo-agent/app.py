@@ -9,11 +9,11 @@ Two modes:
 - **mock** (default): returns fixtures so the UI can build against the
   contract with zero backend deps.
 - **real**: set ``CSV2RDF_OXIGRAPH_URL`` to query a live Oxigraph through the
-  asterism typed MCP tools (sample_search / property_ranking / provenance_of)
-  and compose a grounded answer *deterministically* — no LLM, fully
-  reproducible, which is exactly the sovereignty/reproducibility story the
-  demo wants. An LLM can be slotted into the ``_compose_*`` helpers later for
-  free-form questions without changing the contract.
+  datasets' DECLARED query tools (each dataset's ``query_tools.yaml``, run by
+  the schema-agnostic engine ``asterism.query_tools``) and compose a grounded
+  answer *deterministically* — no LLM, fully reproducible, which is exactly
+  the sovereignty/reproducibility story the demo wants. No dataset is special:
+  starrydata's tools are content like everyone else's (#20 P4).
 
 Contract (also in ../handoff_to_claude_code_arise_demo.md §3):
     POST /demo/ask        -> {answer, citations[], notes[]}
@@ -304,8 +304,8 @@ def _compose_search(comp: str | None, res: dict) -> dict:
 # ---------------------------------------------------------------------------
 # With a user-brought key, an LLM does the routing instead of a brittle keyword
 # matcher: it introspects the live vocabulary via schema_summary and PICKS the
-# right read-only tool per question — the DETERMINISTIC typed tools
-# (property_ranking / sample_search: cited, with data-quality notes) when a
+# right read-only tool per question — the DETERMINISTIC declared tools of every
+# dataset (cited, human-vetted content — no dataset is special) when a
 # question fits one, or raw read-only SPARQL (run_sparql) for anything else
 # (cross-dataset joins, correlations, custom shapes). It composes a grounded answer
 # with citations from the actual results. Still an escape per the product direction
@@ -359,51 +359,6 @@ _SUBMIT_ANSWER_TOOL = {
     },
 }
 
-# Typed tools exposed to the LLM so it can PICK the deterministic, cited path when
-# a question fits one (instead of a brittle keyword router deciding for it). For
-# anything the typed tools don't cover (cross-dataset joins, correlations, custom
-# shapes) the LLM falls back to run_sparql. This is P4-2b: the LLM does the routing.
-_PROPERTY_RANKING_TOOL = {
-    "name": "property_ranking",
-    "description": (
-        "DETERMINISTIC, CITED ranking of measured curves by a y-axis property "
-        "(e.g. 'ZT', 'Seebeck coefficient'). Returns the top items with value + "
-        "composition + citable IRIs, and EXCLUDES physically-implausible outliers "
-        "(reported as excluded_implausible — a data-quality signal worth mentioning). "
-        "PREFER this over run_sparql for a plain 'highest / top-N by <property>' "
-        "question within one dataset."
-    ),
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "property_y": {"type": "string", "description": "exact propertyY value, e.g. 'ZT'"},
-            "top_n": {"type": "integer", "description": "default 10"},
-            "max_plausible": {
-                "type": "number",
-                "description": "exclude values above this (e.g. 3.5 for ZT)",
-            },
-        },
-        "required": ["property_y"],
-    },
-}
-
-_SAMPLE_SEARCH_TOOL = {
-    "name": "sample_search",
-    "description": (
-        "DETERMINISTIC, CITED search of samples by composition substring and/or by "
-        "a measured property, returning citable sample IRIs + composition + paper "
-        "title. PREFER this for 'samples with composition X' or 'samples that have a "
-        "<property> curve' within one dataset."
-    ),
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "composition": {"type": "string", "description": "composition substring, e.g. 'SnSe'"},
-            "property_y": {"type": "string", "description": "require a curve of this propertyY"},
-        },
-    },
-}
-
 _ASK_SYSTEM = """\
 You answer questions over an RDF graph that may span MULTIPLE datasets. You have
 deterministic typed tools AND raw read-only SPARQL — YOU choose which fits the
@@ -412,13 +367,16 @@ lists the classes, predicates, and per-class predicate shapes that ACTUALLY exis
 in the store, with usage counts.
 
 Choosing a tool:
-- A plain 'highest / top-N by <property>' question -> property_ranking (it is
-  deterministic, cites IRIs, and reports excluded outliers). Mention the
-  excluded_implausible count if it is > 0.
-- 'samples with composition X' / 'samples that have a <property> curve' ->
-  sample_search.
+- Every dataset publishes its own VERIFIED typed tools, named
+  `<dataset>__<tool>` and described as [verified · dataset:...]. PREFER a
+  verified tool whenever the question fits its description — they are
+  deterministic, human-vetted, and return citable IRIs. No dataset is special;
+  read the tool descriptions to see what each one answers.
+- Data-quality honesty: if a verified ranking tool takes a plausibility-cap
+  parameter (e.g. max_plausible), consider calling it once WITHOUT the cap too,
+  and mention any physically-implausible outliers you excluded.
 - ANYTHING ELSE — cross-dataset joins, correlations between two things, custom
-  shapes — write SPARQL and run_sparql.
+  shapes, or a question no verified tool covers — write SPARQL and run_sparql.
 
 Cross-dataset joins (IMPORTANT): datasets can relate by shared literal VALUES, not
 only by predicates. For example a starrydata `compositionString` may EQUAL a
@@ -568,9 +526,11 @@ def _param_json_schema(p) -> dict:
     return base
 
 
-def _content_tool_defs(exclude: set[str] | None = None) -> tuple[list[dict], dict]:
-    """Anthropic tool defs for every dataset's declared query tools, EXCEPT the
-    excluded datasets (starrydata keeps its richer hardcoded tools).
+def _content_tool_defs() -> tuple[list[dict], dict]:
+    """Anthropic tool defs for EVERY dataset's declared query tools — no dataset
+    is special (starrydata's tools are content in datasets/starrydata/ like
+    everyone else's; the last hardcoded per-vocabulary tools left this file
+    with the ask-generic-tools change).
 
     Returns ``(defs, registry)`` with ``registry[name] = (dataset, QueryTool)``.
     The engine knows no vocabulary; tools come from each dataset's
@@ -579,7 +539,6 @@ def _content_tool_defs(exclude: set[str] | None = None) -> tuple[list[dict], dic
     """
     from asterism.query_tools import load_all_query_tools
 
-    exclude = exclude or set()
     defs: list[dict] = []
     registry: dict[str, tuple] = {}
     # Tools come from BOTH the repo example datasets (datasets/<name>/) AND the
@@ -592,8 +551,6 @@ def _content_tool_defs(exclude: set[str] | None = None) -> tuple[list[dict], dic
         with contextlib.suppress(Exception):
             sources.update(load_all_query_tools(reg_root))
     for dataset, qts in sources.items():
-        if dataset in exclude:
-            continue
         for qt in qts:
             name = f"{dataset}__{qt.name}"
             defs.append(
@@ -620,8 +577,8 @@ async def _llm_answer_via(
     api_base: str | None,
 ) -> tuple[dict, dict]:
     """Schema-grounded LLM agent: it PICKS among the deterministic VERIFIED tools
-    (starrydata property_ranking / sample_search + every other dataset's declared
-    query tools, e.g. Materials Project's structure_by_composition) and raw
+    (every dataset's declared query tools — starrydata's property_ranking and
+    Materials Project's structure_by_composition alike, all content) and raw
     read-only SPARQL (run_sparql, the unverified escape), grounding the answer in
     real results (P4-2b — the LLM does the routing).
 
@@ -634,32 +591,21 @@ async def _llm_answer_via(
     access is read-only, so the LLM cannot mutate the store.
     """
     from asterism.query_tools import run_query_tool
-    from asterism_mcp.tools import (
-        property_ranking,
-        sample_search,
-        schema_summary,
-        sparql_query,
-    )
+    from asterism_mcp.tools import schema_summary, sparql_query
 
     client = _client()
     schema = await schema_summary(
         client, max_classes=40, max_predicates=80, predicates_per_class=15
     )
     system = _ASK_SYSTEM % _render_schema(schema)
-    # starrydata keeps its richer hardcoded tools (property_ranking carries the
-    # excluded_implausible data-quality count); every OTHER dataset's declared
-    # query_tools.yaml is also offered, so e.g. Materials Project's
-    # structure_by_composition / thermoelectric_structure route as VERIFIED tools
-    # rather than the unverified SPARQL escape. New datasets appear here for free.
-    content_defs, content_registry = _content_tool_defs(exclude={"starrydata"})
+    # EVERY dataset's declared query_tools.yaml routes as a VERIFIED tool —
+    # starrydata included (its tools are content in datasets/starrydata/, not
+    # engine code). New datasets appear here for free; none is privileged.
+    content_defs, content_registry = _content_tool_defs()
     # Exposure profile: when raw SPARQL is withheld, give the LLM ONLY the typed
-    # tools (hardcoded + declared content) and tell it so — it must answer from
-    # them or honestly decline, never attempt run_sparql (which it does not have).
-    tools = [
-        _PROPERTY_RANKING_TOOL,
-        _SAMPLE_SEARCH_TOOL,
-        *content_defs,
-    ]
+    # tools (the declared content) and tell it so — it must answer from them or
+    # honestly decline, never attempt run_sparql (which it does not have).
+    tools = [*content_defs]
     if _EXPOSE_RAW_SPARQL:
         tools.append(_RUN_SPARQL_TOOL)
     else:
@@ -692,28 +638,6 @@ async def _llm_answer_via(
                 # plain SELECT to read the cross-dataset canonical FROM-merge (#20),
                 # so the user sees the real, reproducible query string.
                 used_sparql.append(result.get("effective_query") or q)
-                return result
-            if name == "property_ranking":
-                result = await property_ranking(
-                    client,
-                    property_y=inp.get("property_y", ""),
-                    top_n=int(inp.get("top_n") or 10),
-                    max_plausible=inp.get("max_plausible"),
-                )
-                verified_used.append(
-                    {"dataset": "starrydata", "name": "property_ranking", "title": "property_ranking"}
-                )
-                return result
-            if name == "sample_search":
-                result = await sample_search(
-                    client,
-                    composition=inp.get("composition"),
-                    property_y=inp.get("property_y"),
-                    limit=20,
-                )
-                verified_used.append(
-                    {"dataset": "starrydata", "name": "sample_search", "title": "sample_search"}
-                )
                 return result
             if name in content_registry:
                 # A declared (verified) query tool from another dataset, e.g.
@@ -884,21 +808,40 @@ async def _openai_agent_loop(
 # ---------------------------------------------------------------------------
 
 
-async def _typed_answer(question: str) -> dict:
-    """The deterministic starrydata-shaped path (no LLM). Returns NO citations when
-    the question does not fit the typed tools — that is the signal for ``ask`` to
-    fall through to the LLM escape.
+async def _run_declared_tool(dataset: str, tool_name: str, args: dict) -> dict | None:
+    """Run one of ``dataset``'s DECLARED query tools through the engine.
 
-    Crucially, the typed path only "answers" when the router extracted a concrete
-    argument (a property to rank, or a composition to search). A bare
-    ``sample_search(composition=None)`` matches *every* sample, so it would always
-    return citations and thus permanently block the LLM fallback — any question
-    without a ZT/Seebeck keyword or a formula token would get the same arbitrary
-    "all samples" list. So when nothing concrete was extracted we return empty and
-    let the escape (or the no-key hint) handle it.
+    Same loader + FROM-merge execution the LLM routing and the MCP surface use
+    (repo datasets/ first, then the workbench registry) — the demo path holds no
+    vocabulary of its own. Returns ``run_query_tool``'s shape, or None when the
+    dataset declares no such tool (the caller falls through gracefully).
     """
-    from asterism_mcp.tools import property_ranking, sample_search
+    from asterism.query_tools import load_query_tools, run_query_tool
 
+    tools = {t.name: t for t in load_query_tools(dataset)}
+    reg_root = os.environ.get("CSV2RDF_REGISTRY_ROOT")
+    if tool_name not in tools and reg_root:
+        with contextlib.suppress(Exception):
+            tools.update({t.name: t for t in load_query_tools(dataset, reg_root)})
+    qt = tools.get(tool_name)
+    if qt is None:
+        return None
+    return await run_query_tool(_client(), qt, args, max_rows=50)
+
+
+async def _typed_answer(question: str) -> dict:
+    """The deterministic no-key showcase path (no LLM). Returns NO citations when
+    the question does not fit the demo's example tools — that is the signal for
+    ``ask`` to fall through to the LLM escape.
+
+    The router below is a deliberately crude keyword matcher for the DEMO's
+    example chips (a thermoelectrics subset); the tools it invokes are the
+    dataset's DECLARED query tools, not engine code — the engine stays
+    vocabulary-free. Crucially, the typed path only "answers" when the router
+    extracted a concrete argument (a property to rank, or a composition to
+    search); with nothing concrete we return empty and let the escape (or the
+    no-key hint) handle it, so this path never fabricates an "all samples" list.
+    """
     # Cross-dataset / crystal-structure / correlation questions are beyond the typed
     # tools (single-property ranking, composition search). Defer to the LLM escape —
     # which can join across datasets — instead of short-circuiting on a "ZT" keyword.
@@ -907,18 +850,47 @@ async def _typed_answer(question: str) -> dict:
 
     kind, arg, mp = _route(question)
     if kind == "rank" and arg:
-        rank = await property_ranking(
-            _client(), property_y=arg, top_n=10, max_plausible=mp
+        rank = await _run_declared_tool(
+            "starrydata",
+            "property_ranking",
+            {"property_y": arg, "top_n": 10, "max_plausible": mp}
+            if mp is not None
+            else {"property_y": arg, "top_n": 10},
         )
-        out = _compose_rank(rank)
+        if rank is None:
+            return {"answer": "", "citations": [], "notes": []}
+        # Data-quality honesty: the declared tool filters implausible values but
+        # (being one SELECT) cannot count what it dropped — run once WITHOUT the
+        # cap and count the outliers ourselves (deterministic, same engine).
+        excluded = 0
+        if mp is not None:
+            unfiltered = await _run_declared_tool(
+                "starrydata", "property_ranking", {"property_y": arg, "top_n": 100}
+            )
+            if unfiltered:
+                excluded = sum(
+                    1
+                    for i in unfiltered.get("items", [])
+                    if isinstance(i.get("value"), (int, float)) and i["value"] > mp
+                )
+        out = _compose_rank(
+            {
+                "property_y": arg,
+                "results": rank.get("items", []),
+                "excluded_implausible": excluded,
+                "max_plausible": mp,
+            }
+        )
         if out.get("citations"):
             out["verified_tools"] = [
                 {"dataset": "starrydata", "name": "property_ranking", "title": "property_ranking"}
             ]
         return out
     if kind == "search" and arg:
-        res = await sample_search(_client(), composition=arg, limit=20)
-        out = _compose_search(arg, res)
+        res = await _run_declared_tool("starrydata", "sample_search", {"composition": arg})
+        if res is None:
+            return {"answer": "", "citations": [], "notes": []}
+        out = _compose_search(arg, {"results": res.get("items", []), "count": res.get("count")})
         if out.get("citations"):
             out["verified_tools"] = [
                 {"dataset": "starrydata", "name": "sample_search", "title": "sample_search"}
@@ -942,7 +914,7 @@ async def ask(
         return _ASK_FIXTURE
 
     # P4-2b: with a key, the LLM does the routing — it PICKS among the deterministic
-    # typed tools (property_ranking / sample_search, which it can call for a clean
+    # typed tools (each dataset's declared query tools, which it can call for a clean
     # fit) and raw SPARQL (cross-dataset / anything else). This replaces the brittle
     # keyword router for exploration: a "ZT by crystal structure" question is no
     # longer short-circuited to a single-property ranking. The provider/model come

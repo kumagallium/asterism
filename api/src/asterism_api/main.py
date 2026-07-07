@@ -47,7 +47,12 @@ from asterism.ontology_projection import (
     project_model_yaml,
 )
 from asterism.oxigraph_client import OxigraphClient, OxigraphConfig
-from asterism.query_tools import QueryToolError, parse_query_tools, run_query_tool
+from asterism.query_tools import (
+    QueryToolError,
+    lint_query_tool,
+    parse_query_tools,
+    run_query_tool,
+)
 from asterism.starrydata import IngestConfig
 from asterism.watcher import (
     DEFAULT_GRAPH_PREFIX,
@@ -69,7 +74,6 @@ from asterism_step0.materialize import (
 )
 from asterism_step0.propose import LLMClient
 from asterism_step0.refine import refine_schema
-from asterism_step0.tool_propose import propose_query_tool
 from asterism_step0.validate import SchemaBundle, validate_schema
 from fastapi import (
     Depends,
@@ -89,6 +93,7 @@ from pydantic import BaseModel
 from asterism_api import design_loop, registry, server_keys
 from asterism_api import usage as usage_ledger
 from asterism_api.jobs import JobManager
+from asterism_api.tool_loop import ToolLoopResult, propose_tool_with_correction
 
 
 class RefineRequest(BaseModel):
@@ -148,10 +153,13 @@ class ToolProposeBody(BaseModel):
     the AI drafts a query tool for (P2). The draft is returned for human review,
     never auto-saved. ``language`` (i18next code, e.g. ``"ja"``) switches the
     draft's human-readable prose (title/description) — name/SPARQL/IRIs stay
-    English; absent = English (legacy)."""
+    English; absent = English (legacy). ``autocorrect=False`` is the kill-switch
+    for the self-correction loop (single LLM shot; the deterministic vet still
+    runs)."""
 
     intent: str
     language: str | None = None
+    autocorrect: bool = True
 
 
 class ToolRunBody(BaseModel):
@@ -2246,10 +2254,14 @@ def build_app(
         """Add/replace one query tool on a dataset (upsert by name).
 
         The submitted tool is validated with ``parse_query_tools`` (read-only
-        SELECT/ASK + safe ``{{placeholder}}`` binding) before it is persisted —
-        an invalid tool is 400, never saved. Saving IS the human-vet gate: a
-        person deliberately submits a tool they have reviewed (same trust model as
-        the Tier 0 function library; nothing is generated at runtime)."""
+        SELECT/ASK + safe ``{{placeholder}}`` binding) AND ``lint_query_tool``
+        (rendered-template parse with the store's own parser, undeclared-prefix
+        and filter-only-variable checks) before it is persisted — a tool that
+        would fail at execution time is 400 with the actionable reason, never
+        saved. Saving IS the human-vet gate: a person deliberately submits a
+        tool they have reviewed (same trust model as the Tier 0 function
+        library; nothing is generated at runtime). Lint *warnings* do not block
+        the save; they are returned for the reviewer."""
         if registry.load_dataset(cfg.registry_root, dataset_id) is None:
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
         tool = body.model_dump()
@@ -2257,10 +2269,14 @@ def build_app(
             parsed = parse_query_tools({"tools": [tool]})
         except QueryToolError as exc:
             raise HTTPException(400, f"invalid query tool: {exc}") from exc
+        lint = lint_query_tool(parsed[0])
+        if lint.errors:
+            raise HTTPException(400, "invalid query tool: " + "; ".join(lint.errors))
         registry.save_query_tool(cfg.registry_root, dataset_id, tool)
         return {
             "dataset_id": dataset_id,
             "saved": parsed[0].name,
+            "warnings": list(lint.warnings),
             "tools": registry.list_query_tools(cfg.registry_root, dataset_id),
         }
 
@@ -2294,11 +2310,15 @@ def build_app(
         """P2: AI-draft ONE query tool from a natural-language intent.
 
         The LLM (user-brought key, never stored) drafts a parameterized read-only
-        SPARQL tool grounded in this dataset's vocabulary (its model.yaml + MIE
-        examples). The draft is RETURNED FOR HUMAN REVIEW — it is validated with
-        the same ``parse_query_tools`` gate (``valid`` flag) but NOT saved; the
-        person reviews/edits it and saves it via ``POST .../tools`` (the human-vet
-        gate). The intent must be provided; the API key is required (LLM call)."""
+        SPARQL tool grounded in this dataset's vocabulary, then SELF-CORRECTS
+        against deterministic validation (parse + lint with the store's parser +
+        the RML-mapped closed vocabulary; ``asterism_api.tool_loop``) — up to 3
+        rounds, targeted defects + a closed-menu oracle fed back each time.
+        ``body.autocorrect=false`` limits it to a single shot (vet still runs).
+        The best draft is RETURNED FOR HUMAN REVIEW with its ``valid`` flag,
+        remaining ``warnings`` and per-round ``rounds`` record — it is NOT
+        saved; the person reviews/edits it and saves via ``POST .../tools``
+        (the human-vet gate). The API key is required (LLM call)."""
         data = registry.load_dataset(cfg.registry_root, dataset_id)
         if data is None:
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
@@ -2318,33 +2338,35 @@ def build_app(
             provider, model, api_base, key, max_tokens=_llm_max_tokens(x_llm_max_tokens)
         )
 
-        def run() -> dict:
-            return propose_query_tool(
+        def run() -> ToolLoopResult:
+            return propose_tool_with_correction(
                 llm,
                 intent=body.intent,
                 model_yaml=arts.get("model.yaml", "") or "",
                 mie_yaml=arts.get("mie.yaml", "") or "",
                 # The RML is the ground truth for the dataset's real namespaces +
-                # predicate/class IRIs — without it a seed dataset's stub model.yaml
-                # makes the LLM invent a placeholder namespace (a 0-row tool).
+                # predicate/class IRIs — the vocabulary oracle and the closed-set
+                # vet both derive from it.
                 rml_ttl=arts.get("mapping.rml.ttl", "") or "",
                 language=body.language,
+                max_rounds=3 if body.autocorrect else 1,
             )
 
         try:
-            draft = await asyncio.to_thread(run)
-        except Exception as exc:  # LLM/parse failure -> 502 with the reason
+            res = await asyncio.to_thread(run)
+        except Exception as exc:  # LLM failure with no draft -> 502 with the reason
             raise HTTPException(502, f"AI draft failed: {exc}") from exc
         await asyncio.to_thread(
             _record_llm_usage, cfg.registry_root, "tool.propose", provider, llm, model
         )
-
-        valid, error = True, None
-        try:
-            parse_query_tools({"tools": [draft]})
-        except QueryToolError as exc:
-            valid, error = False, str(exc)
-        return {"dataset_id": dataset_id, "draft": draft, "valid": valid, "error": error}
+        return {
+            "dataset_id": dataset_id,
+            "draft": res.draft,
+            "valid": res.valid,
+            "error": res.error,
+            "warnings": res.warnings,
+            "rounds": res.rounds,
+        }
 
     @app.post("/api/datasets/{dataset_id}/tools/{tool_name}/run")
     async def run_dataset_tool(
@@ -2377,9 +2399,13 @@ def build_app(
         client: OxigraphClient = app.state.client
         try:
             return await run_query_tool(client, tool, dict(body.args or {}))
-        except QueryToolError as exc:  # a bad/missing/typed-wrong argument
-            raise HTTPException(400, f"invalid argument: {exc}") from exc
-        except Exception as exc:  # surface Oxigraph errors to the UI
+        except QueryToolError as exc:
+            # A caller-actionable problem: bad/missing/typed-wrong argument, or
+            # a broken saved template (run_query_tool translates the store's
+            # parse failure into the lint detail). The message already names
+            # the tool and the cause.
+            raise HTTPException(400, str(exc)) from exc
+        except Exception as exc:  # a real store/transport failure stays a 5xx
             raise HTTPException(502, f"tool run failed: {exc}") from exc
 
     @app.post("/api/datasets/{dataset_id}/source", dependencies=_write_auth)

@@ -16,6 +16,12 @@ dependencies = [
     # read via a DTD) while still allowing the harmless JATS DOCTYPE declaration —
     # stdlib xml.etree does not protect against the former.
     "defusedxml>=0.7",
+    # query_tools lint gate: parse a declared SPARQL template with the SAME
+    # parser the store runs (rdflib's SPARQL parser accepts undeclared prefixes,
+    # so it cannot catch the class of bug this gate exists for). >=0.3 because
+    # morph-kgc (the substrate extra) pins pyoxigraph<0.4 — the parse API and
+    # error reporting we rely on exist in both lines.
+    "pyoxigraph>=0.3",
 ]
 
 [project.optional-dependencies]
