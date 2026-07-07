@@ -473,3 +473,78 @@ async def test_run_query_tool_reraises_when_template_is_clean() -> None:
 
     with pytest.raises(RuntimeError, match="connection refused"):
         await run_query_tool(_DownClient(), tool, {})
+
+
+# ---------------------------------------------------------------------------
+# vocabulary-aware lint (closed set extracted from the dataset's RML)
+# ---------------------------------------------------------------------------
+
+_VOCAB_RML = """
+@prefix rr: <http://www.w3.org/ns/r2rml#> .
+@prefix rml: <http://semweb.mmlab.be/ns/rml#> .
+@prefix sd: <https://ex/sd#> .
+@prefix schema: <https://schema.org/> .
+<#Curves> rml:logicalSource [ rml:source "curves.csv" ] ;
+  rr:subjectMap [ rr:template "https://ex/curve/{id}" ; rr:class sd:Curve ] ;
+  rr:predicateObjectMap [ rr:predicate sd:propertyY ; rr:objectMap [ rml:reference "prop" ] ] ;
+  rr:predicateObjectMap [ rr:predicate schema:name ; rr:objectMap [ rml:reference "name" ] ] .
+"""
+
+
+def test_extract_rml_vocabulary_prefixes_and_terms() -> None:
+    from asterism.rml_validate import extract_rml_vocabulary
+
+    vocab = extract_rml_vocabulary(_VOCAB_RML)
+    assert vocab["prefixes"]["sd"] == "https://ex/sd#"
+    assert "https://ex/sd#Curve" in vocab["terms"]
+    assert "https://ex/sd#propertyY" in vocab["terms"]
+    assert "https://schema.org/name" in vocab["terms"]
+    # only DECLARED prefixes — no rdflib default-bound namespaces leak in
+    assert "brick" not in vocab["prefixes"]
+    # unparseable RML degrades to empty (caller then skips the oracle)
+    assert extract_rml_vocabulary("@prefix broken") == {"prefixes": {}, "terms": set()}
+
+
+def test_vocab_lint_flags_unmapped_term_not_mapped_ones() -> None:
+    from asterism.rml_validate import extract_rml_vocabulary
+
+    vocab = extract_rml_vocabulary(_VOCAB_RML)
+    # sd:yMax is a GUESSED predicate — plausible, but the RML never maps it
+    # (exactly the 0-row failure family observed in production).
+    doc = _doc(
+        "PREFIX sd: <https://ex/sd#>\n"
+        "SELECT ?c ?m WHERE { ?c a sd:Curve ; sd:propertyY ?p ; sd:yMax ?m } LIMIT 5"
+    )
+    tool = parse_query_tools(doc)[0]
+    lint = lint_query_tool(tool, vocabulary=vocab)
+    assert lint.ok  # syntactically fine — it would just return 0 rows
+    assert any("yMax" in w and "not mapped" in w for w in lint.warnings)
+    assert not any("propertyY" in w for w in lint.warnings)
+    # rdf:/xsd: style standard terms never trip the check
+    doc2 = _doc(
+        "PREFIX sd: <https://ex/sd#>\n"
+        "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
+        "SELECT ?c WHERE { ?c a sd:Curve . FILTER(xsd:integer(?c) > 0) } LIMIT 5"
+    )
+    lint2 = lint_query_tool(parse_query_tools(doc2)[0], vocabulary=vocab)
+    assert not any("XMLSchema" in w for w in lint2.warnings)
+
+
+def test_vocab_lint_flags_prefix_iri_drift() -> None:
+    from asterism.rml_validate import extract_rml_vocabulary
+
+    vocab = extract_rml_vocabulary(_VOCAB_RML)
+    # Same label, different IRI: every pattern matches nothing — say so.
+    doc = _doc(
+        "PREFIX sd: <https://example.org/other#>\n"
+        "SELECT ?c WHERE { ?c a sd:Curve } LIMIT 5"
+    )
+    lint = lint_query_tool(parse_query_tools(doc)[0], vocabulary=vocab)
+    assert any("binds" in w and "match nothing" in w for w in lint.warnings)
+
+
+def test_lint_without_vocabulary_unchanged() -> None:
+    # vocabulary=None (no RML available) keeps the base checks only.
+    doc = _doc("SELECT ?s WHERE { ?s a <https://anything/At/All> } LIMIT 1")
+    lint = lint_query_tool(parse_query_tools(doc)[0])
+    assert lint.ok and not lint.warnings
