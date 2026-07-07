@@ -47,7 +47,12 @@ from asterism.ontology_projection import (
     project_model_yaml,
 )
 from asterism.oxigraph_client import OxigraphClient, OxigraphConfig
-from asterism.query_tools import QueryToolError, parse_query_tools, run_query_tool
+from asterism.query_tools import (
+    QueryToolError,
+    lint_query_tool,
+    parse_query_tools,
+    run_query_tool,
+)
 from asterism.starrydata import IngestConfig
 from asterism.watcher import (
     DEFAULT_GRAPH_PREFIX,
@@ -2238,10 +2243,14 @@ def build_app(
         """Add/replace one query tool on a dataset (upsert by name).
 
         The submitted tool is validated with ``parse_query_tools`` (read-only
-        SELECT/ASK + safe ``{{placeholder}}`` binding) before it is persisted —
-        an invalid tool is 400, never saved. Saving IS the human-vet gate: a
-        person deliberately submits a tool they have reviewed (same trust model as
-        the Tier 0 function library; nothing is generated at runtime)."""
+        SELECT/ASK + safe ``{{placeholder}}`` binding) AND ``lint_query_tool``
+        (rendered-template parse with the store's own parser, undeclared-prefix
+        and filter-only-variable checks) before it is persisted — a tool that
+        would fail at execution time is 400 with the actionable reason, never
+        saved. Saving IS the human-vet gate: a person deliberately submits a
+        tool they have reviewed (same trust model as the Tier 0 function
+        library; nothing is generated at runtime). Lint *warnings* do not block
+        the save; they are returned for the reviewer."""
         if registry.load_dataset(cfg.registry_root, dataset_id) is None:
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
         tool = body.model_dump()
@@ -2249,10 +2258,14 @@ def build_app(
             parsed = parse_query_tools({"tools": [tool]})
         except QueryToolError as exc:
             raise HTTPException(400, f"invalid query tool: {exc}") from exc
+        lint = lint_query_tool(parsed[0])
+        if lint.errors:
+            raise HTTPException(400, "invalid query tool: " + "; ".join(lint.errors))
         registry.save_query_tool(cfg.registry_root, dataset_id, tool)
         return {
             "dataset_id": dataset_id,
             "saved": parsed[0].name,
+            "warnings": list(lint.warnings),
             "tools": registry.list_query_tools(cfg.registry_root, dataset_id),
         }
 
@@ -2332,11 +2345,25 @@ def build_app(
         )
 
         valid, error = True, None
+        warnings: list[str] = []
         try:
-            parse_query_tools({"tools": [draft]})
+            parsed_draft = parse_query_tools({"tools": [draft]})
         except QueryToolError as exc:
             valid, error = False, str(exc)
-        return {"dataset_id": dataset_id, "draft": draft, "valid": valid, "error": error}
+        else:
+            # Same gate the save endpoint enforces: tell the reviewer NOW that
+            # the draft would be rejected (or is suspicious), not at save time.
+            lint = lint_query_tool(parsed_draft[0])
+            warnings = list(lint.warnings)
+            if lint.errors:
+                valid, error = False, "; ".join(lint.errors)
+        return {
+            "dataset_id": dataset_id,
+            "draft": draft,
+            "valid": valid,
+            "error": error,
+            "warnings": warnings,
+        }
 
     @app.post("/api/datasets/{dataset_id}/tools/{tool_name}/run")
     async def run_dataset_tool(
@@ -2369,9 +2396,13 @@ def build_app(
         client: OxigraphClient = app.state.client
         try:
             return await run_query_tool(client, tool, dict(body.args or {}))
-        except QueryToolError as exc:  # a bad/missing/typed-wrong argument
-            raise HTTPException(400, f"invalid argument: {exc}") from exc
-        except Exception as exc:  # surface Oxigraph errors to the UI
+        except QueryToolError as exc:
+            # A caller-actionable problem: bad/missing/typed-wrong argument, or
+            # a broken saved template (run_query_tool translates the store's
+            # parse failure into the lint detail). The message already names
+            # the tool and the cause.
+            raise HTTPException(400, str(exc)) from exc
+        except Exception as exc:  # a real store/transport failure stays a 5xx
             raise HTTPException(502, f"tool run failed: {exc}") from exc
 
     @app.post("/api/datasets/{dataset_id}/source", dependencies=_write_auth)

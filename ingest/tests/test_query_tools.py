@@ -302,3 +302,174 @@ async def test_content_tool_joins_across_datasets() -> None:
     )
     assert out["count"] == 1
     assert out["items"][0]["title"] == "Cross paper"  # joined across A and B
+
+
+# ---------------------------------------------------------------------------
+# lint (the save-time quality gate) + lenient loading
+# ---------------------------------------------------------------------------
+
+from asterism.query_tools import (  # noqa: E402
+    lint_query_tool,
+    parse_query_tools_lenient,
+)
+
+# The exact shape of the bug observed in production (an AI-drafted tool saved
+# to a workbench dataset): prov: used without a PREFIX declaration -> every
+# execution died with an opaque Oxigraph 400; plus a FILTER over a variable no
+# pattern binds -> that branch can never match.
+_PROD_BUG_TOOL = {
+    "name": "high_zt_materials",
+    "query": """PREFIX sd: <https://ex/sd#>
+SELECT ?curve ?t WHERE {
+  ?curve a sd:MeasurementCurve ; sd:propertyY ?y ; prov:generatedAtTime ?t .
+  FILTER(CONTAINS(LCASE(?y), {{keyword}}))
+  {{#comp}}FILTER(CONTAINS(LCASE(?other), {{comp}})){{/comp}}
+}
+LIMIT 10""",
+    "parameters": [
+        {"name": "keyword", "type": "string", "default": "zt"},
+        {"name": "comp", "type": "string"},
+    ],
+}
+
+
+def test_lint_catches_undeclared_prefix_as_error() -> None:
+    tool = parse_query_tools({"tools": [_PROD_BUG_TOOL]})[0]
+    lint = lint_query_tool(tool)
+    assert not lint.ok
+    assert any("prov:" in e and "PREFIX" in e for e in lint.errors)
+
+
+def test_lint_flags_filter_only_variable_as_warning() -> None:
+    tool = parse_query_tools({"tools": [_PROD_BUG_TOOL]})[0]
+    lint = lint_query_tool(tool)
+    # ?other appears only inside the optional FILTER section
+    assert any("?other" in w for w in lint.warnings)
+
+
+def test_lint_catches_plain_syntax_error() -> None:
+    doc = _doc("SELECT ?s WHERE { ?s a <https://ex/C> . LIMIT 5")  # missing }
+    tool = parse_query_tools(doc)[0]
+    lint = lint_query_tool(tool)
+    assert not lint.ok
+    assert any("syntax" in e.lower() for e in lint.errors)
+
+
+def test_lint_clean_on_wellformed_template_with_sections() -> None:
+    doc = _doc(
+        """PREFIX sd: <https://ex/sd#>
+SELECT ?s ?v WHERE {
+  ?s a sd:Thing ; sd:value ?v .
+  {{#min_v}}FILTER(?v >= {{min_v}}){{/min_v}}
+}
+ORDER BY DESC(?v)
+LIMIT {{top_n}}""",
+        params=[
+            {"name": "min_v", "type": "number"},
+            {"name": "top_n", "type": "integer", "default": 10, "minimum": 1, "maximum": 100},
+        ],
+    )
+    tool = parse_query_tools(doc)[0]
+    lint = lint_query_tool(tool)
+    assert lint.ok and not lint.warnings
+
+
+def test_lint_accepts_filter_exists_block() -> None:
+    # FILTER EXISTS { ... } binds patterns — must not be treated as filter-only.
+    doc = _doc(
+        """PREFIX sd: <https://ex/sd#>
+SELECT ?s WHERE {
+  ?s a sd:Thing .
+  FILTER EXISTS { ?s sd:tag ?tag }
+}
+LIMIT 5"""
+    )
+    tool = parse_query_tools(doc)[0]
+    lint = lint_query_tool(tool)
+    assert lint.ok and not lint.warnings
+
+
+def test_shipped_dataset_content_lints_clean() -> None:
+    # Every query_tools.yaml shipped in datasets/ must pass its own gate.
+    from asterism.query_tools import available_datasets
+
+    for name in available_datasets():
+        for tool in load_query_tools(name):
+            lint = lint_query_tool(tool)
+            assert lint.ok, f"{name}/{tool.name}: {lint.errors}"
+            assert not lint.warnings, f"{name}/{tool.name}: {lint.warnings}"
+
+
+def test_parse_lenient_skips_broken_keeps_rest() -> None:
+    mixed = {
+        "tools": [
+            {"name": "good", "query": "SELECT ?s WHERE { ?s ?p ?o } LIMIT 1"},
+            {"name": "bad name!", "query": "SELECT ?s WHERE { ?s ?p ?o }"},
+            {"name": "good", "query": "ASK { ?s ?p ?o }"},  # duplicate -> skipped
+            {"name": "good2", "query": "ASK { ?s ?p ?o }"},
+        ]
+    }
+    tools, issues = parse_query_tools_lenient(mixed)
+    assert [t.name for t in tools] == ["good", "good2"]
+    assert len(issues) == 2
+
+
+def test_load_query_tools_skips_broken_tool_not_bundle(tmp_path) -> None:
+    d = tmp_path / "ds"
+    d.mkdir()
+    (d / "query_tools.yaml").write_text(
+        """
+tools:
+  - name: ok_tool
+    query: "SELECT ?s WHERE { ?s ?p ?o } LIMIT 1"
+  - name: broken tool name
+    query: "SELECT ?s WHERE { ?s ?p ?o }"
+""",
+        encoding="utf-8",
+    )
+    tools = load_query_tools("ds", tmp_path)
+    assert [t.name for t in tools] == ["ok_tool"]
+
+
+def test_load_query_tools_unreadable_yaml_returns_empty(tmp_path) -> None:
+    d = tmp_path / "ds"
+    d.mkdir()
+    (d / "query_tools.yaml").write_text("tools: [unclosed", encoding="utf-8")
+    assert load_query_tools("ds", tmp_path) == []
+
+
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+async def test_run_query_tool_translates_store_parse_failure() -> None:
+    # A saved-before-the-gate broken tool (the production incident): the store
+    # rejects the query; run_query_tool must say WHY (lint detail), not leak an
+    # opaque transport error, so the Ask agent can explain it honestly.
+    tool = parse_query_tools({"tools": [_PROD_BUG_TOOL]})[0]
+
+    class _RejectingClient:
+        async def sparql_select(self, query: str) -> dict:
+            if "MeasurementCurve" not in query:
+                return {"results": {"bindings": []}}  # canonical enumeration etc.
+            raise RuntimeError("400 Bad Request: error at 3:40 Prefix not found")
+
+    with pytest.raises(QueryToolError) as ei:
+        await run_query_tool(_RejectingClient(), tool, {"keyword": "zt"})
+    msg = str(ei.value)
+    assert "prov:" in msg and "query_tools.yaml" in msg
+
+
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+async def test_run_query_tool_reraises_when_template_is_clean() -> None:
+    # A clean-linting template that still fails is a store/transport problem —
+    # the original exception must surface (callers keep it a 5xx), not a
+    # misleading "broken template" message.
+    doc = _doc("SELECT ?s WHERE { ?s ?p ?o } LIMIT 1")
+    tool = parse_query_tools(doc)[0]
+
+    class _DownClient:
+        async def sparql_select(self, query: str) -> dict:
+            if "?s ?p ?o" not in query:
+                return {"results": {"bindings": []}}  # canonical enumeration etc.
+            raise RuntimeError("connection refused")
+
+    with pytest.raises(RuntimeError, match="connection refused"):
+        await run_query_tool(_DownClient(), tool, {})
