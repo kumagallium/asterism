@@ -104,12 +104,25 @@ single Markdown document with two top-level artifacts:
 - REUSE existing properties (`schema:author`, `dcterms:identifier`, etc.) —
   do not create new ones when a standard exists
 - Cardinality (0..1 / 0..* / 1..* ) derived from non_null_rate
+- ★ ENTITY LINKING (connectivity): when you design MORE THAN ONE entity class,
+  every entity MUST be reachable from the others through object properties —
+  join on the shared source key (a measurement links to the thing it measures,
+  a record links to its source document). Disconnected entities cannot answer
+  ANY cross-entity question ("the material with the highest measured value",
+  "which record came from which source"), which defeats the point of a graph.
+  The design must form ONE connected component unless the sources are truly
+  unrelated — and then §5 must say so explicitly.
 
 ### 4. JSON column strategy
 For each column flagged as `json-array` / `json-object`:
 - (a) Expand to nodes (e.g. author objects → Person nodes)
 - (b) Compress to literal (e.g. date_parts → xsd:date)
-- (c) Raw JSON literal + aggregates (e.g. x/y → JSON + xMin/xMax/yMin/yMax)
+- (c) Raw JSON literal + MANDATORY aggregates (e.g. x/y → JSON +
+  xMin/xMax/yMin/yMax via Tier-0 `float_array_max` / `float_array_min`).
+  A numeric series kept only as a JSON string is DEAD for querying — SPARQL
+  cannot rank or compare inside a literal, so every "highest/lowest X"
+  question becomes unanswerable. If a series column plausibly backs a
+  ranking/comparison question, the aggregate predicates are NOT optional.
 State the choice and justify
 
 ### 5. Design rationale (★ T7: mandatory)

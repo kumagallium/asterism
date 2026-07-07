@@ -51,6 +51,7 @@ mappings to reach zero issues (surfaced as ``coverage_dropped``, not blocked).
 """
 from __future__ import annotations
 
+import contextlib
 import re
 import tempfile
 from collections.abc import Callable
@@ -387,6 +388,11 @@ def _collect_rml_issues(rml_ttl: str, source_dir: Path) -> list[Issue]:
         issues.extend(classify(m) for m in exc.issues)
     except Exception as exc:
         raise _LoopEnvError(str(exc)) from exc
+    # Design-quality advisories (disconnected entities, …): not ingest-blocking,
+    # but exactly the kind of defect the corrective loop CAN fix — a weak model
+    # that transcribed each table into its own island gets told to add the join.
+    with contextlib.suppress(Exception):  # advisory — never fail the loop on it
+        issues.extend(classify(m) for m in substrate.design_advisories(prepared))
     return _dedup(issues)
 
 

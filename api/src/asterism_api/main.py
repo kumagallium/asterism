@@ -1426,30 +1426,38 @@ def _validate_design_at_materialize(
     raising, so a bad column / wrong function parameter surfaces at materialize (where
     the one-click "ask AI to fix" lives) without failing the save.
 
+    Also appends the source-independent ``design_advisories`` (e.g. disconnected
+    entities — a mapping whose measurement never links to its material cannot
+    answer cross-entity questions), which need no persisted CSVs.
+
     Returns ``[]`` when the design is clean OR when nothing can be checked: no RML, no
     ``dataset_id`` (a brand-new design has no persisted source yet — the workbench
-    attaches it AFTER materialize), or no readable source files. The hard ingest gate
+    attaches it AFTER materialize). The hard ingest gate
     still catches a bad design once a source is attached; this is purely advisory and
     best-effort (any unexpected error degrades to "no advice", never a 500).
     """
     if not (rml_ttl or "").strip() or not dataset_id:
         return []
+    prepared = substrate.substitute_run_id(rml_ttl)
+    try:
+        advisories = substrate.design_advisories(prepared)
+    except Exception:  # advisory only
+        logger.exception("design advisories at materialize failed (continuing)")
+        advisories = []
     try:
         source_paths = registry.list_source_files(registry_root, dataset_id)
         if not source_paths:
-            return []
+            return advisories
         source_dir = source_paths[0].parent
         # Validate the run-id-substituted form so the runtime-only {__run_id__}
         # placeholder is never flagged (matches the ingest gate exactly).
-        substrate.validate_rml_design(
-            substrate.substitute_run_id(rml_ttl), source_dir
-        )
-        return []
+        substrate.validate_rml_design(prepared, source_dir)
+        return advisories
     except substrate.RmlValidationError as exc:
-        return list(exc.issues)
+        return list(exc.issues) + advisories
     except Exception:  # advisory only — a check failure must never break materialize
         logger.exception("advisory design validation at materialize failed (continuing)")
-        return []
+        return advisories
 
 
 # ----------------------------------------------------------------------------

@@ -42,6 +42,7 @@ from asterism.rml_safety import assert_rml_safe as assert_rml_safe
 # Re-exported so callers can `substrate.validate_rml_design` / catch
 # `substrate.RmlValidationError` (mapped to a 422 with a structured `issues` list).
 from asterism.rml_validate import RmlValidationError as RmlValidationError
+from asterism.rml_validate import design_advisories as design_advisories
 from asterism.rml_validate import validate_rml_design as validate_rml_design
 from asterism.tabularize import sanitize_csv_columns, tabularize_json_to_csv
 
