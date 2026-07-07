@@ -336,7 +336,8 @@ def test_key_present_llm_picks_typed_property_ranking(monkeypatch) -> None:
     monkeypatch.setattr(demo, "_REAL", True)
     fake = _FakeAnthropic(
         [
-            _block(content=[_block(type="tool_use", id="t1", name="property_ranking",
+            _block(content=[_block(type="tool_use", id="t1",
+                                   name="starrydata__property_ranking",
                                    input={"property_y": "ZT", "max_plausible": 3.5})]),
             _block(content=[_block(type="tool_use", id="t2", name="submit_answer",
                                    input={"answer": "最大 ZT の材料は …", "citations": []})]),
@@ -347,7 +348,7 @@ def test_key_present_llm_picks_typed_property_ranking(monkeypatch) -> None:
         "/demo/ask", json={"question": "ZTが最も高い熱電材料は？"},
         headers={"X-API-Key": "sk-test"},
     ).json()
-    assert len(fake.calls) == 2  # called property_ranking, then submitted
+    assert len(fake.calls) == 2  # called starrydata__property_ranking, then submitted
     # the 2nd model call carries the property_ranking tool_result (it really ran)
     second = fake.calls[1]["messages"]
     results = [
@@ -382,7 +383,9 @@ def test_ask_llm_excludes_run_sparql_when_exposure_off(monkeypatch) -> None:
     )
     offered = {t["name"] for t in fake.calls[0]["tools"]}
     assert "run_sparql" not in offered  # the raw escape is withheld
-    assert {"property_ranking", "sample_search"} <= offered  # typed tools remain
+    # the DECLARED typed tools remain — starrydata's included, as content like
+    # every other dataset's (no hardcoded per-vocabulary tools anymore)
+    assert {"starrydata__property_ranking", "starrydata__sample_search"} <= offered
 
 
 def test_generic_question_falls_through_not_canned_samples(monkeypatch) -> None:
@@ -553,10 +556,12 @@ def test_content_tool_defs_includes_registry_tools(monkeypatch, tmp_path) -> Non
         encoding="utf-8",
     )
     monkeypatch.setenv("CSV2RDF_REGISTRY_ROOT", str(reg))
-    defs, registry_map = demo._content_tool_defs(exclude={"starrydata"})
+    defs, registry_map = demo._content_tool_defs()
     names = {d["name"] for d in defs}
     assert "my-dataset-abc12345__t1" in names
     assert registry_map["my-dataset-abc12345__t1"][0] == "my-dataset-abc12345"
+    # No dataset is privileged: starrydata's declared tools ride the same path.
+    assert "starrydata__property_ranking" in names
 
 
 # --- multi-provider Ask: OpenAI-compatible (Sakura AI Engine etc.) -----------
