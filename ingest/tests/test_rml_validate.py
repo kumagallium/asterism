@@ -307,3 +307,74 @@ def test_unparseable_rml_is_left_to_the_safety_gate(tmp_path: Path) -> None:
     # rml_safety owns the parse-error rejection; here we just return without raising
     # a design error (so we never produce a confusing second message for bad Turtle).
     validate_rml_design("this is not turtle {{{", tmp_path)  # no raise
+
+
+# ---------------------------------------------------------------------------
+# design advisories: entity connectivity (schema-agnostic graph shape)
+# ---------------------------------------------------------------------------
+
+from asterism.rml_validate import design_advisories  # noqa: E402
+
+_ADV_PREFIXES = """
+@prefix rr: <http://www.w3.org/ns/r2rml#> .
+@prefix rml: <http://semweb.mmlab.be/ns/rml#> .
+@prefix ex: <https://ex/v#> .
+"""
+
+# Two entities, NO join between them — the live failure shape (a measurement
+# entity with no edge to its material entity).
+_DISCONNECTED = _ADV_PREFIXES + """
+<#Curves> rml:logicalSource [ rml:source "curves.csv" ] ;
+  rr:subjectMap [ rr:template "https://ex/curve/{id}" ; rr:class ex:MeasurementCurve ] ;
+  rr:predicateObjectMap [ rr:predicate ex:propertyY ; rr:objectMap [ rml:reference "p" ] ] .
+<#Samples> rml:logicalSource [ rml:source "samples.csv" ] ;
+  rr:subjectMap [ rr:template "https://ex/sample/{sid}" ; rr:class ex:Sample ] ;
+  rr:predicateObjectMap [ rr:predicate ex:composition ; rr:objectMap [ rml:reference "c" ] ] .
+"""
+
+_JOINED_BY_PARENT = _ADV_PREFIXES + """
+<#Curves> rml:logicalSource [ rml:source "curves.csv" ] ;
+  rr:subjectMap [ rr:template "https://ex/curve/{id}" ; rr:class ex:MeasurementCurve ] ;
+  rr:predicateObjectMap [ rr:predicate ex:ofSample ;
+    rr:objectMap [ rr:parentTriplesMap <#Samples> ] ] .
+<#Samples> rml:logicalSource [ rml:source "samples.csv" ] ;
+  rr:subjectMap [ rr:template "https://ex/sample/{sid}" ; rr:class ex:Sample ] .
+"""
+
+_JOINED_BY_TEMPLATE = _ADV_PREFIXES + """
+<#Curves> rml:logicalSource [ rml:source "curves.csv" ] ;
+  rr:subjectMap [ rr:template "https://ex/curve/{id}" ; rr:class ex:MeasurementCurve ] ;
+  rr:predicateObjectMap [ rr:predicate ex:ofSample ;
+    rr:objectMap [ rr:template "https://ex/sample/{sid}" ] ] .
+<#Samples> rml:logicalSource [ rml:source "samples.csv" ] ;
+  rr:subjectMap [ rr:template "https://ex/sample/{sid}" ; rr:class ex:Sample ] .
+"""
+
+
+def test_disconnected_entities_are_flagged_with_labels() -> None:
+    advisories = design_advisories(_DISCONNECTED)
+    assert len(advisories) == 1
+    msg = advisories[0]
+    assert "DISCONNECTED" in msg
+    assert "MeasurementCurve" in msg and "Sample" in msg  # class labels, actionable
+    assert "object property" in msg  # says HOW to fix
+
+
+def test_parent_triples_map_join_connects() -> None:
+    assert design_advisories(_JOINED_BY_PARENT) == []
+
+
+def test_shared_subject_template_as_object_connects() -> None:
+    assert design_advisories(_JOINED_BY_TEMPLATE) == []
+
+
+def test_single_entity_never_flagged() -> None:
+    single = _ADV_PREFIXES + """
+<#Only> rml:logicalSource [ rml:source "a.csv" ] ;
+  rr:subjectMap [ rr:template "https://ex/x/{id}" ; rr:class ex:Thing ] .
+"""
+    assert design_advisories(single) == []
+
+
+def test_unparseable_rml_degrades_to_no_advisories() -> None:
+    assert design_advisories("@prefix broken") == []

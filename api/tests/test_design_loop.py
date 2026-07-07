@@ -334,3 +334,43 @@ def test_system_prompt_byte_stable_across_rounds(tmp_path: Path) -> None:
     for _system, user in llm.calls[1:]:
         assert "closed menu" in user
     assert all("closed menu" not in system for system in systems)
+
+
+# ---------------------------------------------------------------------------
+# design advisories ride the corrective loop (disconnected entities)
+# ---------------------------------------------------------------------------
+
+
+def test_disconnected_entities_surface_as_loop_issues(tmp_path) -> None:
+    # Two entities transcribed from two CSVs with NO join between them — the
+    # live failure shape (a measurement island next to a material island).
+    # Column/source checks all pass; the connectivity advisory alone must
+    # surface, so the refine round gets told to add the link.
+    from asterism_api.design_loop import _collect_rml_issues
+
+    (tmp_path / "curves.csv").write_text("id,p\n1,ZT\n", encoding="utf-8")
+    (tmp_path / "samples.csv").write_text("sid,c\n1,SnSe\n", encoding="utf-8")
+    rml = """
+@prefix rr: <http://www.w3.org/ns/r2rml#> .
+@prefix rml: <http://semweb.mmlab.be/ns/rml#> .
+@prefix ql: <http://semweb.mmlab.be/ns/ql#> .
+@prefix ex: <https://ex/v#> .
+<#Curves> a rr:TriplesMap ;
+  rml:logicalSource [ rml:source "curves.csv" ; rml:referenceFormulation ql:CSV ] ;
+  rr:subjectMap [ rr:template "https://ex/curve/{id}" ; rr:class ex:MeasurementCurve ] ;
+  rr:predicateObjectMap [ rr:predicate ex:propertyY ; rr:objectMap [ rml:reference "p" ] ] .
+<#Samples> a rr:TriplesMap ;
+  rml:logicalSource [ rml:source "samples.csv" ; rml:referenceFormulation ql:CSV ] ;
+  rr:subjectMap [ rr:template "https://ex/sample/{sid}" ; rr:class ex:Sample ] ;
+  rr:predicateObjectMap [ rr:predicate ex:composition ; rr:objectMap [ rml:reference "c" ] ] .
+"""
+    issues = _collect_rml_issues(rml, tmp_path)
+    assert any("DISCONNECTED" in i.message for i in issues)
+    # and a joined design is clean (no advisory noise for a good mapping)
+    pom = 'rr:objectMap [ rml:reference "p" ] ] '
+    joined = rml.replace(
+        pom + ".",
+        pom + ";\n  rr:predicateObjectMap [ rr:predicate ex:ofSample ;\n"
+        "    rr:objectMap [ rr:parentTriplesMap <#Samples> ] ] .",
+    )
+    assert not any("DISCONNECTED" in i.message for i in _collect_rml_issues(joined, tmp_path))

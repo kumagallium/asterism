@@ -420,6 +420,121 @@ def validate_rml_design(rml_ttl: str, csv_dir: Path | str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Design advisories (non-blocking, cross-cutting quality checks)
+# ---------------------------------------------------------------------------
+
+_R2RML = "http://www.w3.org/ns/r2rml#"
+
+
+def _tm_label(graph, tm) -> str:
+    """A human label for a TriplesMap: its rr:class local name, else its IRI tail."""
+    import rdflib
+
+    uri = rdflib.URIRef
+    for sm in graph.objects(tm, uri(_R2RML + "subjectMap")):
+        for cls in graph.objects(sm, uri(_R2RML + "class")):
+            return _local_name(str(cls))
+    if isinstance(tm, rdflib.BNode):
+        return "(anonymous map)"
+    return _local_name(str(tm))
+
+
+def _connectivity_advisories(graph) -> list[str]:
+    """Flag a mapping whose entities form DISCONNECTED groups.
+
+    An AI-designed mapping frequently transcribes each source table into its own
+    entity but forgets the object properties that JOIN them (observed live: a
+    233k-curve dataset whose measurement entity had no edge to its sample entity,
+    making "highest ZT per material" structurally unanswerable). The check is
+    schema-agnostic graph shape only: two TriplesMaps are connected when one's
+    object map joins the other (``rr:parentTriplesMap``) or reuses the other's
+    subject IRI template; maps minting the same subject template are the same
+    entity. One connected component -> no advisory.
+    """
+    import rdflib
+
+    uri = rdflib.URIRef
+    tms = list(_triples_map_subjects(graph))
+    if len(tms) < 2:
+        return []
+    subj_tpl: dict = {}
+    for tm in tms:
+        for sm in graph.objects(tm, uri(_R2RML + "subjectMap")):
+            for tp in _TEMPLATE_PREDS:
+                for t in graph.objects(sm, uri(tp)):
+                    subj_tpl[tm] = str(t)
+
+    index = {tm: i for i, tm in enumerate(tms)}
+    parent = list(range(len(tms)))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    def union(a: int, b: int) -> None:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[rb] = ra
+
+    for tm in tms:
+        for pom in graph.objects(tm, uri(_R2RML + "predicateObjectMap")):
+            for om in graph.objects(pom, uri(_R2RML + "objectMap")):
+                for ptm in graph.objects(om, uri(_R2RML + "parentTriplesMap")):
+                    if ptm in index:
+                        union(index[tm], index[ptm])
+                for tp in _TEMPLATE_PREDS:
+                    for t in graph.objects(om, uri(tp)):
+                        for other, stpl in subj_tpl.items():
+                            if other is not tm and stpl == str(t):
+                                union(index[tm], index[other])
+    by_template: dict[str, list] = {}
+    for tm, tpl in subj_tpl.items():
+        by_template.setdefault(tpl, []).append(tm)
+    for group in by_template.values():
+        for other in group[1:]:
+            union(index[group[0]], index[other])
+
+    components: dict[int, list] = {}
+    for tm in tms:
+        components.setdefault(find(index[tm]), []).append(tm)
+    if len(components) <= 1:
+        return []
+    groups = sorted(
+        " + ".join(sorted({_tm_label(graph, tm) for tm in members}))
+        for members in components.values()
+    )
+    return [
+        f"the mapping's {len(tms)} entities split into {len(components)} DISCONNECTED "
+        "groups: " + "  |  ".join(groups) + ". Entities that share a source key should "
+        "be LINKED with an object property (an rr:parentTriplesMap join, or reusing the "
+        "linked entity's subject IRI template as the object) — disconnected entities "
+        "cannot answer any cross-entity question (e.g. ranking a measured value by the "
+        "material it belongs to)."
+    ]
+
+
+def design_advisories(rml_ttl: str) -> list[str]:
+    """Non-blocking design-quality advisories for a mapping (schema-agnostic).
+
+    Unlike :func:`validate_rml_design` these are NOT ingest-blocking — a
+    disconnected mapping still materializes valid RDF; it just cannot answer the
+    questions the user almost certainly wants. Surfaced at materialize (advisory
+    list) and fed to the design self-correction loop as fixable issues. Returns
+    ``[]`` for unparseable RML (the safety gate owns that rejection).
+    """
+    import rdflib
+
+    graph = rdflib.Graph()
+    try:
+        graph.parse(data=rml_ttl, format="turtle")
+    except Exception:
+        return []
+    return _connectivity_advisories(graph)
+
+
+# ---------------------------------------------------------------------------
 # Vocabulary extraction (the closed set a dataset's RML actually maps)
 # ---------------------------------------------------------------------------
 
