@@ -74,20 +74,66 @@ def _run(tmp_path: Path, llm, *, max_rounds: int = 3):
 # ---- loop behavior on the IR path --------------------------------------------
 
 
+_FIXED_SPEC_JSON = (
+    '{"version": 1,'
+    ' "prefixes": {"ex": "https://example.org/ns#", "exr": "https://example.org/r/"},'
+    ' "maps": [{"name": "thing", "source": "data.csv",'
+    ' "subject": {"template": "exr:thing/{SID}", "classes": ["ex:Thing"]},'
+    ' "properties": [{"predicate": "ex:comp", "column": "composition",'
+    ' "function": "trim_collapse"}]}]}'
+)
+
+
 def test_ir_bad_column_feedback_is_actionable_and_converges(tmp_path: Path) -> None:
-    llm = _ScriptedLLM([_SPEC_BAD_COLUMN, _SPEC_GOOD])
+    """Phase 2: the fix round is SURGICAL — the second LLM call uses the spec-
+    repair prompt and returns ONLY the corrected spec (guided-JSON contract),
+    which is spliced back; the rest of the document stays byte-identical."""
+    from asterism_step0.spec_repair import SPEC_REPAIR_SYSTEM_PROMPT
+
+    llm = _ScriptedLLM([_SPEC_BAD_COLUMN, _FIXED_SPEC_JSON])
     result = _run(tmp_path, llm)
     assert result.converged is True
-    assert result.proposal_md == _SPEC_GOOD
     assert result.initial_issue_count == 1
-    # The refine round received IR-vocabulary feedback with a did-you-mean —
-    # the granularity a weak model can actually act on.
-    _, refine_user = llm.calls[1]
-    assert "column 'comp'" in refine_user
-    assert "composition" in refine_user
-    # …and the new-style oracle menu (bare names + args, no FnO parameter IRIs).
-    assert "trim_collapse — 1 column input" in refine_user
-    assert "fn:p_" not in refine_user
+    # The repaired document keeps the non-§9 parts and carries the fixed spec.
+    assert result.proposal_md.startswith("## Schema proposal")
+    assert "column: composition" in result.proposal_md
+    # The repair round used the surgical prompt (not the whole-document refine)…
+    repair_system, repair_user = llm.calls[1]
+    assert repair_system == SPEC_REPAIR_SYSTEM_PROMPT
+    # …with IR-vocabulary feedback + did-you-mean + the closed oracle menu.
+    assert "column 'comp'" in repair_user
+    assert "composition" in repair_user
+    assert "trim_collapse — 1 column input" in repair_user
+    assert "fn:p_" not in repair_user
+    # The guided-JSON schema was offered to the client (attribute restored after).
+    assert getattr(llm, "response_schema", None) is None
+
+
+def test_surgical_repair_sets_guided_schema_on_capable_clients(tmp_path: Path) -> None:
+    """A client exposing .response_schema (OpenAI-compatible) gets the mapping
+    IR JSON Schema for the repair call — with the Tier-0 menu as an enum."""
+
+    class _SchemaRecordingLLM(_ScriptedLLM):
+        def __init__(self, responses):
+            super().__init__(responses)
+            self.response_schema = None
+            self.schemas_seen: list[object] = []
+
+        def complete(self, system_prompt: str, user_message: str) -> str:
+            self.schemas_seen.append(self.response_schema)
+            return super().complete(system_prompt, user_message)
+
+    llm = _SchemaRecordingLLM([_SPEC_BAD_COLUMN, _FIXED_SPEC_JSON])
+    result = _run(tmp_path, llm)
+    assert result.converged is True
+    assert llm.schemas_seen[0] is None  # round-0 propose: no schema constraint
+    repair_schema = llm.schemas_seen[1]
+    assert isinstance(repair_schema, dict)
+    fn_enum = repair_schema["properties"]["maps"]["items"]["properties"]["properties"][
+        "items"
+    ]["properties"]["function"]
+    assert "trim_collapse" in fn_enum["enum"]  # menu enforced at generation
+    assert llm.response_schema is None  # restored after the call
 
 
 def test_ir_unknown_function_is_a_menu_issue(tmp_path: Path) -> None:
@@ -194,9 +240,19 @@ def test_coverage_dropped_when_ir_rows_shrink(tmp_path: Path) -> None:
         "      - predicate: ex:comp\n",
         "      - predicate: ex:sid\n        column: SID\n      - predicate: ex:comp\n",
     )
-    # round 0: two rows, bad column → round 1 "fixes" by deleting down to one row
+    # round 0: two rows, bad column → the repair "fixes" by deleting down to one row
     bad_two = two_rows.replace("column: composition", "column: comp")
-    llm = _ScriptedLLM([bad_two, _SPEC_GOOD])
+    llm = _ScriptedLLM([bad_two, _FIXED_SPEC_JSON])
     result = _run(tmp_path, llm)
     assert result.converged is True
     assert result.coverage_dropped is True
+
+
+def test_unparseable_repair_output_stops_bounded(tmp_path: Path) -> None:
+    """A repair reply that is not a spec (prose) is discarded — the schema
+    stays unchanged and the loop stops on no-progress instead of looping."""
+    llm = _ScriptedLLM([_SPEC_BAD_COLUMN, "sorry, here is some prose", "more prose"])
+    result = _run(tmp_path, llm)
+    assert result.converged is False
+    assert result.terminal_reason == "no_progress"
+    assert any("column 'comp'" in m for m in result.remaining_issues)

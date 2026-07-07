@@ -1008,3 +1008,60 @@ def test_openai_stream_without_usage_chunk_records_zero_usage(
     assert out.usage.total_tokens == 0
     assert client.last_usage is not None
     assert client.last_usage.total_tokens == 0
+
+
+# ---------------------------------------------------------------------------
+# Structured output (Phase 2 guided repair): response_format wiring + degrade
+# ---------------------------------------------------------------------------
+
+_SCHEMA = {"type": "object", "properties": {"x": {"type": "string"}}}
+
+
+@pytest.mark.usefixtures("nonstreaming")
+def test_response_schema_sends_json_schema_format(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _install_fake_openai(monkeypatch, [('{"x": "ok"}', "stop")])
+    client = OpenAICompatibleLLMClient(model="m", api_key="k")
+    client.response_schema = _SCHEMA
+    out = client.complete("sys", "user")
+    assert out.text == '{"x": "ok"}'
+    sent = fake.chat.completions.kwargs_calls[0]["response_format"]
+    assert sent == {
+        "type": "json_schema",
+        "json_schema": {"name": "mapping_spec", "schema": _SCHEMA},
+    }
+
+
+@pytest.mark.usefixtures("nonstreaming")
+def test_response_schema_degrades_to_json_object_then_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _install_fake_openai(
+        monkeypatch,
+        [
+            _FakeBadRequestError("response_format json_schema is not supported"),
+            _FakeBadRequestError("response_format is not supported"),
+            ('{"x": "ok"}', "stop"),
+        ],
+    )
+    client = OpenAICompatibleLLMClient(model="m", api_key="k")
+    client.response_schema = _SCHEMA
+    out = client.complete("sys", "user")
+    assert out.text == '{"x": "ok"}'
+    kw = fake.chat.completions.kwargs_calls
+    assert kw[0]["response_format"]["type"] == "json_schema"  # type: ignore[index]
+    assert kw[1]["response_format"] == {"type": "json_object"}
+    assert "response_format" not in kw[2]
+    assert any("json_object" in n for n in client.last_notes)
+    assert any("structured output disabled" in n for n in client.last_notes)
+
+
+@pytest.mark.usefixtures("nonstreaming")
+def test_no_response_schema_sends_no_response_format(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _install_fake_openai(monkeypatch, [("plain", "stop")])
+    client = OpenAICompatibleLLMClient(model="m", api_key="k")
+    client.complete("sys", "user")
+    assert "response_format" not in fake.chat.completions.kwargs_calls[0]
