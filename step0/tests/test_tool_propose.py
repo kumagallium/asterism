@@ -92,3 +92,58 @@ def test_no_language_keeps_legacy_message() -> None:
     llm = _FakeLLM(_VALID)
     propose_query_tool(llm, intent="x")
     assert "# Output language" not in llm.calls[0][1]
+
+
+# ---------------------------------------------------------------------------
+# oracle injection + the corrective round (refine_query_tool)
+# ---------------------------------------------------------------------------
+
+from asterism_step0.tool_propose import refine_query_tool  # noqa: E402
+
+
+def test_oracle_block_rides_the_user_message() -> None:
+    llm = _FakeLLM(_VALID)
+    propose_query_tool(
+        llm,
+        intent="find by formula",
+        oracle="Vocabulary oracle (closed set):\n  <https://ex/mp#formula>",
+    )
+    _system, user = llm.calls[0]
+    assert "Vocabulary oracle" in user and "<https://ex/mp#formula>" in user
+    # absent oracle -> no leftover header
+    llm2 = _FakeLLM(_VALID)
+    propose_query_tool(llm2, intent="find by formula")
+    assert "Vocabulary oracle" not in llm2.calls[0][1]
+
+
+def test_refine_carries_draft_issues_and_oracle_same_system() -> None:
+    llm = _FakeLLM(_VALID)
+    draft = {"name": "by_formula", "query": "SELECT ?m WHERE { ?m mp:formula {{f}} }"}
+    issues = ["uses prefix 'mp:' without a PREFIX declaration"]
+    tool = refine_query_tool(
+        llm, draft=draft, issues=issues, oracle="Vocabulary oracle:\n  <https://ex/mp#formula>"
+    )
+    system, user = llm.calls[0]
+    assert system == _SYSTEM  # byte-stable system prompt (prompt caching)
+    assert "uses prefix 'mp:'" in user
+    assert '"by_formula"' in user  # the previous draft rides along as JSON
+    assert "Vocabulary oracle" in user
+    assert tool["name"] == "by_formula"
+
+
+def test_refine_requires_issues_and_validates_output() -> None:
+    llm = _FakeLLM(_VALID)
+    with pytest.raises(ValueError, match="at least one issue"):
+        refine_query_tool(llm, draft={}, issues=[])
+    bad = _FakeLLM('{"title":"no name or query"}')
+    with pytest.raises(ValueError, match="missing required keys"):
+        refine_query_tool(bad, draft={}, issues=["x"])
+
+
+def test_refine_language_rides_user_message_only() -> None:
+    llm = _FakeLLM(_VALID)
+    refine_query_tool(llm, draft={"name": "t", "query": "SELECT ?s WHERE { ?s ?p ?o }"},
+                      issues=["x"], language="ja")
+    system, user = llm.calls[0]
+    assert system == _SYSTEM
+    assert "# Output language" in user

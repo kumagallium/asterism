@@ -74,7 +74,6 @@ from asterism_step0.materialize import (
 )
 from asterism_step0.propose import LLMClient
 from asterism_step0.refine import refine_schema
-from asterism_step0.tool_propose import propose_query_tool
 from asterism_step0.validate import SchemaBundle, validate_schema
 from fastapi import (
     Depends,
@@ -94,6 +93,7 @@ from pydantic import BaseModel
 from asterism_api import design_loop, registry, server_keys
 from asterism_api import usage as usage_ledger
 from asterism_api.jobs import JobManager
+from asterism_api.tool_loop import ToolLoopResult, propose_tool_with_correction
 
 
 class RefineRequest(BaseModel):
@@ -153,10 +153,13 @@ class ToolProposeBody(BaseModel):
     the AI drafts a query tool for (P2). The draft is returned for human review,
     never auto-saved. ``language`` (i18next code, e.g. ``"ja"``) switches the
     draft's human-readable prose (title/description) — name/SPARQL/IRIs stay
-    English; absent = English (legacy)."""
+    English; absent = English (legacy). ``autocorrect=False`` is the kill-switch
+    for the self-correction loop (single LLM shot; the deterministic vet still
+    runs)."""
 
     intent: str
     language: str | None = None
+    autocorrect: bool = True
 
 
 class ToolRunBody(BaseModel):
@@ -2299,11 +2302,15 @@ def build_app(
         """P2: AI-draft ONE query tool from a natural-language intent.
 
         The LLM (user-brought key, never stored) drafts a parameterized read-only
-        SPARQL tool grounded in this dataset's vocabulary (its model.yaml + MIE
-        examples). The draft is RETURNED FOR HUMAN REVIEW — it is validated with
-        the same ``parse_query_tools`` gate (``valid`` flag) but NOT saved; the
-        person reviews/edits it and saves it via ``POST .../tools`` (the human-vet
-        gate). The intent must be provided; the API key is required (LLM call)."""
+        SPARQL tool grounded in this dataset's vocabulary, then SELF-CORRECTS
+        against deterministic validation (parse + lint with the store's parser +
+        the RML-mapped closed vocabulary; ``asterism_api.tool_loop``) — up to 3
+        rounds, targeted defects + a closed-menu oracle fed back each time.
+        ``body.autocorrect=false`` limits it to a single shot (vet still runs).
+        The best draft is RETURNED FOR HUMAN REVIEW with its ``valid`` flag,
+        remaining ``warnings`` and per-round ``rounds`` record — it is NOT
+        saved; the person reviews/edits it and saves via ``POST .../tools``
+        (the human-vet gate). The API key is required (LLM call)."""
         data = registry.load_dataset(cfg.registry_root, dataset_id)
         if data is None:
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
@@ -2323,46 +2330,34 @@ def build_app(
             provider, model, api_base, key, max_tokens=_llm_max_tokens(x_llm_max_tokens)
         )
 
-        def run() -> dict:
-            return propose_query_tool(
+        def run() -> ToolLoopResult:
+            return propose_tool_with_correction(
                 llm,
                 intent=body.intent,
                 model_yaml=arts.get("model.yaml", "") or "",
                 mie_yaml=arts.get("mie.yaml", "") or "",
                 # The RML is the ground truth for the dataset's real namespaces +
-                # predicate/class IRIs — without it a seed dataset's stub model.yaml
-                # makes the LLM invent a placeholder namespace (a 0-row tool).
+                # predicate/class IRIs — the vocabulary oracle and the closed-set
+                # vet both derive from it.
                 rml_ttl=arts.get("mapping.rml.ttl", "") or "",
                 language=body.language,
+                max_rounds=3 if body.autocorrect else 1,
             )
 
         try:
-            draft = await asyncio.to_thread(run)
-        except Exception as exc:  # LLM/parse failure -> 502 with the reason
+            res = await asyncio.to_thread(run)
+        except Exception as exc:  # LLM failure with no draft -> 502 with the reason
             raise HTTPException(502, f"AI draft failed: {exc}") from exc
         await asyncio.to_thread(
             _record_llm_usage, cfg.registry_root, "tool.propose", provider, llm, model
         )
-
-        valid, error = True, None
-        warnings: list[str] = []
-        try:
-            parsed_draft = parse_query_tools({"tools": [draft]})
-        except QueryToolError as exc:
-            valid, error = False, str(exc)
-        else:
-            # Same gate the save endpoint enforces: tell the reviewer NOW that
-            # the draft would be rejected (or is suspicious), not at save time.
-            lint = lint_query_tool(parsed_draft[0])
-            warnings = list(lint.warnings)
-            if lint.errors:
-                valid, error = False, "; ".join(lint.errors)
         return {
             "dataset_id": dataset_id,
-            "draft": draft,
-            "valid": valid,
-            "error": error,
-            "warnings": warnings,
+            "draft": res.draft,
+            "valid": res.valid,
+            "error": res.error,
+            "warnings": res.warnings,
+            "rounds": res.rounds,
         }
 
     @app.post("/api/datasets/{dataset_id}/tools/{tool_name}/run")

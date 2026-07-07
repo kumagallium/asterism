@@ -373,8 +373,23 @@ _PREFIX_DECL = re.compile(r"(?i)\bPREFIX\s+([A-Za-z][\w.-]*)?\s*:")
 # A prefixed-name USE like ``sd:Curve`` / ``xsd:float``. The lookbehind keeps us
 # off variables (?x), IRIs (scrubbed anyway), and double-colon artifacts.
 _PNAME_USE = re.compile(r"(?<![\w:<?$-])([A-Za-z][\w.-]*):")
+# Same, but capturing the local part too (for expanding against a vocabulary).
+_PNAME_FULL = re.compile(r"(?<![\w:<?$-])([A-Za-z][\w.-]*):([A-Za-z_][\w.-]*)")
+# A full PREFIX declaration with its IRI (read from the RAW text — _scan_view
+# blanks IRIs, so the view cannot yield the binding).
+_PREFIX_BINDING = re.compile(r"(?i)\bPREFIX\s+([A-Za-z][\w.-]*)?\s*:\s*<([^>\s]+)>")
+_IRI_REF = re.compile(r"<(https?://[^>\s]+)>")
 _FILTER_KW = re.compile(r"(?i)\bFILTER\b")
 _VAR = re.compile(r"[?$](\w+)")
+
+# Namespaces a query may always use without the dataset's RML mapping them
+# (rdf:type spelling, datatype casts, schema-level probes).
+_STANDARD_NS = (
+    "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+    "http://www.w3.org/2000/01/rdf-schema#",
+    "http://www.w3.org/2001/XMLSchema#",
+    "http://www.w3.org/2002/07/owl#",
+)
 
 
 @dataclass(frozen=True)
@@ -506,7 +521,59 @@ def _filter_only_vars(rendered: str) -> list[str]:
     return sorted(in_filter - out_vars)
 
 
-def lint_query_tool(tool: QueryTool) -> QueryToolLint:
+def _vocabulary_issues(rendered: str, vocabulary: dict[str, Any]) -> list[str]:
+    """Terms the query uses that the dataset's RML never maps (schema drift).
+
+    ``vocabulary`` is :func:`asterism.rml_validate.extract_rml_vocabulary`'s
+    shape (``{"prefixes": {label: iri}, "terms": set[iri]}``). A term outside
+    the mapped set matches nothing in the ingested data — the classic 0-row
+    tool an LLM drafts by guessing a plausible predicate. Deterministic and
+    dataset-agnostic: the closed set comes from the mapping, not from any
+    hardcoded schema.
+    """
+    terms = set(vocabulary.get("terms") or ())
+    if not terms:
+        return []
+    rml_prefixes = {str(k): str(v) for k, v in dict(vocabulary.get("prefixes") or {}).items()}
+    issues: list[str] = []
+    q_prefixes = {(m.group(1) or ""): m.group(2) for m in _PREFIX_BINDING.finditer(rendered)}
+    # A same-label prefix bound to a DIFFERENT IRI than the RML's is the classic
+    # everything-matches-nothing drift; say so explicitly.
+    for label, iri in q_prefixes.items():
+        rml_iri = rml_prefixes.get(label)
+        if rml_iri and rml_iri.rstrip("#/") != iri.rstrip("#/"):
+            issues.append(
+                f"PREFIX {label}: is <{iri}> here but the dataset's RML binds "
+                f"{label}: to <{rml_iri}> — patterns using it will match nothing"
+            )
+    # Collect every term the query references: expanded prefixed names (on the
+    # scan view, declarations scrubbed) + literal <IRI> refs (raw text, minus
+    # the PREFIX binding IRIs themselves).
+    view = _scan_view(rendered)
+    scrubbed = _PREFIX_DECL.sub(lambda m: " " * len(m.group(0)), view)
+    used: set[str] = set()
+    for m in _PNAME_FULL.finditer(scrubbed):
+        base = q_prefixes.get(m.group(1))
+        if base:
+            used.add(base + m.group(2))
+    binding_iris = set(q_prefixes.values())
+    for m in _IRI_REF.finditer(rendered):
+        if m.group(1) not in binding_iris:
+            used.add(m.group(1))
+    unknown = sorted(
+        iri
+        for iri in used
+        if iri not in terms and not iri.startswith(_STANDARD_NS)
+    )
+    for iri in unknown[:12]:
+        issues.append(
+            f"term <{iri}> is not mapped by this dataset's RML — the pattern "
+            "using it will match nothing (0 rows)"
+        )
+    return issues
+
+
+def lint_query_tool(tool: QueryTool, vocabulary: dict[str, Any] | None = None) -> QueryToolLint:
     """Lint one parsed tool: will its template actually run against the store?
 
     This is the query_tools counterpart of the RML design checks
@@ -514,6 +581,12 @@ def lint_query_tool(tool: QueryTool) -> QueryToolLint:
     BEFORE the artifact is persisted, so an authoring mistake (human or
     LLM-drafted) surfaces as an actionable message at save time instead of an
     opaque store error at ask time.
+
+    ``vocabulary`` (optional): the dataset's mapped vocabulary from
+    :func:`asterism.rml_validate.extract_rml_vocabulary`. When given, terms the
+    RML never maps are flagged as warnings (a 0-row tool, the second failure
+    family observed live). Still schema-agnostic — the closed set is derived
+    from the dataset's own mapping.
     """
     try:
         variants = _render_variants(tool)
@@ -541,6 +614,10 @@ def lint_query_tool(tool: QueryTool) -> QueryToolLint:
             )
             if msg not in warnings:
                 warnings.append(msg)
+        if vocabulary is not None:
+            for msg in _vocabulary_issues(rendered, vocabulary):
+                if msg not in warnings:
+                    warnings.append(msg)
     return QueryToolLint(errors=tuple(errors), warnings=tuple(warnings))
 
 

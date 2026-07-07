@@ -58,7 +58,9 @@ Hard rules:
 """
 
 
-def _user_message(intent: str, model_yaml: str, mie_yaml: str, rml_ttl: str = "") -> str:
+def _user_message(
+    intent: str, model_yaml: str, mie_yaml: str, rml_ttl: str = "", oracle: str = ""
+) -> str:
     parts = [f"Intent (what the tool should do):\n{intent.strip()}\n"]
     parts.append(
         "Dataset vocabulary (rdf-config model.yaml — classes & predicates):\n"
@@ -72,6 +74,11 @@ def _user_message(intent: str, model_yaml: str, mie_yaml: str, rml_ttl: str = ""
         + (rml_ttl.strip() or "(none provided)")
         + "\n"
     )
+    if oracle.strip():
+        # The deterministic closed menu (extracted from the RML by the caller).
+        # Same lever as the design loop's Tier-0 oracle: a weak model stops
+        # hallucinating when the ONLY legal terms are enumerated explicitly.
+        parts.append(oracle.strip() + "\n")
     parts.append(
         "Example queries for this dataset (MIE sparql_query_examples — follow "
         "these patterns/prefixes):\n" + (mie_yaml.strip() or "(none provided)")
@@ -108,6 +115,7 @@ def propose_query_tool(
     model_yaml: str = "",
     mie_yaml: str = "",
     rml_ttl: str = "",
+    oracle: str = "",
     language: str | None = None,
 ) -> dict:
     """Draft one query_tool dict from ``intent`` + the dataset's vocabulary.
@@ -119,6 +127,11 @@ def propose_query_tool(
     a stub ``model.yaml`` (bare class names, no namespace); without the RML the
     model invents a placeholder namespace (``http://example.org/…``) and the tool
     returns zero rows. Passing the RML lets it use the actual vocabulary.
+
+    ``oracle`` (optional): a deterministic closed-menu block the caller derived
+    from the dataset's mapping (e.g. the exact PREFIXes + every mapped
+    class/predicate IRI). Injected verbatim into the user message — the same
+    anti-hallucination lever as the design loop's Tier-0 oracle.
 
     ``language`` (e.g. ``"ja"``) switches the draft's human-readable prose —
     ``title`` / ``description`` / parameter descriptions; ``name``, JSON keys,
@@ -132,7 +145,7 @@ def propose_query_tool(
     """
     if not intent.strip():
         raise ValueError("intent is required")
-    user_message = _user_message(intent, model_yaml, mie_yaml, rml_ttl)
+    user_message = _user_message(intent, model_yaml, mie_yaml, rml_ttl, oracle)
     lang_block = language_instruction(language)
     if lang_block:
         user_message += (
@@ -146,4 +159,52 @@ def propose_query_tool(
     tool = _extract_json_object(text)
     if "name" not in tool or "query" not in tool:
         raise ValueError("draft is missing required keys (name, query)")
+    return tool
+
+
+def refine_query_tool(
+    llm: LLMClient,
+    *,
+    draft: dict,
+    issues: list[str],
+    oracle: str = "",
+    language: str | None = None,
+) -> dict:
+    """One corrective round: fix the listed defects, return the FULL tool JSON.
+
+    The issues come from deterministic validation (parse + lint + vocabulary
+    check against the RML-mapped closed set) — never from another model. Same
+    ``_SYSTEM`` prompt as :func:`propose_query_tool` (byte-stable for prompt
+    caching); the correction request rides the user message.
+
+    Raises ``ValueError`` when the model's output is not a tool-shaped JSON
+    object (callers keep the previous draft in that case).
+    """
+    if not issues:
+        raise ValueError("refine_query_tool needs at least one issue to fix")
+    user_message = (
+        "Your previous query-tool draft has DEFECTS found by deterministic "
+        "validation against this dataset's real mapping. Fix ONLY these issues; "
+        "keep the intent, name and overall shape unless an issue requires "
+        "changing them.\n\n"
+        "Previous draft (JSON):\n"
+        + json.dumps(draft, ensure_ascii=False, indent=1)
+        + "\n\nIssues (each MUST be resolved):\n"
+        + "\n".join(f"- {i}" for i in issues)
+    )
+    if oracle.strip():
+        user_message += "\n\n" + oracle.strip()
+    user_message += "\n\nOutput the FULL corrected JSON object and NOTHING else."
+    lang_block = language_instruction(language)
+    if lang_block:
+        user_message += (
+            f"\n{lang_block}\n\n"
+            'Human-readable prose ("title" / "description" values) follows the '
+            "language above; name, JSON keys, the SPARQL, PREFIXes and IRIs "
+            "stay English.\n"
+        )
+    text = as_completion(llm.complete(_SYSTEM, user_message)).text
+    tool = _extract_json_object(text)
+    if "name" not in tool or "query" not in tool:
+        raise ValueError("refined draft is missing required keys (name, query)")
     return tool
