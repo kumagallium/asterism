@@ -473,13 +473,39 @@ _MIN_KEYWORDS = 5
 _MIN_CATEGORIES = 1
 
 
+def _load_mie_yaml(bundle: SchemaBundle) -> tuple[object, str | None]:
+    """Parse the MIE YAML for a trap check: ``(data, parse_error)``.
+
+    An LLM-drafted MIE can be broken YAML (observed live: an unparseable
+    ``sparql_query_examples`` list item 500'd materialize from inside
+    ``validate_schema``). Broken YAML is a validation FINDING the checks must
+    report — never an exception that crashes the endpoint — so the reviewer
+    gets a trap result they can bounce back to the AI, like every other issue.
+    """
+    import yaml  # lazy
+
+    try:
+        return yaml.safe_load(bundle.mie_yaml.read_text(encoding="utf-8")), None
+    except Exception as exc:  # YAMLError, OSError, decode errors — all findings
+        return None, " ".join(str(exc).split())[:240]
+
+
+def _mie_broken(trap_id: str, name: str, bundle: SchemaBundle, err: str) -> TrapResult:
+    return TrapResult(
+        trap_id,
+        name,
+        "fail",
+        f"{bundle.mie_yaml.name} is not parseable YAML — fix §7 (MIE YAML) first: {err}",
+    )
+
+
 def _check_t4_keywords(bundle: SchemaBundle, *, min_keywords: int = _MIN_KEYWORDS) -> TrapResult:
     if not bundle.mie_yaml:
         return TrapResult("T4", "MIE keywords / categories", "skip", "No MIE YAML.")
 
-    import yaml  # lazy
-
-    data = yaml.safe_load(bundle.mie_yaml.read_text(encoding="utf-8"))
+    data, err = _load_mie_yaml(bundle)
+    if err:
+        return _mie_broken("T4", "MIE keywords / categories", bundle, err)
     if not isinstance(data, dict):
         return TrapResult(
             "T4",
@@ -595,10 +621,10 @@ def _check_t6_fake_iri(bundle: SchemaBundle) -> TrapResult:
             "skip",
             "Need both mie_yaml and source_csvs.",
         )
-    import yaml  # lazy
-
-    data = yaml.safe_load(bundle.mie_yaml.read_text(encoding="utf-8"))
-    entries = (data or {}).get("sample_rdf_entries") or []
+    data, err = _load_mie_yaml(bundle)
+    if err:
+        return _mie_broken("T6", "fake sample_rdf_entries", bundle, err)
+    entries = (data.get("sample_rdf_entries") if isinstance(data, dict) else None) or []
     if not entries:
         return TrapResult(
             "T6",
@@ -677,10 +703,10 @@ def _check_t7_rationale(bundle: SchemaBundle) -> TrapResult:
     if not bundle.mie_yaml:
         return TrapResult("T7", "Why / Alternatives / Trade-offs", "skip", "No MIE YAML.")
 
-    import yaml  # lazy
-
-    data = yaml.safe_load(bundle.mie_yaml.read_text(encoding="utf-8"))
-    notes = (data or {}).get("architectural_notes")
+    data, err = _load_mie_yaml(bundle)
+    if err:
+        return _mie_broken("T7", "Why / Alternatives / Trade-offs", bundle, err)
+    notes = data.get("architectural_notes") if isinstance(data, dict) else None
     if not notes:
         return TrapResult(
             "T7",
