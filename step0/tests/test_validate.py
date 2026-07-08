@@ -666,3 +666,33 @@ def test_render_report_includes_glyphs_and_summary(tmp_path: Path) -> None:
     assert "**Summary**" in md
     # Glyph for at least one passed trap should appear
     assert "✓" in md or "·" in md
+
+
+# ---------------------------------------------------------------------------
+# broken (LLM-drafted) MIE YAML is a FINDING, never a crash
+# ---------------------------------------------------------------------------
+
+
+def test_unparseable_mie_yaml_is_a_fail_not_a_crash(tmp_path: Path) -> None:
+    # The exact live failure: a weak model emitted a sparql_query_examples list
+    # whose item breaks the YAML grammar; validate_schema inside /api/materialize
+    # crashed with ParserError -> HTTP 500. Every MIE-reading trap check must
+    # report it as a fixable finding instead.
+
+    mie = tmp_path / "broken.mie.yaml"
+    mie.write_text(
+        "schema_info:\n"
+        "  keywords: [a, b, c, d, e]\n"
+        "sparql_query_examples:\n"
+        '  - "Find the composition with the\n'  # unterminated quoted scalar
+        "  - broken item\n",
+        encoding="utf-8",
+    )
+    csv = _write(tmp_path / "d.csv", "SID\n1\n")
+    bundle = SchemaBundle(mie_yaml=mie, source_csvs=[csv])
+
+    for check in (_check_t4_keywords, _check_t6_fake_iri, _check_t7_rationale):
+        res = check(bundle)  # must NOT raise
+        assert res.status == "fail", (check.__name__, res.status)
+        assert "not parseable YAML" in res.detail
+        assert "§7" in res.detail  # tells the reviewer WHERE to fix
