@@ -444,8 +444,9 @@ def test_disconnected_advisory_names_join_key_candidates(tmp_path: Path) -> None
     rr:class ex:MeasurementCurve ] .
 """
     advisories = design_advisories(rml, tmp_path)
-    assert len(advisories) == 1
-    msg = advisories[0]
+    conn = [a for a in advisories if "DISCONNECTED" in a]
+    assert len(conn) == 1
+    msg = conn[0]
     assert "LINK-KEY CANDIDATES" in msg
     assert "papers.csv <-> samples.csv share column(s): DOI, SID" in msg
     assert "curves.csv <-> samples.csv share column(s): sample_id" in msg
@@ -512,3 +513,39 @@ def test_plain_constants_never_flagged(tmp_path: Path) -> None:
         '    rr:objectMap [ rr:constant "thermoelectric" ] ] .\n'
     )
     validate_rml_design(rml, tmp_path)  # no raise
+
+
+def test_unmapped_label_column_gets_advisory(tmp_path: Path) -> None:
+    # The live failure shape: prop_x is mapped, prop_y (the label column that
+    # says WHAT each curve measures) is not — the data ingests fine but "which
+    # rows measure X" becomes unanswerable.
+    (tmp_path / "curves.csv").write_text(
+        "id,prop_x,prop_y,y\n1,temperature,zt,0.5\n", encoding="utf-8"
+    )
+    rml = _ADV_PREFIXES + """
+<#Curves> rml:logicalSource [ rml:source "curves.csv" ] ;
+  rr:subjectMap [ rr:template "https://ex/curve/{id}" ; rr:class ex:Curve ] ;
+  rr:predicateObjectMap [ rr:predicate ex:xProp ; rr:objectMap [ rml:reference "prop_x" ] ] ;
+  rr:predicateObjectMap [ rr:predicate ex:value ; rr:objectMap [ rml:reference "y" ] ] .
+"""
+    from asterism.rml_validate import design_review_notes
+
+    unmapped = [a for a in design_review_notes(rml, tmp_path) if "never uses" in a]
+    assert len(unmapped) == 1
+    assert "prop_y" in unmapped[0]
+    assert "unqueryable" in unmapped[0]
+    assert "§5" in unmapped[0]  # deliberate exclusions have a documented out
+
+
+def test_fully_mapped_source_gets_no_unmapped_advisory(tmp_path: Path) -> None:
+    (tmp_path / "a.csv").write_text("id,v\n1,2\n", encoding="utf-8")
+    rml = _ADV_PREFIXES + """
+<#A> rml:logicalSource [ rml:source "a.csv" ] ;
+  rr:subjectMap [ rr:template "https://ex/a/{id}" ; rr:class ex:Thing ] ;
+  rr:predicateObjectMap [ rr:predicate ex:v ; rr:objectMap [ rml:reference "v" ] ] .
+"""
+    from asterism.rml_validate import design_review_notes
+
+    assert [a for a in design_review_notes(rml, tmp_path) if "never uses" in a] == []
+    # and the loop-facing advisories never carry unmapped-column notes at all
+    assert [a for a in design_advisories(rml, tmp_path) if "never uses" in a] == []

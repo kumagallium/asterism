@@ -628,6 +628,50 @@ def _connectivity_advisories(graph, headers: dict[str, list[str]] | None = None)
     return [message]
 
 
+def _unmapped_column_advisories(graph, headers: dict[str, list[str]]) -> list[str]:
+    """Columns a tabular source carries that the mapping never references.
+
+    Non-blocking by design (timestamps or bookkeeping columns are often fine to
+    drop) — but an unmapped LABEL column silently amputates queryability
+    (observed live: ``prop_y`` — the "what does this curve measure" column —
+    was left unmapped while ``prop_x`` was mapped, so "which curves measure ZT"
+    became unanswerable over 233k curves). The advisory lists the leftovers and
+    tells the designer to either map them or record the exclusion in §5.
+    """
+    per_source: dict[str, set[str]] = {}
+    for tm in _triples_map_subjects(graph):
+        src = _tm_source_name(graph, tm)
+        if src is None or src not in headers:
+            continue
+        referenced = per_source.setdefault(src, set())
+        import rdflib
+
+        uri = rdflib.URIRef
+        for node in _reachable_nodes(graph, tm):
+            for ref_pred in _REFERENCE_PREDS:
+                for ref in graph.objects(node, uri(ref_pred)):
+                    referenced.add(str(ref))
+            for tpl_pred in _TEMPLATE_PREDS:
+                for tpl in graph.objects(node, uri(tpl_pred)):
+                    referenced |= _template_columns(str(tpl))
+    issues: list[str] = []
+    for src in sorted(per_source):
+        unmapped = [c for c in headers[src] if c not in per_source[src]]
+        if not unmapped:
+            continue
+        shown = ", ".join(unmapped[:10]) + (" …" if len(unmapped) > 10 else "")
+        issues.append(
+            f"source {src} has {len(unmapped)} column(s) the mapping never uses: "
+            f"{shown}. If a column carries meaning users will ask about — "
+            "especially a LABEL column that says what a value IS (a property/"
+            "type/category name), an identifier, or a unit — map it: an unmapped "
+            "label column makes its rows unqueryable (you cannot ask 'which rows "
+            "measure X'). If the exclusion is deliberate, record it in §5 "
+            "(design rationale)."
+        )
+    return issues
+
+
 def design_advisories(rml_ttl: str, csv_dir: Path | str | None = None) -> list[str]:
     """Non-blocking design-quality advisories for a mapping (schema-agnostic).
 
@@ -662,6 +706,40 @@ def design_advisories(rml_ttl: str, csv_dir: Path | str | None = None) -> list[s
         except OSError:
             headers = {}
     return _connectivity_advisories(graph, headers or None)
+
+
+def design_review_notes(rml_ttl: str, csv_dir: Path | str | None = None) -> list[str]:
+    """Human-judgement review notes (NOT fed to the automatic corrective loop).
+
+    Unlike :func:`design_advisories` (defects that should essentially always be
+    fixed, e.g. disconnected entities), these are OBSERVATIONS a human should
+    weigh: unmapped source columns are often fine (timestamps, bookkeeping) but
+    sometimes amputate queryability (an unmapped label column). Feeding them to
+    the self-correction loop would push a weak model to map noise columns until
+    no-progress; surfacing them at materialize (where the human decides and can
+    include them in a fix request) is the right strength.
+    """
+    import rdflib
+
+    graph = rdflib.Graph()
+    try:
+        graph.parse(data=rml_ttl, format="turtle")
+    except Exception:
+        return []
+    headers: dict[str, list[str]] = {}
+    if csv_dir is not None:
+        base = Path(csv_dir)
+        try:
+            for p in sorted(base.iterdir()):
+                if p.is_file() and p.suffix.lower() in _TABULAR_SUFFIXES:
+                    cols = read_csv_header(p)
+                    if cols:
+                        headers[p.name] = cols
+        except OSError:
+            headers = {}
+    if not headers:
+        return []
+    return _unmapped_column_advisories(graph, headers)
 
 
 # ---------------------------------------------------------------------------

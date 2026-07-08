@@ -1454,8 +1454,13 @@ def _validate_design_at_materialize(
     source_dir = source_paths[0].parent if source_paths else None
     try:
         # With the real sources the connectivity advisory also names the
-        # join-key candidates (work order, not just a diagnosis).
-        advisories = substrate.design_advisories(prepared, source_dir)
+        # join-key candidates (work order, not just a diagnosis). Review notes
+        # (unmapped columns) are human-judgement items: shown here so the person
+        # can weigh them / include them in a fix request, but NOT fed to the
+        # automatic corrective loop (which would over-fix noise columns).
+        advisories = substrate.design_advisories(
+            prepared, source_dir
+        ) + substrate.design_review_notes(prepared, source_dir)
     except Exception:  # advisory only
         logger.exception("design advisories at materialize failed (continuing)")
         advisories = []
