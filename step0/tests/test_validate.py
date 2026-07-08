@@ -16,9 +16,12 @@ from asterism_step0.validate import (
     _check_t8_hallucination,
     _check_t9_rml_closed_set,
     _extract_composite_keys,
+    _lint_classdiagram,
     render_report,
     validate_schema,
 )
+
+FIXTURES = Path(__file__).parent / "fixtures"
 
 # ----------------------------------------------------------------------------
 # Helpers
@@ -492,6 +495,103 @@ def test_t5_fails_when_label_contains_colon(tmp_path: Path) -> None:
     assert "schema:author" in str(res.evidence)
 
 
+def test_t5_passes_on_rich_classdiagram_with_members_and_notes(tmp_path: Path) -> None:
+    """The full ttl2mermaid shape (member blocks + note-for) must stay clean —
+    guards against the new lint false-flagging valid output."""
+    md = _write(
+        tmp_path / "diagram.md",
+        """
+        ```mermaid
+        classDiagram
+            direction LR
+            class Curve {
+                +hasXUnit xsd_string
+                +hasYUnit xsd_string
+            }
+            class Sample {
+                +composition xsd_string
+            }
+            Sample --> Curve : measured
+            note for Curve "subClassOf prov_Entity"
+        ```
+        """,
+    )
+    res = _check_t5_mermaid_escape(SchemaBundle(diagram_md=md))
+    assert res.status == "pass", res.detail
+
+
+# ---- classDiagram lint (warn-level, best-effort) --------------------------
+
+
+def test_lint_clean_classdiagram_has_no_issues() -> None:
+    block = (
+        "classDiagram\n"
+        "    direction LR\n"
+        "    class Paper\n"
+        "    class Sample\n"
+        "    Sample --> Paper : fromPaper\n"
+    )
+    assert _lint_classdiagram(block) == []
+
+
+def test_lint_flags_illegal_class_name_char() -> None:
+    issues = _lint_classdiagram("classDiagram\n    class Thermal-Conductivity\n")
+    assert any("Thermal-Conductivity" in i and "reject" in i for i in issues)
+
+
+def test_lint_flags_invalid_relation_arrow() -> None:
+    issues = _lint_classdiagram("classDiagram\n    A -> B\n")
+    assert any("'->'" in i and "arrow" in i for i in issues)
+    issues2 = _lint_classdiagram("classDiagram\n    A ==> B\n")
+    assert any("'==>'" in i for i in issues2)
+
+
+def test_lint_flags_member_colon() -> None:
+    block = "classDiagram\n    class Sample {\n        +value: Float\n    }\n"
+    issues = _lint_classdiagram(block)
+    assert any("member" in i and "':'" in i for i in issues)
+
+
+def test_lint_flags_unquoted_paren_label() -> None:
+    issues = _lint_classdiagram("classDiagram\n    A --> B : has (mW/mK)\n")
+    assert any("paren" in i or "bracket" in i for i in issues)
+
+
+def test_lint_flags_missing_diagram_header() -> None:
+    issues = _lint_classdiagram("    A --> B\n    C --> D\n")
+    assert any("diagram header" in i for i in issues)
+
+
+def test_lint_ignores_foreign_diagram_type() -> None:
+    # A flowchart is a different grammar — the classDiagram lint stays quiet.
+    assert _lint_classdiagram("flowchart TD\n    A --> B\n") == []
+
+
+def test_lint_allows_cardinality_and_generics() -> None:
+    block = (
+        'classDiagram\n'
+        '    Paper "1" --> "*" Sample : has\n'
+        "    class Box~T~\n"
+    )
+    assert _lint_classdiagram(block) == []
+
+
+def test_t5_warns_on_broken_fixture_diagram() -> None:
+    """★ 2026-07-08 dogfood regression: an AI-generated diagram.md that Mermaid 11
+    rejects (bomb icons in the UI) must surface as a non-blocking WARN, listing
+    the specific breakage, without failing CI (ingest/promote are unaffected)."""
+    md = FIXTURES / "mermaid_invalid" / "diagram.md"
+    res = _check_t5_mermaid_escape(SchemaBundle(diagram_md=md))
+    assert res.status == "warn", res.detail
+    ev = "\n".join(res.evidence)
+    assert "Thermal-Conductivity" in ev  # illegal class-name char
+    assert "'->'" in ev  # malformed arrow
+    assert "member" in ev  # +value: Float
+    # warn is non-blocking: it must not push the whole report to a failure.
+    report = validate_schema(SchemaBundle(diagram_md=md))
+    assert report.exit_code() == 0
+
+
 # ----------------------------------------------------------------------------
 # T6: fake sample_rdf_entries
 # ----------------------------------------------------------------------------
@@ -666,3 +766,33 @@ def test_render_report_includes_glyphs_and_summary(tmp_path: Path) -> None:
     assert "**Summary**" in md
     # Glyph for at least one passed trap should appear
     assert "✓" in md or "·" in md
+
+
+# ---------------------------------------------------------------------------
+# broken (LLM-drafted) MIE YAML is a FINDING, never a crash
+# ---------------------------------------------------------------------------
+
+
+def test_unparseable_mie_yaml_is_a_fail_not_a_crash(tmp_path: Path) -> None:
+    # The exact live failure: a weak model emitted a sparql_query_examples list
+    # whose item breaks the YAML grammar; validate_schema inside /api/materialize
+    # crashed with ParserError -> HTTP 500. Every MIE-reading trap check must
+    # report it as a fixable finding instead.
+
+    mie = tmp_path / "broken.mie.yaml"
+    mie.write_text(
+        "schema_info:\n"
+        "  keywords: [a, b, c, d, e]\n"
+        "sparql_query_examples:\n"
+        '  - "Find the composition with the\n'  # unterminated quoted scalar
+        "  - broken item\n",
+        encoding="utf-8",
+    )
+    csv = _write(tmp_path / "d.csv", "SID\n1\n")
+    bundle = SchemaBundle(mie_yaml=mie, source_csvs=[csv])
+
+    for check in (_check_t4_keywords, _check_t6_fake_iri, _check_t7_rationale):
+        res = check(bundle)  # must NOT raise
+        assert res.status == "fail", (check.__name__, res.status)
+        assert "not parseable YAML" in res.detail
+        assert "§7" in res.detail  # tells the reviewer WHERE to fix

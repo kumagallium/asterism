@@ -253,6 +253,10 @@ def _check_columns(graph, csv_dir: Path) -> list[str]:
         return headers[key] or None
 
     sub_pred = rdflib.URIRef
+    # Pass 1: resolve every tabular TriplesMap's (source, columns, references),
+    # so pass 2 can also answer "does this column exist in ANOTHER source?" —
+    # the signature of an entity link declared on the wrong side.
+    tm_rows: list[tuple[str, set[str], set[str], list[str]]] = []
     for tm in _triples_map_subjects(graph):
         # Resolve this TriplesMap's logical source -> rml:source literal.
         source_literal: str | None = None
@@ -272,7 +276,6 @@ def _check_columns(graph, csv_dir: Path) -> list[str]:
         columns = header_for(source_literal)
         if columns is None:
             continue  # unreadable / empty header — cannot check this source
-        col_set = set(columns)
         # Collect every column this TriplesMap references (reachable blank nodes).
         referenced: set[str] = set()
         for node in _reachable_nodes(graph, tm):
@@ -282,12 +285,32 @@ def _check_columns(graph, csv_dir: Path) -> list[str]:
             for tpl_pred in _TEMPLATE_PREDS:
                 for tpl in graph.objects(node, sub_pred(tpl_pred)):
                     referenced |= _template_columns(str(tpl))
-        src_name = Path(source_literal).name
+        tm_rows.append((Path(source_literal).name, set(columns), referenced, columns))
+
+    carriers: dict[str, set[str]] = {}
+    for src_name, col_set, _refs, _cols in tm_rows:
+        for col in col_set:
+            carriers.setdefault(col, set()).add(src_name)
+
+    for src_name, col_set, referenced, columns in tm_rows:
         for col in sorted(referenced):
             if col in col_set:
                 continue
             suggestion = difflib.get_close_matches(col, columns, n=_SUGGEST_N, cutoff=0.6)
             hint = f" Did you mean: {', '.join(suggestion)}?" if suggestion else ""
+            others = sorted(carriers.get(col, set()) - {src_name})
+            if others:
+                # Observed live: the AI declares Paper -> Sample on the PAPER map
+                # using the child's key, which the parent table never carries. The
+                # fix is directional knowledge, so say it explicitly.
+                hint += (
+                    f" NOTE: {col!r} DOES exist in {', '.join(others)} — if this is "
+                    "an entity link, declare it on the TriplesMap whose source "
+                    f"carries the key (i.e. {others[0]}), using the other entity's "
+                    f"subject IRI template as the object; {src_name} does not have "
+                    "that key (a parent table never carries its children's keys, "
+                    "and SPARQL can traverse the link in both directions anyway)."
+                )
             issues.append(
                 f"column {col!r} referenced by the mapping is not in {src_name} "
                 f"(columns: {', '.join(columns)}).{hint}"
@@ -341,6 +364,46 @@ def _check_function_params(graph) -> list[str]:
 
 
 # --- graph traversal --------------------------------------------------------
+
+
+_R2RML_CONSTANT = "http://www.w3.org/ns/r2rml#constant"
+_PLACEHOLDER_RE = re.compile(r"\{([^{}]+)\}")
+
+
+def _check_constant_placeholders(graph) -> list[str]:
+    """Flag ``rr:constant`` literals that contain ``{placeholder}`` text.
+
+    A constant is NEVER template-expanded, so a placeholder inside one either
+    reaches the store as literal garbage or (Morph-KGC's actual behaviour,
+    observed live) gets treated as a template reference and crashes ingest with
+    a pandas ``KeyError`` on a column that does not exist — the AI invented
+    ``{ingest_run_id}`` for a provenance object. Deterministic, and the message
+    is the fix: ``{__run_id__}`` is the ONLY runtime placeholder the engine
+    substitutes; column values belong in ``rr:template`` / ``rml:reference``.
+    """
+    import rdflib
+
+    issues: list[str] = []
+    seen: set[str] = set()
+    for const in graph.objects(None, rdflib.URIRef(_R2RML_CONSTANT)):
+        if not isinstance(const, rdflib.Literal):
+            continue
+        text = str(const)
+        names = sorted({n for n in _PLACEHOLDER_RE.findall(text) if n != "__run_id__"})
+        for name in names:
+            key = f"{text}::{name}"
+            if key in seen:
+                continue
+            seen.add(key)
+            issues.append(
+                f"rr:constant \"{text}\" contains the placeholder '{{{name}}}' — a "
+                "constant is never template-expanded, so this crashes ingest. If you "
+                "meant the engine's ingest run id, the ONLY runtime placeholder is "
+                "'{__run_id__}' (substituted automatically). If you meant a column "
+                "value, use rr:template (for an IRI) or rml:reference (for a literal) "
+                "instead of rr:constant."
+            )
+    return issues
 
 
 def _triples_map_subjects(graph):
@@ -414,6 +477,7 @@ def validate_rml_design(rml_ttl: str, csv_dir: Path | str) -> None:
         _check_sources(graph, base)
         + _check_columns(graph, base)
         + _check_function_params(graph)
+        + _check_constant_placeholders(graph)
     )
     if issues:
         raise RmlValidationError(issues)
@@ -424,6 +488,19 @@ def validate_rml_design(rml_ttl: str, csv_dir: Path | str) -> None:
 # ---------------------------------------------------------------------------
 
 _R2RML = "http://www.w3.org/ns/r2rml#"
+
+
+def _tm_source_name(graph, tm) -> str | None:
+    """The file name of a TriplesMap's logical source, or None."""
+    import rdflib
+
+    uri = rdflib.URIRef
+    for ls_pred in _LOGICAL_SOURCE_PREDS:
+        for ls in graph.objects(tm, uri(ls_pred)):
+            for s_pred in _SOURCE_PREDS:
+                for src in graph.objects(ls, uri(s_pred)):
+                    return Path(str(src)).name
+    return None
 
 
 def _tm_label(graph, tm) -> str:
@@ -439,7 +516,7 @@ def _tm_label(graph, tm) -> str:
     return _local_name(str(tm))
 
 
-def _connectivity_advisories(graph) -> list[str]:
+def _connectivity_advisories(graph, headers: dict[str, list[str]] | None = None) -> list[str]:
     """Flag a mapping whose entities form DISCONNECTED groups.
 
     An AI-designed mapping frequently transcribes each source table into its own
@@ -505,17 +582,97 @@ def _connectivity_advisories(graph) -> list[str]:
         " + ".join(sorted({_tm_label(graph, tm) for tm in members}))
         for members in components.values()
     )
-    return [
+    message = (
         f"the mapping's {len(tms)} entities split into {len(components)} DISCONNECTED "
         "groups: " + "  |  ".join(groups) + ". Entities that share a source key should "
         "be LINKED with an object property (an rr:parentTriplesMap join, or reusing the "
         "linked entity's subject IRI template as the object) — disconnected entities "
         "cannot answer any cross-entity question (e.g. ranking a measured value by the "
-        "material it belongs to)."
-    ]
+        "material it belongs to). Do NOT fix this by deleting references — ADD the "
+        "missing link on the correct side."
+    )
+    # With the real headers we can name the join keys — turning "link them" into
+    # a work order. Observed live: without this the corrective loop oscillates
+    # (deletes the bad-side link to silence the column error, then trips this
+    # advisory, then re-adds the link on the wrong side again).
+    if headers:
+        comp_sources: list[set[str]] = []
+        for members in components.values():
+            srcs: set[str] = set()
+            for tm in members:
+                src = _tm_source_name(graph, tm)
+                if src:
+                    srcs.add(src)
+            comp_sources.append(srcs)
+        pairs: list[str] = []
+        seen_pairs: set[tuple[str, str]] = set()
+        for i in range(len(comp_sources)):
+            for j in range(i + 1, len(comp_sources)):
+                for a in sorted(comp_sources[i]):
+                    for b in sorted(comp_sources[j]):
+                        lo, hi = (a, b) if a <= b else (b, a)
+                        if (lo, hi) in seen_pairs:
+                            continue
+                        seen_pairs.add((lo, hi))
+                        shared = sorted(set(headers.get(a, ())) & set(headers.get(b, ())))
+                        if shared:
+                            pairs.append(f"{lo} <-> {hi} share column(s): {', '.join(shared[:8])}")
+        if pairs:
+            message += (
+                " LINK-KEY CANDIDATES (computed from the real source headers): "
+                + "; ".join(pairs)
+                + ". Declare each link on the CHILD map (the source that CARRIES the "
+                "key), with an object rr:template that reuses the parent's subject "
+                "IRI template VERBATIM (byte-identical), so the IRIs actually join."
+            )
+    return [message]
 
 
-def design_advisories(rml_ttl: str) -> list[str]:
+def _unmapped_column_advisories(graph, headers: dict[str, list[str]]) -> list[str]:
+    """Columns a tabular source carries that the mapping never references.
+
+    Non-blocking by design (timestamps or bookkeeping columns are often fine to
+    drop) — but an unmapped LABEL column silently amputates queryability
+    (observed live: ``prop_y`` — the "what does this curve measure" column —
+    was left unmapped while ``prop_x`` was mapped, so "which curves measure ZT"
+    became unanswerable over 233k curves). The advisory lists the leftovers and
+    tells the designer to either map them or record the exclusion in §5.
+    """
+    per_source: dict[str, set[str]] = {}
+    for tm in _triples_map_subjects(graph):
+        src = _tm_source_name(graph, tm)
+        if src is None or src not in headers:
+            continue
+        referenced = per_source.setdefault(src, set())
+        import rdflib
+
+        uri = rdflib.URIRef
+        for node in _reachable_nodes(graph, tm):
+            for ref_pred in _REFERENCE_PREDS:
+                for ref in graph.objects(node, uri(ref_pred)):
+                    referenced.add(str(ref))
+            for tpl_pred in _TEMPLATE_PREDS:
+                for tpl in graph.objects(node, uri(tpl_pred)):
+                    referenced |= _template_columns(str(tpl))
+    issues: list[str] = []
+    for src in sorted(per_source):
+        unmapped = [c for c in headers[src] if c not in per_source[src]]
+        if not unmapped:
+            continue
+        shown = ", ".join(unmapped[:10]) + (" …" if len(unmapped) > 10 else "")
+        issues.append(
+            f"source {src} has {len(unmapped)} column(s) the mapping never uses: "
+            f"{shown}. If a column carries meaning users will ask about — "
+            "especially a LABEL column that says what a value IS (a property/"
+            "type/category name), an identifier, or a unit — map it: an unmapped "
+            "label column makes its rows unqueryable (you cannot ask 'which rows "
+            "measure X'). If the exclusion is deliberate, record it in §5 "
+            "(design rationale)."
+        )
+    return issues
+
+
+def design_advisories(rml_ttl: str, csv_dir: Path | str | None = None) -> list[str]:
     """Non-blocking design-quality advisories for a mapping (schema-agnostic).
 
     Unlike :func:`validate_rml_design` these are NOT ingest-blocking — a
@@ -523,6 +680,12 @@ def design_advisories(rml_ttl: str) -> list[str]:
     questions the user almost certainly wants. Surfaced at materialize (advisory
     list) and fed to the design self-correction loop as fixable issues. Returns
     ``[]`` for unparseable RML (the safety gate owns that rejection).
+
+    ``csv_dir`` (optional): the dataset's real source directory. When given,
+    the connectivity advisory also enumerates the concrete JOIN-KEY candidates
+    (columns shared between the disconnected groups' sources) and says which
+    side must declare the link — the difference between "link them" and a work
+    order a weak model can execute.
     """
     import rdflib
 
@@ -531,7 +694,52 @@ def design_advisories(rml_ttl: str) -> list[str]:
         graph.parse(data=rml_ttl, format="turtle")
     except Exception:
         return []
-    return _connectivity_advisories(graph)
+    headers: dict[str, list[str]] = {}
+    if csv_dir is not None:
+        base = Path(csv_dir)
+        try:
+            for p in sorted(base.iterdir()):
+                if p.is_file() and p.suffix.lower() in _TABULAR_SUFFIXES:
+                    cols = read_csv_header(p)
+                    if cols:
+                        headers[p.name] = cols
+        except OSError:
+            headers = {}
+    return _connectivity_advisories(graph, headers or None)
+
+
+def design_review_notes(rml_ttl: str, csv_dir: Path | str | None = None) -> list[str]:
+    """Human-judgement review notes (NOT fed to the automatic corrective loop).
+
+    Unlike :func:`design_advisories` (defects that should essentially always be
+    fixed, e.g. disconnected entities), these are OBSERVATIONS a human should
+    weigh: unmapped source columns are often fine (timestamps, bookkeeping) but
+    sometimes amputate queryability (an unmapped label column). Feeding them to
+    the self-correction loop would push a weak model to map noise columns until
+    no-progress; surfacing them at materialize (where the human decides and can
+    include them in a fix request) is the right strength.
+    """
+    import rdflib
+
+    graph = rdflib.Graph()
+    try:
+        graph.parse(data=rml_ttl, format="turtle")
+    except Exception:
+        return []
+    headers: dict[str, list[str]] = {}
+    if csv_dir is not None:
+        base = Path(csv_dir)
+        try:
+            for p in sorted(base.iterdir()):
+                if p.is_file() and p.suffix.lower() in _TABULAR_SUFFIXES:
+                    cols = read_csv_header(p)
+                    if cols:
+                        headers[p.name] = cols
+        except OSError:
+            headers = {}
+    if not headers:
+        return []
+    return _unmapped_column_advisories(graph, headers)
 
 
 # ---------------------------------------------------------------------------

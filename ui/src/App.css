@@ -1008,6 +1008,18 @@ textarea:focus {
   overflow-x: auto;
 }
 
+.mermaid-fallback-note {
+  margin: 0 0 0.5rem;
+  font-size: 0.85em;
+  color: var(--muted);
+}
+
+.mermaid-fallback pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* ---- refine box (M1c) ---- */
 .refine-box {
   display: flex;

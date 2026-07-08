@@ -378,3 +378,174 @@ def test_single_entity_never_flagged() -> None:
 
 def test_unparseable_rml_degrades_to_no_advisories() -> None:
     assert design_advisories("@prefix broken") == []
+
+
+# ---------------------------------------------------------------------------
+# cross-source link-direction hint (a link declared on the wrong side)
+# ---------------------------------------------------------------------------
+
+
+def test_wrong_side_link_gets_cross_source_direction_hint(tmp_path: Path) -> None:
+    # The exact live failure: the PAPER map references the child's key
+    # (sample_id lives in samples.csv, not papers.csv). The column error must
+    # now carry the directional fix — declare the link on the child's map.
+    (tmp_path / "papers.csv").write_text("DOI,title\nx,y\n", encoding="utf-8")
+    (tmp_path / "samples.csv").write_text("sample_id,DOI\n1,x\n", encoding="utf-8")
+    rml = _PREFIXES + (
+        '<#Papers> a rr:TriplesMap ;\n'
+        '  rml:logicalSource [ rml:source "papers.csv" ; rml:referenceFormulation ql:CSV ] ;\n'
+        '  rr:subjectMap [ rr:template "http://x/paper/{DOI}" ] ;\n'
+        '  rr:predicateObjectMap [ rr:predicate <http://x/hasSample> ;\n'
+        '    rr:objectMap [ rr:template "http://x/sample/{sample_id}" ] ] .\n'
+        '<#Samples> a rr:TriplesMap ;\n'
+        '  rml:logicalSource [ rml:source "samples.csv" ; rml:referenceFormulation ql:CSV ] ;\n'
+        '  rr:subjectMap [ rr:template "http://x/sample/{sample_id}" ] .\n'
+    )
+    with pytest.raises(RmlValidationError) as exc:
+        validate_rml_design(rml, tmp_path)
+    msg = "\n".join(exc.value.issues)
+    assert "'sample_id'" in msg and "papers.csv" in msg
+    assert "DOES exist in samples.csv" in msg  # names the carrying source
+    assert "declare it on the TriplesMap whose source carries the key" in msg
+
+
+def test_plain_typo_gets_no_cross_source_note(tmp_path: Path) -> None:
+    # A column that exists NOWHERE stays a plain did-you-mean — no misleading
+    # link-direction advice.
+    (tmp_path / "papers.csv").write_text("DOI,title\nx,y\n", encoding="utf-8")
+    rml = _PREFIXES + (
+        '<#Papers> a rr:TriplesMap ;\n'
+        '  rml:logicalSource [ rml:source "papers.csv" ; rml:referenceFormulation ql:CSV ] ;\n'
+        '  rr:subjectMap [ rr:template "http://x/paper/{DOI}" ] ;\n'
+        '  rr:predicateObjectMap [ rr:predicate <http://x/n> ;\n'
+        '    rr:objectMap [ rml:reference "titel" ] ] .\n'
+    )
+    with pytest.raises(RmlValidationError) as exc:
+        validate_rml_design(rml, tmp_path)
+    msg = "\n".join(exc.value.issues)
+    assert "titel" in msg and "Did you mean" in msg
+    assert "DOES exist in" not in msg
+
+
+def test_disconnected_advisory_names_join_key_candidates(tmp_path: Path) -> None:
+    # The live oscillation: "link them" alone lets the model delete references
+    # instead. With the real headers the advisory must enumerate the concrete
+    # join keys and the side that declares the link.
+    (tmp_path / "papers.csv").write_text("SID,DOI,title\n1,x,t\n", encoding="utf-8")
+    (tmp_path / "samples.csv").write_text("sample_id,SID,DOI\n7,1,x\n", encoding="utf-8")
+    (tmp_path / "curves.csv").write_text("sample_id,figure_id,y\n7,f1,0.1\n", encoding="utf-8")
+    rml = _ADV_PREFIXES + """
+<#Papers> rml:logicalSource [ rml:source "papers.csv" ] ;
+  rr:subjectMap [ rr:template "https://ex/paper/{DOI}" ; rr:class ex:Paper ] .
+<#Samples> rml:logicalSource [ rml:source "samples.csv" ] ;
+  rr:subjectMap [ rr:template "https://ex/sample/{sample_id}" ; rr:class ex:MaterialSample ] .
+<#Curves> rml:logicalSource [ rml:source "curves.csv" ] ;
+  rr:subjectMap [ rr:template "https://ex/curve/{sample_id}-{figure_id}" ;
+    rr:class ex:MeasurementCurve ] .
+"""
+    advisories = design_advisories(rml, tmp_path)
+    conn = [a for a in advisories if "DISCONNECTED" in a]
+    assert len(conn) == 1
+    msg = conn[0]
+    assert "LINK-KEY CANDIDATES" in msg
+    assert "papers.csv <-> samples.csv share column(s): DOI, SID" in msg
+    assert "curves.csv <-> samples.csv share column(s): sample_id" in msg
+    assert "CHILD map" in msg and "VERBATIM" in msg
+    assert "Do NOT fix this by deleting references" in msg
+
+
+def test_disconnected_advisory_without_csv_dir_keeps_generic_text(tmp_path: Path) -> None:
+    # Backward compatible: no csv_dir -> diagnosis + direction, no candidates.
+    advisories = design_advisories(_DISCONNECTED)
+    assert len(advisories) == 1
+    assert "LINK-KEY CANDIDATES" not in advisories[0]
+    assert "DISCONNECTED" in advisories[0]
+
+
+# ---------------------------------------------------------------------------
+# rr:constant containing a {placeholder} (crashes Morph-KGC at ingest)
+# ---------------------------------------------------------------------------
+
+
+def test_constant_with_invented_placeholder_is_flagged(tmp_path: Path) -> None:
+    # The live failure: prov:wasGeneratedBy got rr:constant
+    # "sdr:activity/{ingest_run_id}" — never substituted, Morph-KGC treats it as
+    # a template and dies with pandas KeyError: 'ingest_run_id'. The gate must
+    # reject it BEFORE ingest with the fix in the message.
+    (tmp_path / "papers.csv").write_text("DOI\nx\n", encoding="utf-8")
+    rml = _PREFIXES + (
+        '<#Papers> a rr:TriplesMap ;\n'
+        '  rml:logicalSource [ rml:source "papers.csv" ; rml:referenceFormulation ql:CSV ] ;\n'
+        '  rr:subjectMap [ rr:template "http://x/paper/{DOI}" ] ;\n'
+        '  rr:predicateObjectMap [ rr:predicate <http://www.w3.org/ns/prov#wasGeneratedBy> ;\n'
+        '    rr:objectMap [ rr:constant "sdr:activity/{ingest_run_id}" ] ] .\n'
+    )
+    with pytest.raises(RmlValidationError) as exc:
+        validate_rml_design(rml, tmp_path)
+    msg = "\n".join(exc.value.issues)
+    assert "'{ingest_run_id}'" in msg
+    assert "never template-expanded" in msg
+    assert "'{__run_id__}'" in msg  # names the one legal runtime placeholder
+
+
+def test_constant_run_id_placeholder_is_allowed(tmp_path: Path) -> None:
+    # {__run_id__} inside a constant IS substituted (substitute_run_id resolves
+    # the token everywhere since the fix/run-id-substitute-everywhere change) —
+    # the raw form must not be flagged.
+    (tmp_path / "papers.csv").write_text("DOI\nx\n", encoding="utf-8")
+    rml = _PREFIXES + (
+        '<#Papers> a rr:TriplesMap ;\n'
+        '  rml:logicalSource [ rml:source "papers.csv" ; rml:referenceFormulation ql:CSV ] ;\n'
+        '  rr:subjectMap [ rr:template "http://x/paper/{DOI}" ] ;\n'
+        '  rr:predicateObjectMap [ rr:predicate <http://x/run> ;\n'
+        '    rr:objectMap [ rr:constant "http://x/ingest/{__run_id__}" ] ] .\n'
+    )
+    validate_rml_design(rml, tmp_path)  # no raise
+
+
+def test_plain_constants_never_flagged(tmp_path: Path) -> None:
+    (tmp_path / "papers.csv").write_text("DOI\nx\n", encoding="utf-8")
+    rml = _PREFIXES + (
+        '<#Papers> a rr:TriplesMap ;\n'
+        '  rml:logicalSource [ rml:source "papers.csv" ; rml:referenceFormulation ql:CSV ] ;\n'
+        '  rr:subjectMap [ rr:template "http://x/paper/{DOI}" ] ;\n'
+        '  rr:predicateObjectMap [ rr:predicate <http://x/kind> ;\n'
+        '    rr:objectMap [ rr:constant "thermoelectric" ] ] .\n'
+    )
+    validate_rml_design(rml, tmp_path)  # no raise
+
+
+def test_unmapped_label_column_gets_advisory(tmp_path: Path) -> None:
+    # The live failure shape: prop_x is mapped, prop_y (the label column that
+    # says WHAT each curve measures) is not — the data ingests fine but "which
+    # rows measure X" becomes unanswerable.
+    (tmp_path / "curves.csv").write_text(
+        "id,prop_x,prop_y,y\n1,temperature,zt,0.5\n", encoding="utf-8"
+    )
+    rml = _ADV_PREFIXES + """
+<#Curves> rml:logicalSource [ rml:source "curves.csv" ] ;
+  rr:subjectMap [ rr:template "https://ex/curve/{id}" ; rr:class ex:Curve ] ;
+  rr:predicateObjectMap [ rr:predicate ex:xProp ; rr:objectMap [ rml:reference "prop_x" ] ] ;
+  rr:predicateObjectMap [ rr:predicate ex:value ; rr:objectMap [ rml:reference "y" ] ] .
+"""
+    from asterism.rml_validate import design_review_notes
+
+    unmapped = [a for a in design_review_notes(rml, tmp_path) if "never uses" in a]
+    assert len(unmapped) == 1
+    assert "prop_y" in unmapped[0]
+    assert "unqueryable" in unmapped[0]
+    assert "§5" in unmapped[0]  # deliberate exclusions have a documented out
+
+
+def test_fully_mapped_source_gets_no_unmapped_advisory(tmp_path: Path) -> None:
+    (tmp_path / "a.csv").write_text("id,v\n1,2\n", encoding="utf-8")
+    rml = _ADV_PREFIXES + """
+<#A> rml:logicalSource [ rml:source "a.csv" ] ;
+  rr:subjectMap [ rr:template "https://ex/a/{id}" ; rr:class ex:Thing ] ;
+  rr:predicateObjectMap [ rr:predicate ex:v ; rr:objectMap [ rml:reference "v" ] ] .
+"""
+    from asterism.rml_validate import design_review_notes
+
+    assert [a for a in design_review_notes(rml, tmp_path) if "never uses" in a] == []
+    # and the loop-facing advisories never carry unmapped-column notes at all
+    assert [a for a in design_advisories(rml, tmp_path) if "never uses" in a] == []
