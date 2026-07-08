@@ -459,3 +459,56 @@ def test_disconnected_advisory_without_csv_dir_keeps_generic_text(tmp_path: Path
     assert len(advisories) == 1
     assert "LINK-KEY CANDIDATES" not in advisories[0]
     assert "DISCONNECTED" in advisories[0]
+
+
+# ---------------------------------------------------------------------------
+# rr:constant containing a {placeholder} (crashes Morph-KGC at ingest)
+# ---------------------------------------------------------------------------
+
+
+def test_constant_with_invented_placeholder_is_flagged(tmp_path: Path) -> None:
+    # The live failure: prov:wasGeneratedBy got rr:constant
+    # "sdr:activity/{ingest_run_id}" — never substituted, Morph-KGC treats it as
+    # a template and dies with pandas KeyError: 'ingest_run_id'. The gate must
+    # reject it BEFORE ingest with the fix in the message.
+    (tmp_path / "papers.csv").write_text("DOI\nx\n", encoding="utf-8")
+    rml = _PREFIXES + (
+        '<#Papers> a rr:TriplesMap ;\n'
+        '  rml:logicalSource [ rml:source "papers.csv" ; rml:referenceFormulation ql:CSV ] ;\n'
+        '  rr:subjectMap [ rr:template "http://x/paper/{DOI}" ] ;\n'
+        '  rr:predicateObjectMap [ rr:predicate <http://www.w3.org/ns/prov#wasGeneratedBy> ;\n'
+        '    rr:objectMap [ rr:constant "sdr:activity/{ingest_run_id}" ] ] .\n'
+    )
+    with pytest.raises(RmlValidationError) as exc:
+        validate_rml_design(rml, tmp_path)
+    msg = "\n".join(exc.value.issues)
+    assert "'{ingest_run_id}'" in msg
+    assert "never template-expanded" in msg
+    assert "'{__run_id__}'" in msg  # names the one legal runtime placeholder
+
+
+def test_constant_run_id_placeholder_is_allowed(tmp_path: Path) -> None:
+    # {__run_id__} inside a constant is the engine's own substitution target —
+    # the prepared (substituted) form is what ingest validates, but the raw form
+    # must not be flagged either.
+    (tmp_path / "papers.csv").write_text("DOI\nx\n", encoding="utf-8")
+    rml = _PREFIXES + (
+        '<#Papers> a rr:TriplesMap ;\n'
+        '  rml:logicalSource [ rml:source "papers.csv" ; rml:referenceFormulation ql:CSV ] ;\n'
+        '  rr:subjectMap [ rr:template "http://x/paper/{DOI}" ] ;\n'
+        '  rr:predicateObjectMap [ rr:predicate <http://x/run> ;\n'
+        '    rr:objectMap [ rr:constant "http://x/ingest/{__run_id__}" ] ] .\n'
+    )
+    validate_rml_design(rml, tmp_path)  # no raise
+
+
+def test_plain_constants_never_flagged(tmp_path: Path) -> None:
+    (tmp_path / "papers.csv").write_text("DOI\nx\n", encoding="utf-8")
+    rml = _PREFIXES + (
+        '<#Papers> a rr:TriplesMap ;\n'
+        '  rml:logicalSource [ rml:source "papers.csv" ; rml:referenceFormulation ql:CSV ] ;\n'
+        '  rr:subjectMap [ rr:template "http://x/paper/{DOI}" ] ;\n'
+        '  rr:predicateObjectMap [ rr:predicate <http://x/kind> ;\n'
+        '    rr:objectMap [ rr:constant "thermoelectric" ] ] .\n'
+    )
+    validate_rml_design(rml, tmp_path)  # no raise
