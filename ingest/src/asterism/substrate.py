@@ -360,7 +360,7 @@ def run_id_for_batch(fingerprint: str) -> str:
 
 
 def substitute_run_id(rml_ttl: str, run_id: str | None = None) -> str:
-    """Substitute the runtime-only ``{__run_id__}`` template placeholder.
+    """Substitute the runtime-only ``{__run_id__}`` placeholder — WHEREVER it appears.
 
     ``__run_id__`` is a runtime value (no such CSV column), so left in place it
     crashes Morph-KGC's usecols check. We replace it with one generated run-id, so
@@ -368,7 +368,12 @@ def substitute_run_id(rml_ttl: str, run_id: str | None = None) -> str:
     activity per ingest run). A ``rr:template`` whose only reference was the
     placeholder is reference-free after substitution (which Morph-KGC rejects), so it
     is rewritten to ``rr:constant <IRI>``; a template that still references a real
-    column stays a ``rr:template``. No-op for RML without the placeholder. ``run_id``
+    column stays a ``rr:template``. Every OTHER occurrence (an ``rr:constant``
+    literal, an IRI, anywhere) is plain-substituted: Morph-KGC template-evaluates
+    braces even inside constants (observed live — an AI wrote
+    ``rr:constant "sdr:activity/{__run_id__}"`` and ingest died with
+    ``KeyError: '__run_id__'``), so the contract is deliberately simple: the token
+    resolves EVERYWHERE. No-op for RML without the placeholder. ``run_id``
     defaults to a fresh :func:`generate_run_id`; pass an existing one to reuse a
     run-id already threaded through the call. Only the exact ``{__run_id__}`` token is
     touched — never another ``{column}`` reference.
@@ -386,7 +391,9 @@ def substitute_run_id(rml_ttl: str, run_id: str | None = None) -> str:
         # and an IRI node keeps the activity a URIRef, not a literal).
         return f"rr:constant <{resolved}>"
 
-    return _RR_TEMPLATE_WITH_RUN_ID.sub(repl, rml_ttl)
+    out = _RR_TEMPLATE_WITH_RUN_ID.sub(repl, rml_ttl)
+    # Belt-and-braces: resolve every remaining occurrence (constants, IRIs, …).
+    return out.replace(_RUN_ID_PLACEHOLDER, rid)
 
 
 def rml_source_names(rml_ttl: str) -> set[str]:
