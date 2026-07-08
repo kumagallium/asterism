@@ -1424,6 +1424,23 @@ def test_substitute_run_id_keeps_template_when_real_column_remains() -> None:
     assert "{__run_id__}" not in out
 
 
+def test_substitute_run_id_resolves_inside_constants_and_iris() -> None:
+    # The live failure: an AI wrote the placeholder inside rr:constant (after
+    # being told {__run_id__} is the one runtime placeholder). Morph-KGC
+    # template-evaluates braces even in constants, so the token must resolve
+    # EVERYWHERE — constant literals, IRIs, anywhere — not only rr:template.
+    from asterism.substrate import substitute_run_id
+
+    rml = (
+        'rr:objectMap [ rr:constant "sdr:activity/{__run_id__}" ] .\n'
+        'rr:objectMap [ rr:constant <https://ex/ingest/{__run_id__}> ] .'
+    )
+    out = substitute_run_id(rml, "run-X")
+    assert "{__run_id__}" not in out
+    assert 'rr:constant "sdr:activity/run-X"' in out
+    assert "rr:constant <https://ex/ingest/run-X>" in out
+
+
 def test_substitute_run_id_noop_without_placeholder() -> None:
     from asterism.substrate import substitute_run_id
 

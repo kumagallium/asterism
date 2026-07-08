@@ -488,9 +488,9 @@ def test_constant_with_invented_placeholder_is_flagged(tmp_path: Path) -> None:
 
 
 def test_constant_run_id_placeholder_is_allowed(tmp_path: Path) -> None:
-    # {__run_id__} inside a constant is the engine's own substitution target —
-    # the prepared (substituted) form is what ingest validates, but the raw form
-    # must not be flagged either.
+    # {__run_id__} inside a constant IS substituted (substitute_run_id resolves
+    # the token everywhere since the fix/run-id-substitute-everywhere change) —
+    # the raw form must not be flagged.
     (tmp_path / "papers.csv").write_text("DOI\nx\n", encoding="utf-8")
     rml = _PREFIXES + (
         '<#Papers> a rr:TriplesMap ;\n'
