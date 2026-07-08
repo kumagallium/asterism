@@ -1,0 +1,78 @@
+version: 1
+prefixes:
+  sd: https://…/ontology#
+  sdr: https://…/resource/
+  schema: http://schema.org/
+  dcterms: http://purl.org/dc/terms/
+  bibo: http://purl.org/ontology/bibo/
+  prov: http://www.w3.org/ns/prov#
+maps:
+- name: paper
+  source: papers.csv
+  subject:
+    template: sdr:paper/{SID}
+    transform:
+      SID: strip_footnote
+  properties:
+  - predicate: bibo:doi
+    transform:
+      template: template
+      columns: doi_norm
+      args: template
+  - predicate: schema:url
+    transform:
+      iri_safe: iri_safe
+      column: url_canonical
+  - predicate: dcterms:issued
+    transform:
+      date_iso: date_iso
+      column: date_iso
+      args: date_iso
+      datatype: date_iso
+  - predicate: dcterms:creator
+    transform:
+      split: split
+      delimiter: split
+      args: split
+  - predicate: dcterms:title
+    transform:
+      title: trim_collapse
+      column: trim_collapse
+      args: trim_collapse
+  - predicate: bibo:containerTitle
+    transform:
+      container_title: trim_collapse
+      args: trim_collapse
+      column: trim_collapse
+  - predicate: bibo:shortTitle
+    transform:
+      container_title_short: trim_collapse
+      args: trim_collapse
+  - predicate: bibo:volume
+    transform:
+      volume: trim_collapse
+  - predicate: bibo:issue
+    transform:
+      issue: trim_collapse
+  - predicate: bibo:page
+    transform:
+      page: trim_collapse
+  - predicate: bibo:issn
+    transform:
+      ISSN: trim_collapse
+  - predicate: dcterms:publisher
+    transform:
+      publisher: trim_collapse
+  - predicate: sdr:projectName
+    transform:
+      split: split
+      delimiter: split
+      args: split
+      column: split
+  - predicate: dcterms:created
+    transform:
+      datetime_iso: datetime_iso
+      args: datetime_iso
+      datatype: datetime_iso
+      column: datetime_iso
+      metadata: datetime_iso

@@ -1,0 +1,200 @@
+subset papers.csv: 40 records
+subset samples.csv: 40 records
+subset curves.csv: 40 records
+[18:44:45] job1: propose_skeleton …
+[
+  {
+    "name": "paper",
+    "source": "papers.csv",
+    "subject_key": "sdr:paper/{SID}",
+    "key_placeholders": [
+      "SID"
+    ],
+    "composite": false,
+    "classes": [
+      "bibo:Article"
+    ],
+    "note": null
+  },
+  {
+    "name": "sample",
+    "source": "samples.csv",
+    "subject_key": "sdr:sample/{sample_id}",
+    "key_placeholders": [
+      "sample_id"
+    ],
+    "composite": false,
+    "classes": [
+      "sdr:Sample"
+    ],
+    "note": null
+  },
+  {
+    "name": "curve",
+    "source": "curves.csv",
+    "subject_key": "sdr:curve/{composition}",
+    "key_placeholders": [
+      "composition"
+    ],
+    "composite": false,
+    "classes": [
+      "sdr:Curve"
+    ],
+    "note": null
+  }
+]
+[18:45:08] job2: run_design_loop(skeleton=…) …
+[18:45:08] {'phase': 'propose', 'round': 0, 'message': '骨格から設計を生成中'}
+[18:45:08] {'phase': 'map:paper', 'index': 0, 'total': 3, 'message': 'プロパティ表を生成中: paper'}
+[18:45:33] {'phase': 'map:sample', 'index': 1, 'total': 3, 'message': 'プロパティ表を生成中: sample'}
+[18:45:54] {'phase': 'map:curve', 'index': 2, 'total': 3, 'message': 'プロパティ表を生成中: curve'}
+[18:46:30] {'phase': 'document', 'message': '設計文書を生成中'}
+[18:47:20] {'phase': 'validated', 'round': 0, 'issue_count': 76, 'categories': {'other': 76}, 'message': '設計を検証: 76 件の問題'}
+[18:47:20] {'phase': 'refine', 'round': 1, 'issue_count': 76, 'categories': {'other': 76}, 'message': '76 件の問題を修正中 (§9 仕様のみ再生成)'}
+[18:47:58] {'phase': 'validated', 'round': 1, 'issue_count': 1, 'categories': {'function': 1}, 'message': '再検証: 1 件の問題'}
+[18:47:58] {'phase': 'refine', 'round': 2, 'issue_count': 1, 'categories': {'function': 1}, 'message': '1 件の問題を修正中 (§9 仕様のみ再生成)'}
+[18:48:36] {'phase': 'validated', 'round': 2, 'issue_count': 1, 'categories': {'other': 1}, 'message': '再検証: 1 件の問題'}
+[18:48:36] {'phase': 'refine', 'round': 3, 'issue_count': 1, 'categories': {'other': 1}, 'message': '1 件の問題を修正中 (§9 仕様のみ再生成)'}
+[18:49:17] {'phase': 'validated', 'round': 3, 'issue_count': 1, 'categories': {'other': 1}, 'message': '再検証: 1 件の問題'}
+
+===== staged dogfood summary =====
+{
+  "model": "preview/Qwen3.6-35B-A3B",
+  "api_base": "https://api.ai.sakura.ad.jp/v1",
+  "rows_per_csv": 40,
+  "max_rounds": 3,
+  "contract": "mapping-ir staged round-0 (ADR mapping-ir-phase2b-skeleton-wizard.md)",
+  "rounds": [
+    {
+      "round": 0,
+      "issue_count": 76,
+      "categories": {
+        "other": 76
+      }
+    },
+    {
+      "round": 1,
+      "issue_count": 1,
+      "categories": {
+        "function": 1
+      }
+    },
+    {
+      "round": 2,
+      "issue_count": 1,
+      "categories": {
+        "other": 1
+      }
+    },
+    {
+      "round": 3,
+      "issue_count": 1,
+      "categories": {
+        "other": 1
+      }
+    }
+  ],
+  "skeleton_wall_clock_s": 22.8,
+  "skeleton": {
+    "maps": [
+      {
+        "name": "paper",
+        "source": "papers.csv",
+        "subject": {
+          "classes": [
+            "bibo:Article"
+          ],
+          "template": "sdr:paper/{SID}"
+        }
+      },
+      {
+        "name": "sample",
+        "source": "samples.csv",
+        "subject": {
+          "classes": [
+            "sdr:Sample"
+          ],
+          "template": "sdr:sample/{sample_id}"
+        }
+      },
+      {
+        "name": "curve",
+        "source": "curves.csv",
+        "subject": {
+          "classes": [
+            "sdr:Curve"
+          ],
+          "template": "sdr:curve/{composition}"
+        }
+      }
+    ],
+    "prefixes": {
+      "bibo": "http://purl.org/ontology/bibo/",
+      "dcterms": "http://purl.org/dc/terms/",
+      "sd": "https://starreddata.org/ontology#",
+      "sdr": "https://starreddata.org/resource/",
+      "schema": "http://schema.org/"
+    },
+    "version": 1
+  },
+  "skeleton_maps": [
+    {
+      "name": "paper",
+      "source": "papers.csv",
+      "subject_key": "sdr:paper/{SID}",
+      "key_placeholders": [
+        "SID"
+      ],
+      "composite": false,
+      "classes": [
+        "bibo:Article"
+      ],
+      "note": null
+    },
+    {
+      "name": "sample",
+      "source": "samples.csv",
+      "subject_key": "sdr:sample/{sample_id}",
+      "key_placeholders": [
+        "sample_id"
+      ],
+      "composite": false,
+      "classes": [
+        "sdr:Sample"
+      ],
+      "note": null
+    },
+    {
+      "name": "curve",
+      "source": "curves.csv",
+      "subject_key": "sdr:curve/{composition}",
+      "key_placeholders": [
+        "composition"
+      ],
+      "composite": false,
+      "classes": [
+        "sdr:Curve"
+      ],
+      "note": null
+    }
+  ],
+  "skeleton_all_keys_composite": false,
+  "continue_wall_clock_s": 249.8,
+  "converged": false,
+  "terminal_reason": "max_rounds",
+  "initial_issue_count": 76,
+  "remaining_issues": [
+    "map 'paper' property schema:keywords: split requires the constant arg 'delimiter'."
+  ],
+  "coverage_dropped": false,
+  "final_design": {
+    "has_mapping_spec": true,
+    "mapping_ir_issues": [
+      "map 'paper' property schema:keywords: split requires the constant arg 'delimiter'.",
+      "map 'curve' property sdr:project_names: split requires the constant arg 'delimiter'."
+    ],
+    "compiled": false
+  }
+}
+
+wrote /Users/masayakumagai/Documents/Claude/Projects/AI for Science/asterism/experiments/mapping-ir-weakmodel-dogfood/results/staged-qwen.json

@@ -1,0 +1,130 @@
+{
+  "model": "gpt-oss-120b",
+  "api_base": "https://api.ai.sakura.ad.jp/v1",
+  "rows_per_csv": 40,
+  "max_rounds": 3,
+  "contract": "mapping-ir staged round-0 (ADR mapping-ir-phase2b-skeleton-wizard.md)",
+  "rounds": [
+    {
+      "round": 0,
+      "issue_count": 28,
+      "categories": {
+        "other": 28
+      }
+    },
+    {
+      "round": 1,
+      "issue_count": 28,
+      "categories": {
+        "other": 28
+      }
+    }
+  ],
+  "skeleton_wall_clock_s": 6.0,
+  "skeleton": {
+    "maps": [
+      {
+        "name": "paper",
+        "source": "papers.csv",
+        "subject": {
+          "template": "sdr:paper/{SID}",
+          "transform": {
+            "SID": "strip_footnote"
+          }
+        }
+      }
+    ],
+    "prefixes": {
+      "sd": "https://…/ontology#",
+      "sdr": "https://…/resource/",
+      "schema": "http://schema.org/",
+      "dcterms": "http://purl.org/dc/terms/",
+      "bibo": "http://purl.org/ontology/bibo/",
+      "prov": "http://www.w3.org/ns/prov#"
+    },
+    "version": 1
+  },
+  "skeleton_maps": [
+    {
+      "name": "paper",
+      "source": "papers.csv",
+      "subject_key": "sdr:paper/{SID}",
+      "key_placeholders": [
+        "SID"
+      ],
+      "composite": false,
+      "classes": [],
+      "note": null
+    }
+  ],
+  "skeleton_all_keys_composite": false,
+  "continue_wall_clock_s": 45.0,
+  "converged": false,
+  "terminal_reason": "no_progress",
+  "initial_issue_count": 28,
+  "remaining_issues": [
+    "map 'paper'.properties[0] (bibo:doi) must use exactly one object form of column / columns / object_template / constant (got: none).",
+    "map 'paper'.properties[0] (bibo:doi).transform applies to object_template placeholders only.",
+    "map 'paper'.properties[1] (schema:url) must use exactly one object form of column / columns / object_template / constant (got: none).",
+    "map 'paper'.properties[1] (schema:url).transform applies to object_template placeholders only.",
+    "map 'paper'.properties[2] (dcterms:issued) must use exactly one object form of column / columns / object_template / constant (got: none).",
+    "map 'paper'.properties[2] (dcterms:issued).transform applies to object_template placeholders only.",
+    "map 'paper'.properties[3] (dcterms:creator) must use exactly one object form of column / columns / object_template / constant (got: none).",
+    "map 'paper'.properties[3] (dcterms:creator).transform applies to object_template placeholders only.",
+    "map 'paper'.properties[4] (dcterms:title) must use exactly one object form of column / columns / object_template / constant (got: none).",
+    "map 'paper'.properties[4] (dcterms:title).transform applies to object_template placeholders only.",
+    "map 'paper'.properties[5] (bibo:containerTitle) must use exactly one object form of column / columns / object_template / constant (got: none).",
+    "map 'paper'.properties[5] (bibo:containerTitle).transform applies to object_template placeholders only.",
+    "map 'paper'.properties[6] (bibo:shortTitle) must use exactly one object form of column / columns / object_template / constant (got: none).",
+    "map 'paper'.properties[6] (bibo:shortTitle).transform applies to object_template placeholders only.",
+    "map 'paper'.properties[7] (bibo:volume) must use exactly one object form of column / columns / object_template / constant (got: none).",
+    "map 'paper'.properties[7] (bibo:volume).transform applies to object_template placeholders only.",
+    "map 'paper'.properties[8] (bibo:issue) must use exactly one object form of column / columns / object_template / constant (got: none).",
+    "map 'paper'.properties[8] (bibo:issue).transform applies to object_template placeholders only.",
+    "map 'paper'.properties[9] (bibo:page) must use exactly one object form of column / columns / object_template / constant (got: none).",
+    "map 'paper'.properties[9] (bibo:page).transform applies to object_template placeholders only.",
+    "map 'paper'.properties[10] (bibo:issn) must use exactly one object form of column / columns / object_template / constant (got: none).",
+    "map 'paper'.properties[10] (bibo:issn).transform applies to object_template placeholders only.",
+    "map 'paper'.properties[11] (dcterms:publisher) must use exactly one object form of column / columns / object_template / constant (got: none).",
+    "map 'paper'.properties[11] (dcterms:publisher).transform applies to object_template placeholders only.",
+    "map 'paper'.properties[12] (sdr:projectName) must use exactly one object form of column / columns / object_template / constant (got: none).",
+    "map 'paper'.properties[12] (sdr:projectName).transform applies to object_template placeholders only.",
+    "map 'paper'.properties[13] (dcterms:created) must use exactly one object form of column / columns / object_template / constant (got: none).",
+    "map 'paper'.properties[13] (dcterms:created).transform applies to object_template placeholders only."
+  ],
+  "coverage_dropped": false,
+  "final_design": {
+    "has_mapping_spec": true,
+    "mapping_ir_issues": [
+      "map 'paper'.properties[0] (bibo:doi) must use exactly one object form of column / columns / object_template / constant (got: none).",
+      "map 'paper'.properties[0] (bibo:doi).transform applies to object_template placeholders only.",
+      "map 'paper'.properties[1] (schema:url) must use exactly one object form of column / columns / object_template / constant (got: none).",
+      "map 'paper'.properties[1] (schema:url).transform applies to object_template placeholders only.",
+      "map 'paper'.properties[2] (dcterms:issued) must use exactly one object form of column / columns / object_template / constant (got: none).",
+      "map 'paper'.properties[2] (dcterms:issued).transform applies to object_template placeholders only.",
+      "map 'paper'.properties[3] (dcterms:creator) must use exactly one object form of column / columns / object_template / constant (got: none).",
+      "map 'paper'.properties[3] (dcterms:creator).transform applies to object_template placeholders only.",
+      "map 'paper'.properties[4] (dcterms:title) must use exactly one object form of column / columns / object_template / constant (got: none).",
+      "map 'paper'.properties[4] (dcterms:title).transform applies to object_template placeholders only.",
+      "map 'paper'.properties[5] (bibo:containerTitle) must use exactly one object form of column / columns / object_template / constant (got: none).",
+      "map 'paper'.properties[5] (bibo:containerTitle).transform applies to object_template placeholders only.",
+      "map 'paper'.properties[6] (bibo:shortTitle) must use exactly one object form of column / columns / object_template / constant (got: none).",
+      "map 'paper'.properties[6] (bibo:shortTitle).transform applies to object_template placeholders only.",
+      "map 'paper'.properties[7] (bibo:volume) must use exactly one object form of column / columns / object_template / constant (got: none).",
+      "map 'paper'.properties[7] (bibo:volume).transform applies to object_template placeholders only.",
+      "map 'paper'.properties[8] (bibo:issue) must use exactly one object form of column / columns / object_template / constant (got: none).",
+      "map 'paper'.properties[8] (bibo:issue).transform applies to object_template placeholders only.",
+      "map 'paper'.properties[9] (bibo:page) must use exactly one object form of column / columns / object_template / constant (got: none).",
+      "map 'paper'.properties[9] (bibo:page).transform applies to object_template placeholders only.",
+      "map 'paper'.properties[10] (bibo:issn) must use exactly one object form of column / columns / object_template / constant (got: none).",
+      "map 'paper'.properties[10] (bibo:issn).transform applies to object_template placeholders only.",
+      "map 'paper'.properties[11] (dcterms:publisher) must use exactly one object form of column / columns / object_template / constant (got: none).",
+      "map 'paper'.properties[11] (dcterms:publisher).transform applies to object_template placeholders only.",
+      "map 'paper'.properties[12] (sdr:projectName) must use exactly one object form of column / columns / object_template / constant (got: none).",
+      "map 'paper'.properties[12] (sdr:projectName).transform applies to object_template placeholders only.",
+      "map 'paper'.properties[13] (dcterms:created) must use exactly one object form of column / columns / object_template / constant (got: none).",
+      "map 'paper'.properties[13] (dcterms:created).transform applies to object_template placeholders only."
+    ],
+    "compiled": false
+  }
+}

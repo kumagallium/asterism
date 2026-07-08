@@ -35,7 +35,6 @@ __all__ = [
 # Term positions that must not carry an rdf-config cardinality suffix: any
 # non-space chars, last char not one of * ? +  (single-char terms allowed).
 _TERM_PATTERN = r"^\S*[^*?+\s]$"
-_PREFIX_NAME_PATTERN = r"^[A-Za-z][\w.-]*$"
 _MAP_NAME_PATTERN = r"^[A-Za-z][\w-]*$"
 _IRI_PATTERN = r"^https?://\S+$"
 
@@ -59,9 +58,13 @@ def _function_value(function_names: Sequence[str] | None) -> dict:
 
 
 def _prefixes_schema() -> dict:
+    # No ``propertyNames``: some guided-decoding backends (Sakura vLLM) reject it
+    # ("Grammar error: Unimplemented keys: [propertyNames]"). Prefix-NAME validity
+    # is enforced by the strict parser (``mapping_ir._PREFIX_NAME``), not by the
+    # schema — the schema only narrows generation, so dropping the key-name pattern
+    # loses nothing the gate needs. Values stay constrained to IRI-shaped strings.
     return {
         "type": "object",
-        "propertyNames": {"pattern": _PREFIX_NAME_PATTERN},
         "additionalProperties": _string(_IRI_PATTERN),
     }
 

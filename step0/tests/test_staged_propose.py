@@ -366,3 +366,37 @@ def test_propose_from_skeleton_equivalence_and_progress() -> None:
     spec = parse_mapping_ir(_extract_spec(md))
     original = parse_mapping_ir(mapping_ir_to_yaml(FULL_IR))
     assert spec == original
+
+
+def test_propose_from_skeleton_degrades_on_unparseable_permap() -> None:
+    """A per-map call returning truncated/invalid JSON must NOT crash the run
+    (observed live with gpt-oss-120b): that map degrades to no properties and the
+    others are intact, so the assembled IR surfaces the gap to validation."""
+    skeleton_obj, permaps = skeleton_from_full_ir(FULL_IR)
+
+    def handler(system: str, user: str) -> str:
+        if system == SKELETON_SYSTEM_PROMPT:
+            return json.dumps(skeleton_obj)
+        if system == PERMAP_SYSTEM_PROMPT:
+            if "This map: 'part'" in user:
+                return '{"properties": [{"predicate": "ex:ofThing", "object_templa'  # truncated
+            return json.dumps(permaps["thing"])
+        if system == DOCUMENT_SYSTEM_PROMPT:
+            return "### 1. Class hierarchy\n\n(design)\n"
+        raise AssertionError("unexpected system prompt")
+
+    llm = GuidedMock(handler)
+    warnings: list[str] = []
+    md = propose_from_skeleton(
+        skeleton_obj,
+        "# insp",
+        "# dom",
+        llm=llm,
+        menu="menu",
+        function_names=FN_NAMES,
+        on_progress=lambda **d: warnings.append(str(d.get("message", ""))),
+    )
+    spec_yaml = _extract_spec(md)  # the run completed — no exception propagated
+    assert "predicate: schema:name" in spec_yaml  # the good 'thing' map survived
+    assert "name: part" in spec_yaml  # the bad map is present, degraded
+    assert any("失敗" in w for w in warnings)  # a per-map failure was surfaced

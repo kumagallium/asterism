@@ -1,0 +1,143 @@
+maps:
+- name: paper
+  properties:
+  - column: DOI
+    function: doi_norm
+    predicate: bibo:doi
+  - column: URL
+    function: iri_safe
+    predicate: schema:url
+  - column: issued
+    function: date_iso
+    predicate: schema:datePublished
+  - column: author
+    function: trim_collapse
+    predicate: schema:author
+  - column: title
+    function: trim_collapse
+    predicate: schema:name
+  - column: container_title
+    function: trim_collapse
+    predicate: schema:isPartOf
+  - column: container_title_short
+    function: trim_collapse
+    predicate: bibo:issueTitle
+  - column: volume
+    function: trim_collapse
+    predicate: bibo:volume
+  - column: issue
+    function: trim_collapse
+    predicate: bibo:issueNumber
+  - column: page
+    function: trim_collapse
+    predicate: bibo:page
+  - column: ISSN
+    function: trim_collapse
+    predicate: schema:issn
+  - column: publisher
+    function: trim_collapse
+    predicate: schema:publisher
+  - column: project_names
+    function: split
+    predicate: schema:keywords
+  - column: created_at
+    function: datetime_iso
+    predicate: schema:dateCreated
+  source: papers.csv
+  subject:
+    classes:
+    - bibo:Article
+    template: sdr:paper/{SID}
+- name: sample
+  properties:
+  - column: sample_name
+    function: trim_collapse
+    predicate: sdr:sampleName
+  - column: composition
+    function: trim_collapse
+    predicate: sdr:composition
+  - column: composition_details
+    function: trim_collapse
+    predicate: sdr:compositionDetails
+  - column: SID
+    function: trim_collapse
+    predicate: sdr:SID
+  - column: DOI
+    function: doi_norm
+    predicate: sdr:DOI
+  - column: created_at
+    function: datetime_iso
+    predicate: sdr:createdAt
+  - column: updated_at
+    function: datetime_iso
+    predicate: sdr:updatedAt
+  - column: sample_info
+    function: trim_collapse
+    predicate: sdr:sampleInfo
+  source: samples.csv
+  subject:
+    classes:
+    - sdr:Sample
+    template: sdr:sample/{sample_id}
+- name: curve
+  properties:
+  - column: SID
+    function: number_clean
+    predicate: sdr:SID
+  - column: DOI
+    function: doi_norm
+    predicate: sdr:DOI
+  - column: composition
+    function: trim_collapse
+    predicate: sdr:composition
+  - column: sample_id
+    function: structural_slug
+    predicate: sdr:sample_id
+  - column: figure_id
+    function: number_clean
+    predicate: sdr:figure_id
+  - column: figure_name
+    function: trim_collapse
+    predicate: sdr:figure_name
+  - column: prop_x
+    function: number_clean
+    predicate: sdr:prop_x
+  - column: prop_y
+    function: number_clean
+    predicate: sdr:prop_y
+  - column: unit_x
+    function: trim_collapse
+    predicate: sdr:unit_x
+  - column: unit_y
+    function: trim_collapse
+    predicate: sdr:unit_y
+  - column: x
+    function: number_clean
+    predicate: sdr:x
+  - column: y
+    function: number_clean
+    predicate: sdr:y
+  - column: created_at
+    function: datetime_iso
+    predicate: sdr:created_at
+  - column: updated_at
+    function: datetime_iso
+    predicate: sdr:updated_at
+  - column: project_names
+    function: split
+    predicate: sdr:project_names
+  - column: comments
+    function: trim_collapse
+    predicate: sdr:comments
+  source: curves.csv
+  subject:
+    classes:
+    - sdr:Curve
+    template: sdr:curve/{composition}
+prefixes:
+  bibo: http://purl.org/ontology/bibo/
+  dcterms: http://purl.org/dc/terms/
+  sd: https://starreddata.org/ontology#
+  sdr: https://starreddata.org/resource/
+  schema: http://schema.org/
+version: 1

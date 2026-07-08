@@ -1,0 +1,138 @@
+{
+  "model": "preview/Qwen3.6-35B-A3B",
+  "api_base": "https://api.ai.sakura.ad.jp/v1",
+  "rows_per_csv": 40,
+  "max_rounds": 3,
+  "contract": "mapping-ir staged round-0 (ADR mapping-ir-phase2b-skeleton-wizard.md)",
+  "rounds": [
+    {
+      "round": 0,
+      "issue_count": 76,
+      "categories": {
+        "other": 76
+      }
+    },
+    {
+      "round": 1,
+      "issue_count": 1,
+      "categories": {
+        "function": 1
+      }
+    },
+    {
+      "round": 2,
+      "issue_count": 1,
+      "categories": {
+        "other": 1
+      }
+    },
+    {
+      "round": 3,
+      "issue_count": 1,
+      "categories": {
+        "other": 1
+      }
+    }
+  ],
+  "skeleton_wall_clock_s": 22.8,
+  "skeleton": {
+    "maps": [
+      {
+        "name": "paper",
+        "source": "papers.csv",
+        "subject": {
+          "classes": [
+            "bibo:Article"
+          ],
+          "template": "sdr:paper/{SID}"
+        }
+      },
+      {
+        "name": "sample",
+        "source": "samples.csv",
+        "subject": {
+          "classes": [
+            "sdr:Sample"
+          ],
+          "template": "sdr:sample/{sample_id}"
+        }
+      },
+      {
+        "name": "curve",
+        "source": "curves.csv",
+        "subject": {
+          "classes": [
+            "sdr:Curve"
+          ],
+          "template": "sdr:curve/{composition}"
+        }
+      }
+    ],
+    "prefixes": {
+      "bibo": "http://purl.org/ontology/bibo/",
+      "dcterms": "http://purl.org/dc/terms/",
+      "sd": "https://starreddata.org/ontology#",
+      "sdr": "https://starreddata.org/resource/",
+      "schema": "http://schema.org/"
+    },
+    "version": 1
+  },
+  "skeleton_maps": [
+    {
+      "name": "paper",
+      "source": "papers.csv",
+      "subject_key": "sdr:paper/{SID}",
+      "key_placeholders": [
+        "SID"
+      ],
+      "composite": false,
+      "classes": [
+        "bibo:Article"
+      ],
+      "note": null
+    },
+    {
+      "name": "sample",
+      "source": "samples.csv",
+      "subject_key": "sdr:sample/{sample_id}",
+      "key_placeholders": [
+        "sample_id"
+      ],
+      "composite": false,
+      "classes": [
+        "sdr:Sample"
+      ],
+      "note": null
+    },
+    {
+      "name": "curve",
+      "source": "curves.csv",
+      "subject_key": "sdr:curve/{composition}",
+      "key_placeholders": [
+        "composition"
+      ],
+      "composite": false,
+      "classes": [
+        "sdr:Curve"
+      ],
+      "note": null
+    }
+  ],
+  "skeleton_all_keys_composite": false,
+  "continue_wall_clock_s": 249.8,
+  "converged": false,
+  "terminal_reason": "max_rounds",
+  "initial_issue_count": 76,
+  "remaining_issues": [
+    "map 'paper' property schema:keywords: split requires the constant arg 'delimiter'."
+  ],
+  "coverage_dropped": false,
+  "final_design": {
+    "has_mapping_spec": true,
+    "mapping_ir_issues": [
+      "map 'paper' property schema:keywords: split requires the constant arg 'delimiter'.",
+      "map 'curve' property sdr:project_names: split requires the constant arg 'delimiter'."
+    ],
+    "compiled": false
+  }
+}

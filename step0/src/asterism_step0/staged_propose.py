@@ -513,15 +513,30 @@ def propose_from_skeleton(
     for i, map_obj in enumerate(maps):
         name = map_obj.get("name")
         emit(phase=f"map:{name}", index=i, total=len(maps), message=f"プロパティ表を生成中: {name}")
-        permaps[name] = generate_map_properties(
-            name,
-            map_obj,
-            context,
-            menu_text,
-            llm=llm,
-            function_names=names,
-            language=language,
-        )
+        try:
+            permaps[name] = generate_map_properties(
+                name,
+                map_obj,
+                context,
+                menu_text,
+                llm=llm,
+                function_names=names,
+                language=language,
+            )
+        except ValueError as exc:
+            # A per-map call that returns unparseable / truncated output (weak
+            # models truncate — ADR §11) must NOT crash the whole staged run.
+            # Degrade this map to no properties and continue; the assembled IR
+            # then fails validation on the gap, which the self-correction loop /
+            # human gate addresses — the same resilience the single-shot round-0
+            # has (a bad proposal there surfaces as issues, it does not crash).
+            emit(
+                phase=f"map:{name}",
+                index=i,
+                total=len(maps),
+                message=f"map '{name}' の生成に失敗しプロパティ無しで継続します: {exc}",
+            )
+            permaps[name] = {"properties": []}
         record()
 
     assembled = assemble_mapping_ir(skeleton, permaps)
