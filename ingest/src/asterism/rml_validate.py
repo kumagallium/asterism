@@ -253,6 +253,10 @@ def _check_columns(graph, csv_dir: Path) -> list[str]:
         return headers[key] or None
 
     sub_pred = rdflib.URIRef
+    # Pass 1: resolve every tabular TriplesMap's (source, columns, references),
+    # so pass 2 can also answer "does this column exist in ANOTHER source?" —
+    # the signature of an entity link declared on the wrong side.
+    tm_rows: list[tuple[str, set[str], set[str], list[str]]] = []
     for tm in _triples_map_subjects(graph):
         # Resolve this TriplesMap's logical source -> rml:source literal.
         source_literal: str | None = None
@@ -272,7 +276,6 @@ def _check_columns(graph, csv_dir: Path) -> list[str]:
         columns = header_for(source_literal)
         if columns is None:
             continue  # unreadable / empty header — cannot check this source
-        col_set = set(columns)
         # Collect every column this TriplesMap references (reachable blank nodes).
         referenced: set[str] = set()
         for node in _reachable_nodes(graph, tm):
@@ -282,12 +285,32 @@ def _check_columns(graph, csv_dir: Path) -> list[str]:
             for tpl_pred in _TEMPLATE_PREDS:
                 for tpl in graph.objects(node, sub_pred(tpl_pred)):
                     referenced |= _template_columns(str(tpl))
-        src_name = Path(source_literal).name
+        tm_rows.append((Path(source_literal).name, set(columns), referenced, columns))
+
+    carriers: dict[str, set[str]] = {}
+    for src_name, col_set, _refs, _cols in tm_rows:
+        for col in col_set:
+            carriers.setdefault(col, set()).add(src_name)
+
+    for src_name, col_set, referenced, columns in tm_rows:
         for col in sorted(referenced):
             if col in col_set:
                 continue
             suggestion = difflib.get_close_matches(col, columns, n=_SUGGEST_N, cutoff=0.6)
             hint = f" Did you mean: {', '.join(suggestion)}?" if suggestion else ""
+            others = sorted(carriers.get(col, set()) - {src_name})
+            if others:
+                # Observed live: the AI declares Paper -> Sample on the PAPER map
+                # using the child's key, which the parent table never carries. The
+                # fix is directional knowledge, so say it explicitly.
+                hint += (
+                    f" NOTE: {col!r} DOES exist in {', '.join(others)} — if this is "
+                    "an entity link, declare it on the TriplesMap whose source "
+                    f"carries the key (i.e. {others[0]}), using the other entity's "
+                    f"subject IRI template as the object; {src_name} does not have "
+                    "that key (a parent table never carries its children's keys, "
+                    "and SPARQL can traverse the link in both directions anyway)."
+                )
             issues.append(
                 f"column {col!r} referenced by the mapping is not in {src_name} "
                 f"(columns: {', '.join(columns)}).{hint}"

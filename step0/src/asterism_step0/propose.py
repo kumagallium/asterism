@@ -112,6 +112,12 @@ single Markdown document with two top-level artifacts:
   "which record came from which source"), which defeats the point of a graph.
   The design must form ONE connected component unless the sources are truly
   unrelated — and then §5 must say so explicitly.
+  DIRECTION: declare the link FROM the entity whose source table CARRIES the
+  foreign key — the child row points at its parent (child → parent), reusing
+  the parent's subject IRI template as the object. A parent's table does NOT
+  contain its children's keys, so a link written on the parent side references
+  a column that does not exist in its source. One direction is enough: SPARQL
+  traverses the edge both ways.
 
 ### 4. JSON column strategy
 For each column flagged as `json-array` / `json-object`:
