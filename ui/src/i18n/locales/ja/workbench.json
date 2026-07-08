@@ -161,5 +161,20 @@
     "noBnode": "空白ノード (blank node) は使わない",
     "units": "単位や量を正規化したい（同義語の統一など）",
     "jsonColumns": "セル内に JSON（配列やオブジェクト）が入っている列がある"
+  },
+  "skeleton": {
+    "generate": "骨格を確認して生成",
+    "generating": "骨格を生成中…",
+    "singleShot": "一括生成（従来）",
+    "jobLabel": "骨格を生成中",
+    "continuing": "設計を生成中…",
+    "continue": "この骨格で続行",
+    "discard": "やり直す",
+    "gateTitle": "骨格の確認",
+    "gateHint": "各エンティティの主キー（IRI テンプレート）とクラスを確認・修正してください。プロパティはこの後に生成されます。主キーが一意でないと行が 1 つの IRI に潰れます。",
+    "colClass": "マップ",
+    "colSource": "ソース",
+    "colKey": "主キー（IRI テンプレート）",
+    "colClasses": "クラス"
   }
 }

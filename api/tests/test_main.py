@@ -473,6 +473,134 @@ def test_propose_autocorrect_loop_streams_rounds_and_converges(
         assert "sample_id" in done["result"]["proposal_md"]
 
 
+# ----------------------------------------------------------------------------
+# Phase 2b: staged round-0 — /api/propose/skeleton + /api/propose/continue
+# ----------------------------------------------------------------------------
+
+_STAGED_CSV = b"SID,sample_id,name\n1,10,alpha\n1,11,beta\n2,10,gamma\n"
+_STAGED_SKELETON = {
+    "version": 1,
+    "prefixes": {"ex": "https://example.org/ns#", "exr": "https://example.org/r/"},
+    "maps": [
+        {
+            "name": "sample",
+            "source": "samples.csv",
+            "subject": {
+                "template": "exr:sample/{SID}-{sample_id}",
+                "classes": ["ex:Sample"],
+            },
+            "note": "SID+sample_id is the unique key",
+        }
+    ],
+}
+_STAGED_PERMAP = {"properties": [{"predicate": "ex:name", "column": "name"}]}
+
+
+class _StagedMock:
+    """Routes each frozen staged prompt to its scripted reply (skeleton JSON /
+    per-map JSON / document Markdown). Used for both jobs of the 2-job split."""
+
+    def __init__(self, key: str | None) -> None:
+        self.key = key
+        self.systems: list[str] = []
+
+    def complete(self, system_prompt: str, user_message: str) -> str:
+        from asterism_step0.staged_propose import (
+            DOCUMENT_SYSTEM_PROMPT,
+            PERMAP_SYSTEM_PROMPT,
+            SKELETON_SYSTEM_PROMPT,
+        )
+
+        self.systems.append(system_prompt)
+        if system_prompt == SKELETON_SYSTEM_PROMPT:
+            return json.dumps(_STAGED_SKELETON)
+        if system_prompt == PERMAP_SYSTEM_PROMPT:
+            return json.dumps(_STAGED_PERMAP)
+        if system_prompt == DOCUMENT_SYSTEM_PROMPT:
+            return "### 1. Class hierarchy\n\n(mock staged design)\n"
+        return "UNEXPECTED PROMPT"
+
+
+def test_propose_skeleton_streams_skeleton(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    app = build_app(
+        _settings(tmp_path),
+        oxigraph_client=healthy_client,
+        start_watcher=False,
+        llm_factory=lambda key: _StagedMock(key),
+    )
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/propose/skeleton",
+            params={"fk": "SID"},
+            data={"domain": "thermoelectric samples"},
+            files={"files": ("samples.csv", _STAGED_CSV, "text/csv")},
+        )
+        assert r.status_code == 202
+        job_id = r.json()["job_id"]
+        events = _parse_sse(client.get(f"/api/jobs/{job_id}/stream").text)
+        names = [n for n, _ in events]
+        assert "started" in names and "done" in names
+        # a skeleton phase frame was streamed before the model call
+        phases = [d.get("phase") for n, d in events if n == "running" and "phase" in d]
+        assert "skeleton" in phases
+        done = next(d for n, d in events if n == "done")["result"]
+        assert done["skeleton"]["maps"][0]["name"] == "sample"
+        assert done["skeleton"]["maps"][0]["subject"]["classes"] == ["ex:Sample"]
+        assert "sample_id" in done["inspection_md"]
+
+
+def test_propose_continue_assembles_and_converges(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    app = build_app(
+        _settings(tmp_path),
+        oxigraph_client=healthy_client,
+        start_watcher=False,
+        llm_factory=lambda key: _StagedMock(key),
+    )
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/propose/continue",
+            params={"autocorrect": 0},
+            data={"skeleton": json.dumps(_STAGED_SKELETON), "domain": "thermoelectric"},
+            files={"files": ("samples.csv", _STAGED_CSV, "text/csv")},
+        )
+        assert r.status_code == 202
+        job_id = r.json()["job_id"]
+        events = _parse_sse(client.get(f"/api/jobs/{job_id}/stream").text)
+        # per-map + document frames streamed (additive phases)
+        phases = [d.get("phase") for n, d in events if n == "running" and "phase" in d]
+        assert "map:sample" in phases
+        assert "document" in phases
+        done = next(d for n, d in events if n == "done")["result"]
+        # §9 is the deterministically assembled IR (real column, no invention),
+        # so the loop converges even with autocorrect=0
+        assert done["autocorrect"]["converged"] is True
+        assert "### 9. Declarative mapping spec" in done["proposal_md"]
+        assert "ex:name" in done["proposal_md"]
+        assert "column: name" in done["proposal_md"]
+
+
+def test_propose_continue_rejects_invalid_skeleton_json(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    app = build_app(
+        _settings(tmp_path),
+        oxigraph_client=healthy_client,
+        start_watcher=False,
+        llm_factory=lambda key: _StagedMock(key),
+    )
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/propose/continue",
+            data={"skeleton": "not json {"},
+            files={"files": ("samples.csv", _STAGED_CSV, "text/csv")},
+        )
+        assert r.status_code == 400
+
+
 def test_propose_error_surfaces_as_error_event(
     tmp_path: Path, healthy_client: OxigraphClient
 ) -> None:

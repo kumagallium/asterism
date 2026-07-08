@@ -161,5 +161,20 @@
     "noBnode": "Do not use blank nodes",
     "units": "Normalize units and quantities (unify synonyms, etc.)",
     "jsonColumns": "Some columns contain JSON (arrays or objects) inside cells"
+  },
+  "skeleton": {
+    "generate": "Review skeleton, then generate",
+    "generating": "Generating skeleton…",
+    "singleShot": "Generate in one shot",
+    "jobLabel": "Generating the skeleton",
+    "continuing": "Generating the design…",
+    "continue": "Continue with this skeleton",
+    "discard": "Start over",
+    "gateTitle": "Confirm the skeleton",
+    "gateHint": "Check and fix each entity's subject key (IRI template) and classes. Properties are generated after this. A non-unique key collapses rows onto one IRI.",
+    "colClass": "Map",
+    "colSource": "Source",
+    "colKey": "Subject key (IRI template)",
+    "colClasses": "Classes"
   }
 }

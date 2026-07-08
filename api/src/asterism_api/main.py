@@ -74,6 +74,7 @@ from asterism_step0.materialize import (
 )
 from asterism_step0.propose import LLMClient
 from asterism_step0.refine import refine_schema
+from asterism_step0.staged_propose import propose_skeleton
 from asterism_step0.validate import SchemaBundle, validate_schema
 from fastapi import (
     Depends,
@@ -1969,6 +1970,204 @@ def build_app(
 
         jobs: JobManager = app.state.jobs
         job_id = jobs.start_coro(propose_job)
+        return JSONResponse({"job_id": job_id}, status_code=202)
+
+    @app.post("/api/propose/skeleton")
+    async def propose_skeleton_endpoint(
+        files: list[UploadFile] = File(
+            ..., description="Source file(s) to model (CSV or JSON)"
+        ),
+        domain: str = Form(default="", description="Domain hint (Markdown). Optional."),
+        language: str = Form(
+            default="",
+            description="Output language for prose (e.g. 'ja'); headings/identifiers stay English.",
+        ),
+        fk: list[str] = Query(default=[], description="FK hint column (repeatable)"),
+        x_api_key: str | None = Header(default=None),
+        x_llm_provider: str | None = Header(default=None),
+        x_llm_model: str | None = Header(default=None),
+        x_llm_api_base: str | None = Header(default=None),
+        x_llm_max_tokens: str | None = Header(default=None),
+    ) -> JSONResponse:
+        """Phase 2b (job 1 of 2): generate the mapping SKELETON for human review —
+        which source becomes which class, keyed by which column(s) — WITHOUT any
+        property or prose. Returns a job_id immediately; the SSE done payload carries
+        ``{skeleton, inspection_md, metadata}``. The human confirms/edits the
+        skeleton, then re-attaches the source and POSTs it to /api/propose/continue.
+        The API key is used only for this run and never persisted (D7)."""
+        if not files:
+            raise HTTPException(400, "no files uploaded")
+        max_tokens = _llm_max_tokens(x_llm_max_tokens)
+
+        import tempfile as _tempfile
+
+        tmpdir = _tempfile.mkdtemp(prefix="asterism-skeleton-")
+        paths: list[Path] = []
+        for upload in files:
+            if upload.filename is None:
+                raise HTTPException(400, "missing filename")
+            dest = Path(tmpdir) / _validate_source_name(upload.filename)
+            await _save_upload(upload, dest)
+            paths.append(dest)
+
+        provider, model, api_base, key = _llm_coords(
+            x_api_key, x_llm_provider, x_llm_model, x_llm_api_base, cfg.registry_root
+        )
+        llm = _resolve_llm(provider, model, api_base, key, max_tokens=max_tokens)
+        fk_cols = fk or None
+
+        async def skeleton_job(
+            emit: Callable[..., None], should_cancel: Callable[[], bool]
+        ) -> dict[str, object]:
+            loop = asyncio.get_running_loop()
+
+            def on_generation(current: int, total: int) -> None:
+                loop.call_soon_threadsafe(
+                    lambda: emit(phase="llm", message=f"モデル生成中 (パート {current}/{total})")
+                )
+
+            def on_note(note: str) -> None:
+                loop.call_soon_threadsafe(lambda: emit(phase="llm", message=note))
+
+            _arm_llm_callbacks(
+                llm, should_cancel=should_cancel, on_generation=on_generation, on_note=on_note
+            )
+            emit(phase="skeleton", message="骨格を生成中")
+            try:
+                result = await asyncio.to_thread(
+                    propose_skeleton,
+                    list(paths),
+                    domain,
+                    llm=llm,
+                    language=language or None,
+                    fk_hint_columns=fk_cols,
+                )
+                _record_llm_usage(cfg.registry_root, "propose", provider, llm, model)
+            finally:
+                shutil.rmtree(tmpdir, ignore_errors=True)
+            return {
+                "skeleton": result.skeleton,
+                "inspection_md": result.csv_inspection_md,
+                "metadata": result.metadata,
+            }
+
+        jobs: JobManager = app.state.jobs
+        job_id = jobs.start_coro(skeleton_job)
+        return JSONResponse({"job_id": job_id}, status_code=202)
+
+    @app.post("/api/propose/continue")
+    async def propose_continue_endpoint(
+        files: list[UploadFile] = File(
+            ..., description="Source file(s) — re-attach the same source the skeleton used"
+        ),
+        skeleton: str = Form(..., description="The confirmed skeleton IR as a JSON object"),
+        domain: str = Form(default="", description="Domain hint (Markdown). Optional."),
+        language: str = Form(default=""),
+        fk: list[str] = Query(default=[], description="FK hint column (repeatable)"),
+        autocorrect: int | None = Query(
+            default=None,
+            description="Self-correction rounds; absent → server default; 0 = no autocorrect.",
+        ),
+        x_api_key: str | None = Header(default=None),
+        x_llm_provider: str | None = Header(default=None),
+        x_llm_model: str | None = Header(default=None),
+        x_llm_api_base: str | None = Header(default=None),
+        x_llm_max_tokens: str | None = Header(default=None),
+    ) -> JSONResponse:
+        """Phase 2b (job 2 of 2): from the confirmed skeleton + the re-attached source,
+        generate each map's property table, the §1-8 document, splice §9 in
+        deterministically, then run the SAME self-correction loop. The done payload is
+        identical to /api/propose — materialize and everything downstream is unchanged."""
+        if not files:
+            raise HTTPException(400, "no files uploaded")
+        try:
+            skeleton_obj = json.loads(skeleton)
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(400, f"skeleton is not valid JSON: {exc}") from exc
+        if not isinstance(skeleton_obj, dict):
+            raise HTTPException(400, "skeleton must be a JSON object")
+        max_tokens = _llm_max_tokens(x_llm_max_tokens)
+
+        import tempfile as _tempfile
+
+        tmpdir = _tempfile.mkdtemp(prefix="asterism-continue-")
+        paths: list[Path] = []
+        for upload in files:
+            if upload.filename is None:
+                raise HTTPException(400, "missing filename")
+            dest = Path(tmpdir) / _validate_source_name(upload.filename)
+            await _save_upload(upload, dest)
+            paths.append(dest)
+
+        provider, model, api_base, key = _llm_coords(
+            x_api_key, x_llm_provider, x_llm_model, x_llm_api_base, cfg.registry_root
+        )
+        llm = _resolve_llm(provider, model, api_base, key, max_tokens=max_tokens)
+        fk_cols = fk or None
+        rounds = cfg.autocorrect_rounds if autocorrect is None else max(0, autocorrect)
+
+        async def continue_job(
+            emit: Callable[..., None], should_cancel: Callable[[], bool]
+        ) -> dict[str, object]:
+            loop = asyncio.get_running_loop()
+
+            def on_progress(data: dict[str, object]) -> None:
+                loop.call_soon_threadsafe(lambda: emit(**data))
+
+            def on_llm_call(feature: str) -> None:
+                _record_llm_usage(cfg.registry_root, feature, provider, llm, model)
+
+            def on_generation(current: int, total: int) -> None:
+                loop.call_soon_threadsafe(
+                    lambda: emit(phase="llm", message=f"モデル生成中 (パート {current}/{total})")
+                )
+
+            def on_note(note: str) -> None:
+                loop.call_soon_threadsafe(lambda: emit(phase="llm", message=note))
+
+            _arm_llm_callbacks(
+                llm, should_cancel=should_cancel, on_generation=on_generation, on_note=on_note
+            )
+
+            try:
+                result = await asyncio.to_thread(
+                    design_loop.run_design_loop,
+                    list(paths),
+                    domain,
+                    Path(tmpdir),
+                    fk_hint_columns=fk_cols,
+                    llm=llm,
+                    max_rounds=rounds,
+                    on_progress=on_progress,
+                    on_llm_call=on_llm_call,
+                    language=language or None,
+                    should_cancel=should_cancel,
+                    skeleton=skeleton_obj,
+                )
+            finally:
+                shutil.rmtree(tmpdir, ignore_errors=True)
+            return {
+                "proposal_md": result.proposal_md,
+                "inspection_md": result.csv_inspection_md,
+                "metadata": result.metadata,
+                "autocorrect": {
+                    "enabled": rounds > 0,
+                    "converged": result.converged,
+                    "terminal_reason": result.terminal_reason,
+                    "initial_issue_count": result.initial_issue_count,
+                    "final_issue_count": len(result.remaining_issues),
+                    "rounds": [
+                        {"n": r.n, "issue_count": r.issue_count, "categories": r.categories}
+                        for r in result.rounds
+                    ],
+                    "remaining_issues": result.remaining_issues,
+                    "tabular_only": result.tabular_only,
+                    "coverage_dropped": result.coverage_dropped,
+                },
+            }
+
+        jobs = app.state.jobs
+        job_id = jobs.start_coro(continue_job)
         return JSONResponse({"job_id": job_id}, status_code=202)
 
     @app.post("/api/refine")
