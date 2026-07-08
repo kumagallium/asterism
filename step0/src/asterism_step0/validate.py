@@ -23,8 +23,12 @@ The traps and how this module checks each:
 * **T4 MIE keywords / categories** — YAML parse the MIE; require
   ``schema_info.keywords`` and ``schema_info.categories`` lists with ≥ 5
   entries each, and a configurable Japanese/synonym subset.
-* **T5 Mermaid colon escape** — parse Mermaid blocks in the diagram doc and
-  assert relation labels do not contain ``:``.
+* **T5 Mermaid classDiagram syntax** — parse Mermaid blocks in the diagram doc.
+  A colon in a relation label is a blocking ``fail`` (GitHub / mermaid.js both
+  choke). A best-effort ``classDiagram`` lint (diagram header, class-name
+  charset, relation-arrow shape, colon/paren danger) reports the AI-generated
+  breakage that renders as a "bomb icon" in the UI as a non-blocking ``warn``
+  (dogfood 2026-07-08).
 * **T6 fake sample_rdf_entries** — for every ``sdr:<entity>/<key>`` IRI in the
   MIE's ``sample_rdf_entries``, confirm ``key`` appears in the corresponding
   CSV column. Catches hallucinated SIDs / sample_ids.
@@ -545,8 +549,19 @@ def _check_t4_keywords(bundle: SchemaBundle, *, min_keywords: int = _MIN_KEYWORD
 
 
 # ----------------------------------------------------------------------------
-# Trap T5: Mermaid colon escape
+# Trap T5: Mermaid classDiagram syntax
 # ----------------------------------------------------------------------------
+#
+# Two layers, two severities:
+#   * colon-in-relation-label → FAIL. GitHub and mermaid.js both choke on it;
+#     this is the original, high-confidence check.
+#   * best-effort classDiagram lint → WARN. Line-head keywords, class-name
+#     charset, relation-arrow shape, and colon/paren danger. A regex lint can
+#     never be a full Mermaid parser, so its findings never *block* CI — they
+#     surface in the report so the reviewer / AI can fix a diagram that would
+#     otherwise render as a broken "bomb icon" in the UI (dogfood 2026-07-08,
+#     production dataset-9422ba7c). Ingest / promote are unaffected; the damage
+#     is purely visual, hence warn.
 
 
 # Capture the body of any ```mermaid ... ``` fenced block.
@@ -564,22 +579,189 @@ _MERMAID_RELATION = re.compile(
     re.MULTILINE,
 )
 
+# Valid classDiagram relation arrows (Mermaid 11), matched as whole tokens.
+# https://mermaid.js.org/syntax/classDiagram.html
+_CLASS_ARROWS = frozenset(
+    {
+        "<|--", "--|>", "<|..", "..|>",  # inheritance / realization
+        "*--", "--*", "o--", "--o",       # composition / aggregation
+        "<--", "-->", "--",               # association / link (solid)
+        "<..", "..>", "..",               # dependency / link (dashed)
+    }
+)
+
+# A safe bare classDiagram identifier: letter/underscore start, then
+# letters/digits/underscore, with an optional generic suffix `~...~` (List~int~).
+_CLASS_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:~[^~]+~)?$")
+
+# A relation line: LEFT [card] ARROW [card] RIGHT [: label]. The arrow group is
+# any run of relation punctuation (2+ chars) so we can flag *invalid* arrows
+# (`->`, `==>`, `=>`), not merely recognise the valid ones.
+_REL_LINE_RE = re.compile(
+    r"^(?P<left>\S+)\s+"
+    r'(?:"[^"]*"\s+)?'  # optional cardinality on the left, e.g. "1"
+    r"(?P<arrow>[-.<>|*o=~]{2,})"
+    r'\s*(?:"[^"]*"\s+)?'  # optional cardinality on the right, e.g. "*"
+    r"(?P<right>[^\s:]+)"
+    r"\s*(?::\s*(?P<label>.*))?$"
+)
+
+# Non-classDiagram diagram headers we recognise — a ```mermaid block that opens
+# with one of these is a different grammar, so the classDiagram lint stays quiet.
+_KNOWN_DIAGRAM_HEADERS = (
+    "flowchart", "graph", "sequenceDiagram", "stateDiagram", "erDiagram",
+    "journey", "gantt", "pie", "mindmap", "timeline", "gitGraph",
+    "quadrantChart", "requirementDiagram", "C4Context", "block-beta", "xychart",
+)
+
+
+def _lint_class_name(token: str) -> str | None:
+    """Return an issue string if ``token`` is an unsafe classDiagram class name.
+
+    Strips an optional bracketed/quoted display label (``Foo["Long name"]``), a
+    ``:::cssClass`` style suffix, and a trailing block-opening ``{`` before
+    validating the bare identifier — those parts may legally hold other chars.
+    """
+    bare = token.strip()
+    bare = re.sub(r"\[.*\]$", "", bare).strip()  # drop ["display label"]
+    bare = re.sub(r":::\w+$", "", bare).strip()  # drop :::cssStyle
+    bare = bare.rstrip("{").strip()  # drop a trailing block-opening brace
+    if not bare:
+        return None
+    if not _CLASS_NAME_RE.match(bare):
+        return (
+            f"class name {bare!r} has characters Mermaid rejects "
+            "(allowed: letters, digits, underscore)"
+        )
+    return None
+
+
+def _lint_classdiagram(block: str) -> list[str]:
+    """Best-effort deterministic lint of one Mermaid ``classDiagram`` block.
+
+    NOT a parser — it recognises the common valid line shapes and flags the
+    AI-generated mistakes that make Mermaid 11 render a broken "bomb icon":
+    a missing/foreign diagram header, illegal class-name characters, malformed
+    relation arrows, and colon/paren danger inside members and labels. Returns
+    human-readable issue strings (empty when the block looks clean).
+    """
+    issues: list[str] = []
+    lines = block.splitlines()
+
+    # The diagram header must be the first meaningful line.
+    header = next(
+        (ln.strip() for ln in lines if ln.strip() and not ln.strip().startswith("%%")),
+        None,
+    )
+    if header is None:
+        return ["mermaid block is empty"]
+    if not re.match(r"^classDiagram(-v2)?\b", header):
+        # A foreign header is fine (other diagram type); a header that matches
+        # nothing known is genuinely broken.
+        if not any(header.startswith(k) for k in _KNOWN_DIAGRAM_HEADERS):
+            issues.append(
+                f"first line {header!r} is not a valid diagram header "
+                "(expected 'classDiagram')"
+            )
+        return issues
+
+    in_members = False  # inside a `class X { ... }` member block
+    for raw in lines:
+        line = raw.strip()
+        if not line or line.startswith("%%"):
+            continue
+
+        if in_members:
+            if line.startswith("}"):
+                in_members = False
+                continue
+            # Member line. A colon here breaks GitHub/mermaid property rendering
+            # (ttl2mermaid deliberately emits `+x xsd_string`, never `+x: t`).
+            if ":" in line:
+                issues.append(
+                    f"member {line!r} contains ':' — Mermaid property lines are "
+                    "space-separated (`+name type`), not `+name: type`"
+                )
+            continue
+
+        # Structural lines that are always fine.
+        if re.match(r"^classDiagram(-v2)?\b", line):
+            continue
+        if re.match(r"^direction\s+(TB|BT|LR|RL)\b", line):
+            continue
+        if re.match(r"^direction\b", line):
+            issues.append(f"invalid direction {line!r} (use TB, BT, LR or RL)")
+            continue
+        if line in ("{", "}"):
+            continue
+        if re.match(
+            r"^(note\b|<<|click\b|link\b|style\b|cssClass\b|callback\b|namespace\b)",
+            line,
+        ):
+            continue
+
+        # class declaration (optionally opening a `{` member block).
+        m = re.match(r"^class\s+(?P<rest>.+)$", line)
+        if m:
+            issue = _lint_class_name(m.group("rest").strip())
+            if issue:
+                issues.append(issue)
+            if line.rstrip().endswith("{"):
+                in_members = True
+            continue
+
+        # relation line?
+        rel = _REL_LINE_RE.match(line)
+        if rel:
+            arrow = rel.group("arrow")
+            if arrow not in _CLASS_ARROWS:
+                issues.append(
+                    f"relation {line!r} uses arrow {arrow!r}, not a valid "
+                    "classDiagram arrow (e.g. -->, --|>, o--, ..>)"
+                )
+            for endpoint in (rel.group("left"), rel.group("right")):
+                ep_issue = _lint_class_name(endpoint)
+                if ep_issue:
+                    issues.append(f"relation endpoint: {ep_issue}")
+            label = (rel.group("label") or "").strip()
+            # Colon-in-label is the FAIL check's job; here flag unquoted brackets.
+            if any(c in label for c in "()[]{}") and '"' not in label:
+                issues.append(
+                    f"relation label {label!r} has unquoted brackets/parens — "
+                    "wrap the label in double quotes"
+                )
+            continue
+
+        # member shorthand: `ClassName : +member` (the colon is legal here).
+        if re.match(r"^[A-Za-z_][A-Za-z0-9_]*\s*:\s*.+$", line):
+            continue
+
+        # Nothing matched — a structural line Mermaid likely cannot parse.
+        issues.append(f"unrecognized classDiagram line: {line!r}")
+
+    opens, closes = block.count("{"), block.count("}")
+    if opens != closes:
+        issues.append(f"unbalanced braces: {opens} '{{' vs {closes} '}}'")
+    return issues
+
 
 def _check_t5_mermaid_escape(bundle: SchemaBundle) -> TrapResult:
+    name = "Mermaid classDiagram syntax"
     if not bundle.diagram_md:
-        return TrapResult("T5", "Mermaid colon escape", "skip", "No diagram doc.")
+        return TrapResult("T5", name, "skip", "No diagram doc.")
 
     text = bundle.diagram_md.read_text(encoding="utf-8")
     blocks = _MERMAID_BLOCK.findall(text)
     if not blocks:
         return TrapResult(
             "T5",
-            "Mermaid colon escape",
+            name,
             "warn",
             f"{bundle.diagram_md.name} has no ```mermaid fenced blocks.",
         )
 
-    bad_labels: list[str] = []
+    bad_labels: list[str] = []  # colon-in-relation-label → FAIL
+    lint_issues: list[str] = []  # best-effort classDiagram lint → WARN
     label_count = 0
     for block in blocks:
         for label in _MERMAID_RELATION.findall(block):
@@ -587,20 +769,32 @@ def _check_t5_mermaid_escape(bundle: SchemaBundle) -> TrapResult:
             stripped = label.strip().strip('"')
             if ":" in stripped:
                 bad_labels.append(stripped)
+        lint_issues.extend(_lint_classdiagram(block))
 
     if bad_labels:
         return TrapResult(
             "T5",
-            "Mermaid colon escape",
+            name,
             "fail",
-            f"{len(bad_labels)} relation label(s) contain ':' — GitHub renderer will fail.",
-            evidence=[f"Bad label: {lbl!r}" for lbl in bad_labels],
+            f"{len(bad_labels)} relation label(s) contain ':' — "
+            "GitHub / mermaid.js renderer will fail.",
+            evidence=[f"Bad label: {lbl!r}" for lbl in bad_labels]
+            + [f"lint: {issue}" for issue in lint_issues],
+        )
+    if lint_issues:
+        return TrapResult(
+            "T5",
+            name,
+            "warn",
+            f"{len(lint_issues)} classDiagram lint issue(s) — the UI may render "
+            "this diagram as a broken 'bomb icon' (ingest/promote unaffected).",
+            evidence=lint_issues,
         )
     return TrapResult(
         "T5",
-        "Mermaid colon escape",
+        name,
         "pass",
-        f"All {label_count} relation label(s) free of colons.",
+        f"classDiagram lint clean; all {label_count} relation label(s) colon-free.",
     )
 
 
