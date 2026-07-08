@@ -378,3 +378,50 @@ def test_single_entity_never_flagged() -> None:
 
 def test_unparseable_rml_degrades_to_no_advisories() -> None:
     assert design_advisories("@prefix broken") == []
+
+
+# ---------------------------------------------------------------------------
+# cross-source link-direction hint (a link declared on the wrong side)
+# ---------------------------------------------------------------------------
+
+
+def test_wrong_side_link_gets_cross_source_direction_hint(tmp_path: Path) -> None:
+    # The exact live failure: the PAPER map references the child's key
+    # (sample_id lives in samples.csv, not papers.csv). The column error must
+    # now carry the directional fix — declare the link on the child's map.
+    (tmp_path / "papers.csv").write_text("DOI,title\nx,y\n", encoding="utf-8")
+    (tmp_path / "samples.csv").write_text("sample_id,DOI\n1,x\n", encoding="utf-8")
+    rml = _PREFIXES + (
+        '<#Papers> a rr:TriplesMap ;\n'
+        '  rml:logicalSource [ rml:source "papers.csv" ; rml:referenceFormulation ql:CSV ] ;\n'
+        '  rr:subjectMap [ rr:template "http://x/paper/{DOI}" ] ;\n'
+        '  rr:predicateObjectMap [ rr:predicate <http://x/hasSample> ;\n'
+        '    rr:objectMap [ rr:template "http://x/sample/{sample_id}" ] ] .\n'
+        '<#Samples> a rr:TriplesMap ;\n'
+        '  rml:logicalSource [ rml:source "samples.csv" ; rml:referenceFormulation ql:CSV ] ;\n'
+        '  rr:subjectMap [ rr:template "http://x/sample/{sample_id}" ] .\n'
+    )
+    with pytest.raises(RmlValidationError) as exc:
+        validate_rml_design(rml, tmp_path)
+    msg = "\n".join(exc.value.issues)
+    assert "'sample_id'" in msg and "papers.csv" in msg
+    assert "DOES exist in samples.csv" in msg  # names the carrying source
+    assert "declare it on the TriplesMap whose source carries the key" in msg
+
+
+def test_plain_typo_gets_no_cross_source_note(tmp_path: Path) -> None:
+    # A column that exists NOWHERE stays a plain did-you-mean — no misleading
+    # link-direction advice.
+    (tmp_path / "papers.csv").write_text("DOI,title\nx,y\n", encoding="utf-8")
+    rml = _PREFIXES + (
+        '<#Papers> a rr:TriplesMap ;\n'
+        '  rml:logicalSource [ rml:source "papers.csv" ; rml:referenceFormulation ql:CSV ] ;\n'
+        '  rr:subjectMap [ rr:template "http://x/paper/{DOI}" ] ;\n'
+        '  rr:predicateObjectMap [ rr:predicate <http://x/n> ;\n'
+        '    rr:objectMap [ rml:reference "titel" ] ] .\n'
+    )
+    with pytest.raises(RmlValidationError) as exc:
+        validate_rml_design(rml, tmp_path)
+    msg = "\n".join(exc.value.issues)
+    assert "titel" in msg and "Did you mean" in msg
+    assert "DOES exist in" not in msg
