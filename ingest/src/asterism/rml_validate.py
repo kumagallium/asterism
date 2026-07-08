@@ -449,6 +449,19 @@ def validate_rml_design(rml_ttl: str, csv_dir: Path | str) -> None:
 _R2RML = "http://www.w3.org/ns/r2rml#"
 
 
+def _tm_source_name(graph, tm) -> str | None:
+    """The file name of a TriplesMap's logical source, or None."""
+    import rdflib
+
+    uri = rdflib.URIRef
+    for ls_pred in _LOGICAL_SOURCE_PREDS:
+        for ls in graph.objects(tm, uri(ls_pred)):
+            for s_pred in _SOURCE_PREDS:
+                for src in graph.objects(ls, uri(s_pred)):
+                    return Path(str(src)).name
+    return None
+
+
 def _tm_label(graph, tm) -> str:
     """A human label for a TriplesMap: its rr:class local name, else its IRI tail."""
     import rdflib
@@ -462,7 +475,7 @@ def _tm_label(graph, tm) -> str:
     return _local_name(str(tm))
 
 
-def _connectivity_advisories(graph) -> list[str]:
+def _connectivity_advisories(graph, headers: dict[str, list[str]] | None = None) -> list[str]:
     """Flag a mapping whose entities form DISCONNECTED groups.
 
     An AI-designed mapping frequently transcribes each source table into its own
@@ -528,17 +541,53 @@ def _connectivity_advisories(graph) -> list[str]:
         " + ".join(sorted({_tm_label(graph, tm) for tm in members}))
         for members in components.values()
     )
-    return [
+    message = (
         f"the mapping's {len(tms)} entities split into {len(components)} DISCONNECTED "
         "groups: " + "  |  ".join(groups) + ". Entities that share a source key should "
         "be LINKED with an object property (an rr:parentTriplesMap join, or reusing the "
         "linked entity's subject IRI template as the object) — disconnected entities "
         "cannot answer any cross-entity question (e.g. ranking a measured value by the "
-        "material it belongs to)."
-    ]
+        "material it belongs to). Do NOT fix this by deleting references — ADD the "
+        "missing link on the correct side."
+    )
+    # With the real headers we can name the join keys — turning "link them" into
+    # a work order. Observed live: without this the corrective loop oscillates
+    # (deletes the bad-side link to silence the column error, then trips this
+    # advisory, then re-adds the link on the wrong side again).
+    if headers:
+        comp_sources: list[set[str]] = []
+        for members in components.values():
+            srcs: set[str] = set()
+            for tm in members:
+                src = _tm_source_name(graph, tm)
+                if src:
+                    srcs.add(src)
+            comp_sources.append(srcs)
+        pairs: list[str] = []
+        seen_pairs: set[tuple[str, str]] = set()
+        for i in range(len(comp_sources)):
+            for j in range(i + 1, len(comp_sources)):
+                for a in sorted(comp_sources[i]):
+                    for b in sorted(comp_sources[j]):
+                        lo, hi = (a, b) if a <= b else (b, a)
+                        if (lo, hi) in seen_pairs:
+                            continue
+                        seen_pairs.add((lo, hi))
+                        shared = sorted(set(headers.get(a, ())) & set(headers.get(b, ())))
+                        if shared:
+                            pairs.append(f"{lo} <-> {hi} share column(s): {', '.join(shared[:8])}")
+        if pairs:
+            message += (
+                " LINK-KEY CANDIDATES (computed from the real source headers): "
+                + "; ".join(pairs)
+                + ". Declare each link on the CHILD map (the source that CARRIES the "
+                "key), with an object rr:template that reuses the parent's subject "
+                "IRI template VERBATIM (byte-identical), so the IRIs actually join."
+            )
+    return [message]
 
 
-def design_advisories(rml_ttl: str) -> list[str]:
+def design_advisories(rml_ttl: str, csv_dir: Path | str | None = None) -> list[str]:
     """Non-blocking design-quality advisories for a mapping (schema-agnostic).
 
     Unlike :func:`validate_rml_design` these are NOT ingest-blocking — a
@@ -546,6 +595,12 @@ def design_advisories(rml_ttl: str) -> list[str]:
     questions the user almost certainly wants. Surfaced at materialize (advisory
     list) and fed to the design self-correction loop as fixable issues. Returns
     ``[]`` for unparseable RML (the safety gate owns that rejection).
+
+    ``csv_dir`` (optional): the dataset's real source directory. When given,
+    the connectivity advisory also enumerates the concrete JOIN-KEY candidates
+    (columns shared between the disconnected groups' sources) and says which
+    side must declare the link — the difference between "link them" and a work
+    order a weak model can execute.
     """
     import rdflib
 
@@ -554,7 +609,18 @@ def design_advisories(rml_ttl: str) -> list[str]:
         graph.parse(data=rml_ttl, format="turtle")
     except Exception:
         return []
-    return _connectivity_advisories(graph)
+    headers: dict[str, list[str]] = {}
+    if csv_dir is not None:
+        base = Path(csv_dir)
+        try:
+            for p in sorted(base.iterdir()):
+                if p.is_file() and p.suffix.lower() in _TABULAR_SUFFIXES:
+                    cols = read_csv_header(p)
+                    if cols:
+                        headers[p.name] = cols
+        except OSError:
+            headers = {}
+    return _connectivity_advisories(graph, headers or None)
 
 
 # ---------------------------------------------------------------------------
