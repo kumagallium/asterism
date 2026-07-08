@@ -366,6 +366,46 @@ def _check_function_params(graph) -> list[str]:
 # --- graph traversal --------------------------------------------------------
 
 
+_R2RML_CONSTANT = "http://www.w3.org/ns/r2rml#constant"
+_PLACEHOLDER_RE = re.compile(r"\{([^{}]+)\}")
+
+
+def _check_constant_placeholders(graph) -> list[str]:
+    """Flag ``rr:constant`` literals that contain ``{placeholder}`` text.
+
+    A constant is NEVER template-expanded, so a placeholder inside one either
+    reaches the store as literal garbage or (Morph-KGC's actual behaviour,
+    observed live) gets treated as a template reference and crashes ingest with
+    a pandas ``KeyError`` on a column that does not exist — the AI invented
+    ``{ingest_run_id}`` for a provenance object. Deterministic, and the message
+    is the fix: ``{__run_id__}`` is the ONLY runtime placeholder the engine
+    substitutes; column values belong in ``rr:template`` / ``rml:reference``.
+    """
+    import rdflib
+
+    issues: list[str] = []
+    seen: set[str] = set()
+    for const in graph.objects(None, rdflib.URIRef(_R2RML_CONSTANT)):
+        if not isinstance(const, rdflib.Literal):
+            continue
+        text = str(const)
+        names = sorted({n for n in _PLACEHOLDER_RE.findall(text) if n != "__run_id__"})
+        for name in names:
+            key = f"{text}::{name}"
+            if key in seen:
+                continue
+            seen.add(key)
+            issues.append(
+                f"rr:constant \"{text}\" contains the placeholder '{{{name}}}' — a "
+                "constant is never template-expanded, so this crashes ingest. If you "
+                "meant the engine's ingest run id, the ONLY runtime placeholder is "
+                "'{__run_id__}' (substituted automatically). If you meant a column "
+                "value, use rr:template (for an IRI) or rml:reference (for a literal) "
+                "instead of rr:constant."
+            )
+    return issues
+
+
 def _triples_map_subjects(graph):
     """Every subject that has a logical source (a TriplesMap), de-duplicated."""
     import rdflib
@@ -437,6 +477,7 @@ def validate_rml_design(rml_ttl: str, csv_dir: Path | str) -> None:
         _check_sources(graph, base)
         + _check_columns(graph, base)
         + _check_function_params(graph)
+        + _check_constant_placeholders(graph)
     )
     if issues:
         raise RmlValidationError(issues)
