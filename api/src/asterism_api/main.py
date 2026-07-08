@@ -1448,15 +1448,20 @@ def _validate_design_at_materialize(
         return []
     prepared = substrate.substitute_run_id(rml_ttl)
     try:
-        advisories = substrate.design_advisories(prepared)
+        source_paths = registry.list_source_files(registry_root, dataset_id)
+    except Exception:
+        source_paths = []
+    source_dir = source_paths[0].parent if source_paths else None
+    try:
+        # With the real sources the connectivity advisory also names the
+        # join-key candidates (work order, not just a diagnosis).
+        advisories = substrate.design_advisories(prepared, source_dir)
     except Exception:  # advisory only
         logger.exception("design advisories at materialize failed (continuing)")
         advisories = []
     try:
-        source_paths = registry.list_source_files(registry_root, dataset_id)
         if not source_paths:
             return advisories
-        source_dir = source_paths[0].parent
         # Validate the run-id-substituted form so the runtime-only {__run_id__}
         # placeholder is never flagged (matches the ingest gate exactly).
         substrate.validate_rml_design(prepared, source_dir)

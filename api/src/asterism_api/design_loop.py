@@ -392,7 +392,9 @@ def _collect_rml_issues(rml_ttl: str, source_dir: Path) -> list[Issue]:
     # but exactly the kind of defect the corrective loop CAN fix — a weak model
     # that transcribed each table into its own island gets told to add the join.
     with contextlib.suppress(Exception):  # advisory — never fail the loop on it
-        issues.extend(classify(m) for m in substrate.design_advisories(prepared))
+        issues.extend(
+            classify(m) for m in substrate.design_advisories(prepared, source_dir)
+        )
     return _dedup(issues)
 
 

@@ -425,3 +425,37 @@ def test_plain_typo_gets_no_cross_source_note(tmp_path: Path) -> None:
     msg = "\n".join(exc.value.issues)
     assert "titel" in msg and "Did you mean" in msg
     assert "DOES exist in" not in msg
+
+
+def test_disconnected_advisory_names_join_key_candidates(tmp_path: Path) -> None:
+    # The live oscillation: "link them" alone lets the model delete references
+    # instead. With the real headers the advisory must enumerate the concrete
+    # join keys and the side that declares the link.
+    (tmp_path / "papers.csv").write_text("SID,DOI,title\n1,x,t\n", encoding="utf-8")
+    (tmp_path / "samples.csv").write_text("sample_id,SID,DOI\n7,1,x\n", encoding="utf-8")
+    (tmp_path / "curves.csv").write_text("sample_id,figure_id,y\n7,f1,0.1\n", encoding="utf-8")
+    rml = _ADV_PREFIXES + """
+<#Papers> rml:logicalSource [ rml:source "papers.csv" ] ;
+  rr:subjectMap [ rr:template "https://ex/paper/{DOI}" ; rr:class ex:Paper ] .
+<#Samples> rml:logicalSource [ rml:source "samples.csv" ] ;
+  rr:subjectMap [ rr:template "https://ex/sample/{sample_id}" ; rr:class ex:MaterialSample ] .
+<#Curves> rml:logicalSource [ rml:source "curves.csv" ] ;
+  rr:subjectMap [ rr:template "https://ex/curve/{sample_id}-{figure_id}" ;
+    rr:class ex:MeasurementCurve ] .
+"""
+    advisories = design_advisories(rml, tmp_path)
+    assert len(advisories) == 1
+    msg = advisories[0]
+    assert "LINK-KEY CANDIDATES" in msg
+    assert "papers.csv <-> samples.csv share column(s): DOI, SID" in msg
+    assert "curves.csv <-> samples.csv share column(s): sample_id" in msg
+    assert "CHILD map" in msg and "VERBATIM" in msg
+    assert "Do NOT fix this by deleting references" in msg
+
+
+def test_disconnected_advisory_without_csv_dir_keeps_generic_text(tmp_path: Path) -> None:
+    # Backward compatible: no csv_dir -> diagnosis + direction, no candidates.
+    advisories = design_advisories(_DISCONNECTED)
+    assert len(advisories) == 1
+    assert "LINK-KEY CANDIDATES" not in advisories[0]
+    assert "DISCONNECTED" in advisories[0]
