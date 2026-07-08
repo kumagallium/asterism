@@ -6,5 +6,8 @@
     "note": "Your most recent save may already be reflected on the server (check Datasets after reloading).",
     "reload": "Reload",
     "detailsSummary": "Error details"
+  },
+  "mermaid": {
+    "renderFailed": "This diagram can't be displayed (showing the source instead)."
   }
 }
