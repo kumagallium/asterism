@@ -358,9 +358,14 @@ _CONTEXT_LENGTH_ERROR_RE = re.compile(
 _STREAM_OPTIONS_ERROR_RE = re.compile(r"stream_options", re.IGNORECASE)
 _STREAM_UNSUPPORTED_ERROR_RE = re.compile(r"stream", re.IGNORECASE)
 # Structured-output rejections: servers that don't know response_format at all,
-# or know json_object but not json_schema (guided decoding). Checked before the
-# broad stream pattern so a response_format message is never mis-classified.
-_RESPONSE_FORMAT_ERROR_RE = re.compile(r"response_format|json_schema|guided", re.IGNORECASE)
+# or know json_object but not json_schema (guided decoding), or whose grammar
+# backend rejects a specific JSON Schema keyword ("Grammar error: Unimplemented
+# keys: [...]" from Sakura vLLM). All degrade json_schema → json_object → off
+# rather than crashing. Checked before the broad stream pattern so a
+# response_format message is never mis-classified.
+_RESPONSE_FORMAT_ERROR_RE = re.compile(
+    r"response_format|json_schema|guided|grammar|unimplemented", re.IGNORECASE
+)
 
 # Reasoning models (qwen3 / DeepSeek-R1 style) served over plain Chat
 # Completions can leak chain-of-thought inline as a <think>…</think> prefix in

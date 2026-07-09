@@ -8,12 +8,16 @@ import {
   attachSource,
   inspectCsvs,
   materializeSchema,
+  proposeContinue,
   proposeCsvs,
+  proposeSkeleton,
   refineSchema,
   resumeJob,
   validateDesign,
   type AutocorrectSummary,
   type JobHandle,
+  type MappingSkeleton,
+  type SkeletonMap,
   type MaterializeResult,
   type ProposeResult,
   type RefineResult,
@@ -190,6 +194,11 @@ export function WorkbenchView({
   const [status, setStatus] = useState('')
   const [proposeErr, setProposeErr] = useState('')
   const [proposing, setProposing] = useState(false)
+  // Phase 2b staged round-0: the skeleton awaiting human confirmation (null = no
+  // gate open) and whether the skeleton job is running. In-memory only — a reload
+  // mid-skeleton just re-runs it (the continue job persists like propose instead).
+  const [stagedSkeleton, setStagedSkeleton] = useState<MappingSkeleton | null>(null)
+  const [skeletonBusy, setSkeletonBusy] = useState(false)
   const proposeJobRef = useRef<JobHandle | null>(null)
 
   // Refine
@@ -427,6 +436,119 @@ export function WorkbenchView({
           },
           onCancelled: () => {
             // User-requested stop: terminal like error, but informational.
+            setJobNotice(t('workbench:job.cancelled'))
+            setStatus('')
+            setProposing(false)
+            clearJob()
+          },
+        },
+        i18n.language,
+      )
+    } catch (e) {
+      setProposeErr(e instanceof Error ? e.message : String(e))
+      setStatus('')
+      setProposing(false)
+    }
+  }
+
+  // Phase 2b job 1: generate the skeleton for the human gate. Reuses the propose
+  // job ref (so JobProgress's cancel works) but is NOT persisted for resume — the
+  // gate lives in memory; a reload just re-runs it. The continue job persists.
+  async function onProposeSkeleton() {
+    setProposeErr('')
+    setJobNotice('')
+    setProposal('')
+    setAutocorrect(null)
+    setStagedSkeleton(null)
+    setMaterialized(null)
+    setStatus('starting…')
+    setSkeletonBusy(true)
+    setLastPulseAt(null)
+    const startNewRecord =
+      redesignOrigin !== 'adopted' || (materializeUsable && validationIssues.length === 0)
+    if (startNewRecord) {
+      setRedesignId(undefined)
+      setRedesignName(undefined)
+      setRedesignOrigin(undefined)
+    }
+    proposeJobRef.current?.close()
+    try {
+      proposeJobRef.current = await proposeSkeleton(
+        files,
+        composedDomain(),
+        fks(),
+        getActiveCredentials(),
+        {
+          onStatus: (m) => setStatus(m),
+          onPulse: () => setLastPulseAt(Date.now()),
+          onDone: (result) => {
+            setStagedSkeleton(result.skeleton)
+            setMarkdown(result.inspection_md)
+            setStatus('done')
+            setSkeletonBusy(false)
+          },
+          onError: (m) => {
+            setProposeErr(m)
+            setStatus('')
+            setSkeletonBusy(false)
+          },
+          onCancelled: () => {
+            setJobNotice(t('workbench:job.cancelled'))
+            setStatus('')
+            setSkeletonBusy(false)
+          },
+        },
+        i18n.language,
+      )
+    } catch (e) {
+      setProposeErr(e instanceof Error ? e.message : String(e))
+      setStatus('')
+      setSkeletonBusy(false)
+    }
+  }
+
+  // Phase 2b job 2: continue from the CONFIRMED (possibly edited) skeleton —
+  // per-map + document + self-correction. The done result is a normal proposal,
+  // so it persists like propose and lands in review (step 2).
+  async function onContinueFromSkeleton() {
+    if (!stagedSkeleton) return
+    setProposeErr('')
+    setJobNotice('')
+    setProposal('')
+    setAutocorrect(null)
+    setStatus('starting…')
+    setProposing(true)
+    setLastPulseAt(null)
+    proposeJobRef.current?.close()
+    try {
+      proposeJobRef.current = await proposeContinue(
+        files,
+        stagedSkeleton,
+        composedDomain(),
+        fks(),
+        getActiveCredentials(),
+        {
+          onStart: (jobId) => saveJob(jobId, 'propose'),
+          onStatus: (m) => setStatus(m),
+          onPulse: () => setLastPulseAt(Date.now()),
+          onDone: (result) => {
+            setProposal(result.proposal_md)
+            setMarkdown(result.inspection_md)
+            applyAutocorrect(result.autocorrect)
+            setMaterialized(null)
+            setStagedSkeleton(null)
+            setStatus('done')
+            setProposing(false)
+            clearJob()
+            setStep(2)
+          },
+          onError: (m) => {
+            setProposeErr(m)
+            setStatus('')
+            setProposing(false)
+            clearJob()
+          },
+          onCancelled: () => {
             setJobNotice(t('workbench:job.cancelled'))
             setStatus('')
             setProposing(false)
@@ -856,22 +978,50 @@ export function WorkbenchView({
                 </label>
               </fieldset>
 
-              <button onClick={onPropose} disabled={proposing || files.length === 0 || !isReady}>
-                {proposing ? (
-                  <>
-                    <span className="spinner" />
-                    {t('workbench:design.proposing')}
-                  </>
-                ) : (
-                  t('workbench:design.propose')
-                )}
-              </button>
-              {proposing && (
+              <div className="wb-generate-actions">
+                <button
+                  onClick={onProposeSkeleton}
+                  disabled={skeletonBusy || proposing || files.length === 0 || !isReady}
+                >
+                  {skeletonBusy ? (
+                    <>
+                      <span className="spinner" />
+                      {t('workbench:skeleton.generating')}
+                    </>
+                  ) : (
+                    t('workbench:skeleton.generate')
+                  )}
+                </button>
+                <button
+                  type="button"
+                  className="secondary-btn"
+                  onClick={onPropose}
+                  disabled={skeletonBusy || proposing || files.length === 0 || !isReady}
+                >
+                  {t('workbench:skeleton.singleShot')}
+                </button>
+              </div>
+              {(skeletonBusy || proposing) && (
                 <JobProgress
-                  label={t('workbench:design.jobLabel')}
+                  label={
+                    skeletonBusy
+                      ? t('workbench:skeleton.jobLabel')
+                      : stagedSkeleton
+                        ? t('workbench:skeleton.continuing')
+                        : t('workbench:design.jobLabel')
+                  }
                   status={status}
                   lastPulseAt={lastPulseAt}
                   onCancel={() => cancelActiveJob('propose')}
+                />
+              )}
+              {stagedSkeleton && (
+                <SkeletonGate
+                  skeleton={stagedSkeleton}
+                  busy={proposing}
+                  onChange={setStagedSkeleton}
+                  onContinue={onContinueFromSkeleton}
+                  onDiscard={() => setStagedSkeleton(null)}
                 />
               )}
             </section>
@@ -1244,5 +1394,112 @@ function JobProgress({
         </div>
       )}
     </div>
+  )
+}
+
+// Phase 2b human gate: the editable skeleton table. The user confirms/corrects
+// the subject KEY (the single costliest error — a non-unique key collapses rows)
+// and the CLASSES per map, then continues. Everything else (properties, prose) is
+// generated only after this. Editing stays at the dict level; the confirmed dict
+// is posted verbatim to /api/propose/continue.
+function SkeletonGate({
+  skeleton,
+  busy,
+  onChange,
+  onContinue,
+  onDiscard,
+}: {
+  skeleton: MappingSkeleton
+  busy: boolean
+  onChange: (s: MappingSkeleton) => void
+  onContinue: () => void
+  onDiscard: () => void
+}) {
+  const { t } = useTranslation()
+
+  function updateSubject(idx: number, patch: Partial<SkeletonMap['subject']>) {
+    const maps = skeleton.maps.map((m, i) =>
+      i === idx ? { ...m, subject: { ...m.subject, ...patch } } : m,
+    )
+    onChange({ ...skeleton, maps })
+  }
+
+  return (
+    <section className="skeleton-gate">
+      <h4>{t('workbench:skeleton.gateTitle')}</h4>
+      <p className="skeleton-gate-hint">{t('workbench:skeleton.gateHint')}</p>
+      <div className="skeleton-gate-table-wrap">
+        <table className="skeleton-gate-table">
+          <thead>
+            <tr>
+              <th>{t('workbench:skeleton.colClass')}</th>
+              <th>{t('workbench:skeleton.colSource')}</th>
+              <th>{t('workbench:skeleton.colKey')}</th>
+              <th>{t('workbench:skeleton.colClasses')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {skeleton.maps.map((m, idx) => {
+              const usesConstant =
+                m.subject.template === undefined && m.subject.constant !== undefined
+              const keyValue = m.subject.template ?? m.subject.constant ?? ''
+              return (
+                <tr key={m.name}>
+                  <td className="skeleton-gate-name">{m.name}</td>
+                  <td className="skeleton-gate-source">{m.source}</td>
+                  <td>
+                    <input
+                      className="skeleton-gate-input"
+                      value={keyValue}
+                      disabled={busy}
+                      title={m.note ?? undefined}
+                      onChange={(e) =>
+                        updateSubject(
+                          idx,
+                          usesConstant
+                            ? { constant: e.target.value }
+                            : { template: e.target.value },
+                        )
+                      }
+                    />
+                    {m.note && <div className="skeleton-gate-note">{m.note}</div>}
+                  </td>
+                  <td>
+                    <input
+                      className="skeleton-gate-input"
+                      value={(m.subject.classes ?? []).join(', ')}
+                      disabled={busy}
+                      onChange={(e) =>
+                        updateSubject(idx, {
+                          classes: e.target.value
+                            .split(',')
+                            .map((s) => s.trim())
+                            .filter(Boolean),
+                        })
+                      }
+                    />
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div className="skeleton-gate-actions">
+        <button onClick={onContinue} disabled={busy}>
+          {busy ? (
+            <>
+              <span className="spinner" />
+              {t('workbench:skeleton.continuing')}
+            </>
+          ) : (
+            t('workbench:skeleton.continue')
+          )}
+        </button>
+        <button type="button" className="secondary-btn" onClick={onDiscard} disabled={busy}>
+          {t('workbench:skeleton.discard')}
+        </button>
+      </div>
+    </section>
   )
 }

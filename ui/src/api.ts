@@ -118,6 +118,120 @@ export async function proposeCsvs(
   return subscribeJob(job_id, handlers)
 }
 
+// ---------------------------------------------------------------------------
+// Phase 2b: staged round-0 (skeleton → human gate → continue)
+// ---------------------------------------------------------------------------
+
+/** A skeleton map's subject: exactly one of template / constant. */
+export interface SkeletonSubject {
+  template?: string
+  constant?: string
+  classes?: string[]
+  transform?: Record<string, string>
+}
+
+/** One skeleton map: which source becomes which class, keyed how (no properties). */
+export interface SkeletonMap {
+  name: string
+  source: string
+  iterator?: string
+  subject: SkeletonSubject
+  /** Free-text rationale for the subject-key choice (a hint for the human gate;
+   *  dropped from the final IR at assembly). */
+  note?: string
+}
+
+/** The Mapping IR SKELETON — the early human-gate artifact. */
+export interface MappingSkeleton {
+  version: number
+  prefixes: Record<string, string>
+  maps: SkeletonMap[]
+}
+
+/** Result payload carried by the SSE `done` event for a skeleton job. */
+export interface SkeletonResult {
+  skeleton: MappingSkeleton
+  inspection_md: string
+  metadata: Record<string, unknown>
+}
+
+export interface SkeletonHandlers {
+  onStart?: (jobId: string) => void
+  onStatus?: (message: string) => void
+  onDone: (result: SkeletonResult) => void
+  onError: (message: string) => void
+  onPulse?: () => void
+  onCancelled?: () => void
+}
+
+/**
+ * Phase 2b job 1: generate the mapping SKELETON (which source → which class,
+ * keyed how) for human review — no properties or prose yet. Same SSE machinery
+ * as propose; the done payload carries the editable skeleton + inspection.
+ */
+export async function proposeSkeleton(
+  files: File[],
+  domain: string,
+  fks: string[],
+  creds: LlmCredentials | null,
+  handlers: SkeletonHandlers,
+  language?: string,
+): Promise<JobHandle> {
+  const form = new FormData()
+  for (const file of files) form.append('files', file)
+  form.append('domain', domain)
+  if (language) form.append('language', language)
+  const params = new URLSearchParams()
+  for (const fk of fks) params.append('fk', fk)
+  const query = params.toString()
+  const url = query ? `/api/propose/skeleton?${query}` : '/api/propose/skeleton'
+
+  const res = await fetch(url, { method: 'POST', body: form, headers: llmHeaders(creds) })
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '')
+    throw new Error(`skeleton failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
+  }
+  const { job_id } = (await res.json()) as { job_id: string }
+  handlers.onStart?.(job_id)
+  return subscribeJob(job_id, handlers)
+}
+
+/**
+ * Phase 2b job 2: from the CONFIRMED skeleton + the re-attached source, generate
+ * each map's property table + the document, splice §9, and run the same
+ * self-correction loop. The done payload is a normal {@link ProposeResult}.
+ */
+export async function proposeContinue(
+  files: File[],
+  skeleton: MappingSkeleton,
+  domain: string,
+  fks: string[],
+  creds: LlmCredentials | null,
+  handlers: ProposeHandlers,
+  language?: string,
+  autocorrect?: number,
+): Promise<JobHandle> {
+  const form = new FormData()
+  for (const file of files) form.append('files', file)
+  form.append('skeleton', JSON.stringify(skeleton))
+  form.append('domain', domain)
+  if (language) form.append('language', language)
+  const params = new URLSearchParams()
+  for (const fk of fks) params.append('fk', fk)
+  if (autocorrect !== undefined) params.set('autocorrect', String(autocorrect))
+  const query = params.toString()
+  const url = query ? `/api/propose/continue?${query}` : '/api/propose/continue'
+
+  const res = await fetch(url, { method: 'POST', body: form, headers: llmHeaders(creds) })
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '')
+    throw new Error(`continue failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
+  }
+  const { job_id } = (await res.json()) as { job_id: string }
+  handlers.onStart?.(job_id)
+  return subscribeJob(job_id, handlers)
+}
+
 /** Result payload carried by the SSE `done` event for a refine job. */
 export interface RefineResult {
   refined_md: string

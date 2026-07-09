@@ -54,13 +54,14 @@ from __future__ import annotations
 import contextlib
 import re
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from asterism import substrate
 from asterism.rml_validate import read_csv_header
+from asterism_step0.inspect import inspect_source_set, render_markdown
 from asterism_step0.llm import LLMCancelledError, LLMTruncatedError
 from asterism_step0.mapping_ir import (
     MappingIRParseError,
@@ -79,6 +80,7 @@ from asterism_step0.spec_repair import (
     parse_spec_json,
     replace_mapping_spec_block,
 )
+from asterism_step0.staged_propose import propose_from_skeleton
 
 _TABULAR_SUFFIXES = frozenset({".csv", ".tsv"})
 
@@ -520,8 +522,15 @@ def run_design_loop(
     on_llm_call: Callable[[str], None] | None = None,
     language: str | None = None,
     should_cancel: Callable[[], bool] | None = None,
+    skeleton: Mapping[str, Any] | None = None,
 ) -> DesignLoopResult:
     """Run the propose→validate→refine self-correction loop.
+
+    ``skeleton`` (Phase 2b) switches round-0 from the single-shot
+    ``propose_schema`` to staged generation from a CONFIRMED skeleton
+    (``propose_from_skeleton``: per-map property tables + document, §9 assembled
+    deterministically). Everything after round-0 — validate, surgical §9 refine,
+    stop conditions — is identical; the staged result is the same §1-9 Markdown.
 
     ``source_dir`` is the dir holding the uploaded CSVs (the propose job's temp dir),
     which lets the loop run the source-aware ``validate_rml_design``. ``on_progress`` is
@@ -544,19 +553,48 @@ def run_design_loop(
 
     if should_cancel is not None and should_cancel():
         raise LLMCancelledError("cancelled")
-    _emit(on_progress, phase="propose", round=0, message="初期設計を生成中")
-    proposal = propose_schema(
-        paths,
-        domain_hint,
-        fk_hint_columns=fk_hint_columns,
-        record_path=record_path,
-        llm=llm,
-        language=language,
-    )
-    if on_llm_call is not None:
-        on_llm_call("propose")
-    schema_md = proposal.proposal_md
     oracle = build_oracle(base, paths)
+    if skeleton is not None:
+        # Phase 2b staged round-0. The oracle IS the per-map menu (exact files /
+        # columns / function signatures), so property generation stays inside the
+        # same closed set the refine rounds enforce. on_progress forwards the
+        # per-map / document frames as-is; on_llm_call fires per staged call.
+        try:
+            function_names: list[str] | None = [f.name for f in catalog_from_registry()]
+        except ImportError:
+            function_names = None
+        inspections, fks = inspect_source_set(
+            paths, fk_hint_columns=fk_hint_columns, record_path=record_path
+        )
+        inspection_md = render_markdown(inspections, fks)
+        _emit(on_progress, phase="propose", round=0, message="骨格から設計を生成中")
+        schema_md = propose_from_skeleton(
+            skeleton,
+            inspection_md,
+            domain_hint,
+            llm=llm,
+            menu=oracle,
+            language=language,
+            function_names=function_names,
+            on_progress=lambda **d: _emit(on_progress, **d),
+            on_llm_call=on_llm_call,
+        )
+        metadata: dict[str, Any] = {"llm_class": type(llm).__name__, "staged": True}
+    else:
+        _emit(on_progress, phase="propose", round=0, message="初期設計を生成中")
+        proposal = propose_schema(
+            paths,
+            domain_hint,
+            fk_hint_columns=fk_hint_columns,
+            record_path=record_path,
+            llm=llm,
+            language=language,
+        )
+        if on_llm_call is not None:
+            on_llm_call("propose")
+        schema_md = proposal.proposal_md
+        inspection_md = proposal.csv_inspection_md
+        metadata = dict(proposal.metadata)
 
     def _result(
         best_schema: str,
@@ -570,9 +608,9 @@ def run_design_loop(
     ) -> DesignLoopResult:
         return DesignLoopResult(
             proposal_md=best_schema,
-            csv_inspection_md=proposal.csv_inspection_md,
+            csv_inspection_md=inspection_md,
             domain_hint=domain_hint,
-            metadata=dict(proposal.metadata),
+            metadata=dict(metadata),
             rounds=rounds,
             converged=converged,
             terminal_reason=reason,
