@@ -425,9 +425,8 @@ def _select_client(rows: int) -> OxigraphClient:
     def handler(request: httpx.Request) -> httpx.Response:
         body = request.content.decode()
         bindings = []
-        if "?s" in body or "SELECT" in body:
-            if "rdf-schema#label" in body or "?l" in body:  # the tool's own query
-                bindings = [{"s": {"type": "uri", "value": f"https://ex/{i}"}} for i in range(rows)]
+        if "rdf-schema#label" in body or "?l" in body:  # the tool's own query
+            bindings = [{"s": {"type": "uri", "value": f"https://ex/{i}"}} for i in range(rows)]
         return httpx.Response(
             200,
             text=json.dumps({"head": {"vars": ["s"]}, "results": {"bindings": bindings}}),
