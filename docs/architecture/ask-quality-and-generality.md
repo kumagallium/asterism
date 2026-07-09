@@ -95,6 +95,15 @@
 - **連結性チェックの ingest ブロッキング化**: 意図的に無関係なソース群も
   ありうるため advisory に留め、design_loop で修正を促す。
 
+## 実証（2026-07-08 追記）
+
+本番 dogfood(Qwen3.6-35B-A3B)が本 ADR の全機構を通って完走: 設計→自己修正
+ループ→6.96M triples 投入→昇格→宣言ツール→**Ask が「高いZTの材料リスト」に
+組成+図+DOI 引用付き TOP15 で回答**。過程で追加した防御(いずれも汎用):
+#261 壊れ MIE=finding / #262 リンク方向ヒント / #263 join キー候補 /
+#264 constant 内 placeholder 422 / #265 run_id どこでも置換 /
+#266 未マップ列 review notes(人間判断層) / #269 保存時 dry-run(0行警告)。
+
 ## 残課題（後続）
 
 - `asterism_mcp.tools` の `sd:` 2 関数（property_ranking / sample_search）の
