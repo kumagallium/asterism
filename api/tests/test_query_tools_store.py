@@ -414,3 +414,66 @@ def test_run_pre_gate_broken_tool_is_400_with_lint_detail(tmp_path: Path) -> Non
     assert r.status_code == 400
     detail = r.json()["detail"]
     assert "prov:" in detail and "query_tools.yaml" in detail
+
+
+# --- advisory dry run at save/propose (the 0-row-tool family) ----------------
+
+
+def _select_client(rows: int) -> OxigraphClient:
+    """A store whose data queries return ``rows`` bindings (enumeration: none)."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = request.content.decode()
+        bindings = []
+        if "?s" in body or "SELECT" in body:
+            if "rdf-schema#label" in body or "?l" in body:  # the tool's own query
+                bindings = [{"s": {"type": "uri", "value": f"https://ex/{i}"}} for i in range(rows)]
+        return httpx.Response(
+            200,
+            text=json.dumps({"head": {"vars": ["s"]}, "results": {"bindings": bindings}}),
+            headers={"content-type": "application/sparql-results+json"},
+        )
+
+    inner = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://test")
+    return OxigraphClient(OxigraphConfig(base_url="http://test"), client=inner)
+
+
+_DEFAULTED_TOOL = {
+    "name": "all_labels",
+    "title": "All labels",
+    "query": (
+        f"SELECT ?s ?l WHERE {{ ?s <{_RDFS_LABEL}> ?l . "
+        "FILTER(CONTAINS(STR(?l), {{q}})) } LIMIT 10"
+    ),
+    "parameters": [{"name": "q", "type": "string", "default": ""}],
+}
+
+
+def test_save_dry_run_warns_on_zero_rows(tmp_path: Path) -> None:
+    client = _run_client(tmp_path, _select_client(rows=0))
+    ds = _seed_dataset(tmp_path / "registry")
+    r = client.post(f"/api/datasets/{ds}/tools", json=_DEFAULTED_TOOL)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["dry_run"] == {"rows": 0, "truncated": False}
+    assert any("0 rows" in w for w in body["warnings"])
+
+
+def test_save_dry_run_reports_rows_no_warning(tmp_path: Path) -> None:
+    client = _run_client(tmp_path, _select_client(rows=1))
+    ds = _seed_dataset(tmp_path / "registry")
+    r = client.post(f"/api/datasets/{ds}/tools", json=_DEFAULTED_TOOL)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["dry_run"]["rows"] == 1
+    assert not any("0 rows" in w for w in body["warnings"])
+
+
+def test_save_dry_run_skipped_for_required_param_without_default(tmp_path: Path) -> None:
+    # VALID_TOOL's `q` is required with no default — nothing sensible to bind,
+    # so the dry run is skipped honestly (null), not faked.
+    client = _run_client(tmp_path, _select_client(rows=3))
+    ds = _seed_dataset(tmp_path / "registry")
+    r = client.post(f"/api/datasets/{ds}/tools", json=VALID_TOOL)
+    assert r.status_code == 200, r.text
+    assert r.json()["dry_run"] is None

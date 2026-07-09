@@ -2271,7 +2271,16 @@ def build_app(
         saved. Saving IS the human-vet gate: a person deliberately submits a
         tool they have reviewed (same trust model as the Tier 0 function
         library; nothing is generated at runtime). Lint *warnings* do not block
-        the save; they are returned for the reviewer."""
+        the save; they are returned for the reviewer.
+
+        Dry run (best-effort, advisory): a tool that parses and lints clean can
+        still be a 0-row tool — a pattern stricter than the data (observed
+        live: required triples not every row carries, or a version-lag between
+        the template and the live graph). When every required parameter has a
+        default, the saved template is executed once with default arguments
+        against the canonical scope; 0 rows adds a warning and the row count is
+        returned as ``dry_run``. Never blocks the save (store down / no
+        canonical data yet → ``dry_run: null``)."""
         if registry.load_dataset(cfg.registry_root, dataset_id) is None:
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
         tool = body.model_dump()
@@ -2283,10 +2292,30 @@ def build_app(
         if lint.errors:
             raise HTTPException(400, "invalid query tool: " + "; ".join(lint.errors))
         registry.save_query_tool(cfg.registry_root, dataset_id, tool)
+        warnings = list(lint.warnings)
+        dry_run: dict[str, object] | None = None
+        client = getattr(app.state, "client", None)
+        runnable = all(not p.required or p.default is not None for p in parsed[0].params)
+        if client is not None and runnable:
+            try:
+                out = await run_query_tool(client, parsed[0], {}, max_rows=1)
+                dry_run = {"rows": out["count"], "truncated": out["truncated"]}
+                if out["count"] == 0:
+                    warnings.append(
+                        "dry run with default arguments returned 0 rows against the "
+                        "current canonical data — the pattern may be stricter than the "
+                        "data (required triples not every row carries; consider "
+                        "OPTIONAL), a term may not match, or the dataset is not "
+                        "promoted/re-ingested yet. Saved anyway; verify on the live "
+                        "graph."
+                    )
+            except Exception:  # advisory only — a dry-run failure never blocks a save
+                dry_run = None
         return {
             "dataset_id": dataset_id,
             "saved": parsed[0].name,
-            "warnings": list(lint.warnings),
+            "warnings": warnings,
+            "dry_run": dry_run,
             "tools": registry.list_query_tools(cfg.registry_root, dataset_id),
         }
 
@@ -2369,12 +2398,33 @@ def build_app(
         await asyncio.to_thread(
             _record_llm_usage, cfg.registry_root, "tool.propose", provider, llm, model
         )
+        warnings = list(res.warnings)
+        dry_run: dict[str, object] | None = None
+        client = getattr(app.state, "client", None)
+        if res.valid and client is not None:
+            # Same advisory dry run as the save endpoint: tell the reviewer NOW
+            # if the (clean) draft returns 0 rows with default arguments.
+            try:
+                draft_tool = parse_query_tools({"tools": [res.draft]})[0]
+                if all(not p.required or p.default is not None for p in draft_tool.params):
+                    out = await run_query_tool(client, draft_tool, {}, max_rows=1)
+                    dry_run = {"rows": out["count"], "truncated": out["truncated"]}
+                    if out["count"] == 0:
+                        warnings.append(
+                            "dry run with default arguments returned 0 rows against "
+                            "the current canonical data — the pattern may be stricter "
+                            "than the data, a term may not match, or the dataset is "
+                            "not promoted/re-ingested yet."
+                        )
+            except Exception:
+                dry_run = None
         return {
             "dataset_id": dataset_id,
             "draft": res.draft,
             "valid": res.valid,
             "error": res.error,
-            "warnings": res.warnings,
+            "warnings": warnings,
+            "dry_run": dry_run,
             "rounds": res.rounds,
         }
 
