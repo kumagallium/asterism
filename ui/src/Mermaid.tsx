@@ -2,6 +2,8 @@ import mermaid from 'mermaid'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { normalizeMermaidDialects } from './mermaidNormalize'
+
 // `suppressErrorRendering` stops mermaid from injecting its "bomb icon" error
 // SVG into the DOM when a diagram fails to parse — we render our own readable
 // fallback instead (dogfood 2026-07-08: AI-generated diagram.md that Mermaid 11
@@ -33,8 +35,9 @@ export function Mermaid({ chart }: { chart: string }) {
   useEffect(() => {
     let cancelled = false
     const id = `mermaid-${_seq++}`
+    const normalized = normalizeMermaidDialects(chart)
     mermaid
-      .parse(chart, { suppressErrors: true })
+      .parse(normalized, { suppressErrors: true })
       .then((ok) => {
         // Invalid syntax — skip render() entirely so mermaid never injects its
         // error graphic; the fallback below shows the source instead.
@@ -42,7 +45,7 @@ export function Mermaid({ chart }: { chart: string }) {
           if (!cancelled) setFailed(true)
           return undefined
         }
-        return mermaid.render(id, chart)
+        return mermaid.render(id, normalized)
       })
       .then((result) => {
         // setState only at the async boundary (react-hooks/set-state-in-effect).
