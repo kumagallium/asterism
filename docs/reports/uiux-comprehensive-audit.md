@@ -90,27 +90,29 @@ Asterism Web UI は、デザインガイドライン（forest 単一テーマ・
 - 狭幅崩れ: ソース切替の折返し・ds-grid の `minmax(min(300px,100%),1fr)`・ステッパー
   折返し・モード切替ピルの語中折れ・長いデータセット名の溢れ・メニューの z-index。
 
-### 未修正（設計判断・別作業として記録）
+### フォローアップで対応済み（本レポート後の 2 PR）
 
-1. **パレットのコントラスト**（中）: `--faint` #869a8c は白面 2.99:1、`--accent` 小文字
-   3.92:1、status-pill「下書き」3.34:1 など WCAG AA 未満が残る。v2 パレットはユーザー
-   承認済みデザインのため、トークン値の変更は別途デザイン判断で（候補: --faint を
-   #74887a 程度へ、ピルは文字を濃色化）。
-2. **URL ルーティング不在**（中): リロードで常にホームへ戻り、ディープリンク不可。
-   ジョブ復旧は Workbench mount 時のみ。ハッシュルータ等の導入は構造変更のため別 PR。
-3. **一覧⇄詳細の状態破棄ファミリー**（中）: GalleryView unmount で詳細・検索語が消える、
-   ホームの「最近」行が詳細へ直接飛べない、保存完了→カタログ該当 DS への直リンク欠如、
-   CrosswalkBuilder / DocumentPanel の作業状態が snapshot 対象外。App レベルの
-   状態引き上げ（openDataset(id) 配線）でまとめて解くべき。
-4. **ingest / 文書取り込みのキャンセル・リロード復旧**（中）: propose/refine には
-   ある機構（cancel + SSE replay）を ingest 系ジョブへ拡張する（要 API 変更）。
-5. **カード = クリッカブル div + 内部 button の入れ子**（中）: role="button" の div に
-   実 button 群が入れ子。DOM 再構成（カード全面リンク + 兄弟アクション）が必要。
-6. **設定モーダルのフォーカストラップ**（低）: 初期フォーカスは実装済み。Tab 循環は未。
-7. **共有の語彙の consumers に設計中 DS が並ぶ**（低・要確認）: 集計は canonical のみ
-   注記済みだが、リスト対象の整合は再確認したい。
-8. アクティビティに Workbench 取り込みも記録する（jobs.jsonl へ kind:"ingest"）—
-   文言は実態に合わせて修正済みだが、記録自体を増やす方が本筋（要 API 変更）。
+- **URL ルーティング不在**（旧 2）→ 対応済み（PR #274）: hash ルータ（`#/datasets/<id>/<tab>`・
+  リロード/戻る/ディープリンク）。
+- **一覧⇄詳細の状態破棄ファミリー**（旧 3）→ 対応済み（#274 + `ui/audit-followup-2`）:
+  GalleryView 選択を App ルートへ引き上げ、ホーム「最近」行→詳細直行、保存完了→データ
+  セットへの直リンク、CrosswalkBuilder / DocumentPanel の作業状態を sessionStorage 永続化。
+- **カード nested-interactive**（旧 5）→ 対応済み（`ui/audit-followup-2`）: ストレッチ
+  ドリンク方式（外側 div 非対話化・開くリーフ button の全面オーバーレイ・アクションは
+  z-index で前面・ルーティング挙動不変）。
+- **設定モーダルのフォーカストラップ**（旧 6）→ 対応済み（#274）: Tab 循環トラップ。
+- **パレットのコントラスト**（旧 1・部分）→ 一部対応: status-pill / .link-btn の文字色を
+  AA 化（#274）、`--faint` を 2.99:1→3.4:1+（`#728579`・`ui/audit-followup-2`）。`--accent`
+  の塗り/罫線用途は据え置き（文字用途は `--accent-strong` に分離済み）。
+
+### 未修正（別途・API 変更を伴う）
+
+- **ingest / 文書取り込みのキャンセル・リロード復旧**（中）: propose/refine にある機構
+  （cancel + SSE replay）を ingest 系ジョブへ拡張する（要 API 変更）。
+- **共有の語彙の consumers に設計中 DS が並ぶ**（低・要確認）: 集計は canonical のみ
+  注記済みだが、リスト対象の整合は再確認したい。
+- アクティビティに Workbench 取り込みも記録する（jobs.jsonl へ kind:"ingest"）—
+  文言は実態に合わせて修正済みだが、記録自体を増やす方が本筋（要 API 変更）。
 
 ## Conclusion
 

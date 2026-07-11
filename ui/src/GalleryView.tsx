@@ -258,31 +258,25 @@ function DatasetGridCard({
   const meta = dataset.live?.meta
   const files = meta?.source_files?.length ?? 0
   const updated = meta?.created_at?.slice(0, 10) ?? ''
-  // The card is the click target to open the detail; the action footer holds
-  // real <button>s, so the card itself is a clickable div (not a <button>, which
-  // cannot legally nest interactive children).
   function open(tab?: DetailTab) {
     onSelect(tab)
   }
+  // ARIA nested-interactive fix: the card is a non-interactive container. The
+  // single "open" control is a LEAF <button> (the name) whose ::after stretches
+  // over the whole card, so the entire card is still clickable — but the action
+  // <button>s (publish/retract/⋯) are now SIBLINGS, not descendants of an
+  // interactive element. onClick keeps the exact routing behavior (no href), so
+  // the hash-router path is unchanged. Actions sit above the overlay via z-index.
   return (
-    <div
-      className="ds-grid-card"
-      role="button"
-      tabIndex={0}
-      onClick={() => open()}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault()
-          open()
-        }
-      }}
-    >
+    <div className="ds-grid-card">
       <div className="ds-grid-card-head">
         <span className="ds-grid-card-icon">
           <DataIcon size={18} />
         </span>
         <span className="ds-grid-card-titles">
-          <span className="ds-grid-card-name">{dataset.name}</span>
+          <button type="button" className="ds-grid-card-open" onClick={() => open()}>
+            <span className="ds-grid-card-name">{dataset.name}</span>
+          </button>
           <span className="ds-grid-card-type">{sourceTag(meta)}</span>
         </span>
         <span className={`status-pill status-pill--${dataset.statusKind}`}>
