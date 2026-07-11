@@ -13,6 +13,30 @@ import { promoteDataset } from './galleryApi'
 
 type Phase = 'idle' | 'creating' | 'ingesting' | 'promoting' | 'done'
 
+// The adopted-id survives a tab switch / reload so a retry never mints a
+// duplicate dataset. Only the id+name is persisted (the picked File objects
+// can't be serialized and aren't needed to resume from ingest). Self-contained
+// key — DocumentPanel takes no props and owns its own persistence.
+const DOC_STORAGE = 'asterism.workbench.document'
+
+function loadCreated(): { id: string; name: string } | null {
+  try {
+    const raw = sessionStorage.getItem(DOC_STORAGE)
+    return raw ? (JSON.parse(raw) as { id: string; name: string }) : null
+  } catch {
+    return null
+  }
+}
+
+function persistCreated(v: { id: string; name: string } | null) {
+  try {
+    if (v) sessionStorage.setItem(DOC_STORAGE, JSON.stringify(v))
+    else sessionStorage.removeItem(DOC_STORAGE)
+  } catch {
+    /* sessionStorage may be unavailable — non-fatal */
+  }
+}
+
 export function DocumentPanel() {
   const { t } = useTranslation()
   const [files, setFiles] = useState<File[]>([])
@@ -26,7 +50,13 @@ export function DocumentPanel() {
   // fails, a retry RESUMES from ingest on this same dataset instead of POSTing
   // /api/documents again — which would mint a fresh slug-uuid8 id and leave a
   // duplicate record. Cleared when the user picks different files (a new dataset).
-  const [created, setCreated] = useState<{ id: string; name: string } | null>(null)
+  // 復元: タブ切替 / リロードで created が消えると次の実行が create を再 POST して
+  // 重複データセットになるため sessionStorage から復元する。
+  const [created, setCreatedState] = useState<{ id: string; name: string } | null>(loadCreated)
+  const setCreated = (v: { id: string; name: string } | null) => {
+    setCreatedState(v)
+    persistCreated(v)
+  }
 
   const busy = phase !== 'idle' && phase !== 'done'
   // A retry is pending when a prior attempt created the dataset but did not finish.

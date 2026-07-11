@@ -89,6 +89,11 @@ function loadJob(): { jobId: string; kind: JobKind } | null {
 }
 
 interface WorkbenchSnapshot {
+  // Which of the two "add data" flows is active. Persisted so switching tabs /
+  // reloading in the crosswalk (横断でつなぐ) flow doesn't silently drop back to
+  // the CSV flow — previously `mode` was NOT in the snapshot, so the crosswalk
+  // builder wasn't even rendered after a return.
+  mode: 'new' | 'crosswalk'
   step: Step
   source: SourceKind
   fk: string
@@ -158,7 +163,8 @@ export function WorkbenchView({
 
   // Two ways to add data (crosswalk-hub.md ④): from a NEW source (CSV/JSON → AI
   // designs → save), or by crossing EXISTING datasets into a shared bridge.
-  const [mode, setMode] = useState<'new' | 'crosswalk'>('new')
+  // snap から復元（旧 snapshot に mode が無くても 'new' で後方互換）。
+  const [mode, setMode] = useState<'new' | 'crosswalk'>(snap.mode ?? 'new')
   const [step, setStep] = useState<Step>(snap.step ?? 1)
   // Save target: the dataset that save (materialize) updates IN PLACE rather than
   // minting a new record. Seeded from a passed `redesignTarget` (catalog 見直す),
@@ -226,6 +232,7 @@ export function WorkbenchView({
   // Persist artifacts whenever they change (cheap; sessionStorage only).
   useEffect(() => {
     const snapshot: WorkbenchSnapshot = {
+      mode,
       step,
       source,
       fk,
@@ -244,7 +251,7 @@ export function WorkbenchView({
     } catch {
       // sessionStorage may be unavailable (private mode quota) — non-fatal.
     }
-  }, [step, source, fk, markdown, domainFree, presetIds, proposal, materialized, redesignId, redesignName, redesignOrigin, lastSaveKind])
+  }, [mode, step, source, fk, markdown, domainFree, presetIds, proposal, materialized, redesignId, redesignName, redesignOrigin, lastSaveKind])
 
   // Seed the workbench from a redesign target during render (the "adjust state on
   // prop change" pattern — same as GalleryView's focusClass handling — so we avoid a

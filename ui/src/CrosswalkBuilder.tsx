@@ -86,6 +86,35 @@ function labelFor(d: CatalogDataset): string {
   return slug || d.live?.meta.id || d.id
 }
 
+// タブ切替 / リロードで CrosswalkBuilder の作業（対象データセット選択・述語・AI
+// 候補・概念/正規化・複合キー）が消えないよう、シリアライズ可能な入力だけを
+// sessionStorage に自己永続化する（CSV フローの WorkbenchSnapshot と同じ思想。
+// File は持たないので丸ごと載せられる。datasets/recipePreview は再取得・再導出
+// されるため保存しない）。CrosswalkBuilder は props を取らない自己完結キー。
+const XW_STORAGE = 'asterism.workbench.crosswalk'
+
+interface XwSnapshot {
+  selected: string[]
+  predicate: Record<string, string>
+  candidates: Record<string, PredicateCandidate[]>
+  concept: string
+  normalizer: string
+  normalizerTouched: boolean
+  perspectiveName: string
+  recipe: string[]
+  recipeSample: string
+  extraParts: { id: string; name: string; normalizer: string }[]
+  extraPred: Record<string, Record<string, string>>
+}
+
+function loadXw(): Partial<XwSnapshot> {
+  try {
+    return JSON.parse(sessionStorage.getItem(XW_STORAGE) ?? '{}') as Partial<XwSnapshot>
+  } catch {
+    return {}
+  }
+}
+
 /**
  * Crosswalk authoring (ADR crosswalk-hub.md ④, 作成=「データを追加」). A crosswalk is an
  * ontology built FROM existing datasets: pick >=2 promoted datasets, declare each
@@ -94,28 +123,32 @@ function labelFor(d: CatalogDataset): string {
  */
 export function CrosswalkBuilder() {
   const { t } = useTranslation()
+  // Restore serializable work saved before a tab switch / reload (once).
+  const [xw] = useState(loadXw)
   const [datasets, setDatasets] = useState<CatalogDataset[] | null>(null)
   const [loadErr, setLoadErr] = useState('')
-  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(xw.selected ?? []))
   // dataset_id -> chosen predicate IRI (the concept-bearing predicate).
-  const [predicate, setPredicate] = useState<Record<string, string>>({})
+  const [predicate, setPredicate] = useState<Record<string, string>>(xw.predicate ?? {})
   // dataset_id -> AI-sampled candidates (iri + sample value), populated by propose.
-  const [candidates, setCandidates] = useState<Record<string, PredicateCandidate[]>>({})
+  const [candidates, setCandidates] = useState<Record<string, PredicateCandidate[]>>(
+    xw.candidates ?? {},
+  )
   const { isReady, getActiveCredentials } = useLlmSettings()
   // The concept these datasets share (the lens's join target). An ascii key minted
   // into the hub vocabulary (xw:<PascalCase>); 'composition' is just the default, not
   // a lock — '結晶系' would be 'crystal_system' → xw:CrystalSystem, '著者' → 'author', …
-  const [concept, setConcept] = useState('composition')
+  const [concept, setConcept] = useState(xw.concept ?? 'composition')
   // The join key normalizer. 'identity' = exact match (the GENERIC default for any
   // concept); 'composition'/'element_canonical' are materials-chemistry options.
-  const [normalizer, setNormalizer] = useState('composition')
+  const [normalizer, setNormalizer] = useState(xw.normalizer ?? 'composition')
   // Whether the user picked the normalizer by hand. Until then it tracks the concept
   // (composition → 'composition', anything else → generic 'identity') so a non-material
   // concept doesn't silently keep a chemistry join key.
-  const [normalizerTouched, setNormalizerTouched] = useState(false)
+  const [normalizerTouched, setNormalizerTouched] = useState(xw.normalizerTouched ?? false)
   // A human name for THIS perspective (a distinct lens, multi-perspective ADR). Empty
   // = the default "composition" perspective (back-compat); named = a new lens.
-  const [perspectiveName, setPerspectiveName] = useState('')
+  const [perspectiveName, setPerspectiveName] = useState(xw.perspectiveName ?? '')
   const [proposing, setProposing] = useState(false)
   const [proposeErr, setProposeErr] = useState('')
   const [proposeNote, setProposeNote] = useState('')
@@ -124,18 +157,20 @@ export function CrosswalkBuilder() {
   const [result, setResult] = useState<BuildResult | null>(null)
   // Custom normalizer recipe (active when normalizer === RECIPE_OPTION): an ordered
   // list of closed primitive ids + a sample whose join key is previewed live.
-  const [recipe, setRecipe] = useState<string[]>(['nfkc', 'casefold', 'collapse_ws'])
-  const [recipeSample, setRecipeSample] = useState('Iron  Oxide')
+  const [recipe, setRecipe] = useState<string[]>(xw.recipe ?? ['nfkc', 'casefold', 'collapse_ws'])
+  const [recipeSample, setRecipeSample] = useState(xw.recipeSample ?? 'Iron  Oxide')
   const [recipePreview, setRecipePreview] = useState<string | null>(null)
   // Compound key (crosswalk-compound-keys.md): EXTRA match conditions ANDed with the
   // primary concept. Empty = a single-value join (legacy, byte-identical). Each extra
   // part has its own name + normalizer + per-dataset predicate; >= 1 makes the build a
   // compound (tuple) key.
   const [extraParts, setExtraParts] = useState<{ id: string; name: string; normalizer: string }[]>(
-    [],
+    xw.extraParts ?? [],
   )
   // extra-part id -> dataset_id -> predicate IRI
-  const [extraPred, setExtraPred] = useState<Record<string, Record<string, string>>>({})
+  const [extraPred, setExtraPred] = useState<Record<string, Record<string, string>>>(
+    xw.extraPred ?? {},
+  )
 
   useEffect(() => {
     let off = false
@@ -151,6 +186,41 @@ export function CrosswalkBuilder() {
       off = true
     }
   }, [])
+
+  // Persist serializable work so a tab switch / reload keeps the crosswalk in
+  // progress (result/preview/loading are re-derived and deliberately excluded).
+  useEffect(() => {
+    const snap: XwSnapshot = {
+      selected: [...selected],
+      predicate,
+      candidates,
+      concept,
+      normalizer,
+      normalizerTouched,
+      perspectiveName,
+      recipe,
+      recipeSample,
+      extraParts,
+      extraPred,
+    }
+    try {
+      sessionStorage.setItem(XW_STORAGE, JSON.stringify(snap))
+    } catch {
+      /* sessionStorage may be unavailable — non-fatal */
+    }
+  }, [
+    selected,
+    predicate,
+    candidates,
+    concept,
+    normalizer,
+    normalizerTouched,
+    perspectiveName,
+    recipe,
+    recipeSample,
+    extraParts,
+    extraPred,
+  ])
 
   function datasetId(d: CatalogDataset): string {
     return d.live?.meta.id ?? d.id
