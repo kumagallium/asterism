@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import difflib
 import hashlib
 import hmac
 import json
@@ -53,6 +54,7 @@ from asterism.query_tools import (
     parse_query_tools,
     run_query_tool,
 )
+from asterism.rml_summary import summarize_rml
 from asterism.starrydata import IngestConfig
 from asterism.watcher import (
     DEFAULT_GRAPH_PREFIX,
@@ -2445,6 +2447,100 @@ def build_app(
             "proposal_md": proposal_md,
             "has_proposal": bool(proposal_md.strip()),
         }
+
+    @app.get("/api/datasets/{dataset_id}/rules")
+    async def get_dataset_rules(dataset_id: str) -> dict[str, object]:
+        """A human-readable projection of the dataset's ingest rules (read-only).
+
+        Deterministic and LLM-free: parses the persisted ``mapping.rml.ttl``
+        (:func:`asterism.rml_summary.summarize_rml`) into "this column → this
+        property (via this function)" rows the catalog renders, and enriches
+        term IRIs with the ``model.yaml`` labels (the same rdf-config projection
+        promote uses). This closes the transparency gap: the rules that produce
+        the citable facts are themselves reviewable, not a black box. Datasets
+        without RML return ``maps: []`` (the UI keeps its empty state); an
+        unparseable mapping returns a ``warnings`` entry rather than a 500.
+        """
+        data = registry.load_dataset(cfg.registry_root, dataset_id)
+        if data is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        artifacts = data.get("artifacts") or {}
+        rml_ttl = str(artifacts.get("mapping.rml.ttl") or "")
+        model_yaml = str(artifacts.get("model.yaml") or "")
+        mie_yaml = str(artifacts.get("mie.yaml") or "")
+
+        def run() -> dict[str, object]:
+            import rdflib
+
+            summary = summarize_rml(rml_ttl)
+            labels: dict[str, str] = {}
+            if model_yaml.strip():
+                prefixes = STANDARD_PREFIXES | extract_prefixes(rml_ttl, mie_yaml)
+                projected = project_model_yaml(model_yaml, prefixes)
+                for subj, obj in projected.subject_objects(rdflib.RDFS.label):
+                    labels[str(subj)] = str(obj)
+            return {"dataset_id": dataset_id, **summary, "labels": labels}
+
+        return await asyncio.to_thread(run)
+
+    @app.get("/api/datasets/{dataset_id}/history")
+    async def get_dataset_history(dataset_id: str) -> dict[str, object]:
+        """Redesign snapshots (newest first) — metadata only, contents by id below."""
+        data = registry.load_dataset(cfg.registry_root, dataset_id)
+        if data is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        snapshots = registry.list_dataset_history(cfg.registry_root, dataset_id)
+        return {"dataset_id": dataset_id, "count": len(snapshots), "snapshots": snapshots}
+
+    @app.get("/api/datasets/{dataset_id}/history/{snapshot_id}")
+    async def get_dataset_history_snapshot(
+        dataset_id: str, snapshot_id: str
+    ) -> dict[str, object]:
+        """One redesign snapshot's stored artifacts + unified diffs vs the CURRENT set.
+
+        The diff answers the reviewer's actual question — "what did this redesign
+        change?" — without shipping a diff engine to the browser. Direction is
+        snapshot → current (the snapshot is the ``---`` side). Unchanged files are
+        omitted from ``diffs``; files that exist on only one side diff against
+        empty.
+        """
+        data = registry.load_dataset(cfg.registry_root, dataset_id)
+        if data is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        snapshot = registry.load_dataset_history(cfg.registry_root, dataset_id, snapshot_id)
+        if snapshot is None:
+            raise HTTPException(404, f"snapshot {snapshot_id!r} not found")
+
+        current: dict[str, str] = {
+            name: str(text or "") for name, text in (data.get("artifacts") or {}).items()
+        }
+        proposal_md = registry.load_proposal(cfg.registry_root, dataset_id)
+        if proposal_md is not None:
+            current["proposal.md"] = proposal_md
+
+        def run() -> dict[str, str]:
+            diffs: dict[str, str] = {}
+            old_files: dict[str, str] = snapshot["artifacts"]
+            for name in sorted(set(old_files) | set(current)):
+                old = old_files.get(name, "")
+                new = current.get(name, "")
+                if old == new:
+                    continue
+                diff = "\n".join(
+                    difflib.unified_diff(
+                        old.splitlines(),
+                        new.splitlines(),
+                        fromfile=f"{name} ({snapshot_id})",
+                        tofile=f"{name} (current)",
+                        lineterm="",
+                    )
+                )
+                if diff:
+                    diffs[name] = diff
+            return diffs
+
+        diffs = await asyncio.to_thread(run)
+        return {"dataset_id": dataset_id, "snapshot": snapshot, "diffs": diffs}
 
     @app.get("/api/datasets/{dataset_id}/tools")
     async def list_dataset_tools(dataset_id: str) -> dict[str, object]:
