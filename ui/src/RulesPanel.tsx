@@ -320,13 +320,11 @@ export function RulesSection({ dataset }: { dataset: CatalogDataset }) {
   const [snapshot, setSnapshot] = useState<(DatasetHistorySnapshot & { openErr?: string }) | null>(null)
   const [busy, setBusy] = useState('')
 
+  // No state resets here: DatasetDetail is keyed by the selected dataset id,
+  // so this section remounts (fresh state) whenever the dataset changes.
   useEffect(() => {
     if (!datasetId) return
     let alive = true
-    setRules(null)
-    setHistory([])
-    setContents(null)
-    setLoadErr('')
     // Both fetches are read-only enrichment: a failure degrades to the plain
     // artifact list (never blocks the tab).
     getDatasetRules(datasetId)
