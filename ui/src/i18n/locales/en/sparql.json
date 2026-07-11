@@ -1,9 +1,13 @@
 {
-  "subtitle": "Run <1>read-only</1> SPARQL directly against the ingested RDF. This is an <3>escape hatch</3> for advanced users (normally use Ask / Gallery). UPDATE forms (INSERT/DELETE, etc.) cannot be run.",
+  "subtitle": "Run <1>read-only</1> SPARQL directly against the ingested RDF. This is a <3>direct-query surface</3> for advanced users (normally use “Ask” or “Datasets”). UPDATE forms (INSERT/DELETE, etc.) cannot be run.",
   "running": "Running…",
   "run": "Run (Ctrl+Enter)",
   "reset": "Reset to example",
   "boolResult": "Result: ",
   "rows": "{{n}} rows",
-  "noResults": "No matching results."
+  "noResults": "No matching results.",
+  "editorLabel": "SPARQL query",
+  "resetConfirm": "Replace your edited query with the example query?",
+  "rows_one": "{{n}} row",
+  "rows_other": "{{n}} rows"
 }

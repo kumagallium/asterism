@@ -17,7 +17,9 @@
     "legendProcess": "Process",
     "vocabTitle": "Show the \"{{className}}\" vocabulary in Datasets",
     "vocabLink": "View vocabulary",
-    "noRecord": "No provenance is recorded for this item."
+    "noRecord": "No provenance is recorded for this item.",
+    "copyIri": "Click to copy the IRI",
+    "copied": "Copied"
   },
   "step": {
     "curve": "Measurement curve",

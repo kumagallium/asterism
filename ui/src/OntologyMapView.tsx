@@ -437,7 +437,7 @@ export function OntologyMapView({ onBack }: { onBack?: () => void }) {
                 style={{ left: n.x, top: n.y, width: n.w, height: n.h }}
               >
                 <span className="ontomap-ext-tok">{n.prefix}</span>
-                <span className="ontomap-ext-what">{n.what}</span>
+                <span className="ontomap-ext-what">{t(n.what)}</span>
               </div>
             ))}
           </div>

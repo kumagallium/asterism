@@ -169,7 +169,13 @@ export function ToolsPanel({ datasetId }: { datasetId: string }) {
     patch({ resultRows: (draft?.resultRows ?? []).filter((_, j) => j !== i) })
   }
 
+  // 編集中の下書きを黙って上書き/破棄しない（保存前の編集は 1 操作で消える）
+  function confirmDropDirty(): boolean {
+    return !dirty || window.confirm(t('tools:panel.author.dirtyConfirm'))
+  }
+
   function startEmpty() {
+    if (!confirmDropDirty()) return
     setDraft({ ...EMPTY_FORM })
     setDraftValid(null)
     setDraftGateError(null)
@@ -178,6 +184,7 @@ export function ToolsPanel({ datasetId }: { datasetId: string }) {
     setNotice('')
   }
   function startEdit(t: QueryTool) {
+    if (!confirmDropDirty()) return
     setDraft(toForm(t))
     setDraftValid(null)
     setDraftGateError(null)
@@ -195,6 +202,7 @@ export function ToolsPanel({ datasetId }: { datasetId: string }) {
 
   async function propose() {
     if (!intent.trim() || !isReady) return
+    if (!confirmDropDirty()) return
     setProposing(true)
     setProposeError('')
     setNotice('')

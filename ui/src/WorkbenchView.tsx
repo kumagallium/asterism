@@ -306,8 +306,10 @@ export function WorkbenchView({
         setStatus('done')
         finish()
       },
-      onError: () => {
-        // Job no longer on the server (e.g. it was restarted) — drop quietly.
+      onError: (message) => {
+        // 離席中に失敗した propose/refine（数分＋API 課金）を無言で破棄しない。
+        // サーバ再起動でジョブが消えただけの場合も、同じ一行通知欄で理由を見せる。
+        setJobNotice(t('workbench:job.resumedFailed', { message }))
         setStatus('')
         finish()
       },
@@ -723,6 +725,9 @@ export function WorkbenchView({
   // (JobProgress defined at module scope below.)
 
   function clearWorkbench() {
+    // AI 提案（1〜6 分＋API 課金）を 1 クリックで失わないための確認。
+    // 消える成果物が無いとき（提案も保存結果も無い）は確認なしでよい。
+    if ((proposal || materialized) && !window.confirm(t('workbench:restore.clearConfirm'))) return
     setStep(1)
     setMarkdown('')
     setInspectErr('')
@@ -829,7 +834,7 @@ export function WorkbenchView({
       {hasArtifacts && (
         <div className="wb-restore-row">
           {restored && <span className="wb-restore-note">{t('workbench:restore.note')}</span>}
-          <button type="button" className="secondary-btn wb-clear-btn" onClick={clearWorkbench}>
+          <button type="button" className="btn btn--ghost btn--sm wb-clear-btn" onClick={clearWorkbench}>
             {t('workbench:restore.clear')}
           </button>
         </div>
@@ -898,7 +903,7 @@ export function WorkbenchView({
               : t('workbench:source.footEmpty')}
           </span>
           {files.length > 0 && (
-            <button type="button" className="secondary-btn inspect-toggle" onClick={onToggleInspect}>
+            <button type="button" className="btn btn--ghost btn--sm inspect-toggle" onClick={onToggleInspect}>
               {showInspect ? t('workbench:source.inspectHide') : t('workbench:source.inspectShow')}
             </button>
           )}
@@ -994,7 +999,7 @@ export function WorkbenchView({
                 </button>
                 <button
                   type="button"
-                  className="secondary-btn"
+                  className="btn btn--ghost"
                   onClick={onPropose}
                   disabled={skeletonBusy || proposing || files.length === 0 || !isReady}
                 >
@@ -1161,7 +1166,7 @@ export function WorkbenchView({
                   <p className="materialize-duplicate-note">{t('workbench:save.duplicateNote')}</p>
                   <button
                     type="button"
-                    className="secondary-btn"
+                    className="btn btn--ghost"
                     onClick={onMaterializeAgain}
                   >
                     {t('workbench:save.again')}
@@ -1371,7 +1376,7 @@ function JobProgress({
         {label}
         <button
           type="button"
-          className="secondary-btn job-cancel-btn"
+          className="btn btn--ghost btn--sm job-cancel-btn"
           onClick={onCancelClick}
           disabled={cancelRequested}
         >
@@ -1449,6 +1454,7 @@ function SkeletonGate({
                   <td className="skeleton-gate-source">{m.source}</td>
                   <td>
                     <input
+                      type="text"
                       className="skeleton-gate-input"
                       value={keyValue}
                       disabled={busy}
@@ -1466,6 +1472,7 @@ function SkeletonGate({
                   </td>
                   <td>
                     <input
+                      type="text"
                       className="skeleton-gate-input"
                       value={(m.subject.classes ?? []).join(', ')}
                       disabled={busy}
@@ -1496,7 +1503,7 @@ function SkeletonGate({
             t('workbench:skeleton.continue')
           )}
         </button>
-        <button type="button" className="secondary-btn" onClick={onDiscard} disabled={busy}>
+        <button type="button" className="btn btn--ghost" onClick={onDiscard} disabled={busy}>
           {t('workbench:skeleton.discard')}
         </button>
       </div>

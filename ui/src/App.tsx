@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import './App.css'
 import { AskView } from './AskView'
@@ -80,6 +80,17 @@ function App() {
   // workbench should reopen for a revision. Cleared once the workbench consumes it.
   const [redesignTarget, setRedesignTarget] = useState<RedesignTarget | null>(null)
 
+  // 全体像（map）の「戻る」を入ってきた画面へ返す（従来は常に crosswalk 固定で、
+  // データセット詳細の「全体像を見る」から入ると戻り先で現在地を見失っていた）。
+  const [mapReturn, setMapReturn] = useState<Tab>('crosswalk')
+
+  // タブ切替時にスクロールを先頭へ（.app-main は全画面共有のスクロールコンテナ
+  // なので、深くスクロールした位置が次の画面に持ち越されていた）。
+  const mainRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    mainRef.current?.scrollTo(0, 0)
+  }, [tab])
+
   // Jump from a grounded answer to the ontology class that backs it.
   function showVocab(className: string) {
     setGalleryFocus(className)
@@ -122,6 +133,11 @@ function App() {
                   type="button"
                   className={`side-nav-item${tab === it.id ? ' active' : ''}`}
                   onClick={() => navTo(it.id)}
+                  aria-current={tab === it.id ? 'page' : undefined}
+                  // 860px 以下でラベルが display:none になるアイコンレールでも
+                  // 名前が残るように（ツールチップ兼スクリーンリーダー名）
+                  aria-label={t(`nav.${it.id}`)}
+                  title={t(`nav.${it.id}`)}
                 >
                   <Icon className="side-nav-icon" />
                   <span className="side-nav-text">{t(`nav.${it.id}`)}</span>
@@ -137,6 +153,8 @@ function App() {
             type="button"
             className="side-nav-item side-nav-settings"
             onClick={openSettings}
+            aria-label={tSettings('open')}
+            title={tSettings('open')}
           >
             <GearIcon className="side-nav-icon" />
             <span className="side-nav-text">{tSettings('open')}</span>
@@ -146,6 +164,9 @@ function App() {
             type="button"
             className={`side-nav-item side-nav-dev${tab === 'sparql' ? ' active' : ''}`}
             onClick={() => navTo('sparql')}
+            aria-current={tab === 'sparql' ? 'page' : undefined}
+            aria-label={t('nav.sparql')}
+            title={t('nav.sparql')}
           >
             <CodeIcon className="side-nav-icon" />
             <span className="side-nav-text">{t('nav.sparql')}</span>
@@ -158,7 +179,7 @@ function App() {
         </div>
       </aside>
 
-      <div className="app-main">
+      <div className="app-main" ref={mainRef}>
         <header className="topbar">
           <div className="topbar-titles">
             <span className="topbar-eyebrow">{t(`view.${tab}.eyebrow`)}</span>
@@ -181,14 +202,24 @@ function App() {
             <GalleryView
               focusClass={galleryFocus}
               onOpenCrosswalk={() => navTo('crosswalk')}
-              onOpenMap={() => navTo('map')}
+              onOpenMap={() => {
+                setMapReturn('gallery')
+                navTo('map')
+              }}
               onAddData={() => navTo('workbench')}
               onRedesign={redesignDataset}
             />
           )}
           {tab === 'vocab' && <SharedVocabView />}
-          {tab === 'crosswalk' && <CrosswalkView onOpenMap={() => navTo('map')} />}
-          {tab === 'map' && <OntologyMapView onBack={() => navTo('crosswalk')} />}
+          {tab === 'crosswalk' && (
+            <CrosswalkView
+              onOpenMap={() => {
+                setMapReturn('crosswalk')
+                navTo('map')
+              }}
+            />
+          )}
+          {tab === 'map' && <OntologyMapView onBack={() => navTo(mapReturn)} />}
           {tab === 'jobs' && <JobsView />}
           {tab === 'sparql' && <SparqlView />}
         </main>

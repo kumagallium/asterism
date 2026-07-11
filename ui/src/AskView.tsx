@@ -22,10 +22,15 @@ import { LlmGate } from './settings/LlmGate'
  * produced by the demo agent (the consumption layer); this view only calls the
  * contract (ask / provenance).
  */
+// タブ遷移で AskView が unmount されても直近の回答を失わないための保持領域。
+// 回答は LLM 課金と数十秒の待ちを伴う成果物なので、ナビ往復（引用→データセット
+// 確認→戻る）で消えると再実行を強いる。リロードで消えるのは許容（モジュール寿命）。
+let lastAsk: { question: string; result: AskResponse | null } | null = null
+
 export function AskView({ onShowVocab }: { onShowVocab?: (className: string) => void }) {
   const { t } = useTranslation()
-  const [question, setQuestion] = useState('')
-  const [result, setResult] = useState<AskResponse | null>(null)
+  const [question, setQuestion] = useState(() => lastAsk?.question ?? '')
+  const [result, setResult] = useState<AskResponse | null>(() => lastAsk?.result ?? null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [selected, setSelected] = useState<Citation | null>(null)
@@ -35,7 +40,7 @@ export function AskView({ onShowVocab }: { onShowVocab?: (className: string) => 
 
   async function run(q: string) {
     const query = q.trim()
-    if (!query) return
+    if (!query || loading) return
     if (keyMissing) {
       setError(t('ask:keyRequiredError'))
       return
@@ -45,7 +50,9 @@ export function AskView({ onShowVocab }: { onShowVocab?: (className: string) => 
     setSelected(null)
     setLoading(true)
     try {
-      setResult(await ask(query, getActiveCredentials()))
+      const res = await ask(query, getActiveCredentials())
+      setResult(res)
+      lastAsk = { question: query, result: res }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -82,11 +89,13 @@ export function AskView({ onShowVocab }: { onShowVocab?: (className: string) => 
               className="ask-input"
               value={question}
               placeholder={t('ask:inputPlaceholder')}
+              aria-label={t('ask:inputPlaceholder')}
               onChange={(e) => setQuestion(e.target.value)}
               onKeyDown={(e) => {
                 // Don't submit on the Enter that confirms an IME (kanji/かな)
                 // conversion — only on a real, non-composing Enter. Without this
                 // guard Japanese input is impossible (Enter fires mid-conversion).
+                // run() 側の loading ガードとあわせ、待機中の再送信もしない。
                 if (e.key === 'Enter' && !e.nativeEvent.isComposing) run(question)
               }}
             />
@@ -109,6 +118,8 @@ export function AskView({ onShowVocab }: { onShowVocab?: (className: string) => 
 
         {!isMockMode && <LlmGate />}
 
+        {/* 回答は数秒〜数十秒後に非同期挿入されるので、支援技術へ到着を通知する */}
+        <div aria-live="polite">
         {error && <pre className="error">{error}</pre>}
 
         {result && (
@@ -187,17 +198,40 @@ export function AskView({ onShowVocab }: { onShowVocab?: (className: string) => 
                   {t('ask:sparql.hint')}
                 </p>
                 {result.sparql.map((q, i) => (
-                  <pre key={i} className="sparql-block">
-                    {q}
-                  </pre>
+                  <SparqlBlock key={i} query={q} />
                 ))}
               </details>
             )}
           </section>
         )}
+        </div>
       </div>
 
       <ProvenanceTrace citation={selected} onShowVocab={onShowVocab} />
+    </div>
+  )
+}
+
+// 開示された SPARQL は「読み取り専用の追試」への入口 — コピーして SPARQL 画面で
+// そのまま再実行できるよう、ブロックごとにコピーボタンを付ける。
+function SparqlBlock({ query }: { query: string }) {
+  const { t } = useTranslation()
+  const [copied, setCopied] = useState(false)
+  function copy() {
+    navigator.clipboard
+      ?.writeText(query)
+      .then(() => {
+        setCopied(true)
+        setTimeout(() => setCopied(false), 1600)
+      })
+      .catch(() => {})
+  }
+  return (
+    <div className="sparql-block-wrap">
+      <pre className="sparql-block">{query}</pre>
+      <button type="button" className="btn btn--ghost btn--sm sparql-block-copy" onClick={copy}>
+        {copied ? t('ask:sparql.copied') : t('ask:sparql.copy')}
+      </button>
     </div>
   )
 }

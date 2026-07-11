@@ -8,7 +8,24 @@ import { normalizeMermaidDialects } from './mermaidNormalize'
 // SVG into the DOM when a diagram fails to parse — we render our own readable
 // fallback instead (dogfood 2026-07-08: AI-generated diagram.md that Mermaid 11
 // rejects showed bomb icons across the catalog / workbench).
-mermaid.initialize({ startOnLoad: false, theme: 'default', suppressErrorRendering: true })
+//
+// テーマ: 既定の 'default'（紫）は forest 単一テーマと不調和なので、'base' に
+// index.css のトークン実値を割り当てる（SVG 内へ焼き込まれるため CSS 変数は
+// 使えない — 値はガイドライン §3 の表と同じもの）。
+mermaid.initialize({
+  startOnLoad: false,
+  theme: 'base',
+  suppressErrorRendering: true,
+  themeVariables: {
+    fontFamily: "'IBM Plex Mono', ui-monospace, monospace",
+    primaryColor: '#e5f0e6', // --entity-soft: クラス箱の地
+    primaryBorderColor: '#c7d4c4', // --border-strong
+    primaryTextColor: '#16241a', // --fg
+    lineColor: '#54695b', // --muted: 関係線
+    textColor: '#33453a', // --body
+    tertiaryColor: '#f4f8f1', // --surface-alt: 補助面
+  },
+})
 
 let _seq = 0
 

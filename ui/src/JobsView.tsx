@@ -24,8 +24,13 @@ function baseName(path: string): string {
 
 function fmtTime(iso: string): string {
   if (!iso) return '—'
-  // Keep it compact: drop the timezone/microseconds tail.
-  return iso.replace('T', ' ').replace(/\.\d+/, '').replace(/[+Z].*$/, '')
+  // バックエンドの timestamp は UTC。従来はタイムゾーン接尾辞を削って生表示して
+  // いたため、JST では全ジョブが 9 時間前に見えた。閲覧者のローカル時刻へ変換する。
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime()))
+    return iso.replace('T', ' ').replace(/\.\d+/, '').replace(/[+Z].*$/, '')
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
 /**
@@ -36,12 +41,21 @@ function fmtTime(iso: string): string {
 export function JobsView() {
   const { t } = useTranslation()
   const [jobs, setJobs] = useState<IngestJob[] | null>(null)
+  const [error, setError] = useState('')
 
   useEffect(() => {
     let cancelled = false
-    getJobs().then((j) => {
-      if (!cancelled) setJobs(j)
-    })
+    getJobs()
+      .then((j) => {
+        if (!cancelled) setJobs(j)
+      })
+      .catch((e) => {
+        // 障害を空状態と混同させない（getJobs は失敗時 throw する）
+        if (!cancelled) {
+          setJobs([])
+          setError(e instanceof Error ? e.message : String(e))
+        }
+      })
     return () => {
       cancelled = true
     }
@@ -58,7 +72,9 @@ export function JobsView() {
         </p>
       )}
 
-      {jobs && jobs.length === 0 && (
+      {error && <pre className="error">{t('jobs:loadFailed', { message: error })}</pre>}
+
+      {jobs && jobs.length === 0 && !error && (
         <div className="empty-state">
           <p className="empty-title">{t('jobs:empty.title')}</p>
           <p className="empty-sub">{t('jobs:empty.sub')}</p>

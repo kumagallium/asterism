@@ -57,14 +57,6 @@
   flex-direction: column;
   gap: 0.15rem;
 }
-.side-nav-label {
-  font-size: 0.66rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--faint);
-  padding: 0.5rem 0.7rem 0.2rem;
-}
 .side-nav-item {
   display: flex;
   align-items: center;
@@ -92,6 +84,13 @@
   color: var(--primary);
   font-weight: 700;
 }
+/* index.css の button:hover:not(:disabled)（特異度 (0,2,1)・濃緑塗り）が
+   .side-nav-item.active (0,2,0) に勝ち、選択中ナビが濃緑地×濃緑文字で沈む。
+   要素修飾で (0,3,1) に上げて選択スタイルを維持する。 */
+button.side-nav-item.active:hover:not(:disabled) {
+  background: var(--primary-soft);
+  color: var(--primary);
+}
 .side-nav-item.active .side-nav-icon {
   color: var(--primary);
 }
@@ -102,8 +101,8 @@
 .side-nav-en {
   font-family: var(--font-mono);
   font-size: 0.66rem;
+  /* --faint に opacity を重ねると実効コントラスト約 2.2:1 まで沈む。素の --faint で。 */
   color: var(--faint);
-  opacity: 0.75;
 }
 .side-nav-item.active .side-nav-en {
   color: var(--primary);
@@ -202,7 +201,7 @@
   display: inline-flex;
   gap: 0.15rem;
   padding: 0.15rem;
-  background: var(--surface-2, rgba(127, 127, 127, 0.08));
+  background: var(--surface-sink);
   border: 1px solid var(--border);
   border-radius: 999px;
   flex: none;
@@ -221,7 +220,14 @@
   transition: background 0.12s ease, color 0.12s ease;
 }
 .lang-toggle-btn:hover {
-  color: var(--text, inherit);
+  color: var(--fg);
+}
+/* グローバル button:hover (0,2,1) の濃緑塗りに負けないよう要素修飾で保護。 */
+button.lang-toggle-btn:hover:not(:disabled) {
+  background-color: transparent;
+}
+button.lang-toggle-btn.active:hover:not(:disabled) {
+  background-color: var(--surface);
 }
 .lang-toggle-btn.active {
   background: var(--surface);
@@ -436,8 +442,22 @@
   background: var(--primary-soft);
   box-shadow: var(--shadow-1);
 }
+/* display:none だとキーボード/スクリーンリーダーから到達不能になるので、
+   視覚的にのみ隠す（フォーカスは label 側の focus-within で見せる）。 */
 .file-btn input {
-  display: none;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+.file-btn:focus-within {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 .file-names {
   font-size: 0.82rem;
@@ -455,7 +475,6 @@
     padding: 1rem 0.4rem;
   }
   .brand-text,
-  .side-nav-label,
   .side-nav-text,
   .side-nav-en,
   .graph-status {
@@ -713,6 +732,8 @@
 }
 .source-switch {
   display: inline-flex;
+  /* 狭幅で 5 ピル（表計算/JSON/文書/API/DB）が右へはみ出さないよう折返す */
+  flex-wrap: wrap;
   gap: 0.2rem;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -796,6 +817,8 @@
 
 .stepper {
   display: flex;
+  /* 3 ステップ+英語 gloss が狭幅ではみ出さないよう折返す */
+  flex-wrap: wrap;
   align-items: center;
   list-style: none;
   margin: 0 0 1.5rem;
@@ -909,7 +932,9 @@ input[type='password']:focus,
 textarea:focus {
   outline: none;
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(75, 122, 82, 0.15);
+  /* 現行トークン --primary (#3f6f49) ベースのリング。旧パレット #4b7a52 の
+     薄いリング (0.15) は視認できず WCAG 2.4.7 を満たさなかった。 */
+  box-shadow: 0 0 0 3px rgba(63, 111, 73, 0.3);
 }
 
 .controls label.domain-label {
@@ -945,6 +970,9 @@ textarea:focus {
   font-weight: 600;
 }
 
+/* .controls label（column・(0,1,1)）に負けないよう label 修飾で行並びを確定させる
+   （従来 .hint-check (0,1,0) が敗れ、チェックボックスが文言の上に縦積みになっていた） */
+.controls label.hint-check,
 .hint-check {
   display: flex;
   flex-direction: row;
@@ -958,6 +986,85 @@ textarea:focus {
 .hint-check input {
   margin-top: 0.25rem;
   accent-color: var(--primary);
+}
+
+/* ---- Phase 2b: 骨格ゲート（SkeletonGate）----
+   従来対応する CSS が無く、ブラウザ素のテーブル/入力のまま表示されていた。 */
+.skeleton-gate {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: 100%;
+  box-sizing: border-box;
+}
+.skeleton-gate h4 {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--fg);
+}
+.skeleton-gate-hint {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--body);
+}
+.skeleton-gate-table-wrap {
+  overflow-x: auto;
+}
+.skeleton-gate-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+.skeleton-gate-table th {
+  text-align: left;
+  background: var(--surface-sink);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.45rem 0.6rem;
+}
+.skeleton-gate-table td {
+  padding: 0.45rem 0.6rem;
+  border-top: 1px solid var(--border);
+  vertical-align: top;
+}
+.skeleton-gate-name {
+  font-weight: 700;
+  color: var(--fg);
+}
+.skeleton-gate-source {
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+.skeleton-gate-input {
+  width: 100%;
+  min-width: 12rem;
+  box-sizing: border-box;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-alt);
+  color: var(--fg);
+}
+.skeleton-gate-note {
+  margin-top: 0.25rem;
+  font-size: 0.72rem;
+  color: var(--accent);
+}
+.skeleton-gate-actions,
+.wb-generate-actions {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  flex-wrap: wrap;
 }
 
 /* ---- result panel (markdown render) ---- */
@@ -1051,16 +1158,7 @@ textarea:focus {
   flex-wrap: wrap;
 }
 
-.secondary-btn {
-  background: var(--surface);
-  color: var(--primary);
-  border: 1px solid var(--primary);
-}
-
-.secondary-btn:hover:not(:disabled) {
-  background: var(--primary-soft);
-  border-color: var(--primary);
-}
+/* 二次操作ボタンは .btn .btn--ghost に一本化（旧 .secondary-btn は廃止） */
 
 /* ---- materialize + validate panel (M1d) ---- */
 .materialize-panel {
@@ -1349,30 +1447,13 @@ textarea:focus {
   outline: none;
   box-shadow: none;
 }
+/* 入力自体のリングは消しても、外枠がフォーカスを示す（WCAG 2.4.7） */
+.ask-input-wrap:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(63, 111, 73, 0.3);
+}
 .ask-bar button {
   white-space: nowrap;
-}
-
-.ask-examples {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-}
-
-.example-chip {
-  background: var(--surface-alt);
-  color: var(--muted);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 0.3rem 0.8rem;
-  font-size: 0.8rem;
-  font-weight: 500;
-}
-
-.example-chip:hover:not(:disabled) {
-  background: var(--primary-soft);
-  color: var(--primary);
-  border-color: var(--primary-soft);
 }
 
 .answer-card {
@@ -1734,52 +1815,6 @@ textarea:focus {
   margin: 0.15rem 0;
 }
 
-/* ---- #18 Ask: optional API key (general/new-schema questions) ---- */
-/* Ask requires a key (the AI routes the question to verified tools). The key
-   field is always visible; the border turns amber while it is empty. */
-.ask-key-row {
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  background: var(--surface-alt);
-  padding: 0.6rem 0.85rem;
-  margin-top: 0.6rem;
-}
-.ask-key-row--needed {
-  border-left-color: var(--warn-fg);
-  background: var(--warn-bg);
-}
-.ask-key-label {
-  display: block;
-  font-size: 0.8rem;
-  font-weight: 700;
-  color: var(--fg);
-  margin-bottom: 0.35rem;
-}
-.ask-key-required {
-  font-size: 0.66rem;
-  font-weight: 700;
-  color: var(--warn-fg);
-  background: var(--warn-bg);
-  border: 1px solid var(--warn-border);
-  border-radius: 999px;
-  padding: 0.05rem 0.4rem;
-  margin-left: 0.3rem;
-}
-.ask-key-note {
-  font-size: 0.78rem;
-  color: var(--body);
-  line-height: 1.6;
-  margin: 0.1rem 0 0;
-}
-.ask-key-input {
-  width: 100%;
-  font-size: 0.9rem;
-  font-family: var(--font-mono);
-  padding: 0.5rem 0.7rem;
-  margin-bottom: 0.5rem;
-}
-
 /* ---- #18 Ask: read-only SPARQL disclosure panel (escape path) ---- */
 .sparql-disclosure {
   margin-top: 0.9rem;
@@ -1823,6 +1858,14 @@ textarea:focus {
   word-break: break-word;
   margin: 0.4rem 0 0;
   color: var(--fg);
+}
+.sparql-block-wrap {
+  position: relative;
+}
+.sparql-block-copy {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.5rem;
 }
 
 /* ---- provenance trace (inline right panel) ---- */
@@ -1943,10 +1986,28 @@ textarea:focus {
 }
 .trace-iri {
   font-size: 0.68rem;
-  color: var(--faint);
+  color: var(--muted);
   margin-top: 0.15rem;
   word-break: break-all;
   font-family: var(--font-mono);
+}
+/* IRI はクリックでコピー（button 化）— 見た目はテキストのまま */
+button.trace-iri-copy {
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  cursor: copy;
+  width: 100%;
+}
+button.trace-iri-copy:hover:not(:disabled) {
+  background: var(--surface-alt);
+  color: var(--fg);
+}
+.trace-iri-copied {
+  margin-left: 0.4rem;
+  color: var(--entity);
+  font-weight: 700;
 }
 
 .trace-foot {
@@ -1992,60 +2053,10 @@ textarea:focus {
     flex: 1;
   }
 }
-
-/* ---- M4 gallery (ontologies vs mappings) ---- */
-/* Edit-risk is the core signal: high = amber "handle with care" (shared TBox),
-   low = green "safe/disposable" (dataset-local mapping). */
-.onto-card.active {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 2px rgba(75, 122, 82, 0.18);
-}
-.onto-class-chip {
-  font-size: 0.74rem;
-  background: var(--secondary);
-  border-radius: 4px;
-  padding: 0.05rem 0.4rem;
-  color: var(--fg);
-}
 .onto-diagram {
   overflow-x: auto;
   border-top: 1px solid var(--border);
   padding-top: 0.9rem;
-}
-
-/* ---- M4b mappings gallery (purpose tags lead) ---- */
-
-/* Purpose block: the prominent showcase. Tags are large primary pills. */
-.purpose-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-.purpose-tag {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  background: var(--surface);
-  border: 1px solid var(--primary);
-  border-left: 4px solid var(--primary);
-  border-radius: 8px;
-  padding: 0.4rem 0.65rem;
-  max-width: 20rem;
-}
-.artifact-kind {
-  flex: none;
-  font-size: 0.68rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  color: #fff;
-  border-radius: 4px;
-  padding: 0.08rem 0.4rem;
-}
-.artifact-name {
-  font-size: 0.78rem;
-  font-family: var(--font-mono);
-  color: var(--fg);
 }
 
 /* ---- V1b: live (materialized) drafts in the gallery ---- */
@@ -2058,7 +2069,7 @@ textarea:focus {
   border: 1px solid var(--border);
   border-left: 3px solid var(--primary);
   border-radius: 6px;
-  background: var(--card, transparent);
+  background: var(--surface);
 }
 .ingest-note {
   font-size: 0.85rem;
@@ -2115,7 +2126,7 @@ textarea:focus {
 .ingest-progress-track {
   height: 8px;
   border-radius: 999px;
-  background: var(--surfaceAlt, #e8ece6);
+  background: var(--surface-alt);
   overflow: hidden;
 }
 .ingest-progress-track > span {
@@ -2231,13 +2242,6 @@ textarea:focus {
   border-bottom: 1.5px dotted var(--faint);
   cursor: help;
 }
-.term-q {
-  font-family: var(--font-mono);
-  font-size: 0.6em;
-  color: var(--faint);
-  margin-left: 1px;
-  vertical-align: super;
-}
 
 /* Loading skeleton (shimmer). */
 .skeleton {
@@ -2260,15 +2264,6 @@ textarea:focus {
   100% {
     background-position: 0 0;
   }
-}
-.skeleton-card {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.85rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
 }
 .loading-row {
   display: flex;
@@ -2302,12 +2297,6 @@ textarea:focus {
   background: var(--primary-soft);
   color: var(--primary);
 }
-.state-icon--error {
-  background: var(--error-bg);
-  color: var(--error-fg);
-  font-size: 1.6rem;
-  font-weight: 800;
-}
 .state-title {
   font-size: 0.95rem;
   font-weight: 700;
@@ -2320,15 +2309,6 @@ textarea:focus {
   max-width: 24rem;
   line-height: 1.6;
   margin: 0;
-}
-.state-code {
-  font-family: var(--font-mono);
-  font-size: 0.74rem;
-  color: var(--faint);
-  background: var(--surface-alt);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 0.2rem 0.55rem;
 }
 
 /* Btn atom — kinds match the kit (primary / accent / ghost / soft). The bare
@@ -2345,6 +2325,13 @@ textarea:focus {
   cursor: pointer;
   white-space: nowrap;
   border: 1px solid transparent;
+}
+/* 素の .btn（変種なし）は既定の primary 塗りのまま — hover の暗色化をここで
+   引き受ける（グローバルの button:hover は class 無しボタン限定にしたため）。
+   変種（--ghost 等）の hover は後続の各規則が同特異度・後勝ちで上書きする。 */
+.btn:hover:not(:disabled) {
+  background-color: #356040;
+  border-color: #356040;
 }
 .btn--ghost {
   background: var(--surface);
@@ -2396,33 +2383,10 @@ textarea:focus {
 .ds-detail-controls {
   padding: 0 1.1rem 1.1rem;
 }
-
-/* #20 P3 lifecycle controls (retract / reinstate / delete) */
-.lifecycle-control {
-  margin-top: 1rem;
-  padding-top: 0.85rem;
-  border-top: 1px solid var(--border);
-}
-.lifecycle-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-top: 0.4rem;
-}
-.lifecycle-status {
-  margin: 0.25rem 0 0.4rem;
-  font-size: 0.85rem;
-  color: var(--muted);
-}
 .lifecycle-ok {
   margin-top: 0.5rem;
   font-size: 0.85rem;
   color: var(--entity);
-}
-.lifecycle-err {
-  margin-top: 0.5rem;
-  font-size: 0.85rem;
-  color: var(--error-fg);
 }
 
 /* ---- shared: card / pills / links (Phase 2 screens) ---- */
@@ -2498,6 +2462,11 @@ textarea:focus {
   display: flex;
   flex-wrap: wrap;
   gap: 1rem 2.5rem;
+}
+.home-stats-note {
+  margin: var(--space-2) 0 0;
+  font-size: 0.74rem;
+  color: var(--muted);
 }
 .home-stat {
   display: flex;
@@ -2755,11 +2724,17 @@ textarea:focus {
   outline: none;
   box-shadow: none;
 }
+/* 入力自体のリングは消しても、外枠がフォーカスを示す（WCAG 2.4.7） */
+.catalog-search:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(63, 111, 73, 0.3);
+}
 .ds-grid {
   display: grid;
   /* Fill the available width: as many ~300px cards per row as fit (no fixed 3),
      so wide screens don't leave a large empty gutter. */
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  /* min(300px, 100%): トラックがコンテナより広がらない（狭幅での横スクロール防止） */
+  grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
   gap: 1rem;
   align-items: start;
 }
@@ -2890,7 +2865,7 @@ textarea:focus {
   position: absolute;
   right: 0;
   top: calc(100% + 0.3rem);
-  z-index: 5;
+  z-index: 6; /* sticky .topbar (z-index:5) より上に */
   min-width: 8rem;
   padding: 0.25rem;
   background: var(--surface);
@@ -3008,6 +2983,11 @@ textarea:focus {
   padding: 0.3rem 0.7rem;
   border-radius: var(--radius-sm);
 }
+/* primary 塗りを保つ save は hover の暗色化も自前で持つ */
+.ds-rename-save:hover:not(:disabled) {
+  background-color: #356040;
+  border-color: #356040;
+}
 .ds-rename-cancel {
   background: none;
   border: 1px solid var(--border-strong);
@@ -3017,86 +2997,6 @@ textarea:focus {
   background: var(--surface-alt);
   border-color: var(--border-strong);
   color: var(--fg);
-}
-.catalog-grid {
-  display: grid;
-  grid-template-columns: 300px minmax(0, 1fr);
-  gap: 1rem;
-  align-items: start;
-}
-.catalog-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-}
-.catalog-list-head {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0 0.15rem;
-}
-.catalog-count {
-  font-family: var(--font-mono);
-  font-size: 0.78rem;
-  color: var(--faint);
-}
-
-.ds-card {
-  display: flex;
-  flex-direction: column;
-  gap: 0.45rem;
-  width: 100%;
-  text-align: left;
-  background: var(--surface);
-  border: 1.5px solid var(--border);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-soft);
-  padding: 0.7rem 0.8rem;
-  cursor: pointer;
-  color: var(--fg);
-  font-weight: 400;
-  position: relative;
-}
-.ds-card:hover:not(.active) {
-  border-color: var(--border-strong);
-}
-.ds-card.active {
-  border-color: var(--primary);
-  box-shadow: var(--shadow);
-}
-.ds-card.active::before {
-  content: '';
-  position: absolute;
-  left: -1.5px;
-  top: 0.8rem;
-  bottom: 0.8rem;
-  width: 3px;
-  border-radius: 3px;
-  background: var(--primary);
-}
-.ds-card-head {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-.ds-card-name {
-  font-size: 0.88rem;
-  font-weight: 700;
-  flex: 1;
-  min-width: 0;
-}
-.ds-card-sub {
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  color: var(--faint);
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-.ds-card-counts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
 }
 
 /* dataset detail */
@@ -3124,6 +3024,9 @@ textarea:focus {
   font-size: 1.15rem;
   font-weight: 700;
   letter-spacing: -0.02em;
+  /* 区切りの無い長い名前（CSV ファイル名由来など）でカードから溢れないように */
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 /* v2 DatasetTabs: a pill group on its own row (full width) so all four tabs
    always fit; name + status stay on the first row. */
@@ -3280,54 +3183,12 @@ textarea:focus {
 .ds-grounding {
   margin-top: 1rem;
 }
-.ds-grounding-head {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  flex-wrap: wrap;
-}
 .ds-grounding-icon {
-  color: var(--activity);
-}
-.ds-grounding-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.45rem;
-}
-.ds-grounding-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.6rem;
-  flex-wrap: wrap;
-  padding: 0.4rem 0.55rem;
-  background: var(--surface-alt);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-}
-.ds-grounding-term {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  min-width: 0;
-}
-.ds-grounding-name {
-  font-family: var(--font-mono);
-  font-weight: 700;
   color: var(--activity);
 }
 .ds-grounding-kind {
   font-size: 0.72rem;
   color: var(--muted);
-}
-.ds-grounding-linked {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  flex-wrap: wrap;
-}
-.ds-grounding-check {
-  color: #5a9a5a;
 }
 
 /* 全体像 entry on the つながり banner (pushed to the right). */
@@ -3806,13 +3667,6 @@ textarea:focus {
   font-size: 0.72rem;
   color: var(--muted);
 }
-
-/* ---- v2 dataset-detail tabs: contents / files / connections / design ---- */
-.ds-tools-block {
-  margin-top: 1.1rem;
-  padding-top: 0.9rem;
-  border-top: 1px solid var(--border);
-}
 .ds-dedupe-note {
   display: flex;
   align-items: flex-start;
@@ -3884,6 +3738,11 @@ textarea:focus {
   font-weight: 600;
   font-size: 0.74rem;
 }
+/* 設計段階のソース（保存済み・未取り込み）は達成色ではなく控えめに */
+.ds-file-status--pending {
+  color: var(--muted);
+  font-weight: 500;
+}
 .ds-files-future {
   margin: 0.7rem 0 0;
   font-size: 0.72rem;
@@ -3924,96 +3783,6 @@ textarea:focus {
   gap: 0.6rem;
   margin-top: 0.9rem;
   flex-wrap: wrap;
-}
-
-/* shared vocabulary gateway band */
-.shared-band {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  width: 100%;
-  text-align: left;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--activity);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-soft);
-  padding: 0.9rem 1.1rem;
-  cursor: pointer;
-  color: var(--fg);
-  font-weight: 400;
-}
-.shared-band:hover {
-  background: var(--surface);
-  box-shadow: var(--shadow);
-}
-.shared-band-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 38px;
-  height: 38px;
-  flex: none;
-  border-radius: var(--radius-sm);
-  background: var(--activity-soft);
-  color: var(--activity);
-}
-.shared-band-body {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-  min-width: 0;
-}
-.shared-band-title {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-  font-size: 0.9rem;
-  font-weight: 700;
-}
-.shared-band-en {
-  font-family: var(--font-mono);
-  font-size: 0.68rem;
-  color: var(--faint);
-  font-weight: 400;
-}
-.shared-band-warn {
-  font-size: 0.68rem;
-  font-weight: 700;
-  color: var(--accent);
-  background: var(--accent-soft);
-  border-radius: 999px;
-  padding: 0.1rem 0.55rem;
-}
-.shared-band-sub {
-  font-size: 0.8rem;
-  color: var(--body);
-}
-.shared-band-cta {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  flex: none;
-  color: var(--activity);
-  font-size: 0.84rem;
-  font-weight: 600;
-}
-.shared-band-users {
-  color: var(--muted);
-  font-weight: 400;
-}
-
-@media (max-width: 820px) {
-  .catalog-grid {
-    grid-template-columns: 1fr;
-  }
-  .shared-band-cta {
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 0.3rem;
-  }
 }
 
 /* ---- Shared vocabulary board ---- */
@@ -4086,25 +3855,10 @@ textarea:focus {
   gap: 1rem;
   align-items: start;
 }
-
-/* #20: live vocabulary panel (real schema_summary over the canonical FROM-merge) */
-.vocab-live {
-  margin-bottom: 1rem;
-}
 .vocab-live-note {
   margin: 0.25rem 0 0.75rem;
   color: var(--muted);
   font-size: 0.85rem;
-}
-.vocab-live-cols {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1.25rem;
-}
-@media (max-width: 720px) {
-  .vocab-live-cols {
-    grid-template-columns: 1fr;
-  }
 }
 .vocab-live-list {
   display: flex;
@@ -4146,34 +3900,6 @@ textarea:focus {
 .vocab-card-meta {
   font-family: var(--font-mono);
   font-size: 0.72rem;
-  color: var(--faint);
-}
-.vocab-class-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-.vocab-class {
-  display: flex;
-  align-items: center;
-  gap: 0.7rem;
-  border: 1px solid var(--border);
-  border-top: 3px solid var(--entity);
-  border-radius: var(--radius-sm);
-  padding: 0.55rem 0.75rem;
-}
-.vocab-class-body {
-  flex: 1;
-  min-width: 0;
-}
-.vocab-class-title {
-  display: flex;
-  align-items: baseline;
-  gap: 0.45rem;
-}
-.vocab-class-en {
-  font-family: var(--font-mono);
-  font-size: 0.7rem;
   color: var(--faint);
 }
 
@@ -4253,7 +3979,7 @@ textarea:focus {
   border: 1px solid var(--border);
   border-left: 4px solid var(--error-fg, #b3261e);
   border-radius: 12px;
-  background: var(--card, #fff);
+  background: var(--surface);
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.06);
 }
 .app-error-title {
@@ -4420,11 +4146,6 @@ textarea:focus {
   align-items: center;
   gap: 0.5rem;
   margin-top: 0.5rem;
-}
-.tool-key-input {
-  width: auto;
-  flex: 1 1 14rem;
-  margin-bottom: 0;
 }
 
 /* draft editor */
@@ -4645,6 +4366,7 @@ textarea:focus {
 .wb-mode-pill {
   display: inline-flex;
   align-items: baseline;
+  white-space: nowrap;
   gap: 0.4rem;
   background: none;
   border: none;
@@ -4869,8 +4591,8 @@ textarea:focus {
   cursor: default;
 }
 .xw-recipe-del:hover:not(:disabled) {
-  border-color: var(--danger, #c0392b);
-  color: var(--danger, #c0392b);
+  border-color: var(--error-fg);
+  color: var(--error-fg);
 }
 .xw-recipe-preview {
   display: flex;

@@ -9,7 +9,8 @@
   "intro": "データソースをつなぎ、<strong>AI が設計 → 確認・修正 → 保存</strong>の順に進めます。保存するとデータセット一覧に並びます。構造解析は内部で自動実行するので、確認したいときだけ「構造を見る」を押してください。",
   "restore": {
     "note": "前回の作業を復元しました（再実行する場合のみソースを選び直してください）。",
-    "clear": "ワークベンチをクリア"
+    "clear": "作業内容をクリア",
+    "clearConfirm": "AI が提案した設計と保存結果を含む作業内容をすべて消去します。よろしいですか？"
   },
   "redesign": {
     "badge": "設計の見直し",
@@ -24,7 +25,7 @@
     "reviewEn": "review",
     "save": "保存",
     "saveEn": "save",
-    "guard": "先に「AI が設計」でスキーマを生成してください。"
+    "guard": "先に「AI が設計」で設計図を生成してください。"
   },
   "source": {
     "label": "データソース",
@@ -41,9 +42,9 @@
     "pickJson": "JSON を選択",
     "pickCsv": "CSV を選択",
     "noFile": "ファイル未選択",
-    "fkJson": "FK フィールドヒント（任意）",
-    "fkCsv": "FK 列ヒント（任意）",
-    "footSelected": "{{n}} file(s) selected — 全ステップで同じソースを使います",
+    "fkJson": "ファイルをまたぐ共通 ID フィールド（任意）",
+    "fkCsv": "ファイルをまたぐ共通 ID 列（任意）",
+    "footSelected": "{{n}} 件のファイルを選択中 — 全ステップで同じソースを使います",
     "footEmpty": "ここで選んだソースを全ステップで共有します",
     "inspectHide": "構造解析を隠す",
     "inspectShow": "構造を見る（任意・LLM 不要）",
@@ -55,9 +56,9 @@
     "hintsLegend": "ヒント (任意・当てはまるものにチェックすると精度が上がります)",
     "domainFreeLabel": "その他の補足 (自由記入・任意)",
     "domainFreePlaceholder": "例: Seebeck = thermopower = 熱起電力。図は WebPlotDigitizer で読み取った。",
-    "propose": "スキーマを提案",
+    "propose": "設計図を提案",
     "proposing": "提案中…",
-    "jobLabel": "AI がスキーマを設計中…",
+    "jobLabel": "AI が設計図を設計中…",
     "inspectDetails": "この提案が使った構造解析を表示"
   },
   "review": {
@@ -66,10 +67,10 @@
     "commentPlaceholder": "例: Sample IRI を (SID, sample_id) の複合キーにして。ingester と設計根拠も同期更新して。",
     "regenerate": "コメントを反映して再生成",
     "regenerating": "再生成中…",
-    "jobLabel": "AI がスキーマを再生成中…"
+    "jobLabel": "AI が設計図を再生成中…"
   },
   "save": {
-    "hint": "スキーマを 4 つの artifact に分割し 8 罠を検証して<strong>データセットに保存</strong>します。",
+    "hint": "設計を 4 つの成果物に分け、保存前に 8 項目の自動チェックを通して<strong>データセットに保存</strong>します。",
     "save": "確定してデータセットに保存",
     "saving": "追加中…",
     "added": "データセットに追加しました。",
@@ -108,7 +109,8 @@
     "silent": "サーバからの応答が {{s}} 秒途絶えています（自動再接続中…）",
     "cancel": "キャンセル",
     "cancelling": "キャンセル中…",
-    "cancelled": "キャンセルしました"
+    "cancelled": "キャンセルしました",
+    "resumedFailed": "中断していたジョブを再開できませんでした: {{message}}"
   },
   "resume": {
     "restored": "前回の結果を復元しました",
@@ -118,9 +120,9 @@
     "artifactsHeading": "生成物（{{n}}）",
     "downloadTitle": "{{name}} をダウンロード",
     "notExtractedTitle": "{{name}} は抽出されませんでした",
-    "validationHeading": "検証（8 つの罠）",
-    "summaryOk": "ブロッキング失敗なし（exit 0＝保存 OK）",
-    "summaryBad": "ブロッキング失敗あり（exit {{code}}＝要修正）"
+    "validationHeading": "保存前の自動チェック（8 項目）",
+    "summaryOk": "問題なし — 保存できます",
+    "summaryBad": "保存を止める問題があります（コード {{code}}）— 修正が必要です"
   },
   "status": {
     "pass": "合格",
@@ -140,10 +142,10 @@
   },
   "ingest": {
     "heading": "データを取り込む（人間ゲート）",
-    "noRml": "この設計には宣言 RML マッピングが無いため投入できません。propose が §RML（宣言マッピング）を出すと、ここから安全に投入できるようになります。",
-    "note": "承認すると、この宣言 RML を Morph-KGC が実行し（生成コードは走らず、検証済みの Tier 0 関数だけ）、結果を<strong>隔離された draft グラフ</strong>に投入します。Ask の既定の引用面（canonical）は汚しません。",
+    "noRml": "この設計には取り込みルール（RML）が無いため取り込めません。「AI が設計」ステップで取り込みルールを作ると、ここから安全に取り込めるようになります。",
+    "note": "承認すると、この取り込みルール（RML）を Morph-KGC が実行し（生成コードは走らず、検証済みの Tier 0 関数だけ）、結果を<strong>隔離された下書きグラフ</strong>に取り込みます。共有データ（canonical・質問する（Ask）の引用対象）は汚しません。",
     "previewSummary": "RML マッピングを確認（{{n}} 行）",
-    "doneCount": "✓ draft グラフに投入しました（{{n}} triples）。",
+    "doneCount": "✓ 下書きグラフに取り込みました（{{n}} 件）。",
     "ingesting": "投入中…",
     "approve": "データを取り込む（承認）",
     "notSaved": "この設計はまだ保存されていません（dataset が見つかりません）。",

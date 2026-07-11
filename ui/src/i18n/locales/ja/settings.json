@@ -53,19 +53,24 @@
     "error": "使用量の取得に失敗しました。",
     "totalTokens": "総トークン",
     "totalCost": "概算コスト",
-    "granularity": { "day": "日", "month": "月", "year": "年" },
+    "granularity": {
+      "day": "日",
+      "month": "月",
+      "year": "年"
+    },
     "usdJpyRate": "USD→JPY レート",
     "feature": "機能",
     "model": "モデル",
     "tokens": "トークン",
     "cost": "コスト",
     "features": {
-      "propose": "スキーマ提案",
-      "refine": "スキーマ改訂",
+      "propose": "設計図の提案",
+      "refine": "設計図の改訂",
       "tool.propose": "ツール提案",
       "crosswalk.propose": "横断マッピング提案",
       "ask": "Ask"
-    }
+    },
+    "unratedNote": "※ 単価未設定のモデルの使用分（{{tokens}} トークン）は概算コストに含まれていません。モデルの編集で単価を設定すると反映されます。"
   },
   "gate": {
     "using": "使用モデル:",
@@ -84,5 +89,19 @@
     "basePlaceholder": "エンドポイント（base URL）",
     "save": "保存",
     "clear": "クリア"
+  },
+  "writeToken": {
+    "title": "書き込みトークン（このブラウザ）",
+    "intro": "サーバが書き込みトークン（ASTERISM_API_TOKEN）で保護されている場合、同じトークンをここに入れると、取り込み・公開・ツール保存などの操作ができるようになります。値はこのブラウザのタブにのみ保存され、閉じると消えます。",
+    "name": "Asterism API トークン",
+    "placeholder": "サーバ管理者から受け取ったトークン",
+    "setAtBuild": "ビルド時に設定済み",
+    "verify": "接続を確認",
+    "check": {
+      "ok": "トークンは有効です（書き込み操作が使えます）",
+      "mismatch": "トークンがサーバ側と一致しません",
+      "open": "サーバ側にトークンが設定されていません（書き込みゲートは閉じています）",
+      "error": "確認に失敗しました（サーバに接続できません）"
+    }
   }
 }

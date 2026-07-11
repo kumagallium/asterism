@@ -53,7 +53,11 @@
     "error": "Failed to load usage.",
     "totalTokens": "Total tokens",
     "totalCost": "Estimated cost",
-    "granularity": { "day": "Day", "month": "Month", "year": "Year" },
+    "granularity": {
+      "day": "Day",
+      "month": "Month",
+      "year": "Year"
+    },
     "usdJpyRate": "USD→JPY rate",
     "feature": "Feature",
     "model": "Model",
@@ -65,7 +69,8 @@
       "tool.propose": "Tool propose",
       "crosswalk.propose": "Crosswalk propose",
       "ask": "Ask"
-    }
+    },
+    "unratedNote": "Note: usage on models without a configured rate ({{tokens}} tokens) is NOT included in the estimated cost. Set a rate in the model editor to include it."
   },
   "gate": {
     "using": "Model:",
@@ -84,5 +89,19 @@
     "basePlaceholder": "Endpoint (base URL)",
     "save": "Save",
     "clear": "Clear"
+  },
+  "writeToken": {
+    "title": "Write token (this browser)",
+    "intro": "When the server is protected with a write token (ASTERISM_API_TOKEN), enter the same token here to enable ingest, publish, tool saving and other write actions. The value is kept only in this browser tab and is cleared when the tab closes.",
+    "name": "Asterism API token",
+    "placeholder": "Token issued by the server operator",
+    "setAtBuild": "Set at build time",
+    "verify": "Check connection",
+    "check": {
+      "ok": "Token accepted — write actions are available",
+      "mismatch": "Token does not match the server",
+      "open": "No token is configured server-side (the write gate is closed)",
+      "error": "Check failed (could not reach the server)"
+    }
   }
 }
