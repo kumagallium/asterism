@@ -111,7 +111,47 @@
   },
   "rules": {
     "title": "取り込みルール（生成物）",
-    "empty": "取り込みルールの生成物はまだありません。"
+    "empty": "取り込みルールの生成物はまだありません。",
+    "projectionIntro": "保存されている取り込みルール（RML）から自動生成した読み下しです（AI を使わない決定論変換）。実際に実行されるルールの原文は、下の生成物ファイルからいつでも確認できます。",
+    "subject": "ID（IRI）の作り方",
+    "iterator": "繰り返し単位",
+    "colProperty": "プロパティ",
+    "colValue": "値の作り方",
+    "colType": "型",
+    "kind": {
+      "reference": "列",
+      "template": "テンプレート",
+      "constant": "固定値",
+      "function": "関数",
+      "join": "結合",
+      "unknown": "この形式は読み下し未対応です（原文を確認してください）"
+    },
+    "joinTo": "{{parent}} と結合",
+    "warningsHead": "読み下しの注意",
+    "artifactsHead": "生成物ファイル（原文）",
+    "open": "開く",
+    "legacyChip": "レガシー",
+    "legacyNote": "宣言的な取り込み経路では実行されません（旧経路の生成物）。",
+    "loadError": "取り込みルールの読み込みに失敗しました: {{message}}",
+    "viewer": {
+      "copy": "コピー",
+      "copied": "コピーしました",
+      "download": "ダウンロード",
+      "close": "閉じる",
+      "empty": "（内容は空です）"
+    },
+    "history": {
+      "head": "変更履歴（再設計）",
+      "item": "{{when}} の再設計前の版",
+      "files": "{{count}} ファイル",
+      "diff": "差分を見る",
+      "diffTitle": "再設計の差分",
+      "diffIntro": "{{when}} に上書きされる前の版と、現在の版の比較です（− が旧版・＋ が現在）。",
+      "noChanges": "この版と現在の版に差分はありません。",
+      "unchangedNote": "差分のないファイルは表示していません。",
+      "fullText": "この版の全文",
+      "fullTextSub": "{{when}} の再設計前の版"
+    }
   },
   "ingest": {
     "head": "データを取り込む",
@@ -234,6 +274,8 @@
     },
     "catalogSub": "設計を保存 · {{date}}",
     "catalogSubPublished": "公開 · {{date}}",
-    "catalogSubDraft": "下書きに取り込み · {{date}}"
+    "catalogSubDraft": "下書きに取り込み · {{date}}",
+    "mappingIrSummary": "レビューした取り込みルールの仕様（この YAML から RML を決定論的に生成）",
+    "proposalSummary": "AI 提案＋人のレビューを経た設計書（全文）"
   }
 }

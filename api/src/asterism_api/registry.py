@@ -22,6 +22,7 @@ import json
 import re
 import shutil
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 
 import yaml
@@ -35,6 +36,11 @@ _ARTIFACT_FILES = {
     # The declarative RML mapping (Phase 5). Persisted so the human-gated
     # substrate ingest (POST /api/datasets/{id}/ingest) can run it later.
     "mapping.rml.ttl": "mapping.rml.ttl",
+    # The reviewed §9 Mapping IR spec (ADR mapping-ir-compiler) the RML was
+    # deterministically compiled from — the HUMAN-READABLE form of the ingest
+    # rules. Persisted so the catalog's rules viewer can show the spec a
+    # reviewer actually vetted (absent on legacy raw-Turtle designs).
+    "mapping.yaml": "mapping.yaml",
 }
 _META_FILE = "meta.json"
 # Design-time source files are persisted here so the dataset carries the exact
@@ -90,6 +96,16 @@ def mermaid_of(diagram_md: str) -> str:
 # artifacts are extracted from, so it round-trips a full re-design.
 _PROPOSAL_FILE = "proposal.md"
 
+# Redesign history: before a re-materialize overwrites a dataset's artifacts
+# IN PLACE, the previous artifact set (+ proposal) is snapshotted under
+# ``root/<id>/history/<snapshot_id>/`` so a human can always answer "what did
+# the rules say BEFORE this redesign, and what changed?" — the audit half of
+# making the ingest rules human-checkable. Snapshots are plain text files a few
+# KB each; nothing prunes them.
+_HISTORY_DIR = "history"
+_SNAPSHOT_META_FILE = "snapshot.json"
+_SNAPSHOT_ID_RE = re.compile(r"[0-9]{8}T[0-9]{6}Z(?:-[0-9]+)?")
+
 
 def save_dataset(
     root: Path,
@@ -136,6 +152,8 @@ def save_dataset(
         # Phase 5: whether a declarative RML mapping is present (ingestable), and
         # whether it has been ingested into a draft graph yet.
         "has_rml": bool((artifacts.get("mapping.rml.ttl") or "").strip()),
+        # Whether the reviewed §9 Mapping IR spec is stored (rules viewer).
+        "has_mapping_ir": bool((artifacts.get("mapping.yaml") or "").strip()),
         # The design (propose/refine Markdown) is stored — so the catalog can offer
         # a "見直す" (redesign) action that reopens it in the workbench.
         "has_proposal": bool((proposal_md or "").strip()),
@@ -194,6 +212,7 @@ def update_dataset_artifacts(
     if not meta_path.is_file():
         return None
 
+    _snapshot_before_overwrite(dest, artifacts, proposal_md)
     for key, filename in _ARTIFACT_FILES.items():
         (dest / filename).write_text(artifacts.get(key, "") or "", encoding="utf-8")
     (dest / _PROPOSAL_FILE).write_text(proposal_md or "", encoding="utf-8")
@@ -211,11 +230,130 @@ def update_dataset_artifacts(
             "has_ingester": bool((artifacts.get("ingester.py") or "").strip()),
             "has_mie": bool((artifacts.get("mie.yaml") or "").strip()),
             "has_rml": bool((artifacts.get("mapping.rml.ttl") or "").strip()),
+            "has_mapping_ir": bool((artifacts.get("mapping.yaml") or "").strip()),
             "has_proposal": bool((proposal_md or "").strip()),
         }
     )
     meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     return meta
+
+
+def _snapshot_before_overwrite(
+    dest: Path, new_artifacts: dict[str, str], new_proposal_md: str
+) -> None:
+    """Snapshot the CURRENT artifact set into ``dest/history/<ts>/`` if it differs.
+
+    Called by :func:`update_dataset_artifacts` before it overwrites in place, so
+    every redesign leaves the previous rules reviewable (and diffable). A no-op
+    when nothing would change — a re-save of identical content must not pile up
+    empty history entries. Best-effort by design: a failed snapshot never blocks
+    the redesign itself (the user's new design is the priority).
+    """
+    current: dict[str, str] = {}
+    for key, filename in _ARTIFACT_FILES.items():
+        path = dest / filename
+        if path.is_file():
+            current[key] = path.read_text(encoding="utf-8")
+    proposal_path = dest / _PROPOSAL_FILE
+    current_proposal = (
+        proposal_path.read_text(encoding="utf-8") if proposal_path.is_file() else ""
+    )
+
+    changed = any(
+        (new_artifacts.get(key, "") or "") != current.get(key, "")
+        for key in _ARTIFACT_FILES
+    ) or (new_proposal_md or "") != current_proposal
+    if not changed:
+        return
+
+    try:
+        saved_at = datetime.now(UTC)
+        base = saved_at.strftime("%Y%m%dT%H%M%SZ")
+        history_root = dest / _HISTORY_DIR
+        snap_dir = history_root / base
+        suffix = 1
+        while snap_dir.exists():
+            suffix += 1
+            snap_dir = history_root / f"{base}-{suffix}"
+        snap_dir.mkdir(parents=True)
+        for key, filename in _ARTIFACT_FILES.items():
+            if (current.get(key) or "").strip():
+                (snap_dir / filename).write_text(current[key], encoding="utf-8")
+        if current_proposal.strip():
+            (snap_dir / _PROPOSAL_FILE).write_text(current_proposal, encoding="utf-8")
+        (snap_dir / _SNAPSHOT_META_FILE).write_text(
+            json.dumps(
+                {"id": snap_dir.name, "saved_at": saved_at.isoformat()},
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+    except OSError:
+        return
+
+
+def list_dataset_history(root: Path, dataset_id: str) -> list[dict]:
+    """Redesign snapshots for a dataset, newest first (empty when none/absent).
+
+    Each entry is ``{"id", "saved_at", "artifacts": [stored file names]}`` —
+    cheap directory metadata only; contents come from
+    :func:`load_dataset_history`.
+    """
+    if not _ID_RE.fullmatch(dataset_id):
+        return []
+    history_root = root / dataset_id / _HISTORY_DIR
+    if not history_root.is_dir():
+        return []
+    entries: list[dict] = []
+    for child in history_root.iterdir():
+        if not child.is_dir() or not _SNAPSHOT_ID_RE.fullmatch(child.name):
+            continue
+        saved_at = ""
+        meta_path = child / _SNAPSHOT_META_FILE
+        if meta_path.is_file():
+            try:
+                saved_at = str(
+                    json.loads(meta_path.read_text(encoding="utf-8")).get("saved_at", "")
+                )
+            except (OSError, json.JSONDecodeError):
+                saved_at = ""
+        files = sorted(
+            p.name
+            for p in child.iterdir()
+            if p.is_file() and p.name != _SNAPSHOT_META_FILE
+        )
+        entries.append({"id": child.name, "saved_at": saved_at, "artifacts": files})
+    entries.sort(key=lambda e: str(e["id"]), reverse=True)
+    return entries
+
+
+def load_dataset_history(root: Path, dataset_id: str, snapshot_id: str) -> dict | None:
+    """One snapshot's stored contents: ``{"id", "saved_at", "artifacts": {name: text}}``.
+
+    ``None`` when either id is unsafe or the snapshot is absent. File names are
+    the on-disk artifact names (``mapping.rml.ttl`` …, plus ``proposal.md``).
+    """
+    if not _ID_RE.fullmatch(dataset_id) or not _SNAPSHOT_ID_RE.fullmatch(snapshot_id):
+        return None
+    snap_dir = root / dataset_id / _HISTORY_DIR / snapshot_id
+    if not snap_dir.is_dir():
+        return None
+    saved_at = ""
+    meta_path = snap_dir / _SNAPSHOT_META_FILE
+    if meta_path.is_file():
+        try:
+            saved_at = str(
+                json.loads(meta_path.read_text(encoding="utf-8")).get("saved_at", "")
+            )
+        except (OSError, json.JSONDecodeError):
+            saved_at = ""
+    artifacts = {
+        p.name: p.read_text(encoding="utf-8")
+        for p in sorted(snap_dir.iterdir())
+        if p.is_file() and p.name != _SNAPSHOT_META_FILE
+    }
+    return {"id": snapshot_id, "saved_at": saved_at, "artifacts": artifacts}
 
 
 def source_dir(root: Path, dataset_id: str) -> Path | None:
