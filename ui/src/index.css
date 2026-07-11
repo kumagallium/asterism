@@ -14,7 +14,11 @@
   --fg: #16241a; /* headings / strong text */
   --body: #33453a; /* paragraph copy — much darker than the old muted */
   --muted: #54695b; /* secondary text */
-  --faint: #869a8c; /* captions / placeholders / IDs (use sparingly) */
+  /* captions / placeholders / IDs (use sparingly). 旧 #869a8c は白面 2.99:1 で
+     WCAG の 3:1 すら満たさず、0.6rem 前後の小さなキャプション/ID が読みづらかった。
+     全ての地色（白/alt/sink/bg）で 3.4:1 以上を確保しつつ、--muted (5.5:1) との
+     階層と "控えめ" な性格は保つ最小の濃色化。 */
+  --faint: #728579;
   --border: #dde6da; /* standard soft border */
   --border-strong: #c7d4c4; /* stronger border for inputs */
 
