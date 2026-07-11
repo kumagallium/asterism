@@ -16,7 +16,14 @@ interface Stats {
  * store via SPARQL (shown as "—" when the store is unavailable). No fabricated
  * figures.
  */
-export function HomeView({ onNavigate }: { onNavigate: (tab: 'workbench' | 'ask' | 'gallery') => void }) {
+export function HomeView({
+  onNavigate,
+  onOpenDataset,
+}: {
+  onNavigate: (tab: 'workbench' | 'ask' | 'gallery') => void
+  /** 最近の行から当該データセットの詳細へ直行（従来は一覧に飛ぶだけで探し直しだった） */
+  onOpenDataset?: (id: string) => void
+}) {
   const { t } = useTranslation()
   const [datasets, setDatasets] = useState<CatalogDataset[] | null>(null)
   const [loadFailed, setLoadFailed] = useState(false)
@@ -109,7 +116,11 @@ export function HomeView({ onNavigate }: { onNavigate: (tab: 'workbench' | 'ask'
         )}
         <div className="ds-rows">
           {recent.map((d) => (
-            <DatasetRow key={d.id} dataset={d} onOpen={() => onNavigate('gallery')} />
+            <DatasetRow
+              key={d.id}
+              dataset={d}
+              onOpen={() => (onOpenDataset ? onOpenDataset(d.id) : onNavigate('gallery'))}
+            />
           ))}
         </div>
       </section>

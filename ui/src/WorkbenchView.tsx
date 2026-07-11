@@ -142,12 +142,15 @@ function loadSnapshot(): Partial<WorkbenchSnapshot> {
 export function WorkbenchView({
   redesignTarget,
   onRedesignConsumed,
+  onOpenDataset,
 }: {
   /** When set, the workbench opens on an EXISTING dataset's design to revise it. */
   redesignTarget?: RedesignTarget | null
   /** Called once the redesign target has seeded the workbench (so the parent can
    *  clear it and a later tab switch doesn't re-seed over the user's edits). */
   onRedesignConsumed?: () => void
+  /** 保存完了からカタログの当該データセット詳細へ直行する導線（導線切れ対策）。 */
+  onOpenDataset?: (id: string) => void
 } = {}) {
   const { t, i18n } = useTranslation()
   // Restore generated artifacts saved before a tab switch / reload (once).
@@ -1123,6 +1126,16 @@ export function WorkbenchView({
                     {(lastSaveKind ?? (redesignId ? 'updated' : 'created')) === 'updated'
                       ? t('workbench:save.addedRedesign')
                       : t('workbench:save.added')}
+                    {/* 次工程（取り込み→公開）が住むカタログの当該データセットへ直行 */}
+                    {onOpenDataset && redesignId && (
+                      <button
+                        type="button"
+                        className="btn btn--ghost btn--sm materialize-open-btn"
+                        onClick={() => onOpenDataset(redesignId)}
+                      >
+                        {t('workbench:save.openDataset')}
+                      </button>
+                    )}
                   </p>
                   {/* Advisory design validation (run at materialize against the real
                       source): a bad column reference or wrong Tier 0 function parameter
