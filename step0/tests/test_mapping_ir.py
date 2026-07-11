@@ -482,7 +482,16 @@ def test_dialects_unknown_field_is_error() -> None:
 def test_dialects_bad_codec() -> None:
     text = TXT_MINIMAL + 'dialects:\n  "data.txt": { encoding: not-a-codec }\n'
     issues = parse_issues(text)
-    assert any("not a known Python codec" in i for i in issues)
+    assert any("not a known text codec" in i for i in issues)
+
+
+def test_dialects_bytes_codec_is_error() -> None:
+    # C10 defense in depth: 'zip'/'base64' resolve via codecs.lookup but are
+    # bytes<->bytes codecs — the runtime text decode would crash on them.
+    for codec in ("zip", "base64"):
+        text = TXT_MINIMAL + f'dialects:\n  "data.txt": {{ encoding: {codec} }}\n'
+        issues = parse_issues(text)
+        assert any("not a known text codec" in i for i in issues), codec
 
 
 def test_dialects_bad_delimiter_and_skip_rows() -> None:

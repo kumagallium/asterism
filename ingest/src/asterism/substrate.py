@@ -36,6 +36,9 @@ from pathlib import Path
 from typing import Protocol
 
 from asterism.dialect import (
+    DEFAULT_DIALECT,
+    LEGACY_SUFFIXES,
+    DialectAnnotationError,
     dialects_from_mapping,
     is_default,
     normalize_source,
@@ -203,13 +206,17 @@ def normalize_fno_namespace(rml_ttl: str) -> str:
 def normalize_dialect_sources(rml_ttl: str, csv_dir: Path | str, work_dir: Path | str) -> str:
     """Normalize every ``ast:``-annotated source to a UTF-8 comma CSV work-dir copy,
     rewriting its ``rml:source`` to the copy's absolute path and stripping the
-    annotation triples. A mapping with NO dialect annotations is returned
-    **byte-identical** (the all-defaults gate: absence of dialect ⇒ current
-    behavior). An annotated source absent on disk is left for
+    annotation triples. The EXTENSION decides too: a legacy-suffix source
+    (``.txt``/``.dat``/``.asc`` — Morph-KGC cannot resolve its source type at
+    all) is normalized under the default dialect even when nothing is
+    annotated. A mapping with no annotations and no legacy-suffix source is
+    returned **byte-identical** (the all-defaults gate: absence of dialect ⇒
+    current behavior). An annotated source absent on disk is left for
     :func:`asterism.rml_validate.validate_rml_design` to report (its
-    missing-source message is the actionable one). Runs FIRST in the work-dir
-    chain, so the later steps see the normalized copy as an absolute (already
-    resolved) source and skip it.
+    missing-source message is the actionable one). An out-of-contract
+    annotation value raises the structured :class:`RmlValidationError` (422).
+    Runs FIRST in the work-dir chain, so the later steps see the normalized
+    copy as an absolute (already resolved) source and skip it.
     """
     import rdflib
 
@@ -218,7 +225,15 @@ def normalize_dialect_sources(rml_ttl: str, csv_dir: Path | str, work_dir: Path 
         graph.parse(data=rml_ttl, format="turtle")
     except Exception:
         return rml_ttl  # rml_safety owns the parse-error rejection
-    dialects = dialects_from_mapping(graph)
+    try:
+        dialects = dialects_from_mapping(graph)
+    except DialectAnnotationError as exc:
+        raise RmlValidationError([str(exc)]) from exc
+    for pred in ("http://w3id.org/rml/source", "http://semweb.mmlab.be/ns/rml#source"):
+        for src in graph.objects(None, rdflib.URIRef(pred)):
+            path = Path(str(src))
+            if path.suffix.lower() in LEGACY_SUFFIXES and not path.is_absolute():
+                dialects.setdefault(path.name, DEFAULT_DIALECT)
     if not dialects:
         return rml_ttl
     base = Path(csv_dir)
@@ -228,8 +243,12 @@ def normalize_dialect_sources(rml_ttl: str, csv_dir: Path | str, work_dir: Path 
     for name, dialect in dialects.items():
         src = base / name
         # is_default gate: an annotation set that resolves to all-defaults means
-        # "read as today" — strip it below, but never rewrite the source.
-        if is_default(dialect) or not src.exists():
+        # "read as today" — strip it below, but never rewrite the source. A
+        # legacy suffix is the exception: Morph-KGC cannot read it at all, so
+        # the default-dialect normalization to .csv still runs.
+        if not src.exists():
+            continue
+        if is_default(dialect) and Path(name).suffix.lower() not in LEGACY_SUFFIXES:
             continue
         # Keep the basename recognizable; a non-.csv name gets ".csv" appended so
         # downstream header checks treat the copy as the tabular file it now is.

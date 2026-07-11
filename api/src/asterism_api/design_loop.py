@@ -206,10 +206,16 @@ def _fn_set_subject(msg: str) -> str:
 
 def _read_header(path: Path, dialect: Any | None) -> list[str]:
     """``read_csv_header`` through a pinned dialect; None / all-default reads
-    exactly as today (byte-identical current behavior — the is_default gate)."""
-    if dialect is not None and not is_default(dialect):
-        return read_csv_header(path, dialect=dialect)
-    return read_csv_header(path)
+    exactly as today (byte-identical current behavior — the is_default gate).
+    A file the read rules cannot decode (e.g. a CP932 upload no map declares,
+    so no dialect was pinned for it) is "cannot check" — never a crash that
+    kills the whole design job."""
+    try:
+        if dialect is not None and not is_default(dialect):
+            return read_csv_header(path, dialect=dialect)
+        return read_csv_header(path)
+    except UnicodeDecodeError:
+        return []
 
 
 def _detect_source_dialects(paths: list[Path]) -> dict[str, Any]:

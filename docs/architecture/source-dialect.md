@@ -69,14 +69,33 @@ first 200 lines):
 1. **Encoding**: UTF-16 BOM check → try `utf-8-sig` (strict) → try `cp932`
    (strict) → `latin-1` (always succeeds). First full decode of the sample
    wins.
-2. **Delimiter + header offset**: for each candidate
-   `[",", "\t", ";", "|", whitespace]` compute per-line token counts, find
-   the trailing run of lines with a constant count ≥ 2. A candidate is
-   valid when the run length ≥ 5 rows. Pick by
+2. **Well-formed short circuit**: when the comma (default) read yields csv
+   **logical records** with a constant column count ≥ 2 from the FIRST
+   record on, the file already reads correctly under the default rules —
+   only the encoding can pin; no other candidate is consulted. (This is
+   what protects a clean CSV whose cells contain spaces, blank lines, or
+   quoted newlines from any false positive.)
+3. **Single-char candidates** (`, \t ; |`): per candidate, tokenize the
+   sample into csv **logical records** (a quoted cell containing newlines
+   is ONE record; blank records are excluded from the count column) and
+   find the trailing run of records with a constant token count ≥ 2. A
+   candidate is valid when the run length ≥ 5 records. Pick by
    `(run_length, columns, candidate priority)` with priority
-   comma > tab > semicolon > pipe > whitespace. `skip_rows` = run start
-   index (that row is the header).
-3. No valid candidate ⇒ default dialect (current behavior, no annotations).
+   comma > tab > semicolon > pipe.
+4. **Whitespace subordination**: the whitespace candidate counts non-blank
+   physical lines (`[ \t]+` splits — no quote concept) and only ever wins:
+   - against a valid single-char candidate, when its run is strictly
+     longer AND its column count differs (a tab table splits into the
+     SAME columns under `[ \t]+`, so an equal count is a structural
+     artifact of the single-char table, not independent evidence);
+   - with no valid single-char candidate, when its run starts at the first
+     record (a preamble-free whitespace table) or the comma read is not
+     constant-width from the start (so a clean constant-width CSV — even a
+     1-column one whose values happen to contain spaces — is never
+     hijacked).
+5. `skip_rows` = the adopted run's first record's **physical line index**
+   (that row is the header).
+6. No valid candidate ⇒ default dialect (current behavior, no annotations).
 
 `is_default(dialect)` gates all downstream emission: default dialect emits
 nothing anywhere.
@@ -96,16 +115,21 @@ dialects:
     skip_rows: 23
 ```
 
-All fields optional with the defaults above. Lint validates: codec must
-resolve via `codecs.lookup`, delimiter is one printable char or
-`whitespace`, `skip_rows` is a non-negative int, the filename must match a
-declared source. The guided-JSON schema mirrors this (no `propertyNames` —
-Sakura guided does not implement it).
+All fields optional with the defaults above. Lint validates: the codec must
+be a known **text** codec (a bytes↔bytes codec like `zip`/`base64` resolves
+via `codecs.lookup` but would crash the runtime decode), delimiter is one
+printable char or `whitespace`, `skip_rows` is a non-negative int, the
+filename must match a declared source. The guided-JSON schema mirrors this
+(no `propertyNames` — Sakura guided does not implement it).
 
 The LLM never has to author this section: the design pipeline overlays
 detected dialects deterministically (`apply_detected_dialects(ir,
 detected)`) after propose/skeleton — explicit IR values win over detected
-ones, so the human gate can override.
+ones, so the human gate can override. A refine round or hand edit can drop
+the section, so every re-entry point re-pins: the design loop re-applies
+after each round, and `/api/materialize` with a `dataset_id` resolves the
+dataset's persisted source dir and re-detects (`materialize_schema(...,
+source_dir=…)`) before compiling.
 
 ### RML annotations (artifact contract)
 
@@ -127,24 +151,55 @@ rml:logicalSource [
 Only non-default values are emitted. `rml_safety` allowlists exactly these
 four predicates on logical sources (they carry no execution semantics).
 
+Annotation **values** are boundary-checked at every consumer
+(`dialects_from_mapping` raises `DialectAnnotationError`): user-authored RML
+(the raw-RML save path) reaches ingest unvetted, so a bytes codec, a
+multi-char delimiter, a negative/non-integer `skip_rows` or a non-boolean
+`collapse` surfaces as a structured 422 design issue (`validate_rml_design`
+merges it into `issues`; the substrate maps it to `RmlValidationError`) —
+never a 500.
+
 ### Runtime normalization (`asterism.dialect` + substrate)
 
 A new preprocessing step, **first** in the existing work_dir chain (before
 `tabularize_json_sources` / `sanitize_csv_sources` / `strip_bom_sources`):
 
-- `dialects_from_mapping(graph)` reads the annotations.
-- `normalize_source(src, dialect, dest)`: decode with `dialect.encoding`
-  (strict — a decode error is a real error, not something to paper over),
-  drop `skip_rows` lines and blank lines, split rows (whitespace → split on
-  runs of `[ \t]`; single char → split, then drop empty tokens when
-  `collapse`), write UTF-8 comma CSV via `csv.writer`. CRLF is handled by
-  text-mode decoding.
+- `dialects_from_mapping(graph)` reads (and boundary-checks) the
+  annotations.
+- **One tokenizer rule**, implemented identically on both sides
+  (`dialect_rows` / `iter_rows`): decode with `dialect.encoding` (strict —
+  a decode error is a real error, not something to paper over); `skip_rows`
+  counts **physical lines**; after that a single-char delimiter reads csv
+  **logical records** straight off the file handle (a quoted cell keeps its
+  embedded newlines), every cell is **stripped**, blank records (all cells
+  empty) are dropped, and `collapse` additionally drops empty cells;
+  `whitespace` splits non-blank physical lines on runs of `[ \t]`
+  (collapse implied). CRLF is handled by text-mode decoding.
+- `normalize_source(src, dialect, dest)` streams those rows into a UTF-8
+  comma CSV via `csv.writer` (embedded newlines are re-quoted correctly),
+  renaming morph-kgc's reserved header columns (`subject`/`predicate` →
+  `subject_`/`predicate_`, same rule as `asterism.tabularize.safe_col`) —
+  the normalized copy bypasses the direct-CSV sanitizer, so the rename
+  happens here.
+- **Extension-based normalization**: a legacy-suffix source
+  (`.txt`/`.dat`/`.asc`) is normalized even when NO dialect is annotated
+  (default dialect = read as UTF-8 comma CSV) — morph-kgc cannot resolve
+  those source types at all (`UnboundLocalError` deep in the engine), so
+  the extension, not the annotation, decides. `.csv`/`.tsv` sources are
+  normalized only under a non-default annotation (byte-identical default
+  path preserved).
 - Substrate rewrites `rml:source` to the normalized `.csv` work file and
   **strips the annotations** before handing the mapping to morph-kgc, which
   therefore sees exactly what it sees today.
 - `read_csv_header` (design validation / design_loop) accepts an optional
   dialect so closed-set column validation reads the same rows morph-kgc
-  will.
+  will — including the reserved-column rename, and including legacy-suffix
+  files read under the default rules. An undecodable file is "cannot
+  check" (`[]`), never a crash; the loud, structured error belongs to the
+  ingest boundary. Column validation covers `.txt`/`.dat`/`.asc` sources
+  (`_TABULAR_SUFFIXES`), dialected or not, and step0's inspector reads
+  legacy-suffix files through the same default rules so the design sees
+  the exact columns ingest will produce.
 
 ### Entrance widening
 

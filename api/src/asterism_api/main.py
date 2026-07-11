@@ -2390,7 +2390,23 @@ def build_app(
         def run() -> dict[str, object]:
             tmpdir = tempfile.mkdtemp(prefix="asterism-materialize-")
             try:
-                mat = materialize_schema(body.proposal_md, tmpdir, body.dataset_name, write=True)
+                # Re-pin source dialects on a redesign (`dataset_id` set): a refine
+                # round / hand edit can drop the §9 `dialects:` section, and the
+                # compiled RML would silently lose its annotations. The dataset's
+                # persisted source dir lets materialize_schema re-detect and
+                # overlay deterministically (explicit spec values still win).
+                src_dir = (
+                    registry.source_dir(cfg.registry_root, body.dataset_id)
+                    if body.dataset_id
+                    else None
+                )
+                mat = materialize_schema(
+                    body.proposal_md,
+                    tmpdir,
+                    body.dataset_name,
+                    write=True,
+                    source_dir=src_dir if src_dir is not None and src_dir.is_dir() else None,
+                )
                 paths = {k: Path(v) for k, v in mat.written_paths.items()}
                 report = validate_schema(
                     SchemaBundle(

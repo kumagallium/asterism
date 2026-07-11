@@ -327,10 +327,26 @@ def test_read_csv_header_with_dialect(tmp_path: Path) -> None:
     src = _write_cp932_xrd(tmp_path)
     dialect = SourceDialect(encoding="cp932", delimiter="\t", skip_rows=1)
     assert read_csv_header(src, dialect) == ["angle", "sample"]
-    # A default dialect keeps today's plain utf-8-sig read (the all-defaults
-    # gate) — which cannot even decode this file: the pre-dialect barrier.
-    with pytest.raises(UnicodeDecodeError):
-        read_csv_header(src, SourceDialect())
+    # A default dialect on a legacy suffix reads under the DEFAULT rules
+    # (extension-based normalization) — undecodable ⇒ "cannot check", not a crash.
+    assert read_csv_header(src, SourceDialect()) == []
+
+
+def test_read_csv_header_legacy_txt_default_read(tmp_path: Path) -> None:
+    # C13: a clean comma .txt reads its header with NO dialect argument at all —
+    # the extension routes it through the default dialect rules (strip + reserved
+    # rename), matching the normalized copy Morph-KGC gets.
+    src = tmp_path / "clean.txt"
+    src.write_text("angle , subject \n1,a\n", encoding="utf-8")
+    assert read_csv_header(src) == ["angle", "subject_"]
+
+
+def test_read_csv_header_dialect_renames_reserved_columns(tmp_path: Path) -> None:
+    # C6: the header check must see the SAME names the normalized copy carries.
+    src = tmp_path / "d.txt"
+    src.write_text("subject\tpredicate\tvalue\na\tb\t1\n", encoding="utf-8")
+    dialect = SourceDialect(delimiter="\t")
+    assert read_csv_header(src, dialect) == ["subject_", "predicate_", "value"]
 
 
 def test_read_csv_header_with_dialect_undecodable_returns_empty(tmp_path: Path) -> None:
@@ -379,6 +395,37 @@ def test_dialected_source_column_typo_is_flagged(tmp_path: Path) -> None:
         validate_rml_design(rml, tmp_path)
     assert any("samplee" in m and "xrd_measurement.txt" in m for m in exc.value.issues)
     assert any("sample" in m for m in exc.value.issues)  # did-you-mean hits the real column
+
+
+def test_default_txt_source_column_typo_is_flagged(tmp_path: Path) -> None:
+    # C13: a clean .txt source with NO annotations is still column-checked
+    # (extension-based tabular gate — the same file gets normalized at ingest).
+    (tmp_path / "clean.txt").write_text("angle,sample\n1,a\n", encoding="utf-8")
+    rml = _PREFIXES + (
+        "<#M> a rr:TriplesMap ;\n"
+        '  rml:logicalSource [ rml:source "clean.txt" ;\n'
+        "    rml:referenceFormulation ql:CSV ] ;\n"
+        '  rr:subjectMap [ rr:template "http://x/{angle}" ] ;\n'
+        "  rr:predicateObjectMap [ rr:predicate <http://x/s> ;\n"
+        '    rr:objectMap [ rml:reference "samplee" ] ] .\n'
+    )
+    with pytest.raises(RmlValidationError) as exc:
+        validate_rml_design(rml, tmp_path)
+    assert any("samplee" in m and "clean.txt" in m for m in exc.value.issues)
+
+
+def test_bad_dialect_annotation_is_a_design_issue(tmp_path: Path) -> None:
+    # G-D: the raw-RML save path runs design validation, so an out-of-contract
+    # annotation value becomes a readable 422 issue (never a 500 at ingest).
+    _write_cp932_xrd(tmp_path)
+    rml = _PREFIXES + _AST_PREFIX + (
+        "<#M> a rr:TriplesMap ;\n"
+        + _DIALECT_LS.replace('"cp932"', '"base64"')
+        + '  rr:subjectMap [ rr:template "http://x/{angle}" ] .\n'
+    )
+    with pytest.raises(RmlValidationError) as exc:
+        validate_rml_design(rml, tmp_path)
+    assert any("text codec" in m and "base64" in m for m in exc.value.issues)
 
 
 # ---------------------------------------------------------------------------

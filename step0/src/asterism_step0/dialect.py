@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import codecs
 import csv
+import io
 import re
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
@@ -32,6 +33,7 @@ from pathlib import Path
 from typing import Any
 
 __all__ = [
+    "LEGACY_SUFFIXES",
     "TABULAR_SUFFIXES",
     "WHITESPACE",
     "SourceDialect",
@@ -47,9 +49,15 @@ __all__ = [
 # consecutive delimiters as one") — covers fixed-width-ish instrument tables.
 WHITESPACE = "whitespace"
 
+# The instrument-export extensions beyond the classic pair. Morph-KGC cannot
+# resolve their source type at all, so ingest normalizes them EVEN with a
+# default dialect (extension-based normalization, ADR) — and inspection reads
+# them through the same default read rules so both sides see the same rows.
+LEGACY_SUFFIXES = frozenset({".txt", ".dat", ".asc"})
+
 # Tabular source suffixes the entrance accepts (ADR "entrance widening"):
 # the classic pair plus the extensions instrument exports actually use.
-TABULAR_SUFFIXES = frozenset({".csv", ".tsv", ".txt", ".dat", ".asc"})
+TABULAR_SUFFIXES = frozenset({".csv", ".tsv"}) | LEGACY_SUFFIXES
 
 # Detection sample bounds: enough to see any realistic preamble + table run.
 _SAMPLE_BYTES = 1 << 20
@@ -107,14 +115,9 @@ def _detect_encoding(sample: bytes) -> str:
 
 
 def _split_line(line: str, delimiter: str, collapse: bool) -> list[str]:
-    """Tokenize ONE physical line under ``delimiter``.
-
-    Detection counts with the SAME tokenization :func:`iter_rows` reads with,
-    so a pinned ``skip_rows`` always lines up with how the rows come back.
-    Single-char delimiters are csv-tokenized (quote-aware) so a clean quoted
-    CSV — e.g. JSON-array cells full of commas — counts its true fields and
-    stays default.
-    """
+    """Tokenize ONE physical line under ``delimiter`` (detection-side counting;
+    reading goes through :func:`iter_rows`). Single-char delimiters are
+    csv-tokenized (quote-aware) so a quoted delimiter never splits a cell."""
     if delimiter == WHITESPACE:
         stripped = line.strip()
         return [t for t in _WS_RUN.split(stripped) if t] if stripped else []
@@ -129,6 +132,51 @@ def _split_line(line: str, delimiter: str, collapse: bool) -> list[str]:
     return row
 
 
+def _logical_records(text: str, delimiter: str) -> list[tuple[int, int]]:
+    """``(start physical line index, token count)`` per non-blank LOGICAL record.
+
+    Single-char candidates count csv logical records, not physical lines: a
+    quoted cell containing newlines is ONE record whose start line is what
+    ``skip_rows`` (a physical count) must point at, and blank records (empty
+    lines, all-empty rows) never enter the count column — so neither an
+    interior blank line nor a multi-line cell can shift the run.
+    """
+    records: list[tuple[int, int]] = []
+    reader = csv.reader(io.StringIO(text, newline=""), delimiter=delimiter)
+    prev = 0
+    try:
+        for row in reader:
+            start = prev
+            prev = reader.line_num
+            if not row or all(not t.strip() for t in row):
+                continue
+            records.append((start, len(row)))
+    except csv.Error:
+        # Unbalanced quoting etc. — fall back to a naive physical-line split.
+        return [
+            (i, len(line.split(delimiter)))
+            for i, line in enumerate(text.splitlines())
+            if line.strip()
+        ]
+    return records
+
+
+def _trailing_run(records: list[tuple[int, int]]) -> tuple[int, int, int] | None:
+    """``(run_length, columns, start line)`` of the trailing constant-count run,
+    or None when the run is too short (< 5 records) or too narrow (< 2 cols)."""
+    if not records:
+        return None
+    columns = records[-1][1]
+    if columns < _MIN_COLUMNS:
+        return None
+    run = 1
+    while run < len(records) and records[-run - 1][1] == columns:
+        run += 1
+    if run < _MIN_RUN:
+        return None
+    return run, columns, records[-run][0]
+
+
 def detect_dialect(path: Path | str) -> SourceDialect:
     """Deterministically sniff a tabular file's dialect (ADR source-dialect.md).
 
@@ -136,10 +184,24 @@ def detect_dialect(path: Path | str) -> SourceDialect:
 
     1. **Encoding** — UTF-16 BOM check, then the pinned strict attempt list
        ``utf-8-sig`` → ``cp932``, then ``latin-1``.
-    2. **Delimiter + header offset** — per candidate, find the trailing run of
-       lines with a constant token count ≥ 2; valid when the run is ≥ 5 rows.
-       Pick by ``(run_length, columns, candidate priority)``; ``skip_rows`` is
-       the run's start index (that row is the header).
+    2. **Well-formed short circuit** — when the comma (default) read yields
+       logical records with a constant column count ≥ 2 from the FIRST record
+       on, the file already reads correctly under the default rules: only the
+       encoding can pin, no other candidate is consulted.
+    3. **Single-char candidates** (``, \\t ; |``) — per candidate, the trailing
+       run of LOGICAL records (:func:`_logical_records`) with a constant token
+       count ≥ 2; valid when the run is ≥ 5 records. Pick by
+       ``(run_length, columns, candidate priority)``.
+    4. **Whitespace subordination** — the whitespace candidate counts non-blank
+       physical lines (no quote concept), and only ever wins:
+       (a) over a valid single-char candidate when its run is strictly longer
+       AND its column count differs (a tab table splits into the SAME columns
+       under ``[ \\t]+``, so an equal count is a structural artifact of the
+       single-char table, not evidence); (b) with no single-char candidate,
+       when its run starts at the first record (a preamble-free whitespace
+       table) or the comma read is not constant-width from the start (so a
+       clean constant-width CSV — even 1-column — is never hijacked).
+    5. ``skip_rows`` = the adopted run's first record's physical line index.
 
     No valid candidate ⇒ the default dialect (current behavior, nothing
     emitted anywhere).
@@ -161,27 +223,51 @@ def detect_dialect(path: Path | str) -> SourceDialect:
     lines = lines[:_SAMPLE_LINES]
     while lines and not lines[-1].strip():
         lines.pop()
+    if not lines:
+        return SourceDialect()
+    text = "\n".join(lines)
+
+    comma_records = _logical_records(text, ",")
+    comma_constant = bool(comma_records) and len({c for _, c in comma_records}) == 1
+    if comma_constant and comma_records[0][1] >= _MIN_COLUMNS:
+        # Already a well-formed CSV under the default read rules.
+        return SourceDialect(encoding=encoding)
 
     best: tuple[tuple[int, int, int], str, int] | None = None
     for rank, delimiter in enumerate(_DELIMITER_CANDIDATES):
-        counts = [len(_split_line(line, delimiter, collapse=False)) for line in lines]
-        if not counts:
-            break
-        columns = counts[-1]
-        if columns < _MIN_COLUMNS:
+        if delimiter == WHITESPACE:
             continue
-        run = 1
-        while run < len(counts) and counts[-run - 1] == columns:
-            run += 1
-        if run < _MIN_RUN:
+        records = comma_records if delimiter == "," else _logical_records(text, delimiter)
+        found = _trailing_run(records)
+        if found is None:
             continue
+        run, columns, start = found
         key = (run, columns, -rank)
         if best is None or key > best[0]:
-            best = (key, delimiter, len(counts) - run)
-    if best is None:
-        return SourceDialect()
-    _, delimiter, skip_rows = best
-    return SourceDialect(encoding=encoding, delimiter=delimiter, skip_rows=skip_rows)
+            best = (key, delimiter, start)
+
+    ws_records = [
+        (i, len(_split_line(line, WHITESPACE, collapse=False)))
+        for i, line in enumerate(lines)
+        if line.strip()
+    ]
+    ws_found = _trailing_run(ws_records)
+
+    if best is not None:
+        (run, columns, _), delimiter, start = best
+        if ws_found is not None:
+            ws_run, ws_columns, ws_start = ws_found
+            if ws_run > run and ws_columns != columns:
+                return SourceDialect(
+                    encoding=encoding, delimiter=WHITESPACE, skip_rows=ws_start
+                )
+        return SourceDialect(encoding=encoding, delimiter=delimiter, skip_rows=start)
+    if ws_found is not None:
+        ws_run, _ws_columns, ws_start = ws_found
+        preamble_free = ws_start == ws_records[0][0]
+        if preamble_free or not comma_constant:
+            return SourceDialect(encoding=encoding, delimiter=WHITESPACE, skip_rows=ws_start)
+    return SourceDialect()
 
 
 # ---------------------------------------------------------------------------
@@ -190,17 +276,31 @@ def detect_dialect(path: Path | str) -> SourceDialect:
 
 
 def iter_rows(path: Path | str, dialect: SourceDialect) -> Iterator[list[str]]:
-    """Yield dialect-applied token rows: drop the first ``skip_rows`` physical
-    lines, skip blank lines, tokenize each remaining line (the first yielded
-    row is the header, then data). CRLF is absorbed by text-mode decoding."""
-    with Path(path).open(encoding=dialect.encoding) as fh:
-        for i, raw in enumerate(fh):
-            if i < dialect.skip_rows:
-                continue
-            line = raw.rstrip("\r\n")
-            if not line.strip():
-                continue
-            yield _split_line(line, dialect.delimiter, dialect.collapse)
+    """Yield dialect-applied token rows (the first yielded row is the header).
+
+    One tokenizer rule, shared verbatim with the runtime twin
+    (``asterism.dialect.dialect_rows``): ``skip_rows`` counts PHYSICAL lines;
+    after that a single-char delimiter reads csv LOGICAL records straight off
+    the file handle (quoted newlines stay inside their cell), every cell is
+    stripped, and blank records (all cells empty) are dropped. ``whitespace``
+    splits non-blank physical lines on ``[ \\t]+`` (collapse implied).
+    """
+    with Path(path).open(encoding=dialect.encoding, newline="") as fh:
+        for _ in range(dialect.skip_rows):
+            if not fh.readline():
+                return
+        if dialect.delimiter == WHITESPACE:
+            for raw in fh:
+                line = raw.strip()
+                if not line:
+                    continue
+                yield [t for t in _WS_RUN.split(line) if t]
+        else:
+            for row in csv.reader(fh, delimiter=dialect.delimiter):
+                tokens = [t.strip() for t in row]
+                if not any(tokens):
+                    continue
+                yield [t for t in tokens if t] if dialect.collapse else tokens
 
 
 _DELIMITER_LABELS = {

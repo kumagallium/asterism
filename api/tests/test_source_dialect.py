@@ -428,6 +428,99 @@ def test_build_oracle_lists_dialected_columns(tmp_path: Path) -> None:
     assert "xrd.txt — columns: 2θ (deg), 強度 (cps)" in oracle
 
 
+def test_read_header_undeclared_cp932_csv_cannot_check(tmp_path: Path) -> None:
+    """C8: a CP932 file with NO pinned dialect (e.g. an upload no map declares)
+    must read as "cannot check" — the default utf-8-sig read used to raise
+    UnicodeDecodeError out of _collect_ir_issues / build_oracle and kill the
+    whole design job."""
+    p = tmp_path / "junk.csv"
+    p.write_bytes(_CP932_XRD)
+    assert design_loop._read_header(p, None) == []
+
+
+def test_collect_ir_issues_survives_undeclared_cp932_sidecar(tmp_path: Path) -> None:
+    # C8 integration: the sidecar file is headers-scanned but undecodable; the
+    # declared clean source still validates and the job does not crash.
+    (tmp_path / "data.csv").write_bytes(b"SID,composition\n1,Bi2Te3\n")
+    (tmp_path / "junk.csv").write_bytes(_CP932_XRD)
+    ir_yaml = (
+        "version: 1\n"
+        "prefixes:\n"
+        '  ex: "https://example.org/ns#"\n'
+        '  exr: "https://example.org/r/"\n'
+        "maps:\n"
+        "  - name: thing\n"
+        "    source: data.csv\n"
+        "    subject:\n"
+        '      template: "exr:thing/{SID}"\n'
+        "      classes: [ex:Thing]\n"
+        "    properties:\n"
+        "      - predicate: ex:comp\n"
+        "        column: composition\n"
+    )
+    assert design_loop._collect_ir_issues(ir_yaml, tmp_path) == []
+
+
+# ---- /api/materialize: dialect re-pin from the persisted source (C9/C15) ------
+
+_SPEC_MD_NO_DIALECTS = (
+    "## Schema proposal\n\n### 9. Declarative mapping spec\n\n"
+    "```yaml\n"
+    "version: 1\n"
+    "prefixes:\n"
+    '  ex: "https://example.org/ns#"\n'
+    '  exr: "https://example.org/r/"\n'
+    "maps:\n"
+    "  - name: point\n"
+    "    source: xrd.txt\n"
+    "    subject:\n"
+    '      template: "exr:p/{2θ (deg)}"\n'
+    "      classes: [ex:Point]\n"
+    "    properties:\n"
+    "      - predicate: ex:intensity\n"
+    '        column: "強度 (cps)"\n'
+    "```\n"
+)
+
+
+def test_materialize_repins_dialects_from_persisted_source(tmp_path: Path) -> None:
+    """C9/C15: a refine round (or hand edit) can drop the §9 ``dialects:`` section;
+    re-materializing WITH dataset_id must re-pin it deterministically from the
+    dataset's persisted source dir — otherwise the compiled RML silently loses the
+    annotations and ingest mis-reads the file."""
+    dataset_id = _save_dataset(tmp_path)
+    sdir = tmp_path / "registry" / dataset_id / "source"
+    sdir.mkdir(parents=True, exist_ok=True)
+    rows = "".join(f"{10 + i}.0\t{100 + i}\r\n" for i in range(6))  # run ≥ 5 to detect
+    (sdir / "xrd.txt").write_bytes(
+        ("サンプル名: 試料A\r\n2θ (deg)\t強度 (cps)\r\n" + rows).encode("cp932")
+    )
+    app = build_app(_settings(tmp_path), oxigraph_client=_healthy_client(), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        # Without dataset_id there is no source to detect against — no annotations.
+        r0 = client.post(
+            "/api/materialize",
+            json={"proposal_md": _SPEC_MD_NO_DIALECTS, "persist": False},
+        )
+        assert r0.status_code == 200, r0.text
+        assert "ast:sourceEncoding" not in (r0.json()["artifacts"]["mapping.rml.ttl"] or "")
+        # With dataset_id the persisted source re-pins the dialect end-to-end.
+        r = client.post(
+            "/api/materialize",
+            json={
+                "proposal_md": _SPEC_MD_NO_DIALECTS,
+                "persist": False,
+                "dataset_id": dataset_id,
+            },
+        )
+        assert r.status_code == 200, r.text
+        artifacts = r.json()["artifacts"]
+        assert "dialects:" in artifacts["mapping.yaml"]
+        rml = artifacts["mapping.rml.ttl"]
+        assert 'ast:sourceEncoding "cp932"' in rml
+        assert "ast:sourceSkipRows 1" in rml
+
+
 # ---- append guard: a dialected source cannot be incrementally appended --------
 
 _RML_PLAIN = (

@@ -635,6 +635,19 @@ def test_render_markdown_default_has_no_dialect_line(tmp_path: Path) -> None:
     assert "Dialect:" not in md
 
 
+def test_inspect_legacy_txt_default_reads_like_normalized_copy(tmp_path: Path) -> None:
+    """C2/C13 twin: a clean comma .txt (default dialect) is normalized at ingest,
+    so inspection reads it through the same rules — stripped cells included —
+    while still reporting no dialect (nothing to pin)."""
+    p = tmp_path / "clean.txt"
+    lines = ["id, name"] + [f"{i}, row{i} " for i in range(6)]
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    ins = inspect_csv(p)
+    assert ins.dialect is None  # default — nothing pinned anywhere
+    assert [c.name for c in ins.columns] == ["id", "name"]  # cells stripped
+    assert ins.column("name").sample_values[0] == "row0"  # type: ignore[union-attr]
+
+
 def test_foreign_keys_across_dialected_and_clean_sources(tmp_path: Path) -> None:
     lines = ["前置き行", "sample_id\tvalue"] + [f"S{i}\t{i}" for i in range(6)]
     a = tmp_path / "inst.txt"

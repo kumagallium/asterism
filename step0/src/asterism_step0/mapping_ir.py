@@ -26,7 +26,6 @@ installable dependency-free, and every real caller (api, dev, CI) has it.
 """
 from __future__ import annotations
 
-import codecs
 import difflib
 import re
 from collections.abc import Mapping, Sequence
@@ -642,9 +641,12 @@ def _is_tabular_source(source: str) -> bool:
 
 
 def _codec_exists(name: str) -> bool:
+    # TEXT codecs only: codecs.lookup also resolves bytes<->bytes codecs
+    # ('zip', 'base64', …) which would crash the runtime's text decode. The
+    # probe must be non-empty (b"".decode skips the codec lookup entirely).
     try:
-        codecs.lookup(name)
-    except LookupError:
+        b"\x00\x00\x00\x00".decode(name, errors="ignore")
+    except (LookupError, TypeError):
         return False
     return True
 
@@ -683,7 +685,7 @@ def _parse_dialects(
             issues.append(f"{where}: a source dialect applies to tabular sources only.")
         encoding = fields_raw.get("encoding", "utf-8-sig")
         if not isinstance(encoding, str) or not _codec_exists(encoding):
-            issues.append(f"{where}.encoding {encoding!r} is not a known Python codec.")
+            issues.append(f"{where}.encoding {encoding!r} is not a known text codec.")
             encoding = "utf-8-sig"
         delimiter = fields_raw.get("delimiter", ",")
         if not isinstance(delimiter, str) or not (

@@ -55,10 +55,13 @@ Steps on branch `feat/legacy-file-dialect`:
    (hkl)=(1,1,2), I=100.0` (the ICDD card's strongest line). The measured
    40.06 peak sits on the reference (1,1,2) line — the Al3V identification
    use case survives the round trip.
-4. **No regressions**: step0 407 passed / ingest 436 passed / api 244
-   passed / mcp 49 passed / ui lint+build green. For clean UTF-8 comma CSV
-   the inspect Markdown and compiled RML are **byte-identical** to
-   `git HEAD` output (default dialect emits nothing anywhere).
+4. **No regressions**: step0 417 passed / ingest 451 passed / api 247
+   passed / mcp 49 passed / ui lint+build green (counts include the
+   adversarial-review regression tests added 2026-07-11; the real-file
+   dogfood above was re-run after those fixes — same detections, same
+   9,238 triples, same spot values). For clean UTF-8 comma CSV the inspect
+   Markdown and compiled RML are **byte-identical** to `git HEAD` output
+   (default dialect emits nothing anywhere).
 
 ## Conclusion
 
@@ -78,10 +81,17 @@ is covered by `delimiter: whitespace`.
 - Append (incremental batches) onto dialected sources is rejected with 422
   (snapshot re-ingest works); byte-level batch accumulation cannot safely
   concatenate preamble-bearing batches.
-- Detection scans the head of the file (1 MiB / 200 lines); a preamble
-  whose whitespace token count coincidentally matches the table for many
-  lines can shorten `skip_rows` — the pinned dialect is visible at the
-  human gate for correction.
+- Detection scans the head of the file (1 MiB / 200 lines).
+- The detection false positives an adversarial review (2026-07-11) had
+  confirmed are **fixed and pinned by regression tests**: an interior blank
+  line / quoted-newline cells in a clean CSV no longer invent a
+  `skip_rows` (single-char candidates count csv *logical records*, and a
+  constant-width comma read short-circuits to default); a preamble whose
+  whitespace token count coincidentally matches the table no longer beats
+  the true delimiter (whitespace only wins on a longer run with a
+  *different* column count); a 1-column CSV of multi-word values / a comma
+  CSV whose cells contain spaces are never hijacked by the whitespace
+  candidate.
 - UTF-16 is recognized via BOM only; exotic encodings fall through to
   latin-1 (lossless byte round-trip, possibly wrong glyphs — visible at
   inspect).

@@ -1674,6 +1674,69 @@ def test_materialize_to_graph_dialected_source(tmp_path: Path) -> None:
     assert ("https://ex/m/20.1", "https://ex/sample", "試料B") in triples
 
 
+_CLEAN_TXT_RML = """
+@prefix rr:  <http://www.w3.org/ns/r2rml#> .
+@prefix rml: <http://semweb.mmlab.be/ns/rml#> .
+@prefix ql:  <http://semweb.mmlab.be/ns/ql#> .
+@prefix ex:  <https://ex/> .
+<#M> a rr:TriplesMap ;
+  rml:logicalSource [ rml:source "clean.txt" ; rml:referenceFormulation ql:CSV ] ;
+  rr:subjectMap [ rr:template "https://ex/m/{angle}" ] ;
+  rr:predicateObjectMap [ rr:predicate ex:sample ;
+    rr:objectMap [ rml:reference "sample" ] ] .
+"""
+
+
+def test_normalize_dialect_sources_legacy_suffix_without_annotations(tmp_path: Path) -> None:
+    """C2/C13: Morph-KGC cannot resolve a .txt/.dat/.asc source type at all
+    (UnboundLocalError deep in the engine), so a legacy-suffix source is
+    normalized to a work-dir CSV even when NO dialect is annotated — the
+    extension, not the annotation, decides."""
+    (tmp_path / "clean.txt").write_text(
+        "angle,sample\n10.5,a\n20.1,b\n", encoding="utf-8"
+    )
+    work = tmp_path / "work"
+
+    out = normalize_dialect_sources(_CLEAN_TXT_RML, tmp_path, work)
+
+    g = rdflib.Graph()
+    g.parse(data=out, format="turtle")
+    dest = work / "clean.txt.csv"
+    srcs = {str(o) for o in g.objects(None, rdflib.URIRef("http://semweb.mmlab.be/ns/rml#source"))}
+    assert srcs == {str(dest)}
+    assert dest.read_text(encoding="utf-8").splitlines() == [
+        "angle,sample",
+        "10.5,a",
+        "20.1,b",
+    ]
+
+
+def test_materialize_to_graph_clean_txt_source(tmp_path: Path) -> None:
+    """End-to-end C2: a clean comma UTF-8 .txt (no preamble, no annotations)
+    materializes through the real Morph-KGC via extension-based normalization."""
+    if not _morph_kgc_installed():
+        pytest.skip("morph-kgc not installed; this exercises the real .txt ingest")
+    (tmp_path / "clean.txt").write_text(
+        "angle,sample\n10.5,試料A\n20.1,試料B\n", encoding="utf-8"
+    )
+    graph = materialize_to_graph(_CLEAN_TXT_RML, tmp_path)
+    triples = {(str(s), str(p), str(o)) for s, p, o in graph}
+    assert ("https://ex/m/10.5", "https://ex/sample", "試料A") in triples
+    assert ("https://ex/m/20.1", "https://ex/sample", "試料B") in triples
+
+
+def test_normalize_dialect_sources_bad_annotation_is_structured(tmp_path: Path) -> None:
+    # G-D at the ingest boundary: a user-authored annotation with a bytes codec
+    # (or any out-of-contract value) surfaces as RmlValidationError (422), not 500.
+    from asterism.substrate import RmlValidationError
+
+    (tmp_path / "xrd_measurement.txt").write_text("a\tb\n1\t2\n", encoding="utf-8")
+    bad = _DIALECT_RML.replace('"cp932"', '"zip"')
+    with pytest.raises(RmlValidationError) as exc:
+        normalize_dialect_sources(bad, tmp_path, tmp_path / "work")
+    assert any("text codec" in m for m in exc.value.issues)
+
+
 def test_normalize_dialect_sources_default_annotation_strips_only(tmp_path: Path) -> None:
     # is_default gate: annotations that resolve to all-defaults mean "read as
     # today" — they are stripped (Morph-KGC never sees them) but the source is

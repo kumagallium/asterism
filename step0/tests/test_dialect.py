@@ -36,7 +36,9 @@ def _write_cp932_xrd(path: Path, data_rows: int = 6) -> Path:
 
 def _write_icdd_card(path: Path, data_rows: int = 6) -> Path:
     """UTF-8 ICDD card: Key: value preamble, then a whitespace-separated table
-    (consecutive spaces act as one delimiter)."""
+    (consecutive spaces act as one delimiter). The (hkl) cells carry commas —
+    the real card's shape — so a comma candidate exists (the d-I rows split
+    into a constant 3 comma-tokens) and whitespace must win on run length."""
     preamble = [
         "Name: Silicon",
         "Formula: Si",
@@ -45,7 +47,7 @@ def _write_icdd_card(path: Path, data_rows: int = 6) -> Path:
     ]
     table = ["2theta      d      I    (hkl)"]
     table += [
-        f"{28.4 + i:.3f}   {3.135 - i * 0.1:.3f}   {100 - i * 10}   (11{i})"
+        f"{28.4 + i:.3f}   {3.135 - i * 0.1:.3f}   {100 - i * 10}   (1,1,{i})"
         for i in range(data_rows)
     ]
     path.write_text("\n".join(preamble + table) + "\n", encoding="utf-8")
@@ -139,6 +141,73 @@ def test_detect_empty_file_is_default(tmp_path: Path) -> None:
 
 
 # ----------------------------------------------------------------------------
+# detect_dialect false positives (adversarial-review regressions)
+# ----------------------------------------------------------------------------
+
+
+def test_detect_interior_blank_line_stays_default(tmp_path: Path) -> None:
+    """C1/S1: ONE blank line inside a clean comma CSV must not shift skip_rows
+    (the rows above the blank line would silently vanish at ingest)."""
+    lines = ["id,name,value"] + [f"{i},row{i},{i}" for i in range(3)]
+    lines += [""] + [f"{i},row{i},{i}" for i in range(3, 9)]
+    p = tmp_path / "gap.csv"
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    assert is_default(detect_dialect(p))
+
+
+def test_detect_quoted_newline_cells_stay_default(tmp_path: Path) -> None:
+    """C1/S2: quoted cells containing newlines are ONE logical record — physical
+    line counting must not misalign the run and invent a skip_rows."""
+    lines = ["id,note"] + [f'{i},"line one\nline two {i}"' for i in range(8)]
+    p = tmp_path / "notes.csv"
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    assert is_default(detect_dialect(p))
+
+
+def test_detect_single_column_two_word_values_stays_default(tmp_path: Path) -> None:
+    """C14/S3: a clean 1-column CSV whose values happen to be two words must not
+    be hijacked by the whitespace candidate (skip_rows=1 would drop the header
+    and split every value)."""
+    lines = ["comment"] + [f"word{i} word{i + 1}" for i in range(8)]
+    p = tmp_path / "comments.csv"
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    assert is_default(detect_dialect(p))
+
+
+def test_detect_preamble_ws_width_coincidence_prefers_tab(tmp_path: Path) -> None:
+    """C7: a preamble line whose whitespace token count coincidentally matches
+    the table's column count extends the whitespace run past the real header —
+    same column count means the whitespace split is a structural artifact of the
+    tab table, so tab (with the correct skip_rows) must win."""
+    lines = ["sample: A", "angle\tintensity"] + [f"{10 + i}.0\t{100 + i}" for i in range(6)]
+    p = tmp_path / "xrd.txt"
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    d = detect_dialect(p)
+    assert d.delimiter == "\t"
+    assert d.skip_rows == 1
+
+
+def test_detect_comma_cells_with_spaces_stay_default(tmp_path: Path) -> None:
+    """C12: a clean comma CSV whose every cell contains spaces must not let the
+    whitespace candidate win on column count."""
+    lines = ["full name,home city"] + [f"First{i} Last{i},City {i}" for i in range(8)]
+    p = tmp_path / "people.csv"
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    assert is_default(detect_dialect(p))
+
+
+def test_detect_pure_whitespace_table_no_preamble(tmp_path: Path) -> None:
+    """A preamble-free whitespace table (no single-char candidate) still detects
+    — the subordination rules must not kill the legitimate case."""
+    lines = ["a b c"] + [f"{i} {i + 1} {i + 2}" for i in range(6)]
+    p = tmp_path / "table.txt"
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    d = detect_dialect(p)
+    assert d.delimiter == "whitespace"
+    assert d.skip_rows == 0
+
+
+# ----------------------------------------------------------------------------
 # iter_rows
 # ----------------------------------------------------------------------------
 
@@ -155,7 +224,7 @@ def test_iter_rows_whitespace_collapses_runs(tmp_path: Path) -> None:
     p = _write_icdd_card(tmp_path / "card.txt", data_rows=4)
     rows = list(iter_rows(p, detect_dialect(p)))
     assert rows[0] == ["2theta", "d", "I", "(hkl)"]
-    assert rows[1] == ["28.400", "3.135", "100", "(110)"]
+    assert rows[1] == ["28.400", "3.135", "100", "(1,1,0)"]
 
 
 def test_iter_rows_skips_blank_lines(tmp_path: Path) -> None:
@@ -163,6 +232,29 @@ def test_iter_rows_skips_blank_lines(tmp_path: Path) -> None:
     p.write_text("preamble\na\tb\n\n1\t2\n", encoding="utf-8")
     dialect = SourceDialect(delimiter="\t", skip_rows=1)
     assert list(iter_rows(p, dialect)) == [["a", "b"], ["1", "2"]]
+
+
+def test_iter_rows_strips_cell_padding(tmp_path: Path) -> None:
+    """C16: single-char cells are stripped — legacy exports pad cells for visual
+    alignment, and the normalized copy / header checks must agree on the name."""
+    p = tmp_path / "padded.txt"
+    p.write_text("angle ;  intensity \n 10.0 ; 100 \n", encoding="utf-8")
+    assert list(iter_rows(p, SourceDialect(delimiter=";"))) == [
+        ["angle", "intensity"],
+        ["10.0", "100"],
+    ]
+
+
+def test_iter_rows_preserves_quoted_newline_cells(tmp_path: Path) -> None:
+    """C3: a quoted cell containing a newline (even a blank line) is ONE cell of
+    ONE record — the physical-line reader used to split it and drop the blank."""
+    p = tmp_path / "notes.txt"
+    p.write_text('preamble\nid,note\n1,"a\n\nb"\n2,plain\n', encoding="utf-8")
+    assert list(iter_rows(p, SourceDialect(skip_rows=1))) == [
+        ["id", "note"],
+        ["1", "a\n\nb"],
+        ["2", "plain"],
+    ]
 
 
 def test_iter_rows_single_char_collapse_drops_empty_tokens(tmp_path: Path) -> None:

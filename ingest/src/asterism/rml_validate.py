@@ -41,7 +41,16 @@ import inspect
 import re
 from pathlib import Path
 
-from asterism.dialect import SourceDialect, dialect_rows, dialects_from_mapping, is_default
+from asterism.dialect import (
+    DEFAULT_DIALECT,
+    LEGACY_SUFFIXES,
+    DialectAnnotationError,
+    SourceDialect,
+    dialect_rows,
+    dialects_from_mapping,
+    is_default,
+    safe_column,
+)
 
 # FnO vocab (the *new* RML-FNML namespace Morph-KGC uses; the substrate normalizes
 # the legacy URI to this before validation, but we accept both for robustness).
@@ -84,7 +93,9 @@ _SUGGEST_N = 3
 # A JSON source (rml:reference / iterator is a JSONPath field) or an XML source (an
 # XPath) has no flat header to validate against, so its references are skipped — we
 # never invent a missing-column issue for a field we cannot see in a header row.
-_TABULAR_SUFFIXES = frozenset({".csv", ".tsv"})
+# Legacy instrument suffixes are tabular too (extension-based normalization, ADR
+# source-dialect.md), so their columns are checked even with a default dialect.
+_TABULAR_SUFFIXES = frozenset({".csv", ".tsv"}) | LEGACY_SUFFIXES
 
 
 class RmlValidationError(Exception):
@@ -118,22 +129,28 @@ def read_csv_header(path: Path | str, dialect: SourceDialect | None = None) -> l
     With a non-default ``dialect`` (ADR ``source-dialect.md``) the header row is
     read through the SAME rules the substrate normalizes with (encoding /
     skip_rows / delimiter / collapse via :func:`asterism.dialect.dialect_rows`),
-    so closed-set column validation sees exactly the columns Morph-KGC will. A
-    file the pinned encoding no longer decodes returns ``[]`` ("cannot check"
-    here; the ingest boundary raises the loud, structured error).
+    with Morph-KGC's reserved columns renamed (:func:`asterism.dialect.
+    safe_column`) — exactly the columns of the normalized copy Morph-KGC reads.
+    A legacy-suffix file (``.txt``/``.dat``/``.asc``) reads through the DEFAULT
+    dialect rules even when none is pinned (extension-based normalization). A
+    file the encoding cannot decode returns ``[]`` ("cannot check" here; the
+    ingest boundary raises the loud, structured error).
     """
     p = Path(path)
     if not p.exists():
         return []
-    if dialect is not None and not is_default(dialect):
-        rows = dialect_rows(p, dialect)
+    effective = dialect if dialect is not None and not is_default(dialect) else None
+    if effective is None and p.suffix.lower() in LEGACY_SUFFIXES:
+        effective = DEFAULT_DIALECT
+    if effective is not None:
+        rows = dialect_rows(p, effective)
         try:
             first = next(rows, None)
         except UnicodeDecodeError:
             return []
         finally:
             rows.close()
-        return [c.strip() for c in first] if first else []
+        return [safe_column(c) for c in first] if first else []
     delimiter = "\t" if p.suffix.lower() == ".tsv" else ","
     with p.open("r", encoding="utf-8-sig", newline="") as fh:
         reader = csv.reader(fh, delimiter=delimiter)
@@ -241,6 +258,30 @@ def _check_sources(graph, csv_dir: Path) -> list[str]:
     return issues
 
 
+def _check_dialects(graph) -> list[str]:
+    """Flag ``ast:`` dialect annotation values outside the pinned contract.
+
+    User-authored RML (the raw-RML save path) reaches design validation
+    unvetted; an out-of-contract value would otherwise only crash at the ingest
+    boundary. The message is :class:`asterism.dialect.DialectAnnotationError`'s
+    own (it names the offending source and value).
+    """
+    try:
+        dialects_from_mapping(graph)
+    except DialectAnnotationError as exc:
+        return [str(exc)]
+    return []
+
+
+def _mapping_dialects(graph) -> dict[str, SourceDialect]:
+    """``dialects_from_mapping`` degraded to "cannot check" on a bad annotation
+    (``_check_dialects`` reports it; header-based checks just skip)."""
+    try:
+        return dialects_from_mapping(graph)
+    except DialectAnnotationError:
+        return {}
+
+
 def _check_columns(graph, csv_dir: Path) -> list[str]:
     """Flag every ``rml:reference`` / ``{template}`` column absent from its source CSV.
 
@@ -256,7 +297,7 @@ def _check_columns(graph, csv_dir: Path) -> list[str]:
     # Pinned source dialects (un-prepared RML only: the substrate strips the
     # annotations and rewrites the sources before validation, so prepared RML
     # yields an empty map and the plain header read below).
-    dialects = dialects_from_mapping(graph)
+    dialects = _mapping_dialects(graph)
     # header cache per resolved CSV path (a source is read once even if shared).
     headers: dict[str, list[str]] = {}
 
@@ -498,7 +539,8 @@ def validate_rml_design(rml_ttl: str, csv_dir: Path | str) -> None:
 
     base = Path(csv_dir)
     issues = (
-        _check_sources(graph, base)
+        _check_dialects(graph)
+        + _check_sources(graph, base)
         + _check_columns(graph, base)
         + _check_function_params(graph)
         + _check_constant_placeholders(graph)
@@ -660,7 +702,7 @@ def _source_headers(graph, csv_dir: Path | str) -> dict[str, list[str]]:
     normalization; plain ``.csv`` / ``.tsv`` files are read as today. Returns
     ``{}`` when the directory is unreadable (advisories then degrade gracefully).
     """
-    dialects = dialects_from_mapping(graph)
+    dialects = _mapping_dialects(graph)
     headers: dict[str, list[str]] = {}
     base = Path(csv_dir)
     try:

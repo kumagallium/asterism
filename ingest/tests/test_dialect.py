@@ -16,7 +16,9 @@ import rdflib
 
 from asterism.dialect import (
     DIALECT_PREDICATES,
+    DialectAnnotationError,
     SourceDialect,
+    dialect_rows,
     dialects_from_mapping,
     is_default,
     normalize_source,
@@ -100,6 +102,52 @@ def test_normalize_strict_decode_is_a_real_error(tmp_path: Path) -> None:
         normalize_source(src, SourceDialect(delimiter="\t"), tmp_path / "out.csv")
 
 
+def test_dialect_rows_strips_cell_padding(tmp_path: Path) -> None:
+    """C16: single-char cells are stripped — legacy exports pad cells for visual
+    alignment; the normalized copy and the header checks must agree."""
+    src = tmp_path / "padded.txt"
+    src.write_text("angle ;  intensity \n 10.0 ; 100 \n", encoding="utf-8")
+    assert list(dialect_rows(src, SourceDialect(delimiter=";"))) == [
+        ["angle", "intensity"],
+        ["10.0", "100"],
+    ]
+
+
+def test_dialect_rows_preserves_quoted_newline_cells(tmp_path: Path) -> None:
+    """C3/C4: a quoted cell containing newlines (even a blank line) is ONE cell
+    of ONE record — the physical-line filter used to swallow the blank line and
+    split the record."""
+    src = tmp_path / "notes.txt"
+    src.write_text('preamble\nid,note\n1,"a\n\nb"\n2,plain\n', encoding="utf-8")
+    assert list(dialect_rows(src, SourceDialect(skip_rows=1))) == [
+        ["id", "note"],
+        ["1", "a\n\nb"],
+        ["2", "plain"],
+    ]
+
+
+def test_normalize_quoted_newline_round_trips(tmp_path: Path) -> None:
+    # csv.writer re-quotes the embedded newline, so the normalized copy parses
+    # back to the identical records.
+    import csv as _csv
+
+    src = tmp_path / "notes.txt"
+    src.write_text('id;note\n1;"a\nb"\n', encoding="utf-8")
+    dest = normalize_source(src, SourceDialect(delimiter=";"), tmp_path / "out.csv")
+    with dest.open(encoding="utf-8", newline="") as fh:
+        assert list(_csv.reader(fh)) == [["id", "note"], ["1", "a\nb"]]
+
+
+def test_normalize_renames_reserved_header_columns(tmp_path: Path) -> None:
+    """C6: Morph-KGC reserves ``subject``/``predicate`` DataFrame columns (a source
+    column with either name silently yields 0 triples). The normalized copy renames
+    them the same way the direct-CSV sanitizer does (asterism.tabularize.safe_col)."""
+    src = tmp_path / "d.txt"
+    src.write_text("subject\tpredicate\tvalue\na\tb\t1\n", encoding="utf-8")
+    dest = normalize_source(src, SourceDialect(delimiter="\t"), tmp_path / "out.csv")
+    assert _read_rows(dest) == ["subject_,predicate_,value", "a,b,1"]
+
+
 # ---- the all-defaults gate ----------------------------------------------------
 
 
@@ -161,6 +209,47 @@ def test_unannotated_mapping_yields_no_dialects() -> None:
     g = rdflib.Graph()
     g.parse(data=ttl, format="turtle")
     assert dialects_from_mapping(g) == {}
+
+
+def _graph_with_annotation(fragment: str) -> rdflib.Graph:
+    ttl = (
+        "@prefix rml: <http://w3id.org/rml/> .\n"
+        "@prefix ast: <https://kumagallium.github.io/asterism/vocab#> .\n"
+        f'<#M> rml:logicalSource [ rml:source "d.txt" ; {fragment} ] .\n'
+    )
+    g = rdflib.Graph()
+    g.parse(data=ttl, format="turtle")
+    return g
+
+
+def test_dialects_from_mapping_rejects_non_text_codecs() -> None:
+    # C10: 'zip'/'base64' resolve via codecs.lookup but are bytes<->bytes codecs;
+    # unknown names must be rejected too — never a 500 downstream.
+    for bad in ("zip", "base64", "not-a-codec"):
+        g = _graph_with_annotation(f'ast:sourceEncoding "{bad}"')
+        with pytest.raises(DialectAnnotationError, match="text codec"):
+            dialects_from_mapping(g)
+
+
+def test_dialects_from_mapping_rejects_bad_delimiter() -> None:
+    # C5: only a single character or the whitespace sentinel is a delimiter.
+    g = _graph_with_annotation('ast:sourceDelimiter "||"')
+    with pytest.raises(DialectAnnotationError, match="single character"):
+        dialects_from_mapping(g)
+
+
+def test_dialects_from_mapping_rejects_bad_skip_rows() -> None:
+    # C11: a non-integer / negative skip_rows is a structured error, not a crash.
+    for bad in ('"abc"', "-1"):
+        g = _graph_with_annotation(f"ast:sourceSkipRows {bad}")
+        with pytest.raises(DialectAnnotationError, match="non-negative"):
+            dialects_from_mapping(g)
+
+
+def test_dialects_from_mapping_rejects_bad_collapse() -> None:
+    g = _graph_with_annotation('ast:sourceCollapse "maybe"')
+    with pytest.raises(DialectAnnotationError, match="true or false"):
+        dialects_from_mapping(g)
 
 
 def test_strip_dialect_annotations_round_trip() -> None:

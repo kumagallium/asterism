@@ -59,6 +59,7 @@ from datetime import date
 from pathlib import Path
 
 from asterism_step0.dialect import (
+    LEGACY_SUFFIXES,
     SourceDialect,
     describe_dialect,
     detect_dialect,
@@ -566,7 +567,13 @@ def inspect_csv(
     effective: SourceDialect | None = dialect if dialect is not None else detect_dialect(p)
     if effective is not None and is_default(effective):
         effective, origin = None, None
-    summaries, row_count, rows = _build_column_summaries(p, dialect=effective)
+    # A legacy-suffix export is normalized at ingest even with a default dialect
+    # (extension-based normalization, ADR), so inspection reads it the same way;
+    # `effective` stays None so nothing is reported/pinned for a default read.
+    read_dialect = effective
+    if read_dialect is None and p.suffix.lower() in LEGACY_SUFFIXES:
+        read_dialect = SourceDialect()
+    summaries, row_count, rows = _build_column_summaries(p, dialect=read_dialect)
     if not rows:
         return CSVInspection(
             path=str(p),
@@ -770,8 +777,8 @@ def _value_buckets(ins: SourceInspection) -> dict[str, set[str]]:
                 if v and len(buckets[col_name]) < cap:
                     buckets[col_name].add(v)
         return buckets
-    if ins.dialect is not None:
-        for row in _dialect_rows(Path(ins.path), ins.dialect):
+    if ins.dialect is not None or Path(ins.path).suffix.lower() in LEGACY_SUFFIXES:
+        for row in _dialect_rows(Path(ins.path), ins.dialect or SourceDialect()):
             for col_name in buckets:
                 v = (row.get(col_name) or "").strip()
                 if v and len(buckets[col_name]) < cap:
