@@ -37,7 +37,7 @@ import { Mermaid } from './Mermaid'
 import { ToolsPanel } from './ToolsPanel'
 import { localName } from './vocab'
 
-type DetailTab = 'structure' | 'tools' | 'files' | 'connect' | 'design'
+export type DetailTab = 'structure' | 'tools' | 'files' | 'connect' | 'design'
 
 /** Display label for a dataset's source kind (used as the small mono type tag). */
 function sourceTag(meta?: LiveDataset['meta']): string {
@@ -69,12 +69,22 @@ function statusLabel(t: (k: string) => string, kind: CatalogStatusKind): string 
  */
 export function GalleryView({
   focusClass,
+  selectedId = null,
+  detailTab = 'structure',
+  onSelect,
+  onDetailTab,
   onOpenCrosswalk,
   onOpenMap,
   onAddData,
   onRedesign,
 }: {
   focusClass?: string | null
+  /** 選択中データセット（App の hash ルートが真実源 — 一覧⇄詳細の往復や他画面
+   *  への寄り道・リロードでも選択が消えない）。 */
+  selectedId?: string | null
+  detailTab?: DetailTab
+  onSelect?: (id: string | null) => void
+  onDetailTab?: (tab: DetailTab) => void
   onOpenCrosswalk?: () => void
   onOpenMap?: () => void
   onAddData?: () => void
@@ -84,9 +94,7 @@ export function GalleryView({
   const { t } = useTranslation()
   const [datasets, setDatasets] = useState<CatalogDataset[] | null>(null)
   const [error, setError] = useState('')
-  const [picked, setPicked] = useState<string | null>(null)
-  const [seenFocus, setSeenFocus] = useState<string | null | undefined>(focusClass)
-  const [tab, setTab] = useState<DetailTab>('structure')
+  const seenFocusRef = useRef<string | null | undefined>(focusClass)
   // Crosswalk perspectives — used by each dataset's つながり (connections) tab and
   // for the per-card connection count.
   const [perspectives, setPerspectives] = useState<CrosswalkPerspective[]>([])
@@ -116,17 +124,20 @@ export function GalleryView({
     }
   }, [])
 
-  // Reset the explicit pick when arriving with a new Ask focus (setState during
-  // render — the "adjust state on prop change" pattern; avoids effect cascades).
   const list = (datasets ?? []).filter((d) => !d.isCrosswalk)
   // Arriving with a new Ask focus opens that dataset's detail directly.
-  if (focusClass !== seenFocus) {
-    setSeenFocus(focusClass)
+  // 選択は親（hash ルート）が持つため、render 中の setState ではなく effect で通知する。
+  useEffect(() => {
+    if (focusClass === seenFocusRef.current) return
+    if (!datasets) return
+    seenFocusRef.current = focusClass
     const f = focusClass ? list.find((d) => d.classes.includes(focusClass)) : undefined
-    setPicked(f ? f.id : null)
-  }
+    onSelect?.(f ? f.id : null)
+    // list は datasets から導出されるため datasets を依存に取る
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusClass, datasets])
   // Default view is the full-width grid; a dataset is opened on demand (v2 #5).
-  const selected = picked ? (list.find((d) => d.id === picked) ?? null) : null
+  const selected = selectedId ? (list.find((d) => d.id === selectedId) ?? null) : null
   const filtered = query.trim()
     ? list.filter((d) => d.name.toLowerCase().includes(query.trim().toLowerCase()))
     : list
@@ -164,11 +175,11 @@ export function GalleryView({
           key={selected.id}
           dataset={selected}
           perspectives={perspectives}
-          tab={tab}
-          onTab={setTab}
+          tab={detailTab}
+          onTab={(dt) => onDetailTab?.(dt)}
           highlight={focusClass}
           onChanged={reload}
-          onBack={() => setPicked(null)}
+          onBack={() => onSelect?.(null)}
           onOpenCrosswalk={onOpenCrosswalk}
           onOpenMap={onOpenMap}
           onRedesign={onRedesign}
@@ -211,8 +222,8 @@ export function GalleryView({
                 dataset={d}
                 connections={connectionCount(d, perspectives)}
                 onSelect={(t) => {
-                  setTab(t ?? 'structure')
-                  setPicked(d.id)
+                  onSelect?.(d.id)
+                  if (t && t !== 'structure') onDetailTab?.(t)
                 }}
                 onChanged={reload}
               />

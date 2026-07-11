@@ -2410,14 +2410,16 @@ button.trace-iri-copy:hover:not(:disabled) {
   background: none;
   border: none;
   padding: 0;
-  color: var(--accent);
+  /* ナビゲーション用の実テキストリンク: --accent は白面 3.92:1 と AA 未満 →
+     文字は --accent-strong (6.1:1)。 */
+  color: var(--accent-strong);
   font-size: 0.82rem;
   font-weight: 600;
   cursor: pointer;
 }
 .link-btn:hover:not(:disabled) {
   background: none;
-  color: #a9772f;
+  color: var(--accent);
 }
 
 .status-pill {
@@ -2428,11 +2430,14 @@ button.trace-iri-copy:hover:not(:disabled) {
   border-radius: 999px;
 }
 .status-pill--pub {
-  color: var(--entity);
+  /* 0.7rem の小さな文字: --entity は soft 面で 4.41:1 と僅かに AA 未満 →
+     同系の濃緑 --success-fg (8.4:1) を文字にだけ使う（地は不変）。 */
+  color: var(--success-fg);
   background: var(--entity-soft);
 }
 .status-pill--draft {
-  color: var(--accent);
+  /* --accent は soft 面 3.34:1 → 文字だけ --accent-strong (5.2:1) に。 */
+  color: var(--accent-strong);
   background: var(--accent-soft);
 }
 .status-pill--design {

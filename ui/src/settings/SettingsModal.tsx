@@ -42,6 +42,29 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
     if (open) dialogRef.current?.focus()
   }, [open])
 
+  // フォーカストラップ: Tab をダイアログ内で循環させ、背後のページに抜けない。
+  function trapTab(e: React.KeyboardEvent) {
+    if (e.key !== 'Tab') return
+    const dialog = dialogRef.current
+    if (!dialog) return
+    const focusables = [
+      ...dialog.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      ),
+    ].filter((el) => !el.hasAttribute('disabled') && el.offsetParent !== null)
+    if (focusables.length === 0) return
+    const first = focusables[0]
+    const last = focusables[focusables.length - 1]
+    const active = document.activeElement
+    if (e.shiftKey && (active === first || active === dialog)) {
+      e.preventDefault()
+      last.focus()
+    } else if (!e.shiftKey && active === last) {
+      e.preventDefault()
+      first.focus()
+    }
+  }
+
   if (!open) return null
 
   return (
@@ -54,6 +77,7 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
         ref={dialogRef}
         tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
+        onKeyDown={trapTab}
       >
         <header className="settings-head">
           <h2>{t('title')}</h2>

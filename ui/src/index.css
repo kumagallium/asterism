@@ -27,6 +27,9 @@
 
   /* Accent — warm amber (eyebrows, highlights, caution); darker for contrast */
   --accent: #b3722b;
+  /* 小さな文字用の濃いアクセント（--accent は白面 3.92:1 / soft 面 3.34:1 と
+     WCAG AA 未満 — 塗り・罫線は --accent のまま、文字だけこちらを使う）。 */
+  --accent-strong: #8a5620;
   --accent-soft: #f6ecd9;
 
   /* PROV-DM semantic colors (data vs process). The blue doubles as the
