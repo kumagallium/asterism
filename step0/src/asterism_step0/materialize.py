@@ -47,6 +47,7 @@ separate invocation (it needs the Ruby toolchain). See
 from __future__ import annotations
 
 import argparse
+import contextlib
 import re
 import sys
 from dataclasses import dataclass, field
@@ -226,12 +227,66 @@ def _compile_mapping_spec(result: MaterializeResult) -> str | None:
     return None
 
 
+def apply_source_dialects(mapping_ir_yaml: str, source_dir: Path | str) -> str:
+    """Overlay auto-detected source dialects onto a mapping-spec YAML.
+
+    Deterministic design-pipeline step (ADR ``source-dialect.md``): every
+    tabular source the spec declares that exists under ``source_dir`` is
+    sniffed with ``detect_dialect`` and pinned into the spec's ``dialects:``
+    section — explicit spec values win, so a human-gated override survives.
+    Returns the input text unchanged when there is nothing to add (default
+    dialects emit nothing anywhere), so a clean spec is never re-serialized.
+    Callers with the source files at hand (the api design loop, the
+    materialize CLI via ``--source-dir``) run this before compiling.
+    """
+    import yaml
+
+    from asterism_step0.dialect import (
+        TABULAR_SUFFIXES,
+        apply_detected_dialects,
+        detect_dialect,
+        is_default,
+    )
+
+    try:
+        doc = yaml.safe_load(mapping_ir_yaml)
+    except yaml.YAMLError:
+        return mapping_ir_yaml  # a broken spec flows on; the compiler reports it
+    if not isinstance(doc, dict) or not isinstance(doc.get("maps"), list):
+        return mapping_ir_yaml
+    base = Path(source_dir)
+    detected = {}
+    for m in doc["maps"]:
+        if not isinstance(m, dict):
+            continue
+        source = m.get("source")
+        if not isinstance(source, str) or source in detected:
+            continue
+        if Path(source).suffix.lower() not in TABULAR_SUFFIXES:
+            continue
+        path = base / source
+        if not path.is_file():
+            continue
+        try:
+            dialect = detect_dialect(path)
+        except OSError:
+            continue
+        if not is_default(dialect):
+            detected[source] = dialect
+    if not detected:
+        return mapping_ir_yaml
+    overlaid = apply_detected_dialects(mapping_ir_yaml, detected)
+    assert isinstance(overlaid, str)
+    return overlaid
+
+
 def materialize_schema(
     proposal_md: str,
     output_dir: Path | str,
     dataset_name: str,
     *,
     write: bool = True,
+    source_dir: Path | str | None = None,
 ) -> MaterializeResult:
     """Split ``proposal_md`` into artifact files under ``output_dir``.
 
@@ -241,6 +296,9 @@ def materialize_schema(
         dataset_name: Used in output filenames (``{name}-model.yaml`` etc.).
         write: If False, only extract (no files written) — useful for tests
             and dry-runs.
+        source_dir: Directory holding the declared source files. When given,
+            detected non-default dialects are pinned into the mapping spec
+            (:func:`apply_source_dialects`) before it is compiled/persisted.
 
     Returns:
         :class:`MaterializeResult` with the extracted strings, written paths,
@@ -308,6 +366,14 @@ def materialize_schema(
     # Warnings stay reserved for genuinely blocking states (missing core
     # artifact / spec that does not compile / compiler unavailable).
     if result.mapping_ir_yaml is not None:
+        if source_dir is not None:
+            # Pin detected dialects before compiling so the persisted spec and
+            # the RML annotations agree. PyYAML absence falls through to the
+            # compile step, which reports the environment warning.
+            with contextlib.suppress(ImportError):
+                result.mapping_ir_yaml = apply_source_dialects(
+                    result.mapping_ir_yaml, source_dir
+                )
         result.rml_ttl = _compile_mapping_spec(result)
     else:
         # Legacy raw-RML artifact. Turtle is unambiguous in a proposal (only
@@ -389,6 +455,16 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Extract and report without writing files.",
     )
+    p.add_argument(
+        "--source-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Directory holding the declared source files. When given, tabular "
+            "sources are sniffed and non-default dialects are pinned into the "
+            "mapping spec before compiling (ADR source-dialect.md)."
+        ),
+    )
     return p
 
 
@@ -400,6 +476,7 @@ def _main(argv: list[str] | None = None) -> int:
         args.output_dir,
         args.name,
         write=not args.dry_run,
+        source_dir=args.source_dir,
     )
 
     if args.dry_run:

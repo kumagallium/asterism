@@ -26,11 +26,14 @@ installable dependency-free, and every real caller (api, dev, CI) has it.
 """
 from __future__ import annotations
 
+import codecs
 import difflib
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
+
+from asterism_step0.dialect import TABULAR_SUFFIXES, WHITESPACE, SourceDialect
 
 __all__ = [
     "CatalogFunction",
@@ -69,7 +72,9 @@ BUILTIN_PREFIXES: dict[str, str] = {
     "xsd": "http://www.w3.org/2001/XMLSchema#",
 }
 
-_TABULAR_SUFFIXES = frozenset({".csv", ".tsv"})
+# Tabular source suffixes (ADR source-dialect.md "entrance widening"): the
+# classic pair plus the extensions instrument exports actually use.
+_TABULAR_SUFFIXES = TABULAR_SUFFIXES
 _XML_SUFFIXES = frozenset({".xml"})
 
 _SUGGEST_N = 3
@@ -131,6 +136,10 @@ class MappingIR:
     prefixes: Mapping[str, str]
     maps: tuple[TriplesMapIR, ...]
     version: int = 1
+    dialects: Mapping[str, SourceDialect] = field(default_factory=dict)
+    """Per-source read dialects (ADR source-dialect.md), keyed by the declared
+    source filename. Absent entries mean the default dialect (current behavior);
+    the compiler emits ``ast:`` logical-source annotations only for these."""
 
 
 class MappingIRParseError(Exception):
@@ -375,7 +384,8 @@ _PROPERTY_KEYS = (
     "fallback",
 )
 _MAP_KEYS = ("name", "source", "iterator", "subject", "properties")
-_TOP_KEYS = ("version", "prefixes", "maps")
+_TOP_KEYS = ("version", "prefixes", "maps", "dialects")
+_DIALECT_KEYS = ("encoding", "delimiter", "collapse", "skip_rows")
 
 
 def _parse_subject(raw: Any, where: str, issues: list[str]) -> SubjectIR:
@@ -600,7 +610,8 @@ def _parse_map(raw: Any, index: int, issues: list[str]) -> TriplesMapIR | None:
             issues.append(f"{where}: 'iterator' applies to XML sources only; remove it.")
         if suffix not in _TABULAR_SUFFIXES | _XML_SUFFIXES:
             issues.append(
-                f"{where}.source {source!r} must be .csv, .tsv or .xml (a JSON source "
+                f"{where}.source {source!r} must be a tabular file "
+                f"({'/'.join(sorted(_TABULAR_SUFFIXES))}) or .xml (a JSON source "
                 f"is read via its tabularized .csv name — use the name the "
                 f"inspection lists)."
             )
@@ -623,6 +634,78 @@ def _parse_map(raw: Any, index: int, issues: list[str]) -> TriplesMapIR | None:
         properties=tuple(properties),
         iterator=iterator if isinstance(iterator, str) else None,
     )
+
+
+def _is_tabular_source(source: str) -> bool:
+    suffix = "." + source.rsplit(".", 1)[-1].lower() if "." in source else ""
+    return suffix in _TABULAR_SUFFIXES
+
+
+def _codec_exists(name: str) -> bool:
+    try:
+        codecs.lookup(name)
+    except LookupError:
+        return False
+    return True
+
+
+def _parse_dialects(
+    raw: Any, maps: Sequence[TriplesMapIR], issues: list[str]
+) -> dict[str, SourceDialect]:
+    """Parse + lint the optional ``dialects:`` section (ADR source-dialect.md).
+
+    The design pipeline overlays this section deterministically from
+    ``detect_dialect`` — the LLM never has to author it — but explicit values
+    are human-gateable, so they are linted like everything else."""
+    if raw is None:
+        return {}
+    if not isinstance(raw, Mapping):
+        issues.append("dialects must be a mapping of {source filename: dialect fields}.")
+        return {}
+    declared = {m.source for m in maps}
+    tabular = {m.source for m in maps if _is_tabular_source(m.source)}
+    out: dict[str, SourceDialect] = {}
+    for fname, fields_raw in raw.items():
+        fname_s = str(fname)
+        where = f"dialects[{fname_s!r}]"
+        if not isinstance(fields_raw, Mapping):
+            issues.append(
+                f"{where} must be a mapping of dialect fields ({', '.join(_DIALECT_KEYS)})."
+            )
+            continue
+        _check_unknown_keys(fields_raw, _DIALECT_KEYS, where, issues)
+        if declared and fname_s not in declared:
+            issues.append(
+                f"{where}: no map reads a source named {fname_s!r}; the filename must "
+                f"match a declared source.{_suggest(fname_s, sorted(declared))}"
+            )
+        elif fname_s in declared and fname_s not in tabular:
+            issues.append(f"{where}: a source dialect applies to tabular sources only.")
+        encoding = fields_raw.get("encoding", "utf-8-sig")
+        if not isinstance(encoding, str) or not _codec_exists(encoding):
+            issues.append(f"{where}.encoding {encoding!r} is not a known Python codec.")
+            encoding = "utf-8-sig"
+        delimiter = fields_raw.get("delimiter", ",")
+        if not isinstance(delimiter, str) or not (
+            delimiter == WHITESPACE or len(delimiter) == 1
+        ):
+            issues.append(
+                f"{where}.delimiter must be a single character or the sentinel "
+                f"'{WHITESPACE}' (got {delimiter!r})."
+            )
+            delimiter = ","
+        collapse = fields_raw.get("collapse", False)
+        if not isinstance(collapse, bool):
+            issues.append(f"{where}.collapse must be true or false.")
+            collapse = False
+        skip_rows = fields_raw.get("skip_rows", 0)
+        if isinstance(skip_rows, bool) or not isinstance(skip_rows, int) or skip_rows < 0:
+            issues.append(f"{where}.skip_rows must be a non-negative integer.")
+            skip_rows = 0
+        out[fname_s] = SourceDialect(
+            encoding=encoding, delimiter=delimiter, collapse=collapse, skip_rows=skip_rows
+        )
+    return out
 
 
 def _check_curies(ir: MappingIR, issues: list[str]) -> None:
@@ -759,7 +842,9 @@ def parse_mapping_ir(text: str) -> MappingIR:
         for dup in sorted({n for n in names if names.count(n) > 1}):
             issues.append(f"map name {dup!r} is used more than once; names must be unique.")
 
-    ir = MappingIR(prefixes=prefixes, maps=tuple(maps), version=1)
+    dialects = _parse_dialects(doc.get("dialects"), maps, issues)
+
+    ir = MappingIR(prefixes=prefixes, maps=tuple(maps), version=1, dialects=dialects)
     _check_curies(ir, issues)
 
     if issues:

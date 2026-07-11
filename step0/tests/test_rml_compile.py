@@ -380,3 +380,75 @@ def test_map_node_names_are_deterministic() -> None:
     assert _map_node_name("paper") == "PaperMap"
     assert _map_node_name("crystal_structure") == "CrystalStructureMap"
     assert _map_node_name("PaperMap") == "PaperMap"
+
+
+# ---------------------------------------------------------------------------
+# Source-dialect annotations (ADR source-dialect.md)
+# ---------------------------------------------------------------------------
+
+AST = rdflib.Namespace("https://kumagallium.github.io/asterism/vocab#")
+RML = rdflib.Namespace("http://semweb.mmlab.be/ns/rml#")
+
+DIALECT_IR = """
+version: 1
+prefixes:
+  ex: "https://example.org/ns#"
+  exr: "https://example.org/r/"
+dialects:
+  "xrd.txt":
+    encoding: cp932
+    delimiter: "\\t"
+    skip_rows: 1
+maps:
+  - name: point
+    source: xrd.txt
+    subject:
+      template: "exr:point/{angle}"
+      classes: [ex:Point]
+    properties:
+      - predicate: ex:intensity
+        column: intensity
+"""
+
+
+def test_dialect_annotations_on_logical_source() -> None:
+    ttl = compile_text(DIALECT_IR)
+    g = as_graph(ttl)
+    (ls,) = list(g.objects(None, RML.logicalSource))
+    assert next(g.objects(ls, AST.sourceEncoding)).toPython() == "cp932"
+    assert next(g.objects(ls, AST.sourceDelimiter)).toPython() == "\t"
+    assert next(g.objects(ls, AST.sourceSkipRows)).toPython() == 1
+    assert list(g.objects(ls, AST.sourceCollapse)) == []  # default not emitted
+    # the ast: prefix is declared exactly because an annotation was emitted
+    assert "@prefix ast: <https://kumagallium.github.io/asterism/vocab#> ." in ttl
+
+
+def test_dialect_whitespace_collapse_annotations() -> None:
+    ir = DIALECT_IR.replace(
+        'encoding: cp932\n    delimiter: "\\t"\n    skip_rows: 1',
+        "delimiter: whitespace\n    collapse: true",
+    )
+    g = as_graph(compile_text(ir))
+    (ls,) = list(g.objects(None, RML.logicalSource))
+    assert next(g.objects(ls, AST.sourceDelimiter)).toPython() == "whitespace"
+    assert next(g.objects(ls, AST.sourceCollapse)).toPython() is True
+    assert list(g.objects(ls, AST.sourceEncoding)) == []
+
+
+def test_default_dialect_entry_compiles_byte_identically() -> None:
+    """The is_default gate: an all-default dialects entry emits NOTHING — the
+    output is byte-identical to a spec without the section."""
+    plain = BASE_IR.replace("__EXTRA__", "")
+    with_default = plain + 'dialects:\n  "data.csv": {}\n'
+    assert compile_text(with_default) == compile_text(plain)
+    assert "ast:" not in compile_text(plain)
+
+
+def test_ast_prefix_conflict_fails_closed() -> None:
+    bad = DIALECT_IR.replace(
+        'ex: "https://example.org/ns#"',
+        'ex: "https://example.org/ns#"\n  ast: "https://example.org/other#"',
+    )
+    with pytest.raises(RmlCompileError) as exc:
+        compile_text(bad)
+    assert any("reserved for the source-dialect" in i for i in exc.value.issues)

@@ -29,6 +29,7 @@ from asterism.substrate import (
     ingest_graph_to_oxigraph,
     materialize_to_graph,
     materialize_to_nt_file,
+    normalize_dialect_sources,
     ontology_graph_iri,
     rml_source_names,
     run_append_ingest,
@@ -1580,3 +1581,142 @@ def test_materialize_bom_and_run_id_together(tmp_path: Path) -> None:
         s == "https://ex/c/1" and p == gen and o.startswith("https://ex/activity/ingest/run-")
         for s, p, o in triples
     )
+
+
+# ---- source-dialect normalization (ADR source-dialect.md) --------------------
+
+
+_DIALECT_RML = """
+@prefix rr:  <http://www.w3.org/ns/r2rml#> .
+@prefix rml: <http://semweb.mmlab.be/ns/rml#> .
+@prefix ql:  <http://semweb.mmlab.be/ns/ql#> .
+@prefix ast: <https://kumagallium.github.io/asterism/vocab#> .
+@prefix ex:  <https://ex/> .
+<#M> a rr:TriplesMap ;
+  rml:logicalSource [ rml:source "xrd_measurement.txt" ;
+                      rml:referenceFormulation ql:CSV ;
+                      ast:sourceEncoding "cp932" ;
+                      ast:sourceDelimiter "\\t" ;
+                      ast:sourceSkipRows 1 ] ;
+  rr:subjectMap [ rr:template "https://ex/m/{angle}" ] ;
+  rr:predicateObjectMap [ rr:predicate ex:sample ;
+    rr:objectMap [ rml:reference "sample" ] ] .
+"""
+
+
+def _write_cp932_xrd(dir_: Path) -> Path:
+    # The audited legacy shape: CP932, CRLF, tab-separated, one preamble line.
+    src = dir_ / "xrd_measurement.txt"
+    lines = ["サンプル名: 試料A", "angle\tsample", "10.5\t試料A", "20.1\t試料B"]
+    src.write_bytes("\r\n".join(lines).encode("cp932") + b"\r\n")
+    return src
+
+
+def test_normalize_dialect_sources_passthrough_without_annotations(tmp_path: Path) -> None:
+    # The all-defaults gate: a mapping with no ast: annotations must come back
+    # BYTE-IDENTICAL (no reserialization, no work files) — current behavior.
+    rml = (
+        "@prefix rml: <http://w3id.org/rml/> .\n"
+        '<#M> rml:logicalSource [ rml:source "papers.csv" ] .\n'
+    )
+    work = tmp_path / "work"
+    assert normalize_dialect_sources(rml, tmp_path, work) == rml
+    assert not work.exists()  # no work files written either
+
+
+def test_normalize_dialect_sources_rewrites_and_strips(tmp_path: Path) -> None:
+    from asterism.dialect import dialects_from_mapping
+
+    _write_cp932_xrd(tmp_path)
+    work = tmp_path / "work"
+
+    out = normalize_dialect_sources(_DIALECT_RML, tmp_path, work)
+
+    g = rdflib.Graph()
+    g.parse(data=out, format="turtle")
+    # annotations stripped -> Morph-KGC sees exactly what it sees today
+    assert dialects_from_mapping(g) == {}
+    # the source now points at the normalized work-dir CSV (absolute)
+    dest = work / "xrd_measurement.txt.csv"
+    srcs = {str(o) for o in g.objects(None, rdflib.URIRef("http://semweb.mmlab.be/ns/rml#source"))}
+    assert srcs == {str(dest)}
+    # ... which holds the preamble-free, UTF-8, comma-separated table
+    assert dest.read_text(encoding="utf-8").splitlines() == [
+        "angle,sample",
+        "10.5,試料A",
+        "20.1,試料B",
+    ]
+
+
+def test_normalize_dialect_sources_decode_error_is_structured(tmp_path: Path) -> None:
+    # A pinned encoding that no longer decodes the file (the file changed since
+    # design) surfaces as the structured RmlValidationError, not a raw 500.
+    from asterism.substrate import RmlValidationError, normalize_dialect_sources
+
+    (tmp_path / "xrd_measurement.txt").write_bytes(b"a\tb\n\xff\xff\t1\n")
+    bad = _DIALECT_RML.replace('"cp932"', '"ascii"')
+    with pytest.raises(RmlValidationError) as exc:
+        normalize_dialect_sources(bad, tmp_path, tmp_path / "work")
+    assert any("ascii" in m and "xrd_measurement.txt" in m for m in exc.value.issues)
+
+
+def test_materialize_to_graph_dialected_source(tmp_path: Path) -> None:
+    """End-to-end: a CP932 tab-separated instrument .txt with a preamble line
+    materializes through the real Morph-KGC via the dialect normalization step —
+    the engine only ever sees the normalized UTF-8 comma CSV. Gated on the
+    optional morph-kgc extra."""
+    if not _morph_kgc_installed():
+        pytest.skip("morph-kgc not installed; this exercises the real dialect ingest")
+    _write_cp932_xrd(tmp_path)
+    graph = materialize_to_graph(_DIALECT_RML, tmp_path)
+    triples = {(str(s), str(p), str(o)) for s, p, o in graph}
+    assert ("https://ex/m/10.5", "https://ex/sample", "試料A") in triples
+    assert ("https://ex/m/20.1", "https://ex/sample", "試料B") in triples
+
+
+def test_normalize_dialect_sources_default_annotation_strips_only(tmp_path: Path) -> None:
+    # is_default gate: annotations that resolve to all-defaults mean "read as
+    # today" — they are stripped (Morph-KGC never sees them) but the source is
+    # NOT rewritten/normalized (the rest of the chain handles the file as today).
+    from asterism.dialect import dialects_from_mapping
+
+    (tmp_path / "papers.csv").write_text("SID,title\n1,x\n", encoding="utf-8")
+    rml = (
+        "@prefix rml: <http://w3id.org/rml/> .\n"
+        "@prefix ast: <https://kumagallium.github.io/asterism/vocab#> .\n"
+        '<#M> rml:logicalSource [ rml:source "papers.csv" ;\n'
+        '  ast:sourceEncoding "utf-8-sig" ; ast:sourceSkipRows 0 ] .\n'
+    )
+    work = tmp_path / "work"
+
+    out = normalize_dialect_sources(rml, tmp_path, work)
+
+    g = rdflib.Graph()
+    g.parse(data=out, format="turtle")
+    assert dialects_from_mapping(g) == {}  # stripped
+    src = next(g.objects(None, rdflib.URIRef("http://w3id.org/rml/source")))
+    assert str(src) == "papers.csv"  # still relative: not normalized
+    assert not (work / "papers.csv").exists()
+
+
+async def test_run_append_ingest_dialected_source(tmp_path: Path) -> None:
+    """The append path shares materialize_to_nt_file, so a dialected batch flows
+    through the same normalization chain (the api-side 422 guard is policy, not a
+    substrate limitation). Gated on the optional morph-kgc extra."""
+    if not _morph_kgc_installed():
+        pytest.skip("morph-kgc not installed; this exercises the real dialect append")
+    batch = tmp_path / "batch"
+    batch.mkdir()
+    _write_cp932_xrd(batch)
+    store = _NTStore()
+    live = "https://kumagallium.github.io/asterism/graph/canonical/feed/v1"
+
+    appended = await run_append_ingest(_DIALECT_RML, batch, store, live)
+
+    assert appended["triples_in_batch"] == 2  # one ex:sample triple per data row
+    g = store.ds.graph(rdflib.URIRef(live))
+    assert (
+        rdflib.URIRef("https://ex/m/10.5"),
+        rdflib.URIRef("https://ex/sample"),
+        rdflib.Literal("試料A"),
+    ) in g

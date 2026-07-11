@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import csv
 import difflib
 import hashlib
 import hmac
@@ -599,9 +600,13 @@ _SAFE_NAME = re.compile(r"^[A-Za-z0-9._-]{1,128}\.csv$")
 # The step0 / source / ingest paths accept JSON (#19), XML/JATS, and Word .docx
 # (document-ontology layer). CSV/JSON/XML are ingested directly; a .docx is
 # CONVERTED to JATS (pandoc, optional) at source-attach and the resulting .xml
-# becomes the persisted source. The legacy ``/upload/{kind}`` starrydata drop
-# stays CSV-only (it feeds the CSV watcher).
-_SAFE_SOURCE_NAME = re.compile(r"^[A-Za-z0-9._-]{1,128}\.(csv|json|geojson|xml|docx|pdf)$")
+# becomes the persisted source. Legacy instrument exports (.tsv/.txt/.dat/.asc)
+# are tabular sources too (ADR source-dialect.md — dialect handling lives in
+# step0/ingest; the api only widens the entrance). The legacy ``/upload/{kind}``
+# starrydata drop stays CSV-only (it feeds the CSV watcher).
+_SAFE_SOURCE_NAME = re.compile(
+    r"^[A-Za-z0-9._-]{1,128}\.(csv|tsv|txt|dat|asc|json|geojson|xml|docx|pdf)$"
+)
 
 # Resolvable IRI base for documents ingested through the API (the document-ontology
 # layer). A document dataset's nodes hang off ``…/document/<dataset_id>/<doc_id>``;
@@ -730,14 +735,40 @@ def _validate_name(name: str) -> str:
     return name
 
 
-def _validate_source_name(name: str) -> str:
-    """Validate a step0 / source-attach / ingest upload name (CSV / JSON / XML / docx / pdf)."""
-    if not _SAFE_SOURCE_NAME.fullmatch(name):
+def _sanitize_tabular_name(filename: str) -> str:
+    """Map an arbitrary uploaded TABULAR filename to a safe ``[A-Za-z0-9._-]+.<ext>``.
+
+    Unlike a document, a tabular source IS referenced by the RML mapping
+    (``rml:source`` must equal the persisted filename), so rejecting a human
+    filename would strand real instrument exports (「xrd_測定結果.txt」, ADR
+    source-dialect.md). Instead the name is slugified with the document sanitizer's
+    rules, deterministically — every entrance (inspect / propose / source-attach /
+    ingest / append) maps the same original name to the same canonical name, which
+    is returned to the client so the design references it. An already-safe name
+    passes through unchanged; a disallowed extension is still a 400 (the extension,
+    not the name, is the safety property).
+
+    One deliberate divergence from :func:`_sanitize_document_name`: EVERY lossy
+    slug gets the short hash of the original name, not only a degenerate one —
+    two distinct sources whose stems differ only in the dropped characters
+    (``xrd_測定結果`` / ``xrd_参考文献`` both slug to ``xrd``) would otherwise
+    collide on one canonical name and silently merge in the RML."""
+    name = Path(filename).name
+    if _SAFE_SOURCE_NAME.fullmatch(name):
+        return name
+    ext = Path(name).suffix.lower()
+    if not _SAFE_SOURCE_NAME.fullmatch(f"source{ext}"):
         raise HTTPException(
             400,
-            "filename must match [A-Za-z0-9._-]+.(csv|json|geojson|xml|docx|pdf) (max 128 chars)",
+            "filename must end in .(csv|tsv|txt|dat|asc|json|geojson|xml|docx|pdf) "
+            "(max 128 chars)",
         )
-    return name
+    stem = Path(name).stem
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", stem).strip("-._")
+    slug = re.sub(r"-{2,}", "-", slug)
+    h = hashlib.sha256(name.encode("utf-8")).hexdigest()[:8]
+    slug = f"{slug[:111]}-{h}" if slug else f"source-{h}"
+    return f"{slug}{ext}"
 
 
 def _sanitize_document_name(filename: str) -> str:
@@ -895,11 +926,12 @@ async def _persist_source_uploads(
         if upload.filename is None:
             raise HTTPException(400, "missing filename")
         # Documents (xml/docx/pdf) accept ANY filename (slugified — not RML-referenced);
-        # CSV/JSON stay strict (their name must match the mapping's rml:source).
+        # tabular names slug DETERMINISTICALLY so they still match the mapping's
+        # rml:source (which the design wrote from the same canonical name).
         if Path(upload.filename).suffix.lower() in _DOCUMENT_SOURCE_SUFFIXES:
             name = _sanitize_document_name(upload.filename)
         else:
-            name = _validate_source_name(upload.filename)
+            name = _sanitize_tabular_name(upload.filename)
         if name.lower().endswith(".docx"):
             jats_name, conversion = await _persist_converted_docx(upload, sdir, name)
             saved.append(jats_name)
@@ -1019,6 +1051,37 @@ async def _pending_drop_sweeper(
 # ----------------------------------------------------------------------------
 
 
+# Local names of the source-dialect annotations the IR compiler pins on
+# rml:logicalSource (ADR source-dialect.md; namespace = substrate.ASTERISM_NS).
+# Emitted ONLY for a non-default dialect, so their mere presence marks the source.
+_DIALECT_NOTE = re.compile(r"source(Encoding|Delimiter|Collapse|SkipRows)\b")
+
+
+def _dialected_sources(rml_ttl: str) -> set[str]:
+    """Source basenames whose ``rml:logicalSource`` carries pinned dialect
+    annotations (``ast:sourceEncoding`` / …).
+
+    Fast path: a mapping with no annotation local-names anywhere has no dialected
+    source (only non-default dialects are ever emitted) — the pre-dialect fleet
+    short-circuits here without touching rdflib or the (parallel-shipped)
+    ``asterism.dialect`` module. When annotations ARE present but unreadable
+    (module absent / unparseable Turtle), every declared source is treated as
+    dialected — fail-closed: the append is refused, snapshot re-ingest still works.
+    """
+    if not _DIALECT_NOTE.search(rml_ttl):
+        return set()
+    try:
+        import rdflib
+        from asterism.dialect import dialects_from_mapping
+
+        graph = rdflib.Graph()
+        graph.parse(data=substrate.substitute_run_id(rml_ttl), format="turtle")
+        return {Path(name).name for name in dialects_from_mapping(graph)}
+    except Exception:
+        logger.exception("could not read source-dialect annotations (failing closed)")
+        return substrate.rml_source_names(rml_ttl)
+
+
 class AppendError(Exception):
     """An append precondition / materialization failure carrying an HTTP status.
 
@@ -1076,17 +1139,34 @@ async def _append_batch_to_dataset(
         raise AppendError(400, "append requires at least one batch source file")
 
     sources = substrate.rml_source_names(rml_ttl)
-    for name, _ in batch:
-        if not _SAFE_SOURCE_NAME.fullmatch(name):
-            raise AppendError(
-                400, "filename must match [A-Za-z0-9._-]+.(csv|json|geojson|xml) (max 128 chars)"
-            )
-        if sources and name not in sources:
+    dialected = _dialected_sources(rml_ttl)
+    canonical: list[tuple[str, bytes]] = []
+    for name, content in batch:
+        # Canonicalize the SAME way the design entrances do, so a batch dropped
+        # under the instrument's original (non-ASCII) filename matches the
+        # rml:source the design pinned.
+        try:
+            cname = _sanitize_tabular_name(name)
+        except HTTPException as exc:
+            raise AppendError(400, str(exc.detail)) from exc
+        if sources and cname not in sources:
             raise AppendError(
                 400,
-                f"batch file {name!r} does not match any rml:source in the mapping "
+                f"batch file {cname!r} does not match any rml:source in the mapping "
                 f"(expected one of {sorted(sources)})",
             )
+        if cname in dialected:
+            # ADR source-dialect.md (Scope decisions): byte-level batch accumulation
+            # cannot safely concatenate preamble-bearing batches, so append of a
+            # dialected source is refused until normalize-at-accumulation lands.
+            raise AppendError(
+                422,
+                f"source {cname!r} carries a pinned source dialect (encoding / "
+                "delimiter / skip_rows); incremental append of dialected sources is "
+                "not supported yet — use a snapshot re-ingest (再取り込み) instead",
+            )
+        canonical.append((cname, content))
+    batch = canonical
 
     dataset_key = substrate.canonical_graph_iri(dataset_id)
     # The live (citable) graph to grow: the version graph liveGraph points at, or the
@@ -1744,7 +1824,12 @@ def build_app(
         No LLM and no API key — step0's inspect path is dependency-free. The
         uploads are written to a throwaway temp dir, inspected, then discarded;
         nothing is persisted (dataset persistence arrives in M1). CSV and JSON
-        sources are dispatched per file by extension (#19).
+        sources are dispatched per file by extension (#19). Filenames are
+        canonicalized (:func:`_sanitize_tabular_name`) and echoed back in the
+        ``X-Asterism-Source-Names`` header so the client knows the names the
+        design's ``rml:source`` must use. A file the inspector cannot decode or
+        parse is a 422 (a readable message, not a traceback) — dialect detection
+        normally prevents this (ADR source-dialect.md).
         """
         if not files:
             raise HTTPException(400, "no files uploaded")
@@ -1753,12 +1838,27 @@ def build_app(
             for upload in files:
                 if upload.filename is None:
                     raise HTTPException(400, "missing filename")
-                dest = Path(td) / _validate_source_name(upload.filename)
+                dest = Path(td) / _sanitize_tabular_name(upload.filename)
                 await _save_upload(upload, dest)
                 paths.append(dest)
-            inspections, fks = inspect_source_set(paths, fk_hint_columns=fk or None)
+            try:
+                inspections, fks = inspect_source_set(paths, fk_hint_columns=fk or None)
+            except UnicodeDecodeError as exc:
+                raise HTTPException(
+                    422,
+                    f"ソースをテキストとして読み取れませんでした ({exc.encoding} として"
+                    f"デコード不能)。エンコーディングが異なる可能性があります: {exc}",
+                ) from exc
+            except csv.Error as exc:
+                raise HTTPException(
+                    422, f"ソースを表として解析できませんでした: {exc}"
+                ) from exc
             markdown = render_markdown(inspections, fks)
-        return Response(content=markdown, media_type="text/markdown")
+        return Response(
+            content=markdown,
+            media_type="text/markdown",
+            headers={"X-Asterism-Source-Names": ",".join(p.name for p in paths)},
+        )
 
     @app.post("/api/models/available")
     def models_available(body: ModelsAvailableBody) -> JSONResponse:
@@ -1896,7 +1996,7 @@ def build_app(
         for upload in files:
             if upload.filename is None:
                 raise HTTPException(400, "missing filename")
-            dest = Path(tmpdir) / _validate_source_name(upload.filename)
+            dest = Path(tmpdir) / _sanitize_tabular_name(upload.filename)
             await _save_upload(upload, dest)
             paths.append(dest)
 
@@ -1962,6 +2062,9 @@ def build_app(
                 "proposal_md": result.proposal_md,
                 "inspection_md": result.csv_inspection_md,
                 "metadata": result.metadata,
+                # The canonicalized upload names (== the rml:source names the design
+                # references — non-ASCII instrument filenames are slugged on save).
+                "source_files": [p.name for p in paths],
                 # Additive self-correction summary (TODO ④). Absent fields keep the
                 # response backward-compatible with clients that only read proposal_md.
                 "autocorrect": {
@@ -2018,7 +2121,7 @@ def build_app(
         for upload in files:
             if upload.filename is None:
                 raise HTTPException(400, "missing filename")
-            dest = Path(tmpdir) / _validate_source_name(upload.filename)
+            dest = Path(tmpdir) / _sanitize_tabular_name(upload.filename)
             await _save_upload(upload, dest)
             paths.append(dest)
 
@@ -2061,6 +2164,7 @@ def build_app(
                 "skeleton": result.skeleton,
                 "inspection_md": result.csv_inspection_md,
                 "metadata": result.metadata,
+                "source_files": [p.name for p in paths],
             }
 
         jobs: JobManager = app.state.jobs
@@ -2107,7 +2211,7 @@ def build_app(
         for upload in files:
             if upload.filename is None:
                 raise HTTPException(400, "missing filename")
-            dest = Path(tmpdir) / _validate_source_name(upload.filename)
+            dest = Path(tmpdir) / _sanitize_tabular_name(upload.filename)
             await _save_upload(upload, dest)
             paths.append(dest)
 
@@ -2162,6 +2266,7 @@ def build_app(
                 "proposal_md": result.proposal_md,
                 "inspection_md": result.csv_inspection_md,
                 "metadata": result.metadata,
+                "source_files": [p.name for p in paths],
                 "autocorrect": {
                     "enabled": rounds > 0,
                     "converged": result.converged,

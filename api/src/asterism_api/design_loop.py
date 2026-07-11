@@ -61,6 +61,7 @@ from typing import Any
 
 from asterism import substrate
 from asterism.rml_validate import read_csv_header
+from asterism_step0.dialect import apply_detected_dialects, detect_dialect, is_default
 from asterism_step0.inspect import inspect_source_set, render_markdown
 from asterism_step0.llm import LLMCancelledError, LLMTruncatedError
 from asterism_step0.mapping_ir import (
@@ -82,7 +83,9 @@ from asterism_step0.spec_repair import (
 )
 from asterism_step0.staged_propose import propose_from_skeleton
 
-_TABULAR_SUFFIXES = frozenset({".csv", ".tsv"})
+# Column-checkable delimited files: classic CSV/TSV plus the legacy instrument
+# export suffixes (ADR source-dialect.md) whose read rules a pinned dialect carries.
+_TABULAR_SUFFIXES = frozenset({".csv", ".tsv", ".txt", ".dat", ".asc"})
 
 # The refine comment intro (server twin of the UI's workbench:fix.commentIntro).
 _FIX_INTRO = (
@@ -197,11 +200,72 @@ def _fn_set_subject(msg: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Source dialects (ADR source-dialect.md — design-side wiring)
+# ---------------------------------------------------------------------------
+
+
+def _read_header(path: Path, dialect: Any | None) -> list[str]:
+    """``read_csv_header`` through a pinned dialect; None / all-default reads
+    exactly as today (byte-identical current behavior — the is_default gate)."""
+    if dialect is not None and not is_default(dialect):
+        return read_csv_header(path, dialect=dialect)
+    return read_csv_header(path)
+
+
+def _detect_source_dialects(paths: list[Path]) -> dict[str, Any]:
+    """Deterministically sniff each tabular upload's dialect (encoding / delimiter /
+    header offset) ONCE per design run. Only non-default dialects are kept, so a
+    clean UTF-8 comma CSV set yields ``{}`` and nothing downstream changes."""
+    detected: dict[str, Any] = {}
+    for p in paths:
+        if p.suffix.lower() not in _TABULAR_SUFFIXES:
+            continue
+        try:
+            dialect = detect_dialect(p)
+        except OSError:
+            continue
+        if not is_default(dialect):
+            detected[p.name] = dialect
+    return detected
+
+
+def _overlay_detected_dialects(schema_md: str, detected: Mapping[str, Any]) -> str:
+    """Pin the detected dialects into the schema's §9 mapping spec (``dialects:``
+    section) so they travel design → artifact → ingest.
+
+    Deterministic and idempotent — applied after round-0 and after every refine
+    round (a repair could drop the section), BEFORE validation/compile, so the
+    closed-set checks and the compiled RML annotations always see the pinned
+    dialects. ``apply_detected_dialects`` keeps explicit IR values over detected
+    ones (the human gate can override). No-op when nothing non-default was
+    detected, the schema has no §9 spec (legacy raw-RML proposals), or the block
+    cannot be spliced — the design is then byte-untouched.
+    """
+    if not detected:
+        return schema_md
+    ir_yaml, _ = _extract_design(schema_md)
+    if not ir_yaml or not ir_yaml.strip():
+        return schema_md
+    new_yaml = apply_detected_dialects(ir_yaml, detected)
+    if new_yaml == ir_yaml:
+        return schema_md
+    try:
+        return replace_mapping_spec_block(schema_md, new_yaml)
+    except ValueError:
+        return schema_md
+
+
+# ---------------------------------------------------------------------------
 # The Tier-0 oracle (deterministic closed menu injected into the refine prompt)
 # ---------------------------------------------------------------------------
 
 
-def build_oracle(source_dir: Path | str, csv_paths: list[Path | str]) -> str:
+def build_oracle(
+    source_dir: Path | str,
+    csv_paths: list[Path | str],
+    *,
+    dialects: Mapping[str, Any] | None = None,
+) -> str:
     """A deterministic 'closed menu' appendix for the refine USER message.
 
     Enumerates (1) the exact legal source filenames, (2) each tabular file's real
@@ -211,7 +275,8 @@ def build_oracle(source_dir: Path | str, csv_paths: list[Path | str]) -> str:
     surface — FnO parameter IRIs are the compiler's business now). This turns each
     refine round from "you were wrong, try again" (which weak models re-break) into
     "pick only from this menu" — the single strongest lever for weak-model
-    convergence. Pure + LLM-free.
+    convergence. ``dialects`` (detected per file, ADR source-dialect.md) makes the
+    column read match what ingest will normalize to. Pure + LLM-free.
     """
     base = Path(source_dir)
     names = sorted({Path(p).name for p in csv_paths})
@@ -221,7 +286,11 @@ def build_oracle(source_dir: Path | str, csv_paths: list[Path | str]) -> str:
     ]
     for name in names:
         p = base / name
-        cols = read_csv_header(p) if p.suffix.lower() in _TABULAR_SUFFIXES else []
+        cols = (
+            _read_header(p, (dialects or {}).get(name))
+            if p.suffix.lower() in _TABULAR_SUFFIXES
+            else []
+        )
         if cols:
             lines.append(f"  • {name} — columns: {', '.join(cols)}")
         else:
@@ -343,8 +412,12 @@ def _collect_ir_issues(ir_yaml: str, source_dir: Path) -> list[Issue]:
         files = sorted(p.name for p in Path(source_dir).iterdir() if p.is_file())
     except OSError:
         files = []
+    # Closed-set column validation reads each header through the spec's pinned
+    # dialect (the IR ``dialects:`` section — detected values were overlaid before
+    # this runs, explicit ones win), so it sees the same rows Morph-KGC will.
+    ir_dialects: Mapping[str, Any] = getattr(ir, "dialects", None) or {}
     headers = {
-        f: (read_csv_header(Path(source_dir) / f) or None)
+        f: (_read_header(Path(source_dir) / f, ir_dialects.get(f)) or None)
         for f in files
         if Path(f).suffix.lower() in _TABULAR_SUFFIXES
     }
@@ -553,7 +626,10 @@ def run_design_loop(
 
     if should_cancel is not None and should_cancel():
         raise LLMCancelledError("cancelled")
-    oracle = build_oracle(base, paths)
+    # Detect ONCE at design time (ADR source-dialect.md); pinned into every §9
+    # candidate below so the artifacts carry the dialect, ingest never re-detects.
+    detected = _detect_source_dialects(paths)
+    oracle = build_oracle(base, paths, dialects=detected)
     if skeleton is not None:
         # Phase 2b staged round-0. The oracle IS the per-map menu (exact files /
         # columns / function signatures), so property generation stays inside the
@@ -595,6 +671,7 @@ def run_design_loop(
         schema_md = proposal.proposal_md
         inspection_md = proposal.csv_inspection_md
         metadata = dict(proposal.metadata)
+    schema_md = _overlay_detected_dialects(schema_md, detected)
 
     def _result(
         best_schema: str,
@@ -718,6 +795,9 @@ def run_design_loop(
                                reason="refine_truncated", initial=initial, base_refs=base_refs)
             schema_md = ref.effective_schema_md  # == ref.refined_md when complete
 
+        # Re-pin the detected dialects (a repair round could have dropped the
+        # section; explicit values the round kept still win). Idempotent.
+        schema_md = _overlay_detected_dialects(schema_md, detected)
         try:
             ir_yaml, rml_ttl = _extract_design(schema_md)
             issues = collect_issues(ir_yaml, rml_ttl, base)

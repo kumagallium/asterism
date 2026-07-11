@@ -23,8 +23,13 @@ export const SOURCE_LABEL: Record<SourceKind, string> = {
 // working picker). The rest render disabled with a "近日" badge.
 export const SUPPORTED_SOURCES: readonly SourceKind[] = ['csv', 'json', 'document']
 
+// Tabular uploads also accept legacy instrument text exports (.tsv/.txt/.dat/.asc):
+// the server sniffs + pins the source dialect at design time and normalizes at
+// ingest (docs/architecture/source-dialect.md).
+export const TABULAR_ACCEPT = '.csv,.tsv,.txt,.dat,.asc'
+
 // The file picker's `accept` filter per wired source kind.
 export const SOURCE_ACCEPT: Partial<Record<SourceKind, string>> = {
-  csv: '.csv',
+  csv: TABULAR_ACCEPT,
   json: '.json,.geojson',
 }

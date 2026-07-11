@@ -435,3 +435,75 @@ def test_catalog_from_registry_classifies_params() -> None:
     assert split is not None and split.multivalued
     assert catalog.get("slug") is not None and not catalog.get("slug").multivalued
     assert catalog.get("no_such_fn") is None
+
+
+# ---------------------------------------------------------------------------
+# dialects section (ADR source-dialect.md)
+# ---------------------------------------------------------------------------
+
+TXT_MINIMAL = MINIMAL.replace("source: data.csv", "source: data.txt")
+
+
+def test_instrument_suffixes_accepted() -> None:
+    for suffix in (".txt", ".dat", ".asc", ".tsv"):
+        parse_mapping_ir(MINIMAL.replace("data.csv", f"data{suffix}"))
+
+
+def test_dialects_parse_onto_ir() -> None:
+    text = TXT_MINIMAL + (
+        "dialects:\n"
+        '  "data.txt":\n'
+        "    encoding: cp932\n"
+        '    delimiter: "\\t"\n'
+        "    skip_rows: 1\n"
+    )
+    ir = parse_mapping_ir(text)
+    d = ir.dialects["data.txt"]
+    assert (d.encoding, d.delimiter, d.collapse, d.skip_rows) == ("cp932", "\t", False, 1)
+
+
+def test_dialects_whitespace_sentinel_ok() -> None:
+    text = TXT_MINIMAL + 'dialects:\n  "data.txt": { delimiter: whitespace, skip_rows: 23 }\n'
+    ir = parse_mapping_ir(text)
+    assert ir.dialects["data.txt"].delimiter == "whitespace"
+    assert ir.dialects["data.txt"].skip_rows == 23
+
+
+def test_dialects_absent_is_empty() -> None:
+    assert parse_mapping_ir(MINIMAL).dialects == {}
+
+
+def test_dialects_unknown_field_is_error() -> None:
+    text = TXT_MINIMAL + 'dialects:\n  "data.txt": { codepage: cp932 }\n'
+    issues = parse_issues(text)
+    assert any("unknown field 'codepage'" in i for i in issues)
+
+
+def test_dialects_bad_codec() -> None:
+    text = TXT_MINIMAL + 'dialects:\n  "data.txt": { encoding: not-a-codec }\n'
+    issues = parse_issues(text)
+    assert any("not a known Python codec" in i for i in issues)
+
+
+def test_dialects_bad_delimiter_and_skip_rows() -> None:
+    text = TXT_MINIMAL + 'dialects:\n  "data.txt": { delimiter: "||", skip_rows: -1 }\n'
+    issues = parse_issues(text)
+    assert any("single character" in i for i in issues)
+    assert any("non-negative" in i for i in issues)
+
+
+def test_dialects_filename_must_match_declared_source() -> None:
+    text = MINIMAL + 'dialects:\n  "data_v1.csv": { encoding: cp932 }\n'
+    issues = parse_issues(text)
+    assert any("must match a declared source" in i and "data.csv" in i for i in issues)
+
+
+def test_dialects_apply_to_tabular_sources_only() -> None:
+    xml = (
+        MINIMAL.replace("source: data.csv", 'source: doc.xml\n    iterator: "/x"').replace(
+            'template: "exr:thing/{id}"', 'template: "exr:thing/{@id}"'
+        )
+        + 'dialects:\n  "doc.xml": { encoding: cp932 }\n'
+    )
+    issues = parse_issues(xml)
+    assert any("tabular sources only" in i for i in issues)

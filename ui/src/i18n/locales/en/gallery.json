@@ -152,6 +152,9 @@
       "fullTextSub": "Version before the redesign on {{when}}"
     }
   },
+  "sourceKind": {
+    "tabular": "CSV/TSV/instrument text"
+  },
   "ingest": {
     "head": "Import data",
     "noRml": "This design has no declarative RML mapping, so it cannot be ingested. Generate §RML (declarative mapping) via \"AI design\" in the workbench, and you will be able to load it safely from here.",

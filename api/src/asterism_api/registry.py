@@ -47,11 +47,16 @@ _META_FILE = "meta.json"
 # data it was built from (reproducibility — the citable-facts product direction).
 # This lets the catalog ingest a *design*-stage dataset with no re-attach.
 _SOURCE_DIR = "source"
-# Accepted source file extensions: CSV and JSON (#19) and XML/JATS + Word/PDF
-# (document-ontology layer). Morph-KGC reads csv/json/xml via the RML's
-# referenceFormulation (ql:CSV / ql:JSONPath / ql:XPath); a .pdf is a document source
-# converted to JATS by the Docling sidecar at ingest (ADR pdf-docling-conversion.md).
-_SOURCE_SUFFIXES = (".csv", ".json", ".geojson", ".xml", ".pdf")
+# Accepted source file extensions: CSV and JSON (#19), XML/JATS + Word/PDF
+# (document-ontology layer), and legacy instrument tabular exports
+# (.tsv/.txt/.dat/.asc — ADR source-dialect.md; normalized to UTF-8 comma CSV in
+# the substrate work_dir before Morph-KGC). Morph-KGC reads csv/json/xml via the
+# RML's referenceFormulation (ql:CSV / ql:JSONPath / ql:XPath); a .pdf is a
+# document source converted to JATS by the Docling sidecar at ingest
+# (ADR pdf-docling-conversion.md).
+_SOURCE_SUFFIXES = (
+    ".csv", ".tsv", ".txt", ".dat", ".asc", ".json", ".geojson", ".xml", ".pdf"
+)
 
 
 def source_kind_of(filenames: list[str]) -> str:
@@ -59,8 +64,9 @@ def source_kind_of(filenames: list[str]) -> str:
 
     A dataset's source is a single kind in practice; a DOCUMENT source (JATS ``.xml`` or
     born-digital ``.pdf``) maps to ``"xml"`` (the deterministic structurer path) and wins,
-    then JSON, else CSV (the default for an empty set). ``.pdf`` is converted to JATS at
-    ingest, so it shares the document path under the ``"xml"`` kind.
+    then JSON, else CSV (the default for an empty set — and the kind of every tabular
+    dialect suffix: .tsv/.txt/.dat/.asc normalize to CSV at ingest). ``.pdf`` is
+    converted to JATS at ingest, so it shares the document path under the ``"xml"`` kind.
     """
     if any(Path(n).suffix.lower() in (".xml", ".pdf") for n in filenames):
         return "xml"

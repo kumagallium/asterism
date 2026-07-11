@@ -36,6 +36,13 @@ Output formatting in :func:`render_markdown` matches the layout suggested by
 the ``step1_inspection`` argument to the Step 3 schema-proposal prompt.
 
 BOM handling (trap T2): every CSV is opened with ``encoding="utf-8-sig"``.
+
+Source dialects (ADR ``source-dialect.md``): every tabular source is sniffed
+with :func:`asterism_step0.dialect.detect_dialect` first; a non-default dialect
+(CP932, tab/whitespace separation, preamble rows) is applied when reading and
+reported both on :class:`SourceInspection` and in the Markdown, so legacy
+instrument files can be thrown in as-is. A default dialect keeps the original
+read path — and the rendered Markdown — byte-identical.
 """
 
 from __future__ import annotations
@@ -46,10 +53,18 @@ import itertools
 import json
 import re
 from collections import Counter
-from collections.abc import Iterable, Iterator, Sequence
-from dataclasses import dataclass, field
+from collections.abc import Iterable, Iterator, Mapping, Sequence
+from dataclasses import dataclass, field, replace
 from datetime import date
 from pathlib import Path
+
+from asterism_step0.dialect import (
+    SourceDialect,
+    describe_dialect,
+    detect_dialect,
+    is_default,
+    iter_rows,
+)
 
 # ----------------------------------------------------------------------------
 # Type inference primitives
@@ -284,6 +299,8 @@ class SourceInspection:
     iterator: str | None = None  # JSONPath/XPath record iterator (None for CSV)
     xml_iterators: list[XmlIterator] | None = None  # structural iterators for XML/JATS
     root_element: str | None = None  # XML document root tag
+    dialect: SourceDialect | None = None  # non-default dialect the source was read with
+    dialect_origin: str | None = None  # "detected" | "specified" (None when default)
 
     def column(self, name: str) -> ColumnSummary | None:
         return next((c for c in self.columns if c.name == name), None)
@@ -314,6 +331,23 @@ def _stream_rows(path: Path) -> Iterator[dict[str, str]]:
     """Open a CSV with BOM-tolerant encoding and yield each row as a dict."""
     with path.open(encoding="utf-8-sig", newline="") as fh:
         yield from csv.DictReader(fh)
+
+
+def _dialect_rows(path: Path, dialect: SourceDialect) -> list[dict[str, str]]:
+    """Materialise dict rows through a non-default dialect.
+
+    The first dialect-applied row is the header, the rest are data. Shorter
+    rows fill with empty cells and extra cells are dropped (the same
+    forgiveness ``csv.DictReader`` extends to ragged rows).
+    """
+    rows_iter = iter_rows(path, dialect)
+    header = next(rows_iter, None)
+    if not header:
+        return []
+    return [
+        {name: (row[i] if i < len(row) else "") for i, name in enumerate(header)}
+        for row in rows_iter
+    ]
 
 
 def _summarize_rows(rows: list[dict[str, str]], columns: Sequence[str]) -> list[ColumnSummary]:
@@ -370,7 +404,9 @@ def _summarize_rows(rows: list[dict[str, str]], columns: Sequence[str]) -> list[
     return summaries
 
 
-def _build_column_summaries(path: Path) -> tuple[list[ColumnSummary], int, list[dict[str, str]]]:
+def _build_column_summaries(
+    path: Path, dialect: SourceDialect | None = None
+) -> tuple[list[ColumnSummary], int, list[dict[str, str]]]:
     """Stream the CSV once; return per-column summaries, row count, and a
     bounded slice of materialised rows for downstream uniqueness checks.
     """
@@ -383,7 +419,7 @@ def _build_column_summaries(path: Path) -> tuple[list[ColumnSummary], int, list[
     # we hold the whole CSV in memory. For starrydata's largest file
     # (curves.csv, 233k rows) this is acceptable; users with multi-million-row
     # CSVs should use a streaming variant (future work).
-    rows = list(_stream_rows(path))
+    rows = _dialect_rows(path, dialect) if dialect is not None else list(_stream_rows(path))
     if not rows:
         return [], 0, []
 
@@ -507,7 +543,12 @@ def _composite_uniqueness_search(
     return reports
 
 
-def inspect_csv(path: Path | str, *, fk_hint_columns: Sequence[str] | None = None) -> CSVInspection:
+def inspect_csv(
+    path: Path | str,
+    *,
+    fk_hint_columns: Sequence[str] | None = None,
+    dialect: SourceDialect | None = None,
+) -> CSVInspection:
     """Inspect a single CSV.
 
     Args:
@@ -516,9 +557,16 @@ def inspect_csv(path: Path | str, *, fk_hint_columns: Sequence[str] | None = Non
             companions to the ID candidates (e.g. ``["SID"]`` for starrydata's
             sample/curve CSVs). When provided, composite-key uniqueness is
             tested. When omitted, only single-column uniqueness is reported.
+        dialect: explicit source dialect (CLI/API override). When omitted the
+            dialect is auto-detected (``detect_dialect``); a default dialect —
+            detected or given — keeps the original read path byte-identical.
     """
     p = Path(path)
-    summaries, row_count, rows = _build_column_summaries(p)
+    origin = "specified" if dialect is not None else "detected"
+    effective: SourceDialect | None = dialect if dialect is not None else detect_dialect(p)
+    if effective is not None and is_default(effective):
+        effective, origin = None, None
+    summaries, row_count, rows = _build_column_summaries(p, dialect=effective)
     if not rows:
         return CSVInspection(
             path=str(p),
@@ -526,6 +574,8 @@ def inspect_csv(path: Path | str, *, fk_hint_columns: Sequence[str] | None = Non
             total_rows=0,
             columns=[],
             uniqueness_reports=[],
+            dialect=effective,
+            dialect_origin=origin if effective is not None else None,
         )
 
     id_candidates = _id_candidate_columns(summaries)
@@ -542,6 +592,8 @@ def inspect_csv(path: Path | str, *, fk_hint_columns: Sequence[str] | None = Non
         total_rows=row_count,
         columns=summaries,
         uniqueness_reports=reports,
+        dialect=effective,
+        dialect_origin=origin if effective is not None else None,
     )
 
 
@@ -718,6 +770,13 @@ def _value_buckets(ins: SourceInspection) -> dict[str, set[str]]:
                 if v and len(buckets[col_name]) < cap:
                     buckets[col_name].add(v)
         return buckets
+    if ins.dialect is not None:
+        for row in _dialect_rows(Path(ins.path), ins.dialect):
+            for col_name in buckets:
+                v = (row.get(col_name) or "").strip()
+                if v and len(buckets[col_name]) < cap:
+                    buckets[col_name].add(v)
+        return buckets
     with Path(ins.path).open(encoding="utf-8-sig", newline="") as fh:
         reader = csv.DictReader(fh)
         for row in reader:
@@ -871,12 +930,13 @@ def _inspect_one(
     *,
     fk_hint_columns: Sequence[str] | None,
     record_path: str | None,
+    dialect: SourceDialect | None = None,
 ) -> SourceInspection:
     if _is_json_path(p):
         return inspect_json(p, fk_hint_columns=fk_hint_columns, record_path=record_path)
     if _is_xml_path(p):
         return inspect_xml(p)
-    return inspect_csv(p, fk_hint_columns=fk_hint_columns)
+    return inspect_csv(p, fk_hint_columns=fk_hint_columns, dialect=dialect)
 
 
 def inspect_source_set(
@@ -884,6 +944,7 @@ def inspect_source_set(
     *,
     fk_hint_columns: Sequence[str] | None = None,
     record_path: str | None = None,
+    dialects: Mapping[str, SourceDialect] | None = None,
 ) -> tuple[list[SourceInspection], list[ForeignKeyCandidate]]:
     """Inspect a set of sources, dispatching per file by extension.
 
@@ -891,10 +952,19 @@ def inspect_source_set(
     supported; foreign-key candidates are reported across the tabular (CSV/JSON)
     sources only (XML carries no columns). This is the source-agnostic entry point
     the API/CLI use; the per-kind ``inspect_csv_set`` / ``inspect_json_set`` remain
-    for callers that know the kind up front.
+    for callers that know the kind up front. ``dialects`` maps a source basename
+    to an explicit dialect override (tabular sources only); sources not listed
+    are auto-detected.
     """
+    dialects = dialects or {}
     inspections = [
-        _inspect_one(p, fk_hint_columns=fk_hint_columns, record_path=record_path) for p in paths
+        _inspect_one(
+            p,
+            fk_hint_columns=fk_hint_columns,
+            record_path=record_path,
+            dialect=dialects.get(Path(p).name),
+        )
+        for p in paths
     ]
     fks = _detect_foreign_keys(inspections)
     return inspections, fks
@@ -967,7 +1037,11 @@ def render_markdown(
         else:
             buf.write(f"## CSV: {ins.name}\n\n")
             buf.write(f"- Total rows: {ins.total_rows:,}\n")
-            buf.write(f"- Path: `{ins.path}`\n\n")
+            buf.write(f"- Path: `{ins.path}`\n")
+            if ins.dialect is not None:
+                origin = "specified" if ins.dialect_origin == "specified" else "auto-detected"
+                buf.write(f"- Dialect: {describe_dialect(ins.dialect)} ({origin})\n")
+            buf.write("\n")
 
         buf.write("### Columns\n\n")
         buf.write("| name | type | non-null rate | distinct values | sample values |\n")
@@ -1073,14 +1147,83 @@ def _build_arg_parser():  # type: ignore[no-untyped-def]
         default=None,
         help="Write Markdown to this file. Defaults to stdout.",
     )
+    p.add_argument(
+        "--encoding",
+        default=None,
+        help="Override the detected source encoding (any Python codec name, e.g. cp932).",
+    )
+    p.add_argument(
+        "--delimiter",
+        default=None,
+        help=(
+            "Override the detected delimiter: a single character or one of "
+            "comma / tab / semicolon / pipe / space / whitespace."
+        ),
+    )
+    p.add_argument(
+        "--collapse",
+        action="store_true",
+        help="Treat consecutive delimiters as one (Excel-style).",
+    )
+    p.add_argument(
+        "--skip-rows",
+        dest="skip_rows",
+        type=int,
+        default=None,
+        help="Lines before the header row (preamble).",
+    )
     return p
+
+
+# Spelled-out delimiter names the CLI accepts (a raw single char also works).
+_DELIMITER_OPTIONS = {
+    "comma": ",",
+    "tab": "\t",
+    "\\t": "\t",
+    "semicolon": ";",
+    "pipe": "|",
+    "space": " ",
+    "whitespace": "whitespace",
+}
+
+
+def _cli_dialects(args) -> dict[str, SourceDialect] | None:  # type: ignore[no-untyped-def]
+    """Per-source dialect overrides from the CLI flags: detect each tabular
+    source, then replace only the explicitly-given fields."""
+    overrides: dict[str, object] = {}
+    if args.encoding is not None:
+        overrides["encoding"] = args.encoding
+    if args.delimiter is not None:
+        delimiter = _DELIMITER_OPTIONS.get(args.delimiter, args.delimiter)
+        if delimiter != "whitespace" and len(delimiter) != 1:
+            raise SystemExit(
+                f"--delimiter must be a single character or one of "
+                f"{', '.join(sorted(_DELIMITER_OPTIONS))} (got {args.delimiter!r})."
+            )
+        overrides["delimiter"] = delimiter
+    if args.collapse:
+        overrides["collapse"] = True
+    if args.skip_rows is not None:
+        if args.skip_rows < 0:
+            raise SystemExit("--skip-rows must be a non-negative integer.")
+        overrides["skip_rows"] = args.skip_rows
+    if not overrides:
+        return None
+    return {
+        Path(src).name: replace(detect_dialect(src), **overrides)  # type: ignore[arg-type]
+        for src in args.source
+        if not (_is_json_path(src) or _is_xml_path(src))
+    }
 
 
 def _main(argv: list[str] | None = None) -> int:
     args = _build_arg_parser().parse_args(argv)
     fk_hint = args.fk_hint or None
     inspections, fks = inspect_source_set(
-        args.source, fk_hint_columns=fk_hint, record_path=args.record_path
+        args.source,
+        fk_hint_columns=fk_hint,
+        record_path=args.record_path,
+        dialects=_cli_dialects(args),
     )
     md = render_markdown(inspections, fks)
     if args.output is None:

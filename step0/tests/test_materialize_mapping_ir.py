@@ -161,3 +161,44 @@ def test_mie_absent_does_not_steal_mapping_spec(tmp_path: Path) -> None:
     assert "maps:" in result.mapping_ir_yaml
     assert result.mie_yaml is None
     assert result.rml_ttl is not None
+
+
+# ---------------------------------------------------------------------------
+# Source dialects (ADR source-dialect.md): --source-dir pinning
+# ---------------------------------------------------------------------------
+
+
+def test_source_dir_pins_detected_dialects(tmp_path: Path) -> None:
+    src = tmp_path / "sources"
+    src.mkdir()
+    lines = ["id,名前"] + [f"{i},材料{i}" for i in range(6)]
+    (src / "data.csv").write_bytes("\n".join(lines).encode("cp932") + b"\n")
+
+    result = materialize_schema(PROPOSAL_WITH_IR, tmp_path / "out", "demo", source_dir=src)
+    assert result.mapping_ir_issues == []
+    assert result.mapping_ir_yaml is not None and "dialects:" in result.mapping_ir_yaml
+    assert "cp932" in result.mapping_ir_yaml
+    assert result.rml_ttl is not None
+    assert 'ast:sourceEncoding "cp932"' in result.rml_ttl
+    assert "@prefix ast: <https://kumagallium.github.io/asterism/vocab#> ." in result.rml_ttl
+    # the persisted spec artifact carries the pinned dialect too
+    written = Path(result.written_paths["mapping_ir"]).read_text(encoding="utf-8")
+    assert "cp932" in written
+
+
+def test_source_dir_with_clean_source_changes_nothing(tmp_path: Path) -> None:
+    src = tmp_path / "sources"
+    src.mkdir()
+    lines = ["id,name"] + [f"{i},row{i}" for i in range(6)]
+    (src / "data.csv").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    plain = materialize_schema(PROPOSAL_WITH_IR, tmp_path / "o1", "demo")
+    dialected = materialize_schema(PROPOSAL_WITH_IR, tmp_path / "o2", "demo", source_dir=src)
+    assert dialected.mapping_ir_yaml == plain.mapping_ir_yaml  # byte-identical
+    assert dialected.rml_ttl == plain.rml_ttl
+
+
+def test_apply_source_dialects_missing_file_is_noop(tmp_path: Path) -> None:
+    from asterism_step0.materialize import apply_source_dialects
+
+    assert apply_source_dialects(IR_BLOCK, tmp_path) == IR_BLOCK

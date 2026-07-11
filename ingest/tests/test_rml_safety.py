@@ -74,6 +74,29 @@ def test_relative_xml_source_passes(tmp_path: Path) -> None:
     assert_rml_safe(rml, tmp_path)
 
 
+def test_legacy_instrument_extensions_pass(tmp_path: Path) -> None:
+    # .txt/.dat/.asc back the source-dialect path (ADR source-dialect.md): the
+    # substrate normalizes them to UTF-8 comma CSV before Morph-KGC reads anything.
+    for name in ("xrd_measurement.txt", "scan.dat", "spectrum.asc"):
+        rml = _RML_PREFIX + f'<#M> rml:source "{name}" .\n'
+        assert_rml_safe(rml, tmp_path)
+
+
+def test_dialect_annotations_pass(tmp_path: Path) -> None:
+    # The ast: dialect annotations carry no execution semantics (they only say how
+    # to DECODE the confined source), so the gate must not reject an annotated map.
+    rml = (
+        _RML_PREFIX
+        + "@prefix ast: <https://kumagallium.github.io/asterism/vocab#> .\n"
+        + '<#M> rml:logicalSource [ rml:source "xrd_measurement.txt" ;\n'
+        + '  ast:sourceEncoding "cp932" ;\n'
+        + '  ast:sourceDelimiter "\\t" ;\n'
+        + "  ast:sourceCollapse true ;\n"
+        + "  ast:sourceSkipRows 1 ] .\n"
+    )
+    assert_rml_safe(rml, tmp_path)
+
+
 def test_disallowed_extension_rejected(tmp_path: Path) -> None:
     rml = _RML_PREFIX + '<#M> rml:source "data.parquet" .\n'
     with pytest.raises(RmlSafetyError, match="csv"):

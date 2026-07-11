@@ -69,6 +69,28 @@ def _prefixes_schema() -> dict:
     }
 
 
+def _dialects_schema() -> dict:
+    # The optional per-source read dialects (ADR source-dialect.md). The design
+    # pipeline overlays this section deterministically — the LLM never has to
+    # author it — but a repair round-trips the whole IR, so the schema must be
+    # able to REPRESENT it. Same guided-decoding constraint as ``prefixes``: no
+    # ``propertyNames`` (Sakura vLLM rejects it) — filename↔source matching and
+    # codec validity stay with the strict parser.
+    return {
+        "type": "object",
+        "additionalProperties": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "encoding": _string(),
+                "delimiter": _string(),
+                "collapse": {"type": "boolean"},
+                "skip_rows": {"type": "integer", "minimum": 0},
+            },
+        },
+    }
+
+
 def _subject_schema(function_names: Sequence[str] | None) -> dict:
     transform_obj = {"type": "object", "additionalProperties": _function_value(function_names)}
     return {
@@ -127,6 +149,7 @@ def mapping_ir_json_schema(function_names: Sequence[str] | None = None) -> dict:
         "properties": {
             "version": {"const": 1},
             "prefixes": _prefixes_schema(),
+            "dialects": _dialects_schema(),
             "maps": {
                 "type": "array",
                 "minItems": 1,

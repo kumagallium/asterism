@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from asterism.dialect import SourceDialect
 from asterism.rml_validate import (
     RmlValidationError,
     read_csv_header,
@@ -307,6 +308,77 @@ def test_unparseable_rml_is_left_to_the_safety_gate(tmp_path: Path) -> None:
     # rml_safety owns the parse-error rejection; here we just return without raising
     # a design error (so we never produce a confusing second message for bad Turtle).
     validate_rml_design("this is not turtle {{{", tmp_path)  # no raise
+
+
+# ---- source-dialect header reads (ADR source-dialect.md) ---------------------
+
+
+def _write_cp932_xrd(dir_: Path) -> Path:
+    # The audited legacy shape: CP932, CRLF, tab-separated, one preamble line.
+    src = dir_ / "xrd_measurement.txt"
+    lines = ["サンプル名: 試料A", "angle\tsample", "10.5\t試料A"]
+    src.write_bytes("\r\n".join(lines).encode("cp932") + b"\r\n")
+    return src
+
+
+def test_read_csv_header_with_dialect(tmp_path: Path) -> None:
+    # A pinned dialect reads the header through the SAME rules normalization uses
+    # (encoding + skip_rows + delimiter), so the columns match what Morph-KGC sees.
+    src = _write_cp932_xrd(tmp_path)
+    dialect = SourceDialect(encoding="cp932", delimiter="\t", skip_rows=1)
+    assert read_csv_header(src, dialect) == ["angle", "sample"]
+    # A default dialect keeps today's plain utf-8-sig read (the all-defaults
+    # gate) — which cannot even decode this file: the pre-dialect barrier.
+    with pytest.raises(UnicodeDecodeError):
+        read_csv_header(src, SourceDialect())
+
+
+def test_read_csv_header_with_dialect_undecodable_returns_empty(tmp_path: Path) -> None:
+    # "cannot check" (skip), never a crash — the ingest boundary raises the loud error.
+    src = tmp_path / "d.txt"
+    src.write_bytes(b"a\tb\n\xff\xff\t1\n")
+    assert read_csv_header(src, SourceDialect(encoding="ascii", delimiter="\t")) == []
+
+
+_DIALECT_LS = (
+    '  rml:logicalSource [ rml:source "xrd_measurement.txt" ;\n'
+    "    rml:referenceFormulation ql:CSV ;\n"
+    '    ast:sourceEncoding "cp932" ;\n'
+    '    ast:sourceDelimiter "\\t" ;\n'
+    "    ast:sourceSkipRows 1 ] ;\n"
+)
+_AST_PREFIX = "@prefix ast: <https://kumagallium.github.io/asterism/vocab#> .\n"
+
+
+def test_dialected_source_columns_pass_when_real(tmp_path: Path) -> None:
+    # Un-prepared RML with dialect annotations: the column check reads the .txt
+    # source through its pinned dialect, so real columns are NOT flagged.
+    _write_cp932_xrd(tmp_path)
+    rml = _PREFIXES + _AST_PREFIX + (
+        "<#M> a rr:TriplesMap ;\n"
+        + _DIALECT_LS
+        + '  rr:subjectMap [ rr:template "http://x/{angle}" ] ;\n'
+        '  rr:predicateObjectMap [ rr:predicate <http://x/s> ;\n'
+        '    rr:objectMap [ rml:reference "sample" ] ] .\n'
+    )
+    validate_rml_design(rml, tmp_path)  # no raise
+
+
+def test_dialected_source_column_typo_is_flagged(tmp_path: Path) -> None:
+    # ... and a typo IS flagged (proving the dialected .txt source is checked as a
+    # tabular source instead of skipped for its extension).
+    _write_cp932_xrd(tmp_path)
+    rml = _PREFIXES + _AST_PREFIX + (
+        "<#M> a rr:TriplesMap ;\n"
+        + _DIALECT_LS
+        + '  rr:subjectMap [ rr:template "http://x/{angle}" ] ;\n'
+        '  rr:predicateObjectMap [ rr:predicate <http://x/s> ;\n'
+        '    rr:objectMap [ rml:reference "samplee" ] ] .\n'
+    )
+    with pytest.raises(RmlValidationError) as exc:
+        validate_rml_design(rml, tmp_path)
+    assert any("samplee" in m and "xrd_measurement.txt" in m for m in exc.value.issues)
+    assert any("sample" in m for m in exc.value.issues)  # did-you-mean hits the real column
 
 
 # ---------------------------------------------------------------------------

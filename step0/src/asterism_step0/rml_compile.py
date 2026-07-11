@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import re
 
+from asterism_step0.dialect import SourceDialect
 from asterism_step0.mapping_ir import (
     BUILTIN_PREFIXES,
     FunctionCatalog,
@@ -40,6 +41,11 @@ from asterism_step0.mapping_ir import (
 )
 
 __all__ = ["RmlCompileError", "compile_mapping_ir", "default_catalog"]
+
+# The asterism vocab namespace the source-dialect annotations live in (ADR
+# source-dialect.md) — the same ASTERISM_NS the substrate reads. The two sides
+# communicate via the RML artifact, not Python imports.
+ASTERISM_NS = "https://kumagallium.github.io/asterism/vocab#"
 
 # The compiler-owned prefix block. rmlf: MUST be http://w3id.org/rml/ — Morph-KGC
 # does not support the legacy http://semweb.mmlab.be/ns/fnml# namespace.
@@ -95,6 +101,23 @@ def _turtle_string(value: str) -> str:
     return f'"{out}"'
 
 
+def _dialect_annotations(dialect: SourceDialect) -> list[str]:
+    """The ``ast:`` logical-source annotations for the NON-default dialect
+    fields (ADR source-dialect.md). They carry no execution semantics — the
+    substrate normalizes the source to UTF-8 comma CSV and strips them before
+    morph-kgc ever sees the mapping."""
+    out: list[str] = []
+    if dialect.encoding != "utf-8-sig":
+        out.append(f"ast:sourceEncoding {_turtle_string(dialect.encoding)}")
+    if dialect.delimiter != ",":
+        out.append(f"ast:sourceDelimiter {_turtle_string(dialect.delimiter)}")
+    if dialect.collapse:
+        out.append("ast:sourceCollapse true")
+    if dialect.skip_rows:
+        out.append(f"ast:sourceSkipRows {dialect.skip_rows}")
+    return out
+
+
 class _Compiler:
     def __init__(self, ir: MappingIR, catalog: FunctionCatalog):
         self.ir = ir
@@ -102,6 +125,9 @@ class _Compiler:
         self.issues: list[str] = []
         self.namespaces: dict[str, str] = dict(BUILTIN_PREFIXES)
         self.namespaces.update(ir.prefixes)
+        # Set while emitting maps; gates the ast: prefix declaration so an
+        # IR without dialects compiles byte-identically to before.
+        self.uses_dialect = False
 
     # -- terms ---------------------------------------------------------------
 
@@ -360,13 +386,26 @@ class _Compiler:
         lines: list[str] = [f"{node} a rr:TriplesMap ;"]
         source = _turtle_string(m.source)
         suffix = "." + m.source.rsplit(".", 1)[-1].lower() if "." in m.source else ""
+        dialect = self.ir.dialects.get(m.source)
+        annotations = _dialect_annotations(dialect) if dialect is not None else []
         if suffix in _XML_SUFFIXES:
+            if annotations:
+                # The parser flags this too; the compiler refuses as backstop.
+                self._fail(f"{where}: a source dialect applies to tabular sources only.")
             if not m.iterator:
                 self._fail(f"{where}: an XML source requires an iterator.")
             lines.append(
                 "  rml:logicalSource [ rml:source "
                 f"{source} ; rml:referenceFormulation ql:XPath ;\n"
                 f"                      rml:iterator {_turtle_string(m.iterator or '')} ] ;"
+            )
+        elif annotations:
+            self.uses_dialect = True
+            sep = " ;\n                      "
+            lines.append(
+                f"  rml:logicalSource [ rml:source {source} ; "
+                "rml:referenceFormulation ql:CSV ;\n"
+                f"                      {sep.join(annotations)} ] ;"
             )
         else:
             lines.append(
@@ -393,13 +432,23 @@ class _Compiler:
             "# Compiled by the Asterism mapping-spec compiler — do not edit by hand;",
             "# edit the mapping spec (YAML) and re-materialize instead.",
         ]
+        # Maps first: emitting them decides whether the ast: prefix is needed.
+        maps = [self.triples_map(m) for m in self.ir.maps]
         prefix_lines = [
             f"@prefix {name}: <{iri}> ." for name, iri in _RESERVED_PREFIX_LINES
         ]
+        if self.uses_dialect:
+            declared_ast = self.ir.prefixes.get("ast")
+            if declared_ast is None:
+                prefix_lines.append(f"@prefix ast: <{ASTERISM_NS}> .")
+            elif declared_ast != ASTERISM_NS:
+                self._fail(
+                    f"prefix 'ast' is reserved for the source-dialect annotations "
+                    f"(<{ASTERISM_NS}>) when a dialect is declared; rename it."
+                )
         prefix_lines.append(f"@prefix xsd: <{BUILTIN_PREFIXES['xsd']}> .")
         for name in sorted(self.ir.prefixes):
             prefix_lines.append(f"@prefix {name}: <{self.ir.prefixes[name]}> .")
-        maps = [self.triples_map(m) for m in self.ir.maps]
         if not self.ir.maps:
             self._fail("The mapping spec has no maps.")
         if self.issues:
