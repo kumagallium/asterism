@@ -19,6 +19,7 @@
 // /demo/schema). Nothing is fabricated: when a signal is unavailable, the UI
 // shows "—" or an explicit empty state rather than a placeholder.
 
+import { fetchProposal } from './api'
 import { authHeaders } from './authToken'
 import i18n from './i18n'
 import { deriveReuses } from './vocab'
@@ -56,12 +57,15 @@ export interface OntologyEntry {
 
 // ---- mapping layer --------------------------------------------------------
 
-export type MappingArtifactKind = 'ingester' | 'mie' | 'shex' | 'mapping'
+export type MappingArtifactKind = 'ingester' | 'mie' | 'shex' | 'mapping' | 'spec' | 'design'
 
 export interface MappingArtifact {
   kind: MappingArtifactKind
   name: string
-  summary: string
+  /** i18n key (+ params), resolved at RENDER time so the artifact list follows
+   * the active language (a fetch-time `i18n.t()` would bake the language in). */
+  summaryKey: string
+  summaryParams?: Record<string, string | number>
 }
 
 export interface MappingPurpose {
@@ -114,6 +118,9 @@ interface DatasetMeta {
   has_mie?: boolean
   // Phase 5: declarative RML presence + draft-graph ingest status.
   has_rml?: boolean
+  // Whether the reviewed §9 Mapping IR spec (mapping.yaml) is persisted — the
+  // human-readable source the RML was deterministically compiled from.
+  has_mapping_ir?: boolean
   // Redesign: whether the design (propose/refine Markdown) was persisted, so the
   // catalog can offer a "見直す" action that reopens it in the workbench.
   has_proposal?: boolean
@@ -153,6 +160,107 @@ interface DatasetMeta {
     triples_in_batch: number
     appended_at: string
   }[]
+}
+
+// ---- ingest-rules transparency (the rules viewer) ---------------------------
+// The rules that produce the citable facts are themselves reviewable: a
+// deterministic, LLM-free projection of the persisted RML (GET /rules), the raw
+// artifact contents (GET /api/datasets/{id} — already served, now surfaced), and
+// the redesign history with server-side diffs (GET /history).
+
+/** One term-map value: how a subject/object/argument gets its value. */
+export interface RuleTerm {
+  kind?: 'reference' | 'template' | 'constant' | 'function' | 'join' | 'unknown'
+  reference?: string
+  template?: string
+  constant?: string
+  constant_is_iri?: boolean
+  function?: string
+  function_iri?: string
+  args?: (RuleTerm & { param: string })[]
+  parent_map?: string
+  conditions?: { child: string; parent: string }[]
+  datatype?: string
+  language?: string
+  term_type?: string
+}
+
+export interface RuleProperty extends RuleTerm {
+  predicate: string
+  predicate_iri: string
+}
+
+export interface RuleMap {
+  id: string
+  source?: string
+  iterator?: string
+  formulation?: string
+  subject: RuleTerm & { classes?: string[]; class_iris?: string[] }
+  properties: RuleProperty[]
+}
+
+export interface DatasetRules {
+  maps: RuleMap[]
+  prefixes: Record<string, string>
+  warnings: string[]
+  /** model.yaml labels keyed by full term IRI (same projection promote uses). */
+  labels: Record<string, string>
+}
+
+/** The human-readable projection of a dataset's persisted mapping. */
+export async function getDatasetRules(datasetId: string): Promise<DatasetRules> {
+  const res = await fetch(`${API_BASE}/api/datasets/${encodeURIComponent(datasetId)}/rules`)
+  if (!res.ok) throw new Error(await _errText(res, 'rules'))
+  return (await res.json()) as DatasetRules
+}
+
+/** Raw artifact contents (file name → text), incl. proposal.md when stored.
+ * The detail endpoint already ships every artifact; this surfaces them. */
+export async function getDatasetArtifactContents(
+  datasetId: string,
+): Promise<Record<string, string>> {
+  const res = await fetch(`${API_BASE}/api/datasets/${encodeURIComponent(datasetId)}`)
+  if (!res.ok) throw new Error(await _errText(res, 'artifacts'))
+  const body = (await res.json()) as { artifacts?: Record<string, string> }
+  const contents: Record<string, string> = { ...(body.artifacts ?? {}) }
+  try {
+    const p = await fetchProposal(datasetId)
+    if (p.has_proposal) contents['proposal.md'] = p.proposal_md
+  } catch {
+    // proposal is optional enrichment — the artifact files still show.
+  }
+  return contents
+}
+
+/** One redesign snapshot's directory metadata (contents fetched by id). */
+export interface DatasetHistoryEntry {
+  id: string
+  saved_at: string
+  artifacts: string[]
+}
+
+export async function getDatasetHistory(datasetId: string): Promise<DatasetHistoryEntry[]> {
+  const res = await fetch(`${API_BASE}/api/datasets/${encodeURIComponent(datasetId)}/history`)
+  if (!res.ok) throw new Error(await _errText(res, 'history'))
+  const body = (await res.json()) as { snapshots?: DatasetHistoryEntry[] }
+  return body.snapshots ?? []
+}
+
+export interface DatasetHistorySnapshot {
+  snapshot: { id: string; saved_at: string; artifacts: Record<string, string> }
+  /** Unified diffs (snapshot → current), only for files that actually changed. */
+  diffs: Record<string, string>
+}
+
+export async function getDatasetHistorySnapshot(
+  datasetId: string,
+  snapshotId: string,
+): Promise<DatasetHistorySnapshot> {
+  const res = await fetch(
+    `${API_BASE}/api/datasets/${encodeURIComponent(datasetId)}/history/${encodeURIComponent(snapshotId)}`,
+  )
+  if (!res.ok) throw new Error(await _errText(res, 'history'))
+  return (await res.json()) as DatasetHistorySnapshot
 }
 
 /** Preview which draft terms are Reuse (in canonical) vs New, before promoting. */
@@ -364,19 +472,30 @@ function toMapping(meta: DatasetMeta): MappingEntry {
   const n = meta.triples_promoted ?? meta.triple_count ?? '?'
   const artifacts: MappingArtifact[] = []
   if (meta.has_rml) {
-    const rmlSummary =
+    const rmlKey =
       stage === 'promoted'
-        ? i18n.t('gallery:api.rmlSummary.promoted', { n })
+        ? 'gallery:api.rmlSummary.promoted'
         : stage === 'ingested'
-          ? i18n.t('gallery:api.rmlSummary.ingested', { n })
-          : i18n.t('gallery:api.rmlSummary.design')
-    artifacts.push({ kind: 'mapping', name: 'mapping.rml.ttl', summary: rmlSummary })
+          ? 'gallery:api.rmlSummary.ingested'
+          : 'gallery:api.rmlSummary.design'
+    artifacts.push({
+      kind: 'mapping',
+      name: 'mapping.rml.ttl',
+      summaryKey: rmlKey,
+      summaryParams: { n: String(n) },
+    })
   }
-  if (meta.has_ingester) {
-    artifacts.push({ kind: 'ingester', name: 'ingester.py', summary: i18n.t('gallery:api.ingesterSummary') })
+  if (meta.has_mapping_ir) {
+    artifacts.push({ kind: 'spec', name: 'mapping.yaml', summaryKey: 'gallery:api.mappingIrSummary' })
   }
   if (meta.has_mie) {
-    artifacts.push({ kind: 'mie', name: 'mie.yaml', summary: i18n.t('gallery:api.mieSummary') })
+    artifacts.push({ kind: 'mie', name: 'mie.yaml', summaryKey: 'gallery:api.mieSummary' })
+  }
+  if (meta.has_ingester) {
+    artifacts.push({ kind: 'ingester', name: 'ingester.py', summaryKey: 'gallery:api.ingesterSummary' })
+  }
+  if (meta.has_proposal) {
+    artifacts.push({ kind: 'design', name: 'proposal.md', summaryKey: 'gallery:api.proposalSummary' })
   }
   const description =
     stage === 'promoted'
@@ -464,7 +583,13 @@ export interface CatalogDataset {
   /** Real class IRIs the dataset uses (from alignment); structural ones dropped. The
    * grounding/接地 UI grounds the dataset's OWN minted terms to external standards. */
   classIris: string[]
-  artifacts: { kind: string; name: string; detail: string }[]
+  artifacts: {
+    kind: string
+    name: string
+    /** i18n key + params — translated at render (language-reactive). */
+    detailKey: string
+    detailParams?: Record<string, string | number>
+  }[]
   mermaid?: string
   /** Present for materialized drafts; carries the backend handle for promote. */
   live?: LiveDataset
@@ -478,6 +603,8 @@ const ARTIFACT_KIND_LABEL: Record<MappingArtifactKind, string> = {
   mie: 'MIE',
   shex: 'ShEx',
   mapping: 'RML',
+  spec: 'IR',
+  design: 'MD',
 }
 
 function liveToCatalog(l: LiveDataset): CatalogDataset {
@@ -504,7 +631,8 @@ function liveToCatalog(l: LiveDataset): CatalogDataset {
     artifacts: l.mapping.artifacts.map((a) => ({
       kind: ARTIFACT_KIND_LABEL[a.kind],
       name: a.name,
-      detail: a.summary,
+      detailKey: a.summaryKey,
+      detailParams: a.summaryParams,
     })),
     mermaid: l.ontology.mermaid || undefined,
     live: l,

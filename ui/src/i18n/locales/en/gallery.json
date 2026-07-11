@@ -110,7 +110,47 @@
   },
   "rules": {
     "title": "Ingest rules (artifacts)",
-    "empty": "No ingest-rule artifacts yet."
+    "empty": "No ingest-rule artifacts yet.",
+    "projectionIntro": "A plain-language reading generated from the stored ingest rules (RML) — a deterministic transformation, no AI involved. The exact rules that run are always available in the artifact files below.",
+    "subject": "How the ID (IRI) is built",
+    "iterator": "Iteration unit",
+    "colProperty": "Property",
+    "colValue": "How the value is produced",
+    "colType": "Type",
+    "kind": {
+      "reference": "column",
+      "template": "template",
+      "constant": "constant",
+      "function": "function",
+      "join": "join",
+      "unknown": "This form has no plain-language reading yet (check the raw file)"
+    },
+    "joinTo": "joined to {{parent}}",
+    "warningsHead": "Reading notes",
+    "artifactsHead": "Artifact files (raw)",
+    "open": "Open",
+    "legacyChip": "legacy",
+    "legacyNote": "Not executed by the declarative ingest path (legacy artifact).",
+    "loadError": "Failed to load the ingest rules: {{message}}",
+    "viewer": {
+      "copy": "Copy",
+      "copied": "Copied",
+      "download": "Download",
+      "close": "Close",
+      "empty": "(empty)"
+    },
+    "history": {
+      "head": "Change history (redesigns)",
+      "item": "Version before the redesign on {{when}}",
+      "files": "{{count}} files",
+      "diff": "View diff",
+      "diffTitle": "Redesign diff",
+      "diffIntro": "Comparison between the version replaced on {{when}} and the current one (− old, ＋ current).",
+      "noChanges": "No differences between this version and the current one.",
+      "unchangedNote": "Files without differences are not shown.",
+      "fullText": "Full text of this version",
+      "fullTextSub": "Version before the redesign on {{when}}"
+    }
   },
   "ingest": {
     "head": "Import data",
@@ -231,6 +271,8 @@
       "class": "classes",
       "fact": "facts"
     },
-    "catalogSub": "Design saved · {{date}}"
+    "catalogSub": "Design saved · {{date}}",
+    "mappingIrSummary": "Reviewed mapping spec (the RML is compiled deterministically from this YAML)",
+    "proposalSummary": "The reviewed design document (full text)"
   }
 }

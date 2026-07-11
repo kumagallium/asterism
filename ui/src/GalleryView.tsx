@@ -11,6 +11,7 @@ import {
 import type { RedesignTarget } from './WorkbenchView'
 import { type CrosswalkPerspective, getCrosswalks } from './crosswalkApi'
 import { DatasetGrounding } from './DatasetGrounding'
+import { RulesSection } from './RulesPanel'
 import {
   type AlignmentReport,
   appendDocument,
@@ -792,22 +793,8 @@ function DatasetDetail({
           {dataset.live && onRedesign && (
             <RedesignControl meta={dataset.live.meta} onRedesign={onRedesign} />
           )}
-          <div className="ds-section-head">
-            <span className="ds-section-title">{t('gallery:rules.title')}</span>
-          </div>
-          {dataset.artifacts.length > 0 ? (
-            <div className="ds-artifacts">
-              {dataset.artifacts.map((a) => (
-                <div key={a.name} className="ds-artifact">
-                  <span className="ds-artifact-kind">{a.kind}</span>
-                  <code className="ds-artifact-name">{a.name}</code>
-                  <span className="ds-artifact-detail">{a.detail}</span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="ds-empty-note">{t('gallery:rules.empty')}</p>
-          )}
+          <RulesSection dataset={dataset} />
+
 
           {dataset.reuses.length > 0 && (
             <>
