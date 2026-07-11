@@ -13,5 +13,6 @@
     "triples": "triples",
     "endedAt": "Ingested at"
   },
-  "errCount": " (err {{n}})"
+  "errCount": " (err {{n}})",
+  "loadFailed": "Could not load the ingest history: {{message}}"
 }

@@ -140,7 +140,13 @@ button {
     box-shadow 0.18s;
 }
 
-button:hover:not(:disabled) {
+/* 濃緑のホバーは「既定の primary 塗りボタン」だけに。
+   class 付きの静かなボタン（ナビ・タブ・ピル・カード型 button 等）は自前の
+   背景を持つが、旧セレクタ button:hover:not(:disabled) (0,2,1) は多くの
+   コンポーネント hover 規則 (0,2,0) に勝ってしまい、アプリ全域で
+   「ホバーすると濃緑に塗り潰されて文字が沈む」事故を起こしていた
+   （引用カード・設定タブ・モード切替ピル・⋯メニュー等 15 箇所超）。 */
+button:not([class]):hover:not(:disabled) {
   background-color: #356040;
   border-color: #356040;
 }

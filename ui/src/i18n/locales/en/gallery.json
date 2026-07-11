@@ -73,7 +73,7 @@
   },
   "files": {
     "head": "Ingested files",
-    "dedupe": "Every file that makes up this dataset. Files with the same name or contents are detected automatically at ingest time, so you never wonder \"did I add this already?\".",
+    "dedupe": "Every file that makes up this dataset. Files with the same name are detected and flagged at ingest time.",
     "futureDedup": "* Content-hash duplicate detection is coming; for now you can check by file name.",
     "colName": "File name",
     "colType": "Type",
@@ -82,7 +82,8 @@
     "statusIngested": "Ingested",
     "source": "design source",
     "batch": "batch #{{seq}}",
-    "none": "No ingested-file records yet. Use the operations below to ingest."
+    "none": "No ingested-file records yet. Use the operations below to ingest.",
+    "statusSavedOnly": "Saved · not ingested yet"
   },
   "connect": {
     "head": "This dataset's connections",
@@ -106,7 +107,9 @@
     "noClasses": "No class information.",
     "predicatesHead": "Predicates in use (vocabulary of the actual data)",
     "diagramSummary": "Class diagram",
-    "reusesHead": "Vocabulary borrowed from elsewhere (detected from the actual data namespaces)"
+    "reusesHead": "Vocabulary borrowed from elsewhere (detected from the actual data namespaces)",
+    "classCount_one": "{{n}} class",
+    "classCount_other": "{{n}} classes"
   },
   "rules": {
     "title": "Ingest rules (artifacts)",
@@ -154,7 +157,7 @@
   },
   "ingest": {
     "head": "Import data",
-    "noRml": "This design has no declarative RML mapping, so it cannot be ingested. Generate §RML (declarative mapping) via \"AI design\" in the workbench, and you will be able to load it safely from here.",
+    "noRml": "This design has no ingestion rules (RML), so it cannot be ingested. Create them via the \"AI designs\" step in \"Add data\", and you will be able to load safely from here.",
     "done": "✓ Ingested into the draft graph ({{n}} triples). Next, press \"Publish for search\" below so Ask can cite it.",
     "note": "On approval, Morph-KGC runs this declarative RML (no generated code runs — only vetted Tier 0 functions) and loads the result into an <1>isolated draft graph</1>. The Ask citation surface (canonical) is left untouched.",
     "noteDocument": "On approval, the deterministic structurer (not Morph-KGC) breaks the saved document into sections → paragraphs → sentences and loads the result into an isolated draft graph. The Ask citation surface (canonical) is left untouched.",
@@ -272,6 +275,8 @@
       "fact": "facts"
     },
     "catalogSub": "Design saved · {{date}}",
+    "catalogSubPublished": "Published · {{date}}",
+    "catalogSubDraft": "Draft ingested · {{date}}",
     "mappingIrSummary": "Reviewed mapping spec (the RML is compiled deterministically from this YAML)",
     "proposalSummary": "The reviewed design document (full text)"
   }

@@ -49,16 +49,13 @@ function normalizeJob(raw: unknown): IngestJob {
 
 /**
  * Fetch the most recent ingest jobs (newest last in jobs.jsonl → reversed to
- * newest first). Best-effort: any failure resolves to an empty list.
+ * newest first). 障害は throw する — 空配列に丸めると、アクティビティ画面が
+ * 障害時に「まだ取り込み記録はありません」という誤った空状態になるため。
  */
 export async function getJobs(limit = 50): Promise<IngestJob[]> {
-  try {
-    const res = await fetch(`${API_BASE}/jobs?limit=${limit}`)
-    if (!res.ok) return []
-    const body = (await res.json()) as { jobs?: unknown[] }
-    const jobs = Array.isArray(body.jobs) ? body.jobs.map(normalizeJob) : []
-    return jobs.reverse() // jsonl tail is oldest→newest; show newest first
-  } catch {
-    return []
-  }
+  const res = await fetch(`${API_BASE}/jobs?limit=${limit}`)
+  if (!res.ok) throw new Error(`jobs: HTTP ${res.status}`)
+  const body = (await res.json()) as { jobs?: unknown[] }
+  const jobs = Array.isArray(body.jobs) ? body.jobs.map(normalizeJob) : []
+  return jobs.reverse() // jsonl tail is oldest→newest; show newest first
 }

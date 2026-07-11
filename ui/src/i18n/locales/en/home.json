@@ -10,7 +10,8 @@
   "stat": {
     "facts": "Facts / triples",
     "datasets": "Datasets",
-    "classes": "Vocabulary classes"
+    "classes": "Vocabulary classes",
+    "unavailable": "Could not fetch fact/class counts. Check the write token in Settings, or the server’s SPARQL exposure setting."
   },
   "action": {
     "add": {
@@ -26,6 +27,7 @@
     "head": "Recent datasets",
     "seeAll": "See all datasets",
     "loading": "Loading…",
-    "empty": "No datasets yet. Start from \"Add data\"."
+    "empty": "No datasets yet. Start from \"Add data\".",
+    "loadFailed": "Could not load the dataset list. Check the server connection and reload."
   }
 }

@@ -22,7 +22,9 @@
     "caution": {
       "title": "Why \"handle with care\"?",
       "body": "Rewriting a shared class ripples into the search and answers of every dataset that uses it. Confirm changes after reviewing the <1>impact preview</1>."
-    }
+    },
+    "classCount_one": "{{n}} class",
+    "classCount_other": "{{n}} classes"
   },
   "status": {
     "pub": "Published",

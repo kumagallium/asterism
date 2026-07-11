@@ -142,6 +142,17 @@ export function ProvenanceTrace({
 function TraceNode({ step, last }: { step: ProvenanceStep; last: boolean }) {
   const { t } = useTranslation()
   const { color, ring } = stepColors(step.step)
+  // 引用 IRI は「引用できる事実」の中核成果物 — 手動選択に頼らずクリックでコピー。
+  const [copied, setCopied] = useState(false)
+  function copyIri() {
+    navigator.clipboard
+      ?.writeText(step.iri)
+      .then(() => {
+        setCopied(true)
+        setTimeout(() => setCopied(false), 1600)
+      })
+      .catch(() => {})
+  }
   return (
     <li className="trace-node">
       <div className="trace-rail">
@@ -156,9 +167,17 @@ function TraceNode({ step, last }: { step: ProvenanceStep; last: boolean }) {
           <span className="trace-step-label">{step.label}</span>
         </div>
         <div className="trace-detail">{step.detail}</div>
-        <div className="trace-iri" title={step.iri}>
+        <button
+          type="button"
+          className={`trace-iri trace-iri-copy${copied ? ' cell-copied' : ''}`}
+          title={t('shared:trace.copyIri')}
+          onClick={copyIri}
+        >
           {step.iri}
-        </div>
+          <span className="trace-iri-copied" aria-live="polite">
+            {copied ? t('shared:trace.copied') : ''}
+          </span>
+        </button>
       </div>
     </li>
   )

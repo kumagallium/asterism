@@ -17,7 +17,9 @@
     "legendProcess": "処理",
     "vocabTitle": "データセットで「{{className}}」の語彙を表示",
     "vocabLink": "語彙を見る",
-    "noRecord": "この項目に対する来歴は記録されていません。"
+    "noRecord": "この項目に対する来歴は記録されていません。",
+    "copyIri": "クリックで IRI をコピー",
+    "copied": "コピーしました"
   },
   "step": {
     "curve": "測定曲線",

@@ -394,6 +394,7 @@ function PerspectiveAlignment({ perspectives }: { perspectives: CrosswalkPerspec
           <span className="xw-align-side-label">{t('crosswalk:align.sourceLabel')}</span>
           <select
             className="xw-map-select"
+            aria-label={t('crosswalk:align.a11y.srcPerspective')}
             value={srcPersp?.perspective_id ?? ''}
             onChange={(e) => {
               setSrcPid(e.target.value)
@@ -409,6 +410,7 @@ function PerspectiveAlignment({ perspectives }: { perspectives: CrosswalkPerspec
           </select>
           <select
             className="xw-map-select"
+            aria-label={t('crosswalk:align.a11y.srcTerm')}
             value={srcTerm?.iri ?? ''}
             onChange={(e) => setSrcIri(e.target.value)}
             disabled={srcTerms.length === 0}
@@ -427,6 +429,7 @@ function PerspectiveAlignment({ perspectives }: { perspectives: CrosswalkPerspec
         <div className="xw-align-rel">
           <select
             className="xw-map-select"
+            aria-label={t('crosswalk:align.a11y.relation')}
             value={rel ?? ''}
             onChange={(e) => setRelation(e.target.value)}
             disabled={relOptions.length === 0}
@@ -444,6 +447,7 @@ function PerspectiveAlignment({ perspectives }: { perspectives: CrosswalkPerspec
           <span className="xw-align-side-label">{t('crosswalk:align.targetLabel')}</span>
           <select
             className="xw-map-select"
+            aria-label={t('crosswalk:align.a11y.tgtPerspective')}
             value={tgtPersp?.perspective_id ?? ''}
             onChange={(e) => {
               setTgtPid(e.target.value)
@@ -459,6 +463,7 @@ function PerspectiveAlignment({ perspectives }: { perspectives: CrosswalkPerspec
           </select>
           <select
             className="xw-map-select"
+            aria-label={t('crosswalk:align.a11y.tgtTerm')}
             value={tgtTerm?.iri ?? ''}
             onChange={(e) => setTgtIri(e.target.value)}
             disabled={tgtTerms.length === 0}

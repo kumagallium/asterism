@@ -9,7 +9,8 @@
   "intro": "Connect a data source, then go <strong>AI designs → review & refine → save</strong>. Once saved it appears in your datasets. Structure analysis runs automatically in the background, so press \"View structure\" only when you want to check it.",
   "restore": {
     "note": "Restored your previous work (re-select the source only if you need to re-run).",
-    "clear": "Clear workbench"
+    "clear": "Clear this work",
+    "clearConfirm": "This clears everything in progress, including the AI-proposed design and save results. Continue?"
   },
   "redesign": {
     "badge": "Redesign",
@@ -41,8 +42,8 @@
     "pickJson": "Choose JSON",
     "pickCsv": "Choose CSV",
     "noFile": "No file selected",
-    "fkJson": "FK field hint (optional)",
-    "fkCsv": "FK column hint (optional)",
+    "fkJson": "Shared ID field across files (optional)",
+    "fkCsv": "Shared ID column across files (optional)",
     "footSelected": "{{n}} file(s) selected — the same source is used in every step",
     "footEmpty": "The source you choose here is shared across every step",
     "inspectHide": "Hide structure analysis",
@@ -69,7 +70,7 @@
     "jobLabel": "AI is regenerating the schema…"
   },
   "save": {
-    "hint": "Split the schema into 4 artifacts, validate the 8 traps, and <strong>save to your datasets</strong>.",
+    "hint": "Splits the design into 4 artifacts and runs 8 automatic checks before <strong>saving to your datasets</strong>.",
     "save": "Confirm & save",
     "saving": "Adding…",
     "added": "Added to your datasets.",
@@ -108,7 +109,8 @@
     "silent": "No server response for {{s}}s (auto-reconnecting…)",
     "cancel": "Cancel",
     "cancelling": "Cancelling…",
-    "cancelled": "Cancelled"
+    "cancelled": "Cancelled",
+    "resumedFailed": "Could not resume the interrupted job: {{message}}"
   },
   "resume": {
     "restored": "Restored the previous result",
@@ -119,8 +121,8 @@
     "downloadTitle": "Download {{name}}",
     "notExtractedTitle": "{{name}} was not extracted",
     "validationHeading": "Validation (8 traps)",
-    "summaryOk": "No blocking failures (exit 0 = OK to save)",
-    "summaryBad": "Blocking failures present (exit {{code}} = needs fixing)"
+    "summaryOk": "No blocking issues — OK to save",
+    "summaryBad": "Blocking issues found (code {{code}}) — fix before saving"
   },
   "status": {
     "pass": "Pass",
@@ -140,7 +142,7 @@
   },
   "ingest": {
     "heading": "Import data (human gate)",
-    "noRml": "This design has no declarative RML mapping, so it cannot be ingested. Once propose emits §RML (the declarative mapping), you can safely ingest from here.",
+    "noRml": "This design has no ingestion rules (RML), so it cannot be ingested. Once the \"AI designs\" step emits them, you can safely ingest from here.",
     "note": "When you approve, Morph-KGC runs this declarative RML (no generated code runs — only the verified Tier 0 functions) and ingests the result into an <strong>isolated draft graph</strong>. It does not touch Ask's default citation surface (canonical).",
     "previewSummary": "Review the RML mapping ({{n}} lines)",
     "doneCount": "✓ Ingested into the draft graph ({{n}} triples).",

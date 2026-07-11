@@ -45,6 +45,10 @@ export function ToolRunner({ datasetId, tool }: { datasetId: string; tool: Query
     ),
   )
   const [running, setRunning] = useState(false)
+  // 必須パラメータ未入力での実行はサーバの生エラーで返るだけ — 手前で無効化する
+  const missingRequired = params.filter(
+    (p) => p.required && (args[p.name] === undefined || args[p.name] === ''),
+  )
   const [result, setResult] = useState<ToolRunResult | null>(null)
   const [err, setErr] = useState('')
   const [copied, setCopied] = useState<string | null>(null)
@@ -125,7 +129,17 @@ export function ToolRunner({ datasetId, tool }: { datasetId: string; tool: Query
           ))}
         </div>
       )}
-      <button type="button" className="promote-btn" onClick={run} disabled={running}>
+      <button
+        type="button"
+        className="promote-btn"
+        onClick={run}
+        disabled={running || missingRequired.length > 0}
+        title={
+          missingRequired.length > 0
+            ? t('tools:runner.missingRequired', { names: missingRequired.map((p) => p.name).join(', ') })
+            : undefined
+        }
+      >
         {running ? (
           <>
             <span className="spinner" />

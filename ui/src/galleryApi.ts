@@ -125,6 +125,7 @@ interface DatasetMeta {
   // catalog can offer a "見直す" action that reopens it in the workbench.
   has_proposal?: boolean
   ingested?: boolean
+  ingested_at?: string
   triple_count?: number
   graph_iri?: string
   // Task E: design-time source files persisted server-side (lets the catalog
@@ -136,6 +137,7 @@ interface DatasetMeta {
   source_kind?: 'csv' | 'json' | 'xml'
   // S4: whether the draft was promoted into the canonical (default) graph.
   promoted?: boolean
+  promoted_at?: string
   triples_promoted?: number
   // #20 P3 lifecycle: "active" | "retracted" (tombstoned) | "deleted"; version bumps on re-promote.
   status?: string
@@ -517,20 +519,16 @@ function toMapping(meta: DatasetMeta): MappingEntry {
 }
 
 /**
- * Fetch datasets the user has materialized. Best-effort: any failure (no API,
- * network error, non-200) resolves to an empty list so the catalog degrades to
- * an empty state rather than erroring.
+ * Fetch datasets the user has materialized. API 障害（接続不可・非200）は throw
+ * する — 従来は空配列に丸めていたため、障害時にカタログ/ホームが「まだデータ
+ * セットがありません＋データを追加」という事実に反する空状態を表示し、
+ * GalleryView に用意されたエラー分岐が到達不能になっていた。
  */
 export async function getLiveDatasets(): Promise<LiveDataset[]> {
-  let metas: DatasetMeta[]
-  try {
-    const res = await fetch(`${API_BASE}/api/datasets`)
-    if (!res.ok) return []
-    const body = (await res.json()) as { datasets?: DatasetMeta[] }
-    metas = Array.isArray(body.datasets) ? body.datasets : []
-  } catch {
-    return []
-  }
+  const res = await fetch(`${API_BASE}/api/datasets`)
+  if (!res.ok) throw new Error(`datasets: HTTP ${res.status}`)
+  const body = (await res.json()) as { datasets?: DatasetMeta[] }
+  const metas: DatasetMeta[] = Array.isArray(body.datasets) ? body.datasets : []
   // Pull each dataset's detail for its Mermaid diagram + the richer meta (which
   // carries the alignment report) — best-effort per item.
   return Promise.all(
@@ -617,10 +615,22 @@ function liveToCatalog(l: LiveDataset): CatalogDataset {
   ]
   if (n != null)
     counts.unshift({ key: 'fact', value: n.toLocaleString(), label: i18n.t('gallery:api.count.fact') })
+  // 直近のライフサイクルイベントを表す（常に「設計を保存」だと公開済みでも
+  // 設計日しか見えず誤解を招く）。日時はイベントに対応するものへ。
+  const sub =
+    stage === 'promoted'
+      ? i18n.t('gallery:api.catalogSubPublished', {
+          date: (l.meta.promoted_at ?? l.meta.created_at).slice(0, 10),
+        })
+      : stage === 'ingested'
+        ? i18n.t('gallery:api.catalogSubDraft', {
+            date: (l.meta.ingested_at ?? l.meta.created_at).slice(0, 10),
+          })
+        : i18n.t('gallery:api.catalogSub', { date: l.meta.created_at.slice(0, 10) })
   return {
     id: l.ontology.id,
     name: l.meta.name,
-    sub: i18n.t('gallery:api.catalogSub', { date: l.meta.created_at.slice(0, 10) }),
+    sub,
     statusKind,
     counts,
     purposes: [],

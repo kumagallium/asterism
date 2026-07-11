@@ -2,7 +2,7 @@
   "panel": {
     "sectionTitle": "Tools (verified Ask operations for this data)",
     "count": "{{n}}",
-    "intro": "Add typed, deterministic <1>read-only SPARQL tools</1> to this dataset. A saved tool becomes a <3>verified Ask tool</3> with no PR (saving is the human sign-off).",
+    "intro": "Add typed, deterministic <1>read-only SPARQL tools</1> to this dataset. A saved tool is immediately used as a <3>verified tool for Ask</3> (saving is the human sign-off).",
     "loading": "Loading tools…",
     "emptyList": "No tools yet. Create one from \"Draft with AI\" below.",
     "author": {
@@ -12,7 +12,8 @@
       "keyPlaceholder": "sk-ant-… (required for AI drafting)",
       "proposing": "Drafting…",
       "propose": "Draft with AI",
-      "startEmpty": "Build by hand from scratch"
+      "startEmpty": "Build by hand from scratch",
+      "dirtyConfirm": "You have unsaved edits in the draft. Discard them and continue?"
     },
     "notice": {
       "saved": "Saved \"{{name}}\". It is now usable as a verified Ask tool.",
@@ -82,8 +83,13 @@
       "count": "{{n}} rows",
       "countTruncated": "{{n}} rows (truncated at limit)",
       "empty": "No matching results.",
-      "sparqlSummary": "SPARQL that ran (read-only)"
-    }
+      "sparqlSummary": "SPARQL that ran (read-only)",
+      "count_one": "{{n}} row",
+      "count_other": "{{n}} rows",
+      "countTruncated_one": "{{n}} row (truncated at limit)",
+      "countTruncated_other": "{{n}} rows (truncated at limit)"
+    },
+    "missingRequired": "Fill the required parameters: {{names}}"
   },
   "error": {
     "ops": {

@@ -19,13 +19,20 @@ interface Stats {
 export function HomeView({ onNavigate }: { onNavigate: (tab: 'workbench' | 'ask' | 'gallery') => void }) {
   const { t } = useTranslation()
   const [datasets, setDatasets] = useState<CatalogDataset[] | null>(null)
+  const [loadFailed, setLoadFailed] = useState(false)
   const [stats, setStats] = useState<Stats | null>(null)
 
   useEffect(() => {
     let cancelled = false
     getCatalogDatasets()
       .then((d) => !cancelled && setDatasets(d))
-      .catch(() => !cancelled && setDatasets([]))
+      // 障害を「まだデータセットがありません」という誤った空状態にしない
+      .catch(() => {
+        if (!cancelled) {
+          setDatasets([])
+          setLoadFailed(true)
+        }
+      })
     getGraphStats()
       .then((s) => !cancelled && setStats(s))
       .catch(() => !cancelled && setStats({ facts: null, classes: null, datasets: 0 }))
@@ -44,10 +51,15 @@ export function HomeView({ onNavigate }: { onNavigate: (tab: 'workbench' | 'ask'
       <section className="home-band">
         <div className="home-band-head">{t('home:band.head')}</div>
         <div className="home-stats">
-          <Stat value={fmt(stats?.facts)} label={t('home:stat.facts')} />
+          <Stat value={fmt(stats?.facts)} label={t('home:stat.facts')} tone="entity" />
           <Stat value={stats ? String(stats.datasets) : '—'} label={t('home:stat.datasets')} />
           <Stat value={fmt(stats?.classes)} label={t('home:stat.classes')} tone="primary" />
         </div>
+        {/* SPARQL 統計だけ取れない配備（書き込みトークン未設定/raw SPARQL 非公開）で
+            「—」を黙って出すと故障に見える。原因への手がかりを一言添える。 */}
+        {stats && stats.facts == null && stats.classes == null && (
+          <p className="home-stats-note">{t('home:stat.unavailable')}</p>
+        )}
       </section>
 
       <div className="home-actions">
@@ -92,7 +104,7 @@ export function HomeView({ onNavigate }: { onNavigate: (tab: 'workbench' | 'ask'
         )}
         {datasets && recent.length === 0 && (
           <p className="ds-empty-note">
-            {t('home:recent.empty')}
+            {loadFailed ? t('home:recent.loadFailed') : t('home:recent.empty')}
           </p>
         )}
         <div className="ds-rows">
@@ -105,10 +117,10 @@ export function HomeView({ onNavigate }: { onNavigate: (tab: 'workbench' | 'ask'
   )
 }
 
-function Stat({ value, label, tone }: { value: string; label: string; tone?: 'primary' }) {
+function Stat({ value, label, tone }: { value: string; label: string; tone?: 'primary' | 'entity' }) {
   return (
     <div className="home-stat">
-      <span className={`home-stat-value home-stat-value--${tone ?? 'fg'}`}>{value}</span>
+      <span className={`home-stat-value${tone ? ` home-stat-value--${tone}` : ''}`}>{value}</span>
       <span className="home-stat-label">{label}</span>
     </div>
   )

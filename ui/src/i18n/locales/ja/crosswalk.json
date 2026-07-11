@@ -11,7 +11,7 @@
     },
     "perspectiveHead": "視点（perspective）",
     "perspectiveHint": "{{count}} 件 · それぞれ独立した「つなぎ方」",
-    "perspMeta": "{{shared}} 共有 · {{count}} DS",
+    "perspMeta": "{{shared}} 共有 · {{count}} データセット",
     "summary": {
       "sharedValues": "共有された値",
       "participants": "参加データセット",
@@ -55,7 +55,14 @@
     "perspArrow": "{{from}} → {{to}}",
     "remove": "撤回",
     "removing": "撤回中…",
-    "none": "まだ視点をつなぐ整合はありません。"
+    "none": "まだ視点をつなぐ整合はありません。",
+    "a11y": {
+      "srcPerspective": "起点の視点",
+      "srcTerm": "起点の用語",
+      "relation": "関係の種類",
+      "tgtPerspective": "対象の視点",
+      "tgtTerm": "対象の用語"
+    }
   },
   "builder": {
     "subtitle": "既存の<0>データセットを2つ以上選び</0>、<1>つなぐ概念</1>（組成・結晶系・著者…）とそれを表す列を指定すると、共通の値で<2>横断してつながる橋（つながり）</2>を作れます。新しい CSV からではなく、<3>すでにあるデータから作る</3>オントロジーです。",

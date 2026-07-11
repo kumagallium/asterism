@@ -7,11 +7,11 @@
     "loading": "Loading…",
     "empty": {
       "title": "No crosswalks yet",
-      "sub": "Use \"Add data → connect existing data across datasets\" to build a bridge from two or more datasets."
+      "sub": "Use \"Add data → Bridge existing datasets\" to build a bridge from two or more datasets."
     },
     "perspectiveHead": "Perspective",
     "perspectiveHint": "{{count}} · each an independent \"way to connect\"",
-    "perspMeta": "{{shared}} shared · {{count}} DS",
+    "perspMeta": "{{shared}} shared · {{count}} datasets",
     "summary": {
       "sharedValues": "Shared values",
       "participants": "Participating datasets",
@@ -55,7 +55,14 @@
     "perspArrow": "{{from}} → {{to}}",
     "remove": "Withdraw",
     "removing": "Withdrawing…",
-    "none": "No perspective alignments yet."
+    "none": "No perspective alignments yet.",
+    "a11y": {
+      "srcPerspective": "Source perspective",
+      "srcTerm": "Source term",
+      "relation": "Relation type",
+      "tgtPerspective": "Target perspective",
+      "tgtTerm": "Target term"
+    }
   },
   "builder": {
     "subtitle": "Pick <0>two or more existing datasets</0>, declare the <1>concept to connect</1> (composition, crystal system, author…) and the column that represents it, and you can build a <2>bridge that connects across datasets (a crosswalk)</2> on the shared value. It is an ontology built <3>from data you already have</3>, not from a new CSV.",

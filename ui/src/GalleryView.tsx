@@ -1,5 +1,5 @@
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import {
   fetchProposal,
@@ -332,6 +332,24 @@ function CardActions({
   const retracted = meta.status === 'retracted'
   const version = meta.version ?? 0
 
+  // ⋯ メニューは Escape / メニュー外クリックで閉じる（role="menu" の期待挙動）
+  const menuWrapRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    if (!menu) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenu(false)
+    }
+    const onDown = (e: PointerEvent) => {
+      if (menuWrapRef.current && !menuWrapRef.current.contains(e.target as Node)) setMenu(false)
+    }
+    document.addEventListener('keydown', onKey)
+    document.addEventListener('pointerdown', onDown)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.removeEventListener('pointerdown', onDown)
+    }
+  }, [menu])
+
   // Stop card-open when interacting with the action footer.
   function stop(e: ReactMouseEvent | ReactKeyboardEvent) {
     e.stopPropagation()
@@ -414,7 +432,7 @@ function CardActions({
       )}
 
       {/* Compact ⋯ menu keeps the destructive action out of the way. */}
-      <div className="ds-card-menu-wrap">
+      <div className="ds-card-menu-wrap" ref={menuWrapRef}>
         <button
           type="button"
           className="ds-card-menu-btn"
@@ -558,7 +576,8 @@ function DatasetDetail({
               placeholder={t('gallery:rename.placeholder')}
               onChange={(e) => setDraftName(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') saveRename()
+                // IME 変換確定の Enter（isComposing）で改名を確定させない
+                if (e.key === 'Enter' && !e.nativeEvent.isComposing) saveRename()
                 if (e.key === 'Escape') setEditingName(false)
               }}
             />
@@ -606,6 +625,7 @@ function DatasetDetail({
               type="button"
               className={`ds-tab${tab === id ? ' active' : ''}`}
               onClick={() => onTab(id)}
+              aria-current={tab === id || undefined}
             >
               {label}
             </button>
@@ -715,7 +735,14 @@ function DatasetDetail({
                   <span className="ds-file-when">
                     {f.when} <span className="ds-file-tag">{f.tag}</span>
                   </span>
-                  <span className="ds-file-status">✓ {t('gallery:files.statusIngested')}</span>
+                  {/* 設計段階（未取り込み）のソースに「取り込み済み」と出すのは事実に反する */}
+                  {meta && datasetStage(meta) === 'design' ? (
+                    <span className="ds-file-status ds-file-status--pending">
+                      {t('gallery:files.statusSavedOnly')}
+                    </span>
+                  ) : (
+                    <span className="ds-file-status">✓ {t('gallery:files.statusIngested')}</span>
+                  )}
                 </div>
               ))}
             </div>

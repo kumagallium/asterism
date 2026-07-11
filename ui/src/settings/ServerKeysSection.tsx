@@ -67,11 +67,11 @@ function ServerKeyRow({
           value={apiKey}
           onChange={(e) => setApiKey(e.target.value)}
         />
-        <button type="button" className="btn--ghost" disabled={!canSave} onClick={() => submit(false)}>
+        <button type="button" className="btn btn--ghost btn--sm" disabled={!canSave} onClick={() => submit(false)}>
           {t('serverKeys.save')}
         </button>
         {isSet && (
-          <button type="button" className="btn--ghost" disabled={busy} onClick={() => submit(true)}>
+          <button type="button" className="btn btn--ghost btn--sm" disabled={busy} onClick={() => submit(true)}>
             {t('serverKeys.clear')}
           </button>
         )}

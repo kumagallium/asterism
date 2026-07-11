@@ -314,6 +314,14 @@
   color: var(--faint);
   line-height: 1.5;
 }
+/* ServerKeysSection / WriteTokenSection の結果表示（.field-error は従来未定義で
+   エラー文が faint のまま埋もれていた） */
+.field-help.field-error {
+  color: var(--accent);
+}
+.field-help.field-ok {
+  color: var(--entity);
+}
 
 .rate-fieldset {
   border: 1px solid var(--border);
@@ -373,21 +381,9 @@
   margin-top: 4px;
 }
 
-/* shared small buttons (ghost/danger) layered on top of the app .btn system */
-.btn--danger {
-  font: inherit;
-  font-size: 0.82rem;
-  padding: 6px 12px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--error-border);
-  background: var(--error-bg);
-  color: var(--error-fg);
-  cursor: pointer;
-}
-.btn--danger:hover {
-  background: var(--error-fg);
-  color: #fff;
-}
+/* ボタンは App.css の .btn システム（.btn + .btn--ghost/--danger/--sm）に一本化。
+   以前ここにあった .btn--danger の再定義は import 順で全画面に勝ってしまい、
+   ToolsPanel の小型 danger ボタンのサイズ・静かな地を壊していた。 */
 
 /* ---- usage dashboard ---- */
 .usage-totals {

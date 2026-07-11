@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import './SettingsModal.css'
 import { ServerKeysSection } from './ServerKeysSection'
+import { WriteTokenSection } from './WriteTokenSection'
 import { useLlmSettings } from './context'
 import { UsageTab } from './UsageTab'
 import { fetchAvailableModels, type AvailableModel } from './modelsApi'
@@ -34,6 +35,13 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
     return () => window.removeEventListener('keydown', onKey)
   }, [open, onClose])
 
+  // 開いたらフォーカスをダイアログへ移す（従来は背後のページに残り、
+  // Tab がモーダルの外を回っていた）。
+  const dialogRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    if (open) dialogRef.current?.focus()
+  }, [open])
+
   if (!open) return null
 
   return (
@@ -43,6 +51,8 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
         role="dialog"
         aria-modal="true"
         aria-label={t('title')}
+        ref={dialogRef}
+        tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
       >
         <header className="settings-head">
@@ -126,14 +136,14 @@ function ModelsTab() {
                   </div>
                 </div>
                 <div className="model-actions">
-                  <button type="button" className="btn--ghost" onClick={() => setEditing(m)}>
+                  <button type="button" className="btn btn--ghost btn--sm" onClick={() => setEditing(m)}>
                     {t('models.edit')}
                   </button>
                   {confirmDelete === m.id ? (
                     <>
                       <button
                         type="button"
-                        className="btn--danger"
+                        className="btn btn--danger btn--sm"
                         onClick={() => {
                           settings.removeModel(m.id)
                           setConfirmDelete(null)
@@ -143,7 +153,7 @@ function ModelsTab() {
                       </button>
                       <button
                         type="button"
-                        className="btn--ghost"
+                        className="btn btn--ghost btn--sm"
                         onClick={() => setConfirmDelete(null)}
                       >
                         {t('cancel')}
@@ -152,7 +162,7 @@ function ModelsTab() {
                   ) : (
                     <button
                       type="button"
-                      className="btn--ghost"
+                      className="btn btn--ghost btn--sm"
                       onClick={() => setConfirmDelete(m.id)}
                     >
                       {t('models.delete')}
@@ -183,6 +193,7 @@ function ModelsTab() {
         </button>
       )}
       {!showForm && <ServerKeysSection />}
+      {!showForm && <WriteTokenSection />}
     </div>
   )
 }
@@ -387,7 +398,7 @@ function ModelForm({
           />
           <button
             type="button"
-            className="btn--ghost"
+            className="btn btn--ghost btn--sm"
             onClick={onFetchModels}
             disabled={
               fetchingModels ||
@@ -494,7 +505,7 @@ function ModelForm({
         <button type="button" className="btn" disabled={!canSave} onClick={onSubmit}>
           {t('save')}
         </button>
-        <button type="button" className="btn--ghost" onClick={onCancel}>
+        <button type="button" className="btn btn--ghost btn--sm" onClick={onCancel}>
           {t('cancel')}
         </button>
       </div>

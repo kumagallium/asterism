@@ -7,13 +7,18 @@ import { authHeaders } from './authToken'
 // proxy by default; VITE_API_URL overrides for separate hosting).
 const API_BASE = ((import.meta.env.VITE_API_URL as string | undefined) ?? '').replace(/\/+$/, '')
 
-const EXAMPLE = `PREFIX sd: <https://kumagallium.github.io/asterism/starrydata/ontology#>
-SELECT ?sample ?comp WHERE {
-  ?sample a sd:Sample ;
-          sd:compositionString ?comp .
-  FILTER(CONTAINS(LCASE(STR(?comp)), "bi2te3"))
+// データセット非依存の例（旧例は starrydata 専用語彙にハードコードされ、starrydata の
+// 無い配備では初回の「実行」が必ず 0 行になった）。クラス別件数はどのストアでも意味を
+// 持ち、最初の実行で必ず何かが返る。
+const EXAMPLE = `SELECT ?class (COUNT(?s) AS ?n) WHERE {
+  ?s a ?class .
 }
+GROUP BY ?class
+ORDER BY DESC(?n)
 LIMIT 20`
+
+// タブ切替で書きかけのクエリと結果が EXAMPLE に巻き戻らないよう保持（リロードで消えるのは許容）
+let lastSession: { query: string; results: SparqlResults | null } | null = null
 
 interface SparqlBinding {
   [key: string]: { type: string; value: string } | undefined
@@ -31,13 +36,14 @@ interface SparqlResults {
  */
 export function SparqlView() {
   const { t } = useTranslation()
-  const [query, setQuery] = useState(EXAMPLE)
-  const [results, setResults] = useState<SparqlResults | null>(null)
+  const [query, setQuery] = useState(() => lastSession?.query ?? EXAMPLE)
+  const [results, setResults] = useState<SparqlResults | null>(() => lastSession?.results ?? null)
   const [error, setError] = useState('')
   const [running, setRunning] = useState(false)
 
   async function run() {
-    if (!query.trim()) return
+    // running ガード: Cmd/Ctrl+Enter は disabled ボタンを迂回するので、ここで並行二重送信を防ぐ
+    if (running || !query.trim()) return
     setError('')
     setResults(null)
     setRunning(true)
@@ -51,7 +57,9 @@ export function SparqlView() {
         const detail = await res.text().catch(() => '')
         throw new Error(`HTTP ${res.status}${detail ? `: ${detail}` : ''}`)
       }
-      setResults((await res.json()) as SparqlResults)
+      const parsed = (await res.json()) as SparqlResults
+      setResults(parsed)
+      lastSession = { query, results: parsed }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -68,7 +76,7 @@ export function SparqlView() {
       <p className="subtitle">
         <Trans i18nKey="sparql:subtitle">
           取り込み済みの RDF に<strong>読み取り専用</strong>の SPARQL を直接実行します。
-          これは上級者向けの<strong>脱出ハッチ</strong>です（通常は Ask / Gallery をご利用ください）。
+          上級者向けの<strong>直接クエリ</strong>の場です（通常は「質問する」や「データセット」をご利用ください）。
           UPDATE 系（INSERT/DELETE 等）は実行できません。
         </Trans>
       </p>
@@ -79,7 +87,11 @@ export function SparqlView() {
           value={query}
           spellCheck={false}
           rows={10}
-          onChange={(e) => setQuery(e.target.value)}
+          aria-label={t('sparql:editorLabel')}
+          onChange={(e) => {
+            setQuery(e.target.value)
+            lastSession = { query: e.target.value, results }
+          }}
           onKeyDown={(e) => {
             if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
               e.preventDefault()
@@ -98,7 +110,15 @@ export function SparqlView() {
               t('sparql:run')
             )}
           </button>
-          <button className="secondary-btn" onClick={() => setQuery(EXAMPLE)}>
+          <button
+            className="btn btn--ghost"
+            onClick={() => {
+              // 手書きした長いクエリを 1 クリックで失わないよう、変更がある時だけ確認
+              if (query !== EXAMPLE && !window.confirm(t('sparql:resetConfirm'))) return
+              setQuery(EXAMPLE)
+              lastSession = { query: EXAMPLE, results }
+            }}
+          >
             {t('sparql:reset')}
           </button>
         </div>

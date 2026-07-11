@@ -75,6 +75,7 @@ export function UsageTab() {
     const evs = events ?? []
     let totalTokens = 0
     let totalCost = 0
+    let unratedTokens = 0
     const buckets = new Map<string, { tokens: number; cost: number }>()
     // feature -> modelId -> {tokens, cost}
     const breakdown = new Map<string, Map<string, { tokens: number; cost: number }>>()
@@ -84,6 +85,7 @@ export function UsageTab() {
       const cost = eventCost(ev)
       totalTokens += tokens
       totalCost += cost
+      if (!rateFor(ev.provider, ev.model_id)) unratedTokens += tokens
       const bk = bucketKey(ev.ts, gran)
       const b = buckets.get(bk) ?? { tokens: 0, cost: 0 }
       b.tokens += tokens
@@ -102,8 +104,8 @@ export function UsageTab() {
     }
     const bucketList = [...buckets.entries()].sort((a, b) => a[0].localeCompare(b[0]))
     const maxTokens = Math.max(1, ...bucketList.map(([, v]) => v.tokens))
-    return { totalTokens, totalCost, bucketList, maxTokens, breakdown }
-  }, [events, eventCost, gran])
+    return { totalTokens, totalCost, unratedTokens, bucketList, maxTokens, breakdown }
+  }, [events, eventCost, rateFor, gran])
 
   if (loading) return <p className="settings-intro">{t('usage.loading')}</p>
   if (error) {
@@ -135,6 +137,14 @@ export function UsageTab() {
           <span className="lbl">{t('usage.totalCost')}</span>
         </div>
       </div>
+
+      {/* 単価未設定モデルの使用分はコスト 0 として合算される — 黙って少なく
+          見せない（実支出より小さい合計だと誤解される） */}
+      {view.unratedTokens > 0 && (
+        <p className="field-help usage-unrated-note">
+          {t('usage.unratedNote', { tokens: formatTokens(view.unratedTokens) })}
+        </p>
+      )}
 
       <div className="usage-controls">
         <div className="settings-seg" role="group">

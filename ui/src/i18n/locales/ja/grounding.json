@@ -17,7 +17,7 @@
   },
   "picker": {
     "placeholder": "標準の用語を検索（例: crystal structure）",
-    "cancel": "やめる",
+    "cancel": "キャンセル",
     "searching": "検索中…",
     "none": "一致する標準の用語が見つかりません。語を変えて試してください。"
   },
