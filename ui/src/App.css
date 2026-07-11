@@ -2744,6 +2744,7 @@ button.trace-iri-copy:hover:not(:disabled) {
   align-items: start;
 }
 .ds-grid-card {
+  position: relative; /* ストレッチドリンク（.ds-grid-card-open::after）の基準 */
   display: flex;
   flex-direction: column;
   gap: 0.7rem;
@@ -2755,6 +2756,37 @@ button.trace-iri-copy:hover:not(:disabled) {
   padding: 0.9rem 1rem;
   cursor: pointer;
   transition: border-color 0.15s, box-shadow 0.15s, transform 0.05s;
+}
+/* カードを開くリーフ button（ARIA nested-interactive 回避）。button は static の
+   ままにして ::after の基準をカード（position:relative）にすることで、カード全面
+   がクリック領域になる。アクションボタンは z-index でこのオーバーレイの前面。 */
+.ds-grid-card-open {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.ds-grid-card-open::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  /* 本文（counts/meta は DOM 順で後の兄弟＝既定では前面）より上に載せてカード
+     全面のクリックを受ける。アクション（z-index:2）はこのオーバーレイの上。 */
+  z-index: 1;
+  border-radius: var(--radius);
+}
+.ds-grid-card-open:focus-visible {
+  outline: none;
+}
+.ds-grid-card-open:focus-visible::after {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
 }
 .ds-grid-card:hover:not(:disabled) {
   background: var(--surface);
@@ -2829,6 +2861,10 @@ button.trace-iri-copy:hover:not(:disabled) {
 /* Dataset-level state actions on the card (promote / retract / reinstate + a
    compact ⋯ menu for delete). Moved here from the detail's always-visible band. */
 .ds-card-actions {
+  /* ストレッチドリンク（.ds-grid-card-open::after・z-index:1）の前面に置き、
+     公開/撤回/削除がオーバーレイに埋もれず単独でクリックできるようにする。 */
+  position: relative;
+  z-index: 2;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
