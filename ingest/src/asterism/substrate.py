@@ -35,6 +35,16 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
 
+from asterism.dialect import (
+    DEFAULT_DIALECT,
+    LEGACY_SUFFIXES,
+    DialectAnnotationError,
+    dialects_from_mapping,
+    is_default,
+    normalize_source,
+    strip_dialect_annotations,
+)
+
 # Re-exported so callers can `substrate.assert_rml_safe` / catch `substrate.RmlSafetyError`.
 from asterism.rml_safety import RmlSafetyError as RmlSafetyError
 from asterism.rml_safety import assert_rml_safe as assert_rml_safe
@@ -185,6 +195,84 @@ def normalize_fno_namespace(rml_ttl: str) -> str:
     No-op for RML already written against ``http://w3id.org/rml/``.
     """
     return rml_ttl.replace(_FNO_OLD_NS, _FNO_NEW_NS)
+
+
+# A legacy instrument file (CP932 / tab- or whitespace-separated / preamble rows)
+# is pinned at design time as ``ast:`` dialect annotations on its logical source
+# (ADR ``source-dialect.md``). At the ingest boundary we normalize the file to a
+# UTF-8 comma CSV in the work dir, rewrite ``rml:source`` to that copy, and strip
+# the annotations — so Morph-KGC sees exactly what it sees today. Ingest never
+# re-detects: normalization is a pure function of the pinned dialect.
+def normalize_dialect_sources(rml_ttl: str, csv_dir: Path | str, work_dir: Path | str) -> str:
+    """Normalize every ``ast:``-annotated source to a UTF-8 comma CSV work-dir copy,
+    rewriting its ``rml:source`` to the copy's absolute path and stripping the
+    annotation triples. The EXTENSION decides too: a legacy-suffix source
+    (``.txt``/``.dat``/``.asc`` — Morph-KGC cannot resolve its source type at
+    all) is normalized under the default dialect even when nothing is
+    annotated. A mapping with no annotations and no legacy-suffix source is
+    returned **byte-identical** (the all-defaults gate: absence of dialect ⇒
+    current behavior). An annotated source absent on disk is left for
+    :func:`asterism.rml_validate.validate_rml_design` to report (its
+    missing-source message is the actionable one). An out-of-contract
+    annotation value raises the structured :class:`RmlValidationError` (422).
+    Runs FIRST in the work-dir chain, so the later steps see the normalized
+    copy as an absolute (already resolved) source and skip it.
+    """
+    import rdflib
+
+    graph = rdflib.Graph()
+    try:
+        graph.parse(data=rml_ttl, format="turtle")
+    except Exception:
+        return rml_ttl  # rml_safety owns the parse-error rejection
+    try:
+        dialects = dialects_from_mapping(graph)
+    except DialectAnnotationError as exc:
+        raise RmlValidationError([str(exc)]) from exc
+    for pred in ("http://w3id.org/rml/source", "http://semweb.mmlab.be/ns/rml#source"):
+        for src in graph.objects(None, rdflib.URIRef(pred)):
+            path = Path(str(src))
+            if path.suffix.lower() in LEGACY_SUFFIXES and not path.is_absolute():
+                dialects.setdefault(path.name, DEFAULT_DIALECT)
+    if not dialects:
+        return rml_ttl
+    base = Path(csv_dir)
+    work = Path(work_dir)
+    work.mkdir(parents=True, exist_ok=True)
+    normalized: dict[str, Path] = {}
+    for name, dialect in dialects.items():
+        src = base / name
+        # is_default gate: an annotation set that resolves to all-defaults means
+        # "read as today" — strip it below, but never rewrite the source. A
+        # legacy suffix is the exception: Morph-KGC cannot read it at all, so
+        # the default-dialect normalization to .csv still runs.
+        if not src.exists():
+            continue
+        if is_default(dialect) and Path(name).suffix.lower() not in LEGACY_SUFFIXES:
+            continue
+        # Keep the basename recognizable; a non-.csv name gets ".csv" appended so
+        # downstream header checks treat the copy as the tabular file it now is.
+        dest = work / (name if name.lower().endswith(".csv") else name + ".csv")
+        try:
+            normalized[name] = normalize_source(src, dialect, dest)
+        except UnicodeDecodeError as exc:
+            # Strict by design (ADR): the pinned encoding no longer decodes the
+            # file — a real error, surfaced as a structured 422 (not a 500).
+            raise RmlValidationError(
+                [
+                    f"source file {name!r} cannot be decoded with its pinned "
+                    f"dialect encoding {dialect.encoding!r}: {exc}. The file changed "
+                    "since design time — re-run design/inspect to re-pin the dialect."
+                ]
+            ) from exc
+    for pred in ("http://w3id.org/rml/source", "http://semweb.mmlab.be/ns/rml#source"):
+        for s, o in list(graph.subject_objects(rdflib.URIRef(pred))):
+            dest = normalized.get(Path(str(o)).name)
+            if dest is not None:
+                graph.remove((s, rdflib.URIRef(pred), o))
+                graph.add((s, rdflib.URIRef(pred), rdflib.Literal(str(dest))))
+    strip_dialect_annotations(graph)
+    return graph.serialize(format="turtle")
 
 
 # A JSON source is tabularized to a CSV of JSON-string cells at the ingest boundary
@@ -441,7 +529,8 @@ def materialize_to_graph(
     work.mkdir(parents=True, exist_ok=True)
     mapping_file = work / "mappings.rml.ttl"
     run_id_subst = substitute_run_id(rml_ttl)
-    tabularized = tabularize_json_sources(run_id_subst, csv_dir, work)
+    dialected = normalize_dialect_sources(run_id_subst, csv_dir, work)
+    tabularized = tabularize_json_sources(dialected, csv_dir, work)
     sanitized = sanitize_csv_sources(tabularized, csv_dir, work)
     bom_stripped = strip_bom_sources(sanitized, csv_dir, work)
     prepared = normalize_fno_namespace(absolutize_rml_sources(bom_stripped, csv_dir))
@@ -534,7 +623,8 @@ def materialize_to_nt_file(
     # re-mints the SAME activity (idempotent); None keeps the per-call fresh
     # timestamp used by snapshot ingest (each version graph is its own activity).
     run_id_subst = substitute_run_id(rml_ttl, run_id)
-    tabularized = tabularize_json_sources(run_id_subst, csv_dir, work)
+    dialected = normalize_dialect_sources(run_id_subst, csv_dir, work)
+    tabularized = tabularize_json_sources(dialected, csv_dir, work)
     sanitized = sanitize_csv_sources(tabularized, csv_dir, work)
     bom_stripped = strip_bom_sources(sanitized, csv_dir, work)
     prepared = normalize_fno_namespace(absolutize_rml_sources(bom_stripped, csv_dir))

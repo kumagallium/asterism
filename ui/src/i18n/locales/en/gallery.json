@@ -155,6 +155,9 @@
       "fullTextSub": "Version before the redesign on {{when}}"
     }
   },
+  "sourceKind": {
+    "tabular": "CSV/TSV/instrument text"
+  },
   "ingest": {
     "head": "Import data",
     "noRml": "This design has no ingestion rules (RML), so it cannot be ingested. Create them via the \"AI designs\" step in \"Add data\", and you will be able to load safely from here.",

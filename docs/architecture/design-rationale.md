@@ -229,8 +229,12 @@ starrydata の `starrydata_samples.csv` / `starrydata_curves.csv` は **UTF-8 BO
 
 ### Re-evaluation triggers
 - CSV 以外のエンコーディング (Shift_JIS 等) のソースを扱う必要が出た
+  → **発火済 (2026-07-11)**: 実 XRD 装置ファイル (CP932/タブ/前置き行) で再評価。
+  結論は chardet 依存ではなく「固定順 strict 試行 + 設計時ピン留め」の
+  [source dialect 層](source-dialect.md)。starrydata ingester の default は不変。
 
 ### Cross-refs
+- [`source-dialect.md`](source-dialect.md) — レガシー装置ファイル (エンコーディング/区切り/前置き行) の恒久対応
 - [`ai-assisted-step0-workflow.md` §6 罠 2](ai-assisted-step0-workflow.md#6-ai-が間違いやすいポイント-phase-1-で実観測)
 - [`../../ingest/src/asterism/starrydata.py`](../../ingest/src/asterism/starrydata.py) `open(..., encoding="utf-8-sig")`
 

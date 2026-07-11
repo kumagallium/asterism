@@ -270,13 +270,14 @@ def test_inspect_json_returns_markdown(
 def test_inspect_rejects_unsupported_source_extension(
     tmp_path: Path, healthy_client: OxigraphClient
 ) -> None:
+    # .txt/.dat/.asc are tabular now (ADR source-dialect.md); .md is still not a source.
     app = build_app(
         _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
     )
     with TestClient(app, headers=_AUTH) as client:
         r = client.post(
             "/api/inspect",
-            files={"files": ("notes.txt", b"hello\n", "text/plain")},
+            files={"files": ("notes.md", b"hello\n", "text/plain")},
         )
         assert r.status_code == 400
 
@@ -302,9 +303,11 @@ def test_inspect_multi_csv_with_fk(
         assert "## CSV: samples.csv" in body
 
 
-def test_inspect_rejects_unsafe_filename(
+def test_inspect_neutralizes_path_traversal_filename(
     tmp_path: Path, healthy_client: OxigraphClient
 ) -> None:
+    # A traversal-shaped name is reduced to its basename (the same neutralization
+    # documents get) — the file can only ever land inside the temp dir.
     app = build_app(
         _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
     )
@@ -313,7 +316,9 @@ def test_inspect_rejects_unsafe_filename(
             "/api/inspect",
             files={"files": ("../../etc/passwd.csv", b"a,b\n1,2\n", "text/csv")},
         )
-        assert r.status_code == 400
+        assert r.status_code == 200
+        assert r.headers["X-Asterism-Source-Names"] == "passwd.csv"
+        assert "## CSV: passwd.csv" in r.text
 
 
 # ----------------------------------------------------------------------------

@@ -23,7 +23,7 @@ import {
   type RefineResult,
 } from './api'
 import { CrosswalkBuilder } from './CrosswalkBuilder'
-import { SOURCE_ACCEPT, SUPPORTED_SOURCES, type SourceKind } from './datasetsApi'
+import { SOURCE_ACCEPT, SUPPORTED_SOURCES, TABULAR_ACCEPT, type SourceKind } from './datasetsApi'
 import { DocumentPanel } from './DocumentPanel'
 import { PRESET_HINTS } from './domainHints'
 import { MaterializePanel } from './MaterializePanel'
@@ -878,7 +878,7 @@ export function WorkbenchView({
             {source === 'json' ? t('workbench:source.pickJson') : t('workbench:source.pickCsv')}
             <input
               type="file"
-              accept={SOURCE_ACCEPT[source] ?? '.csv'}
+              accept={SOURCE_ACCEPT[source] ?? TABULAR_ACCEPT}
               multiple
               onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
             />

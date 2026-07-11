@@ -12,6 +12,7 @@ import type { RedesignTarget } from './WorkbenchView'
 import { type CrosswalkPerspective, getCrosswalks } from './crosswalkApi'
 import { DatasetGrounding } from './DatasetGrounding'
 import { RulesSection } from './RulesPanel'
+import { TABULAR_ACCEPT } from './datasetsApi'
 import {
   type AlignmentReport,
   appendDocument,
@@ -994,8 +995,12 @@ function IngestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChang
 
   const hasSource = !!meta.has_source
   const isJson = meta.source_kind === 'json'
-  const sourceLabel = isDocument ? t('gallery:ingest.sourceDocument') : isJson ? 'JSON' : 'CSV'
-  const accept = isDocument ? '.xml,.docx,.pdf' : isJson ? '.json,.geojson' : '.csv'
+  const sourceLabel = isDocument
+    ? t('gallery:ingest.sourceDocument')
+    : isJson
+      ? 'JSON'
+      : t('gallery:sourceKind.tabular')
+  const accept = isDocument ? '.xml,.docx,.pdf' : isJson ? '.json,.geojson' : TABULAR_ACCEPT
   const canIngest = !busy && (hasSource || files.length > 0)
 
   async function onIngest() {
@@ -1084,7 +1089,7 @@ function AppendControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChang
   }
 
   const isJson = meta.source_kind === 'json'
-  const sourceLabel = isJson ? 'JSON' : 'CSV'
+  const sourceLabel = isJson ? 'JSON' : t('gallery:sourceKind.tabular')
   const canAppend = !busy && files.length > 0
 
   async function onAppend() {
@@ -1127,7 +1132,7 @@ function AppendControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChang
           {t('gallery:ingest.pickLabel', { source: sourceLabel })}
           <input
             type="file"
-            accept={isJson ? '.json,.geojson' : '.csv'}
+            accept={isJson ? '.json,.geojson' : TABULAR_ACCEPT}
             multiple
             onChange={(e) => {
               setFiles(Array.from(e.target.files ?? []))
@@ -1423,7 +1428,7 @@ function ReingestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onCha
   const published = version >= 1
   const hasSource = !!meta.has_source
   const isJson = meta.source_kind === 'json'
-  const sourceLabel = isJson ? 'JSON' : 'CSV'
+  const sourceLabel = isJson ? 'JSON' : t('gallery:sourceKind.tabular')
   const canReingest = !busy && (hasSource || files.length > 0)
 
   async function onReingest() {
@@ -1480,7 +1485,7 @@ function ReingestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onCha
             : t('gallery:reingest.pickSelect', { source: sourceLabel })}
           <input
             type="file"
-            accept={isJson ? '.json,.geojson' : '.csv'}
+            accept={isJson ? '.json,.geojson' : TABULAR_ACCEPT}
             multiple
             onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
           />

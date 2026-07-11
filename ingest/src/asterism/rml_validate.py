@@ -41,6 +41,17 @@ import inspect
 import re
 from pathlib import Path
 
+from asterism.dialect import (
+    DEFAULT_DIALECT,
+    LEGACY_SUFFIXES,
+    DialectAnnotationError,
+    SourceDialect,
+    dialect_rows,
+    dialects_from_mapping,
+    is_default,
+    safe_column,
+)
+
 # FnO vocab (the *new* RML-FNML namespace Morph-KGC uses; the substrate normalizes
 # the legacy URI to this before validation, but we accept both for robustness).
 _RMLF = "http://w3id.org/rml/"
@@ -82,7 +93,9 @@ _SUGGEST_N = 3
 # A JSON source (rml:reference / iterator is a JSONPath field) or an XML source (an
 # XPath) has no flat header to validate against, so its references are skipped — we
 # never invent a missing-column issue for a field we cannot see in a header row.
-_TABULAR_SUFFIXES = frozenset({".csv", ".tsv"})
+# Legacy instrument suffixes are tabular too (extension-based normalization, ADR
+# source-dialect.md), so their columns are checked even with a default dialect.
+_TABULAR_SUFFIXES = frozenset({".csv", ".tsv"}) | LEGACY_SUFFIXES
 
 
 class RmlValidationError(Exception):
@@ -103,7 +116,7 @@ class RmlValidationError(Exception):
 # ---------------------------------------------------------------------------
 
 
-def read_csv_header(path: Path | str) -> list[str]:
+def read_csv_header(path: Path | str, dialect: SourceDialect | None = None) -> list[str]:
     """The column names of a delimited file's header row, read BOM-safely.
 
     Opened ``utf-8-sig`` so a leading UTF-8 BOM is stripped from the first column
@@ -112,10 +125,32 @@ def read_csv_header(path: Path | str) -> list[str]:
     ``.tsv`` is parsed tab-delimited; everything else comma-delimited. Returns an
     empty list for an absent or empty file (the caller treats "no header" as
     "cannot check this source" — it does not invent a missing-column issue).
+
+    With a non-default ``dialect`` (ADR ``source-dialect.md``) the header row is
+    read through the SAME rules the substrate normalizes with (encoding /
+    skip_rows / delimiter / collapse via :func:`asterism.dialect.dialect_rows`),
+    with Morph-KGC's reserved columns renamed (:func:`asterism.dialect.
+    safe_column`) — exactly the columns of the normalized copy Morph-KGC reads.
+    A legacy-suffix file (``.txt``/``.dat``/``.asc``) reads through the DEFAULT
+    dialect rules even when none is pinned (extension-based normalization). A
+    file the encoding cannot decode returns ``[]`` ("cannot check" here; the
+    ingest boundary raises the loud, structured error).
     """
     p = Path(path)
     if not p.exists():
         return []
+    effective = dialect if dialect is not None and not is_default(dialect) else None
+    if effective is None and p.suffix.lower() in LEGACY_SUFFIXES:
+        effective = DEFAULT_DIALECT
+    if effective is not None:
+        rows = dialect_rows(p, effective)
+        try:
+            first = next(rows, None)
+        except UnicodeDecodeError:
+            return []
+        finally:
+            rows.close()
+        return [safe_column(c) for c in first] if first else []
     delimiter = "\t" if p.suffix.lower() == ".tsv" else ","
     with p.open("r", encoding="utf-8-sig", newline="") as fh:
         reader = csv.reader(fh, delimiter=delimiter)
@@ -223,6 +258,30 @@ def _check_sources(graph, csv_dir: Path) -> list[str]:
     return issues
 
 
+def _check_dialects(graph) -> list[str]:
+    """Flag ``ast:`` dialect annotation values outside the pinned contract.
+
+    User-authored RML (the raw-RML save path) reaches design validation
+    unvetted; an out-of-contract value would otherwise only crash at the ingest
+    boundary. The message is :class:`asterism.dialect.DialectAnnotationError`'s
+    own (it names the offending source and value).
+    """
+    try:
+        dialects_from_mapping(graph)
+    except DialectAnnotationError as exc:
+        return [str(exc)]
+    return []
+
+
+def _mapping_dialects(graph) -> dict[str, SourceDialect]:
+    """``dialects_from_mapping`` degraded to "cannot check" on a bad annotation
+    (``_check_dialects`` reports it; header-based checks just skip)."""
+    try:
+        return dialects_from_mapping(graph)
+    except DialectAnnotationError:
+        return {}
+
+
 def _check_columns(graph, csv_dir: Path) -> list[str]:
     """Flag every ``rml:reference`` / ``{template}`` column absent from its source CSV.
 
@@ -235,6 +294,10 @@ def _check_columns(graph, csv_dir: Path) -> list[str]:
     import rdflib
 
     issues: list[str] = []
+    # Pinned source dialects (un-prepared RML only: the substrate strips the
+    # annotations and rewrites the sources before validation, so prepared RML
+    # yields an empty map and the plain header read below).
+    dialects = _mapping_dialects(graph)
     # header cache per resolved CSV path (a source is read once even if shared).
     headers: dict[str, list[str]] = {}
 
@@ -249,7 +312,7 @@ def _check_columns(graph, csv_dir: Path) -> list[str]:
             path = csv_dir / raw
         key = str(path)
         if key not in headers:
-            headers[key] = read_csv_header(path)
+            headers[key] = read_csv_header(path, dialects.get(path.name))
         return headers[key] or None
 
     sub_pred = rdflib.URIRef
@@ -269,9 +332,11 @@ def _check_columns(graph, csv_dir: Path) -> list[str]:
             # No logical source on this map (e.g. a referencing-object map). Its
             # references are validated against the parent map; skip here.
             continue
-        if Path(source_literal.strip()).suffix.lower() not in _TABULAR_SUFFIXES:
+        src_path = Path(source_literal.strip())
+        if src_path.suffix.lower() not in _TABULAR_SUFFIXES and src_path.name not in dialects:
             # JSON (JSONPath) / XML (XPath) sources have no flat header to check a
-            # reference against; leave them to the engine + safety gate.
+            # reference against; leave them to the engine + safety gate. A dialected
+            # source (e.g. a .txt instrument export) IS tabular once normalized.
             continue
         columns = header_for(source_literal)
         if columns is None:
@@ -474,7 +539,8 @@ def validate_rml_design(rml_ttl: str, csv_dir: Path | str) -> None:
 
     base = Path(csv_dir)
     issues = (
-        _check_sources(graph, base)
+        _check_dialects(graph)
+        + _check_sources(graph, base)
         + _check_columns(graph, base)
         + _check_function_params(graph)
         + _check_constant_placeholders(graph)
@@ -628,6 +694,32 @@ def _connectivity_advisories(graph, headers: dict[str, list[str]] | None = None)
     return [message]
 
 
+def _source_headers(graph, csv_dir: Path | str) -> dict[str, list[str]]:
+    """Header row of every tabular source file in ``csv_dir``, keyed by file name.
+
+    A source the mapping pins a dialect for (e.g. a ``.txt`` instrument export)
+    is read through that dialect — the same columns Morph-KGC will see after
+    normalization; plain ``.csv`` / ``.tsv`` files are read as today. Returns
+    ``{}`` when the directory is unreadable (advisories then degrade gracefully).
+    """
+    dialects = _mapping_dialects(graph)
+    headers: dict[str, list[str]] = {}
+    base = Path(csv_dir)
+    try:
+        for p in sorted(base.iterdir()):
+            if not p.is_file():
+                continue
+            dialect = dialects.get(p.name)
+            if dialect is None and p.suffix.lower() not in _TABULAR_SUFFIXES:
+                continue
+            cols = read_csv_header(p, dialect)
+            if cols:
+                headers[p.name] = cols
+    except OSError:
+        return {}
+    return headers
+
+
 def _unmapped_column_advisories(graph, headers: dict[str, list[str]]) -> list[str]:
     """Columns a tabular source carries that the mapping never references.
 
@@ -694,17 +786,7 @@ def design_advisories(rml_ttl: str, csv_dir: Path | str | None = None) -> list[s
         graph.parse(data=rml_ttl, format="turtle")
     except Exception:
         return []
-    headers: dict[str, list[str]] = {}
-    if csv_dir is not None:
-        base = Path(csv_dir)
-        try:
-            for p in sorted(base.iterdir()):
-                if p.is_file() and p.suffix.lower() in _TABULAR_SUFFIXES:
-                    cols = read_csv_header(p)
-                    if cols:
-                        headers[p.name] = cols
-        except OSError:
-            headers = {}
+    headers = _source_headers(graph, csv_dir) if csv_dir is not None else {}
     return _connectivity_advisories(graph, headers or None)
 
 
@@ -726,17 +808,7 @@ def design_review_notes(rml_ttl: str, csv_dir: Path | str | None = None) -> list
         graph.parse(data=rml_ttl, format="turtle")
     except Exception:
         return []
-    headers: dict[str, list[str]] = {}
-    if csv_dir is not None:
-        base = Path(csv_dir)
-        try:
-            for p in sorted(base.iterdir()):
-                if p.is_file() and p.suffix.lower() in _TABULAR_SUFFIXES:
-                    cols = read_csv_header(p)
-                    if cols:
-                        headers[p.name] = cols
-        except OSError:
-            headers = {}
+    headers = _source_headers(graph, csv_dir) if csv_dir is not None else {}
     if not headers:
         return []
     return _unmapped_column_advisories(graph, headers)

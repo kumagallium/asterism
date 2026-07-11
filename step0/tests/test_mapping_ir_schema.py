@@ -140,3 +140,17 @@ def test_replace_mapping_spec_block_splices_only_section_nine() -> None:
     assert "prose stays" in out
     with pytest.raises(ValueError):
         replace_mapping_spec_block("# no spec here\n", "x: 1")
+
+
+def test_schema_accepts_dialects_and_stays_propertynames_free() -> None:
+    doc = _minimal(column="name")
+    doc["maps"][0]["source"] = "xrd.txt"
+    doc["dialects"] = {"xrd.txt": {"encoding": "cp932", "delimiter": "\t", "skip_rows": 1}}
+    assert not _validate(doc)
+    # off-spec dialect fields cannot be generated
+    doc["dialects"]["xrd.txt"]["skip_rows"] = -1
+    assert _validate(doc)
+    doc["dialects"]["xrd.txt"] = {"codepage": "cp932"}
+    assert _validate(doc)
+    # the guided-decoding constraint holds everywhere (Sakura vLLM)
+    assert "propertyNames" not in json.dumps(mapping_ir_json_schema())

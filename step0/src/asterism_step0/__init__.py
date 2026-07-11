@@ -6,6 +6,12 @@ Modules:
   - (future) validate: 8-trap validator (per ai-assisted-step0-workflow.md §6)
 """
 
+from asterism_step0.dialect import (
+    SourceDialect,
+    apply_detected_dialects,
+    detect_dialect,
+    is_default,
+)
 from asterism_step0.inspect import (
     ColumnSummary,
     CSVInspection,
@@ -16,6 +22,7 @@ from asterism_step0.inspect import (
 )
 from asterism_step0.materialize import (
     MaterializeResult,
+    apply_source_dialects,
     materialize_schema,
 )
 from asterism_step0.propose import (
@@ -45,11 +52,16 @@ __all__ = [
     "RefinementResult",
     "SchemaBundle",
     "SchemaProposal",
+    "SourceDialect",
     "TrapResult",
     "UniquenessReport",
     "ValidationReport",
+    "apply_detected_dialects",
+    "apply_source_dialects",
+    "detect_dialect",
     "inspect_csv",
     "inspect_csv_set",
+    "is_default",
     "materialize_schema",
     "propose_schema",
     "refine_schema",

@@ -558,3 +558,109 @@ def test_csv_reserved_column_renamed(tmp_path: Path) -> None:
     names = [c.name for c in ins.columns]
     assert "subject_" in names and "subject" not in names
     assert "id" in names and "note" in names  # non-reserved columns unchanged
+
+
+# ----------------------------------------------------------------------------
+# Source dialects (ADR source-dialect.md)
+# ----------------------------------------------------------------------------
+
+
+def _write_cp932_xrd(path: Path, data_rows: int = 6) -> Path:
+    """CP932, CRLF, tab-separated, one preamble line — the audited XRD shape."""
+    lines = ["サンプル名: 試料A", "2θ (deg)\t強度 (cps)"]
+    lines += [f"{10.0 + i * 0.02:.2f}\t{100 + i}" for i in range(data_rows)]
+    path.write_bytes("\r\n".join(lines).encode("cp932") + b"\r\n")
+    return path
+
+
+def test_inspect_csv_reads_through_detected_dialect(tmp_path: Path) -> None:
+    p = _write_cp932_xrd(tmp_path / "xrd_measurement.txt")
+    ins = inspect_csv(p)
+    assert [c.name for c in ins.columns] == ["2θ (deg)", "強度 (cps)"]
+    assert ins.total_rows == 6
+    assert ins.dialect is not None
+    assert (ins.dialect.encoding, ins.dialect.delimiter, ins.dialect.skip_rows) == (
+        "cp932",
+        "\t",
+        1,
+    )
+    assert ins.dialect_origin == "detected"
+    assert ins.column("強度 (cps)").inferred_type == "xsd:integer"  # type: ignore[union-attr]
+
+
+def test_inspect_csv_default_dialect_reports_none(tmp_path: Path) -> None:
+    p = _write_csv(
+        tmp_path / "clean.csv",
+        """
+        id,name
+        1,Alice
+        2,Bob
+        3,Carol
+        4,Dave
+        5,Eve
+        """,
+    )
+    ins = inspect_csv(p)
+    assert ins.dialect is None
+    assert ins.dialect_origin is None
+
+
+def test_inspect_csv_explicit_dialect_override(tmp_path: Path) -> None:
+    from asterism_step0.dialect import SourceDialect
+
+    # Too short for auto-detection (run < 5) — the explicit override still reads it.
+    p = _write_cp932_xrd(tmp_path / "xrd.txt", data_rows=3)
+    ins = inspect_csv(p, dialect=SourceDialect(encoding="cp932", delimiter="\t", skip_rows=1))
+    assert [c.name for c in ins.columns] == ["2θ (deg)", "強度 (cps)"]
+    assert ins.total_rows == 3
+    assert ins.dialect_origin == "specified"
+
+
+def test_render_markdown_reports_dialect(tmp_path: Path) -> None:
+    p = _write_cp932_xrd(tmp_path / "xrd_measurement.txt")
+    md = render_markdown([inspect_csv(p)])
+    assert "- Dialect: encoding=cp932, delimiter=tab, skip_rows=1 (auto-detected)" in md
+
+
+def test_render_markdown_default_has_no_dialect_line(tmp_path: Path) -> None:
+    p = _write_csv(
+        tmp_path / "clean.csv",
+        """
+        id,name
+        1,Alice
+        2,Bob
+        """,
+    )
+    md = render_markdown([inspect_csv(p)])
+    assert "Dialect:" not in md
+
+
+def test_inspect_legacy_txt_default_reads_like_normalized_copy(tmp_path: Path) -> None:
+    """C2/C13 twin: a clean comma .txt (default dialect) is normalized at ingest,
+    so inspection reads it through the same rules — stripped cells included —
+    while still reporting no dialect (nothing to pin)."""
+    p = tmp_path / "clean.txt"
+    lines = ["id, name"] + [f"{i}, row{i} " for i in range(6)]
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    ins = inspect_csv(p)
+    assert ins.dialect is None  # default — nothing pinned anywhere
+    assert [c.name for c in ins.columns] == ["id", "name"]  # cells stripped
+    assert ins.column("name").sample_values[0] == "row0"  # type: ignore[union-attr]
+
+
+def test_foreign_keys_across_dialected_and_clean_sources(tmp_path: Path) -> None:
+    lines = ["前置き行", "sample_id\tvalue"] + [f"S{i}\t{i}" for i in range(6)]
+    a = tmp_path / "inst.txt"
+    a.write_bytes("\r\n".join(lines).encode("cp932") + b"\r\n")
+    b = _write_csv(
+        tmp_path / "meta.csv",
+        """
+        sample_id,name
+        S0,zero
+        S1,one
+        """,
+    )
+    _, fks = inspect_source_set([a, b])
+    assert any(
+        fk.from_column == "sample_id" and fk.to_column == "sample_id" for fk in fks
+    )

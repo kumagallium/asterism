@@ -770,13 +770,14 @@ def test_attach_source_persists_json_and_sets_source_kind(tmp_path: Path) -> Non
 
 
 def test_attach_source_rejects_unsupported_extension(tmp_path: Path) -> None:
+    # .txt is a tabular source now (ADR source-dialect.md); .md is still rejected.
     dataset_id = _save_dataset_with_rml(tmp_path)
     oxi = _RecordingOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
     with TestClient(app, headers=_AUTH) as client:
         r = client.post(
             f"/api/datasets/{dataset_id}/source",
-            files={"files": ("data.txt", b"x\n", "text/plain")},
+            files={"files": ("data.md", b"x\n", "text/plain")},
         )
         assert r.status_code == 400
 

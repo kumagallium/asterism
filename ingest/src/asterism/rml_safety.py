@@ -58,7 +58,22 @@ _SOURCE_PREDICATES: tuple[str, ...] = (
 # logical source still passes through every other gate here (confined path,
 # Tier-0-only functions, no SQL/query source), so widening the file-type
 # allowlist does not widen what an RML mapping may *execute* or *reach*.
-_ALLOWED_SOURCE_SUFFIXES = frozenset({".csv", ".tsv", ".json", ".xml"})
+#
+# ``.txt`` / ``.dat`` / ``.asc`` are the legacy-instrument-export extensions
+# (ADR ``source-dialect.md``): such a source is normalized to a UTF-8 comma CSV
+# by the substrate's dialect step before Morph-KGC ever reads it, so — like
+# ``.xml`` — the widening is file-type only, never execution or reach.
+_ALLOWED_SOURCE_SUFFIXES = frozenset(
+    {".csv", ".tsv", ".json", ".xml", ".txt", ".dat", ".asc"}
+)
+
+# The ``ast:`` source-dialect annotations (sourceEncoding / sourceDelimiter /
+# sourceCollapse / sourceSkipRows on a logical source, ADR ``source-dialect.md``)
+# carry NO execution semantics — they only describe how the substrate *decodes*
+# the already-confined source file. This gate is a closed checklist of the
+# predicates that could execute code or reach data (functions / query / source),
+# not an unknown-predicate rejector, so the annotations pass it by construction;
+# they are stripped by the substrate before Morph-KGC runs.
 
 _URL_SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
 
