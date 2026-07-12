@@ -49,6 +49,11 @@ _INPUT_VALUE_MAP_PREDS = (
 _DATATYPE_PREDS = (_R2RML + "datatype", "http://w3id.org/rml/datatype")
 _TERM_TYPE_PREDS = (_R2RML + "termType", "http://w3id.org/rml/termType")
 _LANGUAGE_PREDS = (_R2RML + "language", "http://w3id.org/rml/language")
+# rr:constant / rml:constant — the constant term map (a fixed literal or IRI).
+# The Mapping-IR compiler emits the NEW RML namespace (rml:constant) for the
+# constant fed to a function's inputValueMap, so both must be recognized or a
+# function-argument constant reads as an unrecognized (unknown) term.
+_CONSTANT_PREDS = (_R2RML + "constant", "http://w3id.org/rml/constant")
 
 
 def _first(graph, subject, preds: tuple[str, ...]):
@@ -161,7 +166,7 @@ def _term_map_value(
         out.update({"kind": "template", "template": str(template)})
         return out
 
-    constant = _first(graph, node, (_R2RML + "constant",))
+    constant = _first(graph, node, _CONSTANT_PREDS)
     if constant is not None:
         is_iri = isinstance(constant, rdflib.URIRef)
         out.update(
@@ -270,7 +275,7 @@ def summarize_rml(rml_ttl: str) -> dict:
         for pom in _all(graph, tm, (_R2RML + "predicateObjectMap",)):
             predicates = [str(p) for p in _all(graph, pom, (_R2RML + "predicate",))]
             for pm in _all(graph, pom, (_R2RML + "predicateMap",)):
-                const = _first(graph, pm, (_R2RML + "constant",))
+                const = _first(graph, pm, _CONSTANT_PREDS)
                 if const is not None:
                     predicates.append(str(const))
             values: list[dict] = []
