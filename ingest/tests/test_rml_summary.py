@@ -88,6 +88,42 @@ def test_function_execution_projection() -> None:
     assert args["p_field"]["constant"] == "x"
 
 
+# The Mapping-IR compiler emits the NEW RML namespace (rml:constant ==
+# http://w3id.org/rml/, bound to rmlf: here) for a constant fed to a function's
+# inputValueMap and for a plain constant object. Observed live in production
+# Starrydata mappings: a function-argument constant read as `unknown` because the
+# projector only recognized r2rml#constant. Pin both spellings.
+_NEW_NS_CONSTANT = _PREFIXES + """
+<#CurveMap> a rr:TriplesMap ;
+  rml:logicalSource [ rml:source "curves.csv" ; rml:referenceFormulation ql:CSV ] ;
+  rr:subjectMap [ rr:template "https://example.org/resource/curve/{curve_id}" ;
+    rr:class ex:Curve ] ;
+  rr:predicateObjectMap [ rr:predicate ex:unit ;
+    rr:objectMap [ rmlf:functionExecution [
+        rmlf:function fn:template ;
+        rmlf:input [ rmlf:parameter fn:p_value ;
+          rmlf:inputValueMap [ rml:reference "u" ] ] ;
+        rmlf:input [ rmlf:parameter fn:p_template ;
+          rmlf:inputValueMap [ rmlf:constant "https://example.org/unit/{1}" ] ]
+      ] ] ] ;
+  rr:predicateObjectMap [ rr:predicate ex:origin ;
+    rr:objectMap [ rmlf:constant "lab-A" ] ] .
+"""
+
+
+def test_new_namespace_constant_is_recognized() -> None:
+    out = summarize_rml(_NEW_NS_CONSTANT)
+    assert out["warnings"] == []  # rml:constant must NOT read as unknown
+    rows = {r["predicate"]: r for r in out["maps"][0]["properties"]}
+    # Plain object-map constant in the new namespace.
+    assert rows["ex:origin"]["kind"] == "constant"
+    assert rows["ex:origin"]["constant"] == "lab-A"
+    # Constant supplied as a function argument (the exact production shape).
+    fn_args = {a["param"]: a for a in rows["ex:unit"]["args"]}
+    assert fn_args["p_template"]["kind"] == "constant"
+    assert fn_args["p_template"]["constant"] == "https://example.org/unit/{1}"
+
+
 _JOIN = _PREFIXES + """
 <#MeasurementMap> a rr:TriplesMap ;
   rml:logicalSource [ rml:source "meas.csv" ; rml:referenceFormulation ql:CSV ] ;
