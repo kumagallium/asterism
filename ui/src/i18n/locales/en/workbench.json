@@ -179,5 +179,23 @@
     "colSource": "Source",
     "colKey": "Subject key (IRI template)",
     "colClasses": "Classes"
+  },
+  "dialect": {
+    "title": "Read settings (optional)",
+    "hint": "The read format (encoding, delimiter, lines before the header) was auto-detected. Correct it here before generating if it is wrong. Clean CSVs are not shown.",
+    "colEncoding": "Encoding",
+    "colDelimiter": "Delimiter",
+    "colSkipRows": "Lines before header",
+    "colCollapse": "Treat consecutive delimiters as one",
+    "originDetected": "auto-detected",
+    "originSpecified": "specified",
+    "reset": "Reset to auto-detected",
+    "delim": {
+      "comma": "Comma",
+      "tab": "Tab",
+      "semicolon": "Semicolon",
+      "pipe": "Pipe",
+      "whitespace": "Whitespace (runs as one)"
+    }
   }
 }

@@ -4,11 +4,11 @@ The api's slice of "throw the legacy instrument file in as-is": widened tabular
 extensions (.tsv/.txt/.dat/.asc), deterministic slugging of non-ASCII tabular
 filenames at every entrance (the canonical name is what rml:source references),
 a readable 422 instead of a decode/parse traceback on /api/inspect, the design
-loop pinning inspect-detected dialects into the §9 mapping spec, and the append
-guard refusing incremental append of a dialected source (snapshot re-ingest is
-the supported path). Detection/normalization themselves are step0/ingest
-territory — these tests exercise the api wiring with fakes where the seam is
-still landing (see tests/conftest.py).
+loop pinning inspect-detected dialects into the §9 mapping spec, and incremental
+append of a dialected source (ADR "Append" plan B: the persisted copy grows in
+its NATIVE dialect, normalized once at snapshot re-ingest). Detection/
+normalization themselves are step0/ingest territory — these tests exercise the
+api wiring with fakes where the seam is still landing (see tests/conftest.py).
 """
 from __future__ import annotations
 
@@ -131,6 +131,201 @@ def test_inspect_accepts_txt_and_returns_canonical_name(tmp_path: Path) -> None:
         # The client learns the exact name the design's rml:source must use.
         assert r.headers["X-Asterism-Source-Names"] == canonical
         assert f"## CSV: {canonical}" in r.text
+
+
+# The wizard "read settings" needs the STRUCTURED dialect, not just the Markdown line.
+# A CP932/CRLF/tab XRD export with a preamble line detects as a non-default dialect
+# (run ≥ 5 records so detection pins it).
+_CP932_XRD_TALL = (
+    "サンプル名: 試料A\r\n2θ (deg)\t強度 (cps)\r\n"
+    + "".join(f"{10 + i}.0\t{100 + i}\r\n" for i in range(6))
+).encode("cp932")
+
+
+def test_inspect_emits_dialects_header_for_non_default(tmp_path: Path) -> None:
+    """A non-default source exposes its structured dialect in X-Asterism-Dialects
+    (delimiter as the canonical token — the tab is JSON-escaped, header stays ASCII)."""
+    app = build_app(_settings(tmp_path), oxigraph_client=_healthy_client(), start_watcher=False)
+    canonical = _sanitize_tabular_name("xrd.txt")
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/inspect",
+            files={"files": ("xrd.txt", _CP932_XRD_TALL, "text/plain")},
+        )
+    assert r.status_code == 200, r.text
+    dialects = json.loads(r.headers["X-Asterism-Dialects"])
+    assert dialects[canonical] == {
+        "encoding": "cp932",
+        "delimiter": "\t",
+        "collapse": False,
+        "skip_rows": 1,
+        "origin": "detected",
+    }
+
+
+def test_inspect_dialects_header_empty_for_clean_csv(tmp_path: Path) -> None:
+    """Zero friction: a clean UTF-8 comma CSV emits an EMPTY dialects header (the
+    wizard panel stays hidden) and the Markdown body is byte-identical to today."""
+    app = build_app(_settings(tmp_path), oxigraph_client=_healthy_client(), start_watcher=False)
+    body = b"SID,composition\n1,Bi2Te3\n2,PbTe\n"
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post("/api/inspect", files={"files": ("clean.csv", body, "text/csv")})
+    assert r.status_code == 200, r.text
+    assert r.headers["X-Asterism-Dialects"] == "{}"
+    assert "## CSV: clean.csv" in r.text  # the Markdown contract is unchanged
+
+
+# ---- dialect override parsing (the propose routes' form field) ----------------
+
+
+def test_parse_dialect_overrides_valid_and_empty() -> None:
+    assert api_main._parse_dialect_overrides("") == {}
+    assert api_main._parse_dialect_overrides("   ") == {}
+    parsed = api_main._parse_dialect_overrides(
+        '{"xrd.txt": {"encoding": "cp932", "delimiter": "\\t", "skip_rows": 1}}'
+    )
+    # _parse_dialects returns the step0 SourceDialect twin — compare by fields, not
+    # cross-class dataclass equality.
+    d = parsed["xrd.txt"]
+    assert (d.encoding, d.delimiter, d.collapse, d.skip_rows) == ("cp932", "\t", False, 1)
+
+
+def test_parse_dialect_overrides_rejects_bad_values() -> None:
+    for bad, needle in [
+        ('{"x.txt": {"encoding": "zip"}}', "text codec"),  # bytes<->bytes codec
+        ('{"x.txt": {"delimiter": "||"}}', "single character"),  # multi-char delimiter
+        ('{"x.txt": {"skip_rows": -1}}', "non-negative"),  # negative offset
+        ('{"x.txt": {"bogus": 1}}', "unknown"),  # unknown field
+        ("not-json", "valid JSON"),
+        ("[1,2]", "JSON object"),
+    ]:
+        with pytest.raises(HTTPException) as exc:
+            api_main._parse_dialect_overrides(bad)
+        assert exc.value.status_code == 422
+        assert needle in str(exc.value.detail)
+
+
+def test_propose_rejects_invalid_dialect_override_422(tmp_path: Path) -> None:
+    """Wiring: a bad override 422s at the /api/propose boundary (before the job / temp
+    dir), so an out-of-contract value never reaches the §9 annotations."""
+    app = build_app(
+        _settings(tmp_path),
+        oxigraph_client=_healthy_client(),
+        start_watcher=False,
+        llm_factory=_MockLLM,
+    )
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/propose",
+            params={"autocorrect": 0},
+            files={"files": ("data.csv", b"SID,c\n1,x\n", "text/csv")},
+            data={"dialects": '{"data.csv": {"skip_rows": -1}}'},
+            headers={"X-API-Key": "sk-user-test"},
+        )
+    assert r.status_code == 422
+    assert "non-negative" in r.json()["detail"]
+
+
+def test_run_design_loop_override_pins_into_spec_and_applies(tmp_path: Path) -> None:
+    """No fakes: an override the detector did NOT produce (a clean ASCII CSV detects as
+    default) is merged into ``effective``, pinned into §9, AND applied to every read —
+    cp932 reads the ASCII columns identically, so the design still converges (proof the
+    effective map is consistent across oracle / inspect / overlay)."""
+    (tmp_path / "data.csv").write_bytes(b"SID,composition\n1,Bi2Te3\n2,PbTe\n")
+    override = api_main._parse_dialect_overrides('{"data.csv": {"encoding": "cp932"}}')
+    llm = _ScriptedLLM([_md_with_spec("data.csv", "composition")])
+    result = design_loop.run_design_loop(
+        [tmp_path / "data.csv"], "hint", tmp_path, llm=llm, max_rounds=0,
+        dialect_overrides=override,
+    )
+    assert "dialects:" in result.proposal_md
+    assert "cp932" in result.proposal_md  # the override pinned into §9
+    assert result.remaining_issues == []  # effective applied consistently → no column moles
+
+
+# ---- FIX2: an override reset to a DEFAULT value survives the materialize re-pin ----
+
+
+def _pinned_dialect(proposal_md: str, source: str) -> dict:
+    """Pull the §9 ``dialects:`` entry for ``source`` out of a proposal's Markdown."""
+    import yaml
+
+    from asterism_api.design_loop import _extract_design
+
+    ir_yaml, _ = _extract_design(proposal_md)
+    assert ir_yaml, "no §9 mapping spec in the proposal"
+    return yaml.safe_load(ir_yaml)["dialects"][source]
+
+
+# A CP932/tab table whose first physical line is a 1-token preamble, so the detector
+# pins skip_rows=1 (the constant-width 2-column run starts at line index 1).
+_CP932_PREAMBLE_TAB = (
+    "メタ情報\r\nSID\tcomposition\r\n" + "".join(f"{i}\tBi2Te3\r\n" for i in range(1, 8))
+).encode("cp932")
+
+
+def test_override_reset_to_default_survives_materialize_repin(tmp_path: Path) -> None:
+    """FIX2: the human keeps cp932/tab but corrects the detected skip_rows 1→0 (an explicit
+    DEFAULT). §9 must pin skip_rows:0 with all four fields so the materialize re-pin — which
+    re-detects skip_rows=1 from the persisted source — does NOT silently revert it (the bug:
+    a default field was omitted, so ``entry.update(prior)`` refilled it from re-detection)."""
+    from asterism_step0.dialect import detect_dialect
+    from asterism_step0.materialize import apply_source_dialects
+
+    (tmp_path / "data.txt").write_bytes(_CP932_PREAMBLE_TAB)
+    detected = detect_dialect(tmp_path / "data.txt")
+    assert detected.encoding == "cp932" and detected.delimiter == "\t" and detected.skip_rows == 1
+    override = api_main._parse_dialect_overrides(
+        '{"data.txt": {"encoding": "cp932", "delimiter": "\\t", "skip_rows": 0}}'
+    )
+    llm = _ScriptedLLM([_md_with_spec("data.txt", "composition")])
+    result = design_loop.run_design_loop(
+        [tmp_path / "data.txt"], "hint", tmp_path, llm=llm, max_rounds=0,
+        dialect_overrides=override,
+    )
+    # (a) §9 pins the override with ALL four fields (the explicit default skip_rows: 0).
+    pinned = _pinned_dialect(result.proposal_md, "data.txt")
+    assert pinned == {"encoding": "cp932", "delimiter": "\t", "collapse": False, "skip_rows": 0}
+    # Re-pin from the persisted source dir (the /api/materialize dataset_id path) re-detects
+    # skip_rows=1, but the explicit §9 default wins — the correction is preserved.
+    ir_yaml, _ = design_loop._extract_design(result.proposal_md)
+    import yaml as _yaml
+
+    repinned = _yaml.safe_load(apply_source_dialects(ir_yaml, tmp_path))["dialects"]["data.txt"]
+    assert repinned["skip_rows"] == 0  # NOT reverted to the re-detected 1
+
+
+def test_override_nondefault_field_survives_repin(tmp_path: Path) -> None:
+    """FIX2 (b): a NON-default override (skip_rows corrected 1→2) also survives the re-pin —
+    the explicit human value wins over re-detection, as it always did."""
+    from asterism_step0.materialize import apply_source_dialects
+
+    (tmp_path / "data.txt").write_bytes(_CP932_PREAMBLE_TAB)
+    override = api_main._parse_dialect_overrides(
+        '{"data.txt": {"encoding": "cp932", "delimiter": "\\t", "skip_rows": 2}}'
+    )
+    llm = _ScriptedLLM([_md_with_spec("data.txt", "composition")])
+    result = design_loop.run_design_loop(
+        [tmp_path / "data.txt"], "hint", tmp_path, llm=llm, max_rounds=0,
+        dialect_overrides=override,
+    )
+    assert _pinned_dialect(result.proposal_md, "data.txt")["skip_rows"] == 2
+    import yaml as _yaml
+
+    ir_yaml, _ = design_loop._extract_design(result.proposal_md)
+    repinned = _yaml.safe_load(apply_source_dialects(ir_yaml, tmp_path))["dialects"]["data.txt"]
+    assert repinned["skip_rows"] == 2
+
+
+def test_detection_only_clean_csv_emits_no_dialects_byte_equivalent(tmp_path: Path) -> None:
+    """FIX2 (c) — the absolute invariant: with NO override, a clean CSV that detects as the
+    default dialect pins nothing (no ``dialects:`` section), byte-identical to today."""
+    (tmp_path / "clean.csv").write_bytes(b"SID,composition\n1,Bi2Te3\n2,PbTe\n")
+    llm = _ScriptedLLM([_md_with_spec("clean.csv", "composition")])
+    result = design_loop.run_design_loop(
+        [tmp_path / "clean.csv"], "hint", tmp_path, llm=llm, max_rounds=0,
+    )
+    assert "dialects:" not in result.proposal_md
 
 
 def test_inspect_decode_failure_is_readable_422(tmp_path: Path, monkeypatch) -> None:
@@ -315,8 +510,9 @@ def _fake_overlay_fns(calls: dict):
         calls.setdefault("detected", []).append(Path(path).name)
         return SourceDialect(encoding="cp932")
 
-    def fake_apply(ir_yaml: str, detected) -> str:
+    def fake_apply(ir_yaml: str, detected, full_fields=None) -> str:
         calls["applied"] = calls.get("applied", 0) + 1
+        calls.setdefault("full_fields", []).append(frozenset(full_fields or ()))
         if "dialects:" in ir_yaml:
             return ir_yaml
         return ir_yaml.rstrip("\n") + "\n" + _DIALECT_MARKER
@@ -553,8 +749,12 @@ _RML_DIALECTED = (
 
 
 def test_dialected_sources_reads_annotations_per_source() -> None:
-    assert _dialected_sources(_RML_PLAIN) == set()
-    assert _dialected_sources(_RML_DIALECTED) == {"xrd.txt"}
+    assert _dialected_sources(_RML_PLAIN) == {}
+    dialected = _dialected_sources(_RML_DIALECTED)
+    assert set(dialected) == {"xrd.txt"}
+    assert dialected["xrd.txt"] == SourceDialect(
+        encoding="cp932", delimiter="\t", skip_rows=1
+    )
 
 
 class _FeedOxi:
@@ -609,20 +809,147 @@ def _promoted_feed_dataset(tmp: Path, rml: str) -> tuple[str, str]:
     return dataset_id, live
 
 
-def test_append_dialected_source_is_422(tmp_path: Path) -> None:
+# A second device batch for xrd.txt: the SAME preamble+header, two NEW data rows.
+_CP932_XRD_BATCH2 = (
+    "サンプル名: 試料A\r\n2θ (deg)\t強度 (cps)\r\n11.0\t789\r\n11.2\t1011\r\n".encode("cp932")
+)
+
+
+def test_append_dialected_source_accumulates_natively(tmp_path: Path, monkeypatch) -> None:
+    """Plan B (ADR source-dialect.md, Append): a dialected source appends by GROWING its
+    persisted copy in its NATIVE dialect — the batch's repeated preamble+header is
+    sliced off, its data rows concatenated — while the batch still POST-merges into the
+    live graph. No 422."""
+    from tests.test_ingest import _fake_nt_materializer
+
     dataset_id, live = _promoted_feed_dataset(tmp_path, _RML_DIALECTED)
+    sdir = tmp_path / "registry" / dataset_id / "source"
+    # The design-time source: CP932/tab, one preamble line + header + 2 data rows.
+    (sdir / "xrd.txt").write_bytes(_CP932_XRD)
+    monkeypatch.setattr(substrate, "materialize_to_nt_file", _fake_nt_materializer(triples=1))
     oxi = _FeedOxi(live)
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
     with TestClient(app, headers=_AUTH) as client:
         r = client.post(
             f"/api/datasets/{dataset_id}/append",
-            files={"files": ("xrd.txt", _CP932_XRD, "text/plain")},
+            files={"files": ("xrd.txt", _CP932_XRD_BATCH2, "text/plain")},
+        )
+    assert r.status_code == 200, r.text
+    assert live in oxi.stores  # the batch reached the live graph
+    # The persisted source grew in its native CP932 dialect: preamble ONCE, header
+    # ONCE, then EVERY data row (initial 2 + appended 2). A snapshot re-ingest reads
+    # it through the pinned dialect (skip_rows=1), normalizing exactly once.
+    assert (sdir / "xrd.txt").read_bytes().decode("cp932").splitlines() == [
+        "サンプル名: 試料A",
+        "2θ (deg)\t強度 (cps)",
+        "10.0\t123",
+        "10.2\t456",
+        "11.0\t789",
+        "11.2\t1011",
+    ]
+
+
+def test_append_dialected_source_read_error_is_422(tmp_path: Path, monkeypatch) -> None:
+    """Fail-closed: annotations present but unreadable → the append is refused (a batch
+    cannot be accumulated without the pinned offset), snapshot re-ingest still works."""
+    dataset_id, live = _promoted_feed_dataset(tmp_path, _RML_DIALECTED)
+    (tmp_path / "registry" / dataset_id / "source" / "xrd.txt").write_bytes(_CP932_XRD)
+
+    def boom(_rml: str) -> dict:
+        raise api_main._DialectReadError("unreadable")
+
+    monkeypatch.setattr(api_main, "_dialected_sources", boom)
+    oxi = _FeedOxi(live)
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            f"/api/datasets/{dataset_id}/append",
+            files={"files": ("xrd.txt", _CP932_XRD_BATCH2, "text/plain")},
         )
     assert r.status_code == 422
-    detail = r.json()["detail"]
-    assert "dialect" in detail
-    assert "再取り込み" in detail  # points at the supported path (snapshot re-ingest)
+    assert "再取り込み" in r.json()["detail"]
     assert oxi.stores == []  # nothing reached the live graph
+
+
+def test_accumulate_source_batch_dialected_native_growth(tmp_path: Path) -> None:
+    """Unit: two sequential dialected batches grow the native file to preamble ONCE +
+    header ONCE + all data rows; only skip_rows+1 physical lines are dropped per batch
+    (no header-byte compare), decode-free so CP932/CRLF survives."""
+    dialect = SourceDialect(encoding="cp932", delimiter="\t", skip_rows=1)
+    sdir = tmp_path / "s"
+    sdir.mkdir()
+    # First accumulation: file absent → written as-is (its single preamble+header kept).
+    api_main._accumulate_source_batch(sdir, "xrd.txt", _CP932_XRD, dialect)
+    api_main._accumulate_source_batch(sdir, "xrd.txt", _CP932_XRD_BATCH2, dialect)
+    assert (sdir / "xrd.txt").read_bytes().decode("cp932").splitlines() == [
+        "サンプル名: 試料A",
+        "2θ (deg)\t強度 (cps)",
+        "10.0\t123",
+        "10.2\t456",
+        "11.0\t789",
+        "11.2\t1011",
+    ]
+
+
+def test_accumulate_source_batch_inserts_newline_when_missing(tmp_path: Path) -> None:
+    # A persisted file with no trailing newline gets a separator before the data rows.
+    dialect = SourceDialect(delimiter="\t", skip_rows=1)
+    sdir = tmp_path / "s"
+    sdir.mkdir()
+    (sdir / "x.txt").write_bytes(b"pre\nh1\th2\n1\t2")  # no trailing newline
+    api_main._accumulate_source_batch(sdir, "x.txt", b"pre\nh1\th2\n3\t4\n", dialect)
+    assert (sdir / "x.txt").read_bytes() == b"pre\nh1\th2\n1\t2\n3\t4\n"
+
+
+def test_accumulate_clean_csv_unchanged_by_dialect_path(tmp_path: Path) -> None:
+    # Regression: a NON-dialected CSV keeps the byte-concat + repeated-header drop.
+    sdir = tmp_path / "s"
+    sdir.mkdir()
+    (sdir / "p.csv").write_bytes(b"SID,title\n1,a\n")
+    api_main._accumulate_source_batch(sdir, "p.csv", b"SID,title\n2,b\n", None)
+    assert (sdir / "p.csv").read_bytes() == b"SID,title\n1,a\n2,b\n"
+
+
+@pytest.mark.parametrize("name", ["scan.txt", "table.tsv", "data.dat", "trace.asc"])
+def test_accumulate_clean_legacy_tabular_appends_not_overwrites(
+    tmp_path: Path, name: str
+) -> None:
+    """FIX1 regression: a CLEAN (default-dialect → dialect None) legacy-suffix tabular
+    source (.txt/.tsv/.dat/.asc) accumulates its data rows on a second batch instead of
+    the whole persisted file being overwritten. Before the fix, only ``.csv`` took the
+    append branch and .txt/.tsv/.dat/.asc fell to ``dest.write_bytes`` (data loss: the
+    first batch's rows vanished, so a snapshot re-ingest diverged from the live graph)."""
+    sdir = tmp_path / "s"
+    sdir.mkdir()
+    api_main._accumulate_source_batch(sdir, name, b"SID,title\n1,a\n", None)
+    # Second batch repeats the header (device exports re-emit it) — it is dropped once.
+    api_main._accumulate_source_batch(sdir, name, b"SID,title\n2,b\n", None)
+    assert (sdir / name).read_bytes() == b"SID,title\n1,a\n2,b\n"
+
+
+def test_accumulate_batch_sources_idempotent_per_batch_id(tmp_path: Path) -> None:
+    # The .applied_batches/<batch_id> marker means a re-delivered batch is folded once.
+    dialect = SourceDialect(delimiter="\t", skip_rows=1)
+    sdir = tmp_path / "s"
+    sdir.mkdir()
+    (sdir / "x.txt").write_bytes(_CP932_XRD.decode("cp932").encode("utf-8"))
+    batch = [("x.txt", b"pre\nh1\th2\n9\t9\n")]
+    dialects = {"x.txt": dialect}
+    api_main._accumulate_batch_sources(sdir, batch, "batch-1", dialects)
+    first = (sdir / "x.txt").read_bytes()
+    api_main._accumulate_batch_sources(sdir, batch, "batch-1", dialects)  # replay
+    assert (sdir / "x.txt").read_bytes() == first  # no double accumulation
+
+
+def test_dialect_standin_bytes_keeps_preamble_and_header(tmp_path: Path) -> None:
+    """The multi-source stand-in for a dialected source the batch does not cover keeps
+    its native preamble+header only (0 data rows after normalization)."""
+    dialect = SourceDialect(encoding="cp932", delimiter="\t", skip_rows=1)
+    standin = api_main._dialect_standin_bytes(_CP932_XRD, dialect)
+    assert standin.decode("cp932").splitlines() == [
+        "サンプル名: 試料A",
+        "2θ (deg)\t強度 (cps)",
+    ]
 
 
 def test_append_clean_source_of_dialected_mapping_still_works(

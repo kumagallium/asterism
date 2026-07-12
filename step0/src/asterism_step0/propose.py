@@ -27,10 +27,12 @@ are separate modules (future work).
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from asterism_step0.dialect import SourceDialect
 from asterism_step0.inspect import inspect_source_set, render_markdown
 from asterism_step0.language import language_instruction
 
@@ -393,6 +395,7 @@ def propose_schema(
     record_path: str | None = None,
     llm: LLMClient | None = None,
     language: str | None = None,
+    dialects: Mapping[str, SourceDialect] | None = None,
 ) -> SchemaProposal:
     """Run Step 1 (inspect) and Step 3 (propose) end-to-end.
 
@@ -411,6 +414,11 @@ def propose_schema(
         language: Output language for the proposal's human-readable prose
             (e.g. ``"ja"``). Headings / identifiers / code stay English (see
             :mod:`asterism_step0.language`). ``None`` → English.
+        dialects: Per-source read dialect overrides (ADR source-dialect.md), the
+            effective dialect (detected ⊕ human override) for each tabular
+            source. Forwarded to ``inspect_source_set`` so the inline inspection
+            reports the SAME columns the pinned §9 dialect will produce; sources
+            not listed are auto-detected.
 
     Returns:
         :class:`SchemaProposal` with the inspection Markdown, the domain hint,
@@ -421,7 +429,7 @@ def propose_schema(
 
     # Step 1: deterministic inspection (CSV and/or JSON, dispatched by extension)
     inspections, fks = inspect_source_set(
-        csv_paths, fk_hint_columns=fk_hint_columns, record_path=record_path
+        csv_paths, fk_hint_columns=fk_hint_columns, record_path=record_path, dialects=dialects
     )
     inspection_md = render_markdown(inspections, fks)
 

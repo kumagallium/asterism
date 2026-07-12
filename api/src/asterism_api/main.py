@@ -37,7 +37,7 @@ from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 import yaml
 from asterism import crosswalk, crosswalk_runtime, documents, grounding, substrate
@@ -98,6 +98,9 @@ from asterism_api import design_loop, registry, server_keys
 from asterism_api import usage as usage_ledger
 from asterism_api.jobs import JobManager
 from asterism_api.tool_loop import ToolLoopResult, propose_tool_with_correction
+
+if TYPE_CHECKING:
+    from asterism.dialect import SourceDialect
 
 
 class RefineRequest(BaseModel):
@@ -942,19 +945,58 @@ async def _persist_source_uploads(
     return saved, meta
 
 
-def _accumulate_source_batch(sdir: Path, name: str, content: bytes) -> None:
+# Suffixes whose non-dialected (default-dialect) batches accumulate by GROWING the
+# persisted file (byte concat + repeated-header drop), rather than overwriting it. All
+# read under the default clean comma-CSV rules, so the existing CSV append logic (header
+# compare → drop repeated header → concat) is correct for every one of them. Legacy
+# instrument exports (.txt/.dat/.asc) and .tsv reach this path via the widened entrance
+# (#273); before that only ``.csv`` was appendable, so a clean .txt/.tsv/.dat/.asc second
+# batch overwrote the whole persisted source and lost every earlier append (data loss).
+_APPENDABLE_TABULAR = {".csv", ".tsv", ".txt", ".dat", ".asc"}
+
+
+def _accumulate_source_batch(
+    sdir: Path, name: str, content: bytes, dialect: SourceDialect | None = None
+) -> None:
     """Accumulate an append batch into the dataset's persisted source set (ADR A7).
 
     So a later snapshot re-ingest reproduces the whole feed from the source set, the
-    canonical source file must GROW. For a CSV batch whose name matches an existing CSV
-    source, we append the batch's data rows — dropping a repeated header line and
-    inserting a newline first if the existing file lacks a trailing one. Otherwise (a
-    new name, or a JSON batch) we write the file as-is. JSON array-merge compaction is
-    a future step — a JSON batch is recorded as its own file.
+    canonical source file must GROW. For a batch whose name matches an existing tabular
+    source read under the default rules (``_APPENDABLE_TABULAR`` — .csv/.tsv/.txt/.dat/
+    .asc), we append the batch's data rows — dropping a repeated header line and inserting
+    a newline first if the existing file lacks a trailing one. Otherwise (a new name, or a
+    JSON batch) we write the file as-is. JSON array-merge compaction is a future step — a
+    JSON batch is recorded as its own file.
+
+    A ``dialect`` (ADR source-dialect.md, "Append", plan B) switches to native
+    accumulation: the file grows in its OWN dialect (CP932 / tab / preamble
+    intact), so the persisted RML normalizes it exactly once at snapshot
+    re-ingest. The first batch (no file yet) is written as-is (its single
+    preamble+header stays); a later batch has its repeated
+    ``skip_rows + 1`` preamble/header physical lines sliced off
+    (:func:`asterism.dialect.strip_preamble_and_header`) before its native data
+    bytes are concatenated — no header-byte compare, the pinned offset is
+    authoritative and decode-free.
     """
     sdir.mkdir(parents=True, exist_ok=True)
     dest = sdir / name
-    if dest.suffix.lower() == ".csv" and dest.is_file():
+    if dialect is not None and dest.is_file():
+        from asterism.dialect import strip_preamble_and_header
+
+        payload = strip_preamble_and_header(content, dialect)
+        needs_nl = False
+        with dest.open("rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            size = fh.tell()
+            if size > 0:
+                fh.seek(size - 1)
+                needs_nl = fh.read(1) not in (b"\n", b"\r")
+        with dest.open("ab") as fh:
+            if needs_nl and payload:
+                fh.write(b"\n")
+            fh.write(payload)
+        return
+    if dialect is None and dest.suffix.lower() in _APPENDABLE_TABULAR and dest.is_file():
         with dest.open("rb") as fh:
             existing_header = fh.readline()
             fh.seek(0, os.SEEK_END)
@@ -982,7 +1024,12 @@ def _accumulate_source_batch(sdir: Path, name: str, content: bytes) -> None:
 _APPLIED_BATCHES_DIR = ".applied_batches"
 
 
-def _accumulate_batch_sources(sdir: Path, batch: list[tuple[str, bytes]], batch_id: str) -> None:
+def _accumulate_batch_sources(
+    sdir: Path,
+    batch: list[tuple[str, bytes]],
+    batch_id: str,
+    dialects: dict[str, SourceDialect] | None = None,
+) -> None:
     """Fold a batch's rows into the persisted source set at most once (A7, idempotent).
 
     Guards :func:`_accumulate_source_batch` with an atomic per-batch marker so a batch
@@ -1005,8 +1052,9 @@ def _accumulate_batch_sources(sdir: Path, batch: list[tuple[str, bytes]], batch_
     except FileExistsError:
         return  # already folded into the source set — idempotent
     os.close(fd)
+    dialects = dialects or {}
     for name, content in batch:
-        _accumulate_source_batch(sdir, name, content)
+        _accumulate_source_batch(sdir, name, content, dialects.get(name))
 
 
 def _tail_jsonl(path: Path, limit: int) -> list[dict[str, object]]:
@@ -1021,6 +1069,70 @@ def _tail_jsonl(path: Path, limit: int) -> list[dict[str, object]]:
         except json.JSONDecodeError:
             continue
     return out
+
+
+# ----------------------------------------------------------------------------
+# Source-dialect design wiring (ADR source-dialect.md — the wizard "read
+# settings" surface: expose detected dialects on /api/inspect, accept human
+# overrides on the propose routes)
+# ----------------------------------------------------------------------------
+
+
+def _dialects_header_json(inspections: list) -> str:
+    """Compact JSON for the ``X-Asterism-Dialects`` response header of /api/inspect.
+
+    ``{source_name: {encoding, delimiter, collapse, skip_rows, origin}}`` for every
+    source read with a NON-default dialect (the inspector auto-detects). Default
+    sources are omitted — the client renders one row per ``X-Asterism-Source-Names``
+    entry and prefills the rest with defaults, so a clean-CSV set yields ``{}`` (zero
+    friction). The delimiter is the canonical token (``,`` ``\\t`` ``;`` ``|`` or
+    ``whitespace``); ``json.dumps`` escapes the tab so the header stays ASCII/latin-1
+    safe. Additive: the Markdown body and ``X-Asterism-Source-Names`` are unchanged.
+    """
+    out: dict[str, dict[str, object]] = {}
+    for ins in inspections:
+        dialect = getattr(ins, "dialect", None)
+        if dialect is None:  # default dialect → nothing to surface (byte-identical)
+            continue
+        out[ins.name] = {
+            "encoding": dialect.encoding,
+            "delimiter": dialect.delimiter,
+            "collapse": dialect.collapse,
+            "skip_rows": dialect.skip_rows,
+            "origin": getattr(ins, "dialect_origin", None) or "detected",
+        }
+    return json.dumps(out, separators=(",", ":"))
+
+
+def _parse_dialect_overrides(raw: str) -> dict:
+    """Parse + boundary-check the wizard's dialect overrides (a JSON form field).
+
+    ``{source_name: {encoding?, delimiter?, collapse?, skip_rows?}}``. Empty / blank
+    → ``{}`` (no override; effective == detected, byte-identical to today). Reuses the
+    IR's dialect linter (``mapping_ir._parse_dialects``) with NO declared maps, so only
+    the field-level rules run — the same contract the compiled RML annotations enforce:
+    a text codec (not a bytes↔bytes codec), a single-char delimiter or ``whitespace``,
+    a boolean ``collapse``, a non-negative ``skip_rows``, no unknown keys. An invalid
+    value is a readable 422 (never a 500 / a silently bad §9 annotation). Returns
+    ``{source_name: SourceDialect}`` (step0 dialects, ready to merge over the detected
+    ones in the design loop).
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(422, f"dialects is not valid JSON: {exc}") from exc
+    if not isinstance(parsed, dict):
+        raise HTTPException(422, "dialects must be a JSON object {source: {fields}}")
+    from asterism_step0.mapping_ir import _parse_dialects
+
+    issues: list[str] = []
+    dialects = _parse_dialects(parsed, [], issues)  # no maps → field-only lint
+    if issues:
+        raise HTTPException(422, "; ".join(issues))
+    return dialects
 
 
 async def _pending_drop_sweeper(
@@ -1057,29 +1169,56 @@ async def _pending_drop_sweeper(
 _DIALECT_NOTE = re.compile(r"source(Encoding|Delimiter|Collapse|SkipRows)\b")
 
 
-def _dialected_sources(rml_ttl: str) -> set[str]:
-    """Source basenames whose ``rml:logicalSource`` carries pinned dialect
-    annotations (``ast:sourceEncoding`` / …).
+class _DialectReadError(Exception):
+    """The mapping carries dialect annotations but they could not be read.
+
+    Fail-closed signal: a dialected batch cannot be accumulated without its
+    pinned header offset, so the caller refuses the append (snapshot re-ingest
+    still works). Practically unreachable for a PROMOTED dataset (its annotations
+    were already vetted at ingest), but the append path stays defensive.
+    """
+
+
+def _dialected_sources(rml_ttl: str) -> dict[str, SourceDialect]:
+    """``{source basename: SourceDialect}`` for every ``rml:logicalSource`` that
+    carries pinned dialect annotations (``ast:sourceEncoding`` / …).
 
     Fast path: a mapping with no annotation local-names anywhere has no dialected
     source (only non-default dialects are ever emitted) — the pre-dialect fleet
     short-circuits here without touching rdflib or the (parallel-shipped)
     ``asterism.dialect`` module. When annotations ARE present but unreadable
-    (module absent / unparseable Turtle), every declared source is treated as
-    dialected — fail-closed: the append is refused, snapshot re-ingest still works.
+    (module absent / unparseable Turtle / out-of-contract value) the read fails
+    closed with :class:`_DialectReadError` — the append is refused rather than
+    accumulate a dialected batch with an unknown offset.
     """
     if not _DIALECT_NOTE.search(rml_ttl):
-        return set()
+        return {}
     try:
         import rdflib
         from asterism.dialect import dialects_from_mapping
 
         graph = rdflib.Graph()
         graph.parse(data=substrate.substitute_run_id(rml_ttl), format="turtle")
-        return {Path(name).name for name in dialects_from_mapping(graph)}
-    except Exception:
+        return {
+            Path(name).name: dialect
+            for name, dialect in dialects_from_mapping(graph).items()
+        }
+    except Exception as exc:
         logger.exception("could not read source-dialect annotations (failing closed)")
-        return substrate.rml_source_names(rml_ttl)
+        raise _DialectReadError(str(exc)) from exc
+
+
+def _dialect_standin_bytes(raw: bytes, dialect: SourceDialect) -> bytes:
+    """A header-only stand-in for a dialected source the batch does not cover:
+    the persisted file's preamble+header (its first ``skip_rows + 1`` physical
+    lines) in the NATIVE dialect, which :func:`normalize_dialect_sources` reads
+    to a header with 0 data rows (so this source contributes 0 new triples). The
+    complement of :func:`asterism.dialect.strip_preamble_and_header` — the bytes
+    that function drops."""
+    from asterism.dialect import strip_preamble_and_header
+
+    data = strip_preamble_and_header(raw, dialect)
+    return raw[: len(raw) - len(data)]
 
 
 class AppendError(Exception):
@@ -1139,7 +1278,20 @@ async def _append_batch_to_dataset(
         raise AppendError(400, "append requires at least one batch source file")
 
     sources = substrate.rml_source_names(rml_ttl)
-    dialected = _dialected_sources(rml_ttl)
+    # ADR source-dialect.md ("Append", plan B): a dialected source appends by
+    # growing its persisted copy in its NATIVE dialect (accumulation strips the
+    # repeated preamble+header per batch), so the RML normalizes it exactly once
+    # at snapshot re-ingest — no un-pin, no double normalization. The pinned
+    # dialect per source drives both accumulation and the multi-source stand-in.
+    try:
+        dialected = _dialected_sources(rml_ttl)
+    except _DialectReadError as exc:
+        raise AppendError(
+            422,
+            "this dataset's source dialect annotations could not be read, so a "
+            "batch cannot be safely accumulated — use a snapshot re-ingest "
+            "(再取り込み) instead",
+        ) from exc
     canonical: list[tuple[str, bytes]] = []
     for name, content in batch:
         # Canonicalize the SAME way the design entrances do, so a batch dropped
@@ -1154,16 +1306,6 @@ async def _append_batch_to_dataset(
                 400,
                 f"batch file {cname!r} does not match any rml:source in the mapping "
                 f"(expected one of {sorted(sources)})",
-            )
-        if cname in dialected:
-            # ADR source-dialect.md (Scope decisions): byte-level batch accumulation
-            # cannot safely concatenate preamble-bearing batches, so append of a
-            # dialected source is refused until normalize-at-accumulation lands.
-            raise AppendError(
-                422,
-                f"source {cname!r} carries a pinned source dialect (encoding / "
-                "delimiter / skip_rows); incremental append of dialected sources is "
-                "not supported yet — use a snapshot re-ingest (再取り込み) instead",
             )
         canonical.append((cname, content))
     batch = canonical
@@ -1201,15 +1343,21 @@ async def _append_batch_to_dataset(
             (work / name).write_bytes(content)
         # For a multi-source RML, give any source the batch does NOT cover a
         # header-only stand-in (0 new rows) so Morph-KGC can still materialize the
-        # batch without re-reading the full prior source. Best-effort: a CSV source
-        # with a persisted header; otherwise Morph-KGC fails loudly (422 below).
+        # batch without re-reading the full prior source. Best-effort: a persisted
+        # tabular source; otherwise Morph-KGC fails loudly (422 below). A DIALECTED
+        # stand-in keeps its native preamble+header (its first skip_rows+1 physical
+        # lines) so normalize_dialect_sources reads it to a header-only CSV; a clean
+        # CSV stand-in is just its header row.
         for src in sources - provided:
             persisted = sdir / src if sdir else None
-            if (
-                persisted is not None
-                and persisted.is_file()
-                and persisted.suffix.lower() == ".csv"
-            ):
+            if persisted is None or not persisted.is_file():
+                continue
+            src_dialect = dialected.get(src)
+            if src_dialect is not None:
+                (work / src).write_bytes(
+                    _dialect_standin_bytes(persisted.read_bytes(), src_dialect)
+                )
+            elif persisted.suffix.lower() == ".csv":
                 with persisted.open("rb") as fh:
                     (work / src).write_bytes(fh.readline())
         try:
@@ -1235,7 +1383,7 @@ async def _append_batch_to_dataset(
     # narrower case where a FAILED attempt got as far as accumulating the source before
     # erroring, so a retry does not append the same rows twice.
     if sdir is not None:
-        await asyncio.to_thread(_accumulate_batch_sources, sdir, batch, batch_id)
+        await asyncio.to_thread(_accumulate_batch_sources, sdir, batch, batch_id, dialected)
     all_files = [p.name for p in registry.list_source_files(registry_root, dataset_id)]
 
     triples_in_batch = int(result["triples_in_batch"])
@@ -1827,9 +1975,12 @@ def build_app(
         sources are dispatched per file by extension (#19). Filenames are
         canonicalized (:func:`_sanitize_tabular_name`) and echoed back in the
         ``X-Asterism-Source-Names`` header so the client knows the names the
-        design's ``rml:source`` must use. A file the inspector cannot decode or
-        parse is a 422 (a readable message, not a traceback) — dialect detection
-        normally prevents this (ADR source-dialect.md).
+        design's ``rml:source`` must use. The ``X-Asterism-Dialects`` header carries
+        the structured detected dialect of every NON-default source (encoding /
+        delimiter / collapse / skip_rows / origin) for the wizard "read settings"
+        panel — a clean-CSV set yields ``{}`` and the panel stays hidden (ADR
+        source-dialect.md). A file the inspector cannot decode or parse is a 422 (a
+        readable message, not a traceback) — dialect detection normally prevents this.
         """
         if not files:
             raise HTTPException(400, "no files uploaded")
@@ -1857,7 +2008,12 @@ def build_app(
         return Response(
             content=markdown,
             media_type="text/markdown",
-            headers={"X-Asterism-Source-Names": ",".join(p.name for p in paths)},
+            headers={
+                "X-Asterism-Source-Names": ",".join(p.name for p in paths),
+                # Structured detected dialects for the wizard "read settings" panel
+                # (ADR source-dialect.md); non-default sources only, clean set → {}.
+                "X-Asterism-Dialects": _dialects_header_json(inspections),
+            },
         )
 
     @app.post("/api/models/available")
@@ -1949,6 +2105,14 @@ def build_app(
                 "Empty → English. Headings / identifiers / code stay English."
             ),
         ),
+        dialects: str = Form(
+            default="",
+            description=(
+                "Optional JSON of per-source read-dialect overrides (ADR source-"
+                "dialect.md) — {source: {encoding?, delimiter?, collapse?, skip_rows?}}. "
+                "Empty → auto-detected dialects only (byte-identical to today)."
+            ),
+        ),
         fk: list[str] = Query(default=[], description="FK hint column (repeatable)"),
         autocorrect: int | None = Query(
             default=None,
@@ -1985,9 +2149,10 @@ def build_app(
         """
         if not files:
             raise HTTPException(400, "no files uploaded")
-        # Parse (and 400 on) the cap header BEFORE the upload dir exists so a bad
-        # header cannot leak a temp dir.
+        # Parse (and 400/422 on) the cap header + dialect overrides BEFORE the upload
+        # dir exists so a bad value cannot leak a temp dir.
         max_tokens = _llm_max_tokens(x_llm_max_tokens)
+        dialect_overrides = _parse_dialect_overrides(dialects)
 
         import tempfile as _tempfile
 
@@ -2055,6 +2220,7 @@ def build_app(
                     on_llm_call=on_llm_call,
                     language=language or None,
                     should_cancel=should_cancel,
+                    dialect_overrides=dialect_overrides,
                 )
             finally:
                 shutil.rmtree(tmpdir, ignore_errors=True)
@@ -2097,6 +2263,10 @@ def build_app(
             default="",
             description="Output language for prose (e.g. 'ja'); headings/identifiers stay English.",
         ),
+        dialects: str = Form(
+            default="",
+            description="Per-source read-dialect overrides as JSON (ADR source-dialect.md).",
+        ),
         fk: list[str] = Query(default=[], description="FK hint column (repeatable)"),
         x_api_key: str | None = Header(default=None),
         x_llm_provider: str | None = Header(default=None),
@@ -2113,6 +2283,7 @@ def build_app(
         if not files:
             raise HTTPException(400, "no files uploaded")
         max_tokens = _llm_max_tokens(x_llm_max_tokens)
+        dialect_overrides = _parse_dialect_overrides(dialects)
 
         import tempfile as _tempfile
 
@@ -2156,6 +2327,7 @@ def build_app(
                     llm=llm,
                     language=language or None,
                     fk_hint_columns=fk_cols,
+                    dialects=dialect_overrides,
                 )
                 _record_llm_usage(cfg.registry_root, "propose", provider, llm, model)
             finally:
@@ -2179,6 +2351,10 @@ def build_app(
         skeleton: str = Form(..., description="The confirmed skeleton IR as a JSON object"),
         domain: str = Form(default="", description="Domain hint (Markdown). Optional."),
         language: str = Form(default=""),
+        dialects: str = Form(
+            default="",
+            description="Per-source read-dialect overrides as JSON (ADR source-dialect.md).",
+        ),
         fk: list[str] = Query(default=[], description="FK hint column (repeatable)"),
         autocorrect: int | None = Query(
             default=None,
@@ -2203,6 +2379,7 @@ def build_app(
         if not isinstance(skeleton_obj, dict):
             raise HTTPException(400, "skeleton must be a JSON object")
         max_tokens = _llm_max_tokens(x_llm_max_tokens)
+        dialect_overrides = _parse_dialect_overrides(dialects)
 
         import tempfile as _tempfile
 
@@ -2259,6 +2436,7 @@ def build_app(
                     language=language or None,
                     should_cancel=should_cancel,
                     skeleton=skeleton_obj,
+                    dialect_overrides=dialect_overrides,
                 )
             finally:
                 shutil.rmtree(tmpdir, ignore_errors=True)

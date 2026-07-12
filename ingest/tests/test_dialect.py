@@ -23,6 +23,7 @@ from asterism.dialect import (
     is_default,
     normalize_source,
     strip_dialect_annotations,
+    strip_preamble_and_header,
 )
 
 
@@ -146,6 +147,43 @@ def test_normalize_renames_reserved_header_columns(tmp_path: Path) -> None:
     src.write_text("subject\tpredicate\tvalue\na\tb\t1\n", encoding="utf-8")
     dest = normalize_source(src, SourceDialect(delimiter="\t"), tmp_path / "out.csv")
     assert _read_rows(dest) == ["subject_,predicate_,value", "a,b,1"]
+
+
+# ---- strip_preamble_and_header (append accumulation, plan B) -------------------
+
+
+def test_strip_preamble_and_header_cp932_tab_preamble() -> None:
+    """The audited XRD shape: skip_rows=1 drops the preamble line AND the header
+    row (skip_rows+1 physical lines), returning the native CP932/CRLF data bytes
+    unchanged — decode-free, so a later batch appends only its new rows."""
+    raw = "サンプル名: 試料A\r\n2θ (deg)\t強度 (cps)\r\n10.0\t123\r\n10.2\t456\r\n".encode("cp932")
+    dialect = SourceDialect(encoding="cp932", delimiter="\t", skip_rows=1)
+    assert strip_preamble_and_header(raw, dialect) == "10.0\t123\r\n10.2\t456\r\n".encode("cp932")
+
+
+def test_strip_preamble_and_header_whitespace_skip_23() -> None:
+    # A large preamble (ICDD card): skip_rows=23 drops 24 physical lines.
+    preamble = "".join(f"Key{i}: v{i}\n" for i in range(23))
+    raw = (preamble + "2theta d I (hkl)\n27.5 3.2 100 (200)\n").encode("utf-8")
+    out = strip_preamble_and_header(raw, SourceDialect(delimiter="whitespace", skip_rows=23))
+    assert out == b"27.5 3.2 100 (200)\n"
+
+
+def test_strip_preamble_and_header_skip_rows_zero_drops_only_header() -> None:
+    # A dialected CSV with no preamble (e.g. cp932 comma): skip_rows=0 drops 1 line.
+    raw = b"h1,h2\n1,2\n3,4\n"
+    assert strip_preamble_and_header(raw, SourceDialect(delimiter=",")) == b"1,2\n3,4\n"
+
+
+def test_strip_preamble_and_header_header_only_yields_empty() -> None:
+    # A batch with no data rows (only preamble+header) contributes nothing.
+    raw = b"preamble\nh1\th2\n"
+    assert strip_preamble_and_header(raw, SourceDialect(delimiter="\t", skip_rows=1)) == b""
+
+
+def test_strip_preamble_and_header_fewer_lines_than_offset_yields_empty() -> None:
+    raw = b"preamble\n"  # header offset not reached
+    assert strip_preamble_and_header(raw, SourceDialect(delimiter="\t", skip_rows=1)) == b""
 
 
 # ---- the all-defaults gate ----------------------------------------------------

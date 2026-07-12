@@ -815,6 +815,90 @@ button.lang-toggle-btn.active:hover:not(:disabled) {
   padding: 0.3rem 0;
 }
 
+/* Read-settings panel (ADR source-dialect.md): per-source dialect editing. */
+.dialect-editor {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-sink);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: 0.6rem;
+}
+.dialect-editor > summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--primary);
+}
+.dialect-editor-hint {
+  margin: 0.4rem 0 0.6rem;
+  font-size: 0.8rem;
+}
+.dialect-row {
+  border-top: 1px solid var(--border);
+  padding: 0.6rem 0;
+}
+.dialect-row:first-of-type {
+  border-top: none;
+}
+.dialect-row-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.4rem;
+}
+.dialect-row-name {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--fg);
+  font-weight: 700;
+}
+.dialect-badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--muted);
+  border: 1px solid var(--border);
+}
+.dialect-badge--specified {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.dialect-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 1rem;
+  align-items: end;
+}
+.dialect-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.74rem;
+  color: var(--muted);
+}
+.dialect-field > input[type='text'],
+.dialect-field > input[type='number'],
+.dialect-field > select {
+  font-size: 0.8rem;
+  padding: 0.3rem 0.45rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--fg);
+}
+.dialect-field > input[type='number'] {
+  width: 6rem;
+}
+.dialect-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.35rem;
+}
+
 .stepper {
   display: flex;
   /* 3 ステップ+英語 gloss が狭幅ではみ出さないよう折返す */
