@@ -1099,6 +1099,7 @@ def _dialects_header_json(inspections: list) -> str:
             "delimiter": dialect.delimiter,
             "collapse": dialect.collapse,
             "skip_rows": dialect.skip_rows,
+            "preamble": dialect.preamble,
             "origin": getattr(ins, "dialect_origin", None) or "detected",
         }
     return json.dumps(out, separators=(",", ":"))

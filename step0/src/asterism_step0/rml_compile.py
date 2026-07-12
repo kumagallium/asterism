@@ -115,6 +115,8 @@ def _dialect_annotations(dialect: SourceDialect) -> list[str]:
         out.append("ast:sourceCollapse true")
     if dialect.skip_rows:
         out.append(f"ast:sourceSkipRows {dialect.skip_rows}")
+    if dialect.preamble != "drop":
+        out.append(f"ast:sourcePreamble {_turtle_string(dialect.preamble)}")
     return out
 
 

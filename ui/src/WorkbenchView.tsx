@@ -57,12 +57,21 @@ const DELIMITER_OPTIONS: { value: string; labelKey: string }[] = [
   { value: '|', labelKey: 'workbench:dialect.delim.pipe' },
   { value: 'whitespace', labelKey: 'workbench:dialect.delim.whitespace' },
 ]
+// Preamble handling (ADR source-dialect.md, "Header metadata"). The value is the
+// canonical token the server pins ('drop'/'keyvalue'/'lines'), NOT a localized label.
+// 'drop' (default) discards the preamble; 'keyvalue'/'lines' broadcast it as columns.
+const PREAMBLE_OPTIONS: { value: string; labelKey: string }[] = [
+  { value: 'drop', labelKey: 'workbench:dialect.preamble.drop' },
+  { value: 'keyvalue', labelKey: 'workbench:dialect.preamble.keyvalue' },
+  { value: 'lines', labelKey: 'workbench:dialect.preamble.lines' },
+]
 // Today's clean-CSV read — the prefill for a source with no detected dialect.
 const DEFAULT_DIALECT: SourceDialect = {
   encoding: 'utf-8-sig',
   delimiter: ',',
   collapse: false,
   skip_rows: 0,
+  preamble: 'drop',
 }
 // Legacy instrument-export suffixes: Morph-KGC can't resolve their source type, so
 // they're always shown in the read-settings panel even when detection was default.
@@ -1559,6 +1568,7 @@ function DialectEditor({
               delimiter: det.delimiter,
               collapse: det.collapse,
               skip_rows: det.skip_rows,
+              preamble: det.preamble ?? 'drop',
             }
           : DEFAULT_DIALECT
         const override = overrides[name]
@@ -1612,9 +1622,13 @@ function DialectEditor({
                   type="number"
                   min={0}
                   value={current.skip_rows}
-                  onChange={(e) =>
-                    set({ skip_rows: Math.max(0, Math.trunc(Number(e.target.value) || 0)) })
-                  }
+                  onChange={(e) => {
+                    const n = Math.max(0, Math.trunc(Number(e.target.value) || 0))
+                    // The preamble selector hides at skip_rows==0; reset it too so a
+                    // stale `keyvalue`/`lines` can't linger and 422 the next propose
+                    // (server lints preamble!='drop' with no preamble rows as invalid).
+                    set(n === 0 ? { skip_rows: 0, preamble: 'drop' } : { skip_rows: n })
+                  }}
                 />
               </label>
               <label className="dialect-field dialect-check">
@@ -1625,7 +1639,25 @@ function DialectEditor({
                 />
                 <span>{t('workbench:dialect.colCollapse')}</span>
               </label>
+              {current.skip_rows > 0 && (
+                <label className="dialect-field">
+                  <span>{t('workbench:dialect.colPreamble')}</span>
+                  <select
+                    value={current.preamble ?? 'drop'}
+                    onChange={(e) => set({ preamble: e.target.value })}
+                  >
+                    {PREAMBLE_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {t(o.labelKey)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
             </div>
+            {current.skip_rows > 0 && current.preamble !== 'drop' && (
+              <p className="hint dialect-preamble-hint">{t('workbench:dialect.preamble.hint')}</p>
+            )}
           </div>
         )
       })}

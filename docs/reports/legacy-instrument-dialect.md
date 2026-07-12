@@ -142,6 +142,83 @@ detection/normalization core).
    the persistence effect cannot write the removed key back). UI has no unit suite;
    verified by `npm run lint` + `build` green and code review of the four paths.
 
+## Header metadata (2026-07-12): ingesting the dropped preamble as broadcast columns
+
+### Question
+
+The dialect layer *drops* the preamble (a sample name, an ICDD card's Name /
+Space Group / Cell). A materials scientist wants **both** the measurement data
+and that metadata. Can we ingest the preamble without breaking the "one source =
+one work CSV / Morph-KGC untouched / default byte-identical" invariants?
+
+### Method
+
+A fifth `SourceDialect` field `preamble ∈ {drop, keyvalue, lines}` (default
+`drop`). When non-`drop`, both twins parse the `skip_rows` lines
+(`read_preamble`) into ordered `(name, value)` pairs and **broadcast** them as
+constant columns appended after the body columns onto every row
+(`resolve_header` de-collides on the meta side only). Detection stays
+identify-and-advise (`detect_dialect` always returns `drop`; the inspector
+classifies the block and the Markdown advises opt-in); the wizard's read-settings
+panel adds a one-click `preamble` selector; the field travels IR → RML
+(`ast:sourcePreamble`) → ingest and is boundary-checked at every consumer.
+Dogfooded through **real Morph-KGC** on synthetic fixtures faithful to the two
+audited files.
+
+### Result
+
+- **ICDD card** (`keyvalue`, `skip_rows: 23`, whitespace d-I table, 47 peaks): a
+  Card map keyed on the constant `No` → **1 Card** (47 identical rows deduped by
+  store set-semantics), a Peak map keyed on `No_2theta` → **47 Peaks**, and
+  `ex:ofCard` → **47 JOIN-free links**, all to `…/card/03-065-2664`. The
+  broadcast carried Name/Cell onto the Card.
+- **Measurement** (`lines`, CP932/tab, `skip_rows: 1`, 3001 rows): the bare
+  sample-name line → **1 Sample** (`…/sample/Al3V_bulk`) + **3001 Points**.
+- **Non-degrade**: the same card fixture read under the default `drop` dialect
+  normalizes to the today-shape 4-column body CSV (no metadata) — the broadcast
+  is purely additive and the `drop` path is byte-identical. Every pre-existing
+  step0 / ingest / api dialect test stays green.
+- Suites: step0 379 passed, ingest 469 passed (+ the unrelated pre-existing
+  `test_materialize_with_parameterized_primitives` skip), api 273 passed; ruff
+  clean on all three; UI lint (0 errors) + build green.
+
+### Conclusion
+
+Broadcast makes "both, please" a one-click opt-in with **zero** cost to the
+default path: one work CSV, Morph-KGC unchanged, the shared preamble column
+linking entities without a join. The store's set-semantics turn the
+denormalization into a single deduped Card, so the theoretical downside of
+broadcasting (row blow-up) never reaches the graph.
+
+### Limitations
+
+- ASCII-colon only for `keyvalue` (measurement files are `lines`; cards use
+  ASCII colons). Full-width `：` is a v2 item.
+- A wrapped free-text note whose continuation line itself contains a colon
+  (e.g. the multi-line `Comment` block of the real `Al.txt` card —
+  `for Al-filings: 4.049…`) cannot be told from a real new field by a
+  deterministic parser, so it splits into an extra `key: value` column instead of
+  rejoining the note. The text is never lost (it lands in an oddly-named column
+  the designer just does not map); the well-structured single-line fields
+  (`Space Group`, `Cell`, `Radiation`, …) parse correctly. A colon-*free* wrapped
+  line (e.g. the card's `Additional Patterns`) rejoins losslessly. A future
+  `keyvalue-sectioned` mode could treat a free-text section as one value.
+- A multi-value cell (`Cell`'s 6 numbers) is kept whole — Tier-0
+  (`split`/`array_at`) splits it later, by human choice, not the dialect layer.
+- Section headings are flattened (keys are top-level); a `section.key` hierarchy
+  is deferred.
+- An over-split body row (a whitespace `(hkl)` cell with internal spaces) is
+  truncated to the body header width to keep the appended columns aligned.
+
+### Reproduce (header metadata)
+
+```sh
+# unit + broadcast dogfood
+(cd step0  && .venv/bin/python -m pytest tests/test_dialect.py -q)
+(cd ingest && .venv/bin/python -m pytest tests/test_dialect.py tests/test_substrate.py -k "dialect or dogfood" -q)
+(cd api    && .venv/bin/python -m pytest tests/test_source_dialect.py -q)
+```
+
 ## Reproduce
 
 ```sh

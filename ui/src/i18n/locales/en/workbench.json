@@ -187,6 +187,7 @@
     "colDelimiter": "Delimiter",
     "colSkipRows": "Lines before header",
     "colCollapse": "Treat consecutive delimiters as one",
+    "colPreamble": "Header metadata",
     "originDetected": "auto-detected",
     "originSpecified": "specified",
     "reset": "Reset to auto-detected",
@@ -196,6 +197,12 @@
       "semicolon": "Semicolon",
       "pipe": "Pipe",
       "whitespace": "Whitespace (runs as one)"
+    },
+    "preamble": {
+      "drop": "Don't ingest (default)",
+      "keyvalue": "Key: value → columns",
+      "lines": "Each line → a column",
+      "hint": "Ingest the preamble metadata as columns broadcast onto every data row (so sample name, space group, etc. can be queried alongside the measurements)."
     }
   }
 }

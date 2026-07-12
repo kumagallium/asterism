@@ -365,6 +365,30 @@ def test_render_markdown_contains_expected_sections(tmp_path: Path) -> None:
     assert "json-array" in md
 
 
+def test_render_markdown_advises_header_metadata_when_preamble_detected(tmp_path: Path) -> None:
+    """A whitespace instrument table with a Key: value preamble is identify-and-
+    advise: the Markdown suggests opting into header-metadata ingestion (drop is
+    still the default; nothing is auto-adopted)."""
+    p = tmp_path / "card.txt"
+    body = ["2theta   d   I   (hkl)"] + [
+        f"{28.4 + i:.3f}   {3.1 - i * 0.1:.3f}   {100 - i}   (1,1,{i})" for i in range(6)
+    ]
+    p.write_text("\n".join(["Name: Silicon", "Formula: Si", "Wavelength: 1.5406", *body]) + "\n")
+    ins = inspect_csv(p)
+    assert ins.preamble_hint == "keyvalue"
+    md = render_markdown([ins])
+    assert "Header metadata" in md
+    assert "preamble: keyvalue" in md
+
+
+def test_render_markdown_clean_csv_has_no_header_metadata_advisory(tmp_path: Path) -> None:
+    # A clean CSV has no preamble ⇒ no advisory ⇒ Markdown byte-identical to today.
+    csv_path = _write_csv(tmp_path / "clean.csv", "id,name\n1,a\n2,b\n")
+    ins = inspect_csv(csv_path)
+    assert ins.preamble_hint is None
+    assert "Header metadata" not in render_markdown([ins])
+
+
 # ----------------------------------------------------------------------------
 # JSON inspection (#19)
 # ----------------------------------------------------------------------------

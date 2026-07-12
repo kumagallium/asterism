@@ -1824,3 +1824,166 @@ def test_snapshot_reingest_of_native_accumulated_dialect_source(tmp_path: Path) 
         ("https://ex/m/30.0", "https://ex/sample", "試料C"),
         ("https://ex/m/40.0", "https://ex/sample", "試料D"),
     }
+
+
+# ----------------------------------------------------------------------------
+# Header-metadata broadcast dogfood (ADR source-dialect.md, real morph-kgc)
+# ----------------------------------------------------------------------------
+
+RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+
+# The audited 23-line ICDD reference-card preamble (synthesized, not the real file):
+# key:value pairs, section headings, a double-colon value, a 6-value Cell cell, a
+# wrapped comment (continuation), and a value that itself contains commas.
+_CARD_PREAMBLE_23 = [
+    "No: 03-065-2664 ",
+    "CSD: N AL1935    (NIST)",
+    "Name: Aluminum Vanadium",
+    "Chemical Formula: Al3 V",
+    "Formula: Al3 V",
+    "Z value: 2",
+    "Space Group: I4/mmm(139)",
+    "Cell:  3.7790  3.7790  8.3220  90.000  90.000  90.000",
+    "Volume:  118.845",
+    "Crystal System: Tetragonal",
+    "Quality: I",
+    "RIR(I/Ic):    5.05",
+    "Subfile: Inorganic, Alloy&Metal, NIST Pattern",
+    "---------------- Experiment",
+    "Radiation: CuKa1  lambda: 1.54060",
+    "Reference: O.N.Carlson,D.J.Kenney & H.A.Wilhelm Met.47(1955)520.",
+    "---------------- Physical",
+    "Dcalc:  3.686",
+    "---------------- Comment",
+    "Additional Patterns: See PDF 03-065-5860.",
+    "No e.s.d reported on the cell dimension.",
+    "---------------- d-I list (2theta calc w=1.54056)",
+    "2theta range:   21.34 -  147.24",
+]
+
+
+def _write_card_fixture(path: Path, peaks: int = 47) -> None:
+    """A UTF-8 ICDD card: 23-line preamble + a whitespace d-I table (No is constant
+    across every peak — the JOIN-free link key the preamble broadcasts)."""
+    header = "   2theta     d        I      (hkl)"
+    table = [
+        f"  {21.34 + i * 2.6:.2f}   {4.161 - i * 0.03:.3f}   {5.0 + i:.1f}  (1,0,{i})"
+        for i in range(peaks)
+    ]
+    path.write_text("\r\n".join([*_CARD_PREAMBLE_23, header, *table]) + "\r\n", encoding="utf-8")
+
+
+_CARD_DIALECT_TTL = (
+    '                      ast:sourceDelimiter "whitespace" ;\n'
+    "                      ast:sourceSkipRows 23 ;\n"
+    '                      ast:sourcePreamble "keyvalue" ] ;\n'
+)
+
+
+def test_dogfood_card_broadcast_dedupes_card_and_links_peaks(tmp_path: Path) -> None:
+    """The ICDD card broadcast, end-to-end through real morph-kgc: the constant
+    preamble No collapses to ONE Card (set semantics), the 47 d-I rows become 47
+    Peaks, and the shared No links every Peak to the Card (JOIN-free)."""
+    if not _morph_kgc_installed():
+        pytest.skip("morph-kgc not installed; this exercises the real broadcast materialize")
+    _write_card_fixture(tmp_path / "xrd_reference.txt", peaks=47)
+    rml = (
+        "@prefix rr:  <http://www.w3.org/ns/r2rml#> .\n"
+        "@prefix rml: <http://semweb.mmlab.be/ns/rml#> .\n"
+        "@prefix ql:  <http://semweb.mmlab.be/ns/ql#> .\n"
+        "@prefix ast: <https://kumagallium.github.io/asterism/vocab#> .\n"
+        "@prefix ex:  <https://ex/> .\n"
+        "<#Card> a rr:TriplesMap ;\n"
+        '  rml:logicalSource [ rml:source "xrd_reference.txt" ;\n'
+        "                      rml:referenceFormulation ql:CSV ;\n" + _CARD_DIALECT_TTL +
+        '  rr:subjectMap [ rr:template "https://ex/card/{No}" ; rr:class ex:Card ] ;\n'
+        "  rr:predicateObjectMap [ rr:predicate ex:name ;\n"
+        '      rr:objectMap [ rml:reference "Name" ] ] ;\n'
+        "  rr:predicateObjectMap [ rr:predicate ex:cell ;\n"
+        '      rr:objectMap [ rml:reference "Cell" ] ] .\n'
+        "<#Peak> a rr:TriplesMap ;\n"
+        '  rml:logicalSource [ rml:source "xrd_reference.txt" ;\n'
+        "                      rml:referenceFormulation ql:CSV ;\n" + _CARD_DIALECT_TTL +
+        '  rr:subjectMap [ rr:template "https://ex/peak/{No}_{2theta}" ; rr:class ex:Peak ] ;\n'
+        "  rr:predicateObjectMap [ rr:predicate ex:d ;\n"
+        '      rr:objectMap [ rml:reference "d" ] ] ;\n'
+        "  rr:predicateObjectMap [ rr:predicate ex:ofCard ;\n"
+        '      rr:objectMap [ rr:template "https://ex/card/{No}" ] ] .\n'
+    )
+    graph = materialize_to_graph(rml, tmp_path)
+    cards = set(graph.subjects(rdflib.URIRef(RDF_TYPE), rdflib.URIRef("https://ex/Card")))
+    peaks = set(graph.subjects(rdflib.URIRef(RDF_TYPE), rdflib.URIRef("https://ex/Peak")))
+    links = list(graph.subject_objects(rdflib.URIRef("https://ex/ofCard")))
+    assert len(cards) == 1  # 47 identical (No, Name, Cell) rows dedupe to ONE Card
+    assert str(next(iter(cards))) == "https://ex/card/03-065-2664"
+    assert len(peaks) == 47
+    assert len(links) == 47  # every peak links to the card (shared No, no JOIN)
+    assert {str(o) for _, o in links} == {"https://ex/card/03-065-2664"}
+    # The broadcast carried the metadata: the Card has its name and cell.
+    assert (
+        rdflib.URIRef("https://ex/card/03-065-2664"),
+        rdflib.URIRef("https://ex/name"),
+        rdflib.Literal("Aluminum Vanadium"),
+    ) in graph
+
+
+def test_dogfood_measurement_broadcast_sample_and_points(tmp_path: Path) -> None:
+    """The CP932 tab measurement file (lines preamble): the bare sample-name line
+    broadcasts onto all 3001 rows → ONE Sample + 3001 DiffractionPoints."""
+    if not _morph_kgc_installed():
+        pytest.skip("morph-kgc not installed; this exercises the real broadcast materialize")
+    n = 3001
+    lines = ["Al3V_bulk", "2theta\tintensity"]
+    lines += [f"{20.0 + i * 0.02:.6f}\t{3600 - i}" for i in range(n)]
+    (tmp_path / "xrd_measurement.txt").write_bytes("\r\n".join(lines).encode("cp932") + b"\r\n")
+    rml = (
+        "@prefix rr:  <http://www.w3.org/ns/r2rml#> .\n"
+        "@prefix rml: <http://semweb.mmlab.be/ns/rml#> .\n"
+        "@prefix ql:  <http://semweb.mmlab.be/ns/ql#> .\n"
+        "@prefix ast: <https://kumagallium.github.io/asterism/vocab#> .\n"
+        "@prefix ex:  <https://ex/> .\n"
+        "<#Sample> a rr:TriplesMap ;\n"
+        '  rml:logicalSource [ rml:source "xrd_measurement.txt" ;\n'
+        "                      rml:referenceFormulation ql:CSV ;\n"
+        '                      ast:sourceEncoding "cp932" ;\n'
+        '                      ast:sourceDelimiter "\\t" ;\n'
+        "                      ast:sourceSkipRows 1 ;\n"
+        '                      ast:sourcePreamble "lines" ] ;\n'
+        '  rr:subjectMap [ rr:template "https://ex/sample/{preamble_1}" ; rr:class ex:Sample ] ;\n'
+        "  rr:predicateObjectMap [ rr:predicate ex:label ;\n"
+        '      rr:objectMap [ rml:reference "preamble_1" ] ] .\n'
+        "<#Point> a rr:TriplesMap ;\n"
+        '  rml:logicalSource [ rml:source "xrd_measurement.txt" ;\n'
+        "                      rml:referenceFormulation ql:CSV ;\n"
+        '                      ast:sourceEncoding "cp932" ;\n'
+        '                      ast:sourceDelimiter "\\t" ;\n'
+        "                      ast:sourceSkipRows 1 ;\n"
+        '                      ast:sourcePreamble "lines" ] ;\n'
+        '  rr:subjectMap [ rr:template "https://ex/point/{preamble_1}_{2theta}" ;\n'
+        "                  rr:class ex:Point ] ;\n"
+        "  rr:predicateObjectMap [ rr:predicate ex:ofSample ;\n"
+        '      rr:objectMap [ rr:template "https://ex/sample/{preamble_1}" ] ] .\n'
+    )
+    graph = materialize_to_graph(rml, tmp_path)
+    samples = set(graph.subjects(rdflib.URIRef(RDF_TYPE), rdflib.URIRef("https://ex/Sample")))
+    points = set(graph.subjects(rdflib.URIRef(RDF_TYPE), rdflib.URIRef("https://ex/Point")))
+    assert len(samples) == 1
+    assert str(next(iter(samples))) == "https://ex/sample/Al3V_bulk"
+    assert len(points) == n
+
+
+def test_dogfood_drop_is_not_degraded(tmp_path: Path) -> None:
+    """Non-degrade: the SAME card fixture read under the default (drop) dialect
+    normalizes to the today-shape 4-column body CSV — the broadcast is purely
+    additive and the drop path is byte-identical to before this change."""
+    from asterism.dialect import SourceDialect, normalize_source
+
+    _write_card_fixture(tmp_path / "xrd_reference.txt", peaks=47)
+    dest = normalize_source(
+        tmp_path / "xrd_reference.txt",
+        SourceDialect(delimiter="whitespace", skip_rows=23),  # preamble defaults to "drop"
+        tmp_path / "drop.csv",
+    )
+    rows = dest.read_text(encoding="utf-8").splitlines()
+    assert rows[0] == "2theta,d,I,(hkl)"  # only the body columns — no metadata
+    assert len(rows) == 1 + 47

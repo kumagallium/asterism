@@ -63,6 +63,7 @@ from asterism_step0.dialect import (
     SourceDialect,
     describe_dialect,
     detect_dialect,
+    detect_preamble_form,
     is_default,
     iter_rows,
 )
@@ -302,6 +303,10 @@ class SourceInspection:
     root_element: str | None = None  # XML document root tag
     dialect: SourceDialect | None = None  # non-default dialect the source was read with
     dialect_origin: str | None = None  # "detected" | "specified" (None when default)
+    # The identify-and-advise preamble form ("keyvalue"/"lines") when a preamble
+    # block was detected but is still dropped — advises opt-in header-metadata
+    # ingestion (ADR source-dialect.md). None when there is no preamble to advise on.
+    preamble_hint: str | None = None
 
     def column(self, name: str) -> ColumnSummary | None:
         return next((c for c in self.columns if c.name == name), None)
@@ -544,6 +549,18 @@ def _composite_uniqueness_search(
     return reports
 
 
+def _sniff_preamble_form(path: Path, dialect: SourceDialect) -> str | None:
+    """Read the ``skip_rows`` preamble lines through the dialect's encoding and
+    classify their shape (:func:`detect_preamble_form`) for the inspect advisory.
+    Best-effort (``errors="replace"``): a preamble sniff never fails inspection."""
+    try:
+        with path.open(encoding=dialect.encoding, errors="replace", newline="") as fh:
+            lines = [line for line in (fh.readline() for _ in range(dialect.skip_rows)) if line]
+    except OSError:
+        return None
+    return detect_preamble_form(lines)
+
+
 def inspect_csv(
     path: Path | str,
     *,
@@ -573,6 +590,17 @@ def inspect_csv(
     read_dialect = effective
     if read_dialect is None and p.suffix.lower() in LEGACY_SUFFIXES:
         read_dialect = SourceDialect()
+    # Identify-and-advise (ADR source-dialect.md): a dropped preamble block is
+    # classified (keyvalue/lines) so the inspect Markdown can advise opt-in
+    # header-metadata ingestion. Never auto-adopted; a default read (no preamble)
+    # leaves the hint None so a clean CSV's Markdown stays byte-identical.
+    preamble_hint = (
+        _sniff_preamble_form(p, read_dialect)
+        if read_dialect is not None
+        and read_dialect.skip_rows > 0
+        and read_dialect.preamble == "drop"
+        else None
+    )
     summaries, row_count, rows = _build_column_summaries(p, dialect=read_dialect)
     if not rows:
         return CSVInspection(
@@ -583,6 +611,7 @@ def inspect_csv(
             uniqueness_reports=[],
             dialect=effective,
             dialect_origin=origin if effective is not None else None,
+            preamble_hint=preamble_hint,
         )
 
     id_candidates = _id_candidate_columns(summaries)
@@ -601,6 +630,7 @@ def inspect_csv(
         uniqueness_reports=reports,
         dialect=effective,
         dialect_origin=origin if effective is not None else None,
+        preamble_hint=preamble_hint,
     )
 
 
@@ -1048,6 +1078,15 @@ def render_markdown(
             if ins.dialect is not None:
                 origin = "specified" if ins.dialect_origin == "specified" else "auto-detected"
                 buf.write(f"- Dialect: {describe_dialect(ins.dialect)} ({origin})\n")
+            if ins.preamble_hint is not None and ins.dialect is not None:
+                skip = ins.dialect.skip_rows
+                buf.write(
+                    f"- Header metadata: the {skip} preamble line(s) before the header "
+                    f"look like **{ins.preamble_hint}** and are currently dropped. To "
+                    f"ingest them as columns broadcast onto every row, add "
+                    f'`dialects: {{"{ins.name}": {{preamble: {ins.preamble_hint}}}}}` '
+                    f"to the mapping spec (or set it in the wizard's read settings).\n"
+                )
             buf.write("\n")
 
         buf.write("### Columns\n\n")
@@ -1179,6 +1218,15 @@ def _build_arg_parser():  # type: ignore[no-untyped-def]
         default=None,
         help="Lines before the header row (preamble).",
     )
+    p.add_argument(
+        "--preamble",
+        default=None,
+        choices=("drop", "keyvalue", "lines"),
+        help=(
+            "How to treat the preamble lines: drop (default), keyvalue (Key: value "
+            "pairs) or lines (each preamble line) — broadcast as columns onto every row."
+        ),
+    )
     return p
 
 
@@ -1214,6 +1262,8 @@ def _cli_dialects(args) -> dict[str, SourceDialect] | None:  # type: ignore[no-u
         if args.skip_rows < 0:
             raise SystemExit("--skip-rows must be a non-negative integer.")
         overrides["skip_rows"] = args.skip_rows
+    if getattr(args, "preamble", None) is not None:
+        overrides["preamble"] = args.preamble
     if not overrides:
         return None
     return {
