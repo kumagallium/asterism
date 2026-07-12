@@ -131,6 +131,57 @@ after each round, and `/api/materialize` with a `dataset_id` resolves the
 dataset's persisted source dir and re-detects (`materialize_schema(...,
 source_dir=…)`) before compiling.
 
+### Wizard "read settings" (follow-up ③ — human override before generation)
+
+The dialect determines the header row (and therefore the column set), so the
+human confirms/corrects it **before** generation, not after. `/api/inspect`
+returns the structured detected dialect of every non-default source in an
+additive `X-Asterism-Dialects` header (`{name: {encoding, delimiter, collapse,
+skip_rows, origin}}`; the delimiter is the canonical token, JSON-escaped so the
+header stays ASCII; a clean-CSV set yields `{}`). The workbench renders a
+collapsible read-settings panel next to the inspect view showing one row per
+non-default/legacy-suffix source — a clean-CSV set shows nothing (zero
+friction). An edit becomes a per-source override sent as the `dialects` JSON
+form field on `/api/propose`, `/api/propose/skeleton` and `/api/propose/continue`
+(the delimiter is a translated label but always sent as the canonical token —
+the two-layer contract). The API boundary-checks each override with the IR's
+dialect linter (`mapping_ir._parse_dialects`, field-only) → a readable 422, never
+a bad §9 annotation. The design loop merges the overrides OVER detection
+(`effective = {**detected, **overrides}`) and drives **every** source read — the
+Tier-0 oracle columns, the inline/skeleton inspection, and the §9 pin — from that
+one effective map, so a `skip_rows` edit that moves the header stays consistent
+everywhere. The override lands in §9 as an explicit `dialects:` entry — and because
+it is the source's *complete intended* dialect, an override entry is pinned with **all
+four fields, defaults included** (`apply_detected_dialects(..., full_fields=<override
+names>)`). This is what makes an *explicit default* survive the materialize re-pin:
+correcting a detected `skip_rows: 1` down to `0` writes `skip_rows: 0` verbatim into §9,
+so re-detection (which yields `skip_rows: 1` again) merges UNDER the explicit prior
+(`entry.update(prior)`) and the human's `0` wins. Without the full-field emission, "set
+to default" and "unset" were indistinguishable — the default field was omitted and the
+re-pin silently refilled it from re-detection (fixed 2026-07-12; regression: an override
+that keeps cp932/tab but resets `skip_rows` 1→0 survives a `source_dir` re-pin).
+Detection-only sources keep their **minimal** entries (only non-default fields) — the RML
+compiler emits only non-default annotations either way, so the extra IR fields never
+change the compiled artifact and a clean design stays byte-identical. An empty override
+leaves `effective == detected` — byte-identical to today. (Open question: a *force-default*
+override — resetting a mis-detected source to clean CSV, i.e. *every* field default — is
+honored at design time but does not survive the materialize re-pin: the `is_default` gate
+skips an all-default entry before it can be pinned, even under `full_fields`, so
+re-detection re-pins the non-default from the persisted source; a §9 "read as plain CSV"
+sentinel would be a separate scope.)
+
+An override is keyed by the source's canonical filename, so it must NOT outlive the
+source context it was confirmed against — instrument feeds reuse fixed names
+(`measurement.txt` / `data.txt`), and a stale override re-sent for a DIFFERENT file of
+the same name would make the server read a clean CSV under the wrong dialect (silent
+column corruption). Every wizard path that discards the source context — clearing the
+workbench, switching the source kind, replacing the picked files, and seeding a redesign
+of another dataset — therefore drops the whole dialect context (detected + overrides +
+source-name list), returning the new source to auto-detection (fixed 2026-07-12).
+Emptying the React state (not merely `sessionStorage.removeItem`) is what sticks: the
+persistence effect otherwise re-snapshots the surviving overrides and writes the removed
+key straight back.
+
 ### RML annotations (artifact contract)
 
 Emitted by the IR compiler on the `rml:logicalSource` node, namespace
@@ -219,12 +270,37 @@ A new preprocessing step, **first** in the existing work_dir chain (before
 
 ## Scope decisions
 
-- **Append**: incremental append of dialected sources is rejected with a
-  clear 422 for now. Byte-level batch accumulation cannot safely
-  concatenate preamble-bearing batches; normalizing at accumulation time
-  would double-apply `skip_rows` at materialize. Snapshot re-ingest works.
-  Follow-up: normalize-at-accumulation + clear the pinned dialect on the
-  accumulated source.
+- **Append** (follow-up ①, plan B — native dialect accumulation): incremental
+  append of a dialected source is supported. The persisted copy grows **in its
+  own dialect** — the RML/IR is never rewritten, so no un-pin and no double
+  normalization. The first batch is written as-is (its single preamble+header
+  stays); every later batch has its repeated `skip_rows + 1` preamble/header
+  physical lines sliced off (`asterism.dialect.strip_preamble_and_header`, a
+  byte-level, decode-free `\n` count) before its native data bytes are
+  concatenated. The accumulated file is therefore "preamble once, header once,
+  then every data row", and a snapshot re-ingest normalizes it **exactly once**
+  through the unchanged pinned dialect (`skip_rows` skips the single surviving
+  preamble). The batch materialize is unchanged (the raw device export flows
+  through `normalize_dialect_sources` as always). A multi-source mapping's
+  uncovered dialected source gets a native preamble+header stand-in (0 data rows
+  after normalization). Idempotency is unaffected (the `.applied_batches/<id>`
+  marker folds a batch once; the physical-line slice is deterministic, so a
+  replay is byte-identical). Fail-closed: if the pinned annotations cannot be
+  read the append is refused (snapshot re-ingest still works) — the offset is
+  unknown, so a batch cannot be safely accumulated. *Why plan B over
+  normalize-at-accumulation + un-pin: that path doubles the dialect state (a
+  retained IR/JSON dialect for future batches vs an un-pinned RML for the
+  accumulated source) and mutates a human-vetted artifact on first append; plan
+  B keeps every artifact immutable and the two design/raw-RML paths uniform.*
+  A **non-dialected** (default-dialect) tabular source accumulates by the same
+  grow-not-overwrite rule: the second batch's data rows are byte-concatenated after
+  the repeated header is dropped. This covers EVERY suffix the widened entrance
+  accepts read under the default rules — `.csv/.tsv/.txt/.dat/.asc`
+  (`_APPENDABLE_TABULAR`), not only `.csv`. Before 2026-07-12 the append branch was
+  gated on `.csv` alone, so a clean `.txt/.tsv/.dat/.asc` second batch fell through
+  to a whole-file overwrite and lost every earlier append — a snapshot re-ingest then
+  diverged from the live graph (fixed; regression test pins the two-batch growth for
+  each suffix).
 - **ICDD card metadata**: the `Key: value` preamble of reference cards is
   *skipped*, not ingested. The d-I table ingests via
   `delimiter: whitespace`. Semantic card parsing is a separate,

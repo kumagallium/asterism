@@ -155,6 +155,32 @@ def normalize_source(src: Path | str, dialect: SourceDialect, dest: Path | str) 
     return dest_path
 
 
+def strip_preamble_and_header(raw: bytes, dialect: SourceDialect) -> bytes:
+    """Drop an append batch's leading ``skip_rows + 1`` PHYSICAL lines — the
+    preamble lines plus the single header row — returning the rest of the raw
+    bytes unchanged (still in the source's native dialect).
+
+    The runtime side of accumulating an append batch into a dialected source
+    (ADR source-dialect.md, "Append"): the persisted copy grows in its NATIVE
+    dialect — the FIRST batch keeps its preamble+header, every LATER batch is
+    stripped here before its bytes are concatenated — so the accumulated file is
+    "preamble once, header once, then every data row" and a snapshot re-ingest
+    normalizes it exactly ONCE (no un-pin, no double normalization). Byte-level
+    and decode-free: it counts ``\\n`` on the raw bytes (``skip_rows`` counts
+    physical lines, the same rule the tokenizer uses), so CP932 / tab /
+    whitespace content is never re-encoded and CRLF is preserved. A batch with
+    fewer than ``skip_rows + 1`` physical lines (i.e. no data rows) yields
+    ``b""``.
+    """
+    idx = 0
+    for _ in range(dialect.skip_rows + 1):
+        nl = raw.find(b"\n", idx)
+        if nl == -1:
+            return b""
+        idx = nl + 1
+    return raw[idx:]
+
+
 def _text_codec_exists(name: str) -> bool:
     # TEXT codecs only: codecs.lookup also resolves bytes<->bytes codecs
     # ('zip', 'base64', …) which would crash the text decode. The probe must be

@@ -4,10 +4,40 @@ import { authHeaders } from './authToken'
 import { type LlmCredentials, llmHeaders } from './settings/store'
 
 /**
- * POST the given CSV files to /api/inspect and return the inspection Markdown.
- * `fks` are optional foreign-key hint columns (e.g. ["SID"]).
+ * How to READ one legacy source file (ADR source-dialect.md). `delimiter` is the
+ * canonical token the server pins — `,` `\t` `;` `|` or the sentinel `whitespace`
+ * (NOT a display label; the UI maps to/from labels). Absent/all-default = today's
+ * clean-CSV read.
  */
-export async function inspectCsvs(files: File[], fks: string[]): Promise<string> {
+export interface SourceDialect {
+  encoding: string
+  delimiter: string
+  collapse: boolean
+  skip_rows: number
+}
+
+/** A detected dialect, plus where it came from (auto-detected vs human-specified). */
+export interface DetectedDialect extends SourceDialect {
+  origin: string // 'detected' | 'specified'
+}
+
+/** The structured result of /api/inspect: the Markdown body plus the sidecar
+ *  headers (canonical source names + detected non-default dialects). */
+export interface InspectResult {
+  markdown: string
+  /** Canonical (slugged) source names — the exact names rml:source must use. */
+  sourceNames: string[]
+  /** Detected NON-default dialects keyed by canonical name (clean sources absent). */
+  dialects: Record<string, DetectedDialect>
+}
+
+/**
+ * POST the given source files to /api/inspect and return the inspection Markdown
+ * plus the structured sidecar (canonical source names, detected dialects — ADR
+ * source-dialect.md, for the wizard "read settings" panel). `fks` are optional
+ * foreign-key hint columns (e.g. ["SID"]).
+ */
+export async function inspectCsvs(files: File[], fks: string[]): Promise<InspectResult> {
   const form = new FormData()
   for (const file of files) {
     form.append('files', file)
@@ -24,7 +54,16 @@ export async function inspectCsvs(files: File[], fks: string[]): Promise<string>
     const detail = await res.text().catch(() => '')
     throw new Error(`inspect failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
   }
-  return res.text()
+  const markdown = await res.text()
+  const namesHeader = res.headers.get('X-Asterism-Source-Names') ?? ''
+  const sourceNames = namesHeader ? namesHeader.split(',').filter(Boolean) : []
+  let dialects: Record<string, DetectedDialect>
+  try {
+    dialects = JSON.parse(res.headers.get('X-Asterism-Dialects') ?? '{}')
+  } catch {
+    dialects = {} // an unreadable header must not break inspect (byte-safe fallback)
+  }
+  return { markdown, sourceNames, dialects }
 }
 
 /**
@@ -81,6 +120,17 @@ export interface ProposeHandlers {
  * {@link JobHandle} — call `close()` on unmount or a new run, `cancel()` to stop
  * the job server-side.
  */
+/**
+ * Append the human's per-source dialect overrides (ADR source-dialect.md) as the
+ * `dialects` JSON form field — ONLY when non-empty, so a clean-CSV design stays
+ * byte-identical to today (empty ⇒ the server uses auto-detection).
+ */
+function appendDialects(form: FormData, dialects?: Record<string, SourceDialect>): void {
+  if (dialects && Object.keys(dialects).length > 0) {
+    form.append('dialects', JSON.stringify(dialects))
+  }
+}
+
 export async function proposeCsvs(
   files: File[],
   domain: string,
@@ -88,6 +138,7 @@ export async function proposeCsvs(
   creds: LlmCredentials | null,
   handlers: ProposeHandlers,
   language?: string,
+  dialects?: Record<string, SourceDialect>,
 ): Promise<JobHandle> {
   const form = new FormData()
   for (const file of files) {
@@ -97,6 +148,7 @@ export async function proposeCsvs(
   // Output language for the proposal's prose (i18next code, e.g. 'ja').
   // Headings / identifiers stay English server-side (materialize contract).
   if (language) form.append('language', language)
+  appendDialects(form, dialects)
   const params = new URLSearchParams()
   for (const fk of fks) {
     params.append('fk', fk)
@@ -176,11 +228,13 @@ export async function proposeSkeleton(
   creds: LlmCredentials | null,
   handlers: SkeletonHandlers,
   language?: string,
+  dialects?: Record<string, SourceDialect>,
 ): Promise<JobHandle> {
   const form = new FormData()
   for (const file of files) form.append('files', file)
   form.append('domain', domain)
   if (language) form.append('language', language)
+  appendDialects(form, dialects)
   const params = new URLSearchParams()
   for (const fk of fks) params.append('fk', fk)
   const query = params.toString()
@@ -210,12 +264,14 @@ export async function proposeContinue(
   handlers: ProposeHandlers,
   language?: string,
   autocorrect?: number,
+  dialects?: Record<string, SourceDialect>,
 ): Promise<JobHandle> {
   const form = new FormData()
   for (const file of files) form.append('files', file)
   form.append('skeleton', JSON.stringify(skeleton))
   form.append('domain', domain)
   if (language) form.append('language', language)
+  appendDialects(form, dialects)
   const params = new URLSearchParams()
   for (const fk of fks) params.append('fk', fk)
   if (autocorrect !== undefined) params.set('autocorrect', String(autocorrect))

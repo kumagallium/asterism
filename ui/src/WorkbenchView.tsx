@@ -15,12 +15,14 @@ import {
   resumeJob,
   validateDesign,
   type AutocorrectSummary,
+  type DetectedDialect,
   type JobHandle,
   type MappingSkeleton,
   type SkeletonMap,
   type MaterializeResult,
   type ProposeResult,
   type RefineResult,
+  type SourceDialect,
 } from './api'
 import { CrosswalkBuilder } from './CrosswalkBuilder'
 import { SOURCE_ACCEPT, SUPPORTED_SOURCES, TABULAR_ACCEPT, type SourceKind } from './datasetsApi'
@@ -43,6 +45,33 @@ const SOURCES: { id: SourceKind; labelKey: string }[] = [
   { id: 'api', labelKey: 'workbench:source.apiShort' },
   { id: 'db', labelKey: 'workbench:source.db' },
 ]
+
+// Source dialect (ADR source-dialect.md — the "read settings" panel). The delimiter
+// SELECT shows a translated label but its value is the canonical token the server
+// pins ('\t'/'whitespace'/…), NOT a localized string (materialize contract). Mirror
+// of asterism_step0.dialect._DELIMITER_LABELS.
+const DELIMITER_OPTIONS: { value: string; labelKey: string }[] = [
+  { value: ',', labelKey: 'workbench:dialect.delim.comma' },
+  { value: '\t', labelKey: 'workbench:dialect.delim.tab' },
+  { value: ';', labelKey: 'workbench:dialect.delim.semicolon' },
+  { value: '|', labelKey: 'workbench:dialect.delim.pipe' },
+  { value: 'whitespace', labelKey: 'workbench:dialect.delim.whitespace' },
+]
+// Today's clean-CSV read — the prefill for a source with no detected dialect.
+const DEFAULT_DIALECT: SourceDialect = {
+  encoding: 'utf-8-sig',
+  delimiter: ',',
+  collapse: false,
+  skip_rows: 0,
+}
+// Legacy instrument-export suffixes: Morph-KGC can't resolve their source type, so
+// they're always shown in the read-settings panel even when detection was default.
+const LEGACY_SUFFIXES = ['.txt', '.dat', '.asc']
+
+function isLegacySuffix(name: string): boolean {
+  const lower = name.toLowerCase()
+  return LEGACY_SUFFIXES.some((s) => lower.endsWith(s))
+}
 
 // Inspect is NOT a step: Propose re-runs the deterministic inspection itself,
 // so a separate Inspect gate is redundant. It's available on demand from the
@@ -115,6 +144,9 @@ interface WorkbenchSnapshot {
   // ✓ message after a save (state, not derived: the created id is adopted in the
   // same commit, so `redesignId` alone can no longer tell the two apart).
   lastSaveKind?: 'created' | 'updated'
+  // Human "read settings" overrides (ADR source-dialect.md), keyed by canonical
+  // source name. Persisted so a reload/re-send keeps the edits; empty ⇒ auto-detect.
+  dialectOverrides?: Record<string, SourceDialect>
 }
 
 /**
@@ -191,6 +223,15 @@ export function WorkbenchView({
   const [inspectErr, setInspectErr] = useState('')
   const [inspecting, setInspecting] = useState(false)
   const [showInspect, setShowInspect] = useState(false)
+  // Source dialect (ADR source-dialect.md — the "read settings" panel). `sourceNames`
+  // and `detectedDialects` come from /api/inspect's sidecar headers (transient — a
+  // fresh inspect repopulates them); `dialectOverrides` are the human's edits (keyed
+  // by canonical name, persisted for reload / re-send). Empty overrides ⇒ auto-detect.
+  const [sourceNames, setSourceNames] = useState<string[]>([])
+  const [detectedDialects, setDetectedDialects] = useState<Record<string, DetectedDialect>>({})
+  const [dialectOverrides, setDialectOverrides] = useState<Record<string, SourceDialect>>(
+    snap.dialectOverrides ?? {},
+  )
 
   // Propose — the active model + its key come from Settings (shared, never on disk).
   const { isReady, getActiveCredentials } = useLlmSettings()
@@ -245,13 +286,14 @@ export function WorkbenchView({
       redesignName,
       redesignOrigin,
       lastSaveKind,
+      dialectOverrides,
     }
     try {
       sessionStorage.setItem(WB_STORAGE, JSON.stringify(snapshot))
     } catch {
       // sessionStorage may be unavailable (private mode quota) — non-fatal.
     }
-  }, [mode, step, source, fk, markdown, domainFree, presetIds, proposal, materialized, redesignId, redesignName, redesignOrigin, lastSaveKind])
+  }, [mode, step, source, fk, markdown, domainFree, presetIds, proposal, materialized, redesignId, redesignName, redesignOrigin, lastSaveKind, dialectOverrides])
 
   // Seed the workbench from a redesign target during render (the "adjust state on
   // prop change" pattern — same as GalleryView's focusClass handling — so we avoid a
@@ -275,6 +317,7 @@ export function WorkbenchView({
     setMaterialized(null)
     setStatus('')
     setStep(2)
+    resetDialectContext() // FIX3: a redesign is a different dataset — drop the prior source's dialects
     onRedesignConsumed?.()
   }
 
@@ -350,12 +393,52 @@ export function WorkbenchView({
     setMarkdown('')
     setInspecting(true)
     try {
-      setMarkdown(await inspectCsvs(files, fks()))
+      const result = await inspectCsvs(files, fks())
+      setMarkdown(result.markdown)
+      setSourceNames(result.sourceNames)
+      setDetectedDialects(result.dialects)
+      // Drop overrides whose source is no longer present (a changed file set) so a
+      // stale entry can't linger and get re-sent. Keys are canonical, so a re-attach
+      // of the SAME source keeps its override (reload durability).
+      setDialectOverrides((prev) => {
+        const kept: Record<string, SourceDialect> = {}
+        for (const name of result.sourceNames) {
+          if (prev[name]) kept[name] = prev[name]
+        }
+        return kept
+      })
     } catch (e) {
       setInspectErr(e instanceof Error ? e.message : String(e))
     } finally {
       setInspecting(false)
     }
+  }
+
+  // Read-settings edits (ADR source-dialect.md). Setting a source's dialect makes it a
+  // human override (wins over detection); reset returns it to auto-detection.
+  function setDialectOverride(name: string, dialect: SourceDialect) {
+    setDialectOverrides((prev) => ({ ...prev, [name]: dialect }))
+  }
+  function resetDialectOverride(name: string) {
+    setDialectOverrides((prev) => {
+      const next = { ...prev }
+      delete next[name]
+      return next
+    })
+  }
+
+  // Drop ALL source-dialect context (detected + human overrides + the source-name list).
+  // Called by every path that discards the current source context — clearWorkbench, a
+  // source-kind switch, a file replacement, and the redesign seed (FIX3). Without this a
+  // stale override keyed by a device's fixed filename (measurement.txt / data.txt) would
+  // be KEPT and re-sent for the NEXT, unrelated file of the same name, making the server
+  // read a clean CSV under the wrong dialect → silent column corruption. Emptying the
+  // state (not just sessionStorage.removeItem) is what sticks: the persistence effect
+  // re-snapshots the now-empty overrides, so a removed key cannot be written back.
+  function resetDialectContext() {
+    setDialectOverrides({})
+    setSourceNames([])
+    setDetectedDialects({})
   }
 
   // "構造を見る": reveal the on-demand inspection (run it if not done yet).
@@ -455,6 +538,7 @@ export function WorkbenchView({
           },
         },
         i18n.language,
+        dialectOverrides,
       )
     } catch (e) {
       setProposeErr(e instanceof Error ? e.message : String(e))
@@ -511,6 +595,7 @@ export function WorkbenchView({
           },
         },
         i18n.language,
+        dialectOverrides,
       )
     } catch (e) {
       setProposeErr(e instanceof Error ? e.message : String(e))
@@ -568,6 +653,8 @@ export function WorkbenchView({
           },
         },
         i18n.language,
+        undefined, // autocorrect: server default
+        dialectOverrides,
       )
     } catch (e) {
       setProposeErr(e instanceof Error ? e.message : String(e))
@@ -751,6 +838,7 @@ export function WorkbenchView({
     setRedesignName(undefined)
     setRedesignOrigin(undefined)
     setLastSaveKind(undefined)
+    resetDialectContext() // FIX3: don't carry a stale override into the next dataset
     sessionStorage.removeItem(WB_STORAGE)
   }
 
@@ -869,6 +957,7 @@ export function WorkbenchView({
                     // Switching kinds invalidates the picked files (different picker filter).
                     setSource(s.id)
                     setFiles([])
+                    resetDialectContext() // FIX3: the new source kind has its own dialects
                   }}
                 >
                   {t(s.labelKey)}
@@ -890,7 +979,13 @@ export function WorkbenchView({
               type="file"
               accept={SOURCE_ACCEPT[source] ?? TABULAR_ACCEPT}
               multiple
-              onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
+              onChange={(e) => {
+                setFiles(Array.from(e.target.files ?? []))
+                // FIX3: a new file set drops any stale dialect from the previous one (a
+                // same-named device export must not inherit the prior override); a fresh
+                // inspect re-detects and the human can re-confirm before generation.
+                resetDialectContext()
+              }}
             />
           </label>
           <span className={`file-names${files.length ? '' : ' empty'}`}>
@@ -928,6 +1023,13 @@ export function WorkbenchView({
               </p>
             )}
             {inspectErr && <pre className="error">{inspectErr}</pre>}
+            <DialectEditor
+              sourceNames={sourceNames}
+              detected={detectedDialects}
+              overrides={dialectOverrides}
+              onChange={setDialectOverride}
+              onReset={resetDialectOverride}
+            />
             {markdown && (
               <section className="result">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdown}</ReactMarkdown>
@@ -1419,6 +1521,115 @@ function JobProgress({
         </div>
       )}
     </div>
+  )
+}
+
+// Read-settings panel (ADR source-dialect.md): shows the DETECTED dialect of each
+// non-default / legacy-suffix source BEFORE generation and lets the human correct it
+// (encoding / delimiter / header offset / collapse). A clean-CSV set is all-default →
+// nothing to show → the panel renders null (zero friction). An edit becomes a
+// per-source override that wins over detection (and pins into §9); reset returns it to
+// auto-detection. The delimiter is edited as a label but stored/sent as the canonical
+// token — the two-layer contract materialize depends on.
+function DialectEditor({
+  sourceNames,
+  detected,
+  overrides,
+  onChange,
+  onReset,
+}: {
+  sourceNames: string[]
+  detected: Record<string, DetectedDialect>
+  overrides: Record<string, SourceDialect>
+  onChange: (name: string, dialect: SourceDialect) => void
+  onReset: (name: string) => void
+}) {
+  const { t } = useTranslation()
+  const shown = sourceNames.filter((name) => detected[name] || isLegacySuffix(name))
+  if (shown.length === 0) return null
+  return (
+    <details className="dialect-editor" open>
+      <summary>{t('workbench:dialect.title')}</summary>
+      <p className="hint dialect-editor-hint">{t('workbench:dialect.hint')}</p>
+      {shown.map((name) => {
+        const det = detected[name]
+        const base: SourceDialect = det
+          ? {
+              encoding: det.encoding,
+              delimiter: det.delimiter,
+              collapse: det.collapse,
+              skip_rows: det.skip_rows,
+            }
+          : DEFAULT_DIALECT
+        const override = overrides[name]
+        const current = override ?? base
+        const specified = override !== undefined
+        const set = (patch: Partial<SourceDialect>) => onChange(name, { ...current, ...patch })
+        return (
+          <div key={name} className="dialect-row">
+            <div className="dialect-row-head">
+              <code className="dialect-row-name">{name}</code>
+              <span className={`dialect-badge${specified ? ' dialect-badge--specified' : ''}`}>
+                {specified
+                  ? t('workbench:dialect.originSpecified')
+                  : t('workbench:dialect.originDetected')}
+              </span>
+              {specified && (
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--sm"
+                  onClick={() => onReset(name)}
+                >
+                  {t('workbench:dialect.reset')}
+                </button>
+              )}
+            </div>
+            <div className="dialect-fields">
+              <label className="dialect-field">
+                <span>{t('workbench:dialect.colEncoding')}</span>
+                <input
+                  type="text"
+                  value={current.encoding}
+                  onChange={(e) => set({ encoding: e.target.value })}
+                />
+              </label>
+              <label className="dialect-field">
+                <span>{t('workbench:dialect.colDelimiter')}</span>
+                <select
+                  value={current.delimiter}
+                  onChange={(e) => set({ delimiter: e.target.value })}
+                >
+                  {DELIMITER_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {t(o.labelKey)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="dialect-field">
+                <span>{t('workbench:dialect.colSkipRows')}</span>
+                <input
+                  type="number"
+                  min={0}
+                  value={current.skip_rows}
+                  onChange={(e) =>
+                    set({ skip_rows: Math.max(0, Math.trunc(Number(e.target.value) || 0)) })
+                  }
+                />
+              </label>
+              <label className="dialect-field dialect-check">
+                <input
+                  type="checkbox"
+                  checked={current.collapse}
+                  onChange={(e) => set({ collapse: e.target.checked })}
+                />
+                <span>{t('workbench:dialect.colCollapse')}</span>
+              </label>
+            </div>
+          </div>
+        )
+      })}
+    </details>
   )
 }
 

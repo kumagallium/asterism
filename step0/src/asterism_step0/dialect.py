@@ -334,8 +334,25 @@ def describe_dialect(dialect: SourceDialect) -> str:
 # ---------------------------------------------------------------------------
 
 
-def dialect_ir_fields(dialect: SourceDialect) -> dict[str, Any]:
-    """The dialect's NON-default fields in the IR ``dialects:`` entry shape."""
+def dialect_ir_fields(dialect: SourceDialect, *, full: bool = False) -> dict[str, Any]:
+    """The dialect's fields in the IR ``dialects:`` entry shape.
+
+    ``full=False`` (default) emits only NON-default fields — the detection path, kept
+    minimal so a clean design never churns and the RML/normalize contract stays
+    byte-identical. ``full=True`` emits ALL four fields (defaults included): a
+    human-override entry is the source's complete intended dialect, so an explicit
+    default (e.g. ``skip_rows`` corrected 1→0) must be authoritative and survive the
+    materialize re-pin. Without the explicit default, "set to default" and "unset" are
+    indistinguishable and re-detection silently refills the field (FIX2). The RML
+    compiler still emits only non-default annotations, so the extra IR fields never
+    change the compiled artifact."""
+    if full:
+        return {
+            "encoding": dialect.encoding,
+            "delimiter": dialect.delimiter,
+            "collapse": dialect.collapse,
+            "skip_rows": dialect.skip_rows,
+        }
     out: dict[str, Any] = {}
     if dialect.encoding != "utf-8-sig":
         out["encoding"] = dialect.encoding
@@ -359,7 +376,11 @@ def _declared_sources(ir_dict: Mapping[str, Any]) -> set[str]:
     }
 
 
-def _overlay(ir_dict: Mapping[str, Any], detected: Mapping[str, SourceDialect]) -> dict[str, Any]:
+def _overlay(
+    ir_dict: Mapping[str, Any],
+    detected: Mapping[str, SourceDialect],
+    full_fields: frozenset[str] = frozenset(),
+) -> dict[str, Any]:
     sources = _declared_sources(ir_dict)
     existing = ir_dict.get("dialects")
     merged: dict[str, Any] = {}
@@ -371,7 +392,10 @@ def _overlay(ir_dict: Mapping[str, Any], detected: Mapping[str, SourceDialect]) 
         prior = merged.get(name)
         if prior is not None and not isinstance(prior, Mapping):
             continue  # malformed explicit entry — leave it for lint to flag
-        entry = dialect_ir_fields(dialect)
+        # A human-override source (name in full_fields) emits ALL four fields so an
+        # explicit default is authoritative and survives a later re-pin (FIX2);
+        # detection-only sources stay minimal (byte-equivalence).
+        entry = dialect_ir_fields(dialect, full=name in full_fields)
         if isinstance(prior, Mapping):
             entry.update(prior)  # explicit IR values win (the human gate)
         merged[name] = entry
@@ -382,7 +406,9 @@ def _overlay(ir_dict: Mapping[str, Any], detected: Mapping[str, SourceDialect]) 
 
 
 def apply_detected_dialects(
-    ir: Mapping[str, Any] | str, detected: Mapping[str, SourceDialect]
+    ir: Mapping[str, Any] | str,
+    detected: Mapping[str, SourceDialect],
+    full_fields: frozenset[str] | set[str] | None = None,
 ) -> dict[str, Any] | str:
     """Overlay detected dialects onto a Mapping IR (dict or YAML text).
 
@@ -392,10 +418,19 @@ def apply_detected_dialects(
     field, with explicit IR values WINNING over detected ones so the human
     gate can override. Default dialects and files no map reads are skipped.
 
+    ``full_fields`` names the sources whose entry must carry ALL four fields
+    (defaults included) rather than only the non-default ones — the human-override
+    set (ADR source-dialect.md, the wizard's "read settings"). An override entry is
+    the source's complete intended dialect, so an explicit default (``skip_rows``
+    corrected 1→0) is pinned verbatim and survives the materialize re-pin (FIX2).
+    The default (empty set) is byte-identical to the pre-FIX behavior: detection-only
+    sources keep their minimal entries.
+
     A dict input returns a new dict (the input is not mutated). A YAML-text
     input returns YAML text, byte-identical when there is nothing to add — a
     clean design is never re-serialized.
     """
+    ff = frozenset(full_fields or ())
     if isinstance(ir, str):
         try:
             import yaml
@@ -410,8 +445,8 @@ def apply_detected_dialects(
             return ir  # a spec too broken to parse flows on; lint reports it
         if not isinstance(doc, Mapping):
             return ir
-        overlaid = _overlay(doc, detected)
+        overlaid = _overlay(doc, detected, ff)
         if overlaid.get("dialects") == doc.get("dialects"):
             return ir
         return yaml.safe_dump(overlaid, sort_keys=False, allow_unicode=True)
-    return _overlay(ir, detected)
+    return _overlay(ir, detected, ff)

@@ -179,5 +179,23 @@
     "colSource": "ソース",
     "colKey": "主キー（IRI テンプレート）",
     "colClasses": "クラス"
+  },
+  "dialect": {
+    "title": "読み取り設定（任意）",
+    "hint": "装置ファイルの読み取り方（文字コード・区切り・見出し前の行数）を自動判定しました。誤りがあれば生成前にここで直せます。きれいな CSV は表示されません。",
+    "colEncoding": "文字コード",
+    "colDelimiter": "区切り文字",
+    "colSkipRows": "見出しより前の行数",
+    "colCollapse": "連続する区切りを1つとして扱う",
+    "originDetected": "自動検出",
+    "originSpecified": "指定",
+    "reset": "自動検出に戻す",
+    "delim": {
+      "comma": "カンマ",
+      "tab": "タブ",
+      "semicolon": "セミコロン",
+      "pipe": "パイプ",
+      "whitespace": "空白（連続を1つ）"
+    }
   }
 }

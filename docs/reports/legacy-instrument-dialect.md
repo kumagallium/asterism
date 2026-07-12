@@ -78,9 +78,11 @@ is covered by `delimiter: whitespace`.
 - The `Key: value` metadata block of ICDD cards is skipped, not ingested
   (the d-I table is; semantic card parsing is a separate document-layer
   problem).
-- Append (incremental batches) onto dialected sources is rejected with 422
-  (snapshot re-ingest works); byte-level batch accumulation cannot safely
-  concatenate preamble-bearing batches.
+- Append (incremental batches) onto dialected sources is now supported
+  (follow-up ①, plan B): the persisted copy grows in its native dialect (a
+  later batch's repeated preamble+header is byte-sliced off before its data
+  rows are concatenated), so a snapshot re-ingest normalizes it exactly once.
+  The RML/IR is never rewritten.
 - Detection scans the head of the file (1 MiB / 200 lines).
 - The detection false positives an adversarial review (2026-07-11) had
   confirmed are **fixed and pinned by regression tests**: an interior blank
@@ -95,6 +97,50 @@ is covered by `delimiter: whitespace`.
 - UTF-16 is recognized via BOM only; exotic encodings fall through to
   latin-1 (lossless byte round-trip, possibly wrong glyphs — visible at
   inspect).
+
+## Follow-up fixes (2026-07-12): three data-loss bugs an adversarial review confirmed
+
+The follow-up work (append + wizard "read settings" overrides) shipped three
+**data-loss / corruption** defects a subsequent adversarial review reproduced
+in a venv. All three are fixed with red-first regression tests; the real-file
+dogfood above was **re-run unchanged after these fixes — same detections, same
+9,238 triples** (the fixes touch the append and override paths, not the
+detection/normalization core).
+
+1. **Append overwrote clean legacy-suffix sources.** The incremental-append
+   accumulator grew the persisted file only for `.csv`; a clean (default-dialect)
+   `.txt/.tsv/.dat/.asc` second batch fell through to a whole-file overwrite, so
+   the first batch's rows vanished and a snapshot re-ingest diverged from the live
+   graph. Fix: a module constant `_APPENDABLE_TABULAR = {.csv,.tsv,.txt,.dat,.asc}`
+   gates the grow-not-overwrite branch (all read under the same default comma-CSV
+   rules, so the existing header-compare + concat is correct for each). Test:
+   `test_accumulate_clean_legacy_tabular_appends_not_overwrites` (4 suffixes).
+
+2. **An override reset to a default value was silently reverted at re-pin.** An
+   override keeping cp932/tab but correcting a detected `skip_rows: 1` down to `0`
+   emitted nothing for `skip_rows` (a default field), so "set to default" and
+   "unset" were indistinguishable; the `/api/materialize` re-pin re-detected the
+   file and `entry.update(prior)` refilled `skip_rows` from the re-detected `1`,
+   losing the human's correction (design preview and actual ingest diverged). Fix:
+   an override-derived §9 entry emits **all four fields** (`dialect_ir_fields(...,
+   full=True)` via `apply_detected_dialects(..., full_fields=<override names>)`), so
+   the explicit `skip_rows: 0` is authoritative and wins the re-pin merge.
+   Detection-only entries stay minimal (byte-equivalence; the RML compiler emits only
+   non-default annotations regardless). Tests: step0
+   `test_apply_detected_dialects_full_fields_*`, api
+   `test_override_reset_to_default_survives_materialize_repin` (+ non-default and
+   clean-CSV controls).
+
+3. **A stale UI override leaked into the next dataset.** `dialectOverrides` (keyed
+   by the source's canonical filename) was not cleared when the workbench discarded
+   its source context — clearing the workbench, switching source kind, replacing the
+   files, or seeding a redesign — so a device's fixed filename (`measurement.txt`)
+   carried an old override onto an unrelated same-named file, which the server then
+   read under the wrong dialect (silent column corruption). Fix: all four paths call
+   a `resetDialectContext()` that empties `dialectOverrides` / `sourceNames` /
+   `detectedDialects` (emptying the state, not just `sessionStorage.removeItem`, so
+   the persistence effect cannot write the removed key back). UI has no unit suite;
+   verified by `npm run lint` + `build` green and code review of the four paths.
 
 ## Reproduce
 

@@ -454,12 +454,21 @@ def propose_skeleton(
     llm: LLMClient,
     language: str | None = None,
     function_names: Sequence[str] | None = None,
+    dialects: Mapping[str, Any] | None = None,
 ) -> SkeletonProposal:
     """Job 1: inspect the source(s) and generate the skeleton for human review.
     Does NOT generate properties or prose — that is :func:`propose_from_skeleton`,
-    run after the human confirms/edits the skeleton."""
+    run after the human confirms/edits the skeleton.
+
+    ``dialects`` (ADR source-dialect.md) is the effective per-source read dialect
+    (detected ⊕ human override); forwarded to ``inspect_source_set`` so the
+    skeleton's key/column choices see the SAME columns the pinned §9 dialect
+    produces (``skip_rows`` moves the header row)."""
     inspections, fks = inspect_source_set(
-        csv_paths, fk_hint_columns=fk_hint_columns, record_path=record_path
+        csv_paths,
+        fk_hint_columns=fk_hint_columns,
+        record_path=record_path,
+        dialects=dialects,
     )
     inspection_md = render_markdown(inspections, fks)
     names = _resolve_function_names(function_names)

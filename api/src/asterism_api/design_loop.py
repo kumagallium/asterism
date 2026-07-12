@@ -235,7 +235,11 @@ def _detect_source_dialects(paths: list[Path]) -> dict[str, Any]:
     return detected
 
 
-def _overlay_detected_dialects(schema_md: str, detected: Mapping[str, Any]) -> str:
+def _overlay_detected_dialects(
+    schema_md: str,
+    detected: Mapping[str, Any],
+    override_names: frozenset[str] | set[str] | None = None,
+) -> str:
     """Pin the detected dialects into the schema's §9 mapping spec (``dialects:``
     section) so they travel design → artifact → ingest.
 
@@ -243,16 +247,19 @@ def _overlay_detected_dialects(schema_md: str, detected: Mapping[str, Any]) -> s
     round (a repair could drop the section), BEFORE validation/compile, so the
     closed-set checks and the compiled RML annotations always see the pinned
     dialects. ``apply_detected_dialects`` keeps explicit IR values over detected
-    ones (the human gate can override). No-op when nothing non-default was
-    detected, the schema has no §9 spec (legacy raw-RML proposals), or the block
-    cannot be spliced — the design is then byte-untouched.
+    ones (the human gate can override). ``override_names`` are the human's per-source
+    "read settings" overrides — those entries are pinned with ALL four fields
+    (defaults included) so an explicit default (``skip_rows`` corrected 1→0) survives
+    the materialize re-pin (FIX2); detection-only sources stay minimal. No-op when
+    nothing non-default was detected, the schema has no §9 spec (legacy raw-RML
+    proposals), or the block cannot be spliced — the design is then byte-untouched.
     """
     if not detected:
         return schema_md
     ir_yaml, _ = _extract_design(schema_md)
     if not ir_yaml or not ir_yaml.strip():
         return schema_md
-    new_yaml = apply_detected_dialects(ir_yaml, detected)
+    new_yaml = apply_detected_dialects(ir_yaml, detected, override_names)
     if new_yaml == ir_yaml:
         return schema_md
     try:
@@ -602,6 +609,7 @@ def run_design_loop(
     language: str | None = None,
     should_cancel: Callable[[], bool] | None = None,
     skeleton: Mapping[str, Any] | None = None,
+    dialect_overrides: Mapping[str, Any] | None = None,
 ) -> DesignLoopResult:
     """Run the propose→validate→refine self-correction loop.
 
@@ -616,6 +624,14 @@ def run_design_loop(
     called with a dict per phase (for SSE). ``on_llm_call(feature)`` is called right
     after each LLM call so the caller can record usage (``last_usage`` is overwritten per
     call): feature is ``"propose"`` for round 0 and ``"propose.autocorrect"`` for refines.
+    ``dialect_overrides`` (ADR source-dialect.md — the wizard's "read settings")
+    are the human's per-source dialect edits confirmed BEFORE generation; they are
+    merged OVER the detected dialects (``effective = {**detected, **overrides}``)
+    and that effective map drives every source read (oracle columns, inline/skeleton
+    inspection, §9 pin), so a ``skip_rows`` edit that moves the header row stays
+    consistent across the whole design. An empty override leaves ``effective ==
+    detected`` — byte-identical to today.
+
     ``language`` is the output language for the schema's human-readable prose; it is
     forwarded to BOTH propose and every refine round (otherwise an autocorrect round
     would silently flip the prose back to English). ``should_cancel`` is the job's
@@ -634,8 +650,16 @@ def run_design_loop(
         raise LLMCancelledError("cancelled")
     # Detect ONCE at design time (ADR source-dialect.md); pinned into every §9
     # candidate below so the artifacts carry the dialect, ingest never re-detects.
+    # A human "read settings" override wins over detection (the wizard confirms the
+    # dialect BEFORE generation); the effective map drives every source read below
+    # so a skip_rows edit that moves the header stays consistent everywhere. An
+    # empty override leaves effective == detected (byte-identical to today).
     detected = _detect_source_dialects(paths)
-    oracle = build_oracle(base, paths, dialects=detected)
+    effective = {**detected, **(dialect_overrides or {})}
+    # Human-override source names: pinned into §9 with ALL four fields so an explicit
+    # default (e.g. skip_rows corrected 1→0) survives the materialize re-pin (FIX2).
+    override_names = frozenset(dialect_overrides or {})
+    oracle = build_oracle(base, paths, dialects=effective)
     if skeleton is not None:
         # Phase 2b staged round-0. The oracle IS the per-map menu (exact files /
         # columns / function signatures), so property generation stays inside the
@@ -646,7 +670,8 @@ def run_design_loop(
         except ImportError:
             function_names = None
         inspections, fks = inspect_source_set(
-            paths, fk_hint_columns=fk_hint_columns, record_path=record_path
+            paths, fk_hint_columns=fk_hint_columns, record_path=record_path,
+            dialects=effective,
         )
         inspection_md = render_markdown(inspections, fks)
         _emit(on_progress, phase="propose", round=0, message="骨格から設計を生成中")
@@ -671,13 +696,14 @@ def run_design_loop(
             record_path=record_path,
             llm=llm,
             language=language,
+            dialects=effective,
         )
         if on_llm_call is not None:
             on_llm_call("propose")
         schema_md = proposal.proposal_md
         inspection_md = proposal.csv_inspection_md
         metadata = dict(proposal.metadata)
-    schema_md = _overlay_detected_dialects(schema_md, detected)
+    schema_md = _overlay_detected_dialects(schema_md, effective, override_names)
 
     def _result(
         best_schema: str,
@@ -801,9 +827,9 @@ def run_design_loop(
                                reason="refine_truncated", initial=initial, base_refs=base_refs)
             schema_md = ref.effective_schema_md  # == ref.refined_md when complete
 
-        # Re-pin the detected dialects (a repair round could have dropped the
+        # Re-pin the effective dialects (a repair round could have dropped the
         # section; explicit values the round kept still win). Idempotent.
-        schema_md = _overlay_detected_dialects(schema_md, detected)
+        schema_md = _overlay_detected_dialects(schema_md, effective, override_names)
         try:
             ir_yaml, rml_ttl = _extract_design(schema_md)
             issues = collect_issues(ir_yaml, rml_ttl, base)

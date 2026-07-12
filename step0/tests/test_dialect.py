@@ -290,6 +290,65 @@ def test_dialect_ir_fields_non_default_only() -> None:
     }
 
 
+def test_dialect_ir_fields_full_emits_all_four_fields() -> None:
+    # FIX2: an override-derived source emits ALL four fields (defaults included) so an
+    # explicit-default (e.g. skip_rows corrected 1→0) is authoritative and survives the
+    # materialize re-pin. A default field is otherwise omitted (indistinguishable from
+    # "unset"), so re-detection would silently refill it.
+    assert dialect_ir_fields(SourceDialect(encoding="cp932", delimiter="\t"), full=True) == {
+        "encoding": "cp932",
+        "delimiter": "\t",
+        "collapse": False,
+        "skip_rows": 0,
+    }
+    # full=False is the byte-identical default (detection-only sources stay minimal).
+    assert dialect_ir_fields(SourceDialect(encoding="cp932", delimiter="\t")) == {
+        "encoding": "cp932",
+        "delimiter": "\t",
+    }
+
+
+def test_apply_detected_dialects_full_fields_survives_repin() -> None:
+    """FIX2 end-to-end at the pure-function seam: an override source keeps cp932/tab but
+    corrects skip_rows 1→0. With ``full_fields`` the §9 entry pins skip_rows:0 explicitly,
+    so a later re-detection (the materialize re-pin) whose ``entry.update(prior)`` merges
+    the re-detected skip_rows=1 UNDER the explicit prior keeps the human's 0."""
+    override = {
+        "xrd_measurement.txt": SourceDialect(encoding="cp932", delimiter="\t", skip_rows=0)
+    }
+    pinned = apply_detected_dialects(_IR_DICT, override, full_fields={"xrd_measurement.txt"})
+    assert pinned["dialects"]["xrd_measurement.txt"] == {
+        "encoding": "cp932",
+        "delimiter": "\t",
+        "collapse": False,
+        "skip_rows": 0,
+    }
+    # Re-pin: source_dir re-detection yields skip_rows=1 (detection-only, minimal fields);
+    # the explicit prior must win so the header offset does not silently revert to 1.
+    redetected = {
+        "xrd_measurement.txt": SourceDialect(encoding="cp932", delimiter="\t", skip_rows=1)
+    }
+    repinned = apply_detected_dialects(pinned, redetected)
+    assert repinned["dialects"]["xrd_measurement.txt"]["skip_rows"] == 0
+
+
+def test_apply_detected_dialects_full_fields_only_named_sources() -> None:
+    # A detection-only source NOT in full_fields stays minimal (byte-equivalence for the
+    # non-overridden sources of the same design); a default override is still gated out.
+    detected = {
+        "xrd_measurement.txt": SourceDialect(encoding="cp932", delimiter="\t", skip_rows=1),
+        "xrd_reference.txt": SourceDialect(delimiter="whitespace", skip_rows=2),
+    }
+    out = apply_detected_dialects(_IR_DICT, detected, full_fields={"xrd_measurement.txt"})
+    assert out["dialects"]["xrd_measurement.txt"] == {
+        "encoding": "cp932",
+        "delimiter": "\t",
+        "collapse": False,
+        "skip_rows": 1,
+    }
+    assert out["dialects"]["xrd_reference.txt"] == {"delimiter": "whitespace", "skip_rows": 2}
+
+
 _IR_DICT = {
     "version": 1,
     "prefixes": {"ex": "https://example.org/ns#"},

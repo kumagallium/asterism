@@ -1764,8 +1764,8 @@ def test_normalize_dialect_sources_default_annotation_strips_only(tmp_path: Path
 
 async def test_run_append_ingest_dialected_source(tmp_path: Path) -> None:
     """The append path shares materialize_to_nt_file, so a dialected batch flows
-    through the same normalization chain (the api-side 422 guard is policy, not a
-    substrate limitation). Gated on the optional morph-kgc extra."""
+    through the same normalization chain (append of a dialected source is now
+    supported end-to-end, ADR "Append" plan B). Gated on the optional morph-kgc extra."""
     if not _morph_kgc_installed():
         pytest.skip("morph-kgc not installed; this exercises the real dialect append")
     batch = tmp_path / "batch"
@@ -1783,3 +1783,44 @@ async def test_run_append_ingest_dialected_source(tmp_path: Path) -> None:
         rdflib.URIRef("https://ex/sample"),
         rdflib.Literal("試料A"),
     ) in g
+
+
+def test_snapshot_reingest_of_native_accumulated_dialect_source(tmp_path: Path) -> None:
+    """ADR "Append" plan B, end-to-end: a dialected source accumulated in its NATIVE
+    dialect (initial batch as-is + a later batch with its preamble+header sliced off
+    via ``strip_preamble_and_header``) re-materializes through the real Morph-KGC
+    exactly ONCE — the pinned dialect (skip_rows=1) skips the single surviving
+    preamble, and every data row from BOTH batches becomes a triple. Gated on the
+    optional morph-kgc extra."""
+    if not _morph_kgc_installed():
+        pytest.skip("morph-kgc not installed; this exercises the real dialect re-ingest")
+    from asterism.dialect import SourceDialect, strip_preamble_and_header
+
+    dialect = SourceDialect(encoding="cp932", delimiter="\t", skip_rows=1)
+    # Batch 1 = the design-time source (preamble + header + 2 rows).
+    batch1 = (
+        "\r\n".join(["サンプル名: 試料A", "angle\tsample", "10.5\t試料A", "20.1\t試料B"]).encode(
+            "cp932"
+        )
+        + b"\r\n"
+    )
+    # Batch 2 = the SAME preamble+header, 2 NEW rows (a second device export).
+    batch2 = (
+        "\r\n".join(["サンプル名: 試料A", "angle\tsample", "30.0\t試料C", "40.0\t試料D"]).encode(
+            "cp932"
+        )
+        + b"\r\n"
+    )
+    # Plan B accumulation: first batch as-is, later batch stripped, native bytes joined.
+    accumulated = batch1 + strip_preamble_and_header(batch2, dialect)
+    (tmp_path / "xrd_measurement.txt").write_bytes(accumulated)
+
+    graph = materialize_to_graph(_DIALECT_RML, tmp_path)
+
+    triples = {(str(s), str(p), str(o)) for s, p, o in graph}
+    assert triples == {
+        ("https://ex/m/10.5", "https://ex/sample", "試料A"),
+        ("https://ex/m/20.1", "https://ex/sample", "試料B"),
+        ("https://ex/m/30.0", "https://ex/sample", "試料C"),
+        ("https://ex/m/40.0", "https://ex/sample", "試料D"),
+    }
