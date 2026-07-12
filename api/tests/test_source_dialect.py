@@ -159,6 +159,7 @@ def test_inspect_emits_dialects_header_for_non_default(tmp_path: Path) -> None:
         "delimiter": "\t",
         "collapse": False,
         "skip_rows": 1,
+        "preamble": "drop",
         "origin": "detected",
     }
 
@@ -243,6 +244,40 @@ def test_run_design_loop_override_pins_into_spec_and_applies(tmp_path: Path) -> 
     assert result.remaining_issues == []  # effective applied consistently → no column moles
 
 
+def test_parse_dialect_overrides_accepts_preamble() -> None:
+    parsed = api_main._parse_dialect_overrides(
+        '{"card.txt": {"delimiter": "whitespace", "skip_rows": 23, "preamble": "keyvalue"}}'
+    )
+    assert parsed["card.txt"].preamble == "keyvalue"
+    # A bad preamble mode is a readable 422 (never a bad §9 annotation).
+    with pytest.raises(HTTPException) as exc:
+        api_main._parse_dialect_overrides('{"c.txt": {"skip_rows": 1, "preamble": "sometimes"}}')
+    assert exc.value.status_code == 422 and "preamble must be one of" in str(exc.value.detail)
+
+
+def test_run_design_loop_preamble_override_pins_and_compiles(tmp_path: Path) -> None:
+    """The wizard's one-click header-metadata opt-in: a human ``preamble`` override
+    travels into §9 and compiles to ``ast:sourcePreamble`` — the ingest annotation
+    that drives the broadcast (design → artifact → ingest)."""
+    from asterism_step0.materialize import materialize_schema
+
+    (tmp_path / "data.txt").write_bytes(_CP932_PREAMBLE_TAB)
+    override = api_main._parse_dialect_overrides(
+        '{"data.txt": {"encoding": "cp932", "delimiter": "\\t", "skip_rows": 1,'
+        ' "preamble": "lines"}}'
+    )
+    llm = _ScriptedLLM([_md_with_spec("data.txt", "composition")])
+    result = design_loop.run_design_loop(
+        [tmp_path / "data.txt"], "hint", tmp_path, llm=llm, max_rounds=0,
+        dialect_overrides=override,
+    )
+    assert _pinned_dialect(result.proposal_md, "data.txt")["preamble"] == "lines"
+    compiled = materialize_schema(
+        result.proposal_md, tmp_path / "out", "ds", write=False, source_dir=tmp_path
+    )
+    assert compiled.rml_ttl is not None and 'ast:sourcePreamble "lines"' in compiled.rml_ttl
+
+
 # ---- FIX2: an override reset to a DEFAULT value survives the materialize re-pin ----
 
 
@@ -285,7 +320,13 @@ def test_override_reset_to_default_survives_materialize_repin(tmp_path: Path) ->
     )
     # (a) §9 pins the override with ALL four fields (the explicit default skip_rows: 0).
     pinned = _pinned_dialect(result.proposal_md, "data.txt")
-    assert pinned == {"encoding": "cp932", "delimiter": "\t", "collapse": False, "skip_rows": 0}
+    assert pinned == {
+        "encoding": "cp932",
+        "delimiter": "\t",
+        "collapse": False,
+        "skip_rows": 0,
+        "preamble": "drop",
+    }
     # Re-pin from the persisted source dir (the /api/materialize dataset_id path) re-detects
     # skip_rows=1, but the explicit §9 default wins — the correction is preserved.
     ir_yaml, _ = design_loop._extract_design(result.proposal_md)

@@ -187,6 +187,7 @@
     "colDelimiter": "区切り文字",
     "colSkipRows": "見出しより前の行数",
     "colCollapse": "連続する区切りを1つとして扱う",
+    "colPreamble": "見出し前のメタ情報",
     "originDetected": "自動検出",
     "originSpecified": "指定",
     "reset": "自動検出に戻す",
@@ -196,6 +197,12 @@
       "semicolon": "セミコロン",
       "pipe": "パイプ",
       "whitespace": "空白（連続を1つ）"
+    },
+    "preamble": {
+      "drop": "取り込まない（既定）",
+      "keyvalue": "Key: value を列にする",
+      "lines": "各行を列にする",
+      "hint": "見出し前のメタ情報を列として、データの各行に横付けして取り込みます（試料名・空間群などを測定値と一緒に問い合わせできます）。"
     }
   }
 }

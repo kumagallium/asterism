@@ -32,13 +32,20 @@ SOURCE_ENCODING_PREDICATE: str = ASTERISM_NS + "sourceEncoding"
 SOURCE_DELIMITER_PREDICATE: str = ASTERISM_NS + "sourceDelimiter"
 SOURCE_COLLAPSE_PREDICATE: str = ASTERISM_NS + "sourceCollapse"
 SOURCE_SKIP_ROWS_PREDICATE: str = ASTERISM_NS + "sourceSkipRows"
+SOURCE_PREAMBLE_PREDICATE: str = ASTERISM_NS + "sourcePreamble"
 
 DIALECT_PREDICATES: tuple[str, ...] = (
     SOURCE_ENCODING_PREDICATE,
     SOURCE_DELIMITER_PREDICATE,
     SOURCE_COLLAPSE_PREDICATE,
     SOURCE_SKIP_ROWS_PREDICATE,
+    SOURCE_PREAMBLE_PREDICATE,
 )
+
+# The closed set of preamble-handling modes (ADR source-dialect.md, "Header
+# metadata"): "drop" keeps today's behavior (the skip_rows preamble is discarded);
+# "keyvalue"/"lines" broadcast the parsed preamble metadata onto every body row.
+PREAMBLE_MODES: frozenset[str] = frozenset({"drop", "keyvalue", "lines"})
 
 # ``delimiter`` sentinel: split on runs of spaces/tabs (Excel's "treat
 # consecutive delimiters as one") — covers fixed-width-ish instrument tables.
@@ -70,6 +77,91 @@ def safe_column(name: str) -> str:
     return f"{name}_" if name in _RESERVED_COLUMNS else name
 
 
+# Preamble parsing (ADR source-dialect.md, "Header metadata"): a section heading
+# (a run of 3+ leading hyphens) is skipped; a ``key: value`` line splits on its
+# FIRST colon only (a second colon stays inside the value — lossless).
+_PREAMBLE_SECTION = re.compile(r"^\s*-{3,}")
+_PREAMBLE_KV = re.compile(r"^\s*([^:]+?)\s*:\s*(.*)$")
+
+
+def read_preamble(lines: list[str], mode: str) -> list[tuple[str, str]]:
+    """Parse the decoded preamble ``lines`` into ordered ``(name, value)`` pairs.
+
+    Shared verbatim with the design-side twin (``asterism_step0.dialect``). The
+    ``skip_rows`` physical lines that ``drop`` would discard are turned into
+    metadata columns broadcast onto every body row.
+
+    ``mode == "lines"`` — each non-blank line ``i`` becomes ``("preamble_{i+1}",
+    stripped)`` (a bare sample-name line stays intact). ``mode == "keyvalue"`` —
+    line by line, in a fixed deterministic priority: a section heading
+    (``^\\s*-{3,}``) is skipped; a ``key: value`` line splits on its FIRST colon
+    only (``strip``ed key/value, a second colon preserved inside the value, a
+    multi-value cell kept whole for Tier-0 to split later); any other non-blank
+    line WITHOUT a colon is a CONTINUATION appended (space-joined) to the previous
+    key's value (so a colon-free wrapped line rejoins its field), or, with no
+    previous key, a ``preamble_{i+1}`` fallback. A duplicate key is suffixed
+    ``key_2``/``key_3`` (lossless, never overwritten). An unknown mode yields
+    nothing (the caller's ``drop`` path handles the default).
+
+    Determinism has a documented cost: a wrapped line that ITSELF contains a colon
+    (e.g. the second physical line of an ICDD ``Comment`` note, ``for Al-filings:
+    4.049``) is indistinguishable from a real new field, so it is parsed as its
+    own ``key: value`` pair rather than rejoined — the text is never lost but lands
+    in an extra, oddly-named column the designer simply does not map. See the ADR /
+    report Limitations."""
+    if mode == "lines":
+        out: list[tuple[str, str]] = []
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped:
+                out.append((f"preamble_{i + 1}", stripped))
+        return out
+    if mode != "keyvalue":
+        return []
+    pairs: list[list[str]] = []  # [key, value], value mutated by continuation lines
+    key_counts: dict[str, int] = {}
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped or _PREAMBLE_SECTION.match(line):
+            continue
+        m = _PREAMBLE_KV.match(line)
+        if m:
+            key = m.group(1).strip()
+            value = m.group(2).strip()
+            key_counts[key] = key_counts.get(key, 0) + 1
+            if key_counts[key] > 1:
+                key = f"{key}_{key_counts[key]}"
+            pairs.append([key, value])
+        elif pairs:
+            pairs[-1][1] = f"{pairs[-1][1]} {stripped}".strip()
+        else:
+            pairs.append([f"preamble_{i + 1}", stripped])
+    return [(k, v) for k, v in pairs]
+
+
+def resolve_header(body_names: list[str], meta_names: list[str]) -> list[str]:
+    """Resolve the broadcast META column names against the body header.
+
+    Shared verbatim with the design-side twin. Each meta name is ``safe_column``ed
+    (so a reserved ``subject``/``predicate`` key cannot silence a term map) and, if
+    it would collide with a body column or an earlier meta column, suffixed
+    ``_2``/``_3`` — the BODY columns are never renamed (their position/name stays
+    exactly what ``drop`` produces). Returns the resolved meta names only; the full
+    header is ``body_names + resolve_header(body_names, meta_names)``."""
+    seen = {safe_column(b) for b in body_names}
+    out: list[str] = []
+    for name in meta_names:
+        base = safe_column(name)
+        candidate = base
+        n = 2
+        while candidate in seen:
+            candidate = f"{base}_{n}"
+            n += 1
+        seen.add(candidate)
+        out.append(candidate)
+    return out
+
+
 class DialectAnnotationError(ValueError):
     """An ``ast:`` dialect annotation value is outside the pinned contract.
 
@@ -91,6 +183,7 @@ class SourceDialect:
     delimiter: str = ","  # single char, or the sentinel "whitespace"
     collapse: bool = False  # treat consecutive delimiters as one
     skip_rows: int = 0  # lines before the header row (preamble)
+    preamble: str = "drop"  # "drop" | "keyvalue" | "lines" — how to treat the preamble
 
 
 DEFAULT_DIALECT = SourceDialect()
@@ -115,7 +208,14 @@ def dialect_rows(src: Path | str, dialect: SourceDialect) -> Iterator[list[str]]
     ``whitespace`` splits non-blank physical lines on runs of spaces/tabs
     (collapse implied). Lazy (streamed), so reading just the header row does
     not slurp a large export.
+
+    ``dialect.preamble != "drop"`` (the opt-in header-metadata path) broadcasts
+    the parsed preamble onto every body row; the default ``drop`` path below is
+    byte-identical to today (the skip_rows preamble is read off and discarded).
     """
+    if dialect.preamble != "drop":
+        yield from _broadcast_rows(src, dialect)
+        return
     with Path(src).open("r", encoding=dialect.encoding, errors="strict", newline="") as fh:
         for _ in range(dialect.skip_rows):
             if not fh.readline():
@@ -132,6 +232,57 @@ def dialect_rows(src: Path | str, dialect: SourceDialect) -> Iterator[list[str]]
                 if not any(tokens):
                     continue
                 yield [tok for tok in tokens if tok] if dialect.collapse else tokens
+
+
+def _body_tokens(fh, dialect: SourceDialect) -> Iterator[list[str]]:
+    """Tokenize the body (post-``skip_rows``) rows under ``dialect`` — the same
+    single tokenizer rule the ``drop`` path uses inline. Used only by the
+    broadcast path so the ``drop`` branch stays byte-identical to today."""
+    if dialect.delimiter == WHITESPACE:
+        for raw in fh:
+            line = raw.strip()
+            if not line:
+                continue
+            yield [tok for tok in _WHITESPACE_RUN.split(line) if tok]
+    else:
+        for row in csv.reader(fh, delimiter=dialect.delimiter):
+            tokens = [tok.strip() for tok in row]
+            if not any(tokens):
+                continue
+            yield [tok for tok in tokens if tok] if dialect.collapse else tokens
+
+
+def _broadcast_rows(src: Path | str, dialect: SourceDialect) -> Iterator[list[str]]:
+    """Broadcast the parsed preamble metadata onto every body row (ADR
+    source-dialect.md, "Header metadata").
+
+    Collects the ``skip_rows`` preamble lines, parses them (:func:`read_preamble`)
+    into constant metadata columns appended AFTER the body columns (so body
+    columns keep their exact ``drop`` positions), then yields ``body_header +
+    resolve_header(...)`` as the header and each fitted body row plus the constant
+    metadata values. Each body row is fitted to the body header width (short rows
+    padded, over-split rows truncated) so the appended metadata always lands in
+    the right columns and the output stays rectangular. Reached only when
+    ``preamble != "drop"``."""
+    with Path(src).open("r", encoding=dialect.encoding, errors="strict", newline="") as fh:
+        preamble_lines: list[str] = []
+        for _ in range(dialect.skip_rows):
+            line = fh.readline()
+            if not line:
+                break
+            preamble_lines.append(line)
+        meta = read_preamble(preamble_lines, dialect.preamble)
+        meta_names = [name for name, _ in meta]
+        meta_values = [value for _, value in meta]
+        body = _body_tokens(fh, dialect)
+        header = next(body, None)
+        if header is None:
+            return
+        width = len(header)
+        yield list(header) + resolve_header(header, meta_names)
+        for row in body:
+            fitted = list(row[:width]) + [""] * (width - len(row))
+            yield fitted + meta_values
 
 
 def normalize_source(src: Path | str, dialect: SourceDialect, dest: Path | str) -> Path:
@@ -256,6 +407,15 @@ def dialects_from_mapping(graph) -> dict[str, SourceDialect]:
                     f"(got {str(skip)!r})."
                 )
             values["skip_rows"] = skip_rows
+        preamble = next(graph.objects(ls, uri(SOURCE_PREAMBLE_PREDICATE)), None)
+        if preamble is not None:
+            mode = str(preamble)
+            if mode not in PREAMBLE_MODES:
+                raise DialectAnnotationError(
+                    f"{where}: ast:sourcePreamble must be one of "
+                    f"{', '.join(sorted(PREAMBLE_MODES))} (got {mode!r})."
+                )
+            values["preamble"] = mode
         for name in names:
             out[name] = SourceDialect(**values)  # type: ignore[arg-type]
     return out

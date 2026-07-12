@@ -14,6 +14,9 @@ export interface SourceDialect {
   delimiter: string
   collapse: boolean
   skip_rows: number
+  /** How to treat the preamble lines: `drop` (default), `keyvalue` or `lines`
+   *  (broadcast the parsed preamble metadata onto every row). ADR source-dialect.md. */
+  preamble: string
 }
 
 /** A detected dialect, plus where it came from (auto-detected vs human-specified). */

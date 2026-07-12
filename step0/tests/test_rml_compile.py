@@ -423,6 +423,22 @@ def test_dialect_annotations_on_logical_source() -> None:
     assert "@prefix ast: <https://kumagallium.github.io/asterism/vocab#> ." in ttl
 
 
+def test_dialect_preamble_annotation_emitted() -> None:
+    """A non-default preamble mode compiles to ast:sourcePreamble on the logical
+    source (drop is never emitted — the header-metadata opt-in travels design →
+    artifact → ingest)."""
+    ir = DIALECT_IR.replace("skip_rows: 1", "skip_rows: 1\n    preamble: keyvalue")
+    g = as_graph(compile_text(ir))
+    (ls,) = list(g.objects(None, RML.logicalSource))
+    assert next(g.objects(ls, AST.sourcePreamble)).toPython() == "keyvalue"
+
+
+def test_dialect_default_preamble_not_emitted() -> None:
+    g = as_graph(compile_text(DIALECT_IR))  # DIALECT_IR has no preamble ⇒ drop
+    (ls,) = list(g.objects(None, RML.logicalSource))
+    assert list(g.objects(ls, AST.sourcePreamble)) == []
+
+
 def test_dialect_whitespace_collapse_annotations() -> None:
     ir = DIALECT_IR.replace(
         'encoding: cp932\n    delimiter: "\\t"\n    skip_rows: 1',

@@ -34,15 +34,19 @@ from typing import Any
 
 __all__ = [
     "LEGACY_SUFFIXES",
+    "PREAMBLE_MODES",
     "TABULAR_SUFFIXES",
     "WHITESPACE",
     "SourceDialect",
     "apply_detected_dialects",
     "describe_dialect",
     "detect_dialect",
+    "detect_preamble_form",
     "dialect_ir_fields",
     "is_default",
     "iter_rows",
+    "read_preamble",
+    "resolve_header",
 ]
 
 # The sentinel delimiter: split on runs of spaces/tabs (Excel's "treat
@@ -54,6 +58,15 @@ WHITESPACE = "whitespace"
 # default dialect (extension-based normalization, ADR) — and inspection reads
 # them through the same default read rules so both sides see the same rows.
 LEGACY_SUFFIXES = frozenset({".txt", ".dat", ".asc"})
+
+# The closed set of preamble-handling modes (ADR source-dialect.md, "Header
+# metadata"): "drop" keeps today's behavior; "keyvalue"/"lines" broadcast the
+# parsed preamble metadata onto every body row.
+PREAMBLE_MODES = frozenset({"drop", "keyvalue", "lines"})
+
+# Morph-KGC reserves these DataFrame column names when building term maps (mirror
+# of ``asterism.dialect._RESERVED_COLUMNS`` / ``inspect._RESERVED_SOURCE_COLUMNS``).
+_RESERVED_COLUMNS = frozenset({"subject", "predicate"})
 
 # Tabular source suffixes the entrance accepts (ADR "entrance widening"):
 # the classic pair plus the extensions instrument exports actually use.
@@ -85,6 +98,7 @@ class SourceDialect:
     delimiter: str = ","  # single char, or the sentinel "whitespace"
     collapse: bool = False  # treat consecutive delimiters as one
     skip_rows: int = 0  # lines before the header row (preamble)
+    preamble: str = "drop"  # "drop" | "keyvalue" | "lines" — how to treat the preamble
 
 
 _DEFAULT_DIALECT = SourceDialect()
@@ -275,6 +289,143 @@ def detect_dialect(path: Path | str) -> SourceDialect:
 # ---------------------------------------------------------------------------
 
 
+def safe_column(name: str) -> str:
+    """Rename a Morph-KGC-reserved column (``subject``/``predicate`` → suffixed
+    ``_``); identity for every other name (mirror of the runtime twin)."""
+    return f"{name}_" if name in _RESERVED_COLUMNS else name
+
+
+# Preamble parsing (ADR source-dialect.md, "Header metadata"): a section heading
+# (a run of 3+ leading hyphens) is skipped; a ``key: value`` line splits on its
+# FIRST colon only (a second colon stays inside the value — lossless).
+_PREAMBLE_SECTION = re.compile(r"^\s*-{3,}")
+_PREAMBLE_KV = re.compile(r"^\s*([^:]+?)\s*:\s*(.*)$")
+
+
+def read_preamble(lines: list[str], mode: str) -> list[tuple[str, str]]:
+    """Parse the decoded preamble ``lines`` into ordered ``(name, value)`` pairs.
+
+    Shared verbatim with the runtime twin (``asterism.dialect.read_preamble``).
+    ``mode == "lines"`` — each non-blank line ``i`` becomes ``("preamble_{i+1}",
+    stripped)``. ``mode == "keyvalue"`` — line by line, in fixed priority: a
+    section heading (``^\\s*-{3,}``) is skipped; a ``key: value`` line splits on
+    its FIRST colon only (``strip``ed key/value, a second colon preserved inside
+    the value, a multi-value cell kept whole for Tier-0 to split later); any other
+    non-blank line WITHOUT a colon is a CONTINUATION appended (space-joined) to the
+    previous key's value, or, with no previous key, a ``preamble_{i+1}`` fallback.
+    A duplicate key is suffixed ``key_2``/``key_3`` (lossless). An unknown mode
+    yields nothing (the caller's ``drop`` path handles the default).
+
+    A wrapped line that itself contains a colon is indistinguishable from a real
+    new field and is parsed as its own ``key: value`` pair (deterministic; the text
+    lands in an extra column, never lost — see the ADR / report Limitations)."""
+    if mode == "lines":
+        out: list[tuple[str, str]] = []
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped:
+                out.append((f"preamble_{i + 1}", stripped))
+        return out
+    if mode != "keyvalue":
+        return []
+    pairs: list[list[str]] = []  # [key, value], value mutated by continuation lines
+    key_counts: dict[str, int] = {}
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped or _PREAMBLE_SECTION.match(line):
+            continue
+        m = _PREAMBLE_KV.match(line)
+        if m:
+            key = m.group(1).strip()
+            value = m.group(2).strip()
+            key_counts[key] = key_counts.get(key, 0) + 1
+            if key_counts[key] > 1:
+                key = f"{key}_{key_counts[key]}"
+            pairs.append([key, value])
+        elif pairs:
+            pairs[-1][1] = f"{pairs[-1][1]} {stripped}".strip()
+        else:
+            pairs.append([f"preamble_{i + 1}", stripped])
+    return [(k, v) for k, v in pairs]
+
+
+def resolve_header(body_names: list[str], meta_names: list[str]) -> list[str]:
+    """Resolve the broadcast META column names against the body header.
+
+    Shared verbatim with the runtime twin. Each meta name is ``safe_column``ed and,
+    if it would collide with a body column or an earlier meta column, suffixed
+    ``_2``/``_3`` — the BODY columns are never renamed. Returns the resolved meta
+    names only; the full header is ``body_names + resolve_header(...)``."""
+    seen = {safe_column(b) for b in body_names}
+    out: list[str] = []
+    for name in meta_names:
+        base = safe_column(name)
+        candidate = base
+        n = 2
+        while candidate in seen:
+            candidate = f"{base}_{n}"
+            n += 1
+        seen.add(candidate)
+        out.append(candidate)
+    return out
+
+
+def detect_preamble_form(lines: list[str]) -> str | None:
+    """Classify a preamble block's shape for the inspect advisory (identify, do
+    NOT adopt — ADR source-dialect.md): a majority of ``key:<space>`` lines →
+    ``"keyvalue"``, otherwise ``"lines"``; an empty block → ``None``."""
+    nonblank = [line for line in lines if line.strip()]
+    if not nonblank:
+        return None
+    kv = sum(1 for line in nonblank if re.match(r"^\s*[^:]+:\s", line))
+    return "keyvalue" if kv * 2 > len(nonblank) else "lines"
+
+
+def _body_tokens(fh, dialect: SourceDialect) -> Iterator[list[str]]:
+    """Tokenize the body (post-``skip_rows``) rows under ``dialect`` — the same
+    single tokenizer rule the ``drop`` path uses inline. Used only by the
+    broadcast path so the ``drop`` branch stays byte-identical to today."""
+    if dialect.delimiter == WHITESPACE:
+        for raw in fh:
+            line = raw.strip()
+            if not line:
+                continue
+            yield [t for t in _WS_RUN.split(line) if t]
+    else:
+        for row in csv.reader(fh, delimiter=dialect.delimiter):
+            tokens = [t.strip() for t in row]
+            if not any(tokens):
+                continue
+            yield [t for t in tokens if t] if dialect.collapse else tokens
+
+
+def _broadcast_rows(path: Path | str, dialect: SourceDialect) -> Iterator[list[str]]:
+    """Broadcast the parsed preamble metadata onto every body row (ADR
+    source-dialect.md, "Header metadata"). Mirror of the runtime twin: the
+    ``skip_rows`` preamble lines become constant metadata columns appended AFTER
+    the body columns; each body row is fitted to the body header width so the
+    metadata lands in the right columns. Reached only when ``preamble != "drop"``."""
+    with Path(path).open(encoding=dialect.encoding, newline="") as fh:
+        preamble_lines: list[str] = []
+        for _ in range(dialect.skip_rows):
+            line = fh.readline()
+            if not line:
+                break
+            preamble_lines.append(line)
+        meta = read_preamble(preamble_lines, dialect.preamble)
+        meta_names = [name for name, _ in meta]
+        meta_values = [value for _, value in meta]
+        body = _body_tokens(fh, dialect)
+        header = next(body, None)
+        if header is None:
+            return
+        width = len(header)
+        yield list(header) + resolve_header(header, meta_names)
+        for row in body:
+            fitted = list(row[:width]) + [""] * (width - len(row))
+            yield fitted + meta_values
+
+
 def iter_rows(path: Path | str, dialect: SourceDialect) -> Iterator[list[str]]:
     """Yield dialect-applied token rows (the first yielded row is the header).
 
@@ -284,7 +435,14 @@ def iter_rows(path: Path | str, dialect: SourceDialect) -> Iterator[list[str]]:
     the file handle (quoted newlines stay inside their cell), every cell is
     stripped, and blank records (all cells empty) are dropped. ``whitespace``
     splits non-blank physical lines on ``[ \\t]+`` (collapse implied).
+
+    ``dialect.preamble != "drop"`` (the opt-in header-metadata path) broadcasts
+    the parsed preamble onto every body row; the default ``drop`` path below is
+    byte-identical to today.
     """
+    if dialect.preamble != "drop":
+        yield from _broadcast_rows(path, dialect)
+        return
     with Path(path).open(encoding=dialect.encoding, newline="") as fh:
         for _ in range(dialect.skip_rows):
             if not fh.readline():
@@ -326,6 +484,8 @@ def describe_dialect(dialect: SourceDialect) -> str:
         parts.append("collapse=true")
     if dialect.skip_rows:
         parts.append(f"skip_rows={dialect.skip_rows}")
+    if dialect.preamble != "drop":
+        parts.append(f"preamble={dialect.preamble}")
     return ", ".join(parts) or "default"
 
 
@@ -352,6 +512,7 @@ def dialect_ir_fields(dialect: SourceDialect, *, full: bool = False) -> dict[str
             "delimiter": dialect.delimiter,
             "collapse": dialect.collapse,
             "skip_rows": dialect.skip_rows,
+            "preamble": dialect.preamble,
         }
     out: dict[str, Any] = {}
     if dialect.encoding != "utf-8-sig":
@@ -362,6 +523,8 @@ def dialect_ir_fields(dialect: SourceDialect, *, full: bool = False) -> dict[str
         out["collapse"] = True
     if dialect.skip_rows:
         out["skip_rows"] = dialect.skip_rows
+    if dialect.preamble != "drop":
+        out["preamble"] = dialect.preamble
     return out
 
 

@@ -86,6 +86,7 @@ def _dialects_schema() -> dict:
                 "delimiter": _string(),
                 "collapse": {"type": "boolean"},
                 "skip_rows": {"type": "integer", "minimum": 0},
+                "preamble": {"type": "string", "enum": ["drop", "keyvalue", "lines"]},
             },
         },
     }

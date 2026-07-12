@@ -32,7 +32,12 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from asterism_step0.dialect import TABULAR_SUFFIXES, WHITESPACE, SourceDialect
+from asterism_step0.dialect import (
+    PREAMBLE_MODES,
+    TABULAR_SUFFIXES,
+    WHITESPACE,
+    SourceDialect,
+)
 
 __all__ = [
     "CatalogFunction",
@@ -384,7 +389,7 @@ _PROPERTY_KEYS = (
 )
 _MAP_KEYS = ("name", "source", "iterator", "subject", "properties")
 _TOP_KEYS = ("version", "prefixes", "maps", "dialects")
-_DIALECT_KEYS = ("encoding", "delimiter", "collapse", "skip_rows")
+_DIALECT_KEYS = ("encoding", "delimiter", "collapse", "skip_rows", "preamble")
 
 
 def _parse_subject(raw: Any, where: str, issues: list[str]) -> SubjectIR:
@@ -704,8 +709,25 @@ def _parse_dialects(
         if isinstance(skip_rows, bool) or not isinstance(skip_rows, int) or skip_rows < 0:
             issues.append(f"{where}.skip_rows must be a non-negative integer.")
             skip_rows = 0
+        preamble = fields_raw.get("preamble", "drop")
+        if preamble not in PREAMBLE_MODES:
+            issues.append(
+                f"{where}.preamble must be one of "
+                f"{', '.join(sorted(PREAMBLE_MODES))} (got {preamble!r})."
+            )
+            preamble = "drop"
+        elif preamble != "drop" and skip_rows == 0:
+            issues.append(
+                f"{where}: preamble={preamble!r} ingests the preamble as columns, but "
+                f"skip_rows is 0 — there is no preamble block to read (set skip_rows to "
+                f"the number of preamble lines, or preamble to drop)."
+            )
         out[fname_s] = SourceDialect(
-            encoding=encoding, delimiter=delimiter, collapse=collapse, skip_rows=skip_rows
+            encoding=encoding,
+            delimiter=delimiter,
+            collapse=collapse,
+            skip_rows=skip_rows,
+            preamble=preamble,
         )
     return out
 

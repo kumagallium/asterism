@@ -462,6 +462,28 @@ def test_dialects_parse_onto_ir() -> None:
     assert (d.encoding, d.delimiter, d.collapse, d.skip_rows) == ("cp932", "\t", False, 1)
 
 
+def test_dialects_preamble_parses_onto_ir() -> None:
+    text = TXT_MINIMAL + 'dialects:\n  "data.txt": { skip_rows: 23, preamble: keyvalue }\n'
+    ir = parse_mapping_ir(text)
+    assert ir.dialects["data.txt"].preamble == "keyvalue"
+    # An absent preamble defaults to drop (byte-identical to today).
+    text2 = TXT_MINIMAL + 'dialects:\n  "data.txt": { skip_rows: 1 }\n'
+    assert parse_mapping_ir(text2).dialects["data.txt"].preamble == "drop"
+
+
+def test_dialects_preamble_bad_value_is_error() -> None:
+    text = TXT_MINIMAL + 'dialects:\n  "data.txt": { skip_rows: 1, preamble: sometimes }\n'
+    issues = parse_issues(text)
+    assert any("preamble must be one of" in i for i in issues)
+
+
+def test_dialects_preamble_without_skip_rows_is_flagged() -> None:
+    # Trap 13: a preamble mode with skip_rows=0 has no preamble block to read.
+    text = TXT_MINIMAL + 'dialects:\n  "data.txt": { preamble: keyvalue }\n'
+    issues = parse_issues(text)
+    assert any("skip_rows is 0" in i for i in issues)
+
+
 def test_dialects_whitespace_sentinel_ok() -> None:
     text = TXT_MINIMAL + 'dialects:\n  "data.txt": { delimiter: whitespace, skip_rows: 23 }\n'
     ir = parse_mapping_ir(text)

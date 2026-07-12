@@ -50,12 +50,18 @@ class SourceDialect:
     delimiter: str = ","          # single char, or the sentinel "whitespace"
     collapse: bool = False        # treat consecutive delimiters as one
     skip_rows: int = 0            # lines before the header row (preamble)
+    preamble: str = "drop"        # "drop" (default) | "keyvalue" | "lines"
 ```
 
 - `delimiter: "whitespace"` splits on runs of spaces/tabs (implies
   collapse); this is the Excel "consecutive delimiters as one" behavior and
   covers fixed-width-ish instrument tables such as the ICDD d-I list.
 - The header row is the first row **after** `skip_rows`; data follows.
+- `preamble` decides what happens to the `skip_rows` lines: `drop` (default)
+  discards them exactly as before (byte-identical); `keyvalue`/`lines` parse
+  them into metadata columns **broadcast** onto every body row (see "Header
+  metadata" below). It is orthogonal to the other four fields — it interprets
+  the preamble *block*, never the body tokenization.
 - Implemented twice on purpose (design side and runtime side communicate
   via the RML artifact, not Python imports — same boundary as the IR
   compiler): `asterism_step0.dialect` and `asterism.dialect`, both
@@ -196,11 +202,15 @@ rml:logicalSource [
     ast:sourceDelimiter "\t" ;      # or "whitespace"
     ast:sourceCollapse true ;
     ast:sourceSkipRows 1 ;
+    ast:sourcePreamble "keyvalue" ;   # only when header metadata is opted in
 ] .
 ```
 
-Only non-default values are emitted. `rml_safety` allowlists exactly these
-four predicates on logical sources (they carry no execution semantics).
+Only non-default values are emitted. `rml_safety` is a closed checklist of the
+predicates that could execute code or reach data (functions / query / source);
+the `ast:` dialect predicates carry no execution semantics and pass it by
+construction (an unknown `ast:` predicate is *not* rejected), so adding
+`ast:sourcePreamble` needed no `rml_safety` change.
 
 Annotation **values** are boundary-checked at every consumer
 (`dialects_from_mapping` raises `DialectAnnotationError`): user-authored RML
@@ -252,6 +262,68 @@ A new preprocessing step, **first** in the existing work_dir chain (before
   legacy-suffix files through the same default rules so the design sees
   the exact columns ingest will produce.
 
+### Header metadata (preamble broadcast)
+
+Instrument files carry valuable metadata *above* the header row — a sample
+name, an ICDD card's Name / Space Group / Cell. Dropping it discards facts the
+scientist wants. `preamble` turns that preamble into columns **broadcast** onto
+every body row (denormalize), so one source stays one work CSV and Morph-KGC is
+still untouched — it just reads a wider flat table:
+
+- **Parsing** (`read_preamble(lines, mode)`, both twins, identical): `lines`
+  makes each non-blank preamble line a `preamble_{i+1}` column; `keyvalue`
+  parses `Key: value` in a fixed deterministic priority — a section heading
+  (`^\s*-{3,}`) is skipped, a `key: value` line splits on its **first colon
+  only** (a second colon stays in the value, a multi-value cell like the 6-number
+  `Cell` is kept whole for Tier-0 to split later), and any other non-blank line
+  **without a colon** is a **continuation** appended to the previous key's value
+  (a colon-free wrapped line rejoins its field). A duplicate key is suffixed
+  `key_2`/`key_3`. MVP is ASCII-colon only (measurement files are `lines`; cards
+  use ASCII colons). **Deterministic cost:** a wrapped line that itself contains a
+  colon (e.g. the continuation of an ICDD `Comment` note) cannot be told from a
+  real new field, so it is parsed as its own `key: value` pair — the text is not
+  lost but lands in an extra, oddly-named column the designer does not map (see
+  Limitations).
+- **Broadcast** (`iter_rows` / `dialect_rows`): the metadata columns are appended
+  **after** the body columns (body positions/names never move — this is what
+  makes the `drop` path byte-identical), each body row is fitted to the body
+  header width so the constant metadata lands in the right columns, and every
+  data row carries the constant preamble values. `resolve_header(body, meta)`
+  (both twins) `safe_column`s each meta name and suffixes a collision **on the
+  meta side only** (a meta `d` next to a body `d` → `d_2`).
+- **Design experience**: a scientist writes two TriplesMaps over the one wide
+  source — a Card map keyed on a preamble column (e.g. `template ".../card/{No}"`,
+  constant across all rows → **one** entity after store set-semantics dedup) and
+  a Peak map keyed on a body column, linked back with `object_template
+  ".../card/{No}"`. The shared column means **no `rr:joinCondition`** — the
+  existing IR/compiler already expresses this. Denormalization is a bounded,
+  temporary CSV cost; the graph holds one deduped Card.
+- **Identify-and-advise, never auto-adopt**: `detect_dialect` always returns
+  `preamble="drop"` — broadcasting changes the column set (a semantic change), so
+  it must be opt-in to preserve "default emits nothing". The inspector classifies
+  a dropped preamble block (`detect_preamble_form` → `keyvalue`/`lines`) and the
+  inspect Markdown adds one advisory line + a paste-ready `dialects:` snippet
+  **only when a preamble was detected**; a clean CSV's Markdown stays
+  byte-identical. The wizard's read-settings panel surfaces a `preamble` selector
+  for any source with a preamble block, so opt-in is one click. A human override
+  travels as a full-field `dialects:` entry (`preamble` included, like the other
+  FIX2 fields) and survives the materialize re-pin because re-detection always
+  yields `drop` and `entry.update(prior)` keeps the explicit choice.
+- **Travel + boundary check**: the `preamble` field pins into the IR
+  `dialects:` section (linted against the closed set `{drop, keyvalue, lines}`,
+  and flagged when set with `skip_rows: 0` — nothing to read), compiles to
+  `ast:sourcePreamble` (emitted only when non-`drop`), and is boundary-checked in
+  `dialects_from_mapping` (an out-of-set value → `DialectAnnotationError` → 422)
+  so a hand-authored raw-RML mapping cannot smuggle a bad mode in.
+- **Ragged / over-split bodies**: the body row is fitted to the body header
+  width, so a short row is padded and an over-split row (e.g. a whitespace `(hkl)`
+  cell with internal spaces) is truncated to keep the metadata aligned — the same
+  forgiveness `csv.DictReader` already extends, applied so the physical CSV stays
+  rectangular for the appended columns.
+- **Append**: unchanged — an append batch of a dialected source is still refused,
+  and a broadcast source is simply "more dialected", so no new work and no
+  regression (`strip_preamble_and_header` stays `drop`-oriented and untouched).
+
 ### Entrance widening
 
 - Extensions: tabular uploads additionally accept `.tsv .txt .dat .asc`
@@ -301,10 +373,12 @@ A new preprocessing step, **first** in the existing work_dir chain (before
   to a whole-file overwrite and lost every earlier append — a snapshot re-ingest then
   diverged from the live graph (fixed; regression test pins the two-batch growth for
   each suffix).
-- **ICDD card metadata**: the `Key: value` preamble of reference cards is
-  *skipped*, not ingested. The d-I table ingests via
-  `delimiter: whitespace`. Semantic card parsing is a separate,
-  document-layer-shaped problem.
+- **ICDD card metadata**: the `Key: value` preamble of a reference card is
+  *dropped by default*, but a scientist can opt in to ingesting it as columns
+  (`preamble: keyvalue`, "Header metadata" below) so the card's Name / Cell /
+  Space Group travel alongside the d-I table. The d-I table itself ingests via
+  `delimiter: whitespace`. Deeper semantic card parsing (typed cell values,
+  crystallographic modelling) remains a separate, document-layer-shaped problem.
 - **Legacy starrydata watcher**: unchanged (starrydata-specific, CSV-only
   by design).
 
