@@ -554,6 +554,59 @@ def test_propose_skeleton_streams_skeleton(
         assert done["skeleton"]["maps"][0]["name"] == "sample"
         assert done["skeleton"]["maps"][0]["subject"]["classes"] == ["ex:Sample"]
         assert "sample_id" in done["inspection_md"]
+        # Deterministic gate evidence rides the same done payload: the chosen
+        # composite key IS unique for this CSV, with real expanded ID previews.
+        ann = done["annotations"]["maps"]["sample"]
+        assert ann["checkable"] is True
+        assert ann["is_unique"] is True
+        assert ann["id_previews"][0] == "https://example.org/r/sample/1-10"
+
+
+def test_skeleton_validate_recomputes_evidence_for_edits(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    """The gate re-checks an EDITED skeleton in one deterministic call (no LLM)."""
+    app = build_app(
+        _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
+    )
+    with TestClient(app, headers=_AUTH) as client:
+        # Human edits the key down to {SID} — which collides (SID=1 twice).
+        edited = json.loads(json.dumps(_STAGED_SKELETON))
+        edited["maps"][0]["subject"]["template"] = "exr:sample/{SID}"
+        r = client.post(
+            "/api/propose/skeleton/validate",
+            data={"skeleton": json.dumps(edited)},
+            files={"files": ("samples.csv", _STAGED_CSV, "text/csv")},
+        )
+        assert r.status_code == 200, r.text
+        ann = r.json()["annotations"]["maps"]["sample"]
+        assert ann["is_unique"] is False
+        assert ann["colliding_rows"] == 1
+        assert ann["collision_examples"][0]["key_values"] == {"SID": "1"}
+        # The inspector's proven unique combinations come back as fix candidates.
+        assert any(
+            set(c["columns"]) == {"SID", "sample_id"} for c in ann["key_candidates"]
+        )
+
+        # A typo'd column is caught here, not minutes later in continue.
+        edited["maps"][0]["subject"]["template"] = "exr:sample/{SDI}"
+        r2 = client.post(
+            "/api/propose/skeleton/validate",
+            data={"skeleton": json.dumps(edited)},
+            files={"files": ("samples.csv", _STAGED_CSV, "text/csv")},
+        )
+        assert r2.status_code == 200
+        ann2 = r2.json()["annotations"]["maps"]["sample"]
+        assert ann2["checkable"] is False
+        assert ann2["missing_columns"] == ["SDI"]
+
+        # Malformed skeleton JSON is a 400, not a 500.
+        r3 = client.post(
+            "/api/propose/skeleton/validate",
+            data={"skeleton": "{not json"},
+            files={"files": ("samples.csv", _STAGED_CSV, "text/csv")},
+        )
+        assert r3.status_code == 400
 
 
 def test_propose_continue_assembles_and_converges(

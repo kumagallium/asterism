@@ -83,6 +83,10 @@ Rules:
   composite key from the inspection's uniqueness statistics. A key that is not
   unique collapses distinct rows onto one IRI — the single costliest mistake, so
   justify it in `note` with the distinct/row counts you relied on.
+- prefixes: name the dataset's OWN prefix pair after THIS dataset's content
+  (e.g. xrd:/xrdr: for X-ray diffraction data — one for the ontology# namespace,
+  one for the resource/ namespace). The `sd:`/`sdr:` in the shape above are
+  placeholders from an unrelated example dataset — do NOT copy them.
 - classes are CURIEs; declare every prefix you use in `prefixes` (xsd: is
   builtin — never declare it). Reuse standard vocabularies (schema:, dcterms:,
   prov:, bibo:) rather than minting new classes when a standard fits.
