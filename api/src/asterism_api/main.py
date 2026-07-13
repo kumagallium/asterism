@@ -1541,14 +1541,19 @@ async def _append_document_to_dataset(
     }
 
 
-def _log_append_job(cfg: Settings, record: dict[str, object]) -> None:
-    """Append one append-watcher outcome as a JSON line to the jobs log (best-effort)."""
+def _log_job(cfg: Settings, record: dict[str, object]) -> None:
+    """Append one ingest/append outcome as a JSON line to the jobs log (best-effort).
+
+    The activity ledger behind ``GET /jobs`` (アクティビティ). Writers: the legacy
+    kind watcher, the append watcher, the manual append routes, and the Workbench
+    ingest job (``kind:"ingest"``) — so the activity view reflects every write
+    path, not only the unattended ones."""
     try:
         cfg.jobs_log.parent.mkdir(parents=True, exist_ok=True)
         with cfg.jobs_log.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(record, ensure_ascii=False) + "\n")
     except OSError:
-        logger.exception("failed to write append job log (continuing)")
+        logger.exception("failed to write job log (continuing)")
 
 
 def _quarantine_drop(root: Path, dataset_id: str, path: Path) -> None:
@@ -1602,7 +1607,7 @@ async def _append_watch_loop(
                 rebuilder=crosswalk_rebuilder,
             )
             await asyncio.to_thread(path.unlink)  # consume the transient drop file
-            _log_append_job(
+            _log_job(
                 cfg,
                 {
                     "kind": "append",
@@ -1623,7 +1628,7 @@ async def _append_watch_loop(
             )
         except AppendError as exc:
             _quarantine_drop(root, dataset_id, path)
-            _log_append_job(
+            _log_job(
                 cfg,
                 {
                     "kind": "append",
@@ -1637,7 +1642,7 @@ async def _append_watch_loop(
             logger.warning("append-watcher: %s/%s failed: %s", dataset_id, name, exc.detail)
         except Exception as exc:  # never let one bad file kill the loop
             _quarantine_drop(root, dataset_id, path)
-            _log_append_job(
+            _log_job(
                 cfg,
                 {
                     "kind": "append",
@@ -3162,12 +3167,36 @@ def build_app(
         a JATS/Word document structures in milliseconds; a ``.pdf`` blocks for the Docling
         sidecar conversion (one document; full async append is a follow-up).
         """
+        doc_name = str(file.filename or "document")
         try:
             result = await _append_document_to_dataset(
                 cfg.registry_root, app.state.client, dataset_id, file, docling_url=cfg.docling_url
             )
         except AppendError as exc:
+            _log_job(
+                cfg,
+                {
+                    "kind": "append",
+                    "dataset_id": dataset_id,
+                    "file": doc_name,
+                    "status": "error",
+                    "error": exc.detail,
+                    "ended_at": datetime.now(UTC).isoformat(),
+                },
+            )
             raise HTTPException(exc.status, exc.detail) from exc
+        _log_job(
+            cfg,
+            {
+                "kind": "append",
+                "dataset_id": dataset_id,
+                "file": doc_name,
+                "status": "ok",
+                "triples_in_batch": result["triples_in_batch"],
+                "append_seq": result["append_seq"],
+                "ended_at": datetime.now(UTC).isoformat(),
+            },
+        )
         return JSONResponse(result, status_code=200)
 
     @app.post("/api/datasets/{dataset_id}/ingest", dependencies=_write_auth)
@@ -3309,121 +3338,195 @@ def build_app(
         staged_iri = substrate.versioned_graph_iri(dataset_id, data_seq)
         client: OxigraphClient = app.state.client
 
-        # ``should_cancel`` is part of the start_coro contract; ingest does not
-        # poll it (its Oxigraph writes are already versioned + reclaimed).
+        dataset_name = str((data.get("meta") or {}).get("name") or dataset_id)
+        source_names = ", ".join(p.name for p in source_paths)
+
+        # Cooperative cancel (the start_coro contract): the job polls
+        # ``should_cancel`` at its phase boundaries — per document, per PDF,
+        # inside the Morph-KGC subprocess poll loop, and at every upload chunk.
+        # A pending cancel (user POST /api/jobs/{id}/cancel, or the job timeout,
+        # whose expiry sets the same event) raises IngestCancelledError — a plain
+        # Exception, so a cancel mid-upload reuses the failure path's
+        # chunked_drop_graph and no partial version graph outlives the job.
         async def ingest_job(
             emit: Callable[..., None], should_cancel: Callable[[], bool]
         ) -> dict[str, object]:
-            work = Path(tempfile.mkdtemp(prefix="asterism-ingest-"))
-            try:
-                emit(phase="materialize", message="RDF を生成中")
-                nt_paths: list[Path] = []
-                if is_document:
-                    # Document path: the vetted deterministic structurer writes each
-                    # document's doco/nif graph as N-Triples (no morph-kgc). Blocking →
-                    # off-loop. One sub-dir per doc so the .nt files do not collide.
-                    for i, (txt, piri, conv) in enumerate(docs_to_structure):
-                        sub = work / f"doc_{i}"
-                        sub.mkdir()
-                        nt_paths.append(
-                            await asyncio.to_thread(
-                                documents.document_to_nt_file,
-                                txt,
-                                paper_iri=piri,
-                                work_dir=str(sub),
-                                conversion=conv,
-                            )
-                        )
-                    # PDF sources: the slow ML conversion (Docling sidecar) lives HERE,
-                    # inside the async job, so the request returned 202 immediately and the
-                    # UI follows SSE progress (ADR pdf-docling-conversion.md). Each PDF is
-                    # converted to JATS, structured identically, and its conversion is
-                    # disclosed (lit:DocumentConversionActivity) + recorded for A7 re-ingest.
-                    for j, pdf_path in enumerate(pdfs_to_convert):
-                        emit(phase="converting", message=f"PDF を変換中 ({pdf_path.name})")
-                        pdf_bytes = await asyncio.to_thread(pdf_path.read_bytes)
-                        jats, converter = await asyncio.to_thread(
-                            documents.convert_pdf_to_jats,
-                            pdf_bytes,
-                            sidecar_url=cfg.docling_url,
-                        )
-                        conv = {
-                            "converter": converter,
-                            "sourceFormat": "pdf",
-                            "original": pdf_path.name,
-                        }
-                        await asyncio.to_thread(
-                            (pdf_path.parent / f"{pdf_path.name}.conversion").write_text,
-                            json.dumps(conv, ensure_ascii=False),
-                            "utf-8",
-                        )
-                        doc_id = documents.derive_doc_id(jats, fallback=pdf_path.stem)
-                        piri = f"{_DOCUMENT_RESOURCE_BASE}/{dataset_id}/{doc_id}"
-                        sub = work / f"pdf_{j}"
-                        sub.mkdir()
-                        nt_paths.append(
-                            await asyncio.to_thread(
-                                documents.document_to_nt_file,
-                                jats,
-                                paper_iri=piri,
-                                work_dir=str(sub),
-                                conversion=conv,
-                            )
-                        )
-                else:
-                    # Morph-KGC writes N-Triples to a file (memory-bounded); the
-                    # subprocess CLI is blocking, so run it off the event loop.
-                    nt_paths.append(
-                        await asyncio.to_thread(
-                            substrate.materialize_to_nt_file, rml_ttl, source_dir, work_dir=work
-                        )
-                    )
-                total = sum(substrate.count_nt_lines(p) for p in nt_paths)
-                emit(phase="materialized", total=total)
-                # The target is a fresh, empty version graph — no clean-slate DROP
-                # needed (and the live graph is untouched, so Ask keeps serving the
-                # current version throughout the re-stream).
-                emit(phase="preparing", message="取り込み先グラフを準備中")
-                try:
-                    triple_count = 0
-                    for nt in nt_paths:
-                        base = triple_count
-                        triple_count += await substrate.stream_nt_file_to_oxigraph(
-                            nt,
-                            client,
-                            staged_iri,
-                            on_progress=lambda done, tot, base=base: emit(
-                                phase="upload", done=base + done, total=total
-                            ),
-                        )
-                except Exception:
-                    # D6: never leave a partial version graph behind on failure (it
-                    # was never live, so reclaiming it cannot affect a reader). Use a
-                    # chunked delete — a partial can be large, and a single DROP of a
-                    # multi-million-triple graph OOMs Oxigraph.
-                    await substrate.chunked_drop_graph(client, staged_iri)
-                    raise
-            finally:
-                shutil.rmtree(work, ignore_errors=True)  # the .nt can be GBs
+            started_at = datetime.now(UTC).isoformat()
 
-            # Record the staged version graph as the dataset's pending ingest.
-            await substrate.set_staged_graph(client, dataset_key, staged_iri)
-            meta = registry.mark_ingested(
-                cfg.registry_root,
-                dataset_id,
+            def check_cancel() -> None:
+                if should_cancel():
+                    raise substrate.IngestCancelledError("ingest cancelled")
+
+            def log_outcome(status: str, **extra: object) -> None:
+                # One activity-ledger line (GET /jobs) per outcome, so Workbench
+                # ingests show up alongside watcher/append activity (audit ⑦).
+                _log_job(
+                    cfg,
+                    {
+                        "kind": "ingest",
+                        "dataset_id": dataset_id,
+                        "dataset_name": dataset_name,
+                        "file": source_names,
+                        "status": status,
+                        "started_at": started_at,
+                        "ended_at": datetime.now(UTC).isoformat(),
+                        **extra,
+                    },
+                )
+
+            async def run_pipeline() -> dict[str, object]:
+                work = Path(tempfile.mkdtemp(prefix="asterism-ingest-"))
+                try:
+                    # ``dataset_id`` rides on the first frame so a resumed
+                    # subscriber can verify its saved job id still refers to THIS
+                    # dataset (job ids restart at job-1 when the api restarts).
+                    emit(phase="materialize", message="RDF を生成中", dataset_id=dataset_id)
+                    check_cancel()
+                    nt_paths: list[Path] = []
+                    if is_document:
+                        # Document path: the vetted deterministic structurer writes each
+                        # document's doco/nif graph as N-Triples (no morph-kgc). Blocking →
+                        # off-loop. One sub-dir per doc so the .nt files do not collide.
+                        for i, (txt, piri, conv) in enumerate(docs_to_structure):
+                            check_cancel()
+                            sub = work / f"doc_{i}"
+                            sub.mkdir()
+                            nt_paths.append(
+                                await asyncio.to_thread(
+                                    documents.document_to_nt_file,
+                                    txt,
+                                    paper_iri=piri,
+                                    work_dir=str(sub),
+                                    conversion=conv,
+                                )
+                            )
+                        # PDF sources: the slow ML conversion (Docling sidecar) lives HERE,
+                        # inside the async job, so the request returned 202 immediately and the
+                        # UI follows SSE progress (ADR pdf-docling-conversion.md). Each PDF is
+                        # converted to JATS, structured identically, and its conversion is
+                        # disclosed (lit:DocumentConversionActivity) + recorded for A7 re-ingest.
+                        # One Docling HTTP call is not interruptible; the cancel
+                        # boundary is per PDF (same as propose's in-flight call).
+                        for j, pdf_path in enumerate(pdfs_to_convert):
+                            check_cancel()
+                            emit(phase="converting", message=f"PDF を変換中 ({pdf_path.name})")
+                            pdf_bytes = await asyncio.to_thread(pdf_path.read_bytes)
+                            jats, converter = await asyncio.to_thread(
+                                documents.convert_pdf_to_jats,
+                                pdf_bytes,
+                                sidecar_url=cfg.docling_url,
+                            )
+                            conv = {
+                                "converter": converter,
+                                "sourceFormat": "pdf",
+                                "original": pdf_path.name,
+                            }
+                            await asyncio.to_thread(
+                                (pdf_path.parent / f"{pdf_path.name}.conversion").write_text,
+                                json.dumps(conv, ensure_ascii=False),
+                                "utf-8",
+                            )
+                            doc_id = documents.derive_doc_id(jats, fallback=pdf_path.stem)
+                            piri = f"{_DOCUMENT_RESOURCE_BASE}/{dataset_id}/{doc_id}"
+                            sub = work / f"pdf_{j}"
+                            sub.mkdir()
+                            nt_paths.append(
+                                await asyncio.to_thread(
+                                    documents.document_to_nt_file,
+                                    jats,
+                                    paper_iri=piri,
+                                    work_dir=str(sub),
+                                    conversion=conv,
+                                )
+                            )
+                    else:
+                        # Morph-KGC writes N-Triples to a file (memory-bounded); the
+                        # subprocess CLI is blocking, so run it off the event loop.
+                        # ``should_cancel`` reaches the subprocess poll loop, so a
+                        # cancel interrupts even a minutes-long materialization.
+                        nt_paths.append(
+                            await asyncio.to_thread(
+                                substrate.materialize_to_nt_file,
+                                rml_ttl,
+                                source_dir,
+                                work_dir=work,
+                                should_cancel=should_cancel,
+                            )
+                        )
+                    total = sum(substrate.count_nt_lines(p) for p in nt_paths)
+                    emit(phase="materialized", total=total)
+                    # The target is a fresh, empty version graph — no clean-slate DROP
+                    # needed (and the live graph is untouched, so Ask keeps serving the
+                    # current version throughout the re-stream).
+                    emit(phase="preparing", message="取り込み先グラフを準備中")
+                    try:
+                        triple_count = 0
+                        for nt in nt_paths:
+                            base = triple_count
+                            triple_count += await substrate.stream_nt_file_to_oxigraph(
+                                nt,
+                                client,
+                                staged_iri,
+                                on_progress=lambda done, tot, base=base: emit(
+                                    phase="upload", done=base + done, total=total
+                                ),
+                                should_cancel=should_cancel,
+                            )
+                        # Final gate: a cancel that lands after the last chunk must
+                        # still drop the (complete but unwanted) version graph and
+                        # skip the staged-pointer + mark_ingested commit below.
+                        check_cancel()
+                    except (Exception, asyncio.CancelledError):
+                        # D6: never leave a partial version graph behind on failure (it
+                        # was never live, so reclaiming it cannot affect a reader). Use a
+                        # chunked delete — a partial can be large, and a single DROP of a
+                        # multi-million-triple graph OOMs Oxigraph. CancelledError (the
+                        # job-timeout path injects it at an await point) is included so
+                        # a timed-out upload is reclaimed NOW, not at the next restart.
+                        await substrate.chunked_drop_graph(client, staged_iri)
+                        raise
+                finally:
+                    shutil.rmtree(work, ignore_errors=True)  # the .nt can be GBs
+
+                # Record the staged version graph as the dataset's pending ingest.
+                await substrate.set_staged_graph(client, dataset_key, staged_iri)
+                meta = registry.mark_ingested(
+                    cfg.registry_root,
+                    dataset_id,
+                    graph_iri=staged_iri,
+                    triple_count=triple_count,
+                    ingested_at=datetime.now(UTC).isoformat(),
+                    data_seq=data_seq,
+                )
+                return {
+                    "dataset_id": dataset_id,
+                    "graph_iri": staged_iri,
+                    # Staged in a version graph but not yet citable (awaits promote).
+                    "graph_kind": "staged",
+                    "triple_count": triple_count,
+                    "dataset": meta,
+                }
+
+            try:
+                result = await run_pipeline()
+            except substrate.IngestCancelledError:
+                log_outcome("cancelled")
+                raise
+            except asyncio.CancelledError:
+                # The job timeout (or a shutdown) — record it, then re-raise
+                # (asyncio requires cancellation to propagate).
+                log_outcome("error", error="job cancelled (timeout or shutdown)")
+                raise
+            except Exception as exc:
+                log_outcome("error", error=str(exc) or type(exc).__name__)
+                raise
+            log_outcome(
+                "ok",
+                triples=result["triple_count"],
                 graph_iri=staged_iri,
-                triple_count=triple_count,
-                ingested_at=datetime.now(UTC).isoformat(),
                 data_seq=data_seq,
             )
-            return {
-                "dataset_id": dataset_id,
-                "graph_iri": staged_iri,
-                # Staged in a version graph but not yet citable (awaits promote).
-                "graph_kind": "staged",
-                "triple_count": triple_count,
-                "dataset": meta,
-            }
+            return result
 
         jobs: JobManager = app.state.jobs
         job_id = jobs.start_coro(ingest_job)
@@ -3463,6 +3566,10 @@ def build_app(
         if not uploaded:
             raise HTTPException(400, "append requires at least one batch source file")
         batch = [(str(f.filename), await f.read()) for f in uploaded]
+        batch_names = ", ".join(name for name, _ in batch)
+        # Same activity-ledger record the append watcher writes — a manual append
+        # from the catalog is the same operation, so it must not be invisible in
+        # the activity view while the unattended path is recorded.
         try:
             result = await _append_batch_to_dataset(
                 cfg.registry_root,
@@ -3472,7 +3579,30 @@ def build_app(
                 rebuilder=getattr(app.state, "crosswalk_rebuilder", None),
             )
         except AppendError as exc:
+            _log_job(
+                cfg,
+                {
+                    "kind": "append",
+                    "dataset_id": dataset_id,
+                    "file": batch_names,
+                    "status": "error",
+                    "error": exc.detail,
+                    "ended_at": datetime.now(UTC).isoformat(),
+                },
+            )
             raise HTTPException(exc.status, exc.detail) from exc
+        _log_job(
+            cfg,
+            {
+                "kind": "append",
+                "dataset_id": dataset_id,
+                "file": batch_names,
+                "status": "ok",
+                "triples_in_batch": result["triples_in_batch"],
+                "append_seq": result["append_seq"],
+                "ended_at": datetime.now(UTC).isoformat(),
+            },
+        )
         return JSONResponse(result)
 
     @app.get("/api/datasets/{dataset_id}/alignment")

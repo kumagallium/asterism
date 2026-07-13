@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import time
 from pathlib import Path
 
 import httpx
@@ -100,7 +101,9 @@ def _fake_nt_materializer(*, triples: int = 1):
     against the recording client.
     """
 
-    def _materialize(rml_ttl, csv_dir, *, udfs_path=None, work_dir=None, run_id=None) -> Path:
+    def _materialize(
+        rml_ttl, csv_dir, *, udfs_path=None, work_dir=None, run_id=None, should_cancel=None
+    ) -> Path:
         out = Path(work_dir) / "out.nt"
         out.write_bytes(
             b"".join(
@@ -797,7 +800,9 @@ def test_ingest_uses_persisted_json_source(tmp_path: Path, monkeypatch) -> None:
     dataset_id = _save_dataset_with_rml(tmp_path, rml=rml)
     captured: dict[str, Path] = {}
 
-    def _materialize(rml_ttl, source_dir, *, udfs_path=None, work_dir=None) -> Path:
+    def _materialize(
+        rml_ttl, source_dir, *, udfs_path=None, work_dir=None, should_cancel=None
+    ) -> Path:
         captured["source_dir"] = Path(source_dir)
         out = Path(work_dir) / "out.nt"
         out.write_bytes(b'<https://ex/mat/mp-1> <https://ex/p> "x" .\n')
@@ -918,6 +923,171 @@ def test_ingest_stream_failure_errors_and_drops_staged(tmp_path: Path, monkeypat
         assert "ConnectError" in err["message"] or "oxigraph down" in err["message"]
     # D6: the partial staged version graph was reclaimed (it was never live).
     assert reclaimed == [graph_iri]
+
+
+# ---- ingest cancel (cooperative) + activity ledger (kind:"ingest") ----------
+
+
+def _read_jobs_log(tmp: Path) -> list[dict]:
+    p = tmp / "jobs.jsonl"
+    if not p.is_file():
+        return []
+    return [json.loads(line) for line in p.read_text().splitlines() if line.strip()]
+
+
+def _wait_until(pred, timeout: float = 5.0) -> bool:
+    """Poll ``pred`` from the test thread while the TestClient portal's loop keeps
+    running the job coroutine — the terminal ``cancelled`` SSE frame is emitted
+    BEFORE the coroutine's rollback/ledger cleanup, so those effects are awaited."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if pred():
+            return True
+        time.sleep(0.02)
+    return pred()
+
+
+def _cancel_the_running_job(app) -> None:
+    """User cancel, from inside the job's own coroutine (deterministic timing)."""
+    jm = app.state.jobs
+    job = next(j for j in jm._jobs.values() if j.status == "running")
+    jm.cancel(job.job_id)
+
+
+def test_ingest_cancel_mid_upload_drops_staged_and_logs_cancelled(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A cancel between upload chunks stops the pipeline at the next checkpoint,
+    reclaims the partial version graph (same rollback as a failure), never
+    reaches mark_ingested, and records status:"cancelled" in the activity ledger."""
+    dataset_id = _save_dataset_with_rml(tmp_path)
+    monkeypatch.setattr(substrate, "materialize_to_nt_file", _fake_nt_materializer(triples=3))
+    oxi = _RecordingOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+
+    async def _cancel_mid_stream(nt, client_, graph_iri, *, should_cancel=None, **_k):
+        # One chunk "landed"; the user cancels; the cooperative checkpoint must
+        # see it before the next POST (the real implementation checks per chunk).
+        _cancel_the_running_job(app)
+        assert should_cancel is not None and should_cancel()
+        raise substrate.IngestCancelledError("upload cancelled")
+
+    monkeypatch.setattr(substrate, "stream_nt_file_to_oxigraph", _cancel_mid_stream)
+    reclaimed: list[str] = []
+
+    async def _spy_chunked(_client, graph_iri, **_k):
+        reclaimed.append(graph_iri)
+        return 0
+
+    monkeypatch.setattr(substrate, "chunked_drop_graph", _spy_chunked)
+    graph_iri = substrate.versioned_graph_iri(dataset_id, 1)
+    with TestClient(app, headers=_AUTH) as client:
+        status, events = _drive_ingest(
+            client, dataset_id, {"files": ("papers.csv", b"SID\n1\n", "text/csv")}
+        )
+        assert status == 202
+        names = [n for n, _ in events]
+        assert "cancelled" in names and "done" not in names
+        # The rollback + ledger write happen after the terminal frame — wait.
+        assert _wait_until(
+            lambda: bool(reclaimed)
+            and any(r["kind"] == "ingest" for r in _read_jobs_log(tmp_path))
+        )
+    assert reclaimed == [graph_iri]
+    meta = json.loads((tmp_path / "registry" / dataset_id / "meta.json").read_text())
+    assert not meta.get("ingested")  # the commit (mark_ingested) was never reached
+    rec = next(r for r in _read_jobs_log(tmp_path) if r["kind"] == "ingest")
+    assert rec["status"] == "cancelled"
+    assert rec["dataset_id"] == dataset_id
+    assert rec["file"] == "papers.csv"
+
+
+def test_ingest_cancel_after_upload_still_drops_before_commit(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A cancel landing after the LAST chunk (upload complete, commit pending)
+    still drops the version graph and skips the staged-pointer/mark_ingested
+    commit — the final gate inside the rollback-protected block."""
+    dataset_id = _save_dataset_with_rml(tmp_path)
+    monkeypatch.setattr(substrate, "materialize_to_nt_file", _fake_nt_materializer(triples=2))
+    oxi = _RecordingOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+
+    async def _complete_then_cancel(nt, client_, graph_iri, *, should_cancel=None, **_k):
+        _cancel_the_running_job(app)  # cancel arrives as the upload finishes
+        return 2  # full upload succeeded; the final gate must still bail
+
+    monkeypatch.setattr(substrate, "stream_nt_file_to_oxigraph", _complete_then_cancel)
+    reclaimed: list[str] = []
+
+    async def _spy_chunked(_client, graph_iri, **_k):
+        reclaimed.append(graph_iri)
+        return 0
+
+    monkeypatch.setattr(substrate, "chunked_drop_graph", _spy_chunked)
+    graph_iri = substrate.versioned_graph_iri(dataset_id, 1)
+    with TestClient(app, headers=_AUTH) as client:
+        status, events = _drive_ingest(
+            client, dataset_id, {"files": ("papers.csv", b"SID\n1\n", "text/csv")}
+        )
+        assert status == 202
+        assert "done" not in [n for n, _ in events]
+        assert _wait_until(lambda: bool(reclaimed))
+    assert reclaimed == [graph_iri]
+    meta = json.loads((tmp_path / "registry" / dataset_id / "meta.json").read_text())
+    assert not meta.get("ingested")
+
+
+def test_ingest_logs_activity_ok(tmp_path: Path, monkeypatch) -> None:
+    """A completed ingest writes one kind:"ingest" ok line to the activity ledger
+    (jobs.jsonl) — the Workbench ingest is no longer invisible to アクティビティ."""
+    dataset_id = _save_dataset_with_rml(tmp_path)
+    monkeypatch.setattr(substrate, "materialize_to_nt_file", _fake_nt_materializer(triples=2))
+    oxi = _RecordingOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        status, events = _drive_ingest(
+            client, dataset_id, {"files": ("papers.csv", b"SID\n1\n", "text/csv")}
+        )
+        assert status == 202
+        assert "done" in [n for n, _ in events]
+        # GET /jobs (the activity endpoint) surfaces the new record.
+        jobs = client.get("/jobs").json()["jobs"]
+    rec = next(r for r in _read_jobs_log(tmp_path) if r["kind"] == "ingest")
+    assert rec["status"] == "ok"
+    assert rec["dataset_id"] == dataset_id
+    assert rec["dataset_name"] == "demo"
+    assert rec["file"] == "papers.csv"
+    assert rec["triples"] == 2
+    assert rec["started_at"] and rec["ended_at"]
+    assert any(j.get("kind") == "ingest" for j in jobs)
+
+
+def test_ingest_failure_logs_activity_error(tmp_path: Path, monkeypatch) -> None:
+    """A failed ingest records status:"error" (with the message) in the ledger."""
+    dataset_id = _save_dataset_with_rml(tmp_path)
+    monkeypatch.setattr(substrate, "materialize_to_nt_file", _fake_nt_materializer(triples=1))
+
+    async def _boom(*_a, **_k):
+        raise httpx.ConnectError("oxigraph down")
+
+    monkeypatch.setattr(substrate, "stream_nt_file_to_oxigraph", _boom)
+
+    async def _noop_chunked(_client, _graph_iri, **_k):
+        return 0
+
+    monkeypatch.setattr(substrate, "chunked_drop_graph", _noop_chunked)
+    oxi = _RecordingOxi()
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        status, events = _drive_ingest(
+            client, dataset_id, {"files": ("papers.csv", b"SID\n1\n", "text/csv")}
+        )
+        assert status == 202
+        assert "error" in [n for n, _ in events]
+    rec = next(r for r in _read_jobs_log(tmp_path) if r["kind"] == "ingest")
+    assert rec["status"] == "error"
+    assert "oxigraph down" in rec["error"] or "ConnectError" in rec["error"]
 
 
 # ---- promotion: draft -> canonical (#15 S4) ---------------------------------
@@ -1352,6 +1522,13 @@ def test_append_grows_live_feed_and_records_meta(tmp_path: Path, monkeypatch) ->
     # snapshot re-ingest reproduces the whole feed.
     src = (tmp_path / "registry" / dataset_id / "source" / "papers.csv").read_text()
     assert src.splitlines() == ["SID", "1", "2", "3"]
+    # The manual append is recorded in the activity ledger (same shape as the
+    # watcher's record), so the catalog append is visible in アクティビティ too.
+    rec = next(r for r in _read_jobs_log(tmp_path) if r["kind"] == "append")
+    assert rec["status"] == "ok"
+    assert rec["dataset_id"] == dataset_id
+    assert rec["file"] == "papers.csv"
+    assert rec["triples_in_batch"] == 2
 
 
 def test_append_second_batch_bumps_seq(tmp_path: Path, monkeypatch) -> None:

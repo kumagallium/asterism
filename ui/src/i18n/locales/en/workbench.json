@@ -151,7 +151,8 @@
     "approve": "Import data (approve)",
     "notSaved": "This design has not been saved yet (no dataset found).",
     "needCsv": "Ingestion needs the source file (CSV/TSV/instrument text) used in the design. Re-select it in the data source panel (re-selection is required after a reload).",
-    "failed": "Ingestion failed: {{message}}"
+    "failed": "Ingestion failed: {{message}}",
+    "cancelled": "Ingest cancelled. Any partially written data has been discarded."
   },
   "progress": {
     "ingesting": "Ingesting…",
