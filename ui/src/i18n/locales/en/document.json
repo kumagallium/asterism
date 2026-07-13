@@ -14,7 +14,6 @@
   "submit": "Add and publish document",
   "retrySubmit": "Resume ingestion",
   "retryResumes": "The dataset was already created. Retrying resumes ingesting the same document \"{{name}}\" — it does not create a duplicate.",
-  "ingesting": "Ingesting…",
-  "ingestProgress": "({{done}} / {{total}})",
-  "result": "✓ Published <0>{{name}}</0>. Open it in Datasets and use <1>search_text</1> /<2>quote_with_citation</2> on the \"Tools\" tab to full-text search and cite it."
+  "result": "✓ Published <0>{{name}}</0>. Open it in Datasets and use <1>search_text</1> /<2>quote_with_citation</2> on the \"Tools\" tab to full-text search and cite it.",
+  "cancelled": "Ingest cancelled. Run again to resume from ingest on the same dataset."
 }

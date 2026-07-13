@@ -172,7 +172,8 @@
     "submit": "Import data",
     "submitting": "Ingesting…",
     "error": "Ingest failed: {{message}}",
-    "validationHead": "Validating the RML mapping before ingest found these problems (fix them and try again):"
+    "validationHead": "Validating the RML mapping before ingest found these problems (fix them and try again):",
+    "cancelled": "Ingest cancelled. Any partially written data has been discarded — nothing reached the published surface."
   },
   "append": {
     "head": "Append to live (device feed)",

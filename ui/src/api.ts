@@ -593,25 +593,62 @@ export interface IngestProgress {
   message?: string
 }
 
+/** The terminal `cancelled` outcome of an ingest job — callers branch on this
+ *  to show "キャンセルしました" instead of an error. */
+export class IngestCancelledError extends Error {
+  constructor() {
+    super('cancelled')
+    this.name = 'IngestCancelledError'
+  }
+}
+
+/** A saved ingest job turned out to belong to a DIFFERENT dataset — the api
+ *  restarted and its job-N counter re-minted the id. The saved job is stale;
+ *  callers clear it and reset silently. */
+export class StaleIngestJobError extends Error {
+  constructor() {
+    super('stale job')
+    this.name = 'StaleIngestJobError'
+  }
+}
+
+/**
+ * Live handle on a (background) ingest job. Unlike the old promise-only
+ * wrapper, the job id is exposed so callers can persist it (reload recovery via
+ * {@link resumeIngestJob}) and request a server-side cancel.
+ */
+export interface IngestJobHandle {
+  jobId: string
+  /** Settles with the ingest result on `done`; rejects with
+   *  {@link IngestCancelledError} on the terminal `cancelled` event,
+   *  {@link StaleIngestJobError} on a dataset mismatch, `Error` otherwise. */
+  result: Promise<IngestResult>
+  /** Ask the server to stop the job (its stream then ends with `cancelled`,
+   *  which settles `result`). The staged partial graph is reclaimed server-side. */
+  cancel: () => Promise<void>
+  /** Release the EventSource only — the server-side job keeps running. */
+  close: () => void
+}
+
 /**
  * Human gate (Phase 5 #15): run a dataset's approved RML through the Morph-KGC
- * substrate and load the result into an isolated draft graph. Pass the source
+ * substrate and load the result into an isolated staged graph. Pass the source
  * CSVs to upload them (they are also persisted as the dataset's source); pass
  * none to reuse the dataset's persisted design-time source (Task E — the
  * catalog ingests a design-stage dataset with no re-attach).
  *
  * The heavy work (Morph-KGC materialize → chunked streaming load) runs as a
- * background job so a large dataset (millions of triples) loads with live
- * progress instead of a blocking request that times out (ADR
- * scalable-declarative-ingestion.md). The POST returns 202 + job_id; this
- * subscribes to the job's SSE stream, forwards progress to `onProgress`, and
- * resolves with the result on `done` (rejects on `error`).
+ * background job (ADR scalable-declarative-ingestion.md): the POST returns
+ * 202 + job_id and this attaches to the job's SSE stream, forwarding progress
+ * frames to `onProgress`. Persist `handle.jobId` (see ingestJob.ts) so a reload
+ * can re-attach with {@link resumeIngestJob}.
  */
-export async function ingestDataset(
+export async function startIngestJob(
   datasetId: string,
   files: File[] = [],
   onProgress?: (p: IngestProgress) => void,
-): Promise<IngestResult> {
+  onPulse?: () => void,
+): Promise<IngestJobHandle> {
   // No files → send no body (the server falls back to the persisted source). With
   // files → multipart upload (also persisted). An empty multipart body is avoided
   // so the no-attach path matches a bare POST.
@@ -628,48 +665,66 @@ export async function ingestDataset(
     body,
   })
   if (!res.ok) {
-    const body = await res.text().catch(() => '')
+    const detail = await res.text().catch(() => '')
     // A design-validation 422 carries {detail: {error, issues: [...]}} — surface the
     // structured issues so the UI renders a readable bulleted list, not a raw string.
-    const issues = parseIngestIssues(body)
+    const issues = parseIngestIssues(detail)
     if (issues) throw new IngestValidationError(issues)
-    throw new Error(`ingest failed (HTTP ${res.status})${body ? `: ${body}` : ''}`)
+    throw new Error(`ingest failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
   }
   const { job_id } = (await res.json()) as { job_id: string }
-  return new Promise<IngestResult>((resolve, reject) => {
-    const es = new EventSource(`/api/jobs/${job_id}/stream`)
-    es.addEventListener('running', (e) => {
-      try {
-        onProgress?.(JSON.parse((e as MessageEvent).data) as IngestProgress)
-      } catch {
-        /* ignore a malformed progress frame */
-      }
-    })
-    es.addEventListener('done', (e) => {
-      es.close()
-      resolve(JSON.parse((e as MessageEvent).data).result as IngestResult)
-    })
-    // Terminal `cancelled` (e.g. cancelled out-of-band via the jobs API): settle
-    // the promise instead of hanging forever on a stream that ended.
-    es.addEventListener('cancelled', () => {
-      es.close()
-      reject(new Error('cancelled'))
-    })
-    es.addEventListener('error', (e) => {
-      const msg = (e as MessageEvent).data
-      if (msg) {
-        // Server-sent `error`: the job genuinely failed. Fatal.
-        es.close()
-        reject(new Error(JSON.parse(msg).message ?? 'ingest failed'))
-      } else if (es.readyState === EventSource.CLOSED) {
-        // Browser gave up reconnecting — a real, permanent loss.
-        es.close()
-        reject(new Error('connection lost'))
-      }
-      // Otherwise CONNECTING: a transient drop — let EventSource reconnect; the
-      // JobManager replays from the start so a long ingest survives a blip.
-    })
+  return attachIngestJob(job_id, datasetId, onProgress, onPulse)
+}
+
+/**
+ * Re-attach to a saved ingest job after a reload — no new POST. The server
+ * JobManager replays started/running/done(/error/cancelled), so a job that
+ * finished while the UI was gone is recovered, and a still-running one keeps
+ * streaming. `datasetId` guards against a stale id (api restart re-mints job-N):
+ * a frame or result for a different dataset rejects with StaleIngestJobError.
+ */
+export function resumeIngestJob(
+  jobId: string,
+  datasetId: string,
+  onProgress?: (p: IngestProgress) => void,
+  onPulse?: () => void,
+): IngestJobHandle {
+  return attachIngestJob(jobId, datasetId, onProgress, onPulse)
+}
+
+function attachIngestJob(
+  jobId: string,
+  datasetId: string,
+  onProgress?: (p: IngestProgress) => void,
+  onPulse?: () => void,
+): IngestJobHandle {
+  // The executor runs synchronously, so `settle` is assigned before use.
+  let settle!: { resolve: (r: IngestResult) => void; reject: (e: Error) => void }
+  const result = new Promise<IngestResult>((resolve, reject) => {
+    settle = { resolve, reject }
   })
+  const staleGuard = (frameDatasetId: unknown): boolean => {
+    if (typeof frameDatasetId === 'string' && frameDatasetId !== datasetId) {
+      handle.close()
+      settle.reject(new StaleIngestJobError())
+      return true
+    }
+    return false
+  }
+  const handle = subscribeJob<IngestResult>(jobId, {
+    onPulse,
+    onRunning: (data) => {
+      if (staleGuard(data.dataset_id)) return
+      onProgress?.(data as unknown as IngestProgress)
+    },
+    onDone: (r) => {
+      if (staleGuard(r.dataset_id)) return
+      settle.resolve(r)
+    },
+    onError: (m) => settle.reject(new Error(m)),
+    onCancelled: () => settle.reject(new IngestCancelledError()),
+  })
+  return { jobId, result, cancel: handle.cancel, close: handle.close }
 }
 
 /**
@@ -760,8 +815,8 @@ export interface JobHandle {
   cancel: () => Promise<void>
 }
 
-// Shared SSE subscription for propose/refine jobs. Returns a JobHandle whose
-// close() releases the EventSource.
+// Shared SSE subscription for background jobs (propose/refine/ingest). Returns
+// a JobHandle whose close() releases the EventSource.
 function subscribeJob<T>(
   jobId: string,
   handlers: {
@@ -772,6 +827,9 @@ function subscribeJob<T>(
     onPulse?: () => void
     /** Terminal `cancelled` event; absent → falls back to onError('cancelled'). */
     onCancelled?: () => void
+    /** The FULL parsed `running` frame — ingest progress carries structured
+     *  fields (phase/done/total) that the message-only onStatus would drop. */
+    onRunning?: (data: Record<string, unknown>) => void
   },
 ): JobHandle {
   const es = new EventSource(`/api/jobs/${jobId}/stream`)
@@ -784,6 +842,7 @@ function subscribeJob<T>(
   es.addEventListener('running', (e) => {
     handlers.onPulse?.()
     const data = JSON.parse((e as MessageEvent).data)
+    handlers.onRunning?.(data)
     handlers.onStatus?.(data.message ?? 'running')
   })
   // Keep-alive sent every ~15s while the job is idle (a minutes-long LLM call):

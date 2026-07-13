@@ -10,11 +10,14 @@ extra is installed (skipped otherwise); the CSV Morph-KGC path is proven by the
 from __future__ import annotations
 
 import json
+import sys
+import time
 from pathlib import Path
 
 import pytest
 import rdflib
 
+from asterism import substrate
 from asterism.substrate import (
     CANONICAL_GRAPH_BASE,
     GRAPH_BASE,
@@ -614,6 +617,54 @@ async def test_stream_nt_file_chunks_appends_and_reports_progress(tmp_path: Path
     assert b"".join(p for p, _ in fake.calls) == f.read_bytes()
     # progress is monotonic and ends at total
     assert progress == [(2, 5), (4, 5), (5, 5)]
+
+
+async def test_stream_nt_file_cancel_stops_before_next_chunk(tmp_path: Path) -> None:
+    """A pending cancel is honoured at the chunk boundary: the next POST never
+    happens and IngestCancelledError surfaces (the caller reclaims the partial)."""
+    lines = [f"<https://ex/s{i}> <https://ex/p> <https://ex/o> .".encode() for i in range(5)]
+    f = tmp_path / "out.nt"
+    f.write_bytes(b"\n".join(lines) + b"\n")
+    fake = _FakeOxi()
+    # The cancel arrives once the first chunk has been flushed.
+    cancelled = {"flag": False}
+
+    def on_progress(done: int, total: int) -> None:
+        cancelled["flag"] = True
+
+    with pytest.raises(substrate.IngestCancelledError):
+        await stream_nt_file_to_oxigraph(
+            f,
+            fake,
+            "https://ex/graph/draft/ds1",
+            chunk_lines=2,
+            on_progress=on_progress,
+            should_cancel=lambda: cancelled["flag"],
+        )
+    assert len(fake.calls) == 1  # first chunk only — nothing posted after cancel
+
+
+def test_run_cli_cancellable_completes_normally(tmp_path: Path) -> None:
+    rc, stderr = substrate._run_cli_cancellable(
+        [sys.executable, "-c", "import sys; sys.stderr.write('warn\\n')"],
+        work_dir=tmp_path,
+    )
+    assert rc == 0
+    assert "warn" in stderr
+
+
+def test_run_cli_cancellable_kills_on_cancel(tmp_path: Path) -> None:
+    """A cancel mid-run terminates the subprocess promptly instead of waiting for
+    it — this is what makes a minutes-long Morph-KGC materialization interruptible."""
+    t0 = time.monotonic()
+    with pytest.raises(substrate.IngestCancelledError):
+        substrate._run_cli_cancellable(
+            [sys.executable, "-c", "import time; time.sleep(60)"],
+            work_dir=tmp_path,
+            should_cancel=lambda: True,
+            poll_seconds=0.05,
+        )
+    assert time.monotonic() - t0 < 30  # nowhere near the 60s sleep
 
 
 async def test_stream_nt_file_empty_is_zero(tmp_path: Path) -> None:

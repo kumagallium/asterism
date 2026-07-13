@@ -3,11 +3,16 @@ import { useEffect, useRef, useState } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import {
   fetchProposal,
-  ingestDataset,
-  IngestValidationError,
+  IngestCancelledError,
+  type IngestJobHandle,
   type IngestProgress,
   type IngestResult,
+  IngestValidationError,
+  resumeIngestJob,
+  StaleIngestJobError,
+  startIngestJob,
 } from './api'
+import { clearIngestJob, loadIngestJob, saveIngestJob } from './ingestJob'
 import type { RedesignTarget } from './WorkbenchView'
 import { type CrosswalkPerspective, getCrosswalks } from './crosswalkApi'
 import { DatasetGrounding } from './DatasetGrounding'
@@ -968,9 +973,9 @@ function IngestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChang
   const [progress, setProgress] = useState<IngestProgress | null>(null)
   const [done, setDone] = useState<IngestResult | null>(null)
   const [err, setErr] = useState<unknown>(null)
-
-  // Only design-stage needs this gate: ingested → promote, promoted → done.
-  if (datasetStage(meta) !== 'design') return null
+  const [cancelled, setCancelled] = useState(false)
+  const [job, setJob] = useState<IngestJobHandle | null>(null)
+  const [lastPulseAt, setLastPulseAt] = useState<number | null>(null)
 
   // A document dataset (source_kind=xml) has NO RML — it ingests through the
   // deterministic structurer, not Morph-KGC. So the "no RML" dead-end is CSV/JSON-
@@ -979,6 +984,53 @@ function IngestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChang
   // persisted at create, it can be re-ingested straight from the catalog with no
   // re-upload — instead of forcing a re-upload that would mint a duplicate dataset.
   const isDocument = meta.source_kind === 'xml'
+  const renders = datasetStage(meta) === 'design' && (isDocument || !!meta.has_rml)
+
+  // Reload recovery: a saved in-flight ingest job for THIS dataset re-attaches
+  // (SSE replay recovers everything, including a completion that happened while
+  // the tab was gone). Gated on `renders` so the sibling ReingestControl — which
+  // handles the other stages — doesn't race for the same job.
+  useEffect(() => {
+    if (!renders) return
+    const saved = loadIngestJob()
+    if (!saved || saved.kind !== 'ingest' || saved.datasetId !== meta.id) return
+    const handle = resumeIngestJob(saved.jobId, meta.id, setProgress, () =>
+      setLastPulseAt(Date.now()),
+    )
+    void track(handle)
+    return () => handle.close() // release the stream; the server job keeps running
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meta.id, renders])
+
+  // Await one job to its end and settle every piece of UI state. Shared by the
+  // fresh-start and the reload-recovery paths.
+  async function track(handle: IngestJobHandle) {
+    saveIngestJob({ jobId: handle.jobId, datasetId: meta.id, kind: 'ingest' })
+    setJob(handle)
+    setBusy(true)
+    setErr(null)
+    setCancelled(false)
+    try {
+      setDone(await handle.result)
+      onChanged() // design → draft: refresh so promote control appears
+    } catch (e) {
+      if (e instanceof IngestCancelledError) {
+        setCancelled(true) // clean stop — nothing was committed server-side
+        setProgress(null)
+      } else if (e instanceof StaleIngestJobError) {
+        setProgress(null) // saved id belonged to another dataset — silent reset
+      } else {
+        setErr(e)
+      }
+    } finally {
+      clearIngestJob(handle.jobId)
+      setJob(null)
+      setBusy(false)
+    }
+  }
+
+  // Only design-stage needs this gate: ingested → promote, promoted → done.
+  if (datasetStage(meta) !== 'design') return null
 
   if (!isDocument && !meta.has_rml) {
     return (
@@ -1012,13 +1064,16 @@ function IngestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChang
     setBusy(true)
     setErr(null)
     setProgress(null)
+    setCancelled(false)
     try {
       // hasSource → ingest with no upload (server uses the persisted source).
-      setDone(await ingestDataset(meta.id, hasSource ? [] : files, setProgress))
-      onChanged() // design → draft: refresh so promote control appears
+      const handle = await startIngestJob(meta.id, hasSource ? [] : files, setProgress, () =>
+        setLastPulseAt(Date.now()),
+      )
+      await track(handle)
     } catch (e) {
+      // startIngestJob failure (the POST itself) — track() handles its own.
       setErr(e)
-    } finally {
       setBusy(false)
     }
   }
@@ -1067,7 +1122,14 @@ function IngestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChang
       <button type="button" className="promote-btn" onClick={onIngest} disabled={!canIngest}>
         {busy ? t('gallery:ingest.submitting') : t('gallery:ingest.submit')}
       </button>
-      {busy && <IngestProgressView progress={progress} />}
+      {busy && (
+        <IngestProgressView
+          progress={progress}
+          onCancel={job ? job.cancel : undefined}
+          lastPulseAt={lastPulseAt}
+        />
+      )}
+      {cancelled && <p className="ingest-hint">{t('gallery:ingest.cancelled')}</p>}
       {err != null && <IngestError err={err} errorKey="gallery:ingest.error" />}
     </div>
   )
@@ -1420,8 +1482,57 @@ function ReingestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onCha
   const [busy, setBusy] = useState(false)
   const [progress, setProgress] = useState<IngestProgress | null>(null)
   const [err, setErr] = useState<unknown>(null)
+  const [cancelled, setCancelled] = useState(false)
+  const [job, setJob] = useState<IngestJobHandle | null>(null)
+  const [lastPulseAt, setLastPulseAt] = useState<number | null>(null)
 
   const stage = datasetStage(meta)
+  const renders = stage !== 'design' && meta.status !== 'retracted' && !!meta.has_rml
+
+  // Reload recovery — mirror of IngestControl. This control also picks up a job
+  // STARTED at the design stage that completed while the tab was away (the stage
+  // has flipped to 'ingested' by the reload, so IngestControl no longer renders):
+  // the replay settles instantly and onChanged() refreshes the catalog.
+  useEffect(() => {
+    if (!renders) return
+    const saved = loadIngestJob()
+    if (!saved || saved.kind !== 'ingest' || saved.datasetId !== meta.id) return
+    const handle = resumeIngestJob(saved.jobId, meta.id, setProgress, () =>
+      setLastPulseAt(Date.now()),
+    )
+    void track(handle)
+    return () => handle.close()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meta.id, renders])
+
+  async function track(handle: IngestJobHandle) {
+    saveIngestJob({ jobId: handle.jobId, datasetId: meta.id, kind: 'ingest' })
+    setJob(handle)
+    setBusy(true)
+    setErr(null)
+    setCancelled(false)
+    try {
+      await handle.result
+      setFiles([])
+      // promoted→ingested (or another staged version): refresh so the re-promote
+      // gate (PromoteControl) appears with the new staged version.
+      onChanged()
+    } catch (e) {
+      if (e instanceof IngestCancelledError) {
+        setCancelled(true)
+        setProgress(null)
+      } else if (e instanceof StaleIngestJobError) {
+        setProgress(null)
+      } else {
+        setErr(e)
+      }
+    } finally {
+      clearIngestJob(handle.jobId)
+      setJob(null)
+      setBusy(false)
+    }
+  }
+
   // design → IngestControl owns the first ingest; retracted → reinstate first.
   if (stage === 'design' || meta.status === 'retracted') return null
   if (!meta.has_rml) return null
@@ -1440,16 +1551,15 @@ function ReingestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onCha
     setBusy(true)
     setErr(null)
     setProgress(null)
+    setCancelled(false)
     try {
       // hasSource → no upload (server reuses the persisted source); else upload.
-      await ingestDataset(meta.id, hasSource ? [] : files, setProgress)
-      setFiles([])
-      // promoted→ingested (or another staged version): refresh so the re-promote
-      // gate (PromoteControl) appears with the new staged version.
-      onChanged()
+      const handle = await startIngestJob(meta.id, hasSource ? [] : files, setProgress, () =>
+        setLastPulseAt(Date.now()),
+      )
+      await track(handle)
     } catch (e) {
       setErr(e)
-    } finally {
       setBusy(false)
     }
   }
@@ -1506,7 +1616,14 @@ function ReingestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onCha
       <button type="button" className="promote-btn" onClick={onReingest} disabled={!canReingest}>
         {busy ? t('gallery:reingest.submitting') : t('gallery:reingest.submit')}
       </button>
-      {busy && <IngestProgressView progress={progress} />}
+      {busy && (
+        <IngestProgressView
+          progress={progress}
+          onCancel={job ? job.cancel : undefined}
+          lastPulseAt={lastPulseAt}
+        />
+      )}
+      {cancelled && <p className="ingest-hint">{t('gallery:ingest.cancelled')}</p>}
       {err != null && <IngestError err={err} errorKey="gallery:reingest.error" />}
     </div>
   )
