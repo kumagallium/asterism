@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import ReactMarkdown from 'react-markdown'
@@ -14,11 +14,14 @@ import {
   refineSchema,
   resumeJob,
   validateDesign,
+  validateSkeleton,
   type AutocorrectSummary,
   type DetectedDialect,
   type JobHandle,
   type MappingSkeleton,
+  type SkeletonAnnotations,
   type SkeletonMap,
+  type SkeletonMapAnnotation,
   type MaterializeResult,
   type ProposeResult,
   type RefineResult,
@@ -156,6 +159,12 @@ interface WorkbenchSnapshot {
   // Human "read settings" overrides (ADR source-dialect.md), keyed by canonical
   // source name. Persisted so a reload/re-send keeps the edits; empty ⇒ auto-detect.
   dialectOverrides?: Record<string, SourceDialect>
+  // The staged skeleton awaiting the human gate (+ its deterministic evidence).
+  // Persisted so a tab switch / reload mid-review doesn't throw away the paid
+  // generation or the human's edits. Continuing still needs the files re-attached
+  // (File objects can't be serialized) — the gate says so.
+  stagedSkeleton?: MappingSkeleton | null
+  stagedAnnotations?: SkeletonAnnotations | null
 }
 
 /**
@@ -254,10 +263,19 @@ export function WorkbenchView({
   const [proposeErr, setProposeErr] = useState('')
   const [proposing, setProposing] = useState(false)
   // Phase 2b staged round-0: the skeleton awaiting human confirmation (null = no
-  // gate open) and whether the skeleton job is running. In-memory only — a reload
-  // mid-skeleton just re-runs it (the continue job persists like propose instead).
-  const [stagedSkeleton, setStagedSkeleton] = useState<MappingSkeleton | null>(null)
+  // gate open) and whether the skeleton job is running. Persisted in the snapshot
+  // (a reload keeps the gate + edits; continuing needs the files re-attached).
+  const [stagedSkeleton, setStagedSkeleton] = useState<MappingSkeleton | null>(
+    snap.stagedSkeleton ?? null,
+  )
   const [skeletonBusy, setSkeletonBusy] = useState(false)
+  // Deterministic gate evidence (key uniqueness / ID previews / fix candidates)
+  // for the staged skeleton. Recomputed server-side (no LLM) after a human edit.
+  const [stagedAnnotations, setStagedAnnotations] = useState<SkeletonAnnotations | null>(
+    snap.stagedAnnotations ?? null,
+  )
+  const [annotationsBusy, setAnnotationsBusy] = useState(false)
+  const revalidateTimer = useRef<number | null>(null)
   const proposeJobRef = useRef<JobHandle | null>(null)
 
   // Refine
@@ -296,13 +314,15 @@ export function WorkbenchView({
       redesignOrigin,
       lastSaveKind,
       dialectOverrides,
+      stagedSkeleton,
+      stagedAnnotations,
     }
     try {
       sessionStorage.setItem(WB_STORAGE, JSON.stringify(snapshot))
     } catch {
       // sessionStorage may be unavailable (private mode quota) — non-fatal.
     }
-  }, [mode, step, source, fk, markdown, domainFree, presetIds, proposal, materialized, redesignId, redesignName, redesignOrigin, lastSaveKind, dialectOverrides])
+  }, [mode, step, source, fk, markdown, domainFree, presetIds, proposal, materialized, redesignId, redesignName, redesignOrigin, lastSaveKind, dialectOverrides, stagedSkeleton, stagedAnnotations])
 
   // Seed the workbench from a redesign target during render (the "adjust state on
   // prop change" pattern — same as GalleryView's focusClass handling — so we avoid a
@@ -565,6 +585,7 @@ export function WorkbenchView({
     setProposal('')
     setAutocorrect(null)
     setStagedSkeleton(null)
+    setStagedAnnotations(null)
     setMaterialized(null)
     setStatus('starting…')
     setSkeletonBusy(true)
@@ -588,6 +609,7 @@ export function WorkbenchView({
           onPulse: () => setLastPulseAt(Date.now()),
           onDone: (result) => {
             setStagedSkeleton(result.skeleton)
+            setStagedAnnotations(result.annotations ?? null)
             setMarkdown(result.inspection_md)
             setStatus('done')
             setSkeletonBusy(false)
@@ -611,6 +633,25 @@ export function WorkbenchView({
       setStatus('')
       setSkeletonBusy(false)
     }
+  }
+
+  // A human edit to the skeleton re-checks the evidence server-side (no LLM,
+  // sub-second) after a short debounce — a typo'd column or a key that
+  // collapses rows is caught HERE, not minutes later in the paid continue run.
+  function onSkeletonEdited(edited: MappingSkeleton) {
+    setStagedSkeleton(edited)
+    if (revalidateTimer.current !== null) window.clearTimeout(revalidateTimer.current)
+    if (files.length === 0) return // nothing to check against (gate shows a hint)
+    revalidateTimer.current = window.setTimeout(async () => {
+      setAnnotationsBusy(true)
+      try {
+        setStagedAnnotations(await validateSkeleton(files, edited, dialectOverrides))
+      } catch {
+        // Evidence is enrichment — a failed re-check never blocks editing.
+      } finally {
+        setAnnotationsBusy(false)
+      }
+    }, 700)
   }
 
   // Phase 2b job 2: continue from the CONFIRMED (possibly edited) skeleton —
@@ -643,6 +684,7 @@ export function WorkbenchView({
             applyAutocorrect(result.autocorrect)
             setMaterialized(null)
             setStagedSkeleton(null)
+            setStagedAnnotations(null)
             setStatus('done')
             setProposing(false)
             clearJob()
@@ -1005,7 +1047,7 @@ export function WorkbenchView({
             <input
               type="text"
               value={fk}
-              placeholder={source === 'json' ? 'mp_id' : 'SID'}
+              placeholder={source === 'json' ? 'mp_id' : 'sample_id'}
               onChange={(e) => setFk(e.target.value)}
             />
           </label>
@@ -1144,10 +1186,16 @@ export function WorkbenchView({
               {stagedSkeleton && (
                 <SkeletonGate
                   skeleton={stagedSkeleton}
+                  annotations={stagedAnnotations}
+                  annotationsBusy={annotationsBusy}
+                  canRevalidate={files.length > 0}
                   busy={proposing}
-                  onChange={setStagedSkeleton}
+                  onChange={onSkeletonEdited}
                   onContinue={onContinueFromSkeleton}
-                  onDiscard={() => setStagedSkeleton(null)}
+                  onDiscard={() => {
+                    setStagedSkeleton(null)
+                    setStagedAnnotations(null)
+                  }}
                 />
               )}
             </section>
@@ -1665,19 +1713,143 @@ function DialectEditor({
   )
 }
 
+// Human-readable reasons a map's key could not be checked (kept in sync with
+// skeleton_annotate's machine-readable `reason` values).
+function evidenceReasonKey(reason: string | undefined): string {
+  if (!reason) return 'workbench:skeleton.evidence.notChecked'
+  if (reason === 'constant') return 'workbench:skeleton.evidence.constant'
+  if (reason === 'missing-columns') return 'workbench:skeleton.evidence.missingColumns'
+  if (reason === 'source-not-found') return 'workbench:skeleton.evidence.sourceNotFound'
+  if (reason === 'no-template') return 'workbench:skeleton.evidence.noTemplate'
+  if (reason.startsWith('unsupported-source-kind')) return 'workbench:skeleton.evidence.unsupported'
+  return 'workbench:skeleton.evidence.notChecked'
+}
+
+// The per-map evidence block: is the key REALLY unique, shown with the data
+// (real example IDs, concrete colliding rows, proven fix candidates) — so a
+// domain expert can judge the skeleton without knowing what an IRI is.
+function SkeletonEvidence({
+  ann,
+  onApplyCandidate,
+}: {
+  ann: SkeletonMapAnnotation
+  onApplyCandidate: (columns: string[]) => void
+}) {
+  const { t } = useTranslation()
+
+  const prefixWarning = ann.undeclared_prefixes.length > 0 && (
+    <p className="skeleton-evidence-line skeleton-evidence-warn">
+      {t('workbench:skeleton.evidence.undeclaredPrefixes', {
+        prefixes: ann.undeclared_prefixes.join(', '),
+      })}
+    </p>
+  )
+
+  if (!ann.checkable) {
+    return (
+      <div className="skeleton-evidence">
+        <p className="skeleton-evidence-line skeleton-evidence-muted">
+          {t(evidenceReasonKey(ann.reason), {
+            columns: (ann.missing_columns ?? []).join(', '),
+          })}
+        </p>
+        {ann.reason === 'constant' && ann.expanded_template && (
+          <p className="skeleton-evidence-line skeleton-evidence-muted">
+            <code className="skeleton-evidence-id">{ann.expanded_template}</code>
+          </p>
+        )}
+        {prefixWarning}
+      </div>
+    )
+  }
+
+  const collides = ann.is_unique === false
+  return (
+    <div className="skeleton-evidence">
+      {ann.is_unique ? (
+        <p className="skeleton-evidence-line skeleton-evidence-ok">
+          ✓ {t('workbench:skeleton.evidence.unique', { rows: ann.total_rows })}
+        </p>
+      ) : (
+        <p className="skeleton-evidence-line skeleton-evidence-bad">
+          ⚠ {t('workbench:skeleton.evidence.collides', {
+            total: ann.total_rows,
+            colliding: ann.colliding_rows,
+          })}
+        </p>
+      )}
+      {collides &&
+        (ann.collision_examples ?? []).map((ex, i) => (
+          <p key={i} className="skeleton-evidence-line skeleton-evidence-muted">
+            {t('workbench:skeleton.evidence.collisionExample', {
+              lines: ex.line_numbers.join(', '),
+              values: Object.entries(ex.key_values)
+                .map(([k, v]) => `${k} = ${v}`)
+                .join(', '),
+              count: ex.row_count,
+            })}
+          </p>
+        ))}
+      {(ann.id_previews?.length ?? 0) > 0 && (
+        <div className="skeleton-evidence-previews">
+          <span className="skeleton-evidence-label">
+            {t('workbench:skeleton.evidence.previewHead', { n: ann.id_previews!.length })}
+          </span>
+          {ann.id_previews!.map((id, i) => (
+            <code key={i} className="skeleton-evidence-id">
+              {id}
+            </code>
+          ))}
+        </div>
+      )}
+      {collides && (ann.key_candidates?.length ?? 0) > 0 && (
+        <div className="skeleton-evidence-candidates">
+          <span className="skeleton-evidence-label">
+            {t('workbench:skeleton.evidence.candidatesHead')}
+          </span>
+          {ann.key_candidates!.map((c) => (
+            <button
+              key={c.columns.join(' ')}
+              type="button"
+              className="skeleton-candidate-chip"
+              title={
+                c.measurement_only
+                  ? t('workbench:skeleton.evidence.measurementOnly')
+                  : undefined
+              }
+              onClick={() => onApplyCandidate(c.columns)}
+            >
+              {c.columns.map((col) => `{${col}}`).join(' + ')}
+              {c.measurement_only && ' ⚠'}
+            </button>
+          ))}
+        </div>
+      )}
+      {prefixWarning}
+    </div>
+  )
+}
+
 // Phase 2b human gate: the editable skeleton table. The user confirms/corrects
 // the subject KEY (the single costliest error — a non-unique key collapses rows)
 // and the CLASSES per map, then continues. Everything else (properties, prose) is
 // generated only after this. Editing stays at the dict level; the confirmed dict
-// is posted verbatim to /api/propose/continue.
+// is posted verbatim to /api/propose/continue. Each row carries deterministic
+// EVIDENCE (server-computed, LLM-free) so the human judges data, not syntax.
 function SkeletonGate({
   skeleton,
+  annotations,
+  annotationsBusy,
+  canRevalidate,
   busy,
   onChange,
   onContinue,
   onDiscard,
 }: {
   skeleton: MappingSkeleton
+  annotations: SkeletonAnnotations | null
+  annotationsBusy: boolean
+  canRevalidate: boolean
   busy: boolean
   onChange: (s: MappingSkeleton) => void
   onContinue: () => void
@@ -1692,10 +1864,48 @@ function SkeletonGate({
     onChange({ ...skeleton, maps })
   }
 
+  // Apply a proven-unique column combination: keep the template's fixed head
+  // (up to the first placeholder), swap the key part. The re-check runs after,
+  // so the human immediately sees the ✓ this candidate was promised to earn.
+  function applyCandidate(idx: number, columns: string[]) {
+    const current = skeleton.maps[idx]?.subject.template ?? ''
+    const head = current.includes('{') ? current.slice(0, current.indexOf('{')) : `${current}/`
+    updateSubject(idx, {
+      template: head + columns.map((c) => `{${c}}`).join('/'),
+    })
+  }
+
+  // Warn before continuing when the evidence says a key still collapses rows —
+  // soft gate: the human can proceed (small collision counts can be legitimate,
+  // e.g. deliberate dedup), but never unknowingly.
+  const collapsing = skeleton.maps.filter(
+    (m) => annotations?.maps?.[m.name]?.is_unique === false,
+  )
+  function onContinueGuarded() {
+    if (collapsing.length > 0) {
+      const ok = window.confirm(
+        t('workbench:skeleton.confirmCollides', {
+          maps: collapsing.map((m) => m.name).join(', '),
+        }),
+      )
+      if (!ok) return
+    }
+    onContinue()
+  }
+
   return (
     <section className="skeleton-gate">
       <h4>{t('workbench:skeleton.gateTitle')}</h4>
       <p className="skeleton-gate-hint">{t('workbench:skeleton.gateHint')}</p>
+      {annotationsBusy && (
+        <p className="skeleton-gate-revalidating" role="status">
+          <span className="spinner" />
+          {t('workbench:skeleton.evidence.revalidating')}
+        </p>
+      )}
+      {!canRevalidate && (
+        <p className="skeleton-gate-revalidating">{t('workbench:skeleton.evidence.reattach')}</p>
+      )}
       <div className="skeleton-gate-table-wrap">
         <table className="skeleton-gate-table">
           <thead>
@@ -1711,52 +1921,65 @@ function SkeletonGate({
               const usesConstant =
                 m.subject.template === undefined && m.subject.constant !== undefined
               const keyValue = m.subject.template ?? m.subject.constant ?? ''
+              const ann = annotations?.maps?.[m.name]
               return (
-                <tr key={m.name}>
-                  <td className="skeleton-gate-name">{m.name}</td>
-                  <td className="skeleton-gate-source">{m.source}</td>
-                  <td>
-                    <input
-                      type="text"
-                      className="skeleton-gate-input"
-                      value={keyValue}
-                      disabled={busy}
-                      title={m.note ?? undefined}
-                      onChange={(e) =>
-                        updateSubject(
-                          idx,
-                          usesConstant
-                            ? { constant: e.target.value }
-                            : { template: e.target.value },
-                        )
-                      }
-                    />
-                    {m.note && <div className="skeleton-gate-note">{m.note}</div>}
-                  </td>
-                  <td>
-                    <input
-                      type="text"
-                      className="skeleton-gate-input"
-                      value={(m.subject.classes ?? []).join(', ')}
-                      disabled={busy}
-                      onChange={(e) =>
-                        updateSubject(idx, {
-                          classes: e.target.value
-                            .split(',')
-                            .map((s) => s.trim())
-                            .filter(Boolean),
-                        })
-                      }
-                    />
-                  </td>
-                </tr>
+                <Fragment key={m.name}>
+                  <tr className={ann ? 'skeleton-gate-row' : undefined}>
+                    <td className="skeleton-gate-name">{m.name}</td>
+                    <td className="skeleton-gate-source">{m.source}</td>
+                    <td>
+                      <input
+                        type="text"
+                        className="skeleton-gate-input"
+                        value={keyValue}
+                        disabled={busy}
+                        title={m.note ?? undefined}
+                        onChange={(e) =>
+                          updateSubject(
+                            idx,
+                            usesConstant
+                              ? { constant: e.target.value }
+                              : { template: e.target.value },
+                          )
+                        }
+                      />
+                      {m.note && <div className="skeleton-gate-note">{m.note}</div>}
+                    </td>
+                    <td>
+                      <input
+                        type="text"
+                        className="skeleton-gate-input"
+                        value={(m.subject.classes ?? []).join(', ')}
+                        disabled={busy}
+                        onChange={(e) =>
+                          updateSubject(idx, {
+                            classes: e.target.value
+                              .split(',')
+                              .map((s) => s.trim())
+                              .filter(Boolean),
+                          })
+                        }
+                      />
+                    </td>
+                  </tr>
+                  {ann && (
+                    <tr className="skeleton-evidence-row">
+                      <td colSpan={4}>
+                        <SkeletonEvidence
+                          ann={ann}
+                          onApplyCandidate={(cols) => applyCandidate(idx, cols)}
+                        />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               )
             })}
           </tbody>
         </table>
       </div>
       <div className="skeleton-gate-actions">
-        <button onClick={onContinue} disabled={busy}>
+        <button onClick={onContinueGuarded} disabled={busy}>
           {busy ? (
             <>
               <span className="spinner" />
@@ -1766,7 +1989,14 @@ function SkeletonGate({
             t('workbench:skeleton.continue')
           )}
         </button>
-        <button type="button" className="btn btn--ghost" onClick={onDiscard} disabled={busy}>
+        <button
+          type="button"
+          className="btn btn--ghost"
+          onClick={() => {
+            if (window.confirm(t('workbench:skeleton.discardConfirm'))) onDiscard()
+          }}
+          disabled={busy}
+        >
           {t('workbench:skeleton.discard')}
         </button>
       </div>

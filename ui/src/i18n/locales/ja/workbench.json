@@ -159,26 +159,45 @@
     "generatingRdf": "RDF を生成中…"
   },
   "hints": {
-    "compositeKey": "ID 列が他のファイル/論文を跨ぐと重複しうる（複合キーが必要かも）",
-    "prov": "出典・来歴 (PROV-O) を必ず記録したい",
-    "noBnode": "空白ノード (blank node) は使わない",
-    "units": "単位や量を正規化したい（同義語の統一など）",
-    "jsonColumns": "セル内に JSON（配列やオブジェクト）が入っている列がある"
+    "compositeKey": "同じ ID が別のファイル/論文にも現れうる（組み合わせで区別が必要かも）",
+    "prov": "どの論文・実験・取り込みから来たか（出典・来歴）を必ず記録したい",
+    "noBnode": "（技術オプション）名前のない中間ノードを作らない — 再取り込みに強くなります",
+    "units": "単位や物理量の表記ゆれをそろえたい（例: S/cm と S·cm⁻¹）",
+    "jsonColumns": "セルの中に JSON（配列やオブジェクト）が入っている列がある"
   },
   "skeleton": {
-    "generate": "骨格を確認して生成",
+    "generate": "設計を生成（骨格を確認しながら）",
     "generating": "骨格を生成中…",
-    "singleShot": "一括生成（従来）",
+    "singleShot": "一括生成（確認なし）",
     "jobLabel": "骨格を生成中",
     "continuing": "設計を生成中…",
     "continue": "この骨格で続行",
-    "discard": "やり直す",
+    "discard": "骨格を破棄",
+    "discardConfirm": "生成された骨格と、ここで加えた修正を破棄します。よろしいですか？",
+    "confirmCollides": "「{{maps}}」は複数の行が同じ ID になったままです。このまま進めると、同じ ID の行は 1 件に統合されます。続行しますか？",
     "gateTitle": "骨格の確認",
-    "gateHint": "各エンティティの主キー（IRI テンプレート）とクラスを確認・修正してください。プロパティはこの後に生成されます。主キーが一意でないと行が 1 つの IRI に潰れます。",
-    "colClass": "マップ",
+    "gateHint": "AI の提案した「どの表が、何のデータで、各行をどう区別するか」を確認してください。列の意味付け（プロパティ）はこの後に生成されます。各行の検査結果で、すべての行が別々の ID になるかをデータで確認できます。",
+    "colClass": "名前",
     "colSource": "ソース",
-    "colKey": "主キー（IRI テンプレート）",
-    "colClasses": "クラス"
+    "colKey": "各行の ID の作り方",
+    "colClasses": "1 行が表すもの（クラス）",
+    "evidence": {
+      "unique": "{{rows}} 行すべてが別々の ID になります",
+      "collides": "{{total}} 行のうち {{colliding}} 行が、他の行と同じ ID に潰れます",
+      "collisionExample": "例: {{lines}} 行目の {{count}} 行が同じ ID（{{values}}）",
+      "previewHead": "実際の ID の例（先頭 {{n}} 行）",
+      "candidatesHead": "全行が別々の ID になる列の組（クリックで適用）",
+      "measurementOnly": "測定値の列です。たまたま重複がないだけの可能性があるため、ID には推奨しません",
+      "undeclaredPrefixes": "未定義の接頭辞があります: {{prefixes}}（このままでは保存時にエラーになります）",
+      "missingColumns": "この列がソースにありません: {{columns}}（列名を確認してください）",
+      "constant": "この項目はファイル（文書）ごとに 1 つの ID を持ちます — 行ごとの検査対象外です",
+      "unsupported": "この形式の自動検査はまだ対応していません（生成後の検証で確認されます）",
+      "sourceNotFound": "ソースファイルが見つからないため検査できませんでした",
+      "noTemplate": "ID の作り方が未設定です",
+      "notChecked": "この項目は検査できませんでした",
+      "revalidating": "編集内容を再検査中…",
+      "reattach": "ファイルを選び直すと、編集後の ID を再検査できます"
+    }
   },
   "dialect": {
     "title": "読み取り設定（任意）",

@@ -94,8 +94,11 @@ single Markdown document with two top-level artifacts:
 - Plain prefix-less class names in the diagram; map to TBox IRIs in §2
 
 ### 2. IRI scheme
-- Declare prefixes: `sd:` (ontology), `sdr:` (resource), reused (`schema:`,
-  `dcterms:`, `bibo:`, `prov:`)
+- Declare the dataset's OWN prefix pair, NAMED AFTER THIS DATASET's content
+  (e.g. `xrd:` ontology / `xrdr:` resource for X-ray diffraction data; the
+  `sd:`/`sdr:` appearing in examples belong to an unrelated example dataset —
+  do not copy them), plus reused prefixes (`schema:`, `dcterms:`, `bibo:`,
+  `prov:`)
 - For each entity class, give the IRI template using the **uniqueness
   statistics** from the inspection (★ trap T1 — pick the smallest globally
   unique composite key)

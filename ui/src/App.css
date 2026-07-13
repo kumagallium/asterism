@@ -5644,3 +5644,82 @@ button.ds-artifact:disabled {
   color: var(--faint);
   margin: 0.4rem 0 0;
 }
+
+/* ---- skeleton gate: deterministic evidence (uniqueness / previews / fixes) ---- */
+.skeleton-gate-revalidating {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.74rem;
+  color: var(--muted);
+  margin: 0.2rem 0 0.5rem;
+}
+.skeleton-gate-row td {
+  border-bottom: none; /* the evidence row below carries the divider */
+}
+.skeleton-evidence-row td {
+  padding: 0 0.6rem 0.7rem;
+}
+.skeleton-evidence {
+  border-left: 3px solid var(--border);
+  padding: 0.1rem 0 0.1rem 0.65rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.skeleton-evidence-line {
+  margin: 0;
+  font-size: 0.76rem;
+}
+.skeleton-evidence-ok {
+  color: var(--success-fg);
+  font-weight: 600;
+}
+.skeleton-evidence-bad {
+  color: var(--warn-fg);
+  font-weight: 600;
+}
+.skeleton-evidence-warn {
+  color: var(--warn-fg);
+}
+.skeleton-evidence-muted {
+  color: var(--muted);
+}
+.skeleton-evidence-label {
+  display: block;
+  font-size: 0.66rem;
+  color: var(--faint);
+  margin-bottom: 0.2rem;
+}
+.skeleton-evidence-previews {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.skeleton-evidence-id {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  background: var(--surface-alt);
+  border-radius: 3px;
+  padding: 0.06rem 0.3rem;
+  width: fit-content;
+  max-width: 100%;
+  word-break: break-all;
+}
+.skeleton-evidence-candidates {
+  margin-top: 0.15rem;
+}
+.skeleton-candidate-chip {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--primary);
+  background: var(--primary-soft);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  padding: 0.18rem 0.6rem;
+  margin: 0 0.35rem 0.25rem 0;
+  cursor: pointer;
+}
+.skeleton-candidate-chip:hover {
+  background: var(--primary-softer);
+}

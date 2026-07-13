@@ -77,6 +77,7 @@ from asterism_step0.materialize import (
 )
 from asterism_step0.propose import LLMClient
 from asterism_step0.refine import refine_schema
+from asterism_step0.skeleton_annotate import annotate_skeleton
 from asterism_step0.staged_propose import propose_skeleton
 from asterism_step0.validate import SchemaBundle, validate_schema
 from fastapi import (
@@ -2331,6 +2332,20 @@ def build_app(
                     dialects=dialect_overrides,
                 )
                 _record_llm_usage(cfg.registry_root, "propose", provider, llm, model)
+                # Deterministic evidence for the human gate (LLM-free): key
+                # uniqueness / collisions / real ID previews / fix candidates,
+                # computed against the SAME dialect-read sources. Best-effort —
+                # a failure here must never cost the (paid) skeleton itself.
+                try:
+                    annotations = await asyncio.to_thread(
+                        annotate_skeleton,
+                        result.skeleton,
+                        list(paths),
+                        dialects=dialect_overrides,
+                    )
+                except Exception as exc:  # pragma: no cover — defensive
+                    logger.warning("skeleton annotation failed: %s", exc)
+                    annotations = None
             finally:
                 shutil.rmtree(tmpdir, ignore_errors=True)
             return {
@@ -2338,11 +2353,56 @@ def build_app(
                 "inspection_md": result.csv_inspection_md,
                 "metadata": result.metadata,
                 "source_files": [p.name for p in paths],
+                "annotations": annotations,
             }
 
         jobs: JobManager = app.state.jobs
         job_id = jobs.start_coro(skeleton_job)
         return JSONResponse({"job_id": job_id}, status_code=202)
+
+    @app.post("/api/propose/skeleton/validate")
+    async def validate_skeleton_endpoint(
+        files: list[UploadFile] = File(
+            ..., description="The same source file(s) the skeleton was generated from"
+        ),
+        skeleton: str = Form(..., description="The (possibly edited) skeleton as a JSON object"),
+        dialects: str = Form(
+            default="",
+            description="Per-source read-dialect overrides as JSON (ADR source-dialect.md).",
+        ),
+    ) -> dict[str, object]:
+        """Deterministic gate evidence for an EDITED skeleton — no LLM, no job.
+
+        The skeleton gate calls this after a human edits a subject key or class,
+        so a typo'd column or a key that collapses rows is caught in
+        milliseconds, not after the (minutes-long, paid) continue run. Same
+        computation the initial skeleton response ships in ``annotations``;
+        stateless like /api/propose/continue (the source rides the request)."""
+        if not files:
+            raise HTTPException(400, "no files uploaded")
+        try:
+            skeleton_obj = json.loads(skeleton)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(400, f"skeleton is not valid JSON: {exc}") from exc
+        if not isinstance(skeleton_obj, dict):
+            raise HTTPException(400, "skeleton must be a JSON object")
+        dialect_overrides = _parse_dialect_overrides(dialects)
+
+        tmpdir = tempfile.mkdtemp(prefix="asterism-skelcheck-")
+        try:
+            paths: list[Path] = []
+            for upload in files:
+                if upload.filename is None:
+                    raise HTTPException(400, "missing filename")
+                dest = Path(tmpdir) / _sanitize_tabular_name(upload.filename)
+                await _save_upload(upload, dest)
+                paths.append(dest)
+            annotations = await asyncio.to_thread(
+                annotate_skeleton, skeleton_obj, paths, dialects=dialect_overrides
+            )
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+        return {"annotations": annotations}
 
     @app.post("/api/propose/continue")
     async def propose_continue_endpoint(

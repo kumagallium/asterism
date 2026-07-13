@@ -203,11 +203,44 @@ export interface MappingSkeleton {
   maps: SkeletonMap[]
 }
 
+/** Deterministic gate evidence for ONE skeleton map (LLM-free, server-computed):
+ *  does the chosen key really give every row its own ID, shown with real data. */
+export interface SkeletonMapAnnotation {
+  /** False when the key could not be tested (reason says why). */
+  checkable: boolean
+  reason?: string
+  key_columns?: string[]
+  missing_columns?: string[]
+  undeclared_prefixes: string[]
+  expanded_template?: string
+  expanded_classes: { curie: string; iri: string }[]
+  total_rows?: number
+  rows_considered?: number
+  distinct_ids?: number
+  colliding_rows?: number
+  is_unique?: boolean
+  collision_examples?: {
+    key_values: Record<string, string>
+    row_count: number
+    line_numbers: number[]
+  }[]
+  /** Real IDs minted from the first rows (prefix-expanded). */
+  id_previews?: string[]
+  /** Proven-unique column combinations (one-click fix candidates). */
+  key_candidates?: { columns: string[]; rows_considered: number; measurement_only: boolean }[]
+}
+
+export interface SkeletonAnnotations {
+  maps: Record<string, SkeletonMapAnnotation>
+}
+
 /** Result payload carried by the SSE `done` event for a skeleton job. */
 export interface SkeletonResult {
   skeleton: MappingSkeleton
   inspection_md: string
   metadata: Record<string, unknown>
+  /** Best-effort: null when the server-side evidence pass failed. */
+  annotations?: SkeletonAnnotations | null
 }
 
 export interface SkeletonHandlers {
@@ -289,6 +322,28 @@ export async function proposeContinue(
   const { job_id } = (await res.json()) as { job_id: string }
   handlers.onStart?.(job_id)
   return subscribeJob(job_id, handlers)
+}
+
+/**
+ * Re-compute the skeleton gate's deterministic evidence for an EDITED skeleton.
+ * No LLM, no job — a plain synchronous call (typically <1s), so the gate can
+ * re-check a hand-edited key/class while the human is still looking at it.
+ */
+export async function validateSkeleton(
+  files: File[],
+  skeleton: MappingSkeleton,
+  dialects?: Record<string, SourceDialect>,
+): Promise<SkeletonAnnotations> {
+  const form = new FormData()
+  for (const file of files) form.append('files', file)
+  form.append('skeleton', JSON.stringify(skeleton))
+  appendDialects(form, dialects)
+  const res = await fetch('/api/propose/skeleton/validate', { method: 'POST', body: form })
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '')
+    throw new Error(`skeleton validate failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
+  }
+  return ((await res.json()) as { annotations: SkeletonAnnotations }).annotations
 }
 
 /** Result payload carried by the SSE `done` event for a refine job. */
