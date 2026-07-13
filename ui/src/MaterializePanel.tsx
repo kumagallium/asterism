@@ -1,12 +1,17 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import {
+  IngestCancelledError,
+  type IngestJobHandle,
   type IngestProgress,
   type IngestResult,
   type MaterializeResult,
+  StaleIngestJobError,
+  startIngestJob,
+  resumeIngestJob,
   type TrapResult,
-  ingestDataset,
 } from './api'
+import { clearIngestJob, loadIngestJob, saveIngestJob } from './ingestJob'
 import { IngestProgressView } from './IngestProgressView'
 
 const STATUS_GLYPH: Record<TrapResult['status'], string> = {
@@ -132,6 +137,49 @@ function IngestGate({ result, csvFiles }: { result: MaterializeResult; csvFiles:
   const [progress, setProgress] = useState<IngestProgress | null>(null)
   const [done, setDone] = useState<IngestResult | null>(null)
   const [err, setErr] = useState('')
+  const [cancelled, setCancelled] = useState(false)
+  const [job, setJob] = useState<IngestJobHandle | null>(null)
+  const [lastPulseAt, setLastPulseAt] = useState<number | null>(null)
+
+  // Reload recovery: the materialize result (incl. dataset id) survives in the
+  // workbench snapshot, so after a reload this gate re-renders for the SAME
+  // dataset — re-attach to its saved in-flight ingest job (SSE replay).
+  useEffect(() => {
+    if (!datasetId) return
+    const saved = loadIngestJob()
+    if (!saved || saved.kind !== 'ingest' || saved.datasetId !== datasetId) return
+    const handle = resumeIngestJob(saved.jobId, datasetId, setProgress, () =>
+      setLastPulseAt(Date.now()),
+    )
+    void track(handle)
+    return () => handle.close()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [datasetId])
+
+  async function track(handle: IngestJobHandle) {
+    if (!datasetId) return
+    saveIngestJob({ jobId: handle.jobId, datasetId, kind: 'ingest' })
+    setJob(handle)
+    setBusy(true)
+    setErr('')
+    setCancelled(false)
+    try {
+      setDone(await handle.result)
+    } catch (e) {
+      if (e instanceof IngestCancelledError) {
+        setCancelled(true)
+        setProgress(null)
+      } else if (e instanceof StaleIngestJobError) {
+        setProgress(null)
+      } else {
+        setErr(e instanceof Error ? e.message : String(e))
+      }
+    } finally {
+      clearIngestJob(handle.jobId)
+      setJob(null)
+      setBusy(false)
+    }
+  }
 
   if (!rml) {
     return (
@@ -149,11 +197,14 @@ function IngestGate({ result, csvFiles }: { result: MaterializeResult; csvFiles:
     setBusy(true)
     setErr('')
     setProgress(null)
+    setCancelled(false)
     try {
-      setDone(await ingestDataset(datasetId, csvFiles, setProgress))
+      const handle = await startIngestJob(datasetId, csvFiles, setProgress, () =>
+        setLastPulseAt(Date.now()),
+      )
+      await track(handle)
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
-    } finally {
       setBusy(false)
     }
   }
@@ -182,7 +233,14 @@ function IngestGate({ result, csvFiles }: { result: MaterializeResult; csvFiles:
           <button type="button" onClick={onIngest} disabled={!canIngest}>
             {busy ? t('workbench:ingest.ingesting') : t('workbench:ingest.approve')}
           </button>
-          {busy && <IngestProgressView progress={progress} />}
+          {busy && (
+            <IngestProgressView
+              progress={progress}
+              onCancel={job ? job.cancel : undefined}
+              lastPulseAt={lastPulseAt}
+            />
+          )}
+          {cancelled && <p className="ingest-hint">{t('workbench:ingest.cancelled')}</p>}
           {!datasetId && <p className="ingest-hint">{t('workbench:ingest.notSaved')}</p>}
           {datasetId && csvFiles.length === 0 && (
             <p className="ingest-hint">{t('workbench:ingest.needCsv')}</p>

@@ -114,7 +114,8 @@ export function JobsView() {
                     </code>
                   </td>
                   <td className="num">
-                    {j.rows_ok}/{j.rows_in}
+                    {/* ingest/append レコードは行数を持たない — 0/0 でなく — を出す */}
+                    {j.rows_in > 0 ? `${j.rows_ok}/${j.rows_in}` : '—'}
                     {j.rows_err > 0 && (
                       <span className="job-err-count">{t('jobs:errCount', { n: j.rows_err })}</span>
                     )}

@@ -57,6 +57,16 @@ from asterism.rml_validate import design_review_notes as design_review_notes
 from asterism.rml_validate import validate_rml_design as validate_rml_design
 from asterism.tabularize import sanitize_csv_columns, tabularize_json_to_csv
 
+
+class IngestCancelledError(RuntimeError):
+    """Raised at a cooperative cancel checkpoint inside the ingest pipeline.
+
+    A plain ``Exception`` subclass on purpose: the api's ingest job wraps its
+    upload phase in an ``except``-and-reclaim block, so a cancel raised between
+    chunks reuses the exact same partial-graph rollback as any other failure.
+    """
+
+
 # Draft graphs live under /graph/draft/<id>, trivially distinguishable from the
 # canonical per-kind graphs (.../graph/curves, .../graph/papers, ...).
 GRAPH_BASE = "https://kumagallium.github.io/asterism/starrydata/graph/"
@@ -582,6 +592,51 @@ async def ingest_graph_to_oxigraph(
 DEFAULT_CHUNK_LINES = 50_000
 
 
+def _run_cli_cancellable(
+    cmd: list[str],
+    *,
+    work_dir: Path,
+    should_cancel: Callable[[], bool] | None = None,
+    poll_seconds: float = 0.5,
+) -> tuple[int, str]:
+    """Run ``cmd``, polling ``should_cancel`` between short waits; return
+    ``(returncode, stderr_text)``.
+
+    ``subprocess.run`` blocks unkillably for the whole run, so a cooperative
+    cancel could only take effect after a (potentially minutes-long) Morph-KGC
+    materialization finished. Popen + poll lets the checkpoint fire mid-run: on
+    cancel the subprocess is terminated (killed after a 5s grace) and
+    :class:`IngestCancelledError` is raised. Output goes to files under
+    ``work_dir`` — PIPE + a poll loop would deadlock once a pipe buffer fills.
+    """
+    out_log = work_dir / "cli.stdout"
+    err_log = work_dir / "cli.stderr"
+    with out_log.open("wb") as fout, err_log.open("wb") as ferr:
+        proc = subprocess.Popen(cmd, stdout=fout, stderr=ferr)
+        try:
+            while True:
+                try:
+                    returncode = proc.wait(timeout=poll_seconds)
+                    break
+                except subprocess.TimeoutExpired:
+                    if should_cancel is not None and should_cancel():
+                        proc.terminate()
+                        try:
+                            proc.wait(timeout=5)
+                        except subprocess.TimeoutExpired:
+                            proc.kill()
+                            proc.wait()
+                        raise IngestCancelledError("materialization cancelled") from None
+        except BaseException:
+            # Never leave the subprocess running past this call (e.g. the caller's
+            # thread is being torn down); best-effort kill, then re-raise.
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait()
+            raise
+    return returncode, err_log.read_text(encoding="utf-8", errors="replace")
+
+
 def materialize_to_nt_file(
     rml_ttl: str,
     csv_dir: Path | str,
@@ -589,6 +644,7 @@ def materialize_to_nt_file(
     udfs_path: Path | str | None = None,
     work_dir: Path | str | None = None,
     run_id: str | None = None,
+    should_cancel: Callable[[], bool] | None = None,
 ) -> Path:
     """Run Morph-KGC and write the triples to an N-Triples file; return its path.
 
@@ -602,7 +658,11 @@ def materialize_to_nt_file(
     :class:`RmlSafetyError` if the mapping references non-Tier-0 code or an
     out-of-bounds source (validated fail-closed before Morph-KGC is invoked), or
     :class:`RmlValidationError` if a referenced column is absent from its CSV or a
-    function execution has a wrong/missing parameter (a structured ``issues`` list).
+    function execution has a wrong/missing parameter (a structured ``issues``
+    list). ``should_cancel`` (optional) is polled while the Morph-KGC subprocess
+    runs; when it reports True the subprocess is terminated and
+    :class:`IngestCancelledError` is raised — a long materialization is the one
+    stretch of the ingest job a cooperative checkpoint could not otherwise reach.
     """
     try:
         import morph_kgc  # noqa: F401  (presence check; the CLI does the work)
@@ -645,15 +705,15 @@ def materialize_to_nt_file(
         encoding="utf-8",
     )
     # The vetted Morph-KGC CLI on a declarative config (no generated code).
-    proc = subprocess.run(
+    returncode, stderr_text = _run_cli_cancellable(
         [sys.executable, "-m", "morph_kgc", str(config_file)],
-        capture_output=True,
-        text=True,
+        work_dir=work,
+        should_cancel=should_cancel,
     )
-    if proc.returncode != 0:
-        tail = "\n".join((proc.stderr or "").strip().splitlines()[-5:])
+    if returncode != 0:
+        tail = "\n".join(stderr_text.strip().splitlines()[-5:])
         raise RuntimeError(
-            f"Morph-KGC materialization failed (exit {proc.returncode}): {tail}"
+            f"Morph-KGC materialization failed (exit {returncode}): {tail}"
         )
     # A 0-triple result may leave no file; the contract is "path to an .nt file".
     out.touch(exist_ok=True)
@@ -676,13 +736,19 @@ async def stream_nt_file_to_oxigraph(
     *,
     chunk_lines: int = DEFAULT_CHUNK_LINES,
     on_progress: Callable[[int, int], None] | None = None,
+    should_cancel: Callable[[], bool] | None = None,
 ) -> int:
     """Load an N-Triples file into ``graph_iri`` in row-chunked ``/store`` POSTs.
 
     Bounded memory (one chunk in flight). Each chunk is valid Turtle (N-Triples is
     a Turtle subset), posted via ``post_turtle_bytes`` whose Graph Store POST
     *appends*, so the chunks accumulate in the same graph. ``on_progress(done,
-    total)`` is called after each chunk (for SSE progress). Returns triples loaded.
+    total)`` is called after each chunk (for SSE progress). ``should_cancel``
+    (optional) is polled at each chunk boundary — the upload of a multi-million-
+    triple dataset is the dominant stretch of an ingest job, so this is where a
+    cooperative cancel gets its responsiveness; a pending cancel raises
+    :class:`IngestCancelledError` *before* the next POST (the caller reclaims the
+    partial graph). Returns triples loaded.
     """
     path = Path(nt_path)
     total = count_nt_lines(path)
@@ -697,6 +763,8 @@ async def stream_nt_file_to_oxigraph(
         nonlocal done, buf
         if not buf:
             return
+        if should_cancel is not None and should_cancel():
+            raise IngestCancelledError("upload cancelled")
         await client.post_turtle_bytes(b"".join(buf), graph_iri=graph_iri)
         done += len(buf)
         buf = []

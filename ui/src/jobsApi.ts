@@ -33,12 +33,15 @@ function normalizeJob(raw: unknown): IngestJob {
   const str = (v: unknown) => (typeof v === 'string' ? v : '')
   return {
     kind: str(r.kind),
-    csv_path: str(r.csv_path),
+    // Watcher records carry csv_path; append/ingest records carry `file` (a
+    // name or comma list) — fall back so the file column is never blank.
+    csv_path: str(r.csv_path) || str(r.file),
     ttl_path: typeof r.ttl_path === 'string' ? r.ttl_path : null,
     rows_in: num(r.rows_in),
     rows_ok: num(r.rows_ok),
     rows_err: num(r.rows_err),
-    triples_out: num(r.triples_out),
+    // Watcher: triples_out; ingest: triples; append: triples_in_batch.
+    triples_out: num(r.triples_out) || num(r.triples) || num(r.triples_in_batch),
     bytes_uploaded: num(r.bytes_uploaded),
     status: str(r.status) || 'unknown',
     error: typeof r.error === 'string' ? r.error : null,
