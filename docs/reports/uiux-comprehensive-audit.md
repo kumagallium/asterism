@@ -107,12 +107,20 @@ Asterism Web UI は、デザインガイドライン（forest 単一テーマ・
 
 ### 未修正（別途・API 変更を伴う）
 
-- **ingest / 文書取り込みのキャンセル・リロード復旧**（中）: propose/refine にある機構
-  （cancel + SSE replay）を ingest 系ジョブへ拡張する（要 API 変更）。
+- **ingest / 文書取り込みのキャンセル・リロード復旧**（中）→ 対応済み
+  （`feat/ingest-job-cancel-replay`）: ingest_job に協調キャンセル・チェックポイント
+  （文書毎 / PDF 毎 / Morph-KGC subprocess poll / アップロードチャンク毎 / コミット直前
+  ゲート）を挿入し、キャンセルは既存の失敗パス（chunked_drop_graph）で部分 version
+  graph を即時回収。UI は job_id を sessionStorage に永続化し、リロード後に SSE replay
+  で再購読（IngestControl / ReingestControl / IngestGate / DocumentPanel）＋キャンセル
+  ボタン＋heartbeat 生存表示。実機で「取り込み中リロード→busy 復元→キャンセル→
+  部分グラフ回収」まで実証。
 - **共有の語彙の consumers に設計中 DS が並ぶ**（低・要確認）: 集計は canonical のみ
   注記済みだが、リスト対象の整合は再確認したい。
-- アクティビティに Workbench 取り込みも記録する（jobs.jsonl へ kind:"ingest"）—
-  文言は実態に合わせて修正済みだが、記録自体を増やす方が本筋（要 API 変更）。
+- アクティビティに Workbench 取り込みも記録する（jobs.jsonl へ kind:"ingest"）→
+  対応済み（同上）: ingest ジョブの ok / error / cancelled を記録し、手動 append・
+  文書 append も kind:"append" で記録。アクティビティ画面は ingest/append レコードの
+  ファイル名・triples を表示（行数なしは「—」）。
 
 ## Conclusion
 
