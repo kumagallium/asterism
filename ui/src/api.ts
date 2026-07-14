@@ -437,6 +437,13 @@ export interface TrapResult {
   name: string
   status: 'pass' | 'fail' | 'warn' | 'skip'
   detail: string
+  /**
+   * Deterministic repair recipe issued by the failing check itself (where +
+   * what shape + a paste-ready example derived from the design). English,
+   * AI-directed: composeFixComment forwards it verbatim to the one-click fix.
+   * Empty/absent on pass/skip.
+   */
+  fix?: string
 }
 
 /** Error carrying the HTTP status so callers can branch (e.g. 404 → recreate). */

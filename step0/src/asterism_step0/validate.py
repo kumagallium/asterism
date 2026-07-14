@@ -22,7 +22,11 @@ The traps and how this module checks each:
   ``len(g.bnodes())`` is zero. Also grep the ingester for ``BNode(``.
 * **T4 MIE keywords / categories** — YAML parse the MIE; require
   ``schema_info.keywords`` and ``schema_info.categories`` lists with ≥ 5
-  entries each, and a configurable Japanese/synonym subset.
+  entries each, and a configurable Japanese/synonym subset. On failure the
+  trap emits a paste-ready ``schema_info`` fix recipe whose keyword candidates
+  are derived deterministically from the design itself (title words, Mermaid
+  class names, §9 mapping-spec map/class/column names, RML class/reference
+  names, CSV stems/headers) — domain-independent by construction.
 * **T5 Mermaid classDiagram syntax** — parse Mermaid blocks in the diagram doc.
   A colon in a relation label is a blocking ``fail`` (GitHub / mermaid.js both
   choke). A best-effort ``classDiagram`` lint (diagram header, class-name
@@ -48,7 +52,9 @@ or ``ingest/src/asterism/``.
 """
 from __future__ import annotations
 
+import contextlib
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -70,6 +76,12 @@ class TrapResult:
     status: str  # "pass" | "fail" | "warn" | "skip"
     detail: str  # human-readable explanation
     evidence: list[str] = field(default_factory=list)  # supporting paths/quotes
+    fix: str = ""
+    """Deterministic repair recipe, set by the check itself on an actionable
+    fail/warn (empty on pass/skip). Says WHERE (design section + YAML path),
+    WHAT SHAPE, and — where derivable from the design — a paste-ready example.
+    Written for the one-click "ask AI to fix" flow: the 2026-07-14 live T4
+    incident showed a symptom-only detail loops weak models forever."""
 
     @property
     def passed(self) -> bool:
@@ -118,6 +130,7 @@ class SchemaBundle:
     mie_yaml: Path | None = None  # data/togomcp/mie/{name}.yaml
     ingester_py: Path | None = None  # ingest/src/asterism/{name}.py
     rml_ttl: Path | None = None  # {name}-mapping.rml.ttl (declarative substrate, T9)
+    mapping_ir_yaml: Path | None = None  # {name}-mapping.yaml (§9 spec; feeds T4's fix)
     source_csvs: list[Path] = field(default_factory=list)
     fk_hint_columns: list[str] = field(default_factory=list)
 
@@ -282,6 +295,41 @@ def _pick_csv_for_key(
     return matching[0]
 
 
+# Fix recipes (T1). Deterministic, domain-independent: they name the design
+# section + YAML path to edit and the shape to paste; the colliding entity and
+# its current key columns are inlined from the check's own findings.
+_T1_FIX_NO_TEMPLATE = (
+    "Declare each entity's IRI template so uniqueness can be checked: in §9 (mapping "
+    "spec) give every map a `subject.template` built from source key column(s) — "
+    'placeholders in braces, e.g. "prefix:entity/{keyColumn}" — and mirror it in §2 '
+    "(IRI scheme)."
+)
+_T1_FIX_UNMATCHED = (
+    "The IRI template placeholders do not match any source file's header columns. In §9 "
+    "(mapping spec) `subject.template`, use column names EXACTLY as the source header "
+    "spells them (case-sensitive); do not invent or rename columns."
+)
+
+
+def _t1_fix_collisions(failed_keys: list[tuple[str, tuple[str, ...]]]) -> str:
+    lines = [
+        "In §9 (mapping spec), find the map that mints each entity below and extend its "
+        "`subject.template` with additional source column(s) — composite form "
+        '"prefix:entity/{colA}-{colB}" — until the combination is unique across the '
+        "source rows; update the matching §2 (IRI scheme) template to stay consistent:"
+    ]
+    for entity, key in failed_keys:
+        lines.append(
+            f"- {entity}: the current key ({', '.join(key)}) collides — add a "
+            "discriminating column from the same source file's header."
+        )
+    lines.append(
+        "Use only real header columns (the workbench skeleton gate lists verified-unique "
+        "candidate key combinations as chips)."
+    )
+    return "\n".join(lines)
+
+
 def _check_t1_uniqueness(bundle: SchemaBundle) -> TrapResult:
     if not bundle.source_csvs:
         return TrapResult(
@@ -309,6 +357,7 @@ def _check_t1_uniqueness(bundle: SchemaBundle) -> TrapResult:
             "warn",
             detail + " (no sdr:<entity>/{...} patterns).",
             evidence=notes,
+            fix=_T1_FIX_NO_TEMPLATE,
         )
 
     # Cache each CSV's rows — the same file backs several candidate keys.
@@ -320,6 +369,7 @@ def _check_t1_uniqueness(bundle: SchemaBundle) -> TrapResult:
         return row_cache[path]
 
     failures: list[str] = []
+    failed_keys: list[tuple[str, tuple[str, ...]]] = []
     passes: list[str] = []
     for (entity, key), sources in candidates.items():
         src = "; ".join(sources)
@@ -339,6 +389,7 @@ def _check_t1_uniqueness(bundle: SchemaBundle) -> TrapResult:
                 f"({report.distinct_tuples:,} of "
                 f"{report.total_rows_considered:,} rows distinct)"
             )
+            failed_keys.append((entity, key))
 
     if failures:
         return TrapResult(
@@ -347,6 +398,7 @@ def _check_t1_uniqueness(bundle: SchemaBundle) -> TrapResult:
             "fail",
             f"{len(failures)} composite key(s) collide in source CSVs.",
             evidence=failures + passes + notes,
+            fix=_t1_fix_collisions(failed_keys),
         )
     if not passes:
         return TrapResult(
@@ -355,6 +407,7 @@ def _check_t1_uniqueness(bundle: SchemaBundle) -> TrapResult:
             "warn",
             "Derived IRI key(s) could not be matched to any source CSV's columns.",
             evidence=notes,
+            fix=_T1_FIX_UNMATCHED,
         )
     return TrapResult(
         "T1",
@@ -371,6 +424,13 @@ def _check_t1_uniqueness(bundle: SchemaBundle) -> TrapResult:
 
 
 _BOM_BYTE = b"\xef\xbb\xbf"
+
+# Fix recipe (T2): where (§8 ingester) + the exact call shape to paste.
+_T2_FIX = (
+    "In §8 (ingester), open every source file with `encoding=\"utf-8-sig\"` — e.g. "
+    '`open(path, encoding="utf-8-sig", newline="")` — replacing any plain `utf-8` open. '
+    "utf-8-sig strips a leading BOM so it can never leak into the first column name."
+)
 
 
 def _check_t2_bom(bundle: SchemaBundle) -> TrapResult:
@@ -402,6 +462,7 @@ def _check_t2_bom(bundle: SchemaBundle) -> TrapResult:
             "fail",
             "Ingester missing utf-8-sig — BOM may leak into column names.",
             evidence=issues + evidence,
+            fix=_T2_FIX,
         )
     if not bundle.ingester_py:
         return TrapResult("T2", "BOM", "skip", "No ingester to check.")
@@ -417,6 +478,17 @@ def _check_t2_bom(bundle: SchemaBundle) -> TrapResult:
 # ----------------------------------------------------------------------------
 # Trap T3: bnode-free
 # ----------------------------------------------------------------------------
+
+
+# Fix recipe (T3): every anonymous node gets a stable IRI template instead.
+_T3_FIX = (
+    "Give every entity a stable IRI instead of a blank node: in §9 (mapping spec) every "
+    "map's `subject` needs a `template:` (or `constant:`); declare the per-class IRI "
+    "template in §2 (IRI scheme); remove every `BNode()` call from §8 (ingester); and "
+    "avoid TBox constructs that create anonymous nodes (e.g. owl:Restriction cardinality "
+    "blocks — state cardinality in §6 model.yaml instead). Blank nodes break re-ingest "
+    "idempotency."
+)
 
 
 def _check_t3_bnode_free(bundle: SchemaBundle) -> TrapResult:
@@ -458,6 +530,7 @@ def _check_t3_bnode_free(bundle: SchemaBundle) -> TrapResult:
             "fail",
             "Blank nodes break re-ingest idempotency (Phase 1 design-rationale §2).",
             evidence=issues + evidence,
+            fix=_T3_FIX,
         )
     return TrapResult(
         "T3",
@@ -475,6 +548,14 @@ def _check_t3_bnode_free(bundle: SchemaBundle) -> TrapResult:
 
 _MIN_KEYWORDS = 5
 _MIN_CATEGORIES = 1
+
+# Fix recipe (broken §7 YAML — shared by T4/T6/T7 via _mie_broken).
+_MIE_BROKEN_FIX = (
+    "Re-emit the WHOLE §7 (MIE YAML extras) block as valid YAML — the file must parse "
+    "before any content check can run. Common causes: an unterminated quoted string, a "
+    "bare `:` or `#` inside an unquoted value (quote the value), inconsistent "
+    "indentation, tab characters."
+)
 
 
 def _load_mie_yaml(bundle: SchemaBundle) -> tuple[object, str | None]:
@@ -500,7 +581,169 @@ def _mie_broken(trap_id: str, name: str, bundle: SchemaBundle, err: str) -> Trap
         name,
         "fail",
         f"{bundle.mie_yaml.name} is not parseable YAML — fix §7 (MIE YAML) first: {err}",
+        fix=_MIE_BROKEN_FIX,
     )
+
+
+# --- T4 fix-recipe derivation -------------------------------------------------
+#
+# The recipe's keyword candidates come from the DESIGN ITSELF (title words,
+# Mermaid class names, §9 mapping-spec map/class/column names, RML class /
+# reference local names, CSV stems/headers) — deterministic and domain-
+# independent by construction: no hardcoded vocabulary of any field. When the
+# design yields ≥ 5 terms the emitted YAML block alone satisfies T4 (tested by
+# parsing the recipe); when it yields fewer, the recipe states exactly how many
+# terms the author must add — it never invents domain words to pad the list.
+
+_T4_MAX_KEYWORDS = 8  # keep the paste block a curated shortlist, not a dump
+_T4_TERM = re.compile(r"[^\W\d_][\w-]*")  # a word that starts with a letter
+_MERMAID_CLASS_DECL = re.compile(r"^\s*class\s+([A-Za-z_][A-Za-z0-9_]*)", re.MULTILINE)
+_RML_CLASS = re.compile(r"\brr:class\s+<?([^\s;.\]>]+)>?")
+_RML_REFERENCE = re.compile(r'\brml:reference\s+"([^"]+)"')
+# Line-shape fallbacks for a §9 spec that does not even parse as YAML (that
+# broken state is exactly when the recipe is needed most).
+_IR_SCALAR_LINE = re.compile(
+    r"^\s*-?\s*(name|source|column|predicate):\s*\"?([^\"\n]+?)\"?\s*$", re.MULTILINE
+)
+_IR_FLOW_LIST = re.compile(r"^\s*(?:classes|columns):\s*\[([^\]]*)\]", re.MULTILINE)
+
+
+def _local_name(term: str) -> str:
+    """CURIE/IRI → local name (``xr:Card`` → ``Card``; plain names pass through)."""
+    return re.split(r"[:#/]", term.strip())[-1]
+
+
+def _terms_from_mapping_ir(text: str) -> list[str]:
+    """Keyword-candidate terms from a §9 mapping-spec text: map names, source
+    stems, subject-class local names, property columns, predicate local names.
+    Tolerant of broken YAML (regex fallback) — never raises."""
+    import yaml  # lazy
+
+    try:
+        doc = yaml.safe_load(text)
+    except Exception:
+        doc = None
+    terms: list[str] = []
+    if isinstance(doc, Mapping) and isinstance(doc.get("maps"), list):
+        for m in doc["maps"]:
+            if not isinstance(m, Mapping):
+                continue
+            if isinstance(m.get("name"), str):
+                terms.append(m["name"])
+            if isinstance(m.get("source"), str):
+                terms.append(Path(m["source"]).stem)
+            subject = m.get("subject")
+            if isinstance(subject, Mapping) and isinstance(subject.get("classes"), list):
+                terms += [_local_name(c) for c in subject["classes"] if isinstance(c, str)]
+            if isinstance(m.get("properties"), list):
+                for p in m["properties"]:
+                    if not isinstance(p, Mapping):
+                        continue
+                    if isinstance(p.get("predicate"), str):
+                        terms.append(_local_name(p["predicate"]))
+                    if isinstance(p.get("column"), str):
+                        terms.append(p["column"])
+                    if isinstance(p.get("columns"), list):
+                        terms += [c for c in p["columns"] if isinstance(c, str)]
+        return terms
+    for key, val in _IR_SCALAR_LINE.findall(text):
+        if key == "source":
+            terms.append(Path(val).stem)
+        elif key == "predicate":
+            terms.append(_local_name(val))
+        else:
+            terms.append(val)
+    for body in _IR_FLOW_LIST.findall(text):
+        terms += [_local_name(v.strip().strip("\"'")) for v in body.split(",") if v.strip()]
+    return terms
+
+
+def _t4_candidate_terms(bundle: SchemaBundle, schema_info: Mapping) -> list[str]:
+    """All derivable keyword candidates, in source-priority order (title words
+    first, CSV header columns last). File problems are silently skipped — the
+    recipe generator must never crash a trap check."""
+    terms: list[str] = []
+    title = schema_info.get("title") if isinstance(schema_info, Mapping) else None
+    if isinstance(title, str):
+        terms += _T4_TERM.findall(title)
+    if bundle.diagram_md:
+        with contextlib.suppress(OSError):
+            text = bundle.diagram_md.read_text(encoding="utf-8")
+            terms += _MERMAID_CLASS_DECL.findall(text)
+    if bundle.mapping_ir_yaml:
+        with contextlib.suppress(OSError):
+            terms += _terms_from_mapping_ir(bundle.mapping_ir_yaml.read_text(encoding="utf-8"))
+    if bundle.rml_ttl:
+        with contextlib.suppress(OSError):
+            rml_text = bundle.rml_ttl.read_text(encoding="utf-8")
+            terms += [_local_name(c) for c in _RML_CLASS.findall(rml_text)]
+            terms += _RML_REFERENCE.findall(rml_text)
+    terms += [p.stem for p in bundle.source_csvs]
+    with contextlib.suppress(Exception):  # unreadable/odd CSVs must not break the recipe
+        terms += _source_columns(bundle.source_csvs)
+    return terms
+
+
+def _t4_fix_recipe(bundle: SchemaBundle, schema_info: object, *, min_keywords: int) -> str:
+    """Build the paste-ready §7 ``schema_info`` repair recipe.
+
+    The emitted YAML preserves every existing ``schema_info`` field (a paste
+    must be lossless), keeps the author's keywords verbatim, then appends
+    derived candidates up to the cap. ``categories`` falls back to the generic
+    placeholder ``dataset`` (a placeholder is allowed; invented domain terms
+    are not).
+    """
+    import yaml  # lazy
+
+    info: dict = dict(schema_info) if isinstance(schema_info, Mapping) else {}
+    existing_keywords = list(info["keywords"]) if isinstance(info.get("keywords"), list) else []
+    categories = list(info["categories"]) if isinstance(info.get("categories"), list) else []
+    keywords = list(existing_keywords)  # the author's entries survive verbatim
+    seen = {str(k).strip().lower() for k in keywords}
+
+    if len(keywords) < min_keywords:
+        for term in _t4_candidate_terms(bundle, info):
+            if len(keywords) >= _T4_MAX_KEYWORDS:
+                break
+            t = term.strip().strip("_-")
+            if len(t) < 2 or not any(ch.isalpha() for ch in t) or t.lower() in seen:
+                continue
+            seen.add(t.lower())
+            keywords.append(t)
+
+    title = info.get("title")
+    if not (isinstance(title, str) and title.strip()):
+        stem = bundle.mie_yaml.stem if bundle.mie_yaml else "dataset"
+        title = re.sub(r"[-._]mie$", "", stem, flags=re.IGNORECASE) or stem
+    info["title"] = title
+    info["keywords"] = keywords
+    info["categories"] = categories if categories else ["dataset"]
+
+    block = yaml.safe_dump({"schema_info": info}, allow_unicode=True, sort_keys=False).rstrip()
+
+    intro = (
+        "Replace the `schema_info` block in §7 (MIE YAML extras) with the YAML below; "
+        "keep every other §7 key (sample_rdf_entries, sparql_query_examples, "
+        f"anti_patterns, architectural_notes) unchanged. T4 requires at least "
+        f"{min_keywords} entries in `schema_info.keywords` and at least "
+        f"{_MIN_CATEGORIES} in `schema_info.categories`."
+    )
+    if len(keywords) > len(existing_keywords):
+        intro += (
+            " The appended keyword candidates are derived from this design's own title, "
+            "class/map and column names — refine the wording freely, but keep the counts."
+        )
+    parts = [intro]
+    shortfall = min_keywords - len(keywords)
+    if shortfall > 0:
+        parts.append(
+            f"Only {len(keywords)} keyword(s) could be derived from the design itself — "
+            f"after pasting, add {shortfall} more short term(s) describing this data to "
+            "`schema_info.keywords` (words a searcher would type; do not leave the list "
+            "under the threshold)."
+        )
+    parts.append(block)
+    return "\n\n".join(parts)
 
 
 def _check_t4_keywords(bundle: SchemaBundle, *, min_keywords: int = _MIN_KEYWORDS) -> TrapResult:
@@ -516,6 +759,13 @@ def _check_t4_keywords(bundle: SchemaBundle, *, min_keywords: int = _MIN_KEYWORD
             "MIE keywords / categories",
             "fail",
             f"{bundle.mie_yaml.name} did not parse as a YAML mapping.",
+            fix=(
+                "The §7 (MIE YAML extras) block must be a YAML MAPPING (top-level "
+                "`key: value` sections such as `schema_info`, `sample_rdf_entries`, "
+                "`anti_patterns`), not a list or plain text. Rebuild it starting from "
+                "the block below, then re-add the other sections.\n\n"
+                + _t4_fix_recipe(bundle, {}, min_keywords=min_keywords)
+            ),
         )
     schema_info = data.get("schema_info") or {}
     keywords = schema_info.get("keywords") or []
@@ -538,6 +788,7 @@ def _check_t4_keywords(bundle: SchemaBundle, *, min_keywords: int = _MIN_KEYWORD
             "fail",
             "; ".join(issues) + " — AI discovery via find_databases will miss this dataset.",
             evidence=evidence,
+            fix=_t4_fix_recipe(bundle, schema_info, min_keywords=min_keywords),
         )
     return TrapResult(
         "T4",
@@ -745,6 +996,27 @@ def _lint_classdiagram(block: str) -> list[str]:
     return issues
 
 
+# Fix recipes (T5): the section is §1 (class diagram); the evidence lists the
+# exact offending labels/lines, so the recipes reference it.
+_T5_FIX_COLON = (
+    "In §1 (class diagram), rewrite each relation label listed in evidence WITHOUT the "
+    "colon — Mermaid reserves `:` as the label delimiter, so use the plain local name "
+    "(`Paper --> Sample : author`, never `Paper --> Sample : schema:author`; prefix→IRI "
+    "mapping belongs in §2)."
+)
+_T5_FIX_LINT = (
+    "In §1 (class diagram), fix each lint finding listed in evidence: class names may "
+    "use only letters/digits/underscore; relation arrows must be valid classDiagram "
+    "arrows (e.g. `-->`, `--|>`, `o--`, `..>`); member lines are space-separated "
+    "(`+name type`, no colon); double-quote any label containing brackets/parens."
+)
+_T5_FIX_NO_BLOCK = (
+    "Add a fenced ```mermaid code block containing a `classDiagram` to §1 (class "
+    "diagram): declare each entity class (`class Name`) and the relations between them "
+    "(`Child --> Parent : linkName`)."
+)
+
+
 def _check_t5_mermaid_escape(bundle: SchemaBundle) -> TrapResult:
     name = "Mermaid classDiagram syntax"
     if not bundle.diagram_md:
@@ -758,6 +1030,7 @@ def _check_t5_mermaid_escape(bundle: SchemaBundle) -> TrapResult:
             name,
             "warn",
             f"{bundle.diagram_md.name} has no ```mermaid fenced blocks.",
+            fix=_T5_FIX_NO_BLOCK,
         )
 
     bad_labels: list[str] = []  # colon-in-relation-label → FAIL
@@ -780,6 +1053,7 @@ def _check_t5_mermaid_escape(bundle: SchemaBundle) -> TrapResult:
             "GitHub / mermaid.js renderer will fail.",
             evidence=[f"Bad label: {lbl!r}" for lbl in bad_labels]
             + [f"lint: {issue}" for issue in lint_issues],
+            fix=_T5_FIX_COLON,
         )
     if lint_issues:
         return TrapResult(
@@ -789,6 +1063,7 @@ def _check_t5_mermaid_escape(bundle: SchemaBundle) -> TrapResult:
             f"{len(lint_issues)} classDiagram lint issue(s) — the UI may render "
             "this diagram as a broken 'bomb icon' (ingest/promote unaffected).",
             evidence=lint_issues,
+            fix=_T5_FIX_LINT,
         )
     return TrapResult(
         "T5",
@@ -805,6 +1080,19 @@ def _check_t5_mermaid_escape(bundle: SchemaBundle) -> TrapResult:
 
 # Match e.g. `sdr:paper/6`, `sdr:sample/6-113`, `sdr:curve/6-79-113`.
 _ABOX_IRI = re.compile(r"sdr:([a-zA-Z_]+)/([A-Za-z0-9._/-]+)")
+
+# Fix recipes (T6): examples must be verbatim copies of real source rows.
+_T6_FIX_FAKE = (
+    "In §7 (MIE YAML extras) `sample_rdf_entries`, replace each invented ID listed in "
+    "evidence with a value copied VERBATIM from a real source row (open the source file "
+    "and copy the key column's value character-for-character into the example IRI). "
+    "Never invent example IDs."
+)
+_T6_FIX_MISSING = (
+    "Add 1-3 `sample_rdf_entries` to §7 (MIE YAML extras), each with a `title:` and an "
+    "`rdf:` block showing real triples — build every example IRI from values copied "
+    "verbatim out of a real source row (never invented)."
+)
 
 
 def _check_t6_fake_iri(bundle: SchemaBundle) -> TrapResult:
@@ -825,6 +1113,7 @@ def _check_t6_fake_iri(bundle: SchemaBundle) -> TrapResult:
             "fake sample_rdf_entries",
             "warn",
             "MIE has no sample_rdf_entries — humans / AI lose grounding examples.",
+            fix=_T6_FIX_MISSING,
         )
 
     # Extract every sdr:<entity>/<key> IRI from every entry's `rdf:` block.
@@ -840,6 +1129,7 @@ def _check_t6_fake_iri(bundle: SchemaBundle) -> TrapResult:
             "fake sample_rdf_entries",
             "warn",
             "sample_rdf_entries exist but contain no sdr:<entity>/<key> IRIs.",
+            fix=_T6_FIX_MISSING,
         )
 
     # For each IRI, extract the first key component (the supposed primary ID)
@@ -865,6 +1155,7 @@ def _check_t6_fake_iri(bundle: SchemaBundle) -> TrapResult:
             "fail",
             f"{len(missing)} IRI(s) reference IDs absent from source CSVs (fake examples).",
             evidence=missing[:10],
+            fix=_T6_FIX_FAKE,
         )
     return TrapResult(
         "T6",
@@ -893,6 +1184,17 @@ _TRADEOFF_KEYWORDS = (
 )
 
 
+def _t7_fix(missing: list[str]) -> str:
+    """Recipe naming the exact missing rationale element(s) from the finding."""
+    return (
+        "In §7 (MIE YAML extras) `architectural_notes` (the summary of §5 Design "
+        f"rationale), add the missing element(s): {', '.join(missing)}. For each major "
+        "design decision write three lines — `Why:` (grounded in the source data), "
+        "`Alternatives:` (what you considered and rejected), `Trade-offs:` (the cost of "
+        "this choice and when to revisit it)."
+    )
+
+
 def _check_t7_rationale(bundle: SchemaBundle) -> TrapResult:
     if not bundle.mie_yaml:
         return TrapResult("T7", "Why / Alternatives / Trade-offs", "skip", "No MIE YAML.")
@@ -907,6 +1209,7 @@ def _check_t7_rationale(bundle: SchemaBundle) -> TrapResult:
             "Why / Alternatives / Trade-offs",
             "warn",
             "architectural_notes is empty — future maintainers won't know 'why'.",
+            fix=_t7_fix(["Why", "Alternatives", "Trade-offs"]),
         )
 
     text = notes.lower() if isinstance(notes, str) else str(notes).lower()
@@ -923,6 +1226,7 @@ def _check_t7_rationale(bundle: SchemaBundle) -> TrapResult:
             "warn",
             f"architectural_notes lacks: {', '.join(missing)}.",
             evidence=[f"present: Why={has_why}, Alt={has_alt}, Trade-offs={has_tradeoff}"],
+            fix=_t7_fix(missing),
         )
     return TrapResult(
         "T7",
@@ -969,6 +1273,25 @@ def _check_t8_hallucination(
 # ----------------------------------------------------------------------------
 
 
+# Fix recipes (T9): §9 may reference only the vetted Tier 0 closed set, and
+# humans/AI never hand-write RML — the deterministic compiler owns that syntax.
+_T9_FIX_CLOSED_SET = (
+    "In §9 (mapping spec), `function:` / `transform:` may name ONLY vetted Tier 0 "
+    "functions (the closed menu in the design instructions — bare names, no prefix). "
+    "For each out-of-set function listed in evidence: pick the closest Tier 0 function, "
+    "or drop the transform and map the column raw (`fallback: true` with the predicate "
+    "renamed `...Raw`). Never invent or hand-write a function."
+)
+_T9_FIX_UNPARSEABLE = (
+    "Do not hand-write RML/Turtle. Re-emit §9 as the YAML mapping spec "
+    "(version/prefixes/maps) and let the deterministic compiler produce the RML."
+)
+_T9_FIX_FILE_MISSING = (
+    "Re-run materialize so the §9 mapping spec is compiled to RML again, or point "
+    "--rml at the compiled mapping file."
+)
+
+
 def _check_t9_rml_closed_set(
     bundle: SchemaBundle,
     *,
@@ -985,7 +1308,13 @@ def _check_t9_rml_closed_set(
     if bundle.rml_ttl is None:
         return TrapResult("T9", name, "skip", "No --rml provided.")
     if not bundle.rml_ttl.exists():
-        return TrapResult("T9", name, "fail", f"RML file not found: {bundle.rml_ttl}")
+        return TrapResult(
+            "T9",
+            name,
+            "fail",
+            f"RML file not found: {bundle.rml_ttl}",
+            fix=_T9_FIX_FILE_MISSING,
+        )
 
     from .rml_check import load_registry_fn_iris, referenced_function_iris
 
@@ -1004,7 +1333,13 @@ def _check_t9_rml_closed_set(
     except ImportError:
         return TrapResult("T9", name, "skip", "rdflib not installed — cannot parse RML.")
     except Exception as exc:  # malformed Turtle
-        return TrapResult("T9", name, "fail", f"Could not parse RML Turtle: {exc}")
+        return TrapResult(
+            "T9",
+            name,
+            "fail",
+            f"Could not parse RML Turtle: {exc}",
+            fix=_T9_FIX_UNPARSEABLE,
+        )
 
     violations = sorted(used - allowed_fn_iris)
     if violations:
@@ -1012,6 +1347,7 @@ def _check_t9_rml_closed_set(
             "T9", name, "fail",
             f"{len(violations)} function IRI(s) outside the vetted Tier 0 set.",
             evidence=violations,
+            fix=_T9_FIX_CLOSED_SET,
         )
     return TrapResult(
         "T9", name, "pass",
@@ -1048,6 +1384,7 @@ def validate_schema(
         "mie_yaml": str(bundle.mie_yaml) if bundle.mie_yaml else "",
         "ingester_py": str(bundle.ingester_py) if bundle.ingester_py else "",
         "rml_ttl": str(bundle.rml_ttl) if bundle.rml_ttl else "",
+        "mapping_ir_yaml": str(bundle.mapping_ir_yaml) if bundle.mapping_ir_yaml else "",
         "source_csvs": ", ".join(str(p) for p in bundle.source_csvs),
     }
     return ValidationReport(results=results, bundle_paths=bundle_paths)
@@ -1079,6 +1416,16 @@ def render_report(report: ValidationReport) -> str:
             lines.append(f"### {r.trap_id} {r.name} — evidence")
             for line in r.evidence:
                 lines.append(f"- {line}")
+            lines.append("")
+    # Repair recipes last (additive: the table above is unchanged). Fenced so a
+    # multi-line recipe (e.g. T4's paste-ready YAML) survives Markdown rendering.
+    for r in report.results:
+        if r.fix:
+            lines.append(f"### {r.trap_id} {r.name} — suggested fix")
+            lines.append("")
+            lines.append("```")
+            lines.append(r.fix)
+            lines.append("```")
             lines.append("")
     if report.all_passed:
         summary = "all checks passed"
@@ -1115,6 +1462,12 @@ def _build_arg_parser():  # type: ignore[no-untyped-def]
         help="Declarative RML mapping .ttl path (T9 closed-set check).",
     )
     p.add_argument(
+        "--mapping-ir",
+        type=Path,
+        default=None,
+        help="§9 mapping spec .yaml path (improves T4's derived fix recipe).",
+    )
+    p.add_argument(
         "--csv", type=Path, action="append", default=[], help="Source CSV (repeatable)"
     )
     p.add_argument("--fk", action="append", default=[], help="FK column hint (repeatable)")
@@ -1135,6 +1488,7 @@ def _main(argv: list[str] | None = None) -> int:
         mie_yaml=args.mie,
         ingester_py=args.ingester,
         rml_ttl=args.rml,
+        mapping_ir_yaml=args.mapping_ir,
         source_csvs=args.csv,
         fk_hint_columns=args.fk,
     )

@@ -1436,7 +1436,13 @@ function composeFixComment(result: MaterializeResult | null, t: TFunction): stri
   for (const tr of result.traps) {
     if (tr.status !== 'fail') continue
     const label = trapLabel(tr.id, tr.name)
-    lines.push(tr.detail ? `${tr.id} ${label}: ${tr.detail}` : `${tr.id} ${label}`)
+    let entry = tr.detail ? `${tr.id} ${label}: ${tr.detail}` : `${tr.id} ${label}`
+    // The validator's deterministic repair recipe (where + what + paste-ready
+    // example): appended under the same bullet, continuation lines indented, so
+    // the AI receives the recipe grouped with the symptom it fixes (2026-07-14:
+    // symptom-only comments looped weak models forever on T4).
+    if (tr.fix) entry += `\n  ↳ ${tr.fix.split('\n').join('\n    ')}`
+    lines.push(entry)
   }
   for (const w of result.warnings) lines.push(w)
   // Advisory design-validation issues (bad column / wrong function parameter,
