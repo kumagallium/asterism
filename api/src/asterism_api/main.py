@@ -93,9 +93,10 @@ from fastapi import (
     UploadFile,
 )
 from fastapi import Path as PathParam
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
+from asterism_api import describe as describe_mod
 from asterism_api import design_loop, registry, server_keys
 from asterism_api import usage as usage_ledger
 from asterism_api.jobs import JobManager
@@ -1950,6 +1951,55 @@ def build_app(
             {"status": "ok" if ok else "degraded", "oxigraph": ok},
             status_code=200 if ok else 503,
         )
+
+    @app.get("/describe")
+    async def describe_iri(
+        iri: str,
+        format: str | None = None,
+        accept: str | None = Header(default=None),
+    ) -> Response:
+        """Dereference one IRI against the PUBLISHED (canonical + ontology)
+        scope — ADR instance-iri-base.md phase 2. Content-negotiated: Turtle
+        for machines (Accept: text/turtle / ?format=ttl), HTML for browsers.
+        Tokenless by design: a bounded read of already-published data (same
+        exposure class as the typed tools, narrower than the raw-SPARQL
+        escape) — see the module docstring of :mod:`asterism_api.describe`."""
+        iri = iri.strip()
+        if not describe_mod.valid_iri(iri):
+            raise HTTPException(400, "iri must be an absolute http(s) IRI")
+        wants_turtle = format in ("ttl", "turtle", "nt") or (
+            format is None
+            and accept is not None
+            and ("text/turtle" in accept or "application/n-triples" in accept)
+        )
+        client: OxigraphClient = app.state.client
+        try:
+            if wants_turtle:
+                graphs = sorted(
+                    set(await substrate.canonical_graphs(client))
+                    | set(await substrate.ontology_graphs(client))
+                )
+                if not graphs:
+                    raise HTTPException(404, "no published data on this instance")
+                q_out, q_in = describe_mod.turtle_queries(iri, graphs)
+                turtle = await client.sparql_construct(q_out)
+                inbound = await client.sparql_construct(q_in)
+                if inbound.strip():
+                    turtle = f"{turtle}\n{inbound}"
+                return Response(turtle, media_type="text/turtle")
+            data = await describe_mod.fetch_description(client, iri)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            # Same posture as /api/sparql: never echo upstream details.
+            logger.exception("describe error")
+            raise HTTPException(502, "upstream SPARQL error") from exc
+        if data is None:
+            graphs = await substrate.canonical_graphs(client)
+            return HTMLResponse(
+                describe_mod.render_not_found(iri, len(graphs)), status_code=404
+            )
+        return HTMLResponse(describe_mod.render_html(iri, data))
 
     @app.get("/api/instance")
     async def instance_info() -> dict[str, object]:

@@ -164,6 +164,24 @@ class OxigraphClient:
         # mypy: ``r.json()`` is typed as Any; explicit cast keeps callers honest.
         return r.json()  # type: ignore[no-any-return]
 
+    async def sparql_construct(self, query: str) -> str:
+        """Run a SPARQL CONSTRUCT and return the graph serialized as Turtle.
+
+        Same read-only ``/query`` endpoint as :meth:`sparql_select`; only the
+        Accept header differs (Oxigraph serializes the result graph in the
+        requested RDF format). Raises ``httpx.HTTPStatusError`` on non-2xx.
+        """
+        r = await self._client.post(
+            "/query",
+            content=query,
+            headers={
+                "Content-Type": "application/sparql-query",
+                "Accept": "text/turtle",
+            },
+        )
+        r.raise_for_status()
+        return r.text
+
     async def sparql_update(self, update: str) -> None:
         """Run a SPARQL 1.1 Update (INSERT/DELETE/MOVE/DROP/...) against ``/update``.
 
