@@ -400,3 +400,35 @@ def test_propose_from_skeleton_degrades_on_unparseable_permap() -> None:
     assert "predicate: schema:name" in spec_yaml  # the good 'thing' map survived
     assert "name: part" in spec_yaml  # the bad map is present, degraded
     assert any("失敗" in w for w in warnings)  # a per-map failure was surfaced
+
+
+# ----------------------------------------------------------------------------
+# Instance IRI base (ADR instance-iri-base.md)
+# ----------------------------------------------------------------------------
+
+
+def test_skeleton_user_message_pins_instance_namespace() -> None:
+    from asterism_step0.staged_propose import build_skeleton_user
+
+    msg = build_skeleton_user("# insp", "# domain", iri_base="https://data.lab.jp/asterism")
+    assert "https://data.lab.jp/asterism/datasets/<slug>/ontology#" in msg
+    assert "https://data.lab.jp/asterism/datasets/<slug>/resource/" in msg
+    # Unset -> the .invalid default rides in, so generation is never base-less.
+    assert "https://asterism.invalid/datasets/<slug>/ontology#" in build_skeleton_user(
+        "# insp", "# domain"
+    )
+
+
+def test_skeleton_system_prompt_stays_frozen_without_a_base() -> None:
+    # The base rides the user message (#244 pattern); the cacheable system
+    # prompt must not embed a per-instance value.
+    assert "asterism.invalid" not in SKELETON_SYSTEM_PROMPT
+
+
+def test_skeleton_context_lists_settled_prefixes() -> None:
+    from asterism_step0.staged_propose import render_skeleton_context
+
+    skeleton_obj, _ = skeleton_from_full_ir(FULL_IR)
+    ctx = render_skeleton_context(skeleton_obj)
+    for name, iri in FULL_IR["prefixes"].items():
+        assert f"prefix {name}: <{iri}>" in ctx

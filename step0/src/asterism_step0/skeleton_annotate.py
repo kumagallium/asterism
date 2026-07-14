@@ -38,6 +38,7 @@ from .inspect import (
     _stream_rows,
     inspect_source_set,
 )
+from .instance_iri import placeholder_prefix_issue
 
 __all__ = ["annotate_skeleton"]
 
@@ -291,4 +292,13 @@ def annotate_skeleton(
         source = str(map_entry.get("source") or "")
         path, inspection = by_name.get(Path(source).name, (None, None))
         annotations[name] = _annotate_map(map_entry, prefixes, path, inspection)
-    return {"maps": annotations}
+    # Skeleton-level (not per-map): namespaces minted on a placeholder domain
+    # (ADR instance-iri-base.md). The design loop would catch this after the
+    # (paid, minutes-long) continue run — the gate shows it in milliseconds,
+    # and an edit of the prefix clears it via /skeleton/validate like any key fix.
+    placeholder = [
+        {"prefix": name, "iri": iri}
+        for name, iri in prefixes.items()
+        if placeholder_prefix_issue(name, iri)
+    ]
+    return {"maps": annotations, "placeholder_prefixes": placeholder}

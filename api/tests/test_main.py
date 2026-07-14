@@ -485,7 +485,7 @@ def test_propose_autocorrect_loop_streams_rounds_and_converges(
 _STAGED_CSV = b"SID,sample_id,name\n1,10,alpha\n1,11,beta\n2,10,gamma\n"
 _STAGED_SKELETON = {
     "version": 1,
-    "prefixes": {"ex": "https://example.org/ns#", "exr": "https://example.org/r/"},
+    "prefixes": {"ex": "https://ns.invalid/ns#", "exr": "https://ns.invalid/r/"},
     "maps": [
         {
             "name": "sample",
@@ -559,7 +559,7 @@ def test_propose_skeleton_streams_skeleton(
         ann = done["annotations"]["maps"]["sample"]
         assert ann["checkable"] is True
         assert ann["is_unique"] is True
-        assert ann["id_previews"][0] == "https://example.org/r/sample/1-10"
+        assert ann["id_previews"][0] == "https://ns.invalid/r/sample/1-10"
 
 
 def test_skeleton_validate_recomputes_evidence_for_edits(
@@ -1533,3 +1533,32 @@ def test_validate_design_endpoint_clean_design_returns_empty(
         got = client.get(f"/api/datasets/{ds_id}/validate-design")
         assert got.status_code == 200
         assert got.json()["validation_issues"] == []
+
+
+def test_settings_iri_base(tmp_path: Path) -> None:
+    """ADR instance-iri-base.md: unset -> the RFC 2606 .invalid fallback (never
+    someone else's namespace); set -> normalized (trailing slash stripped)."""
+    assert _settings(tmp_path).iri_base == "https://asterism.invalid"
+    s = _settings(tmp_path)
+    env = {"ASTERISM_IRI_BASE": "https://data.lab.jp/asterism/"}
+    from asterism_api.main import Settings
+
+    configured = Settings({**env, "CSV2RDF_DROP_ROOT": str(tmp_path / "csv")})
+    assert configured.iri_base == "https://data.lab.jp/asterism"
+    assert s.iri_base != configured.iri_base
+
+
+def test_instance_info_is_public(tmp_path: Path, healthy_client: OxigraphClient) -> None:
+    """/api/instance (ADR instance-iri-base.md): readable WITHOUT the write
+    token (the base is embedded in every minted IRI anyway), and flags the
+    unconfigured .invalid default so the settings UI can warn."""
+    app = build_app(
+        _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
+    )
+    with TestClient(app) as client:  # deliberately no _AUTH header
+        r = client.get("/api/instance")
+        assert r.status_code == 200
+        assert r.json() == {
+            "iri_base": "https://asterism.invalid",
+            "iri_base_configured": False,
+        }

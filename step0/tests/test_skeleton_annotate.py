@@ -160,3 +160,28 @@ def test_dialect_read_and_line_numbers_include_preamble(tmp_path: Path) -> None:
     # File line numbers count the 2 preamble lines + the header: data starts at 4.
     assert ann["collision_examples"][0]["line_numbers"] == [4, 6]
     assert ann["id_previews"][0] == "https://example.org/xrd/resource/point/10.00"
+
+
+def test_placeholder_prefixes_flagged_at_top_level(tmp_path: Path) -> None:
+    """ADR instance-iri-base.md: the gate evidence names prefixes minted on a
+    placeholder domain (this file's fixtures deliberately sit on example.org),
+    skeleton-level — the gate shows it before the paid continue run."""
+    p = tmp_path / "samples.csv"
+    p.write_text("sample_id,alloy\nS-1,WC\n", encoding="utf-8")
+    out = annotate_skeleton(_skeleton("xr:sample/{sample_id}", source="samples.csv"), [p])
+    flagged = {e["prefix"]: e["iri"] for e in out["placeholder_prefixes"]}
+    assert set(flagged) == {"xr", "xo"}
+    assert flagged["xr"] == "https://example.org/xrd/resource/"
+
+
+def test_instance_and_invalid_namespaces_not_flagged(tmp_path: Path) -> None:
+    p = tmp_path / "samples.csv"
+    p.write_text("sample_id,alloy\nS-1,WC\n", encoding="utf-8")
+    skeleton = _skeleton("xr:sample/{sample_id}", source="samples.csv")
+    skeleton["prefixes"] = {
+        "xr": "https://asterism.invalid/datasets/xrd/resource/",
+        "xo": "https://data.lab.jp/asterism/datasets/xrd/ontology#",
+        "schema": "https://schema.org/",
+    }
+    out = annotate_skeleton(skeleton, [p])
+    assert out["placeholder_prefixes"] == []

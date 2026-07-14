@@ -67,6 +67,7 @@ from asterism.watcher import (
 )
 from asterism_step0.crosswalk_propose import propose_crosswalk_mapping
 from asterism_step0.inspect import inspect_source_set, render_markdown
+from asterism_step0.instance_iri import DEFAULT_IRI_BASE, normalize_iri_base
 from asterism_step0.llm import list_available_models
 from asterism_step0.llm import make_llm as build_llm_client
 from asterism_step0.materialize import (
@@ -688,6 +689,14 @@ class Settings:
         ).strip().lower() not in ("0", "false", "no")
         self.ontology_iri = e.get("CSV2RDF_ONTOLOGY_IRI", _DEFAULT_ONTOLOGY)
         self.resource_iri = e.get("CSV2RDF_RESOURCE_IRI", _DEFAULT_RESOURCE)
+        # Instance-owned IRI base for NEWLY designed datasets (ADR
+        # instance-iri-base.md): AI-designed namespaces are minted under
+        # ``<iri_base>/datasets/<slug>/…`` so a local install's data never lands
+        # in the upstream author's namespace nor on example.org. Unset → the
+        # RFC 2606 ``https://asterism.invalid`` fallback (self-describingly
+        # unpublished); set it to a namespace the operator controls to mint
+        # citable identifiers. Bundled datasets keep their dataset.toml IRIs.
+        self.iri_base = normalize_iri_base(e.get("ASTERISM_IRI_BASE"))
         self.settle_s = float(e.get("CSV2RDF_SETTLE_S", DEFAULT_SETTLE_S))
         # Per-dataset append inbox (ADR incremental-ingest.md §6): a CSV/JSON dropped
         # at ``<append_drop_root>/<dataset_id>/<file>`` is appended to that dataset's
@@ -1942,6 +1951,17 @@ def build_app(
             status_code=200 if ok else 503,
         )
 
+    @app.get("/api/instance")
+    async def instance_info() -> dict[str, object]:
+        """Public identity of this install (ADR instance-iri-base.md): where new
+        designs mint their namespaces. Not a secret — the base is embedded in
+        every minted IRI — so it is readable without the write token; the UI
+        settings surface shows it and flags the unconfigured default."""
+        return {
+            "iri_base": cfg.iri_base,
+            "iri_base_configured": cfg.iri_base != DEFAULT_IRI_BASE,
+        }
+
     @app.post("/upload/{kind}", dependencies=_write_auth)
     async def upload(
         file: UploadFile,
@@ -2228,6 +2248,7 @@ def build_app(
                     language=language or None,
                     should_cancel=should_cancel,
                     dialect_overrides=dialect_overrides,
+                    iri_base=cfg.iri_base,
                 )
             finally:
                 shutil.rmtree(tmpdir, ignore_errors=True)
@@ -2335,6 +2356,7 @@ def build_app(
                     language=language or None,
                     fk_hint_columns=fk_cols,
                     dialects=dialect_overrides,
+                    iri_base=cfg.iri_base,
                 )
                 _record_llm_usage(cfg.registry_root, "propose", provider, llm, model)
                 # Deterministic evidence for the human gate (LLM-free): key
@@ -2503,6 +2525,7 @@ def build_app(
                     should_cancel=should_cancel,
                     skeleton=skeleton_obj,
                     dialect_overrides=dialect_overrides,
+                    iri_base=cfg.iri_base,
                 )
             finally:
                 shutil.rmtree(tmpdir, ignore_errors=True)

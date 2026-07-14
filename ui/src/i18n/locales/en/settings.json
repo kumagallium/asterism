@@ -103,5 +103,12 @@
       "open": "No token is configured server-side (the write gate is closed)",
       "error": "Check failed (could not reach the server)"
     }
+  },
+  "instance": {
+    "title": "This instance's identifiers (IRI)",
+    "intro": "Classes and data IDs of newly designed datasets are minted under this namespace (server setting ASTERISM_IRI_BASE; existing data is never rewritten).",
+    "name": "IRI base",
+    "unset": "not set",
+    "unsetHelp": "Unset, so minted IDs live on a deliberately unpublishable placeholder (.invalid). Fine for trying things out — to mint citable, publishable identifiers, set ASTERISM_IRI_BASE on the server to a namespace your org controls (an org domain or GitHub Pages)."
   }
 }

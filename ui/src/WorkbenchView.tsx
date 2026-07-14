@@ -1881,6 +1881,16 @@ function SkeletonGate({
     })
   }
 
+  function updatePrefix(name: string, iri: string) {
+    onChange({ ...skeleton, prefixes: { ...skeleton.prefixes, [name]: iri } })
+  }
+
+  // Namespaces minted on a placeholder domain (example.org & co) can never be
+  // published — the server evidence names them; editing the IRI re-checks like
+  // any key edit (ADR instance-iri-base.md).
+  const placeholderPrefixes = annotations?.placeholder_prefixes ?? []
+  const placeholderSet = new Set(placeholderPrefixes.map((p) => p.prefix))
+
   // Warn before continuing when the evidence says a key still collapses rows —
   // soft gate: the human can proceed (small collision counts can be legitimate,
   // e.g. deliberate dedup), but never unknowingly.
@@ -1888,6 +1898,14 @@ function SkeletonGate({
     (m) => annotations?.maps?.[m.name]?.is_unique === false,
   )
   function onContinueGuarded() {
+    if (placeholderPrefixes.length > 0) {
+      const ok = window.confirm(
+        t('workbench:skeleton.ns.confirmPlaceholder', {
+          prefixes: placeholderPrefixes.map((p) => p.prefix).join(', '),
+        }),
+      )
+      if (!ok) return
+    }
     if (collapsing.length > 0) {
       const ok = window.confirm(
         t('workbench:skeleton.confirmCollides', {
@@ -1912,6 +1930,36 @@ function SkeletonGate({
       {!canRevalidate && (
         <p className="skeleton-gate-revalidating">{t('workbench:skeleton.evidence.reattach')}</p>
       )}
+      <details className="skeleton-ns" open={placeholderPrefixes.length > 0}>
+        <summary>
+          {t('workbench:skeleton.ns.title')}
+          {placeholderPrefixes.length > 0 && (
+            <span className="skeleton-ns-flag">
+              {t('workbench:skeleton.ns.flag', { count: placeholderPrefixes.length })}
+            </span>
+          )}
+        </summary>
+        <p className="skeleton-gate-hint">{t('workbench:skeleton.ns.hint')}</p>
+        <div className="skeleton-ns-rows">
+          {Object.entries(skeleton.prefixes ?? {}).map(([name, iri]) => (
+            <div key={name} className="skeleton-ns-row">
+              <code className="skeleton-ns-prefix">{name}:</code>
+              <input
+                type="text"
+                className="skeleton-gate-input"
+                value={iri}
+                disabled={busy}
+                onChange={(e) => updatePrefix(name, e.target.value)}
+              />
+              {placeholderSet.has(name) && (
+                <p className="skeleton-evidence-line skeleton-evidence-warn">
+                  {t('workbench:skeleton.ns.placeholderWarn')}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      </details>
       <div className="skeleton-gate-table-wrap">
         <table className="skeleton-gate-table">
           <thead>

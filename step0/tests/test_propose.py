@@ -307,3 +307,19 @@ def test_system_prompt_carries_no_rml_syntax() -> None:
         "```turtle",
     ):
         assert syntax not in SYSTEM_PROMPT, f"RML syntax leaked into the prompt: {syntax}"
+
+
+def test_propose_user_message_pins_instance_namespace(tmp_path: Path) -> None:
+    """ADR instance-iri-base.md: the round-0 user message pins where THIS
+    instance mints the dataset's namespaces (never example.org; unset ->
+    the self-describing .invalid default)."""
+    csv_path = _write_csv(tmp_path / "samples.csv", "SID,name\n1,a\n2,b\n")
+    mock = _RecordingLLM(canned_response="# Proposal\n...")
+    propose_schema([csv_path], domain_hint="d", llm=mock, iri_base="https://data.lab.jp")
+    user_msg = mock.user_messages[0]
+    assert "https://data.lab.jp/datasets/<slug>/ontology#" in user_msg
+    assert "https://data.lab.jp/datasets/<slug>/resource/" in user_msg
+
+    mock2 = _RecordingLLM(canned_response="# Proposal\n...")
+    propose_schema([csv_path], domain_hint="d", llm=mock2)
+    assert "https://asterism.invalid/datasets/<slug>/ontology#" in mock2.user_messages[0]

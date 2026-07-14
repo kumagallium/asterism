@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any
 
 from asterism_step0.inspect import inspect_source_set, render_markdown
+from asterism_step0.instance_iri import dataset_namespace_block
 from asterism_step0.language import language_instruction
 from asterism_step0.llm import LLMClient, as_completion
 from asterism_step0.mapping_ir_schema import (
@@ -276,6 +277,12 @@ def render_skeleton_context(skeleton: Mapping[str, Any]) -> str:
     """A compact view of every map's subject/classes, so the per-map step can link
     a property to another entity (object_template to that map's subject)."""
     lines = ["# Skeleton (fixed — subjects/classes of every map)", ""]
+    prefixes = skeleton.get("prefixes") or {}
+    if prefixes:
+        # The gated skeleton's prefixes are this dataset's settled namespaces —
+        # show them so the per-map step reuses them instead of minting new ones.
+        lines += [f"- prefix {name}: <{iri}>" for name, iri in prefixes.items()]
+        lines.append("")
     for map_obj in skeleton.get("maps") or []:
         subject = map_obj.get("subject") or {}
         key = subject.get("template") or subject.get("constant") or "?"
@@ -303,11 +310,16 @@ def render_tier0_menu(function_names: Sequence[str] | None) -> str:
 
 
 def build_skeleton_user(
-    inspection_md: str, domain_hint: str, *, language: str | None = None
+    inspection_md: str,
+    domain_hint: str,
+    *,
+    language: str | None = None,
+    iri_base: str | None = None,
 ) -> str:
     msg = (
         f"# Source inspection\n\n{inspection_md}\n\n"
         f"# Domain context\n\n{domain_hint.strip()}\n\n"
+        f"{dataset_namespace_block(iri_base)}\n"
         "Return the skeleton as a single JSON object."
     )
     lang = language_instruction(language)
@@ -382,10 +394,11 @@ def generate_skeleton(
     llm: LLMClient,
     function_names: Sequence[str] | None = None,
     language: str | None = None,
+    iri_base: str | None = None,
 ) -> dict:
     """One guided call -> the skeleton dict (subject-only maps). Parsed here;
     structural/environment validation is the caller's gate."""
-    user = build_skeleton_user(inspection_md, domain_hint, language=language)
+    user = build_skeleton_user(inspection_md, domain_hint, language=language, iri_base=iri_base)
     schema = skeleton_json_schema(function_names)
     return _load_json_object(_complete_guided(llm, SKELETON_SYSTEM_PROMPT, user, schema))
 
@@ -459,6 +472,7 @@ def propose_skeleton(
     language: str | None = None,
     function_names: Sequence[str] | None = None,
     dialects: Mapping[str, Any] | None = None,
+    iri_base: str | None = None,
 ) -> SkeletonProposal:
     """Job 1: inspect the source(s) and generate the skeleton for human review.
     Does NOT generate properties or prose — that is :func:`propose_from_skeleton`,
@@ -467,7 +481,11 @@ def propose_skeleton(
     ``dialects`` (ADR source-dialect.md) is the effective per-source read dialect
     (detected ⊕ human override); forwarded to ``inspect_source_set`` so the
     skeleton's key/column choices see the SAME columns the pinned §9 dialect
-    produces (``skip_rows`` moves the header row)."""
+    produces (``skip_rows`` moves the header row).
+
+    ``iri_base`` (ADR instance-iri-base.md) is where THIS instance mints new
+    dataset namespaces; unset falls back to the ``.invalid`` default inside
+    :func:`dataset_namespace_block`."""
     inspections, fks = inspect_source_set(
         csv_paths,
         fk_hint_columns=fk_hint_columns,
@@ -477,7 +495,12 @@ def propose_skeleton(
     inspection_md = render_markdown(inspections, fks)
     names = _resolve_function_names(function_names)
     skeleton = generate_skeleton(
-        inspection_md, domain_hint, llm=llm, function_names=names, language=language
+        inspection_md,
+        domain_hint,
+        llm=llm,
+        function_names=names,
+        language=language,
+        iri_base=iri_base,
     )
     return SkeletonProposal(
         skeleton=skeleton,

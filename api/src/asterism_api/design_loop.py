@@ -63,6 +63,7 @@ from asterism import substrate
 from asterism.rml_validate import read_csv_header
 from asterism_step0.dialect import apply_detected_dialects, detect_dialect, is_default
 from asterism_step0.inspect import inspect_source_set, render_markdown
+from asterism_step0.instance_iri import placeholder_prefix_issue
 from asterism_step0.llm import LLMCancelledError, LLMTruncatedError
 from asterism_step0.mapping_ir import (
     MappingIRParseError,
@@ -435,6 +436,16 @@ def _collect_ir_issues(ir_yaml: str, source_dir: Path) -> list[Issue]:
         if Path(f).suffix.lower() in _TABULAR_SUFFIXES
     }
     messages = validate_mapping_ir(ir, files=files, headers=headers, catalog=catalog)
+    # Policy gate (ADR instance-iri-base.md): placeholder namespaces (example.org
+    # & co) identify nothing — the design must re-mint under the instance IRI
+    # base it was given. Checked HERE (the AI-design pipeline), not in
+    # parse_mapping_ir: example.org is legal RDF and standard in hand-written
+    # fixtures; only generated designs are held to the minting policy.
+    messages += [
+        issue
+        for name, iri in ir.prefixes.items()
+        if (issue := placeholder_prefix_issue(name, iri))
+    ]
     if messages:
         return _dedup([classify(m) for m in messages])
 
@@ -610,6 +621,7 @@ def run_design_loop(
     should_cancel: Callable[[], bool] | None = None,
     skeleton: Mapping[str, Any] | None = None,
     dialect_overrides: Mapping[str, Any] | None = None,
+    iri_base: str | None = None,
 ) -> DesignLoopResult:
     """Run the propose→validate→refine self-correction loop.
 
@@ -632,6 +644,9 @@ def run_design_loop(
     consistent across the whole design. An empty override leaves ``effective ==
     detected`` — byte-identical to today.
 
+    ``iri_base`` (ADR instance-iri-base.md) pins where the single-shot round-0
+    mints this dataset's new namespaces; the staged path gets it at skeleton
+    time instead (the confirmed skeleton already carries settled prefixes).
     ``language`` is the output language for the schema's human-readable prose; it is
     forwarded to BOTH propose and every refine round (otherwise an autocorrect round
     would silently flip the prose back to English). ``should_cancel`` is the job's
@@ -697,6 +712,7 @@ def run_design_loop(
             llm=llm,
             language=language,
             dialects=effective,
+            iri_base=iri_base,
         )
         if on_llm_call is not None:
             on_llm_call("propose")
