@@ -28,7 +28,8 @@ def _mock_client() -> OxigraphClient:
     return OxigraphClient(OxigraphConfig(base_url="http://test"), client=inner)
 
 
-async def test_materials_project_typed_tools_register() -> None:
+async def test_materials_project_typed_tools_register(monkeypatch) -> None:
+    monkeypatch.setenv("ASTERISM_BUNDLED_TOOLS", "1")  # exercises the bundled examples
     mcp = build_server(Settings({}), oxigraph_client=_mock_client())
     names = {t.name for t in await mcp.list_tools()}
     assert {

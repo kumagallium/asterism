@@ -537,15 +537,16 @@ def _content_tool_defs() -> tuple[list[dict], dict]:
     ``query_tools.yaml`` (#112/#113), so a newly onboarded dataset (e.g. Materials
     Project) becomes a VERIFIED Ask tool for free — no per-dataset code here.
     """
-    from asterism.query_tools import load_all_query_tools
+    from asterism.query_tools import bundled_tools_enabled, load_all_query_tools
 
     defs: list[dict] = []
     registry: dict[str, tuple] = {}
-    # Tools come from BOTH the repo example datasets (datasets/<name>/) AND the
-    # workbench registry (registry/<id>/query_tools.yaml) — same loader, same
-    # shape — so a tool a researcher saved on their own onboarded dataset routes
-    # as a verified Ask tool, no repo PR (the "grow verified tools" store, P1).
-    sources: dict[str, list] = dict(load_all_query_tools())
+    # Tools come from the workbench registry (registry/<id>/query_tools.yaml) —
+    # what the user's catalog actually shows. The repo-bundled example datasets
+    # (datasets/<name>/) are dev/demo content and join only when opted in via
+    # ASTERISM_BUNDLED_TOOLS=1: Ask must never list tools for datasets that
+    # exist nowhere in the UI.
+    sources: dict[str, list] = dict(load_all_query_tools()) if bundled_tools_enabled() else {}
     reg_root = os.environ.get("CSV2RDF_REGISTRY_ROOT")
     if reg_root:
         with contextlib.suppress(Exception):
@@ -812,13 +813,14 @@ async def _run_declared_tool(dataset: str, tool_name: str, args: dict) -> dict |
     """Run one of ``dataset``'s DECLARED query tools through the engine.
 
     Same loader + FROM-merge execution the LLM routing and the MCP surface use
-    (repo datasets/ first, then the workbench registry) — the demo path holds no
-    vocabulary of its own. Returns ``run_query_tool``'s shape, or None when the
-    dataset declares no such tool (the caller falls through gracefully).
+    (bundled examples only when opted in, then the workbench registry) — the
+    demo path holds no vocabulary of its own. Returns ``run_query_tool``'s
+    shape, or None when the dataset declares no such tool (the caller falls
+    through gracefully).
     """
-    from asterism.query_tools import load_query_tools, run_query_tool
+    from asterism.query_tools import bundled_tools_enabled, load_query_tools, run_query_tool
 
-    tools = {t.name: t for t in load_query_tools(dataset)}
+    tools = {t.name: t for t in load_query_tools(dataset)} if bundled_tools_enabled() else {}
     reg_root = os.environ.get("CSV2RDF_REGISTRY_ROOT")
     if tool_name not in tools and reg_root:
         with contextlib.suppress(Exception):

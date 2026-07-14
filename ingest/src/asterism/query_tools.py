@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -49,6 +50,24 @@ from asterism.datasets import datasets_root
 from asterism.substrate import _scan_view, canonical_merge_query
 
 _log = logging.getLogger(__name__)
+
+# Truthy spellings accepted for ASTERISM_BUNDLED_TOOLS (case-insensitive).
+_TRUTHY = frozenset({"1", "true", "yes", "on"})
+
+
+def bundled_tools_enabled() -> bool:
+    """Whether the serving surfaces (Ask demo-agent, MCP server) also expose the
+    repo-bundled example datasets' declared tools (``datasets/<name>/``).
+
+    Default OFF: a user's catalog shows only their workbench-registry datasets,
+    so Ask listing tools for datasets that exist nowhere in the UI reads as an
+    inconsistency (real-user feedback, 2026-07-14). The bundled examples are
+    dev/demo content — opt in with ``ASTERISM_BUNDLED_TOOLS=1`` (the standalone
+    demo compose does). Library loaders below are NOT gated: passing an explicit
+    root, or calling ``load_all_query_tools()`` directly (tests, lint, CI
+    fixtures), behaves as before.
+    """
+    return os.environ.get("ASTERISM_BUNDLED_TOOLS", "").strip().lower() in _TRUTHY
 
 # Update-form keywords — a declared template must be a read-only SELECT/ASK.
 _UPDATE_FORM = re.compile(

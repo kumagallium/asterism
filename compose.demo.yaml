@@ -34,6 +34,10 @@ services:
       - oxigraph
     environment:
       CSV2RDF_OXIGRAPH_URL: http://oxigraph:7878
+      # The standalone demo IS the bundled example content (starrydata etc.) —
+      # opt in here. Product deployments leave this unset: Ask then serves only
+      # the workbench registry's tools (what the catalog shows).
+      ASTERISM_BUNDLED_TOOLS: "1"
       # Report Ask token usage to the api's ledger (best-effort; omit to disable).
       # ASTERISM_API_TOKEN must match the api's write token when that route is gated.
       ASTERISM_API_URL: http://upload-api:8080
