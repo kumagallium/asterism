@@ -232,6 +232,9 @@ export interface SkeletonMapAnnotation {
 
 export interface SkeletonAnnotations {
   maps: Record<string, SkeletonMapAnnotation>
+  /** Skeleton-level: declared prefixes minted on a placeholder domain
+   *  (example.org & co, ADR instance-iri-base.md) — can never be published. */
+  placeholder_prefixes?: { prefix: string; iri: string }[]
 }
 
 /** Result payload carried by the SSE `done` event for a skeleton job. */

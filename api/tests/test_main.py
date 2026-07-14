@@ -1472,3 +1472,19 @@ def test_settings_iri_base(tmp_path: Path) -> None:
     configured = Settings({**env, "CSV2RDF_DROP_ROOT": str(tmp_path / "csv")})
     assert configured.iri_base == "https://data.lab.jp/asterism"
     assert s.iri_base != configured.iri_base
+
+
+def test_instance_info_is_public(tmp_path: Path, healthy_client: OxigraphClient) -> None:
+    """/api/instance (ADR instance-iri-base.md): readable WITHOUT the write
+    token (the base is embedded in every minted IRI anyway), and flags the
+    unconfigured .invalid default so the settings UI can warn."""
+    app = build_app(
+        _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
+    )
+    with TestClient(app) as client:  # deliberately no _AUTH header
+        r = client.get("/api/instance")
+        assert r.status_code == 200
+        assert r.json() == {
+            "iri_base": "https://asterism.invalid",
+            "iri_base_configured": False,
+        }

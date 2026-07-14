@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import './SettingsModal.css'
+import { InstanceSection } from './InstanceSection'
 import { ServerKeysSection } from './ServerKeysSection'
 import { WriteTokenSection } from './WriteTokenSection'
 import { useLlmSettings } from './context'
@@ -218,6 +219,7 @@ function ModelsTab() {
       )}
       {!showForm && <ServerKeysSection />}
       {!showForm && <WriteTokenSection />}
+      {!showForm && <InstanceSection />}
     </div>
   )
 }

@@ -198,6 +198,13 @@
       "notChecked": "This item could not be checked",
       "revalidating": "Re-checking your edit…",
       "reattach": "Re-attach the file to re-check edited IDs"
+    },
+    "ns": {
+      "title": "Namespaces (where this design mints its IDs)",
+      "flag": "⚠ {{count}} placeholder domain(s)",
+      "hint": "Classes and data IDs are minted under these namespaces and become permanent identifiers. Reused standard vocabularies (schema: etc.) stay as they are — check that the design's own namespaces live where you intend.",
+      "placeholderWarn": "This is a placeholder domain (example.org etc.) — it can never become a citable identifier. Edit the namespace.",
+      "confirmPlaceholder": "Some namespaces still point at a placeholder domain ({{prefixes}}). Continue anyway? (The self-correction pass will try to re-mint, but fixing it here is the sure path.)"
     }
   },
   "dialect": {

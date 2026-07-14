@@ -5723,3 +5723,42 @@ button.ds-artifact:disabled {
 .skeleton-candidate-chip:hover {
   background: var(--primary-softer);
 }
+
+/* Skeleton gate: namespace section (ADR instance-iri-base.md) — where this
+   design mints its IDs, with placeholder-domain warnings. */
+.skeleton-ns {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+}
+.skeleton-ns summary {
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--body);
+}
+.skeleton-ns-flag {
+  margin-left: 0.5rem;
+  font-weight: 600;
+  color: var(--warn-fg);
+}
+.skeleton-ns-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+.skeleton-ns-row {
+  display: grid;
+  grid-template-columns: minmax(4rem, auto) 1fr;
+  gap: 0.25rem 0.6rem;
+  align-items: center;
+}
+.skeleton-ns-row .skeleton-evidence-line {
+  grid-column: 2;
+  margin: 0;
+}
+.skeleton-ns-prefix {
+  font-size: 0.8rem;
+  text-align: right;
+}

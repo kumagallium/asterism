@@ -67,7 +67,7 @@ from asterism.watcher import (
 )
 from asterism_step0.crosswalk_propose import propose_crosswalk_mapping
 from asterism_step0.inspect import inspect_source_set, render_markdown
-from asterism_step0.instance_iri import normalize_iri_base
+from asterism_step0.instance_iri import DEFAULT_IRI_BASE, normalize_iri_base
 from asterism_step0.llm import list_available_models
 from asterism_step0.llm import make_llm as build_llm_client
 from asterism_step0.materialize import (
@@ -1950,6 +1950,17 @@ def build_app(
             {"status": "ok" if ok else "degraded", "oxigraph": ok},
             status_code=200 if ok else 503,
         )
+
+    @app.get("/api/instance")
+    async def instance_info() -> dict[str, object]:
+        """Public identity of this install (ADR instance-iri-base.md): where new
+        designs mint their namespaces. Not a secret — the base is embedded in
+        every minted IRI — so it is readable without the write token; the UI
+        settings surface shows it and flags the unconfigured default."""
+        return {
+            "iri_base": cfg.iri_base,
+            "iri_base_configured": cfg.iri_base != DEFAULT_IRI_BASE,
+        }
 
     @app.post("/upload/{kind}", dependencies=_write_auth)
     async def upload(
