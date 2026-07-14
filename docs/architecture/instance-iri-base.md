@@ -72,3 +72,32 @@ Mechanics (all deterministic-side; the model is *told*, then *checked*):
 - Dereference ("phase 2": content-negotiated `DESCRIBE` behind the base
   domain, or a w3id.org redirector as the base for new installs) stays open —
   this ADR makes the identifiers worth dereferencing.
+
+## Phase 2 — the dereference responder (accepted 2026-07-14)
+
+`GET /describe?iri=<IRI>` on the api answers "what does this install's
+PUBLISHED data say about this identifier?":
+
+- **Scope**: the canonical + ontology graph merge — the same published scope
+  every typed tool reads. The graph list comes from the server (control-graph
+  `promoted` flags), never from the caller, so drafts stay unreachable by
+  construction. Statements are bounded (500 outbound / 200 inbound) so one
+  dereference can never become a graph dump.
+- **Negotiation**: `Accept: text/turtle` (or `?format=ttl`) → the CONSTRUCT
+  result as Turtle; browsers get a self-contained HTML view whose object IRIs
+  link back through `/describe` — published data becomes *browsable*, with a
+  provenance (graph) column per statement.
+- **Exposure**: tokenless. One-IRI-in / its-published-description-out is the
+  same exposure class as the typed tools and strictly narrower than the
+  raw-SPARQL escape, so it stays available even where `/api/sparql` is
+  withheld. On the private 1-box deployment the whole-site cookie gate still
+  fronts it; Caddy routes `/datasets/*` → `/describe?iri=https://<domain><path>`
+  inside the gate, with a documented block-move to make citation links public.
+- **Unknown IRIs** are an honest 404 naming how many published graphs were
+  searched (not yet promoted here / minted by another install).
+
+With `ASTERISM_IRI_BASE=https://<the install's domain>`, minted IRIs therefore
+actually resolve. IRIs on domains the install does not control (the bundled
+kumagallium.github.io data, an unset `.invalid` base) still describe fine via
+`/describe?iri=` — the identifier just doesn't route there by itself; that gap
+is what a w3id.org base (or the operator's own domain) closes.

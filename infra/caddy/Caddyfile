@@ -69,6 +69,23 @@ https://{$ASTERISM_DOMAIN} {
 				header_up X-Asterism-Token {$ASTERISM_API_TOKEN}
 			}
 
+			# IRI dereference (ADR instance-iri-base.md phase 2). When
+			# ASTERISM_IRI_BASE is https://<this domain>, the IRIs this install
+			# mints live under /datasets/* on THIS host — resolve them via the
+			# api's content-negotiated /describe (Turtle for machines, HTML for
+			# humans; published/canonical data only, no token needed). /describe
+			# itself is routed too so the HTML view's follow-links work.
+			# NOTE: sits inside the session gate like everything else — citation
+			# links resolve for logged-in users. To make dereference PUBLIC
+			# (anonymous citation links), move these lines into their own
+			# `handle /datasets/* { … }` block next to /__auth/* above.
+			@iri path /datasets/*
+			handle @iri {
+				rewrite * /describe?iri=https://{$ASTERISM_DOMAIN}{path}
+				reverse_proxy api:8080
+			}
+			reverse_proxy /describe api:8080
+
 			# Grounded-answer (Ask) service.
 			reverse_proxy /demo/* demo-agent:8090
 
