@@ -97,7 +97,8 @@ def _rows_response(bindings: list[dict], variables: list[str]) -> httpx.Response
     )
 
 
-async def test_declared_query_tools_registered_with_typed_schema() -> None:
+async def test_declared_query_tools_registered_with_typed_schema(monkeypatch) -> None:
+    monkeypatch.setenv("ASTERISM_BUNDLED_TOOLS", "1")  # exercises the bundled examples
     mcp = build_server(
         Settings({}), oxigraph_client=_mock_client(lambda r: _rows_response([], ["g"]))
     )
@@ -110,7 +111,8 @@ async def test_declared_query_tools_registered_with_typed_schema() -> None:
     assert "max_plausible" in schema["properties"]  # optional param present
 
 
-async def test_declared_property_ranking_call_round_trip() -> None:
+async def test_declared_property_ranking_call_round_trip(monkeypatch) -> None:
+    monkeypatch.setenv("ASTERISM_BUNDLED_TOOLS", "1")  # exercises the bundled examples
     def handler(request: httpx.Request) -> httpx.Response:
         q = request.content.decode()
         if "SELECT DISTINCT ?g" in q:  # canonical-graph enumeration -> none
@@ -157,7 +159,8 @@ async def test_exposure_default_withholds_sparql_query() -> None:
     assert "schema_summary" in names  # typed tools stay on
 
 
-async def test_exposure_off_withholds_only_sparql_query() -> None:
+async def test_exposure_off_withholds_only_sparql_query(monkeypatch) -> None:
+    monkeypatch.setenv("ASTERISM_BUNDLED_TOOLS", "1")  # exercises the bundled examples
     mcp = build_server(
         Settings({"ASTERISM_EXPOSE_RAW_SPARQL": "0"}),
         oxigraph_client=_mock_client(lambda r: _rows_response([], ["g"])),
@@ -170,8 +173,9 @@ async def test_exposure_off_withholds_only_sparql_query() -> None:
     assert "property_ranking" in names and "sample_search" in names
 
 
-async def test_typed_tool_returns_same_result_regardless_of_exposure() -> None:
+async def test_typed_tool_returns_same_result_regardless_of_exposure(monkeypatch) -> None:
     """The whole point: closing raw SPARQL does not change typed-tool answers."""
+    monkeypatch.setenv("ASTERISM_BUNDLED_TOOLS", "1")  # exercises the bundled examples
 
     def handler(request: httpx.Request) -> httpx.Response:
         q = request.content.decode()
@@ -200,6 +204,7 @@ async def test_typed_tool_returns_same_result_regardless_of_exposure() -> None:
 
 
 async def test_declared_tool_name_collision_is_prefixed(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("ASTERISM_BUNDLED_TOOLS", "1")  # exercises the bundled examples
     # Two datasets declaring the same tool name -> the second is {dataset}_-prefixed.
     doc = "tools:\n  - name: dup\n    query: 'SELECT ?s WHERE { ?s ?p ?o }'\n"
     for ds in ("alpha", "beta"):
@@ -213,3 +218,26 @@ async def test_declared_tool_name_collision_is_prefixed(tmp_path, monkeypatch) -
     names = {t.name for t in await mcp.list_tools()}
     assert "dup" in names  # first dataset keeps the bare name
     assert "beta_dup" in names  # second is prefixed to avoid the collision
+
+
+async def test_declared_bundled_tools_hidden_by_default(monkeypatch, tmp_path) -> None:
+    # Real-user feedback (2026-07-14): the MCP surface serves only the workbench
+    # registry by default — the repo-bundled example datasets need an explicit
+    # ASTERISM_BUNDLED_TOOLS=1 opt-in, so no tool is listed for a dataset that
+    # exists nowhere in the user's catalog.
+    monkeypatch.delenv("ASTERISM_BUNDLED_TOOLS", raising=False)
+    reg = tmp_path / "registry"
+    ds = reg / "my-dataset-abc12345"
+    ds.mkdir(parents=True)
+    (ds / "query_tools.yaml").write_text(
+        "tools:\n  - name: t1\n    query: 'SELECT ?s WHERE { ?s ?p ?o }'\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CSV2RDF_REGISTRY_ROOT", str(reg))
+    mcp = build_server(
+        Settings({}), oxigraph_client=_mock_client(lambda r: _rows_response([], ["g"]))
+    )
+    names = {t.name for t in await mcp.list_tools()}
+    assert "t1" in names  # the user's registry tool serves
+    assert "property_ranking" not in names and "sample_search" not in names
+    assert "schema_summary" in names  # the generic hardcoded surface is intact

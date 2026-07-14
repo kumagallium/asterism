@@ -68,6 +68,7 @@ def _real_client(monkeypatch) -> TestClient:
 
 
 def test_ask_zt_real_endpoint(monkeypatch) -> None:
+    monkeypatch.setenv("ASTERISM_BUNDLED_TOOLS", "1")  # exercises the bundled examples
     client = _real_client(monkeypatch)
     body = client.post(
         "/demo/ask", json={"question": "ZTが最も高い熱電材料は？"}
@@ -310,6 +311,7 @@ def test_server_key_fallback_fires_without_header_key(monkeypatch) -> None:
 
 
 def test_no_key_typed_showcase_answers_zt(monkeypatch) -> None:
+    monkeypatch.setenv("ASTERISM_BUNDLED_TOOLS", "1")  # exercises the bundled examples
     # No key -> the free, deterministic typed showcase answers a ZT question with no
     # LLM (and reports the excluded outlier as a data-quality note).
     g = rdflib.ConjunctiveGraph()  # quad store: canonical-scope reads use GRAPH (#20 P3)
@@ -327,6 +329,7 @@ def test_no_key_typed_showcase_answers_zt(monkeypatch) -> None:
 
 
 def test_key_present_llm_picks_typed_property_ranking(monkeypatch) -> None:
+    monkeypatch.setenv("ASTERISM_BUNDLED_TOOLS", "1")  # exercises the bundled examples
     # P4-2b: with a key, the LLM does the routing — for a clean "highest ZT" question
     # it can CALL the deterministic property_ranking tool (not only raw SPARQL). The
     # tool runs for real and its result is fed back before the model submits.
@@ -363,6 +366,7 @@ def test_key_present_llm_picks_typed_property_ranking(monkeypatch) -> None:
 
 
 def test_ask_llm_excludes_run_sparql_when_exposure_off(monkeypatch) -> None:
+    monkeypatch.setenv("ASTERISM_BUNDLED_TOOLS", "1")  # exercises the bundled examples
     """With raw SPARQL disabled, the Ask LLM is handed ONLY the typed tools."""
     g = rdflib.ConjunctiveGraph()
     g.parse(data=_TTL, format="turtle")
@@ -423,6 +427,7 @@ def test_generic_question_falls_through_not_canned_samples(monkeypatch) -> None:
 
 
 def test_crossdataset_question_defers_despite_zt_keyword(monkeypatch) -> None:
+    monkeypatch.setenv("ASTERISM_BUNDLED_TOOLS", "1")  # exercises the bundled examples
     # Regression: a cross-dataset question (ZT *by crystal structure*) contains the
     # "ZT" keyword, which used to short-circuit to the single-property ZT ranking,
     # ignoring the crystal-structure half. It must defer to the LLM escape instead
@@ -463,6 +468,7 @@ def _promote(ds: rdflib.ConjunctiveGraph, graph_iri: str) -> None:
 
 
 def test_router_routes_to_mp_verified_content_tool(monkeypatch) -> None:
+    monkeypatch.setenv("ASTERISM_BUNDLED_TOOLS", "1")  # exercises the bundled examples
     # The generality + provenance headline: a structure-property question routes to
     # the Materials Project dataset's OWN declared tool (thermoelectric_structure,
     # loaded from datasets/materials_project/query_tools.yaml — NOT hardcoded), which
@@ -545,6 +551,7 @@ def test_router_escape_marks_unverified(monkeypatch) -> None:
 
 
 def test_content_tool_defs_includes_registry_tools(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("ASTERISM_BUNDLED_TOOLS", "1")  # exercises the bundled examples
     # P1: a tool saved on a registry (workbench) dataset — registry/<id>/query_tools.yaml
     # — is offered by the router too, not only the repo example datasets.
     reg = tmp_path / "registry"
@@ -562,6 +569,27 @@ def test_content_tool_defs_includes_registry_tools(monkeypatch, tmp_path) -> Non
     assert registry_map["my-dataset-abc12345__t1"][0] == "my-dataset-abc12345"
     # No dataset is privileged: starrydata's declared tools ride the same path.
     assert "starrydata__property_ranking" in names
+
+
+def test_content_tool_defs_default_hides_bundled_examples(monkeypatch, tmp_path) -> None:
+    # Real-user feedback (2026-07-14): the catalog shows only registry datasets,
+    # so Ask must not list tools for the repo-bundled examples by default —
+    # they join only with ASTERISM_BUNDLED_TOOLS=1 (the standalone demo compose).
+    monkeypatch.delenv("ASTERISM_BUNDLED_TOOLS", raising=False)
+    reg = tmp_path / "registry"
+    ds = reg / "my-dataset-abc12345"
+    ds.mkdir(parents=True)
+    (ds / "query_tools.yaml").write_text(
+        "tools:\n  - name: t1\n    title: T1\n"
+        "    query: 'SELECT ?s WHERE { ?s ?p ?o } LIMIT 1'\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CSV2RDF_REGISTRY_ROOT", str(reg))
+    defs, registry_map = demo._content_tool_defs()
+    names = {d["name"] for d in defs}
+    assert "my-dataset-abc12345__t1" in names  # the user's own tools still serve
+    assert not any(n.startswith(("starrydata__", "materials_project__", "papers__")) for n in names)
+    assert registry_map["my-dataset-abc12345__t1"][0] == "my-dataset-abc12345"
 
 
 # --- multi-provider Ask: OpenAI-compatible (Sakura AI Engine etc.) -----------

@@ -548,3 +548,19 @@ def test_lint_without_vocabulary_unchanged() -> None:
     doc = _doc("SELECT ?s WHERE { ?s a <https://anything/At/All> } LIMIT 1")
     lint = lint_query_tool(parse_query_tools(doc)[0])
     assert lint.ok and not lint.warnings
+
+
+def test_bundled_tools_enabled_env_parsing(monkeypatch) -> None:
+    # Serving surfaces hide the repo-bundled example datasets unless opted in
+    # (real-user feedback 2026-07-14: Ask must not list tools for datasets that
+    # exist nowhere in the catalog). Library loaders stay ungated.
+    from asterism.query_tools import bundled_tools_enabled
+
+    monkeypatch.delenv("ASTERISM_BUNDLED_TOOLS", raising=False)
+    assert bundled_tools_enabled() is False
+    for truthy in ("1", "true", "TRUE", " yes ", "On"):
+        monkeypatch.setenv("ASTERISM_BUNDLED_TOOLS", truthy)
+        assert bundled_tools_enabled() is True, truthy
+    for falsy in ("", "0", "false", "off", "nope"):
+        monkeypatch.setenv("ASTERISM_BUNDLED_TOOLS", falsy)
+        assert bundled_tools_enabled() is False, falsy

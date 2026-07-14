@@ -28,6 +28,7 @@ from asterism.query_tools import (
     QueryTool,
     QueryToolError,
     ToolParam,
+    bundled_tools_enabled,
     load_all_query_tools,
     run_query_tool,
 )
@@ -272,10 +273,11 @@ def _register_declared_query_tools(mcp: FastMCP, get_client) -> None:
     taken by a hardcoded tool are likewise prefixed (defensive).
     """
     taken = {"template_curve_fetch", "provenance_of", "schema_summary", "sparql_query"}
-    # Tools come from BOTH the repo example datasets (datasets/<name>/) AND the
-    # workbench registry (registry/<id>/query_tools.yaml) — a tool a researcher
-    # saved on their onboarded dataset becomes a typed MCP tool too (P1).
-    sources = dict(load_all_query_tools())
+    # Tools come from the workbench registry (registry/<id>/query_tools.yaml) —
+    # what the user's catalog shows. The repo-bundled examples (datasets/<name>/)
+    # are dev/demo content, served only with ASTERISM_BUNDLED_TOOLS=1, so this
+    # surface never lists datasets that exist nowhere in the UI.
+    sources = dict(load_all_query_tools()) if bundled_tools_enabled() else {}
     reg_root = os.environ.get("CSV2RDF_REGISTRY_ROOT")
     if reg_root:
         with contextlib.suppress(Exception):
