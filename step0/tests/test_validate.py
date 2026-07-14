@@ -796,3 +796,308 @@ def test_unparseable_mie_yaml_is_a_fail_not_a_crash(tmp_path: Path) -> None:
         assert res.status == "fail", (check.__name__, res.status)
         assert "not parseable YAML" in res.detail
         assert "§7" in res.detail  # tells the reviewer WHERE to fix
+
+
+# ---------------------------------------------------------------------------
+# Fix recipes: a failing trap must hand the AI/user a deterministic recipe —
+# WHERE (section + YAML path), WHAT SHAPE, and a paste-ready example derived
+# from the design itself (2026-07-14 live incident: the one-click AI fix looped
+# forever on T4 because the comment carried only the symptom).
+# ---------------------------------------------------------------------------
+
+
+def _parse_t4_fix_yaml(fix: str) -> dict:
+    """Parse the paste-ready YAML block that terminates a T4 fix recipe."""
+    import yaml
+
+    idx = fix.index("\nschema_info:")  # block starts at column 0
+    return yaml.safe_load(fix[idx + 1 :])
+
+
+# A T4-failing MIE (1 keyword, 0 categories) with fields worth preserving.
+_T4_POOR_MIE = """
+schema_info:
+  title: Powder diffraction cards
+  description: Example measurement set.
+  base_uri: https://example.com/xr/
+  keywords:
+    - card
+  categories: []
+"""
+
+_T4_MAPPING_IR = """
+version: 1
+prefixes:
+  xr:  "https://example.com/xr#"
+  xrr: "https://example.com/xr/resource/"
+maps:
+  - name: card
+    source: cards.csv
+    subject:
+      template: "xrr:card/{card_id}"
+      classes: [xr:Card]
+    properties:
+      - predicate: xr:peakAngle
+        column: two_theta
+      - predicate: xr:intensity
+        column: intensity
+"""
+
+
+def test_t4_fail_fix_yaml_satisfies_thresholds_when_derivation_is_rich(
+    tmp_path: Path,
+) -> None:
+    """★ The recipe's YAML block must ITSELF pass T4 when the design offers
+    enough terms (title + Mermaid classes + §9 mapping IR): parse the block out
+    of the fix and check the same thresholds the trap enforces."""
+    mie = _write(tmp_path / "mie.yaml", _T4_POOR_MIE)
+    diagram = _write(
+        tmp_path / "diagram.md",
+        """
+        ```mermaid
+        classDiagram
+            class Card
+            class Peak
+            Peak --> Card : fromCard
+        ```
+        """,
+    )
+    ir = _write(tmp_path / "mapping.yaml", _T4_MAPPING_IR)
+    res = _check_t4_keywords(
+        SchemaBundle(mie_yaml=mie, diagram_md=diagram, mapping_ir_yaml=ir)
+    )
+    assert res.status == "fail"
+    assert res.fix, "a T4 fail must carry a fix recipe"
+    assert "§7" in res.fix  # WHERE: the section
+    assert "keywords" in res.fix  # WHERE: the YAML path
+
+    info = _parse_t4_fix_yaml(res.fix)["schema_info"]
+    assert len(info["keywords"]) >= 5, info["keywords"]
+    assert len(info["categories"]) >= 1, info["categories"]
+    assert len(info["keywords"]) <= 8  # bounded, not a dump of everything
+    # Paste-ready means lossless: the existing schema_info fields survive.
+    assert info["title"] == "Powder diffraction cards"
+    assert info["description"] == "Example measurement set."
+    assert info["base_uri"] == "https://example.com/xr/"
+    # No invention: every keyword traces back to the design's own text.
+    design_text = (
+        _T4_POOR_MIE + diagram.read_text(encoding="utf-8") + _T4_MAPPING_IR
+    ).lower()
+    for kw in info["keywords"]:
+        assert str(kw).lower() in design_text, kw
+
+
+def test_t4_fix_degenerate_states_thresholds_and_shortfall(tmp_path: Path) -> None:
+    """Derivation-poor bundle (no title / diagram / IR / CSVs): the recipe must
+    still say the thresholds and exactly how many terms the author must add —
+    and must NOT invent keywords to pad the list."""
+    mie = _write(
+        tmp_path / "mie.yaml",
+        """
+        schema_info:
+          keywords:
+            - one
+            - two
+        """,
+    )
+    res = _check_t4_keywords(SchemaBundle(mie_yaml=mie))
+    assert res.status == "fail"
+    assert res.fix
+    assert "5" in res.fix  # the keyword threshold, stated
+    assert "add 3 more" in res.fix  # the exact shortfall instruction
+    info = _parse_t4_fix_yaml(res.fix)["schema_info"]
+    # What IS known is kept; nothing invented beyond the generic category slot.
+    assert info["keywords"] == ["one", "two"]
+    assert len(info["categories"]) >= 1
+
+
+def test_t4_pass_has_empty_fix(tmp_path: Path) -> None:
+    mie = _write(tmp_path / "mie.yaml", _BASE_MIE)
+    res = _check_t4_keywords(SchemaBundle(mie_yaml=mie))
+    assert res.status == "pass"
+    assert res.fix == ""
+
+
+def test_t4_fix_derives_from_rml_when_no_mapping_ir(tmp_path: Path) -> None:
+    """Legacy bundles carry compiled/raw RML but no §9 IR — rr:class and
+    rml:reference local names still feed the keyword pool."""
+    mie = _write(tmp_path / "mie.yaml", "schema_info:\n  keywords: []\n")
+    rml = _write(
+        tmp_path / "m.rml.ttl",
+        """
+        @prefix rr:  <http://www.w3.org/ns/r2rml#> .
+        @prefix rml: <http://semweb.mmlab.be/ns/rml#> .
+        @prefix ql:  <http://semweb.mmlab.be/ns/ql#> .
+        @prefix ex:  <https://example.com/sn#> .
+        <#M> a rr:TriplesMap ;
+          rml:logicalSource [ rml:source "readings.csv" ; rml:referenceFormulation ql:CSV ] ;
+          rr:subjectMap [ rr:template "https://ex/reading/{reading_id}" ;
+            rr:class ex:Measurement ] ;
+          rr:predicateObjectMap [ rr:predicate ex:temperature ;
+            rr:objectMap [ rml:reference "temperature" ] ] .
+        """,
+    )
+    res = _check_t4_keywords(SchemaBundle(mie_yaml=mie, rml_ttl=rml))
+    assert res.status == "fail"
+    keywords = [str(k).lower() for k in _parse_t4_fix_yaml(res.fix)["schema_info"]["keywords"]]
+    assert "measurement" in keywords  # rr:class local name
+    assert "temperature" in keywords  # rml:reference column
+
+
+def test_t4_fix_derives_from_source_csv_headers(tmp_path: Path) -> None:
+    """CSV file stems + header columns are the last-resort derivation source."""
+    mie = _write(tmp_path / "mie.yaml", "schema_info:\n  keywords: []\n")
+    csv = _write(tmp_path / "spectra.csv", "wavelength,absorbance,run_label\n1,2,x\n")
+    res = _check_t4_keywords(SchemaBundle(mie_yaml=mie, source_csvs=[csv]))
+    assert res.status == "fail"
+    keywords = [str(k).lower() for k in _parse_t4_fix_yaml(res.fix)["schema_info"]["keywords"]]
+    for term in ("spectra", "wavelength", "absorbance", "run_label"):
+        assert term in keywords
+
+
+def test_t1_fail_fix_names_entity_key_and_template_path(tmp_path: Path) -> None:
+    csv = _write(
+        tmp_path / "papers.csv",
+        """
+        SID,DOI
+        1,10.1/a
+        1,10.1/b
+        """,
+    )
+    mie = _write(tmp_path / "mie.yaml", "shape_expressions: |\n  sdr:paper/{SID}\n")
+    res = _check_t1_uniqueness(SchemaBundle(mie_yaml=mie, source_csvs=[csv]))
+    assert res.status == "fail"
+    assert "subject.template" in res.fix  # WHAT to edit
+    assert "§9" in res.fix  # WHERE
+    assert "paper" in res.fix  # the colliding entity, named
+    assert "SID" in res.fix  # the current (insufficient) key, named
+
+
+def test_t2_fail_fix_prescribes_utf8_sig(tmp_path: Path) -> None:
+    ing = _write(tmp_path / "ingest.py", 'open(p, encoding="utf-8")\n')
+    res = _check_t2_bom(SchemaBundle(ingester_py=ing))
+    assert res.status == "fail"
+    assert "utf-8-sig" in res.fix
+    assert "§8" in res.fix
+
+
+def test_t3_fail_fix_prescribes_iri_templates(tmp_path: Path) -> None:
+    ttl = _write(
+        tmp_path / "schema.ttl",
+        """
+        @prefix owl: <http://www.w3.org/2002/07/owl#> .
+        @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+        @prefix sd:  <https://example.com/o#> .
+        sd:Paper a owl:Class ;
+            rdfs:subClassOf [ a owl:Restriction ; owl:onProperty sd:title ; owl:maxCardinality 1 ] .
+        """,
+    )
+    res = _check_t3_bnode_free(SchemaBundle(tbox_ttl=ttl))
+    assert res.status == "fail"
+    assert res.fix
+    assert "template" in res.fix.lower()
+
+
+def test_t5_fail_fix_points_to_diagram_labels(tmp_path: Path) -> None:
+    md = _write(
+        tmp_path / "diagram.md",
+        """
+        ```mermaid
+        classDiagram
+            Paper --> Sample : schema:author
+        ```
+        """,
+    )
+    res = _check_t5_mermaid_escape(SchemaBundle(diagram_md=md))
+    assert res.status == "fail"
+    assert "§1" in res.fix
+    assert "colon" in res.fix.lower() or "':'" in res.fix
+
+
+def test_t5_warn_lint_fix_points_to_diagram(tmp_path: Path) -> None:
+    md = _write(
+        tmp_path / "diagram.md",
+        "```mermaid\nclassDiagram\n    class Thermal-Conductivity\n```\n",
+    )
+    res = _check_t5_mermaid_escape(SchemaBundle(diagram_md=md))
+    assert res.status == "warn"
+    assert "§1" in res.fix
+
+
+def test_t6_fail_fix_prescribes_verbatim_row_values(tmp_path: Path) -> None:
+    csv = _write(tmp_path / "papers.csv", "SID,title\n6,Real\n")
+    mie = _write(
+        tmp_path / "mie.yaml",
+        """
+        sample_rdf_entries:
+          - title: Hallucinated
+            rdf: |
+              sdr:paper/999999 a sd:Paper .
+        """,
+    )
+    res = _check_t6_fake_iri(SchemaBundle(mie_yaml=mie, source_csvs=[csv]))
+    assert res.status == "fail"
+    assert "sample_rdf_entries" in res.fix
+    assert "§7" in res.fix
+
+
+def test_t7_warn_fix_lists_missing_subsections(tmp_path: Path) -> None:
+    mie = _write(
+        tmp_path / "mie.yaml",
+        """
+        architectural_notes: |
+          We chose composite keys. Why: collisions.
+        """,
+    )
+    res = _check_t7_rationale(SchemaBundle(mie_yaml=mie))
+    assert res.status == "warn"
+    assert "architectural_notes" in res.fix
+    # The recipe names the specific missing subsections from the trap's finding.
+    assert "Alternatives" in res.fix and "Trade-offs" in res.fix
+
+
+def test_t9_fail_fix_prescribes_tier0_closed_set(tmp_path: Path) -> None:
+    rogue = _VALID_RML.replace("fn:float_array_max", "fn:run_shell")
+    rml = _write(tmp_path / "m.rml.ttl", rogue)
+    res = _check_t9_rml_closed_set(
+        SchemaBundle(rml_ttl=rml), allowed_fn_iris={_FN + "float_array_max"}
+    )
+    assert res.status == "fail"
+    assert "Tier 0" in res.fix
+    assert "§9" in res.fix
+
+
+def test_broken_mie_fix_prescribes_yaml_repair(tmp_path: Path) -> None:
+    mie = tmp_path / "broken.mie.yaml"
+    mie.write_text(
+        'sparql_query_examples:\n  - "unterminated\n  - broken\n', encoding="utf-8"
+    )
+    csv = _write(tmp_path / "d.csv", "SID\n1\n")  # T6 needs a source to run at all
+    bundle = SchemaBundle(mie_yaml=mie, source_csvs=[csv])
+    for check in (_check_t4_keywords, _check_t6_fake_iri, _check_t7_rationale):
+        res = check(bundle)
+        assert res.status == "fail"
+        assert "§7" in res.fix, check.__name__
+        assert "YAML" in res.fix, check.__name__
+
+
+def test_passing_traps_carry_no_fix(tmp_path: Path) -> None:
+    """fix is a repair recipe — pass/skip results must leave it empty."""
+    mie = _write(tmp_path / "mie.yaml", _BASE_MIE)
+    report = validate_schema(SchemaBundle(mie_yaml=mie))
+    for r in report.results:
+        if r.status in {"pass", "skip"}:
+            assert r.fix == "", (r.trap_id, r.status)
+
+
+def test_render_report_appends_fix_sections(tmp_path: Path) -> None:
+    """The CLI report surfaces each recipe in its own trailing section (the trap
+    table row keeps only `detail`, so existing consumers are unaffected)."""
+    mie = _write(
+        tmp_path / "mie.yaml",
+        "schema_info:\n  title: Tiny\n  keywords: [one]\n  categories: []\n",
+    )
+    report = validate_schema(SchemaBundle(mie_yaml=mie))
+    md = render_report(report)
+    assert "suggested fix" in md
+    assert "schema_info:" in md
