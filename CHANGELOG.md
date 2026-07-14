@@ -1,5 +1,59 @@
 # Changelog
 
+## [v0.7.0](https://github.com/kumagallium/asterism/compare/v0.6.0...v0.7.0) - 2026-07-14
+
+- feat(ui): v2 UX redesign — visibility, object-axis IA, dataset tabs, ScreenGround/Map by @kumagallium in https://github.com/kumagallium/asterism/pull/232
+- feat: マルチプロバイダ LLM + 設定UI + API使用量計測 by @kumagallium in https://github.com/kumagallium/asterism/pull/234
+- infra: 本番デプロイ構成（Private 完結・1箱バンドル） by @kumagallium in https://github.com/kumagallium/asterism/pull/235
+- infra(caddy): 認証済みリクエストに書き込みトークン注入（#235 follow-up） by @kumagallium in https://github.com/kumagallium/asterism/pull/236
+- 設計品質ループの改善を main へ追従（検証/再設計/自動修正/RML 堅牢化） by @kumagallium in https://github.com/kumagallium/asterism/pull/237
+- 設計検証を新規設計でも効かせる（attach 後の read-only 検証エンドポイント） by @kumagallium in https://github.com/kumagallium/asterism/pull/238
+- propose 自己修正ループ（設計品質の底上げ・TODO ④） by @kumagallium in https://github.com/kumagallium/asterism/pull/239
+- feat(settings): モデルピッカー — プロバイダから利用可能モデル一覧を取得 by @kumagallium in https://github.com/kumagallium/asterism/pull/240
+- feat(settings): サーバ側運用者 LLM キー（opt-in）＋ APIキー欄を endpoint 直下へ by @kumagallium in https://github.com/kumagallium/asterism/pull/242
+- fix(settings): モデルピッカーで一覧から選び直せない問題を修正 by @kumagallium in https://github.com/kumagallium/asterism/pull/243
+- fix(workbench): リトライのたびに重複データセットが増えるバグ — 初回保存の id を採用して in-place 更新に by @kumagallium in https://github.com/kumagallium/asterism/pull/241
+- feat(settings): 共有サーバ側 LLM キーを UI から登録 by @kumagallium in https://github.com/kumagallium/asterism/pull/245
+- fix(append): make retried appends idempotent via a content-derived batch id by @kumagallium in https://github.com/kumagallium/asterism/pull/246
+- feat(propose/refine): follow the UI language for proposal prose by @kumagallium in https://github.com/kumagallium/asterism/pull/244
+- fix(ingest): reclaim orphaned version graphs (unbounded storage leak) by @kumagallium in https://github.com/kumagallium/asterism/pull/248
+- feat(tool/crosswalk propose): follow the UI language for draft prose by @kumagallium in https://github.com/kumagallium/asterism/pull/247
+- fix(documents): adopt the created id so a failed doc upload retries in place by @kumagallium in https://github.com/kumagallium/asterism/pull/249
+- feat(jobs/llm): cancellable propose jobs (timeout + liveness) and weak-model robustness by @kumagallium in https://github.com/kumagallium/asterism/pull/250
+- feat(llm): stream OpenAI-compatible completions by default (fix provider 504 on long thinking-model generations) by @kumagallium in https://github.com/kumagallium/asterism/pull/251
+- Mapping IR: propose の §9 を決定論 RML コンパイルに全面移行（E 案） by @kumagallium in https://github.com/kumagallium/asterism/pull/252
+- fix: mapping spec 併存時の迷子 turtle フェンスで保存が誤ブロックされる by @kumagallium in https://github.com/kumagallium/asterism/pull/253
+- fix: function: str(型キャスト発明)に的を射た修正誘導を出す by @kumagallium in https://github.com/kumagallium/asterism/pull/254
+- Mapping IR Phase 2a: guided JSON + §9 外科的修復 by @kumagallium in https://github.com/kumagallium/asterism/pull/255
+- feat(query-tools): 保存時 lint ゲート+寛容ロード+実行エラーの原因開示 by @kumagallium in https://github.com/kumagallium/asterism/pull/256
+- feat(ask): starrydata 優遇の撤去 — 全データセットが宣言ツールで平等にルーティング by @kumagallium in https://github.com/kumagallium/asterism/pull/257
+- feat(tool-propose): RML 閉集合オラクル+決定論の自己修正ループ by @kumagallium in https://github.com/kumagallium/asterism/pull/260
+- feat(design-quality): 孤立エンティティ advisory+propose に質問可能性の設計原則 by @kumagallium in https://github.com/kumagallium/asterism/pull/259
+- fix(validate): 壊れた MIE YAML を 500 でなく検証 finding に by @kumagallium in https://github.com/kumagallium/asterism/pull/261
+- feat(validate): 列エラーに「リンクは子側から」の方向ヒント+propose に方向規則 by @kumagallium in https://github.com/kumagallium/asterism/pull/262
+- feat(validate): 孤立 advisory を作業指示書に — join キー候補列挙+削除逃げ防止 by @kumagallium in https://github.com/kumagallium/asterism/pull/263
+- feat(validate): rr:constant 内の {placeholder} を取り込み前に 422 で拒否 by @kumagallium in https://github.com/kumagallium/asterism/pull/264
+- fix(substrate): {__run_id__} を rr:template 以外(constant/IRI)でも置換 by @kumagallium in https://github.com/kumagallium/asterism/pull/265
+- feat(validate): 未マップ列の review notes(materialize 表示・人間判断層) by @kumagallium in https://github.com/kumagallium/asterism/pull/266
+- fix(validate/ui): guard against Mermaid diagram.md that fails to parse by @kumagallium in https://github.com/kumagallium/asterism/pull/267
+- feat(tools): 保存/下書き時の advisory dry-run — 0行ツール族を保存時に可視化 by @kumagallium in https://github.com/kumagallium/asterism/pull/269
+- Mapping IR Phase 2b: round-0 段階分割 + ウィザード UI（骨格の早期人間ゲート） by @kumagallium in https://github.com/kumagallium/asterism/pull/268
+- fix(ui): AI の classDiagram 方言(A -- label --> B)を描画前に正規化 by @kumagallium in https://github.com/kumagallium/asterism/pull/270
+- feat(catalog): 取り込みルール（生成物）の人間可読化 — 投影・原文ビューア・再設計履歴 by @kumagallium in https://github.com/kumagallium/asterism/pull/271
+- UI/UX 網羅監査に基づく一括改善（特異度リーク恒久修正・書き込みトークンUI・a11y・用語統一） by @kumagallium in https://github.com/kumagallium/asterism/pull/272
+- feat: source dialect layer — legacy instrument files ingest as-is by @kumagallium in https://github.com/kumagallium/asterism/pull/273
+- UI: hash ルーティング + 一覧⇄詳細の状態保持 + フォーカストラップ + ピルコントラスト by @kumagallium in https://github.com/kumagallium/asterism/pull/274
+- UI 監査フォローアップ2: faint 可読性 / 作業状態保持 / カード nested-interactive 解消 by @kumagallium in https://github.com/kumagallium/asterism/pull/275
+- feat(dialect): append support + wizard read-settings for legacy instrument files by @kumagallium in https://github.com/kumagallium/asterism/pull/276
+- feat(dialect): capture header/preamble metadata via broadcast by @kumagallium in https://github.com/kumagallium/asterism/pull/277
+- fix(rml-summary): 取り込みルール投影で rml:constant（新RML名前空間）を認識 by @kumagallium in https://github.com/kumagallium/asterism/pull/278
+- feat: ingest ジョブの協調キャンセル + リロード復旧 + アクティビティ記録（監査④⑦） by @kumagallium in https://github.com/kumagallium/asterism/pull/279
+- feat(skeleton-gate): 骨格ゲートに「データの証拠」— 主キーを研究者が判断できる形へ by @kumagallium in https://github.com/kumagallium/asterism/pull/280
+- feat(tools): serve only the catalog's datasets by default — bundled examples opt-in by @kumagallium in https://github.com/kumagallium/asterism/pull/281
+- feat(validate): every failing trap now issues a deterministic fix recipe by @kumagallium in https://github.com/kumagallium/asterism/pull/282
+- feat: instance IRI base — 新規設計データセットの名前空間をインスタンス所有に(example.org 根絶+404 説明ページ) by @kumagallium in https://github.com/kumagallium/asterism/pull/283
+- feat: IRI dereference Phase 2 — /describe(引用 IRI を開くと公開データが返る・ブラウザで辿れる) by @kumagallium in https://github.com/kumagallium/asterism/pull/284
+
 ## [v0.6.0](https://github.com/kumagallium/asterism/compare/v0.5.0...v0.6.0) - 2026-06-16
 
 - feat(documents): ingest born-digital PDF via an isolated Docling sidecar by @kumagallium in https://github.com/kumagallium/asterism/pull/227
