@@ -26,8 +26,8 @@ def _md_with_spec(reference_col: str, function: str = "trim_collapse") -> str:
         "```yaml\n"
         "version: 1\n"
         "prefixes:\n"
-        '  ex: "https://example.org/ns#"\n'
-        '  exr: "https://example.org/r/"\n'
+        '  ex: "https://ns.invalid/ns#"\n'
+        '  exr: "https://ns.invalid/r/"\n'
         "maps:\n"
         "  - name: thing\n"
         "    source: data.csv\n"
@@ -76,7 +76,7 @@ def _run(tmp_path: Path, llm, *, max_rounds: int = 3):
 
 _FIXED_SPEC_JSON = (
     '{"version": 1,'
-    ' "prefixes": {"ex": "https://example.org/ns#", "exr": "https://example.org/r/"},'
+    ' "prefixes": {"ex": "https://ns.invalid/ns#", "exr": "https://ns.invalid/r/"},'
     ' "maps": [{"name": "thing", "source": "data.csv",'
     ' "subject": {"template": "exr:thing/{SID}", "classes": ["ex:Thing"]},'
     ' "properties": [{"predicate": "ex:comp", "column": "composition",'
@@ -214,7 +214,7 @@ def test_classify_type_cast_keys_on_function_name() -> None:
 def test_reference_count_counts_ir_property_rows() -> None:
     ir_yaml = (
         "version: 1\n"
-        'prefixes: { ex: "https://example.org/ns#", exr: "https://example.org/r/" }\n'
+        'prefixes: { ex: "https://ns.invalid/ns#", exr: "https://ns.invalid/r/" }\n'
         "maps:\n"
         "  - name: a\n"
         "    source: d.csv\n"
@@ -256,3 +256,20 @@ def test_unparseable_repair_output_stops_bounded(tmp_path: Path) -> None:
     assert result.converged is False
     assert result.terminal_reason == "no_progress"
     assert any("column 'comp'" in m for m in result.remaining_issues)
+
+
+def test_ir_placeholder_namespace_is_rejected_then_reminted(tmp_path: Path) -> None:
+    """ADR instance-iri-base.md: a generated spec whose prefixes point at a
+    placeholder domain (example.org — LLM habit) gets a design issue naming the
+    minting policy, and converges once re-minted. The .invalid fixtures used by
+    every other test stay accepted (the unconfigured-instance default)."""
+    spec_placeholder = _md_with_spec("composition").replace(
+        "https://ns.invalid/ns#", "https://example.org/xrd-ontology#"
+    ).replace("https://ns.invalid/r/", "https://example.org/xrd-resource/")
+    llm = _ScriptedLLM([spec_placeholder, _FIXED_SPEC_JSON])
+    result = _run(tmp_path, llm)
+    assert result.converged is True
+    assert result.initial_issue_count == 2  # both prefixes flagged
+    _, repair_user = llm.calls[1]
+    assert "placeholder domain" in repair_user
+    assert "instance IRI base" in repair_user

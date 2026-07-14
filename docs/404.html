@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Asterism identifier — not a web page</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; color: #1f2933; max-width: 800px; margin: 0 auto; padding: 2rem 1.25rem; line-height: 1.6; }
+  h1 { border-bottom: 2px solid #4B7A52; padding-bottom: 0.3rem; }
+  code, pre { font-family: "SF Mono", Menlo, Monaco, Consolas, monospace; background: #f3f4f6; padding: 0.1em 0.35em; border-radius: 3px; font-size: 0.92em; }
+  pre { padding: 0.75rem 1rem; overflow-x: auto; }
+  a { color: #4B7A52; }
+  .iri-box { border: 1px solid #d2d6dc; border-left: 4px solid #4B7A52; border-radius: 4px; padding: 0.75rem 1rem; margin: 1rem 0; word-break: break-all; }
+  .muted { color: #6b7280; font-size: 0.92em; }
+</style>
+</head>
+<body>
+
+<h1>This is an Asterism identifier, not a web page</h1>
+
+<p>The URL you opened is an <strong>IRI</strong> — a permanent identifier that
+<a href="https://github.com/kumagallium/asterism">Asterism</a> minted for a
+piece of research data (an entity, a graph, or a vocabulary term). It names the
+thing; it is not (yet) a document about the thing, which is why you got a 404
+instead of a page.</p>
+
+<div class="iri-box">
+  <div class="muted">Requested identifier</div>
+  <code id="iri">…</code>
+  <div id="parsed" class="muted" style="margin-top: 0.5rem;"></div>
+</div>
+
+<h2>How to see the data behind it</h2>
+
+<p>The identifier works in SPARQL against the store that holds the dataset —
+your Asterism instance's <em>高度な検索 / SPARQL</em> view, the API's
+<code>/api/sparql</code>, or the <a href="/asterism/demo/">in-browser demo</a>
+for the published subset:</p>
+
+<pre id="describe">DESCRIBE &lt;…&gt;</pre>
+
+<p>Answers produced by Asterism's verified tools cite these IRIs so the exact
+evidence row can be re-fetched, compared, and audited — identifier stability is
+the point; HTTP resolution is a convenience layered on top.</p>
+
+<h2>Why it doesn't resolve (yet)</h2>
+
+<p>Instance IRIs are currently <strong>identifiers only</strong> (see the
+<a href="/asterism/starrydata/resource/">namespace note</a>): serving a
+description per IRI needs a live SPARQL service behind this domain, which a
+static GitHub Pages site cannot provide. A content-negotiated
+<code>DESCRIBE</code> responder (Turtle for machines, HTML for humans) is the
+planned phase 2.</p>
+
+<p class="muted">If you followed a citation link and expected data, the citing
+Asterism instance is where the data lives — open the provenance panel there.</p>
+
+<script>
+(function () {
+  var iri = location.href.split("#")[0].split("?")[0];
+  document.getElementById("iri").textContent = iri;
+  document.getElementById("describe").textContent = "DESCRIBE <" + iri + ">";
+  // Best-effort human hint: …/asterism/{ns…}/resource/{type}/{id} — the ns part
+  // may span segments (bundled: starrydata; instance-based: datasets/xrd-powder).
+  var m = location.pathname.match(/^\/asterism\/(.+?)\/resource\/([^/]+)\/(.+)$/);
+  var parsed = document.getElementById("parsed");
+  if (m) {
+    parsed.textContent = "dataset namespace: " + decodeURIComponent(m[1]) +
+      " · entity type: " + decodeURIComponent(m[2]) +
+      " · id: " + decodeURIComponent(m[3]);
+  } else if (/^\/asterism\/graph\//.test(location.pathname)) {
+    parsed.textContent = "a named graph (an ingestion/version container), not an entity";
+  }
+})();
+</script>
+
+</body>
+</html>

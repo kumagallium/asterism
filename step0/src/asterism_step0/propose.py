@@ -34,6 +34,7 @@ from typing import Any
 
 from asterism_step0.dialect import SourceDialect
 from asterism_step0.inspect import inspect_source_set, render_markdown
+from asterism_step0.instance_iri import dataset_namespace_block
 from asterism_step0.language import language_instruction
 
 # The LLM client seam lives in asterism_step0.llm (multi-provider). These names
@@ -399,6 +400,7 @@ def propose_schema(
     llm: LLMClient | None = None,
     language: str | None = None,
     dialects: Mapping[str, SourceDialect] | None = None,
+    iri_base: str | None = None,
 ) -> SchemaProposal:
     """Run Step 1 (inspect) and Step 3 (propose) end-to-end.
 
@@ -422,6 +424,9 @@ def propose_schema(
             source. Forwarded to ``inspect_source_set`` so the inline inspection
             reports the SAME columns the pinned §9 dialect will produce; sources
             not listed are auto-detected.
+        iri_base: Where THIS instance mints new dataset namespaces (ADR
+            instance-iri-base.md); unset falls back to the ``.invalid`` default
+            inside :func:`dataset_namespace_block`.
 
     Returns:
         :class:`SchemaProposal` with the inspection Markdown, the domain hint,
@@ -438,7 +443,8 @@ def propose_schema(
 
     # Step 3: assemble user message and call LLM
     user_message = (
-        f"# Source inspection\n\n{inspection_md}\n\n# Domain context\n\n{domain_hint.strip()}\n"
+        f"# Source inspection\n\n{inspection_md}\n\n# Domain context\n\n{domain_hint.strip()}\n\n"
+        f"{dataset_namespace_block(iri_base)}"
     )
     lang_block = language_instruction(language)
     if lang_block:
@@ -525,6 +531,8 @@ def _build_arg_parser():  # type: ignore[no-untyped-def]
 
 
 def _main(argv: list[str] | None = None) -> int:
+    import os
+
     args = _build_arg_parser().parse_args(argv)
     domain_hint = args.domain_file.read_text(encoding="utf-8") if args.domain_file else args.domain
     llm = AnthropicLLMClient(model=args.model, effort=args.effort)
@@ -535,6 +543,7 @@ def _main(argv: list[str] | None = None) -> int:
         record_path=args.record_path,
         llm=llm,
         language=args.language,
+        iri_base=os.environ.get("ASTERISM_IRI_BASE"),
     )
     if args.output is None:
         print(proposal.proposal_md)

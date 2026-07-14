@@ -511,8 +511,8 @@ def _md_with_spec(source: str, reference_col: str) -> str:
         "```yaml\n"
         "version: 1\n"
         "prefixes:\n"
-        '  ex: "https://example.org/ns#"\n'
-        '  exr: "https://example.org/r/"\n'
+        '  ex: "https://ns.invalid/ns#"\n'
+        '  exr: "https://ns.invalid/r/"\n'
         "maps:\n"
         "  - name: thing\n"
         f"    source: {source}\n"
@@ -590,7 +590,7 @@ def test_design_loop_reapplies_dialects_after_refine_round(tmp_path: Path, monke
 
     fixed_spec_json = (
         '{"version": 1,'
-        ' "prefixes": {"ex": "https://example.org/ns#", "exr": "https://example.org/r/"},'
+        ' "prefixes": {"ex": "https://ns.invalid/ns#", "exr": "https://ns.invalid/r/"},'
         ' "maps": [{"name": "thing", "source": "data.csv",'
         ' "subject": {"template": "exr:thing/{SID}", "classes": ["ex:Thing"]},'
         ' "properties": [{"predicate": "ex:comp", "column": "composition"}]}]}'
@@ -683,8 +683,8 @@ def test_collect_ir_issues_survives_undeclared_cp932_sidecar(tmp_path: Path) -> 
     ir_yaml = (
         "version: 1\n"
         "prefixes:\n"
-        '  ex: "https://example.org/ns#"\n'
-        '  exr: "https://example.org/r/"\n'
+        '  ex: "https://ns.invalid/ns#"\n'
+        '  exr: "https://ns.invalid/r/"\n'
         "maps:\n"
         "  - name: thing\n"
         "    source: data.csv\n"
@@ -705,8 +705,8 @@ _SPEC_MD_NO_DIALECTS = (
     "```yaml\n"
     "version: 1\n"
     "prefixes:\n"
-    '  ex: "https://example.org/ns#"\n'
-    '  exr: "https://example.org/r/"\n'
+    '  ex: "https://ns.invalid/ns#"\n'
+    '  exr: "https://ns.invalid/r/"\n'
     "maps:\n"
     "  - name: point\n"
     "    source: xrd.txt\n"
