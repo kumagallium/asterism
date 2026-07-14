@@ -2662,6 +2662,11 @@ def build_app(
                         # time. The hard gate is at ingest (substrate.assert_rml_safe);
                         # this makes the violation visible before persistence.
                         rml_ttl=paths.get("rml_ttl"),
+                        # Pass the §9 mapping spec so T4's fix recipe can derive
+                        # keyword candidates from the design's own map/class/column
+                        # names — present even when the spec failed to compile to
+                        # RML (the very case where the one-click AI fix runs).
+                        mapping_ir_yaml=paths.get("mapping_ir"),
                     )
                 )
                 artifacts = {
@@ -2679,7 +2684,16 @@ def build_app(
                     "mapping.yaml": mat.mapping_ir_yaml,
                 }
                 traps = [
-                    {"id": r.trap_id, "name": r.name, "status": r.status, "detail": r.detail}
+                    {
+                        "id": r.trap_id,
+                        "name": r.name,
+                        "status": r.status,
+                        "detail": r.detail,
+                        # Deterministic repair recipe (where + what + paste-ready
+                        # example) — the UI's one-click AI fix forwards it so weak
+                        # models stop looping on symptom-only descriptions.
+                        "fix": r.fix,
+                    }
                     for r in report.results
                 ]
                 exit_code = report.exit_code()

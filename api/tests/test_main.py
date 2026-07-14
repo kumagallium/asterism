@@ -953,6 +953,80 @@ def test_materialize_rejects_empty(
         assert r.status_code == 400
 
 
+# A proposal whose MIE fails T4 (1 keyword / 0 categories) but whose §9 mapping
+# spec carries derivable terms — the trap's fix recipe must reach the response.
+_FIX_RECIPE_MD = """## Schema proposal
+
+### Class diagram
+```mermaid
+classDiagram
+    class Reading
+```
+
+### MIE
+```yaml
+schema_info:
+  title: Sensor readings
+  keywords: [reading]
+  categories: []
+```
+
+### Ingester
+```python
+import csv
+def emit(path):
+    open(path, encoding="utf-8-sig")
+```
+
+### 9. Declarative mapping spec
+```yaml
+version: 1
+prefixes:
+  sn: "https://example.com/sn#"
+  snr: "https://example.com/sn/resource/"
+maps:
+  - name: reading
+    source: readings.csv
+    subject:
+      template: "snr:reading/{reading_id}"
+      classes: [sn:Reading]
+    properties:
+      - predicate: sn:channel
+        column: channel
+      - predicate: sn:amplitude
+        column: amplitude
+```
+"""
+
+
+def test_materialize_traps_carry_fix_recipes(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    """2026-07-14 incident regression: a failing trap must ship its repair
+    recipe in the response (`fix`), and T4's recipe must derive keyword
+    candidates from the §9 mapping spec — proving materialize wires the
+    extracted spec into the validator bundle (mapping_ir_yaml)."""
+    app = build_app(
+        _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
+    )
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/materialize",
+            json={"proposal_md": _FIX_RECIPE_MD, "dataset_name": "sensor"},
+        )
+        assert r.status_code == 200
+        traps = r.json()["traps"]
+        assert all("fix" in t for t in traps)  # additive key on every trap
+        t4 = next(t for t in traps if t["id"] == "T4")
+        assert t4["status"] == "fail"
+        assert "schema_info:" in t4["fix"]  # the paste-ready YAML block
+        # §9-only terms in the recipe = the mapping spec reached the validator.
+        assert "channel" in t4["fix"] and "amplitude" in t4["fix"]
+        # Passing traps carry no recipe.
+        t2 = next(t for t in traps if t["id"] == "T2")
+        assert t2["status"] == "pass" and t2["fix"] == ""
+
+
 def test_materialize_persists_and_lists_dataset(
     tmp_path: Path, healthy_client: OxigraphClient
 ) -> None:
