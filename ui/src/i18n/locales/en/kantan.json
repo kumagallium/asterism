@@ -1,0 +1,68 @@
+{
+  "tier": {
+    "toDetail": "Switch to detail mode",
+    "toKantan": "Switch to simple mode",
+    "busy": "You can't switch modes while a job is running"
+  },
+  "recipe": {
+    "label": "Steps",
+    "here": "You are here",
+    "step1": "Put data in",
+    "step2": "AI reads it",
+    "step3": "Check",
+    "step4": "Try it",
+    "step5": "Publish"
+  },
+  "s1": {
+    "title": "Add measurement data",
+    "dropTitle": "Drop your measurement data files here",
+    "dropFormats": "Excel, CSV, instrument exports (.txt / .dat), Word / PDF",
+    "privacy": "Once dropped, everything proceeds automatically. Nothing is visible to anyone until you publish.",
+    "unsupported": "This file format is not supported yet. Please drop CSV, instrument exports, Word or PDF files.",
+    "mixed": "These files are of different kinds. Please add tables and documents separately.",
+    "documentNote": "Documents (Word / PDF / XML) can be taken in as they are — no AI design needed. Use the form below.",
+    "aiNotReady": "The AI is not set up yet. Once an administrator configures an AI key on the server, this screen works as is. To use your own key, enter it in Settings.",
+    "openSettings": "Open settings",
+    "resumeNote": "You have unfinished work. Drop the same files again to resume from the review screen.",
+    "reading": "Reading your files…"
+  },
+  "s2": {
+    "title": "Check the reading",
+    "lead": "Here is how your files were read. Please answer just two things only you would know.",
+    "leadNoQuestions": "Here is how your files were read. Check the content and continue.",
+    "previewCaption": "first 5 rows",
+    "fileCard": "No content preview for this file (it will be read as is).",
+    "q1": "Before the table starts, there were {{count}} lines that look like sample information. Should this be recorded together with each measurement?",
+    "q1Yes": "Yes, record it together",
+    "q1No": "No, table only",
+    "q2": "Is this \"{{column}}\" a serial number used only inside this file? Or does the same number also appear in other files or papers?",
+    "q2Only": "Only this file",
+    "q2Elsewhere": "It appears elsewhere",
+    "q2Unknown": "I don't know",
+    "proceed": "Continue with this",
+    "repick": "Choose different files",
+    "needAnswers": "Answer the questions above to continue."
+  },
+  "s3": {
+    "jobLabel": "The AI is reading your data (1–3 min)",
+    "closeNote": "You can close this screen — the work continues.",
+    "back": "Go back and retry"
+  },
+  "s4": {
+    "gateTitle": "Check (1/2) — how rows are counted",
+    "gateHint": "Please confirm just one thing: what one row of this table represents.",
+    "continue": "Continue with this counting",
+    "continuing": "Writing down what each column means…",
+    "needFiles": "The files are missing. Please drop them again on the first screen."
+  },
+  "job": {
+    "preparing": "Preparing…",
+    "analyzing": "Analyzing…",
+    "resumedFailed": "Could not resume the interrupted work: {{message}}"
+  },
+  "done": {
+    "title": "Your design is ready",
+    "body": "Continue to the review screen. You can check and adjust everything there in detail mode.",
+    "open": "Review and edit (detail view)"
+  }
+}

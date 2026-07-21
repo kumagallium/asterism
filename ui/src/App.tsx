@@ -19,11 +19,12 @@ import {
   TermsIcon,
 } from './icons'
 import { JobsView } from './JobsView'
+import { WorkbenchTier } from './kantan/WorkbenchTier'
 import { OntologyMapView } from './OntologyMapView'
 import { useLlmSettings } from './settings/context'
 import { SharedVocabView } from './SharedVocabView'
 import { SparqlView } from './SparqlView'
-import { type RedesignTarget, WorkbenchView } from './WorkbenchView'
+import type { RedesignTarget } from './WorkbenchView'
 
 type Tab =
   | 'home'
@@ -269,7 +270,7 @@ function App() {
         <main className="app-content">
           {tab === 'home' && <HomeView onNavigate={navTo} onOpenDataset={openDataset} />}
           {tab === 'workbench' && (
-            <WorkbenchView
+            <WorkbenchTier
               redesignTarget={redesignTarget}
               onRedesignConsumed={() => setRedesignTarget(null)}
               onOpenDataset={openDataset}

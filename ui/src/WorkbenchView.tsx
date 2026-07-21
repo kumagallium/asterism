@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import ReactMarkdown from 'react-markdown'
@@ -20,8 +20,6 @@ import {
   type JobHandle,
   type MappingSkeleton,
   type SkeletonAnnotations,
-  type SkeletonMap,
-  type SkeletonMapAnnotation,
   type MaterializeResult,
   type ProposeResult,
   type RefineResult,
@@ -31,11 +29,13 @@ import { CrosswalkBuilder } from './CrosswalkBuilder'
 import { SOURCE_ACCEPT, SUPPORTED_SOURCES, TABULAR_ACCEPT, type SourceKind } from './datasetsApi'
 import { DocumentPanel } from './DocumentPanel'
 import { PRESET_HINTS } from './domainHints'
+import { JobProgress } from './JobProgress'
 import { MaterializePanel } from './MaterializePanel'
 import { ProposalView } from './ProposalView'
 import { SchemaGroundingPanel } from './SchemaGroundingPanel'
 import { useLlmSettings } from './settings/context'
 import { LlmGate } from './settings/LlmGate'
+import { SkeletonGate } from './SkeletonGate'
 
 // Data-source kinds. CSV and JSON (#19) are wired end-to-end (Morph-KGC reads
 // both via the RML's referenceFormulation); API/DB are shown (the redesign's
@@ -870,7 +870,8 @@ export function WorkbenchView({
     setProposeErr('')
   }
 
-  // (JobProgress defined at module scope below.)
+  // (JobProgress / SkeletonGate live in their own modules — shared with the
+  //  kantan tier.)
 
   function clearWorkbench() {
     // AI 提案（1〜6 分＋API 課金）を 1 クリックで失わないための確認。
@@ -1498,95 +1499,6 @@ function AutocorrectBanner({ summary }: { summary: AutocorrectSummary | null }) 
   )
 }
 
-/**
- * Reassuring progress card for the long (1-6 min) LLM jobs. The backend streams
- * lifecycle events (started/running + generation progress) and a ~15s heartbeat,
- * not token-by-token text, so we can't show a real % — instead we show a live
- * elapsed timer, an indeterminate animated bar, the expected duration, the last
- * status, and a liveness line ("server responded Ns ago", switching to a warning
- * past 45s of silence while EventSource auto-reconnects). The cancel button asks
- * the server to STOP the job (the 400-minute-runaway guard) — it disables itself
- * on the first click and the stream's terminal `cancelled` event settles the UI.
- */
-function JobProgress({
-  label,
-  status,
-  lastPulseAt,
-  onCancel,
-}: {
-  label: string
-  status: string
-  /** Epoch ms of the last server-sent SSE event (incl. heartbeats); null until one. */
-  lastPulseAt: number | null
-  /** Requests a server-side cancel. A rejection re-arms the button for a retry. */
-  onCancel: () => void | Promise<void>
-}) {
-  const { t } = useTranslation()
-  const [elapsed, setElapsed] = useState(0)
-  // Wall-clock "now", advanced by the same 1s interval as `elapsed` (render must
-  // stay pure, so Date.now() lives in the effect, not the render body).
-  const [now, setNow] = useState<number | null>(null)
-  const [cancelRequested, setCancelRequested] = useState(false)
-  useEffect(() => {
-    const start = Date.now()
-    const tick = () => {
-      setElapsed(Math.floor((Date.now() - start) / 1000))
-      setNow(Date.now())
-    }
-    tick()
-    const id = setInterval(tick, 1000)
-    return () => clearInterval(id)
-  }, [])
-  const mm = Math.floor(elapsed / 60)
-  const ss = String(elapsed % 60).padStart(2, '0')
-  const showStatus = status && status !== 'done' && status !== 'refined'
-  // Liveness, re-derived on the same 1s tick as `elapsed`. The server pulses at
-  // least every ~15s (heartbeat), so >45s of silence means the connection is
-  // down and EventSource is auto-reconnecting — worth a visible warning.
-  const pulseAgeSec =
-    lastPulseAt === null || now === null
-      ? null
-      : Math.max(0, Math.floor((now - lastPulseAt) / 1000))
-  const silent = pulseAgeSec !== null && pulseAgeSec * 1000 > 45000
-  function onCancelClick() {
-    setCancelRequested(true)
-    Promise.resolve()
-      .then(() => onCancel())
-      .catch(() => setCancelRequested(false))
-  }
-  return (
-    <div className="job-progress" role="status" aria-live="polite">
-      <div className="job-progress-head">
-        <span className="spinner" />
-        {label}
-        <button
-          type="button"
-          className="btn btn--ghost btn--sm job-cancel-btn"
-          onClick={onCancelClick}
-          disabled={cancelRequested}
-        >
-          {cancelRequested ? t('workbench:job.cancelling') : t('workbench:job.cancel')}
-        </button>
-      </div>
-      <div className="job-progress-bar" aria-hidden="true">
-        <span />
-      </div>
-      <div className="job-progress-meta">
-        {showStatus
-          ? t('workbench:job.elapsedStatus', { mm, ss, status })
-          : t('workbench:job.elapsed', { mm, ss })}
-      </div>
-      {pulseAgeSec !== null && (
-        <div className={`job-progress-pulse${silent ? ' warn' : ''}`}>
-          {silent
-            ? t('workbench:job.silent', { s: pulseAgeSec })
-            : t('workbench:job.pulse', { s: pulseAgeSec })}
-        </div>
-      )}
-    </div>
-  )
-}
-
 // Read-settings panel (ADR source-dialect.md): shows the DETECTED dialect of each
 // non-default / legacy-suffix source BEFORE generation and lets the human correct it
 // (encoding / delimiter / header offset / collapse). A clean-CSV set is all-default →
@@ -1716,344 +1628,5 @@ function DialectEditor({
         )
       })}
     </details>
-  )
-}
-
-// Human-readable reasons a map's key could not be checked (kept in sync with
-// skeleton_annotate's machine-readable `reason` values).
-function evidenceReasonKey(reason: string | undefined): string {
-  if (!reason) return 'workbench:skeleton.evidence.notChecked'
-  if (reason === 'constant') return 'workbench:skeleton.evidence.constant'
-  if (reason === 'missing-columns') return 'workbench:skeleton.evidence.missingColumns'
-  if (reason === 'source-not-found') return 'workbench:skeleton.evidence.sourceNotFound'
-  if (reason === 'no-template') return 'workbench:skeleton.evidence.noTemplate'
-  if (reason.startsWith('unsupported-source-kind')) return 'workbench:skeleton.evidence.unsupported'
-  return 'workbench:skeleton.evidence.notChecked'
-}
-
-// The per-map evidence block: is the key REALLY unique, shown with the data
-// (real example IDs, concrete colliding rows, proven fix candidates) — so a
-// domain expert can judge the skeleton without knowing what an IRI is.
-function SkeletonEvidence({
-  ann,
-  onApplyCandidate,
-}: {
-  ann: SkeletonMapAnnotation
-  onApplyCandidate: (columns: string[]) => void
-}) {
-  const { t } = useTranslation()
-
-  const prefixWarning = ann.undeclared_prefixes.length > 0 && (
-    <p className="skeleton-evidence-line skeleton-evidence-warn">
-      {t('workbench:skeleton.evidence.undeclaredPrefixes', {
-        prefixes: ann.undeclared_prefixes.join(', '),
-      })}
-    </p>
-  )
-
-  if (!ann.checkable) {
-    return (
-      <div className="skeleton-evidence">
-        <p className="skeleton-evidence-line skeleton-evidence-muted">
-          {t(evidenceReasonKey(ann.reason), {
-            columns: (ann.missing_columns ?? []).join(', '),
-          })}
-        </p>
-        {ann.reason === 'constant' && ann.expanded_template && (
-          <p className="skeleton-evidence-line skeleton-evidence-muted">
-            <code className="skeleton-evidence-id">{ann.expanded_template}</code>
-          </p>
-        )}
-        {prefixWarning}
-      </div>
-    )
-  }
-
-  const collides = ann.is_unique === false
-  return (
-    <div className="skeleton-evidence">
-      {ann.is_unique ? (
-        <p className="skeleton-evidence-line skeleton-evidence-ok">
-          ✓ {t('workbench:skeleton.evidence.unique', { rows: ann.total_rows })}
-        </p>
-      ) : (
-        <p className="skeleton-evidence-line skeleton-evidence-bad">
-          ⚠ {t('workbench:skeleton.evidence.collides', {
-            total: ann.total_rows,
-            colliding: ann.colliding_rows,
-          })}
-        </p>
-      )}
-      {collides &&
-        (ann.collision_examples ?? []).map((ex, i) => (
-          <p key={i} className="skeleton-evidence-line skeleton-evidence-muted">
-            {t('workbench:skeleton.evidence.collisionExample', {
-              lines: ex.line_numbers.join(', '),
-              values: Object.entries(ex.key_values)
-                .map(([k, v]) => `${k} = ${v}`)
-                .join(', '),
-              count: ex.row_count,
-            })}
-          </p>
-        ))}
-      {(ann.id_previews?.length ?? 0) > 0 && (
-        <div className="skeleton-evidence-previews">
-          <span className="skeleton-evidence-label">
-            {t('workbench:skeleton.evidence.previewHead', { n: ann.id_previews!.length })}
-          </span>
-          {ann.id_previews!.map((id, i) => (
-            <code key={i} className="skeleton-evidence-id">
-              {id}
-            </code>
-          ))}
-        </div>
-      )}
-      {collides && (ann.key_candidates?.length ?? 0) > 0 && (
-        <div className="skeleton-evidence-candidates">
-          <span className="skeleton-evidence-label">
-            {t('workbench:skeleton.evidence.candidatesHead')}
-          </span>
-          {ann.key_candidates!.map((c) => (
-            <button
-              key={c.columns.join(' ')}
-              type="button"
-              className="skeleton-candidate-chip"
-              title={
-                c.measurement_only
-                  ? t('workbench:skeleton.evidence.measurementOnly')
-                  : undefined
-              }
-              onClick={() => onApplyCandidate(c.columns)}
-            >
-              {c.columns.map((col) => `{${col}}`).join(' + ')}
-              {c.measurement_only && ' ⚠'}
-            </button>
-          ))}
-        </div>
-      )}
-      {prefixWarning}
-    </div>
-  )
-}
-
-// Phase 2b human gate: the editable skeleton table. The user confirms/corrects
-// the subject KEY (the single costliest error — a non-unique key collapses rows)
-// and the CLASSES per map, then continues. Everything else (properties, prose) is
-// generated only after this. Editing stays at the dict level; the confirmed dict
-// is posted verbatim to /api/propose/continue. Each row carries deterministic
-// EVIDENCE (server-computed, LLM-free) so the human judges data, not syntax.
-function SkeletonGate({
-  skeleton,
-  annotations,
-  annotationsBusy,
-  canRevalidate,
-  busy,
-  onChange,
-  onContinue,
-  onDiscard,
-}: {
-  skeleton: MappingSkeleton
-  annotations: SkeletonAnnotations | null
-  annotationsBusy: boolean
-  canRevalidate: boolean
-  busy: boolean
-  onChange: (s: MappingSkeleton) => void
-  onContinue: () => void
-  onDiscard: () => void
-}) {
-  const { t } = useTranslation()
-
-  function updateSubject(idx: number, patch: Partial<SkeletonMap['subject']>) {
-    const maps = skeleton.maps.map((m, i) =>
-      i === idx ? { ...m, subject: { ...m.subject, ...patch } } : m,
-    )
-    onChange({ ...skeleton, maps })
-  }
-
-  // Apply a proven-unique column combination: keep the template's fixed head
-  // (up to the first placeholder), swap the key part. The re-check runs after,
-  // so the human immediately sees the ✓ this candidate was promised to earn.
-  function applyCandidate(idx: number, columns: string[]) {
-    const current = skeleton.maps[idx]?.subject.template ?? ''
-    const head = current.includes('{') ? current.slice(0, current.indexOf('{')) : `${current}/`
-    updateSubject(idx, {
-      template: head + columns.map((c) => `{${c}}`).join('/'),
-    })
-  }
-
-  function updatePrefix(name: string, iri: string) {
-    onChange({ ...skeleton, prefixes: { ...skeleton.prefixes, [name]: iri } })
-  }
-
-  // Namespaces minted on a placeholder domain (example.org & co) can never be
-  // published — the server evidence names them; editing the IRI re-checks like
-  // any key edit (ADR instance-iri-base.md).
-  const placeholderPrefixes = annotations?.placeholder_prefixes ?? []
-  const placeholderSet = new Set(placeholderPrefixes.map((p) => p.prefix))
-
-  // Warn before continuing when the evidence says a key still collapses rows —
-  // soft gate: the human can proceed (small collision counts can be legitimate,
-  // e.g. deliberate dedup), but never unknowingly.
-  const collapsing = skeleton.maps.filter(
-    (m) => annotations?.maps?.[m.name]?.is_unique === false,
-  )
-  function onContinueGuarded() {
-    if (placeholderPrefixes.length > 0) {
-      const ok = window.confirm(
-        t('workbench:skeleton.ns.confirmPlaceholder', {
-          prefixes: placeholderPrefixes.map((p) => p.prefix).join(', '),
-        }),
-      )
-      if (!ok) return
-    }
-    if (collapsing.length > 0) {
-      const ok = window.confirm(
-        t('workbench:skeleton.confirmCollides', {
-          maps: collapsing.map((m) => m.name).join(', '),
-        }),
-      )
-      if (!ok) return
-    }
-    onContinue()
-  }
-
-  return (
-    <section className="skeleton-gate">
-      <h4>{t('workbench:skeleton.gateTitle')}</h4>
-      <p className="skeleton-gate-hint">{t('workbench:skeleton.gateHint')}</p>
-      {annotationsBusy && (
-        <p className="skeleton-gate-revalidating" role="status">
-          <span className="spinner" />
-          {t('workbench:skeleton.evidence.revalidating')}
-        </p>
-      )}
-      {!canRevalidate && (
-        <p className="skeleton-gate-revalidating">{t('workbench:skeleton.evidence.reattach')}</p>
-      )}
-      <details className="skeleton-ns" open={placeholderPrefixes.length > 0}>
-        <summary>
-          {t('workbench:skeleton.ns.title')}
-          {placeholderPrefixes.length > 0 && (
-            <span className="skeleton-ns-flag">
-              {t('workbench:skeleton.ns.flag', { count: placeholderPrefixes.length })}
-            </span>
-          )}
-        </summary>
-        <p className="skeleton-gate-hint">{t('workbench:skeleton.ns.hint')}</p>
-        <div className="skeleton-ns-rows">
-          {Object.entries(skeleton.prefixes ?? {}).map(([name, iri]) => (
-            <div key={name} className="skeleton-ns-row">
-              <code className="skeleton-ns-prefix">{name}:</code>
-              <input
-                type="text"
-                className="skeleton-gate-input"
-                value={iri}
-                disabled={busy}
-                onChange={(e) => updatePrefix(name, e.target.value)}
-              />
-              {placeholderSet.has(name) && (
-                <p className="skeleton-evidence-line skeleton-evidence-warn">
-                  {t('workbench:skeleton.ns.placeholderWarn')}
-                </p>
-              )}
-            </div>
-          ))}
-        </div>
-      </details>
-      <div className="skeleton-gate-table-wrap">
-        <table className="skeleton-gate-table">
-          <thead>
-            <tr>
-              <th>{t('workbench:skeleton.colClass')}</th>
-              <th>{t('workbench:skeleton.colSource')}</th>
-              <th>{t('workbench:skeleton.colKey')}</th>
-              <th>{t('workbench:skeleton.colClasses')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {skeleton.maps.map((m, idx) => {
-              const usesConstant =
-                m.subject.template === undefined && m.subject.constant !== undefined
-              const keyValue = m.subject.template ?? m.subject.constant ?? ''
-              const ann = annotations?.maps?.[m.name]
-              return (
-                <Fragment key={m.name}>
-                  <tr className={ann ? 'skeleton-gate-row' : undefined}>
-                    <td className="skeleton-gate-name">{m.name}</td>
-                    <td className="skeleton-gate-source">{m.source}</td>
-                    <td>
-                      <input
-                        type="text"
-                        className="skeleton-gate-input"
-                        value={keyValue}
-                        disabled={busy}
-                        title={m.note ?? undefined}
-                        onChange={(e) =>
-                          updateSubject(
-                            idx,
-                            usesConstant
-                              ? { constant: e.target.value }
-                              : { template: e.target.value },
-                          )
-                        }
-                      />
-                      {m.note && <div className="skeleton-gate-note">{m.note}</div>}
-                    </td>
-                    <td>
-                      <input
-                        type="text"
-                        className="skeleton-gate-input"
-                        value={(m.subject.classes ?? []).join(', ')}
-                        disabled={busy}
-                        onChange={(e) =>
-                          updateSubject(idx, {
-                            classes: e.target.value
-                              .split(',')
-                              .map((s) => s.trim())
-                              .filter(Boolean),
-                          })
-                        }
-                      />
-                    </td>
-                  </tr>
-                  {ann && (
-                    <tr className="skeleton-evidence-row">
-                      <td colSpan={4}>
-                        <SkeletonEvidence
-                          ann={ann}
-                          onApplyCandidate={(cols) => applyCandidate(idx, cols)}
-                        />
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
-      <div className="skeleton-gate-actions">
-        <button onClick={onContinueGuarded} disabled={busy}>
-          {busy ? (
-            <>
-              <span className="spinner" />
-              {t('workbench:skeleton.continuing')}
-            </>
-          ) : (
-            t('workbench:skeleton.continue')
-          )}
-        </button>
-        <button
-          type="button"
-          className="btn btn--ghost"
-          onClick={() => {
-            if (window.confirm(t('workbench:skeleton.discardConfirm'))) onDiscard()
-          }}
-          disabled={busy}
-        >
-          {t('workbench:skeleton.discard')}
-        </button>
-      </div>
-    </section>
   )
 }
