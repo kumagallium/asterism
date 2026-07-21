@@ -68,7 +68,7 @@
       "attach": "Saving your files hit an error",
       "ingest": "Loading the draft hit an error",
       "design": "Some problems in the design still need attention",
-      "designBody": "These could not be fixed automatically. You can review and fix them in detail mode.",
+      "designBody": "These could not be fixed automatically. Ask the AI to fix them with the button below, or review them in detail mode.",
       "files": "Your files are missing",
       "filesBody": "Drop the same files here again to continue where you left off.",
       "interrupted": "The work was interrupted",
@@ -76,6 +76,12 @@
       "detailSummary": "Details (technical)",
       "retry": "Try again",
       "openDetail": "Check in detail mode"
+    },
+    "fix": {
+      "button": "Have the AI fix this",
+      "progress": "The AI is fixing the design (attempt {{n}}, 1–3 min)",
+      "attempted": "AI fix attempts so far: {{n}}.",
+      "failed": "The AI fix didn't go through: {{message}}"
     }
   },
   "s6": {
