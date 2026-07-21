@@ -120,6 +120,7 @@
     "colProperty": "Property",
     "colValue": "How the value is produced",
     "colType": "Type",
+    "colUnit": "Unit",
     "kind": {
       "reference": "column",
       "template": "template",

@@ -56,6 +56,16 @@ def test_schema_accepts_all_committed_ir_fixtures() -> None:
         assert not errors, f"{name}: {errors[:3]}"
 
 
+def test_property_row_offers_label_and_unit_as_plain_strings() -> None:
+    """kantan-mode ADR K8: label/unit are plain-string display metadata —
+    plain so Sakura's guided decoder (no propertyNames, no exotic keys) can
+    always generate them."""
+    schema = mapping_ir_json_schema(MENU)
+    row = schema["properties"]["maps"]["items"]["properties"]["properties"]["items"]
+    for key in ("label", "unit"):
+        assert row["properties"][key] == {"type": "string", "minLength": 1}
+
+
 def test_schema_rejects_the_non_converged_live_spec() -> None:
     """gpt-oss run2's saved best design still carries optional: fields and
     cardinality-marked predicates — under guided decoding it could not even

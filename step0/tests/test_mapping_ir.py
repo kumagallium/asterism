@@ -56,6 +56,28 @@ def test_minimal_parses() -> None:
     assert p.column == "name"
 
 
+def test_label_and_unit_are_display_metadata() -> None:
+    """kantan-mode ADR K8: reviewer-facing meaning/unit ride on the property
+    row (optional, display only)."""
+    ok = MINIMAL.replace(
+        "column: name",
+        'column: name\n        label: "試料名"\n        unit: "µV/K"',
+    )
+    ir = parse_mapping_ir(ok)
+    (p,) = ir.maps[0].properties
+    assert p.label == "試料名"
+    assert p.unit == "µV/K"
+
+
+def test_label_and_unit_must_be_strings() -> None:
+    bad = MINIMAL.replace(
+        "column: name", "column: name\n        label: [x]\n        unit: 3"
+    )
+    issues = parse_issues(bad)
+    assert any(".label must be a non-empty string" in i for i in issues)
+    assert any(".unit must be a non-empty string" in i for i in issues)
+
+
 def test_yaml_error_is_one_issue() -> None:
     issues = parse_issues("version: 1\nmaps: [unclosed")
     assert len(issues) == 1

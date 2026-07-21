@@ -203,10 +203,12 @@ maps:
     properties:
       - predicate: schema:name        # direct column → literal
         column: title
+        label: "論文タイトル"           # human-readable meaning (reviewer's language)
       - predicate: schema:datePublished
         column: issued
         function: date_iso            # vetted Tier-0 function (menu below)
         datatype: xsd:date
+        label: "出版日"
       - predicate: schema:url
         column: URL
         function: iri_safe
@@ -271,6 +273,12 @@ RULES (a reviewer approves *column→predicate + which vetted function*, not cod
 - `function:` NEVER casts types (`function: str` / `int` / `date` are errors).
   A bare column already emits a string literal; type a literal with
   `datatype: xsd:…`; use `function:` only for the cleaning menu below.
+- Give EVERY measurement-like property a `label:` (human-readable meaning, in
+  the output language requested for prose) and, when the column carries a
+  physical quantity, a `unit:` (human-readable notation like `µV/K`, `S/cm`).
+  These are DISPLAY METADATA for the review screen only — they never change
+  the emitted values and are NOT a substitute for unit-conversion functions
+  (`qudt_unit` / `value_of` / `unit_of` still handle values).
 - A bare `column` can NEVER be an IRI: for a URL column use
   `function: iri_safe` + `object_type: iri`; for an entity link use
   `object_template`. Raw data columns inside templates are IRI-encoded

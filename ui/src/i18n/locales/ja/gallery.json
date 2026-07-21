@@ -118,6 +118,7 @@
     "colProperty": "プロパティ",
     "colValue": "値の作り方",
     "colType": "型",
+    "colUnit": "単位",
     "kind": {
       "reference": "列",
       "template": "テンプレート",

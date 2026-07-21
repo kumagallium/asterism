@@ -16,12 +16,14 @@ maps:
     properties:
       - predicate: schema:name
         column: title
+        label: "論文タイトル"          # display metadata — must NOT affect compiled RML
       - predicate: dcterms:identifier
         column: DOI
       - predicate: schema:datePublished
         column: issued
         function: date_iso
         datatype: xsd:date
+        unit: "ISO 8601"              # display metadata — must NOT affect compiled RML
   - name: sample
     source: samples.csv
     subject:

@@ -126,6 +126,8 @@ def _property_row_schema(function_names: Sequence[str] | None) -> dict:
             "language": _string(r"^[A-Za-z]{1,8}(-[A-Za-z0-9]{1,8})*$"),
             "transform": transform_obj,
             "fallback": {"type": "boolean"},
+            "label": _string(),
+            "unit": _string(),
         },
     }
 

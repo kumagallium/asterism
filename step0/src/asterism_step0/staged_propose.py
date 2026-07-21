@@ -132,6 +132,11 @@ Rules:
   `…Raw` predicate with `fallback: true`. Never invent a function; one unmapped
   column must not block the ingest.
 - Use ONLY column names for THIS map's source, exactly as the menu lists them.
+- Give EVERY measurement-like property a `label:` (human-readable meaning, in
+  the output language requested for prose) and, when the column carries a
+  physical quantity, a `unit:` (human-readable notation like `µV/K`). Display
+  metadata only — values are unchanged and unit-conversion stays in the Tier-0
+  functions.
 - Declare in `prefixes` any vocabulary your predicates/datatypes use that the
   skeleton did not already declare (xsd: is builtin — never declare it).
 """

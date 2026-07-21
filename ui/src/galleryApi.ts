@@ -190,6 +190,10 @@ export interface RuleTerm {
 export interface RuleProperty extends RuleTerm {
   predicate: string
   predicate_iri: string
+  /** Reviewer-facing meaning from the Mapping IR (kantan-mode ADR K8). */
+  label?: string
+  /** Human-readable unit notation from the Mapping IR (display only). */
+  unit?: string
 }
 
 export interface RuleMap {

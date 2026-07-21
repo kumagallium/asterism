@@ -124,6 +124,12 @@ class PropertyIR:
     language: str | None = None
     transform: Mapping[str, str] = field(default_factory=dict)
     fallback: bool = False
+    label: str | None = None
+    """Human-readable meaning of this property in the reviewer's language
+    (display metadata only — never compiled into RML)."""
+    unit: str | None = None
+    """Human-readable unit notation (e.g. "µV/K"). Display metadata only; value
+    conversion stays in Tier-0 functions (qudt_unit / value_of / unit_of)."""
 
 
 @dataclass(frozen=True)
@@ -386,6 +392,8 @@ _PROPERTY_KEYS = (
     "language",
     "transform",
     "fallback",
+    "label",
+    "unit",
 )
 _MAP_KEYS = ("name", "source", "iterator", "subject", "properties")
 _TOP_KEYS = ("version", "prefixes", "maps", "dialects")
@@ -567,6 +575,13 @@ def _parse_property(raw: Any, where: str, issues: list[str]) -> PropertyIR | Non
             f"'column' and no function."
         )
 
+    label = raw.get("label")
+    if label is not None:
+        label = _expect_str(label, f"{where}.label", issues)
+    unit = raw.get("unit")
+    if unit is not None:
+        unit = _expect_str(unit, f"{where}.unit", issues)
+
     return PropertyIR(
         predicate=predicate,
         column=column if isinstance(column, str) else None,
@@ -580,6 +595,8 @@ def _parse_property(raw: Any, where: str, issues: list[str]) -> PropertyIR | Non
         language=language if isinstance(language, str) else None,
         transform=transform,
         fallback=fallback,
+        label=label if isinstance(label, str) else None,
+        unit=unit if isinstance(unit, str) else None,
     )
 
 
