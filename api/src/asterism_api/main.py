@@ -33,7 +33,7 @@ import os
 import re
 import shutil
 import tempfile
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -602,6 +602,57 @@ async def _literal_predicates(client: OxigraphClient, graph_iri: str) -> list[di
         if p.get("type") == "uri":
             out.append({"iri": p["value"], "sample": b.get("ex", {}).get("value", "")})
     return out
+
+
+# The draft-stats correspondence card (kantan-mode ADR K12) counts data rows of
+# these persisted tabular sources only. Instrument text (.txt/.dat/.asc) has
+# preambles / logical records a bare line count would misread, and JSON/XML have
+# no "rows" — those are skipped rather than guessed. An .xlsx upload was already
+# converted to derived .csv files at attach, so it IS covered via those.
+_ROW_COUNT_SUFFIXES = (".csv", ".tsv")
+
+
+def _count_source_rows(root: Path, dataset_id: str) -> dict[str, int]:
+    """Header-excluded data-row counts of a dataset's persisted tabular source.
+
+    Best-effort by contract: only ``.csv`` / ``.tsv`` are counted (see
+    ``_ROW_COUNT_SUFFIXES``); a file that cannot be read is silently omitted —
+    the correspondence card is enrichment, never a gate. Quoted embedded
+    newlines are handled by the csv reader (a raw line count would overcount).
+    """
+    out: dict[str, int] = {}
+    for path in registry.list_source_files(root, dataset_id):
+        suffix = path.suffix.lower()
+        if suffix not in _ROW_COUNT_SUFFIXES:
+            continue
+        delimiter = "\t" if suffix == ".tsv" else ","
+        try:
+            with path.open(newline="", encoding="utf-8-sig", errors="replace") as fh:
+                reader = csv.reader(fh, delimiter=delimiter)
+                rows = sum(1 for row in reader if any(cell.strip() for cell in row))
+        except OSError:
+            continue
+        out[path.name] = max(0, rows - 1)  # minus the header row
+    return out
+
+
+def _curie_of(iri: str, prefixes: Mapping[str, str]) -> str | None:
+    """Best-effort CURIE for ``iri`` under ``prefixes`` (longest namespace wins).
+
+    Display-only enrichment for the draft-stats classes; ``None`` when no
+    declared namespace prefixes the IRI or the remainder is not one clean
+    segment (the UI then falls back to the label / local name).
+    """
+    best: tuple[str, str] | None = None
+    for prefix, ns in prefixes.items():
+        if ns and iri.startswith(ns) and (best is None or len(ns) > len(best[1])):
+            best = (prefix, ns)
+    if best is None:
+        return None
+    local = iri[len(best[1]) :]
+    if not local or "/" in local or "#" in local:
+        return None
+    return f"{best[0]}:{local}"
 
 
 async def _project_ontology_graph(
@@ -3060,6 +3111,77 @@ def build_app(
             return {"dataset_id": dataset_id, **summary, "labels": labels}
 
         return await asyncio.to_thread(run)
+
+    @app.get("/api/datasets/{dataset_id}/draft-stats")
+    async def dataset_draft_stats(dataset_id: str) -> dict[str, object]:
+        """Per-class entity counts of the dataset's draft graph + source data rows.
+
+        Backs the kantan tier's correspondence card (ADR kantan-mode-two-tier-ux.md
+        K12): "source file N rows → M entities per kind (still an unpublished
+        draft)". Counts DISTINCT subjects per class in the staged version graph
+        recorded at ingest — the same "current draft" resolution ``/alignment``
+        and ``/promote`` use (``meta.graph_iri``, falling back to the dataset key
+        graph for pre-part5 records) — and pairs them with the per-file data-row
+        counts of the persisted tabular source. The row↔entity correspondence is
+        how a domain expert spots a collapsed key with their own eyes; no triple
+        counts here by design (K12).
+
+        Read-only and forgiving: a dataset that was never ingested, or an
+        unreachable Oxigraph, returns 200 with ``classes: []`` (the UI hides the
+        card) — only an unknown dataset 404s.
+        """
+        data = registry.load_dataset(cfg.registry_root, dataset_id)
+        if data is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        meta = data.get("meta") or {}
+        artifacts = data.get("artifacts") or {}
+
+        classes: list[dict[str, object]] = []
+        if meta.get("ingested"):
+            staged_iri = meta.get("graph_iri") or substrate.canonical_graph_iri(
+                dataset_id
+            )
+            q = (
+                f"SELECT ?class (COUNT(DISTINCT ?s) AS ?n) WHERE {{ "
+                f"GRAPH <{staged_iri}> {{ ?s a ?class }} }} "
+                f"GROUP BY ?class ORDER BY DESC(?n)"
+            )
+            client: OxigraphClient = app.state.client
+            res: dict | None
+            try:
+                res = await client.sparql_select(q)
+            except Exception:  # store unreachable → empty card, never a 500
+                res = None
+            bindings = []
+            if isinstance(res, dict):
+                results = res.get("results")
+                if isinstance(results, dict):
+                    bindings = results.get("bindings", [])
+            # CURIEs resolve against THIS dataset's declared prefixes (same
+            # extraction the ontology projection uses) — display enrichment only.
+            prefixes = STANDARD_PREFIXES | extract_prefixes(
+                str(artifacts.get("mapping.rml.ttl") or ""),
+                str(artifacts.get("mie.yaml") or ""),
+            )
+            for b in bindings:
+                cls = b.get("class") or {}
+                n_raw = (b.get("n") or {}).get("value")
+                if cls.get("type") != "uri" or n_raw is None:
+                    continue
+                try:
+                    n = int(n_raw)
+                except (TypeError, ValueError):
+                    continue
+                entry: dict[str, object] = {"iri": cls["value"], "n": n}
+                curie = _curie_of(str(cls["value"]), prefixes)
+                if curie:
+                    entry["curie"] = curie
+                classes.append(entry)
+
+        source_rows = await asyncio.to_thread(
+            _count_source_rows, cfg.registry_root, dataset_id
+        )
+        return {"dataset_id": dataset_id, "classes": classes, "source_rows": source_rows}
 
     @app.get("/api/datasets/{dataset_id}/history")
     async def get_dataset_history(dataset_id: str) -> dict[str, object]:

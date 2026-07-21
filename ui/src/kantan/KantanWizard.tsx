@@ -1,14 +1,28 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
+  ApiError,
+  attachSource,
+  fetchDraftStats,
+  IngestCancelledError,
+  IngestValidationError,
   inspectCsvs,
+  materializeSchema,
   proposeContinue,
   proposeSkeleton,
+  refineSchema,
+  resumeIngestJob,
   resumeJob,
+  StaleIngestJobError,
+  startIngestJob,
   validateSkeleton,
+  type DraftStats,
+  type IngestJobHandle,
+  type IngestProgress,
   type InspectResult,
   type JobHandle,
   type MappingSkeleton,
+  type MaterializeResult,
   type ProposeResult,
   type SkeletonAnnotations,
   type SourceDialect,
@@ -16,16 +30,21 @@ import {
 import { TABULAR_ACCEPT } from '../datasetsApi'
 import { DocumentPanel } from '../DocumentPanel'
 import { PRESET_HINTS } from '../domainHints'
+import { getDatasetRules, type DatasetRules, type RuleMap, type RuleProperty } from '../galleryApi'
+import { clearIngestJob, loadIngestJob, saveIngestJob } from '../ingestJob'
 import { JobProgress } from '../JobProgress'
 import { useLlmSettings } from '../settings/context'
 import { SkeletonGate } from '../SkeletonGate'
+import { localName } from '../vocab'
 import { RecipeCard } from './RecipeCard'
 
-// The kantan (かんたん) tier wizard — ADR kantan-mode-two-tier-ux.md, S1-S4.
+// The kantan (かんたん) tier wizard — ADR kantan-mode-two-tier-ux.md, S1-S6.
 // A linear, plain-language flow over the SAME backend calls the detail tier
 // uses: drop files → auto inspect → two "only you know this" questions →
-// staged skeleton propose → the human row-counting gate → continue → hand the
-// finished proposal to the detail tier (WB_STORAGE-compatible snapshot).
+// staged skeleton propose → the human row-counting gate (S4, human gate ①) →
+// continue → S5 auto chain (save → source persist → DRAFT ingest, no approval
+// button by design — ADR K3) → S6 column-meaning review (human gate ②) →
+// confirm → hand over to the dataset screen for ためす/公開 (S7-S9, upcoming).
 // No jargon may appear in this layer (no RML/IRI/namespace/canonical wording).
 
 // Storage keys shared with the detail tier (WorkbenchView.tsx). Duplicated by
@@ -38,7 +57,21 @@ const KZ_STORAGE = 'asterism.kantan'
 type KantanKind = 'tabular' | 'json' | 'document'
 type Q1Answer = 'keep' | 'drop'
 type Q2Answer = 'only' | 'elsewhere' | 'unknown'
-type KzStep = 1 | 2 | 3 | 4
+type KzStep = 1 | 2 | 3 | 4 | 5 | 6
+
+/** Where the S5 auto chain (save → source persist → draft ingest) restarts. */
+type PipeStage = 'materialize' | 'attach' | 'ingest'
+
+/** The S5 stop card (K11 minimal): one plain-language headline per failure
+ *  kind, the raw technical detail folded, and at most two exits — retry (same
+ *  stage) and "check in detail mode". The full error-family → plain-question
+ *  translation table is K11 proper (a later task). */
+interface StopCard {
+  kind: 'materialize' | 'attach' | 'ingest' | 'design' | 'files' | 'interrupted'
+  detail: string
+  /** Present → "もう一度試す" re-runs the chain from this stage. */
+  retryFrom?: PipeStage
+}
 
 // Extension → kind. Tabular comes from the shared TABULAR_ACCEPT constant so a
 // later extension of that list (e.g. .xlsx) is picked up here automatically.
@@ -127,6 +160,25 @@ async function buildPreviews(files: File[], inspect: InspectResult): Promise<Pre
   return out
 }
 
+/** Up to 3 real example values per column, from the S2 client-side preview —
+ *  the S6 column table shows them as "実データの例". Serializable (unlike the
+ *  File objects), so they survive a reload. First file wins on a name clash. */
+function deriveColumnSamples(cards: PreviewCard[]): Record<string, string[]> {
+  const out: Record<string, string[]> = {}
+  for (const card of cards) {
+    if (!card.header) continue
+    card.header.forEach((col, ci) => {
+      if (out[col]) return
+      const vals = card.rows
+        .map((r) => r[ci] ?? '')
+        .filter((v) => v.trim() !== '')
+        .slice(0, 3)
+      if (vals.length > 0) out[col] = vals
+    })
+  }
+  return out
+}
+
 // ---------------------------------------------------------------------------
 // Persistence (best-effort: File objects can't be serialized)
 // ---------------------------------------------------------------------------
@@ -142,6 +194,14 @@ interface KantanSnapshot {
   annotations: SkeletonAnnotations | null
   inspectionMd: string
   proposal: string
+  // S5/S6 (all serializable) — lets a reload land back on the auto chain or
+  // the column-meaning review instead of the drop zone.
+  datasetId: string | null
+  datasetName: string | null
+  sourceAttached: boolean
+  autoFixed: boolean
+  confirmed: boolean
+  columnSamples: Record<string, string[]>
 }
 
 function loadSnapshot(): Partial<KantanSnapshot> {
@@ -176,22 +236,29 @@ function clearJob() {
 export function KantanWizard({
   onBusyChange,
   onHandoffToDetail,
+  onOpenDataset,
 }: {
   /** Reports whether a job is in flight (the tier toggle locks while true). */
   onBusyChange: (busy: boolean) => void
   /** Called when the user opens the finished design in the detail tier. */
   onHandoffToDetail: () => void
+  /** Opens the catalog detail for a dataset (the S6 "公開へ" exit). */
+  onOpenDataset?: (id: string) => void
 }) {
   const { t, i18n } = useTranslation()
   const { isReady, getActiveCredentials, openSettings } = useLlmSettings()
 
   const [snap] = useState(loadSnapshot)
-  // A continue job that survived a reload keeps S4 alive; otherwise every
-  // restore lands on S1 (files are gone) — the skeleton, if any, is kept so a
-  // re-drop of the same files resumes at the gate.
-  const [step, setStep] = useState<KzStep>(() =>
-    snap.skeleton && loadSavedJob()?.kind === 'propose' ? 4 : 1,
-  )
+  // Restore priority: S5/S6 survive on their persisted dataset id (an S5
+  // restore additionally needs the proposal — the chain restarts from it); a
+  // continue job that survived a reload keeps S4 alive; otherwise every restore
+  // lands on S1 (files are gone) — the skeleton, if any, is kept so a re-drop
+  // of the same files resumes at the gate.
+  const [step, setStep] = useState<KzStep>(() => {
+    if (snap.step === 6 && snap.datasetId) return 6
+    if (snap.step === 5 && snap.datasetId && snap.proposal) return 5
+    return snap.skeleton && loadSavedJob()?.kind === 'propose' ? 4 : 1
+  })
   const [files, setFiles] = useState<File[]>([])
   const [kind, setKind] = useState<KantanKind | null>(
     snap.kind === 'json' ? 'json' : snap.kind === 'csv' ? 'tabular' : null,
@@ -226,7 +293,41 @@ export function KantanWizard({
   const jobRef = useRef<JobHandle | null>(null)
   const revalidateTimer = useRef<number | null>(null)
 
-  const busy = inspecting || skeletonBusy || continuing
+  // S5: the automatic save → source persist → draft ingest chain (ADR K3).
+  const [kzDatasetId, setKzDatasetId] = useState<string | null>(snap.datasetId ?? null)
+  const [kzDatasetName, setKzDatasetName] = useState<string | null>(snap.datasetName ?? null)
+  const [sourceAttached, setSourceAttached] = useState<boolean>(snap.sourceAttached ?? false)
+  const [autoFixed, setAutoFixed] = useState<boolean>(snap.autoFixed ?? false)
+  const [pipeBusy, setPipeBusy] = useState(false)
+  const [pipePhase, setPipePhase] = useState<'save' | 'ingest' | null>(null)
+  const [ingestProgress, setIngestProgress] = useState<IngestProgress | null>(null)
+  const [ingestHandle, setIngestHandle] = useState<IngestJobHandle | null>(null)
+  // An S5 restore with NO still-running ingest job lands on a "resume from
+  // here" stop card instead of silently re-POSTing a server job (decided at
+  // init — the live-job resume itself is the mount effect below).
+  const [stop, setStop] = useState<StopCard | null>(() => {
+    if (snap.step !== 5 || !snap.datasetId || !snap.proposal) return null
+    const saved = loadIngestJob()
+    if (saved && saved.kind === 'ingest' && saved.datasetId === snap.datasetId) return null
+    return snap.sourceAttached
+      ? { kind: 'interrupted', detail: '', retryFrom: 'ingest' }
+      : { kind: 'files', detail: '' }
+  })
+
+  // S6: the column-meaning review (human gate ②).
+  const [columnSamples, setColumnSamples] = useState<Record<string, string[]>>(
+    snap.columnSamples ?? {},
+  )
+  const [rules, setRules] = useState<DatasetRules | null>(null)
+  const [stats, setStats] = useState<DraftStats | null>(null)
+  const [s6Loading, setS6Loading] = useState(false)
+  const [s6Err, setS6Err] = useState('')
+  const [note, setNote] = useState('')
+  const [refining, setRefining] = useState(false)
+  const [refineErr, setRefineErr] = useState('')
+  const [confirmed, setConfirmed] = useState<boolean>(snap.confirmed ?? false)
+
+  const busy = inspecting || skeletonBusy || continuing || pipeBusy || refining
   useEffect(() => {
     onBusyChange(busy)
   }, [busy, onBusyChange])
@@ -244,18 +345,40 @@ export function KantanWizard({
       annotations,
       inspectionMd,
       proposal,
+      datasetId: kzDatasetId,
+      datasetName: kzDatasetName,
+      sourceAttached,
+      autoFixed,
+      confirmed,
+      columnSamples,
     }
     try {
       sessionStorage.setItem(KZ_STORAGE, JSON.stringify(snapshot))
     } catch {
       /* sessionStorage may be unavailable — non-fatal */
     }
-  }, [step, kind, q1, q2, dialectOverrides, skeleton, annotations, inspectionMd, proposal])
+  }, [
+    step,
+    kind,
+    q1,
+    q2,
+    dialectOverrides,
+    skeleton,
+    annotations,
+    inspectionMd,
+    proposal,
+    kzDatasetId,
+    kzDatasetName,
+    sourceAttached,
+    autoFixed,
+    confirmed,
+    columnSamples,
+  ])
 
   // Hand the finished design to the detail tier: a WB_STORAGE-compatible
   // snapshot (mirrors WorkbenchView's WorkbenchSnapshot shape) opening on the
-  // review step. Written as soon as the proposal exists, so the "open detail"
-  // button works even after a reload of the completion card.
+  // review step. Written as soon as the proposal exists, so "詳細モードで確認"
+  // works from every later screen — including the S5 stop cards (K11).
   useEffect(() => {
     if (!proposal) return
     const detailSnapshot = {
@@ -298,13 +421,17 @@ export function KantanWizard({
       },
       onDone: (result) => {
         const r = result as ProposeResult
-        setProposal(r.proposal_md)
         setInspectionMd(r.inspection_md)
         setSkeleton(null)
         setAnnotations(null)
         setStatus('')
         setContinuing(false)
         clearJob()
+        setAutoFixed((r.autocorrect?.rounds?.length ?? 0) > 0)
+        setProposal(r.proposal_md)
+        // ADR K3: continue straight into the auto chain (after a reload the
+        // File objects are gone — the chain stops at the re-drop card then).
+        void runPipeline('materialize', r.proposal_md)
       },
       onError: (message) => {
         setErrMsg(t('kantan:job.resumedFailed', { message }))
@@ -327,12 +454,39 @@ export function KantanWizard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // S5/S6 reload recovery (best-effort, ADR K3/K11): a still-running draft
+  // ingest is re-attached through the same SSE replay the catalog uses
+  // (StrictMode-safe — re-subscribing twice is harmless, unlike re-POSTing;
+  // the no-live-job case became a stop card at state init above). S6 just
+  // re-fetches its read-only data.
+  useEffect(() => {
+    if (!kzDatasetId) return
+    if (step === 6 && !confirmed) {
+      void loadS6(kzDatasetId)
+      return
+    }
+    if (step !== 5) return
+    const saved = loadIngestJob()
+    if (!saved || saved.kind !== 'ingest' || saved.datasetId !== kzDatasetId) return
+    const handle = resumeIngestJob(saved.jobId, kzDatasetId, setIngestProgress, () =>
+      setLastPulseAt(Date.now()),
+    )
+    void trackIngest(handle, kzDatasetId)
+    return () => handle.close() // release the stream; the server job keeps running
+    // Mount-only: recover whatever the snapshot says was in flight.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // Map raw SSE statuses to plain language — never surface backend phase
   // strings in this tier (unknown phases read as "解析中…").
   function plainStatus(m: string): string {
     if (!m || m === 'done') return ''
     if (/start/i.test(m)) return t('kantan:job.preparing')
     return t('kantan:job.analyzing')
+  }
+
+  function errText(e: unknown): string {
+    return e instanceof Error ? e.message : String(e)
   }
 
   // The one domain hint this tier can produce: Q2 said the ID column recurs
@@ -395,7 +549,25 @@ export function KantanWizard({
     setAnnotations(null)
     setProposal('')
     setInspectionMd('')
+    resetPipelineState()
     void runInspect(arr)
+  }
+
+  /** Drop every S5/S6 leftover when a fresh design starts. */
+  function resetPipelineState() {
+    setKzDatasetId(null)
+    setKzDatasetName(null)
+    setSourceAttached(false)
+    setAutoFixed(false)
+    setConfirmed(false)
+    setColumnSamples({})
+    setRules(null)
+    setStats(null)
+    setStop(null)
+    setNote('')
+    setS6Err('')
+    setRefineErr('')
+    setIngestProgress(null)
   }
 
   async function runInspect(arr: File[]) {
@@ -405,7 +577,9 @@ export function KantanWizard({
       const result = await inspectCsvs(arr, [])
       setInspection(result)
       setInspectionMd(result.markdown)
-      setPreviews(await buildPreviews(arr, result))
+      const cards = await buildPreviews(arr, result)
+      setPreviews(cards)
+      setColumnSamples(deriveColumnSamples(cards))
       setStep(2)
     } catch (e) {
       setInspectErr(e instanceof Error ? e.message : String(e))
@@ -467,6 +641,7 @@ export function KantanWizard({
     setDialectOverrides({})
     setErrMsg('')
     setJobNotice('')
+    resetPipelineState()
     setStep(1)
   }
 
@@ -561,13 +736,17 @@ export function KantanWizard({
           onStatus: (m) => setStatus(plainStatus(m)),
           onPulse: () => setLastPulseAt(Date.now()),
           onDone: (result) => {
-            setProposal(result.proposal_md)
             setInspectionMd(result.inspection_md)
             setSkeleton(null)
             setAnnotations(null)
             setStatus('')
             setContinuing(false)
             clearJob()
+            setAutoFixed((result.autocorrect?.rounds?.length ?? 0) > 0)
+            setProposal(result.proposal_md)
+            // ADR K3: no approval button between "design done" and the draft —
+            // the chain continues automatically into S5.
+            void runPipeline('materialize', result.proposal_md)
           },
           onError: (m) => {
             setErrMsg(m)
@@ -592,6 +771,216 @@ export function KantanWizard({
     }
   }
 
+  // ---- S5: the automatic save → draft-ingest chain (ADR K3) ------------------
+  // No approval button here BY DESIGN (this PR revises phase5 D1): execution
+  // safety is machine-guaranteed — unsafe or invalid RML is refused with a 422
+  // hard gate BEFORE any job runs — and un-promoted data is invisible to Ask
+  // (draft isolation + promoted flag). The human gates that remain are the two
+  // only a human can answer: S4 (row counting) and S6 (column meanings).
+
+  async function runPipeline(from: PipeStage, proposalMdArg?: string, filesArg?: File[]) {
+    const md = proposalMdArg ?? proposal
+    if (!md || pipeBusy) return
+    const fs = filesArg ?? files
+    setStop(null)
+    setJobNotice('')
+    setPipeBusy(true)
+    setStep(5)
+    let datasetId = kzDatasetId
+    let attached = sourceAttached
+    try {
+      // 1) Save the design: split the reviewed Markdown into the artifact
+      //    bundle + run the trap validator (no LLM — seconds). A retry targets
+      //    the SAME adopted record, so it never mints a duplicate dataset.
+      if (from === 'materialize') {
+        setPipePhase('save')
+        let result: MaterializeResult
+        try {
+          try {
+            result = await materializeSchema(md, kzDatasetName ?? 'dataset', datasetId ?? undefined)
+          } catch (e) {
+            // The adopted record vanished (deleted in the catalog meanwhile) —
+            // recreate once instead of dead-ending the chain on a stale id.
+            if (!datasetId || !(e instanceof ApiError) || e.status !== 404) throw e
+            datasetId = null
+            attached = false
+            setKzDatasetId(null)
+            setSourceAttached(false)
+            result = await materializeSchema(md, 'dataset')
+          }
+        } catch (e) {
+          setStop({ kind: 'materialize', detail: errText(e), retryFrom: 'materialize' })
+          return
+        }
+        if (result.dataset?.id && result.dataset.id !== datasetId) {
+          // Adopt the minted record — its source dir starts empty.
+          datasetId = result.dataset.id
+          attached = false
+          setKzDatasetId(datasetId)
+          setKzDatasetName(result.dataset.name ?? null)
+          setSourceAttached(false)
+        }
+        if (!result.complete || result.exit_code !== 0) {
+          // Problems the self-correction could not clear (truncated output /
+          // failing traps): a human decision now — the detail tier has the full
+          // trap grid and the one-click AI fix.
+          const fails = result.traps.filter((tr) => tr.status === 'fail')
+          setStop({
+            kind: 'design',
+            detail: [
+              ...(result.complete ? [] : ['incomplete design output (truncated)']),
+              ...fails.map((tr) => `${tr.id} ${tr.name}: ${tr.detail}`),
+              ...result.warnings,
+            ].join('\n'),
+          })
+          return
+        }
+      }
+      if (!datasetId) {
+        setStop({ kind: 'materialize', detail: 'dataset id missing', retryFrom: 'materialize' })
+        return
+      }
+      // 2) Persist the S1 files as the dataset's source, so this ingest — and
+      //    every later re-ingest (S6 refine loop, catalog) — needs no re-attach.
+      if (!attached) {
+        if (fs.length === 0) {
+          setStop({ kind: 'files', detail: '' })
+          return
+        }
+        setPipePhase('save')
+        try {
+          await attachSource(datasetId, fs)
+          setSourceAttached(true)
+        } catch (e) {
+          setStop({ kind: 'attach', detail: errText(e), retryFrom: 'attach' })
+          return
+        }
+      }
+      // 3) Draft ingest — the same background job + SSE progress machinery the
+      //    catalog uses. The server re-validates the design (422 hard gate)
+      //    before any job runs; the draft graph stays out of the Ask scope.
+      setPipePhase('ingest')
+      setIngestProgress(null)
+      let handle: IngestJobHandle
+      try {
+        handle = await startIngestJob(datasetId, [], setIngestProgress, () =>
+          setLastPulseAt(Date.now()),
+        )
+      } catch (e) {
+        if (e instanceof IngestValidationError) {
+          setStop({ kind: 'design', detail: e.issues.join('\n') })
+        } else {
+          setStop({ kind: 'ingest', detail: errText(e), retryFrom: 'ingest' })
+        }
+        return
+      }
+      await trackIngest(handle, datasetId)
+    } finally {
+      setPipeBusy(false)
+      setPipePhase(null)
+    }
+  }
+
+  // Await one draft-ingest job to its end and settle the wizard — shared by the
+  // fresh-start and the reload-recovery paths (same split as the catalog).
+  async function trackIngest(handle: IngestJobHandle, datasetId: string) {
+    saveIngestJob({ jobId: handle.jobId, datasetId, kind: 'ingest' })
+    setIngestHandle(handle)
+    setPipeBusy(true)
+    setPipePhase('ingest')
+    try {
+      await handle.result
+      setStep(6)
+      void loadS6(datasetId)
+    } catch (e) {
+      if (e instanceof IngestCancelledError || e instanceof StaleIngestJobError) {
+        // Clean stop (user cancel) or a job id re-minted by an api restart —
+        // nothing was committed; offer a clean resume of the same stage.
+        setStop({ kind: 'interrupted', detail: '', retryFrom: 'ingest' })
+      } else if (e instanceof IngestValidationError) {
+        setStop({ kind: 'design', detail: e.issues.join('\n') })
+      } else {
+        setStop({ kind: 'ingest', detail: errText(e), retryFrom: 'ingest' })
+      }
+    } finally {
+      clearIngestJob(handle.jobId)
+      setIngestHandle(null)
+      setIngestProgress(null)
+      setPipeBusy(false)
+      setPipePhase(null)
+    }
+  }
+
+  // ---- S6: the column-meaning review (human gate ②) --------------------------
+
+  async function loadS6(datasetId: string) {
+    setS6Loading(true)
+    setS6Err('')
+    try {
+      const [r, s] = await Promise.all([
+        getDatasetRules(datasetId),
+        fetchDraftStats(datasetId).catch(() => null), // the count card is enrichment
+      ])
+      setRules(r)
+      setStats(s)
+    } catch (e) {
+      setS6Err(errText(e))
+    } finally {
+      setS6Loading(false)
+    }
+  }
+
+  // "AI に反映して作り直す": the one free-text note rides a structured refine
+  // comment; when the refined design lands, the SAME auto chain re-runs (the
+  // source is already persisted, so the re-ingest needs no re-attach) → S6 again.
+  async function runRefine() {
+    const trimmed = note.trim()
+    if (!proposal || !trimmed || refining) return
+    setRefineErr('')
+    setJobNotice('')
+    setStatus('')
+    setRefining(true)
+    setLastPulseAt(null)
+    jobRef.current?.close()
+    try {
+      // Deliberately NOT persisted to JOB_STORAGE: this tier only resumes
+      // 'propose' jobs, and a saved 'refine' would wedge the tier toggle —
+      // after a reload the user simply sends the one-line note again.
+      jobRef.current = await refineSchema(
+        proposal,
+        [t('kantan:s6.refineWrap', { note: trimmed })],
+        getActiveCredentials(),
+        {
+          onStatus: (m) => setStatus(plainStatus(m)),
+          onPulse: () => setLastPulseAt(Date.now()),
+          onDone: (result) => {
+            setStatus('')
+            setRefining(false)
+            setNote('')
+            setRules(null)
+            setStats(null)
+            setProposal(result.refined_md)
+            void runPipeline('materialize', result.refined_md)
+          },
+          onError: (m) => {
+            setRefineErr(m)
+            setStatus('')
+            setRefining(false)
+          },
+          onCancelled: () => {
+            setJobNotice(t('workbench:job.cancelled'))
+            setStatus('')
+            setRefining(false)
+          },
+        },
+        i18n.language,
+      )
+    } catch (e) {
+      setRefineErr(errText(e))
+      setRefining(false)
+    }
+  }
+
   function openDetail() {
     // The WB_STORAGE handoff snapshot is already written (effect above); drop
     // the kantan snapshot so a later return to this tier starts fresh.
@@ -603,22 +992,363 @@ export function KantanWizard({
     onHandoffToDetail()
   }
 
+  // The S5 "files missing" card (a reload dropped the File objects): re-dropping
+  // the same files resumes the chain from the source-persist step.
+  function onStopFilesDropped(list: FileList | null) {
+    const arr = Array.from(list ?? [])
+    if (arr.length === 0) return
+    const kinds = new Set(arr.map((f) => kindOf(f.name)))
+    if (kinds.has(null)) {
+      setPickError(t('kantan:s1.unsupported'))
+      return
+    }
+    if (kinds.size > 1) {
+      setPickError(t('kantan:s1.mixed'))
+      return
+    }
+    setPickError('')
+    setFiles(arr)
+    void runPipeline('attach', undefined, arr)
+  }
+
+  function openDatasetFromDone() {
+    if (!kzDatasetId) return
+    try {
+      sessionStorage.removeItem(KZ_STORAGE) // the wizard's job is done
+    } catch {
+      /* non-fatal */
+    }
+    onOpenDataset?.(kzDatasetId)
+  }
+
+  // Completion-card escape hatch: begin a brand-new design without leaving the
+  // wizard (the registered draft stays in the catalog untouched).
+  function startFresh() {
+    try {
+      sessionStorage.removeItem(KZ_STORAGE)
+    } catch {
+      /* non-fatal */
+    }
+    setFiles([])
+    setKind(null)
+    setPreviews([])
+    setInspection(null)
+    setInspectionMd('')
+    setSkeleton(null)
+    setAnnotations(null)
+    setQ1(null)
+    setQ2(null)
+    setDialectOverrides({})
+    setProposal('')
+    setErrMsg('')
+    setJobNotice('')
+    resetPipelineState()
+    setStep(1)
+  }
+
   // ---- render -----------------------------------------------------------------
 
-  const recipePos: 1 | 2 | 3 = proposal ? 3 : step <= 2 ? 1 : step === 3 ? 2 : 3
+  const recipePos: 1 | 2 | 3 = step <= 2 ? 1 : step === 3 ? 2 : 3
   const resumeAvailable = !!skeleton && files.length === 0 && !proposal && step === 1
+  const showS5 = pipeBusy || refining || step === 5
+
+  const up = ingestProgress
+  const uploadPct =
+    up?.phase === 'upload' && up.total ? Math.floor((100 * (up.done ?? 0)) / up.total) : null
+
+  const s6Maps = rules?.maps ?? []
+  const multiMap = s6Maps.length > 1
+  const linkRows = s6Maps.flatMap((m) =>
+    m.properties.filter((p) => p.kind !== 'reference').map((p) => ({ map: m, prop: p })),
+  )
+  const totalSourceRows = Object.values(stats?.source_rows ?? {}).reduce((a, b) => a + b, 0)
+
+  function classLabel(iri: string): string {
+    return rules?.labels?.[iri] ?? localName(iri)
+  }
+
+  function mapCaption(m: RuleMap): string {
+    const iri = m.subject.class_iris?.[0]
+    if (iri) return classLabel(iri)
+    return m.subject.classes?.[0] ?? m.id
+  }
+
+  function otherKindKey(k: RuleProperty['kind']): string {
+    return k === 'template' || k === 'constant' || k === 'join' || k === 'function' ? k : 'other'
+  }
 
   return (
     <div className="kz-wizard">
-      <RecipeCard current={recipePos} />
+      <RecipeCard current={recipePos} currentDone={confirmed && step === 6} />
 
-      {proposal ? (
+      {confirmed && step === 6 ? (
         <section className="kz-card kz-done">
-          <h3 className="kz-done-title">✓ {t('kantan:done.title')}</h3>
-          <p className="kz-note">{t('kantan:done.body')}</p>
+          <h3 className="kz-done-title">✓ {t('kantan:s6.doneTitle')}</h3>
+          <p className="kz-note">{t('kantan:s6.doneBody')}</p>
           <div className="kz-actions">
-            <button type="button" onClick={openDetail}>
-              {t('kantan:done.open')}
+            {kzDatasetId && onOpenDataset && (
+              <button type="button" onClick={openDatasetFromDone}>
+                {t('kantan:s6.openDataset')}
+              </button>
+            )}
+            <button type="button" className="btn btn--ghost btn--sm" onClick={startFresh}>
+              {t('kantan:s6.startNew')}
+            </button>
+          </div>
+          <p className="kz-note">{t('kantan:s6.prepNote')}</p>
+          <p className="kz-note">{t('kantan:s6.nextSteps')}</p>
+        </section>
+      ) : stop ? (
+        <section className="kz-card kz-stop" role="alert">
+          <h3 className="kz-title">{t(`kantan:s5.stop.${stop.kind}`)}</h3>
+          {stop.kind === 'design' && <p className="kz-note">{t('kantan:s5.stop.designBody')}</p>}
+          {stop.kind === 'interrupted' && (
+            <p className="kz-note">{t('kantan:s5.stop.interruptedBody')}</p>
+          )}
+          {stop.kind === 'files' && (
+            <>
+              <p className="kz-note">{t('kantan:s5.stop.filesBody')}</p>
+              <DropZone onFiles={onStopFilesDropped} />
+              {pickError && <p className="kz-note kz-pick-error">{pickError}</p>}
+            </>
+          )}
+          {stop.detail && (
+            <details className="kz-stop-detail">
+              <summary>{t('kantan:s5.stop.detailSummary')}</summary>
+              <pre className="error">{stop.detail}</pre>
+            </details>
+          )}
+          <div className="kz-actions">
+            {stop.retryFrom && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (stop.retryFrom) void runPipeline(stop.retryFrom)
+                }}
+              >
+                {t('kantan:s5.stop.retry')}
+              </button>
+            )}
+            <button type="button" className="btn btn--ghost" onClick={openDetail}>
+              {t('kantan:s5.stop.openDetail')}
+            </button>
+          </div>
+        </section>
+      ) : showS5 ? (
+        <section className="kz-card">
+          <h3 className="kz-title">{t('kantan:s5.title')}</h3>
+          {refining ? (
+            <JobProgress
+              label={t('kantan:s6.reflecting')}
+              status={status}
+              lastPulseAt={lastPulseAt}
+              onCancel={() => jobRef.current?.cancel() ?? Promise.resolve()}
+            />
+          ) : (
+            <>
+              <div className="kz-live" role="status" aria-live="polite">
+                <p className="kz-live-line done">
+                  <span className="kz-live-mark" aria-hidden="true">
+                    ✓
+                  </span>
+                  {t('kantan:s5.meanings')}
+                </p>
+                {autoFixed && (
+                  <p className="kz-live-line done">
+                    <span className="kz-live-mark" aria-hidden="true">
+                      ✓
+                    </span>
+                    {t('kantan:s5.quality')}
+                  </p>
+                )}
+                <p className="kz-live-line active">
+                  <span className="kz-live-mark" aria-hidden="true">
+                    <span className="spinner" />
+                  </span>
+                  {pipePhase === 'save'
+                    ? t('kantan:s5.saving')
+                    : uploadPct !== null && up?.total
+                      ? t('kantan:s5.ingestingCount', {
+                          done: (up.done ?? 0).toLocaleString(),
+                          total: up.total.toLocaleString(),
+                          pct: uploadPct,
+                        })
+                      : t('kantan:s5.ingesting')}
+                </p>
+                {uploadPct !== null && (
+                  <div className="ingest-progress-track">
+                    <span style={{ width: `${uploadPct}%` }} />
+                  </div>
+                )}
+              </div>
+              {ingestHandle && (
+                <div className="kz-actions">
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--sm"
+                    onClick={() => {
+                      // A failed cancel request must not surface as an
+                      // unhandled rejection — the stream outcome settles the UI.
+                      ingestHandle.cancel().catch(() => {})
+                    }}
+                  >
+                    {t('workbench:job.cancel')}
+                  </button>
+                </div>
+              )}
+              <p className="kz-note">{t('kantan:s5.closeNote')}</p>
+            </>
+          )}
+          {jobNotice && (
+            <p className="job-cancelled-note" role="status">
+              {jobNotice}
+            </p>
+          )}
+        </section>
+      ) : step === 6 ? (
+        <section className="kz-card">
+          <h3 className="kz-title">{t('kantan:s6.title')}</h3>
+          <p className="kz-note">{t('kantan:s6.lead')}</p>
+          {s6Loading && (
+            <p className="kz-note" role="status">
+              <span className="spinner" />
+              {t('kantan:s6.loading')}
+            </p>
+          )}
+          {s6Err && (
+            <>
+              <pre className="error">{t('kantan:s6.loadFailed', { message: s6Err })}</pre>
+              <div className="kz-actions">
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--sm"
+                  onClick={() => {
+                    if (kzDatasetId) void loadS6(kzDatasetId)
+                  }}
+                >
+                  {t('kantan:s6.reload')}
+                </button>
+              </div>
+            </>
+          )}
+          {stats && stats.classes.length > 0 && (
+            <div className="kz-map-card">
+              {totalSourceRows > 0 && (
+                <>
+                  <span className="kz-map-part">
+                    {t('kantan:s6.mapRows', { rows: totalSourceRows.toLocaleString() })}
+                  </span>
+                  <span className="kz-map-arrow" aria-hidden="true">
+                    →
+                  </span>
+                </>
+              )}
+              {stats.classes.map((c) => (
+                <span key={c.iri} className="kz-map-class">
+                  {t('kantan:s6.classCount', {
+                    label: classLabel(c.iri),
+                    n: c.n.toLocaleString(),
+                  })}
+                </span>
+              ))}
+              <span className="kz-map-note">{t('kantan:s6.mapDraftNote')}</span>
+            </div>
+          )}
+          {s6Maps.map((m) => {
+            const refs = m.properties.filter((p) => p.kind === 'reference')
+            if (refs.length === 0) return null
+            return (
+              <div key={m.id} className="kz-cols">
+                {multiMap && <div className="kz-cols-caption">{mapCaption(m)}</div>}
+                <div className="kz-preview-tablewrap">
+                  <table className="kz-preview-table kz-cols-table">
+                    <thead>
+                      <tr>
+                        <th>{t('kantan:s6.colColumn')}</th>
+                        <th>{t('kantan:s6.colMeaning')}</th>
+                        <th>{t('kantan:s6.colUnit')}</th>
+                        <th>{t('kantan:s6.colExamples')}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {refs.map((p, i) => {
+                        // Meaning: IR label (K8) → model.yaml label → local name.
+                        // A missing label only gets the amber marker — a nudge
+                        // for the eye, never a gate.
+                        const meaning = p.label || rules?.labels?.[p.predicate_iri] || ''
+                        const missing = !meaning
+                        const samples = columnSamples[p.reference ?? ''] ?? []
+                        return (
+                          <tr
+                            key={`${m.id}-${i}`}
+                            className={missing ? 'kz-attn' : undefined}
+                            title={missing ? t('kantan:s6.missingMeaning') : undefined}
+                          >
+                            <td className="kz-cols-name">{p.reference}</td>
+                            <td>
+                              {meaning || localName(p.predicate_iri || p.predicate)}
+                              {missing && ' ⚠'}
+                            </td>
+                            <td>{p.unit ?? ''}</td>
+                            <td className="kz-cols-samples">{samples.join('、')}</td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )
+          })}
+          {linkRows.length > 0 && (
+            <details className="kz-links">
+              <summary>{t('kantan:s6.othersSummary', { n: linkRows.length })}</summary>
+              <ul className="kz-links-list">
+                {linkRows.map(({ map, prop }, i) => (
+                  <li key={`${map.id}-${i}`}>
+                    <code>{prop.label || rules?.labels?.[prop.predicate_iri] || prop.predicate}</code>
+                    {' — '}
+                    {t(`kantan:s6.otherKind.${otherKindKey(prop.kind)}`)}
+                    {(prop.template || prop.constant || prop.parent_map || prop.function) && (
+                      <code className="kz-links-detail">
+                        {prop.template ?? prop.constant ?? prop.parent_map ?? prop.function}
+                      </code>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+          <div className="kz-q">
+            <label className="kz-q-text" htmlFor="kz-s6-note">
+              {t('kantan:s6.noteLabel')}
+            </label>
+            <textarea
+              id="kz-s6-note"
+              className="kz-s6-note"
+              rows={2}
+              placeholder={t('kantan:s6.notePlaceholder')}
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+            />
+            <div className="kz-actions">
+              <button
+                type="button"
+                className="btn btn--ghost"
+                onClick={() => void runRefine()}
+                disabled={!note.trim() || refining || !isReady}
+              >
+                {t('kantan:s6.reflect')}
+              </button>
+            </div>
+            {!isReady && note.trim() !== '' && <p className="kz-note">{t('kantan:s1.aiNotReady')}</p>}
+            {refineErr && (
+              <pre className="error">{t('kantan:s6.reflectFailed', { message: refineErr })}</pre>
+            )}
+          </div>
+          <div className="kz-actions">
+            <button type="button" onClick={() => setConfirmed(true)} disabled={s6Loading || refining}>
+              {t('kantan:s6.confirm')}
             </button>
           </div>
         </section>

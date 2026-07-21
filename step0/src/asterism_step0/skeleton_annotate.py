@@ -133,6 +133,17 @@ def _collision_examples(
     return out
 
 
+def _measurement_only(inspection: SourceInspection, key: Sequence[str]) -> bool:
+    """True when EVERY key column holds measurement values (double/float/decimal).
+
+    Such a key can be unique in today's rows only by accident — two later runs
+    measuring the same value collide — so it is never a semantically safe
+    identity, even when the current file happens to pass the uniqueness check.
+    """
+    types = {c.name: c.inferred_type for c in inspection.columns}
+    return bool(key) and all(types.get(col) in _MEASUREMENT_TYPES for col in key)
+
+
 def _key_candidates(
     inspection: SourceInspection, current_key: tuple[str, ...]
 ) -> list[dict[str, Any]]:
@@ -142,16 +153,15 @@ def _key_candidates(
     is only accidentally unique — it ranks last and carries
     ``measurement_only: true`` so the UI can caveat it.
     """
-    types = {c.name: c.inferred_type for c in inspection.columns}
-
-    def measurement_only(key: tuple[str, ...]) -> bool:
-        return bool(key) and all(types.get(col) in _MEASUREMENT_TYPES for col in key)
-
     current = tuple(sorted(current_key))
     seen: set[tuple[str, ...]] = set()
     ranked = sorted(
         (r for r in inspection.uniqueness_reports if r.is_unique),
-        key=lambda r: (measurement_only(r.key), len(r.key), -r.total_rows_considered),
+        key=lambda r: (
+            _measurement_only(inspection, r.key),
+            len(r.key),
+            -r.total_rows_considered,
+        ),
     )
     out: list[dict[str, Any]] = []
     for report in ranked:
@@ -163,7 +173,7 @@ def _key_candidates(
             {
                 "columns": list(report.key),
                 "rows_considered": report.total_rows_considered,
-                "measurement_only": measurement_only(report.key),
+                "measurement_only": _measurement_only(inspection, report.key),
             }
         )
         if len(out) >= _KEY_CANDIDATES:
@@ -233,6 +243,13 @@ def _annotate_map(
     # skip_rows) + the header line + 1-based counting.
     skip = inspection.dialect.skip_rows if inspection.dialect is not None else 0
     first_data_line = skip + 2
+    # K7 (kantan-mode ADR): a key built ONLY from measurement-valued columns can
+    # pass the uniqueness check by accident (real dogfood: 13 rows of
+    # 3.636740E+1-style values happened to be distinct). The green band alone
+    # would let a semantically wrong ID through — flag it so the gate shows an
+    # amber caution AND, unlike the plain-unique case, still offers the proven
+    # safer key candidates as one-click fixes.
+    caution = bool(report.is_unique) and _measurement_only(inspection, key)
     ann.update(
         {
             "checkable": True,
@@ -241,6 +258,7 @@ def _annotate_map(
             "distinct_ids": report.distinct_tuples,
             "colliding_rows": report.total_rows_considered - report.distinct_tuples,
             "is_unique": report.is_unique,
+            "key_measurement_caution": caution,
             "collision_examples": []
             if report.is_unique
             else _collision_examples(rows, key, first_data_line),
@@ -248,7 +266,9 @@ def _annotate_map(
                 _render_template(str(template), row, prefixes)
                 for row in rows[:_PREVIEW_ROWS]
             ],
-            "key_candidates": [] if report.is_unique else _key_candidates(inspection, key),
+            "key_candidates": []
+            if (report.is_unique and not caution)
+            else _key_candidates(inspection, key),
         }
     )
     return ann

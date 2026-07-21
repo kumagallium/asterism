@@ -81,7 +81,11 @@ export function WorkbenchTier({
         </button>
       </div>
       {tier === 'kantan' ? (
-        <KantanWizard onBusyChange={setKantanBusy} onHandoffToDetail={() => setTier('detail')} />
+        <KantanWizard
+          onBusyChange={setKantanBusy}
+          onHandoffToDetail={() => setTier('detail')}
+          onOpenDataset={onOpenDataset}
+        />
       ) : (
         <WorkbenchView
           redesignTarget={redesignTarget}
