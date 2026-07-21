@@ -1135,6 +1135,18 @@ textarea:focus {
   padding: 0.35rem 0.5rem;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
+}
+
+/* The ID-template cell: a textarea that wraps the full IRI template so its
+   tail is never clipped (kantan feedback 2026-07-21). Newlines are stripped
+   on input — visual wrapping only, the template itself stays one line. */
+.skeleton-gate-key {
+  display: block;
+  white-space: pre-wrap;
+  word-break: break-all;
+  resize: vertical;
+  line-height: 1.5;
+  overflow: hidden;
   background: var(--surface-alt);
   color: var(--fg);
 }
@@ -5761,4 +5773,257 @@ button.ds-artifact:disabled {
 .skeleton-ns-prefix {
   font-size: 0.8rem;
   text-align: right;
+}
+
+/* ==========================================================================
+   Kantan tier (かんたんモード) — ADR kantan-mode-two-tier-ux.md.
+   All selectors are prefixed .kz-. Layout follows docs/design/ui-guidelines.md:
+   design tokens only (no hardcoded colors), flex column + --space gaps. Every
+   button here carries a class, so the global button:not([class]):hover rule
+   (green-bleed guard) never repaints these.
+   ========================================================================== */
+
+.kz-tier {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.kz-tier-bar {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.kz-wizard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.kz-title {
+  margin: 0;
+  font-size: 1.05rem;
+  color: var(--fg);
+}
+.kz-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.kz-resume {
+  color: var(--accent-strong);
+}
+.kz-pick-error {
+  color: var(--error-fg);
+}
+
+/* Always-visible 5-step recipe (①入れる → … → ⑤公開する) with 現在地. */
+.kz-recipe {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  list-style: none;
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-soft);
+}
+.kz-recipe-step {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0.2rem 0.65rem;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.kz-recipe-step.active {
+  background: var(--primary-soft);
+  color: var(--fg);
+  font-weight: 600;
+}
+.kz-recipe-step.done {
+  color: var(--entity);
+}
+.kz-recipe-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.3rem;
+  height: 1.3rem;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-alt);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+.kz-recipe-step.active .kz-recipe-num {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-fg);
+}
+.kz-recipe-step.done .kz-recipe-num {
+  background: var(--entity-soft);
+  border-color: var(--entity);
+  color: var(--entity);
+}
+.kz-recipe-here {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border-radius: 999px;
+  padding: 0.05rem 0.45rem;
+}
+
+/* Generic kantan card (one per wizard screen). */
+.kz-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  box-shadow: var(--shadow-soft);
+}
+.kz-warn {
+  border-left: 3px solid var(--accent);
+}
+
+/* S1: the big drop target (click = picker, drag & drop works too). */
+.kz-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-12) var(--space-6);
+  border: 2px dashed var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-alt);
+  cursor: pointer;
+  text-align: center;
+  transition:
+    border-color 0.18s,
+    background-color 0.18s;
+}
+.kz-drop:hover,
+.kz-drop.drag {
+  border-color: var(--primary);
+  background: var(--primary-softer);
+}
+.kz-drop input {
+  display: none;
+}
+.kz-drop-main {
+  font-weight: 600;
+  color: var(--fg);
+  font-size: 1rem;
+}
+.kz-drop-sub {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+/* S2/S3: first-rows preview per file. Wide tables scroll inside their wrap. */
+.kz-preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.kz-preview-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.kz-preview-name {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--body);
+}
+.kz-preview-caption {
+  font-family: var(--font-ui);
+  font-size: 0.78rem;
+  color: var(--faint);
+}
+.kz-preview-tablewrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.kz-preview-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.8rem;
+}
+.kz-preview-table th,
+.kz-preview-table td {
+  padding: 0.3rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  white-space: nowrap;
+}
+.kz-preview-table th {
+  background: var(--surface-sink);
+  font-weight: 600;
+  color: var(--body);
+}
+.kz-preview-table tr:last-child td {
+  border-bottom: none;
+}
+
+/* S2: the two "only you know this" questions, answered via pill buttons. */
+.kz-q {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.kz-q-text {
+  margin: 0;
+  color: var(--body);
+  font-weight: 600;
+}
+.kz-q-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.kz-pill {
+  background: var(--surface-alt);
+  border: 1px solid var(--border-strong);
+  color: var(--body);
+  border-radius: 999px;
+  padding: 0.35rem 0.9rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.kz-pill:hover {
+  background: var(--primary-softer);
+  border-color: var(--primary);
+}
+.kz-pill.selected {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.kz-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+/* Completion card (end of this wizard: hand off to the detail tier). */
+.kz-done-title {
+  margin: 0;
+  font-size: 1.1rem;
+  color: var(--success-fg);
 }
