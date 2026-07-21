@@ -22,6 +22,9 @@ dependencies = [
     # morph-kgc (the substrate extra) pins pyoxigraph<0.4 — the parse API and
     # error reporting we rely on exist in both lines.
     "pyoxigraph>=0.3",
+    # Excel (.xlsx) → CSV conversion at the ingestion boundary (kantan-mode K6):
+    # asterism.tabularize.xlsx_to_csvs reads the workbook directly (no pandas).
+    "openpyxl>=3.1",
 ]
 
 [project.optional-dependencies]

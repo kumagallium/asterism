@@ -21,7 +21,11 @@ booleans lower-case, ``null`` becomes an empty cell.
 from __future__ import annotations
 
 import csv
+import datetime as _dt
+import hashlib
+import io
 import json
+import re
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -181,3 +185,106 @@ def tabularize_json_to_csv(
     doc = json.loads(Path(source).read_text(encoding="utf-8"))
     rows = tabularize_records(_load_records(doc, record_path))
     return write_rows_csv(rows, dest)
+
+
+# ---------------------------------------------------------------------------
+# Excel (.xlsx) → CSV (kantan-mode K6): deterministic sheet-by-sheet conversion
+# at the ingestion boundary, so Morph-KGC / the design loop only ever see CSV.
+# ---------------------------------------------------------------------------
+
+
+def _stringify_cell(value: object) -> str:
+    """Render one worksheet cell as a deterministic string (None → empty cell).
+
+    Dates/times use ``isoformat`` (stable, locale-free); booleans lower-case to
+    match :func:`_stringify_leaf`; every other typed value (int / float / str)
+    takes its plain ``str()`` form.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, bool):  # checked before str fallback: bool ⊂ int
+        return "true" if value else "false"
+    if isinstance(value, _dt.datetime | _dt.date | _dt.time):
+        return value.isoformat()
+    return str(value)
+
+
+def _sheet_slug(title: str) -> str:
+    """Deterministic ``[A-Za-z0-9._-]`` slug of a worksheet title.
+
+    Same slugging rules as the api's tabular filename sanitizer; a title with
+    nothing safe left (e.g. an all-Japanese sheet name) falls back to the short
+    hash of the original title, so distinct sheets stay distinct.
+    """
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", title).strip("-._")
+    slug = re.sub(r"-{2,}", "-", slug)
+    if not slug:
+        slug = f"sheet-{hashlib.sha256(title.encode('utf-8')).hexdigest()[:8]}"
+    return slug
+
+
+def xlsx_to_csvs(data: bytes, *, stem: str) -> list[tuple[str, bytes]]:
+    """Convert an ``.xlsx`` workbook to CSV bytes, one CSV per non-empty sheet.
+
+    Returns ``[(csv_filename, csv_bytes), …]`` in workbook sheet order. A workbook
+    with ONE non-empty sheet yields ``<stem>.csv`` (the friendly common case);
+    more yield ``<stem>__<sheetslug>.csv`` each (slug collisions — two titles that
+    slug identically — are disambiguated with the short hash of the original
+    title, which is unique per workbook). Deterministic throughout: same bytes in,
+    same names + bytes out. Cells stringify via :func:`_stringify_cell` (None →
+    empty, datetime → isoformat); output is UTF-8 without BOM in the :mod:`csv`
+    default dialect. A sheet with no rows is skipped; trailing all-empty rows and
+    columns (phantom dimensions from formatting) are trimmed. Raises
+    ``ValueError`` when every sheet is empty.
+
+    Known limits (deliberate — disclosed to the designer, not silently patched):
+
+    * A formula cell yields its CACHED value (``data_only=True``); a workbook
+      saved without computed results yields an empty cell instead.
+    * A merged range keeps only its top-left value; the covered cells are empty.
+    """
+    from openpyxl import load_workbook  # hard dep of this package; heavy, so lazy
+
+    workbook = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+    try:
+        sheets: list[tuple[str, list[tuple]]] = []
+        for ws in workbook.worksheets:
+            rows = [tuple(r) for r in ws.iter_rows(values_only=True)]
+            while rows and all(v is None for v in rows[-1]):
+                rows.pop()  # trailing all-empty rows (phantom dimensions)
+            if not rows:
+                continue  # empty sheet → no CSV
+            width = max(
+                (i + 1 for row in rows for i, v in enumerate(row) if v is not None),
+                default=0,
+            )
+            # Pad short rows to the sheet width so the CSV is rectangular —
+            # a data cell to the right of a short header row must not produce
+            # a ragged CSV (pandas refuses rows wider than the header).
+            sheets.append(
+                (ws.title, [row[:width] + (None,) * (width - len(row)) for row in rows])
+            )
+    finally:
+        workbook.close()
+    if not sheets:
+        raise ValueError("workbook has no non-empty sheet")
+
+    out: list[tuple[str, bytes]] = []
+    used: set[str] = set()
+    for title, rows in sheets:
+        if len(sheets) == 1:
+            name = f"{stem}.csv"
+        else:
+            # Truncation caps keep the name under the api's 128-char source-name
+            # limit for any sanitized stem (≤ 123 chars after dropping ".xlsx").
+            name = f"{stem[:90]}__{_sheet_slug(title)[:28]}.csv"
+            if name in used:  # lossy slugs collided — hash of the title splits them
+                h = hashlib.sha256(title.encode("utf-8")).hexdigest()[:8]
+                name = f"{stem[:90]}__{_sheet_slug(title)[:19]}-{h}.csv"
+        used.add(name)
+        buf = io.StringIO(newline="")
+        writer = csv.writer(buf)
+        for row in rows:
+            writer.writerow([_stringify_cell(v) for v in row])
+        out.append((name, buf.getvalue().encode("utf-8")))
+    return out

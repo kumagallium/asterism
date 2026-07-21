@@ -25,8 +25,9 @@ export const SUPPORTED_SOURCES: readonly SourceKind[] = ['csv', 'json', 'documen
 
 // Tabular uploads also accept legacy instrument text exports (.tsv/.txt/.dat/.asc):
 // the server sniffs + pins the source dialect at design time and normalizes at
-// ingest (docs/architecture/source-dialect.md).
-export const TABULAR_ACCEPT = '.csv,.tsv,.txt,.dat,.asc'
+// ingest (docs/architecture/source-dialect.md). Excel .xlsx is converted to CSV
+// server-side at the entrance (1 sheet = 1 CSV; kantan-mode K6).
+export const TABULAR_ACCEPT = '.csv,.tsv,.txt,.dat,.asc,.xlsx'
 
 // The file picker's `accept` filter per wired source kind.
 export const SOURCE_ACCEPT: Partial<Record<SourceKind, string>> = {

@@ -53,9 +53,11 @@ _SOURCE_DIR = "source"
 # the substrate work_dir before Morph-KGC). Morph-KGC reads csv/json/xml via the
 # RML's referenceFormulation (ql:CSV / ql:JSONPath / ql:XPath); a .pdf is a
 # document source converted to JATS by the Docling sidecar at ingest
-# (ADR pdf-docling-conversion.md).
+# (ADR pdf-docling-conversion.md). An .xlsx is listed only as the ORIGINAL of an
+# api-side conversion (K6) — the persisted source the RML maps is the derived
+# .csv set kept alongside it.
 _SOURCE_SUFFIXES = (
-    ".csv", ".tsv", ".txt", ".dat", ".asc", ".json", ".geojson", ".xml", ".pdf"
+    ".csv", ".tsv", ".txt", ".dat", ".asc", ".json", ".geojson", ".xml", ".pdf", ".xlsx"
 )
 
 
@@ -65,7 +67,8 @@ def source_kind_of(filenames: list[str]) -> str:
     A dataset's source is a single kind in practice; a DOCUMENT source (JATS ``.xml`` or
     born-digital ``.pdf``) maps to ``"xml"`` (the deterministic structurer path) and wins,
     then JSON, else CSV (the default for an empty set — and the kind of every tabular
-    dialect suffix: .tsv/.txt/.dat/.asc normalize to CSV at ingest). ``.pdf`` is
+    dialect suffix: .tsv/.txt/.dat/.asc normalize to CSV at ingest; an ``.xlsx``
+    original is csv-kind too — its derived CSVs are the mapped source). ``.pdf`` is
     converted to JATS at ingest, so it shares the document path under the ``"xml"`` kind.
     """
     if any(Path(n).suffix.lower() in (".xml", ".pdf") for n in filenames):
