@@ -658,10 +658,12 @@ _SAFE_NAME = re.compile(r"^[A-Za-z0-9._-]{1,128}\.csv$")
 # CONVERTED to JATS (pandoc, optional) at source-attach and the resulting .xml
 # becomes the persisted source. Legacy instrument exports (.tsv/.txt/.dat/.asc)
 # are tabular sources too (ADR source-dialect.md — dialect handling lives in
-# step0/ingest; the api only widens the entrance). The legacy ``/upload/{kind}``
+# step0/ingest; the api only widens the entrance). An Excel ``.xlsx`` (kantan-
+# mode K6) is CONVERTED to CSV(s) at every tabular entrance — like .docx, the
+# original never becomes an ``rml:source``. The legacy ``/upload/{kind}``
 # starrydata drop stays CSV-only (it feeds the CSV watcher).
 _SAFE_SOURCE_NAME = re.compile(
-    r"^[A-Za-z0-9._-]{1,128}\.(csv|tsv|txt|dat|asc|json|geojson|xml|docx|pdf)$"
+    r"^[A-Za-z0-9._-]{1,128}\.(csv|tsv|txt|dat|asc|json|geojson|xml|docx|pdf|xlsx)$"
 )
 
 # Resolvable IRI base for documents ingested through the API (the document-ontology
@@ -824,7 +826,7 @@ def _sanitize_tabular_name(filename: str) -> str:
     if not _SAFE_SOURCE_NAME.fullmatch(f"source{ext}"):
         raise HTTPException(
             400,
-            "filename must end in .(csv|tsv|txt|dat|asc|json|geojson|xml|docx|pdf) "
+            "filename must end in .(csv|tsv|txt|dat|asc|json|geojson|xml|docx|pdf|xlsx) "
             "(max 128 chars)",
         )
     stem = Path(name).stem
@@ -968,6 +970,86 @@ def _doc_conversion_for(xml_path: Path) -> dict | None:
     return None
 
 
+# Cap on an .xlsx upload: the whole workbook is read into memory for conversion
+# (unlike CSV, which streams to disk), so it gets the document-style bound rather
+# than the 1 GiB streaming cap. Same figure as the .docx / .pdf document caps.
+_MAX_XLSX_BYTES: Final[int] = 64 * 1024 * 1024
+
+
+def _expand_xlsx_bytes(name: str, data: bytes) -> list[tuple[str, bytes]]:
+    """Convert a canonicalized ``.xlsx`` upload to its derived CSV set (K6).
+
+    One sheet = one CSV (``asterism.tabularize.xlsx_to_csvs`` — openpyxl,
+    deterministic). Everything downstream — inspect, the design loop,
+    ``rml:source`` — only ever sees the derived ``.csv`` names; ``.xlsx`` is NOT
+    in the rml_safety source allow-list. An unreadable workbook (corrupt zip,
+    every sheet empty) is a readable 422, not a traceback.
+    """
+    from asterism.tabularize import xlsx_to_csvs
+
+    try:
+        return xlsx_to_csvs(data, stem=Path(name).stem)
+    except ValueError as exc:
+        raise HTTPException(422, f"Excel ブックを CSV に変換できませんでした: {exc}") from exc
+    except Exception as exc:
+        raise HTTPException(422, f"Excel ブックを読み取れませんでした: {exc}") from exc
+
+
+async def _persist_converted_xlsx(
+    upload: UploadFile, sdir: Path, name: str
+) -> tuple[list[str], dict]:
+    """Convert an Excel ``.xlsx`` upload to CSV(s) and persist them as the source.
+
+    Returns ``([csv_filename, …], conversion_record)``. The derived ``.csv`` files
+    are the persisted SOURCE (what the RML maps); the original ``.xlsx`` is kept
+    alongside for re-conversion / provenance (listed, but classified as a csv-kind
+    source). Mirrors :func:`_persist_converted_docx`, incl. the per-file
+    ``<name>.conversion`` sidecar (NOT a source suffix).
+    """
+    import openpyxl
+
+    data = await _read_upload_bounded(upload, _MAX_XLSX_BYTES)
+    derived = await asyncio.to_thread(_expand_xlsx_bytes, name, data)
+    await asyncio.to_thread(sdir.mkdir, parents=True, exist_ok=True)
+    conversion = {"tool": "openpyxl", "version": openpyxl.__version__, "from": name}
+    for csv_name, csv_bytes in derived:
+        await asyncio.to_thread((sdir / csv_name).write_bytes, csv_bytes)
+        await asyncio.to_thread(
+            (sdir / f"{csv_name}.conversion").write_text,
+            json.dumps(conversion, ensure_ascii=False),
+            "utf-8",
+        )
+    await asyncio.to_thread((sdir / name).write_bytes, data)  # keep the original .xlsx
+    return [csv_name for csv_name, _ in derived], conversion
+
+
+async def _save_tabular_uploads(files: list[UploadFile], dest_dir: Path) -> list[Path]:
+    """Canonicalize + save tabular uploads for a design entrance (inspect / propose
+    / skeleton / validate / continue) — the ONE convert+sanitize seam.
+
+    Every filename goes through :func:`_sanitize_tabular_name`; a ``.xlsx`` is
+    expanded to its derived CSV set here, BEFORE the path list is built, so the
+    returned paths (and thus ``X-Asterism-Source-Names`` / the design's
+    ``rml:source``) are always the canonical CSV names.
+    """
+    paths: list[Path] = []
+    for upload in files:
+        if upload.filename is None:
+            raise HTTPException(400, "missing filename")
+        name = _sanitize_tabular_name(upload.filename)
+        if name.lower().endswith(".xlsx"):
+            data = await _read_upload_bounded(upload, _MAX_XLSX_BYTES)
+            for csv_name, csv_bytes in await asyncio.to_thread(_expand_xlsx_bytes, name, data):
+                dest = dest_dir / csv_name
+                await asyncio.to_thread(dest.write_bytes, csv_bytes)
+                paths.append(dest)
+        else:
+            dest = dest_dir / name
+            await _save_upload(upload, dest)
+            paths.append(dest)
+    return paths
+
+
 async def _persist_source_uploads(
     registry_root: Path, dataset_id: str, files: list[UploadFile]
 ) -> tuple[list[str], dict | None]:
@@ -977,8 +1059,10 @@ async def _persist_source_uploads(
     source so it reflects exactly this upload) and records the filenames + source
     kind on the meta. A Word ``.docx`` is CONVERTED to JATS (pandoc) and the
     resulting ``.xml`` becomes the persisted source (the conversion is recorded so
-    the document ingest can disclose it). This lets a *design*-stage dataset be
-    ingested from the catalog later with no re-attach (reproducibility).
+    the document ingest can disclose it); an Excel ``.xlsx`` is likewise CONVERTED
+    to CSV(s) (openpyxl, K6) with the original kept alongside. This lets a
+    *design*-stage dataset be ingested from the catalog later with no re-attach
+    (reproducibility).
     """
     sdir = registry.source_dir(registry_root, dataset_id)
     if sdir is None:
@@ -999,6 +1083,9 @@ async def _persist_source_uploads(
         if name.lower().endswith(".docx"):
             jats_name, conversion = await _persist_converted_docx(upload, sdir, name)
             saved.append(jats_name)
+        elif name.lower().endswith(".xlsx"):
+            csv_names, conversion = await _persist_converted_xlsx(upload, sdir, name)
+            saved.extend(csv_names)
         else:
             await _save_upload(upload, sdir / name)
             saved.append(name)
@@ -1363,6 +1450,22 @@ async def _append_batch_to_dataset(
             cname = _sanitize_tabular_name(name)
         except HTTPException as exc:
             raise AppendError(400, str(exc.detail)) from exc
+        if cname.lower().endswith(".xlsx"):
+            # K6: an .xlsx batch appends as its derived CSV — but only a
+            # SINGLE-sheet workbook, whose derived name (<stem>.csv) matches the
+            # design-time conversion. A multi-sheet batch is ambiguous (which
+            # sheet grows which source?), so it is refused explicitly.
+            try:
+                derived = await asyncio.to_thread(_expand_xlsx_bytes, cname, content)
+            except HTTPException as exc:
+                raise AppendError(422, str(exc.detail)) from exc
+            if len(derived) > 1:
+                raise AppendError(
+                    400,
+                    "Excel ブックに複数のシートがあります。追記はシートを 1 つにするか、"
+                    "CSV に変換してから追記してください",
+                )
+            cname, content = derived[0]
         if sources and cname not in sources:
             raise AppendError(
                 400,
@@ -2112,13 +2215,7 @@ def build_app(
         if not files:
             raise HTTPException(400, "no files uploaded")
         with tempfile.TemporaryDirectory() as td:
-            paths: list[Path] = []
-            for upload in files:
-                if upload.filename is None:
-                    raise HTTPException(400, "missing filename")
-                dest = Path(td) / _sanitize_tabular_name(upload.filename)
-                await _save_upload(upload, dest)
-                paths.append(dest)
+            paths = await _save_tabular_uploads(files, Path(td))
             try:
                 inspections, fks = inspect_source_set(paths, fk_hint_columns=fk or None)
             except UnicodeDecodeError as exc:
@@ -2284,13 +2381,7 @@ def build_app(
         import tempfile as _tempfile
 
         tmpdir = _tempfile.mkdtemp(prefix="asterism-propose-")
-        paths: list[Path] = []
-        for upload in files:
-            if upload.filename is None:
-                raise HTTPException(400, "missing filename")
-            dest = Path(tmpdir) / _sanitize_tabular_name(upload.filename)
-            await _save_upload(upload, dest)
-            paths.append(dest)
+        paths = await _save_tabular_uploads(files, Path(tmpdir))
 
         provider, model, api_base, key = _llm_coords(
             x_api_key, x_llm_provider, x_llm_model, x_llm_api_base, cfg.registry_root
@@ -2416,13 +2507,7 @@ def build_app(
         import tempfile as _tempfile
 
         tmpdir = _tempfile.mkdtemp(prefix="asterism-skeleton-")
-        paths: list[Path] = []
-        for upload in files:
-            if upload.filename is None:
-                raise HTTPException(400, "missing filename")
-            dest = Path(tmpdir) / _sanitize_tabular_name(upload.filename)
-            await _save_upload(upload, dest)
-            paths.append(dest)
+        paths = await _save_tabular_uploads(files, Path(tmpdir))
 
         provider, model, api_base, key = _llm_coords(
             x_api_key, x_llm_provider, x_llm_model, x_llm_api_base, cfg.registry_root
@@ -2517,13 +2602,7 @@ def build_app(
 
         tmpdir = tempfile.mkdtemp(prefix="asterism-skelcheck-")
         try:
-            paths: list[Path] = []
-            for upload in files:
-                if upload.filename is None:
-                    raise HTTPException(400, "missing filename")
-                dest = Path(tmpdir) / _sanitize_tabular_name(upload.filename)
-                await _save_upload(upload, dest)
-                paths.append(dest)
+            paths = await _save_tabular_uploads(files, Path(tmpdir))
             annotations = await asyncio.to_thread(
                 annotate_skeleton, skeleton_obj, paths, dialects=dialect_overrides
             )
@@ -2572,13 +2651,7 @@ def build_app(
         import tempfile as _tempfile
 
         tmpdir = _tempfile.mkdtemp(prefix="asterism-continue-")
-        paths: list[Path] = []
-        for upload in files:
-            if upload.filename is None:
-                raise HTTPException(400, "missing filename")
-            dest = Path(tmpdir) / _sanitize_tabular_name(upload.filename)
-            await _save_upload(upload, dest)
-            paths.append(dest)
+        paths = await _save_tabular_uploads(files, Path(tmpdir))
 
         provider, model, api_base, key = _llm_coords(
             x_api_key, x_llm_provider, x_llm_model, x_llm_api_base, cfg.registry_root

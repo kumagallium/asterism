@@ -8,7 +8,10 @@ Decision of record: ``docs/architecture/native-json-denormalization.md``.
 from __future__ import annotations
 
 import csv
+import datetime
+import io
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -20,6 +23,7 @@ from asterism.tabularize import (
     sanitize_csv_columns,
     tabularize_json_to_csv,
     tabularize_records,
+    xlsx_to_csvs,
 )
 
 
@@ -278,6 +282,88 @@ def test_e2e_reserved_subject_column_renamed_then_explodes(tmp_path: Path) -> No
     triples = _materialize(rml, tmp_path)
     assert ("https://ex/b/b1", "https://ex/subject", "Math") in triples
     assert ("https://ex/b/b1", "https://ex/subject", "Physics") in triples
+
+
+# ---- Excel (.xlsx) → CSV (kantan-mode K6) ------------------------------------
+
+
+def _xlsx_bytes(sheets: dict[str, list[list[object]]]) -> bytes:
+    """Build a small in-memory workbook (no binary fixture committed)."""
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    wb.remove(wb.active)
+    for title, rows in sheets.items():
+        ws = wb.create_sheet(title=title)
+        for row in rows:
+            ws.append(row)
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def _rows_of(csv_bytes: bytes) -> list[list[str]]:
+    return list(csv.reader(io.StringIO(csv_bytes.decode("utf-8"))))
+
+
+def test_xlsx_single_sheet_becomes_stem_csv() -> None:
+    out = xlsx_to_csvs(
+        _xlsx_bytes({"Sheet1": [["id", "name"], [1, "a"], [2, "b"]]}), stem="data"
+    )
+    assert [n for n, _ in out] == ["data.csv"]
+    assert not out[0][1].startswith(b"\xef\xbb\xbf")  # UTF-8, no BOM
+    assert _rows_of(out[0][1]) == [["id", "name"], ["1", "a"], ["2", "b"]]
+
+
+def test_xlsx_multi_sheet_one_csv_per_sheet() -> None:
+    out = xlsx_to_csvs(
+        _xlsx_bytes({"Papers": [["id"], [1]], "Samples": [["sid"], [2]]}), stem="book"
+    )
+    assert [n for n, _ in out] == ["book__Papers.csv", "book__Samples.csv"]
+    assert _rows_of(out[0][1]) == [["id"], ["1"]]
+    assert _rows_of(out[1][1]) == [["sid"], ["2"]]
+
+
+def test_xlsx_japanese_sheet_titles_stay_distinct() -> None:
+    # Both titles slug to nothing safe → the short hash of the ORIGINAL title
+    # (unique per workbook) keeps the two sheets from colliding on one name.
+    out = xlsx_to_csvs(
+        _xlsx_bytes({"測定結果": [["a"], [1]], "参考文献": [["b"], [2]]}), stem="book"
+    )
+    names = [n for n, _ in out]
+    assert len(set(names)) == 2
+    for name in names:
+        assert re.fullmatch(r"book__sheet-[0-9a-f]{8}\.csv", name), name
+
+
+def test_xlsx_empty_sheet_skipped_all_empty_raises() -> None:
+    # The empty sheet vanishes — and with ONE sheet left, the friendly
+    # single-sheet name (<stem>.csv) applies.
+    out = xlsx_to_csvs(_xlsx_bytes({"Data": [["id"], [1]], "Empty": []}), stem="d")
+    assert [n for n, _ in out] == ["d.csv"]
+    with pytest.raises(ValueError, match="no non-empty sheet"):
+        xlsx_to_csvs(_xlsx_bytes({"Empty": []}), stem="d")
+
+
+def test_xlsx_cell_stringification_deterministic() -> None:
+    when = datetime.datetime(2026, 1, 2, 3, 4, 5)
+    data = _xlsx_bytes(
+        {"S": [["when", "flag", "num", "note"], [when, True, 1.5, None]]}
+    )
+    out1 = xlsx_to_csvs(data, stem="s")
+    out2 = xlsx_to_csvs(data, stem="s")
+    assert out1 == out2  # byte-deterministic: same input, same names + bytes
+    rows = _rows_of(out1[0][1])
+    assert rows[1] == ["2026-01-02T03:04:05", "true", "1.5", ""]
+
+
+def test_xlsx_formula_without_cached_value_is_blank() -> None:
+    # openpyxl writes the formula with NO cached result, so the data_only read
+    # yields None → an empty cell (the documented cached-value limitation).
+    out = xlsx_to_csvs(
+        _xlsx_bytes({"S": [["a", "total"], [1, "=SUM(A2:A2)"]]}), stem="f"
+    )
+    assert _rows_of(out[0][1])[1] == ["1", ""]
 
 
 # ---- substrate wiring: a JSON source is tabularized to CSV at the boundary ----
