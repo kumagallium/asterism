@@ -3,6 +3,8 @@
 決定母体: [`phase5-declarative-substrate.md`](phase5-declarative-substrate.md)（§4 関数ライブラリ・§5 統治）/ [`step0-rml-emission.md`](step0-rml-emission.md)（#14 RML 出力）
 status: 設計確定（決定事項あり）→ 実装は段階的（backend → api → UI）
 
+> **改訂（2026-07-21）**: D1（materialize と投入の 2 段人間ゲート）は [`kantan-mode-two-tier-ux.md`](kantan-mode-two-tier-ux.md) K3 により**かんたんモードでは自動連結に改訂**。D1 制定時に投入承認が守っていたリスク（未検証 RML の実行・引用面の汚染）は、その後の 422 ハードゲート（実行前検証）・draft 隔離+promoted フラグ・rollback finally 化・孤児 version graph 回収で構造的に消えたため。**詳細モードの明示「投入」ボタンと D2–D4 は不変**。人間ゲートの本体は「行の数えかた・列の意味・公開」の 3 問に移る。
+
 ## 0. 何を閉じるか
 
 Phase 4 で「ワークベンチで設計したもの → Gallery → Ask」が**未結線**だった。#14 で step0 が宣言 RML を出せるようになった（propose §RML 生成 → materialize 抽出 → T9 閉集合検証）。#15 は、**人間が承認した RML を実際に実行して RDF を生成し Oxigraph に載せ、Ask が消費する**ところまでを繋ぎ、authoring → catalog → consumption のループを閉じる。
