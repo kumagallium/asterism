@@ -1135,6 +1135,18 @@ textarea:focus {
   padding: 0.35rem 0.5rem;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
+}
+
+/* The ID-template cell: a textarea that wraps the full IRI template so its
+   tail is never clipped (kantan feedback 2026-07-21). Newlines are stripped
+   on input — visual wrapping only, the template itself stays one line. */
+.skeleton-gate-key {
+  display: block;
+  white-space: pre-wrap;
+  word-break: break-all;
+  resize: vertical;
+  line-height: 1.5;
+  overflow: hidden;
   background: var(--surface-alt);
   color: var(--fg);
 }

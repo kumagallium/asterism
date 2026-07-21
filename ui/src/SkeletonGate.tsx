@@ -285,18 +285,20 @@ export function SkeletonGate({
                     <td className="skeleton-gate-name">{m.name}</td>
                     <td className="skeleton-gate-source">{m.source}</td>
                     <td>
-                      <input
-                        type="text"
-                        className="skeleton-gate-input"
+                      {/* A full IRI template rarely fits one line — wrap it
+                          (rows grow with content) so the tail is never cut off. */}
+                      <textarea
+                        className="skeleton-gate-input skeleton-gate-key"
                         value={keyValue}
+                        rows={Math.max(1, Math.ceil(keyValue.length / 48))}
                         disabled={busy}
                         title={m.note ?? undefined}
                         onChange={(e) =>
                           updateSubject(
                             idx,
                             usesConstant
-                              ? { constant: e.target.value }
-                              : { template: e.target.value },
+                              ? { constant: e.target.value.replace(/\n/g, '') }
+                              : { template: e.target.value.replace(/\n/g, '') },
                           )
                         }
                       />
