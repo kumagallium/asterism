@@ -64,13 +64,19 @@ type PipeStage = 'materialize' | 'attach' | 'ingest'
 
 /** The S5 stop card (K11 minimal): one plain-language headline per failure
  *  kind, the raw technical detail folded, and at most two exits — retry (same
- *  stage) and "check in detail mode". The full error-family → plain-question
- *  translation table is K11 proper (a later task). */
+ *  stage) and "check in detail mode". The 'design' kind adds a primary third
+ *  exit: the same one-click "ask AI to fix" the detail tier has. The full
+ *  error-family → plain-question translation table is K11 proper (a later
+ *  task). */
 interface StopCard {
   kind: 'materialize' | 'attach' | 'ingest' | 'design' | 'files' | 'interrupted'
   detail: string
   /** Present → "もう一度試す" re-runs the chain from this stage. */
   retryFrom?: PipeStage
+  /** 'design' kind only: the failure lines (trap details + repair recipes +
+   *  warnings + validation/mapping issues) handed verbatim to the one-click
+   *  AI fix — mirrors the detail tier's composeFixComment. */
+  fixLines?: string[]
 }
 
 // Extension → kind. Tabular comes from the shared TABULAR_ACCEPT constant so a
@@ -323,11 +329,17 @@ export function KantanWizard({
   const [s6Loading, setS6Loading] = useState(false)
   const [s6Err, setS6Err] = useState('')
   const [note, setNote] = useState('')
-  const [refining, setRefining] = useState(false)
+  // 'note' = the S6 free-text reflect; 'fix' = the S5 design-stop AI fix. Both
+  // ride the SAME refine → re-materialize chain; the flag only picks the
+  // progress label and where a failure lands.
+  const [refining, setRefining] = useState<false | 'note' | 'fix'>(false)
   const [refineErr, setRefineErr] = useState('')
+  // S5 design-stop AI fix: its own error slot + attempt counter (AI 修正 n 回目).
+  const [fixErr, setFixErr] = useState('')
+  const [aiFixCount, setAiFixCount] = useState(0)
   const [confirmed, setConfirmed] = useState<boolean>(snap.confirmed ?? false)
 
-  const busy = inspecting || skeletonBusy || continuing || pipeBusy || refining
+  const busy = inspecting || skeletonBusy || continuing || pipeBusy || refining !== false
   useEffect(() => {
     onBusyChange(busy)
   }, [busy, onBusyChange])
@@ -567,6 +579,8 @@ export function KantanWizard({
     setNote('')
     setS6Err('')
     setRefineErr('')
+    setFixErr('')
+    setAiFixCount(0)
     setIngestProgress(null)
   }
 
@@ -783,6 +797,7 @@ export function KantanWizard({
     if (!md || pipeBusy) return
     const fs = filesArg ?? files
     setStop(null)
+    setFixErr('')
     setJobNotice('')
     setPipeBusy(true)
     setStep(5)
@@ -822,17 +837,24 @@ export function KantanWizard({
         }
         if (!result.complete || result.exit_code !== 0) {
           // Problems the self-correction could not clear (truncated output /
-          // failing traps): a human decision now — the detail tier has the full
-          // trap grid and the one-click AI fix.
+          // failing traps): a human decision now — the card's PRIMARY exit is
+          // the same one-click AI fix the detail tier has. Each failing trap
+          // ships its deterministic repair recipe (`fix`): hand it to the AI
+          // grouped with its symptom, like the detail tier's composeFixComment
+          // (symptom-only comments loop weak models forever). The api merges
+          // mapping_ir_issues into `validation_issues`, so appending that list
+          // covers the mapping-spec compile problems too.
           const fails = result.traps.filter((tr) => tr.status === 'fail')
-          setStop({
-            kind: 'design',
-            detail: [
-              ...(result.complete ? [] : ['incomplete design output (truncated)']),
-              ...fails.map((tr) => `${tr.id} ${tr.name}: ${tr.detail}`),
-              ...result.warnings,
-            ].join('\n'),
-          })
+          const lines = [
+            ...(result.complete ? [] : ['incomplete design output (truncated)']),
+            ...fails.map((tr) => {
+              const head = `${tr.id} ${tr.name}: ${tr.detail}`
+              return tr.fix ? `${head}\n  ↳ ${tr.fix.split('\n').join('\n    ')}` : head
+            }),
+            ...result.warnings,
+            ...(result.validation_issues ?? []),
+          ]
+          setStop({ kind: 'design', detail: lines.join('\n'), fixLines: lines })
           return
         }
       }
@@ -868,7 +890,7 @@ export function KantanWizard({
         )
       } catch (e) {
         if (e instanceof IngestValidationError) {
-          setStop({ kind: 'design', detail: e.issues.join('\n') })
+          setStop({ kind: 'design', detail: e.issues.join('\n'), fixLines: e.issues })
         } else {
           setStop({ kind: 'ingest', detail: errText(e), retryFrom: 'ingest' })
         }
@@ -890,6 +912,7 @@ export function KantanWizard({
     setPipePhase('ingest')
     try {
       await handle.result
+      setAiFixCount(0) // the fix loop (if any) landed — reset the counter
       setStep(6)
       void loadS6(datasetId)
     } catch (e) {
@@ -898,7 +921,7 @@ export function KantanWizard({
         // nothing was committed; offer a clean resume of the same stage.
         setStop({ kind: 'interrupted', detail: '', retryFrom: 'ingest' })
       } else if (e instanceof IngestValidationError) {
-        setStop({ kind: 'design', detail: e.issues.join('\n') })
+        setStop({ kind: 'design', detail: e.issues.join('\n'), fixLines: e.issues })
       } else {
         setStop({ kind: 'ingest', detail: errText(e), retryFrom: 'ingest' })
       }
@@ -930,25 +953,37 @@ export function KantanWizard({
     }
   }
 
-  // "AI に反映して作り直す": the one free-text note rides a structured refine
-  // comment; when the refined design lands, the SAME auto chain re-runs (the
-  // source is already persisted, so the re-ingest needs no re-attach) → S6 again.
-  async function runRefine() {
-    const trimmed = note.trim()
-    if (!proposal || !trimmed || refining) return
+  // The shared refine → re-materialize chain: the S6 note ("AI に反映して作り
+  // 直す") and the S5 design-stop AI fix both ride it — when the refined design
+  // lands, the SAME auto chain re-runs (the source is already persisted, so the
+  // re-ingest needs no re-attach). `restoreStop` puts the original stop card
+  // back when a 'fix' attempt itself fails or is cancelled.
+  async function startRefineChain(comments: string[], mode: 'note' | 'fix', restoreStop?: StopCard) {
+    if (!proposal || refining) return
     setRefineErr('')
+    setFixErr('')
     setJobNotice('')
     setStatus('')
-    setRefining(true)
+    setRefining(mode)
     setLastPulseAt(null)
     jobRef.current?.close()
+    const fail = (message: string) => {
+      if (mode === 'fix') {
+        setFixErr(message)
+        if (restoreStop) setStop(restoreStop) // back to the same stop card
+      } else {
+        setRefineErr(message)
+      }
+      setStatus('')
+      setRefining(false)
+    }
     try {
       // Deliberately NOT persisted to JOB_STORAGE: this tier only resumes
       // 'propose' jobs, and a saved 'refine' would wedge the tier toggle —
-      // after a reload the user simply sends the one-line note again.
+      // after a reload the user simply sends the note / clicks the fix again.
       jobRef.current = await refineSchema(
         proposal,
-        [t('kantan:s6.refineWrap', { note: trimmed })],
+        comments,
         getActiveCredentials(),
         {
           onStatus: (m) => setStatus(plainStatus(m)),
@@ -962,13 +997,10 @@ export function KantanWizard({
             setProposal(result.refined_md)
             void runPipeline('materialize', result.refined_md)
           },
-          onError: (m) => {
-            setRefineErr(m)
-            setStatus('')
-            setRefining(false)
-          },
+          onError: fail,
           onCancelled: () => {
             setJobNotice(t('workbench:job.cancelled'))
+            if (mode === 'fix' && restoreStop) setStop(restoreStop)
             setStatus('')
             setRefining(false)
           },
@@ -976,9 +1008,30 @@ export function KantanWizard({
         i18n.language,
       )
     } catch (e) {
-      setRefineErr(errText(e))
-      setRefining(false)
+      fail(errText(e))
     }
+  }
+
+  // "AI に反映して作り直す" (S6): the one free-text note rides a structured
+  // refine comment through the shared chain → S6 again.
+  async function runRefine() {
+    const trimmed = note.trim()
+    if (!trimmed) return
+    await startRefineChain([t('kantan:s6.refineWrap', { note: trimmed })], 'note')
+  }
+
+  // "AI に直してもらう" (S5 design stop): the same one-click fix the detail
+  // tier has — the card's failure lines (trap details + repair recipes +
+  // warnings + validation/mapping issues) become the corrective refine
+  // comment, then the refined design re-runs the auto chain from materialize.
+  function runAiFix() {
+    if (!stop || stop.kind !== 'design' || !proposal || pipeBusy) return
+    const card = stop
+    const lines = card.fixLines?.length ? card.fixLines : card.detail ? [card.detail] : []
+    const comment = `${t('workbench:fix.commentIntro')}\n${lines.map((l) => `- ${l}`).join('\n')}`
+    setAiFixCount((c) => c + 1)
+    setStop(null)
+    void startRefineChain([comment], 'fix', card)
   }
 
   function openDetail() {
@@ -1050,7 +1103,7 @@ export function KantanWizard({
 
   const recipePos: 1 | 2 | 3 = step <= 2 ? 1 : step === 3 ? 2 : 3
   const resumeAvailable = !!skeleton && files.length === 0 && !proposal && step === 1
-  const showS5 = pipeBusy || refining || step === 5
+  const showS5 = pipeBusy || refining !== false || step === 5
 
   const up = ingestProgress
   const uploadPct =
@@ -1118,7 +1171,18 @@ export function KantanWizard({
               <pre className="error">{stop.detail}</pre>
             </details>
           )}
+          {stop.kind === 'design' && aiFixCount > 0 && (
+            <p className="kz-note">{t('kantan:s5.fix.attempted', { n: aiFixCount })}</p>
+          )}
+          {stop.kind === 'design' && fixErr && (
+            <pre className="error">{t('kantan:s5.fix.failed', { message: fixErr })}</pre>
+          )}
           <div className="kz-actions">
+            {stop.kind === 'design' && (
+              <button type="button" onClick={runAiFix} disabled={!isReady || !proposal}>
+                {t('kantan:s5.fix.button')}
+              </button>
+            )}
             {stop.retryFrom && (
               <button
                 type="button"
@@ -1133,13 +1197,25 @@ export function KantanWizard({
               {t('kantan:s5.stop.openDetail')}
             </button>
           </div>
+          {stop.kind === 'design' && !isReady && (
+            <p className="kz-note">{t('kantan:s1.aiNotReady')}</p>
+          )}
+          {jobNotice && (
+            <p className="job-cancelled-note" role="status">
+              {jobNotice}
+            </p>
+          )}
         </section>
       ) : showS5 ? (
         <section className="kz-card">
           <h3 className="kz-title">{t('kantan:s5.title')}</h3>
           {refining ? (
             <JobProgress
-              label={t('kantan:s6.reflecting')}
+              label={
+                refining === 'fix'
+                  ? t('kantan:s5.fix.progress', { n: aiFixCount })
+                  : t('kantan:s6.reflecting')
+              }
               status={status}
               lastPulseAt={lastPulseAt}
               onCancel={() => jobRef.current?.cancel() ?? Promise.resolve()}
@@ -1336,7 +1412,7 @@ export function KantanWizard({
                 type="button"
                 className="btn btn--ghost"
                 onClick={() => void runRefine()}
-                disabled={!note.trim() || refining || !isReady}
+                disabled={!note.trim() || refining !== false || !isReady}
               >
                 {t('kantan:s6.reflect')}
               </button>
@@ -1347,7 +1423,11 @@ export function KantanWizard({
             )}
           </div>
           <div className="kz-actions">
-            <button type="button" onClick={() => setConfirmed(true)} disabled={s6Loading || refining}>
+            <button
+              type="button"
+              onClick={() => setConfirmed(true)}
+              disabled={s6Loading || refining !== false}
+            >
               {t('kantan:s6.confirm')}
             </button>
           </div>
