@@ -83,13 +83,33 @@ _MODEL = """\
 # model.yaml CURIEs resolve against prefixes extracted from the RML/MIE text.
 _MIE = "# prefixes\n# @prefix ex: <https://example.org/onto#> .\n"
 
+# A VALID Mapping IR mirroring _RML — the rules endpoint parses it to merge
+# reviewer-facing label/unit onto the projected rows (kantan-mode ADR K8).
+_MAPPING_IR = """\
+version: 1
+prefixes:
+  ex: "https://example.org/onto#"
+  exr: "https://example.org/resource/"
+maps:
+  - name: SampleMap
+    source: samples.csv
+    subject:
+      template: "exr:sample/{sid}"
+      classes: [ex:Sample]
+    properties:
+      - predicate: ex:label
+        column: name
+        label: "試料名"
+        unit: "µV/K"
+"""
+
 _ARTIFACTS = {
     "diagram.md": "```mermaid\nclassDiagram\n  class Sample\n```\n",
     "model.yaml": _MODEL,
     "mie.yaml": _MIE,
     "ingester.py": "",
     "mapping.rml.ttl": _RML,
-    "mapping.yaml": "version: 1\nmaps:\n  - id: SampleMap\n",
+    "mapping.yaml": _MAPPING_IR,
 }
 
 
@@ -180,11 +200,40 @@ def test_rules_endpoint_projects_mapping(tmp_path: Path, healthy_client) -> None
         assert m["subject"]["classes"] == ["ex:Sample"]
         rows = {row["predicate"]: row for row in m["properties"]}
         assert rows["ex:label"]["reference"] == "name"
+        # Mapping IR display metadata is merged by expanded predicate IRI
+        # (kantan-mode ADR K8).
+        assert rows["ex:label"]["label"] == "試料名"
+        assert rows["ex:label"]["unit"] == "µV/K"
         # model.yaml labels ride along, keyed by full IRI.
         assert body["labels"].get("https://example.org/onto#Sample") == "Sample"
 
         r404 = client.get("/api/datasets/nope/rules")
         assert r404.status_code == 404
+
+
+def test_rules_endpoint_warns_on_unparsable_ir(tmp_path: Path, healthy_client) -> None:
+    """A broken mapping.yaml must degrade to a warning, never fail the
+    read-only projection (and never invent label/unit)."""
+    root = tmp_path / "registry"
+    meta = registry.save_dataset(
+        root,
+        "Samples",
+        dict(_ARTIFACTS, **{"mapping.yaml": "version: 1\nmaps:\n  - id: nope\n"}),
+        complete=True,
+        warnings=[],
+        traps=[],
+        exit_code=0,
+        created_at="2026-07-11T00:00:00+00:00",
+        proposal_md="# design v1\n",
+    )
+    app = build_app(_settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.get(f"/api/datasets/{meta['id']}/rules")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert any("mapping.yaml" in w for w in body["warnings"])
+        rows = {row["predicate"]: row for row in body["maps"][0]["properties"]}
+        assert "label" not in rows["ex:label"]
 
 
 def test_history_endpoints_list_and_diff(tmp_path: Path, healthy_client) -> None:

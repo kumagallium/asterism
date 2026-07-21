@@ -390,7 +390,9 @@ export function RulesSection({ dataset }: { dataset: CatalogDataset }) {
       {maps.length > 0 && (
         <div className="rules-projection">
           <p className="rules-intro">{t('gallery:rules.projectionIntro')}</p>
-          {maps.map((m) => (
+          {maps.map((m) => {
+            const hasUnit = m.properties.some((p) => p.unit)
+            return (
             <div className="rules-map" key={m.id}>
               <div className="rules-map-head">
                 <span className="rules-map-classes">
@@ -431,11 +433,12 @@ export function RulesSection({ dataset }: { dataset: CatalogDataset }) {
                         <th>{t('gallery:rules.colProperty')}</th>
                         <th>{t('gallery:rules.colValue')}</th>
                         <th>{t('gallery:rules.colType')}</th>
+                        {hasUnit && <th>{t('gallery:rules.colUnit')}</th>}
                       </tr>
                     </thead>
                     <tbody>
                       {m.properties.map((p, i) => {
-                        const label = labelFor(labels, p.predicate_iri, p.predicate)
+                        const label = p.label ?? labelFor(labels, p.predicate_iri, p.predicate)
                         return (
                           <tr key={`${p.predicate}-${i}`}>
                             <td>
@@ -448,6 +451,7 @@ export function RulesSection({ dataset }: { dataset: CatalogDataset }) {
                               <TermValue term={p} />
                             </td>
                             <td className="rules-type-cell">{typeText(p)}</td>
+                            {hasUnit && <td className="rules-type-cell">{p.unit ?? ''}</td>}
                           </tr>
                         )
                       })}
@@ -456,7 +460,8 @@ export function RulesSection({ dataset }: { dataset: CatalogDataset }) {
                 </div>
               )}
             </div>
-          ))}
+            )
+          })}
         </div>
       )}
 

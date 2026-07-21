@@ -277,6 +277,56 @@ class ServerKeyBody(BaseModel):
     api_base: str | None = None
 
 
+def _merge_ir_display_metadata(mapping_ir_yaml: str, summary: dict) -> None:
+    """Attach the Mapping IR's reviewer-facing ``label``/``unit`` to rule rows.
+
+    The IR (``mapping.yaml``) is the reviewed design SSOT; the RML it compiles
+    to deliberately carries no display metadata (kantan-mode ADR K8). Matching
+    is by expanded predicate IRI so the compiled RML stays the single
+    structural projection. Best-effort: an unparsable IR adds a warning
+    instead of failing the read-only endpoint.
+    """
+    try:
+        from asterism_step0.mapping_ir import BUILTIN_PREFIXES, parse_mapping_ir
+
+        ir = parse_mapping_ir(mapping_ir_yaml)
+        prefixes = dict(BUILTIN_PREFIXES) | dict(ir.prefixes)
+
+        def expand(term: str) -> str:
+            prefix, sep, rest = term.partition(":")
+            if sep and prefix in prefixes:
+                return prefixes[prefix] + rest
+            return term
+
+        meta: dict[str, dict[str, str]] = {}
+        for tm in ir.maps:
+            for prop in tm.properties:
+                extra: dict[str, str] = {}
+                if prop.label:
+                    extra["label"] = prop.label
+                if prop.unit:
+                    extra["unit"] = prop.unit
+                if extra:
+                    meta.setdefault(expand(prop.predicate), {}).update(extra)
+        if not meta:
+            return
+        for entry in summary.get("maps") or []:
+            if not isinstance(entry, dict):
+                continue
+            for row in entry.get("properties") or []:
+                extra = meta.get(str(row.get("predicate_iri") or ""))
+                if extra:
+                    for key, value in extra.items():
+                        row.setdefault(key, value)
+    except Exception:
+        warnings = summary.setdefault("warnings", [])
+        if isinstance(warnings, list):
+            warnings.append(
+                "mapping.yaml (Mapping IR) could not be parsed; "
+                "label/unit enrichment was skipped."
+            )
+
+
 def _validate_llm_api_base(api_base: str) -> None:
     """Fail-closed SSRF guard for a user-supplied OpenAI-compatible base URL.
 
@@ -2920,6 +2970,7 @@ def build_app(
         rml_ttl = str(artifacts.get("mapping.rml.ttl") or "")
         model_yaml = str(artifacts.get("model.yaml") or "")
         mie_yaml = str(artifacts.get("mie.yaml") or "")
+        mapping_ir_yaml = str(artifacts.get("mapping.yaml") or "")
 
         def run() -> dict[str, object]:
             import rdflib
@@ -2931,6 +2982,8 @@ def build_app(
                 projected = project_model_yaml(model_yaml, prefixes)
                 for subj, obj in projected.subject_objects(rdflib.RDFS.label):
                     labels[str(subj)] = str(obj)
+            if mapping_ir_yaml.strip():
+                _merge_ir_display_metadata(mapping_ir_yaml, summary)
             return {"dataset_id": dataset_id, **summary, "labels": labels}
 
         return await asyncio.to_thread(run)
