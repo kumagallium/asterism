@@ -63,6 +63,11 @@ function SkeletonEvidence({
   }
 
   const collides = ann.is_unique === false
+  // K7: a key that is unique TODAY but built only from measurement values gets
+  // an amber caution under the green band, and the proven candidates still show
+  // (the green band alone let a semantically wrong ID through in real dogfood).
+  const caution = ann.is_unique === true && ann.key_measurement_caution === true
+  const showCandidates = (collides || caution) && (ann.key_candidates?.length ?? 0) > 0
   return (
     <div className="skeleton-evidence">
       {ann.is_unique ? (
@@ -89,6 +94,11 @@ function SkeletonEvidence({
             })}
           </p>
         ))}
+      {caution && (
+        <p className="skeleton-evidence-line skeleton-evidence-caution">
+          ⚠ {t('workbench:skeleton.evidence.measurementKeyCaution')}
+        </p>
+      )}
       {(ann.id_previews?.length ?? 0) > 0 && (
         <div className="skeleton-evidence-previews">
           <span className="skeleton-evidence-label">
@@ -101,7 +111,7 @@ function SkeletonEvidence({
           ))}
         </div>
       )}
-      {collides && (ann.key_candidates?.length ?? 0) > 0 && (
+      {showCandidates && (
         <div className="skeleton-evidence-candidates">
           <span className="skeleton-evidence-label">
             {t('workbench:skeleton.evidence.candidatesHead')}

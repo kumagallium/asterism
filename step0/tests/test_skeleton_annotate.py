@@ -79,6 +79,37 @@ def test_non_unique_key_reports_collisions_and_candidates(tmp_path: Path) -> Non
     assert candidates[0]["measurement_only"] is False
 
 
+def test_unique_measurement_key_carries_caution(tmp_path: Path) -> None:
+    """K7: a key of measurement values that happens to be unique TODAY is flagged
+    (real dogfood: an AI-minted ID from 3.6E+1-style readings passed the green
+    band on 13 accidentally-distinct rows) — and safer candidates still show."""
+    p = tmp_path / "xrd.csv"
+    p.write_text(
+        "2θ (deg),intensity,scan_id\n"
+        "10.00,120,S1\n"
+        "10.02,135,S1\n"
+        "10.04,98,S2\n",
+        encoding="utf-8",
+    )
+    ann = annotate_skeleton(_skeleton("xr:point/{2θ (deg)}"), [p])["maps"]["point"]
+    assert ann["is_unique"] is True
+    assert ann["key_measurement_caution"] is True
+    # Unlike the plain-unique case, the proven alternatives are still offered.
+    assert ann["key_candidates"], "expected safer key candidates alongside the caution"
+    assert any(not c["measurement_only"] for c in ann["key_candidates"])
+
+
+def test_unique_text_key_has_no_measurement_caution(tmp_path: Path) -> None:
+    p = tmp_path / "samples.csv"
+    p.write_text("sample_id,alloy\nS-1,WC\nS-2,TiN\n", encoding="utf-8")
+    ann = annotate_skeleton(_skeleton("xr:sample/{sample_id}", source="samples.csv"), [p])[
+        "maps"
+    ]["point"]
+    assert ann["is_unique"] is True
+    assert ann["key_measurement_caution"] is False
+    assert ann["key_candidates"] == []
+
+
 def test_composite_key_template_is_checked_as_a_tuple(tmp_path: Path) -> None:
     p = _write_xrd(tmp_path)
     ann = annotate_skeleton(_skeleton("xr:point/{scan_id}/{2θ (deg)}"), [p])["maps"]["point"]

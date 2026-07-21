@@ -219,6 +219,10 @@ export interface SkeletonMapAnnotation {
   distinct_ids?: number
   colliding_rows?: number
   is_unique?: boolean
+  /** True when the adopted key is unique TODAY but built only from measurement-
+   *  valued columns — an accidental identity that can collide as data grows
+   *  (kantan-mode ADR K7). The gate shows an amber caution under the green band. */
+  key_measurement_caution?: boolean
   collision_examples?: {
     key_values: Record<string, string>
     row_count: number
@@ -768,6 +772,27 @@ export async function materializeSchema(
     )
   }
   return (await res.json()) as MaterializeResult
+}
+
+/** Per-class entity counts of a dataset's draft graph + per-file source data
+ *  rows — the kantan tier's correspondence card (ADR kantan-mode-two-tier-ux.md
+ *  K12). `classes` is empty when nothing is ingested yet or the store is
+ *  unreachable; callers then hide the card. No triple counts by design. */
+export interface DraftStats {
+  dataset_id: string
+  classes: { iri: string; curie?: string; n: number }[]
+  source_rows: Record<string, number>
+}
+
+export async function fetchDraftStats(datasetId: string): Promise<DraftStats> {
+  const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/draft-stats`, {
+    headers: authHeaders(),
+  })
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '')
+    throw new Error(`draft stats failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
+  }
+  return (await res.json()) as DraftStats
 }
 
 /** A dataset's stored design (propose/refine Markdown) for the redesign flow. */

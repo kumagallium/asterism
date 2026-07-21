@@ -5694,6 +5694,15 @@ button.ds-artifact:disabled {
 .skeleton-evidence-warn {
   color: var(--warn-fg);
 }
+/* K7: unique-but-measurement-valued key — an amber band right under the green
+   "all rows distinct" line, so accidental uniqueness never reads as safety. */
+.skeleton-evidence-caution {
+  color: var(--warn-fg);
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+  border-radius: 6px;
+  padding: 0.35rem 0.55rem;
+}
 .skeleton-evidence-muted {
   color: var(--muted);
 }
@@ -6026,4 +6035,128 @@ button.ds-artifact:disabled {
   margin: 0;
   font-size: 1.1rem;
   color: var(--success-fg);
+}
+
+/* S5: the live narration of the auto chain (save → source persist → draft
+   ingest). Plain sentences with a ✓ / spinner mark — no phase jargon. */
+.kz-live {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.kz-live-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: 0.88rem;
+}
+.kz-live-line.done {
+  color: var(--success-fg);
+}
+.kz-live-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  flex: none;
+}
+
+/* S5 stop card (K11 minimal): plain headline, folded technical detail, two exits. */
+.kz-stop {
+  border-left: 3px solid var(--error-border);
+}
+.kz-stop-detail summary {
+  cursor: pointer;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.kz-stop-detail pre.error {
+  margin-top: var(--space-2);
+  white-space: pre-wrap;
+}
+
+/* S6: the correspondence card (K12) — "source rows → entities per kind". */
+.kz-map-card {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  background: var(--surface-2, var(--bg));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space-3) var(--space-4);
+  font-size: 0.88rem;
+}
+.kz-map-part {
+  font-weight: 600;
+}
+.kz-map-arrow {
+  color: var(--muted);
+}
+.kz-map-class {
+  background: var(--primary-soft);
+  color: var(--primary);
+  border-radius: 999px;
+  padding: 0.15rem 0.7rem;
+  font-weight: 600;
+}
+.kz-map-note {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+/* S6: the column-meaning table. Reuses the preview table skin; a row whose
+   meaning could not be read gets the amber marker (eye guidance, not a gate). */
+.kz-cols-caption {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: var(--space-1);
+}
+.kz-cols-table td {
+  vertical-align: top;
+}
+.kz-cols-name {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.8rem;
+}
+.kz-cols-samples {
+  color: var(--muted);
+}
+tr.kz-attn td {
+  background: var(--warn-bg);
+}
+
+/* S6: links & fixed values fold (noise reduction for first-timers). */
+.kz-links summary {
+  cursor: pointer;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.kz-links-list {
+  margin: var(--space-2) 0 0;
+  padding-left: 1.2rem;
+  font-size: 0.82rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.kz-links-detail {
+  margin-left: var(--space-2);
+  color: var(--muted);
+  word-break: break-all;
+}
+
+/* S6: the one free-text note. */
+.kz-s6-note {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  font-size: 0.88rem;
+  background: var(--surface);
+  color: var(--body);
 }

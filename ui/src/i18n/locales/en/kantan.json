@@ -55,14 +55,68 @@
     "continuing": "Writing down what each column means…",
     "needFiles": "The files are missing. Please drop them again on the first screen."
   },
+  "s5": {
+    "title": "Reading the column meanings and loading your draft",
+    "meanings": "Wrote down what each column means",
+    "quality": "Auto-fixed the quality checks (8 items — no garbled text, no overlapping IDs, and more)",
+    "saving": "Saving the design…",
+    "ingesting": "Loading into your unpublished draft…",
+    "ingestingCount": "Loading into your unpublished draft… {{done}} / {{total}} ({{pct}}%)",
+    "closeNote": "You can close this screen if you like.",
+    "stop": {
+      "materialize": "Saving the design hit an error",
+      "attach": "Saving your files hit an error",
+      "ingest": "Loading the draft hit an error",
+      "design": "Some problems in the design still need attention",
+      "designBody": "These could not be fixed automatically. You can review and fix them in detail mode.",
+      "files": "Your files are missing",
+      "filesBody": "Drop the same files here again to continue where you left off.",
+      "interrupted": "The work was interrupted",
+      "interruptedBody": "Nothing partial was kept. \"Try again\" safely resumes from the same point.",
+      "detailSummary": "Details (technical)",
+      "retry": "Try again",
+      "openDetail": "Check in detail mode"
+    }
+  },
+  "s6": {
+    "title": "Check (2/2) — column meanings",
+    "lead": "Please check what the AI read each column to mean. The words you confirm here are used for search and citation.",
+    "loading": "Loading your draft…",
+    "loadFailed": "Could not load the content: {{message}}",
+    "reload": "Reload",
+    "mapRows": "Source files: {{rows}} rows",
+    "classCount": "{{label}}: {{n}}",
+    "mapDraftNote": "(still an unpublished draft)",
+    "colColumn": "Column",
+    "colMeaning": "Meaning as read",
+    "colUnit": "Unit",
+    "colExamples": "Real examples",
+    "missingMeaning": "No meaning could be read for this column. If it matters, tell us below.",
+    "othersSummary": "Links and fixed values ({{n}})",
+    "otherKind": {
+      "template": "ID used for linking",
+      "constant": "Fixed value",
+      "join": "Link to another table",
+      "function": "Derived value",
+      "other": "Other"
+    },
+    "noteLabel": "Anything that looks off? One line is enough",
+    "notePlaceholder": "e.g. \"ZT\" means the dimensionless figure of merit / temperatures are in K",
+    "reflect": "Have the AI apply it and rebuild",
+    "reflecting": "The AI is applying your note to the design (1–3 min)",
+    "reflectFailed": "Could not apply it: {{message}}",
+    "refineWrap": "While reviewing the column meanings, the user pointed this out. Follow it and fix the affected columns' meaning (label) and unit (unit) — and the design itself if needed: {{note}}",
+    "confirm": "Confirm these meanings",
+    "doneTitle": "Registered",
+    "doneBody": "It is still an unpublished draft. Nothing is visible to anyone until you publish.",
+    "openDataset": "Open the dataset (to publish)",
+    "startNew": "Add new data",
+    "prepNote": "The simple screens for \"Try it\" and \"Publish\" are in preparation. You can publish from the dataset screen with \"Publish for search\".",
+    "nextSteps": "The next steps (④ Try it, ⑤ Publish) continue on the dataset screen."
+  },
   "job": {
     "preparing": "Preparing…",
     "analyzing": "Analyzing…",
     "resumedFailed": "Could not resume the interrupted work: {{message}}"
-  },
-  "done": {
-    "title": "Your design is ready",
-    "body": "Continue to the review screen. You can check and adjust everything there in detail mode.",
-    "open": "Review and edit (detail view)"
   }
 }
