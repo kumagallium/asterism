@@ -76,3 +76,22 @@ status: 決定（ユーザー承認済 2026-07-21）→ 実装は段階的（先
 | Reuse / New（alignment） | 標準のことば◯個をそのまま使用 / このデータだけの新しいことば◯個 |
 
 （完全版はモック artifact と分析レポートに従う。実装時は `locales/{ja,en}` の両方に同時反映。）
+
+## 5.1 K11 翻訳テーブル（停止カードの正準・fail 時の 1 行）
+
+S5 停止カード（`kind: design`）の**表示はこの平易文**、**AI 修正へ渡す本文は従来の技術文+修正レシピのまま**（表示と AI 入力の分離 — 平易文だけでは弱モデルが着地できない、という修正レシピ機構の教訓を守る）。実装は `locales/{ja,en}/kantan.json` の `s5.trap.*`（この表が正準・両言語同時反映）。
+
+| 系統 | かんたん層の 1 行（fail の意味） |
+|---|---|
+| T1 ID uniqueness | 行ごとの ID が重なってしまいます（重なった行は 1 件にまとまります） |
+| T2 BOM | Excel で保存した CSV で文字化けするおそれがあります |
+| T3 bnode-free | 名前（ID）の付いていないデータが残っています |
+| T4 MIE keywords / categories | 検索タグ（このデータを探すときの言葉）が足りません |
+| T5 Mermaid syntax | 設計の見取り図がうまく描けていません |
+| T6 fake sample_rdf_entries | 設計に添える実例が、実際の設計と食い違っています |
+| T7 Why / Alternatives / Trade-offs | 設計の理由の説明が欠けています |
+| T8 AI hallucination | AI が、ファイルにない列を使おうとしました |
+| T9 RML closed-set | 変換ルールに、安全確認済みでない操作が混ざっています |
+| incomplete（truncation） | AI の設計の出力が途中で切れています |
+| その他（warnings / validation・mapping issues） | 個別翻訳しない（自由文のため）。「このほか、取り込みルールへの変換で◯件の問題があります」と**件数でまとめる**。全文は「詳しい内容（技術情報）」に温存 |
+| 未知の trap id | 将来 T10+ が増えた場合は「その他」件数に合流（fail-open な文言事故を作らない） |

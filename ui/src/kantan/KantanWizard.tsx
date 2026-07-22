@@ -93,6 +93,10 @@ interface StopCard {
    *  warnings + validation/mapping issues) handed verbatim to the one-click
    *  AI fix — mirrors the detail tier's composeFixComment. */
   fixLines?: string[]
+  /** 'design' kind only: the K11 plain-language face of the same failures
+   *  (ADR §5.1) — canonical one-liners for known trap ids, free-form issues
+   *  folded into one count line. Display only; the AI fix gets fixLines. */
+  plainLines?: string[]
 }
 
 /** One S7 question card / S9 chip: plain question, plain answer, and (when the
@@ -581,6 +585,29 @@ export function KantanWizard({
     return e instanceof Error ? e.message : String(e)
   }
 
+  // K11 (ADR §5.1): the plain-language face of a design stop. Known trap ids
+  // get their canonical one-liner from the locale; everything free-form
+  // (warnings, validation / mapping issues, future trap ids) folds into ONE
+  // count line — full technical text stays in the folded details AND in the
+  // AI-fix input (plain words alone would strand weak models; the repair
+  // recipes must keep flowing to the fix loop untranslated).
+  function designPlainLines(
+    failIds: string[],
+    othersCount: number,
+    incomplete: boolean,
+  ): string[] {
+    const known = new Set(['T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9'])
+    const out: string[] = []
+    if (incomplete) out.push(t('kantan:s5.trap.incomplete'))
+    let others = othersCount
+    for (const id of failIds) {
+      if (known.has(id)) out.push(t(`kantan:s5.trap.${id}`))
+      else others += 1
+    }
+    if (others > 0) out.push(t('kantan:s5.trap.others', { count: others }))
+    return out
+  }
+
   // The one domain hint this tier can produce: Q2 said the ID column recurs
   // outside this file (or the user doesn't know = safe side) → composite key.
   function composedDomain(): string {
@@ -940,7 +967,16 @@ export function KantanWizard({
             ...result.warnings,
             ...(result.validation_issues ?? []),
           ]
-          setStop({ kind: 'design', detail: lines.join('\n'), fixLines: lines })
+          setStop({
+            kind: 'design',
+            detail: lines.join('\n'),
+            fixLines: lines,
+            plainLines: designPlainLines(
+              fails.map((tr) => tr.id),
+              result.warnings.length + (result.validation_issues ?? []).length,
+              !result.complete,
+            ),
+          })
           return
         }
       }
@@ -976,7 +1012,12 @@ export function KantanWizard({
         )
       } catch (e) {
         if (e instanceof IngestValidationError) {
-          setStop({ kind: 'design', detail: e.issues.join('\n'), fixLines: e.issues })
+          setStop({
+            kind: 'design',
+            detail: e.issues.join('\n'),
+            fixLines: e.issues,
+            plainLines: designPlainLines([], e.issues.length, false),
+          })
         } else {
           setStop({ kind: 'ingest', detail: errText(e), retryFrom: 'ingest' })
         }
@@ -1007,7 +1048,12 @@ export function KantanWizard({
         // nothing was committed; offer a clean resume of the same stage.
         setStop({ kind: 'interrupted', detail: '', retryFrom: 'ingest' })
       } else if (e instanceof IngestValidationError) {
-        setStop({ kind: 'design', detail: e.issues.join('\n'), fixLines: e.issues })
+        setStop({
+          kind: 'design',
+          detail: e.issues.join('\n'),
+          fixLines: e.issues,
+          plainLines: designPlainLines([], e.issues.length, false),
+        })
       } else {
         setStop({ kind: 'ingest', detail: errText(e), retryFrom: 'ingest' })
       }
@@ -1454,6 +1500,15 @@ export function KantanWizard({
               folded below. The other kinds keep their own dedicated bodies. */}
           {stopPlain && <p className="kz-note">{t(stopPlain.body)}</p>}
           {stop.kind === 'design' && <p className="kz-note">{t('kantan:s5.stop.designBody')}</p>}
+          {/* K11 (ADR §5.1): the plain-language list of what stopped the run.
+              The technical text stays in the folded details below. */}
+          {stop.kind === 'design' && stop.plainLines && stop.plainLines.length > 0 && (
+            <ul className="kz-stop-plainlist">
+              {stop.plainLines.map((l, i) => (
+                <li key={i}>{l}</li>
+              ))}
+            </ul>
+          )}
           {stop.kind === 'interrupted' && (
             <p className="kz-note">{t('kantan:s5.stop.interruptedBody')}</p>
           )}

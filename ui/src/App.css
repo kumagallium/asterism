@@ -6086,6 +6086,15 @@ button.ds-artifact:disabled {
 .kz-stop {
   border-left: 3px solid var(--error-border);
 }
+/* K11 proper: the plain-language failure list of a design stop (ADR §5.1). */
+.kz-stop-plainlist {
+  margin: var(--space-2) 0;
+  padding-left: 1.2rem;
+  font-size: 0.88rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
 .kz-stop-detail summary {
   cursor: pointer;
   font-size: 0.8rem;
