@@ -198,6 +198,27 @@ def test_classify_ir_shapes_key_on_predicate_not_index() -> None:
     assert e.category == "structural" and "sd:project*" in e.subject
 
 
+def test_classify_transform_misuse_is_structural_and_keys_on_predicate() -> None:
+    """The per-map transform-misuse family (object form nested in `transform:`)
+    must classify as structural and key on the predicate — not the row index — so a
+    reshuffle does not defeat no-progress detection (task #8 ③)."""
+    from asterism_api.design_loop import classify
+
+    a = classify(
+        "map 'thing'.properties[4] (schema:name): transform cannot contain the row "
+        "field(s) args, function — transform is ONLY the {placeholder: single-input "
+        "function} map for object_template IRI segments."
+    )
+    b = classify(
+        "map 'thing'.properties[9] (schema:name): transform cannot contain the row "
+        "field(s) function — transform is ONLY the {placeholder: single-input "
+        "function} map for object_template IRI segments."
+    )
+    assert a.category == "structural"
+    assert "schema:name" in a.subject
+    assert a.key == b.key  # index reshuffle must not spawn a fresh, un-deduped issue
+
+
 def test_classify_type_cast_keys_on_function_name() -> None:
     from asterism_api.design_loop import classify
 

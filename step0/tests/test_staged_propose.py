@@ -368,6 +368,156 @@ def test_propose_from_skeleton_equivalence_and_progress() -> None:
     assert spec == original
 
 
+def test_document_prompt_nudges_t4_categories() -> None:
+    """kantan mode goes through the staged path, so a categories-blind §7 prompt is
+    the direct cause of T4 failing with categories=0 (task #8 ①). Both keywords
+    AND categories must be nudged."""
+    assert "keywords" in DOCUMENT_SYSTEM_PROMPT
+    assert "categories" in DOCUMENT_SYSTEM_PROMPT
+    assert "T4" in DOCUMENT_SYSTEM_PROMPT
+
+
+def test_permap_prompt_warns_against_transform_nesting() -> None:
+    """The per-map prompt must carry the anti-pattern for the observed weak-model
+    breakage: nesting function/args inside transform (task #8 ②)."""
+    assert "NEVER nest" in PERMAP_SYSTEM_PROMPT
+    assert "single-input function" in PERMAP_SYSTEM_PROMPT
+    # every row must be told it needs one object form directly under predicate
+    assert "no object form is rejected" in PERMAP_SYSTEM_PROMPT
+
+
+def test_propose_from_skeleton_repairs_structural_permap() -> None:
+    """A per-map result whose rows are structurally broken (object form nested in
+    `transform:`) is regenerated with the issues fed back, and the repaired, clean
+    table lands in §9 (ADR phase2b §4 — per-map self-correction, wired here)."""
+    skeleton_obj, _ = skeleton_from_full_ir(FULL_IR)
+    broken = {
+        "properties": [
+            {"predicate": "schema:name", "transform": {"function": "slug", "args": {}}}
+        ]
+    }
+    fixed = {"properties": [{"predicate": "schema:name", "column": "name"}]}
+    thing_calls = 0
+
+    def handler(system: str, user: str) -> str:
+        nonlocal thing_calls
+        if system == SKELETON_SYSTEM_PROMPT:
+            return json.dumps(skeleton_obj)
+        if system == PERMAP_SYSTEM_PROMPT:
+            if "This map: 'thing'" in user:
+                thing_calls += 1
+                # first shot broken; the retry (issues fed back) is clean
+                return json.dumps(fixed if "Issues to fix" in user else broken)
+            # 'part' is clean on the first shot
+            return json.dumps(
+                {"properties": [{"predicate": "ex:ofThing", "object_template": "exr:thing/{id}"}]}
+            )
+        if system == DOCUMENT_SYSTEM_PROMPT:
+            return "### 1. Class hierarchy\n\n(design)\n"
+        raise AssertionError("unexpected system prompt")
+
+    llm = GuidedMock(handler)
+    records: list[str] = []
+    md = propose_from_skeleton(
+        skeleton_obj,
+        "# insp",
+        "# dom",
+        llm=llm,
+        menu="menu",
+        function_names=FN_NAMES,
+        on_llm_call=records.append,
+    )
+    # 'thing' was generated twice: initial (broken) + one repair (issues fed back)
+    assert thing_calls == 2
+    # the repair round carried the structural issues back to the model
+    thing_users = [
+        u for (s, u, _sch) in llm.calls if s == PERMAP_SYSTEM_PROMPT and "This map: 'thing'" in u
+    ]
+    assert any("Issues to fix" in u for u in thing_users)
+    # the repaired, clean row (not the broken transform) landed in the final §9
+    spec = parse_mapping_ir(_extract_spec(md))
+    thing = next(m for m in spec.maps if m.name == "thing")
+    assert thing.properties[0].column == "name"
+    # every LLM call was recorded: thing initial + thing repair + part + document
+    assert records == ["propose", "propose", "propose", "propose"]
+
+
+def test_propose_from_skeleton_permap_repair_stops_on_no_progress() -> None:
+    """A map the model cannot improve (identical broken output on retry) must stop
+    the moment a round fails to reduce the structural issue count — no thrashing
+    through the whole round budget, no crash. The gap is then left for the
+    assembly-stage validation / §9 surgical repair, as before."""
+    skeleton_obj, _ = skeleton_from_full_ir(FULL_IR)
+    broken = {
+        "properties": [
+            {"predicate": "schema:name", "transform": {"function": "slug", "args": {}}}
+        ]
+    }
+    thing_calls = 0
+
+    def handler(system: str, user: str) -> str:
+        nonlocal thing_calls
+        if system == SKELETON_SYSTEM_PROMPT:
+            return json.dumps(skeleton_obj)
+        if system == PERMAP_SYSTEM_PROMPT:
+            if "This map: 'thing'" in user:
+                thing_calls += 1
+                return json.dumps(broken)  # never improves
+            return json.dumps({"properties": [{"predicate": "ex:ofThing", "column": "id"}]})
+        if system == DOCUMENT_SYSTEM_PROMPT:
+            return "### 1. Class hierarchy\n\n(design)\n"
+        raise AssertionError("unexpected system prompt")
+
+    llm = GuidedMock(handler)
+    md = propose_from_skeleton(
+        skeleton_obj, "# insp", "# dom", llm=llm, menu="menu", function_names=FN_NAMES
+    )
+    # initial + exactly ONE repair round: it made no progress, so the loop stops
+    # immediately rather than burning the remaining round budget (anti-thrash).
+    assert thing_calls == 2
+    # the run still completed and produced a document (the broken map's gap is left
+    # for the assembly-stage parse / §9 surgical repair, not this per-map gate).
+    assert "### 9. Declarative mapping spec" in md
+
+
+def test_propose_from_skeleton_permap_repair_is_bounded_when_improving() -> None:
+    """When each retry STRICTLY improves but never reaches clean, the loop is still
+    bounded by _PERMAP_STRUCTURAL_ROUNDS (no unbounded regeneration)."""
+    from asterism_step0.staged_propose import _PERMAP_STRUCTURAL_ROUNDS
+
+    skeleton_obj, _ = skeleton_from_full_ir(FULL_IR)
+    # Three broken rows; each retry drops one but leaves the row(s) still broken,
+    # so structural issues strictly shrink round to round without ever hitting 0.
+    broken_row = {"predicate": "schema:name", "transform": {"function": "slug", "args": {}}}
+    ladder = [
+        {"properties": [dict(broken_row), dict(broken_row), dict(broken_row)]},
+        {"properties": [dict(broken_row), dict(broken_row)]},
+        {"properties": [dict(broken_row)]},
+    ]
+    thing_calls = 0
+
+    def handler(system: str, user: str) -> str:
+        nonlocal thing_calls
+        if system == SKELETON_SYSTEM_PROMPT:
+            return json.dumps(skeleton_obj)
+        if system == PERMAP_SYSTEM_PROMPT:
+            if "This map: 'thing'" in user:
+                reply = ladder[min(thing_calls, len(ladder) - 1)]
+                thing_calls += 1
+                return json.dumps(reply)
+            return json.dumps({"properties": [{"predicate": "ex:ofThing", "column": "id"}]})
+        if system == DOCUMENT_SYSTEM_PROMPT:
+            return "### 1. Class hierarchy\n\n(design)\n"
+        raise AssertionError("unexpected system prompt")
+
+    llm = GuidedMock(handler)
+    propose_from_skeleton(
+        skeleton_obj, "# insp", "# dom", llm=llm, menu="menu", function_names=FN_NAMES
+    )
+    # initial + at most _PERMAP_STRUCTURAL_ROUNDS retries, never more
+    assert thing_calls == 1 + _PERMAP_STRUCTURAL_ROUNDS
+
+
 def test_propose_from_skeleton_degrades_on_unparseable_permap() -> None:
     """A per-map call returning truncated/invalid JSON must NOT crash the run
     (observed live with gpt-oss-120b): that map degrades to no properties and the

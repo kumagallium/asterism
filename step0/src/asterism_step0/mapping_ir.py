@@ -49,6 +49,7 @@ __all__ = [
     "TriplesMapIR",
     "parse_mapping_ir",
     "referenced_columns",
+    "structural_property_issues",
     "validate_mapping_ir",
 ]
 
@@ -399,6 +400,27 @@ _MAP_KEYS = ("name", "source", "iterator", "subject", "properties")
 _TOP_KEYS = ("version", "prefixes", "maps", "dialects")
 _DIALECT_KEYS = ("encoding", "delimiter", "collapse", "skip_rows", "preamble")
 
+# Property fields that belong DIRECTLY under `predicate`. A weak model (observed
+# live on guided-off providers, where the JSON schema is not enforced) sometimes
+# nests these inside `transform:` — ``transform: {function: X, args: {…}}`` — so
+# the row ends up with no object form at all. `transform:` is ONLY the
+# ``{object_template placeholder: single-input function}`` map; detecting the
+# intersection lets the parser name exactly which fields moved (see
+# ``_parse_property``).
+_ROW_LEVEL_FIELDS = frozenset(
+    {
+        "function",
+        "args",
+        "column",
+        "columns",
+        "object_template",
+        "constant",
+        "datatype",
+        "language",
+        "object_type",
+    }
+)
+
 
 def _parse_subject(raw: Any, where: str, issues: list[str]) -> SubjectIR:
     if not isinstance(raw, Mapping):
@@ -491,6 +513,27 @@ def _parse_property(raw: Any, where: str, issues: list[str]) -> PropertyIR | Non
             f"{where} must use exactly one object form of column / columns / "
             f"object_template / constant (got: {', '.join(object_forms) or 'none'})."
         )
+        if not object_forms:
+            # Weak-model family (live dogfood, guided-off providers): the object
+            # form AND its function are nested INSIDE `transform:`
+            # (``transform: {function: X, args: {…}}``) instead of sitting directly
+            # under the predicate, so the row has no object at all. Limited to the
+            # "no object form" case so a legit ``transform: {col: slug}`` (which
+            # always rides an object_template = an object form) is never swept in.
+            transform_raw = raw.get("transform")
+            if isinstance(transform_raw, Mapping):
+                misplaced = sorted(
+                    str(k) for k in transform_raw if str(k) in _ROW_LEVEL_FIELDS
+                )
+                if misplaced:
+                    issues.append(
+                        f"{where}: transform cannot contain the row field(s) "
+                        f"{', '.join(misplaced)} — transform is ONLY the "
+                        f"{{placeholder: single-input function}} map for object_template "
+                        f"IRI segments. Put these as siblings of 'predicate' (directly "
+                        f"under '- predicate: {predicate}'), e.g. 'column: <col>' with "
+                        f"'function: <fn>', not nested inside transform."
+                    )
 
     function = raw.get("function")
     if function is not None:
@@ -598,6 +641,33 @@ def _parse_property(raw: Any, where: str, issues: list[str]) -> PropertyIR | Non
         label=label if isinstance(label, str) else None,
         unit=unit if isinstance(unit, str) else None,
     )
+
+
+def structural_property_issues(properties: Any, *, where: str = "properties") -> list[str]:
+    """Structural (single-map-decidable) issues in ONE map's property table.
+
+    The Phase 2b per-map gate (:func:`asterism_step0.staged_propose.propose_from_skeleton`)
+    runs this on a freshly generated per-map result BEFORE the maps are assembled,
+    so a structurally broken table — object-form-none, the ``transform:`` misuse
+    family, unknown fields, function shape — can be regenerated with the issues fed
+    back while the call is still small (ADR mapping-ir-phase2b §4: "per-map runs
+    inside the self-correction loop … no-progress で有界停止"). It reuses the SAME
+    strict row parser as :func:`parse_mapping_ir`, so the messages are byte-identical
+    to the ones the full parse would raise later.
+
+    Deliberately LIMITED to what one map decides on its own: CURIE/prefix
+    resolution, cross-map joins and column existence are NOT judged here — those
+    need the whole assembled IR (:func:`parse_mapping_ir` / :func:`validate_mapping_ir`)
+    and stay the assembly-stage gate + §9 surgical repair. Returns every issue
+    found (empty == structurally clean)."""
+    issues: list[str] = []
+    if not isinstance(properties, Sequence) or isinstance(properties, str):
+        # A non-list `properties` is an assembly / full-parse concern (``_parse_map``
+        # reports it), not a per-row structural one — leave it for that gate.
+        return issues
+    for i, p_raw in enumerate(properties):
+        _parse_property(p_raw, f"{where}[{i}]", issues)
+    return issues
 
 
 def _parse_map(raw: Any, index: int, issues: list[str]) -> TriplesMapIR | None:

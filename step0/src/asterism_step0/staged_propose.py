@@ -35,6 +35,7 @@ from asterism_step0.inspect import inspect_source_set, render_markdown
 from asterism_step0.instance_iri import dataset_namespace_block
 from asterism_step0.language import language_instruction
 from asterism_step0.llm import LLMClient, as_completion
+from asterism_step0.mapping_ir import structural_property_issues
 from asterism_step0.mapping_ir_schema import (
     permap_json_schema,
     skeleton_json_schema,
@@ -111,13 +112,20 @@ no prose:
 
 Each property row is one predicate-object binding with EXACTLY ONE object form:
 `column` (direct) | `columns` (multi-input function) | `object_template` (IRI
-link or, with object_type:literal, a composed literal) | `constant`.
+link or, with object_type:literal, a composed literal) | `constant`. Every row
+MUST carry one of these four keys DIRECTLY under `predicate` (as a sibling) — a
+row with no object form is rejected.
 
 Rules:
 - `function:` / `transform:` name ONLY a vetted Tier-0 function from the menu in
   the user message — bare name, no `fn:` prefix, no new logic. Constant args go
   in `args:` by name. A function's output IS the object; NEVER combine `function`
   with `object_template`/`constant`.
+- NEVER nest `function`/`args`/`column` inside `transform:` — writing
+  `transform: {function: X, args: {…}}` leaves the row with NO object form.
+  `transform:` is ONLY the `{object_template placeholder: single-input function}`
+  map for readable IRI segments (e.g. `transform: {container_title: slug}`). Put
+  `function:` and `column:` as direct siblings of `predicate:`.
 - `function:` NEVER casts types (`function: str`/`int`/`date` are errors): a bare
   column already emits a string literal; type a literal with `datatype: xsd:…`.
 - Predicates are plain CURIEs — NO cardinality markers (`schema:author`, never
@@ -155,8 +163,9 @@ requested language):
 ### 4. JSON column strategy (expand / compress / raw+aggregates)
 ### 5. Design rationale (Decision / Why / Alternatives / Trade-offs per choice)
 ### 6. rdf-config model.yaml (classes + properties matching the spec)
-### 7. MIE YAML extras (schema_info + ≥5 keywords, sample_rdf_entries from REAL
-     inspection rows, sparql_query_examples, anti_patterns)
+### 7. MIE YAML extras (schema_info with ≥5 `keywords` AND ≥1 `categories` entry
+     — BOTH are required for T4; sample_rdf_entries from REAL inspection rows,
+     sparql_query_examples, anti_patterns)
 ### 8. Ingester sketch (utf-8-sig, composite IRI helpers, PROV — signatures only)
 
 End with `### 9. Declarative mapping spec` containing the given spec verbatim in a
@@ -515,6 +524,90 @@ def propose_skeleton(
     )
 
 
+_PERMAP_STRUCTURAL_ROUNDS = 2
+"""Bounded per-map structural self-correction rounds (ADR mapping-ir-phase2b §4:
+"per-map ステップは run_design_loop の中で回す … no-progress で有界停止"; §11: call
+count "1 → (2 + N + 自己修正ラウンド)"). Kept small — the assembly-stage parse + §9
+surgical repair stay the full gate; this only spares the whole-IR loop the easy,
+single-map-decidable structural breakages (object-form-none / transform misuse)."""
+
+
+def _generate_map_properties_gated(
+    map_name: str,
+    map_skeleton: Mapping[str, Any],
+    skeleton_context: str,
+    menu_text: str,
+    *,
+    llm: LLMClient,
+    function_names: Sequence[str] | None,
+    language: str | None,
+    index: int,
+    total: int,
+    emit: Callable[..., None],
+    record: Callable[[], None],
+) -> dict:
+    """Generate ONE map's property table, then run a BOUNDED structural repair.
+
+    A per-map result whose ROWS are structurally broken — object-form-none, the
+    ``transform:`` misuse family, unknown fields, function shape: exactly the
+    single-map-decidable failures :func:`structural_property_issues` reports — is
+    regenerated with those issues fed back (``generate_map_properties(issues=…)``),
+    up to :data:`_PERMAP_STRUCTURAL_ROUNDS` times. A round is kept only when it
+    STRICTLY reduces the structural issue count (no-progress stop, mirroring the
+    full loop's oscillation guard), so a model that cannot fix the row keeps its
+    best attempt instead of thrashing.
+
+    This is the per-map arm of the ADR's "per-map runs inside the self-correction
+    loop". Whole-IR concerns (CURIE/prefix, cross-map joins, column existence) are
+    deliberately NOT judged here — they need the assembled IR and stay the
+    assembly-stage parse + §9 surgical repair. Truncated / unparseable output
+    degrades this map to no properties and continues (unchanged resilience: the
+    assembled IR then surfaces the gap to the full validation, exactly as the
+    single-shot round-0 would)."""
+
+    def _emit(message: str) -> None:
+        emit(phase=f"map:{map_name}", index=index, total=total, message=message)
+
+    try:
+        result = generate_map_properties(
+            map_name, map_skeleton, skeleton_context, menu_text,
+            llm=llm, function_names=function_names, language=language,
+        )
+    except ValueError as exc:
+        _emit(f"map '{map_name}' の生成に失敗しプロパティ無しで継続します: {exc}")
+        record()
+        return {"properties": []}
+    record()
+
+    issues = structural_property_issues(
+        result.get("properties"), where=f"map '{map_name}'.properties"
+    )
+    rounds = 0
+    while issues and rounds < _PERMAP_STRUCTURAL_ROUNDS:
+        rounds += 1
+        _emit(f"map '{map_name}' のプロパティ構造を修正中: {len(issues)} 件の問題")
+        try:
+            retry = generate_map_properties(
+                map_name, map_skeleton, skeleton_context, menu_text,
+                llm=llm, function_names=function_names, issues=issues, language=language,
+            )
+        except ValueError:
+            # A truncated retry: the LLM call still happened (parse failed after
+            # completion), so record its usage like every other call, then keep the
+            # better prior result and stop.
+            record()
+            break
+        record()
+        retry_issues = structural_property_issues(
+            retry.get("properties"), where=f"map '{map_name}'.properties"
+        )
+        if len(retry_issues) < len(issues):
+            result, issues = retry, retry_issues  # progress: adopt the cleaner table
+        else:
+            break  # no progress: keep the prior (better-or-equal) table and stop
+    return result
+
+
 def propose_from_skeleton(
     skeleton: Mapping[str, Any],
     inspection_md: str,
@@ -554,31 +647,25 @@ def propose_from_skeleton(
     for i, map_obj in enumerate(maps):
         name = map_obj.get("name")
         emit(phase=f"map:{name}", index=i, total=len(maps), message=f"プロパティ表を生成中: {name}")
-        try:
-            permaps[name] = generate_map_properties(
-                name,
-                map_obj,
-                context,
-                menu_text,
-                llm=llm,
-                function_names=names,
-                language=language,
-            )
-        except ValueError as exc:
-            # A per-map call that returns unparseable / truncated output (weak
-            # models truncate — ADR §11) must NOT crash the whole staged run.
-            # Degrade this map to no properties and continue; the assembled IR
-            # then fails validation on the gap, which the self-correction loop /
-            # human gate addresses — the same resilience the single-shot round-0
-            # has (a bad proposal there surfaces as issues, it does not crash).
-            emit(
-                phase=f"map:{name}",
-                index=i,
-                total=len(maps),
-                message=f"map '{name}' の生成に失敗しプロパティ無しで継続します: {exc}",
-            )
-            permaps[name] = {"properties": []}
-        record()
+        # Generate this map's properties + a bounded per-map structural repair
+        # (object-form-none / transform misuse etc.). Truncated output degrades to
+        # no properties and continues — the same resilience the single-shot round-0
+        # has (a bad proposal surfaces as issues at the assembly gate, it does not
+        # crash). Whole-IR concerns (CURIE/prefix, joins, columns) stay the
+        # assembly-stage parse + §9 surgical repair, NOT this per-map gate.
+        permaps[name] = _generate_map_properties_gated(
+            name,
+            map_obj,
+            context,
+            menu_text,
+            llm=llm,
+            function_names=names,
+            language=language,
+            index=i,
+            total=len(maps),
+            emit=emit,
+            record=record,
+        )
 
     assembled = assemble_mapping_ir(skeleton, permaps)
     ir_yaml = mapping_ir_to_yaml(assembled)

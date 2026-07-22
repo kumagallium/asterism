@@ -41,6 +41,11 @@ dev = [
     "mypy>=1.10",
     "rdflib>=7.0",
     "PyYAML>=6.0",
+    # Guided-decoding JSON Schema tests (test_mapping_ir_schema / test_staged_propose)
+    # validate the emitted schemas + staged-proposal contract. Without it those
+    # importorskip-guarded modules silently SKIP in CI (incl. the ADR phase2b §10.1
+    # "headline" equivalence test) — install it so they actually run.
+    "jsonschema>=4.18",
 ]
 
 [project.scripts]
