@@ -1,5 +1,18 @@
 # Changelog
 
+## [v0.8.0](https://github.com/kumagallium/asterism/compare/v0.7.0...v0.8.0) - 2026-07-22
+
+- docs(adr): かんたん/詳細 二層モード — データセット追加 UX 再設計の決定記録 by @kumagallium in https://github.com/kumagallium/asterism/pull/285
+- feat(step0/api/ui): Mapping IR に label/unit — レビュー画面「列の意味」の出所 by @kumagallium in https://github.com/kumagallium/asterism/pull/286
+- feat(api/ingest/ui): .xlsx 受理 — サーバ側で決定論 CSV 変換（かんたんモード K6） by @kumagallium in https://github.com/kumagallium/asterism/pull/287
+- feat(ui): かんたんモード S1-S4 — 二層モードの骨組み（かんたん既定・詳細に現行全機能温存） by @kumagallium in https://github.com/kumagallium/asterism/pull/288
+- feat(ui/api/step0): かんたんモード S5/S6 — 自動連結+列の意味ゲート+測定値キー注意 by @kumagallium in https://github.com/kumagallium/asterism/pull/290
+- feat(ui): かんたん停止カードに「AI に直してもらう」— 修正ループをかんたん内で完結 by @kumagallium in https://github.com/kumagallium/asterism/pull/291
+- fix(llm-settings): モデル選択で明示エンドポイントを尊重＋取得ボタンの無効化を解消 by @kumagallium in https://github.com/kumagallium/asterism/pull/292
+- feat(ui): かんたん停止カードに脱出口+エラー平易化（実dogfoodで詰んだ2件） by @kumagallium in https://github.com/kumagallium/asterism/pull/293
+- feat(step0/api): 列名括弧の単位を決定論抽出して IR に自動補完（S6 の単位欄を確実に） by @kumagallium in https://github.com/kumagallium/asterism/pull/294
+- fix(step0/api): 弱モデルの transform 発明を封じる（per-map 自己修正の配線＋修復家系） by @kumagallium in https://github.com/kumagallium/asterism/pull/295
+
 ## [v0.7.0](https://github.com/kumagallium/asterism/compare/v0.6.0...v0.7.0) - 2026-07-14
 
 - feat(ui): v2 UX redesign — visibility, object-axis IA, dataset tabs, ScreenGround/Map by @kumagallium in https://github.com/kumagallium/asterism/pull/232
