@@ -306,9 +306,9 @@ export function ToolsPanel({ datasetId }: { datasetId: string }) {
         <div className="ds-subhead">{t('tools:panel.author.subhead')}</div>
         <p className="tools-hint">
           <Trans i18nKey="tools:panel.author.hint">
-            「やりたいこと」を書くと、このデータの語彙をもとに <strong>AI が読み取り専用 SPARQL ツールを下書き</strong>します。
+            「やりたいこと」を書くと、このデータのことばをもとに <strong>AI が読み取り専用の検索ツール（SPARQL）を下書き</strong>します。
             下書きは<strong>その場で編集</strong>でき、<strong>保存して初めて確定</strong>します（保存＝人による検証ゲート）。
-            キーはこのタブ内のみ保持し、保存しません（Ask と共通）。
+            AI には、設定で選択中のモデルを使います。
           </Trans>
         </p>
         <textarea

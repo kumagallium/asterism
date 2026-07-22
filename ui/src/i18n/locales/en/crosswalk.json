@@ -16,7 +16,7 @@
       "sharedValues": "Shared values",
       "participants": "Participating datasets",
       "concepts": "Shared concepts",
-      "note": "\"Shared values\" is how many \"{{concept}}\" values matched across datasets (not the total number of facts/triples). \"Shared concepts\" is how many concepts (composition, crystal system…) this bridge connects on."
+      "note": "\"Shared values\" is how many \"{{concept}}\" values matched across datasets (separate from the total number of facts). \"Shared concepts\" is how many concepts (composition, crystal system…) this bridge connects on."
     },
     "conceptHead": "Concept \"{{name}}\"",
     "normalizerHint": "Normalization: {{normalizer}}",
@@ -30,14 +30,14 @@
     "toolsHint": "Which datasets report this value? etc. (deterministic, citable, no key needed)"
   },
   "relation": {
-    "equivalentClass": "Equivalent class (≡)",
-    "subClassOf": "Subclass (⊑)",
-    "equivalentProperty": "Equivalent property (≡)",
-    "subPropertyOf": "Subproperty (⊑)"
+    "equivalentClass": "Same kind (≡)",
+    "subClassOf": "Sub-kind (⊑)",
+    "equivalentProperty": "Same field (≡)",
+    "subPropertyOf": "Sub-field (⊑)"
   },
   "term": {
-    "class": "Class",
-    "property": "Property"
+    "class": "Kind",
+    "property": "Field"
   },
   "align": {
     "head": "Connect perspectives",
@@ -49,7 +49,7 @@
     "asserting": "Connecting…",
     "assertNote": "Connected: {{source}} {{relation}} {{target}}",
     "noSrcTerms": "This perspective has no concepts to connect.",
-    "noTgtTerms": "No target of the same kind (class / property). Pick a different target perspective.",
+    "noTgtTerms": "No target of the same sort (kind / field). Pick a different target perspective.",
     "pickDistinct": "Pick distinct concepts for source and target (you can connect once there are two or more perspectives).",
     "actErr": "Operation failed: {{detail}}",
     "perspArrow": "{{from}} → {{to}}",
@@ -72,22 +72,22 @@
       "sub": "Once two or more datasets have been \"published for search\", you can build a cross-dataset crosswalk here."
     },
     "step1": "1. Pick the datasets to connect (two or more)",
-    "dsSub": "{{predicates}} predicates · {{facts}} facts",
+    "dsSub": "{{predicates}} fields · {{facts}} facts",
     "factsUnknown": "?",
     "step2": "2. Decide the \"concept\" to connect",
     "step2Hint": "e.g. composition / crystal_system / author (an alphanumeric key)",
     "conceptPlaceholder": "composition",
-    "conceptVocab": "Vocabulary auto-minted from \"{{key}}\" → class <0>xw:{{className}}</0> · link predicate <1>xw:has{{className}}</1>",
+    "conceptVocab": "Words auto-minted from \"{{key}}\" → kind <0>xw:{{className}}</0> · linking field <1>xw:has{{className}}</1>",
     "conceptInvalid": "Enter an alphanumeric key (e.g. crystal_system). Put a Japanese display name into \"this perspective's name\".",
-    "step3": "3. For each dataset, specify \"the predicate that represents {{key}}\"",
+    "step3": "3. For each dataset, pick \"the field that carries {{key}}\"",
     "step3Hint": "(a mapping a human reviews)",
     "apiKeyPlaceholder": "Anthropic API key (used for AI suggestions; stored only on this device)",
     "propose": "Let AI suggest",
     "proposing": "AI is suggesting…",
-    "proposeNote": "AI suggested {{count}} predicates (please review and adjust).",
-    "proposeNone": "AI could not find a predicate carrying \"{{key}}\". Please pick one manually.",
+    "proposeNote": "The AI suggested {{count}} fields (please review and adjust).",
+    "proposeNone": "The AI could not find a field carrying \"{{key}}\". Please pick one manually.",
     "proposeErr": "AI suggestion failed: {{detail}}",
-    "selectPredicate": "— Select a predicate —",
+    "selectPredicate": "— Select a field —",
     "predicateSample": " (e.g. {{sample}})",
     "sampleLabel": "e.g. {{sample}}",
     "step4": "4. Criterion for treating values as the same (normalization)",
@@ -137,16 +137,16 @@
     "condNamePlaceholder": "Condition name (alphanumeric, e.g. crystal_system)",
     "condDelete": "Remove this condition",
     "addCond": "+ Add a condition",
-    "extraCondIncomplete": "Give each condition a unique name (distinct from the concept) and a predicate per dataset.",
+    "extraCondIncomplete": "Give each condition a unique name (distinct from the concept) and a field per dataset.",
     "step5": "5. This perspective's name",
     "step5Hint": "You can keep multiple \"perspectives (ways to connect)\" distinct",
     "perspectivePlaceholder": "e.g. Connect by composition (leave blank to overwrite the standard \"composition\" perspective)",
-    "perspectiveNamed": "Creates a new independent perspective (its own graph, listed in your datasets).",
+    "perspectiveNamed": "Creates a new independent perspective (its own data, listed with your datasets).",
     "perspectiveDefault": "When blank, creates/updates the standard \"composition\" perspective.",
     "build": "Build crosswalk (across {{count}} datasets)",
     "building": "Building…",
     "buildHintInvalid": "Enter the concept as an alphanumeric key (e.g. crystal_system).",
-    "buildHintFewer": "You can build once two or more datasets have a predicate specified (currently {{count}}).",
+    "buildHintFewer": "You can build once two or more datasets have a field picked (currently {{count}}).",
     "buildErr": "Build failed: {{detail}}",
     "result": {
       "head": "Crosswalk built",

@@ -10,8 +10,8 @@
   "stat": {
     "facts": "Facts / triples",
     "datasets": "Datasets",
-    "classes": "Vocabulary classes",
-    "unavailable": "Could not fetch fact/class counts. Check the write token in Settings, or the server’s SPARQL exposure setting."
+    "classes": "Kinds of data",
+    "unavailable": "Could not fetch fact/kind counts. Check the write token in Settings, or the server's query exposure setting."
   },
   "action": {
     "add": {

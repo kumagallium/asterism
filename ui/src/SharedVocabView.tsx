@@ -68,13 +68,13 @@ export function SharedVocabView({ onBack }: { onBack?: () => void }) {
         <div>
           <div className="vocab-banner-title">
             <Trans i18nKey="vocab:banner.title">
-              「設計図（語彙）」は無くなりません — <span className="vocab-banner-hl">共有</span>されるだけ
+              「設計図（ことば）」は無くなりません — <span className="vocab-banner-hl">共有</span>されるだけ
             </Trans>
           </div>
           <div className="vocab-banner-sub">
             <Trans i18nKey="vocab:banner.sub">
-              これは<strong>実データから自動で内省した語彙</strong>です（全データセットを横断・
-              ラベルは各データセットの設計図から投影された TBox 由来）。揃えるほど横断検索・比較が効きます。
+              これは<strong>実データから自動で読み取ったことば</strong>です（全データセットを横断・
+              名前は各データセットの設計図から自動で反映）。揃えるほど横断検索・比較が効きます。
             </Trans>
           </div>
         </div>
@@ -106,14 +106,14 @@ export function SharedVocabView({ onBack }: { onBack?: () => void }) {
             </div>
             <p className="vocab-live-note">
               <Trans i18nKey="vocab:classesCard.note1">
-                右端の数字＝実データ中の件数。<strong>クラスはインスタンス数</strong>（その型のものが何件あるか）、
-                <strong>述語は使用回数</strong>（そのプロパティを使うトリプル数）。
+                右端の数字＝実データ中の件数。<strong>データの種類は、その型のものが何件あるか</strong>、
+                <strong>項目は、何回使われているか</strong>。
               </Trans>
             </p>
             <p className="vocab-live-note">
               <Trans i18nKey="vocab:classesCard.note2">
-                ※ 数えるのは <strong>canonical（公開済み・引用可能）データのみ</strong>。
-                下書き（未レビュー）グラフは含みません ── 公開すると集計に入ります。
+                ※ 数えるのは <strong>公開済み（引用できる）データのみ</strong>。
+                公開前の下書きは含みません ── 公開すると集計に入ります。
               </Trans>
             </p>
             <div className="ds-subhead">{t('vocab:classesCard.classesSubhead')}</div>
@@ -169,7 +169,7 @@ export function SharedVocabView({ onBack }: { onBack?: () => void }) {
                 <div>
                   <strong>{t('vocab:usersCard.caution.title')}</strong>{' '}
                   <Trans i18nKey="vocab:usersCard.caution.body">
-                    共有クラスを書き換えると、それを使うデータセットすべての検索・回答に波及します。
+                    共有されていることばを書き換えると、それを使うデータセットすべての検索・回答に波及します。
                     変更は<strong>影響範囲のプレビュー</strong>を見てから確定します。
                   </Trans>
                 </div>

@@ -3,8 +3,8 @@
     "cardTitle": "クリックで出どころ（来歴）を表示",
     "untitled": "(無題)",
     "traceHint": "出どころ",
-    "vocabTitle": "データセットで「{{className}}」の語彙を表示",
-    "vocabLink": "語彙: {{className}} →"
+    "vocabTitle": "データセットで「{{className}}」のことばを表示",
+    "vocabLink": "ことば: {{className}} →"
   },
   "trace": {
     "ariaLabel": "出どころ（来歴トレース）",
@@ -15,10 +15,10 @@
     "loading": "来歴を解決中…",
     "legendData": "データ",
     "legendProcess": "処理",
-    "vocabTitle": "データセットで「{{className}}」の語彙を表示",
-    "vocabLink": "語彙を見る",
+    "vocabTitle": "データセットで「{{className}}」のことばを表示",
+    "vocabLink": "ことばを見る",
     "noRecord": "この項目に対する来歴は記録されていません。",
-    "copyIri": "クリックで IRI をコピー",
+    "copyIri": "クリックで ID をコピー",
     "copied": "コピーしました"
   },
   "step": {
@@ -39,7 +39,7 @@
       "paperLabel": "Snyder et al. (2014)"
     },
     "schema": {
-      "answer": "新しく設計したスキーマには Widget クラスが 2 件あり、それぞれ name を持ちます（alpha, beta）。型付きツールに該当が無かったため、スキーマを内省して下の SPARQL を生成・実行しました。"
+      "answer": "新しく設計した設計図には Widget という種類が 2 件あり、それぞれ name を持ちます（alpha, beta）。型付きツールに該当が無かったため、設計図を読み取って下の SPARQL を生成・実行しました。"
     },
     "fallback": {
       "answer": "この質問に対する根拠付き回答のデモ fixture は未登録です。ZT ランキング・組成検索の例をお試しください。",
