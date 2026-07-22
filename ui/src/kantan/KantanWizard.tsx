@@ -44,6 +44,7 @@ import {
   type RuleProperty,
 } from '../galleryApi'
 import type { DetailTab } from '../GalleryView'
+import type { RedesignTarget } from '../WorkbenchView'
 import { clearIngestJob, loadIngestJob, saveIngestJob } from '../ingestJob'
 import { JobProgress } from '../JobProgress'
 import { useLlmSettings } from '../settings/context'
@@ -249,6 +250,11 @@ interface KantanSnapshot {
   // on S9 must come back as "published", not re-offer the publish button.
   pubName: string
   published: boolean
+  // かんたん見直し (catalog 見直す → S6): banner state + whether THIS session
+  // has re-ingested a draft. A no-change review must exit to the catalog, not
+  // to publish — there is no staged graph to promote until a refine ran.
+  redesigning: boolean
+  reingested: boolean
 }
 
 function loadSnapshot(): Partial<KantanSnapshot> {
@@ -285,6 +291,9 @@ export function KantanWizard({
   onHandoffToDetail,
   onOpenDataset,
   onOpenAsk,
+  redesignTarget,
+  onRedesignConsumed,
+  onRedesignDetail,
 }: {
   /** Reports whether a job is in flight (the tier toggle locks while true). */
   onBusyChange: (busy: boolean) => void
@@ -295,6 +304,13 @@ export function KantanWizard({
   onOpenDataset?: (id: string, tab?: DetailTab) => void
   /** Opens the Ask view with the question prefilled (the S9 chips). */
   onOpenAsk?: (question: string) => void
+  /** Catalog 見直す: reopen this dataset's stored design as the kantan
+   *  re-check flow (seeds the wizard at S6 — the column meanings). */
+  redesignTarget?: RedesignTarget | null
+  onRedesignConsumed?: () => void
+  /** "構造から見直す": hand the (possibly refined) design to the detail tier
+   *  as a redesign target — the full structural review lives there. */
+  onRedesignDetail?: (target: RedesignTarget) => void
 }) {
   const { t, i18n } = useTranslation()
   const { isReady, getActiveCredentials, openSettings } = useLlmSettings()
@@ -406,6 +422,39 @@ export function KantanWizard({
   const [pubErr, setPubErr] = useState('')
   const [published, setPublished] = useState<boolean>(snap.published ?? false)
 
+  // かんたん見直し (catalog 見直す): the wizard reopens an existing dataset at
+  // S6. `reingested` = whether THIS session ran the refine → re-ingest chain;
+  // until then there is no staged draft, so "confirm" exits to the catalog
+  // instead of leading to a publish that would 400.
+  const [redesigning, setRedesigning] = useState<boolean>(snap.redesigning ?? false)
+  const [reingested, setReingested] = useState<boolean>(snap.reingested ?? true)
+
+  // Catalog 見直す → seed the wizard at S6 on the stored design. Same
+  // adjust-during-render consumption as WorkbenchView's seededTarget, so the
+  // re-check flow opens on this very render pass. Any leftover snapshot state
+  // (a previous run) is dropped first — the redesign intent wins.
+  const [seededRedesign, setSeededRedesign] = useState<string | null>(null)
+  if (redesignTarget && redesignTarget.datasetId !== seededRedesign) {
+    setSeededRedesign(redesignTarget.datasetId)
+    resetPipelineState()
+    setFiles([])
+    setKind('tabular')
+    setSkeleton(null)
+    setAnnotations(null)
+    setInspectionMd('')
+    setErrMsg('')
+    setJobNotice('')
+    setProposal(redesignTarget.proposalMd)
+    setKzDatasetId(redesignTarget.datasetId)
+    setKzDatasetName(redesignTarget.datasetName)
+    setSourceAttached(true) // design-time source is persisted server-side
+    setPubName(redesignTarget.datasetName) // republish keeps the current name
+    setRedesigning(true)
+    setReingested(false)
+    setStep(6)
+    onRedesignConsumed?.()
+  }
+
   const busy =
     inspecting || skeletonBusy || continuing || pipeBusy || refining !== false || publishing
   useEffect(() => {
@@ -433,6 +482,8 @@ export function KantanWizard({
       columnSamples,
       pubName,
       published,
+      redesigning,
+      reingested,
     }
     try {
       sessionStorage.setItem(KZ_STORAGE, JSON.stringify(snapshot))
@@ -457,6 +508,8 @@ export function KantanWizard({
     columnSamples,
     pubName,
     published,
+    redesigning,
+    reingested,
   ])
 
   // Hand the finished design to the detail tier: a WB_STORAGE-compatible
@@ -480,13 +533,23 @@ export function KantanWizard({
       dialectOverrides,
       stagedSkeleton: null,
       stagedAnnotations: null,
+      // The wizard's registered record (once the auto chain minted / reopened
+      // one): the detail tier must UPDATE this dataset in place on save —
+      // without this, a handoff after S5 would re-mint a duplicate record.
+      ...(kzDatasetId
+        ? {
+            redesignId: kzDatasetId,
+            redesignName: kzDatasetName ?? undefined,
+            redesignOrigin: redesigning ? 'catalog' : 'adopted',
+          }
+        : {}),
     }
     try {
       sessionStorage.setItem(WB_STORAGE, JSON.stringify(detailSnapshot))
     } catch {
       /* non-fatal */
     }
-  }, [proposal, inspectionMd, kind, q2, dialectOverrides])
+  }, [proposal, inspectionMd, kind, q2, dialectOverrides, kzDatasetId, kzDatasetName, redesigning])
 
   // Resume an in-flight continue job after a reload (same SSE replay recovery
   // as the detail tier; the tiers never mount together, so no double-resume).
@@ -695,6 +758,8 @@ export function KantanWizard({
     setPubName('')
     setPubErr('')
     setPublished(false)
+    setRedesigning(false)
+    setReingested(true)
   }
 
   async function runInspect(arr: File[]) {
@@ -1040,6 +1105,7 @@ export function KantanWizard({
     try {
       await handle.result
       setAiFixCount(0) // the fix loop (if any) landed — reset the counter
+      setReingested(true) // a staged draft now exists → 確定 leads to publish
       setStep(6)
       void loadS6(datasetId)
     } catch (e) {
@@ -1253,6 +1319,44 @@ export function KantanWizard({
     onOpenDataset?.(kzDatasetId, tab)
   }
 
+  // ---- かんたん見直し (catalog 見直す → the S6 re-check flow) -----------------
+
+  /** Leave the review and land back on the dataset's catalog page. Nothing is
+   *  lost: refines (if any) were saved server-side at materialize. Used by the
+   *  no-change confirm AND the banner's やめる. */
+  function exitRedesign() {
+    const id = kzDatasetId
+    try {
+      sessionStorage.removeItem(KZ_STORAGE)
+    } catch {
+      /* non-fatal */
+    }
+    resetWizardToStart()
+    if (id) onOpenDataset?.(id)
+  }
+
+  function cancelRedesign() {
+    if (!window.confirm(t('kantan:redesign.cancelConfirm'))) return
+    exitRedesign()
+  }
+
+  // "構造から見直す": hand the CURRENT (possibly refined) design to the detail
+  // tier as a proper redesign target — same consumption path as the catalog's
+  // 見直す, so a later save updates THIS dataset, never a duplicate.
+  function openStructural() {
+    if (!kzDatasetId || !proposal) return
+    try {
+      sessionStorage.removeItem(KZ_STORAGE)
+    } catch {
+      /* non-fatal */
+    }
+    onRedesignDetail?.({
+      datasetId: kzDatasetId,
+      datasetName: kzDatasetName ?? '',
+      proposalMd: proposal,
+    })
+  }
+
   // The shared refine → re-materialize chain: the S6 note ("AI に反映して作り
   // 直す") and the S5 design-stop AI fix both ride it — when the refined design
   // lands, the SAME auto chain re-runs (the source is already persisted, so the
@@ -1382,6 +1486,9 @@ export function KantanWizard({
     setErrMsg('')
     setJobNotice('')
     resetPipelineState()
+    // Re-arm the redesign seed: a LATER 見直す on the same dataset must seed
+    // again (the id-equality guard would otherwise swallow it).
+    setSeededRedesign(null)
     setStep(1)
   }
 
@@ -1488,6 +1595,38 @@ export function KantanWizard({
   return (
     <div className="kz-wizard">
       <RecipeCard current={recipePos} currentDone={step === 9} onStepClick={onRecipeStep} />
+
+      {/* かんたん見直し: what is being reviewed + the two escape hatches
+          (structural rework in detail mode / stop reviewing). Hidden on stop
+          cards (they carry their own detail-mode exit) and after publish. */}
+      {redesigning && !stop && !showS5 && step >= 6 && step <= 8 && (
+        <section className="kz-card kz-redesign" role="note">
+          <div className="kz-redesign-row">
+            <span className="kz-redesign-name">
+              {t('kantan:redesign.banner', { name: kzDatasetName ?? '' })}
+            </span>
+            <span className="kz-redesign-actions">
+              <button
+                type="button"
+                className="btn btn--ghost btn--sm"
+                onClick={openStructural}
+                disabled={busy || !proposal}
+              >
+                {t('kantan:redesign.structural')}
+              </button>
+              <button
+                type="button"
+                className="btn btn--ghost btn--sm"
+                onClick={cancelRedesign}
+                disabled={busy}
+              >
+                {t('kantan:redesign.cancel')}
+              </button>
+            </span>
+          </div>
+          <p className="kz-note">{t('kantan:redesign.bannerNote')}</p>
+        </section>
+      )}
 
       {stop ? (
         <section className="kz-card kz-stop" role="alert">
@@ -2025,12 +2164,17 @@ export function KantanWizard({
             )}
           </div>
           <div className="kz-actions">
+            {/* A review session that changed nothing has no staged draft to
+                republish — its confirm exits to the catalog. Once a refine
+                re-ingested (reingested), the normal ためす→公開 road applies. */}
             <button
               type="button"
-              onClick={confirmMeanings}
+              onClick={redesigning && !reingested ? exitRedesign : confirmMeanings}
               disabled={s6Loading || refining !== false}
             >
-              {t('kantan:s6.confirm')}
+              {redesigning && !reingested
+                ? t('kantan:redesign.confirmNoChange')
+                : t('kantan:s6.confirm')}
             </button>
           </div>
         </section>

@@ -6269,6 +6269,26 @@ tr.kz-attn td {
   font-weight: 600;
 }
 
+/* かんたん見直し (catalog 見直す → S6): the reviewing banner. */
+.kz-redesign {
+  border-left: 3px solid var(--primary);
+}
+.kz-redesign-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+}
+.kz-redesign-name {
+  font-weight: 600;
+}
+.kz-redesign-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
 /* S9: done — chips are .kz-pill; the grow-the-dataset section below a rule. */
 .kz-divider {
   border: none;
