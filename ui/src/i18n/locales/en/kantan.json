@@ -7,6 +7,7 @@
   "recipe": {
     "label": "Steps",
     "here": "You are here",
+    "backToStart": "Back to ① Put data in (start over)",
     "step1": "Put data in",
     "step2": "AI reads it",
     "step3": "Check",
@@ -75,7 +76,22 @@
       "interruptedBody": "Nothing partial was kept. \"Try again\" safely resumes from the same point.",
       "detailSummary": "Details (technical)",
       "retry": "Try again",
-      "openDetail": "Check in detail mode"
+      "openDetail": "Check in detail mode",
+      "restart": "Start over",
+      "restartConfirm": "This clears the files you added and everything so far. Start over from the beginning?"
+    },
+    "plain": {
+      "tokenTitle": "You don't have permission to save",
+      "tokenBody": "Enter the access code you received from your administrator in Settings.",
+      "notFoundTitle": "Your saved data was not found",
+      "notFoundBody": "It may have been deleted. Please start over from the beginning.",
+      "timeoutTitle": "The AI didn't respond in time",
+      "timeoutBody": "In Settings, switch to a faster-responding model such as Claude and try again.",
+      "designTitle": "Part of the design still can't be loaded",
+      "designBody": "The AI's design still has a part that can't be loaded as-is. Try \"Have the AI fix this\", or review it in detail mode.",
+      "serverTitle": "The server was briefly unreachable",
+      "serverBody": "Please wait a moment and try again.",
+      "genericBody": "Please try again. If it persists, check the technical details below or open detail mode."
     },
     "fix": {
       "button": "Have the AI fix this",

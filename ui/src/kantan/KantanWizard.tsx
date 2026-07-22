@@ -36,6 +36,7 @@ import { JobProgress } from '../JobProgress'
 import { useLlmSettings } from '../settings/context'
 import { SkeletonGate } from '../SkeletonGate'
 import { localName } from '../vocab'
+import { plainError } from './errorMessages'
 import { RecipeCard } from './RecipeCard'
 
 // The kantan (かんたん) tier wizard — ADR kantan-mode-two-tier-ux.md, S1-S6.
@@ -1074,14 +1075,10 @@ export function KantanWizard({
     onOpenDataset?.(kzDatasetId)
   }
 
-  // Completion-card escape hatch: begin a brand-new design without leaving the
-  // wizard (the registered draft stays in the catalog untouched).
-  function startFresh() {
-    try {
-      sessionStorage.removeItem(KZ_STORAGE)
-    } catch {
-      /* non-fatal */
-    }
+  // The full component-state wipe shared by the completion-card "新しいデータを
+  // 追加する" (startFresh) and the stop-card / recipe-① "最初からやり直す"
+  // (doRestart). Only component state — callers own sessionStorage + the confirm.
+  function resetWizardToStart() {
     setFiles([])
     setKind(null)
     setPreviews([])
@@ -1099,11 +1096,70 @@ export function KantanWizard({
     setStep(1)
   }
 
+  // Completion-card escape hatch: begin a brand-new design without leaving the
+  // wizard (the registered draft stays in the catalog untouched). Only the
+  // kantan snapshot is dropped — the detail-tier handoff stays available.
+  function startFresh() {
+    try {
+      sessionStorage.removeItem(KZ_STORAGE)
+    } catch {
+      /* non-fatal */
+    }
+    resetWizardToStart()
+  }
+
+  // The #9 escape hatch proper: from ANY stop card (or recipe ①) wipe every
+  // persisted trace — this tier's snapshot, the detail-tier handoff, and any
+  // saved propose/ingest job — detach a still-open stream, and drop back to S1.
+  // The one exit that always works when a run wedges. Callers gate it with a
+  // confirm (it discards the dropped files and every result so far).
+  function doRestart() {
+    jobRef.current?.close()
+    const saved = loadIngestJob()
+    if (saved) clearIngestJob(saved.jobId)
+    try {
+      sessionStorage.removeItem(KZ_STORAGE)
+      sessionStorage.removeItem(WB_STORAGE)
+      sessionStorage.removeItem(JOB_STORAGE)
+    } catch {
+      /* non-fatal */
+    }
+    resetWizardToStart()
+  }
+
+  function restartFromScratch() {
+    if (!window.confirm(t('kantan:s5.stop.restartConfirm'))) return
+    doRestart()
+  }
+
+  // Recipe ① click (#9): the guaranteed way back to the drop zone. Confirm
+  // before discarding in-flight work or any result so far (a superset of "a job
+  // is running"). ②+ are inert (RecipeCard renders only ① as a button).
+  function onRecipeStep(target: 1 | 2 | 3 | 4 | 5) {
+    if (target !== 1 || step === 1) return
+    const dirty = busy || files.length > 0 || !!proposal || !!skeleton || !!kzDatasetId
+    if (dirty && !window.confirm(t('kantan:s5.stop.restartConfirm'))) return
+    doRestart()
+  }
+
   // ---- render -----------------------------------------------------------------
 
   const recipePos: 1 | 2 | 3 = step <= 2 ? 1 : step === 3 ? 2 : 3
   const resumeAvailable = !!skeleton && files.length === 0 && !proposal && step === 1
   const showS5 = pipeBusy || refining !== false || step === 5
+
+  // Stop-card plain-language translation (#7): only the HTTP-error kinds carry a
+  // raw technical detail worth translating. The design / files / interrupted
+  // kinds keep their own dedicated bodies + buttons (design's runAiFix stays).
+  const stopPlain =
+    stop && (stop.kind === 'materialize' || stop.kind === 'attach' || stop.kind === 'ingest')
+      ? plainError(stop.detail)
+      : null
+  const stopHint = stopPlain?.hint
+  // Whether a more specific primary already exists — retry is then demoted to a
+  // secondary (ghost) button so a card never shows two filled CTAs.
+  const stopPrimaryElsewhere =
+    !!stop && (stop.kind === 'design' || stopHint === 'settings' || stopHint === 'restart')
 
   const up = ingestProgress
   const uploadPct =
@@ -1132,7 +1188,11 @@ export function KantanWizard({
 
   return (
     <div className="kz-wizard">
-      <RecipeCard current={recipePos} currentDone={confirmed && step === 6} />
+      <RecipeCard
+        current={recipePos}
+        currentDone={confirmed && step === 6}
+        onStepClick={onRecipeStep}
+      />
 
       {confirmed && step === 6 ? (
         <section className="kz-card kz-done">
@@ -1153,7 +1213,14 @@ export function KantanWizard({
         </section>
       ) : stop ? (
         <section className="kz-card kz-stop" role="alert">
-          <h3 className="kz-title">{t(`kantan:s5.stop.${stop.kind}`)}</h3>
+          {/* Plain headline: the translated one when the raw detail was
+              recognised, else the per-stage fallback ("…でエラーが起きました"). */}
+          <h3 className="kz-title">
+            {stopPlain?.title ? t(stopPlain.title) : t(`kantan:s5.stop.${stop.kind}`)}
+          </h3>
+          {/* Plain body for the HTTP-error kinds (#7); the technical string stays
+              folded below. The other kinds keep their own dedicated bodies. */}
+          {stopPlain && <p className="kz-note">{t(stopPlain.body)}</p>}
           {stop.kind === 'design' && <p className="kz-note">{t('kantan:s5.stop.designBody')}</p>}
           {stop.kind === 'interrupted' && (
             <p className="kz-note">{t('kantan:s5.stop.interruptedBody')}</p>
@@ -1178,19 +1245,39 @@ export function KantanWizard({
             <pre className="error">{t('kantan:s5.fix.failed', { message: fixErr })}</pre>
           )}
           <div className="kz-actions">
+            {/* Primary action, one per card. design → AI fix; token/timeout →
+                open settings; 404 → start over; otherwise → retry (below). */}
             {stop.kind === 'design' && (
               <button type="button" onClick={runAiFix} disabled={!isReady || !proposal}>
                 {t('kantan:s5.fix.button')}
               </button>
             )}
+            {stopHint === 'settings' && (
+              <button type="button" onClick={openSettings}>
+                {t('kantan:s1.openSettings')}
+              </button>
+            )}
+            {stopHint === 'restart' && (
+              <button type="button" onClick={restartFromScratch}>
+                {t('kantan:s5.stop.restart')}
+              </button>
+            )}
             {stop.retryFrom && (
               <button
                 type="button"
+                className={stopPrimaryElsewhere ? 'btn btn--ghost' : undefined}
                 onClick={() => {
                   if (stop.retryFrom) void runPipeline(stop.retryFrom)
                 }}
               >
                 {t('kantan:s5.stop.retry')}
+              </button>
+            )}
+            {/* #9 escape hatch: always available (secondary), unless it is
+                already the primary above (the 404 case). */}
+            {stopHint !== 'restart' && (
+              <button type="button" className="btn btn--ghost btn--sm" onClick={restartFromScratch}>
+                {t('kantan:s5.stop.restart')}
               </button>
             )}
             <button type="button" className="btn btn--ghost" onClick={openDetail}>
