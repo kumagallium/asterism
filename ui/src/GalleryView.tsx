@@ -202,8 +202,8 @@ export function GalleryView({
           <div className="catalog-toolbar">
             <p className="catalog-intro">
               <Trans i18nKey="gallery:intro">
-                作った<strong>データセット</strong>が主役です。各データセットは「<strong>設計図（語彙）</strong>」と
-                「<strong>取り込みルール</strong>」を持ちます。共通で使う語彙は下にまとめています。
+                作った<strong>データセット</strong>が主役です。各データセットは「<strong>設計図（ことば）</strong>」と
+                「<strong>取り込みルール</strong>」を持ちます。
               </Trans>
             </p>
             <label className="catalog-search">
@@ -1091,9 +1091,9 @@ function IngestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChang
           t('gallery:ingest.noteDocument')
         ) : (
           <Trans i18nKey="gallery:ingest.note">
-            承認すると、この宣言 RML を Morph-KGC が実行し（生成コードは走らず、検証済みの Tier 0
-            関数だけ）、結果を<strong>隔離された下書きグラフ</strong>に投入します。Ask
-            の引用面（canonical）は汚しません。
+            承認すると、取り込みルールが実行され、結果が<strong>公開前の下書き</strong>に入ります
+            （公開するまで誰にも見えません）。安全確認済みの変換だけが動き、AI
+            が書いたプログラムは実行されません。
           </Trans>
         )}
       </p>
@@ -1423,8 +1423,8 @@ function PromoteControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChan
       ) : (
         <p className="promote-note">
           <Trans i18nKey="gallery:promote.note">
-            「検索対象として公開」すると、下書きグラフのこのデータが <strong>Ask が引用する正式グラフ
-            （canonical）</strong> に移ります。公開前に、使っている語彙が既存の再利用か新規かを確認できます。
+            「検索対象として公開」すると、公開前の下書きのこのデータが <strong>公開済みデータ
+            （質問する（Ask）の引用対象）</strong> になります。公開前に、使っていることばが標準の再利用か、このデータの新しいことばかを確認できます。
           </Trans>
         </p>
       )}

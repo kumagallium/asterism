@@ -3,8 +3,8 @@
     "cardTitle": "Click to show the source (provenance)",
     "untitled": "(untitled)",
     "traceHint": "Source",
-    "vocabTitle": "Show the \"{{className}}\" vocabulary in Datasets",
-    "vocabLink": "Vocabulary: {{className}} →"
+    "vocabTitle": "Show the words of \"{{className}}\" in Datasets",
+    "vocabLink": "Words: {{className}} →"
   },
   "trace": {
     "ariaLabel": "Source (provenance trace)",
@@ -15,10 +15,10 @@
     "loading": "Resolving provenance…",
     "legendData": "Data",
     "legendProcess": "Process",
-    "vocabTitle": "Show the \"{{className}}\" vocabulary in Datasets",
-    "vocabLink": "View vocabulary",
+    "vocabTitle": "Show the words of \"{{className}}\" in Datasets",
+    "vocabLink": "View the words",
     "noRecord": "No provenance is recorded for this item.",
-    "copyIri": "Click to copy the IRI",
+    "copyIri": "Click to copy the ID",
     "copied": "Copied"
   },
   "step": {
@@ -39,7 +39,7 @@
       "paperLabel": "Snyder et al. (2014)"
     },
     "schema": {
-      "answer": "The newly designed schema has two Widget instances, each with a name (alpha, beta). No typed tool matched, so the schema was introspected to generate and run the SPARQL below."
+      "answer": "The new design has two entries of the kind Widget, each with a name (alpha, beta). No typed tool matched, so the design was introspected to generate and run the SPARQL below."
     },
     "fallback": {
       "answer": "No grounded-answer demo fixture is registered for this question. Try the ZT ranking or composition search examples.",

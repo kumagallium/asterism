@@ -1,7 +1,7 @@
 {
   "op": {
-    "vocabularies": "loading standard vocabularies",
-    "search": "searching standard vocabularies",
+    "vocabularies": "loading standard words",
+    "search": "searching standard words",
     "schema": "loading standard candidates for the design"
   },
   "schema": {
@@ -12,8 +12,8 @@
     "failed": "{{op}} failed ({{status}}){{detail}}"
   },
   "kind": {
-    "class": "class",
-    "property": "property"
+    "class": "kind",
+    "property": "field"
   },
   "picker": {
     "placeholder": "Search a standard term (e.g. crystal structure)",
@@ -29,7 +29,7 @@
     "withdraw": "Withdraw",
     "withdrawing": "Withdrawing…",
     "err": "Action failed: {{detail}}",
-    "noTerms": "No own terms to align yet (they appear once the vocabulary is settled after ingest)."
+    "noTerms": "No own terms to align yet (they appear once the words settle after ingest)."
   },
   "banner": {
     "title": "Align your words to the world's standard words",
@@ -58,7 +58,7 @@
   "detected": {
     "head": "Standards found automatically",
     "badge": "detected",
-    "sub": "Well-known vocabularies already used inside the data."
+    "sub": "Well-known standard words already used inside the data."
   },
   "caution": "Candidates are found by AI; a human confirms. Similar words can mean subtly different things, so only what you confirm gets aligned."
 }

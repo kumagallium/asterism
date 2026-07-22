@@ -16,7 +16,7 @@
       "sharedValues": "共有された値",
       "participants": "参加データセット",
       "concepts": "共有概念",
-      "note": "「共有された値」は複数のデータセットで一致した「{{concept}}」の数です（事実＝トリプルの総数とは別物）。「共有概念」はこの橋がつなぐ概念（組成・結晶系…）の数。"
+      "note": "「共有された値」は複数のデータセットで一致した「{{concept}}」の数です（事実の総数とは別物）。「共有概念」はこの橋がつなぐ概念（組成・結晶系…）の数。"
     },
     "conceptHead": "概念「{{name}}」",
     "normalizerHint": "正規化: {{normalizer}}",
@@ -30,14 +30,14 @@
     "toolsHint": "この値は何データセットが報告？ など（決定論・引用可・キー不要）"
   },
   "relation": {
-    "equivalentClass": "同値クラス（≡）",
-    "subClassOf": "下位クラス（⊑）",
-    "equivalentProperty": "同値述語（≡）",
-    "subPropertyOf": "下位述語（⊑）"
+    "equivalentClass": "同じ種類（≡）",
+    "subClassOf": "下位の種類（⊑）",
+    "equivalentProperty": "同じ項目（≡）",
+    "subPropertyOf": "下位の項目（⊑）"
   },
   "term": {
-    "class": "クラス",
-    "property": "述語"
+    "class": "データの種類",
+    "property": "項目"
   },
   "align": {
     "head": "視点をつなぐ",
@@ -49,7 +49,7 @@
     "asserting": "つないでいます…",
     "assertNote": "つなぎました: {{source}} {{relation}} {{target}}",
     "noSrcTerms": "この視点には繋げる概念がありません。",
-    "noTgtTerms": "同じ種類（クラス／述語）の対象がありません。別の対象視点を選んでください。",
+    "noTgtTerms": "同じ区分（データの種類／項目）の対象がありません。別の対象視点を選んでください。",
     "pickDistinct": "起点と対象に別々の概念を選んでください（2つ以上の視点があると繋げます）。",
     "actErr": "操作に失敗しました: {{detail}}",
     "perspArrow": "{{from}} → {{to}}",
@@ -72,22 +72,22 @@
       "sub": "「検索対象として公開」したデータセットが2つ以上あると、ここで横断するつながりを作れます。"
     },
     "step1": "1. つなぐデータセットを選ぶ（2つ以上）",
-    "dsSub": "{{predicates}} 述語 · {{facts}} 事実",
+    "dsSub": "項目 {{predicates}} · 事実 {{facts}}",
     "factsUnknown": "?",
     "step2": "2. つなぐ「概念」を決める",
     "step2Hint": "例: composition / crystal_system / author（英数字のキー）",
     "conceptPlaceholder": "composition",
-    "conceptVocab": "「{{key}}」から自動で作る語彙 → クラス <0>xw:{{className}}</0> ・ つなぐ述語 <1>xw:has{{className}}</1>",
+    "conceptVocab": "「{{key}}」から自動で作ることば → 種類 <0>xw:{{className}}</0> ・ つなぐ項目 <1>xw:has{{className}}</1>",
     "conceptInvalid": "英数字のキーを入力してください（例: crystal_system）。日本語の呼び名は「この視点の名前」へ。",
-    "step3": "3. 各データセットで「{{key}} を表す述語」を指定する",
+    "step3": "3. 各データセットで「{{key}} を表す項目」を指定する",
     "step3Hint": "（人間が確認するマッピング）",
     "apiKeyPlaceholder": "Anthropic API キー（AI 提案に使用・保存は端末内のみ）",
     "propose": "AI に提案させる",
     "proposing": "AI が提案中…",
-    "proposeNote": "AI が {{count}} 件の述語を提案しました（確認・修正してください）。",
-    "proposeNone": "AI は「{{key}}」を担う述語を見つけられませんでした。手動で選んでください。",
+    "proposeNote": "AI が {{count}} 件の項目を提案しました（確認・修正してください）。",
+    "proposeNone": "AI は「{{key}}」を表す項目を見つけられませんでした。手動で選んでください。",
     "proposeErr": "AI 提案に失敗しました: {{detail}}",
-    "selectPredicate": "— 述語を選択 —",
+    "selectPredicate": "— 項目を選択 —",
     "predicateSample": " （例: {{sample}}）",
     "sampleLabel": "例: {{sample}}",
     "step4": "4. 同じ値とみなす基準（正規化）",
@@ -137,16 +137,16 @@
     "condNamePlaceholder": "条件名（英数字・例: crystal_system）",
     "condDelete": "この条件を削除",
     "addCond": "＋ 一致条件を追加",
-    "extraCondIncomplete": "各条件に名前（重複なし・概念名と別）と、各データセットの述語を指定してください。",
+    "extraCondIncomplete": "各条件に名前（重複なし・概念名と別）と、各データセットの項目を指定してください。",
     "step5": "5. この視点の名前",
     "step5Hint": "複数の「視点（つなぎ方）」を区別して持てます",
     "perspectivePlaceholder": "例: 組成で繋ぐ（空欄なら標準の「組成」視点に上書き）",
-    "perspectiveNamed": "新しい独立した視点として作成します（別グラフ・データセット一覧に並びます）。",
+    "perspectiveNamed": "新しい独立した視点として作成します（独立したデータとして、データセット一覧に並びます）。",
     "perspectiveDefault": "空欄のときは標準の「組成」視点を作成/更新します。",
     "build": "つながりを構築（{{count}} データセットを横断）",
     "building": "構築中…",
     "buildHintInvalid": "概念を英数字のキーで入力してください（例: crystal_system）。",
-    "buildHintFewer": "述語を指定したデータセットが2つ以上になると構築できます（現在 {{count}}）。",
+    "buildHintFewer": "項目を指定したデータセットが 2 つ以上になると構築できます（現在 {{count}}）。",
     "buildErr": "構築に失敗しました: {{detail}}",
     "result": {
       "head": "つながりを構築しました",
