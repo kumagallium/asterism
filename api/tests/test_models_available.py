@@ -120,3 +120,71 @@ def test_models_available_provider_error_maps_502(
     with TestClient(app) as client:
         r = client.post("/api/models/available", json={"provider": "anthropic", "api_key": "bad"})
         assert r.status_code == 502
+
+
+def test_models_available_omitted_base_adopts_pinned_server_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Operator has a shared openai-compatible key pinned to Sakura (file store —
+    # the only place a pinned base lives). With no key AND no base in the request,
+    # the picker adopts both so it works key-lessly against the pinned endpoint.
+    from asterism_api import server_keys
+
+    server_keys.set_server_key(
+        tmp_path / "registry", "openai-compatible", "sk-sakura", "https://api.ai.sakura.ad.jp/v1"
+    )
+    # Deterministic SSRF check for the (public) pinned base — no real DNS.
+    monkeypatch.setattr(
+        socket, "getaddrinfo", lambda *a, **k: [(2, 1, 6, "", ("93.184.216.34", 0))]
+    )
+    seen: dict = {}
+
+    def spy(provider, api_key=None, api_base=None):
+        seen.update(provider=provider, api_key=api_key, api_base=api_base)
+        return [{"id": "sakura-model", "display_name": "Sakura"}]
+
+    monkeypatch.setattr(main_mod, "list_available_models", spy)
+    app = build_app(_settings(tmp_path), oxigraph_client=_healthy(tmp_path), start_watcher=False)
+    with TestClient(app) as client:
+        r = client.post("/api/models/available", json={"provider": "openai-compatible"})
+        assert r.status_code == 200
+    assert seen == {
+        "provider": "openai-compatible",
+        "api_key": "sk-sakura",
+        "api_base": "https://api.ai.sakura.ad.jp/v1",
+    }
+
+
+def test_models_available_different_base_does_not_borrow_server_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Operator's shared key is pinned to Sakura, but the request explicitly names
+    # a DIFFERENT (local LM Studio) endpoint with no key. The pinned key must NOT
+    # be borrowed for another base (no key leak) AND the user's endpoint must be
+    # honored — not silently replaced by the pinned Sakura URL (the bug that
+    # returned Sakura's models against a localhost request).
+    from asterism_api import server_keys
+
+    server_keys.set_server_key(
+        tmp_path / "registry", "openai-compatible", "sk-sakura", "https://api.ai.sakura.ad.jp/v1"
+    )
+    monkeypatch.setenv("ASTERISM_ALLOW_PRIVATE_LLM_BASE", "1")  # allow the localhost target
+    seen: dict = {}
+
+    def spy(provider, api_key=None, api_base=None):
+        seen.update(provider=provider, api_key=api_key, api_base=api_base)
+        return [{"id": "local-model", "display_name": "Local"}]
+
+    monkeypatch.setattr(main_mod, "list_available_models", spy)
+    app = build_app(_settings(tmp_path), oxigraph_client=_healthy(tmp_path), start_watcher=False)
+    with TestClient(app) as client:
+        r = client.post(
+            "/api/models/available",
+            json={"provider": "openai-compatible", "api_base": "http://localhost:1234/v1"},
+        )
+        assert r.status_code == 200
+    assert seen == {
+        "provider": "openai-compatible",
+        "api_key": None,
+        "api_base": "http://localhost:1234/v1",
+    }

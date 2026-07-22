@@ -2307,11 +2307,22 @@ def build_app(
         api_key = body.api_key
         api_base = body.api_base
         if not api_key:
-            # Fall back to the operator's shared key; for openai-compatible use its
-            # PINNED base (not the request's) so the shared key is never sent out.
-            api_key, pinned = server_keys.resolve(provider, cfg.registry_root)
-            if pinned:
-                api_base = pinned
+            # Fall back to the operator's shared key. For openai-compatible the
+            # shared key is PINNED to one endpoint, so it must never be sent to a
+            # different api_base. When the request explicitly names another
+            # endpoint (e.g. a local LM Studio / Ollama at localhost), keep the
+            # user's endpoint and DON'T borrow the shared key — otherwise we would
+            # silently query the pinned provider (Sakura etc.) and return the
+            # wrong model list. When the request omits api_base, adopt the pinned
+            # one so the picker still works key-lessly against the shared endpoint.
+            resolved_key, pinned = server_keys.resolve(provider, cfg.registry_root)
+            request_base = (api_base or "").strip()
+            if pinned and request_base and request_base.rstrip("/") != pinned.rstrip("/"):
+                pass  # user named a different endpoint → use it as-is, no shared key
+            else:
+                api_key = resolved_key
+                if pinned:
+                    api_base = pinned
         if api_base and provider not in ("", "anthropic", "claude"):
             _validate_llm_api_base(api_base)
         try:
