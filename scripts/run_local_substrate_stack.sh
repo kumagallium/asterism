@@ -11,15 +11,24 @@
 #   #   Gallery → ドラフト → 「canonical へ昇格」 (#15 S4)
 #
 # Env overrides:
-#   API_PORT        (default 8085)        port for the local api
-#   OXIGRAPH_URL    (default http://localhost:7878)
-#   STATE_DIR       (default /tmp/asterism-local)  registry / drop / logs root
+#   API_PORT            (default 8085)        port for the local api
+#   OXIGRAPH_URL        (default http://localhost:7878)
+#   STATE_DIR           (default /tmp/asterism-local)  registry / drop / logs root
+#   ASTERISM_API_TOKEN  (default local-dev)   write-auth token; the UI needs the
+#                       same value in 設定 > 書き込みトークン. Export an explicitly
+#                       empty ASTERISM_API_TOKEN= to run token-less (writes 503).
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 API_PORT="${API_PORT:-8085}"
 OXIGRAPH_URL="${OXIGRAPH_URL:-http://localhost:7878}"
 STATE_DIR="${STATE_DIR:-/tmp/asterism-local}"
+# Local default so the browser walkthrough can actually publish (promote /
+# rename / ingest are token-gated fail-closed; without one every write 503s and
+# the kantan wizard dead-ends at S5). The api binds 127.0.0.1 only, so a
+# well-known local token exposes nothing. ${VAR-default} (not :-) keeps an
+# explicitly exported empty value as "no token".
+ASTERISM_API_TOKEN="${ASTERISM_API_TOKEN-local-dev}"
 VENV_PY="$REPO/api/.venv/bin/python"
 
 if [[ ! -x "$VENV_PY" ]]; then
@@ -44,6 +53,11 @@ mkdir -p "$STATE_DIR"/{registry,csv,rdf,err}
 
 echo "==> starting substrate-enabled api on :$API_PORT  (Oxigraph: $OXIGRAPH_URL)"
 echo "    registry: $STATE_DIR/registry"
+if [[ -n "$ASTERISM_API_TOKEN" ]]; then
+  echo "    write token: $ASTERISM_API_TOKEN   (enter the same value in the UI: 設定 > 書き込みトークン)"
+else
+  echo "    write token: (none — writes will be refused with 503)"
+fi
 echo
 echo "    Next, in another terminal, start the UI pointed at this api:"
 echo "      VITE_API_PROXY=http://127.0.0.1:$API_PORT npm --prefix ui run dev"
@@ -56,5 +70,6 @@ exec env \
   CSV2RDF_RDF_ROOT="$STATE_DIR/rdf" \
   CSV2RDF_ERROR_ROOT="$STATE_DIR/err" \
   CSV2RDF_JOBS_LOG="$STATE_DIR/jobs.jsonl" \
+  ASTERISM_API_TOKEN="$ASTERISM_API_TOKEN" \
   "$VENV_PY" -m uvicorn asterism_api.main:build_app --factory \
     --host 127.0.0.1 --port "$API_PORT"

@@ -98,6 +98,20 @@
       "progress": "The AI is fixing the design (attempt {{n}}, 1–3 min)",
       "attempted": "AI fix attempts so far: {{n}}.",
       "failed": "The AI fix didn't go through: {{message}}"
+    },
+    "trap": {
+      "T1": "Row IDs would overlap (overlapping rows collapse into one record)",
+      "T2": "CSV files saved from Excel could end up garbled",
+      "T3": "Some data is still left without a name (ID)",
+      "T4": "Not enough search tags (the words used to find this data)",
+      "T5": "The design's overview diagram doesn't render",
+      "T6": "The design's worked examples don't match the actual design",
+      "T7": "The design's reasoning notes are missing",
+      "T8": "The AI tried to use a column that isn't in your file",
+      "T9": "The conversion rules contain operations outside the safety-vetted set",
+      "incomplete": "The AI's design output was cut off partway",
+      "others_one": "Plus {{count}} more issue converting to the intake rules",
+      "others_other": "Plus {{count}} more issues converting to the intake rules"
     }
   },
   "s6": {
