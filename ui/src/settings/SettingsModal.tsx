@@ -253,8 +253,14 @@ function ModelForm({
     model?.provider ?? 'anthropic',
     model?.apiBase ?? (model ? null : ''),
   )
-  const [apiKey, setApiKey] = useState(() => (model ? getKey(initialGroup) : ''))
-  const [remember, setRemember] = useState(() => (model ? isRemembered(initialGroup) : true))
+  // Prefill the key + remember flag from this credential group for BOTH the edit
+  // and add forms: a key already saved for this provider+endpoint should populate
+  // the (masked) field so the "fetch models" button and save work without
+  // retyping it. Previously the add form always started blank, so the fetch
+  // button stayed disabled even when a usable key existed for the default
+  // provider. getKey/isRemembered return empty/default when the group has none.
+  const [apiKey, setApiKey] = useState(() => getKey(initialGroup))
+  const [remember, setRemember] = useState(() => isRemembered(initialGroup))
 
   // Rate (strings in the form; parsed on save). Input + output only — cache cost
   // is derived from the input price at display time (model-pricing.cacheMultipliers).
