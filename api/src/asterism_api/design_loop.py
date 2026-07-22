@@ -134,6 +134,7 @@ _RE_IR_ARG_EXTRA = re.compile(r"(\w+) does not take a constant arg '([^']+)'")
 _RE_IR_ARG_MISSING = re.compile(r"(\w+) requires the constant arg '([^']+)'")
 _RE_IR_UNKNOWN_FIELD = re.compile(r"unknown field '([^']+)'")
 _RE_IR_FN_PLUS_TEMPLATE = re.compile(r"\(([^)]+)\): 'function' cannot be combined")
+_RE_IR_TRANSFORM_MISUSE = re.compile(r"\(([^)]+)\): transform cannot contain")
 _RE_IR_FN_NEEDS_COLUMN = re.compile(r"\(([^)]+)\)\.function requires 'column'")
 _RE_IR_CARDINALITY = re.compile(r"'([^']+)' carries a cardinality marker")
 _RE_IR_TYPE_CAST = re.compile(r"'([^']+)' is a type, not a Tier-0 function")
@@ -175,6 +176,8 @@ def classify(message: str) -> Issue:
         return Issue("structural", mm.group(1), m)
     if (mm := _RE_IR_FN_PLUS_TEMPLATE.search(m)):
         return Issue("structural", f"fn+template/{mm.group(1)}", m)
+    if (mm := _RE_IR_TRANSFORM_MISUSE.search(m)):
+        return Issue("structural", f"transform-misuse/{mm.group(1)}", m)
     if (mm := _RE_IR_FN_NEEDS_COLUMN.search(m)):
         return Issue("function", f"{mm.group(1)}/-column", m)
     if (mm := _RE_IR_CARDINALITY.search(m)):

@@ -261,6 +261,40 @@ def test_function_with_object_template_gets_targeted_guidance() -> None:
     assert not any(".function requires 'column'" in i for i in issues)
 
 
+def test_transform_misuse_gets_targeted_message() -> None:
+    """Weak-model family (guided-off providers, JSON schema not enforced): the
+    object form + its function are nested INSIDE `transform:`
+    (`transform: {function: X, args: {…}}`), leaving the row with no object form.
+    The parser names the misplaced row fields on top of the generic message."""
+    bad = MINIMAL.replace(
+        "        column: name\n",
+        "        transform: { function: slug, args: { n: 1 } }\n",
+    )
+    issues = parse_issues(bad)
+    # the generic object-form message still fires…
+    assert any("exactly one object form" in i and "none" in i for i in issues)
+    # …plus targeted guidance naming the moved row fields
+    misuse = [i for i in issues if "transform cannot contain the row field(s)" in i]
+    assert misuse, issues
+    assert "function" in misuse[0] and "args" in misuse[0]
+    assert "single-input function" in misuse[0]
+    assert "ex:name" in misuse[0]  # keyed on the predicate for classify/oscillation
+
+
+def test_transform_misuse_not_flagged_for_valid_transform() -> None:
+    """A legit transform (readable IRI segment on an object_template) must NOT trip
+    the misuse detector — it fires ONLY when the row has no object form."""
+    ok = MINIMAL.replace(
+        "        column: name\n",
+        '        object_template: "exr:author/{name}"\n'
+        "        transform: { name: slug }\n",
+    )
+    ir = parse_mapping_ir(ok)  # parses clean — no issues raised
+    (p,) = ir.maps[0].properties
+    assert p.object_template == "exr:author/{name}"
+    assert p.transform == {"name": "slug"}
+
+
 def test_fallback_requires_bare_column() -> None:
     bad = MINIMAL.replace(
         "column: name",
