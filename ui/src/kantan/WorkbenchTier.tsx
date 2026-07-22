@@ -47,6 +47,10 @@ export function WorkbenchTier({
   const [tier, setTier] = useState<Tier>(loadTier)
   const [kantanBusy, setKantanBusy] = useState(false)
   const [jobSaved, setJobSaved] = useState(hasSavedJob)
+  // "構造から見直す" (kantan → detail): the wizard re-emits its current design
+  // as a RedesignTarget so WorkbenchView opens it exactly like a catalog
+  // redesign — same consumption path, dataset identity preserved.
+  const [detailTarget, setDetailTarget] = useState<RedesignTarget | null>(null)
 
   // sessionStorage writes don't trigger renders — poll cheaply while mounted so
   // the toggle locks/unlocks as jobs start and finish on either tier.
@@ -63,11 +67,19 @@ export function WorkbenchTier({
     }
   }, [tier])
 
-  // A redesign (カタログの「見直す」) always opens the DETAIL tier — the stored
-  // design review lives there. Adjust-during-render (same pattern as
-  // WorkbenchView's seededTarget) so WorkbenchView mounts on this very render
-  // pass and consumes the target.
-  if (redesignTarget && tier !== 'detail') setTier('detail')
+  // A redesign (カタログの「見直す」) opens in the user's CURRENT tier — the
+  // kantan re-check flow (S6 column meanings onward) is the default; the full
+  // structural review stays one click away via the wizard's 構造から見直す.
+  // People who built in the simple tier must not be dropped into the detail
+  // workbench just to fix a column meaning.
+
+  // The wizard hands over to the detail tier with its (possibly refined)
+  // design as a redesign target. Adjust-during-render is not needed here —
+  // this runs from a click handler.
+  function reopenInDetail(target: RedesignTarget) {
+    setDetailTarget(target)
+    setTier('detail')
+  }
 
   const locked = jobSaved || kantanBusy
 
@@ -90,11 +102,17 @@ export function WorkbenchTier({
           onHandoffToDetail={() => setTier('detail')}
           onOpenDataset={onOpenDataset}
           onOpenAsk={onOpenAsk}
+          redesignTarget={redesignTarget}
+          onRedesignConsumed={onRedesignConsumed}
+          onRedesignDetail={reopenInDetail}
         />
       ) : (
         <WorkbenchView
-          redesignTarget={redesignTarget}
-          onRedesignConsumed={onRedesignConsumed}
+          redesignTarget={redesignTarget ?? detailTarget}
+          onRedesignConsumed={() => {
+            onRedesignConsumed?.()
+            setDetailTarget(null)
+          }}
           onOpenDataset={onOpenDataset}
         />
       )}

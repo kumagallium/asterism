@@ -196,6 +196,14 @@
     "openDataset": "View the dataset page",
     "startNew": "Add different new data"
   },
+  "redesign": {
+    "banner": "Reviewing: {{name}}",
+    "bannerNote": "Check the column meanings and hand any concerns to the AI. Applying a change rebuilds the draft; Try it → Publish then publishes a new version.",
+    "structural": "Rework the structure (detail mode)",
+    "cancel": "Stop reviewing",
+    "cancelConfirm": "Stop reviewing and go back to the dataset page? (Changes already applied by the AI are saved.)",
+    "confirmNoChange": "Looks right — finish reviewing"
+  },
   "job": {
     "preparing": "Preparing…",
     "analyzing": "Analyzing…",
