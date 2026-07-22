@@ -5889,6 +5889,26 @@ button.ds-artifact:disabled {
   border-radius: 999px;
   padding: 0.05rem 0.45rem;
 }
+/* #9 escape hatch: recipe ① becomes a "back to the drop zone" button. Reset the
+   base <button> (primary fill/border/padding from index.css) back to the pill's
+   own look; the negative margin lets the click fill the .kz-recipe-step padding
+   box so the whole pill is the target. */
+.kz-recipe-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: -0.2rem -0.65rem;
+  padding: 0.2rem 0.65rem;
+  border: none;
+  border-radius: 999px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.kz-recipe-btn:hover:not(:disabled) {
+  background: var(--surface-alt);
+}
 
 /* Generic kantan card (one per wizard screen). */
 .kz-card {
