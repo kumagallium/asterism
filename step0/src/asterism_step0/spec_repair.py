@@ -54,6 +54,10 @@ Rules:
   CURIEs (no *, ?, + suffixes). Multi-valued cells use the multi-value
   functions (split / json_array / json_pluck) — one literal per element;
   irreducible structures go to a …Raw predicate with fallback:true.
+- Keep each property's optional 'label' (human-readable meaning) and 'unit'
+  (human-readable notation like µV/K) when present, and add them when an issue
+  asks for a column's meaning/unit. These are DISPLAY METADATA only — never a
+  value change and never a substitute for the unit-conversion functions.
 """
 
 

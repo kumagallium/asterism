@@ -211,6 +211,46 @@ def test_rules_endpoint_projects_mapping(tmp_path: Path, healthy_client) -> None
         assert r404.status_code == 404
 
 
+def test_rules_endpoint_autocompletes_bracketed_unit(tmp_path: Path, healthy_client) -> None:
+    """A single-column property with no authored unit but a bracketed column name
+    ("Resistivity(Ohm m)") gets its display unit filled deterministically in the
+    projection (task #10) — so an IR saved without the unit still shows it."""
+    rml = _RML.replace('rml:reference "name"', 'rml:reference "Resistivity(Ohm m)"')
+    ir = """\
+version: 1
+prefixes:
+  ex: "https://example.org/onto#"
+  exr: "https://example.org/resource/"
+maps:
+  - name: SampleMap
+    source: samples.csv
+    subject:
+      template: "exr:sample/{sid}"
+      classes: [ex:Sample]
+    properties:
+      - predicate: ex:label
+        column: "Resistivity(Ohm m)"
+"""
+    root = tmp_path / "registry"
+    meta = registry.save_dataset(
+        root,
+        "Samples",
+        dict(_ARTIFACTS, **{"mapping.rml.ttl": rml, "mapping.yaml": ir}),
+        complete=True,
+        warnings=[],
+        traps=[],
+        exit_code=0,
+        created_at="2026-07-11T00:00:00+00:00",
+        proposal_md="# design v1\n",
+    )
+    app = build_app(_settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.get(f"/api/datasets/{meta['id']}/rules")
+        assert r.status_code == 200, r.text
+        rows = {row["predicate"]: row for row in r.json()["maps"][0]["properties"]}
+        assert rows["ex:label"]["unit"] == "Ohm m"
+
+
 def test_rules_endpoint_warns_on_unparsable_ir(tmp_path: Path, healthy_client) -> None:
     """A broken mapping.yaml must degrade to a warning, never fail the
     read-only projection (and never invent label/unit)."""

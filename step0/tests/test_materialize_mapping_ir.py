@@ -202,3 +202,56 @@ def test_apply_source_dialects_missing_file_is_noop(tmp_path: Path) -> None:
     from asterism_step0.materialize import apply_source_dialects
 
     assert apply_source_dialects(IR_BLOCK, tmp_path) == IR_BLOCK
+
+
+# ---------------------------------------------------------------------------
+# Display-unit auto-completion (task #10): a bracketed column name → property
+# `unit`, filled deterministically at materialize time (units never reach RML).
+# ---------------------------------------------------------------------------
+
+_IR_BRACKETED = """\
+version: 1
+prefixes:
+  ex: "https://example.org/ns#"
+  exr: "https://example.org/r/"
+maps:
+  - name: measurement
+    source: data.csv
+    subject:
+      template: "exr:m/{id}"
+      classes: [ex:Measurement]
+    properties:
+      - predicate: ex:resistivity
+        column: "Resistivity(Ohm m)"
+      - predicate: ex:name
+        column: name
+"""
+
+
+def test_bracketed_column_unit_is_auto_completed(tmp_path: Path) -> None:
+    import yaml
+
+    proposal = PROPOSAL_WITH_IR.replace(IR_BLOCK, _IR_BRACKETED)
+    result = materialize_schema(proposal, tmp_path, "demo", write=True)
+    assert result.mapping_ir_issues == []
+    assert result.mapping_ir_yaml is not None
+    props = {
+        p["predicate"]: p
+        for p in yaml.safe_load(result.mapping_ir_yaml)["maps"][0]["properties"]
+    }
+    # the display unit is derived from the bracketed column name, no model call
+    assert props["ex:resistivity"]["unit"] == "Ohm m"
+    # a plain column name yields no unit (no over-completion)
+    assert "unit" not in props["ex:name"]
+    # the persisted spec carries it; the spec still compiles to RML
+    written = (tmp_path / "demo-mapping.yaml").read_text(encoding="utf-8")
+    assert "Ohm m" in written
+    assert result.rml_ttl is not None and "rr:TriplesMap" in result.rml_ttl
+
+
+def test_clean_columns_get_no_spurious_unit(tmp_path: Path) -> None:
+    # The stock IR (columns without brackets) is untouched — enrichment is a
+    # no-op, so no `unit:` line is invented.
+    result = materialize_schema(PROPOSAL_WITH_IR, tmp_path, "demo", write=False)
+    assert result.mapping_ir_yaml is not None
+    assert "unit:" not in result.mapping_ir_yaml
