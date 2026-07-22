@@ -135,7 +135,12 @@ Ingester sketch → Declarative mapping spec). Do NOT emit a diff or "only
 the changed sections" — the output must be reusable as the input to another
 refine call or to materialize. When the schema carries a §9 mapping block,
 keep its form as-is (a yaml mapping spec stays a yaml mapping spec under the
-same heading; never convert it to RML/Turtle or drop it).
+same heading; never convert it to RML/Turtle or drop it). Preserve each
+property's optional `label:` (human-readable meaning, in the reviewer's
+language) and `unit:` (human-readable notation like `µV/K`); when a comment
+clarifies a column's meaning or unit, set them. These are DISPLAY METADATA for
+the review screen only — they never change emitted values and are not a
+substitute for unit-conversion functions (`qudt_unit` / `value_of` / `unit_of`).
 
 ## Constraints (same 8 traps as Step 3)
 

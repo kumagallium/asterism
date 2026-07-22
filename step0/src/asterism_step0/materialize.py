@@ -53,6 +53,8 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from asterism_step0.units import enrich_units
+
 # ----------------------------------------------------------------------------
 # Fenced code block extraction
 # ----------------------------------------------------------------------------
@@ -366,6 +368,13 @@ def materialize_schema(
     # Warnings stay reserved for genuinely blocking states (missing core
     # artifact / spec that does not compile / compiler unavailable).
     if result.mapping_ir_yaml is not None:
+        # Fill each property's display `unit` from a bracketed column name
+        # (e.g. "Resistivity(Ohm m)" → unit: "Ohm m") — deterministic, no model
+        # call. Units are display metadata only (never compiled into RML), so this
+        # cannot change the RML; it only enriches the persisted spec the rules
+        # view reads. PyYAML absence is a no-op (the compile step warns).
+        with contextlib.suppress(ImportError):
+            result.mapping_ir_yaml = enrich_units(result.mapping_ir_yaml)
         if source_dir is not None:
             # Pin detected dialects before compiling so the persisted spec and
             # the RML annotations agree. PyYAML absence falls through to the

@@ -288,6 +288,7 @@ def _merge_ir_display_metadata(mapping_ir_yaml: str, summary: dict) -> None:
     """
     try:
         from asterism_step0.mapping_ir import BUILTIN_PREFIXES, parse_mapping_ir
+        from asterism_step0.units import extract_unit_from_label
 
         ir = parse_mapping_ir(mapping_ir_yaml)
         prefixes = dict(BUILTIN_PREFIXES) | dict(ir.prefixes)
@@ -306,6 +307,20 @@ def _merge_ir_display_metadata(mapping_ir_yaml: str, summary: dict) -> None:
                     extra["label"] = prop.label
                 if prop.unit:
                     extra["unit"] = prop.unit
+                elif (
+                    prop.column
+                    and not prop.columns
+                    and prop.object_template is None
+                    and prop.constant is None
+                ):
+                    # No authored unit, but a single-column property may carry it
+                    # in a bracketed column name ("Resistivity(Ohm m)"). Fill it
+                    # deterministically for display — the same extraction
+                    # materialize persists into new specs (task #10), applied here
+                    # so an IR saved without it still shows the unit.
+                    derived = extract_unit_from_label(prop.column)
+                    if derived:
+                        extra["unit"] = derived
                 if extra:
                     meta.setdefault(expand(prop.predicate), {}).update(extra)
         if not meta:
