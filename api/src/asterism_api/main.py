@@ -277,52 +277,77 @@ class ServerKeyBody(BaseModel):
     api_base: str | None = None
 
 
+def _ir_predicate_display(mapping_ir_yaml: str) -> dict[str, dict[str, str]]:
+    """The Mapping IR's reviewer-facing display metadata per expanded predicate IRI.
+
+    Returns ``{predicate_iri: {"label": …?, "unit": …?}}`` from the reviewed
+    ``mapping.yaml`` (the design SSOT — kantan-mode ADR K8). A missing authored
+    unit falls back to the bracketed-column-name extraction the materialize
+    chokepoint persists (task #10), so an IR saved without it still shows the
+    unit. Raises on an unparsable IR — callers pick their own degradation
+    (a warning on /rules, silence on /trial-queries).
+    """
+    from asterism_step0.mapping_ir import BUILTIN_PREFIXES, parse_mapping_ir
+    from asterism_step0.units import extract_unit_from_label
+
+    ir = parse_mapping_ir(mapping_ir_yaml)
+    prefixes = dict(BUILTIN_PREFIXES) | dict(ir.prefixes)
+
+    def expand(term: str) -> str:
+        prefix, sep, rest = term.partition(":")
+        if sep and prefix in prefixes:
+            return prefixes[prefix] + rest
+        return term
+
+    meta: dict[str, dict[str, str]] = {}
+    for tm in ir.maps:
+        for prop in tm.properties:
+            extra: dict[str, str] = {}
+            if prop.label:
+                extra["label"] = prop.label
+            if prop.unit:
+                extra["unit"] = prop.unit
+            elif (
+                prop.column
+                and not prop.columns
+                and prop.object_template is None
+                and prop.constant is None
+            ):
+                derived = extract_unit_from_label(prop.column)
+                if derived:
+                    extra["unit"] = derived
+            if extra:
+                meta.setdefault(expand(prop.predicate), {}).update(extra)
+    return meta
+
+
+def _model_yaml_labels(model_yaml: str, rml_ttl: str, mie_yaml: str) -> dict[str, str]:
+    """``rdfs:label`` per term IRI from the dataset's model.yaml projection.
+
+    The same deterministic rdf-config projection promote uses — prefixes resolve
+    against THIS dataset's RML/MIE declarations unioned with the standard set.
+    Synchronous (rdflib) — call via ``asyncio.to_thread`` on request paths.
+    """
+    import rdflib
+
+    labels: dict[str, str] = {}
+    if model_yaml.strip():
+        prefixes = STANDARD_PREFIXES | extract_prefixes(rml_ttl, mie_yaml)
+        projected = project_model_yaml(model_yaml, prefixes)
+        for subj, obj in projected.subject_objects(rdflib.RDFS.label):
+            labels[str(subj)] = str(obj)
+    return labels
+
+
 def _merge_ir_display_metadata(mapping_ir_yaml: str, summary: dict) -> None:
     """Attach the Mapping IR's reviewer-facing ``label``/``unit`` to rule rows.
 
-    The IR (``mapping.yaml``) is the reviewed design SSOT; the RML it compiles
-    to deliberately carries no display metadata (kantan-mode ADR K8). Matching
-    is by expanded predicate IRI so the compiled RML stays the single
-    structural projection. Best-effort: an unparsable IR adds a warning
-    instead of failing the read-only endpoint.
+    Matching is by expanded predicate IRI so the compiled RML stays the single
+    structural projection (see :func:`_ir_predicate_display`). Best-effort: an
+    unparsable IR adds a warning instead of failing the read-only endpoint.
     """
     try:
-        from asterism_step0.mapping_ir import BUILTIN_PREFIXES, parse_mapping_ir
-        from asterism_step0.units import extract_unit_from_label
-
-        ir = parse_mapping_ir(mapping_ir_yaml)
-        prefixes = dict(BUILTIN_PREFIXES) | dict(ir.prefixes)
-
-        def expand(term: str) -> str:
-            prefix, sep, rest = term.partition(":")
-            if sep and prefix in prefixes:
-                return prefixes[prefix] + rest
-            return term
-
-        meta: dict[str, dict[str, str]] = {}
-        for tm in ir.maps:
-            for prop in tm.properties:
-                extra: dict[str, str] = {}
-                if prop.label:
-                    extra["label"] = prop.label
-                if prop.unit:
-                    extra["unit"] = prop.unit
-                elif (
-                    prop.column
-                    and not prop.columns
-                    and prop.object_template is None
-                    and prop.constant is None
-                ):
-                    # No authored unit, but a single-column property may carry it
-                    # in a bracketed column name ("Resistivity(Ohm m)"). Fill it
-                    # deterministically for display — the same extraction
-                    # materialize persists into new specs (task #10), applied here
-                    # so an IR saved without it still shows the unit.
-                    derived = extract_unit_from_label(prop.column)
-                    if derived:
-                        extra["unit"] = derived
-                if extra:
-                    meta.setdefault(expand(prop.predicate), {}).update(extra)
+        meta = _ir_predicate_display(mapping_ir_yaml)
         if not meta:
             return
         for entry in summary.get("maps") or []:
@@ -3123,15 +3148,8 @@ def build_app(
         mapping_ir_yaml = str(artifacts.get("mapping.yaml") or "")
 
         def run() -> dict[str, object]:
-            import rdflib
-
             summary = summarize_rml(rml_ttl)
-            labels: dict[str, str] = {}
-            if model_yaml.strip():
-                prefixes = STANDARD_PREFIXES | extract_prefixes(rml_ttl, mie_yaml)
-                projected = project_model_yaml(model_yaml, prefixes)
-                for subj, obj in projected.subject_objects(rdflib.RDFS.label):
-                    labels[str(subj)] = str(obj)
+            labels = _model_yaml_labels(model_yaml, rml_ttl, mie_yaml)
             if mapping_ir_yaml.strip():
                 _merge_ir_display_metadata(mapping_ir_yaml, summary)
             return {"dataset_id": dataset_id, **summary, "labels": labels}
@@ -3208,6 +3226,271 @@ def build_app(
             _count_source_rows, cfg.registry_root, dataset_id
         )
         return {"dataset_id": dataset_id, "classes": classes, "source_rows": source_rows}
+
+    @app.get("/api/datasets/{dataset_id}/trial-queries")
+    async def dataset_trial_queries(dataset_id: str) -> dict[str, object]:
+        """Deterministic "try it" queries over the dataset's staged draft graph.
+
+        Backs the kantan tier's S7 ためす screen (ADR kantan-mode-two-tier-ux.md
+        K9): right after the draft ingest the wizard auto-runs a fixed set of
+        read-only aggregates — per-kind entity counts, the busiest numeric
+        field's range, and the entity holding its maximum (its subject IRI is
+        the citation) — so the user experiences "citable facts" on their own
+        data before publishing. LLM-free by design: the question sentences are
+        assembled client-side from the returned labels; this endpoint reports
+        numbers, IRIs and the exact SPARQL it ran (the UI folds it as 技術情報).
+        Labels/units come from the Mapping IR (K8) + the model.yaml projection —
+        never re-derived by an AI. Works before AND after promote: the staged
+        version graph a promote points ``liveGraph`` at is the same graph.
+
+        Read-only and forgiving like /draft-stats: a never-ingested dataset or
+        an unreachable store returns 200 with ``available: false`` (the UI
+        offers a retry; S7 must stay passable — the human gates are S4/S6/S8).
+        When no numeric field exists, ``samples`` carries real entity IRIs of
+        the biggest kind instead (the ADR's fallback) and ``range``/``top``
+        are null. Only an unknown dataset 404s.
+        """
+        data = registry.load_dataset(cfg.registry_root, dataset_id)
+        if data is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        meta = data.get("meta") or {}
+        artifacts = data.get("artifacts") or {}
+        out: dict[str, object] = {
+            "dataset_id": dataset_id,
+            "available": False,
+            "classes": [],
+            "count_sparql": None,
+            "entities": None,
+            "range": None,
+            "top": None,
+            "samples": None,
+        }
+        # Before promote the data sits in the staged draft (``graph_iri``);
+        # promote clears ``ingested``/``graph_iri`` and records the SAME version
+        # graph as ``live_graph`` (O(1) pointer flip, nothing moves) — so the S9
+        # done screen can re-fetch its question chips after a reload too.
+        if not (meta.get("ingested") or meta.get("promoted")):
+            return out
+
+        # Display enrichment — the same two sources /rules merges: the IR's
+        # reviewed label/unit per predicate + the model.yaml rdfs:labels
+        # (classes AND predicates). Both deterministic; both optional.
+        def display_meta() -> tuple[dict[str, str], dict[str, dict[str, str]]]:
+            labels = _model_yaml_labels(
+                str(artifacts.get("model.yaml") or ""),
+                str(artifacts.get("mapping.rml.ttl") or ""),
+                str(artifacts.get("mie.yaml") or ""),
+            )
+            try:
+                ir_meta = _ir_predicate_display(str(artifacts.get("mapping.yaml") or ""))
+            except Exception:
+                ir_meta = {}  # enrichment only — a broken IR must not block S7
+            return labels, ir_meta
+
+        labels, ir_meta = await asyncio.to_thread(display_meta)
+
+        def label_of(iri: str) -> str | None:
+            return (ir_meta.get(iri) or {}).get("label") or labels.get(iri) or None
+
+        def unit_of(iri: str) -> str | None:
+            return (ir_meta.get(iri) or {}).get("unit") or None
+
+        def decorate(entry: dict[str, object], iri: str) -> dict[str, object]:
+            got = label_of(iri)
+            if got:
+                entry["label"] = got
+            unit = unit_of(iri)
+            if unit:
+                entry["unit"] = unit
+            return entry
+
+        staged_iri = (
+            meta.get("graph_iri")  # the staged draft (pre-promote)
+            or meta.get("live_graph")  # the live version graph (post-promote)
+            or substrate.canonical_graph_iri(dataset_id)  # pre-part5 records
+        )
+        client: OxigraphClient = app.state.client
+
+        async def select(q: str) -> list[dict] | None:
+            """Bindings, or None when the store call failed (degrade, never 500)."""
+            try:
+                res = await client.sparql_select(q)
+            except Exception:
+                return None
+            if isinstance(res, dict):
+                results = res.get("results")
+                if isinstance(results, dict):
+                    bindings = results.get("bindings", [])
+                    if isinstance(bindings, list):
+                        return bindings
+            return []
+
+        # 1) Per-kind counts — the same aggregation the S6 correspondence card
+        #    shows, restated here as the first answered question.
+        count_q = (
+            f"SELECT ?class (COUNT(DISTINCT ?s) AS ?n) WHERE {{ "
+            f"GRAPH <{staged_iri}> {{ ?s a ?class }} }} "
+            f"GROUP BY ?class ORDER BY DESC(?n) ?class"
+        )
+        rows = await select(count_q)
+        if rows is None:
+            return out  # store down → available: false, the UI offers retry
+        classes: list[dict[str, object]] = []
+        for b in rows:
+            cls = b.get("class") or {}
+            n_raw = (b.get("n") or {}).get("value")
+            if cls.get("type") != "uri" or n_raw is None:
+                continue
+            try:
+                n = int(n_raw)
+            except (TypeError, ValueError):
+                continue
+            entry: dict[str, object] = {"iri": cls["value"], "n": n}
+            got = label_of(str(cls["value"]))
+            if got:
+                entry["label"] = got
+            classes.append(entry)
+        out["available"] = True
+        out["classes"] = classes
+        out["count_sparql"] = count_q
+
+        # 1b) No typed classes at all — a legal shape (real weak-model designs
+        #     often declare no rr:class): the first question falls back to the
+        #     plain entity count so the screen never opens empty-handed.
+        if not classes:
+            ent_q = (
+                f"SELECT (COUNT(DISTINCT ?s) AS ?n) WHERE {{ "
+                f"GRAPH <{staged_iri}> {{ ?s ?p ?o }} }}"
+            )
+            ent_rows = await select(ent_q) or []
+            ent_raw = (ent_rows[0].get("n") or {}).get("value") if ent_rows else None
+            try:
+                ent_n = int(ent_raw) if ent_raw is not None else 0
+            except (TypeError, ValueError):
+                ent_n = 0
+            if ent_n > 0:
+                out["entities"] = {"n": ent_n, "sparql": ent_q}
+
+        # 2) Numeric fields by usage. The busiest one with an actual spread
+        #    (min < max) becomes the range question; the next such field (or the
+        #    same when it is the only one) the top-value question. Deterministic
+        #    tie-break by predicate IRI. Numbers are recognised by a cast
+        #    attempt (xsd:double(str(?v)) — an un-castable literal leaves ?num
+        #    unbound), NOT by isNumeric(): real ingests routinely carry numbers
+        #    as plain string literals, which isNumeric() would hide entirely.
+        num_q = (
+            f"PREFIX xsd: <http://www.w3.org/2001/XMLSchema#> "
+            f"SELECT ?p (COUNT(?num) AS ?n) (MIN(?num) AS ?min) (MAX(?num) AS ?max) WHERE {{ "
+            f"GRAPH <{staged_iri}> {{ ?s ?p ?v FILTER(isLiteral(?v)) "
+            f"BIND(xsd:double(str(?v)) AS ?num) FILTER(BOUND(?num)) }} }} "
+            f"GROUP BY ?p ORDER BY DESC(?n) ?p LIMIT 12"
+        )
+        num_rows = await select(num_q) or []
+        spread: list[dict[str, object]] = []
+        for b in num_rows:
+            p = b.get("p") or {}
+            vmin = (b.get("min") or {}).get("value")
+            vmax = (b.get("max") or {}).get("value")
+            if p.get("type") != "uri" or vmin is None or vmax is None:
+                continue
+            try:
+                has_spread = float(vmin) < float(vmax)
+                n = int((b.get("n") or {}).get("value") or 0)
+            except (TypeError, ValueError):
+                continue
+            if has_spread:
+                spread.append({"iri": p["value"], "n": n, "min": vmin, "max": vmax})
+        if spread:
+            pick = spread[0]
+            out["range"] = decorate(
+                {
+                    "predicate_iri": pick["iri"],
+                    "n": pick["n"],
+                    "min": pick["min"],
+                    "max": pick["max"],
+                    "sparql": num_q,
+                },
+                str(pick["iri"]),
+            )
+
+        # 3) The entity holding the maximum of the top-question field, with its
+        #    other literal values as context ("1.42 — 試料: BiTe-04, 温度: 500")
+        #    and its IRI as the citation the whole screen exists to show.
+        top_pick = spread[1] if len(spread) > 1 else (spread[0] if spread else None)
+        if top_pick:
+            top_iri = str(top_pick["iri"])
+            top_q = (
+                f"PREFIX xsd: <http://www.w3.org/2001/XMLSchema#> "
+                f"SELECT ?s ?v WHERE {{ GRAPH <{staged_iri}> {{ "
+                f"?s <{top_iri}> ?v FILTER(isLiteral(?v)) "
+                f"BIND(xsd:double(str(?v)) AS ?num) FILTER(BOUND(?num)) }} }} "
+                f"ORDER BY DESC(?num) ?s LIMIT 1"
+            )
+            top_rows = await select(top_q) or []
+            subj = (top_rows[0].get("s") or {}) if top_rows else {}
+            top_v = (top_rows[0].get("v") or {}).get("value") if top_rows else None
+            if subj.get("type") == "uri" and top_v is not None:
+                subject_iri = str(subj["value"])
+                detail_q = (
+                    f"SELECT ?p ?v WHERE {{ GRAPH <{staged_iri}> {{ "
+                    f"<{subject_iri}> ?p ?v FILTER(isLiteral(?v)) }} }} ORDER BY ?p LIMIT 12"
+                )
+                details: list[dict[str, object]] = []
+                for db in await select(detail_q) or []:
+                    dp = db.get("p") or {}
+                    dv = (db.get("v") or {}).get("value")
+                    if dp.get("type") != "uri" or dv is None:
+                        continue
+                    if dp["value"] == top_iri:
+                        continue  # the answer value itself is not context
+                    details.append(
+                        decorate(
+                            {"predicate_iri": dp["value"], "value": dv},
+                            str(dp["value"]),
+                        )
+                    )
+                out["top"] = decorate(
+                    {
+                        "predicate_iri": top_iri,
+                        "value": top_v,
+                        "subject_iri": subject_iri,
+                        "subject_details": details,
+                        "sparql": top_q,
+                    },
+                    top_iri,
+                )
+
+        # 4) ADR fallback for shapes with no numeric field at all: real entity
+        #    IRIs — of the biggest kind when classes exist, of any subject
+        #    otherwise — so the "every fact has a permanent ID" promise is
+        #    still demonstrated with the user's own data.
+        if out["range"] is None and out["top"] is None:
+            biggest = classes[0] if classes else None
+            if biggest:
+                sample_q = (
+                    f"SELECT ?s WHERE {{ GRAPH <{staged_iri}> {{ "
+                    f"?s a <{biggest['iri']}> }} }} ORDER BY ?s LIMIT 3"
+                )
+            else:
+                sample_q = (
+                    f"SELECT DISTINCT ?s WHERE {{ GRAPH <{staged_iri}> {{ "
+                    f"?s ?p ?o FILTER(isIRI(?s)) }} }} ORDER BY ?s LIMIT 3"
+                )
+            iris = [
+                str((b.get("s") or {}).get("value"))
+                for b in await select(sample_q) or []
+                if (b.get("s") or {}).get("type") == "uri"
+            ]
+            if iris:
+                samples: dict[str, object] = {
+                    "class_iri": biggest["iri"] if biggest else None,
+                    "iris": iris,
+                    "sparql": sample_q,
+                }
+                if biggest and biggest.get("label"):
+                    samples["label"] = biggest["label"]
+                out["samples"] = samples
+        return out
 
     @app.get("/api/datasets/{dataset_id}/history")
     async def get_dataset_history(dataset_id: str) -> dict[str, object]:

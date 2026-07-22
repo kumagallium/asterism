@@ -4,6 +4,7 @@ import {
   ApiError,
   attachSource,
   fetchDraftStats,
+  fetchTrialQueries,
   IngestCancelledError,
   IngestValidationError,
   inspectCsvs,
@@ -26,11 +27,23 @@ import {
   type ProposeResult,
   type SkeletonAnnotations,
   type SourceDialect,
+  type TrialQueries,
 } from '../api'
 import { TABULAR_ACCEPT } from '../datasetsApi'
 import { DocumentPanel } from '../DocumentPanel'
 import { PRESET_HINTS } from '../domainHints'
-import { getDatasetRules, type DatasetRules, type RuleMap, type RuleProperty } from '../galleryApi'
+import {
+  alignmentWordSplit,
+  getAlignment,
+  getDatasetRules,
+  promoteDataset,
+  renameDataset,
+  type AlignmentReport,
+  type DatasetRules,
+  type RuleMap,
+  type RuleProperty,
+} from '../galleryApi'
+import type { DetailTab } from '../GalleryView'
 import { clearIngestJob, loadIngestJob, saveIngestJob } from '../ingestJob'
 import { JobProgress } from '../JobProgress'
 import { useLlmSettings } from '../settings/context'
@@ -39,13 +52,15 @@ import { localName } from '../vocab'
 import { plainError } from './errorMessages'
 import { RecipeCard } from './RecipeCard'
 
-// The kantan (かんたん) tier wizard — ADR kantan-mode-two-tier-ux.md, S1-S6.
+// The kantan (かんたん) tier wizard — ADR kantan-mode-two-tier-ux.md, S1-S9.
 // A linear, plain-language flow over the SAME backend calls the detail tier
 // uses: drop files → auto inspect → two "only you know this" questions →
 // staged skeleton propose → the human row-counting gate (S4, human gate ①) →
 // continue → S5 auto chain (save → source persist → DRAFT ingest, no approval
 // button by design — ADR K3) → S6 column-meaning review (human gate ②) →
-// confirm → hand over to the dataset screen for ためす/公開 (S7-S9, upcoming).
+// S7 auto try-it-out queries (K9 — run, never offered as a button) →
+// S8 publish (rename + word summary + promote in ONE screen, human gate ③ —
+// K10) → S9 done (Ask-prefill question chips + the grow-your-dataset exits).
 // No jargon may appear in this layer (no RML/IRI/namespace/canonical wording).
 
 // Storage keys shared with the detail tier (WorkbenchView.tsx). Duplicated by
@@ -58,7 +73,7 @@ const KZ_STORAGE = 'asterism.kantan'
 type KantanKind = 'tabular' | 'json' | 'document'
 type Q1Answer = 'keep' | 'drop'
 type Q2Answer = 'only' | 'elsewhere' | 'unknown'
-type KzStep = 1 | 2 | 3 | 4 | 5 | 6
+type KzStep = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
 
 /** Where the S5 auto chain (save → source persist → draft ingest) restarts. */
 type PipeStage = 'materialize' | 'attach' | 'ingest'
@@ -78,6 +93,23 @@ interface StopCard {
    *  warnings + validation/mapping issues) handed verbatim to the one-click
    *  AI fix — mirrors the detail tier's composeFixComment. */
   fixLines?: string[]
+}
+
+/** One S7 question card / S9 chip: plain question, plain answer, and (when the
+ *  answer is a single entity) its IRI as the citation + the disclosed SPARQL. */
+interface TrialQA {
+  q: string
+  a: string
+  citeIri?: string
+  sparql?: string
+}
+
+// Locale-aware display of a SPARQL numeric lexical ("300", "1.42e0"): Number()
+// first so canonical exponent forms render as plain figures; a non-finite
+// parse falls back to the raw lexical unchanged.
+function formatNum(raw: string, lng: string): string {
+  const n = Number(raw)
+  return Number.isFinite(n) ? n.toLocaleString(lng, { maximumFractionDigits: 6 }) : raw
 }
 
 // Extension → kind. Tabular comes from the shared TABULAR_ACCEPT constant so a
@@ -209,6 +241,10 @@ interface KantanSnapshot {
   autoFixed: boolean
   confirmed: boolean
   columnSamples: Record<string, string[]>
+  // S8/S9: the publish name being edited and whether promote landed — a reload
+  // on S9 must come back as "published", not re-offer the publish button.
+  pubName: string
+  published: boolean
 }
 
 function loadSnapshot(): Partial<KantanSnapshot> {
@@ -244,26 +280,37 @@ export function KantanWizard({
   onBusyChange,
   onHandoffToDetail,
   onOpenDataset,
+  onOpenAsk,
 }: {
   /** Reports whether a job is in flight (the tier toggle locks while true). */
   onBusyChange: (busy: boolean) => void
   /** Called when the user opens the finished design in the detail tier. */
   onHandoffToDetail: () => void
-  /** Opens the catalog detail for a dataset (the S6 "公開へ" exit). */
-  onOpenDataset?: (id: string) => void
+  /** Opens the catalog detail for a dataset (S9's grow-the-dataset exits land
+   *  on the ファイル tab, where the append / re-ingest controls live). */
+  onOpenDataset?: (id: string, tab?: DetailTab) => void
+  /** Opens the Ask view with the question prefilled (the S9 chips). */
+  onOpenAsk?: (question: string) => void
 }) {
   const { t, i18n } = useTranslation()
   const { isReady, getActiveCredentials, openSettings } = useLlmSettings()
 
   const [snap] = useState(loadSnapshot)
-  // Restore priority: S5/S6 survive on their persisted dataset id (an S5
-  // restore additionally needs the proposal — the chain restarts from it); a
-  // continue job that survived a reload keeps S4 alive; otherwise every restore
-  // lands on S1 (files are gone) — the skeleton, if any, is kept so a re-drop
-  // of the same files resumes at the gate.
+  // Restore priority: S5-S9 survive on their persisted dataset id (an S5
+  // restore additionally needs the proposal — the chain restarts from it; an
+  // S9 restore additionally needs the published flag — never re-offer the
+  // publish button for a promote that already landed); a continue job that
+  // survived a reload keeps S4 alive; otherwise every restore lands on S1
+  // (files are gone) — the skeleton, if any, is kept so a re-drop of the same
+  // files resumes at the gate.
   const [step, setStep] = useState<KzStep>(() => {
-    if (snap.step === 6 && snap.datasetId) return 6
-    if (snap.step === 5 && snap.datasetId && snap.proposal) return 5
+    if (snap.datasetId) {
+      if (snap.step === 9 && snap.published) return 9
+      if (snap.step === 8 || (snap.step === 9 && !snap.published)) return 8
+      if (snap.step === 7) return 7
+      if (snap.step === 6) return 6
+      if (snap.step === 5 && snap.proposal) return 5
+    }
     return snap.skeleton && loadSavedJob()?.kind === 'propose' ? 4 : 1
   })
   const [files, setFiles] = useState<File[]>([])
@@ -340,7 +387,23 @@ export function KantanWizard({
   const [aiFixCount, setAiFixCount] = useState(0)
   const [confirmed, setConfirmed] = useState<boolean>(snap.confirmed ?? false)
 
-  const busy = inspecting || skeletonBusy || continuing || pipeBusy || refining !== false
+  // S7: the automatic try-it-out queries (ADR K9 — auto-run, never a button).
+  const [trial, setTrial] = useState<TrialQueries | null>(null)
+  const [trialLoading, setTrialLoading] = useState(false)
+  const [trialErr, setTrialErr] = useState('')
+
+  // S8: publish = name + per-kind counts + word summary + promote, ONE screen
+  // (human gate ③ — K10). The name defaults empty: the auto chain registered
+  // the draft under a throwaway name, and an empty name disables the button.
+  const [pubName, setPubName] = useState<string>(snap.pubName ?? '')
+  const [alignment, setAlignment] = useState<AlignmentReport | null>(null)
+  const [s8Loading, setS8Loading] = useState(false)
+  const [publishing, setPublishing] = useState(false)
+  const [pubErr, setPubErr] = useState('')
+  const [published, setPublished] = useState<boolean>(snap.published ?? false)
+
+  const busy =
+    inspecting || skeletonBusy || continuing || pipeBusy || refining !== false || publishing
   useEffect(() => {
     onBusyChange(busy)
   }, [busy, onBusyChange])
@@ -364,6 +427,8 @@ export function KantanWizard({
       autoFixed,
       confirmed,
       columnSamples,
+      pubName,
+      published,
     }
     try {
       sessionStorage.setItem(KZ_STORAGE, JSON.stringify(snapshot))
@@ -386,6 +451,8 @@ export function KantanWizard({
     autoFixed,
     confirmed,
     columnSamples,
+    pubName,
+    published,
   ])
 
   // Hand the finished design to the detail tier: a WB_STORAGE-compatible
@@ -467,15 +534,27 @@ export function KantanWizard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // S5/S6 reload recovery (best-effort, ADR K3/K11): a still-running draft
+  // S5-S9 reload recovery (best-effort, ADR K3/K11): a still-running draft
   // ingest is re-attached through the same SSE replay the catalog uses
   // (StrictMode-safe — re-subscribing twice is harmless, unlike re-POSTing;
-  // the no-live-job case became a stop card at state init above). S6 just
-  // re-fetches its read-only data.
+  // the no-live-job case became a stop card at state init above). S6-S9 just
+  // re-fetch their read-only data (S9 only the chips' question source).
   useEffect(() => {
     if (!kzDatasetId) return
     if (step === 6 && !confirmed) {
       void loadS6(kzDatasetId)
+      return
+    }
+    if (step === 7) {
+      void loadS7(kzDatasetId)
+      return
+    }
+    if (step === 8) {
+      void loadS8(kzDatasetId)
+      return
+    }
+    if (step === 9) {
+      void loadS7(kzDatasetId) // chips reuse the S7 questions; enrichment only
       return
     }
     if (step !== 5) return
@@ -566,7 +645,7 @@ export function KantanWizard({
     void runInspect(arr)
   }
 
-  /** Drop every S5/S6 leftover when a fresh design starts. */
+  /** Drop every S5-S9 leftover when a fresh design starts. */
   function resetPipelineState() {
     setKzDatasetId(null)
     setKzDatasetName(null)
@@ -583,6 +662,12 @@ export function KantanWizard({
     setFixErr('')
     setAiFixCount(0)
     setIngestProgress(null)
+    setTrial(null)
+    setTrialErr('')
+    setAlignment(null)
+    setPubName('')
+    setPubErr('')
+    setPublished(false)
   }
 
   async function runInspect(arr: File[]) {
@@ -954,6 +1039,174 @@ export function KantanWizard({
     }
   }
 
+  // ---- S7: ためす — the automatic try-it-out queries (ADR K9) ----------------
+  // Deterministic aggregates over the user's own draft, run for them (never a
+  // button — first-timers don't press optional buttons). The screen is a soft
+  // gate: its exits are "looks right → publish" and "something is off → back
+  // to the column meanings".
+
+  async function loadS7(datasetId: string) {
+    setTrialLoading(true)
+    setTrialErr('')
+    try {
+      setTrial(await fetchTrialQueries(datasetId))
+    } catch (e) {
+      setTrialErr(errText(e))
+    } finally {
+      setTrialLoading(false)
+    }
+  }
+
+  // S6 確定 → straight into S7 with the queries already running.
+  function confirmMeanings() {
+    setConfirmed(true)
+    setStep(7)
+    if (kzDatasetId) void loadS7(kzDatasetId)
+  }
+
+  // The S7 "something is off" exit: back to the column-meaning review.
+  function backToMeanings() {
+    setConfirmed(false)
+    setStep(6)
+    if (kzDatasetId) void loadS6(kzDatasetId)
+  }
+
+  /** The S7 cards and the S9 ask-prefill chips share this assembly: the
+   *  deterministic numbers come from the API, the sentences from the locale.
+   *  Labels prefer the reviewed IR label (K8), then fall back to the term's
+   *  local name — never jargon, never an extra AI pass. */
+  function buildTrialQAs(tr: TrialQueries): TrialQA[] {
+    const lng = i18n.language
+    const join = t('kantan:s7.join')
+    const out: TrialQA[] = []
+    const clsLabel = (c: { iri: string; label?: string }) => c.label ?? localName(c.iri)
+    if (tr.classes.length > 0) {
+      out.push({
+        q:
+          tr.classes.length === 1
+            ? t('kantan:s7.qCountOne', { label: clsLabel(tr.classes[0]) })
+            : t('kantan:s7.qCountMany'),
+        a: tr.classes
+          .map((c) => t('kantan:s7.aCount', { label: clsLabel(c), n: c.n.toLocaleString(lng) }))
+          .join(join),
+        sparql: tr.count_sparql ?? undefined,
+      })
+    } else if (tr.entities) {
+      // No declared kinds (a legal shape) → the plain record count.
+      out.push({
+        q: t('kantan:s7.qCountAny'),
+        a: t('kantan:s7.aCountAny', { n: tr.entities.n.toLocaleString(lng) }),
+        sparql: tr.entities.sparql,
+      })
+    }
+    if (tr.range) {
+      out.push({
+        q: t('kantan:s7.qRange', {
+          label: tr.range.label ?? localName(tr.range.predicate_iri),
+        }),
+        a: t('kantan:s7.aRange', {
+          min: formatNum(tr.range.min, lng),
+          max: formatNum(tr.range.max, lng),
+          unit: tr.range.unit ? ` ${tr.range.unit}` : '',
+        }),
+        sparql: tr.range.sparql,
+      })
+    }
+    if (tr.top) {
+      // Context values go through the same locale formatting as the answer —
+      // formatNum leaves non-numeric strings (e.g. a sample name) untouched.
+      const context = tr.top.subject_details
+        .slice(0, 2)
+        .map(
+          (d) =>
+            `${d.label ?? localName(d.predicate_iri)}: ${formatNum(d.value, lng)}${
+              d.unit ? ` ${d.unit}` : ''
+            }`,
+        )
+        .join(join)
+      out.push({
+        q: t('kantan:s7.qTop', { label: tr.top.label ?? localName(tr.top.predicate_iri) }),
+        a:
+          formatNum(tr.top.value, lng) +
+          (tr.top.unit ? ` ${tr.top.unit}` : '') +
+          (context ? t('kantan:s7.aTopContext', { context }) : ''),
+        citeIri: tr.top.subject_iri,
+        sparql: tr.top.sparql,
+      })
+    }
+    if (tr.samples) {
+      const label =
+        tr.samples.label ?? (tr.samples.class_iri ? localName(tr.samples.class_iri) : null)
+      out.push({
+        q: label ? t('kantan:s7.qSamples', { label }) : t('kantan:s7.qSamplesAny'),
+        a: tr.samples.iris.map((iri) => localName(iri)).join(join),
+        citeIri: tr.samples.iris[0],
+        sparql: tr.samples.sparql,
+      })
+    }
+    return out
+  }
+
+  // ---- S8: 公開する — name + counts + word summary + promote (gate ③, K10) ---
+
+  function goPublish() {
+    setStep(8)
+    if (kzDatasetId) void loadS8(kzDatasetId)
+  }
+
+  async function loadS8(datasetId: string) {
+    setS8Loading(true)
+    setPubErr('')
+    // Display material only: the counts card may already be loaded (S6), and
+    // the word summary is enrichment — its absence never blocks publishing.
+    const [s, a] = await Promise.all([
+      stats ? Promise.resolve(stats) : fetchDraftStats(datasetId).catch(() => null),
+      getAlignment(datasetId).catch(() => null),
+    ])
+    if (s) setStats(s)
+    setAlignment(a)
+    setS8Loading(false)
+  }
+
+  async function runPublish() {
+    const name = pubName.trim()
+    if (!kzDatasetId || !name || publishing) return
+    setPublishing(true)
+    setPubErr('')
+    try {
+      // The publish name is part of the publish act (the auto chain registered
+      // the draft under a throwaway name): rename first so the public catalog
+      // card carries the human-chosen name.
+      if (name !== kzDatasetName) {
+        await renameDataset(kzDatasetId, name)
+        setKzDatasetName(name)
+      }
+      const res = await promoteDataset(kzDatasetId)
+      setAlignment(res.alignment)
+      setPublished(true)
+      setStep(9)
+    } catch (e) {
+      setPubErr(errText(e))
+    } finally {
+      setPublishing(false)
+    }
+  }
+
+  // ---- S9: できあがり — ask chips + the grow-the-dataset exits ----------------
+
+  // Both grow exits land on the catalog's ファイル tab, where the append and
+  // re-ingest controls live. The wizard's run is complete — drop its snapshot
+  // so the next visit starts fresh at the drop zone.
+  function openGrow(tab?: DetailTab) {
+    if (!kzDatasetId) return
+    try {
+      sessionStorage.removeItem(KZ_STORAGE)
+    } catch {
+      /* non-fatal */
+    }
+    onOpenDataset?.(kzDatasetId, tab)
+  }
+
   // The shared refine → re-materialize chain: the S6 note ("AI に反映して作り
   // 直す") and the S5 design-stop AI fix both ride it — when the refined design
   // lands, the SAME auto chain re-runs (the source is already persisted, so the
@@ -1065,16 +1318,6 @@ export function KantanWizard({
     void runPipeline('attach', undefined, arr)
   }
 
-  function openDatasetFromDone() {
-    if (!kzDatasetId) return
-    try {
-      sessionStorage.removeItem(KZ_STORAGE) // the wizard's job is done
-    } catch {
-      /* non-fatal */
-    }
-    onOpenDataset?.(kzDatasetId)
-  }
-
   // The full component-state wipe shared by the completion-card "新しいデータを
   // 追加する" (startFresh) and the stop-card / recipe-① "最初からやり直す"
   // (doRestart). Only component state — callers own sessionStorage + the confirm.
@@ -1144,9 +1387,19 @@ export function KantanWizard({
 
   // ---- render -----------------------------------------------------------------
 
-  const recipePos: 1 | 2 | 3 = step <= 2 ? 1 : step === 3 ? 2 : 3
+  // Recipe position: ①②③ as before; S7 = ④ ためす, S8/S9 = ⑤ 公開する
+  // (S9 renders ⑤ as done — the run is complete).
+  const recipePos: 1 | 2 | 3 | 4 | 5 =
+    step <= 2 ? 1 : step === 3 ? 2 : step <= 6 ? 3 : step === 7 ? 4 : 5
   const resumeAvailable = !!skeleton && files.length === 0 && !proposal && step === 1
   const showS5 = pipeBusy || refining !== false || step === 5
+
+  // S7 cards / S9 chips: assembled sentences over the deterministic results.
+  const trialQAs = trial?.available ? buildTrialQAs(trial) : []
+  const trialFailed = !trialLoading && (!!trialErr || (trial !== null && !trial.available))
+  // S8: word summary (structural terms are plumbing, not words) + plain error.
+  const words = alignment ? alignmentWordSplit(alignment) : null
+  const pubPlain = pubErr ? plainError(pubErr) : null
 
   // Stop-card plain-language translation (#7): only the HTTP-error kinds carry a
   // raw technical detail worth translating. The design / files / interrupted
@@ -1188,30 +1441,9 @@ export function KantanWizard({
 
   return (
     <div className="kz-wizard">
-      <RecipeCard
-        current={recipePos}
-        currentDone={confirmed && step === 6}
-        onStepClick={onRecipeStep}
-      />
+      <RecipeCard current={recipePos} currentDone={step === 9} onStepClick={onRecipeStep} />
 
-      {confirmed && step === 6 ? (
-        <section className="kz-card kz-done">
-          <h3 className="kz-done-title">✓ {t('kantan:s6.doneTitle')}</h3>
-          <p className="kz-note">{t('kantan:s6.doneBody')}</p>
-          <div className="kz-actions">
-            {kzDatasetId && onOpenDataset && (
-              <button type="button" onClick={openDatasetFromDone}>
-                {t('kantan:s6.openDataset')}
-              </button>
-            )}
-            <button type="button" className="btn btn--ghost btn--sm" onClick={startFresh}>
-              {t('kantan:s6.startNew')}
-            </button>
-          </div>
-          <p className="kz-note">{t('kantan:s6.prepNote')}</p>
-          <p className="kz-note">{t('kantan:s6.nextSteps')}</p>
-        </section>
-      ) : stop ? (
+      {stop ? (
         <section className="kz-card kz-stop" role="alert">
           {/* Plain headline: the translated one when the raw detail was
               recognised, else the per-stage fallback ("…でエラーが起きました"). */}
@@ -1368,6 +1600,234 @@ export function KantanWizard({
             </p>
           )}
         </section>
+      ) : step === 7 ? (
+        <section className="kz-card">
+          <h3 className="kz-title">{t('kantan:s7.title')}</h3>
+          <p className="kz-note">{t('kantan:s7.lead')}</p>
+          {trialLoading && (
+            <p className="kz-note" role="status">
+              <span className="spinner" />
+              {t('kantan:s7.loading')}
+            </p>
+          )}
+          {trialFailed && (
+            <>
+              {/* The queries are enrichment (K9): a failure offers a retry but
+                  never blocks the road to publish — the human gates are S4/S6/S8. */}
+              <p className="kz-note">{t('kantan:s7.failed')}</p>
+              {trialErr && (
+                <details className="kz-stop-detail">
+                  <summary>{t('kantan:s5.stop.detailSummary')}</summary>
+                  <pre className="error">{trialErr}</pre>
+                </details>
+              )}
+              <div className="kz-actions">
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--sm"
+                  onClick={() => {
+                    if (kzDatasetId) void loadS7(kzDatasetId)
+                  }}
+                >
+                  {t('kantan:s7.retry')}
+                </button>
+              </div>
+            </>
+          )}
+          {!trialLoading && trialQAs.length > 0 && (
+            <>
+              {trialQAs.map((qa, i) => (
+                <div key={i} className="kz-qa">
+                  <div className="kz-qa-q">{qa.q}</div>
+                  <div className="kz-qa-a">{qa.a}</div>
+                  {qa.citeIri && (
+                    // The citation the whole screen exists to show: the answer's
+                    // permanent ID (dereferenceable — Phase 2 /describe).
+                    <a className="kz-qa-cite" href={qa.citeIri} target="_blank" rel="noreferrer">
+                      {t('kantan:s7.cite')}
+                    </a>
+                  )}
+                </div>
+              ))}
+              <p className="kz-note">{t('kantan:s7.traceNote')}</p>
+              <details className="kz-stop-detail">
+                <summary>{t('kantan:s7.techSummary')}</summary>
+                {trialQAs
+                  .filter((qa) => qa.sparql)
+                  .map((qa, i) => (
+                    <pre key={i} className="sparql-block">
+                      {qa.sparql}
+                    </pre>
+                  ))}
+              </details>
+            </>
+          )}
+          <div className="kz-actions">
+            <button type="button" onClick={goPublish} disabled={trialLoading}>
+              {t('kantan:s7.ok')}
+            </button>
+            <button type="button" className="btn btn--ghost" onClick={backToMeanings}>
+              {t('kantan:s7.back')}
+            </button>
+          </div>
+        </section>
+      ) : step === 8 ? (
+        <section className="kz-card">
+          <h3 className="kz-title">{t('kantan:s8.title')}</h3>
+          <div className="kz-q">
+            <label className="kz-q-text" htmlFor="kz-s8-name">
+              {t('kantan:s8.nameLabel')}
+            </label>
+            <input
+              id="kz-s8-name"
+              className="kz-s8-name"
+              type="text"
+              value={pubName}
+              placeholder={t('kantan:s8.namePlaceholder')}
+              onChange={(e) => setPubName(e.target.value)}
+            />
+            {/* K10: the publish button stays disabled while anything is
+                unsettled — here, the one still-open item is the public name. */}
+            {!pubName.trim() && <p className="kz-note">{t('kantan:s8.needName')}</p>}
+          </div>
+          {s8Loading && (
+            <p className="kz-note" role="status">
+              <span className="spinner" />
+              {t('kantan:s6.loading')}
+            </p>
+          )}
+          {stats && stats.classes.length > 0 ? (
+            <div className="kz-kv">
+              <span className="kz-kv-key">{t('kantan:s8.contentLabel')}</span>
+              <span>
+                {stats.classes
+                  .map((c) =>
+                    t('kantan:s6.classCount', {
+                      label: classLabel(c.iri),
+                      n: c.n.toLocaleString(),
+                    }),
+                  )
+                  .join(t('kantan:s7.join'))}
+              </span>
+            </div>
+          ) : trial?.entities ? (
+            // No declared kinds (class-less shape): reuse the S7 record count
+            // so the publish summary still says what is being published.
+            <div className="kz-kv">
+              <span className="kz-kv-key">{t('kantan:s8.contentLabel')}</span>
+              <span>{t('kantan:s7.aCountAny', { n: trial.entities.n.toLocaleString() })}</span>
+            </div>
+          ) : null}
+          {words && (
+            <div className="kz-kv">
+              <span className="kz-kv-key">{t('kantan:s8.wordsLabel')}</span>
+              <span>
+                {t('kantan:s8.words', { reuse: words.reuse.length, added: words.added.length })}
+                <details className="kz-words">
+                  <summary>{t('kantan:s8.wordsList')}</summary>
+                  {words.reuse.length > 0 && (
+                    <p className="kz-words-group">
+                      <span className="kz-words-head">{t('kantan:s8.wordsReuse')}</span>
+                      {words.reuse.map((iri) => (
+                        <code key={iri} title={iri}>
+                          {localName(iri)}
+                        </code>
+                      ))}
+                    </p>
+                  )}
+                  {words.added.length > 0 && (
+                    <p className="kz-words-group">
+                      <span className="kz-words-head">{t('kantan:s8.wordsNew')}</span>
+                      {words.added.map((iri) => (
+                        <code key={iri} title={iri}>
+                          {localName(iri)}
+                        </code>
+                      ))}
+                    </p>
+                  )}
+                </details>
+              </span>
+            </div>
+          )}
+          <p className="kz-note kz-promise">{t('kantan:s8.promise')}</p>
+          {pubErr && (
+            <div role="alert">
+              <p className="kz-note kz-pub-err">
+                {pubPlain?.title ? t(pubPlain.title) : t('kantan:s8.failed')}
+              </p>
+              {pubPlain && <p className="kz-note">{t(pubPlain.body)}</p>}
+              <details className="kz-stop-detail">
+                <summary>{t('kantan:s5.stop.detailSummary')}</summary>
+                <pre className="error">{pubErr}</pre>
+              </details>
+            </div>
+          )}
+          <div className="kz-actions">
+            <button
+              type="button"
+              onClick={() => void runPublish()}
+              disabled={!pubName.trim() || publishing}
+            >
+              {publishing ? t('kantan:s8.publishing') : t('kantan:s8.publish')}
+            </button>
+            {pubPlain?.hint === 'settings' && (
+              <button type="button" onClick={openSettings}>
+                {t('kantan:s1.openSettings')}
+              </button>
+            )}
+            <button
+              type="button"
+              className="btn btn--ghost"
+              onClick={() => setStep(7)}
+              disabled={publishing}
+            >
+              {t('kantan:s8.back')}
+            </button>
+          </div>
+          <p className="kz-note">{t('kantan:s8.publishNote')}</p>
+        </section>
+      ) : step === 9 ? (
+        <section className="kz-card kz-done">
+          <h3 className="kz-done-title">✓ {t('kantan:s9.title')}</h3>
+          {onOpenAsk && trialQAs.length > 0 && (
+            <>
+              <p className="kz-note">{t('kantan:s9.lead')}</p>
+              <div className="kz-q-options">
+                {/* The S7 questions, reborn as ask-me chips: click → the Ask
+                    view opens with the question prefilled (K2's payoff). */}
+                {trialQAs.map((qa, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    className="kz-pill"
+                    onClick={() => onOpenAsk(qa.q)}
+                  >
+                    {qa.q}
+                  </button>
+                ))}
+              </div>
+              <p className="kz-note">{t('kantan:s9.askHint')}</p>
+            </>
+          )}
+          <hr className="kz-divider" />
+          <p className="kz-note kz-grow-title">{t('kantan:s9.growTitle')}</p>
+          <div className="kz-actions">
+            <button type="button" className="btn btn--ghost" onClick={() => openGrow('files')}>
+              {t('kantan:s9.append')}
+            </button>
+            <button type="button" className="btn btn--ghost" onClick={() => openGrow('files')}>
+              {t('kantan:s9.replace')}
+            </button>
+          </div>
+          <div className="kz-actions">
+            <button type="button" className="btn btn--ghost btn--sm" onClick={() => openGrow()}>
+              {t('kantan:s9.openDataset')}
+            </button>
+            <button type="button" className="btn btn--ghost btn--sm" onClick={startFresh}>
+              {t('kantan:s9.startNew')}
+            </button>
+          </div>
+        </section>
       ) : step === 6 ? (
         <section className="kz-card">
           <h3 className="kz-title">{t('kantan:s6.title')}</h3>
@@ -1512,7 +1972,7 @@ export function KantanWizard({
           <div className="kz-actions">
             <button
               type="button"
-              onClick={() => setConfirmed(true)}
+              onClick={confirmMeanings}
               disabled={s6Loading || refining !== false}
             >
               {t('kantan:s6.confirm')}
