@@ -2,9 +2,8 @@ import { useTranslation } from 'react-i18next'
 
 // The always-visible 5-step "recipe" of the kantan tier (ADR
 // kantan-mode-two-tier-ux.md): ① put data in → ② AI reads it → ③ check →
-// ④ try it → ⑤ publish. `current` lights the step the wizard is on (1-based);
-// steps 4-5 (S7-S9 screens) are never current yet — after ③ is confirmed the
-// wizard hands over to the dataset screen (`currentDone`).
+// ④ try it (S7) → ⑤ publish (S8/S9). `current` lights the step the wizard is
+// on (1-based); `currentDone` renders it as ✓ instead — the S9 完了 state.
 const STEP_KEYS = [
   'kantan:recipe.step1',
   'kantan:recipe.step2',
@@ -19,8 +18,8 @@ export function RecipeCard({
   onStepClick,
 }: {
   current: 1 | 2 | 3 | 4 | 5
-  /** True renders `current` as ✓ done with no "you are here" badge — the state
-   *  after ③ is confirmed while ④⑤ continue on the dataset screen (S6). */
+  /** True renders `current` as ✓ done with no "you are here" badge — the
+   *  state after publishing lands (S9: all five steps read as done). */
   currentDone?: boolean
   /** When provided, step ① becomes a "back to the start" button (#9 escape
    *  hatch) — a guaranteed way back to the drop zone from any later step. ②+

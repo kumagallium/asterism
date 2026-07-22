@@ -142,7 +142,12 @@ export function GalleryView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusClass, datasets])
   // Default view is the full-width grid; a dataset is opened on demand (v2 #5).
-  const selected = selectedId ? (list.find((d) => d.id === selectedId) ?? null) : null
+  // Deep links accept BOTH id forms: the synthetic catalog id (`live-<id>`)
+  // and the bare registry id — outside callers (the kantan S9 exits, redesign
+  // links) know only the registry id.
+  const selected = selectedId
+    ? (list.find((d) => d.id === selectedId || d.live?.meta.id === selectedId) ?? null)
+    : null
   const filtered = query.trim()
     ? list.filter((d) => d.name.toLowerCase().includes(query.trim().toLowerCase()))
     : list

@@ -422,6 +422,18 @@ const STRUCTURAL_NS = [
   'http://www.w3.org/2002/07/owl#',
 ]
 
+/** Reuse/New term IRIs (classes + predicates) minus structural ones — the
+ *  kantan publish screen's ことば summary (S8): "standard words used as-is"
+ *  vs "words new to this dataset". Structural terms (rdf:type, rdfs:label…)
+ *  are plumbing, not vocabulary, so they are not counted as words. */
+export function alignmentWordSplit(a: AlignmentReport): { reuse: string[]; added: string[] } {
+  const real = (xs: string[]) => xs.filter((x) => !STRUCTURAL_NS.some((ns) => x.startsWith(ns)))
+  return {
+    reuse: [...real(a.classes.reuse), ...real(a.predicates.reuse)],
+    added: [...real(a.classes.new), ...real(a.predicates.new)],
+  }
+}
+
 /** Real predicate IRIs the dataset uses (from alignment), minus structural ones. */
 function datasetPredicateIris(a?: AlignmentReport): string[] {
   if (!a) return []

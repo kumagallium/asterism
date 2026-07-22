@@ -795,6 +795,66 @@ export async function fetchDraftStats(datasetId: string): Promise<DraftStats> {
   return (await res.json()) as DraftStats
 }
 
+/** One context literal of the trial "top" entity ("試料名: BiTe-04"). */
+export interface TrialDetail {
+  predicate_iri: string
+  value: string
+  label?: string
+  unit?: string
+}
+
+/** The kantan tier's S7 ためす data (ADR K9): deterministic read-only queries
+ *  over the draft graph — per-kind counts, the busiest numeric field's range,
+ *  the entity holding its maximum (its IRI is the citation), or real entity
+ *  IRIs (`samples`) when nothing is numeric. `available: false` = not ingested
+ *  or the store did not answer — the UI offers a retry but the screen stays
+ *  passable (S7 is enrichment; the human gates are S4/S6/S8). Labels/units come
+ *  from the reviewed Mapping IR + model.yaml projection, never from an AI. */
+export interface TrialQueries {
+  dataset_id: string
+  available: boolean
+  classes: { iri: string; label?: string; n: number }[]
+  count_sparql: string | null
+  /** Plain entity count — only set when the draft declares no classes at all
+   *  (a legal shape), so the first question never comes back empty-handed. */
+  entities: { n: number; sparql: string } | null
+  range: {
+    predicate_iri: string
+    label?: string
+    unit?: string
+    n: number
+    min: string
+    max: string
+    sparql: string
+  } | null
+  top: {
+    predicate_iri: string
+    label?: string
+    unit?: string
+    value: string
+    subject_iri: string
+    subject_details: TrialDetail[]
+    sparql: string
+  } | null
+  samples: {
+    class_iri: string | null
+    label?: string
+    iris: string[]
+    sparql: string
+  } | null
+}
+
+export async function fetchTrialQueries(datasetId: string): Promise<TrialQueries> {
+  const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/trial-queries`, {
+    headers: authHeaders(),
+  })
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '')
+    throw new Error(`trial queries failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
+  }
+  return (await res.json()) as TrialQueries
+}
+
 /** A dataset's stored design (propose/refine Markdown) for the redesign flow. */
 export interface DatasetProposal {
   dataset_id: string

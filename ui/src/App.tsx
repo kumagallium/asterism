@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import './App.css'
+import { prefillAskQuestion } from './askPrefill'
 import { AskView } from './AskView'
 import { CrosswalkView } from './CrosswalkView'
 import { isMockMode } from './demoApi'
@@ -188,6 +189,14 @@ function App() {
     navigate({ tab: 'gallery', datasetId: id, detailTab })
   }
 
+  // Ask 画面へ質問文を持って直行（かんたん S9 の試し質問チップ）。入力欄に入る
+  // だけで自動送信はしない（Ask はキー必須+LLM 課金 — 送るのは人間）。
+  function openAsk(question: string) {
+    setGalleryFocus(null)
+    prefillAskQuestion(question)
+    navigate({ tab: 'ask' })
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -274,6 +283,7 @@ function App() {
               redesignTarget={redesignTarget}
               onRedesignConsumed={() => setRedesignTarget(null)}
               onOpenDataset={openDataset}
+              onOpenAsk={openAsk}
             />
           )}
           {tab === 'ask' && <AskView onShowVocab={showVocab} />}

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { takeAskPrefill } from './askPrefill'
 import { CitationCard } from './CitationCard'
 import { ask, isMockMode, type AskResponse, type Citation } from './demoApi'
 import { AskIcon, CheckIcon } from './icons'
@@ -29,7 +30,17 @@ let lastAsk: { question: string; result: AskResponse | null } | null = null
 
 export function AskView({ onShowVocab }: { onShowVocab?: (className: string) => void }) {
   const { t } = useTranslation()
-  const [question, setQuestion] = useState(() => lastAsk?.question ?? '')
+  // 手渡された質問（かんたん S9 チップ → askPrefill.ts）は一度だけ消費し、
+  // 前回の回答復元より優先する。この initializer が result のものより先に
+  // 走る（宣言順）ことで lastAsk クリアが復元にも効く。
+  const [question, setQuestion] = useState(() => {
+    const handed = takeAskPrefill()
+    if (handed !== null) {
+      lastAsk = null // プリフィルは新しい質問の意図 — 前回の回答は出さない
+      return handed
+    }
+    return lastAsk?.question ?? ''
+  })
   const [result, setResult] = useState<AskResponse | null>(() => lastAsk?.result ?? null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)

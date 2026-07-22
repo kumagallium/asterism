@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import type { DetailTab } from '../GalleryView'
 import { type RedesignTarget, WorkbenchView } from '../WorkbenchView'
 import { KantanWizard } from './KantanWizard'
 
@@ -34,10 +35,13 @@ export function WorkbenchTier({
   redesignTarget,
   onRedesignConsumed,
   onOpenDataset,
+  onOpenAsk,
 }: {
   redesignTarget?: RedesignTarget | null
   onRedesignConsumed?: () => void
-  onOpenDataset?: (id: string) => void
+  onOpenDataset?: (id: string, tab?: DetailTab) => void
+  /** Opens the Ask view with a question prefilled (the kantan S9 chips). */
+  onOpenAsk?: (question: string) => void
 }) {
   const { t } = useTranslation()
   const [tier, setTier] = useState<Tier>(loadTier)
@@ -85,6 +89,7 @@ export function WorkbenchTier({
           onBusyChange={setKantanBusy}
           onHandoffToDetail={() => setTier('detail')}
           onOpenDataset={onOpenDataset}
+          onOpenAsk={onOpenAsk}
         />
       ) : (
         <WorkbenchView
