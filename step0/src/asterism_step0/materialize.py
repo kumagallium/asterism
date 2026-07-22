@@ -44,6 +44,7 @@ The final step — running rdf-config on ``{name}-model.yaml`` to generate
 separate invocation (it needs the Ruby toolchain). See
 ``docs/architecture/linkml-vs-rdf-config.md`` §3.1.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -144,6 +145,12 @@ class MaterializeResult:
     ingester_py: str | None = None
     rml_ttl: str | None = None  # compiled from the mapping spec, or legacy raw RML
     mapping_ir_yaml: str | None = None  # the extracted Mapping IR block (additive)
+    diagram_from_ir: bool = False
+    """True when :attr:`mermaid` was compiled deterministically from the
+    mapping spec (IR) rather than taken from the LLM's §1 sketch."""
+    diagram_property_table: str | None = None
+    """Markdown property ↔ column table appended below the Mermaid block in
+    diagram.md (only when the diagram was compiled from the IR)."""
     mapping_ir_issues: list[str] = field(default_factory=list)
     """Parse/compile problems of the mapping spec, in the IR's own vocabulary
     (the design loop feeds them back to the LLM). Empty when there is no
@@ -203,21 +210,25 @@ def _pick_block(
     return None
 
 
-def _compile_mapping_spec(result: MaterializeResult) -> str | None:
+def _compile_mapping_spec(result: MaterializeResult) -> tuple[str | None, object | None]:
     """Compile the extracted mapping spec to RML; record problems on ``result``.
 
-    Parse/compile problems land in :attr:`MaterializeResult.mapping_ir_issues`
-    (the design loop's feedback source). A missing compiler dependency (the
-    vetted Tier-0 catalog / PyYAML) is an environment warning, not a design
-    issue — the spec is still extracted and persisted.
+    Returns ``(rml_ttl, parsed_ir)``. The parsed IR is surfaced even when the
+    RML compile fails (unknown function, etc.) — the deterministic diagram
+    only needs the parse to succeed. Parse/compile problems land in
+    :attr:`MaterializeResult.mapping_ir_issues` (the design loop's feedback
+    source). A missing compiler dependency (the vetted Tier-0 catalog /
+    PyYAML) is an environment warning, not a design issue — the spec is still
+    extracted and persisted.
     """
     from asterism_step0.mapping_ir import MappingIRParseError, parse_mapping_ir
     from asterism_step0.rml_compile import RmlCompileError, compile_mapping_ir
 
     assert result.mapping_ir_yaml is not None
+    ir = None
     try:
         ir = parse_mapping_ir(result.mapping_ir_yaml)
-        return compile_mapping_ir(ir)
+        return compile_mapping_ir(ir), ir
     except (MappingIRParseError, RmlCompileError) as exc:
         result.mapping_ir_issues = list(exc.issues)
         result.warnings.append(
@@ -226,7 +237,30 @@ def _compile_mapping_spec(result: MaterializeResult) -> str | None:
         )
     except ImportError as exc:
         result.warnings.append(f"Mapping-spec compiler unavailable: {exc}")
-    return None
+    return None, ir
+
+
+def _diagram_from_ir(result: MaterializeResult, ir: object) -> None:
+    """Replace the LLM's §1 diagram sketch with one compiled from the IR.
+
+    Same philosophy as the RML compile: when a parseable spec exists, the
+    artifact reviewers stare at is derived deterministically from the design's
+    single source of truth, not hand-drawn by the model (observed live: empty
+    class boxes with all predicates orphaned outside the diagram). The §1
+    sketch stays as-is for spec-less / unparseable proposals. Best-effort by
+    design — a diagram bug must never block materialize."""
+    try:
+        from asterism_step0.ir2mermaid import build_graph_from_ir, property_table_md
+        from asterism_step0.ttl2mermaid import render_mermaid_body
+
+        graph = build_graph_from_ir(ir)  # type: ignore[arg-type]
+        if not graph.classes:
+            return  # nothing to draw (no subject classes) — keep the sketch
+        result.mermaid = render_mermaid_body(graph).rstrip("\n")
+        result.diagram_from_ir = True
+        result.diagram_property_table = property_table_md(ir) or None  # type: ignore[arg-type]
+    except Exception:
+        return
 
 
 def apply_source_dialects(mapping_ir_yaml: str, source_dir: Path | str) -> str:
@@ -331,9 +365,7 @@ def materialize_schema(
     # (turtle under the same headers) must never be picked as a mapping spec by
     # the header-only fallback.
     ir_candidates = [
-        b
-        for b in blocks
-        if b.language in ("yaml", "yml") and b.body != result.rdf_config_model
+        b for b in blocks if b.language in ("yaml", "yml") and b.body != result.rdf_config_model
     ]
     result.mapping_ir_yaml = _pick_block(
         ir_candidates,
@@ -380,10 +412,13 @@ def materialize_schema(
             # the RML annotations agree. PyYAML absence falls through to the
             # compile step, which reports the environment warning.
             with contextlib.suppress(ImportError):
-                result.mapping_ir_yaml = apply_source_dialects(
-                    result.mapping_ir_yaml, source_dir
-                )
-        result.rml_ttl = _compile_mapping_spec(result)
+                result.mapping_ir_yaml = apply_source_dialects(result.mapping_ir_yaml, source_dir)
+        result.rml_ttl, mapping_ir = _compile_mapping_spec(result)
+        if mapping_ir is not None:
+            # The reviewer-facing diagram compiles from the same parsed spec —
+            # boxes WITH their properties/units, edges from IRI links — instead
+            # of trusting the LLM's §1 sketch (observed live: empty boxes).
+            _diagram_from_ir(result, mapping_ir)
     else:
         # Legacy raw-RML artifact. Turtle is unambiguous in a proposal (only
         # the RML block uses it), so a lone turtle block routes by language.
@@ -408,11 +443,14 @@ def materialize_schema(
         out.mkdir(parents=True, exist_ok=True)
         if result.mermaid is not None:
             p = out / "diagram.md"
-            p.write_text(
-                f"# {dataset_name} ontology — class diagram\n\n"
-                f"```mermaid\n{result.mermaid}\n```\n",
-                encoding="utf-8",
+            doc = (
+                f"# {dataset_name} ontology — class diagram\n\n```mermaid\n{result.mermaid}\n```\n"
             )
+            if result.diagram_property_table:
+                # Provenance companion (predicate ↔ column ↔ unit ↔ meaning).
+                # Consumers that extract only the fenced block are unaffected.
+                doc += "\n" + result.diagram_property_table
+            p.write_text(doc, encoding="utf-8")
             result.written_paths["mermaid"] = str(p)
         if result.rdf_config_model is not None:
             p = out / f"{dataset_name}-model.yaml"
