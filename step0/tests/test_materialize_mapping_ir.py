@@ -282,6 +282,40 @@ def test_diagram_compiled_from_ir_replaces_the_sketch(tmp_path: Path) -> None:
     assert written.index("```mermaid") < written.index("## Properties")
 
 
+def test_diagram_md_is_the_document_every_producer_shares(tmp_path: Path) -> None:
+    """``diagram_md`` = the artifact; ``mermaid`` = only its fenced payload.
+
+    Callers that persist the artifact themselves (the api's registry) read
+    ``diagram_md``; the file, the result and the regeneration CLI must all be
+    the same bytes, or the two paths drift again (they did: the api stored the
+    bare Mermaid, so ZEM's registry diagram.md had no property table while its
+    CLI-regenerated twin did).
+    """
+    from asterism_step0.ir2mermaid import render_dataset_doc
+    from asterism_step0.mapping_ir import parse_mapping_ir
+
+    result = materialize_schema(PROPOSAL_WITH_IR, tmp_path, "demo", write=True)
+    assert result.diagram_md is not None
+    assert result.diagram_md.startswith("# demo ontology — class diagram\n")
+    assert "## Properties" in result.diagram_md
+    assert result.diagram_md == (tmp_path / "diagram.md").read_text(encoding="utf-8")
+    assert result.mapping_ir_yaml is not None
+    assert result.diagram_md == render_dataset_doc(
+        parse_mapping_ir(result.mapping_ir_yaml), dataset_name="demo"
+    )
+
+
+def test_diagram_md_exists_without_a_spec(tmp_path: Path) -> None:
+    """A spec-less design still yields a document (title + fenced §1 sketch),
+    just without the provenance table — nothing to derive it from."""
+    specless = PROPOSAL_WITH_IR.split("### 9.")[0]
+    result = materialize_schema(specless, tmp_path, "demo", write=False)
+    assert result.diagram_md is not None
+    assert result.diagram_md.startswith("# demo ontology — class diagram\n")
+    assert "```mermaid\nclassDiagram" in result.diagram_md
+    assert "## Properties" not in result.diagram_md
+
+
 def test_unparseable_spec_keeps_the_sketch(tmp_path: Path) -> None:
     broken = PROPOSAL_WITH_IR.replace("version: 1", "version: [broken")
     result = materialize_schema(broken, tmp_path, "demo", write=False)

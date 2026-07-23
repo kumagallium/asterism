@@ -54,6 +54,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from asterism_step0.ir2mermaid import render_diagram_doc
 from asterism_step0.units import enrich_units
 
 # ----------------------------------------------------------------------------
@@ -151,6 +152,13 @@ class MaterializeResult:
     diagram_property_table: str | None = None
     """Markdown property ↔ column table appended below the Mermaid block in
     diagram.md (only when the diagram was compiled from the IR)."""
+    diagram_md: str | None = None
+    """The complete ``diagram.md`` document — title + fenced Mermaid + (when
+    compiled from the IR) the property table. THE artifact; :attr:`mermaid` is
+    only its fenced payload. Callers that persist the artifact themselves (the
+    api's registry) must store this, not :attr:`mermaid`, or the provenance
+    table is silently dropped (observed live: ZEM's registry diagram.md had no
+    table while its CLI-regenerated twin did)."""
     mapping_ir_issues: list[str] = field(default_factory=list)
     """Parse/compile problems of the mapping spec, in the IR's own vocabulary
     (the design loop feeds them back to the LLM). Empty when there is no
@@ -437,20 +445,27 @@ def materialize_schema(
     if result.ingester_py is None:
         result.warnings.append("No ingester Python block found.")
 
+    # ----- the diagram document -----
+    # Assembled OUTSIDE the write branch: the api materializes to a temp dir but
+    # persists the artifact from this result, so the file on disk and the stored
+    # artifact must come from one place (they diverged before — the api stored the
+    # bare Mermaid and dropped the provenance table). The property table is the
+    # companion "where did my column go" view; consumers that extract only the
+    # fenced block are unaffected.
+    if result.mermaid is not None:
+        result.diagram_md = render_diagram_doc(
+            dataset_name=dataset_name,
+            mermaid_body=result.mermaid,
+            property_table=result.diagram_property_table,
+        )
+
     # ----- write -----
     if write:
         out = Path(output_dir)
         out.mkdir(parents=True, exist_ok=True)
-        if result.mermaid is not None:
+        if result.diagram_md is not None:
             p = out / "diagram.md"
-            doc = (
-                f"# {dataset_name} ontology — class diagram\n\n```mermaid\n{result.mermaid}\n```\n"
-            )
-            if result.diagram_property_table:
-                # Provenance companion (predicate ↔ column ↔ unit ↔ meaning).
-                # Consumers that extract only the fenced block are unaffected.
-                doc += "\n" + result.diagram_property_table
-            p.write_text(doc, encoding="utf-8")
+            p.write_text(result.diagram_md, encoding="utf-8")
             result.written_paths["mermaid"] = str(p)
         if result.rdf_config_model is not None:
             p = out / f"{dataset_name}-model.yaml"

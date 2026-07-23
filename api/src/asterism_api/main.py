@@ -2980,7 +2980,14 @@ def build_app(
                     )
                 )
                 artifacts = {
-                    "diagram.md": mat.mermaid,
+                    # The whole diagram DOCUMENT (title + fenced Mermaid + the
+                    # property ↔ column table), byte-identical to what the CLI
+                    # writes / regenerates — storing `mat.mermaid` here dropped the
+                    # provenance table on the api path (observed live on ZEM). The
+                    # fence is what every reader already extracts (UI
+                    # `extractMermaid`, `registry.mermaid_of`), so the diagram
+                    # renders unchanged.
+                    "diagram.md": mat.diagram_md,
                     "model.yaml": mat.rdf_config_model,
                     "mie.yaml": mat.mie_yaml,
                     "ingester.py": mat.ingester_py,
