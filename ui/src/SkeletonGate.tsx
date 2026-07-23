@@ -6,7 +6,14 @@ import type {
   SkeletonMap,
   SkeletonMapAnnotation,
 } from './api'
-import { detectDatasetNamespace, renameDatasetNamespace } from './datasetNamespace'
+import {
+  compactClass,
+  compactTemplate,
+  detectDatasetNamespace,
+  expandClass,
+  expandTemplate,
+  renameDatasetNamespace,
+} from './datasetNamespace'
 import { Mermaid } from './Mermaid'
 import { skeletonMermaid } from './skeletonDiagram'
 
@@ -33,9 +40,13 @@ function evidenceReasonKey(reason: string | undefined): string {
 function SkeletonEvidence({
   ann,
   onApplyCandidate,
+  displayClass,
 }: {
   ann: SkeletonMapAnnotation
   onApplyCandidate: (columns: string[]) => void
+  /** Kantan tier: fold the minted prefix out of class names in evidence copy
+   *  (the annotation carries full CURIEs). Absent on the detail tier. */
+  displayClass?: (value: string) => string
 }) {
   const { t } = useTranslation()
 
@@ -109,7 +120,9 @@ function SkeletonEvidence({
         <p className="skeleton-evidence-line skeleton-evidence-caution">
           ⚠{' '}
           {t('workbench:skeleton.evidence.classNumericKeyCaution', {
-            cls: ann.class_numeric_key_caution!.map((c) => c.class).join(', '),
+            cls: ann
+              .class_numeric_key_caution!.map((c) => (displayClass ? displayClass(c.class) : c.class))
+              .join(', '),
             column: ann.class_numeric_key_caution!.map((c) => c.column).join(', '),
           })}
         </p>
@@ -398,6 +411,12 @@ export function SkeletonGate({
               const usesConstant =
                 m.subject.template === undefined && m.subject.constant !== undefined
               const keyValue = m.subject.template ?? m.subject.constant ?? ''
+              // Kantan tier (K4/K13): the minted shorthand folds away at the
+              // DISPLAY boundary only — `zemr:measurement/{…}` shows (and is
+              // edited) as `measurement/{…}`, bare class names get the minted
+              // prefix back on the way in. The skeleton state keeps full
+              // CURIEs, so evidence/continue see detail-tier values.
+              const displayKey = plain ? compactTemplate(keyValue, nsDetected) : keyValue
               const ann = annotations?.maps?.[m.name]
               return (
                 <Fragment key={m.name}>
@@ -409,18 +428,18 @@ export function SkeletonGate({
                           (rows grow with content) so the tail is never cut off. */}
                       <textarea
                         className="skeleton-gate-input skeleton-gate-key"
-                        value={keyValue}
-                        rows={Math.max(1, Math.ceil(keyValue.length / 48))}
+                        value={displayKey}
+                        rows={Math.max(1, Math.ceil(displayKey.length / 48))}
                         disabled={busy}
                         title={m.note ?? undefined}
-                        onChange={(e) =>
+                        onChange={(e) => {
+                          const raw = e.target.value.replace(/\n/g, '')
+                          const value = plain ? expandTemplate(raw, nsDetected) : raw
                           updateSubject(
                             idx,
-                            usesConstant
-                              ? { constant: e.target.value.replace(/\n/g, '') }
-                              : { template: e.target.value.replace(/\n/g, '') },
+                            usesConstant ? { constant: value } : { template: value },
                           )
-                        }
+                        }}
                       />
                       {m.note && <div className="skeleton-gate-note">{m.note}</div>}
                     </td>
@@ -428,14 +447,17 @@ export function SkeletonGate({
                       <input
                         type="text"
                         className="skeleton-gate-input"
-                        value={(m.subject.classes ?? []).join(', ')}
+                        value={(m.subject.classes ?? [])
+                          .map((c) => (plain ? compactClass(c, nsDetected) : c))
+                          .join(', ')}
                         disabled={busy}
                         onChange={(e) =>
                           updateSubject(idx, {
                             classes: e.target.value
                               .split(',')
                               .map((s) => s.trim())
-                              .filter(Boolean),
+                              .filter(Boolean)
+                              .map((c) => (plain ? expandClass(c, nsDetected) : c)),
                           })
                         }
                       />
@@ -447,6 +469,9 @@ export function SkeletonGate({
                         <SkeletonEvidence
                           ann={ann}
                           onApplyCandidate={(cols) => applyCandidate(idx, cols)}
+                          displayClass={
+                            plain ? (c) => compactClass(c, nsDetected) : undefined
+                          }
                         />
                       </td>
                     </tr>

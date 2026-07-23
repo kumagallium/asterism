@@ -82,6 +82,56 @@ export function detectDatasetNamespace(
   return { slug, base, ontology_prefix: onto, resource_prefix: res }
 }
 
+/** Display-layer folding of the MINTED prefixes on the kantan tier (K4/K13):
+ * the skeleton STATE always keeps full CURIEs — these four only translate at
+ * the input boundary, so evidence/validate/continue see the same values as
+ * the detail tier. Reused standard vocabularies (schema: …) stay visible:
+ * only this dataset's own shorthand is notation-noise; a standard term is
+ * information. */
+
+/** `zemr:measurement/{…}` → `measurement/{…}` (only the minted resource
+ * prefix folds; anything else — schema:, http…, plain — passes through). */
+export function compactTemplate(
+  value: string,
+  info: Pick<DatasetNamespaceInfo, 'resource_prefix'> | null,
+): string {
+  const p = info?.resource_prefix
+  return p && value.startsWith(`${p}:`) ? value.slice(p.length + 1) : value
+}
+
+/** Inverse of {@link compactTemplate} for edited input: a value whose head
+ * (before any `{column}` placeholder) carries no prefix/scheme gets the
+ * minted resource prefix back. Prefixed/absolute forms pass through, so the
+ * detail-tier notation still works when typed here. */
+export function expandTemplate(
+  value: string,
+  info: Pick<DatasetNamespaceInfo, 'resource_prefix'> | null,
+): string {
+  const p = info?.resource_prefix
+  if (!p || value === '') return value
+  const head = value.split('{')[0]
+  return head.includes(':') ? value : `${p}:${value}`
+}
+
+/** `zem:Measurement` → `Measurement`; standard vocabularies stay as-is. */
+export function compactClass(
+  value: string,
+  info: Pick<DatasetNamespaceInfo, 'ontology_prefix'> | null,
+): string {
+  const p = info?.ontology_prefix
+  return p && value.startsWith(`${p}:`) ? value.slice(p.length + 1) : value
+}
+
+/** Inverse of {@link compactClass}: a bare name gets the minted ontology
+ * prefix; `schema:Person` and friends pass through. */
+export function expandClass(
+  value: string,
+  info: Pick<DatasetNamespaceInfo, 'ontology_prefix'> | null,
+): string {
+  const p = info?.ontology_prefix
+  return p && value !== '' && !value.includes(':') ? `${p}:${value}` : value
+}
+
 /** Rename the skeleton's minted namespace to `rawName` (a human-friendly
  * dataset name): slug, IRI pair (under the SERVER's base — base fixes belong
  * to Settings), derived prefix pair, and every CURIE reference in the maps,
