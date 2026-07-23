@@ -78,6 +78,47 @@ def test_label_and_unit_must_be_strings() -> None:
     assert any(".unit must be a non-empty string" in i for i in issues)
 
 
+def test_unit_is_sanitized_not_fatal() -> None:
+    """Weak-model unit runaway (live dogfood 2026-07-23): `°C​Celsius` repeated
+    43 times with zero-width spaces. Units are display metadata — sanitize
+    (strip invisibles, collapse whitespace) and DROP implausibly long values
+    instead of failing the design."""
+    # Zero-width characters vanish; surrounding whitespace collapses.
+    ok = MINIMAL.replace(
+        "column: name",
+        'column: name\n        unit: " µV​/K "',
+    )
+    (p,) = parse_mapping_ir(ok).maps[0].properties
+    assert p.unit == "µV/K"
+
+    # A runaway repetition is dropped (None), and the design still parses.
+    runaway = "°C​Celsius" * 43
+    ok2 = MINIMAL.replace(
+        "column: name",
+        f'column: name\n        unit: "{runaway}"',
+    )
+    (p2,) = parse_mapping_ir(ok2).maps[0].properties
+    assert p2.unit is None
+
+    # A normal unit passes through untouched.
+    ok3 = MINIMAL.replace("column: name", 'column: name\n        unit: "Ohm m"')
+    (p3,) = parse_mapping_ir(ok3).maps[0].properties
+    assert p3.unit == "Ohm m"
+
+
+def test_no_object_form_names_the_paste_ready_fix() -> None:
+    """Weak-model family (live dogfood 2026-07-23): rows carrying ONLY
+    predicate + unit — display metadata mistaken for the value. The bare
+    "exactly one object form" message never lands on weak models; the issue
+    must name the exact edit (add 'column:' with the header text)."""
+    bad = MINIMAL.replace(
+        "column: name", 'unit: "Ohm m"'
+    )
+    issues = parse_issues(bad)
+    assert any("exactly one object form" in i for i in issues)
+    assert any("add 'column:'" in i and "display metadata" in i for i in issues)
+
+
 def test_yaml_error_is_one_issue() -> None:
     issues = parse_issues("version: 1\nmaps: [unclosed")
     assert len(issues) == 1

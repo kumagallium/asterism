@@ -126,6 +126,11 @@ Rules:
   `transform:` is ONLY the `{object_template placeholder: single-input function}`
   map for readable IRI segments (e.g. `transform: {container_title: slug}`). Put
   `function:` and `column:` as direct siblings of `predicate:`.
+- EVERY property row carries its data source: `column:` with the header text
+  copied EXACTLY (or columns / object_template / constant). `unit:` / `label:`
+  are display metadata only — a row with just `predicate` + `unit` has no data
+  source and cannot compile. Write `unit` once, as one short notation ("Ohm m"),
+  never repeated.
 - `function:` NEVER casts types (`function: str`/`int`/`date` are errors): a bare
   column already emits a string literal; type a literal with `datatype: xsd:…`.
 - Predicates are plain CURIEs — NO cardinality markers (`schema:author`, never
