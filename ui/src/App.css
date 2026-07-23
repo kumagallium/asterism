@@ -5338,10 +5338,31 @@ button.trace-iri-copy:hover:not(:disabled) {
   align-self: flex-end;
 }
 .xw-align-empty-hint,
-.xw-align-none {
+.xw-align-none,
+.xw-align-gate {
   font-size: 0.78rem;
   color: var(--muted);
   margin: 0;
+}
+/* Alignments this surface cannot author (grounding to an external standard, or a
+   crosswalk whose config did not load): disclosed, never hidden — the withdrawal
+   path has to stay reachable. */
+.xw-align-others {
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.7rem;
+}
+.xw-align-others > summary {
+  cursor: pointer;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.xw-align-others[open] > summary {
+  margin-bottom: 0.5rem;
+}
+.xw-align-others .xw-hint-inline {
+  display: block;
+  margin-bottom: 0.4rem;
 }
 .xw-align-list {
   display: flex;

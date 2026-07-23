@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import {
   align,
@@ -12,7 +12,7 @@ import {
 } from './crosswalkApi'
 import { ArrowIcon, LayersIcon, LinkIcon } from './icons'
 import { ToolsPanel } from './ToolsPanel'
-import { localName } from './vocab'
+import { knownVocabForIri, localName } from './vocab'
 
 /**
  * Catalog → クロスウォーク管理面 (multi-perspective ADR, 管理=カタログ). The upper ontology
@@ -24,9 +24,15 @@ import { localName } from './vocab'
 export function CrosswalkView({
   onBack,
   onOpenMap,
+  onCreate,
+  onOpenManual,
 }: {
   onBack?: () => void
   onOpenMap?: () => void
+  /** 「つなげそうな組み合わせをさがす」— かんたん作成フローへ（PR-D で配線）。 */
+  onCreate?: () => void
+  /** 「自分で組み合わせを決める」— 詳細層の作成フォームへ（PR-D で配線）。 */
+  onOpenManual?: () => void
 }) {
   const { t } = useTranslation()
   const [perspectives, setPerspectives] = useState<CrosswalkPerspective[] | null>(null)
@@ -121,6 +127,23 @@ export function CrosswalkView({
         <div className="state-block">
           <p className="state-title">{t('crosswalk:view.empty.title')}</p>
           <p className="state-sub">{t('crosswalk:view.empty.sub')}</p>
+          {/* 空状態は行き止まりにしない — ここから作れる導線を必ず出す（作成の
+              主戦場をこの画面へ、crosswalk-hub.md ⑤ 改訂）。ハンドラ未配線の
+              ビルドでは静かに省く。 */}
+          {(onCreate || onOpenManual) && (
+            <div className="kz-actions">
+              {onCreate && (
+                <button type="button" onClick={onCreate}>
+                  {t('crosswalk:view.empty.btn')}
+                </button>
+              )}
+              {onOpenManual && (
+                <button type="button" className="btn btn--ghost" onClick={onOpenManual}>
+                  {t('crosswalk:view.empty.manual')}
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -291,6 +314,12 @@ function perspectiveTerms(p: CrosswalkPerspective | undefined): PerspTerm[] {
   return out
 }
 
+/** Every term THIS surface can author on: each perspective's concept classes + link
+ * predicates. An alignment belongs here only when BOTH of its ends are in this set. */
+function alignableIris(perspectives: CrosswalkPerspective[]): Set<string> {
+  return new Set(perspectives.flatMap((p) => perspectiveTerms(p)).map((term) => term.iri))
+}
+
 function PerspectiveAlignment({ perspectives }: { perspectives: CrosswalkPerspective[] }) {
   const { t } = useTranslation()
   const relationLabel = (rel: string): string =>
@@ -340,6 +369,9 @@ function PerspectiveAlignment({ perspectives }: { perspectives: CrosswalkPerspec
   const tgtTerm = tgtTerms.find((t) => t.iri === tgtIri) ?? tgtTerms[0]
 
   const canAssert = Boolean(srcTerm && tgtTerm && rel && srcTerm.iri !== tgtTerm.iri)
+  // Two perspectives built on the SAME concept key share one hub term (xw:Composition),
+  // so there is nothing to align — say that instead of "pick two different concepts".
+  const sameTerm = Boolean(srcTerm && tgtTerm && srcTerm.iri === tgtTerm.iri)
 
   async function onAssert() {
     if (!canAssert || !srcTerm || !tgtTerm || !srcPersp || !tgtPersp) return
@@ -377,7 +409,23 @@ function PerspectiveAlignment({ perspectives }: { perspectives: CrosswalkPerspec
     }
   }
 
-  const alignments = data?.alignments ?? []
+  // `GET /api/crosswalk/alignments` is a GLOBAL list: データセット詳細の「外部の標準に
+  // 合わせる」(DatasetGrounding) writes through the very same `align()`. Show here only
+  // what this surface can author — an alignment whose BOTH ends are perspective terms.
+  // The positive test is fail-safe: `knownVocabForIri` alone would leak any grounding to
+  // a standard missing from the KNOWN_VOCABS mirror, so it is used for LABELLING only.
+  const alignable = useMemo(() => alignableIris(perspectives), [perspectives])
+  const all = data?.alignments ?? []
+  const alignments = all.filter((a) => alignable.has(a.source) && alignable.has(a.target))
+  // Never swallowed: a perspective whose config failed to load has unknown terms, so its
+  // alignments land here too — they stay listed (and withdrawable) under a disclosure.
+  const others = all.filter((a) => !(alignable.has(a.source) && alignable.has(a.target)))
+  const groundedCount = others.filter((a) => knownVocabForIri(a.target)).length
+  const strayCount = others.length - groundedCount
+
+  // Nothing to author and nothing asserted: an empty form reads as "pick your datasets
+  // here" and is where 初見 gets stuck. Say nothing rather than show empty selects.
+  if (perspectives.length === 0 && all.length === 0) return null
 
   return (
     <div className="xw-align">
@@ -388,6 +436,14 @@ function PerspectiveAlignment({ perspectives }: { perspectives: CrosswalkPerspec
 
       {loadErr && <pre className="error">{loadErr}</pre>}
 
+      {/* Aligning needs two crosswalks to align BETWEEN — until then the form would be
+          a row of empty selects, which reads as "choose your datasets here". */}
+      {perspectives.length < 2 ? (
+        <p className="xw-align-gate">
+          {t('crosswalk:align.needTwo', { count: perspectives.length })}
+        </p>
+      ) : (
+        <>
       {/* Authoring form: pick two perspectives' terms + a closed-set relation. */}
       <div className="xw-align-form">
         <div className="xw-align-side">
@@ -489,14 +545,18 @@ function PerspectiveAlignment({ perspectives }: { perspectives: CrosswalkPerspec
         </button>
       </div>
 
-      {!canAssert && perspectives.length > 0 && (
+      {!canAssert && (
         <p className="xw-align-empty-hint">
           {srcTerms.length === 0
             ? t('crosswalk:align.noSrcTerms')
             : tgtTerms.length === 0
               ? t('crosswalk:align.noTgtTerms')
-              : t('crosswalk:align.pickDistinct')}
+              : sameTerm
+                ? t('crosswalk:align.sameTerm')
+                : t('crosswalk:align.pickDistinct')}
         </p>
+      )}
+        </>
       )}
       {note && <p className="lifecycle-ok">{note}</p>}
       {actErr && <p className="promote-err">{t('crosswalk:align.actErr', { detail: actErr })}</p>}
@@ -505,43 +565,96 @@ function PerspectiveAlignment({ perspectives }: { perspectives: CrosswalkPerspec
       {alignments.length > 0 ? (
         <div className="xw-align-list">
           {alignments.map((a) => (
-            <div className="xw-align-row" key={a.alignment_iri}>
-              <div className="xw-align-claim">
-                <code className="xw-align-term" title={a.source}>
-                  {localName(a.source)}
-                </code>
-                <span className="xw-align-relchip">{relationLabel(a.relation)}</span>
-                <code className="xw-align-term" title={a.target}>
-                  {localName(a.target)}
-                </code>
-              </div>
-              <div className="xw-align-meta">
-                {(a.from_perspective || a.to_perspective) && (
-                  <span className="xw-align-persp">
-                    {t('crosswalk:align.perspArrow', {
-                      from: a.from_perspective || '—',
-                      to: a.to_perspective || '—',
-                    })}
-                  </span>
-                )}
-                {a.at && <span className="xw-built-at">{a.at.slice(0, 19).replace('T', ' ')}</span>}
-              </div>
-              <button
-                type="button"
-                className="btn btn--ghost btn--sm xw-align-remove"
-                disabled={removing === a.alignment_iri}
-                onClick={() => onRemove(a)}
-              >
-                {removing === a.alignment_iri
-                  ? t('crosswalk:align.removing')
-                  : t('crosswalk:align.remove')}
-              </button>
-            </div>
+            <AlignmentRow
+              key={a.alignment_iri}
+              a={a}
+              relationLabel={relationLabel}
+              removing={removing === a.alignment_iri}
+              onRemove={onRemove}
+            />
           ))}
         </div>
       ) : (
         data && <p className="xw-align-none">{t('crosswalk:align.none')}</p>
       )}
+
+      {/* Alignments this surface cannot author — almost always the ones made in
+          データセット詳細 →「外部の標準に合わせる」. Disclosed rather than hidden, so a
+          withdrawal path always exists (a perspective whose config failed to load
+          also lands here). */}
+      {others.length > 0 && (
+        <details className="xw-align-others">
+          <summary>{t('crosswalk:align.othersHead', { n: others.length })}</summary>
+          {groundedCount > 0 && (
+            <p className="xw-hint-inline">
+              {t('crosswalk:align.groundingCount', { n: groundedCount })}
+            </p>
+          )}
+          {strayCount > 0 && (
+            <p className="xw-hint-inline">{t('crosswalk:align.strayCount', { n: strayCount })}</p>
+          )}
+          <div className="xw-align-list">
+            {others.map((a) => (
+              <AlignmentRow
+                key={a.alignment_iri}
+                a={a}
+                relationLabel={relationLabel}
+                removing={removing === a.alignment_iri}
+                onRemove={onRemove}
+              />
+            ))}
+          </div>
+        </details>
+      )}
+    </div>
+  )
+}
+
+/** One asserted alignment: the claim, where it came from, and its withdrawal. */
+function AlignmentRow({
+  a,
+  relationLabel,
+  removing,
+  onRemove,
+}: {
+  a: Alignment
+  relationLabel: (rel: string) => string
+  removing: boolean
+  onRemove: (a: Alignment) => void
+}) {
+  const { t } = useTranslation()
+  return (
+    <div className="xw-align-row">
+      <div className="xw-align-claim">
+        <code className="xw-align-term" title={a.source}>
+          {localName(a.source)}
+        </code>
+        <span className="xw-align-relchip" title={a.relation}>
+          {relationLabel(a.relation)}
+        </span>
+        <code className="xw-align-term" title={a.target}>
+          {localName(a.target)}
+        </code>
+      </div>
+      <div className="xw-align-meta">
+        {(a.from_perspective || a.to_perspective) && (
+          <span className="xw-align-persp">
+            {t('crosswalk:align.perspArrow', {
+              from: a.from_perspective || '—',
+              to: a.to_perspective || '—',
+            })}
+          </span>
+        )}
+        {a.at && <span className="xw-built-at">{a.at.slice(0, 19).replace('T', ' ')}</span>}
+      </div>
+      <button
+        type="button"
+        className="btn btn--ghost btn--sm xw-align-remove"
+        disabled={removing}
+        onClick={() => onRemove(a)}
+      >
+        {removing ? t('crosswalk:align.removing') : t('crosswalk:align.remove')}
+      </button>
     </div>
   )
 }
