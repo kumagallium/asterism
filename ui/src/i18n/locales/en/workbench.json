@@ -175,6 +175,15 @@
     "continue": "Continue with this skeleton",
     "discard": "Discard skeleton",
     "discardConfirm": "This discards the generated skeleton and your edits. Continue?",
+    "rethink": {
+      "label": "If the AI read it wrong, tell it here and have it think again",
+      "placeholder": "e.g. One row is one measurement of one sample — split samples and measurements into separate kinds",
+      "button": "Have the AI think again"
+    },
+    "diagram": {
+      "note": "Boxes = kinds of data (what one row becomes). Lines = ID links (inferred from how IDs are built).",
+      "edge": "embeds key"
+    },
     "confirmCollides": "In \"{{maps}}\", multiple rows still share the same ID. If you continue, rows with the same ID are merged into one. Proceed?",
     "gateTitle": "Review the skeleton",
     "gateHint": "Check the AI's proposal of which table holds what kind of data, and how each row gets its ID. Column meanings (properties) are generated after this. The evidence under each row shows, from your data, whether every row gets its own ID.",

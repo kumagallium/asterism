@@ -1,4 +1,4 @@
-import { Fragment } from 'react'
+import { Fragment, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type {
   MappingSkeleton,
@@ -6,6 +6,8 @@ import type {
   SkeletonMap,
   SkeletonMapAnnotation,
 } from './api'
+import { Mermaid } from './Mermaid'
+import { skeletonMermaid } from './skeletonDiagram'
 
 // (Moved verbatim from WorkbenchView.tsx so the kantan wizard shares the gate.
 //  Only addition: the title/hint/continue labels are overridable via *Key props
@@ -166,10 +168,13 @@ export function SkeletonGate({
   onChange,
   onContinue,
   onDiscard,
+  onRethink,
   titleKey = 'workbench:skeleton.gateTitle',
   hintKey = 'workbench:skeleton.gateHint',
   continueKey = 'workbench:skeleton.continue',
   continuingKey = 'workbench:skeleton.continuing',
+  discardKey = 'workbench:skeleton.discard',
+  discardConfirmKey = 'workbench:skeleton.discardConfirm',
 }: {
   skeleton: MappingSkeleton
   annotations: SkeletonAnnotations | null
@@ -179,14 +184,23 @@ export function SkeletonGate({
   onChange: (s: MappingSkeleton) => void
   onContinue: () => void
   onDiscard: () => void
+  /** When set, the gate offers "AI にもう一度考えさせる" with a free-text note
+   *  (e.g. 「試料と測定値を別の種類に分けて」) that the caller feeds back into
+   *  the skeleton generation — the AI-redo exit for a structurally wrong
+   *  skeleton, next to the human-edit exit the table already is. */
+  onRethink?: (note: string) => void
   /** i18n key overrides so the kantan tier can swap in plain-language copy.
    *  Defaults are the existing workbench strings (behavior unchanged). */
   titleKey?: string
   hintKey?: string
   continueKey?: string
   continuingKey?: string
+  discardKey?: string
+  discardConfirmKey?: string
 }) {
   const { t } = useTranslation()
+  // The optional rethink note (only rendered when onRethink is provided).
+  const [rethinkNote, setRethinkNote] = useState('')
 
   function updateSubject(idx: number, patch: Partial<SkeletonMap['subject']>) {
     const maps = skeleton.maps.map((m, i) =>
@@ -246,6 +260,12 @@ export function SkeletonGate({
     <section className="skeleton-gate">
       <h4>{t(titleKey)}</h4>
       <p className="skeleton-gate-hint">{t(hintKey)}</p>
+      {/* The skeleton at a glance: how many kinds, linked how. A one-box
+          skeleton that should be two is visible here before any table reading. */}
+      <div className="skeleton-diagram">
+        <Mermaid chart={skeletonMermaid(skeleton, t('workbench:skeleton.diagram.edge'))} />
+        <p className="skeleton-diagram-note">{t('workbench:skeleton.diagram.note')}</p>
+      </div>
       {annotationsBusy && (
         <p className="skeleton-gate-revalidating" role="status">
           <span className="spinner" />
@@ -359,6 +379,35 @@ export function SkeletonGate({
           </tbody>
         </table>
       </div>
+      {/* AI-redo exit: when the skeleton is STRUCTURALLY wrong (wrong split
+          into kinds, wrong key idea), editing cells is the wrong tool — hand
+          a plain-language note back to the generation instead. */}
+      {onRethink && (
+        <div className="skeleton-rethink">
+          <label className="skeleton-gate-hint" htmlFor="skeleton-rethink-note">
+            {t('workbench:skeleton.rethink.label')}
+          </label>
+          <textarea
+            id="skeleton-rethink-note"
+            className="skeleton-rethink-note"
+            rows={2}
+            placeholder={t('workbench:skeleton.rethink.placeholder')}
+            value={rethinkNote}
+            disabled={busy}
+            onChange={(e) => setRethinkNote(e.target.value)}
+          />
+          <div className="skeleton-gate-actions">
+            <button
+              type="button"
+              className="btn btn--ghost"
+              onClick={() => onRethink(rethinkNote.trim())}
+              disabled={busy}
+            >
+              {t('workbench:skeleton.rethink.button')}
+            </button>
+          </div>
+        </div>
+      )}
       <div className="skeleton-gate-actions">
         <button onClick={onContinueGuarded} disabled={busy}>
           {busy ? (
@@ -374,11 +423,11 @@ export function SkeletonGate({
           type="button"
           className="btn btn--ghost"
           onClick={() => {
-            if (window.confirm(t('workbench:skeleton.discardConfirm'))) onDiscard()
+            if (window.confirm(t(discardConfirmKey))) onDiscard()
           }}
           disabled={busy}
         >
-          {t('workbench:skeleton.discard')}
+          {t(discardKey)}
         </button>
       </div>
     </section>

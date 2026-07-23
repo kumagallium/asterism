@@ -167,11 +167,15 @@ function splitRow(line: string, delimiter: string): string[] {
 }
 
 /** First-rows preview of one dropped file. `header === null` ⇒ no client-side
- *  parse (json / xlsx / unreadable) — the UI shows a file-name card instead. */
+ *  parse (json / xlsx / unreadable) — the UI shows a file-name card instead.
+ *  `preambleLines` = the ACTUAL lines detected before the table (so the S2
+ *  metadata question can show what it is asking about — read client-side from
+ *  the user's own file, same as the table preview: display, not publication). */
 interface PreviewCard {
   name: string
   header: string[] | null
   rows: string[][]
+  preambleLines?: string[]
 }
 
 async function buildPreviews(files: File[], inspect: InspectResult): Promise<PreviewCard[]> {
@@ -192,11 +196,18 @@ async function buildPreviews(files: File[], inspect: InspectResult): Promise<Pre
       const text = await file.slice(0, PREVIEW_BYTES).text()
       let lines = text.split(/\r\n|\r|\n/)
       if (file.size > PREVIEW_BYTES) lines = lines.slice(0, -1) // drop the cut-off tail
-      lines = lines.slice(dialect?.skip_rows ?? 0).filter((l) => l.trim() !== '')
+      const skip = dialect?.skip_rows ?? 0
+      const preambleLines = lines.slice(0, skip).filter((l) => l.trim() !== '')
+      lines = lines.slice(skip).filter((l) => l.trim() !== '')
       const delim = dialect?.delimiter ?? (ext === '.tsv' ? '\t' : ',')
       const cells = lines.slice(0, PREVIEW_ROWS + 1).map((l) => splitRow(l, delim))
       const [header, ...rows] = cells
-      out.push({ name: file.name, header: header ?? null, rows })
+      out.push({
+        name: file.name,
+        header: header ?? null,
+        rows,
+        ...(preambleLines.length > 0 ? { preambleLines } : {}),
+      })
     } catch {
       out.push({ name: file.name, header: null, rows: [] }) // preview is enrichment
     }
@@ -842,17 +853,27 @@ export function KantanWizard({
 
   // ---- S3: staged skeleton propose (always the staged path, never one-shot) --
 
-  async function runSkeleton() {
+  // `rethinkNote` = the S4 "AI にもう一度考えさせる" note: a plain-language
+  // instruction (e.g. 「試料と測定値を別の種類に分けて」) folded into the
+  // domain hint, so the regeneration actually hears the human's objection —
+  // same generic human-hint channel the preset hints ride.
+  async function runSkeleton(rethinkNote?: string) {
     setErrMsg('')
     setJobNotice('')
     setStatus('')
     setSkeletonBusy(true)
     setLastPulseAt(null)
     jobRef.current?.close()
+    const domain = [
+      composedDomain(),
+      rethinkNote ? t('kantan:s4.rethinkWrap', { note: rethinkNote }) : '',
+    ]
+      .filter(Boolean)
+      .join('\n')
     try {
       jobRef.current = await proposeSkeleton(
         files,
-        composedDomain(),
+        domain,
         [],
         getActiveCredentials(),
         {
@@ -2224,6 +2245,25 @@ export function KantanWizard({
           {q1Needed && (
             <div className="kz-q">
               <p className="kz-q-text">{t('kantan:s2.q1', { count: preambleRowCount })}</p>
+              {/* The actual lines the question is about — read client-side from
+                  the user's own file (display only, like the table preview).
+                  Without them, "was there sample info?" is unanswerable from
+                  memory (dogfood 2026-07-23). */}
+              {previews
+                .filter((p) => (p.preambleLines?.length ?? 0) > 0)
+                .map((p) => (
+                  <div key={p.name} className="kz-preamble-evi">
+                    <div className="kz-preamble-name">
+                      {t('kantan:s2.preambleEviLabel', { name: p.name })}
+                    </div>
+                    <pre className="kz-preamble-lines">
+                      {p.preambleLines!.slice(0, 8).join('\n')}
+                      {p.preambleLines!.length > 8
+                        ? `\n${t('kantan:s2.moreLines', { n: p.preambleLines!.length - 8 })}`
+                        : ''}
+                    </pre>
+                  </div>
+                ))}
               <div className="kz-q-options">
                 <button
                   type="button"
@@ -2325,10 +2365,25 @@ export function KantanWizard({
                 setAnnotations(null)
                 setStep(files.length > 0 ? 2 : 1)
               }}
+              onRethink={
+                // A structural objection goes back to the AI (S3 rerun with the
+                // note folded into the hint). Needs the files — a restore lost
+                // them (the gate then keeps only the edit/discard exits).
+                files.length > 0
+                  ? (note) => {
+                      setSkeleton(null)
+                      setAnnotations(null)
+                      setStep(3)
+                      void runSkeleton(note || undefined)
+                    }
+                  : undefined
+              }
               titleKey="kantan:s4.gateTitle"
               hintKey="kantan:s4.gateHint"
               continueKey="kantan:s4.continue"
               continuingKey="kantan:s4.continuing"
+              discardKey="kantan:s4.discard"
+              discardConfirmKey="kantan:s4.discardConfirm"
             />
           )}
           {continuing && (
