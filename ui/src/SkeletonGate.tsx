@@ -99,6 +99,18 @@ function SkeletonEvidence({
           ⚠ {t('workbench:skeleton.evidence.measurementKeyCaution')}
         </p>
       )}
+      {/* ZEM naming trap: the row class named after a measured key column
+          ("Temperature" over key {Measurement temp.(C)}) — the row identity
+          mislabeled as one of its measurements. */}
+      {(ann.class_numeric_key_caution?.length ?? 0) > 0 && (
+        <p className="skeleton-evidence-line skeleton-evidence-caution">
+          ⚠{' '}
+          {t('workbench:skeleton.evidence.classNumericKeyCaution', {
+            cls: ann.class_numeric_key_caution!.map((c) => c.class).join(', '),
+            column: ann.class_numeric_key_caution!.map((c) => c.column).join(', '),
+          })}
+        </p>
+      )}
       {(ann.id_previews?.length ?? 0) > 0 && (
         <div className="skeleton-evidence-previews">
           <span className="skeleton-evidence-label">

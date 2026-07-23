@@ -1,4 +1,5 @@
 """Tests for skeleton_annotate — deterministic evidence for the skeleton gate."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -85,10 +86,7 @@ def test_unique_measurement_key_carries_caution(tmp_path: Path) -> None:
     band on 13 accidentally-distinct rows) — and safer candidates still show."""
     p = tmp_path / "xrd.csv"
     p.write_text(
-        "2θ (deg),intensity,scan_id\n"
-        "10.00,120,S1\n"
-        "10.02,135,S1\n"
-        "10.04,98,S2\n",
+        "2θ (deg),intensity,scan_id\n10.00,120,S1\n10.02,135,S1\n10.04,98,S2\n",
         encoding="utf-8",
     )
     ann = annotate_skeleton(_skeleton("xr:point/{2θ (deg)}"), [p])["maps"]["point"]
@@ -102,9 +100,9 @@ def test_unique_measurement_key_carries_caution(tmp_path: Path) -> None:
 def test_unique_text_key_has_no_measurement_caution(tmp_path: Path) -> None:
     p = tmp_path / "samples.csv"
     p.write_text("sample_id,alloy\nS-1,WC\nS-2,TiN\n", encoding="utf-8")
-    ann = annotate_skeleton(_skeleton("xr:sample/{sample_id}", source="samples.csv"), [p])[
-        "maps"
-    ]["point"]
+    ann = annotate_skeleton(_skeleton("xr:sample/{sample_id}", source="samples.csv"), [p])["maps"][
+        "point"
+    ]
     assert ann["is_unique"] is True
     assert ann["key_measurement_caution"] is False
     assert ann["key_candidates"] == []
@@ -216,3 +214,59 @@ def test_instance_and_invalid_namespaces_not_flagged(tmp_path: Path) -> None:
     }
     out = annotate_skeleton(skeleton, [p])
     assert out["placeholder_prefixes"] == []
+
+
+def test_class_named_after_numeric_key_column_carries_caution(tmp_path: Path) -> None:
+    """The ZEM naming trap: a measurement-only key whose CLASS is named after
+    the numeric key column ("Temperature" over key {Measurement temp.(C)}) —
+    the row identity mislabeled as one of its measurements. Token match is
+    prefix-tolerant (temp ≈ temperature)."""
+    p = tmp_path / "zem.csv"
+    p.write_text(
+        "Measurement temp.(C),Resistivity(Ohm m)\n"
+        "3.636740E+1,1.294886E-6\n"
+        "6.029985E+1,1.381926E-6\n",
+        encoding="utf-8",
+    )
+    ann = annotate_skeleton(
+        _skeleton("xr:t/{Measurement temp.(C)}", classes=["xo:Temperature"], source="zem.csv"),
+        [p],
+    )["maps"]["point"]
+    assert ann["key_measurement_caution"] is True
+    assert ann["class_numeric_key_caution"] == [
+        {"class": "xo:Temperature", "column": "Measurement temp.(C)", "token": "temp"}
+    ]
+
+
+def test_row_class_over_mixed_key_has_no_class_caution(tmp_path: Path) -> None:
+    """A legitimate row class over a mixed (text+numeric) key never triggers the
+    naming caution — even though "Measurement" shares a token with the numeric
+    column ("Measurement temp.(C)"), the key is not measurement-only."""
+    p = tmp_path / "zem.csv"
+    p.write_text(
+        "Sample,Measurement temp.(C)\nA,3.6E+1\nA,6.0E+1\n",
+        encoding="utf-8",
+    )
+    ann = annotate_skeleton(
+        _skeleton(
+            "xr:m/{Sample}/{Measurement temp.(C)}",
+            classes=["xo:Measurement"],
+            source="zem.csv",
+        ),
+        [p],
+    )["maps"]["point"]
+    assert ann["key_measurement_caution"] is False
+    assert ann["class_numeric_key_caution"] == []
+
+
+def test_unrelated_class_name_over_numeric_key_has_no_class_caution(tmp_path: Path) -> None:
+    """K7 alone (numeric-only key) does not imply the naming trap: a class name
+    sharing no token with the key column stays clean (only the K7 caution shows)."""
+    p = tmp_path / "xrd.csv"
+    p.write_text("2theta,intensity\n10.00,120\n10.02,135\n", encoding="utf-8")
+    ann = annotate_skeleton(
+        _skeleton("xr:p/{2theta}", classes=["xo:DiffractionPoint"], source="xrd.csv"),
+        [p],
+    )["maps"]["point"]
+    assert ann["key_measurement_caution"] is True
+    assert ann["class_numeric_key_caution"] == []
