@@ -567,6 +567,14 @@ def validate_rml_design(rml_ttl: str, csv_dir: Path | str) -> None:
 
 _R2RML = "http://www.w3.org/ns/r2rml#"
 
+# rr:termType also exists at the new RML namespace (mirrors asterism.rml_summary).
+_TERM_TYPE_PREDS = (_R2RML + "termType", _RMLF + "termType")
+
+# The duplicate-column adjudication reads real rows; cap the scan so a 233k-row
+# source costs bounded time per validation round (functional dependency observed
+# over the first N rows is evidence enough for a non-blocking advisory).
+_ADJUDICATION_ROW_CAP = 20000
+
 
 def _tm_source_name(graph, tm) -> str | None:
     """The file name of a TriplesMap's logical source, or None."""
@@ -793,6 +801,240 @@ def _connectivity_advisories(graph, headers: dict[str, list[str]] | None = None)
     return [message]
 
 
+def _source_table(
+    path: Path | str,
+    dialect: SourceDialect | None = None,
+    cap: int = _ADJUDICATION_ROW_CAP,
+) -> tuple[list[str], list[list[str]]]:
+    """Header + up to ``cap`` data rows of a tabular source.
+
+    Same effective-dialect resolution as :func:`read_csv_header` (pinned dialect
+    wins; a legacy-suffix file reads through the default rules) so the rows are
+    exactly the ones Morph-KGC will see after normalization. Returns
+    ``([], [])`` for an absent/undecodable file — the caller degrades to the
+    un-adjudicated advisory, never a wrong claim.
+    """
+    p = Path(path)
+    if not p.exists():
+        return [], []
+    effective = dialect if dialect is not None and not is_default(dialect) else None
+    if effective is None and p.suffix.lower() in LEGACY_SUFFIXES:
+        effective = DEFAULT_DIALECT
+    rows: list[list[str]] = []
+    try:
+        if effective is not None:
+            it = dialect_rows(p, effective)
+            try:
+                first = next(it, None)
+                if not first:
+                    return [], []
+                header = [safe_column(c) for c in first]
+                for row in it:
+                    rows.append(row)
+                    if len(rows) >= cap:
+                        break
+            finally:
+                it.close()
+            return header, rows
+        delimiter = "\t" if p.suffix.lower() == ".tsv" else ","
+        with p.open("r", encoding="utf-8-sig", newline="") as fh:
+            reader = csv.reader(fh, delimiter=delimiter)
+            first = next(reader, None)
+            if not first:
+                return [], []
+            header = [c.strip() for c in first]
+            for row in reader:
+                rows.append(row)
+                if len(rows) >= cap:
+                    break
+        return header, rows
+    except (OSError, UnicodeDecodeError):
+        return [], []
+
+
+def _tm_subject_key_columns(graph, tm) -> frozenset[str] | None:
+    """The source columns that mint this map's subject IRI.
+
+    The effective subject template's placeholders (transforms looked through,
+    like the connectivity check); a reference-valued subject is keyed by that
+    column; a constant subject mints ONE fixed IRI for the whole source →
+    ``frozenset()``. ``None`` when the map has no subject map at all (nothing
+    to adjudicate against)."""
+    import rdflib
+
+    uri = rdflib.URIRef
+    for sm in graph.objects(tm, uri(_R2RML + "subjectMap")):
+        tpl = _effective_template(graph, sm)
+        if tpl is not None:
+            return frozenset(_template_columns(tpl))
+        for rp in _REFERENCE_PREDS:
+            for r in graph.objects(sm, uri(rp)):
+                return frozenset({str(r)})
+        return frozenset()
+    return None
+
+
+def _tm_plain_reference_columns(graph, tm) -> set[str]:
+    """Columns this map binds as a PLAIN datatype object: an object map holding
+    a direct ``rml:reference`` and no ``rr:termType rr:IRI`` — exactly the shape
+    the IR compiler emits for ``column:``. Function pipelines, templates, joins
+    and constants are links or derived values, not plain transcriptions, and are
+    deliberately not collected (a shared function INPUT is not a duplicated
+    fact)."""
+    import rdflib
+
+    uri = rdflib.URIRef
+    out: set[str] = set()
+    for pom in graph.objects(tm, uri(_R2RML + "predicateObjectMap")):
+        for om in graph.objects(pom, uri(_R2RML + "objectMap")):
+            is_iri = any(
+                _local_name(str(t)) == "IRI"
+                for tp in _TERM_TYPE_PREDS
+                for t in graph.objects(om, uri(tp))
+            )
+            if is_iri:
+                continue
+            for rp in _REFERENCE_PREDS:
+                for r in graph.objects(om, uri(rp)):
+                    out.add(str(r))
+    return out
+
+
+def _duplicate_column_advisories(graph, csv_dir: Path | str | None) -> list[str]:
+    """Flag a source column transcribed onto MULTIPLE entities as a plain
+    datatype property.
+
+    Observed live (ZEM instrument export, weak model, 2026-07-23): the per-map
+    stage filled BOTH the per-row measurement map and the constant-subject
+    material map with the same 13 instrument columns — every reading stored
+    twice, and the single material entity carrying 13 rows' worth of readings
+    as multi-values. No structural gate catches it: the columns exist, the rows
+    compile, T1-T9 pass. The defect is a DESIGN one: a source cell should
+    become a fact on exactly one entity.
+
+    One advisory per duplicated column (so the corrective loop sees partial
+    fixes as progress, and ``classify``'s ``column '…'`` shape keys each issue
+    by column). When the real rows are readable, the owner is ADJUDICATED
+    deterministically by functional dependency on each map's subject key: among
+    the maps whose subjects determine the column's value, the one minting the
+    FEWEST subjects owns it (normalization — a constant-per-material dimension
+    belongs to the material, not to every measurement). No dependent map, or a
+    tie → the advisory states the defect without a verdict (no claim is better
+    than a wrong one).
+
+    Subject-KEY columns are exempt: a map carrying another entity's key column
+    is how joins are declared — the connectivity advisory owns that concern.
+    """
+    per_source: dict[str, list[tuple[str, frozenset[str], set[str]]]] = {}
+    dialects = _mapping_dialects(graph)
+    for tm in _triples_map_subjects(graph):
+        src = _tm_source_name(graph, tm)
+        if src is None:
+            continue
+        keys = _tm_subject_key_columns(graph, tm)
+        if keys is None:
+            continue
+        per_source.setdefault(src, []).append(
+            (_tm_label(graph, tm), keys, _tm_plain_reference_columns(graph, tm))
+        )
+
+    issues: list[str] = []
+    for src in sorted(per_source):
+        entries = per_source[src]
+        if len(entries) < 2:
+            continue
+        key_cols: set[str] = set().union(*(keys for _, keys, _ in entries))
+        col_maps: dict[str, list[int]] = {}
+        for i, (_, _, refs) in enumerate(entries):
+            for c in refs:
+                if c in key_cols:
+                    continue  # join carry — the connectivity advisory's concern
+                col_maps.setdefault(c, []).append(i)
+        dup_cols = {c: idxs for c, idxs in col_maps.items() if len(idxs) >= 2}
+        if not dup_cols:
+            continue
+
+        header: list[str] = []
+        rows: list[list[str]] = []
+        if csv_dir is not None:
+            header, rows = _source_table(Path(csv_dir) / src, dialects.get(src))
+        col_index = {c: i for i, c in enumerate(header)}
+
+        def cell(row: list[str], idx: int) -> str:
+            return row[idx] if idx < len(row) else ""
+
+        # Subjects each map mints over the real rows (1 for a constant subject);
+        # None when the rows/columns are unavailable — that map cannot win.
+        entity_counts: list[int | None] = []
+        for _, keys, _ in entries:
+            if not rows:
+                entity_counts.append(None)
+            elif not keys:
+                entity_counts.append(1)
+            elif any(k not in col_index for k in keys):
+                entity_counts.append(None)
+            else:
+                kidx = [col_index[k] for k in sorted(keys)]
+                entity_counts.append(
+                    len({tuple(cell(r, i) for i in kidx) for r in rows})
+                )
+
+        for c in sorted(dup_cols):
+            idxs = dup_cols[c]
+            labels = sorted(entries[i][0] for i in idxs)
+            base = (
+                f"column '{c}' is bound as a plain datatype property by "
+                f"{len(idxs)} maps ({' + '.join(labels)}) — the same source cell "
+                "becomes a duplicated fact on several different entities. A "
+                "column belongs to exactly ONE entity: keep it on the map whose "
+                "subject its value describes and DELETE the duplicate property "
+                "row(s) from the other map(s)."
+            )
+            verdict = ""
+            ci = col_index.get(c)
+            if rows and ci is not None:
+                dependent: list[int] = []
+                for i in idxs:
+                    if entity_counts[i] is None:
+                        continue
+                    keys = entries[i][1]
+                    kidx = [col_index[k] for k in sorted(keys)] if keys else []
+                    groups: dict[tuple, str] = {}
+                    determined = True
+                    for r in rows:
+                        v = cell(r, ci).strip()
+                        if not v:
+                            continue
+                        g = tuple(cell(r, i2) for i2 in kidx)
+                        prior = groups.setdefault(g, v)
+                        if prior != v:
+                            determined = False
+                            break
+                    if determined:
+                        dependent.append(i)
+                if dependent:
+                    best = min(dependent, key=lambda i: entity_counts[i])
+                    tie = [
+                        i for i in dependent if entity_counts[i] == entity_counts[best]
+                    ]
+                    if len(tie) == 1:
+                        owner, others = entries[best][0], sorted(
+                            entries[i][0] for i in idxs if i != best
+                        )
+                        n_distinct = len(
+                            {cell(r, ci).strip() for r in rows if cell(r, ci).strip()}
+                        )
+                        verdict = (
+                            f" Adjudicated from the real rows: over {len(rows)} data "
+                            f"rows it holds {n_distinct} distinct non-empty value(s), "
+                            f"exactly one per '{owner}' subject "
+                            f"({entity_counts[best]} subject(s)) — keep it ONLY on "
+                            f"'{owner}' and DELETE it from: {', '.join(others)}."
+                        )
+            issues.append(base + verdict)
+    return issues
+
+
 def _source_headers(graph, csv_dir: Path | str) -> dict[str, list[str]]:
     """Header row of every tabular source file in ``csv_dir``, keyed by file name.
 
@@ -875,8 +1117,10 @@ def design_advisories(rml_ttl: str, csv_dir: Path | str | None = None) -> list[s
     ``csv_dir`` (optional): the dataset's real source directory. When given,
     the connectivity advisory also enumerates the concrete JOIN-KEY candidates
     (columns shared between the disconnected groups' sources) and says which
-    side must declare the link — the difference between "link them" and a work
-    order a weak model can execute.
+    side must declare the link, and the duplicate-column advisory adjudicates
+    which map OWNS a column bound by several maps — the difference between
+    "link them" / "decide who owns it" and a work order a weak model can
+    execute.
     """
     import rdflib
 
@@ -886,7 +1130,9 @@ def design_advisories(rml_ttl: str, csv_dir: Path | str | None = None) -> list[s
     except Exception:
         return []
     headers = _source_headers(graph, csv_dir) if csv_dir is not None else {}
-    return _connectivity_advisories(graph, headers or None)
+    return _connectivity_advisories(graph, headers or None) + _duplicate_column_advisories(
+        graph, csv_dir
+    )
 
 
 def design_review_notes(rml_ttl: str, csv_dir: Path | str | None = None) -> list[str]:

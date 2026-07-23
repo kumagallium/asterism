@@ -149,6 +149,12 @@ Rules:
   `…Raw` predicate with `fallback: true`. Never invent a function; one unmapped
   column must not block the ingest.
 - Use ONLY column names for THIS map's source, exactly as the menu lists them.
+- Pick ONLY the columns whose values DESCRIBE this map's entity. Do NOT
+  transcribe the whole source into every map: each source column belongs to
+  exactly ONE map — a value that varies per row belongs to the per-row entity;
+  a value fixed for the whole file belongs to the one fixed entity. A column
+  another map in the skeleton owns appears here ONLY as a link/join key, never
+  as another plain datatype property (that would store the same fact twice).
 - Give EVERY measurement-like property a `label:` (human-readable meaning, in
   the output language requested for prose) and, when the column carries a
   physical quantity, a `unit:` (human-readable notation like `µV/K`). Display

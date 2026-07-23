@@ -557,6 +557,96 @@ def test_single_entity_never_flagged() -> None:
     assert design_advisories(single) == []
 
 
+# ---------------------------------------------------------------------------
+# design advisories: duplicate column assignment (one fact, one entity)
+# ---------------------------------------------------------------------------
+
+# The live ZEM shape (2026-07-23): a per-row readings map AND a constant-subject
+# sample map over the SAME source, the per-map stage transcribing the same
+# columns onto both. Joined via parentTriplesMap so the connectivity advisory
+# stays silent and these fixtures isolate the duplicate-column concern.
+_DUP_COLUMNS = _ADV_PREFIXES + """
+<#Readings> rml:logicalSource [ rml:source "run.csv" ] ;
+  rr:subjectMap [ rr:template "https://ex/reading/{temp}" ; rr:class ex:Reading ] ;
+  rr:predicateObjectMap [ rr:predicate ex:ofSample ;
+    rr:objectMap [ rr:parentTriplesMap <#Sample> ] ] ;
+  rr:predicateObjectMap [ rr:predicate ex:resistivity ;
+    rr:objectMap [ rml:reference "resistivity" ] ] ;
+  rr:predicateObjectMap [ rr:predicate ex:diameter ;
+    rr:objectMap [ rml:reference "diameter" ] ] .
+<#Sample> rml:logicalSource [ rml:source "run.csv" ] ;
+  rr:subjectMap [ rr:constant <https://ex/sample/s1> ; rr:class ex:Sample ] ;
+  rr:predicateObjectMap [ rr:predicate ex:resistivityDup ;
+    rr:objectMap [ rml:reference "resistivity" ] ] ;
+  rr:predicateObjectMap [ rr:predicate ex:diameterDup ;
+    rr:objectMap [ rml:reference "diameter" ] ] .
+"""
+
+
+def test_duplicate_column_flagged_and_adjudicated(tmp_path) -> None:
+    # resistivity varies per row -> the per-row Reading owns it; diameter is
+    # constant across the run -> the single Sample owns it (normalization).
+    (tmp_path / "run.csv").write_text(
+        "temp,resistivity,diameter\n300,1.0,5.0\n310,1.1,5.0\n320,1.2,5.0\n",
+        encoding="utf-8",
+    )
+    advisories = design_advisories(_DUP_COLUMNS, tmp_path)
+    assert len(advisories) == 2  # one per duplicated column, ordered by name
+    dia, res = advisories
+    assert dia.startswith("column 'diameter'") and "Reading + Sample" in dia
+    assert "keep it ONLY on 'Sample' and DELETE it from: Reading" in dia
+    assert res.startswith("column 'resistivity'")
+    assert "keep it ONLY on 'Reading' and DELETE it from: Sample" in res
+    # the verdicts carry their evidence (rows scanned, distinct values, subjects)
+    assert "3 data rows" in res and "3 distinct" in res
+    assert "1 distinct" in dia and "1 subject(s)" in dia
+
+
+def test_duplicate_column_without_rows_states_defect_only() -> None:
+    # No csv_dir -> the defect is still flagged, but no ownership claim is made
+    # (no claim is better than a wrong one).
+    advisories = design_advisories(_DUP_COLUMNS)
+    assert len(advisories) == 2
+    for msg in advisories:
+        assert "duplicated fact" in msg
+        assert "Adjudicated" not in msg
+
+
+def test_key_carry_columns_exempt(tmp_path) -> None:
+    # A map carrying ANOTHER map's subject-key column as a literal is how joins
+    # are declared/kept queryable — the connectivity advisory owns that concern.
+    rml = _ADV_PREFIXES + """
+<#Child> rml:logicalSource [ rml:source "c.csv" ] ;
+  rr:subjectMap [ rr:template "https://ex/c/{cid}" ; rr:class ex:Child ] ;
+  rr:predicateObjectMap [ rr:predicate ex:ofParent ;
+    rr:objectMap [ rr:template "https://ex/p/{sid}" ] ] ;
+  rr:predicateObjectMap [ rr:predicate ex:sid ; rr:objectMap [ rml:reference "sid" ] ] .
+<#Parent> rml:logicalSource [ rml:source "c.csv" ] ;
+  rr:subjectMap [ rr:template "https://ex/p/{sid}" ; rr:class ex:Parent ] ;
+  rr:predicateObjectMap [ rr:predicate ex:sidLit ; rr:objectMap [ rml:reference "sid" ] ] .
+"""
+    (tmp_path / "c.csv").write_text("cid,sid\n1,a\n2,a\n", encoding="utf-8")
+    assert design_advisories(rml, tmp_path) == []
+
+
+def test_iri_valued_reference_not_a_duplicate_fact() -> None:
+    # A reference object map typed rr:termType rr:IRI is a LINK (e.g. iri_safe
+    # output), not a transcribed datatype fact — never flagged.
+    rml = _ADV_PREFIXES + """
+<#A> rml:logicalSource [ rml:source "u.csv" ] ;
+  rr:subjectMap [ rr:template "https://ex/a/{id}" ; rr:class ex:A ] ;
+  rr:predicateObjectMap [ rr:predicate ex:ofB ;
+    rr:objectMap [ rr:parentTriplesMap <#B> ] ] ;
+  rr:predicateObjectMap [ rr:predicate ex:url ;
+    rr:objectMap [ rml:reference "url" ; rr:termType rr:IRI ] ] .
+<#B> rml:logicalSource [ rml:source "u.csv" ] ;
+  rr:subjectMap [ rr:constant <https://ex/b/only> ; rr:class ex:B ] ;
+  rr:predicateObjectMap [ rr:predicate ex:url ;
+    rr:objectMap [ rml:reference "url" ; rr:termType rr:IRI ] ] .
+"""
+    assert design_advisories(rml) == []
+
+
 def test_unparseable_rml_degrades_to_no_advisories() -> None:
     assert design_advisories("@prefix broken") == []
 
