@@ -22,6 +22,7 @@ decoders); the object-form exclusivity rules stay with the strict parser
 (:mod:`asterism_step0.mapping_ir`), which remains the gate for ALL providers —
 the schema narrows generation, it never replaces validation.
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -86,7 +87,10 @@ def _dialects_schema() -> dict:
                 "delimiter": _string(),
                 "collapse": {"type": "boolean"},
                 "skip_rows": {"type": "integer", "minimum": 0},
-                "preamble": {"type": "string", "enum": ["drop", "keyvalue", "lines"]},
+                "preamble": {
+                    "type": "string",
+                    "enum": ["drop", "keyvalue", "lines", "keyvalue_cells"],
+                },
             },
         },
     }

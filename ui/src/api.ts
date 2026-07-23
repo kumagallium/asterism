@@ -14,14 +14,19 @@ export interface SourceDialect {
   delimiter: string
   collapse: boolean
   skip_rows: number
-  /** How to treat the preamble lines: `drop` (default), `keyvalue` or `lines`
-   *  (broadcast the parsed preamble metadata onto every row). ADR source-dialect.md. */
+  /** How to treat the preamble lines: `drop` (default), `keyvalue`, `lines` or
+   *  `keyvalue_cells` (broadcast the parsed preamble metadata onto every row).
+   *  ADR source-dialect.md. */
   preamble: string
 }
 
 /** A detected dialect, plus where it came from (auto-detected vs human-specified). */
 export interface DetectedDialect extends SourceDialect {
   origin: string // 'detected' | 'specified'
+  /** The preamble's detected SHAPE ('keyvalue' | 'keyvalue_cells' | 'lines') —
+   *  identify-and-advise: what "keep the metadata" should pin as the parsing
+   *  mode. Absent when the source has no preamble. */
+  preamble_hint?: string
 }
 
 /** The structured result of /api/inspect: the Markdown body plus the sidecar

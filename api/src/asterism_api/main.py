@@ -1341,6 +1341,13 @@ def _dialects_header_json(inspections: list) -> str:
             "preamble": dialect.preamble,
             "origin": getattr(ins, "dialect_origin", None) or "detected",
         }
+        # Identify-and-advise (ADR source-dialect.md): the preamble's detected
+        # SHAPE ("keyvalue" / "keyvalue_cells" / "lines") so the client's
+        # "keep the metadata" answer can pin the right parsing mode instead of
+        # hardcoding one. Additive — absent when there is no preamble.
+        hint = getattr(ins, "preamble_hint", None)
+        if hint is not None:
+            out[ins.name]["preamble_hint"] = hint
     return json.dumps(out, separators=(",", ":"))
 
 

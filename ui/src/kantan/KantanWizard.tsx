@@ -799,7 +799,10 @@ export function KantanWizard({
   function answerQ1(a: Q1Answer) {
     setQ1(a)
     // The answer becomes per-source read overrides: keep = broadcast the
-    // preamble metadata onto every row; drop = table only.
+    // preamble metadata onto every row (in the SHAPE the inspector detected —
+    // `key: value` lines vs `key=value` cells vs bare lines; hardcoding
+    // 'keyvalue' collapsed a ZEM-style tab meta line into one giant column);
+    // drop = table only.
     setDialectOverrides(() => {
       const next: Record<string, SourceDialect> = {}
       for (const [name, det] of preambleSources) {
@@ -808,7 +811,7 @@ export function KantanWizard({
           delimiter: det.delimiter,
           collapse: det.collapse,
           skip_rows: det.skip_rows,
-          preamble: a === 'keep' ? 'keyvalue' : 'drop',
+          preamble: a === 'keep' ? (det.preamble_hint ?? 'keyvalue') : 'drop',
         }
       }
       return next
