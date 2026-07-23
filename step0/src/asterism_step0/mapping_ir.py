@@ -467,6 +467,22 @@ def _parse_subject(raw: Any, where: str, issues: list[str]) -> SubjectIR:
     )
 
 
+# Weak-model unit runaway (live dogfood 2026-07-23: a unit of `°C​Celsius`
+# repeated 43 times with zero-width spaces): units are DISPLAY strings (ADR K8),
+# so sanitize instead of failing the design — strip invisible characters,
+# collapse whitespace, and DROP anything implausibly long (no real unit needs
+# more; the bracketed column-name extraction refills display units downstream).
+_UNIT_INVISIBLES = dict.fromkeys(map(ord, "\u200b\u200c\u200d\ufeff"))
+_UNIT_MAX_LEN = 32
+
+
+def _sanitize_unit(unit: str) -> str | None:
+    cleaned = " ".join(unit.translate(_UNIT_INVISIBLES).split())
+    if not cleaned or len(cleaned) > _UNIT_MAX_LEN:
+        return None
+    return cleaned
+
+
 def _parse_property(raw: Any, where: str, issues: list[str]) -> PropertyIR | None:
     if not isinstance(raw, Mapping):
         issues.append(f"{where} must be a mapping with at least 'predicate'.")
@@ -520,12 +536,14 @@ def _parse_property(raw: Any, where: str, issues: list[str]) -> PropertyIR | Non
             # under the predicate, so the row has no object at all. Limited to the
             # "no object form" case so a legit ``transform: {col: slug}`` (which
             # always rides an object_template = an object form) is never swept in.
+            guided = False
             transform_raw = raw.get("transform")
             if isinstance(transform_raw, Mapping):
                 misplaced = sorted(
                     str(k) for k in transform_raw if str(k) in _ROW_LEVEL_FIELDS
                 )
                 if misplaced:
+                    guided = True
                     issues.append(
                         f"{where}: transform cannot contain the row field(s) "
                         f"{', '.join(misplaced)} — transform is ONLY the "
@@ -534,6 +552,20 @@ def _parse_property(raw: Any, where: str, issues: list[str]) -> PropertyIR | Non
                         f"under '- predicate: {predicate}'), e.g. 'column: <col>' with "
                         f"'function: <fn>', not nested inside transform."
                     )
+            if not guided:
+                # Weak-model family (live dogfood 2026-07-23): rows carrying ONLY
+                # predicate + unit/label — display metadata mistaken for the value.
+                # The bare "exactly one object form" message never lands on weak
+                # models (the recipe lesson: name the exact edit), so spell out
+                # the paste-ready fix.
+                issues.append(
+                    f"{where}: add 'column:' with the source column header copied "
+                    f"EXACTLY as the inspection shows it (e.g. \"column: "
+                    f"Resistivity(Ohm m)\"), directly under '- predicate: "
+                    f"{predicate}'. 'unit'/'label' are display metadata only — "
+                    f"they never carry the value, so a row with just them has no "
+                    f"data source and cannot compile."
+                )
 
     function = raw.get("function")
     if function is not None:
@@ -624,6 +656,8 @@ def _parse_property(raw: Any, where: str, issues: list[str]) -> PropertyIR | Non
     unit = raw.get("unit")
     if unit is not None:
         unit = _expect_str(unit, f"{where}.unit", issues)
+        if unit is not None:
+            unit = _sanitize_unit(unit)
 
     return PropertyIR(
         predicate=predicate,
