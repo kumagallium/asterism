@@ -8,6 +8,8 @@
     "detailsSummary": "Error details"
   },
   "mermaid": {
-    "renderFailed": "This diagram can't be displayed (showing the source instead)."
+    "renderFailed": "This diagram can't be displayed (showing the source instead).",
+    "loadFailed": "The diagram renderer failed to load. The app may have been updated — reloading fixes this.",
+    "reload": "Reload"
   }
 }
