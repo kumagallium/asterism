@@ -1,5 +1,16 @@
 # Changelog
 
+## [v0.10.0](https://github.com/kumagallium/asterism/compare/v0.9.0...v0.10.0) - 2026-07-23
+
+- feat(dialect): preamble モード keyvalue_cells — ZEM 系「key=value セル」メタ行を列化 by @kumagallium in https://github.com/kumagallium/asterism/pull/302
+- feat(step0/ui): 骨格ゲートに「クラス名=数値列名」警告 — ZEM 誤命名を設計時に前倒し検出 by @kumagallium in https://github.com/kumagallium/asterism/pull/304
+- feat(ui): かんたん S2/S4 改善 — プリアンブル実物・AI にもう一度考えさせる・骨格図 by @kumagallium in https://github.com/kumagallium/asterism/pull/306
+- fix(kantan): コンパイル不能設計の S5 素通りを停止＋RML なし ingest を平易な 422 に by @kumagallium in https://github.com/kumagallium/asterism/pull/305
+- fix(validate): 接続判定が transform 済み template を見えず false DISCONNECTED で修正ループが収束不能 by @kumagallium in https://github.com/kumagallium/asterism/pull/307
+- fix(step0): 弱モデルの unit 暴走をサニタイズ+値ソース無し行に貼るだけ誘導 by @kumagallium in https://github.com/kumagallium/asterism/pull/308
+- chore: 参照ゼロの残骸を削除（step0/dogfood と word-pandoc スパイク） by @kumagallium in https://github.com/kumagallium/asterism/pull/309
+- 命名の決定論化 — prefix を判断から消す (ADR K13) by @kumagallium in https://github.com/kumagallium/asterism/pull/310
+
 ## [v0.9.0](https://github.com/kumagallium/asterism/compare/v0.8.0...v0.9.0) - 2026-07-23
 
 - feat(ui/api): かんたんモード S7-S9 — ためす/公開/できあがり（ウィザード完結） by @kumagallium in https://github.com/kumagallium/asterism/pull/296
