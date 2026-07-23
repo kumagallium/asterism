@@ -42,6 +42,41 @@ let _seq = 0
 // Safari:  "Importing a module script failed."
 const CHUNK_LOAD_ERROR_RE = /dynamically imported module|Importing a module script/i
 
+// Mermaid sizes every class box by MEASURING its label text, so it must not run
+// before the font those labels will actually be drawn in has arrived. Ours
+// (IBM Plex Mono, index.html → Google Fonts with `display=swap`) is a webfont:
+// until it lands the browser paints the fallback, and the fallback is far
+// narrower — measured live on the ZEM diagram, the same member line is 250px in
+// the fallback vs 346px in IBM Plex Mono, so the whole diagram came out
+// 345px wide where it needed 434px. `swap` then replaces the font inside boxes
+// that were sized for the fallback: class names clip ("MaterialSamp") and long
+// member lines wrap and centre — the "崩れ" the user reported.
+//
+// One shared promise: the wait resolves once per page, not once per diagram,
+// and every later render (a catalog with several diagrams, a re-render on
+// chart change) takes the already-resolved path. `document.fonts.ready`
+// settles even when the font FAILS to load, so this cannot hang the render on
+// an offline/blocked font host; the timeout is belt-and-braces for engines
+// where the promise is unreliable, and losing the race only reproduces the old
+// behaviour.
+const FONT_WAIT_MS = 3000
+let _fontsReady: Promise<unknown> | null = null
+
+function fontsReady(): Promise<unknown> {
+  const fonts = typeof document === 'undefined' ? undefined : document.fonts
+  if (!fonts) return Promise.resolve()
+  _fontsReady ??= Promise.race([
+    // `load` forces the face to actually be fetched — `ready` alone can settle
+    // before a font no element has used yet is requested. Size/weight here only
+    // select the face; mermaid's own font-size governs the rendered metrics.
+    Promise.resolve(fonts.load("400 16px 'IBM Plex Mono'"))
+      .catch(() => undefined)
+      .then(() => fonts.ready),
+    new Promise((resolve) => setTimeout(resolve, FONT_WAIT_MS)),
+  ])
+  return _fontsReady
+}
+
 /**
  * Render a Mermaid diagram from its source. Falls back to the raw source on error.
  *
@@ -70,8 +105,8 @@ export function Mermaid({ chart }: { chart: string }) {
     let cancelled = false
     const id = `mermaid-${_seq++}`
     const normalized = normalizeMermaidDialects(chart)
-    mermaid
-      .parse(normalized)
+    fontsReady()
+      .then(() => mermaid.parse(normalized))
       .then(() => mermaid.render(id, normalized))
       .then((result) => {
         // setState only at the async boundary (react-hooks/set-state-in-effect).
