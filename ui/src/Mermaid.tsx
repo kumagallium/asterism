@@ -29,14 +29,31 @@ mermaid.initialize({
 
 let _seq = 0
 
+// Mermaid loads each diagram type as a lazy chunk, so `parse` can reject for a
+// reason that has nothing to do with the diagram: the chunk import itself
+// failed (typically a stale pre-deploy shell requesting asset hashes that no
+// longer exist — observed live 2026-07-23, the ZEM 構造図). Match the three
+// engines' dynamic-import failure messages so that case gets a "reload me"
+// note instead of the misleading syntax fallback (which invites debugging a
+// perfectly valid diagram). The self-heal reload in main.tsx usually fires
+// first; this is the manual way out when its one-shot guard is spent.
+// Chrome: "Failed to fetch dynamically imported module: <url>"
+// Firefox: "error loading dynamically imported module: <url>"
+// Safari:  "Importing a module script failed."
+const CHUNK_LOAD_ERROR_RE = /dynamically imported module|Importing a module script/i
+
 /**
  * Render a Mermaid diagram from its source. Falls back to the raw source on error.
  *
- * We PRE-VALIDATE with `mermaid.parse(..., { suppressErrors: true })` before
- * calling `render`. `parse` resolves to `false` on invalid syntax instead of
- * throwing, so an AI-generated diagram that Mermaid can't render never reaches
- * `render` — we degrade to a friendly note + the raw source, and no broken
- * error graphic is ever inserted into the page.
+ * We PRE-VALIDATE with `mermaid.parse(...)` before calling `render`, so an
+ * AI-generated diagram that Mermaid can't render never reaches `render` — we
+ * degrade to a friendly note + the raw source, and no broken error graphic is
+ * ever inserted into the page (`suppressErrorRendering` in the init above).
+ * parse is called WITHOUT `suppressErrors`: that option collapses every
+ * failure — a chunk that failed to load included — into the same `false`,
+ * which turned a stale-deploy load failure into the misleading "syntax"
+ * fallback (verified live 2026-07-23, ZEM 構造図). Classifying the thrown
+ * error is the only way to tell the two apart.
  *
  * The rendered SVG is kept in state and injected via `dangerouslySetInnerHTML`
  * (React-owned), NOT imperatively via `ref.current.innerHTML`. Imperative DOM
@@ -47,39 +64,45 @@ let _seq = 0
 export function Mermaid({ chart }: { chart: string }) {
   const { t } = useTranslation('misc')
   const [svg, setSvg] = useState<string | null>(null)
-  const [failed, setFailed] = useState(false)
+  const [failure, setFailure] = useState<'syntax' | 'load' | null>(null)
 
   useEffect(() => {
     let cancelled = false
     const id = `mermaid-${_seq++}`
     const normalized = normalizeMermaidDialects(chart)
     mermaid
-      .parse(normalized, { suppressErrors: true })
-      .then((ok) => {
-        // Invalid syntax — skip render() entirely so mermaid never injects its
-        // error graphic; the fallback below shows the source instead.
-        if (!ok) {
-          if (!cancelled) setFailed(true)
-          return undefined
-        }
-        return mermaid.render(id, normalized)
-      })
+      .parse(normalized)
+      .then(() => mermaid.render(id, normalized))
       .then((result) => {
         // setState only at the async boundary (react-hooks/set-state-in-effect).
         if (result && !cancelled) {
           setSvg(result.svg)
-          setFailed(false)
+          setFailure(null)
         }
       })
-      .catch(() => {
-        if (!cancelled) setFailed(true)
+      .catch((err: unknown) => {
+        if (cancelled) return
+        const message = err instanceof Error ? err.message : String(err)
+        setFailure(CHUNK_LOAD_ERROR_RE.test(message) ? 'load' : 'syntax')
       })
     return () => {
       cancelled = true
     }
   }, [chart])
 
-  if (failed) {
+  if (failure === 'load') {
+    // Not a diagram problem — don't show the source (that reads as "your
+    // design is broken"); offer the fix instead.
+    return (
+      <div className="mermaid-fallback">
+        <p className="mermaid-fallback-note">{t('mermaid.loadFailed')}</p>
+        <button type="button" onClick={() => window.location.reload()}>
+          {t('mermaid.reload')}
+        </button>
+      </div>
+    )
+  }
+  if (failure === 'syntax') {
     return (
       <div className="mermaid-fallback">
         <p className="mermaid-fallback-note">{t('mermaid.renderFailed')}</p>
