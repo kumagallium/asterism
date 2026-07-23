@@ -32,7 +32,11 @@ from pathlib import Path
 from typing import Any
 
 from asterism_step0.inspect import inspect_source_set, render_markdown
-from asterism_step0.instance_iri import dataset_namespace_block
+from asterism_step0.instance_iri import (
+    dataset_namespace_block,
+    normalize_dataset_namespace,
+    slugify_dataset_name,
+)
 from asterism_step0.language import language_instruction
 from asterism_step0.llm import LLMClient, as_completion
 from asterism_step0.mapping_ir import structural_property_issues
@@ -520,6 +524,15 @@ def propose_skeleton(
         function_names=names,
         language=language,
         iri_base=iri_base,
+    )
+    # Canonical namespace shape is a machine requirement, not a model skill
+    # (kantan ADR K13): repair base/shape drift and derive the prefix pair
+    # deterministically from the minted slug, so the gate never asks a human
+    # to judge a name that cannot matter.
+    skeleton = normalize_dataset_namespace(
+        skeleton,
+        iri_base,
+        fallback_slug=slugify_dataset_name(Path(csv_paths[0]).stem) if csv_paths else None,
     )
     return SkeletonProposal(
         skeleton=skeleton,

@@ -6,6 +6,7 @@ import type {
   SkeletonMap,
   SkeletonMapAnnotation,
 } from './api'
+import { detectDatasetNamespace, renameDatasetNamespace } from './datasetNamespace'
 import { Mermaid } from './Mermaid'
 import { skeletonMermaid } from './skeletonDiagram'
 
@@ -165,6 +166,7 @@ export function SkeletonGate({
   annotationsBusy,
   canRevalidate,
   busy,
+  plain = false,
   onChange,
   onContinue,
   onDiscard,
@@ -181,6 +183,9 @@ export function SkeletonGate({
   annotationsBusy: boolean
   canRevalidate: boolean
   busy: boolean
+  /** Kantan tier (ADR K4/K13): hide the raw prefix/namespace table — the
+   *  namespace card (dataset name + issuer) is the whole story there. */
+  plain?: boolean
   onChange: (s: MappingSkeleton) => void
   onContinue: () => void
   onDiscard: () => void
@@ -230,6 +235,45 @@ export function SkeletonGate({
   const placeholderPrefixes = annotations?.placeholder_prefixes ?? []
   const placeholderSet = new Set(placeholderPrefixes.map((p) => p.prefix))
 
+  // The dataset's minted namespace pair (ADR K13). Detected straight from the
+  // skeleton so the card reflects a rename instantly; whether the BASE is
+  // operator-configured is the server annotation's call (Settings knowledge).
+  const nsDetected = detectDatasetNamespace(skeleton)
+  const baseUnconfigured = annotations?.dataset_namespace?.base_configured === false
+
+  // The one naming judgment that persists: the dataset name inside the minted
+  // IRI. Renaming cascades deterministically (IRI pair, derived prefix pair,
+  // every CURIE in the maps) and re-checks like any other edit.
+  function commitDatasetName(raw: string) {
+    if (!nsDetected) return
+    const next = renameDatasetNamespace(skeleton, nsDetected, raw)
+    if (next) onChange(next)
+  }
+
+  // The raw prefix table (IRI editing per prefix) — the detail tier's escape
+  // hatch, and the whole section when no minted pair is recognizable.
+  const prefixRows = (
+    <div className="skeleton-ns-rows">
+      {Object.entries(skeleton.prefixes ?? {}).map(([name, iri]) => (
+        <div key={name} className="skeleton-ns-row">
+          <code className="skeleton-ns-prefix">{name}:</code>
+          <input
+            type="text"
+            className="skeleton-gate-input"
+            value={iri}
+            disabled={busy}
+            onChange={(e) => updatePrefix(name, e.target.value)}
+          />
+          {placeholderSet.has(name) && (
+            <p className="skeleton-evidence-line skeleton-evidence-warn">
+              {t('workbench:skeleton.ns.placeholderWarn')}
+            </p>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+
   // Warn before continuing when the evidence says a key still collapses rows —
   // soft gate: the human can proceed (small collision counts can be legitimate,
   // e.g. deliberate dedup), but never unknowingly.
@@ -275,36 +319,70 @@ export function SkeletonGate({
       {!canRevalidate && (
         <p className="skeleton-gate-revalidating">{t('workbench:skeleton.evidence.reattach')}</p>
       )}
-      <details className="skeleton-ns" open={placeholderPrefixes.length > 0}>
-        <summary>
-          {t('workbench:skeleton.ns.title')}
-          {placeholderPrefixes.length > 0 && (
-            <span className="skeleton-ns-flag">
-              {t('workbench:skeleton.ns.flag', { count: placeholderPrefixes.length })}
-            </span>
+      {nsDetected ? (
+        /* Namespace card (ADR K13): the ONE naming judgment — the dataset name
+           inside the permanent ID — is the editable thing; the prefix pair and
+           both IRIs derive from it mechanically. Base fixes route to Settings,
+           never to a raw-IRI textbox. */
+        <section className="skeleton-ns-card">
+          <label className="skeleton-ns-name-label" htmlFor="skeleton-ns-name">
+            {t('workbench:skeleton.ns.nameLabel')}
+          </label>
+          <div className="skeleton-ns-name-row">
+            <input
+              id="skeleton-ns-name"
+              key={nsDetected.slug}
+              type="text"
+              className="skeleton-gate-input skeleton-ns-name-input"
+              defaultValue={nsDetected.slug}
+              disabled={busy}
+              onBlur={(e) => commitDatasetName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') e.currentTarget.blur()
+              }}
+            />
+            <code className="skeleton-ns-preview">
+              {nsDetected.base}/datasets/{nsDetected.slug}/…
+            </code>
+          </div>
+          <p className="skeleton-gate-hint">{t('workbench:skeleton.ns.nameHint')}</p>
+          {baseUnconfigured && (
+            <p className="skeleton-evidence-line skeleton-evidence-warn">
+              {t('workbench:skeleton.ns.baseUnconfigured', { base: nsDetected.base })}
+            </p>
           )}
-        </summary>
-        <p className="skeleton-gate-hint">{t('workbench:skeleton.ns.hint')}</p>
-        <div className="skeleton-ns-rows">
-          {Object.entries(skeleton.prefixes ?? {}).map(([name, iri]) => (
-            <div key={name} className="skeleton-ns-row">
-              <code className="skeleton-ns-prefix">{name}:</code>
-              <input
-                type="text"
-                className="skeleton-gate-input"
-                value={iri}
-                disabled={busy}
-                onChange={(e) => updatePrefix(name, e.target.value)}
-              />
-              {placeholderSet.has(name) && (
-                <p className="skeleton-evidence-line skeleton-evidence-warn">
-                  {t('workbench:skeleton.ns.placeholderWarn')}
-                </p>
-              )}
-            </div>
-          ))}
-        </div>
-      </details>
+          {!plain && (
+            <details className="skeleton-ns" open={placeholderPrefixes.length > 0}>
+              <summary>
+                {t('workbench:skeleton.ns.advancedTitle')}
+                {placeholderPrefixes.length > 0 && (
+                  <span className="skeleton-ns-flag">
+                    {t('workbench:skeleton.ns.flag', { count: placeholderPrefixes.length })}
+                  </span>
+                )}
+              </summary>
+              <p className="skeleton-gate-hint">{t('workbench:skeleton.ns.advancedNote')}</p>
+              {prefixRows}
+            </details>
+          )}
+        </section>
+      ) : (
+        /* Fallback (no recognizable minted pair, e.g. a restored legacy
+           skeleton): the raw prefix table stays the escape hatch — even on the
+           kantan tier, because a placeholder mint MUST stay visible/fixable. */
+        <details className="skeleton-ns" open={placeholderPrefixes.length > 0}>
+          <summary>
+            {t('workbench:skeleton.ns.title')}
+            {placeholderPrefixes.length > 0 && (
+              <span className="skeleton-ns-flag">
+                {t('workbench:skeleton.ns.flag', { count: placeholderPrefixes.length })}
+              </span>
+            )}
+          </summary>
+          <p className="skeleton-gate-hint">{t('workbench:skeleton.ns.hint')}</p>
+          {prefixRows}
+        </details>
+      )}
       <div className="skeleton-gate-table-wrap">
         <table className="skeleton-gate-table">
           <thead>

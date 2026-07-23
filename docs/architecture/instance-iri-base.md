@@ -101,3 +101,33 @@ actually resolve. IRIs on domains the install does not control (the bundled
 kumagallium.github.io data, an unset `.invalid` base) still describe fine via
 `/describe?iri=` — the identifier just doesn't route there by itself; that gap
 is what a w3id.org base (or the operator's own domain) closes.
+
+## Deterministic naming on top of the base (accepted 2026-07-23, kantan ADR K13)
+
+The base fixed WHERE a design mints; naming still leaked two judgments to the
+wrong parties. The 2026-07-23 ZEM dogfood showed the skeleton gate asking a
+researcher to evaluate a CURIE prefix (`al3v:` vs `zem:`) — a token that never
+appears in stored data — while the judgment that IS permanent (the dataset
+slug inside the minted IRI) sat uneditable inside two raw-IRI textboxes.
+
+Decision (implemented in `step0/instance_iri.py`, mirrored in
+`ui/src/datasetNamespace.ts`):
+
+- **`derive_prefix_pair(slug)`** — the CURIE prefix pair derives from the slug
+  deterministically (first token; token-concatenation on collision with
+  reserved/standard names; `ds`/`ds2`… last resort; resource = ontology+`r`;
+  NCName-safe). Neither the LLM nor the human chooses it.
+- **`normalize_dataset_namespace(skeleton, iri_base)`** — every AI-proposed
+  skeleton is normalized before a human sees it: a mint matching
+  `…/datasets/<slug>/(ontology#|resource/)` on ANY host is re-minted under
+  THIS instance's base (wrong-owner repair), placeholder-domain mints
+  (example.org & co) are classified by use (classes → ontology, subject
+  templates → resource) and repaired, prefix names are forced to the derived
+  pair, and every CURIE in the maps renames in lockstep. Unrecognizable
+  skeletons pass through — the placeholder gate still guards them.
+- **The skeleton gate edits ONE name** — the dataset slug ("データセットの
+  名前"), cascading deterministically (IRI pair + prefix pair + CURIEs, UI
+  twin `renameDatasetNamespace`); the evidence pass re-checks like any other
+  edit. The BASE is never editable at the gate: an unconfigured base shows a
+  provisional-issuer warning routing to Settings (`dataset_namespace` in the
+  annotate payload carries slug/base/base_configured/pair).

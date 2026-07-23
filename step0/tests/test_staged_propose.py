@@ -337,12 +337,24 @@ def _router(skeleton_obj, permaps):
     return handler
 
 
-def test_propose_skeleton_inspects_and_returns_skeleton(tmp_path) -> None:
+def test_propose_skeleton_inspects_and_normalizes_namespaces(tmp_path) -> None:
     (tmp_path / "data.csv").write_text("id,name,date\n1,a,2020\n2,b,2021\n", encoding="utf-8")
     skeleton_obj, _ = skeleton_from_full_ir(FULL_IR)
     llm = GuidedMock(lambda s, u: json.dumps(skeleton_obj))
     res = propose_skeleton([tmp_path / "data.csv"], "# domain", llm=llm, function_names=FN_NAMES)
-    assert res.skeleton == skeleton_obj
+    # The model's example.org mints (FULL_IR's ex:/exr:) come back repaired
+    # (ADR K13): canonical shape under the instance base, prefix pair derived
+    # from the slug (first source's stem when nothing recognizable was minted),
+    # CURIEs renamed in lockstep. Reused vocabularies pass through.
+    assert res.skeleton["prefixes"] == {
+        "data": "https://asterism.invalid/datasets/data/ontology#",
+        "datar": "https://asterism.invalid/datasets/data/resource/",
+        "schema": "https://schema.org/",
+    }
+    assert res.skeleton["maps"][0]["subject"] == {
+        "template": "datar:thing/{id}",
+        "classes": ["data:Thing"],
+    }
     assert "data.csv" in res.csv_inspection_md
     assert res.metadata["llm_class"] == "GuidedMock"
 

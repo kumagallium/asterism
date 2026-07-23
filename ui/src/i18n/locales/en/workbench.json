@@ -215,7 +215,12 @@
       "flag": "⚠ {{count}} placeholder domain(s)",
       "hint": "Classes and data IDs are minted under these namespaces and become permanent identifiers. Reused standard vocabularies (schema: etc.) stay as they are — check that the design's own namespaces live where you intend.",
       "placeholderWarn": "This is a placeholder domain (example.org etc.) — it can never become a citable identifier. Edit the namespace.",
-      "confirmPlaceholder": "Some namespaces still point at a placeholder domain ({{prefixes}}). Continue anyway? (The self-correction pass will try to re-mint, but fixing it here is the sure path.)"
+      "confirmPlaceholder": "Some namespaces still point at a placeholder domain ({{prefixes}}). Continue anyway? (The self-correction pass will try to re-mint, but fixing it here is the sure path.)",
+      "nameLabel": "Dataset name (used in the IDs)",
+      "nameHint": "This name becomes part of the permanent IDs. Pick one that will still fit data you add to this dataset later (e.g. the measurement kind rather than one material). Converted to letters, digits and hyphens.",
+      "baseUnconfigured": "IDs are minted under a provisional issuer ({{base}}). To make them citable after publishing, set the issuer address in Settings → Instance (it cannot be changed here).",
+      "advancedTitle": "Advanced: namespaces and shorthands",
+      "advancedNote": "Shorthands (al3v: etc.) are display abbreviations — changing them never changes the data. They are re-derived automatically when you rename the dataset. You can also edit the namespace URLs directly here."
     }
   },
   "dialect": {

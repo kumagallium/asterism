@@ -2365,6 +2365,7 @@ export function KantanWizard({
               annotationsBusy={annotationsBusy}
               canRevalidate={files.length > 0}
               busy={continuing}
+              plain
               onChange={onSkeletonEdited}
               onContinue={runContinue}
               onDiscard={() => {

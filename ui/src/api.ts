@@ -244,11 +244,27 @@ export interface SkeletonMapAnnotation {
   key_candidates?: { columns: string[]; rows_considered: number; measurement_only: boolean }[]
 }
 
+/** The skeleton's minted namespace pair as the server recognizes it (kantan
+ *  ADR K13): which prefixes are THIS dataset's (vs reused vocabularies), the
+ *  dataset slug inside the IRI — the ONE naming judgment that persists — and
+ *  whether the instance base is operator-configured (base fixes belong to
+ *  Settings, never to a raw-IRI textbox). */
+export interface DatasetNamespaceInfo {
+  slug: string
+  base: string
+  base_configured: boolean
+  ontology_prefix: string | null
+  resource_prefix: string | null
+}
+
 export interface SkeletonAnnotations {
   maps: Record<string, SkeletonMapAnnotation>
   /** Skeleton-level: declared prefixes minted on a placeholder domain
    *  (example.org & co, ADR instance-iri-base.md) — can never be published. */
   placeholder_prefixes?: { prefix: string; iri: string }[]
+  /** Null when no …/datasets/<slug>/… mint is present (the gate then falls
+   *  back to the raw prefix table). */
+  dataset_namespace?: DatasetNamespaceInfo | null
 }
 
 /** Result payload carried by the SSE `done` event for a skeleton job. */
