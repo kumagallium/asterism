@@ -51,6 +51,7 @@ dev = [
 [project.scripts]
 asterism-coverage = "asterism_step0.coverage:_main"
 asterism-inspect = "asterism_step0.inspect:_main"
+asterism-ir2mermaid = "asterism_step0.ir2mermaid:_main"
 asterism-materialize = "asterism_step0.materialize:_main"
 asterism-propose = "asterism_step0.propose:_main"
 asterism-refine = "asterism_step0.refine:_main"

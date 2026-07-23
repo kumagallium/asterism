@@ -6,6 +6,7 @@ reviewed IR (``{name}-mapping.yaml``) and the compiled RML
 (``{name}-mapping.rml.ttl``) so everything downstream of materialize
 (registry / ingest / 422 gate / T9) is unchanged.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -236,8 +237,7 @@ def test_bracketed_column_unit_is_auto_completed(tmp_path: Path) -> None:
     assert result.mapping_ir_issues == []
     assert result.mapping_ir_yaml is not None
     props = {
-        p["predicate"]: p
-        for p in yaml.safe_load(result.mapping_ir_yaml)["maps"][0]["properties"]
+        p["predicate"]: p for p in yaml.safe_load(result.mapping_ir_yaml)["maps"][0]["properties"]
     }
     # the display unit is derived from the bracketed column name, no model call
     assert props["ex:resistivity"]["unit"] == "Ohm m"
@@ -255,3 +255,62 @@ def test_clean_columns_get_no_spurious_unit(tmp_path: Path) -> None:
     result = materialize_schema(PROPOSAL_WITH_IR, tmp_path, "demo", write=False)
     assert result.mapping_ir_yaml is not None
     assert "unit:" not in result.mapping_ir_yaml
+
+
+# ----------------------------------------------------------------------------
+# Deterministic diagram (ir2mermaid) wiring
+# ----------------------------------------------------------------------------
+
+
+def test_diagram_compiled_from_ir_replaces_the_sketch(tmp_path: Path) -> None:
+    """With a parseable spec, diagram.md is compiled — not the LLM's §1.
+
+    The §1 sketch in the fixture is an EMPTY ``class Thing`` (exactly the
+    observed ZEM failure shape); the compiled diagram must carry the
+    property INSIDE the box, plus the provenance table below the fence.
+    """
+    result = materialize_schema(PROPOSAL_WITH_IR, tmp_path, "demo", write=True)
+    assert result.diagram_from_ir is True
+    assert result.mermaid is not None
+    assert "class Thing {" in result.mermaid
+    assert "+name" in result.mermaid
+    written = (tmp_path / "diagram.md").read_text(encoding="utf-8")
+    assert "+name" in written
+    assert "## Properties" in written
+    assert "column `name`" in written
+    # the fenced block still comes first and closes before the table
+    assert written.index("```mermaid") < written.index("## Properties")
+
+
+def test_unparseable_spec_keeps_the_sketch(tmp_path: Path) -> None:
+    broken = PROPOSAL_WITH_IR.replace("version: 1", "version: [broken")
+    result = materialize_schema(broken, tmp_path, "demo", write=False)
+    assert result.mapping_ir_issues != []
+    assert result.diagram_from_ir is False
+    assert result.mermaid is not None and "classDiagram" in result.mermaid
+    assert "+name" not in result.mermaid  # untouched §1 sketch
+
+
+def test_specless_proposal_keeps_the_sketch(tmp_path: Path) -> None:
+    specless = PROPOSAL_WITH_IR.split("### 9.")[0]
+    result = materialize_schema(specless, tmp_path, "demo", write=False)
+    assert result.mapping_ir_yaml is None
+    assert result.diagram_from_ir is False
+    assert result.mermaid is not None and "+name" not in result.mermaid
+
+
+def test_compile_failure_still_yields_the_ir_diagram(tmp_path: Path) -> None:
+    """An unknown Tier-0 function kills the RML compile but not the parse —
+    the reviewer still gets the real diagram (the design's structure is
+    exactly what they need to see to fix the design)."""
+    bad_fn = IR_BLOCK.replace(
+        "- predicate: ex:name\n        column: name",
+        "- predicate: ex:name\n        column: name\n        function: no_such_fn",
+    )
+    assert bad_fn != IR_BLOCK
+    proposal = PROPOSAL_WITH_IR.replace(IR_BLOCK, bad_fn)
+    result = materialize_schema(proposal, tmp_path, "demo", write=False)
+    assert result.rml_ttl is None
+    assert result.mapping_ir_issues != []
+    assert result.diagram_from_ir is True
+    assert result.mermaid is not None and "+name" in result.mermaid
