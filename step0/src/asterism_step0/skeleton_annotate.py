@@ -39,7 +39,7 @@ from .inspect import (
     _stream_rows,
     inspect_source_set,
 )
-from .instance_iri import placeholder_prefix_issue
+from .instance_iri import dataset_namespace_info, placeholder_prefix_issue
 
 __all__ = ["annotate_skeleton"]
 
@@ -323,6 +323,7 @@ def annotate_skeleton(
     *,
     dialects: Mapping[str, Any] | None = None,
     record_path: str | None = None,
+    iri_base: str | None = None,
 ) -> dict[str, Any]:
     """Deterministic per-map evidence for the skeleton gate.
 
@@ -362,4 +363,11 @@ def annotate_skeleton(
         for name, iri in prefixes.items()
         if placeholder_prefix_issue(name, iri)
     ]
-    return {"maps": annotations, "placeholder_prefixes": placeholder}
+    # Which prefixes are THIS dataset's minted pair (vs reused vocabularies),
+    # under which base, operator-configured or not — the gate renders "dataset
+    # name" as the one editable naming judgment from this (kantan ADR K13).
+    return {
+        "maps": annotations,
+        "placeholder_prefixes": placeholder,
+        "dataset_namespace": dataset_namespace_info(prefixes, iri_base),
+    }

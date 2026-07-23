@@ -270,3 +270,30 @@ def test_unrelated_class_name_over_numeric_key_has_no_class_caution(tmp_path: Pa
     )["maps"]["point"]
     assert ann["key_measurement_caution"] is True
     assert ann["class_numeric_key_caution"] == []
+
+
+def test_dataset_namespace_info_in_annotations(tmp_path: Path) -> None:
+    """The gate's namespace card rides annotations: which prefixes are THIS
+    dataset's minted pair, under which base, configured or not (ADR K13)."""
+    p = tmp_path / "samples.csv"
+    p.write_text("sample_id\nS-1\n", encoding="utf-8")
+    skeleton = _skeleton("xr:sample/{sample_id}", source="samples.csv")
+    skeleton["prefixes"] = {
+        "al3v": "https://asterism.invalid/datasets/al3v-sps2/ontology#",
+        "al3vr": "https://asterism.invalid/datasets/al3v-sps2/resource/",
+        "schema": "https://schema.org/",
+    }
+    out = annotate_skeleton(skeleton, [p])
+    assert out["dataset_namespace"] == {
+        "slug": "al3v-sps2",
+        "base": "https://asterism.invalid",
+        "base_configured": False,
+        "ontology_prefix": "al3v",
+        "resource_prefix": "al3vr",
+    }
+    # Configured base flips the flag (the Settings value arrives resolved).
+    out2 = annotate_skeleton(skeleton, [p], iri_base="https://data.lab.jp/asterism")
+    assert out2["dataset_namespace"]["base_configured"] is True
+    # No minted pair (this file's example.org fixtures) → explicit None.
+    out3 = annotate_skeleton(_skeleton("xr:sample/{sample_id}", source="samples.csv"), [p])
+    assert out3["dataset_namespace"] is None

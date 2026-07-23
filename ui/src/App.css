@@ -5784,6 +5784,42 @@ button.ds-artifact:disabled {
   text-align: right;
 }
 
+/* Namespace card (ADR K13): the dataset name is the one editable naming
+   judgment; the derived IRI shows beside it, base warnings route to Settings.
+   The raw prefix table folds into an "advanced" details on the detail tier. */
+.skeleton-ns-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.6rem 0.75rem;
+}
+.skeleton-ns-name-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--body);
+}
+.skeleton-ns-name-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+}
+.skeleton-ns-name-input {
+  max-width: 18rem;
+}
+.skeleton-ns-preview {
+  font-size: 0.78rem;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.skeleton-ns-card .skeleton-ns {
+  margin-top: 0.35rem;
+  border: none;
+  padding: 0;
+}
+
 /* ==========================================================================
    Kantan tier (かんたんモード) — ADR kantan-mode-two-tier-ux.md.
    All selectors are prefixed .kz-. Layout follows docs/design/ui-guidelines.md:

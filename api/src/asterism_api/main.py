@@ -2663,6 +2663,7 @@ def build_app(
                         result.skeleton,
                         list(paths),
                         dialects=dialect_overrides,
+                        iri_base=cfg.iri_base,
                     )
                 except Exception as exc:  # pragma: no cover — defensive
                     logger.warning("skeleton annotation failed: %s", exc)
@@ -2713,7 +2714,11 @@ def build_app(
         try:
             paths = await _save_tabular_uploads(files, Path(tmpdir))
             annotations = await asyncio.to_thread(
-                annotate_skeleton, skeleton_obj, paths, dialects=dialect_overrides
+                annotate_skeleton,
+                skeleton_obj,
+                paths,
+                dialects=dialect_overrides,
+                iri_base=cfg.iri_base,
             )
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
