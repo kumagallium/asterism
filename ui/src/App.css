@@ -6269,6 +6269,57 @@ tr.kz-attn td {
   font-weight: 600;
 }
 
+/* S2: the actual preamble lines the metadata question is about. */
+.kz-preamble-evi {
+  margin: var(--space-2) 0;
+}
+.kz-preamble-name {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-bottom: var(--space-1);
+}
+.kz-preamble-lines {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2, var(--bg));
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  max-height: 10rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* S4 (shared gate): the skeleton structure diagram + the AI-redo exit. */
+.skeleton-diagram {
+  margin: var(--space-2) 0 var(--space-3);
+}
+.skeleton-diagram-note {
+  margin: var(--space-1) 0 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.skeleton-rethink {
+  margin-top: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.skeleton-rethink-note {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  font-size: 0.88rem;
+  background: var(--surface);
+  color: var(--body);
+}
+
 /* かんたん見直し (catalog 見直す → S6): the reviewing banner. */
 .kz-redesign {
   border-left: 3px solid var(--primary);

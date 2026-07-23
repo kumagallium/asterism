@@ -34,6 +34,8 @@
     "previewCaption": "first 5 rows",
     "fileCard": "No content preview for this file (it will be read as is).",
     "q1": "Before the table starts, there were {{count}} lines that look like sample information. Should this be recorded together with each measurement?",
+    "preambleEviLabel": "{{name}} — the lines before the table (as-is)",
+    "moreLines": "… ({{n}} more lines)",
     "q1Yes": "Yes, record it together",
     "q1No": "No, table only",
     "q2": "Is this \"{{column}}\" a serial number used only inside this file? Or does the same number also appear in other files or papers?",
@@ -54,7 +56,10 @@
     "gateHint": "Please confirm just one thing: what one row of this table represents.",
     "continue": "Continue with this counting",
     "continuing": "Writing down what each column means…",
-    "needFiles": "The files are missing. Please drop them again on the first screen."
+    "needFiles": "The files are missing. Please drop them again on the first screen.",
+    "discard": "Go back and redo",
+    "discardConfirm": "This goes back to the reading check. The current reading is discarded, but your files stay usable.",
+    "rethinkWrap": "While checking how rows are counted, the user pointed this out. Apply it to how the table splits into kinds and how each row's ID is built: {{note}}"
   },
   "s5": {
     "title": "Reading the column meanings and loading your draft",
