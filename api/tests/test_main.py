@@ -1027,6 +1027,42 @@ def test_materialize_traps_carry_fix_recipes(
         assert t2["status"] == "pass" and t2["fix"] == ""
 
 
+def test_materialize_persists_the_whole_diagram_document(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    """The api must persist the diagram DOCUMENT, not just its Mermaid payload.
+
+    The IR-compiled diagram ships a property ↔ column table below the fence (the
+    "where did my column go" companion), but only the materialize *file* carried
+    it: the api stored ``mat.mermaid`` and the table never reached the registry
+    (observed live on the ZEM dataset — its CLI-regenerated twin had the table,
+    its registry copy did not). The fenced block still comes first, so
+    ``registry.mermaid_of`` / the UI's ``extractMermaid`` see the same diagram.
+    """
+    app = build_app(
+        _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
+    )
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/materialize",
+            json={"proposal_md": _FIX_RECIPE_MD, "dataset_name": "sensor"},
+        )
+        assert r.status_code == 200
+        body = r.json()
+        doc = body["artifacts"]["diagram.md"]
+        assert doc.startswith("# sensor ontology — class diagram\n")
+        assert "```mermaid" in doc
+        # The provenance table — this is what used to be dropped on the api path.
+        assert "## Properties" in doc
+        assert "column `channel`" in doc
+        # Fence closes before the table (extract-the-fence consumers unaffected).
+        assert doc.index("```\n") < doc.index("## Properties")
+        # ...including the registry's own class extraction, which reads through it.
+        assert body["dataset"]["classes"] == ["Reading"]
+        detail = client.get(f"/api/datasets/{body['dataset']['id']}").json()
+        assert detail["artifacts"]["diagram.md"] == doc
+
+
 def test_materialize_persists_and_lists_dataset(
     tmp_path: Path, healthy_client: OxigraphClient
 ) -> None:

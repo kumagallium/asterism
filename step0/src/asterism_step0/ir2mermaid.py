@@ -40,7 +40,6 @@ from asterism_step0.ttl2mermaid import (
     ClassEntry,
     MermaidGraph,
     ObjectRelation,
-    render_mermaid_block,
     render_mermaid_body,
 )
 
@@ -256,6 +255,28 @@ def property_table_md(ir: MappingIR) -> str:
     return "\n".join(lines)
 
 
+def render_diagram_doc(
+    *, dataset_name: str, mermaid_body: str, property_table: str | None = None
+) -> str:
+    """THE diagram.md format — title + fenced Mermaid + optional property table.
+
+    The single definition of the artifact's shape, shared by every producer:
+    the materialize write path (CLI + api), the api's persisted registry
+    artifact, and :func:`render_dataset_doc` (the regeneration CLI). Keeping
+    one function is what makes a CLI-regenerated diagram.md and an
+    api-materialized one byte-identical for the same design.
+
+    ``mermaid_body`` is the bare diagram source (no fence). Consumers that
+    extract only the fenced block (UI ``extractMermaid``, api
+    ``registry.mermaid_of``) see exactly the same Mermaid as before the table
+    existed — the table is provenance for humans reading the file.
+    """
+    doc = f"# {dataset_name} ontology — class diagram\n\n```mermaid\n{mermaid_body}\n```\n"
+    if property_table:
+        doc += "\n" + property_table
+    return doc
+
+
 def render_dataset_doc(ir: MappingIR, *, dataset_name: str) -> str:
     """The full diagram.md body for a dataset: Mermaid block + property table.
 
@@ -263,15 +284,11 @@ def render_dataset_doc(ir: MappingIR, *, dataset_name: str) -> str:
     registry entry produces a stable file).
     """
     graph = build_graph_from_ir(ir)
-    parts = [
-        f"# {dataset_name} ontology — class diagram\n",
-        "\n",
-        render_mermaid_block(graph),
-    ]
-    table = property_table_md(ir)
-    if table:
-        parts += ["\n", table]
-    return "".join(parts)
+    return render_diagram_doc(
+        dataset_name=dataset_name,
+        mermaid_body=render_mermaid_body(graph).rstrip("\n"),
+        property_table=property_table_md(ir) or None,
+    )
 
 
 # ----------------------------------------------------------------------------
@@ -327,5 +344,6 @@ __all__ = [
     "build_graph_from_ir",
     "property_table_md",
     "render_dataset_doc",
+    "render_diagram_doc",
     "render_mermaid_body",
 ]
