@@ -469,6 +469,52 @@ _JOINED_BY_TEMPLATE = _ADV_PREFIXES + """
   rr:subjectMap [ rr:template "https://ex/sample/{sid}" ; rr:class ex:Sample ] .
 """
 
+# The IR compiler's shape for a TRANSFORMED term map: fn:template with a
+# p_template pattern constant (`…/{1}`) and numbered p_fieldN inputs whose value
+# maps carry the (transform-nested) source column. Faithful reduction of the
+# live ZEM x gpt-oss mapping whose links were present but transformed — the
+# connectivity check saw no rr:template on either side and looped six AI-repair
+# rounds on a false DISCONNECTED.
+_FNO_PREFIXES = _ADV_PREFIXES + """
+@prefix rmlf: <http://w3id.org/rml/> .
+@prefix fn: <https://ex.example/fn/> .
+"""
+
+_FNO_SUBJECT = """
+  rr:subjectMap [
+    rmlf:functionExecution [
+      rmlf:function fn:template ;
+      rmlf:input [ rmlf:parameter <https://ex.example/fn/p_field1> ;
+                   rmlf:inputValueMap [ rmlf:functionExecution [
+              rmlf:function fn:url_canonical ;
+              rmlf:input [ rmlf:parameter <https://ex.example/fn/p_value> ;
+                           rmlf:inputValueMap [ rml:reference "sid" ] ] ] ] ] ;
+      rmlf:input [ rmlf:parameter <https://ex.example/fn/p_template> ;
+                   rmlf:inputValueMap [ rmlf:constant "https://ex/sample/{1}" ] ] ] ;
+    rr:termType rr:IRI ; rr:class ex:Sample ]"""
+
+_JOINED_BY_TRANSFORMED_TEMPLATES = _FNO_PREFIXES + """
+<#Curves> rml:logicalSource [ rml:source "curves.csv" ] ;
+  rr:subjectMap [ rr:template "https://ex/curve/{id}" ; rr:class ex:MeasurementCurve ] ;
+  rr:predicateObjectMap [ rr:predicate ex:ofSample ;
+    rr:objectMap [ rmlf:functionExecution [
+          rmlf:function fn:template ;
+          rmlf:input [ rmlf:parameter <https://ex.example/fn/p_field1> ;
+                       rmlf:inputValueMap [ rmlf:functionExecution [
+                  rmlf:function fn:url_canonical ;
+                  rmlf:input [ rmlf:parameter <https://ex.example/fn/p_value> ;
+                               rmlf:inputValueMap [ rml:reference "sid" ] ] ] ] ] ;
+          rmlf:input [ rmlf:parameter <https://ex.example/fn/p_template> ;
+                       rmlf:inputValueMap [ rmlf:constant "https://ex/sample/{1}" ] ] ] ;
+      rr:termType rr:IRI ] ] .
+<#Samples> rml:logicalSource [ rml:source "samples.csv" ] ;""" + _FNO_SUBJECT + " ."
+
+_TRANSFORMED_BUT_DISCONNECTED = _FNO_PREFIXES + """
+<#Curves> rml:logicalSource [ rml:source "curves.csv" ] ;
+  rr:subjectMap [ rr:template "https://ex/curve/{id}" ; rr:class ex:MeasurementCurve ] ;
+  rr:predicateObjectMap [ rr:predicate ex:propertyY ; rr:objectMap [ rml:reference "p" ] ] .
+<#Samples> rml:logicalSource [ rml:source "samples.csv" ] ;""" + _FNO_SUBJECT + " ."
+
 
 def test_disconnected_entities_are_flagged_with_labels() -> None:
     advisories = design_advisories(_DISCONNECTED)
@@ -485,6 +531,22 @@ def test_parent_triples_map_join_connects() -> None:
 
 def test_shared_subject_template_as_object_connects() -> None:
     assert design_advisories(_JOINED_BY_TEMPLATE) == []
+
+
+def test_transformed_templates_connect() -> None:
+    # The live ZEM x gpt-oss regression: subject AND link compiled to fn:template
+    # (a transform wraps the column) — the effective templates match, so the
+    # mapping is CONNECTED. Before the effective-template recovery this looped
+    # forever as a false DISCONNECTED (the AI had added the link; the check
+    # could not see it).
+    assert design_advisories(_JOINED_BY_TRANSFORMED_TEMPLATES) == []
+
+
+def test_transformed_subject_still_flagged_when_truly_disconnected() -> None:
+    # Recovery must not blind the check: a transformed subject with NO link on
+    # either side is still a real disconnect.
+    advisories = design_advisories(_TRANSFORMED_BUT_DISCONNECTED)
+    assert len(advisories) == 1 and "DISCONNECTED" in advisories[0]
 
 
 def test_single_entity_never_flagged() -> None:

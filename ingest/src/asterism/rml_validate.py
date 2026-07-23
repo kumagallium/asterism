@@ -80,6 +80,18 @@ _FUNCTION_EXECUTION_PREDS = (_RMLF + "functionExecution", _FNML_OLD + "functionE
 _FUNCTION_PREDS = (_RMLF + "function", _FNML_OLD + "function")
 _INPUT_PREDS = (_RMLF + "input", _FNML_OLD + "input")
 _PARAMETER_PREDS = (_RMLF + "parameter", _FNML_OLD + "parameter")
+# rmlf:inputValueMap / constant — the shape the IR compiler emits for a
+# transformed template (fn:template with p_template / p_fieldN inputs).
+_INPUT_VALUE_MAP_PREDS = (_RMLF + "inputValueMap", _FNML_OLD + "inputValueMap")
+_CONSTANT_PREDS = (
+    _RMLF + "constant",
+    "http://www.w3.org/ns/r2rml#constant",
+    _FNML_OLD + "constant",
+)
+# fn:template's inputs: the pattern constant and its numbered field parameters.
+_P_FIELD_RE = re.compile(r"/p_field(\d+)$")
+# A {N} slot inside the fn:template pattern constant (`…/sample/{1}`).
+_TEMPLATE_SLOT = re.compile(r"\{(\d+)\}")
 
 # A {column} reference inside a template. An escaped \{ is a literal brace, not a
 # placeholder (matches the substrate's own _TEMPLATE_REF guard).
@@ -582,6 +594,90 @@ def _tm_label(graph, tm) -> str:
     return _local_name(str(tm))
 
 
+def _input_source_column(graph, node) -> str | None:
+    """The source column feeding an input-value map node: a direct
+    ``rml:reference``, or — through a nested transform ``functionExecution`` —
+    the first reference reachable below it (constants are not columns)."""
+    import rdflib
+
+    uri = rdflib.URIRef
+    for rp in _REFERENCE_PREDS:
+        for r in graph.objects(node, uri(rp)):
+            return str(r)
+    for fe_pred in _FUNCTION_EXECUTION_PREDS:
+        for fe in graph.objects(node, uri(fe_pred)):
+            for in_pred in _INPUT_PREDS:
+                for inp in graph.objects(fe, uri(in_pred)):
+                    for ivm_pred in _INPUT_VALUE_MAP_PREDS:
+                        for ivm in graph.objects(inp, uri(ivm_pred)):
+                            col = _input_source_column(graph, ivm)
+                            if col is not None:
+                                return col
+    return None
+
+
+def _effective_template(graph, term_map) -> str | None:
+    """The term map's IRI template with every placeholder naming its SOURCE column.
+
+    A plain ``rr:template`` is returned as-is. A term map the IR compiler wrapped
+    for a transform — ``fn:template`` with a ``p_template`` pattern constant
+    (``…/sample/{1}``) and numbered ``p_fieldN`` inputs whose value maps are the
+    (possibly transform-nested) source columns — is folded back to the SAME
+    ``…/{column}`` shape by substituting each ``{N}`` slot with its field's
+    underlying column. The nested transform is deliberately looked THROUGH: a
+    transform changes the value, not which entity the template mints, and the
+    connectivity check below must not report two maps as disconnected merely
+    because one side's link carries a transform (observed live: six AI-repair
+    rounds looping on a mapping whose links were present but transformed, ZEM x
+    gpt-oss 2026-07-23). An unresolvable slot yields None — no claim is better
+    than a wrong one."""
+    import rdflib
+
+    uri = rdflib.URIRef
+    for tp in _TEMPLATE_PREDS:
+        for t in graph.objects(term_map, uri(tp)):
+            return str(t)
+    for fe_pred in _FUNCTION_EXECUTION_PREDS:
+        for fe in graph.objects(term_map, uri(fe_pred)):
+            fun_local: str | None = None
+            for f_pred in _FUNCTION_PREDS:
+                for f in graph.objects(fe, uri(f_pred)):
+                    fun_local = _local_name(str(f))
+            if fun_local != "template":
+                continue
+            pattern: str | None = None
+            fields: dict[int, str] = {}
+            for in_pred in _INPUT_PREDS:
+                for inp in graph.objects(fe, uri(in_pred)):
+                    param: str | None = None
+                    for p_pred in _PARAMETER_PREDS:
+                        for p in graph.objects(inp, uri(p_pred)):
+                            param = str(p)
+                    if param is None:
+                        continue
+                    for ivm_pred in _INPUT_VALUE_MAP_PREDS:
+                        for ivm in graph.objects(inp, uri(ivm_pred)):
+                            if param.endswith("/p_template"):
+                                for cp in _CONSTANT_PREDS:
+                                    for c in graph.objects(ivm, uri(cp)):
+                                        pattern = str(c)
+                            else:
+                                m = _P_FIELD_RE.search(param)
+                                if m:
+                                    col = _input_source_column(graph, ivm)
+                                    if col is not None:
+                                        fields[int(m.group(1))] = col
+            if pattern is None or not fields:
+                continue
+            slots = _TEMPLATE_SLOT.findall(pattern)
+            if not slots or any(int(n) not in fields for n in slots):
+                continue
+            return _TEMPLATE_SLOT.sub(
+                lambda m, _f=fields: "{" + _f[int(m.group(1))] + "}", pattern
+            )
+    return None
+
+
 def _connectivity_advisories(graph, headers: dict[str, list[str]] | None = None) -> list[str]:
     """Flag a mapping whose entities form DISCONNECTED groups.
 
@@ -592,7 +688,10 @@ def _connectivity_advisories(graph, headers: dict[str, list[str]] | None = None)
     schema-agnostic graph shape only: two TriplesMaps are connected when one's
     object map joins the other (``rr:parentTriplesMap``) or reuses the other's
     subject IRI template; maps minting the same subject template are the same
-    entity. One connected component -> no advisory.
+    entity. Templates are compared in their EFFECTIVE form
+    (:func:`_effective_template`), so a transformed subject or link — compiled to
+    ``fn:template`` instead of a plain ``rr:template`` — still matches its plain
+    or transformed counterpart. One connected component -> no advisory.
     """
     import rdflib
 
@@ -603,9 +702,9 @@ def _connectivity_advisories(graph, headers: dict[str, list[str]] | None = None)
     subj_tpl: dict = {}
     for tm in tms:
         for sm in graph.objects(tm, uri(_R2RML + "subjectMap")):
-            for tp in _TEMPLATE_PREDS:
-                for t in graph.objects(sm, uri(tp)):
-                    subj_tpl[tm] = str(t)
+            tpl = _effective_template(graph, sm)
+            if tpl is not None:
+                subj_tpl[tm] = tpl
 
     index = {tm: i for i, tm in enumerate(tms)}
     parent = list(range(len(tms)))
@@ -627,11 +726,11 @@ def _connectivity_advisories(graph, headers: dict[str, list[str]] | None = None)
                 for ptm in graph.objects(om, uri(_R2RML + "parentTriplesMap")):
                     if ptm in index:
                         union(index[tm], index[ptm])
-                for tp in _TEMPLATE_PREDS:
-                    for t in graph.objects(om, uri(tp)):
-                        for other, stpl in subj_tpl.items():
-                            if other is not tm and stpl == str(t):
-                                union(index[tm], index[other])
+                otpl = _effective_template(graph, om)
+                if otpl is not None:
+                    for other, stpl in subj_tpl.items():
+                        if other is not tm and stpl == otpl:
+                            union(index[tm], index[other])
     by_template: dict[str, list] = {}
     for tm, tpl in subj_tpl.items():
         by_template.setdefault(tpl, []).append(tm)
