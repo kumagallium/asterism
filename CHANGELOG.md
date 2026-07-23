@@ -1,5 +1,13 @@
 # Changelog
 
+## [v0.9.0](https://github.com/kumagallium/asterism/compare/v0.8.0...v0.9.0) - 2026-07-23
+
+- feat(ui/api): かんたんモード S7-S9 — ためす/公開/できあがり（ウィザード完結） by @kumagallium in https://github.com/kumagallium/asterism/pull/296
+- feat(ui): K11 翻訳テーブル本体 — T1-T9 の平易文を design 停止カードに表示 by @kumagallium in https://github.com/kumagallium/asterism/pull/298
+- feat(ui): かんたん見直し — カタログ「見直す」を S6 から再確認で開く by @kumagallium in https://github.com/kumagallium/asterism/pull/299
+- feat(ui): 共有画面を K4 準拠化 — 見る動線の 120 箇所を かんたんのことばに統一 by @kumagallium in https://github.com/kumagallium/asterism/pull/300
+- feat(step0): 設計図(diagram.md)を Mapping IR から決定論コンパイル — 空のクラス箱問題の根治 by @kumagallium in https://github.com/kumagallium/asterism/pull/301
+
 ## [v0.8.0](https://github.com/kumagallium/asterism/compare/v0.7.0...v0.8.0) - 2026-07-22
 
 - docs(adr): かんたん/詳細 二層モード — データセット追加 UX 再設計の決定記録 by @kumagallium in https://github.com/kumagallium/asterism/pull/285
