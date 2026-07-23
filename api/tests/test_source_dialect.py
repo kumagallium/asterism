@@ -161,6 +161,9 @@ def test_inspect_emits_dialects_header_for_non_default(tmp_path: Path) -> None:
         "skip_rows": 1,
         "preamble": "drop",
         "origin": "detected",
+        # identify-and-advise: the preamble's detected SHAPE rides along so the
+        # wizard's "keep the metadata" answer can pin the right parsing mode.
+        "preamble_hint": "keyvalue",
     }
 
 
@@ -1035,3 +1038,28 @@ def test_append_sanitizes_batch_name_to_match_rml_source(tmp_path: Path, monkeyp
     assert body["dataset"]["appends"][0]["batch_files"] == [canonical]
     # The batch accumulated into the canonical source file (A7).
     assert (sdir / canonical).read_text().splitlines() == ["SID", "1", "2"]
+
+
+def test_inspect_hint_keyvalue_cells_for_zem_meta_line(tmp_path: Path) -> None:
+    """The ZEM shape — a tab meta line of key=value CELLS (bare-CR terminated)
+    before a tab table (CRLF) — advertises preamble_hint=keyvalue_cells, so the
+    wizard's "keep the metadata" pins the cell parser (not the line one, which
+    would collapse the whole meta line into a single giant column)."""
+    zem = (
+        "Al3V-SPS-2\tT.C.type=K\tDistance=620.000000E-3\t\r"
+        + "T(C)\tRho(Ohm m)\r"
+        + "".join(f"{30 + i}.0\t1.{i}E-6\r\n" for i in range(6))
+    ).encode()
+    app = build_app(_settings(tmp_path), oxigraph_client=_healthy_client(), start_watcher=False)
+    canonical = _sanitize_tabular_name("zem.txt")
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/inspect",
+            files={"files": ("zem.txt", zem, "text/plain")},
+        )
+    assert r.status_code == 200, r.text
+    dialects = json.loads(r.headers["X-Asterism-Dialects"])
+    assert dialects[canonical]["delimiter"] == "\t"
+    assert dialects[canonical]["skip_rows"] == 1
+    assert dialects[canonical]["preamble"] == "drop"  # identify, never auto-adopt
+    assert dialects[canonical]["preamble_hint"] == "keyvalue_cells"

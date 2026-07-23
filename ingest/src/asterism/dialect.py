@@ -13,6 +13,7 @@ twin): the two sides communicate via the RML artifact, not Python imports —
 same boundary as the IR compiler. Same field names, same semantics, both
 stdlib-only at module load. Contract: ``docs/architecture/source-dialect.md``.
 """
+
 from __future__ import annotations
 
 import csv
@@ -44,8 +45,10 @@ DIALECT_PREDICATES: tuple[str, ...] = (
 
 # The closed set of preamble-handling modes (ADR source-dialect.md, "Header
 # metadata"): "drop" keeps today's behavior (the skip_rows preamble is discarded);
-# "keyvalue"/"lines" broadcast the parsed preamble metadata onto every body row.
-PREAMBLE_MODES: frozenset[str] = frozenset({"drop", "keyvalue", "lines"})
+# "keyvalue"/"lines"/"keyvalue_cells" broadcast the parsed preamble metadata onto
+# every body row ("keyvalue" = one `key: value` per LINE; "keyvalue_cells" =
+# delimiter-separated CELLS each holding `key=value`, the ZEM-style meta line).
+PREAMBLE_MODES: frozenset[str] = frozenset({"drop", "keyvalue", "lines", "keyvalue_cells"})
 
 # ``delimiter`` sentinel: split on runs of spaces/tabs (Excel's "treat
 # consecutive delimiters as one") — covers fixed-width-ish instrument tables.
@@ -84,7 +87,20 @@ _PREAMBLE_SECTION = re.compile(r"^\s*-{3,}")
 _PREAMBLE_KV = re.compile(r"^\s*([^:]+?)\s*:\s*(.*)$")
 
 
-def read_preamble(lines: list[str], mode: str) -> list[tuple[str, str]]:
+def _preamble_cells(line: str, delimiter: str) -> list[str]:
+    """Tokenize ONE preamble line under the body's delimiter rule (quote-aware
+    for single-char delimiters, run-split for ``whitespace``). Shared verbatim
+    with the design-side twin; used only by the ``keyvalue_cells`` mode."""
+    if delimiter == WHITESPACE:
+        stripped = line.strip()
+        return _WHITESPACE_RUN.split(stripped) if stripped else []
+    try:
+        return next(csv.reader([line], delimiter=delimiter), [])
+    except csv.Error:
+        return line.split(delimiter)
+
+
+def read_preamble(lines: list[str], mode: str, *, delimiter: str = ",") -> list[tuple[str, str]]:
     """Parse the decoded preamble ``lines`` into ordered ``(name, value)`` pairs.
 
     Shared verbatim with the design-side twin (``asterism_step0.dialect``). The
@@ -103,6 +119,16 @@ def read_preamble(lines: list[str], mode: str) -> list[tuple[str, str]]:
     ``key_2``/``key_3`` (lossless, never overwritten). An unknown mode yields
     nothing (the caller's ``drop`` path handles the default).
 
+    ``mode == "keyvalue_cells"`` (the ZEM-style meta line) — each line is
+    tokenized under the BODY's ``delimiter`` (:func:`_preamble_cells`), empty
+    cells are always dropped, and each cell splits on its FIRST ``=`` only
+    (stripped key/value; a later ``=`` stays inside the value — lossless). A
+    cell without ``=`` (or with an empty left side) is a bare value — typically
+    the sample name leading the line — named ``preamble_{n}`` by order of
+    appearance. Duplicate keys are suffixed like the line mode. ``:`` cells are
+    deliberately NOT split (a colon is too common inside values — timestamps,
+    ratios — to be a safe cell-level separator).
+
     Determinism has a documented cost: a wrapped line that ITSELF contains a colon
     (e.g. the second physical line of an ICDD ``Comment`` note, ``for Al-filings:
     4.049``) is indistinguishable from a real new field, so it is parsed as its
@@ -116,6 +142,26 @@ def read_preamble(lines: list[str], mode: str) -> list[tuple[str, str]]:
             if stripped:
                 out.append((f"preamble_{i + 1}", stripped))
         return out
+    if mode == "keyvalue_cells":
+        cell_pairs: list[tuple[str, str]] = []
+        cell_key_counts: dict[str, int] = {}
+        bare = 0
+        for line in lines:
+            for cell in _preamble_cells(line, delimiter):
+                cell = cell.strip()
+                if not cell:
+                    continue
+                key, eq, value = cell.partition("=")
+                if eq and key.strip():
+                    k = key.strip()
+                    cell_key_counts[k] = cell_key_counts.get(k, 0) + 1
+                    if cell_key_counts[k] > 1:
+                        k = f"{k}_{cell_key_counts[k]}"
+                    cell_pairs.append((k, value.strip()))
+                else:
+                    bare += 1
+                    cell_pairs.append((f"preamble_{bare}", cell))
+        return cell_pairs
     if mode != "keyvalue":
         return []
     pairs: list[list[str]] = []  # [key, value], value mutated by continuation lines
@@ -183,7 +229,7 @@ class SourceDialect:
     delimiter: str = ","  # single char, or the sentinel "whitespace"
     collapse: bool = False  # treat consecutive delimiters as one
     skip_rows: int = 0  # lines before the header row (preamble)
-    preamble: str = "drop"  # "drop" | "keyvalue" | "lines" — how to treat the preamble
+    preamble: str = "drop"  # one of PREAMBLE_MODES — how to treat the preamble
 
 
 DEFAULT_DIALECT = SourceDialect()
@@ -271,7 +317,7 @@ def _broadcast_rows(src: Path | str, dialect: SourceDialect) -> Iterator[list[st
             if not line:
                 break
             preamble_lines.append(line)
-        meta = read_preamble(preamble_lines, dialect.preamble)
+        meta = read_preamble(preamble_lines, dialect.preamble, delimiter=dialect.delimiter)
         meta_names = [name for name, _ in meta]
         meta_values = [value for _, value in meta]
         body = _body_tokens(fh, dialect)
@@ -391,8 +437,7 @@ def dialects_from_mapping(graph) -> dict[str, SourceDialect]:
             flag = str(collapse).lower()
             if flag not in ("true", "false", "0", "1"):
                 raise DialectAnnotationError(
-                    f"{where}: ast:sourceCollapse must be true or false "
-                    f"(got {str(collapse)!r})."
+                    f"{where}: ast:sourceCollapse must be true or false (got {str(collapse)!r})."
                 )
             values["collapse"] = flag in ("true", "1")
         skip = next(graph.objects(ls, uri(SOURCE_SKIP_ROWS_PREDICATE)), None)

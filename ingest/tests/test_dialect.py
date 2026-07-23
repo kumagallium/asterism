@@ -7,6 +7,7 @@ the annotation round-trip (``dialects_from_mapping`` / ``strip_dialect_
 annotations``) and the all-defaults gate. Real instrument files never enter the
 repo: every fixture is synthesized (CP932 via ``str.encode``).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -81,9 +82,7 @@ def test_normalize_collapse_single_char_delimiter(tmp_path: Path) -> None:
     src = tmp_path / "d.txt"
     src.write_text("a;;b\n;x;y;\n", encoding="utf-8")
 
-    dest = normalize_source(
-        src, SourceDialect(delimiter=";", collapse=True), tmp_path / "out.csv"
-    )
+    dest = normalize_source(src, SourceDialect(delimiter=";", collapse=True), tmp_path / "out.csv")
 
     assert _read_rows(dest) == ["a,b", "x,y"]
 
@@ -428,3 +427,42 @@ def test_dialects_from_mapping_rejects_bad_preamble() -> None:
     )
     with pytest.raises(DialectAnnotationError, match="sourcePreamble"):
         dialects_from_mapping(g)
+
+
+def test_read_preamble_twin_parity_keyvalue_cells() -> None:
+    # The ZEM-style meta line: TAB-separated cells, a bare sample name leading,
+    # key=value cells, trailing empty cell dropped. Must match the design twin.
+    line = "Al3V-SPS-2\t   T.C.type=K\tDistance=620.000000E-3\t"
+    assert read_preamble([line], "keyvalue_cells", delimiter="\t") == [
+        ("preamble_1", "Al3V-SPS-2"),
+        ("T.C.type", "K"),
+        ("Distance", "620.000000E-3"),
+    ]
+    # Duplicate keys suffix; a second '=' stays inside the value.
+    assert read_preamble(["K=1\tK=2\tformula=y=z"], "keyvalue_cells", delimiter="\t") == [
+        ("K", "1"),
+        ("K_2", "2"),
+        ("formula", "y=z"),
+    ]
+
+
+def test_dialect_rows_broadcast_keyvalue_cells_cr_mixed(tmp_path: Path) -> None:
+    # Real ZEM terminator mix: meta + header end in a BARE CR, data in CRLF.
+    # readline()/csv.reader treat \r, \n, \r\n all as breaks (pinned).
+    src = tmp_path / "zem.txt"
+    src.write_bytes(
+        b"Al3V-SPS-2\tT.C.type=K\tDistance=620.000000E-3\t\r"
+        + b"T(C)\tRho(Ohm m)\r"
+        + b"3.6E+1\t1.2E-6\r\n"
+        + b"6.0E+1\t1.3E-6\r\n"
+    )
+    dialect = SourceDialect(delimiter="\t", skip_rows=1, preamble="keyvalue_cells")
+    rows = list(dialect_rows(src, dialect))
+    assert rows[0] == ["T(C)", "Rho(Ohm m)", "preamble_1", "T.C.type", "Distance"]
+    assert rows[1] == ["3.6E+1", "1.2E-6", "Al3V-SPS-2", "K", "620.000000E-3"]
+    assert len(rows) == 3
+    # And the normalized work CSV Morph-KGC reads carries the broadcast columns.
+    out = normalize_source(src, dialect, tmp_path / "zem.csv")
+    text = out.read_text(encoding="utf-8")
+    assert "preamble_1" in text.splitlines()[0]
+    assert text.count("Al3V-SPS-2") == 2  # broadcast onto both data rows

@@ -270,8 +270,8 @@ scientist wants. `preamble` turns that preamble into columns **broadcast** onto
 every body row (denormalize), so one source stays one work CSV and Morph-KGC is
 still untouched — it just reads a wider flat table:
 
-- **Parsing** (`read_preamble(lines, mode)`, both twins, identical): `lines`
-  makes each non-blank preamble line a `preamble_{i+1}` column; `keyvalue`
+- **Parsing** (`read_preamble(lines, mode, delimiter=…)`, both twins, identical):
+  `lines` makes each non-blank preamble line a `preamble_{i+1}` column; `keyvalue`
   parses `Key: value` in a fixed deterministic priority — a section heading
   (`^\s*-{3,}`) is skipped, a `key: value` line splits on its **first colon
   only** (a second colon stays in the value, a multi-value cell like the 6-number
@@ -284,6 +284,19 @@ still untouched — it just reads a wider flat table:
   real new field, so it is parsed as its own `key: value` pair — the text is not
   lost but lands in an extra, oddly-named column the designer does not map (see
   Limitations).
+- **`keyvalue_cells` (2026-07-23, the ZEM meta line)**: some instrument exports
+  pack the metadata into ONE preamble line of *delimiter-separated cells*, each
+  holding `key=value` — e.g. ZEM3's
+  `Al3V-SPS-2 <TAB> T.C.type=K <TAB> Distance=620.000000E-3 <TAB> …`. The line
+  mode would collapse that into a single giant column, so `keyvalue_cells`
+  tokenizes each preamble line under the **body's `delimiter`**
+  (quote-aware; `whitespace` run-split), always drops empty cells, and splits
+  each cell on its **first `=` only** (stripped key/value — lossless). A cell
+  without `=` (or with an empty left side) is a bare value — typically the
+  sample name leading the line — named `preamble_{n}` by order of appearance.
+  Duplicate keys suffix like the line mode. `:` cells are deliberately NOT
+  split (a colon is too common inside values — timestamps, ratios — to be a
+  safe cell-level separator; `=` almost never appears in instrument values).
 - **Broadcast** (`iter_rows` / `dialect_rows`): the metadata columns are appended
   **after** the body columns (body positions/names never move — this is what
   makes the `drop` path byte-identical), each body row is fitted to the body
@@ -301,16 +314,23 @@ still untouched — it just reads a wider flat table:
 - **Identify-and-advise, never auto-adopt**: `detect_dialect` always returns
   `preamble="drop"` — broadcasting changes the column set (a semantic change), so
   it must be opt-in to preserve "default emits nothing". The inspector classifies
-  a dropped preamble block (`detect_preamble_form` → `keyvalue`/`lines`) and the
+  a dropped preamble block (`detect_preamble_form` →
+  `keyvalue`/`keyvalue_cells`/`lines`; the cell form wins only when the block
+  actually splits into more cells than lines under the body delimiter AND a
+  majority of those cells are `key=value` — a single-cell-per-line card with a
+  stray `=` falls through to the line classification) and the
   inspect Markdown adds one advisory line + a paste-ready `dialects:` snippet
   **only when a preamble was detected**; a clean CSV's Markdown stays
-  byte-identical. The wizard's read-settings panel surfaces a `preamble` selector
+  byte-identical. `/api/inspect` carries the classification as `preamble_hint`
+  in the `X-Asterism-Dialects` header entry (additive), so the wizard's "keep
+  the metadata" answer pins the DETECTED shape instead of hardcoding one. The wizard's read-settings panel surfaces a `preamble` selector
   for any source with a preamble block, so opt-in is one click. A human override
   travels as a full-field `dialects:` entry (`preamble` included, like the other
   FIX2 fields) and survives the materialize re-pin because re-detection always
   yields `drop` and `entry.update(prior)` keeps the explicit choice.
 - **Travel + boundary check**: the `preamble` field pins into the IR
-  `dialects:` section (linted against the closed set `{drop, keyvalue, lines}`,
+  `dialects:` section (linted against the closed set
+  `{drop, keyvalue, lines, keyvalue_cells}`,
   and flagged when set with `skip_rows: 0` — nothing to read), compiles to
   `ast:sourcePreamble` (emitted only when non-`drop`), and is boundary-checked in
   `dialects_from_mapping` (an out-of-set value → `DialectAnnotationError` → 422)

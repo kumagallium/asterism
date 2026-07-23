@@ -229,6 +229,7 @@
     "preamble": {
       "drop": "Don't ingest (default)",
       "keyvalue": "Key: value → columns",
+      "keyvalue_cells": "Delimited key=value cells → columns (instrument meta line)",
       "lines": "Each line → a column",
       "hint": "Ingest the preamble metadata as columns broadcast onto every data row (so sample name, space group, etc. can be queried alongside the measurements)."
     }

@@ -12,6 +12,7 @@ from pathlib import Path
 from textwrap import dedent
 
 from asterism_step0.dialect import (
+    WHITESPACE,
     SourceDialect,
     apply_detected_dialects,
     describe_dialect,
@@ -317,9 +318,7 @@ def test_apply_detected_dialects_full_fields_survives_repin() -> None:
     corrects skip_rows 1→0. With ``full_fields`` the §9 entry pins skip_rows:0 explicitly,
     so a later re-detection (the materialize re-pin) whose ``entry.update(prior)`` merges
     the re-detected skip_rows=1 UNDER the explicit prior keeps the human's 0."""
-    override = {
-        "xrd_measurement.txt": SourceDialect(encoding="cp932", delimiter="\t", skip_rows=0)
-    }
+    override = {"xrd_measurement.txt": SourceDialect(encoding="cp932", delimiter="\t", skip_rows=0)}
     pinned = apply_detected_dialects(_IR_DICT, override, full_fields={"xrd_measurement.txt"})
     assert pinned["dialects"]["xrd_measurement.txt"] == {
         "encoding": "cp932",
@@ -381,9 +380,7 @@ def test_apply_detected_dialects_overlays_non_default() -> None:
 def test_apply_detected_dialects_explicit_values_win() -> None:
     ir = dict(_IR_DICT)
     ir["dialects"] = {"xrd_measurement.txt": {"skip_rows": 3}}
-    detected = {
-        "xrd_measurement.txt": SourceDialect(encoding="cp932", delimiter="\t", skip_rows=1)
-    }
+    detected = {"xrd_measurement.txt": SourceDialect(encoding="cp932", delimiter="\t", skip_rows=1)}
     out = apply_detected_dialects(ir, detected)
     # detected fills encoding/delimiter; the human-gated skip_rows survives.
     assert out["dialects"]["xrd_measurement.txt"] == {
@@ -419,9 +416,7 @@ def test_apply_detected_dialects_yaml_text_roundtrip() -> None:
     assert "cp932" in out
     # nothing to add ⇒ byte-identical input text (a clean spec never churns)
     assert apply_detected_dialects(ir_yaml, {}) == ir_yaml
-    assert (
-        apply_detected_dialects(ir_yaml, {"xrd_measurement.txt": SourceDialect()}) == ir_yaml
-    )
+    assert apply_detected_dialects(ir_yaml, {"xrd_measurement.txt": SourceDialect()}) == ir_yaml
 
 
 # ----------------------------------------------------------------------------
@@ -617,3 +612,66 @@ def _write_icdd_card_full(path: Path, data_rows: int = 5) -> Path:
     ]
     path.write_text("\r\n".join([*_CARD_PREAMBLE, header, *table]) + "\r\n", encoding="utf-8")
     return path
+
+
+# The ZEM-style meta line: one preamble line of TAB-separated cells, a bare
+# sample name leading, then key=value cells (trailing tab → empty cell).
+_ZEM_META_LINE = "Al3V-SPS-2\t   T.C.type=K\tDistance=620.000000E-3\tDiameter=97.000000E-3\t"
+
+
+def test_read_preamble_keyvalue_cells_zem_line() -> None:
+    meta = read_preamble([_ZEM_META_LINE], "keyvalue_cells", delimiter="\t")
+    assert meta == [
+        ("preamble_1", "Al3V-SPS-2"),  # bare cell (no '=') → positional name
+        ("T.C.type", "K"),
+        ("Distance", "620.000000E-3"),
+        ("Diameter", "97.000000E-3"),
+        # the trailing empty cell is always dropped
+    ]
+
+
+def test_read_preamble_keyvalue_cells_edge_cases() -> None:
+    # Duplicate keys suffix; '=' with an empty left side is a bare value; a
+    # SECOND '=' stays inside the value (first-'=' split only — lossless).
+    meta = read_preamble(["K=1\tK=2\t=x\tformula=y=z"], "keyvalue_cells", delimiter="\t")
+    assert meta == [
+        ("K", "1"),
+        ("K_2", "2"),
+        ("preamble_1", "=x"),
+        ("formula", "y=z"),
+    ]
+    # The whitespace sentinel tokenizes on runs of spaces/tabs.
+    assert read_preamble(["name  a=1   b=2"], "keyvalue_cells", delimiter=WHITESPACE) == [
+        ("preamble_1", "name"),
+        ("a", "1"),
+        ("b", "2"),
+    ]
+
+
+def test_detect_preamble_form_cells_vs_lines() -> None:
+    # The ZEM meta line classifies as the cell form under the body's tab.
+    assert detect_preamble_form([_ZEM_META_LINE], delimiter="\t") == "keyvalue_cells"
+    # An ICDD card (one key: value per line, no tabs) is unchanged by the new
+    # mode — even when a value contains a stray '=' (single cell per line).
+    card = ["Name: Aluminum Vanadium", "Comment: lambda=1.54 for Ka1"]
+    assert detect_preamble_form(card, delimiter="\t") == "keyvalue"
+    # A bare sample-name line stays "lines".
+    assert detect_preamble_form(["Al3V_bulk"], delimiter="\t") == "lines"
+
+
+def test_iter_rows_broadcast_keyvalue_cells_cr_mixed(tmp_path: Path) -> None:
+    # The real ZEM export mixes terminators: meta + header lines end in a BARE
+    # CR, data rows in CRLF. readline()/csv.reader treat all of \r, \n, \r\n
+    # as line breaks (pinned here — the broadcast path depends on it).
+    src = tmp_path / "zem.txt"
+    src.write_bytes(
+        b"Al3V-SPS-2\tT.C.type=K\tDistance=620.000000E-3\t\r"
+        + b"T(C)\tRho(Ohm m)\r"
+        + b"3.6E+1\t1.2E-6\r\n"
+        + b"6.0E+1\t1.3E-6\r\n"
+    )
+    dialect = SourceDialect(delimiter="\t", skip_rows=1, preamble="keyvalue_cells")
+    rows = list(iter_rows(src, dialect))
+    assert rows[0] == ["T(C)", "Rho(Ohm m)", "preamble_1", "T.C.type", "Distance"]
+    assert rows[1] == ["3.6E+1", "1.2E-6", "Al3V-SPS-2", "K", "620.000000E-3"]
+    assert len(rows) == 3

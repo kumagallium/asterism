@@ -66,6 +66,7 @@ const DELIMITER_OPTIONS: { value: string; labelKey: string }[] = [
 const PREAMBLE_OPTIONS: { value: string; labelKey: string }[] = [
   { value: 'drop', labelKey: 'workbench:dialect.preamble.drop' },
   { value: 'keyvalue', labelKey: 'workbench:dialect.preamble.keyvalue' },
+  { value: 'keyvalue_cells', labelKey: 'workbench:dialect.preamble.keyvalue_cells' },
   { value: 'lines', labelKey: 'workbench:dialect.preamble.lines' },
 ]
 // Today's clean-CSV read — the prefill for a source with no detected dialect.

@@ -558,7 +558,7 @@ def _sniff_preamble_form(path: Path, dialect: SourceDialect) -> str | None:
             lines = [line for line in (fh.readline() for _ in range(dialect.skip_rows)) if line]
     except OSError:
         return None
-    return detect_preamble_form(lines)
+    return detect_preamble_form(lines, delimiter=dialect.delimiter)
 
 
 def inspect_csv(

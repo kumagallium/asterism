@@ -60,9 +60,11 @@ WHITESPACE = "whitespace"
 LEGACY_SUFFIXES = frozenset({".txt", ".dat", ".asc"})
 
 # The closed set of preamble-handling modes (ADR source-dialect.md, "Header
-# metadata"): "drop" keeps today's behavior; "keyvalue"/"lines" broadcast the
-# parsed preamble metadata onto every body row.
-PREAMBLE_MODES = frozenset({"drop", "keyvalue", "lines"})
+# metadata"): "drop" keeps today's behavior; "keyvalue"/"lines"/"keyvalue_cells"
+# broadcast the parsed preamble metadata onto every body row ("keyvalue" = one
+# `key: value` per LINE; "keyvalue_cells" = delimiter-separated CELLS each
+# holding `key=value`, the ZEM-style meta line).
+PREAMBLE_MODES = frozenset({"drop", "keyvalue", "lines", "keyvalue_cells"})
 
 # Morph-KGC reserves these DataFrame column names when building term maps (mirror
 # of ``asterism.dialect._RESERVED_COLUMNS`` / ``inspect._RESERVED_SOURCE_COLUMNS``).
@@ -98,7 +100,7 @@ class SourceDialect:
     delimiter: str = ","  # single char, or the sentinel "whitespace"
     collapse: bool = False  # treat consecutive delimiters as one
     skip_rows: int = 0  # lines before the header row (preamble)
-    preamble: str = "drop"  # "drop" | "keyvalue" | "lines" — how to treat the preamble
+    preamble: str = "drop"  # one of PREAMBLE_MODES — how to treat the preamble
 
 
 _DEFAULT_DIALECT = SourceDialect()
@@ -272,9 +274,7 @@ def detect_dialect(path: Path | str) -> SourceDialect:
         if ws_found is not None:
             ws_run, ws_columns, ws_start = ws_found
             if ws_run > run and ws_columns != columns:
-                return SourceDialect(
-                    encoding=encoding, delimiter=WHITESPACE, skip_rows=ws_start
-                )
+                return SourceDialect(encoding=encoding, delimiter=WHITESPACE, skip_rows=ws_start)
         return SourceDialect(encoding=encoding, delimiter=delimiter, skip_rows=start)
     if ws_found is not None:
         ws_run, _ws_columns, ws_start = ws_found
@@ -302,7 +302,20 @@ _PREAMBLE_SECTION = re.compile(r"^\s*-{3,}")
 _PREAMBLE_KV = re.compile(r"^\s*([^:]+?)\s*:\s*(.*)$")
 
 
-def read_preamble(lines: list[str], mode: str) -> list[tuple[str, str]]:
+def _preamble_cells(line: str, delimiter: str) -> list[str]:
+    """Tokenize ONE preamble line under the body's delimiter rule (quote-aware
+    for single-char delimiters, run-split for ``whitespace``). Shared verbatim
+    with the runtime twin; used only by the ``keyvalue_cells`` mode."""
+    if delimiter == WHITESPACE:
+        stripped = line.strip()
+        return _WS_RUN.split(stripped) if stripped else []
+    try:
+        return next(csv.reader([line], delimiter=delimiter), [])
+    except csv.Error:
+        return line.split(delimiter)
+
+
+def read_preamble(lines: list[str], mode: str, *, delimiter: str = ",") -> list[tuple[str, str]]:
     """Parse the decoded preamble ``lines`` into ordered ``(name, value)`` pairs.
 
     Shared verbatim with the runtime twin (``asterism.dialect.read_preamble``).
@@ -316,6 +329,15 @@ def read_preamble(lines: list[str], mode: str) -> list[tuple[str, str]]:
     A duplicate key is suffixed ``key_2``/``key_3`` (lossless). An unknown mode
     yields nothing (the caller's ``drop`` path handles the default).
 
+    ``mode == "keyvalue_cells"`` (the ZEM-style meta line) — each line is
+    tokenized under the BODY's ``delimiter`` (:func:`_preamble_cells`), empty
+    cells are always dropped, and each cell splits on its FIRST ``=`` only
+    (stripped key/value — lossless). A cell without ``=`` (or with an empty
+    left side) is a bare value — typically the sample name leading the line —
+    named ``preamble_{n}`` by order of appearance. Duplicate keys are suffixed
+    like the line mode. ``:`` cells are deliberately NOT split (a colon is too
+    common inside values — timestamps, ratios — to be a safe cell separator).
+
     A wrapped line that itself contains a colon is indistinguishable from a real
     new field and is parsed as its own ``key: value`` pair (deterministic; the text
     lands in an extra column, never lost — see the ADR / report Limitations)."""
@@ -326,6 +348,26 @@ def read_preamble(lines: list[str], mode: str) -> list[tuple[str, str]]:
             if stripped:
                 out.append((f"preamble_{i + 1}", stripped))
         return out
+    if mode == "keyvalue_cells":
+        cell_pairs: list[tuple[str, str]] = []
+        cell_key_counts: dict[str, int] = {}
+        bare = 0
+        for line in lines:
+            for cell in _preamble_cells(line, delimiter):
+                cell = cell.strip()
+                if not cell:
+                    continue
+                key, eq, value = cell.partition("=")
+                if eq and key.strip():
+                    k = key.strip()
+                    cell_key_counts[k] = cell_key_counts.get(k, 0) + 1
+                    if cell_key_counts[k] > 1:
+                        k = f"{k}_{cell_key_counts[k]}"
+                    cell_pairs.append((k, value.strip()))
+                else:
+                    bare += 1
+                    cell_pairs.append((f"preamble_{bare}", cell))
+        return cell_pairs
     if mode != "keyvalue":
         return []
     pairs: list[list[str]] = []  # [key, value], value mutated by continuation lines
@@ -370,13 +412,24 @@ def resolve_header(body_names: list[str], meta_names: list[str]) -> list[str]:
     return out
 
 
-def detect_preamble_form(lines: list[str]) -> str | None:
+def detect_preamble_form(lines: list[str], *, delimiter: str = ",") -> str | None:
     """Classify a preamble block's shape for the inspect advisory (identify, do
-    NOT adopt — ADR source-dialect.md): a majority of ``key:<space>`` lines →
-    ``"keyvalue"``, otherwise ``"lines"``; an empty block → ``None``."""
+    NOT adopt — ADR source-dialect.md): when the block actually splits into
+    multiple cells under the body's ``delimiter`` AND a majority of those cells
+    are ``key=value`` → ``"keyvalue_cells"`` (the ZEM-style meta line);
+    otherwise a majority of ``key:<space>`` lines → ``"keyvalue"``, else
+    ``"lines"``; an empty block → ``None``."""
     nonblank = [line for line in lines if line.strip()]
     if not nonblank:
         return None
+    cells = [c.strip() for line in nonblank for c in _preamble_cells(line, delimiter) if c.strip()]
+    # Cell mode needs evidence of actual cell structure: more cells than lines
+    # (a single-cell-per-line block with a stray '=' must fall through to the
+    # line-based classification, e.g. an ICDD card).
+    if len(cells) > len(nonblank):
+        kv_cells = sum(1 for c in cells if "=" in c and c.partition("=")[0].strip())
+        if kv_cells * 2 > len(cells):
+            return "keyvalue_cells"
     kv = sum(1 for line in nonblank if re.match(r"^\s*[^:]+:\s", line))
     return "keyvalue" if kv * 2 > len(nonblank) else "lines"
 
@@ -412,7 +465,7 @@ def _broadcast_rows(path: Path | str, dialect: SourceDialect) -> Iterator[list[s
             if not line:
                 break
             preamble_lines.append(line)
-        meta = read_preamble(preamble_lines, dialect.preamble)
+        meta = read_preamble(preamble_lines, dialect.preamble, delimiter=dialect.delimiter)
         meta_names = [name for name, _ in meta]
         meta_values = [value for _, value in meta]
         body = _body_tokens(fh, dialect)
@@ -533,9 +586,7 @@ def _declared_sources(ir_dict: Mapping[str, Any]) -> set[str]:
     if not isinstance(maps, Sequence) or isinstance(maps, str):
         return set()
     return {
-        m["source"]
-        for m in maps
-        if isinstance(m, Mapping) and isinstance(m.get("source"), str)
+        m["source"] for m in maps if isinstance(m, Mapping) and isinstance(m.get("source"), str)
     }
 
 
