@@ -83,7 +83,9 @@
       "retry": "Try again",
       "openDetail": "Check in detail mode",
       "restart": "Start over",
-      "restartConfirm": "This clears the files you added and everything so far. Start over from the beginning?"
+      "restartConfirm": "This clears the files you added and everything so far. Start over from the beginning?",
+      "weakness": "Your data isn't linked together",
+      "weaknessBody": "The design itself is valid and you can publish it as is. But as it stands it cannot answer questions that span more than one thing — such as which measurements belong to this sample."
     },
     "plain": {
       "tokenTitle": "You don't have permission to save",
@@ -117,6 +119,9 @@
       "incomplete": "The AI's design output was cut off partway",
       "others_one": "Plus {{count}} more issue converting to the intake rules",
       "others_other": "Plus {{count}} more issues converting to the intake rules"
+    },
+    "weakness": {
+      "continue": "Continue anyway"
     }
   },
   "s6": {

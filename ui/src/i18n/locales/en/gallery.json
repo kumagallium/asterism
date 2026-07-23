@@ -109,7 +109,9 @@
     "diagramSummary": "Structure diagram",
     "reusesHead": "Standard words borrowed from elsewhere (detected from the actual data)",
     "classCount_one": "{{n}} class",
-    "classCount_other": "{{n}} classes"
+    "classCount_other": "{{n}} classes",
+    "advisoryHead": "About how this links up",
+    "advisoryNote": "Use “review the design” below to have the AI add the links."
   },
   "rules": {
     "title": "Ingest rules (artifacts)",
@@ -284,5 +286,16 @@
     "catalogSubDraft": "Draft ingested · {{date}}",
     "mappingIrSummary": "The reviewed ingest-rule spec (the executable rules are generated from it deterministically)",
     "proposalSummary": "The reviewed design document (full text)"
+  },
+  "advisory": {
+    "disconnectedPair": "“{{a}}” and “{{b}}” are not linked. They are recorded as separate things, so questions that span both — which {{a}} belongs to this {{b}} — cannot be answered.",
+    "disconnected": "{{count}} groups of data are not linked to each other, so questions spanning them cannot be answered.",
+    "duplicateColumn_one": "{{count}} column is written twice, onto two different things. Choosing one owner removes the duplicated facts.",
+    "duplicateColumn_other": "{{count}} columns are written twice, onto two different things. Choosing one owner each removes the duplicated facts.",
+    "unmapped_one": "{{count}} column is not used. If it carries meaning, adding it to the design makes it questionable.",
+    "unmapped_other": "{{count}} columns are not used. If they carry meaning, adding them to the design makes them questionable.",
+    "other_one": "{{count}} further note.",
+    "other_other": "{{count}} further notes.",
+    "rawSummary": "The notes as written (technical)"
   }
 }

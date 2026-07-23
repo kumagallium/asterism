@@ -29,6 +29,7 @@ import {
   type SourceDialect,
   type TrialQueries,
 } from '../api'
+import { plainAdvisories } from '../advisoryPlain'
 import { TABULAR_ACCEPT } from '../datasetsApi'
 import { DocumentPanel } from '../DocumentPanel'
 import { PRESET_HINTS } from '../domainHints'
@@ -86,15 +87,19 @@ type PipeStage = 'materialize' | 'attach' | 'ingest'
  *  error-family → plain-question translation table is K11 proper (a later
  *  task). */
 interface StopCard {
-  kind: 'materialize' | 'attach' | 'ingest' | 'design' | 'files' | 'interrupted'
+  /** 'weakness' = the design is VALID but poorly connected / incomplete. It is
+   *  the only kind the user may wave through ("このまま進む"): everything else
+   *  is a defect that would dead-end later. Kept a separate kind rather than a
+   *  flag on 'design' so no existing branch silently gains an escape hatch. */
+  kind: 'materialize' | 'attach' | 'ingest' | 'design' | 'weakness' | 'files' | 'interrupted'
   detail: string
   /** Present → "もう一度試す" re-runs the chain from this stage. */
   retryFrom?: PipeStage
-  /** 'design' kind only: the failure lines (trap details + repair recipes +
-   *  warnings + validation/mapping issues) handed verbatim to the one-click
-   *  AI fix — mirrors the detail tier's composeFixComment. */
+  /** 'design'/'weakness': the lines (trap details + repair recipes + warnings
+   *  + validation/mapping issues, or the advisories) handed verbatim to the
+   *  one-click AI fix — mirrors the detail tier's composeFixComment. */
   fixLines?: string[]
-  /** 'design' kind only: the K11 plain-language face of the same failures
+  /** 'design'/'weakness': the K11 plain-language face of the same findings
    *  (ADR §5.1) — canonical one-liners for known trap ids, free-form issues
    *  folded into one count line. Display only; the AI fix gets fixLines. */
   plainLines?: string[]
@@ -1042,6 +1047,7 @@ export function KantanWizard({
           result.exit_code !== 0 ||
           (result.validation_issues ?? []).length > 0
         ) {
+          // (weaknesses are handled separately below — they do not dead-end)
           // Problems the self-correction could not clear (truncated output /
           // failing traps): a human decision now — the card's PRIMARY exit is
           // the same one-click AI fix the detail tier has. Each failing trap
@@ -1072,6 +1078,24 @@ export function KantanWizard({
               result.warnings.length + (result.validation_issues ?? []).length,
               !result.complete,
             ),
+          })
+          return
+        }
+        // The design is VALID but may be weak: entities with no link between
+        // them, columns nobody mapped. Those must not be silently published (a
+        // disconnected mapping answers no cross-entity question — the live ZEM
+        // case, 2026-07-24) but they are also not defects, and a design can be
+        // legitimately single-purpose. So: show it, and let the human choose —
+        // "AI に直してもらう" or "このまま進む" (which resumes at attach).
+        const advisories = result.advisories ?? []
+        if (advisories.length > 0) {
+          setStop({
+            kind: 'weakness',
+            detail: advisories.join('\n'),
+            fixLines: advisories,
+            // Same plain sentences the catalog shows — one vocabulary for the
+            // same finding, wherever the user meets it.
+            plainLines: plainAdvisories(advisories).map((a) => a.text),
           })
           return
         }
@@ -1596,7 +1620,11 @@ export function KantanWizard({
   // Whether a more specific primary already exists — retry is then demoted to a
   // secondary (ghost) button so a card never shows two filled CTAs.
   const stopPrimaryElsewhere =
-    !!stop && (stop.kind === 'design' || stopHint === 'settings' || stopHint === 'restart')
+    !!stop &&
+    (stop.kind === 'design' ||
+      stop.kind === 'weakness' ||
+      stopHint === 'settings' ||
+      stopHint === 'restart')
 
   const up = ingestProgress
   const uploadPct =
@@ -1670,15 +1698,20 @@ export function KantanWizard({
               folded below. The other kinds keep their own dedicated bodies. */}
           {stopPlain && <p className="kz-note">{t(stopPlain.body)}</p>}
           {stop.kind === 'design' && <p className="kz-note">{t('kantan:s5.stop.designBody')}</p>}
+          {stop.kind === 'weakness' && (
+            <p className="kz-note">{t('kantan:s5.stop.weaknessBody')}</p>
+          )}
           {/* K11 (ADR §5.1): the plain-language list of what stopped the run.
               The technical text stays in the folded details below. */}
-          {stop.kind === 'design' && stop.plainLines && stop.plainLines.length > 0 && (
-            <ul className="kz-stop-plainlist">
-              {stop.plainLines.map((l, i) => (
-                <li key={i}>{l}</li>
-              ))}
-            </ul>
-          )}
+          {(stop.kind === 'design' || stop.kind === 'weakness') &&
+            stop.plainLines &&
+            stop.plainLines.length > 0 && (
+              <ul className="kz-stop-plainlist">
+                {stop.plainLines.map((l, i) => (
+                  <li key={i}>{l}</li>
+                ))}
+              </ul>
+            )}
           {stop.kind === 'interrupted' && (
             <p className="kz-note">{t('kantan:s5.stop.interruptedBody')}</p>
           )}
@@ -1695,18 +1728,30 @@ export function KantanWizard({
               <pre className="error">{stop.detail}</pre>
             </details>
           )}
-          {stop.kind === 'design' && aiFixCount > 0 && (
+          {(stop.kind === 'design' || stop.kind === 'weakness') && aiFixCount > 0 && (
             <p className="kz-note">{t('kantan:s5.fix.attempted', { n: aiFixCount })}</p>
           )}
-          {stop.kind === 'design' && fixErr && (
+          {(stop.kind === 'design' || stop.kind === 'weakness') && fixErr && (
             <pre className="error">{t('kantan:s5.fix.failed', { message: fixErr })}</pre>
           )}
           <div className="kz-actions">
             {/* Primary action, one per card. design → AI fix; token/timeout →
                 open settings; 404 → start over; otherwise → retry (below). */}
-            {stop.kind === 'design' && (
+            {(stop.kind === 'design' || stop.kind === 'weakness') && (
               <button type="button" onClick={runAiFix} disabled={!isReady || !proposal}>
                 {t('kantan:s5.fix.button')}
+              </button>
+            )}
+            {/* Only a weakness may be waved through. Resumes at `attach` — the
+                design is already materialized and adopted, so continuing must
+                NOT re-run materialize (that would re-raise the same card). */}
+            {stop.kind === 'weakness' && (
+              <button
+                type="button"
+                className="btn btn--ghost"
+                onClick={() => void runPipeline('attach')}
+              >
+                {t('kantan:s5.weakness.continue')}
               </button>
             )}
             {stopHint === 'settings' && (
@@ -1741,7 +1786,7 @@ export function KantanWizard({
               {t('kantan:s5.stop.openDetail')}
             </button>
           </div>
-          {stop.kind === 'design' && !isReady && (
+          {(stop.kind === 'design' || stop.kind === 'weakness') && !isReady && (
             <p className="kz-note">{t('kantan:s1.aiNotReady')}</p>
           )}
           {jobNotice && (

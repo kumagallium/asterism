@@ -844,9 +844,18 @@ export function WorkbenchView({
           // came back empty). Merge the issues into the shown result. Best-effort —
           // the hard ingest gate still re-checks, so a hiccup here never blocks.
           try {
-            const issues = await validateDesign(datasetId)
+            const check = await validateDesign(datasetId)
             setMaterialized((prev) =>
-              prev ? { ...prev, validation_issues: issues } : prev,
+              prev
+                ? {
+                    ...prev,
+                    validation_issues: check.issues,
+                    // With the source attached the connectivity advisory can
+                    // name the join-key candidates, so this replaces (not
+                    // merges) the source-less list from materialize.
+                    advisories: check.advisories,
+                  }
+                : prev,
             )
           } catch {
             /* advisory re-check is best-effort; ingest gate is the hard check */
@@ -915,6 +924,10 @@ export function WorkbenchView({
   // checked at materialize against the real source CSVs). Shown prominently and
   // fed to the one-click fix so they're corrected during design, not only at ingest.
   const validationIssues = materialized?.validation_issues ?? []
+  // Design weaknesses (disconnected entities, unmapped columns). Unlike the
+  // issues above these do NOT need a source, so they are present from the very
+  // first materialize — the moment the reviewer is looking at the design.
+  const designAdvisories = materialized?.advisories ?? []
   // Whether the one-click "ask AI to fix" has something actionable: a blocking
   // failure (exit != 0 / a FAIL trap), any warning, or a design-validation issue.
   // Drives whether the fix button is shown (and guarantees composeFixComment
@@ -924,6 +937,7 @@ export function WorkbenchView({
     (materialized.exit_code !== 0 ||
       materialized.warnings.length > 0 ||
       validationIssues.length > 0 ||
+      designAdvisories.length > 0 ||
       materialized.traps.some((tr) => tr.status === 'fail'))
 
   // Artifacts that were restored from a previous session (proposal exists but
@@ -1320,6 +1334,22 @@ export function WorkbenchView({
                       </ul>
                     </div>
                   )}
+                  {/* Weaknesses (disconnected entities, unmapped columns). Kept
+                      visually distinct from the defects above and NOT role="alert":
+                      the design is saveable as-is — this is advice the reviewer
+                      weighs, and the fix button below can carry it to the AI. */}
+                  {designAdvisories.length > 0 && (
+                    <div className="materialize-advisories">
+                      <p className="materialize-advisories-head">
+                        {t('workbench:save.advisoryHead')}
+                      </p>
+                      <ul>
+                        {designAdvisories.map((advice, i) => (
+                          <li key={i}>{advice}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                   {!materializeUsable && (
                     <div className="materialize-incomplete" role="alert">
                       <strong className="materialize-incomplete-head">
@@ -1451,6 +1481,10 @@ function composeFixComment(result: MaterializeResult | null, t: TFunction): stri
   // checked against the real source) — fed to the AI so the one-click fix can
   // correct them at design time, in one click, instead of only at ingest.
   for (const issue of result.validation_issues ?? []) lines.push(issue)
+  // Weaknesses too: the connectivity advisory already carries the join-key
+  // candidates and "declare the link on the CHILD map" instruction, which is
+  // exactly the work order a weak model needs to actually add the link.
+  for (const advice of result.advisories ?? []) lines.push(advice)
   if (lines.length === 0) return ''
   const bullets = lines.map((l) => `- ${l}`).join('\n')
   return `${t('workbench:fix.commentIntro')}\n${bullets}`

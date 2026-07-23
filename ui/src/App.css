@@ -2331,6 +2331,56 @@ button.trace-iri-copy:hover:not(:disabled) {
   color: var(--warn-fg);
 }
 
+/* Design WEAKNESSES (disconnected entities, unmapped columns). Deliberately
+   quieter than .materialize-validation above: nothing here blocks saving or
+   publishing, so it must read as advice, not as an error. Same bulleted layout,
+   neutral surface, muted rule on the left. */
+.materialize-advisories,
+.ds-advisories {
+  margin: var(--space-3) 0 0;
+  padding: 0.6rem 0.75rem;
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-alt);
+}
+.materialize-advisories .materialize-advisories-head {
+  margin: 0 0 0.35rem;
+  font-weight: 600;
+  color: var(--body);
+}
+.ds-advisories .ds-subhead {
+  margin-top: 0;
+}
+.materialize-advisories ul,
+.ds-advisory-list {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+.materialize-advisories li,
+.ds-advisory-list li {
+  margin: 0.15rem 0;
+  /* Advisory text carries file names / column lists and can be long. */
+  overflow-wrap: anywhere;
+}
+.ds-advisories .btn {
+  margin-top: var(--space-3);
+}
+/* The originals, folded: technical English kept reachable but never the
+   default reading experience. */
+.ds-advisory-raw {
+  margin-top: var(--space-3);
+}
+.ds-advisory-raw > summary {
+  cursor: pointer;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.ds-advisory-raw .ds-advisory-list {
+  margin-top: var(--space-2);
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
 /* ---- shared atoms & states (forest kit) ---- */
 
 /* Inline jargon: plain word + dotted underline + ? superscript (title = en). */

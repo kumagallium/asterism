@@ -1439,6 +1439,110 @@ def emit(path):
 """
 
 
+_MATERIALIZE_MD_DISCONNECTED = """## Schema proposal
+
+### Class diagram
+```mermaid
+classDiagram
+    class Sample
+    class Measurement
+```
+
+### MIE
+```yaml
+schema_info:
+  title: Demo
+  keywords: [thermoelectric, seebeck, zt, sample, composition]
+  categories: [materials]
+```
+
+### Ingester
+```python
+import csv
+def emit(path):
+    open(path, encoding="utf-8-sig")
+```
+
+### RML
+```turtle
+@prefix rr:  <http://www.w3.org/ns/r2rml#> .
+@prefix rml: <http://semweb.mmlab.be/ns/rml#> .
+@prefix ql:  <http://semweb.mmlab.be/ns/ql#> .
+<#S> a rr:TriplesMap ;
+  rml:logicalSource [ rml:source "data.csv" ; rml:referenceFormulation ql:CSV ] ;
+  rr:subjectMap [ rr:template "https://ex/sample/{SID}" ; rr:class <https://ex/Sample> ] ;
+  rr:predicateObjectMap [ rr:predicate <https://ex/hasComposition> ;
+    rr:objectMap [ rml:reference "composition" ] ] .
+<#M> a rr:TriplesMap ;
+  rml:logicalSource [ rml:source "data.csv" ; rml:referenceFormulation ql:CSV ] ;
+  rr:subjectMap [ rr:template "https://ex/meas/{SID}" ; rr:class <https://ex/Measurement> ] ;
+  rr:predicateObjectMap [ rr:predicate <https://ex/hasZt> ;
+    rr:objectMap [ rml:reference "zt" ] ] .
+```
+"""
+
+
+def test_materialize_flags_disconnected_entities_on_a_brand_new_design(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    """Connectivity advice reaches the FIRST materialize — no source, no dataset_id.
+
+    The regression this pins: the connectivity check needs only the mapping, but
+    it used to sit behind the source/``dataset_id`` guard of the column check.
+    The wizard mints its dataset INSIDE the first materialize call, so that call
+    carried no ``dataset_id``, the whole function returned early, and a design
+    whose two entities never link reached publication silently (live ZEM,
+    2026-07-24). ``advisories`` is also a SEPARATE field from
+    ``validation_issues`` — a weakness must not be mistaken for a defect — and
+    is persisted onto the dataset record so the catalog can still say it later.
+    """
+    app = build_app(_settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        res = client.post(
+            "/api/materialize",
+            json={"proposal_md": _MATERIALIZE_MD_DISCONNECTED, "dataset_name": "thermo"},
+        )
+        assert res.status_code == 200, res.text
+        body = res.json()
+        # Defects need the source; there is none yet — the weakness does not.
+        assert body["validation_issues"] == []
+        advisories = body["advisories"]
+        assert any("DISCONNECTED" in a for a in advisories), advisories
+        assert any("Sample" in a and "Measurement" in a for a in advisories), advisories
+        # Persisted onto the record, so the catalog can surface it after publish.
+        stored = client.get(f"/api/datasets/{body['dataset']['id']}").json()
+        assert stored["meta"]["advisories"] == advisories
+
+
+def test_validate_design_endpoint_returns_advisories_separately(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    """The post-attach re-check splits defects from weaknesses too.
+
+    With the source attached the connectivity advisory gains its join-key
+    candidates — the difference between "link them" and a work order.
+    """
+    app = build_app(_settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        ds_id = client.post(
+            "/api/materialize",
+            json={"proposal_md": _MATERIALIZE_MD_DISCONNECTED, "dataset_name": "thermo"},
+        ).json()["dataset"]["id"]
+        assert (
+            client.post(
+                f"/api/datasets/{ds_id}/source",
+                files={"files": ("data.csv", b"SID,composition,zt\n1,Bi2Te3,0.9\n", "text/csv")},
+            ).status_code
+            == 200
+        )
+        got = client.get(f"/api/datasets/{ds_id}/validate-design").json()
+        assert got["validation_issues"] == []
+        advisories = got["advisories"]
+        assert any("DISCONNECTED" in a for a in advisories), advisories
+        # The join-key candidates only appear once the real header is readable.
+        assert any("SID" in a for a in advisories), advisories
+
+
 def test_materialize_reports_advisory_validation_issues_when_source_present(
     tmp_path: Path, healthy_client: OxigraphClient
 ) -> None:
