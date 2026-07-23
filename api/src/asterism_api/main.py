@@ -3999,8 +3999,30 @@ def build_app(
         else:
             rml_ttl = str(data["artifacts"].get("mapping.rml.ttl", "") or "")
             if not rml_ttl.strip():
+                # An empty RML usually means the §9 mapping spec did not compile
+                # at materialize time (the design was still saved, with the
+                # compile problems in its warnings). Return the SAME structured
+                # 422 shape as design validation below, so every ingest surface
+                # renders a readable bullet list with a fix path instead of the
+                # opaque "no declarative RML mapping" string (the ZEM x gpt-oss
+                # live dead-end, 2026-07-23) — the wizard additionally stops
+                # this state at the design step now, making this the fallback
+                # gate for older registries / direct API calls.
+                meta_warnings = [
+                    str(w) for w in ((data.get("meta") or {}).get("warnings") or [])
+                ]
                 raise HTTPException(
-                    400, "this dataset has no declarative RML mapping to ingest"
+                    422,
+                    detail={
+                        "error": "no declarative RML mapping",
+                        "issues": [
+                            "this dataset has no compiled RML mapping to ingest — "
+                            "the mapping spec (§9) did not compile to RML; re-run "
+                            "the design (見直す) so the self-correction loop can "
+                            "repair the spec",
+                            *meta_warnings,
+                        ],
+                    },
                 )
             # Trust boundary (CLAUDE.md「生成コードを実行しない」): refuse a mapping that
             # would execute non-Tier-0 code or read outside this dataset's source dir.

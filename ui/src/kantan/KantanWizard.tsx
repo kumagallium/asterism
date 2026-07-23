@@ -1037,7 +1037,11 @@ export function KantanWizard({
           setKzDatasetName(result.dataset.name ?? null)
           setSourceAttached(false)
         }
-        if (!result.complete || result.exit_code !== 0) {
+        if (
+          !result.complete ||
+          result.exit_code !== 0 ||
+          (result.validation_issues ?? []).length > 0
+        ) {
           // Problems the self-correction could not clear (truncated output /
           // failing traps): a human decision now — the card's PRIMARY exit is
           // the same one-click AI fix the detail tier has. Each failing trap
@@ -1045,7 +1049,10 @@ export function KantanWizard({
           // grouped with its symptom, like the detail tier's composeFixComment
           // (symptom-only comments loop weak models forever). The api merges
           // mapping_ir_issues into `validation_issues`, so appending that list
-          // covers the mapping-spec compile problems too.
+          // covers the mapping-spec compile problems too — and a non-empty
+          // list STOPS the chain (a spec that did not compile leaves NO RML;
+          // continuing would dead-end at ingest with an opaque "no declarative
+          // RML mapping" error — the ZEM x gpt-oss live failure, 2026-07-23).
           const fails = result.traps.filter((tr) => tr.status === 'fail')
           const lines = [
             ...(result.complete ? [] : ['incomplete design output (truncated)']),

@@ -686,8 +686,17 @@ def test_ingest_unknown_dataset_404(tmp_path: Path) -> None:
         assert r.status_code == 404
 
 
-def test_ingest_dataset_without_rml_400(tmp_path: Path) -> None:
+def test_ingest_dataset_without_rml_422_structured(tmp_path: Path) -> None:
+    # An empty RML (the §9 spec did not compile at materialize) must return the
+    # SAME structured 422 shape as design validation — `detail.issues` renders
+    # as a readable bullet list with a fix path in every ingest surface, and
+    # the dataset's persisted compile warnings ride along (the ZEM x gpt-oss
+    # live dead-end: an opaque "no declarative RML mapping" 400 string).
     dataset_id = _save_dataset_with_rml(tmp_path, rml="   ")  # blank RML
+    meta_path = tmp_path / "registry" / dataset_id / "meta.json"
+    meta = json.loads(meta_path.read_text())
+    meta["warnings"] = ["The mapping spec could not be compiled to RML (1 issue(s))."]
+    meta_path.write_text(json.dumps(meta))
     oxi = _RecordingOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
     with TestClient(app, headers=_AUTH) as client:
@@ -695,8 +704,12 @@ def test_ingest_dataset_without_rml_400(tmp_path: Path) -> None:
             f"/api/datasets/{dataset_id}/ingest",
             files={"files": ("papers.csv", b"SID\n1\n", "text/csv")},
         )
-        assert r.status_code == 400
-        assert "no declarative RML" in r.json()["detail"]
+        assert r.status_code == 422
+        detail = r.json()["detail"]
+        assert detail["error"] == "no declarative RML mapping"
+        assert any("no compiled RML mapping" in i for i in detail["issues"])
+        # The persisted materialize warnings ride along for context.
+        assert any("could not be compiled" in i for i in detail["issues"])
     assert oxi.store_calls == []  # nothing loaded
 
 
