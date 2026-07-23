@@ -190,6 +190,7 @@
       "candidatesHead": "Column combinations where every row is distinct (click to apply)",
       "measurementOnly": "A measurement column — it may be unique only by accident; not recommended as an ID",
       "measurementKeyCaution": "This ID is built from measured values. Every row is unique in today's data, but adding data may cause overlaps. Combining it with a column whose values never change — a sample name or a serial number — is safer (pick one from the candidates below)",
+      "classNumericKeyCaution": "The type name “{{cls}}” looks like a measured column ({{column}}). Naming the type after what one ROW is (e.g. a measurement point) is safer",
       "undeclaredPrefixes": "Undeclared prefixes: {{prefixes}} (saving will fail until they are declared)",
       "missingColumns": "Column not in the source: {{columns}} (check the column name)",
       "constant": "This item gets ONE ID per file (document) — per-row checks do not apply",

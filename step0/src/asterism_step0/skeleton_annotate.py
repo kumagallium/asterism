@@ -22,6 +22,7 @@ Scope: tabular sources (CSV/TSV and dialect-read instrument text). JSON and
 XML/document maps get an honest ``checkable: false`` note instead of a guess —
 never a silent pass.
 """
+
 from __future__ import annotations
 
 import re
@@ -144,6 +145,42 @@ def _measurement_only(inspection: SourceInspection, key: Sequence[str]) -> bool:
     return bool(key) and all(types.get(col) in _MEASUREMENT_TYPES for col in key)
 
 
+def _class_numeric_key_caution(
+    inspection: SourceInspection, key: Sequence[str], classes: Sequence[str]
+) -> list[dict[str, str]]:
+    """Class names that look like a measured KEY column's name.
+
+    Real dogfood (ZEM): the AI promoted the first numeric column into the row
+    identity — key ``{Measurement temp.(C)}`` AND class ``Temperature`` — so
+    the design claimed "a temperature has a resistivity". The properties-in-
+    the-box diagram makes that visible AFTER the design lands; this flags it
+    AT the gate. Only computed when the key is measurement-only (the K7
+    caution state — exactly when a value column was promoted to identity, name
+    included), which keeps a legitimate row class like ``Measurement`` over a
+    mixed key out of scope. Match: the class local name vs each numeric key
+    column's word tokens, exact or prefix either way with ≥ 4 shared chars
+    (``temp`` ≈ ``temperature``). Deterministic, domain-free."""
+    types = {c.name: c.inferred_type for c in inspection.columns}
+    out: list[dict[str, str]] = []
+    for cls in classes:
+        local = re.sub(r"[^a-z0-9]", "", re.split(r"[:#/]", str(cls))[-1].lower())
+        if len(local) < 4:
+            continue
+        for col in key:
+            if types.get(col) not in _MEASUREMENT_TYPES:
+                continue
+            for token in re.split(r"[^a-z0-9]+", col.lower()):
+                if len(token) < 4:
+                    continue
+                if token == local or token.startswith(local) or local.startswith(token):
+                    out.append({"class": str(cls), "column": col, "token": token})
+                    break
+            else:
+                continue
+            break  # one hit per class is enough for the caution
+    return out
+
+
 def _key_candidates(
     inspection: SourceInspection, current_key: tuple[str, ...]
 ) -> list[dict[str, Any]]:
@@ -196,9 +233,7 @@ def _annotate_map(
     ann: dict[str, Any] = {
         "checkable": False,
         "undeclared_prefixes": _undeclared_prefixes(template, classes, prefixes),
-        "expanded_classes": [
-            {"curie": c, "iri": _expand_curie(c, prefixes)} for c in classes
-        ],
+        "expanded_classes": [{"curie": c, "iri": _expand_curie(c, prefixes)} for c in classes],
     }
 
     if constant is not None and template is None:
@@ -250,9 +285,18 @@ def _annotate_map(
     # amber caution AND, unlike the plain-unique case, still offers the proven
     # safer key candidates as one-click fixes.
     caution = bool(report.is_unique) and _measurement_only(inspection, key)
+    # ZEM-shape naming trap: a measurement-only key whose CLASS is named after
+    # one of those numeric columns (the row identity mislabeled as one of its
+    # measurements). Computed for any measurement-only key, unique or not.
+    class_caution = (
+        _class_numeric_key_caution(inspection, key, classes)
+        if _measurement_only(inspection, key)
+        else []
+    )
     ann.update(
         {
             "checkable": True,
+            "class_numeric_key_caution": class_caution,
             "rows_considered": report.total_rows_considered,
             "total_rows": len(rows),
             "distinct_ids": report.distinct_tuples,
@@ -263,8 +307,7 @@ def _annotate_map(
             if report.is_unique
             else _collision_examples(rows, key, first_data_line),
             "id_previews": [
-                _render_template(str(template), row, prefixes)
-                for row in rows[:_PREVIEW_ROWS]
+                _render_template(str(template), row, prefixes) for row in rows[:_PREVIEW_ROWS]
             ],
             "key_candidates": []
             if (report.is_unique and not caution)
@@ -290,9 +333,7 @@ def annotate_skeleton(
     ``checkable: false`` with a machine-readable ``reason``.
     """
     resolved = [Path(p) for p in paths]
-    inspections, _fks = inspect_source_set(
-        resolved, record_path=record_path, dialects=dialects
-    )
+    inspections, _fks = inspect_source_set(resolved, record_path=record_path, dialects=dialects)
     by_name: dict[str, tuple[Path, SourceInspection]] = {}
     for path, ins in zip(resolved, inspections, strict=True):
         by_name[path.name] = (path, ins)

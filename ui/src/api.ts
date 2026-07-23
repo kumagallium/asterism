@@ -228,6 +228,11 @@ export interface SkeletonMapAnnotation {
    *  valued columns — an accidental identity that can collide as data grows
    *  (kantan-mode ADR K7). The gate shows an amber caution under the green band. */
   key_measurement_caution?: boolean
+  /** Class names that look like a measured KEY column's name (the ZEM trap:
+   *  row class `Temperature` over key `{Measurement temp.(C)}` — the row
+   *  identity mislabeled as one of its measurements). Only populated when the
+   *  key is measurement-only. */
+  class_numeric_key_caution?: { class: string; column: string; token: string }[]
   collision_examples?: {
     key_values: Record<string, string>
     row_count: number
