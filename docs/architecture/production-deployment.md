@@ -103,13 +103,49 @@ cd asterism && git checkout <この構成のブランチ/タグ>
 docker compose -f compose.prod.yaml up -d --build
 
 # 4. 確認（NAT ヘアピンを避け --resolve で自ホストを叩く）
+#    ホスト名は必ず asterism.env の ASTERISM_DOMAIN と一致させる（理由は下の罠）。
 docker compose -f compose.prod.yaml ps
-curl -sk --resolve 203.0.113.10:443:127.0.0.1 https://203.0.113.10/   # -> 302 (login へ)
+HOST=$(grep -oP '^ASTERISM_DOMAIN=\K.*' asterism.env)
+curl -sk --resolve "$HOST:443:127.0.0.1" "https://$HOST/"   # -> 302 (/__auth/login へ)
+```
+
+### 更新デプロイ（2 回目以降）
+
+```bash
+cd ~/asterism
+git pull --ff-only origin main
+docker compose -f compose.prod.yaml up -d --build   # 変更のない層はキャッシュで即終了
+docker compose -f compose.prod.yaml ps              # 全コンテナ Up を確認
+docker logs --since 5m asterism_prod_api | grep -iE 'error|traceback' # 空なら健全
+```
+
+> **⚠️ 確認時の罠：`--resolve` のホスト名が `ASTERISM_DOMAIN` と違うと「壊れて見える」。**
+> Caddy の site block は `ASTERISM_DOMAIN` 1 つ。別の名前（例：FQDN 運用中にサーバ IP）で
+> 叩くと TLS SNI が site に一致せず、**全パスが `200` かつ `content-length: 0`** で返る
+> （caddy のアクセスログは `"msg":"NOP"` / `"status":0`）。SPA も 404 も出ないので
+> *デプロイでフロントが壊れた* ように見えるが、実際はホスト名違いなだけ。
+> **健全な応答は未ログイン時 `302` → `location: /__auth/login`**（`/__auth/login` が `200`）。
+> 迷ったら `docker logs asterism_prod_caddy | grep NOP` ── 出ていればホスト名違い。
+
+### コンテナ内から直接叩く（API の切り分け）
+
+authgate を経由せず api だけを確かめたいとき。**api の待受は `8080`**（`8000` ではない）。
+`docker exec` は **`-i` を付けないと標準入力が渡らず**、heredoc が無反応で終わる。
+
+```bash
+docker exec -i asterism_prod_api python3 - <<'PY'
+import os, json, urllib.request
+req = urllib.request.Request("http://127.0.0.1:8080/api/datasets")
+req.add_header("X-Asterism-Token", os.environ.get("ASTERISM_API_TOKEN", ""))
+with urllib.request.urlopen(req, timeout=30) as r:
+    print(r.status, len(json.loads(r.read()).get("datasets", [])), "datasets")
+PY
 ```
 
 ## 検証（本番機で end-to-end）
 
-1. ブラウザで `https://<host>/` → Basic 認証 → UI 表示。
+1. ブラウザで `https://<ASTERISM_DOMAIN>/` → `/__auth/login` にリダイレクト →
+   ログイン（authgate のセッション Cookie）→ UI 表示。
 2. 設定で `ASTERISM_API_TOKEN` を入力 → CSV/JSON を設計→materialize→ingest→promote。
 3. **PDF をアップロード → docling 変換 → 文まで構造化 → 引用**（PDF 経路の本番確認）。
 4. Ask（Anthropic キー入力）で接地回答＋使用 SPARQL 開示。
@@ -125,5 +161,5 @@ curl -sk --resolve 203.0.113.10:443:127.0.0.1 https://203.0.113.10/   # -> 302 (
 
 - oxigraph/イメージは現状 `:latest`。本番は**タグ固定**が望ましい（追って pin）。
 - 全 starrydata 数百万トリプルの一括取り込みは対話 ingest 向きでない（本番バッチ側）。
-- Basic 認証は MVP。組織 SSO/forward-auth へ寄せる余地あり。
+- authgate のセッション Cookie ログインは MVP。組織 SSO/forward-auth へ寄せる余地あり。
 - root 実行（upload-api イメージのコメント参照）の非 root 化は別途。
