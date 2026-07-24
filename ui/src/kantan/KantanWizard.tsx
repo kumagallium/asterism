@@ -36,6 +36,7 @@ import { PRESET_HINTS } from '../domainHints'
 import {
   alignmentWordSplit,
   getAlignment,
+  getCatalogDatasets,
   getDatasetRules,
   promoteDataset,
   renameDataset,
@@ -310,6 +311,7 @@ export function KantanWizard({
   redesignTarget,
   onRedesignConsumed,
   onRedesignDetail,
+  onCreateCrosswalk,
 }: {
   /** Reports whether a job is in flight (the tier toggle locks while true). */
   onBusyChange: (busy: boolean) => void
@@ -327,6 +329,10 @@ export function KantanWizard({
   /** "構造から見直す": hand the (possibly refined) design to the detail tier
    *  as a redesign target — the full structural review lives there. */
   onRedesignDetail?: (target: RedesignTarget) => void
+  /** Opens the guided "connect your data" flow. Offered on S9 only once a SECOND
+   *  dataset is published — that is the moment connecting first becomes possible,
+   *  and the moment the value of it is easiest to see. */
+  onCreateCrosswalk?: () => void
 }) {
   const { t, i18n } = useTranslation()
   const { isReady, getActiveCredentials, openSettings } = useLlmSettings()
@@ -437,6 +443,10 @@ export function KantanWizard({
   const [publishing, setPublishing] = useState(false)
   const [pubErr, setPubErr] = useState('')
   const [published, setPublished] = useState<boolean>(snap.published ?? false)
+  // How many datasets are published (this one included). Fetched only once S9 is
+  // reached, so it costs nothing during the wizard. null = unknown → the connect
+  // offer stays hidden (fail closed: never point at a dead end).
+  const [publishedCount, setPublishedCount] = useState<number | null>(null)
 
   // かんたん見直し (catalog 見直す): the wizard reopens an existing dataset at
   // S6. `reingested` = whether THIS session ran the refine → re-ingest chain;
@@ -481,6 +491,23 @@ export function KantanWizard({
   useEffect(() => {
     onBusyChange(busy)
   }, [busy, onBusyChange])
+
+  // Count published datasets when S9 is reached, to decide whether connecting is
+  // even possible yet. A failure leaves it null and the offer simply does not
+  // appear — a broken count must not produce a button that leads nowhere.
+  useEffect(() => {
+    if (step !== 9) return
+    let off = false
+    getCatalogDatasets()
+      .then((all) => {
+        if (off) return
+        setPublishedCount(all.filter((d) => d.statusKind === 'pub' && !d.isCrosswalk).length)
+      })
+      .catch(() => !off && setPublishedCount(null))
+    return () => {
+      off = true
+    }
+  }, [step])
 
   // Persist the (serializable) wizard state so a tab switch / reload is
   // recoverable. Files are not persistable — restore is best-effort by design.
@@ -2140,6 +2167,20 @@ export function KantanWizard({
                 ))}
               </div>
               <p className="kz-note">{t('kantan:s9.askHint')}</p>
+            </>
+          )}
+          {onCreateCrosswalk && publishedCount !== null && publishedCount >= 2 && (
+            <>
+              <hr className="kz-divider" />
+              <p className="kz-note kz-grow-title">{t('kantan:s9.connectTitle')}</p>
+              <p className="kz-note">
+                {t('kantan:s9.connectBody', { count: publishedCount })}
+              </p>
+              <div className="kz-actions">
+                <button type="button" onClick={onCreateCrosswalk}>
+                  {t('kantan:s9.connectBtn')}
+                </button>
+              </div>
             </>
           )}
           <hr className="kz-divider" />

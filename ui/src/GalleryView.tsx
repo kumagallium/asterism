@@ -17,6 +17,7 @@ import { validateDesign } from './api'
 import { clearIngestJob, loadIngestJob, saveIngestJob } from './ingestJob'
 import type { RedesignTarget } from './WorkbenchView'
 import { type CrosswalkPerspective, getCrosswalks } from './crosswalkApi'
+import { conceptLabel } from './crosswalkLabels'
 import { DatasetGrounding } from './DatasetGrounding'
 import { RulesSection } from './RulesPanel'
 import { TABULAR_ACCEPT } from './datasetsApi'
@@ -81,6 +82,7 @@ export function GalleryView({
   onSelect,
   onDetailTab,
   onOpenCrosswalk,
+  onCreateCrosswalk,
   onOpenMap,
   onAddData,
   onRedesign,
@@ -93,6 +95,8 @@ export function GalleryView({
   onSelect?: (id: string | null) => void
   onDetailTab?: (tab: DetailTab) => void
   onOpenCrosswalk?: () => void
+  /** つながりを作るフローへ直行（このデータセットが未接続のとき）。 */
+  onCreateCrosswalk?: () => void
   onOpenMap?: () => void
   onAddData?: () => void
   /** Open the workbench on this dataset's stored design to revise it ("見直す"). */
@@ -193,6 +197,7 @@ export function GalleryView({
           onChanged={reload}
           onBack={() => onSelect?.(null)}
           onOpenCrosswalk={onOpenCrosswalk}
+          onCreateCrosswalk={onCreateCrosswalk}
           onOpenMap={onOpenMap}
           onRedesign={onRedesign}
         />
@@ -502,6 +507,7 @@ function DatasetDetail({
   onChanged,
   onBack,
   onOpenCrosswalk,
+  onCreateCrosswalk,
   onOpenMap,
   onRedesign,
 }: {
@@ -513,6 +519,8 @@ function DatasetDetail({
   onChanged: () => void
   onBack?: () => void
   onOpenCrosswalk?: () => void
+  /** つながりを作るフローへ直行（このデータセットが未接続のとき）。 */
+  onCreateCrosswalk?: () => void
   onOpenMap?: () => void
   onRedesign?: (target: RedesignTarget) => void
 }) {
@@ -864,16 +872,32 @@ function DatasetDetail({
                   <span className="ds-conn-name">{p.dataset?.name || p.perspective_id}</span>
                   <span className="ds-conn-concept">
                     {t('gallery:connect.concept', {
-                      concept: (p.config?.concepts ?? []).map((c) => c.name).join(' · '),
+                      concept: (p.config?.concepts ?? [])
+                        .map((c) => conceptLabel(c.name))
+                        .join(' · '),
                     })}
                   </span>
                 </div>
               ))}
             </div>
           ) : (
-            <p className="ds-empty-note">{t('gallery:connect.none')}</p>
+            <>
+              <p className="ds-empty-note">{t('gallery:connect.none')}</p>
+              {/* Saying "not connected to anything" without offering the way to
+                  connect it is where this tab used to stop. */}
+              {onCreateCrosswalk && (
+                <button type="button" className="promote-btn" onClick={onCreateCrosswalk}>
+                  {t('gallery:connect.createBtn')}
+                </button>
+              )}
+            </>
           )}
           <div className="ds-conn-links">
+            {myPersp.length > 0 && onCreateCrosswalk && (
+              <button type="button" className="btn btn--ghost btn--sm" onClick={onCreateCrosswalk}>
+                <ConnectIcon size={14} /> {t('gallery:connect.createMore')}
+              </button>
+            )}
             {onOpenCrosswalk && (
               <button type="button" className="btn btn--ghost btn--sm" onClick={onOpenCrosswalk}>
                 <ConnectIcon size={14} /> {t('gallery:connect.seeAll')}

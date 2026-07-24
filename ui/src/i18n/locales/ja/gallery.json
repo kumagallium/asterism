@@ -90,7 +90,9 @@
     "concept": "{{concept}} で横断",
     "none": "このデータセットはまだ他のデータとつながっていません。",
     "seeAll": "つながりを管理",
-    "seeMap": "全体像を見る"
+    "seeMap": "全体像を見る",
+    "createBtn": "このデータを他のデータとつなぐ",
+    "createMore": "もうひとつつなぐ"
   },
   "mapBand": {
     "title": "全体像",

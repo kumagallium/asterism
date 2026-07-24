@@ -204,7 +204,10 @@
     "append": "Add new measurements (the same instrument files as they are)",
     "replace": "Replace everything (search keeps working during the swap)",
     "openDataset": "View the dataset page",
-    "startNew": "Add different new data"
+    "startNew": "Add different new data",
+    "connectTitle": "Connect it to your other data",
+    "connectBody": "You now have {{count}} published datasets. Connect them on a shared value and questions can span both.",
+    "connectBtn": "Connect your data"
   },
   "redesign": {
     "banner": "Review: {{name}}",

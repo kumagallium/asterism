@@ -113,6 +113,27 @@ when two perspectives are found to relate.
    the target term must match the source's kind, so a class can only align to a class.
    `crosswalkApi.getAlignments` / `align` / `unalign`; `CrosswalkView`'s
    `PerspectiveAlignment`.
+4. **Phase 3 corrections (2026-07-24).** Two defects found by dogfooding the screen.
+   - **The alignment list was not perspective-scoped.** `GET /api/crosswalk/alignments`
+     returns EVERY alignment, and データセット詳細 →「外部の標準に合わせる」
+     (`DatasetGrounding`) writes through the very same `POST /api/crosswalk/align`.
+     Groundings therefore surfaced here — a screen reporting "no crosswalks yet" while
+     listing `paperURL ≡ url (Starrydata → Schema.org)`. Fixed client-side: an
+     alignment belongs to this surface only when **both** ends are in the perspectives'
+     own term set (a positive test — matching the target against the `KNOWN_VOCABS`
+     mirror would leak any standard missing from it). Everything filtered out is still
+     listed, and still withdrawable, under a disclosure — an alignment whose
+     perspective config failed to load lands there too and must not become unreachable.
+     Server-side scoping (`GET /api/crosswalk/alignments?scope=perspective`) is the
+     clean long-term answer; the client filter needs no API change.
+   - **The authoring form rendered with fewer than two perspectives**, falling back to
+     `perspectives[0]` on both sides, so a fresh install showed a row of empty selects.
+     People read it as "choose your datasets here" and stopped. It is now gated: two or
+     more perspectives to author, one sentence at one, nothing at zero. Two perspectives
+     built on the same concept key share one hub term, which cannot be aligned to
+     itself; that now says so instead of "pick two different concepts".
+   - Creation moved to the つながり screen (see `crosswalk-hub.md` ⑤): this alignment
+     surface now lives inside its 詳細 disclosure, unchanged in capability.
 
 ## Implementation (Phase 1)
 

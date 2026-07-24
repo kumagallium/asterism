@@ -21,6 +21,10 @@
     "ask": {
       "title": "Ask a question",
       "sub": "Get grounded answers from your ingested data"
+    },
+    "connect": {
+      "title": "Connect your data",
+      "sub": "Connect on shared values so questions can span them"
     }
   },
   "recent": {

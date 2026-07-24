@@ -36,12 +36,15 @@ export function WorkbenchTier({
   onRedesignConsumed,
   onOpenDataset,
   onOpenAsk,
+  onCreateCrosswalk,
 }: {
   redesignTarget?: RedesignTarget | null
   onRedesignConsumed?: () => void
   onOpenDataset?: (id: string, tab?: DetailTab) => void
   /** Opens the Ask view with a question prefilled (the kantan S9 chips). */
   onOpenAsk?: (question: string) => void
+  /** Opens the guided "connect your data" flow (offered on S9). */
+  onCreateCrosswalk?: () => void
 }) {
   const { t } = useTranslation()
   const [tier, setTier] = useState<Tier>(loadTier)
@@ -105,6 +108,7 @@ export function WorkbenchTier({
           redesignTarget={redesignTarget}
           onRedesignConsumed={onRedesignConsumed}
           onRedesignDetail={reopenInDetail}
+          onCreateCrosswalk={onCreateCrosswalk}
         />
       ) : (
         <WorkbenchView

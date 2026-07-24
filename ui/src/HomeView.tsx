@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { type CatalogDataset, getCatalogDatasets, getGraphStats } from './galleryApi'
-import { AddIcon, ArrowIcon, AskIcon, ChevronIcon, LayersIcon } from './icons'
+import { AddIcon, ArrowIcon, AskIcon, ChevronIcon, ConnectIcon, LayersIcon } from './icons'
 
 interface Stats {
   facts: number | null
@@ -19,10 +19,14 @@ interface Stats {
 export function HomeView({
   onNavigate,
   onOpenDataset,
+  onCreateCrosswalk,
 }: {
   onNavigate: (tab: 'workbench' | 'ask' | 'gallery') => void
   /** 最近の行から当該データセットの詳細へ直行（従来は一覧に飛ぶだけで探し直しだった） */
   onOpenDataset?: (id: string) => void
+  /** つながりを作る導線。公開ずみが 2 件以上あるときだけ出す（1 件では作れない
+   *  ので、出しても行き止まりになる）。 */
+  onCreateCrosswalk?: () => void
 }) {
   const { t } = useTranslation()
   const [datasets, setDatasets] = useState<CatalogDataset[] | null>(null)
@@ -52,6 +56,10 @@ export function HomeView({
   // The crosswalk hub is a bridge surfaced on its own — keep it out of the dataset
   // list here, matching the Catalog.
   const recent = (datasets ?? []).filter((d) => !d.isCrosswalk).slice(0, 5)
+  // Connectable datasets: published, and not a connection itself.
+  const publishedCount = (datasets ?? []).filter(
+    (d) => d.statusKind === 'pub' && !d.isCrosswalk,
+  ).length
 
   return (
     <div className="home">
@@ -94,6 +102,22 @@ export function HomeView({
             <ArrowIcon size={18} />
           </span>
         </button>
+        {/* Only once there is something to connect — offering it with one published
+            dataset would lead straight to a dead end. */}
+        {onCreateCrosswalk && publishedCount >= 2 && (
+          <button type="button" className="home-action" onClick={onCreateCrosswalk}>
+            <span className="home-action-icon">
+              <ConnectIcon size={21} />
+            </span>
+            <span className="home-action-body">
+              <span className="home-action-title">{t('home:action.connect.title')}</span>
+              <span className="home-action-sub">{t('home:action.connect.sub')}</span>
+            </span>
+            <span className="home-action-arrow">
+              <ArrowIcon size={18} />
+            </span>
+          </button>
+        )}
       </div>
 
       <section className="home-recent card">

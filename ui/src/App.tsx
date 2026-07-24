@@ -282,13 +282,20 @@ function App() {
         </header>
 
         <main className="app-content">
-          {tab === 'home' && <HomeView onNavigate={navTo} onOpenDataset={openDataset} />}
+          {tab === 'home' && (
+            <HomeView
+              onNavigate={navTo}
+              onOpenDataset={openDataset}
+              onCreateCrosswalk={() => navigate({ tab: 'crosswalk', create: true })}
+            />
+          )}
           {tab === 'workbench' && (
             <WorkbenchTier
               redesignTarget={redesignTarget}
               onRedesignConsumed={() => setRedesignTarget(null)}
               onOpenDataset={openDataset}
               onOpenAsk={openAsk}
+              onCreateCrosswalk={() => navigate({ tab: 'crosswalk', create: true })}
             />
           )}
           {tab === 'ask' && <AskView onShowVocab={showVocab} />}
@@ -304,6 +311,7 @@ function App() {
                 navigate({ tab: 'gallery', datasetId: route.datasetId, detailTab: dt }, { replace: true })
               }
               onOpenCrosswalk={() => navTo('crosswalk')}
+              onCreateCrosswalk={() => navigate({ tab: 'crosswalk', create: true })}
               onOpenMap={() => {
                 setMapReturn(route)
                 navTo('map')
