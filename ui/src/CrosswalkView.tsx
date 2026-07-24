@@ -6,11 +6,15 @@ import {
   type AlignmentsResult,
   buildPerspective,
   type CrosswalkPerspective,
+  type DiscoverCandidate,
   getAlignments,
   getCrosswalks,
   unalign,
 } from './crosswalkApi'
-import { ArrowIcon, LayersIcon, LinkIcon } from './icons'
+import { CrosswalkBuilder, type CrosswalkSeed } from './CrosswalkBuilder'
+import { CrosswalkCreate } from './CrosswalkCreate'
+import { conceptLabel, sameAsKey } from './crosswalkLabels'
+import { ArrowIcon, ConnectIcon, LayersIcon, LinkIcon } from './icons'
 import { ToolsPanel } from './ToolsPanel'
 import { knownVocabForIri, localName } from './vocab'
 
@@ -24,17 +28,26 @@ import { knownVocabForIri, localName } from './vocab'
 export function CrosswalkView({
   onBack,
   onOpenMap,
-  onCreate,
-  onOpenManual,
+  createMode = false,
+  onCreateMode,
+  onAddData,
+  onOpenAsk,
 }: {
   onBack?: () => void
   onOpenMap?: () => void
-  /** 「つなげそうな組み合わせをさがす」— かんたん作成フローへ（PR-D で配線）。 */
-  onCreate?: () => void
-  /** 「自分で組み合わせを決める」— 詳細層の作成フォームへ（PR-D で配線）。 */
-  onOpenManual?: () => void
+  /** Route-driven: `#/crosswalk/new` opens straight into the guided flow. */
+  createMode?: boolean
+  onCreateMode?: (on: boolean) => void
+  onAddData?: () => void
+  onOpenAsk?: (question: string) => void
 }) {
   const { t } = useTranslation()
+  // The detail tier's full form, opened on demand. Mounted lazily: it fetches the
+  // catalog and persists to sessionStorage on mount, which should not happen every
+  // time someone merely looks at this screen.
+  const [manualOpen, setManualOpen] = useState(false)
+  const [seed, setSeed] = useState<CrosswalkSeed | undefined>()
+  const [seedKey, setSeedKey] = useState(0)
   const [perspectives, setPerspectives] = useState<CrosswalkPerspective[] | null>(null)
   const [err, setErr] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -90,6 +103,33 @@ export function CrosswalkView({
   const participants = concepts.flatMap((c) => c.participants)
   const shared = selected?.dataset?.crosswalk_shared_compositions
 
+  /** Open the detail form, optionally seeded from a candidate the guided flow found.
+   * `seedKey` forces a remount because the builder restores its state once, on mount. */
+  function openManual(candidate?: DiscoverCandidate) {
+    setSeed(candidate ? seedFromCandidate(candidate) : undefined)
+    setSeedKey((k) => k + 1)
+    setManualOpen(true)
+    onCreateMode?.(false)
+  }
+
+  if (createMode) {
+    return (
+      <div className="crosswalk-view">
+        <button type="button" className="vocab-back" onClick={() => onCreateMode?.(false)}>
+          <ArrowIcon size={14} className="vocab-back-arrow" /> {t('crosswalk:view.back')}
+        </button>
+        <CrosswalkCreate
+          perspectives={list}
+          onCancel={() => onCreateMode?.(false)}
+          onBuilt={load}
+          onOpenManual={openManual}
+          onAddData={onAddData}
+          onOpenAsk={onOpenAsk}
+        />
+      </div>
+    )
+  }
+
   return (
     <div className="crosswalk-view">
       {onBack && (
@@ -123,27 +163,36 @@ export function CrosswalkView({
         </p>
       )}
 
-      {perspectives && list.length === 0 && (
-        <div className="state-block">
-          <p className="state-title">{t('crosswalk:view.empty.title')}</p>
-          <p className="state-sub">{t('crosswalk:view.empty.sub')}</p>
-          {/* 空状態は行き止まりにしない — ここから作れる導線を必ず出す（作成の
-              主戦場をこの画面へ、crosswalk-hub.md ⑤ 改訂）。ハンドラ未配線の
-              ビルドでは静かに省く。 */}
-          {(onCreate || onOpenManual) && (
-            <div className="kz-actions">
-              {onCreate && (
-                <button type="button" onClick={onCreate}>
-                  {t('crosswalk:view.empty.btn')}
-                </button>
-              )}
-              {onOpenManual && (
-                <button type="button" className="btn btn--ghost" onClick={onOpenManual}>
-                  {t('crosswalk:view.empty.manual')}
-                </button>
-              )}
-            </div>
-          )}
+      {/* Making a connection lives HERE, and does NOT depend on how many already
+          exist — the old empty-state-only wording vanished the moment the first one
+          was built, leaving no way to make a second (crosswalk-hub.md ⑤ revised). */}
+      {perspectives && (
+        <div className={`xw-create-band${list.length === 0 ? ' xw-create-band--hero' : ''}`}>
+          <span className="xw-create-band-icon">
+            <ConnectIcon size={list.length === 0 ? 22 : 16} />
+          </span>
+          <div className="xw-create-band-text">
+            <p className="xw-create-band-title">
+              {list.length === 0
+                ? t('crosswalk:view.empty.title')
+                : t('crosswalk:create.bandTitle')}
+            </p>
+            <p className="xw-create-band-sub">
+              {list.length === 0 ? t('crosswalk:view.empty.sub') : t('crosswalk:create.bandSub')}
+            </p>
+          </div>
+          <div className="xw-create-band-actions">
+            <button type="button" onClick={() => onCreateMode?.(true)}>
+              {t('crosswalk:view.empty.btn')}
+            </button>
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm"
+              onClick={() => openManual()}
+            >
+              {t('crosswalk:view.empty.manual')}
+            </button>
+          </div>
         </div>
       )}
 
@@ -192,19 +241,23 @@ export function CrosswalkView({
                 </div>
               </div>
               <p className="xw-summary-note">
-                {t('crosswalk:view.summary.note', { concept: concepts[0]?.name ?? '—' })}
+                {t('crosswalk:view.summary.note', {
+                  concept: concepts[0] ? conceptLabel(concepts[0].name) : '—',
+                })}
               </p>
 
               {concepts.map((c) => (
                 <div className="xw-concept" key={c.name}>
                   <div className="ds-subhead">
-                    {t('crosswalk:view.conceptHead', { name: c.name })}
+                    {t('crosswalk:view.conceptHead', { name: conceptLabel(c.name) })}
+                    {/* Say what counts as the same value in a sentence — a raw
+                        normalizer id ("nfkc") means nothing outside the codebase. */}
                     <span className="xw-hint-inline">
                       {c.key_parts && c.key_parts.length > 0
                         ? t('crosswalk:view.compoundKeyHint', {
-                            parts: c.key_parts.map((kp) => kp.name).join(' × '),
+                            parts: c.key_parts.map((kp) => conceptLabel(kp.name)).join(' × '),
                           })
-                        : t('crosswalk:view.normalizerHint', { normalizer: c.normalizer ?? 'identity' })}
+                        : t(sameAsKey(c.normalizer ?? 'identity'))}
                     </span>
                   </div>
                   <div className="xw-participants">
@@ -266,9 +319,49 @@ export function CrosswalkView({
         </>
       )}
 
-      {perspectives && <PerspectiveAlignment perspectives={list} />}
+      {/* The detail tier, folded away by default: every control the full authoring
+          form has is still here (deletion-free — ADR K1), it just no longer competes
+          with the one decision most people came to make. */}
+      {perspectives && (
+        <details
+          className="xw-manual"
+          open={manualOpen}
+          onToggle={(e) => setManualOpen((e.currentTarget as HTMLDetailsElement).open)}
+        >
+          <summary className="xw-manual-summary">{t('crosswalk:create.manual.summary')}</summary>
+          <p className="xw-manual-note">{t('crosswalk:create.manual.hint')}</p>
+          {/* Mounted only once opened: it fetches the catalog and writes
+              sessionStorage on mount, which must not run on every visit. */}
+          {manualOpen && (
+            <>
+              {seed && <p className="xw-note">{t('crosswalk:create.manual.seeded')}</p>}
+              <CrosswalkBuilder key={seedKey} seed={seed} />
+            </>
+          )}
+          <PerspectiveAlignment perspectives={list} />
+        </details>
+      )}
     </div>
   )
+}
+
+/** A discovered candidate as a starting point for the full form — same predicates,
+ * same join key, all still editable. The server already minted this candidate's
+ * words, so nothing is re-derived here. */
+function seedFromCandidate(c: DiscoverCandidate): CrosswalkSeed {
+  return {
+    selected: c.participants.map((p) => p.dataset_id),
+    predicate: Object.fromEntries(c.participants.map((p) => [p.dataset_id, p.predicate])),
+    candidates: Object.fromEntries(
+      c.participants.map((p) => [
+        p.dataset_id,
+        [{ iri: p.predicate, sample: c.samples[0]?.raw[p.dataset_id] ?? '' }],
+      ]),
+    ),
+    concept: c.concept,
+    normalizer: c.normalizer,
+    perspectiveName: c.name,
+  }
 }
 
 // --- 視点をつなぐ (multi-perspective ADR §Phase 2) -------------------------------

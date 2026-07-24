@@ -50,6 +50,9 @@ interface Route {
   tab: Tab
   datasetId?: string
   detailTab?: DetailTab
+  /** `#/crosswalk/new` — the guided "make a connection" flow, deep-linkable so other
+   *  screens can send someone straight into it and back/forward still work. */
+  create?: boolean
 }
 
 const TABS: readonly Tab[] = [
@@ -75,6 +78,7 @@ function parseHash(hash: string): Route {
   }
   // 旧 URL 互換: #/datasets はタブ名 gallery の別名
   if (parts[0] === 'datasets') return { tab: 'gallery' }
+  if (parts[0] === 'crosswalk' && parts[1] === 'new') return { tab: 'crosswalk', create: true }
   if (TABS.includes(parts[0] as Tab)) return { tab: parts[0] as Tab }
   return { tab: 'home' }
 }
@@ -85,6 +89,7 @@ function routeToHash(r: Route): string {
     return r.detailTab && r.detailTab !== 'structure' ? `${base}/${r.detailTab}` : base
   }
   if (r.tab === 'gallery') return '#/datasets'
+  if (r.tab === 'crosswalk' && r.create) return '#/crosswalk/new'
   return `#/${r.tab}`
 }
 
@@ -310,6 +315,10 @@ function App() {
           {tab === 'vocab' && <SharedVocabView />}
           {tab === 'crosswalk' && (
             <CrosswalkView
+              createMode={!!route.create}
+              onCreateMode={(on) => navigate({ tab: 'crosswalk', create: on })}
+              onAddData={() => navTo('workbench')}
+              onOpenAsk={openAsk}
               onOpenMap={() => {
                 setMapReturn({ tab: 'crosswalk' })
                 navTo('map')
