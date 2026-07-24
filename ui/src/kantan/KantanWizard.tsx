@@ -449,6 +449,10 @@ export function KantanWizard({
   // adjust-during-render consumption as WorkbenchView's seededTarget, so the
   // re-check flow opens on this very render pass. Any leftover snapshot state
   // (a previous run) is dropped first — the redesign intent wins.
+  // Findings that sent the user here, so the review screen can show WHAT to fix
+  // and hand it to the AI in one click. Cleared once a fix round starts (the
+  // next materialize re-derives them from the design as it then stands).
+  const [carriedAdvisories, setCarriedAdvisories] = useState<string[]>([])
   const [seededRedesign, setSeededRedesign] = useState<string | null>(null)
   if (redesignTarget && redesignTarget.datasetId !== seededRedesign) {
     setSeededRedesign(redesignTarget.datasetId)
@@ -467,6 +471,7 @@ export function KantanWizard({
     setPubName(redesignTarget.datasetName) // republish keeps the current name
     setRedesigning(true)
     setReingested(false)
+    setCarriedAdvisories(redesignTarget.advisories ?? [])
     setStep(6)
     onRedesignConsumed?.()
   }
@@ -1483,6 +1488,20 @@ export function KantanWizard({
   // tier has — the card's failure lines (trap details + repair recipes +
   // warnings + validation/mapping issues) become the corrective refine
   // comment, then the refined design re-runs the auto chain from materialize.
+  /** Fix the carried findings — the review screen's counterpart of the stop
+   *  card's AI fix. The AI gets the RAW advisories (they already spell out the
+   *  join keys and which side must declare the link); the screen shows the
+   *  plain sentences. No stop card to restore: a failure surfaces as fixErr. */
+  function fixCarriedAdvisories() {
+    if (carriedAdvisories.length === 0 || !proposal || pipeBusy || refining) return
+    const comment = `${t('workbench:fix.commentIntro')}\n${carriedAdvisories
+      .map((l) => `- ${l}`)
+      .join('\n')}`
+    setAiFixCount((c) => c + 1)
+    setCarriedAdvisories([])
+    void startRefineChain([comment], 'fix')
+  }
+
   function runAiFix() {
     if (!stop || stop.kind !== 'design' || !proposal || pipeBusy) return
     const card = stop
@@ -1684,6 +1703,50 @@ export function KantanWizard({
             </span>
           </div>
           <p className="kz-note">{t('kantan:redesign.bannerNote')}</p>
+        </section>
+      )}
+
+      {/* What sent the user here. Without this the review opens on the
+          column-meanings table and the finding is gone — the reviewer is left
+          to guess what to type into the free-text box (user feedback,
+          2026-07-24). Plain sentences + one button that hands the AI the raw,
+          already-actionable advisory text. */}
+      {redesigning && !stop && !showS5 && refining === false && carriedAdvisories.length > 0 && (
+        <section className="kz-card kz-carried" role="note">
+          <h3 className="kz-title">{t('kantan:redesign.findingsTitle')}</h3>
+          <ul className="kz-stop-plainlist">
+            {plainAdvisories(carriedAdvisories).map((a, i) => (
+              <li key={i}>{a.text}</li>
+            ))}
+          </ul>
+          <p className="kz-note">{t('kantan:redesign.findingsBody')}</p>
+          <div className="kz-actions">
+            <button
+              type="button"
+              onClick={fixCarriedAdvisories}
+              disabled={!isReady || !proposal || busy}
+            >
+              {t('kantan:s5.fix.button')}
+            </button>
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm"
+              onClick={() => setCarriedAdvisories([])}
+              disabled={busy}
+            >
+              {t('kantan:redesign.findingsDismiss')}
+            </button>
+          </div>
+          {!isReady && <p className="kz-note">{t('kantan:s1.aiNotReady')}</p>}
+          {fixErr && <pre className="error">{t('kantan:s5.fix.failed', { message: fixErr })}</pre>}
+          <details className="kz-carried-raw">
+            <summary>{t('gallery:advisory.rawSummary')}</summary>
+            <ul className="kz-stop-plainlist">
+              {carriedAdvisories.map((a, i) => (
+                <li key={i}>{a}</li>
+              ))}
+            </ul>
+          </details>
         </section>
       )}
 

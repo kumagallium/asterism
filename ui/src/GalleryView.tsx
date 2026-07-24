@@ -764,7 +764,11 @@ function DatasetDetail({
                   the "no stored design" case and the proposal fetch behave
                   identically here. */}
               {onRedesign && dataset.live && (
-                <RedesignControl meta={dataset.live.meta} onRedesign={onRedesign} />
+                <RedesignControl
+                  meta={dataset.live.meta}
+                  onRedesign={onRedesign}
+                  advisories={advisories}
+                />
               )}
             </div>
           )}
@@ -939,9 +943,12 @@ function shortIri(iri: string): string {
 function RedesignControl({
   meta,
   onRedesign,
+  advisories,
 }: {
   meta: LiveDataset['meta']
   onRedesign: (target: RedesignTarget) => void
+  /** Carried into the review so the reviewer sees what prompted it. */
+  advisories?: string[]
 }) {
   const { t } = useTranslation()
   const [busy, setBusy] = useState(false)
@@ -961,6 +968,7 @@ function RedesignControl({
         datasetId: meta.id,
         datasetName: p.dataset_name || meta.name,
         proposalMd: p.proposal_md,
+        advisories,
       })
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))

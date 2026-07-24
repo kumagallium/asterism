@@ -2380,6 +2380,24 @@ button.trace-iri-copy:hover:not(:disabled) {
   font-size: 0.82rem;
   color: var(--muted);
 }
+/* Review screen: the findings that prompted this review. Same quiet advisory
+   tone as the catalog card — it explains, it does not block. */
+.kz-carried {
+  border-left: 3px solid var(--border-strong);
+}
+.kz-carried-raw {
+  margin-top: var(--space-3);
+}
+.kz-carried-raw > summary {
+  cursor: pointer;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.kz-carried-raw .kz-stop-plainlist {
+  margin-top: var(--space-2);
+  font-size: 0.82rem;
+  color: var(--muted);
+}
 
 /* ---- shared atoms & states (forest kit) ---- */
 
