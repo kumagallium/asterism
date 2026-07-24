@@ -12,6 +12,8 @@ import {
   StaleIngestJobError,
   startIngestJob,
 } from './api'
+import { plainAdvisories } from './advisoryPlain'
+import { validateDesign } from './api'
 import { clearIngestJob, loadIngestJob, saveIngestJob } from './ingestJob'
 import type { RedesignTarget } from './WorkbenchView'
 import { type CrosswalkPerspective, getCrosswalks } from './crosswalkApi'
@@ -516,6 +518,27 @@ function DatasetDetail({
 }) {
   const { t } = useTranslation()
   const meta = dataset.live?.meta
+  // Design weaknesses (entities with no link between them, unmapped columns).
+  // Checked LIVE rather than read from meta so it (a) covers datasets published
+  // before the field existed — the live ZEM is exactly that — and (b) always
+  // reflects the design as it stands now: fix the link, redesign, and the notice
+  // disappears on its own. Falls back to the persisted list when the call fails.
+  const [advisories, setAdvisories] = useState<string[]>(meta?.advisories ?? [])
+  useEffect(() => {
+    const id = meta?.id
+    if (!id) return
+    let cancelled = false
+    validateDesign(id)
+      .then((check) => {
+        if (!cancelled) setAdvisories(check.advisories)
+      })
+      .catch(() => {
+        /* advisory only — keep whatever the registry recorded */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [meta?.id])
   // 取り込んだファイル: the design-time source + every appended batch (no dedupe
   // detection yet — that needs a backend content hash; surfaced as a note).
   const fileRows: { name: string; type: string; when: string; tag: string }[] = []
@@ -711,6 +734,44 @@ function DatasetDetail({
               </div>
             </div>
           )}
+
+          {/* Sits directly under the diagram on purpose: "why are there no
+              lines between these boxes?" is the question the picture provokes,
+              and this is the answer — with the join-key candidates that say how
+              to draw them. Not role="alert": the dataset is fine to use, this
+              is what it cannot yet answer. */}
+          {advisories.length > 0 && (
+            <div className="ds-advisories">
+              <div className="ds-subhead">{t('gallery:design.advisoryHead')}</div>
+              {/* Plain sentences, not the raw advisories: those are precise
+                  English written for the AI fix to act on, and thirteen of them
+                  verbatim buried this page in untranslated jargon (2026-07-24).
+                  The originals stay one click away. */}
+              <ul className="ds-advisory-list">
+                {plainAdvisories(advisories).map((a, i) => (
+                  <li key={i}>{a.text}</li>
+                ))}
+              </ul>
+              <details className="ds-advisory-raw">
+                <summary>{t('gallery:advisory.rawSummary')}</summary>
+                <ul className="ds-advisory-list">
+                  {advisories.map((a, i) => (
+                    <li key={i}>{a}</li>
+                  ))}
+                </ul>
+              </details>
+              {/* The same control the 設計を見直す tab offers — reused whole so
+                  the "no stored design" case and the proposal fetch behave
+                  identically here. */}
+              {onRedesign && dataset.live && (
+                <RedesignControl
+                  meta={dataset.live.meta}
+                  onRedesign={onRedesign}
+                  advisories={advisories}
+                />
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -882,9 +943,12 @@ function shortIri(iri: string): string {
 function RedesignControl({
   meta,
   onRedesign,
+  advisories,
 }: {
   meta: LiveDataset['meta']
   onRedesign: (target: RedesignTarget) => void
+  /** Carried into the review so the reviewer sees what prompted it. */
+  advisories?: string[]
 }) {
   const { t } = useTranslation()
   const [busy, setBusy] = useState(false)
@@ -904,6 +968,7 @@ function RedesignControl({
         datasetId: meta.id,
         datasetName: p.dataset_name || meta.name,
         proposalMd: p.proposal_md,
+        advisories,
       })
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))

@@ -1922,59 +1922,69 @@ async def _append_watch_loop(
     )
 
 
-def _validate_design_at_materialize(
+def _design_checks_at_materialize(
     registry_root: Path, dataset_id: str | None, rml_ttl: str | None
-) -> list[str]:
-    """Advisory design validation for the materialize response (NEVER raises).
+) -> tuple[list[str], list[str]]:
+    """Design checks for the materialize response (NEVER raises).
 
-    Runs the SAME ``validate_rml_design`` the ingest gate runs — column references +
-    Tier 0 function parameters against the dataset's REAL persisted source CSVs — but
-    catches :class:`RmlValidationError` and returns its ``issues`` list instead of
-    raising, so a bad column / wrong function parameter surfaces at materialize (where
-    the one-click "ask AI to fix" lives) without failing the save.
+    Returns ``(issues, advisories)`` — two lists with DIFFERENT strengths, kept
+    apart because the caller must treat them differently:
 
-    Also appends the source-independent ``design_advisories`` (e.g. disconnected
-    entities — a mapping whose measurement never links to its material cannot
-    answer cross-entity questions), which need no persisted CSVs.
+    ``issues`` — the design is wrong and will not do what it says: a column the
+    source does not have, a Tier-0 function called with the wrong parameters.
+    Same :func:`validate_rml_design` the ingest gate runs, but its
+    :class:`RmlValidationError` is caught and returned so the problem surfaces at
+    materialize (where the one-click "ask AI to fix" lives) without failing the
+    save. NEEDS the dataset's persisted source CSVs, so it is empty until a
+    source is attached.
 
-    Returns ``[]`` when the design is clean OR when nothing can be checked: no RML, no
-    ``dataset_id`` (a brand-new design has no persisted source yet — the workbench
-    attaches it AFTER materialize). The hard ingest gate
-    still catches a bad design once a source is attached; this is purely advisory and
-    best-effort (any unexpected error degrades to "no advice", never a 500).
+    ``advisories`` — the design is valid but weak: entities that never link to
+    each other (a measurement that cannot be traced to its material answers no
+    cross-entity question), columns left unmapped. These need NO source — they
+    are read from the mapping alone — which is exactly why they must not sit
+    behind the source/``dataset_id`` guard. They did, until 2026-07-24: the
+    wizard mints its dataset IN the first materialize call, so that call had no
+    ``dataset_id``, the whole function returned early, and a real dogfood
+    dataset (ZEM) reached publication with its two entities disconnected and
+    the user never saw a word about it. When a source IS available the
+    connectivity advisory additionally names the join-key candidates, turning a
+    diagnosis into a work order.
+
+    Both lists are best-effort: any unexpected error degrades to "no advice",
+    never a 500.
     """
-    if not (rml_ttl or "").strip() or not dataset_id:
-        return []
+    if not (rml_ttl or "").strip():
+        return [], []
     prepared = substrate.substitute_run_id(rml_ttl)
-    try:
-        source_paths = registry.list_source_files(registry_root, dataset_id)
-    except Exception:
-        source_paths = []
+    source_paths: list[Path] = []
+    if dataset_id:
+        try:
+            source_paths = registry.list_source_files(registry_root, dataset_id)
+        except Exception:
+            source_paths = []
     source_dir = source_paths[0].parent if source_paths else None
     try:
-        # With the real sources the connectivity advisory also names the
-        # join-key candidates (work order, not just a diagnosis). Review notes
-        # (unmapped columns) are human-judgement items: shown here so the person
-        # can weigh them / include them in a fix request, but NOT fed to the
-        # automatic corrective loop (which would over-fix noise columns).
+        # Review notes (unmapped columns) are human-judgement items: shown so the
+        # person can weigh them / include them in a fix request, but NOT fed to
+        # the automatic corrective loop (which would over-fix noise columns).
         advisories = substrate.design_advisories(
             prepared, source_dir
         ) + substrate.design_review_notes(prepared, source_dir)
     except Exception:  # advisory only
         logger.exception("design advisories at materialize failed (continuing)")
         advisories = []
+    if not source_paths:
+        return [], advisories
     try:
-        if not source_paths:
-            return advisories
         # Validate the run-id-substituted form so the runtime-only {__run_id__}
         # placeholder is never flagged (matches the ingest gate exactly).
         substrate.validate_rml_design(prepared, source_dir)
-        return advisories
+        return [], advisories
     except substrate.RmlValidationError as exc:
-        return list(exc.issues) + advisories
-    except Exception:  # advisory only — a check failure must never break materialize
+        return list(exc.issues), advisories
+    except Exception:  # a check failure must never break materialize
         logger.exception("advisory design validation at materialize failed (continuing)")
-        return advisories
+        return [], advisories
 
 
 # ----------------------------------------------------------------------------
@@ -3030,7 +3040,7 @@ def build_app(
                 # holds the source from the prior round. With no readable source the
                 # field is simply absent (no false issues); the ingest gate still
                 # catches it once a source is attached.
-                validation_issues = _validate_design_at_materialize(
+                validation_issues, design_advisories = _design_checks_at_materialize(
                     cfg.registry_root,
                     body.dataset_id,
                     artifacts.get("mapping.rml.ttl"),
@@ -3045,9 +3055,16 @@ def build_app(
                     "warnings": mat.warnings,
                     "traps": traps,
                     "exit_code": exit_code,
-                    # Advisory list (one readable message per design issue), empty when
-                    # the design is clean OR no source was available to check against.
+                    # Design DEFECTS (one readable message each) — empty when the
+                    # design is clean OR no source was available to check against.
                     "validation_issues": validation_issues,
+                    # Design WEAKNESSES (disconnected entities, unmapped columns).
+                    # Separate field, not merged into the line above, because the
+                    # two carry different force: a defect must be fixed, a weakness
+                    # is a judgement call the human is offered ("fix it" vs
+                    # "continue anyway"). Needs no source, so it is populated even
+                    # on a brand-new design.
+                    "advisories": design_advisories,
                 }
                 # Persist so the bundle appears in the Gallery (authoring→catalog).
                 if body.persist:
@@ -3064,6 +3081,7 @@ def build_app(
                             traps=traps,
                             exit_code=exit_code,
                             proposal_md=body.proposal_md,
+                            advisories=design_advisories,
                         )
                         if meta is None:
                             raise HTTPException(404, f"dataset {body.dataset_id!r} not found")
@@ -3078,6 +3096,7 @@ def build_app(
                             exit_code=exit_code,
                             created_at=datetime.now(UTC).isoformat(),
                             proposal_md=body.proposal_md,
+                            advisories=design_advisories,
                         )
                     result["dataset"] = meta
                 return result
@@ -3114,15 +3133,21 @@ def build_app(
         issues before ingest — where the one-click "ask AI to fix" lives. Never
         raises on a bad design (returns its ``issues``); 404 only when the dataset is
         absent. ``validation_issues`` is ``[]`` when the design is clean OR nothing
-        could be checked (no RML, no readable source)."""
+        could be checked (no RML, no readable source). ``advisories`` (weaknesses —
+        disconnected entities, unmapped columns) comes back alongside it, and with
+        the source now attached it carries the join-key candidates."""
         data = registry.load_dataset(cfg.registry_root, dataset_id)
         if data is None:
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
         rml_ttl = (data.get("artifacts") or {}).get("mapping.rml.ttl")
-        issues = await asyncio.to_thread(
-            _validate_design_at_materialize, cfg.registry_root, dataset_id, rml_ttl
+        issues, advisories = await asyncio.to_thread(
+            _design_checks_at_materialize, cfg.registry_root, dataset_id, rml_ttl
         )
-        return {"dataset_id": dataset_id, "validation_issues": issues}
+        return {
+            "dataset_id": dataset_id,
+            "validation_issues": issues,
+            "advisories": advisories,
+        }
 
     @app.get("/api/datasets/{dataset_id}/proposal")
     async def get_dataset_proposal(dataset_id: str) -> dict[str, object]:

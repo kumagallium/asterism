@@ -82,7 +82,8 @@
     "incomplete": "The design is incomplete, so it can't be ingested as-is. Redesign it, or fill it in via \"Review & refine\".",
     "warningsLabel": "Warnings detected:",
     "validationHead": "Validating the design against the source data found these problems (fix them here before ingest):",
-    "openDataset": "Open the dataset (ingest / publish)"
+    "openDataset": "Open the dataset (ingest / publish)",
+    "advisoryHead": "Weak spots in this design (you can still save)"
   },
   "fix": {
     "groupLabel": "Auto-fix validation errors",

@@ -501,6 +501,13 @@ export interface DatasetMeta {
   // Redesign: whether the design (propose/refine Markdown) was persisted, so the
   // catalog can offer a "見直す" action that reopens it in the workbench.
   has_proposal?: boolean
+  /**
+   * Design weaknesses recorded at materialize (disconnected entities, unmapped
+   * columns). Persisted so a published dataset can still say what it cannot
+   * answer; absent on datasets materialized before this was stored, which is
+   * why the catalog re-checks live rather than trusting this alone.
+   */
+  advisories?: string[]
 }
 
 export interface MaterializeResult {
@@ -519,6 +526,17 @@ export interface MaterializeResult {
    * is attached after materialize). The hard ingest gate still re-checks.
    */
   validation_issues?: string[]
+  /**
+   * Design WEAKNESSES — the design is valid but weak: entities that never link
+   * to each other, columns left unmapped. Separate from `validation_issues`
+   * because the force differs: a defect must be fixed, a weakness is the human's
+   * call ("fix it" vs "continue anyway"). Needs no source, so unlike
+   * `validation_issues` this IS populated on a brand-new design — which is the
+   * whole point: the wizard mints its dataset inside the first materialize, and
+   * until 2026-07-24 that call returned nothing at all, so a published dataset
+   * (ZEM) had its two entities disconnected without a word to the user.
+   */
+  advisories?: string[]
 }
 
 /** Result of the human-gated substrate ingest. */
@@ -914,7 +932,14 @@ export async function fetchProposal(datasetId: string): Promise<DatasetProposal>
  * Never throws on a bad design — it returns the issue list; only a missing dataset
  * or transport error rejects.
  */
-export async function validateDesign(datasetId: string): Promise<string[]> {
+export interface DesignCheck {
+  /** Defects: the design will not do what it says (bad column, wrong params). */
+  issues: string[]
+  /** Weaknesses: valid but poorly connected / incomplete. Human's judgement. */
+  advisories: string[]
+}
+
+export async function validateDesign(datasetId: string): Promise<DesignCheck> {
   const res = await fetch(
     `/api/datasets/${encodeURIComponent(datasetId)}/validate-design`,
     { headers: authHeaders() },
@@ -923,8 +948,8 @@ export async function validateDesign(datasetId: string): Promise<string[]> {
     const detail = await res.text().catch(() => '')
     throw new Error(`validate design failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
   }
-  const data = (await res.json()) as { validation_issues?: string[] }
-  return data.validation_issues ?? []
+  const data = (await res.json()) as { validation_issues?: string[]; advisories?: string[] }
+  return { issues: data.validation_issues ?? [], advisories: data.advisories ?? [] }
 }
 
 /** Live handle on a subscribed job: `close()` releases the EventSource (the

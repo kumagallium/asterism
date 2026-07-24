@@ -124,6 +124,10 @@ interface DatasetMeta {
   // Redesign: whether the design (propose/refine Markdown) was persisted, so the
   // catalog can offer a "見直す" action that reopens it in the workbench.
   has_proposal?: boolean
+  // Design weaknesses recorded at materialize (disconnected entities, unmapped
+  // columns). Absent on datasets published before this was stored — the detail
+  // view re-checks live, so it never depends on this alone.
+  advisories?: string[]
   ingested?: boolean
   ingested_at?: string
   triple_count?: number

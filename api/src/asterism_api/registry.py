@@ -127,6 +127,7 @@ def save_dataset(
     exit_code: int,
     created_at: str,
     proposal_md: str = "",
+    advisories: list[str] | None = None,
 ) -> dict:
     """Persist a materialized bundle under ``root/<id>/``; return its meta dict.
 
@@ -166,6 +167,13 @@ def save_dataset(
         # The design (propose/refine Markdown) is stored — so the catalog can offer
         # a "見直す" (redesign) action that reopens it in the workbench.
         "has_proposal": bool((proposal_md or "").strip()),
+        # Design weaknesses found at materialize (disconnected entities, unmapped
+        # columns). Persisted — not just returned once — so the catalog can say
+        # "these entities are not linked" for as long as it is true. Before
+        # 2026-07-24 this lived only in the materialize response and vanished the
+        # moment the wizard moved on; a published dataset (ZEM) therefore looked
+        # perfectly healthy while its two entities had no link between them.
+        "advisories": list(advisories or []),
         "ingested": False,
     }
     (dest / _META_FILE).write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -200,6 +208,7 @@ def update_dataset_artifacts(
     traps: list[dict],
     exit_code: int,
     proposal_md: str = "",
+    advisories: list[str] | None = None,
 ) -> dict | None:
     """Re-materialize a dataset IN PLACE — overwrite its artifacts + design, keep its id.
 
@@ -241,6 +250,9 @@ def update_dataset_artifacts(
             "has_rml": bool((artifacts.get("mapping.rml.ttl") or "").strip()),
             "has_mapping_ir": bool((artifacts.get("mapping.yaml") or "").strip()),
             "has_proposal": bool((proposal_md or "").strip()),
+            # Recomputed every redesign: fixing the link must CLEAR the notice,
+            # so this always reflects the design now stored (never appended to).
+            "advisories": list(advisories or []),
         }
     )
     meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")

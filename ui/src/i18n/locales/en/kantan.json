@@ -83,7 +83,9 @@
       "retry": "Try again",
       "openDetail": "Check in detail mode",
       "restart": "Start over",
-      "restartConfirm": "This clears the files you added and everything so far. Start over from the beginning?"
+      "restartConfirm": "This clears the files you added and everything so far. Start over from the beginning?",
+      "weakness": "Your data isn't linked together",
+      "weaknessBody": "The design itself is valid and you can publish it as is. But as it stands it cannot answer questions that span more than one thing — such as which measurements belong to this sample."
     },
     "plain": {
       "tokenTitle": "You don't have permission to save",
@@ -117,6 +119,9 @@
       "incomplete": "The AI's design output was cut off partway",
       "others_one": "Plus {{count}} more issue converting to the intake rules",
       "others_other": "Plus {{count}} more issues converting to the intake rules"
+    },
+    "weakness": {
+      "continue": "Continue anyway"
     }
   },
   "s6": {
@@ -202,12 +207,15 @@
     "startNew": "Add different new data"
   },
   "redesign": {
-    "banner": "Reviewing: {{name}}",
-    "bannerNote": "Check the column meanings and hand any concerns to the AI. Applying a change rebuilds the draft; Try it → Publish then publishes a new version.",
+    "banner": "Review: {{name}}",
+    "bannerNote": "Nothing runs on its own here. Check what is below and hand anything you want changed to the AI. Applying a change rebuilds the draft; Try it → Publish then publishes a new version.",
     "structural": "Rework the structure (detail mode)",
     "cancel": "Stop reviewing",
     "cancelConfirm": "Stop reviewing and go back to the dataset page? (Changes already applied by the AI are saved.)",
-    "confirmNoChange": "Looks right — finish reviewing"
+    "confirmNoChange": "Looks right — finish reviewing",
+    "findingsTitle": "Why you're here",
+    "findingsBody": "Asking the AI to fix this rebuilds the draft; you can check the result in “try it → publish”. If you only want to adjust column meanings, you can dismiss this.",
+    "findingsDismiss": "Dismiss"
   },
   "job": {
     "preparing": "Preparing…",
