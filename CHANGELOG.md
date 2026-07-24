@@ -1,5 +1,15 @@
 # Changelog
 
+## [v0.11.0](https://github.com/kumagallium/asterism/compare/v0.10.0...v0.11.0) - 2026-07-24
+
+- fix(ui/caddy): デプロイ跨ぎ stale chunk で図が「表示できません」に化ける事故を根治 by @kumagallium in https://github.com/kumagallium/asterism/pull/312
+- 列の二重転記 advisory＋実データによる帰属裁定（per-map 丸写しの検出と決定論の作業指示書化） by @kumagallium in https://github.com/kumagallium/asterism/pull/311
+- 設計図の対応表が api 経路で失われる事故を根治 — diagram.md の形を 1 関数に集約 by @kumagallium in https://github.com/kumagallium/asterism/pull/314
+- 本番デプロイ手順の実態合わせ — 確認コマンドが「偽障害」を作る問題の除去 by @kumagallium in https://github.com/kumagallium/asterism/pull/315
+- fix(ui): クラス図の属性行が折り返して崩れる二重の原因を根治 by @kumagallium in https://github.com/kumagallium/asterism/pull/316
+- feat(api/ui): 設計の「弱さ」を欠陥と分けて、消えない場所に平易な日本語で出す by @kumagallium in https://github.com/kumagallium/asterism/pull/317
+- feat: つながりを「候補を1つえらぶ」だけにする（LLM 不要の候補検出＋作成導線の集約） by @kumagallium in https://github.com/kumagallium/asterism/pull/318
+
 ## [v0.10.0](https://github.com/kumagallium/asterism/compare/v0.9.0...v0.10.0) - 2026-07-23
 
 - feat(dialect): preamble モード keyvalue_cells — ZEM 系「key=value セル」メタ行を列化 by @kumagallium in https://github.com/kumagallium/asterism/pull/302
