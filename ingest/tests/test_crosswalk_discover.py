@@ -384,23 +384,40 @@ async def test_discover_reads_the_live_graph_not_the_key_graph() -> None:
     assert result["candidates"][0]["matched"] == 2
 
 
-async def test_discover_discloses_every_cap_it_hits() -> None:
+async def test_discover_discloses_that_it_stopped_reading_predicates() -> None:
+    # "found nothing" and "stopped looking" must never be indistinguishable.
     store = rdflib.Dataset()
     _seed(store, "ds-a", f"{NS}comp", ["Bi2Te3", "PbTe", "SnSe"])
-    _seed(store, "ds-a", f"{NS}zt", ["1.4", "0.9", "2.1"])
+    _seed(store, "ds-a", f"{NS}note", ["x", "y"])
     _seed(store, "ds-b", f"{NS}formula", ["Bi2Te3", "PbTe", "SnSe"])
 
     result = await discover(
         _DatasetClient(store),
         _ds("ds-a", "ds-b"),
-        limits=DiscoverLimits(max_predicates_per_dataset=1, max_values_per_predicate=2),
+        limits=DiscoverLimits(max_predicates_per_dataset=1),
     )
 
     scanned = {d["dataset_id"]: d for d in result["scanned"]["datasets"]}
     assert scanned["ds-a"]["predicates_truncated"] is True
-    assert any(
-        p["values_truncated"] for c in result["candidates"] for p in c["participants"]
+    assert scanned["ds-a"]["predicates_scanned"] == 1
+
+
+async def test_discover_discloses_that_it_stopped_reading_values() -> None:
+    # A match count computed from a partial read is a LOWER BOUND, and the card has
+    # to be able to say so.
+    store = rdflib.Dataset()
+    _seed(store, "ds-a", f"{NS}comp", ["Bi2Te3", "PbTe", "SnSe"])
+    _seed(store, "ds-b", f"{NS}formula", ["Bi2Te3", "PbTe", "SnSe"])
+
+    result = await discover(
+        _DatasetClient(store),
+        _ds("ds-a", "ds-b"),
+        limits=DiscoverLimits(max_values_per_predicate=2),
     )
+
+    cand = result["candidates"][0]
+    assert all(p["values_truncated"] for p in cand["participants"])
+    assert "values_truncated" in cand["flags"]
 
 
 async def test_discover_discloses_why_a_predicate_was_excluded() -> None:
