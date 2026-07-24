@@ -173,7 +173,8 @@
       "fetchAlignments": "視点の整合一覧の取得",
       "align": "視点をつなぐ",
       "unalign": "整合の撤回",
-      "previewNormalizer": "正規化プレビュー"
+      "previewNormalizer": "正規化プレビュー",
+      "discover": "つなげそうな組み合わせをさがす"
     }
   }
 }

@@ -173,7 +173,8 @@
       "fetchAlignments": "Fetching the perspective alignment list",
       "align": "Connecting perspectives",
       "unalign": "Withdrawing the alignment",
-      "previewNormalizer": "Normalization preview"
+      "previewNormalizer": "Normalization preview",
+      "discover": "Looking for pairs that could connect"
     }
   }
 }
