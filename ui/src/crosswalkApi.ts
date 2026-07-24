@@ -7,6 +7,7 @@
 // built. These calls go through the same /api proxy as galleryApi (so they are LIVE
 // even under the preview's mock demo mode), and carry the write-auth token for the
 // mutating routes (build/propose).
+import { type JobHandle, subscribeJob } from './api'
 import { authHeaders } from './authToken'
 import i18n from './i18n'
 import { type LlmCredentials, llmHeaders } from './settings/store'
@@ -205,6 +206,104 @@ export async function proposeCrosswalkMapping(
   })
   if (!res.ok) throw await asError(res, i18n.t('crosswalk:error.ops.propose'))
   return (await res.json()) as ProposeResult
+}
+
+// --- Discovery: the crosswalks that COULD exist, found in the data itself ---------
+
+/** How many values each rung of the normalizer ladder matched — the evidence behind
+ * "as they are 12 match; ignoring case and width, 215 do". */
+export interface DiscoverTrial {
+  normalizer: string
+  matched: number
+}
+
+export interface DiscoverParticipant {
+  dataset_id: string
+  /** The crosswalk label (build config); not shown to people. */
+  label: string
+  /** The dataset's human name — the only identifier the simple tier displays. */
+  name: string
+  predicate: string
+  predicate_label: string
+  distinct_values: number
+  matched: number
+  coverage: number
+  statements: number
+  values_truncated: boolean
+}
+
+/** One shared value, with how each dataset actually spelled it (the evidence). */
+export interface DiscoverSample {
+  key: string
+  raw: Record<string, string>
+}
+
+export interface DiscoverCandidate {
+  id: string
+  concept: string
+  name: string
+  perspective_id: string
+  /** True when building this would REPLACE an existing crosswalk of the same id. */
+  perspective_exists: boolean
+  class_iri: string
+  link_predicate: string
+  normalizer: string
+  normalizer_trials: DiscoverTrial[]
+  matched: number
+  score: number
+  participants: DiscoverParticipant[]
+  samples: DiscoverSample[]
+  /** Closed-set caution ids; the wording lives in `crosswalk:create.flag.*`. */
+  flags: string[]
+  /** Buildable as-is — no assembly on the client (see {@link buildPerspective}). */
+  build_config: CrosswalkConfig
+}
+
+export interface DiscoverResult {
+  candidates: DiscoverCandidate[]
+  scanned: {
+    datasets: {
+      dataset_id: string
+      label: string
+      name: string
+      live_graph: string
+      predicates_scanned: number
+      predicates_truncated: boolean
+      predicates_excluded: { iri: string; reason: string; sample: string; distinct: number }[]
+    }[]
+    datasets_skipped: { dataset_id: string; reason: string }[]
+    datasets_truncated: boolean
+    clusters_truncated: boolean
+    candidates_truncated: boolean
+  }
+  limits: Record<string, unknown>
+  cancelled: boolean
+  queries: number
+}
+
+/**
+ * Look for crosswalks that could exist, by comparing the promoted datasets' real
+ * values. Deterministic and **key-free** (no LLM) — the entrance to connecting data
+ * must not be an API-key prompt. Runs as a job because the scan grows with datasets ×
+ * columns; subscribe to the returned handle for progress and the result.
+ */
+export function discoverCrosswalks(
+  handlers: {
+    onDone: (r: DiscoverResult) => void
+    onError: (m: string) => void
+    onRunning?: (data: Record<string, unknown>) => void
+  },
+  options?: { datasetIds?: string[] },
+): Promise<JobHandle> {
+  return fetch(`${API_BASE}/api/crosswalk/discover`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ dataset_ids: options?.datasetIds ?? [] }),
+  }).then(async (res) => {
+    if (!res.ok) throw await asError(res, i18n.t('crosswalk:error.ops.discover'))
+    const { job_id } = (await res.json()) as { job_id: string }
+    return subscribeJob<DiscoverResult>(job_id, handlers)
+  })
 }
 
 /** The asserted schema alignments between perspectives + the closed relation set

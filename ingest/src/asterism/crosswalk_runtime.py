@@ -39,6 +39,7 @@ from asterism.crosswalk import (
     Rule,
     build_turtle,
     resolve_normalizer,
+    shared_keys,
 )
 
 logger = logging.getLogger(__name__)
@@ -514,13 +515,12 @@ async def build_hub(
                 for kp in concept.key_parts
             ]
             rows_by_label: dict[str, list[tuple[str, tuple[str, ...]]]] = {}
-            tuple_counts: dict[tuple[str, ...], int] = {}
+            key_sets_t: list[set[tuple[str, ...]]] = []
             for p in active:
                 rows = await _entity_tuples(client, live[p.label], p.predicates)
                 rows_by_label[p.label] = rows
-                for k in {_norm_tuple(part_norms, rt) for _, rt in rows}:
-                    tuple_counts[k] = tuple_counts.get(k, 0) + 1
-            shared_t = {k for k, n in tuple_counts.items() if n >= config.min_datasets}
+                key_sets_t.append({_norm_tuple(part_norms, rt) for _, rt in rows})
+            shared_t = shared_keys(key_sets_t, min_datasets=config.min_datasets)
             if not shared_t:
                 continue
             for p in active:
@@ -534,13 +534,12 @@ async def build_hub(
         normalize = resolve_normalizer(concept.normalizer, concept.normalizer_recipe)
         # Pass 1: distinct raw values per participant -> the shared normalized keys.
         per_label_raws: dict[str, list[str]] = {}
-        norm_counts: dict[str, int] = {}
+        key_sets: list[set[str]] = []
         for p in active:
             raws = await _distinct_values(client, live[p.label], p.predicate)
             per_label_raws[p.label] = raws
-            for k in {normalize(r) for r in raws}:
-                norm_counts[k] = norm_counts.get(k, 0) + 1
-        shared = {k for k, n in norm_counts.items() if n >= config.min_datasets}
+            key_sets.append({normalize(r) for r in raws})
+        shared = shared_keys(key_sets, min_datasets=config.min_datasets)
         if not shared:
             continue
 

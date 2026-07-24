@@ -21,8 +21,9 @@ from __future__ import annotations
 import re
 import unicodedata
 import urllib.parse
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Hashable, Iterable
 from dataclasses import dataclass, field
+from typing import TypeVar
 
 # Crosswalk namespaces (stable — see the rename invariant in CLAUDE.md).
 XW = "https://kumagallium.github.io/asterism/crosswalk/ontology#"
@@ -33,6 +34,9 @@ OWL = "http://www.w3.org/2002/07/owl#"
 XSD = "http://www.w3.org/2001/XMLSchema#"
 
 _SUBS = str.maketrans("₀₁₂₃₄₅₆₇₈₉", "0123456789")
+
+# A join key: a normalized value (single part) or a tuple of them (compound key).
+_K = TypeVar("_K", bound=Hashable)
 
 
 def normalize_composition(value: str) -> str:
@@ -131,6 +135,32 @@ def resolve_normalizer(name: str, recipe: tuple[str, ...] = ()) -> Callable[[str
     if recipe:
         return lambda v: apply_recipe(recipe, v)
     return NORMALIZERS.get(name, normalize_identity)
+
+
+def shared_keys(
+    per_dataset_keys: Iterable[Iterable[_K]],
+    *,
+    min_datasets: int = 2,
+) -> set[_K]:
+    """The join keys reported by >= ``min_datasets`` DATASETS.
+
+    This is the hub's join core: :func:`build_turtle` mints one shared entity per
+    normalized key that ``min_datasets`` or more datasets report — a threshold, NOT a
+    requirement that every participant agree. Counting is per dataset (a key repeated
+    within one dataset still counts once), which is exactly the predicate the builder
+    applies. Extracted so the same intersection can be computed WITHOUT building
+    (discovery scores candidate joins with it, and must report the number a build
+    would actually produce).
+
+    ``per_dataset_keys`` is a POSITIONAL sequence of key collections, not a mapping by
+    label: :func:`asterism.crosswalk_runtime.build_hub` counts two participants that
+    share a label twice, and folding into a dict would silently change that.
+    """
+    counts: dict[_K, int] = {}
+    for keys in per_dataset_keys:
+        for key in set(keys):
+            counts[key] = counts.get(key, 0) + 1
+    return {key for key, n in counts.items() if n >= min_datasets}
 
 
 # IUPAC element symbols (H..Og). Validating against the real set is what keeps the
@@ -351,11 +381,7 @@ def build_turtle(
                 key_labels[key] = label
                 bucket.setdefault(key, []).append((entity, raw_disp))
         # shared = a key present in >= min_datasets participating datasets
-        counts: dict[str, int] = {}
-        for bucket in per_ds.values():
-            for key in bucket:
-                counts[key] = counts.get(key, 0) + 1
-        shared = sorted(k for k, n in counts.items() if n >= config.min_datasets)
+        shared = sorted(shared_keys(per_ds.values(), min_datasets=config.min_datasets))
         build.shared[concept.name] = [key_labels[k] for k in shared]
         build.links[concept.name] = {}
 

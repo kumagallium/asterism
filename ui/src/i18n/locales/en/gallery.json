@@ -90,7 +90,9 @@
     "concept": "across {{concept}}",
     "none": "This dataset is not yet connected to other data.",
     "seeAll": "Manage connections",
-    "seeMap": "View overview"
+    "seeMap": "View overview",
+    "createBtn": "Connect this to your other data",
+    "createMore": "Connect another"
   },
   "mapBand": {
     "title": "Overview",

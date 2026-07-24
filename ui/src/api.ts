@@ -961,9 +961,11 @@ export interface JobHandle {
   cancel: () => Promise<void>
 }
 
-// Shared SSE subscription for background jobs (propose/refine/ingest). Returns
-// a JobHandle whose close() releases the EventSource.
-function subscribeJob<T>(
+// Shared SSE subscription for background jobs (propose/refine/ingest/discover).
+// Returns a JobHandle whose close() releases the EventSource. Exported so other
+// api modules (crosswalkApi) reuse the reconnect handling below rather than
+// growing a second, subtly different EventSource client.
+export function subscribeJob<T>(
   jobId: string,
   handlers: {
     onStatus?: (m: string) => void

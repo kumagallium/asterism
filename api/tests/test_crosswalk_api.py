@@ -388,3 +388,145 @@ def test_debounced_rebuilder_coalesces(tmp_path: Path) -> None:
         return client.posted.count(crosswalk_runtime.HUB_GRAPH)
 
     assert asyncio.run(run()) == 1
+
+
+# --- discover: find the joins that exist, without an LLM (kantan-mode ADR) ---------
+
+
+def _parse_sse(text: str) -> list[tuple[str, dict]]:
+    """Parse an SSE response body into (event_name, data_dict) pairs."""
+    events: list[tuple[str, dict]] = []
+    name = ""
+    for line in text.splitlines():
+        if line.startswith("event:"):
+            name = line[len("event:") :].strip()
+        elif line.startswith("data:"):
+            payload = line[len("data:") :].strip()
+            events.append((name, json.loads(payload) if payload else {}))
+    return events
+
+
+def _discover(client, **body) -> dict:
+    """Run discovery to completion and return the job's result."""
+    r = client.post("/api/crosswalk/discover", json=body)
+    assert r.status_code == 202, r.text
+    job_id = r.json()["job_id"]
+    events = _parse_sse(client.get(f"/api/jobs/{job_id}/stream").text)
+    done = [data for name, data in events if name == "done"]
+    assert done, events
+    return done[0]["result"]
+
+
+def test_discover_returns_candidates_with_the_evidence(tmp_path: Path) -> None:
+    ds = rdflib.Dataset()
+    root = tmp_path / "registry"
+    _seed_promoted(ds, root, "ds-a", [("urn:a1", "Bi₂Te₃"), ("urn:a2", "PbTe")])
+    _seed_promoted(ds, root, "ds-b", [("urn:b1", "Bi2Te3"), ("urn:b2", "PbTe")])
+    app = build_app(_settings(tmp_path), oxigraph_client=_DatasetClient(ds), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        result = _discover(client)
+
+    assert len(result["candidates"]) == 1
+    cand = result["candidates"][0]
+    assert {p["dataset_id"] for p in cand["participants"]} == {"ds-a", "ds-b"}
+    assert cand["matched"] == 2
+    assert cand["samples"]
+    assert result["limits"]["ladder"]  # the bounds are disclosed, not implicit
+
+
+def test_discover_candidate_builds_without_edits(tmp_path: Path) -> None:
+    # The contract that makes "connect these" one click: what discovery promises
+    # (`matched`) must equal what a build of its own config produces (`shared_total`).
+    ds = rdflib.Dataset()
+    root = tmp_path / "registry"
+    _seed_promoted(ds, root, "ds-a", [("urn:a1", "Bi₂Te₃"), ("urn:a2", "PbTe")])
+    _seed_promoted(ds, root, "ds-b", [("urn:b1", "Bi2Te3"), ("urn:b2", "PbTe")])
+    app = build_app(_settings(tmp_path), oxigraph_client=_DatasetClient(ds), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        cand = _discover(client)["candidates"][0]
+        r = client.post(
+            f"/api/crosswalk/{cand['perspective_id']}/build",
+            json={"config": cand["build_config"], "name": cand["name"]},
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["shared_total"] == cand["matched"]
+
+
+def test_discover_needs_no_llm_key(tmp_path: Path) -> None:
+    # propose is key-gated (see test_propose_requires_key); discovery must NOT be —
+    # the entrance to connecting data cannot be an API-key prompt (ADR K5).
+    ds = rdflib.Dataset()
+    _seed_promoted(ds, tmp_path / "registry", "ds-a", [("urn:a1", "Bi2Te3")])
+    _seed_promoted(ds, tmp_path / "registry", "ds-b", [("urn:b1", "Bi2Te3")])
+    app = build_app(_settings(tmp_path), oxigraph_client=_DatasetClient(ds), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        assert client.post("/api/crosswalk/discover", json={}).status_code == 202
+
+
+def test_discover_requires_write_auth(tmp_path: Path) -> None:
+    ds = rdflib.Dataset()
+    app = build_app(_settings(tmp_path), oxigraph_client=_DatasetClient(ds), start_watcher=False)
+    with TestClient(app) as client:
+        assert client.post("/api/crosswalk/discover", json={}).status_code in (401, 403)
+
+
+def test_discover_excludes_drafts_and_the_hub_itself(tmp_path: Path) -> None:
+    ds = rdflib.Dataset()
+    root = tmp_path / "registry"
+    _seed_promoted(ds, root, "ds-a", [("urn:a1", "Bi2Te3")])
+    _seed_promoted(ds, root, "ds-b", [("urn:b1", "Bi2Te3")])
+    # A draft (never promoted) and a crosswalk hub are both ineligible participants.
+    (root / "ds-draft").mkdir(parents=True, exist_ok=True)
+    (root / "ds-draft" / "meta.json").write_text(
+        json.dumps({"id": "ds-draft", "name": "draft", "promoted": False}), encoding="utf-8"
+    )
+    (root / "crosswalk-bridge").mkdir(parents=True, exist_ok=True)
+    (root / "crosswalk-bridge" / "meta.json").write_text(
+        json.dumps(
+            {"id": "crosswalk-bridge", "name": "hub", "promoted": True, "is_crosswalk": True}
+        ),
+        encoding="utf-8",
+    )
+    app = build_app(_settings(tmp_path), oxigraph_client=_DatasetClient(ds), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        result = _discover(client)
+
+    reasons = {s["dataset_id"]: s["reason"] for s in result["scanned"]["datasets_skipped"]}
+    assert reasons["ds-draft"] == "not_promoted"
+    assert reasons["crosswalk-bridge"] == "crosswalk"
+    assert all(
+        "crosswalk-bridge" not in [p["dataset_id"] for p in c["participants"]]
+        for c in result["candidates"]
+    )
+
+
+def test_discover_discloses_datasets_it_was_not_asked_about(tmp_path: Path) -> None:
+    ds = rdflib.Dataset()
+    root = tmp_path / "registry"
+    for dsid in ("ds-a", "ds-b", "ds-c"):
+        _seed_promoted(ds, root, dsid, [(f"urn:{dsid}", "Bi2Te3")])
+    app = build_app(_settings(tmp_path), oxigraph_client=_DatasetClient(ds), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        result = _discover(client, dataset_ids=["ds-a", "ds-b"])
+
+    reasons = {s["dataset_id"]: s["reason"] for s in result["scanned"]["datasets_skipped"]}
+    assert reasons == {"ds-c": "not_requested"}
+
+
+def test_discover_warns_when_a_candidate_would_replace_an_existing_crosswalk(
+    tmp_path: Path,
+) -> None:
+    ds = rdflib.Dataset()
+    root = tmp_path / "registry"
+    _seed_promoted(ds, root, "ds-a", [("urn:a1", "Bi2Te3"), ("urn:a2", "PbTe")])
+    _seed_promoted(ds, root, "ds-b", [("urn:b1", "Bi2Te3"), ("urn:b2", "PbTe")])
+    app = build_app(_settings(tmp_path), oxigraph_client=_DatasetClient(ds), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        first = _discover(client)["candidates"][0]
+        client.post(
+            f"/api/crosswalk/{first['perspective_id']}/build",
+            json={"config": first["build_config"], "name": first["name"]},
+        )
+        again = _discover(client)["candidates"][0]
+
+    assert again["perspective_exists"] is True

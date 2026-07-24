@@ -2,66 +2,166 @@
   "view": {
     "back": "Back",
     "seeMap": "View overview",
-    "bannerTitle": "Crosswalk (the bridge that connects across datasets)",
-    "bannerSub": "There can be <0>several perspectives</0> on how to connect datasets (composition, crystal structure…). Each perspective is kept as its <1>own independent bridge</1>, and cross-dataset queries just work.",
+    "bannerTitle": "Connections",
+    "bannerSub": "There is more than one way to connect. Even for the same data, <0>which value you connect on</0> makes a different connection. You can keep each as <1>its own connection</1>, and questions work across all of them automatically.",
     "loading": "Loading…",
     "empty": {
-      "title": "No crosswalks yet",
-      "sub": "Use \"Add data → Bridge existing datasets\" to build a bridge from two or more datasets."
+      "title": "No connections yet",
+      "sub": "Look for values that appear in two or more of your datasets, and build a connection from them.",
+      "btn": "Look for pairs that could connect",
+      "manual": "Choose the combination myself"
     },
-    "perspectiveHead": "Perspective",
-    "perspectiveHint": "{{count}} · each an independent \"way to connect\"",
-    "perspMeta": "{{shared}} shared · {{count}} datasets",
+    "perspectiveHead": "Your connections",
+    "perspectiveHint": "{{count}} · each a different way to connect",
+    "perspMeta": "{{shared}} matched · {{count}} datasets",
     "summary": {
-      "sharedValues": "Shared values",
-      "participants": "Participating datasets",
-      "concepts": "Shared concepts",
-      "note": "\"Shared values\" is how many \"{{concept}}\" values matched across datasets (separate from the total number of facts). \"Shared concepts\" is how many concepts (composition, crystal system…) this bridge connects on."
+      "sharedValues": "Values found in both",
+      "participants": "Connected data",
+      "concepts": "What they connect on",
+      "note": "\"Values found in both\" is how many \"{{concept}}\" values matched across datasets (separate from the total number of facts). \"What they connect on\" is how many things this connection matches by."
     },
-    "conceptHead": "Concept \"{{name}}\"",
-    "normalizerHint": "Normalization: {{normalizer}}",
-    "compoundKeyHint": "Compound key ({{parts}})",
-    "rebuild": "Rebuild this perspective (with the latest data)",
+    "conceptHead": "Connects on \"{{name}}\"",
+    "normalizerHint": "Treated as the same when: {{normalizer}}",
+    "compoundKeyHint": "Connects when {{parts}} all match",
+    "rebuild": "Rebuild with the latest data",
     "rebuilding": "Rebuilding…",
-    "rebuildNote": "Rebuilt ({{shared}} shared · {{count}} datasets).",
-    "rebuildErr": "Rebuild failed: {{detail}}",
-    "builtAt": "Last built: {{at}}",
-    "toolsHead": "Cross-dataset tools",
-    "toolsHint": "Which datasets report this value? etc. (deterministic, citable, no key needed)"
+    "rebuildNote": "Rebuilt ({{shared}} matched · {{count}} datasets).",
+    "rebuildErr": "Could not rebuild: {{detail}}",
+    "builtAt": "Last updated: {{at}}",
+    "toolsHead": "Tools that work across data",
+    "toolsHint": "How many datasets report this value? and the like, answered on the spot (no AI involved)."
+  },
+  "create": {
+    "bandTitle": "Connect your data",
+    "bandSub": "Look for values that appear in two or more of your datasets, and build a connection from them. No AI involved.",
+    "bandManual": "Choose the combination myself",
+    "head": "Pairs that could connect",
+    "lead": "We compared what is inside your data and ranked the overlaps. Pick the one you want to build.",
+    "cancel": "Cancel",
+    "scanning": "Comparing what is inside your data",
+    "scanningSub": "Matching the actual values against each other. No AI involved.",
+    "scanningAt": "Looking at {{name}}…",
+    "truncated": "There were many candidates; showing the {{shown}} with the most matches.",
+    "tooFew": {
+      "title": "Connecting needs two published datasets",
+      "sub": "You have {{count}} published right now. Add and publish one more and you can connect them here.",
+      "addBtn": "Add data",
+      "seeBtn": "See your connections"
+    },
+    "none": {
+      "title": "No shared values found",
+      "sub": "No value appears in the same form in two or more of your datasets. You can also decide which fields to connect on yourself.",
+      "manualBtn": "Choose the combination myself",
+      "addBtn": "Add data"
+    },
+    "failed": {
+      "title": "The automatic search did not work",
+      "sub": "You can also choose the combination yourself.",
+      "manualBtn": "Choose the combination myself"
+    },
+    "card": {
+      "count": "{{count}} values match",
+      "examplesHead": "Values found in both (real data)",
+      "partHead": "Data that connects",
+      "partSample": "this field's value: {{sample}}",
+      "foldingGain": "Compared as written, {{strict}} match; with that, {{chosen}} do.",
+      "pick": "Connect these",
+      "adjust": "Adjust this one myself"
+    },
+    "sameAs": {
+      "identity": "Only values written exactly the same are connected.",
+      "casefold": "Upper and lower case differences are treated as the same.",
+      "whitespace": "Whitespace differences are treated as the same.",
+      "nfkc": "Full-width, half-width and subscript differences are treated as the same.",
+      "loose_text": "Case, whitespace and character-width differences are treated as the same.",
+      "composition": "Differences in how it is written (subscripts, spaces) are treated as the same.",
+      "element_canonical": "Differences in how it is written and in ordering are treated as the same.",
+      "recipe": "Values are tidied up by your steps first, then compared.",
+      "unknown": "Values are tidied up by a set rule first, then compared."
+    },
+    "flag": {
+      "single_value_overlap": "Only one value matched. It may just be a coincidence.",
+      "low_cardinality": "There are few distinct values, so a lot of data collapses onto each one.",
+      "high_fanout": "A great deal of data hangs off a single value.",
+      "values_truncated": "The data is large, so only part of it was read. The real overlap may be bigger.",
+      "predicates_truncated": "There are many fields, so only some were read. Something may have been missed.",
+      "numeric_like": "Many of the values are numbers, so unrelated things may match by chance.",
+      "fold_only_match": "They match only after tidying up the spelling — as written, nothing matches.",
+      "asymmetric_coverage": "The datasets differ greatly in size; only a sliver of one connects."
+    },
+    "confirm": {
+      "title": "Connect them like this",
+      "whatHead": "Data that connects",
+      "onHead": "Connected on",
+      "matchHead": "Values that match",
+      "nameLabel": "Name for this connection",
+      "namePlaceholder": "e.g. connect on composition",
+      "nameHint": "It will appear under \"your connections\" with this name. You can rebuild it later.",
+      "idTaken": "A connection on the same thing already exists. Yours is kept as it is and this is added alongside it.",
+      "promise": "You can undo this afterwards. Your original data does not change.",
+      "build": "Build the connection",
+      "back": "Pick a different one"
+    },
+    "building": {
+      "title": "Building the connection…",
+      "line": "Gathering the shared values so both datasets point at the same thing."
+    },
+    "done": {
+      "title": "The connection is ready",
+      "stat": "<0>{{shared}}</0> values were shared across <1>{{count}}</1> datasets.",
+      "askLead": "Try asking something across them.",
+      "askHint": "Tapping one fills the question box. Whether to send it is up to you.",
+      "askQ1": "Which datasets have {{value}}?",
+      "askQ2": "List the {{label}} found in both {{a}} and {{b}}.",
+      "askQ3": "Which {{label}} match across two or more datasets?",
+      "seeBtn": "See this connection",
+      "againBtn": "Build another"
+    },
+    "defaultName": "connected on {{label}}",
+    "manual": {
+      "summary": "Fine-tune it (choose the combination myself)",
+      "hint": "Pick the data, the fields and what counts as the same value yourself. Matching up two connections lives here too.",
+      "seeded": "The candidate you picked is filled in as a draft. Change anything from here."
+    }
   },
   "relation": {
-    "equivalentClass": "Same kind (≡)",
-    "subClassOf": "Sub-kind (⊑)",
-    "equivalentProperty": "Same field (≡)",
-    "subPropertyOf": "Sub-field (⊑)"
+    "equivalentClass": "means the same thing as",
+    "subClassOf": "is a part of",
+    "equivalentProperty": "is the same field as",
+    "subPropertyOf": "is a part of the field"
   },
   "term": {
     "class": "Kind",
     "property": "Field"
   },
   "align": {
-    "head": "Connect perspectives",
-    "hint": "Assert a relationship between concepts of separately built perspectives (a citable fact, no inference, reversible)",
-    "sourceLabel": "Source",
-    "targetLabel": "Target",
+    "head": "Match up two connections",
+    "hint": "When words from two separately built connections mean the same thing, you can record that match (it becomes a citable fact, and you can undo it later).",
+    "sourceLabel": "Connection on the left",
+    "targetLabel": "Connection on the right",
     "termOption": "{{kind}} · {{name}}",
-    "assert": "Connect",
-    "asserting": "Connecting…",
-    "assertNote": "Connected: {{source}} {{relation}} {{target}}",
-    "noSrcTerms": "This perspective has no concepts to connect.",
-    "noTgtTerms": "No target of the same sort (kind / field). Pick a different target perspective.",
-    "pickDistinct": "Pick distinct concepts for source and target (you can connect once there are two or more perspectives).",
+    "assert": "Match them up",
+    "asserting": "Matching up…",
+    "assertNote": "Matched up: {{source}} {{relation}} {{target}}",
+    "noSrcTerms": "This connection has no words that can be matched up.",
+    "noTgtTerms": "Nothing of the same sort (kind / field) on the other side. Pick a different connection on the right.",
+    "pickDistinct": "Pick a different word on the left and on the right.",
+    "needTwo": "Once you have two or more connections, you can match them up here (you have {{count}}).",
+    "sameTerm": "These two already use the same word — nothing to match up.",
+    "othersHead": "Matches not shown here ({{n}})",
+    "groundingCount": "{{n}} of them match a word to an external standard. You can also review or undo those on each dataset's page.",
+    "strayCount": "{{n}} of them involve words that are not part of your current connections.",
     "actErr": "Operation failed: {{detail}}",
     "perspArrow": "{{from}} → {{to}}",
-    "remove": "Withdraw",
-    "removing": "Withdrawing…",
-    "none": "No perspective alignments yet.",
+    "remove": "Undo",
+    "removing": "Undoing…",
+    "none": "Nothing matched up yet.",
     "a11y": {
-      "srcPerspective": "Source perspective",
-      "srcTerm": "Source term",
+      "srcPerspective": "Connection on the left",
+      "srcTerm": "Word on the left",
       "relation": "Relation type",
-      "tgtPerspective": "Target perspective",
-      "tgtTerm": "Target term"
+      "tgtPerspective": "Connection on the right",
+      "tgtTerm": "Word on the right"
     }
   },
   "builder": {
@@ -166,7 +266,8 @@
       "fetchAlignments": "Fetching the perspective alignment list",
       "align": "Connecting perspectives",
       "unalign": "Withdrawing the alignment",
-      "previewNormalizer": "Normalization preview"
+      "previewNormalizer": "Normalization preview",
+      "discover": "Looking for pairs that could connect"
     }
   }
 }

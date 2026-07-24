@@ -40,7 +40,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
 import yaml
-from asterism import crosswalk, crosswalk_runtime, documents, grounding, substrate
+from asterism import (
+    crosswalk,
+    crosswalk_discover,
+    crosswalk_runtime,
+    documents,
+    grounding,
+    substrate,
+)
 from asterism.datasets import datasets_root, load_dataset
 from asterism.exposure import raw_sparql_enabled
 from asterism.ontology_projection import (
@@ -94,7 +101,7 @@ from fastapi import (
 )
 from fastapi import Path as PathParam
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from asterism_api import describe as describe_mod
 from asterism_api import design_loop, registry, server_keys
@@ -202,6 +209,22 @@ class CrosswalkProposeBody(BaseModel):
     dataset_ids: list[str] = []
     concept: str = "composition"
     language: str | None = None
+
+
+class CrosswalkDiscoverBody(BaseModel):
+    """Body for POST /api/crosswalk/discover: find the crosswalks that COULD exist by
+    comparing the promoted datasets' actual values (kantan-mode ADR). No LLM and no API
+    key — the join keys come from the closed normalizer set, so this is deterministic
+    and repeatable. Every field bounds the scan; the response echoes the bounds and
+    discloses whatever they cut off. ``dataset_ids`` empty = scan everything promoted."""
+
+    dataset_ids: list[str] = []
+    min_datasets: int = Field(2, ge=2, le=8)
+    max_datasets: int = Field(12, ge=2, le=50)
+    max_predicates_per_dataset: int = Field(12, ge=1, le=64)
+    max_values_per_predicate: int = Field(2000, ge=50, le=20000)
+    min_shared_keys: int = Field(2, ge=1, le=1000)
+    max_candidates: int = Field(12, ge=1, le=50)
 
 
 class CrosswalkAlignBody(BaseModel):
@@ -623,6 +646,50 @@ class CrosswalkRebuilder:
             self._task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._task
+
+
+def _discover_targets(
+    registry_root: Path, dataset_ids: list[str], max_datasets: int
+) -> tuple[list[crosswalk_discover.DiscoverDataset], list[dict], bool]:
+    """Which datasets discovery may scan, plus the ones it will not and why.
+
+    Only PROMOTED, non-crosswalk datasets qualify: a draft is not citable, and a hub is
+    a bridge rather than something to bridge. The registry read lives here so
+    ``asterism.crosswalk_discover`` stays free of any api-layer dependency (the same
+    split ``crosswalk_runtime`` keeps). Every exclusion is returned with a reason —
+    "we found nothing" and "we did not look" must never be indistinguishable.
+    """
+    wanted = set(dataset_ids)
+    targets: list[crosswalk_discover.DiscoverDataset] = []
+    skipped: list[dict] = []
+    for meta in registry.list_datasets(registry_root):
+        dsid = str(meta.get("id") or "")
+        if not dsid:
+            continue
+        if wanted and dsid not in wanted:
+            skipped.append({"dataset_id": dsid, "reason": "not_requested"})
+        elif meta.get("is_crosswalk"):
+            skipped.append({"dataset_id": dsid, "reason": "crosswalk"})
+        elif not meta.get("promoted"):
+            skipped.append({"dataset_id": dsid, "reason": "not_promoted"})
+        elif len(targets) >= max_datasets:
+            skipped.append({"dataset_id": dsid, "reason": "over_max_datasets"})
+        else:
+            name = str(meta.get("name") or dsid)
+            targets.append(
+                crosswalk_discover.DiscoverDataset(
+                    dataset_id=dsid, label=_crosswalk_label(name, dsid), name=name
+                )
+            )
+    truncated = any(s["reason"] == "over_max_datasets" for s in skipped)
+    return targets, skipped, truncated
+
+
+def _crosswalk_label(name: str, dataset_id: str) -> str:
+    """A crosswalk participant label from a dataset name (mirrors the authoring UI's
+    ``labelFor``): ascii slug, falling back to the id when the name has no ascii."""
+    slug = re.sub(r"^_+|_+$", "", re.sub(r"[^a-z0-9]+", "_", name.lower()))
+    return slug or dataset_id
 
 
 async def _literal_predicates(client: OxigraphClient, graph_iri: str) -> list[dict]:
@@ -4682,6 +4749,57 @@ def build_app(
     async def crosswalk_build(body: CrosswalkBuildBody) -> JSONResponse:
         """Build (or rebuild) the default (composition) perspective (back-compat)."""
         return await _do_crosswalk_build(crosswalk_runtime.DEFAULT_PERSPECTIVE_ID, body)
+
+    @app.post("/api/crosswalk/discover", dependencies=_write_auth)
+    async def crosswalk_discover_route(body: CrosswalkDiscoverBody) -> JSONResponse:
+        """Find the crosswalks that COULD exist, from the data itself.
+
+        Compares the promoted datasets' actual values under the closed normalizer set
+        and returns ranked candidates — which datasets connect, on what, how many
+        values match, and the real spellings as evidence. **No LLM and no API key**
+        (kantan-mode ADR K5: the entrance must not be a key prompt), and no writes:
+        every candidate carries a ``build_config`` the human can build as-is, so the
+        only decision left is *which one* (K13).
+
+        Runs as a JOB: the query count grows with datasets x predicates, so a large
+        deployment would otherwise hang a request with no progress and no way out.
+        Progress frames stream over ``/api/jobs/{id}/stream``; cancel is cooperative.
+        """
+        limits = crosswalk_discover.DiscoverLimits(
+            max_datasets=body.max_datasets,
+            max_predicates_per_dataset=body.max_predicates_per_dataset,
+            max_values_per_predicate=body.max_values_per_predicate,
+            min_datasets=body.min_datasets,
+            min_shared_keys=body.min_shared_keys,
+            max_candidates=body.max_candidates,
+        )
+        targets, skipped, truncated = _discover_targets(
+            cfg.registry_root, body.dataset_ids, body.max_datasets
+        )
+        client: OxigraphClient = app.state.client
+        existing_perspectives = {
+            meta.get("crosswalk_perspective_id") or crosswalk_runtime.DEFAULT_PERSPECTIVE_ID
+            for meta in crosswalk_runtime.list_perspectives(cfg.registry_root)
+        }
+
+        async def discover_job(emit, should_cancel):
+            result = await crosswalk_discover.discover(
+                client,
+                targets,
+                limits=limits,
+                datasets_truncated=truncated,
+                skipped_datasets=skipped,
+                progress=lambda phase, payload: emit(phase=phase, **payload),
+                should_cancel=should_cancel,
+            )
+            # Building a candidate whose id already exists REPLACES that crosswalk —
+            # the UI has to be able to warn before that happens.
+            for cand in result["candidates"]:
+                cand["perspective_exists"] = cand["perspective_id"] in existing_perspectives
+            return result
+
+        job_manager: JobManager = app.state.jobs
+        return JSONResponse({"job_id": job_manager.start_coro(discover_job)}, status_code=202)
 
     @app.post("/api/crosswalk/propose", dependencies=_write_auth)
     async def crosswalk_propose(

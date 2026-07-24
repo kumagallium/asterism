@@ -125,10 +125,31 @@ equality missed (whitespace/subscript variants). The hub tool
    building a config IS the vet gate (like saving a query tool); the per-dataset
    predicate is human-chosen (a dropdown, AI-suggested via `POST /api/crosswalk/propose`
    — key-gated, returns a draft only). Versioning of the mapping is future.
-5. **UI**: **Done** — 作成 in "データを追加" (multi-select promoted datasets → pick each
-   one's concept-bearing predicate, AI-assist optional → build) / 管理 in カタログ (a
-   crosswalk surface: participants, "this composition is reported by N datasets", the
-   hub tools, manual rebuild).
+5. **UI**: **Revised 2026-07-24** — creation now lives on the **つながり screen itself**,
+   where people look for it. The previous split (作成 in "データを追加" / 管理 in カタログ)
+   was reachable only through the detail tier: the simple tier never mounts the
+   authoring form, and the empty-state sentence pointing at it *disappeared once the
+   first crosswalk existed*, leaving no way to make a second. The screen now carries a
+   **permanent** creation band, ranked candidates from ⑥, a one-tap confirm, and the
+   management surface (participants, the hub tools, rebuild) below it. The full
+   authoring form and the perspective-alignment surface are preserved with **zero
+   deletions** inside a folded 詳細 disclosure, and a candidate can seed it. The
+   `データを追加 → 既存データを横断でつなぐ` route stays as-is.
+   *Note*: this item is called **④** in code comments predating the ADR's renumbering
+   (`ui/src/crosswalkApi.ts`, `step0/src/asterism_step0/crosswalk_propose.py`).
+6. **Discovery (LLM-free)**: **Done 2026-07-24** — `POST /api/crosswalk/discover`
+   (`asterism.crosswalk_discover`) compares the promoted datasets' literal values under
+   the closed normalizer set and returns ranked candidates: which datasets connect, on
+   what, how many values match, the real spellings as evidence, and a `build_config`
+   that builds unedited. **No LLM, no API key** — the entrance to connecting data must
+   not be a key prompt (kantan-mode ADR K5), and the concept key, hub terms, join key
+   and id are all machine-derived (K13), leaving the human exactly one decision: which
+   candidate. Correctness rests on sharing the builder's own join predicate
+   (`crosswalk.shared_keys`), so a candidate's `matched` equals the `shared_total` its
+   config produces — fixed by a contract test. Read-only, job-based (the query count
+   grows with datasets × columns), and every bound it hits is disclosed rather than
+   silently applied. Uniqueness ratio is deliberately NOT an exclusion rule: a column
+   unique per row (a DOI, a sample id) is the best join key there is.
 
 ## Implementation
 

@@ -9,6 +9,12 @@ import {
   previewNormalizer,
   proposeCrosswalkMapping,
 } from './crosswalkApi'
+import {
+  classIriForConcept,
+  linkPredicateForConcept,
+  pascalCase,
+  perspectiveIdFromName,
+} from './crosswalkMint'
 import { type CatalogDataset, getCatalogDatasets } from './galleryApi'
 import { LinkIcon } from './icons'
 import { useLlmSettings } from './settings/context'
@@ -22,35 +28,6 @@ import { localName } from './vocab'
 const RECIPE_PRIMITIVE_IDS = ['nfkc', 'casefold', 'strip', 'collapse_ws', 'remove_ws', 'fold_subscripts']
 // Sentinel select value: author a custom recipe instead of a named normalizer.
 const RECIPE_OPTION = '__recipe__'
-
-// The crosswalk hub vocabulary namespace (matches the runtime's `XW`). A concept's
-// class + link predicate are minted under here so each concept gets its own term
-// (xw:Composition / xw:hasComposition, xw:CrystalSystem / xw:hasCrystalSystem, …) —
-// the hub is generic, not composition-only (crosswalk-multi-perspective.md).
-const XW_NS = 'https://kumagallium.github.io/asterism/crosswalk/ontology#'
-
-/** PascalCase an ascii concept key for an IRI localname ("crystal_system" →
- * "CrystalSystem"). Returns '' when the key has no ascii alnum (e.g. pure Japanese),
- * so the caller can require an ascii key and keep the minted IRI clean + citable. */
-function pascalCase(key: string): string {
-  return key
-    .split(/[^a-zA-Z0-9]+/)
-    .filter(Boolean)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join('')
-}
-
-/** The hub class IRI minted for a concept key (xw:<PascalCase>). */
-function classIriForConcept(key: string): string {
-  const p = pascalCase(key)
-  return p ? `${XW_NS}${p}` : ''
-}
-
-/** The hub link-predicate IRI minted for a concept key (xw:has<PascalCase>). */
-function linkPredicateForConcept(key: string): string {
-  const p = pascalCase(key)
-  return p ? `${XW_NS}has${p}` : ''
-}
 
 // One-line explanation per normalizer (the closed, vetted join-key set — generic core
 // + materials pack; mirrors asterism.crosswalk.NORMALIZERS). Maps the select value to
@@ -67,16 +44,6 @@ const NORMALIZER_HINT_KEYS: Record<string, string> = {
   [RECIPE_OPTION]: 'recipe',
 }
 
-/** A perspective id (slug) from a human name. Falls back to a generated id when the
- * name has no ascii (e.g. a Japanese name) so the id stays IRI-safe. */
-function perspectiveIdFromName(name: string): string {
-  const slug = name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-  return slug || `p-${Date.now().toString(36)}`
-}
-
 /** Slug a dataset name into a stable crosswalk label (falls back to its id). */
 function labelFor(d: CatalogDataset): string {
   const slug = d.name
@@ -90,7 +57,9 @@ function labelFor(d: CatalogDataset): string {
 // 候補・概念/正規化・複合キー）が消えないよう、シリアライズ可能な入力だけを
 // sessionStorage に自己永続化する（CSV フローの WorkbenchSnapshot と同じ思想。
 // File は持たないので丸ごと載せられる。datasets/recipePreview は再取得・再導出
-// されるため保存しない）。CrosswalkBuilder は props を取らない自己完結キー。
+// されるため保存しない）。キーは 1 本＝つながり画面の詳細層と「データを追加 →
+// 横断でつなぐ」で共有する（作りかけがどちらの入口からも続けられる。同時
+// マウントは別タブなので起きない）。
 const XW_STORAGE = 'asterism.workbench.crosswalk'
 
 interface XwSnapshot {
@@ -115,16 +84,50 @@ function loadXw(): Partial<XwSnapshot> {
   }
 }
 
+/** A starting point handed in from elsewhere — today, a candidate the guided flow
+ * discovered. Everything stays editable; this only spares the human from re-entering
+ * what the machine already worked out. */
+export interface CrosswalkSeed {
+  /** dataset ids to preselect. */
+  selected: string[]
+  /** dataset id -> the concept-bearing predicate IRI. */
+  predicate: Record<string, string>
+  /** dataset id -> dropdown options (with a real sample value). */
+  candidates?: Record<string, PredicateCandidate[]>
+  concept: string
+  normalizer: string
+  perspectiveName: string
+}
+
+/** Merge a seed into the restored snapshot. `normalizerTouched` MUST be set: without
+ * it the concept-change handler would overwrite the seeded join key with its default. */
+function seedToSnapshot(seed: CrosswalkSeed): Partial<XwSnapshot> {
+  return {
+    selected: seed.selected,
+    predicate: seed.predicate,
+    candidates: seed.candidates ?? {},
+    concept: seed.concept,
+    normalizer: seed.normalizer,
+    normalizerTouched: true,
+    perspectiveName: seed.perspectiveName,
+  }
+}
+
 /**
- * Crosswalk authoring (ADR crosswalk-hub.md ④, 作成=「データを追加」). A crosswalk is an
- * ontology built FROM existing datasets: pick >=2 promoted datasets, declare each
- * one's concept-bearing predicate (the human-vetted mapping claim — a dropdown,
- * AI-assisted), and build. The hub then joins them on the shared normalized value.
+ * Crosswalk authoring, full control (ADR crosswalk-hub.md — 作成 lives on the つながり
+ * screen; this is its detail tier). A crosswalk is an ontology built FROM existing
+ * datasets: pick >=2 promoted datasets, declare each one's concept-bearing predicate
+ * (the human-vetted mapping claim — a dropdown, AI-assisted), and build. The hub then
+ * joins them on the shared normalized value.
+ *
+ * `seed` prefills it from a discovered candidate. Restoration happens once, in the
+ * state initializer, so a caller handing in a NEW seed must remount (a `key`).
  */
-export function CrosswalkBuilder() {
+export function CrosswalkBuilder({ seed }: { seed?: CrosswalkSeed } = {}) {
   const { t } = useTranslation()
-  // Restore serializable work saved before a tab switch / reload (once).
-  const [xw] = useState(loadXw)
+  // Restore serializable work saved before a tab switch / reload (once), with a seed
+  // — when given — layered on top.
+  const [xw] = useState(() => (seed ? { ...loadXw(), ...seedToSnapshot(seed) } : loadXw()))
   const [datasets, setDatasets] = useState<CatalogDataset[] | null>(null)
   const [loadErr, setLoadErr] = useState('')
   const [selected, setSelected] = useState<Set<string>>(() => new Set(xw.selected ?? []))

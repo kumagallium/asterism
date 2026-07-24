@@ -5337,11 +5337,216 @@ button.trace-iri-copy:hover:not(:disabled) {
 .xw-align-btn {
   align-self: flex-end;
 }
+/* ---- つながりを作る（かんたん層）--------------------------------------------
+   Cards reuse the kantan design system (.kz-card / .kz-title / .kz-note /
+   .kz-actions) so the two guided flows look like one product. Only what is
+   specific to a connection candidate lives here. Value chips deliberately mirror
+   .skeleton-evidence-id's look without reusing its class — coupling the two
+   features' styles would make either one unsafe to touch. */
+.xw-create {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.xw-create-band {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--link);
+  border-radius: var(--radius-sm);
+  padding: 0.7rem 0.9rem;
+  margin-bottom: var(--space-4);
+}
+/* No connections yet: the same band, given room to be the thing you notice. */
+.xw-create-band--hero {
+  flex-direction: column;
+  text-align: center;
+  gap: var(--space-2);
+  padding: var(--space-5) var(--space-4);
+  border-left-width: 1px;
+}
+.xw-create-band-icon {
+  color: var(--link);
+  display: flex;
+}
+.xw-create-band-text {
+  flex: 1;
+  min-width: 0;
+}
+.xw-create-band-title {
+  margin: 0;
+  font-weight: 600;
+}
+.xw-create-band-sub {
+  margin: 0.15rem 0 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.xw-create-band-actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.xw-cand-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: var(--space-3);
+}
+.xw-cand-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.xw-cand-skel {
+  min-height: 190px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+}
+.xw-cand-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.xw-cand-label {
+  font-weight: 600;
+  font-size: 1.02rem;
+}
+.xw-cand-count {
+  color: var(--entity);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.xw-cand-sub {
+  margin: 0.3rem 0 0;
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+.xw-cand-vals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+.xw-cand-val {
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  background: var(--surface-2, var(--bg));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.1rem 0.4rem;
+}
+.xw-cand-parts {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.xw-cand-part {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: 0.82rem;
+  flex-wrap: wrap;
+}
+.xw-cand-part-name {
+  font-weight: 500;
+}
+.xw-cand-part-sample {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+}
+.xw-cand-note {
+  margin: 0.3rem 0 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.xw-cand-caution {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--accent);
+}
+.xw-cand-actions {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  margin-top: 0.3rem;
+  flex-wrap: wrap;
+}
+.xw-cand-pick {
+  font-weight: 600;
+}
+.xw-confirm-row {
+  display: flex;
+  gap: var(--space-3);
+  padding: 0.3rem 0;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.xw-confirm-label {
+  min-width: 9rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+.xw-confirm-value {
+  font-weight: 500;
+}
+.xw-confirm-name {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-top: var(--space-3);
+}
+/* The detail tier, folded away: present in full, just not competing with the one
+   decision most people came here to make. */
+.xw-manual {
+  margin-top: var(--space-5);
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-3);
+}
+.xw-manual-summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.xw-manual-note {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin: 0.3rem 0 var(--space-3);
+}
+
 .xw-align-empty-hint,
-.xw-align-none {
+.xw-align-none,
+.xw-align-gate {
   font-size: 0.78rem;
   color: var(--muted);
   margin: 0;
+}
+/* Alignments this surface cannot author (grounding to an external standard, or a
+   crosswalk whose config did not load): disclosed, never hidden — the withdrawal
+   path has to stay reachable. */
+.xw-align-others {
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.7rem;
+}
+.xw-align-others > summary {
+  cursor: pointer;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.xw-align-others[open] > summary {
+  margin-bottom: 0.5rem;
+}
+.xw-align-others .xw-hint-inline {
+  display: block;
+  margin-bottom: 0.4rem;
 }
 .xw-align-list {
   display: flex;

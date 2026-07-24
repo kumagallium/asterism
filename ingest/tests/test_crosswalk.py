@@ -26,6 +26,7 @@ from asterism.crosswalk import (
     normalize_whitespace,
     recipe_label,
     resolve_normalizer,
+    shared_keys,
 )
 
 COMPOSITION = Concept(
@@ -46,6 +47,50 @@ def _build(config, observations):
 def test_single_part_concept_has_one_implicit_key_part() -> None:
     # A legacy concept (no key_parts) IS a single key part = its own normalizer.
     assert COMPOSITION.parts() == (KeyPart("composition", "composition", ()),)
+
+
+# --- shared_keys: the join core, extracted so discovery can compute it without a build
+
+
+def test_shared_keys_counts_each_dataset_once() -> None:
+    # A key repeated WITHIN one dataset is still one dataset reporting it.
+    assert shared_keys([["a", "a", "a"], ["b"]]) == set()
+    assert shared_keys([["a", "a"], ["a"]]) == {"a"}
+
+
+def test_shared_keys_is_a_threshold_not_unanimity() -> None:
+    # 2 of 3 datasets is enough at the default; raising min_datasets drops it.
+    per_ds = [["a", "b"], ["a"], ["c"]]
+    assert shared_keys(per_ds) == {"a"}
+    assert shared_keys(per_ds, min_datasets=3) == set()
+
+
+def test_shared_keys_is_positional_not_keyed_by_label() -> None:
+    # build_hub iterates participants, so two that share a label count twice. Folding
+    # into a dict here would silently change that — the argument stays positional.
+    assert shared_keys([["a"], ["a"]]) == {"a"}
+
+
+def test_shared_keys_supports_tuple_keys_for_compound_joins() -> None:
+    assert shared_keys([[("PbTe", "rocksalt")], [("PbTe", "rocksalt")]]) == {
+        ("PbTe", "rocksalt")
+    }
+
+
+def test_build_turtle_shared_agrees_with_shared_keys() -> None:
+    # Drift guard: the builder's own shared set and the extracted function must stay
+    # the same predicate, or discovery would promise a count a build does not produce.
+    obs = {
+        ("composition", "starrydata"): [("sd:1", "Bi2Te3"), ("sd:2", "PbTe"), ("sd:3", "SnSe")],
+        ("composition", "materials_project"): [("mp:1", "Bi₂Te₃"), ("mp:2", "PbTe")],
+    }
+    build = _build(CrosswalkConfig((COMPOSITION,)), obs)
+    normalize = resolve_normalizer("composition")
+    expected = shared_keys(
+        [{normalize(raw) for _, raw in rows} for rows in obs.values()], min_datasets=2
+    )
+    assert len(build.shared["composition"]) == len(expected)
+    assert set(build.shared["composition"]) == expected
 
 
 def _phase(*key_parts: KeyPart) -> Concept:
