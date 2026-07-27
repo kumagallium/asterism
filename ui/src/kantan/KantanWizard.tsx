@@ -1511,10 +1511,11 @@ export function KantanWizard({
     await startRefineChain([t('kantan:s6.refineWrap', { note: trimmed })], 'note')
   }
 
-  // "AI に直してもらう" (S5 design stop): the same one-click fix the detail
-  // tier has — the card's failure lines (trap details + repair recipes +
-  // warnings + validation/mapping issues) become the corrective refine
-  // comment, then the refined design re-runs the auto chain from materialize.
+  // "AI に直してもらう" (S5 design/weakness stop): the same one-click fix the
+  // detail tier has — the card's failure lines (trap details + repair recipes +
+  // warnings + validation/mapping issues; for a weakness card the raw
+  // advisories) become the corrective refine comment, then the refined design
+  // re-runs the auto chain from materialize.
   /** Fix the carried findings — the review screen's counterpart of the stop
    *  card's AI fix. The AI gets the RAW advisories (they already spell out the
    *  join keys and which side must declare the link); the screen shows the
@@ -1530,7 +1531,8 @@ export function KantanWizard({
   }
 
   function runAiFix() {
-    if (!stop || stop.kind !== 'design' || !proposal || pipeBusy) return
+    if (!stop || (stop.kind !== 'design' && stop.kind !== 'weakness') || !proposal || pipeBusy)
+      return
     const card = stop
     const lines = card.fixLines?.length ? card.fixLines : card.detail ? [card.detail] : []
     const comment = `${t('workbench:fix.commentIntro')}\n${lines.map((l) => `- ${l}`).join('\n')}`
