@@ -104,7 +104,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from asterism_api import describe as describe_mod
-from asterism_api import design_loop, registry, server_keys
+from asterism_api import design_loop, registry, server_keys, togomcp_sync
 from asterism_api import usage as usage_ledger
 from asterism_api.jobs import JobManager
 from asterism_api.tool_loop import ToolLoopResult, propose_tool_with_correction
@@ -908,6 +908,19 @@ class Settings:
         # unpublished); set it to a namespace the operator controls to mint
         # citable identifiers. Bundled datasets keep their dataset.toml IRIs.
         self.iri_base = normalize_iri_base(e.get("ASTERISM_IRI_BASE"))
+        # togomcp auto-publish (ADR togomcp-auto-publish.md): promote projects the
+        # dataset's MIE into this togomcp TOGOMCP_DIR (mie/<id>.yaml + an
+        # endpoints.csv row) so promoted datasets appear in the DBCLS togomcp
+        # catalog. Unset → disabled. The file layout is the ONLY coupling —
+        # togomcp itself is never imported.
+        togomcp_raw = (e.get("ASTERISM_TOGOMCP_DIR") or "").strip()
+        self.togomcp_dir = Path(togomcp_raw) if togomcp_raw else None
+        # The SPARQL endpoint URL as togomcp (same compose network) reaches it,
+        # and the endpoint_name grouping key in endpoints.csv.
+        self.togomcp_endpoint_url = e.get(
+            "ASTERISM_TOGOMCP_ENDPOINT_URL", "http://oxigraph:7878/query"
+        )
+        self.togomcp_endpoint_name = e.get("ASTERISM_TOGOMCP_ENDPOINT_NAME", "oxigraph")
         self.settle_s = float(e.get("CSV2RDF_SETTLE_S", DEFAULT_SETTLE_S))
         # Per-dataset append inbox (ADR incremental-ingest.md §6): a CSV/JSON dropped
         # at ``<append_drop_root>/<dataset_id>/<file>`` is appended to that dataset's
@@ -4514,23 +4527,38 @@ def build_app(
         # crosswalk-hub.md ②: if this dataset participates in the crosswalk, rebuild
         # the hub now (inline best-effort) so its newly-citable values are joined.
         await _maybe_rebuild_crosswalk(client, cfg.registry_root, dataset_id)
-        return JSONResponse(
-            {
-                "dataset_id": dataset_id,
-                "promoted": True,
-                "canonical_graph": dataset_key,
-                # part5: the version graph now holding the citable data.
-                "live_graph": staged_iri,
-                "triples_promoted": triples_promoted,
-                # #20 step5: TBox triples projected into the ontology graph.
-                "ontology_graph": substrate.ontology_graph_iri(dataset_id),
-                "ontology_triples": ontology_triples,
-                "alignment": alignment,
-                # #20 P3: monotonic dataset version (bumped on each re-promote).
-                "version": meta.get("version") if meta else None,
-                "dataset": meta,
-            }
-        )
+        # ADR togomcp-auto-publish.md: project the vetted MIE into the togomcp
+        # catalog (best-effort, opt-in via ASTERISM_TOGOMCP_DIR). Only promoted
+        # data is ever published; the projection pins the CURRENT live graph.
+        togomcp: dict[str, object] | None = None
+        if cfg.togomcp_dir is not None:
+            togomcp = await asyncio.to_thread(
+                togomcp_sync.publish_dataset,
+                cfg.togomcp_dir,
+                dataset_id,
+                str((data.get("artifacts") or {}).get("mie.yaml") or ""),
+                staged_iri,
+                endpoint_url=cfg.togomcp_endpoint_url,
+                endpoint_name=cfg.togomcp_endpoint_name,
+            )
+        payload: dict[str, object] = {
+            "dataset_id": dataset_id,
+            "promoted": True,
+            "canonical_graph": dataset_key,
+            # part5: the version graph now holding the citable data.
+            "live_graph": staged_iri,
+            "triples_promoted": triples_promoted,
+            # #20 step5: TBox triples projected into the ontology graph.
+            "ontology_graph": substrate.ontology_graph_iri(dataset_id),
+            "ontology_triples": ontology_triples,
+            "alignment": alignment,
+            # #20 P3: monotonic dataset version (bumped on each re-promote).
+            "version": meta.get("version") if meta else None,
+            "dataset": meta,
+        }
+        if togomcp is not None:
+            payload["togomcp"] = togomcp
+        return JSONResponse(payload)
 
     @app.post("/api/datasets/{dataset_id}/retract", dependencies=_write_auth)
     async def retract_dataset(dataset_id: str) -> JSONResponse:
@@ -4550,6 +4578,12 @@ def build_app(
         now = datetime.now(UTC).isoformat()
         await substrate.retract_canonical(client, canonical_iri, invalidated_at=now)
         meta = registry.mark_retracted(cfg.registry_root, dataset_id, retracted_at=now)
+        # A retracted dataset leaves the Ask scope — unlist it from the togomcp
+        # catalog too (best-effort; reversed by /reinstate).
+        if cfg.togomcp_dir is not None:
+            await asyncio.to_thread(
+                togomcp_sync.unpublish_dataset, cfg.togomcp_dir, dataset_id
+            )
         return JSONResponse(
             {"dataset_id": dataset_id, "status": "retracted", "dataset": meta}
         )
@@ -4566,6 +4600,19 @@ def build_app(
         meta = registry.mark_reinstated(
             cfg.registry_root, dataset_id, reinstated_at=datetime.now(UTC).isoformat()
         )
+        # Reverse the retract-time unlisting: republish the MIE against the live
+        # graph that just came back into scope (best-effort).
+        if cfg.togomcp_dir is not None:
+            live = await substrate.live_graph_of(client, canonical_iri) or canonical_iri
+            await asyncio.to_thread(
+                togomcp_sync.publish_dataset,
+                cfg.togomcp_dir,
+                dataset_id,
+                str((data.get("artifacts") or {}).get("mie.yaml") or ""),
+                live,
+                endpoint_url=cfg.togomcp_endpoint_url,
+                endpoint_name=cfg.togomcp_endpoint_name,
+            )
         return JSONResponse(
             {"dataset_id": dataset_id, "status": "active", "dataset": meta}
         )
@@ -4640,6 +4687,11 @@ def build_app(
             # Never citable — just drop its staged pointer (no tombstone needed).
             await substrate.clear_staged_graph(client, dataset_key)
         registry.delete_dataset(cfg.registry_root, dataset_id)
+        # A deleted dataset must not linger in the togomcp catalog (best-effort).
+        if cfg.togomcp_dir is not None:
+            await asyncio.to_thread(
+                togomcp_sync.unpublish_dataset, cfg.togomcp_dir, dataset_id
+            )
         # The data graphs are enqueued for a background drop; the periodic sweeper
         # reclaims them off the request path (so delete never blocks on a large DROP).
         return JSONResponse(

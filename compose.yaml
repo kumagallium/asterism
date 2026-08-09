@@ -83,8 +83,17 @@ services:
       CSV2RDF_RDF_ROOT: /data/sources/rdf/starrydata
       CSV2RDF_ERROR_ROOT: /data/sources/errors/starrydata
       CSV2RDF_JOBS_LOG: /data/sources/jobs.jsonl
+      # ADR togomcp-auto-publish.md: promote projects the dataset's MIE into the
+      # togomcp TOGOMCP_DIR (mie/<id>.yaml + endpoints.csv row) so promoted
+      # datasets appear in the togomcp catalog. Unset to disable. NOTE: togomcp
+      # reads endpoints.csv at startup and caches find_databases — a newly
+      # published dataset needs `docker compose restart togomcp` to be listed
+      # (get_MIE_file reads per call and sees updates immediately).
+      ASTERISM_TOGOMCP_DIR: /data/togomcp
     volumes:
       - ./data/sources:/data/sources
+      # Writable here; the togomcp container mounts the same dir read-only.
+      - ./data/togomcp:/data/togomcp
     ports:
       # Loopback-only by default: this is the WRITE / ingest / design surface and
       # it has no built-in authentication. Front it with an authenticating reverse

@@ -2038,3 +2038,31 @@ def test_dogfood_drop_is_not_degraded(tmp_path: Path) -> None:
     rows = dest.read_text(encoding="utf-8").splitlines()
     assert rows[0] == "2theta,d,I,(hkl)"  # only the body columns — no metadata
     assert len(rows) == 1 + 47
+
+
+def test_scope_query_to_graph_injects_from_and_from_named() -> None:
+    from asterism.substrate import scope_query_to_graph
+
+    out = scope_query_to_graph(
+        "SELECT ?s WHERE { ?s ?p ?o }", "https://ex/graph/canonical/d/v1"
+    )
+    assert "FROM <https://ex/graph/canonical/d/v1>" in out
+    assert "FROM NAMED <https://ex/graph/canonical/d/v1>" in out
+    assert out.index("FROM") < out.index("WHERE")
+
+
+def test_scope_query_to_graph_respects_author_dataset_clause() -> None:
+    from asterism.substrate import scope_query_to_graph
+
+    query = "SELECT ?s FROM <https://ex/other> WHERE { ?s ?p ?o }"
+    assert scope_query_to_graph(query, "https://ex/live") == query
+
+
+def test_scope_query_to_graph_pins_graph_patterns_via_from_named() -> None:
+    from asterism.substrate import scope_query_to_graph
+
+    out = scope_query_to_graph(
+        "SELECT ?s WHERE { GRAPH ?g { ?s ?p ?o } }", "https://ex/live"
+    )
+    # GRAPH ?g now ranges over exactly the injected FROM NAMED graph.
+    assert "FROM NAMED <https://ex/live>" in out
