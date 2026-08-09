@@ -359,6 +359,9 @@ Vetted **Tier 0** functions (the complete closed set — choose only from here):
       `function:` / `transform:`), uses only real columns/files from the
       inspection, and unmappable multi-valued columns use the `…Raw`
       fallback (`fallback: true`)?
+- [ ] T10: every §7 example query uses only §2/§3 terms the §9 mapping actually
+      emits, so it parses AND returns rows against the materialized draft
+      (the validator executes them — never ship an example that returns nothing)?
 
 ## What you receive (user message)
 

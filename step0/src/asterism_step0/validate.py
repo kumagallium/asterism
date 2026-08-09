@@ -1,10 +1,11 @@
-"""Schema validator for asterism Phase 3 (trap checks T1-T9).
+"""Schema validator for asterism Phase 3 (trap checks T1-T10).
 
 Validates a schema bundle (TBox TTL + Mermaid + MIE YAML + ingester Python +
 the source CSVs) against the 8 traps from
 ``docs/architecture/ai-assisted-step0-workflow.md`` §6, plus **T9** (Phase 5):
 the declarative RML mapping references only vetted Tier 0 functions — see
-``docs/architecture/step0-rml-emission.md`` §5.2.
+``docs/architecture/step0-rml-emission.md`` §5.2 — plus **T10**: the MIE's
+example queries must actually run.
 
 The traps and how this module checks each:
 
@@ -44,6 +45,14 @@ The traps and how this module checks each:
   :class:`LLMClient` with a curated list of natural-language questions plus
   the connected MCP tool surface. Compare the LLM's answers against SPARQL
   ground truth. Returns a soft pass/warn — flaky by nature.
+* **T10 MIE query examples** — every §7 ``sparql_query_examples`` entry must
+  parse with the SAME engine the store runs (pyoxigraph), and — when the
+  materialized draft Turtle is supplied (``--draft-ttl``) — must return rows
+  against it. Closes the gap T1/T6 leave open: they check the MIE against the
+  source CSVs, but nothing checked the example QUERIES an agent imitates at
+  runtime (the 2026-06-01 stale-ZT-example incident: a drifted example led an
+  agent to fabricate an answer). On failure the recipe replaces the query with
+  a broad probe over a predicate the draft provably contains.
 
 Return shape: :class:`ValidationReport`. The CLI ``asterism-validate`` returns
 exit code 0 if all required (non-skipped) traps pass, else 1 — suitable for
@@ -131,6 +140,7 @@ class SchemaBundle:
     ingester_py: Path | None = None  # ingest/src/asterism/{name}.py
     rml_ttl: Path | None = None  # {name}-mapping.rml.ttl (declarative substrate, T9)
     mapping_ir_yaml: Path | None = None  # {name}-mapping.yaml (§9 spec; feeds T4's fix)
+    draft_ttl: Path | None = None  # materialized draft Turtle (T10 executes §7 queries)
     source_csvs: list[Path] = field(default_factory=list)
     fk_hint_columns: list[str] = field(default_factory=list)
 
@@ -1356,6 +1366,246 @@ def _check_t9_rml_closed_set(
 
 
 # ----------------------------------------------------------------------------
+# Trap T10: MIE query examples must parse — and run against the draft, when given
+# ----------------------------------------------------------------------------
+#
+# The 2026-06-01 ZT incident: an MIE example drifted from the data and an agent,
+# imitating the stale example, fabricated an answer. T1/T6 check the MIE against
+# the *source CSVs*; nothing checked the example QUERIES themselves. T10 closes
+# that: every §7 ``sparql_query_examples`` entry must parse with the SAME engine
+# the store runs (pyoxigraph — the query_tools lint precedent), and when the
+# materialized draft Turtle is supplied it must return rows against it. This is
+# the design-time counterpart of MateReason's (tsudalab) live-graph MIE
+# validation; asterism validates at the bundle, before anything is published.
+
+_T10_QUERY_KEYS = ("query", "sparql")  # asterism MIEs use `query`; togomcp-style `sparql`
+_T10_DATASET_IRI = re.compile(r"\b(?:FROM\s+(?:NAMED\s+)?|GRAPH\s+)<([^>]+)>", re.IGNORECASE)
+_T10_RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+
+_T10_FIX_MISSING = (
+    "In §7 (MIE YAML), add a `sparql_query_examples:` list with 3-5 entries, each\n"
+    "`- title: ...` / `description: ...` / `query: |` — runnable, read-only\n"
+    "SELECT/ASK queries over the §2/§3 classes and predicates, LIMIT included.\n"
+    "Start from this always-valid probe, then specialize it per class:\n\n"
+    "  - title: Inspect typed records\n"
+    "    description: One row per record with its class.\n"
+    "    query: |\n"
+    "      SELECT ?s ?type WHERE { ?s a ?type } LIMIT 20"
+)
+
+
+def _t10_entries(document: Mapping) -> tuple[list[tuple[int, str, str]], list[str]]:
+    """``(index, label, query-text)`` triples + structure issues from §7 examples."""
+    entries: list[tuple[int, str, str]] = []
+    issues: list[str] = []
+    examples = document.get("sparql_query_examples")
+    if not isinstance(examples, list):
+        issues.append(
+            "sparql_query_examples must be a list of {title, description, query} objects"
+        )
+        return entries, issues
+    for index, item in enumerate(examples):
+        if not isinstance(item, Mapping):
+            issues.append(f"sparql_query_examples[{index}] is not an object")
+            continue
+        label = str(item.get("title") or f"#{index}")
+        text = next(
+            (item[k] for k in _T10_QUERY_KEYS if isinstance(item.get(k), str)), None
+        )
+        if not text or not text.strip():
+            issues.append(
+                f"sparql_query_examples[{index}] ({label}) has no `query:`/`sparql:` string"
+            )
+            continue
+        entries.append((index, label, text))
+    return entries, issues
+
+
+def _pyox_load_turtle(store: Any, ttl: Path, graph_iri: str | None) -> None:
+    """Load Turtle into ``store`` (default or named graph) across pyoxigraph 0.3/0.4."""
+    import pyoxigraph  # lazy — guarded by the caller
+
+    to_graph = pyoxigraph.NamedNode(graph_iri) if graph_iri else None
+    try:  # 0.4+: load(path=..., format=RdfFormat.TURTLE, to_graph=...)
+        fmt = pyoxigraph.RdfFormat.TURTLE
+        if to_graph is None:
+            store.load(path=str(ttl), format=fmt)
+        else:
+            store.load(path=str(ttl), format=fmt, to_graph=to_graph)
+    except (AttributeError, TypeError):  # 0.3 (morph-kgc pin): load(input, mime_type)
+        with ttl.open("rb") as fh:
+            if to_graph is None:
+                store.load(fh, "text/turtle")
+            else:
+                store.load(fh, "text/turtle", to_graph=to_graph)
+
+
+def _t10_has_rows(result: Any) -> bool:
+    """True when a query result carries any row / triple / ``ASK`` true."""
+    if isinstance(result, bool):  # 0.3 ASK
+        return result
+    try:
+        return next(iter(result), None) is not None
+    except TypeError:  # 0.4 QueryBoolean is not iterable
+        return bool(result)
+
+
+def _t10_proven_predicate(store: Any) -> str | None:
+    """The draft's most-used non-``rdf:type`` predicate — recipe raw material."""
+    query = (
+        "SELECT ?p (COUNT(*) AS ?n) WHERE { ?s ?p ?o } "
+        "GROUP BY ?p ORDER BY DESC(?n) LIMIT 5"
+    )
+    with contextlib.suppress(Exception):
+        for row in store.query(query):
+            try:
+                term = row["p"]
+            except (KeyError, TypeError, IndexError):
+                term = row[0]
+            value = getattr(term, "value", None)
+            if value and value != _T10_RDF_TYPE:
+                return str(value)
+    return None
+
+
+def _t10_fix_recipe(store: Any) -> str:
+    """Paste-ready §7 repair: a broad query over a predicate the draft proves."""
+    predicate = _t10_proven_predicate(store) if store is not None else None
+    if predicate:
+        example = f"      SELECT ?s ?o WHERE {{ ?s <{predicate}> ?o }} LIMIT 20"
+        proven = f"a predicate the draft actually contains (most-used: <{predicate}>)"
+    else:
+        example = "      SELECT ?s ?type WHERE { ?s a ?type } LIMIT 20"
+        proven = "a predicate from §3 that the mapping actually emits"
+    return (
+        "In §7 (MIE YAML) `sparql_query_examples`, REPLACE each failed entry's\n"
+        "`query:` (listed in evidence) with a broad query over " + proven + ",\n"
+        "then re-add filters one at a time, re-validating each step:\n\n"
+        "  - title: Inspect records\n"
+        "    description: Broad probe over a proven predicate.\n"
+        "    query: |\n" + example + "\n\n"
+        "Keep every query read-only with a LIMIT. Never ship an example that\n"
+        "returns nothing — an agent imitating it will fabricate answers\n"
+        "(the 2026-06-01 ZT incident)."
+    )
+
+
+def _check_t10_query_examples(bundle: SchemaBundle) -> TrapResult:
+    """§7 example queries must parse; with ``draft_ttl`` they must return rows."""
+    name = "MIE query examples"
+    if bundle.mie_yaml is None or not bundle.mie_yaml.exists():
+        return TrapResult("T10", name, "skip", "No MIE YAML.")
+    document, err = _load_mie_yaml(bundle)
+    if err:
+        return _mie_broken("T10", name, bundle, err)
+    if not isinstance(document, Mapping) or "sparql_query_examples" not in document:
+        return TrapResult(
+            "T10",
+            name,
+            "warn",
+            "§7 has no sparql_query_examples — an MIE without runnable examples "
+            "gives an AI agent nothing proven to imitate (propose §7 mandates 3-5).",
+            fix=_T10_FIX_MISSING,
+        )
+    entries, issues = _t10_entries(document)
+    if issues:
+        return TrapResult(
+            "T10",
+            name,
+            "fail",
+            f"{len(issues)} malformed sparql_query_examples entrie(s).",
+            evidence=issues,
+            fix=_T10_FIX_MISSING,
+        )
+    if not entries:
+        return TrapResult(
+            "T10",
+            name,
+            "warn",
+            "sparql_query_examples is empty — add 3-5 runnable examples (§7).",
+            fix=_T10_FIX_MISSING,
+        )
+    try:
+        import pyoxigraph
+    except ImportError:
+        return TrapResult(
+            "T10",
+            name,
+            "skip",
+            "pyoxigraph not installed — cannot parse/execute MIE example queries "
+            "(install the ingest package, or `pip install pyoxigraph`).",
+        )
+    failures: list[str] = []
+    parsed: list[tuple[int, str, str]] = []
+    probe = pyoxigraph.Store()
+    for index, label, text in entries:
+        try:
+            probe.query(text)
+            parsed.append((index, label, text))
+        except Exception as exc:
+            first = " ".join(str(exc).split())[:200]
+            failures.append(f"sparql_query_examples[{index}] ({label}): parse error: {first}")
+    executed = False
+    store = None
+    if bundle.draft_ttl is not None and bundle.draft_ttl.exists() and parsed:
+        store = pyoxigraph.Store()
+        try:
+            # Default graph first; then every named graph a query scopes to, so a
+            # GRAPH/FROM-scoped example is not a false negative (the draft file
+            # itself carries no graph name).
+            _pyox_load_turtle(store, bundle.draft_ttl, None)
+            scoped = {g for _, _, text in parsed for g in _T10_DATASET_IRI.findall(text)}
+            for graph_iri in sorted(scoped):
+                _pyox_load_turtle(store, bundle.draft_ttl, graph_iri)
+        except Exception as exc:
+            first = " ".join(str(exc).split())[:200]
+            return TrapResult(
+                "T10",
+                name,
+                "fail",
+                f"draft Turtle {bundle.draft_ttl.name} could not be loaded: {first}",
+                fix=(
+                    "Re-materialize the draft (the §9 mapping spec compiles to RML "
+                    "deterministically) and pass the produced .ttl to --draft-ttl."
+                ),
+            )
+        executed = True
+        for index, label, text in parsed:
+            try:
+                if not _t10_has_rows(store.query(text)):
+                    failures.append(
+                        f"sparql_query_examples[{index}] ({label}): returned no rows "
+                        f"against {bundle.draft_ttl.name}"
+                    )
+            except Exception as exc:
+                first = " ".join(str(exc).split())[:200]
+                failures.append(
+                    f"sparql_query_examples[{index}] ({label}): execution error: {first}"
+                )
+    if failures:
+        stage = "parse + live run against the draft" if executed else "parse"
+        return TrapResult(
+            "T10",
+            name,
+            "fail",
+            f"{len(failures)}/{len(entries)} example querie(s) failed ({stage}).",
+            evidence=failures,
+            fix=_t10_fix_recipe(store),
+        )
+    if executed:
+        detail = (
+            f"All {len(entries)} §7 example queries parse and return rows "
+            f"against {bundle.draft_ttl.name}."
+        )
+    else:
+        detail = (
+            f"All {len(entries)} §7 example queries parse (same engine as the "
+            "store). Pass --draft-ttl to also verify they return rows."
+        )
+    return TrapResult("T10", name, "pass", detail)
+
+
+# ----------------------------------------------------------------------------
 # Public entry point
 # ----------------------------------------------------------------------------
 
@@ -1366,7 +1616,7 @@ def validate_schema(
     llm: Any = None,
     allowed_fn_iris: set[str] | None = None,
 ) -> ValidationReport:
-    """Run all 9 trap checks against ``bundle``. Returns a :class:`ValidationReport`."""
+    """Run all 10 trap checks against ``bundle``. Returns a :class:`ValidationReport`."""
     results = [
         _check_t1_uniqueness(bundle),
         _check_t2_bom(bundle),
@@ -1377,6 +1627,7 @@ def validate_schema(
         _check_t7_rationale(bundle),
         _check_t8_hallucination(bundle, llm=llm),
         _check_t9_rml_closed_set(bundle, allowed_fn_iris=allowed_fn_iris),
+        _check_t10_query_examples(bundle),
     ]
     bundle_paths = {
         "tbox_ttl": str(bundle.tbox_ttl) if bundle.tbox_ttl else "",
@@ -1385,6 +1636,7 @@ def validate_schema(
         "ingester_py": str(bundle.ingester_py) if bundle.ingester_py else "",
         "rml_ttl": str(bundle.rml_ttl) if bundle.rml_ttl else "",
         "mapping_ir_yaml": str(bundle.mapping_ir_yaml) if bundle.mapping_ir_yaml else "",
+        "draft_ttl": str(bundle.draft_ttl) if bundle.draft_ttl else "",
         "source_csvs": ", ".join(str(p) for p in bundle.source_csvs),
     }
     return ValidationReport(results=results, bundle_paths=bundle_paths)
@@ -1446,8 +1698,8 @@ def _build_arg_parser():  # type: ignore[no-untyped-def]
     p = argparse.ArgumentParser(
         prog="asterism-validate",
         description=(
-            "Run the trap validator (T1-T9) on a schema bundle "
-            "(TBox / diagram / MIE / ingester / RML / CSVs). "
+            "Run the trap validator (T1-T10) on a schema bundle "
+            "(TBox / diagram / MIE / ingester / RML / draft TTL / CSVs). "
             "Returns exit 0 if all required traps pass, else 1. Suitable for CI."
         ),
     )
@@ -1466,6 +1718,15 @@ def _build_arg_parser():  # type: ignore[no-untyped-def]
         type=Path,
         default=None,
         help="§9 mapping spec .yaml path (improves T4's derived fix recipe).",
+    )
+    p.add_argument(
+        "--draft-ttl",
+        type=Path,
+        default=None,
+        help=(
+            "Materialized draft Turtle; T10 then also EXECUTES the §7 example "
+            "queries against it (zero rows = fail), not just parses them."
+        ),
     )
     p.add_argument(
         "--csv", type=Path, action="append", default=[], help="Source CSV (repeatable)"
@@ -1489,6 +1750,7 @@ def _main(argv: list[str] | None = None) -> int:
         ingester_py=args.ingester,
         rml_ttl=args.rml,
         mapping_ir_yaml=args.mapping_ir,
+        draft_ttl=args.draft_ttl,
         source_csvs=args.csv,
         fk_hint_columns=args.fk,
     )
