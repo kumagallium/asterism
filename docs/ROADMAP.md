@@ -4,7 +4,7 @@
 >
 > **このリポジトリで作業するセッション（Claude Code / Cowork / 人）は、開始時に本書を読み、作業後に状態を更新すること。** 手順は [`CLAUDE.md`](../CLAUDE.md) 参照。
 
-最終更新: 2026-07-24
+最終更新: 2026-08-09
 
 ## 北極星
 
@@ -65,6 +65,8 @@
 - 線形・限定の作業（例: Asterism 改名 change-set）は通常実行で十分。
 
 ## 更新 log
+
+- 2026-08-09: **MIE の品質ゲートと配信を一本道に（T10 実行検証 PR #321＋togomcp 自動配信 PR #322）**。MIE まわりの棚卸しで穴 2 つを特定: **§7 例示クエリを誰も実行していない**（2026-06-01 ZT stale 例事件の根因。T1/T6 は原データ照合のみで、書かれたクエリ自体は素通り）と、**promote しても togomcp カタログに載らない**（starrydata 1 件だけ手動配置）。① **T10**（step0 validate）＝例示クエリを pyoxigraph（store 同一パーサ）で常時 parse＋`--draft-ttl` で実行し 0 行/ASK false を fail・GRAPH/FROM 参照グラフへ TTL 自動ロードで偽陰性排除・T4 流の貼るだけレシピ（draft の最頻述語で置換例を機械生成）。api materialize は `validate_schema` 経由で即有効。② **togomcp 自動配信**（api・`ASTERISM_TOGOMCP_DIR` opt-in）＝promote 成功時に registry MIE を**決定論投影**（endpoint/graphs を現在値に固定＋データセット節の無い例示へ `FROM <live-graph>` 注入=`substrate.scope_query_to_graph` 新設。生ストア接続の togomcp では素通し配信が全例示 0 行になるため）して `TOGOMCP_DIR` レイアウト（mie/<id>.yaml＋endpoints.csv upsert）へ書き出し。retract/delete=unlist・reinstate=再配信・draft 不配信・starrydata 手動行温存・best-effort（promote を落とさない）。**結合面は togomcp の公開契約 `TOGOMCP_DIR` のみ**（vendor もパッケージ内部書き込みもしない・ADR `togomcp-auto-publish.md`）。制約＝togomcp（pin 54ab0d0）は endpoints.csv 起動時読み＋find_databases キャッシュ→新規掲載は restart 後（get_MIE_file は都度読み）。検証＝step0 586／ingest 510／api 333 全緑・fixture CLI T1-T10 exit 0・両 PR CI 全6ジョブ pass。残＝両 PR マージ→本番 env 配線→togomcp restart 込みの実機一周・reinstate の live_graph 実値検証。
 
 - 2026-07-27: **かんたん S5「弱さ」カードの「AI に直してもらう」が無反応 — ガード漏れを修正**。ユーザー実報告（本番で weakness カード上のボタンを押しても何も起きない）。原因: PR #317 が weakness 停止カードにも design と同じボタンを配線したが、`runAiFix` 冒頭のガードが導入時（design 専用）の `stop.kind !== 'design'` のままで、weakness では無言の早期 return（ボタンは disabled でないため見た目は押せる）。修正: ガードを design/weakness 両対応に（`ui/src/kantan/KantanWizard.tsx`）。weakness カードは `fixLines`（生 advisory）を持つので後続 refine チェーン・キャンセル時の stop 復元は既存実装のまま機能する。tsc / eslint 通過。教訓: 停止カードの「表示条件」と「ハンドラ内ガード」の二重管理は乖離する — ボタン側で分岐せずハンドラを kind 網羅にするか、ガードとレンダを同じ述語関数に寄せる。
 
