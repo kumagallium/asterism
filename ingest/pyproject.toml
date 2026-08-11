@@ -3,7 +3,6 @@ name = "asterism-ingest"
 version = "0.1.0"
 description = "CSV -> RDF ingester for asterism (Phase 1)"
 requires-python = ">=3.11"
-readme = "../README.md"
 license = { text = "Apache-2.0" }
 dependencies = [
     "rdflib>=7.0",
