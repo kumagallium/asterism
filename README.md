@@ -96,6 +96,26 @@ asterism-materialize refined.md --name mydata --output-dir out/
 asterism-validate --mie out/mydata-mie.yaml --ingester out/mydata.py --csv mydata.csv
 ```
 
+### Local mode (no Docker)
+
+`asterism-local` runs the whole workbench loopback-only on one machine: data lives
+under your OS user-data directory (macOS: `~/Library/Application Support/Asterism`),
+the write token is minted and injected automatically (nothing to paste), and
+Oxigraph is started as a child process. Designed for researchers whose unpublished
+data must never leave their machine — see
+[`docs/architecture/local-first-distribution.md`](docs/architecture/local-first-distribution.md).
+
+```bash
+brew install oxigraph            # or: cargo install oxigraph-cli
+cd ui && npm ci && npm run build && cd ..   # build the SPA once
+cd api && uv venv .venv && uv pip install -e '.[local]'
+.venv/bin/asterism-local         # opens http://127.0.0.1:8080/
+```
+
+Useful flags: `--data-dir`, `--oxigraph-url` (reuse a running store instead of
+spawning one), `--port`, `--no-browser`. Local LLMs (Ollama / LM Studio) work via
+Settings → provider `openai-compatible` with a local base URL.
+
 ## Security / deploying with sensitive data
 
 The quickstart above is for **local, single-user** use. Asterism is designed to be

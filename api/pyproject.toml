@@ -3,7 +3,6 @@ name = "asterism-api"
 version = "0.1.0"
 description = "Upload API + watcher driver for asterism (Phase 2)"
 requires-python = ">=3.11"
-readme = "../README.md"
 license = { text = "Apache-2.0" }
 dependencies = [
     # asterism-ingest and asterism-step0 are installed from sibling paths; see
@@ -29,9 +28,16 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.10",
 ]
+# Local mode (asterism-local) with the declarative ingest engine included:
+# materialize/ingest need morph-kgc, which the hosted image installs via
+# ingest[substrate]. `uv pip install -e '.[local]'` gives a laptop the same.
+local = [
+    "asterism-ingest[substrate]",
+]
 
 [project.scripts]
 asterism-api = "asterism_api.main:_main"
+asterism-local = "asterism_api.local:main"
 
 [build-system]
 requires = ["hatchling"]
