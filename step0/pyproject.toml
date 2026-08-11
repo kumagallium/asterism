@@ -3,7 +3,6 @@ name = "asterism-step0"
 version = "0.1.0"
 description = "AI-assisted Step 0 builder (CSV inspection + schema proposal) for asterism Phase 3"
 requires-python = ">=3.11"
-readme = "../README.md"
 license = { text = "Apache-2.0" }
 dependencies = [
     # No hard runtime deps; pandas is optional for users who want the
