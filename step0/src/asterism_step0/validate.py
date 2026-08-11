@@ -1374,9 +1374,8 @@ def _check_t9_rml_closed_set(
 # the *source CSVs*; nothing checked the example QUERIES themselves. T10 closes
 # that: every §7 ``sparql_query_examples`` entry must parse with the SAME engine
 # the store runs (pyoxigraph — the query_tools lint precedent), and when the
-# materialized draft Turtle is supplied it must return rows against it. This is
-# the design-time counterpart of MateReason's (tsudalab) live-graph MIE
-# validation; asterism validates at the bundle, before anything is published.
+# materialized draft Turtle is supplied it must return rows against it — the
+# bundle is validated at design time, before anything is published.
 
 _T10_QUERY_KEYS = ("query", "sparql")  # asterism MIEs use `query`; togomcp-style `sparql`
 _T10_DATASET_IRI = re.compile(r"\b(?:FROM\s+(?:NAMED\s+)?|GRAPH\s+)<([^>]+)>", re.IGNORECASE)
