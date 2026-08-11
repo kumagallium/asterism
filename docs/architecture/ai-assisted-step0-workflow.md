@@ -309,6 +309,7 @@ Phase 3 で追加予定: ノード単位のコメント機能を持つ専用 UI 
 | 6 | **fake sample_rdf_entries** | AI が架空の IRI を `sample_rdf_entries` に書きがち。実 IRI と乖離 | 実 CSV の 1 行を fixture として参照 |
 | 7 | **architectural_notes の "なぜ" 欠落** | 設計判断の根拠が AI 自身の memory に閉じ込められて消失 | AI には毎回「なぜそうしたか」を併記させる |
 | 8 | **AI 自身による hallucination** (実 query 結果) | Dify の AI が starrydata を見つけず PubMed の abstract から数値を fabricate | 実 SPARQL 結果と AI 出力を直接比較する E2E test |
+| 10 | **MIE の例示クエリが実データで動かない** | ZT の stale 例 (2026-06-01): 実グラフと乖離した例示クエリを AI が模倣し架空の Nature 論文を捏造。人間が事後に手で修正した | T10: 例示クエリを store と同一エンジン (pyoxigraph) で parse + 材料化した draft TTL に対し実行し、0 行なら fail (`--draft-ttl`) |
 
 これらが **Phase 3 の AI-assisted builder の必須 validator** になる。
 

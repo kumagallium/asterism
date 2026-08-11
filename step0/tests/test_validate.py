@@ -678,11 +678,11 @@ def test_t8_skipped_without_llm() -> None:
 # ----------------------------------------------------------------------------
 
 
-def test_validate_schema_returns_9_results(tmp_path: Path) -> None:
+def test_validate_schema_returns_10_results(tmp_path: Path) -> None:
     bundle = SchemaBundle()  # everything skips
     report = validate_schema(bundle)
-    assert len(report.results) == 9
-    assert {r.trap_id for r in report.results} == {f"T{i}" for i in range(1, 10)}
+    assert len(report.results) == 10
+    assert {r.trap_id for r in report.results} == {f"T{i}" for i in range(1, 11)}
     assert report.exit_code() == 0  # all skips, no failures
 
 

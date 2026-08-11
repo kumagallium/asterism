@@ -42,6 +42,22 @@ sample_rdf_entries:
       sdr:curve/1-5-10 a sd:Curve ;
         sd:ofSample sdr:sample/1-10 .
 
+sparql_query_examples:
+  - title: Count samples per paper
+    description: Papers ranked by how many samples they carry.
+    query: |
+      PREFIX sd: <https://example.com/starrydata/ontology#>
+      SELECT ?paper (COUNT(?sample) AS ?n) WHERE {
+        ?sample a sd:Sample ; sd:fromPaper ?paper .
+      } GROUP BY ?paper ORDER BY DESC(?n) LIMIT 10
+  - title: Curves with their sample
+    description: Each curve joined to the sample it was measured on.
+    query: |
+      PREFIX sd: <https://example.com/starrydata/ontology#>
+      SELECT ?curve ?sample WHERE {
+        ?curve a sd:Curve ; sd:ofSample ?sample .
+      } LIMIT 10
+
 anti_patterns: |
   Do NOT mint sample IRIs as sdr:sample/{sample_id}. In the full database
   sample_id is paper-scoped and collides across SIDs; always use the composite
