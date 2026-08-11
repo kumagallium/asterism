@@ -3,7 +3,6 @@ name = "asterism-api"
 version = "0.1.0"
 description = "Upload API + watcher driver for asterism (Phase 2)"
 requires-python = ">=3.11"
-readme = "../README.md"
 license = { text = "Apache-2.0" }
 dependencies = [
     # asterism-ingest and asterism-step0 are installed from sibling paths; see

@@ -3,7 +3,6 @@ name = "asterism-mcp-tools"
 version = "0.1.0"
 description = "Self-built FastMCP server with starrydata-specific tools (Phase 2 #3)"
 requires-python = ">=3.11"
-readme = "../README.md"
 license = { text = "Apache-2.0" }
 dependencies = [
     # asterism-ingest gives us OxigraphClient; installed from sibling path.
