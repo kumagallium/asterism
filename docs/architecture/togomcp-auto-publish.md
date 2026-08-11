@@ -1,6 +1,6 @@
 # ADR: promote 時の togomcp 自動配信（MIE 投影）
 
-- **Status**: 合意済み（2026-08-09、MateReason 比較分析セッション）
+- **Status**: 合意済み（2026-08-09）
 - **関連**: [option-b.md](option-b.md)（togomcp 併設構成）/ [ontology-canonical-lifecycle.md](ontology-canonical-lifecycle.md)（promote/retract/delete）/ ai-assisted-step0-workflow.md §6 #10（T10 例示クエリ実行検証）
 
 ## 背景
@@ -10,8 +10,8 @@ Option B 構成は当初から dbcls/togomcp を併設し、`data/togomcp/`（to
 すべての新規データセットに MIE を書かせ、registry が `mie.yaml` として保持している——
 が、promote してもその MIE は registry 止まりで、togomcp からは存在しないのと同じだった。
 
-共同機関（津田研）の MateReason は同じ問題を「togomcp を vendor しパッケージ内部の
-data ディレクトリへ直接書き込む」ことで解いている。動くが、上流の内部構造への密結合になる。
+「togomcp を vendor しパッケージ内部の data ディレクトリへ直接書き込む」構成も考え
+られるが、上流の内部構造への密結合になるため採らない。
 
 ## 決定
 

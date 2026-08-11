@@ -4,10 +4,9 @@ promote copies the dataset's vetted MIE into a togomcp ``TOGOMCP_DIR`` layout
 (``mie/<id>.yaml`` + a ``resources/endpoints.csv`` row), so promoted asterism
 datasets appear in the DBCLS togomcp catalog next to the public RDF databases
 (ChEMBL & co). The FILE layout is the ONLY coupling: ``TOGOMCP_DIR`` is
-togomcp's documented content interface, togomcp itself is never imported or
-patched, and unsetting ``ASTERISM_TOGOMCP_DIR`` disables the feature entirely
-(loose coupling by construction — contrast MateReason, which vendors togomcp
-and writes into its package-internal data directory).
+togomcp's documented content interface, togomcp itself is never imported,
+vendored, or patched, and unsetting ``ASTERISM_TOGOMCP_DIR`` disables the
+feature entirely (loose coupling by construction).
 
 Projection, not a byte copy: the registry MIE is authored against the api's
 canonical FROM-merge (GRAPH-less example queries), but togomcp talks to the RAW
