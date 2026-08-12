@@ -33,14 +33,36 @@ The launcher is resolved in this order: `ASTERISM_LOCAL_CMD` env var →
 Backend output goes to the app log dir (macOS:
 `~/Library/Logs/com.kumagallium.asterism/backend.log`).
 
-## Not yet in v1
+## Self-contained bundle
 
-- **Self-contained bundle**: Python runtime / oxigraph binary / built SPA are
-  not bundled yet — v1 needs the repo checkout above. The follow-up mirrors
-  Graphium's sidecar layout (`bundle.externalBin` + `resources`).
+`npm run build` runs `scripts/bundle-backend.sh` first (via
+`beforeBuildCommand`), which assembles `src-tauri/backend/`:
+
+- standalone CPython (uv-managed, relocatable) with the asterism packages
+  installed non-editable (`ingest[substrate]` / `step0` / `mcp` / `api`),
+- the Oxigraph single binary (pinned release, per-arch download),
+- `demo-agent/app.py`, the bundled `datasets/`, and the built SPA.
+
+The whole directory ships inside the .app as a Tauri resource (~370 MB), so
+the built app runs on a machine with **no repo, no Python, no Docker, no
+Homebrew** — the shell starts the backend as `python3 -m asterism_api.local`
+with env pointing every payload at the bundle (console-script shebangs would
+break on relocation). User data stays under the OS user-data dir as with
+`asterism-local`. `tauri dev` skips the bundle and uses the repo checkout
+resolution instead (fast iteration).
+
+## Not yet done
+
 - **Signing / notarization / updater**: the release pipeline reuses Graphium's
   `tauri-build.yml` pattern (tauri-action) verbatim — same secret names:
   `TAURI_SIGNING_PRIVATE_KEY`, `APPLE_CERTIFICATE`,
   `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`,
   `APPLE_PASSWORD`, `APPLE_TEAM_ID`. Adding the workflow is a separate PR
   (workflow-only PRs get no CI runs scheduled in this repo — known trap).
+  Nested Resources binaries (python/oxigraph) need signing coverage — Graphium
+  ships a node runtime in resources the same way, so its config is the
+  reference.
+- **Windows**: grandchild cleanup needs a Job Object; the bundle script covers
+  macOS/Linux asset names only.
+- **Docling (PDF)**: not bundled — optional download later; PDF ingest
+  degrades with the existing clear 4xx.

@@ -316,7 +316,12 @@ _DEMO_FORWARD_HEADERS = frozenset(
 
 
 def find_demo_agent_dir() -> Path | None:
-    """``demo-agent/app.py`` (repo checkout / editable-install layout only)."""
+    """``demo-agent/app.py`` — env override (bundled .app layout) first, then
+    the repo-checkout location."""
+    override = (os.environ.get("ASTERISM_DEMO_AGENT_DIR") or "").strip()
+    if override:
+        explicit = Path(override).expanduser()
+        return explicit if (explicit / "app.py").is_file() else None
     candidate = Path(__file__).resolve().parents[3] / "demo-agent"
     return candidate if (candidate / "app.py").is_file() else None
 
