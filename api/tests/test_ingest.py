@@ -25,7 +25,7 @@ from asterism.oxigraph_client import OxigraphClient, OxigraphConfig
 from fastapi.testclient import TestClient
 from watchfiles import Change
 
-from asterism_api import registry
+from asterism_api import registry, togomcp_sync
 from asterism_api.main import Settings, _append_watch_loop, _sanitize_document_name, build_app
 
 _NO_PANDOC = pandoc_version() is None
@@ -1747,19 +1747,21 @@ def test_promote_publishes_projected_mie_to_togomcp(tmp_path: Path) -> None:
     live = f"https://kumagallium.github.io/asterism/graph/canonical/{dataset_id}/v1"
     with TestClient(app, headers=_AUTH) as client:
         body = client.post(f"/api/datasets/{dataset_id}/promote").json()
-    # The side-effect is disclosed in the response...
-    assert body["togomcp"] == {"published": True, "database": dataset_id}
+    # The side-effect is disclosed in the response, under togomcp's CANONICAL
+    # database name (hyphens stripped — see togomcp_sync.togomcp_database).
+    database = togomcp_sync.togomcp_database(dataset_id)
+    assert body["togomcp"] == {"published": True, "database": database}
     # ...the MIE landed in the TOGOMCP_DIR layout, pinned to the live graph...
     import yaml as _yaml
 
     published = _yaml.safe_load(
-        (tmp_path / "togomcp" / "mie" / f"{dataset_id}.yaml").read_text(encoding="utf-8")
+        (tmp_path / "togomcp" / "mie" / f"{database}.yaml").read_text(encoding="utf-8")
     )
     assert published["schema_info"]["graphs"] == [live]
     assert published["schema_info"]["endpoint"] == "http://oxigraph:7878/query"
     # ...and the endpoints.csv row routes the database to the raw store endpoint.
     rows = (tmp_path / "togomcp" / "resources" / "endpoints.csv").read_text(encoding="utf-8")
-    assert f"{dataset_id},http://oxigraph:7878/query,oxigraph,sparql" in rows
+    assert f"{database},http://oxigraph:7878/query,oxigraph,sparql" in rows
 
 
 def test_promote_without_togomcp_config_stays_silent(tmp_path: Path) -> None:
@@ -1776,7 +1778,7 @@ def test_retract_unlists_and_reinstate_republishes_togomcp(tmp_path: Path) -> No
     dataset_id = _ingested_dataset(tmp_path)
     oxi = _PromoteOxi()
     app = build_app(_togomcp_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
-    mie_file = tmp_path / "togomcp" / "mie" / f"{dataset_id}.yaml"
+    mie_file = tmp_path / "togomcp" / "mie" / f"{togomcp_sync.togomcp_database(dataset_id)}.yaml"
     with TestClient(app, headers=_AUTH) as client:
         assert client.post(f"/api/datasets/{dataset_id}/promote").status_code == 200
         assert mie_file.exists()
@@ -1786,7 +1788,7 @@ def test_retract_unlists_and_reinstate_republishes_togomcp(tmp_path: Path) -> No
         rows = (tmp_path / "togomcp" / "resources" / "endpoints.csv").read_text(
             encoding="utf-8"
         )
-        assert dataset_id not in rows
+        assert togomcp_sync.togomcp_database(dataset_id) not in rows
         # Reinstate republishes (live pointer falls back to the canonical key
         # graph when the fake store has no liveGraph binding).
         assert client.post(f"/api/datasets/{dataset_id}/reinstate").status_code == 200
@@ -1797,7 +1799,7 @@ def test_delete_unlists_togomcp(tmp_path: Path) -> None:
     dataset_id = _ingested_dataset(tmp_path)
     oxi = _PromoteOxi()
     app = build_app(_togomcp_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
-    mie_file = tmp_path / "togomcp" / "mie" / f"{dataset_id}.yaml"
+    mie_file = tmp_path / "togomcp" / "mie" / f"{togomcp_sync.togomcp_database(dataset_id)}.yaml"
     with TestClient(app, headers=_AUTH) as client:
         assert client.post(f"/api/datasets/{dataset_id}/promote").status_code == 200
         assert mie_file.exists()

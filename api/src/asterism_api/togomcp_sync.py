@@ -48,8 +48,25 @@ _QUERY_KEYS = ("query", "sparql")
 _LOCK = threading.Lock()
 
 
-def _mie_path(togomcp_dir: Path, dataset_id: str) -> Path:
-    return togomcp_dir / "mie" / f"{dataset_id}.yaml"
+def togomcp_database(dataset_id: str) -> str:
+    """The dataset's canonical database name inside togomcp.
+
+    togomcp's ``load_sparql_endpoints`` keys its endpoint table with
+    ``db_name.lower().replace(" ", "_").replace("-", "")`` and then looks up
+    ``<key>.yaml`` in the MIE dir — so a hyphenated id published verbatim loads
+    fine via ``get_MIE_file`` but silently VANISHES from ``find_databases``
+    (the cache iterates endpoint keys; observed live 2026-08-12:
+    ``verify-togomcp-815bc56a`` became key ``verifytogomcp815bc56a``, whose
+    ``.yaml`` did not exist → empty keywords → undiscoverable). Publish under
+    the canonical form from the start so every togomcp tool sees one name.
+    Registry ids carry a random suffix, so stripping hyphens cannot collide
+    two real datasets in practice.
+    """
+    return dataset_id.lower().replace(" ", "_").replace("-", "")
+
+
+def _mie_path(togomcp_dir: Path, database: str) -> Path:
+    return togomcp_dir / "mie" / f"{database}.yaml"
 
 
 def _endpoints_csv(togomcp_dir: Path) -> Path:
@@ -112,8 +129,10 @@ def publish_dataset(
     endpoint_url: str,
     endpoint_name: str,
 ) -> dict[str, object]:
-    """Project + write ``mie/<id>.yaml`` and upsert the endpoints.csv row.
+    """Project + write ``mie/<database>.yaml`` and upsert the endpoints.csv row.
 
+    ``<database>`` is :func:`togomcp_database` — togomcp's canonical form of the
+    dataset id — so discovery, MIE lookup, and query routing all see one name.
     Never raises: promote must not fail on a publication problem. Returns a
     small status dict the endpoint response discloses. Idempotent — a
     re-promote overwrites the projection with the new live graph.
@@ -134,14 +153,15 @@ def publish_dataset(
                 exc,
             )
             return {"published": False, "reason": "MIE is not parseable YAML"}
-        target = _mie_path(togomcp_dir, dataset_id)
+        database = togomcp_database(dataset_id)
+        target = _mie_path(togomcp_dir, database)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(projected, encoding="utf-8")
         with _LOCK:
-            rows = [r for r in _read_rows(togomcp_dir) if r.get("database") != dataset_id]
+            rows = [r for r in _read_rows(togomcp_dir) if r.get("database") != database]
             rows.append(
                 {
-                    "database": dataset_id,
+                    "database": database,
                     "endpoint_url": endpoint_url,
                     "endpoint_name": endpoint_name,
                     "keyword_search_api": "sparql",
@@ -149,14 +169,14 @@ def publish_dataset(
             )
             _rewrite_rows(togomcp_dir, rows)
         logger.info("togomcp publish: %s -> %s", dataset_id, target)
-        return {"published": True, "database": dataset_id}
+        return {"published": True, "database": database}
     except Exception:  # never fail a promote on the side-effect
         logger.exception("togomcp publish failed for %s (continuing)", dataset_id)
         return {"published": False, "reason": "publish error (see logs)"}
 
 
 def unpublish_dataset(togomcp_dir: Path, dataset_id: str) -> dict[str, object]:
-    """Remove ``mie/<id>.yaml`` and the endpoints.csv row (retract / delete).
+    """Remove ``mie/<database>.yaml`` and the endpoints.csv row (retract / delete).
 
     Never raises; idempotent — unlisting an unlisted dataset reports
     ``removed: False``.
@@ -164,14 +184,15 @@ def unpublish_dataset(togomcp_dir: Path, dataset_id: str) -> dict[str, object]:
     try:
         if not _SAFE_ID.fullmatch(dataset_id):
             return {"published": False, "reason": "unsafe dataset id"}
+        database = togomcp_database(dataset_id)
         removed = False
-        target = _mie_path(togomcp_dir, dataset_id)
+        target = _mie_path(togomcp_dir, database)
         if target.is_file():
             target.unlink()
             removed = True
         with _LOCK:
             rows = _read_rows(togomcp_dir)
-            keep = [r for r in rows if r.get("database") != dataset_id]
+            keep = [r for r in rows if r.get("database") != database]
             if len(keep) != len(rows):
                 _rewrite_rows(togomcp_dir, keep)
                 removed = True
