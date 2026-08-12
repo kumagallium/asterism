@@ -1,5 +1,14 @@
 # Changelog
 
+## [v0.12.0](https://github.com/kumagallium/asterism/compare/v0.11.0...v0.12.0) - 2026-08-12
+
+- fix(ui): かんたん「弱さ」カードの「AI に直してもらう」が無反応 — kind ガード漏れ by @kumagallium in https://github.com/kumagallium/asterism/pull/319
+- fix(build): hatchling 最新のプロジェクト外 readme 拒否で CI が全滅 — readme 指定を削除 by @kumagallium in https://github.com/kumagallium/asterism/pull/324
+- feat(step0): T10 — MIE 例示 SPARQL を実行検証 (parse は常時・--draft-ttl で 0 行検出) by @kumagallium in https://github.com/kumagallium/asterism/pull/321
+- feat(api): promote 時に MIE を togomcp カタログへ決定論投影 (ASTERISM_TOGOMCP_DIR opt-in) by @kumagallium in https://github.com/kumagallium/asterism/pull/322
+- feat(api): ローカルモード asterism-local — Docker なし 1 コマンドのループバック起動 by @kumagallium in https://github.com/kumagallium/asterism/pull/323
+- feat(api): ローカルモード追補 — Ask 実接続（demo-agent 子プロセス+同一オリジン /demo 中継） by @kumagallium in https://github.com/kumagallium/asterism/pull/325
+
 ## [v0.11.0](https://github.com/kumagallium/asterism/compare/v0.10.0...v0.11.0) - 2026-07-24
 
 - fix(ui/caddy): デプロイ跨ぎ stale chunk で図が「表示できません」に化ける事故を根治 by @kumagallium in https://github.com/kumagallium/asterism/pull/312
