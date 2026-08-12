@@ -117,6 +117,9 @@ spawning one), `--no-ask`, `--port`, `--no-browser`. Ask needs an LLM key (enter
 in the browser, or a local model): local LLMs (Ollama / LM Studio) work via
 Settings → provider `openai-compatible` with a local base URL.
 
+Prefer a native window? The same stack ships as a desktop app (Tauri) — see
+[`desktop/README.md`](desktop/README.md): `cd desktop && npm install && npm run dev`.
+
 ## Security / deploying with sensitive data
 
 The quickstart above is for **local, single-user** use. Asterism is designed to be
