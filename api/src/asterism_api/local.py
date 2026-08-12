@@ -25,6 +25,7 @@ module import time.
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import ipaddress
 import logging
 import os
@@ -39,8 +40,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import httpx
+from fastapi import APIRouter, Request
 from starlette.exceptions import HTTPException
-from starlette.responses import Response
+from starlette.responses import JSONResponse, Response
 from starlette.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -298,6 +300,134 @@ def _terminate(process: subprocess.Popen[bytes]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# demo-agent (Ask) child + same-origin /demo relay
+
+_DEMO_FORWARD_HEADERS = frozenset(
+    {
+        "accept",
+        "content-type",
+        "x-api-key",
+        "x-llm-provider",
+        "x-llm-model",
+        "x-llm-api-base",
+        "x-llm-max-tokens",
+    }
+)
+
+
+def find_demo_agent_dir() -> Path | None:
+    """``demo-agent/app.py`` (repo checkout / editable-install layout only)."""
+    candidate = Path(__file__).resolve().parents[3] / "demo-agent"
+    return candidate if (candidate / "app.py").is_file() else None
+
+
+def ask_dependencies_available() -> bool:
+    """Real-mode Ask lazily imports ``asterism_mcp.tools`` (which pulls fastmcp).
+
+    Neither is a base api dependency — the ``[local]`` extra installs them.
+    """
+    return all(
+        importlib.util.find_spec(name) is not None
+        for name in ("asterism_mcp", "fastmcp")
+    )
+
+
+def spawn_demo_agent(
+    app_dir: Path, log_path: Path, port: int, env: dict[str, str]
+) -> subprocess.Popen[bytes]:
+    """Start demo-agent the way prod does (``uvicorn app:app``), loopback-only."""
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    argv = [
+        sys.executable,
+        "-m",
+        "uvicorn",
+        "app:app",
+        "--app-dir",
+        str(app_dir),
+        "--host",
+        "127.0.0.1",
+        "--port",
+        str(port),
+        "--log-level",
+        "warning",
+    ]
+    with open(log_path, "ab") as log_file:
+        return subprocess.Popen(
+            argv,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+            env=env,
+        )
+
+
+def wait_demo_agent_ready(
+    url: str, process: subprocess.Popen[bytes], timeout_s: float = 30.0
+) -> bool:
+    """Poll the child's own ``/health`` (deliberately NOT relayed — the api owns
+    ``/health``; the child's lives outside the ``/demo/*`` prefix)."""
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            return False
+        try:
+            if httpx.get(url + "/health", timeout=2.0).status_code == 200:
+                return True
+        except httpx.HTTPError:
+            pass
+        time.sleep(0.2)
+    return False
+
+
+def create_demo_relay(
+    demo_base_url: str, client: httpx.AsyncClient | None = None
+) -> APIRouter:
+    """Same-origin ``/demo/*`` relay — the in-process equivalent of prod caddy's
+    ``reverse_proxy /demo/* demo-agent:8090`` (no prefix strip).
+
+    The prod SPA is built with ``VITE_DEMO_AGENT_URL='/'`` and fetches
+    ``/demo/*`` on its own origin; this router forwards those calls to the
+    demo-agent child. Only the Ask contract headers are forwarded — notably
+    NOT the injected ``X-Asterism-Token`` (the child must never receive the
+    write token). ``/demo/ask`` may run several blocking LLM calls with no
+    internal timeout, so the read timeout is unlimited.
+    """
+    http = client or httpx.AsyncClient(
+        base_url=demo_base_url,
+        timeout=httpx.Timeout(connect=5.0, read=None, write=30.0, pool=None),
+    )
+    router = APIRouter()
+
+    @router.api_route("/demo/{path:path}", methods=["GET", "POST"])
+    async def relay(path: str, request: Request) -> Response:
+        headers = {
+            name: value
+            for name, value in request.headers.items()
+            if name.lower() in _DEMO_FORWARD_HEADERS
+        }
+        body = await request.body()
+        try:
+            upstream = await http.request(
+                request.method,
+                f"/demo/{path}",
+                params=request.url.query or None,
+                content=body or None,
+                headers=headers,
+            )
+        except httpx.HTTPError as exc:
+            return JSONResponse(
+                {"error": f"demo-agent unreachable: {exc}"}, status_code=502
+            )
+        return Response(
+            content=upstream.content,
+            status_code=upstream.status_code,
+            media_type=upstream.headers.get("content-type"),
+        )
+
+    return router
+
+
+# ---------------------------------------------------------------------------
 # app assembly + entrypoint
 
 
@@ -308,18 +438,23 @@ def build_local_app(
     settings: Settings | None = None,
     oxigraph_client: OxigraphClient | None = None,
     start_watcher: bool = True,
+    demo_agent_url: str | None = None,
+    demo_relay_client: httpx.AsyncClient | None = None,
 ) -> FastAPI:
-    """``build_app`` + SPA mount + loopback token injection.
+    """``build_app`` + optional /demo relay + SPA mount + token injection.
 
-    The mount is appended after ``build_app`` registered its routes, so
-    ``/api/*``, ``/jobs``, ``/health``, ``/describe`` and ``/upload/{kind}``
-    all win over the static catch-all.
+    Route order matters: ``build_app`` registers the api routes first, the
+    ``/demo/*`` relay is included next, and the static catch-all mount goes
+    last — so ``/api/*``, ``/jobs``, ``/health``, ``/describe``,
+    ``/upload/{kind}`` and ``/demo/*`` all win over the SPA fallback.
     """
     from asterism_api.main import build_app
 
     app = build_app(
         settings, oxigraph_client=oxigraph_client, start_watcher=start_watcher
     )
+    if demo_agent_url is not None:
+        app.include_router(create_demo_relay(demo_agent_url, demo_relay_client))
     if ui_dist is not None:
         app.mount("/", SpaStaticFiles(directory=str(ui_dist), html=True), name="spa")
     app.add_middleware(LoopbackTokenInjector, token=token)
@@ -379,6 +514,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--ui-dist", default=None, help="path to the built SPA (default: repo ui/dist)"
     )
+    parser.add_argument(
+        "--demo-agent-url",
+        default=None,
+        help="relay /demo/* to an already-running demo-agent instead of "
+        "spawning one",
+    )
+    parser.add_argument(
+        "--no-ask",
+        action="store_true",
+        help="do not spawn the demo-agent child (Ask view degrades)",
+    )
     parser.add_argument("--no-browser", action="store_true")
     parser.add_argument("--log-level", default="info")
     args = parser.parse_args(argv)
@@ -425,15 +571,53 @@ def main(argv: list[str] | None = None) -> int:
     if ui_dist is None:
         logger.warning(
             "ui/dist not found — running API-only. Build the SPA with: "
-            "cd ui && npm ci && npm run build"
+            "cd ui && VITE_DEMO_MODE=live VITE_DEMO_AGENT_URL=/ npm run build"
         )
+
+    demo_url: str | None = args.demo_agent_url
+    demo_child: subprocess.Popen[bytes] | None = None
+    if demo_url is None and not args.no_ask:
+        demo_dir = find_demo_agent_dir()
+        if demo_dir is None:
+            logger.warning("demo-agent/app.py not found — Ask relay disabled")
+        elif not ask_dependencies_available():
+            logger.warning(
+                "Ask needs asterism-mcp-tools + fastmcp — install them with: "
+                "uv pip install -e '.[local]' — Ask relay disabled"
+            )
+        else:
+            demo_port = _free_port()
+            child_env = dict(os.environ)
+            # The child's best-effort usage ledger POST targets this api.
+            child_env["ASTERISM_API_URL"] = f"http://127.0.0.1:{args.port}"
+            demo_child = spawn_demo_agent(
+                demo_dir, home / "logs" / "demo-agent.log", demo_port, child_env
+            )
+            demo_url = f"http://127.0.0.1:{demo_port}"
+            if not wait_demo_agent_ready(demo_url, demo_child):
+                _terminate(demo_child)
+                demo_child = None
+                demo_url = None
+                logger.warning(
+                    "demo-agent did not become ready — Ask relay disabled (see %s)",
+                    home / "logs" / "demo-agent.log",
+                )
+            else:
+                logger.info(
+                    "demo-agent: %s (pid %d)", demo_url, demo_child.pid
+                )
 
     try:
         # Import AFTER the env defaults: asterism_api.main reads
         # ASTERISM_MAX_UPLOAD_BYTES at module import time.
         from asterism_api.main import Settings
 
-        app = build_local_app(token=token, ui_dist=ui_dist, settings=Settings())
+        app = build_local_app(
+            token=token,
+            ui_dist=ui_dist,
+            settings=Settings(),
+            demo_agent_url=demo_url,
+        )
         url = f"http://127.0.0.1:{args.port}/"
         logger.info("Asterism local: %s (data: %s)", url, home)
         _serve(
@@ -443,6 +627,8 @@ def main(argv: list[str] | None = None) -> int:
             open_url=None if args.no_browser else url,
         )
     finally:
+        if demo_child is not None:
+            _terminate(demo_child)
         if child is not None:
             _terminate(child)
     return 0

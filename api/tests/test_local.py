@@ -29,6 +29,7 @@ from asterism_api.local import (
     build_local_app,
     default_data_home,
     ensure_write_token,
+    find_demo_agent_dir,
     find_oxigraph_binary,
     find_ui_dist,
     local_env,
@@ -272,6 +273,98 @@ def test_find_ui_dist_requires_index(tmp_path: Path) -> None:
     assert find_ui_dist(str(tmp_path / "nope")) is None
     dist = _make_dist(tmp_path)
     assert find_ui_dist(str(dist)) == dist
+
+
+# ---------------------------------------------------------------------------
+# /demo relay (Ask)
+
+
+def _relay_app(tmp_path: Path, handler) -> object:  # type: ignore[no-untyped-def]
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="http://demo"
+    )
+    return build_local_app(
+        token=_TEST_TOKEN,
+        ui_dist=None,
+        settings=_settings(tmp_path),
+        oxigraph_client=_fake_oxigraph(),
+        start_watcher=False,
+        demo_agent_url="http://demo",
+        demo_relay_client=client,
+    )
+
+
+def test_demo_relay_forwards_ask_headers_but_never_the_write_token(
+    tmp_path: Path,
+) -> None:
+    seen: dict[str, httpx.Request] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["req"] = request
+        return httpx.Response(200, json={"answer": "ok", "citations": []})
+
+    app = _relay_app(tmp_path, handler)
+    r = _request_as(
+        app,
+        ("127.0.0.1", 999),
+        "POST",
+        "/demo/ask",
+        json={"question": "ZT top3?"},
+        headers={"X-API-Key": "sk-local", "X-LLM-Provider": "openai-compatible"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["answer"] == "ok"
+    fwd = seen["req"]
+    assert fwd.url.path == "/demo/ask"
+    assert fwd.headers["x-api-key"] == "sk-local"
+    assert fwd.headers["x-llm-provider"] == "openai-compatible"
+    # The loopback injector added X-Asterism-Token to the inbound request;
+    # the relay must NOT leak the write token to the child.
+    assert "x-asterism-token" not in fwd.headers
+    assert json.loads(fwd.content)["question"] == "ZT top3?"
+
+
+def test_demo_relay_passes_query_params_and_status(tmp_path: Path) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.params.get("iri") == "https://x/1":
+            return httpx.Response(200, json={"iri": "https://x/1", "chain": []})
+        return httpx.Response(404, json={"error": "nope"})
+
+    app = _relay_app(tmp_path, handler)
+    r = _request_as(
+        app, ("127.0.0.1", 9), "GET", "/demo/provenance?iri=https://x/1"
+    )
+    assert r.status_code == 200
+    r = _request_as(app, ("127.0.0.1", 9), "GET", "/demo/provenance?iri=other")
+    assert r.status_code == 404
+
+
+def test_demo_relay_unreachable_child_is_502(tmp_path: Path) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused")
+
+    app = _relay_app(tmp_path, handler)
+    r = _request_as(app, ("127.0.0.1", 9), "GET", "/demo/schema")
+    assert r.status_code == 502
+    assert "unreachable" in r.json()["error"]
+
+
+def test_no_relay_when_ask_disabled(tmp_path: Path) -> None:
+    app = build_local_app(
+        token=_TEST_TOKEN,
+        ui_dist=None,
+        settings=_settings(tmp_path),
+        oxigraph_client=_fake_oxigraph(),
+        start_watcher=False,
+    )
+    with TestClient(app) as client:
+        assert client.get("/demo/schema").status_code == 404
+
+
+def test_find_demo_agent_dir_in_checkout() -> None:
+    found = find_demo_agent_dir()
+    assert found is not None
+    assert (found / "app.py").is_file()
 
 
 # ---------------------------------------------------------------------------

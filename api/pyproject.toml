@@ -30,9 +30,12 @@ dev = [
 ]
 # Local mode (asterism-local) with the declarative ingest engine included:
 # materialize/ingest need morph-kgc, which the hosted image installs via
-# ingest[substrate]. `uv pip install -e '.[local]'` gives a laptop the same.
+# ingest[substrate], and the demo-agent (Ask) child lazily imports
+# asterism_mcp.tools (which pulls fastmcp). `uv pip install -e '.[local]'`
+# gives a laptop the same surface as the hosted stack.
 local = [
     "asterism-ingest[substrate]",
+    "asterism-mcp-tools",
 ]
 
 [project.scripts]
@@ -49,6 +52,7 @@ packages = ["src/asterism_api"]
 [tool.uv.sources]
 asterism-ingest = { path = "../ingest", editable = true }
 asterism-step0 = { path = "../step0", editable = true }
+asterism-mcp-tools = { path = "../mcp", editable = true }
 
 [tool.ruff]
 target-version = "py311"
