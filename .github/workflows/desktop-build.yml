@@ -96,16 +96,38 @@ jobs:
           done
           echo "ERROR: no /health within 45s"; cat /tmp/backend-smoke.log; exit 1
 
+      # tauri-action attempts `security import` whenever APPLE_CERTIFICATE is
+      # defined — even as an empty string (observed: run 31554180981 failed on
+      # a secrets-less repo). Only export the signing env when the secret is
+      # actually present.
+      - name: Configure signing (skipped while secrets are absent)
+        shell: bash
+        env:
+          _CERT: ${{ secrets.APPLE_CERTIFICATE }}
+          _CERT_PW: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          _IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          _AID: ${{ secrets.APPLE_ID }}
+          _APW: ${{ secrets.APPLE_PASSWORD }}
+          _TEAM: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -n "$_CERT" ]; then
+            {
+              echo "APPLE_CERTIFICATE=$_CERT"
+              echo "APPLE_CERTIFICATE_PASSWORD=$_CERT_PW"
+              echo "APPLE_SIGNING_IDENTITY=$_IDENTITY"
+              echo "APPLE_ID=$_AID"
+              echo "APPLE_PASSWORD=$_APW"
+              echo "APPLE_TEAM_ID=$_TEAM"
+            } >> "$GITHUB_ENV"
+            echo "signing: enabled"
+          else
+            echo "signing: APPLE_CERTIFICATE absent — building unsigned"
+          fi
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           projectPath: desktop
           args: --bundles app,dmg
