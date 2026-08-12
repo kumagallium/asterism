@@ -1,0 +1,117 @@
+# Desktop shell build (ADR local-first-distribution.md Phase 2).
+#
+# Runs on desktop/** PRs (the main ci.yml has no Rust job) and on manual
+# dispatch. Builds the self-contained .app/.dmg — the backend bundle is
+# smoke-tested for real before packaging (bundled python + bundled oxigraph
+# must serve /health), mirroring Graphium's sidecar smoke test.
+#
+# Signing/notarization: same secret names as Graphium's tauri-build.yml
+# (APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY,
+# APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID). When the secrets are absent,
+# tauri-action builds unsigned — artifacts still upload, good for testing.
+name: Desktop Build
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "desktop/**"
+      - ".github/workflows/desktop-build.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build (macOS Apple Silicon)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+          components: rustfmt
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: rustfmt check
+        run: cargo fmt --check
+        working-directory: desktop/src-tauri
+
+      - name: Build SPA (live Ask mode)
+        run: |
+          npm ci
+          VITE_DEMO_MODE=live VITE_DEMO_AGENT_URL=/ npm run build
+        working-directory: ui
+
+      - name: Install desktop deps
+        run: npm ci
+        working-directory: desktop
+
+      - name: Assemble backend bundle
+        run: bash desktop/scripts/bundle-backend.sh
+
+      # Boot the bundled backend exactly the way the shell does (bundled
+      # python -m asterism_api.local + bundled oxigraph) and require /health
+      # to answer {"status":"ok"} — catches relocation/deps/spawn breakage
+      # before it ships inside a .app.
+      - name: Smoke test bundled backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          B="$PWD/desktop/src-tauri/backend"
+          PY="$(ls -d "$B"/uv-python/cpython-3.11*/bin/python3 | head -1)"
+          PORT=13001
+          HOME_DIR="$(mktemp -d)"
+          ASTERISM_UI_DIST="$B/ui-dist" \
+          ASTERISM_OXIGRAPH_BIN="$B/oxigraph" \
+          ASTERISM_DEMO_AGENT_DIR="$B/demo-agent" \
+          ASTERISM_DATASETS_ROOT="$B/datasets" \
+          ASTERISM_LOCAL_HOME="$HOME_DIR" \
+            "$PY" -m asterism_api.local --no-browser --port "$PORT" \
+            > /tmp/backend-smoke.log 2>&1 &
+          BACKEND_PID=$!
+          trap "kill -TERM $BACKEND_PID 2>/dev/null || true" EXIT
+          for i in $(seq 1 45); do
+            if curl -fsS "http://127.0.0.1:${PORT}/health" > /tmp/health.json 2>/dev/null; then
+              echo "backend healthy after ${i}s:"; cat /tmp/health.json; echo
+              grep -q '"oxigraph":true' /tmp/health.json || { echo "oxigraph not up"; exit 1; }
+              exit 0
+            fi
+            if ! kill -0 $BACKEND_PID 2>/dev/null; then
+              echo "ERROR: backend died"; cat /tmp/backend-smoke.log; exit 1
+            fi
+            sleep 1
+          done
+          echo "ERROR: no /health within 45s"; cat /tmp/backend-smoke.log; exit 1
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          projectPath: desktop
+          args: --bundles app,dmg
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Asterism-macos-arm64
+          path: |
+            desktop/src-tauri/target/release/bundle/dmg/*.dmg
+          if-no-files-found: error
+          retention-days: 14
