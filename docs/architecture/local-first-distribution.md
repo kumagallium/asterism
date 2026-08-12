@@ -58,8 +58,8 @@ Asterism は 1 つのソフトのまま **手元（ラップトップ）／常�
 ### 縮退（すべて既存の明示 4xx に乗る）
 
 - Docling 未設定 → PDF のみ 4xx（既存）。pandoc 無し → .docx のみ 4xx(既存)。
-- morph-kgc 未 install → materialize/ingest が失敗するため、extras `asterism-api[local]`（= `asterism-ingest[substrate]`）を用意。
-- demo-agent 無し → Ask は既定ビルド（`VITE_DEMO_MODE` 未設定 = mock）では「デモデータ」バッジつきの モック応答＝自己記述的。実接続（demo-agent 子プロセス + `/demo/*` 中継）は Phase 2。
+- morph-kgc 未 install → materialize/ingest が失敗するため、extras `asterism-api[local]`（= `asterism-ingest[substrate]` + `asterism-mcp-tools`）を用意。
+- **Ask は実接続**（Phase 1 追補で実装）: demo-agent を子プロセス起動（`uvicorn app:app --app-dir demo-agent`・空きポート・loopback）し、`/demo/*` を同一オリジン中継（本番 caddy `reverse_proxy /demo/*` の等価物）。中継は Ask 契約ヘッダ（`X-API-Key`/`X-LLM-*`）だけを転送し、**注入された `X-Asterism-Token` は子に渡さない**。`/demo/ask` は内部タイムアウト無しの LLM ループがあり得るため read timeout 無制限。子の `/health` は `/demo/*` 外で api 自身の `/health` と衝突するため中継せず、親が直接ポーリング。SPA は `VITE_DEMO_MODE=live VITE_DEMO_AGENT_URL=/` でビルド（本番イメージと同じ）。mcp 依存が無い/子が起動しない場合は警告して Ask のみ縮退（`--no-ask` で明示無効化も可）。
 
 ### セキュリティ意味論
 
@@ -91,6 +91,6 @@ Asterism は 1 つのソフトのまま **手元（ラップトップ）／常�
 
 ## 7. スコープと残
 
-- **Phase 2（デスクトップシェル）**: Tauri 等で包む・oxigraph バイナリ同梱・署名/公証・Docling のオプショナルダウンロード・Ask 実接続（demo-agent 子プロセス + 同一オリジン `/demo/*` 中継）・`ASTERISM_DATASETS_ROOT` の wheel 同梱解決。
+- **Phase 2（デスクトップシェル）**: Tauri 等で包む・oxigraph バイナリ同梱・署名/公証・Docling のオプショナルダウンロード・`ASTERISM_DATASETS_ROOT` と demo-agent/app.py の wheel 同梱解決（現状は checkout/editable 前提の repo 相対探索）。※Ask 実接続は Phase 1 追補で実装済（§3）。
 - **Phase 3（exchange 実装)**: §5 のマニフェスト形式の確定・export コマンド・import 経路（append 冪等化の再利用）・かんたん UI への「書き出す/受け取る」導線。
 - 残課題（本 ADR の外）: SSRF ガードの非対称（モデル一覧のみ private 拒否・ジョブ経路は素通し）の整理／env 名 `CSV2RDF_*`→`ASTERISM_*` 統一（既存の残課題）。
