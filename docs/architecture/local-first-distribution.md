@@ -73,9 +73,17 @@ Asterism は 1 つのソフトのまま **手元（ラップトップ）／常�
 - **出版する瞬間が実ベースを決める瞬間**（既存 ADR の文言どおり）。公開先が最初から分かっているなら、手元でも `ASTERISM_IRI_BASE=<公開先のベース>` を設定してから設計する＝exchange 時のリベースが不要になる（推奨）。
 - IRI 不変性も既存のまま: ベース変更は以後の設計にのみ効く。既に**引用された** IRI は書き換えない。
 
-## 5. 設計骨子: snapshot exchange（Phase 3・本 PR では実装しない）
+## 5. snapshot exchange（Phase 3・**v1 実装済**）
 
-実装は後続だが、取り決めをここに固定する（部品は全て既存: `sparql_construct` の Turtle ダンプ / Graph Store POST / append の冪等化 / 平文レジストリ / 版グラフ+`liveGraph` ポインタ）。
+状態: **実装済（v1）** — `api/src/asterism_api/exchange.py`。`GET /api/datasets/{id}/snapshot`（export・token-gated: アーカイブは source を含む機微 read のため `/api/sparql` と同格のゲート）＋ `POST /api/datasets/import`（multipart・token-gated）。v1 の確定判断:
+
+- **export は promoted（公開済み確定版）のみ**。「確定版だけを出版する」の機械化。
+- **import は ingested（取り込み済み・未公開）で着地**し、公開は**既存の promote ゲートを再利用** — 整合レポート・オントロジー投影（model.yaml から決定論再投影）・crosswalk 再構築・togomcp 配信は全て既存経路が実行し、exchange は一切再実装しない。引用可能化のゲートは 1 つのまま。
+- meta.json は許可リストでサニタイズ（ライフサイクル/グラフポインタはインスタンス結合状態なので持ち込まない）+ `imported` 来歴（origin base・exported_at・rebased・sha256）を記録。
+- 既存 id との衝突は 409（再取り込み/新版化は将来）。tar は traversal/伸長サイズをガード。
+- **実 2 インスタンス e2e 済**: A（`.invalid`）で確定→export→B（実ベース）へ import（決定論リベース）→promote→B の SPARQL で B ベースの IRI が引ける。
+
+以下は当初の取り決め（実装が従った設計）:
 
 - **単位 = データセットの版**。スナップショット = ①canonical グラフの Turtle ダンプ ②レジストリ一式（meta/model/mie/mapping/diagram + 履歴）③マニフェスト（dataset id・slug・**発行元インスタンスと `iri_base`**・版・トリプル数・ハッシュ）。不変・追記オンリー。
 - **受け入れ側**が新データセット（または既存の新版）として取り込み、`data_seq` は**受け入れ側で採番**（単調性はインスタンス内不変条件のまま）。

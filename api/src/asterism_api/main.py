@@ -104,7 +104,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from asterism_api import describe as describe_mod
-from asterism_api import design_loop, registry, server_keys, togomcp_sync
+from asterism_api import design_loop, exchange, registry, server_keys, togomcp_sync
 from asterism_api import usage as usage_ledger
 from asterism_api.jobs import JobManager
 from asterism_api.tool_loop import ToolLoopResult, propose_tool_with_correction
@@ -3199,6 +3199,35 @@ def build_app(
         if data is None:
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
         return data
+
+    @app.get(
+        "/api/datasets/{dataset_id}/snapshot",
+        dependencies=_write_auth,
+        response_class=Response,
+    )
+    async def export_snapshot(dataset_id: str) -> Response:
+        """Snapshot export (ADR local-first-distribution.md §5, exchange 軸).
+
+        Token-gated like /api/sparql: the archive carries the full registry
+        dir including accumulated source data, which is a sensitive read.
+        """
+        payload, filename = await exchange.build_snapshot(
+            cfg, app.state.client, dataset_id
+        )
+        return Response(
+            content=payload,
+            media_type="application/gzip",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    @app.post("/api/datasets/import", dependencies=_write_auth)
+    async def import_snapshot(file: UploadFile) -> dict[str, object]:
+        """Snapshot import — lands as ingested (unpublished); publish via the
+        existing promote gate, which runs alignment/ontology/crosswalk/togomcp."""
+        payload = await _read_upload_bounded(file, _MAX_UPLOAD_BYTES)
+        return await exchange.import_snapshot(
+            cfg, app.state.client, payload, max_extracted_bytes=_MAX_UPLOAD_BYTES
+        )
 
     @app.get("/api/datasets/{dataset_id}/validate-design")
     async def validate_dataset_design(dataset_id: str) -> dict[str, object]:
