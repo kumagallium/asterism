@@ -47,8 +47,11 @@ jobs:
         working-directory: desktop/src-tauri
 
       - name: Build SPA (live Ask mode)
+        # npm install (not ci) — repo convention (see ci.yml ui job): the ui
+        # lock is generated on macOS and npm ci trips on platform-conditional
+        # optional deps (@emnapi/*).
         run: |
-          npm ci
+          npm install --no-audit --no-fund
           VITE_DEMO_MODE=live VITE_DEMO_AGENT_URL=/ npm run build
         working-directory: ui
 
