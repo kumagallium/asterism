@@ -78,13 +78,13 @@ def test_publish_writes_mie_and_upserts_row(tmp_path: Path) -> None:
     result = togomcp_sync.publish_dataset(
         tmp_path, "dataset-abc", _MIE, _LIVE, endpoint_url=_URL, endpoint_name="oxigraph"
     )
-    assert result == {"published": True, "database": "dataset-abc"}
-    published = yaml.safe_load((tmp_path / "mie" / "dataset-abc.yaml").read_text())
+    assert result == {"published": True, "database": "datasetabc"}  # canonical form
+    published = yaml.safe_load((tmp_path / "mie" / "datasetabc.yaml").read_text())
     assert published["schema_info"]["graphs"] == [_LIVE]
     rows = (tmp_path / "resources" / "endpoints.csv").read_text().splitlines()
     assert rows[0] == "database,endpoint_url,endpoint_name,keyword_search_api"
     assert "starrydata,http://oxigraph:7878/query,oxigraph,sparql" in rows
-    assert "dataset-abc,http://oxigraph:7878/query,oxigraph,sparql" in rows
+    assert "datasetabc,http://oxigraph:7878/query,oxigraph,sparql" in rows
 
 
 def test_republish_is_idempotent_and_repins_live_graph(tmp_path: Path) -> None:
@@ -98,8 +98,8 @@ def test_republish_is_idempotent_and_repins_live_graph(tmp_path: Path) -> None:
             endpoint_name="oxigraph",
         )
     rows = (tmp_path / "resources" / "endpoints.csv").read_text().splitlines()
-    assert sum(r.startswith("dataset-abc,") for r in rows) == 1  # upsert, not append
-    published = yaml.safe_load((tmp_path / "mie" / "dataset-abc.yaml").read_text())
+    assert sum(r.startswith("datasetabc,") for r in rows) == 1  # upsert, not append
+    published = yaml.safe_load((tmp_path / "mie" / "datasetabc.yaml").read_text())
     assert published["schema_info"]["graphs"] == [
         "https://example.com/graph/canonical/dataset-abc/v2"
     ]
@@ -128,9 +128,9 @@ def test_unpublish_removes_file_and_row_but_keeps_foreign_rows(tmp_path: Path) -
     )
     removed = togomcp_sync.unpublish_dataset(tmp_path, "dataset-abc")
     assert removed == {"published": False, "removed": True}
-    assert not (tmp_path / "mie" / "dataset-abc.yaml").exists()
+    assert not (tmp_path / "mie" / "datasetabc.yaml").exists()
     rows = (tmp_path / "resources" / "endpoints.csv").read_text()
-    assert "dataset-abc" not in rows
+    assert "datasetabc" not in rows
     assert "starrydata" in rows  # the hand-maintained row survives
     again = togomcp_sync.unpublish_dataset(tmp_path, "dataset-abc")
     assert again == {"published": False, "removed": False}  # idempotent
@@ -148,3 +148,9 @@ def test_settings_default_disabled_and_env_enables() -> None:
     assert on.togomcp_dir == Path("/data/togomcp")
     assert on.togomcp_endpoint_url == "http://oxigraph:7878/query"
     assert on.togomcp_endpoint_name == "oxigraph"
+
+
+def test_togomcp_database_matches_upstream_normalization() -> None:
+    """The published name must equal togomcp's endpoints key: lower, space->_, no hyphen."""
+    assert togomcp_sync.togomcp_database("verify-togomcp-815bc56a") == "verifytogomcp815bc56a"
+    assert togomcp_sync.togomcp_database("plain") == "plain"

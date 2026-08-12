@@ -37,11 +37,21 @@ Option B 構成は当初から dbcls/togomcp を併設し、`data/togomcp/`（to
 4. **best-effort**: 配信失敗は promote を落とさない（ontology projection /
    crosswalk rebuild と同じ契約）。結果は promote レスポンスの `togomcp` キーで開示。
 
-## 制約（正直に）
+## 制約（正直に・2026-08-12 実機一周で確定）
 
-- togomcp は `endpoints.csv` を起動時に読み、`find_databases` をキャッシュする
-  （pin 中の 54ab0d0 を確認）。新規データセットが一覧に載るのは
-  `docker compose restart togomcp` 後。`get_MIE_file` は毎回ファイルを読むため即時。
+- **DB 名は togomcp の正規形で配信する**: togomcp（pin 54ab0d0）の
+  `load_sparql_endpoints` は DB 名を `lower().replace(" ", "_").replace("-", "")`
+  でキー化し、`find_databases` のカタログはそのキーで `<key>.yaml` を探す。
+  ハイフン入り dataset id を素通し配信すると `get_MIE_file`（引数のファイル名を
+  そのまま開く）だけが動き、**discovery からは無言で消える**（実機で観測:
+  `verify-togomcp-815bc56a` → キー `verifytogomcp815bc56a` の `.yaml` 不在 →
+  keywords 空 → 検索不一致）。よって配信側が最初から正規形
+  （`togomcp_sync.togomcp_database`）で mie ファイル名と endpoints.csv 行を書く。
+- 本 compose の togomcp entrypoint は起動時に `/data/togomcp` を package
+  defaults へ overlay コピーする構成のため、新規配信の反映は
+  **`get_MIE_file` 含む全ツールで `docker compose restart togomcp` 後**
+  （実機確認済み。素の togomcp を `TOGOMCP_DIR` 直付けで動かす場合は
+  `get_MIE_file` のみ都度読みで即時になる）。
 - 生ストア endpoint は canonical スコープ外（draft グラフ等）も GRAPH 指定で読める
   **第二の読み取り面**である。これは本 ADR 以前からの Option B の性質で、compose は
   既に loopback 限定を既定としている。retract 時の unlisting はカタログ衛生であって
