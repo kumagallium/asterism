@@ -29,6 +29,55 @@ fn free_port() -> std::io::Result<u16> {
     Ok(TcpListener::bind("127.0.0.1:0")?.local_addr()?.port())
 }
 
+/// How to start the backend: program + leading args + env the layout needs.
+struct BackendCmd {
+    program: PathBuf,
+    prefix_args: Vec<String>,
+    envs: Vec<(String, PathBuf)>,
+}
+
+/// Self-contained layout: the .app ships `Resources/backend/` (standalone
+/// CPython with the asterism packages installed, the oxigraph binary, the
+/// demo-agent, bundled datasets, and the built SPA) — assembled by
+/// `desktop/scripts/bundle-backend.sh`. The backend is started as
+/// `python3 -m asterism_api.local`, with env pointing every payload at the
+/// bundle (console-script shebangs would break on relocation into the .app).
+fn bundled_backend(app: &tauri::AppHandle) -> Option<BackendCmd> {
+    let backend = app.path().resource_dir().ok()?.join("backend");
+    let python = std::fs::read_dir(backend.join("uv-python"))
+        .ok()?
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .find(|path| {
+            path.file_name()
+                .map(|name| name.to_string_lossy().starts_with("cpython-"))
+                .unwrap_or(false)
+        })?
+        .join("bin")
+        .join("python3");
+    if !python.is_file() {
+        return None;
+    }
+    Some(BackendCmd {
+        program: python,
+        prefix_args: vec!["-m".into(), "asterism_api.local".into()],
+        envs: vec![
+            ("ASTERISM_UI_DIST".into(), backend.join("ui-dist")),
+            ("ASTERISM_OXIGRAPH_BIN".into(), backend.join("oxigraph")),
+            ("ASTERISM_DEMO_AGENT_DIR".into(), backend.join("demo-agent")),
+            ("ASTERISM_DATASETS_ROOT".into(), backend.join("datasets")),
+        ],
+    })
+}
+
+fn checkout_backend() -> Option<BackendCmd> {
+    find_launcher().map(|program| BackendCmd {
+        program,
+        prefix_args: vec![],
+        envs: vec![],
+    })
+}
+
 fn find_launcher() -> Option<PathBuf> {
     if let Ok(cmd) = std::env::var("ASTERISM_LOCAL_CMD") {
         let explicit = PathBuf::from(cmd);
@@ -119,7 +168,7 @@ fn fail(app: &tauri::AppHandle, message: &str) {
 }
 
 fn boot(app: tauri::AppHandle) {
-    let Some(launcher) = find_launcher() else {
+    let Some(backend) = bundled_backend(&app).or_else(checkout_backend) else {
         fail(
             &app,
             "asterism-local が見つかりません。\n\nリポジトリで一度だけ準備してください:\n  cd api && uv venv .venv \\\n    && uv pip install -e ../ingest && uv pip install -e '.[local]'\n\n（場所を指定する場合は環境変数 ASTERISM_LOCAL_CMD）",
@@ -159,12 +208,16 @@ fn boot(app: tauri::AppHandle) {
         None => (Stdio::null(), Stdio::null()),
     };
 
-    let mut command = Command::new(&launcher);
+    let mut command = Command::new(&backend.program);
     command
+        .args(&backend.prefix_args)
         .args(["--no-browser", "--port", &port.to_string()])
         .stdin(Stdio::null())
         .stdout(stdout)
         .stderr(stderr);
+    for (key, value) in &backend.envs {
+        command.env(key, value);
+    }
     // New process group with pgid = launcher pid: the Oxigraph / demo-agent
     // grandchildren inherit it, so terminate() can signal the whole tree.
     #[cfg(unix)]
@@ -180,7 +233,7 @@ fn boot(app: tauri::AppHandle) {
                 &app,
                 &format!(
                     "asterism-local の起動に失敗しました: {e}\n{}",
-                    launcher.display()
+                    backend.program.display()
                 ),
             );
             return;

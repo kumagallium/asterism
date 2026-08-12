@@ -4,7 +4,8 @@
   "version": "0.1.0",
   "identifier": "com.kumagallium.asterism",
   "build": {
-    "frontendDist": "../splash"
+    "frontendDist": "../splash",
+    "beforeBuildCommand": "bash scripts/bundle-backend.sh"
   },
   "app": {
     "windows": [],
@@ -16,6 +17,7 @@
     "active": true,
     "targets": "all",
     "category": "DeveloperTool",
+    "resources": ["backend"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

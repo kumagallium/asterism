@@ -367,6 +367,19 @@ def test_find_demo_agent_dir_in_checkout() -> None:
     assert (found / "app.py").is_file()
 
 
+def test_find_demo_agent_dir_env_override_wins_and_never_falls_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bundled = tmp_path / "bundle-demo"
+    bundled.mkdir()
+    (bundled / "app.py").write_text("app = None\n", encoding="utf-8")
+    monkeypatch.setenv("ASTERISM_DEMO_AGENT_DIR", str(bundled))
+    assert find_demo_agent_dir() == bundled
+    # A wrong explicit location must NOT silently fall back to the checkout.
+    monkeypatch.setenv("ASTERISM_DEMO_AGENT_DIR", str(tmp_path / "missing"))
+    assert find_demo_agent_dir() is None
+
+
 # ---------------------------------------------------------------------------
 # oxigraph discovery
 
