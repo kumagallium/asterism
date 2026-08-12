@@ -45,6 +45,9 @@ def test_fixture_bundle_passes_all_traps() -> None:
         assert status[trap] == "pass", f"{trap} not pass: {status[trap]} - {report.results}"
     assert status["T8"] == "skip"
     assert status["T9"] == "skip"  # fixture bundle carries no RML mapping
+    # T10 parses the fixture's §7 examples when pyoxigraph is available (CI
+    # installs the ingest package, which carries it) and skips without it.
+    assert status["T10"] in {"pass", "skip"}, f"T10: {status['T10']} - {report.results}"
     assert report.exit_code() == 0
 
 

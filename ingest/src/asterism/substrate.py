@@ -1541,6 +1541,28 @@ def insert_dataset_clause(query: str, clause: str) -> str:
     return f"{query[:idx]}{clause}{query[idx:]}"
 
 
+def scope_query_to_graph(query: str, graph_iri: str) -> str:
+    """Pin a read that declares no RDF dataset to ONE named graph.
+
+    Injects ``FROM <graph_iri>`` + ``FROM NAMED <graph_iri>`` so both GRAPH-less
+    patterns and ``GRAPH ?g`` patterns resolve against exactly that graph. A
+    query that already carries its own ``FROM``/``FROM NAMED`` is returned
+    unchanged — its author scoped it deliberately.
+
+    The togomcp publication projection uses this (ADR togomcp-auto-publish.md):
+    registry MIE examples are authored for the api's canonical FROM-merge, but
+    togomcp talks to the RAW store endpoint, where the default graph is empty —
+    republished verbatim, every example would return zero rows (the exact
+    stale-example failure trap T10 exists to catch). Pinning to the CURRENT
+    live version graph at each (re-)promote keeps the published examples true.
+    """
+    view = _scan_view(query)
+    if _HAS_DATASET_CLAUSE.search(view):
+        return query
+    safe = graph_iri.replace("<", "").replace(">", "")
+    return insert_dataset_clause(query, canonical_from_clauses([safe], named=True))
+
+
 async def canonical_merge_query(client: SupportsSparql, query: str) -> str:
     """Rewrite a read-only SELECT/ASK to read the cross-dataset canonical scope.
 

@@ -199,8 +199,8 @@ def test_propose_schema_no_language_keeps_legacy_message(tmp_path: Path) -> None
 
 
 def test_system_prompt_embeds_trap_validators() -> None:
-    """The system prompt's self-check section must mention every trap (incl. T9 RML)."""
-    for trap in ("T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9"):
+    """The system prompt's self-check section must mention every trap (incl. T10)."""
+    for trap in ("T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "T10"):
         assert trap in SYSTEM_PROMPT, f"trap {trap} missing from system prompt"
 
 
