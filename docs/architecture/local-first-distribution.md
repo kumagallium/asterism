@@ -91,6 +91,6 @@ Asterism は 1 つのソフトのまま **手元（ラップトップ）／常�
 
 ## 7. スコープと残
 
-- **Phase 2（デスクトップシェル）**: Tauri 等で包む・oxigraph バイナリ同梱・署名/公証・Docling のオプショナルダウンロード・`ASTERISM_DATASETS_ROOT` と demo-agent/app.py の wheel 同梱解決（現状は checkout/editable 前提の repo 相対探索）。※Ask 実接続は Phase 1 追補で実装済（§3）。
+- **Phase 2（デスクトップシェル）**: **v1 実装済 = `desktop/`（Tauri v2）**。シェルの契約は 1 つだけ＝`asterism-local` を spawn（起動器が Oxigraph/demo-agent の孫を監督）→空きポートの HTTP readiness を待つ→そのループバック URL でネイティブウィンドウを開く。終了時は **SIGTERM**（SIGKILL は孫をみなしごにする）。起動器の解決順= `ASTERISM_LOCAL_CMD` → 実行ファイルから祖先を遡って `api/.venv/bin/asterism-local`（`tauri dev` と repo 内ビルドの .app を両カバー）→ PATH。バックエンドログは app log dir（`~/Library/Logs/com.kumagallium.asterism/backend.log`）。**残**= Python ランタイム/oxigraph バイナリ/SPA の自己完結バンドル（Graphium の sidecar 配置 `externalBin`+`resources` を踏襲）・署名/公証/updater（Graphium の tauri-action 構成と同一 secret 名を流用・workflow 追加は別 PR＝workflow-only PR は CI が回らない罠）・Docling のオプショナルダウンロード・`ASTERISM_DATASETS_ROOT` と demo-agent/app.py の wheel 同梱解決。※Ask 実接続は Phase 1 追補で実装済（§3）。
 - **Phase 3（exchange 実装)**: §5 のマニフェスト形式の確定・export コマンド・import 経路（append 冪等化の再利用）・かんたん UI への「書き出す/受け取る」導線。
 - 残課題（本 ADR の外）: SSRF ガードの非対称（モデル一覧のみ private 拒否・ジョブ経路は素通し）の整理／env 名 `CSV2RDF_*`→`ASTERISM_*` 統一（既存の残課題）。

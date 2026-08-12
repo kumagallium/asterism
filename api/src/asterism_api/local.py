@@ -470,7 +470,17 @@ async def _open_when_ready(server: Any, url: str) -> None:
 def _serve(app: FastAPI, *, port: int, log_level: str, open_url: str | None) -> None:
     import uvicorn
 
-    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level=log_level)
+    # timeout_graceful_shutdown: SIGTERM must reach main()'s finally (which
+    # terminates the oxigraph / demo-agent children) BEFORE a supervising shell
+    # (the desktop app) escalates to SIGKILL — unbounded graceful shutdown can
+    # linger on keep-alive connections and orphan the grandchildren.
+    config = uvicorn.Config(
+        app,
+        host="127.0.0.1",
+        port=port,
+        log_level=log_level,
+        timeout_graceful_shutdown=5,
+    )
     server = uvicorn.Server(config)
 
     async def _run() -> None:
