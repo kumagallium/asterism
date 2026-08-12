@@ -28,9 +28,16 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.10",
 ]
+# Local mode (asterism-local) with the declarative ingest engine included:
+# materialize/ingest need morph-kgc, which the hosted image installs via
+# ingest[substrate]. `uv pip install -e '.[local]'` gives a laptop the same.
+local = [
+    "asterism-ingest[substrate]",
+]
 
 [project.scripts]
 asterism-api = "asterism_api.main:_main"
+asterism-local = "asterism_api.local:main"
 
 [build-system]
 requires = ["hatchling"]
