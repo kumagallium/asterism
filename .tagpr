@@ -1,8 +1,10 @@
 # tagpr 設定 — https://github.com/Songmu/tagpr
 # Graphium(provnote) の運用に倣う。asterism は Python マルチパッケージなので、
-# versionFile はルートの VERSION（単一の真実源）。Tauri 固有の command は付けない。
+# versionFile はルートの VERSION（単一の真実源）。デスクトップアプリの
+# tauri.conf.json も同じ版に同期させる（自動アップデータが「現在版 < 最新版」を
+# 正しく比較できるように）。tagpr は tauri.conf.json の "version" フィールドを直接書換。
 [tagpr]
-versionFile = VERSION
+versionFile = VERSION,desktop/src-tauri/tauri.conf.json
 releaseBranch = main
 vPrefix = true
 changelog = true

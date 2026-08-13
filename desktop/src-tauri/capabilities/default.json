@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Main window (remote loopback URL; no IPC used from the page)",
+  "description": "Main window (remote loopback URL; update flow is Rust-side, no page IPC)",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "updater:default", "process:allow-restart"]
 }

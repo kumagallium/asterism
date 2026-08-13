@@ -18,10 +18,15 @@ use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::{Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
-use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+use tauri_plugin_updater::UpdaterExt;
 
 const READY_TIMEOUT: Duration = Duration::from_secs(60);
+// The updater plugin can't install over a dev build, and the auto-check would
+// annoy on every `tauri dev` run; the menu item still works in all builds.
+const AUTO_CHECK_DELAY: Duration = Duration::from_secs(8);
 
 struct Backend(Mutex<Option<Child>>);
 
@@ -167,6 +172,86 @@ fn fail(app: &tauri::AppHandle, message: &str) {
     app.exit(1);
 }
 
+/// Non-fatal notice (unlike `fail`, which exits).
+fn notify(app: &tauri::AppHandle, message: &str, kind: MessageDialogKind) {
+    app.dialog()
+        .message(message)
+        .kind(kind)
+        .title("Asterism のアップデート")
+        .blocking_show();
+}
+
+/// Native auto-update flow (chosen surface: no SPA/IPC coupling, since the
+/// window is a remote http://127.0.0.1 URL). Checks the release `latest.json`
+/// against the bundled version, offers a native dialog, then downloads,
+/// installs, and relaunches. `user_initiated` controls whether "already up to
+/// date" and errors surface a dialog (menu check) or stay silent (auto-check).
+async fn check_for_updates(app: tauri::AppHandle, user_initiated: bool) {
+    let updater = match app.updater() {
+        Ok(updater) => updater,
+        Err(err) => {
+            if user_initiated {
+                notify(
+                    &app,
+                    &format!("アップデータを初期化できません: {err}"),
+                    MessageDialogKind::Error,
+                );
+            }
+            return;
+        }
+    };
+    match updater.check().await {
+        Ok(Some(update)) => {
+            let message = format!(
+                "新しいバージョン {} が利用できます（現在 {}）。\n今すぐダウンロードして更新しますか？\n（更新後にアプリを再起動します）",
+                update.version, update.current_version
+            );
+            let accepted = app
+                .dialog()
+                .message(message)
+                .title("Asterism のアップデート")
+                .buttons(MessageDialogButtons::OkCancelCustom(
+                    "今すぐ更新".to_string(),
+                    "後で".to_string(),
+                ))
+                .blocking_show();
+            if !accepted {
+                return;
+            }
+            if let Err(err) = update
+                .download_and_install(|_downloaded, _total| {}, || {})
+                .await
+            {
+                notify(
+                    &app,
+                    &format!("更新のダウンロード/インストールに失敗しました: {err}"),
+                    MessageDialogKind::Error,
+                );
+                return;
+            }
+            app.restart();
+        }
+        Ok(None) => {
+            if user_initiated {
+                notify(
+                    &app,
+                    "お使いの Asterism は最新です。",
+                    MessageDialogKind::Info,
+                );
+            }
+        }
+        Err(err) => {
+            if user_initiated {
+                notify(
+                    &app,
+                    &format!("アップデートの確認に失敗しました: {err}"),
+                    MessageDialogKind::Error,
+                );
+            }
+        }
+    }
+}
+
 fn boot(app: tauri::AppHandle) {
     let Some(backend) = bundled_backend(&app).or_else(checkout_backend) else {
         fail(
@@ -292,13 +377,76 @@ fn boot(app: tauri::AppHandle) {
             handle.exit(1);
         }
     });
+
+    // Auto-check for updates once the window is up (release builds only).
+    #[cfg(not(debug_assertions))]
+    {
+        let handle = app.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(AUTO_CHECK_DELAY);
+            tauri::async_runtime::spawn(check_for_updates(handle, false));
+        });
+    }
+}
+
+/// macOS-standard menu (so webview copy/paste keeps working) with a
+/// "Check for Updates" item in the app submenu; a minimal Help menu elsewhere.
+fn build_menu<R: tauri::Runtime>(
+    handle: &tauri::AppHandle<R>,
+) -> tauri::Result<tauri::menu::Menu<R>> {
+    let check = MenuItemBuilder::with_id("check_update", "アップデートを確認…").build(handle)?;
+    #[cfg(target_os = "macos")]
+    {
+        let app_menu = SubmenuBuilder::new(handle, "Asterism")
+            .about(None)
+            .item(&check)
+            .separator()
+            .services()
+            .separator()
+            .hide()
+            .hide_others()
+            .show_all()
+            .separator()
+            .quit()
+            .build()?;
+        let edit_menu = SubmenuBuilder::new(handle, "Edit")
+            .undo()
+            .redo()
+            .separator()
+            .cut()
+            .copy()
+            .paste()
+            .select_all()
+            .build()?;
+        let window_menu = SubmenuBuilder::new(handle, "Window")
+            .minimize()
+            .separator()
+            .close_window()
+            .build()?;
+        MenuBuilder::new(handle)
+            .items(&[&app_menu, &edit_menu, &window_menu])
+            .build()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let help_menu = SubmenuBuilder::new(handle, "Help").item(&check).build()?;
+        MenuBuilder::new(handle).items(&[&help_menu]).build()
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(Backend(Mutex::new(None)))
+        .menu(build_menu)
+        .on_menu_event(|app, event| {
+            if event.id() == "check_update" {
+                tauri::async_runtime::spawn(check_for_updates(app.clone(), true));
+            }
+        })
         .setup(|app| {
             let handle = app.handle().clone();
             std::thread::spawn(move || boot(handle));
