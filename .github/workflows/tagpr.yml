@@ -11,6 +11,11 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  # actions: write is required for `gh workflow run` (dispatch desktop-release).
+  # The default GITHUB_TOKEN lacks the actions scope, so the dispatch step 403s
+  # ("Resource not accessible by integration") without this — observed on the
+  # v0.13.1 tag. Same requirement as Graphium's tagpr.yml.
+  actions: write
 
 jobs:
   tagpr:
