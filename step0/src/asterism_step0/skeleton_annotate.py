@@ -55,6 +55,10 @@ _CURIE_HEAD = re.compile(r"^([A-Za-z][\w.-]*):")
 _PREVIEW_ROWS = 3
 _COLLISION_EXAMPLES = 2
 _KEY_CANDIDATES = 3
+# The entity card: how many stable property values it shows, and how many
+# fighting values per conflicting column (real accident evidence, not a dump).
+_CARD_VALUE_COLUMNS = 8
+_CONFLICT_VALUES = 3
 # Measurement-valued columns make semantically wrong IDs even when accidentally
 # unique — candidates made ONLY of these types rank last, never first.
 _MEASUREMENT_TYPES = {"xsd:double", "xsd:float", "xsd:decimal"}
@@ -218,6 +222,200 @@ def _key_candidates(
     return out
 
 
+def _collapse_kind(report: Any) -> str:
+    """Classify what the key does to the rows — the judgment the gate needs.
+
+    ``unique``    every row keeps its own ID (a row-level entity — normal).
+    ``singleton`` ALL rows merge into one ID (a file-scoped entity: the
+                  reference card, the run header — merging is the POINT, so
+                  this must never be presented as the collision accident).
+    ``partial``   some rows merge, some don't — the overwrite accident.
+    """
+    if report.is_unique:
+        return "unique"
+    if report.distinct_tuples == 1:
+        return "singleton"
+    return "partial"
+
+
+def _entity_preview(
+    rows: list[dict[str, str]],
+    key: tuple[str, ...],
+    template: str,
+    prefixes: Mapping[str, str],
+    inspection: SourceInspection,
+    first_data_line: int,
+    collapse_kind: str,
+    distinct_ids: int,
+) -> dict[str, Any] | None:
+    """One representative entity rendered as the CARD the mapping would build.
+
+    The ID previews show URL syntax; this shows the consequence — which rows
+    merge onto one subject and what values it ends up carrying. Group choice:
+    for a partial collapse the LARGEST colliding group (the accident must be
+    visible), otherwise the first group in row order.
+
+    Column verdicts within the representative group:
+    - one distinct non-empty value → a property the card carries;
+    - several values on a ``partial`` map → a conflict (overwrite fight),
+      shown with the real values and file line numbers;
+    - several values on a ``singleton`` map → NOT a conflict: the column
+      varies per row, so it belongs to a row-level map — named, not shown.
+    """
+    groups: dict[tuple[str, ...], list[int]] = defaultdict(list)
+    for i, row in enumerate(rows):
+        values = tuple((row.get(col) or "").strip() for col in key)
+        if key and any(v == "" for v in values):
+            continue
+        groups[values].append(i)
+    if not groups:
+        return None
+    if collapse_kind == "partial":
+        rep = max(groups.values(), key=lambda idxs: (len(idxs), -idxs[0]))
+    else:
+        rep = next(iter(groups.values()))
+
+    props: list[dict[str, Any]] = []
+    conflicts: list[dict[str, Any]] = []
+    varying: list[str] = []
+    for col in (c.name for c in inspection.columns):
+        distinct: list[tuple[str, int]] = []
+        seen_values: set[str] = set()
+        for i in rep:
+            v = (rows[i].get(col) or "").strip()
+            if v and v not in seen_values:
+                seen_values.add(v)
+                distinct.append((v, i + first_data_line))
+        if not distinct:
+            continue
+        if len(distinct) == 1:
+            props.append({"column": col, "value": distinct[0][0]})
+        elif collapse_kind == "partial":
+            conflicts.append(
+                {
+                    "column": col,
+                    "conflict": True,
+                    "values": [
+                        {"value": v, "line": line} for v, line in distinct[:_CONFLICT_VALUES]
+                    ],
+                    "more_values": max(0, len(distinct) - _CONFLICT_VALUES),
+                }
+            )
+        else:
+            varying.append(col)
+
+    # Key columns first (they explain the ID); conflicts always survive the
+    # column cap (the accident is the point); stable values fill what's left.
+    key_set = set(key)
+    key_props = [p for p in props if p["column"] in key_set]
+    rest = [p for p in props if p["column"] not in key_set]
+    room = max(0, _CARD_VALUE_COLUMNS - len(key_props) - len(conflicts))
+    return {
+        "id": _render_template(template, rows[rep[0]], prefixes),
+        "row_count": len(rep),
+        "entity_count": distinct_ids,
+        "properties": key_props + conflicts + rest[:room],
+        "varying_columns": varying,
+        "omitted_columns": max(0, len(rest) - room),
+    }
+
+
+def _scoped_candidates(
+    parent_cols: Sequence[str],
+    current_key: Sequence[str],
+    existing: Sequence[Mapping[str, Any]],
+    rows_considered: Any,
+    inspection: SourceInspection | None,
+) -> list[dict[str, Any]]:
+    """Parent-scoped rewrites of the current key and the proven candidates.
+
+    A superset of a unique key stays unique (rows where a parent cell is empty
+    simply drop out of consideration), so no re-check is needed. Ranking
+    prefers fewer measurement-valued columns, then fewer columns — so
+    ``{No}/{(hkl)}`` beats ``{No}/{2theta}`` beats three-column combos.
+    """
+    types: dict[str, str | None] = (
+        {c.name: c.inferred_type for c in inspection.columns} if inspection else {}
+    )
+    bases: list[Sequence[str]] = [current_key, *(c.get("columns") or [] for c in existing)]
+    scored: list[tuple[tuple[bool, int, int], dict[str, Any]]] = []
+    seen: set[tuple[str, ...]] = set()
+    for base in bases:
+        combo = [*parent_cols, *(c for c in base if c not in parent_cols)]
+        canonical = tuple(sorted(combo))
+        if not combo or canonical in seen:
+            continue
+        seen.add(canonical)
+        n_meas = sum(1 for c in combo if types.get(c) in _MEASUREMENT_TYPES)
+        candidate = {
+            "columns": combo,
+            "rows_considered": rows_considered,
+            "measurement_only": n_meas == len(combo),
+            "scoped": True,
+        }
+        scored.append(((candidate["measurement_only"], n_meas, len(combo)), candidate))
+    scored.sort(key=lambda item: item[0])
+    return [c for _, c in scored[:_KEY_CANDIDATES]]
+
+
+def _inject_scope_risks(
+    annotations: dict[str, Any],
+    map_sources: Mapping[str, str],
+    inspections: Mapping[str, tuple[Path, SourceInspection]],
+) -> None:
+    """Cross-map pass: append-safety of row-level IDs (the citation question).
+
+    When exactly one map of a source collapses to a SINGLETON (the file-scoped
+    metadata entity — one reference card, one run header), its key columns are
+    that file's namespace. A row-level map on the same source whose key does
+    not include them is unique only within THIS file: appending the next file
+    can mint the same ID for a different parent's row. Flag it as a reference
+    risk and prepend the parent key to every proven candidate. Two singletons
+    would make the parent ambiguous — stay silent rather than guess.
+    """
+    by_source: dict[str, list[str]] = defaultdict(list)
+    for name, src in map_sources.items():
+        by_source[src].append(name)
+    for src, names in by_source.items():
+        singletons = [
+            n
+            for n in names
+            if annotations[n].get("collapse_kind") == "singleton"
+            and annotations[n].get("key_columns")
+        ]
+        if len(singletons) != 1:
+            continue
+        parent = singletons[0]
+        parent_cols = list(annotations[parent]["key_columns"])
+        parent_classes = [c["curie"] for c in annotations[parent].get("expanded_classes") or []]
+        entry = inspections.get(src)
+        inspection = entry[1] if entry else None
+        for name in names:
+            if name == parent:
+                continue
+            ann = annotations[name]
+            if not ann.get("checkable") or ann.get("collapse_kind") != "unique":
+                continue
+            key_cols = list(ann.get("key_columns") or [])
+            if not key_cols or set(parent_cols) <= set(key_cols):
+                continue
+            ann.setdefault("reference_risks", []).append(
+                {
+                    "kind": "scope-missing",
+                    "parent_map": parent,
+                    "parent_columns": parent_cols,
+                    "parent_classes": parent_classes,
+                }
+            )
+            ann["key_candidates"] = _scoped_candidates(
+                parent_cols,
+                key_cols,
+                ann.get("key_candidates") or [],
+                ann.get("rows_considered"),
+                inspection,
+            )
+
+
 def _annotate_map(
     map_entry: Mapping[str, Any],
     prefixes: Mapping[str, str],
@@ -293,6 +491,7 @@ def _annotate_map(
         if _measurement_only(inspection, key)
         else []
     )
+    kind = _collapse_kind(report)
     ann.update(
         {
             "checkable": True,
@@ -302,13 +501,31 @@ def _annotate_map(
             "distinct_ids": report.distinct_tuples,
             "colliding_rows": report.total_rows_considered - report.distinct_tuples,
             "is_unique": report.is_unique,
+            "collapse_kind": kind,
             "key_measurement_caution": caution,
+            # Citation-consequence risks (machine-readable; copy lives in the
+            # UI): a measured-value ID stops pointing at its peak the moment
+            # the value is corrected. The cross-map ``scope-missing`` risk is
+            # appended by _inject_scope_risks after all maps are annotated.
+            "reference_risks": (
+                [{"kind": "measurement-id", "columns": list(key)}] if caution else []
+            ),
             "collision_examples": []
             if report.is_unique
             else _collision_examples(rows, key, first_data_line),
             "id_previews": [
                 _render_template(str(template), row, prefixes) for row in rows[:_PREVIEW_ROWS]
             ],
+            "entity_preview": _entity_preview(
+                rows,
+                key,
+                str(template),
+                prefixes,
+                inspection,
+                first_data_line,
+                kind,
+                report.distinct_tuples,
+            ),
             "key_candidates": []
             if (report.is_unique and not caution)
             else _key_candidates(inspection, key),
@@ -347,13 +564,19 @@ def annotate_skeleton(
     )
 
     annotations: dict[str, Any] = {}
+    map_sources: dict[str, str] = {}
     for map_entry in skeleton.get("maps") or []:
         if not isinstance(map_entry, Mapping):
             continue
         name = str(map_entry.get("name") or f"map-{len(annotations) + 1}")
         source = str(map_entry.get("source") or "")
         path, inspection = by_name.get(Path(source).name, (None, None))
+        map_sources[name] = Path(source).name
         annotations[name] = _annotate_map(map_entry, prefixes, path, inspection)
+    # Second pass — needs every map's collapse verdict: the singleton map's
+    # key is the file's namespace, and row-level keys missing it are unique
+    # only until the next file is appended (see _inject_scope_risks).
+    _inject_scope_risks(annotations, map_sources, by_name)
     # Skeleton-level (not per-map): namespaces minted on a placeholder domain
     # (ADR instance-iri-base.md). The design loop would catch this after the
     # (paid, minutes-long) continue run — the gate shows it in milliseconds,
