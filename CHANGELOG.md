@@ -1,5 +1,23 @@
 # Changelog
 
+## [v0.13.0](https://github.com/kumagallium/asterism/compare/v0.12.0...v0.13.0) - 2026-08-13
+
+- feat(desktop): デスクトップシェル v1 — Tauri v2 でネイティブアプリ化（Phase 2） by @kumagallium in https://github.com/kumagallium/asterism/pull/326
+- feat(desktop): 自己完結バンドル — repo/Python/Docker 不要の .app（Phase 2 v2） by @kumagallium in https://github.com/kumagallium/asterism/pull/328
+- ci(desktop): Desktop Build workflow — desktop/** PR と dispatch で .app/.dmg by @kumagallium in https://github.com/kumagallium/asterism/pull/329
+- ci(desktop): ui は npm install に — repo 規約に合わせる by @kumagallium in https://github.com/kumagallium/asterism/pull/330
+- ci(desktop): 署名 env は secrets 実在時のみ注入 by @kumagallium in https://github.com/kumagallium/asterism/pull/332
+- fix(api): togomcp の DB 名正規化に合わせ配信名を canonical 化 (discovery 消失の根治) by @kumagallium in https://github.com/kumagallium/asterism/pull/331
+- feat(api): snapshot exchange v1 — インスタンス間のデータセット受け渡し（Phase 3） by @kumagallium in https://github.com/kumagallium/asterism/pull/333
+- fix(desktop): アプリアイコンが白紙 — qlmanage の SVG 非拡大レンダを根治 by @kumagallium in https://github.com/kumagallium/asterism/pull/334
+- fix(desktop): バンドルの editable 混入根治 — 配布 .dmg の起動即死を修正 by @kumagallium in https://github.com/kumagallium/asterism/pull/335
+- fix(ui): 空状態の「新しいデータセット」をグリッドと同じ追加タイルに by @kumagallium in https://github.com/kumagallium/asterism/pull/337
+- fix(ui): 初回起動時にデフォルトモデル（Claude Opus 4.7）をシードしない by @kumagallium in https://github.com/kumagallium/asterism/pull/336
+- feat(desktop): 自動アップデート (native) — 更新確認/DL/再起動を Rust 側で完結 by @kumagallium in https://github.com/kumagallium/asterism/pull/338
+- ci(desktop): Desktop Release workflow — 署名付き .app.tar.gz + latest.json 生成 by @kumagallium in https://github.com/kumagallium/asterism/pull/339
+- docs(roadmap): デスクトップ自動アップデート実装を反映 by @kumagallium in https://github.com/kumagallium/asterism/pull/340
+- feat(step0,ui): 骨格ゲートに帰結プレビュー — エンティティカード・潰れ分類・参照リスク (K14) by @kumagallium in https://github.com/kumagallium/asterism/pull/341
+
 ## [v0.12.0](https://github.com/kumagallium/asterism/compare/v0.11.0...v0.12.0) - 2026-08-12
 
 - fix(ui): かんたん「弱さ」カードの「AI に直してもらう」が無反応 — kind ガード漏れ by @kumagallium in https://github.com/kumagallium/asterism/pull/319
