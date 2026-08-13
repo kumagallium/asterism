@@ -29,8 +29,25 @@ PYBIN="$(ls -d "$DEST"/uv-python/cpython-3.11*/bin/python3 2>/dev/null | head -1
 # --break-system-packages: this standalone interpreter exists solely for the
 # bundle; uv marks its own pythons externally-managed, which is exactly the
 # guard we want to bypass here.
-uv pip install --python "$PYBIN" --break-system-packages \
+# --no-sources: api's tool.uv.sources marks the sibling packages EDITABLE;
+# newer uv honors that even for `uv pip install <path>` and emits .pth links
+# to the BUILD machine's checkout — which exist during the CI smoke test and
+# vanish on the user's machine (the v0.1.0 .dmg shipped exactly that:
+# ModuleNotFoundError: asterism). Snapshots must be real copies.
+uv pip install --python "$PYBIN" --break-system-packages --no-sources \
   "$REPO/ingest[substrate]" "$REPO/step0" "$REPO/mcp" "$REPO/api"
+
+# Relocation proof: importable-on-the-build-machine is NOT the bar (editable
+# .pth files pass that and break after relocation). Require the real package
+# directories and forbid editable install remnants.
+SITE="$(dirname "$PYBIN")/../lib/python3.11/site-packages"
+for pkg in asterism asterism_api asterism_step0 asterism_mcp morph_kgc; do
+  [ -d "$SITE/$pkg" ] || { echo "bundle is not self-contained: $pkg missing from site-packages" >&2; exit 1; }
+done
+if ls "$SITE"/_editable_impl_*.pth "$SITE"/__editable__* >/dev/null 2>&1; then
+  echo "bundle contains editable-install remnants (.pth) — would break on relocation" >&2
+  exit 1
+fi
 
 # --- oxigraph single binary ------------------------------------------------
 if [ ! -x "$DEST/oxigraph" ]; then
