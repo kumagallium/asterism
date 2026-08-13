@@ -76,15 +76,63 @@ function SkeletonEvidence({
     )
   }
 
-  const collides = ann.is_unique === false
+  // A key that merges ALL rows is the file-scoped metadata pattern (one
+  // reference card, one run header) — merging is the point, so it renders as
+  // the green "everything gathers on one card" state, never as the collision
+  // accident. Only a PARTIAL collapse is the accident. Older servers don't
+  // send collapse_kind; fall back to the raw is_unique reading.
+  const singleton = ann.collapse_kind === 'singleton'
+  const collides = ann.collapse_kind
+    ? ann.collapse_kind === 'partial'
+    : ann.is_unique === false
   // K7: a key that is unique TODAY but built only from measurement values gets
   // an amber caution under the green band, and the proven candidates still show
   // (the green band alone let a semantically wrong ID through in real dogfood).
   const caution = ann.is_unique === true && ann.key_measurement_caution === true
-  const showCandidates = (collides || caution) && (ann.key_candidates?.length ?? 0) > 0
+  // Citation-consequence risks (server-detected, machine-readable): what this
+  // ID recipe DOES to references later — shown instead of the abstract K7 copy
+  // when the server is new enough to send them.
+  const risks = ann.reference_risks ?? []
+  const measurementRisk = risks.find((r) => r.kind === 'measurement-id')
+  const scopeRisk = risks.find((r) => r.kind === 'scope-missing')
+  const card = ann.entity_preview
+  const displayCls = (value: string) => (displayClass ? displayClass(value) : value)
+  const cardCls = (ann.expanded_classes[0]?.curie && displayCls(ann.expanded_classes[0].curie)) || ''
+  const candidateChips = (ann.key_candidates?.length ?? 0) > 0 && (
+    <>
+      {ann.key_candidates!.map((c) => (
+        <button
+          key={c.columns.join(' ')}
+          type="button"
+          className={
+            c.scoped ? 'skeleton-candidate-chip skeleton-candidate-chip--scoped' : 'skeleton-candidate-chip'
+          }
+          title={
+            c.scoped
+              ? t('workbench:skeleton.evidence.scopedCandidate')
+              : c.measurement_only
+                ? t('workbench:skeleton.evidence.measurementOnly')
+                : undefined
+          }
+          onClick={() => onApplyCandidate(c.columns)}
+        >
+          {c.columns.map((col) => `{${col}}`).join(' + ')}
+          {c.measurement_only && ' ⚠'}
+        </button>
+      ))}
+    </>
+  )
+  // Non-singleton: chips show whenever something is wrong (collision, caution,
+  // risk). Singleton: merging is normal, so the chips fold behind the explicit
+  // "should this be one record per row?" question instead.
+  const showCandidates = !singleton && (collides || caution || risks.length > 0) && candidateChips
   return (
     <div className="skeleton-evidence">
-      {ann.is_unique ? (
+      {singleton ? (
+        <p className="skeleton-evidence-line skeleton-evidence-ok">
+          ✓ {t('workbench:skeleton.evidence.singleton', { total: ann.total_rows })}
+        </p>
+      ) : ann.is_unique ? (
         <p className="skeleton-evidence-line skeleton-evidence-ok">
           ✓ {t('workbench:skeleton.evidence.unique', { rows: ann.total_rows })}
         </p>
@@ -108,9 +156,26 @@ function SkeletonEvidence({
             })}
           </p>
         ))}
-      {caution && (
+      {caution && !measurementRisk && (
         <p className="skeleton-evidence-line skeleton-evidence-caution">
           ⚠ {t('workbench:skeleton.evidence.measurementKeyCaution')}
+        </p>
+      )}
+      {measurementRisk && (
+        <p className="skeleton-evidence-line skeleton-evidence-caution">
+          ⚠ {t('workbench:skeleton.evidence.riskMeasurementId', {
+            columns: (measurementRisk.columns ?? []).join(', '),
+          })}
+        </p>
+      )}
+      {scopeRisk && (
+        <p className="skeleton-evidence-line skeleton-evidence-caution">
+          ⚠ {t('workbench:skeleton.evidence.riskScopeMissing', {
+            parent: scopeRisk.parent_classes?.[0]
+              ? displayCls(scopeRisk.parent_classes[0])
+              : (scopeRisk.parent_map ?? ''),
+            columns: (scopeRisk.parent_columns ?? []).join(', '),
+          })}
         </p>
       )}
       {/* ZEM naming trap: the row class named after a measured key column
@@ -127,40 +192,124 @@ function SkeletonEvidence({
           })}
         </p>
       )}
-      {(ann.id_previews?.length ?? 0) > 0 && (
-        <div className="skeleton-evidence-previews">
+      {card ? (
+        /* The consequence, not the syntax: ONE representative entity rendered
+           as the card the mapping would build — real values, so "47 rows merge
+           into this" reads as a fact, not a warning. Replaces the raw ID list
+           (the ID is the card's title line). */
+        <div className="skeleton-entity-card">
           <span className="skeleton-evidence-label">
-            {t('workbench:skeleton.evidence.previewHead', { n: ann.id_previews!.length })}
+            {cardCls
+              ? t('workbench:skeleton.evidence.cardCount', {
+                  count: card.entity_count,
+                  cls: cardCls,
+                })
+              : t('workbench:skeleton.evidence.cardCountPlain', { count: card.entity_count })}
           </span>
-          {ann.id_previews!.map((id, i) => (
-            <code key={i} className="skeleton-evidence-id">
-              {id}
-            </code>
-          ))}
+          <div className="skeleton-entity-card-box">
+            <div className="skeleton-entity-card-head">
+              <code className="skeleton-evidence-id">{card.id}</code>
+              {cardCls && <span className="skeleton-entity-class">{cardCls}</span>}
+            </div>
+            <table className="skeleton-entity-props">
+              <tbody>
+                {card.properties.map((p) =>
+                  p.conflict ? (
+                    <tr key={p.column} className="skeleton-entity-conflict">
+                      <th scope="row">{p.column}</th>
+                      <td>
+                        <span className="skeleton-entity-conflict-note">
+                          ⚠ {t('workbench:skeleton.evidence.cardConflict')}
+                        </span>
+                        {(p.values ?? []).map((v) => (
+                          <div key={v.line} className="skeleton-entity-conflict-value">
+                            {t('workbench:skeleton.evidence.cardConflictLine', {
+                              value: v.value,
+                              line: v.line,
+                            })}
+                          </div>
+                        ))}
+                        {(p.more_values ?? 0) > 0 && (
+                          <div className="skeleton-entity-conflict-value">
+                            {t('workbench:skeleton.evidence.cardConflictMore', {
+                              count: p.more_values,
+                            })}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ) : (
+                    <tr key={p.column}>
+                      <th scope="row">{p.column}</th>
+                      <td>{p.value}</td>
+                    </tr>
+                  ),
+                )}
+                {card.omitted_columns > 0 && (
+                  <tr>
+                    <td colSpan={2} className="skeleton-entity-muted">
+                      {t('workbench:skeleton.evidence.cardOmitted', {
+                        count: card.omitted_columns,
+                      })}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          {singleton && (
+            <p className="skeleton-evidence-line skeleton-evidence-muted">
+              {t('workbench:skeleton.evidence.cardMerges', { rows: card.row_count })}
+            </p>
+          )}
+          {!singleton && !collides && card.entity_count > 1 && (
+            <p className="skeleton-evidence-line skeleton-evidence-muted">
+              {t('workbench:skeleton.evidence.cardMore', { count: card.entity_count - 1 })}
+            </p>
+          )}
+          {singleton && card.varying_columns.length > 0 && (
+            <p className="skeleton-evidence-line skeleton-evidence-muted">
+              {t('workbench:skeleton.evidence.cardVarying', {
+                count: card.varying_columns.length,
+                columns:
+                  card.varying_columns.slice(0, 5).join(', ') +
+                  (card.varying_columns.length > 5 ? ' …' : ''),
+              })}
+            </p>
+          )}
         </div>
+      ) : (
+        (ann.id_previews?.length ?? 0) > 0 && (
+          <div className="skeleton-evidence-previews">
+            <span className="skeleton-evidence-label">
+              {t('workbench:skeleton.evidence.previewHead', { n: ann.id_previews!.length })}
+            </span>
+            {ann.id_previews!.map((id, i) => (
+              <code key={i} className="skeleton-evidence-id">
+                {id}
+              </code>
+            ))}
+          </div>
+        )
       )}
       {showCandidates && (
         <div className="skeleton-evidence-candidates">
           <span className="skeleton-evidence-label">
             {t('workbench:skeleton.evidence.candidatesHead')}
           </span>
-          {ann.key_candidates!.map((c) => (
-            <button
-              key={c.columns.join(' ')}
-              type="button"
-              className="skeleton-candidate-chip"
-              title={
-                c.measurement_only
-                  ? t('workbench:skeleton.evidence.measurementOnly')
-                  : undefined
-              }
-              onClick={() => onApplyCandidate(c.columns)}
-            >
-              {c.columns.map((col) => `{${col}}`).join(' + ')}
-              {c.measurement_only && ' ⚠'}
-            </button>
-          ))}
+          {candidateChips}
         </div>
+      )}
+      {singleton && candidateChips && (
+        /* On a singleton the merge is (usually) the point — but when it ISN'T,
+           the fix must stay one click away. Folded behind the explicit
+           question so the normal case stays green and quiet. */
+        <details className="skeleton-evidence-candidates skeleton-evidence-candidates--fold">
+          <summary className="skeleton-evidence-label">
+            {t('workbench:skeleton.evidence.candidatesSingletonHead')}
+          </summary>
+          {candidateChips}
+        </details>
       )}
       {prefixWarning}
     </div>
@@ -289,10 +438,14 @@ export function SkeletonGate({
 
   // Warn before continuing when the evidence says a key still collapses rows —
   // soft gate: the human can proceed (small collision counts can be legitimate,
-  // e.g. deliberate dedup), but never unknowingly.
-  const collapsing = skeleton.maps.filter(
-    (m) => annotations?.maps?.[m.name]?.is_unique === false,
-  )
+  // e.g. deliberate dedup), but never unknowingly. A SINGLETON map (all rows →
+  // one file-scoped entity) is the normal metadata pattern, not the accident —
+  // it must not trip this confirm (older servers: fall back to is_unique).
+  const collapsing = skeleton.maps.filter((m) => {
+    const a = annotations?.maps?.[m.name]
+    if (!a) return false
+    return a.collapse_kind ? a.collapse_kind === 'partial' : a.is_unique === false
+  })
   function onContinueGuarded() {
     if (placeholderPrefixes.length > 0) {
       const ok = window.confirm(

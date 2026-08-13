@@ -6017,6 +6017,85 @@ button.ds-artifact:disabled {
 .skeleton-candidate-chip:hover {
   background: var(--primary-softer);
 }
+/* A parent-scoped candidate (safe under appends) — the recommended fix, so it
+   reads stronger than the plain chips around it. */
+.skeleton-candidate-chip--scoped {
+  border-color: var(--primary);
+  font-weight: 600;
+}
+
+/* Entity card: the CONSEQUENCE of the ID recipe — one representative entity
+   the mapping would build, with real values. Conflict rows carry the fighting
+   values; a singleton card names the per-row columns it does NOT own. */
+.skeleton-entity-card {
+  margin-top: 0.15rem;
+}
+.skeleton-entity-card-box {
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 0.45rem 0.6rem;
+  max-width: 34rem;
+}
+.skeleton-entity-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid var(--line);
+}
+.skeleton-entity-class {
+  font-size: 0.66rem;
+  font-weight: 600;
+  color: var(--primary);
+  background: var(--primary-soft);
+  border-radius: 999px;
+  padding: 0.08rem 0.5rem;
+  white-space: nowrap;
+}
+.skeleton-entity-props {
+  border-collapse: collapse;
+  margin-top: 0.3rem;
+  font-size: 0.74rem;
+}
+.skeleton-entity-props th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--muted);
+  padding: 0.12rem 0.9rem 0.12rem 0;
+  vertical-align: top;
+  white-space: nowrap;
+}
+.skeleton-entity-props td {
+  padding: 0.12rem 0;
+  word-break: break-word;
+}
+.skeleton-entity-conflict th,
+.skeleton-entity-conflict td {
+  color: var(--warn-fg);
+}
+.skeleton-entity-conflict-note {
+  display: block;
+  font-weight: 600;
+  font-size: 0.7rem;
+}
+.skeleton-entity-conflict-value {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+.skeleton-entity-muted {
+  color: var(--faint);
+  font-size: 0.7rem;
+}
+/* Singleton maps fold their "split per row instead?" candidates behind an
+   explicit question — the normal (merging) case stays green and quiet. */
+.skeleton-evidence-candidates--fold summary {
+  cursor: pointer;
+  display: list-item;
+  margin-bottom: 0.2rem;
+}
 
 /* Skeleton gate: namespace section (ADR instance-iri-base.md) — where this
    design mints its IDs, with placeholder-domain warnings. */

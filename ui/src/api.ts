@@ -238,10 +238,50 @@ export interface SkeletonMapAnnotation {
     row_count: number
     line_numbers: number[]
   }[]
+  /** Server verdict on what the key DOES to the rows: `unique` = every row its
+   *  own ID; `singleton` = ALL rows merge into one file-scoped entity (the
+   *  metadata-block pattern — merging is the point, not the accident);
+   *  `partial` = some rows merge, some don't (the overwrite accident). */
+  collapse_kind?: 'singleton' | 'unique' | 'partial'
+  /** Citation-consequence risks of this ID recipe (machine-readable kinds,
+   *  copy lives in the UI): `measurement-id` — a corrected value mints a new
+   *  ID and strands citations of the old one; `scope-missing` — unique in
+   *  this file only, appended files can merge a different parent's rows. */
+  reference_risks?: {
+    kind: string
+    columns?: string[]
+    parent_map?: string
+    parent_columns?: string[]
+    parent_classes?: string[]
+  }[]
+  /** One representative entity rendered as the CARD the mapping would build —
+   *  the consequence of the ID recipe shown with real values. Conflict
+   *  properties carry the fighting values with file line numbers; on a
+   *  singleton, per-row columns are named in varying_columns instead. */
+  entity_preview?: {
+    id: string
+    row_count: number
+    entity_count: number
+    properties: {
+      column: string
+      value?: string
+      conflict?: boolean
+      values?: { value: string; line: number }[]
+      more_values?: number
+    }[]
+    varying_columns: string[]
+    omitted_columns: number
+  } | null
   /** Real IDs minted from the first rows (prefix-expanded). */
   id_previews?: string[]
-  /** Proven-unique column combinations (one-click fix candidates). */
-  key_candidates?: { columns: string[]; rows_considered: number; measurement_only: boolean }[]
+  /** Proven-unique column combinations (one-click fix candidates). `scoped`
+   *  marks a parent-key-first rewrite that stays unique under appends. */
+  key_candidates?: {
+    columns: string[]
+    rows_considered: number
+    measurement_only: boolean
+    scoped?: boolean
+  }[]
 }
 
 /** The skeleton's minted namespace pair as the server recognizes it (kantan

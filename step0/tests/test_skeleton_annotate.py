@@ -272,6 +272,148 @@ def test_unrelated_class_name_over_numeric_key_has_no_class_caution(tmp_path: Pa
     assert ann["class_numeric_key_caution"] == []
 
 
+def _write_reference_card(tmp_path: Path) -> Path:
+    """The XRD reference-card shape: file-scoped metadata columns (No, Name)
+    repeated on every row + per-row peak columns (2theta, d, I, (hkl))."""
+    p = tmp_path / "card.csv"
+    p.write_text(
+        "No,Name,2theta,d,I,(hkl)\n"
+        '03-065-2664,Aluminum Vanadium,21.34,4.161,5.0,"(0,0,2)"\n'
+        '03-065-2664,Aluminum Vanadium,25.87,3.441,11.5,"(1,0,1)"\n'
+        '03-065-2664,Aluminum Vanadium,33.51,2.672,2.7,"(1,1,0)"\n',
+        encoding="utf-8",
+    )
+    return p
+
+
+def _card_skeleton() -> dict:
+    return {
+        "version": 1,
+        "prefixes": dict(_PREFIXES),
+        "maps": [
+            {
+                "name": "sample",
+                "source": "card.csv",
+                "subject": {"template": "xr:sample/{No}", "classes": ["xo:Material"]},
+            },
+            {
+                "name": "peak",
+                "source": "card.csv",
+                "subject": {"template": "xr:peak/{2theta}", "classes": ["xo:DiffractionPeak"]},
+            },
+        ],
+    }
+
+
+def test_singleton_collapse_classified_with_entity_card(tmp_path: Path) -> None:
+    """All rows merging into ONE ID is the file-scoped metadata pattern, not the
+    collision accident: classified ``singleton``, and the card shows the merge —
+    stable columns as properties, per-row columns named as another map's turf."""
+    p = _write_reference_card(tmp_path)
+    ann = annotate_skeleton(_card_skeleton(), [p])["maps"]["sample"]
+    assert ann["is_unique"] is False  # unchanged raw fact (backward compat)
+    assert ann["collapse_kind"] == "singleton"
+    card = ann["entity_preview"]
+    assert card["id"] == "https://example.org/xrd/resource/sample/03-065-2664"
+    assert card["row_count"] == 3
+    assert card["entity_count"] == 1
+    # Key column leads, then the other stable value; nothing conflicts.
+    assert card["properties"] == [
+        {"column": "No", "value": "03-065-2664"},
+        {"column": "Name", "value": "Aluminum Vanadium"},
+    ]
+    # Per-row columns are NOT conflicts on a singleton — they belong elsewhere.
+    assert card["varying_columns"] == ["2theta", "d", "I", "(hkl)"]
+    assert card["omitted_columns"] == 0
+
+
+def test_partial_collapse_shows_overwrite_conflict(tmp_path: Path) -> None:
+    """The real accident: a key that merges SOME rows. The card picks the largest
+    colliding group and shows the fighting values with file line numbers."""
+    p = tmp_path / "scans.csv"
+    p.write_text(
+        "scan,operator,2theta\nS1,Alice,10.0\nS1,Bob,10.2\nS2,Carol,10.4\n",
+        encoding="utf-8",
+    )
+    skeleton = _skeleton("xr:scan/{scan}", source="scans.csv")
+    ann = annotate_skeleton(skeleton, [p])["maps"]["point"]
+    assert ann["collapse_kind"] == "partial"
+    card = ann["entity_preview"]
+    assert card["id"] == "https://example.org/xrd/resource/scan/S1"
+    assert card["row_count"] == 2
+    assert card["entity_count"] == 2
+    by_col = {prop["column"]: prop for prop in card["properties"]}
+    assert by_col["scan"] == {"column": "scan", "value": "S1"}
+    assert by_col["operator"]["conflict"] is True
+    assert by_col["operator"]["values"] == [
+        {"value": "Alice", "line": 2},
+        {"value": "Bob", "line": 3},
+    ]
+    assert card["varying_columns"] == []
+
+
+def test_unique_map_card_shows_first_entity_and_count(tmp_path: Path) -> None:
+    p = tmp_path / "samples.csv"
+    p.write_text("sample_id,alloy\nS-1,WC\nS-2,TiN\n", encoding="utf-8")
+    ann = annotate_skeleton(_skeleton("xr:sample/{sample_id}", source="samples.csv"), [p])["maps"][
+        "point"
+    ]
+    assert ann["collapse_kind"] == "unique"
+    card = ann["entity_preview"]
+    assert card["id"] == "https://example.org/xrd/resource/sample/S-1"
+    assert card["row_count"] == 1
+    assert card["entity_count"] == 2
+    assert card["properties"] == [
+        {"column": "sample_id", "value": "S-1"},
+        {"column": "alloy", "value": "WC"},
+    ]
+
+
+def test_measurement_key_carries_reference_risk(tmp_path: Path) -> None:
+    """The citation consequence of a measured-value ID, machine-readable."""
+    p = tmp_path / "xrd.csv"
+    p.write_text(
+        "2θ (deg),intensity,scan_id\n10.00,120,S1\n10.02,135,S1\n10.04,98,S2\n",
+        encoding="utf-8",
+    )
+    ann = annotate_skeleton(_skeleton("xr:point/{2θ (deg)}"), [p])["maps"]["point"]
+    assert {"kind": "measurement-id", "columns": ["2θ (deg)"]} in ann["reference_risks"]
+
+
+def test_scope_missing_risk_and_scoped_candidates(tmp_path: Path) -> None:
+    """Append-safety across maps of one source: the singleton map's key (No) is
+    the file's namespace; a row-level key without it gets the scope-missing risk
+    and every candidate rewritten parent-first — `{No}/{(hkl)}` ranks first
+    (fewest measurement columns), so the one-click fix IS the correct design."""
+    p = _write_reference_card(tmp_path)
+    out = annotate_skeleton(_card_skeleton(), [p])["maps"]
+    peak = out["peak"]
+    assert peak["collapse_kind"] == "unique"
+    risks = {r["kind"]: r for r in peak["reference_risks"]}
+    assert "measurement-id" in risks  # 2theta is a measured value
+    scope = risks["scope-missing"]
+    assert scope["parent_map"] == "sample"
+    assert scope["parent_columns"] == ["No"]
+    assert scope["parent_classes"] == ["xo:Material"]
+    candidates = peak["key_candidates"]
+    assert candidates, "expected scoped candidates"
+    assert all(c["scoped"] is True for c in candidates)
+    assert all(c["columns"][0] == "No" for c in candidates)
+    assert candidates[0]["columns"] == ["No", "(hkl)"]
+    assert candidates[0]["measurement_only"] is False
+    # The singleton parent itself keeps its candidates untouched (no risk).
+    assert out["sample"]["reference_risks"] == []
+
+
+def test_scoped_key_already_containing_parent_has_no_scope_risk(tmp_path: Path) -> None:
+    p = _write_reference_card(tmp_path)
+    skeleton = _card_skeleton()
+    skeleton["maps"][1]["subject"]["template"] = "xr:peak/{No}/{(hkl)}"
+    ann = annotate_skeleton(skeleton, [p])["maps"]["peak"]
+    assert ann["collapse_kind"] == "unique"
+    assert ann["reference_risks"] == []
+
+
 def test_dataset_namespace_info_in_annotations(tmp_path: Path) -> None:
     """The gate's namespace card rides annotations: which prefixes are THIS
     dataset's minted pair, under which base, configured or not (ADR K13)."""
