@@ -177,8 +177,10 @@ export function GalleryView({
           <p className="state-title">{t('gallery:empty.title')}</p>
           <p className="state-sub">{t('gallery:empty.sub')}</p>
           {onAddData && (
-            <button type="button" className="promote-btn" onClick={onAddData}>
-              {t('gallery:grid.addTitle')}
+            <button type="button" className="ds-add-tile ds-add-tile--empty" onClick={onAddData}>
+              <span className="ds-add-plus">+</span>
+              <span className="ds-add-title">{t('gallery:grid.addTitle')}</span>
+              <span className="ds-add-sub">{t('gallery:grid.addSub')}</span>
             </button>
           )}
         </div>

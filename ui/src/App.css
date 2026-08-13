@@ -3122,6 +3122,13 @@ button.trace-iri-copy:hover:not(:disabled) {
   color: var(--muted);
   cursor: pointer;
 }
+/* Empty-state variant: the same dashed add tile, centered inside .state-block
+   with a fixed card-ish width so it reads as one grid card, not a stray button. */
+.ds-add-tile--empty {
+  width: min(320px, 100%);
+  margin-top: 0.4rem;
+  padding: 1.25rem 1.5rem;
+}
 .ds-add-tile:hover:not(:disabled) {
   background: var(--surface-alt);
   border-color: var(--primary);
