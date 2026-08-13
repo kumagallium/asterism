@@ -34,6 +34,25 @@ fn free_port() -> std::io::Result<u16> {
     Ok(TcpListener::bind("127.0.0.1:0")?.local_addr()?.port())
 }
 
+// The window loads http://127.0.0.1:<port>/. The browser keys localStorage
+// (registered models, default model, remembered API keys — ui/src/settings)
+// by ORIGIN, so a per-launch random port would silently wipe every setting on
+// each restart. Pin a fixed loopback port so the origin — and therefore the
+// stored settings — is stable across launches (the same reason Graphium pins
+// 127.0.0.1:3001). Fall back to a random port only if it is already taken, in
+// which case settings are ephemeral for that session but the app still runs.
+const PREFERRED_PORT: u16 = 8765;
+
+fn app_port() -> u16 {
+    match TcpListener::bind(("127.0.0.1", PREFERRED_PORT)) {
+        Ok(listener) => {
+            drop(listener);
+            PREFERRED_PORT
+        }
+        Err(_) => free_port().unwrap_or(PREFERRED_PORT),
+    }
+}
+
 /// How to start the backend: program + leading args + env the layout needs.
 struct BackendCmd {
     program: PathBuf,
@@ -260,13 +279,7 @@ fn boot(app: tauri::AppHandle) {
         );
         return;
     };
-    let port = match free_port() {
-        Ok(p) => p,
-        Err(e) => {
-            fail(&app, &format!("空きポートの確保に失敗しました: {e}"));
-            return;
-        }
-    };
+    let port = app_port();
 
     let log_path = app.path().app_log_dir().ok().map(|dir| {
         let _ = std::fs::create_dir_all(&dir);
