@@ -12,12 +12,17 @@
 # load its .so at runtime), then notarizes with notarytool and staples the
 # ticket into the app.
 #
+# With a second arg (VERSION) it also builds a Developer-ID-signed, notarized,
+# stapled .dmg (Asterism_<VERSION>_aarch64.dmg in the current dir) — so the
+# downloaded disk image itself passes Gatekeeper, not just the app inside it.
+#
 # Requires (env): APPLE_CERTIFICATE (base64 .p12), APPLE_CERTIFICATE_PASSWORD,
 # APPLE_SIGNING_IDENTITY, APPLE_ID, APPLE_PASSWORD (app-specific), APPLE_TEAM_ID.
-# Usage: sign-notarize-macos.sh <path-to-.app>
+# Usage: sign-notarize-macos.sh <path-to-.app> [VERSION]
 set -euo pipefail
 
 APP="$1"
+VERSION="${2:-}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ENTITLEMENTS="$HERE/../src-tauri/entitlements.plist"
 TMP="${RUNNER_TEMP:-/tmp}"
@@ -47,6 +52,26 @@ sign() {
     --entitlements "$ENTITLEMENTS" --sign "$APPLE_SIGNING_IDENTITY" "$1"
 }
 
+# submit a file (zip / dmg) to notarization, wait, and surface the log on
+# failure (notarytool exits non-zero and prints only a summary otherwise).
+submit_notarize() {
+  local out rc id
+  set +e
+  out=$(xcrun notarytool submit "$1" \
+    --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" \
+    --wait 2>&1)
+  rc=$?
+  set -e
+  echo "$out"
+  id=$(echo "$out" | awk '/id:/{print $2; exit}')
+  if [ $rc -ne 0 ] || ! echo "$out" | grep -q "status: Accepted"; then
+    echo "::error::notarization failed for $1 — detailed log follows"
+    [ -n "$id" ] && xcrun notarytool log "$id" \
+      --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" || true
+    return 1
+  fi
+}
+
 # --- sign every nested Mach-O, then the app bundle (inside-out) -------------
 echo "Signing nested Mach-O binaries…"
 COUNT=0
@@ -62,25 +87,30 @@ echo "Signing the app bundle…"
 sign "$APP"
 codesign --verify --deep --strict --verbose=2 "$APP"
 
-# --- notarize + staple -----------------------------------------------------
-echo "Submitting for notarization (this can take several minutes)…"
+# --- notarize + staple the app ---------------------------------------------
+echo "Submitting the app for notarization (this can take several minutes)…"
 ZIP="$TMP/Asterism-notarize.zip"
 ditto -c -k --keepParent "$APP" "$ZIP"
-set +e
-SUBMIT_OUT=$(xcrun notarytool submit "$ZIP" \
-  --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" \
-  --wait 2>&1)
-SUBMIT_RC=$?
-set -e
-echo "$SUBMIT_OUT"
-SUBMISSION_ID=$(echo "$SUBMIT_OUT" | awk '/id:/{print $2; exit}')
-if [ $SUBMIT_RC -ne 0 ] || ! echo "$SUBMIT_OUT" | grep -q "status: Accepted"; then
-  echo "::error::notarization did not succeed — fetching the detailed log"
-  [ -n "$SUBMISSION_ID" ] && xcrun notarytool log "$SUBMISSION_ID" \
-    --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" || true
-  exit 1
-fi
-
+submit_notarize "$ZIP"
 xcrun stapler staple "$APP"
 xcrun stapler validate "$APP"
 echo "signed + notarized + stapled: $APP"
+
+# --- build + sign + notarize + staple the .dmg -----------------------------
+if [ -n "$VERSION" ]; then
+  echo "Building the .dmg from the stapled app…"
+  DMG="Asterism_${VERSION}_aarch64.dmg"
+  STAGE="$TMP/dmg-stage"
+  rm -rf "$STAGE"; mkdir -p "$STAGE"
+  cp -R "$APP" "$STAGE/"
+  ln -s /Applications "$STAGE/Applications"
+  rm -f "$DMG"
+  hdiutil create -volname "Asterism" -srcfolder "$STAGE" -ov -format UDZO "$DMG"
+  codesign --force --timestamp --keychain "$KEYCHAIN" \
+    --sign "$APPLE_SIGNING_IDENTITY" "$DMG"
+  echo "Submitting the .dmg for notarization…"
+  submit_notarize "$DMG"
+  xcrun stapler staple "$DMG"
+  xcrun stapler validate "$DMG"
+  echo "signed + notarized + stapled: $DMG"
+fi

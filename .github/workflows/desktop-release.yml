@@ -83,7 +83,11 @@ jobs:
       # when APPLE_CERTIFICATE is absent so the release still ships a .dmg
       # before the Apple secrets are configured. The in-script guard is used
       # because `secrets` is not available in a step-level `if:`.
-      - name: Sign + notarize + staple (if Apple secrets present)
+      # Deep-sign every nested Mach-O, notarize + staple the app, AND build a
+      # signed+notarized+stapled .dmg (so the disk image itself passes
+      # Gatekeeper). When APPLE_CERTIFICATE is absent, this is skipped and the
+      # fallback step below ships an unsigned .dmg.
+      - name: Sign + notarize + staple app and dmg (if Apple secrets present)
         shell: bash
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -99,25 +103,35 @@ jobs:
             exit 0
           fi
           bash desktop/scripts/sign-notarize-macos.sh \
-            "desktop/src-tauri/target/release/bundle/macos/Asterism.app"
+            "desktop/src-tauri/target/release/bundle/macos/Asterism.app" \
+            "${{ steps.tag.outputs.version }}"
 
-      # Build the .dmg from the (now signed + stapled) app with hdiutil — we no
-      # longer let tauri build the dmg, because the app must be signed first.
-      - name: Package + attach .dmg
+      # Fallback .dmg for the unsigned case (no Apple secrets). The signed path
+      # already produced a notarized Asterism_<version>_aarch64.dmg.
+      - name: Package unsigned .dmg (fallback)
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          _CERT: ${{ secrets.APPLE_CERTIFICATE }}
         run: |
           set -euo pipefail
-          TAG="${{ steps.tag.outputs.tag }}"
+          [ -n "${_CERT:-}" ] && { echo "signed dmg already built — skipping fallback"; exit 0; }
           VERSION="${{ steps.tag.outputs.version }}"
           APP="desktop/src-tauri/target/release/bundle/macos/Asterism.app"
           STAGE="${RUNNER_TEMP:-/tmp}/dmg"
           rm -rf "$STAGE"; mkdir -p "$STAGE"
           cp -R "$APP" "$STAGE/"
           ln -s /Applications "$STAGE/Applications"
-          DMG="Asterism_${VERSION}_aarch64.dmg"
-          hdiutil create -volname "Asterism" -srcfolder "$STAGE" -ov -format UDZO "$DMG"
+          hdiutil create -volname "Asterism" -srcfolder "$STAGE" -ov -format UDZO \
+            "Asterism_${VERSION}_aarch64.dmg"
+
+      - name: Attach .dmg to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.tag.outputs.tag }}"
+          DMG=$(ls Asterism_*_aarch64.dmg | head -1)
           gh release upload "$TAG" "$DMG" --clobber
 
       # Updater artifacts: hand-tar the .app, sign it, build latest.json.
