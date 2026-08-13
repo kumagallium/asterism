@@ -17,6 +17,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: Songmu/tagpr@v1
+      - id: tagpr
+        uses: Songmu/tagpr@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # tagpr creates the release with GITHUB_TOKEN, and GITHUB_TOKEN-triggered
+      # events do NOT start new workflow runs (GitHub's no-recursion rule) — so
+      # `on: release: created` in desktop-release.yml never fires on a real
+      # release. workflow_dispatch IS exempt from that rule, so dispatch it
+      # explicitly when tagpr actually cut a tag. (Same fix as Graphium's
+      # tagpr.yml dispatching its Tauri build.)
+      - name: Trigger desktop release build
+        if: steps.tagpr.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run desktop-release.yml -f tag=${{ steps.tagpr.outputs.tag }}
