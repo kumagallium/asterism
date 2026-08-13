@@ -21,6 +21,9 @@ on:
       tag:
         description: "Existing release tag to (re)build (e.g. v0.13.0)"
         required: true
+      ref:
+        description: "Git ref to build FROM (default: the tag). Set a branch to test workflow changes a past tag doesn't contain."
+        required: false
 
 permissions:
   contents: write
@@ -40,7 +43,7 @@ jobs:
 
       - uses: actions/checkout@v4
         with:
-          ref: ${{ steps.tag.outputs.tag }}
+          ref: ${{ inputs.ref || steps.tag.outputs.tag }}
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -68,36 +71,58 @@ jobs:
       - name: Assemble backend bundle
         run: bash desktop/scripts/bundle-backend.sh
 
-      # Only export Apple signing env when the cert secret is actually present
-      # (tauri-action runs `security import` on any defined APPLE_CERTIFICATE,
-      # even an empty string — a secrets-less repo would fail otherwise).
-      - name: Configure Apple signing (skipped while secrets are absent)
+      # Build the app UNSIGNED — tauri only signs the outer bundle, but the
+      # notarization service requires every nested Mach-O (the bundled python /
+      # oxigraph / .so) to be signed too, so signing happens in the deep-sign
+      # step below, not here.
+      - name: Build app
+        run: npm run tauri build -- --bundles app
+        working-directory: desktop
+
+      # Deep-sign every nested Mach-O + notarize + staple. Skipped (unsigned)
+      # when APPLE_CERTIFICATE is absent so the release still ships a .dmg
+      # before the Apple secrets are configured. The in-script guard is used
+      # because `secrets` is not available in a step-level `if:`.
+      # Deep-sign every nested Mach-O, notarize + staple the app, AND build a
+      # signed+notarized+stapled .dmg (so the disk image itself passes
+      # Gatekeeper). When APPLE_CERTIFICATE is absent, this is skipped and the
+      # fallback step below ships an unsigned .dmg.
+      - name: Sign + notarize + staple app and dmg (if Apple secrets present)
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${APPLE_CERTIFICATE:-}" ]; then
+            echo "APPLE_CERTIFICATE absent — shipping an unsigned build."
+            exit 0
+          fi
+          bash desktop/scripts/sign-notarize-macos.sh \
+            "desktop/src-tauri/target/release/bundle/macos/Asterism.app" \
+            "${{ steps.tag.outputs.version }}"
+
+      # Fallback .dmg for the unsigned case (no Apple secrets). The signed path
+      # already produced a notarized Asterism_<version>_aarch64.dmg.
+      - name: Package unsigned .dmg (fallback)
         shell: bash
         env:
           _CERT: ${{ secrets.APPLE_CERTIFICATE }}
-          _CERT_PW: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          _IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          _AID: ${{ secrets.APPLE_ID }}
-          _APW: ${{ secrets.APPLE_PASSWORD }}
-          _TEAM: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          if [ -n "$_CERT" ]; then
-            {
-              echo "APPLE_CERTIFICATE=$_CERT"
-              echo "APPLE_CERTIFICATE_PASSWORD=$_CERT_PW"
-              echo "APPLE_SIGNING_IDENTITY=$_IDENTITY"
-              echo "APPLE_ID=$_AID"
-              echo "APPLE_PASSWORD=$_APW"
-              echo "APPLE_TEAM_ID=$_TEAM"
-            } >> "$GITHUB_ENV"
-            echo "apple signing: enabled"
-          else
-            echo "apple signing: APPLE_CERTIFICATE absent — building unsigned"
-          fi
-
-      - name: Build app + dmg
-        run: npm run tauri build -- --bundles app,dmg
-        working-directory: desktop
+          set -euo pipefail
+          [ -n "${_CERT:-}" ] && { echo "signed dmg already built — skipping fallback"; exit 0; }
+          VERSION="${{ steps.tag.outputs.version }}"
+          APP="desktop/src-tauri/target/release/bundle/macos/Asterism.app"
+          STAGE="${RUNNER_TEMP:-/tmp}/dmg"
+          rm -rf "$STAGE"; mkdir -p "$STAGE"
+          cp -R "$APP" "$STAGE/"
+          ln -s /Applications "$STAGE/Applications"
+          hdiutil create -volname "Asterism" -srcfolder "$STAGE" -ov -format UDZO \
+            "Asterism_${VERSION}_aarch64.dmg"
 
       - name: Attach .dmg to the release
         shell: bash
@@ -106,7 +131,7 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${{ steps.tag.outputs.tag }}"
-          DMG=$(ls desktop/src-tauri/target/release/bundle/dmg/*.dmg | head -1)
+          DMG=$(ls Asterism_*_aarch64.dmg | head -1)
           gh release upload "$TAG" "$DMG" --clobber
 
       # Updater artifacts: hand-tar the .app, sign it, build latest.json.
