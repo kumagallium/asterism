@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.13.1](https://github.com/kumagallium/asterism/compare/v0.13.0...v0.13.1) - 2026-08-13
+
+- ci(tagpr): リリース発番時に Desktop Release を明示 dispatch by @kumagallium in https://github.com/kumagallium/asterism/pull/342
+
 ## [v0.13.0](https://github.com/kumagallium/asterism/compare/v0.12.0...v0.13.0) - 2026-08-13
 
 - feat(desktop): デスクトップシェル v1 — Tauri v2 でネイティブアプリ化（Phase 2） by @kumagallium in https://github.com/kumagallium/asterism/pull/326
