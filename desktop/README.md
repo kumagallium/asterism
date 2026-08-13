@@ -51,6 +51,19 @@ break on relocation). User data stays under the OS user-data dir as with
 `asterism-local`. `tauri dev` skips the bundle and uses the repo checkout
 resolution instead (fast iteration).
 
+## Icon
+
+`icon.svg` is the source (1024 canvas, centered 824px squircle + the favicon
+mark). Regenerate the full set after editing it:
+
+```bash
+rsvg-convert -w 1024 -h 1024 icon.svg -o /tmp/icon-1024.png
+npx tauri icon /tmp/icon-1024.png -o src-tauri/icons
+```
+
+(Do NOT render the raw `ui/public/favicon.svg` with qlmanage — it does not
+upscale SVGs and drops the blur filters, which produced the blank-icon bug.)
+
 ## Not yet done
 
 - **Signing / notarization / updater**: the release pipeline reuses Graphium's
