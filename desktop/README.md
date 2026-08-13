@@ -64,18 +64,55 @@ npx tauri icon /tmp/icon-1024.png -o src-tauri/icons
 (Do NOT render the raw `ui/public/favicon.svg` with qlmanage — it does not
 upscale SVGs and drops the blur filters, which produced the blank-icon bug.)
 
+## Auto-update
+
+The shell checks for updates itself (Rust-side, native dialog — the SPA is a
+remote `http://127.0.0.1` page and stays uncoupled from Tauri IPC):
+
+- on launch (release builds only, 8 s after the window opens) it queries the
+  release `latest.json`; if a newer signed version exists it offers a native
+  "update now?" dialog, then downloads, installs, and relaunches;
+- the app menu item **アップデートを確認…** runs the same check on demand and
+  reports "up to date" / errors.
+
+Version is kept in sync by tagpr: `.tagpr`'s `versionFile` bumps both `VERSION`
+and `desktop/src-tauri/tauri.conf.json`, so the bundled app version tracks the
+release and the "current < latest" comparison is correct.
+
+### Release pipeline (`.github/workflows/desktop-release.yml`)
+
+On a published GitHub release, the workflow builds the macOS app, always
+uploads the `.dmg` for direct download, and — when the signing secret is
+present — also produces the signed updater artifacts (`Asterism_aarch64.app.tar.gz`
++ `.sig`) and a `latest.json`, uploading all three to the release. The updater
+endpoint is `releases/latest/download/latest.json`, so no GitHub Pages plumbing
+is needed.
+
+### One-time signing setup (required for auto-update to work)
+
+The updater verifies a minisign signature. A keypair was generated at
+`~/.asterism/updater.key` (private) + `~/.asterism/updater.key.pub` (public,
+already embedded as `plugins.updater.pubkey` in `tauri.conf.json`). Add the
+**private** key as a repo secret so the release workflow can sign:
+
+```bash
+gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.asterism/updater.key
+```
+
+(The key was generated with an empty password, so no
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secret is needed. Keep the private key
+file safe / back it up — losing it means shipping a new pubkey, which breaks
+updates for already-installed apps.) Regenerate with
+`npx tauri signer generate -w <path> --password ""`.
+
+Optional but recommended: add the Apple Developer signing secrets
+(`APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`,
+`APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` — same names as Graphium) so the
+installed/updated app is notarized and not Gatekeeper-blocked.
+
 ## Not yet done
 
-- **Signing / notarization / updater**: the release pipeline reuses Graphium's
-  `tauri-build.yml` pattern (tauri-action) verbatim — same secret names:
-  `TAURI_SIGNING_PRIVATE_KEY`, `APPLE_CERTIFICATE`,
-  `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`,
-  `APPLE_PASSWORD`, `APPLE_TEAM_ID`. Adding the workflow is a separate PR
-  (workflow-only PRs get no CI runs scheduled in this repo — known trap).
-  Nested Resources binaries (python/oxigraph) need signing coverage — Graphium
-  ships a node runtime in resources the same way, so its config is the
-  reference.
-- **Windows**: grandchild cleanup needs a Job Object; the bundle script covers
-  macOS/Linux asset names only.
+- **Windows**: grandchild cleanup needs a Job Object; the bundle script and the
+  updater's `latest.json` cover macOS aarch64 only.
 - **Docling (PDF)**: not bundled — optional download later; PDF ingest
   degrades with the existing clear 4xx.

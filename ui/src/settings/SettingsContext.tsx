@@ -9,6 +9,7 @@ import { SettingsModal } from './SettingsModal'
 import { type LlmSettings, SettingsCtx } from './context'
 import { fetchServerKeyProviders, type ServerKeyProviders } from './serverKeysApi'
 import {
+  cleanupLegacySeed,
   getKey,
   groupOfModel,
   hasKey,
@@ -29,7 +30,13 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const [serverKeyProviders, setServerKeyProviders] = useState<ServerKeyProviders>({})
 
   const refreshServerKeys = useCallback(() => {
-    fetchServerKeyProviders().then(setServerKeyProviders)
+    fetchServerKeyProviders().then((providers) => {
+      setServerKeyProviders(providers)
+      // One-shot repair of the historical auto-seed, deferred to here because
+      // "usable via a server-side key" is only known after this fetch.
+      const repaired = cleanupLegacySeed(!!providers.anthropic)
+      if (repaired) setState(repaired)
+    })
   }, [])
 
   useEffect(() => {

@@ -1,0 +1,167 @@
+# Desktop release + auto-update artifacts (ADR local-first-distribution.md Phase 2).
+#
+# Fires when tagpr publishes a GitHub release (the "Release for vX.Y.Z" PR
+# merge). Always builds and attaches the macOS .dmg for direct download. When
+# the minisign secret TAURI_SIGNING_PRIVATE_KEY is present, it ALSO produces the
+# signed updater bundle (Asterism_aarch64.app.tar.gz + .sig) and a latest.json,
+# and attaches all three — the app's updater endpoint is
+# `releases/latest/download/latest.json`, so no GitHub Pages plumbing is needed.
+#
+# Signing config mirrors Graphium's tauri-build.yml (same secret names). The
+# updater signature is hand-produced with `tauri signer sign` (not
+# createUpdaterArtifacts) so the unsigned PR-check build (desktop-build.yml)
+# stays green.
+name: Desktop Release
+
+on:
+  release:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to (re)build (e.g. v0.13.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Release build (macOS Apple Silicon)
+    runs-on: macos-latest
+    steps:
+      - name: Resolve tag
+        id: tag
+        shell: bash
+        run: |
+          TAG="${{ github.event.release.tag_name || inputs.tag }}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build SPA (live Ask mode)
+        run: |
+          npm install --no-audit --no-fund
+          VITE_DEMO_MODE=live VITE_DEMO_AGENT_URL=/ npm run build
+        working-directory: ui
+
+      - name: Install desktop deps
+        run: npm ci
+        working-directory: desktop
+
+      - name: Assemble backend bundle
+        run: bash desktop/scripts/bundle-backend.sh
+
+      # Only export Apple signing env when the cert secret is actually present
+      # (tauri-action runs `security import` on any defined APPLE_CERTIFICATE,
+      # even an empty string — a secrets-less repo would fail otherwise).
+      - name: Configure Apple signing (skipped while secrets are absent)
+        shell: bash
+        env:
+          _CERT: ${{ secrets.APPLE_CERTIFICATE }}
+          _CERT_PW: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          _IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          _AID: ${{ secrets.APPLE_ID }}
+          _APW: ${{ secrets.APPLE_PASSWORD }}
+          _TEAM: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -n "$_CERT" ]; then
+            {
+              echo "APPLE_CERTIFICATE=$_CERT"
+              echo "APPLE_CERTIFICATE_PASSWORD=$_CERT_PW"
+              echo "APPLE_SIGNING_IDENTITY=$_IDENTITY"
+              echo "APPLE_ID=$_AID"
+              echo "APPLE_PASSWORD=$_APW"
+              echo "APPLE_TEAM_ID=$_TEAM"
+            } >> "$GITHUB_ENV"
+            echo "apple signing: enabled"
+          else
+            echo "apple signing: APPLE_CERTIFICATE absent — building unsigned"
+          fi
+
+      - name: Build app + dmg
+        run: npm run tauri build -- --bundles app,dmg
+        working-directory: desktop
+
+      - name: Attach .dmg to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.tag.outputs.tag }}"
+          DMG=$(ls desktop/src-tauri/target/release/bundle/dmg/*.dmg | head -1)
+          gh release upload "$TAG" "$DMG" --clobber
+
+      # Updater artifacts: hand-tar the .app, sign it, build latest.json.
+      # Skipped (with a clear log) when the minisign secret is absent so the
+      # .dmg release still succeeds before the key is configured. The in-script
+      # guard is used instead of a step `if:` because `secrets` is not available
+      # in step-level `if` conditions.
+      - name: Build + attach updater artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
+            echo "TAURI_SIGNING_PRIVATE_KEY absent — skipping updater artifacts (dmg only)."
+            exit 0
+          fi
+          npm install -g @tauri-apps/cli@2
+          TAG="${{ steps.tag.outputs.tag }}"
+          VERSION="${{ steps.tag.outputs.version }}"
+          REPO="${{ github.repository }}"
+          APP_DIR="desktop/src-tauri/target/release/bundle/macos"
+          TARBALL="Asterism_aarch64.app.tar.gz"
+
+          # Gzipped tar of the .app is the macOS updater payload format.
+          tar -C "$APP_DIR" -czf "$TARBALL" "Asterism.app"
+
+          # Sign with the minisign key (empty password, matching key generation).
+          tauri signer sign -k "$TAURI_SIGNING_PRIVATE_KEY" -p "" "$PWD/$TARBALL"
+          SIG=$(cat "$TARBALL.sig")
+
+          PUB_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          NOTES=$(gh release view "$TAG" --json body -q '.body' 2>/dev/null || true)
+          [ -z "$NOTES" ] && NOTES="See the release notes for $TAG."
+          URL="https://github.com/$REPO/releases/download/$TAG/$TARBALL"
+
+          jq -n \
+            --arg version "$VERSION" \
+            --arg notes "$NOTES" \
+            --arg pub_date "$PUB_DATE" \
+            --arg sig "$SIG" \
+            --arg url "$URL" \
+            '{version: $version, notes: $notes, pub_date: $pub_date,
+              platforms: {"darwin-aarch64": {signature: $sig, url: $url}}}' \
+            > latest.json
+
+          echo "----- latest.json -----"; cat latest.json; echo
+          gh release upload "$TAG" "$TARBALL" "$TARBALL.sig" latest.json --clobber
+
+      - name: Upload build artifacts (always, for inspection)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Asterism-release-${{ steps.tag.outputs.tag }}
+          path: |
+            desktop/src-tauri/target/release/bundle/dmg/*.dmg
+          if-no-files-found: warn
+          retention-days: 14

@@ -204,7 +204,9 @@ export function hasKey(group: string): boolean {
 
 /** One-time: if there are no models yet but a legacy `asterism.apiKey` exists,
  *  seed a default Anthropic model and move the key into the keystore (session,
- *  matching the legacy ephemerality). Returns the (possibly seeded) state. */
+ *  matching the legacy ephemerality). Without a legacy key there is nothing to
+ *  migrate — a fresh install starts with an empty registry, so the first model
+ *  the user sees is one they added themselves. */
 export function migrateLegacy(state: ModelsState): ModelsState {
   if (state.models.length > 0) return state
   let legacy: string
@@ -213,6 +215,7 @@ export function migrateLegacy(state: ModelsState): ModelsState {
   } catch {
     legacy = ''
   }
+  if (!legacy) return state
   const seed = makeModel({
     name: 'Claude Opus 4.7',
     provider: 'anthropic',
@@ -221,13 +224,56 @@ export function migrateLegacy(state: ModelsState): ModelsState {
   })
   const next: ModelsState = { models: [seed], activeModelId: seed.id }
   saveModelsState(next)
-  if (legacy) {
-    setKey(groupOfModel(seed), legacy, false) // session-only, like the legacy key
-    try {
-      sessionStorage.removeItem(LEGACY_KEY)
-    } catch {
-      /* ignore */
-    }
+  setKey(groupOfModel(seed), legacy, false) // session-only, like the legacy key
+  try {
+    sessionStorage.removeItem(LEGACY_KEY)
+  } catch {
+    /* ignore */
   }
+  return next
+}
+
+// ---------------------------------------------------------------------------
+// One-time cleanup of the historical unconditional auto-seed
+// ---------------------------------------------------------------------------
+
+const SEED_CLEANUP_KEY = 'asterism.seedCleanup' // '1' once the pass has run
+
+/** Exactly the entry the pre-fix migrateLegacy auto-created, with no user
+ *  customization since (no endpoint/rate/max-tokens overrides). */
+function isLegacySeedShape(m: LlmModelConfig): boolean {
+  return (
+    m.provider === 'anthropic' &&
+    m.modelId === 'claude-opus-4-7' &&
+    m.name === 'Claude Opus 4.7' &&
+    !m.apiBase &&
+    m.rate == null &&
+    m.maxTokens == null
+  )
+}
+
+/** One-time repair for browsers that already received the unconditional
+ *  auto-seed (the bug fixed in migrateLegacy): drop seed-shaped entries that
+ *  nothing can use — no browser key for their group and no server-side
+ *  Anthropic key. Entries with a key anywhere are in real use and are kept.
+ *  Runs at most once per browser so a deliberate keyless registration made
+ *  after this pass is never touched. Returns the repaired state, or null when
+ *  nothing changed. */
+export function cleanupLegacySeed(hasAnthropicServerKey: boolean): ModelsState | null {
+  try {
+    if (localStorage.getItem(SEED_CLEANUP_KEY)) return null
+    localStorage.setItem(SEED_CLEANUP_KEY, '1')
+  } catch {
+    return null
+  }
+  if (hasAnthropicServerKey) return null
+  const state = loadModelsState()
+  const models = state.models.filter((m) => !(isLegacySeedShape(m) && !hasKey(groupOfModel(m))))
+  if (models.length === state.models.length) return null
+  const activeModelId = models.some((m) => m.id === state.activeModelId)
+    ? state.activeModelId
+    : (models[0]?.id ?? null)
+  const next: ModelsState = { models, activeModelId }
+  saveModelsState(next)
   return next
 }
