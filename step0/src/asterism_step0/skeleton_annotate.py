@@ -476,6 +476,145 @@ def _adjudicate_ownership(
                     prop["owner_map"] = owners[prop["column"]]
 
 
+def _missing_row_kind(
+    annotations: dict[str, Any],
+    map_sources: Mapping[str, str],
+    inspections: Mapping[str, tuple[Path, SourceInspection]],
+    templates: Mapping[str, str],
+    prefixes: Mapping[str, str],
+) -> None:
+    """A source whose per-row values have NO map to live in (ADR §5).
+
+    The singleton card already says its per-row columns "belong to the row-level
+    kind" — but when the skeleton has no row-level map for that source, the kind
+    it points at does not exist and those values are silently dropped. Observed
+    live: round-0 returned ONE map for a reference card + 47 peaks, so the
+    peaks had nowhere to go and the gate said nothing about it.
+
+    Everything the fix needs is already computed: the varying columns, the
+    parent key that scopes them, and the inspector's proven-unique combinations.
+    So this states the gap AND the one-click repair (name, template, count)
+    instead of asking the human to notice an absence.
+    """
+    by_source: dict[str, list[str]] = defaultdict(list)
+    for name, src in map_sources.items():
+        by_source[src].append(name)
+    taken = set(map_sources)
+    for src, names in by_source.items():
+        singletons = [n for n in names if annotations[n].get("collapse_kind") == "singleton"]
+        if len(singletons) != 1:
+            continue
+        parent = singletons[0]
+        # A row-level map already exists for this source: nothing is homeless.
+        if any(
+            annotations[n].get("collapse_kind") in ("unique", "partial")
+            for n in names
+            if n != parent
+        ):
+            continue
+        ann = annotations[parent]
+        card = ann.get("entity_preview")
+        parent_key = list(ann.get("key_columns") or [])
+        if not isinstance(card, Mapping) or not parent_key:
+            continue
+        varying = list(card.get("varying_columns") or [])
+        entry = inspections.get(src)
+        if not varying or entry is None:
+            continue
+        path, inspection = entry
+        # Parent-scoped candidates: a unique key stays unique with the parent's
+        # columns prepended, and scoping is what keeps the ID safe once a second
+        # file is appended (same rule as the scope-missing repair).
+        scoped = [
+            c
+            for c in _scoped_candidates(
+                parent_key,
+                tuple(),
+                _key_candidates(inspection, tuple(parent_key)),
+                None,
+                inspection,
+            )
+            # The parent key ALONE is the singleton we already have — a row-level
+            # map needs at least one column that varies within the file.
+            if len(c["columns"]) > len(parent_key)
+        ]
+        best = next((c for c in scoped if not c.get("measurement_only")), None) or (
+            scoped[0] if scoped else None
+        )
+        if not best:
+            continue
+        try:
+            rows = _read_rows(path, inspection.dialect)
+        except OSError:
+            continue
+        key = tuple(best["columns"])
+        report = _check_uniqueness(rows, key)
+        name = _free_map_name(parent, taken)
+        taken.add(name)
+        # The parent's template AS WRITTEN (a CURIE) — the suggestion goes back
+        # into the skeleton, where prefixes are still symbolic.
+        template = _sibling_template(templates.get(parent, ""), parent, name, key)
+        parent_classes = [c["curie"] for c in ann.get("expanded_classes") or []]
+        ann["missing_row_kind"] = {
+            "columns": varying,
+            "suggested_name": name,
+            "suggested_key": list(key),
+            "suggested_template": template,
+            "suggested_classes": _sibling_classes(parent_classes, prefixes, name),
+            "entity_count": report.distinct_tuples,
+        }
+
+
+def _free_map_name(parent: str, taken: set[str]) -> str:
+    """A machine-safe name for the missing map; the human names the CLASS."""
+    base = f"{parent}_detail"
+    if base not in taken:
+        return base
+    i = 2
+    while f"{base}{i}" in taken:
+        i += 1
+    return f"{base}{i}"
+
+
+def _sibling_template(parent_template: str, parent: str, name: str, key: Sequence[str]) -> str:
+    """The new map's subject, minted in the SAME namespace as the parent's.
+
+    ``xr:material/{No}`` + key (No, (hkl)) -> ``xr:material_detail/{No}/{(hkl)}``
+    — the head up to the parent's own name segment is reused verbatim, so the
+    suggestion never invents a namespace.
+    """
+    head = parent_template
+    idx = head.find(parent)
+    if idx >= 0:
+        head = head[:idx]
+    elif "{" in head:
+        head = head[: head.index("{")]
+    return head + name + "".join(f"/{{{c}}}" for c in key)
+
+
+def _sibling_classes(
+    parent_classes: Sequence[str], prefixes: Mapping[str, str], name: str
+) -> list[str]:
+    """A starter class for the suggested map, in the dataset's own vocabulary.
+
+    Named from the map name (``material_detail`` -> ``MaterialDetail``) under the
+    parent's prefix, or the declared ontology (``#``-terminated) namespace. The
+    human renames it — a placeholder they can edit beats an empty "what is this
+    row?" column, which is what a machine-added map would otherwise carry. No
+    prefix to borrow -> no suggestion (never invent a namespace).
+    """
+    parts = [p for p in re.split(r"[^0-9A-Za-z]+", name) if p]
+    pascal = "".join(p[:1].upper() + p[1:] for p in parts)
+    if not pascal:
+        return []
+    for cls in parent_classes:
+        m = _CURIE_HEAD.match(cls)
+        if m:
+            return [f"{m.group(1)}:{pascal}"]
+    ontology = [p for p, iri in prefixes.items() if iri.endswith("#")]
+    return [f"{ontology[0]}:{pascal}"] if ontology else []
+
+
 def _growth_preview(
     annotations: dict[str, Any],
     map_sources: Mapping[str, str],
@@ -797,6 +936,7 @@ def annotate_skeleton(
 
     annotations: dict[str, Any] = {}
     map_sources: dict[str, str] = {}
+    raw_templates: dict[str, str] = {}
     for map_entry in skeleton.get("maps") or []:
         if not isinstance(map_entry, Mapping):
             continue
@@ -804,6 +944,9 @@ def annotate_skeleton(
         source = str(map_entry.get("source") or "")
         path, inspection = by_name.get(Path(source).name, (None, None))
         map_sources[name] = Path(source).name
+        subject = map_entry.get("subject")
+        if isinstance(subject, Mapping) and subject.get("template"):
+            raw_templates[name] = str(subject["template"])
         annotations[name] = _annotate_map(map_entry, prefixes, path, inspection)
     # Second pass — needs every map's collapse verdict: the singleton map's
     # key is the file's namespace, and row-level keys missing it are unique
@@ -814,6 +957,9 @@ def annotate_skeleton(
     # entity count, so they run after the per-map pass.
     _adjudicate_ownership(annotations, map_sources, by_name)
     _growth_preview(annotations, map_sources, by_name)
+    # A source whose per-row values have no map at all — the gap round-0 can
+    # leave, stated with its one-click repair.
+    _missing_row_kind(annotations, map_sources, by_name, raw_templates, prefixes)
     # Skeleton-level (not per-map): namespaces minted on a placeholder domain
     # (ADR instance-iri-base.md). The design loop would catch this after the
     # (paid, minutes-long) continue run — the gate shows it in milliseconds,

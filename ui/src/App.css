@@ -6095,11 +6095,44 @@ button.ds-artifact:disabled {
   color: var(--faint);
   white-space: nowrap;
 }
-/* 「このあとファイルを足すと」ブロック — 1 枚目の時点で 2 枚目の帰結を見せる。 */
+/* 常時見せるのは 1 行だけ。理由と列名は畳む（ゲートに長文を置くと読まれない）。 */
+.skeleton-fold {
+  margin-top: 0.5rem;
+  font-size: 0.76rem;
+}
+.skeleton-fold > summary {
+  cursor: pointer;
+  color: var(--muted);
+  list-style-position: outside;
+}
+.skeleton-fold > summary:hover {
+  color: var(--fg);
+}
+.skeleton-fold > p {
+  margin: 0.25rem 0 0 1rem;
+}
 .skeleton-growth {
-  margin-top: 0.55rem;
   padding-top: 0.45rem;
   border-top: 1px dashed var(--border);
+}
+/* 行ごとの値の置き場が無い＝欠陥。読ませずに押させる。 */
+.skeleton-gap {
+  margin-top: 0.55rem;
+}
+.skeleton-gap-add {
+  margin-top: 0.3rem;
+  padding: 0.35rem 0.8rem;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--primary-fg);
+  background: var(--primary);
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.skeleton-gap-add:hover {
+  filter: brightness(1.08);
 }
 .skeleton-entity-conflict-note {
   display: block;

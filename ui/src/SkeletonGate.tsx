@@ -40,10 +40,13 @@ function evidenceReasonKey(reason: string | undefined): string {
 function SkeletonEvidence({
   ann,
   onApplyCandidate,
+  onAddRowKind,
   displayClass,
 }: {
   ann: SkeletonMapAnnotation
   onApplyCandidate: (columns: string[]) => void
+  /** Add the row-level map this source is missing (one click, server-suggested). */
+  onAddRowKind?: () => void
   /** Kantan tier: fold the minted prefix out of class names in evidence copy
    *  (the annotation carries full CURIEs). Absent on the detail tier. */
   displayClass?: (value: string) => string
@@ -100,6 +103,7 @@ function SkeletonEvidence({
   // file-scoped map — what appending the next file does to this design.
   const borrowed = ann.borrowed_columns ?? []
   const growth = ann.growth_preview
+  const gap = ann.missing_row_kind
   const displayCls = (value: string) => (displayClass ? displayClass(value) : value)
   const cardCls = (ann.expanded_classes[0]?.curie && displayCls(ann.expanded_classes[0].curie)) || ''
   const candidateChips = (ann.key_candidates?.length ?? 0) > 0 && (
@@ -295,17 +299,25 @@ function SkeletonEvidence({
             </p>
           )}
           {/* The mirror of cardVarying: this card carries columns that are
-              decided elsewhere, so say so here too. */}
+              decided elsewhere. One line states it; the reasoning folds away —
+              a wall of prose at the gate does not get read (real feedback). */}
           {borrowed.length > 0 && (
-            <p className="skeleton-evidence-line skeleton-evidence-muted">
-              {t('workbench:skeleton.evidence.cardBorrowed', {
-                count: borrowed.length,
-                map: borrowed[0].owner_map,
-                columns:
-                  borrowed.slice(0, 5).map((b) => b.column).join(', ') +
-                  (borrowed.length > 5 ? ' …' : ''),
-              })}
-            </p>
+            <details className="skeleton-fold">
+              <summary>
+                {t('workbench:skeleton.evidence.cardBorrowed', {
+                  count: borrowed.length,
+                  map: borrowed[0].owner_map,
+                })}
+              </summary>
+              <p className="skeleton-evidence-line skeleton-evidence-muted">
+                {t('workbench:skeleton.evidence.cardBorrowedWhy', {
+                  map: borrowed[0].owner_map,
+                })}
+              </p>
+              <p className="skeleton-evidence-line skeleton-evidence-muted">
+                {borrowed.map((b) => b.column).join(', ')}
+              </p>
+            </details>
           )}
         </div>
       ) : (
@@ -326,40 +338,67 @@ function SkeletonEvidence({
           G3/G4). A file-scoped entity mints one per file, so "should this be
           split?" is answerable BEFORE the second file arrives — and once a
           sibling file exists, the overlap is measured instead of forecast. */}
+      {/* Missing row-level kind: the card says its per-row columns "belong to
+          the row-level kind" — when that kind does not exist, those values are
+          dropped. State it once, in the kantan vocabulary, with the fix as a
+          button (reading a paragraph and inferring an action is what people
+          skip). */}
+      {gap && (
+        <div className="skeleton-gap">
+          <p className="skeleton-evidence-line skeleton-evidence-bad">
+            ⚠ {t('workbench:skeleton.evidence.gapHead', {
+              columns: gap.columns.join(', '),
+            })}
+          </p>
+          {onAddRowKind && (
+            <button type="button" className="skeleton-gap-add" onClick={onAddRowKind}>
+              {t('workbench:skeleton.evidence.gapAdd', {
+                count: gap.entity_count,
+                key: gap.suggested_key.map((c) => `{${c}}`).join(' + '),
+              })}
+            </button>
+          )}
+        </div>
+      )}
+      {/* One line on what the next file does; the reasoning folds away. Measured
+          overlap (a sibling file already repeats a value) is the only part that
+          earns the amber line — a forecast alone does not. */}
       {growth && growth.described_columns.length > 0 && (
-        <div className="skeleton-growth">
-          <span className="skeleton-evidence-label">
-            {t('workbench:skeleton.evidence.growthHead')}
-          </span>
+        <details className="skeleton-fold skeleton-growth">
+          <summary>
+            {(growth.shared_values?.length ?? 0) > 0 ? (
+              <span className="skeleton-evidence-warn">
+                {t('workbench:skeleton.evidence.growthSharedHead', {
+                  count: growth.shared_values!.length,
+                })}
+              </span>
+            ) : (
+              t('workbench:skeleton.evidence.growthHead')
+            )}
+          </summary>
           <p className="skeleton-evidence-line skeleton-evidence-muted">
             {t('workbench:skeleton.evidence.growthPerFile', { count: growth.source_count })}
           </p>
           <p className="skeleton-evidence-line skeleton-evidence-muted">
             {t('workbench:skeleton.evidence.growthDescribed', {
               count: growth.described_columns.length,
-              columns:
-                growth.described_columns.slice(0, 5).join(', ') +
-                (growth.described_columns.length > 5 ? ' …' : ''),
             })}
           </p>
           {(growth.shared_values?.length ?? 0) > 0 && (
-            <p className="skeleton-evidence-line skeleton-evidence-warn">
-              {t('workbench:skeleton.evidence.growthShared', {
-                count: growth.shared_values!.length,
-                examples: growth
-                  .shared_values!.slice(0, 3)
-                  .map((s) =>
-                    t('workbench:skeleton.evidence.growthSharedExample', {
-                      column: s.column,
-                      value: s.value,
-                      files: s.files,
-                    }),
-                  )
-                  .join(' / '),
-              })}
+            <p className="skeleton-evidence-line skeleton-evidence-muted">
+              {growth
+                .shared_values!.slice(0, 3)
+                .map((s) =>
+                  t('workbench:skeleton.evidence.growthSharedExample', {
+                    column: s.column,
+                    value: s.value,
+                    files: s.files,
+                  }),
+                )
+                .join(' / ')}
             </p>
           )}
-        </div>
+        </details>
       )}
       {showCandidates && (
         <div className="skeleton-evidence-candidates">
@@ -453,6 +492,24 @@ export function SkeletonGate({
     const head = current.includes('{') ? current.slice(0, current.indexOf('{')) : `${current}/`
     updateSubject(idx, {
       template: head + columns.map((c) => `{${c}}`).join('/'),
+    })
+  }
+
+  /** Add the row-level map the source is missing, right after its parent. The
+   *  server suggested every field (name / template / key), so this is a pure
+   *  state edit — the re-check then shows the new map's own evidence. */
+  function addRowKind(idx: number) {
+    const parent = skeleton.maps[idx]
+    const gap = annotations?.maps?.[parent?.name]?.missing_row_kind
+    if (!parent || !gap) return
+    const added: SkeletonMap = {
+      name: gap.suggested_name,
+      source: parent.source,
+      subject: { template: gap.suggested_template, classes: gap.suggested_classes ?? [] },
+    }
+    onChange({
+      ...skeleton,
+      maps: [...skeleton.maps.slice(0, idx + 1), added, ...skeleton.maps.slice(idx + 1)],
     })
   }
 
@@ -691,6 +748,7 @@ export function SkeletonGate({
                         <SkeletonEvidence
                           ann={ann}
                           onApplyCandidate={(cols) => applyCandidate(idx, cols)}
+                          onAddRowKind={() => addRowKind(idx)}
                           displayClass={
                             plain ? (c) => compactClass(c, nsDetected) : undefined
                           }

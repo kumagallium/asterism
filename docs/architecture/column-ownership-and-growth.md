@@ -48,6 +48,8 @@ Related: [`skeleton-gate-consequence-preview.md`](skeleton-gate-consequence-prev
 | G5 | 聞かずに見せる | かんたんモードに「今後も同じ種類を足しますか？」という**設問は足さない**。帰結（G3/G4）を見せ、切り出しはワンクリックで提案する | 判断の総量を減らすのが K14 の思想。人間に聞くべきは「世界の側の知識」だけで、**「この設計だとこうなる」は機械が言える**。設問を足すと、答えられない人には負債になる |
 | G6 | 所有権の下流への引き継ぎ | 借り列を per-map 段へ **①プロンプトで列名を名指し ②生成結果から決定論で除去**（`column:` の直接転記のみ。`object_template` の join と `columns:` の多入力関数は残す）。除去は必ず進捗メッセージで報告（黙って編集しない） | 検査トラップの教訓（`inspection-trap-fix-recipes.md`）の再適用: 機械的要件はレシピまで機械が用意しないと弱いモデルは着地しない。**system prompt は既に一般則を述べている**（"a column another map owns appears here ONLY as a link/join key"）のに ZEM 実話で破られた ＝ 頼むだけでは足りず、具体列名と後段の保証が要る |
 | G7 | 沈黙の条件 | 所有権・成長のいずれも、**同一ソースに singleton がちょうど 1 つ**のときだけ（K14 C6 と同一）。0 個・2 個以上は出さない | 決定論の証拠は推測しない（骨格 evidence の既存原則） |
+| G8 | **行の置き場が無いことの検出** | singleton マップがあるのに、そのソースに**行レベルマップが 1 つも無い**なら `missing_row_kind` を出す（行ごとに変わる列・親スコープの推奨キー・できる件数・**新マップの名前/テンプレート/開始クラス**）。UI は⚠1 行＋**ワンクリック追加ボタン**。追加後は自動的に消える | 実 dogfood: round-0 が**カード 1 枚 + 47 ピークに対し 1 マップしか返さず**、47 行分の値は行き場を失っていた。カードは既に「行ごとの種類の領分です」と言っているのに、**その種類が存在しない**＝機械が検出できる矛盾。修理に要る材料（varying 列・親キー・実証済み一意組）は全部すでに計算済みなので、**不在を人間に気づかせるのではなく、修理を提示する** |
+| G9 | **読ませない** | 常時見せるのは**判断 1 行**だけ。理由・列名の羅列・成長の内訳は `details` に畳む。行動は**ボタン**にする。語彙はかんたんモード側に寄せる（「クラス」→「種類」、「切り出す」→「別の種類に分ける」） | ユーザー実評価: 「かんたんモードなのに説明が難しい」「なんか読む気になれない」。原因は**判断と背景が同じ強さの平文で並び、行動が無い**こと。**説明を足して解決しようとしたのが誤り**だった（G2/G3 の初版）。K14 の「聞かずに見せる」の次は「見せるのではなく**選ばせる**」 |
 
 ## 2. 一般性 — XRD 固有の仕掛けを持たない
 
@@ -74,7 +76,12 @@ Related: [`skeleton-gate-consequence-preview.md`](skeleton-gate-consequence-prev
   - `_growth_preview(...)` — singleton マップの成長帰結（+ 複数ソース時は値の重なりを実測）
   - `entity_preview.properties[].owner_map` / マップ注釈の `borrowed_columns` / `growth_preview`
   - 既存フィールドは不変更（後方互換）
-- **UI** `SkeletonGate.tsx`: 借り列の区別表示と説明、成長プレビューのブロック、切り出し提案
+- **step0** `skeleton_annotate.py`（G8）: `_missing_row_kind()` / `_free_map_name()` /
+  `_sibling_template()`（親の名前空間を再利用）/ `_sibling_classes()`（`material_detail` →
+  `MaterialDetail` の開始クラス。空の「1 行が表すもの」欄を機械が新しく作らないため）
+- **UI** `SkeletonGate.tsx`: 借り列の区別表示、`missing_row_kind` の⚠＋追加ボタン
+  （`addRowKind()` が skeleton にマップを挿入）、成長プレビュー。**G9 に従い、借り列の理由と
+  成長の内訳は `details` に畳み、常時表示は 1 行のみ**
 - **step0** `staged_propose.py`（G6）: `render_owned_elsewhere()`（per-call の user
   メッセージに列名を名指し。system prompt は frozen のまま）＋ `drop_borrowed_properties()`
   （`column:` の直接転記だけ除去し、join と多入力関数は残す）を per-map ゲートの最後に。
