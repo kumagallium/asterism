@@ -179,7 +179,8 @@
     "rethink": {
       "label": "If the AI read it wrong, tell it here and have it think again",
       "placeholder": "e.g. One row is one measurement of one sample — split samples and measurements into separate kinds",
-      "button": "Have the AI think again"
+      "button": "Have the AI think again",
+      "needsFiles": "Re-attach the files to ask the AI again (unavailable while the sources are gone)."
     },
     "diagram": {
       "note": "Boxes = kinds of data (what one row becomes). Lines = ID links (inferred from how IDs are built).",
@@ -233,7 +234,8 @@
       "noTemplate": "No ID recipe set",
       "notChecked": "This item could not be checked",
       "revalidating": "Re-checking your edit…",
-      "reattach": "Re-attach the file to re-check edited IDs"
+      "reattach": "Re-attach the file to re-check edited IDs",
+      "gapNeedsFiles": "Re-attach the files to create this kind (the check runs there too)."
     },
     "ns": {
       "title": "Namespaces (where this design mints its IDs)",
@@ -246,7 +248,10 @@
       "baseUnconfigured": "IDs are minted under a provisional issuer ({{base}}). To make them citable after publishing, set the issuer address in Settings → Instance (it cannot be changed here).",
       "advancedTitle": "Advanced: namespaces and shorthands",
       "advancedNote": "Shorthands (al3v: etc.) are display abbreviations — changing them never changes the data. They are re-derived automatically when you rename the dataset. You can also edit the namespace URLs directly here."
-    }
+    },
+    "remove": "Remove this kind",
+    "removeConfirm": "Remove",
+    "removeCancel": "Cancel"
   },
   "dialect": {
     "title": "Read settings (optional)",

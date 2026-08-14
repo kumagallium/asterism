@@ -1,4 +1,4 @@
-import { Fragment, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type {
   MappingSkeleton,
@@ -41,12 +41,16 @@ function SkeletonEvidence({
   ann,
   onApplyCandidate,
   onAddRowKind,
+  canRevalidate = true,
   displayClass,
 }: {
   ann: SkeletonMapAnnotation
   onApplyCandidate: (columns: string[]) => void
   /** Add the row-level map this source is missing (one click, server-suggested). */
   onAddRowKind?: () => void
+  /** False when the sources are gone (restored session / reload): the edit
+   *  cannot be re-checked, so the one-click add would land unverified. */
+  canRevalidate?: boolean
   /** Kantan tier: fold the minted prefix out of class names in evidence copy
    *  (the annotation carries full CURIEs). Absent on the detail tier. */
   displayClass?: (value: string) => string
@@ -351,12 +355,24 @@ function SkeletonEvidence({
             })}
           </p>
           {onAddRowKind && (
-            <button type="button" className="skeleton-gap-add" onClick={onAddRowKind}>
+            <button
+              type="button"
+              className="skeleton-gap-add"
+              disabled={!canRevalidate}
+              onClick={onAddRowKind}
+            >
               {t('workbench:skeleton.evidence.gapAdd', {
                 count: gap.entity_count,
                 key: gap.suggested_key.map((c) => `{${c}}`).join(' + '),
               })}
             </button>
+          )}
+          {/* A button that adds something nothing can check is worse than no
+              button: say WHY it is off instead of letting the click do half. */}
+          {onAddRowKind && !canRevalidate && (
+            <p className="skeleton-evidence-line skeleton-evidence-muted">
+              {t('workbench:skeleton.evidence.gapNeedsFiles')}
+            </p>
           )}
         </div>
       )}
@@ -476,6 +492,18 @@ export function SkeletonGate({
   const { t } = useTranslation()
   // The optional rethink note (only rendered when onRethink is provided).
   const [rethinkNote, setRethinkNote] = useState('')
+  // Two-step removal, and the just-added map (scroll target + brief highlight).
+  const [confirmRemove, setConfirmRemove] = useState<string | null>(null)
+  const [addedMap, setAddedMap] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!addedMap) return
+    document
+      .querySelector(`[data-map="${CSS.escape(addedMap)}"]`)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    const timer = window.setTimeout(() => setAddedMap(null), 2200)
+    return () => window.clearTimeout(timer)
+  }, [addedMap])
 
   function updateSubject(idx: number, patch: Partial<SkeletonMap['subject']>) {
     const maps = skeleton.maps.map((m, i) =>
@@ -511,6 +539,19 @@ export function SkeletonGate({
       ...skeleton,
       maps: [...skeleton.maps.slice(0, idx + 1), added, ...skeleton.maps.slice(idx + 1)],
     })
+    // Where the click landed: the new row appears BELOW, so scroll to it and
+    // hold a highlight for a beat. An edit you cannot see reads as "nothing
+    // happened" — the add button alone was not enough (real feedback).
+    setAddedMap(added.name)
+  }
+
+  /** Remove a map. Being able to add but not remove made the gate a one-way
+   *  door: a wrong split — the AI's or the one-click one — could not be taken
+   *  back. Two-step like the other destructive controls, and never the last map
+   *  (a skeleton with no maps cannot continue). */
+  function removeMap(idx: number) {
+    onChange({ ...skeleton, maps: skeleton.maps.filter((_, i) => i !== idx) })
+    setConfirmRemove(null)
   }
 
   function updatePrefix(name: string, iri: string) {
@@ -699,8 +740,50 @@ export function SkeletonGate({
               const ann = annotations?.maps?.[m.name]
               return (
                 <Fragment key={m.name}>
-                  <tr className={ann ? 'skeleton-gate-row' : undefined}>
-                    <td className="skeleton-gate-name">{m.name}</td>
+                  <tr
+                    data-map={m.name}
+                    className={[
+                      ann ? 'skeleton-gate-row' : '',
+                      addedMap === m.name ? 'skeleton-gate-row--added' : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ') || undefined}
+                  >
+                    <td className="skeleton-gate-name">
+                      {m.name}
+                      {/* Removal is the other half of "add": without it the gate
+                          is a one-way door. Two-step, and never the last map. */}
+                      {skeleton.maps.length > 1 &&
+                        (confirmRemove === m.name ? (
+                          <span className="skeleton-remove-confirm">
+                            <button
+                              type="button"
+                              className="skeleton-remove skeleton-remove--yes"
+                              disabled={busy}
+                              onClick={() => removeMap(idx)}
+                            >
+                              {t('workbench:skeleton.removeConfirm')}
+                            </button>
+                            <button
+                              type="button"
+                              className="skeleton-remove"
+                              onClick={() => setConfirmRemove(null)}
+                            >
+                              {t('workbench:skeleton.removeCancel')}
+                            </button>
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            className="skeleton-remove"
+                            disabled={busy}
+                            title={t('workbench:skeleton.remove')}
+                            onClick={() => setConfirmRemove(m.name)}
+                          >
+                            {t('workbench:skeleton.remove')}
+                          </button>
+                        ))}
+                    </td>
                     <td className="skeleton-gate-source">{m.source}</td>
                     <td>
                       {/* A full IRI template rarely fits one line — wrap it
@@ -749,6 +832,7 @@ export function SkeletonGate({
                           ann={ann}
                           onApplyCandidate={(cols) => applyCandidate(idx, cols)}
                           onAddRowKind={() => addRowKind(idx)}
+                          canRevalidate={canRevalidate}
                           displayClass={
                             plain ? (c) => compactClass(c, nsDetected) : undefined
                           }
@@ -765,6 +849,15 @@ export function SkeletonGate({
       {/* AI-redo exit: when the skeleton is STRUCTURALLY wrong (wrong split
           into kinds, wrong key idea), editing cells is the wrong tool — hand
           a plain-language note back to the generation instead. */}
+      {/* When the sources are gone the AI cannot be re-run, so the caller stops
+          passing onRethink and this whole exit used to VANISH silently — the
+          same "it disappeared and nobody said why" that misleads elsewhere in
+          this gate. Keep the block, disabled, with the reason. */}
+      {!onRethink && !canRevalidate && (
+        <div className="skeleton-rethink">
+          <p className="skeleton-gate-hint">{t('workbench:skeleton.rethink.needsFiles')}</p>
+        </div>
+      )}
       {onRethink && (
         <div className="skeleton-rethink">
           <label className="skeleton-gate-hint" htmlFor="skeleton-rethink-note">
