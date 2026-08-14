@@ -355,6 +355,31 @@ def build_skeleton_user(
     return f"{msg}\n\n{lang}\n" if lang else msg
 
 
+def render_owned_elsewhere(owned_elsewhere: Mapping[str, str] | None) -> str:
+    """The columns THIS map must not transcribe, named (ADR column-ownership G6).
+
+    The system prompt already states the rule in general ("a column another map
+    owns appears here ONLY as a link/join key"); a weak model still broke it in
+    real dogfood (ZEM: 13 instrument columns written onto BOTH maps). The rule is
+    machine-decidable from the data, so the gate's verdict rides the per-call
+    message as concrete column names — the inspection-trap lesson (a mechanical
+    requirement needs a mechanical recipe, not a stronger request).
+    """
+    if not owned_elsewhere:
+        return ""
+    lines = [
+        "# Columns owned by ANOTHER map (do not add them here)",
+        "These values are decided by the other map's key, so writing them here"
+        " would store one fact on every row. Use them ONLY inside a link"
+        " (object_template) — never as a plain property of this map.",
+    ]
+    lines += [
+        f"- `{col}` → owned by map '{owner}'"
+        for col, owner in sorted(owned_elsewhere.items())
+    ]
+    return "\n".join(lines)
+
+
 def build_permap_user(
     map_name: str,
     map_skeleton: Mapping[str, Any],
@@ -363,6 +388,7 @@ def build_permap_user(
     *,
     issues: list[str] | None = None,
     language: str | None = None,
+    owned_elsewhere: Mapping[str, str] | None = None,
 ) -> str:
     subject = map_skeleton.get("subject") or {}
     key = subject.get("template") or subject.get("constant") or "?"
@@ -375,6 +401,9 @@ def build_permap_user(
         "",
         menu.strip(),
     ]
+    owned = render_owned_elsewhere(owned_elsewhere)
+    if owned:
+        parts += ["", owned]
     if issues:
         parts += ["", "# Issues to fix (fix ONLY these)", *[f"- {i}" for i in issues]]
     parts += ["", f"Return the property table for map '{map_name}' as a single JSON object."]
@@ -432,6 +461,38 @@ def generate_skeleton(
     return _load_json_object(_complete_guided(llm, SKELETON_SYSTEM_PROMPT, user, schema))
 
 
+def drop_borrowed_properties(
+    result: Mapping[str, Any], owned_elsewhere: Mapping[str, str] | None
+) -> tuple[dict, list[str]]:
+    """Remove plain properties that transcribe a column another map owns.
+
+    The deterministic half of ADR column-ownership G6: asking is not enough, so
+    a property whose value IS a borrowed column (``column: X``) is dropped even
+    when the model adds it anyway. Returns the cleaned result and the dropped
+    column names so the caller can report them (never a silent edit).
+
+    Deliberately narrow — only the direct ``column:`` form is a transcription:
+    - ``object_template`` keeps them (that IS the link to the owning entity);
+    - ``columns:`` (a multi-input function) keeps them (the value is computed
+      here, not copied);
+    so the join and any genuine derivation survive.
+    """
+    props = result.get("properties")
+    if not owned_elsewhere or not isinstance(props, list):
+        return dict(result), []
+    kept: list[Any] = []
+    dropped: list[str] = []
+    for prop in props:
+        col = prop.get("column") if isinstance(prop, Mapping) else None
+        if isinstance(col, str) and col in owned_elsewhere:
+            dropped.append(col)
+            continue
+        kept.append(prop)
+    if not dropped:
+        return dict(result), []
+    return {**result, "properties": kept}, dropped
+
+
 def generate_map_properties(
     map_name: str,
     map_skeleton: Mapping[str, Any],
@@ -442,10 +503,17 @@ def generate_map_properties(
     function_names: Sequence[str] | None = None,
     issues: list[str] | None = None,
     language: str | None = None,
+    owned_elsewhere: Mapping[str, str] | None = None,
 ) -> dict:
     """One guided call -> one map's ``{properties: [...], prefixes?: {...}}``."""
     user = build_permap_user(
-        map_name, map_skeleton, skeleton_context, menu, issues=issues, language=language
+        map_name,
+        map_skeleton,
+        skeleton_context,
+        menu,
+        issues=issues,
+        language=language,
+        owned_elsewhere=owned_elsewhere,
     )
     schema = permap_json_schema(function_names)
     return _load_json_object(_complete_guided(llm, PERMAP_SYSTEM_PROMPT, user, schema))
@@ -569,6 +637,7 @@ def _generate_map_properties_gated(
     total: int,
     emit: Callable[..., None],
     record: Callable[[], None],
+    owned_elsewhere: Mapping[str, str] | None = None,
 ) -> dict:
     """Generate ONE map's property table, then run a BOUNDED structural repair.
 
@@ -596,6 +665,7 @@ def _generate_map_properties_gated(
         result = generate_map_properties(
             map_name, map_skeleton, skeleton_context, menu_text,
             llm=llm, function_names=function_names, language=language,
+            owned_elsewhere=owned_elsewhere,
         )
     except ValueError as exc:
         _emit(f"map '{map_name}' の生成に失敗しプロパティ無しで継続します: {exc}")
@@ -614,6 +684,7 @@ def _generate_map_properties_gated(
             retry = generate_map_properties(
                 map_name, map_skeleton, skeleton_context, menu_text,
                 llm=llm, function_names=function_names, issues=issues, language=language,
+                owned_elsewhere=owned_elsewhere,
             )
         except ValueError:
             # A truncated retry: the LLM call still happened (parse failed after
@@ -629,6 +700,15 @@ def _generate_map_properties_gated(
             result, issues = retry, retry_issues  # progress: adopt the cleaner table
         else:
             break  # no progress: keep the prior (better-or-equal) table and stop
+    # G6 backstop: the instruction above is a request; this is the guarantee.
+    # A column another map owns never becomes a plain property here, whatever
+    # the model returned — reported, never silently edited.
+    result, dropped = drop_borrowed_properties(result, owned_elsewhere)
+    if dropped:
+        _emit(
+            f"map '{map_name}': 他のマップが持つ列を外しました - 重複記録の防止: "
+            + ", ".join(sorted(set(dropped)))
+        )
     return result
 
 
@@ -643,6 +723,7 @@ def propose_from_skeleton(
     function_names: Sequence[str] | None = None,
     on_progress: Any = None,
     on_llm_call: Callable[[str], None] | None = None,
+    column_owners: Mapping[str, Mapping[str, str]] | None = None,
 ) -> str:
     """Job 2: from a confirmed skeleton, generate each map's property table, assemble
     the full IR, generate the §1-8 document, and splice §9 in deterministically.
@@ -653,7 +734,12 @@ def propose_from_skeleton(
     function signatures); when omitted a names-only menu is rendered so the stage
     still runs standalone. ``on_progress(**data)`` receives ``phase`` frames per map;
     ``on_llm_call(feature)`` fires after every per-map and document call so the caller
-    records usage per call (each tagged ``"propose"``, like the single-shot round-0)."""
+    records usage per call (each tagged ``"propose"``, like the single-shot round-0).
+
+    ``column_owners`` maps a map name to ``{column: owning map}`` — the skeleton
+    gate's ownership verdict (ADR column-ownership-and-growth). Those columns are
+    named in that map's prompt AND dropped from its result if they come back
+    anyway, so one source cell becomes a fact on exactly one entity."""
     names = _resolve_function_names(function_names)
     menu_text = menu if menu is not None else render_tier0_menu(names)
     context = render_skeleton_context(skeleton)
@@ -689,6 +775,9 @@ def propose_from_skeleton(
             total=len(maps),
             emit=emit,
             record=record,
+            # Which of this map's columns another map owns (ADR
+            # column-ownership G6) — the gate's verdict, carried into generation.
+            owned_elsewhere=(column_owners or {}).get(str(name)),
         )
 
     assembled = assemble_mapping_ir(skeleton, permaps)

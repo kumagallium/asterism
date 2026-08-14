@@ -46,7 +46,7 @@ Related: [`skeleton-gate-consequence-preview.md`](skeleton-gate-consequence-prev
 | G3 | 成長プレビュー | singleton マップ = 「1 ソース 1 エンティティ」。`growth_preview` に **①ソースを足すと何件増えるか ②非キー列は各ファイルに独立して記録される ③合流させたい概念があれば切り出す** を出す | 「今後も足すか」は画面が答えるべき問い。**1 枚しか無くても構造から決定論で言える**（singleton の定義がそのまま「1 ファイル 1 件」を意味する） |
 | G4 | 予告ではなく実測 | 同型ソースが**複数ある**ときは、singleton の非キー列の**実際の値の重なりを計測**し「この列は N ファイル中 M ファイルで同じ値」と示す | 予告より実測が強い。crosswalk discover（値の重なりで橋を架ける）と同じ原理を、取り込み前のファイル集合に適用したもの |
 | G5 | 聞かずに見せる | かんたんモードに「今後も同じ種類を足しますか？」という**設問は足さない**。帰結（G3/G4）を見せ、切り出しはワンクリックで提案する | 判断の総量を減らすのが K14 の思想。人間に聞くべきは「世界の側の知識」だけで、**「この設計だとこうなる」は機械が言える**。設問を足すと、答えられない人には負債になる |
-| G6 | 所有権の下流への引き継ぎ | 借り列は per-map 段の入力に「子には持たせない」制約として渡す（**次フェーズ**） | 検査トラップの教訓（`inspection-trap-fix-recipes.md`）の再適用: 機械的要件はレシピまで機械が用意しないと弱いモデルは着地しない |
+| G6 | 所有権の下流への引き継ぎ | 借り列を per-map 段へ **①プロンプトで列名を名指し ②生成結果から決定論で除去**（`column:` の直接転記のみ。`object_template` の join と `columns:` の多入力関数は残す）。除去は必ず進捗メッセージで報告（黙って編集しない） | 検査トラップの教訓（`inspection-trap-fix-recipes.md`）の再適用: 機械的要件はレシピまで機械が用意しないと弱いモデルは着地しない。**system prompt は既に一般則を述べている**（"a column another map owns appears here ONLY as a link/join key"）のに ZEM 実話で破られた ＝ 頼むだけでは足りず、具体列名と後段の保証が要る |
 | G7 | 沈黙の条件 | 所有権・成長のいずれも、**同一ソースに singleton がちょうど 1 つ**のときだけ（K14 C6 と同一）。0 個・2 個以上は出さない | 決定論の証拠は推測しない（骨格 evidence の既存原則） |
 
 ## 2. 一般性 — XRD 固有の仕掛けを持たない
@@ -75,8 +75,14 @@ Related: [`skeleton-gate-consequence-preview.md`](skeleton-gate-consequence-prev
   - `entity_preview.properties[].owner_map` / マップ注釈の `borrowed_columns` / `growth_preview`
   - 既存フィールドは不変更（後方互換）
 - **UI** `SkeletonGate.tsx`: 借り列の区別表示と説明、成長プレビューのブロック、切り出し提案
+- **step0** `staged_propose.py`（G6）: `render_owned_elsewhere()`（per-call の user
+  メッセージに列名を名指し。system prompt は frozen のまま）＋ `drop_borrowed_properties()`
+  （`column:` の直接転記だけ除去し、join と多入力関数は残す）を per-map ゲートの最後に。
+- **api** `design_loop.py`（G6）: `_column_owners()` が**確定済み骨格**に対して
+  `annotate_skeleton` を再実行して裁定を作り直し、`propose_from_skeleton(column_owners=…)`
+  へ渡す（人間がゲートでキーを編集していても、生成に効く制約が画面の説明と一致する）。
 - 互換性: 旧フロント × 新サーバ = 追加フィールド無視で従来表示。新フロント × 旧サーバ =
-  フィールド不在で従来表示。
+  フィールド不在で従来表示。`column_owners` 未指定なら生成は従来どおり。
 
 ## 4. 非目標（今回やらない）
 

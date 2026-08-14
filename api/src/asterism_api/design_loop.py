@@ -76,6 +76,7 @@ from asterism_step0.materialize import materialize_schema
 from asterism_step0.propose import propose_schema
 from asterism_step0.refine import refine_schema
 from asterism_step0.rml_compile import RmlCompileError, compile_mapping_ir
+from asterism_step0.skeleton_annotate import annotate_skeleton
 from asterism_step0.spec_repair import (
     SPEC_REPAIR_SYSTEM_PROMPT,
     build_spec_repair_user,
@@ -237,6 +238,28 @@ def _detect_source_dialects(paths: list[Path]) -> dict[str, Any]:
         if not is_default(dialect):
             detected[p.name] = dialect
     return detected
+
+
+def _column_owners(
+    skeleton: Mapping[str, Any], paths: list[Path], dialects: Mapping[str, Any]
+) -> dict[str, dict[str, str]]:
+    """Per map, which of its columns another map owns (ADR column-ownership G6).
+
+    Reuses the skeleton gate's own annotation pass, so the constraint fed to
+    generation is EXACTLY the verdict the human just approved on screen —
+    "these 17 columns belong to sample" becomes "do not write them on peak".
+    Best-effort: any failure yields ``{}`` and generation proceeds as before.
+    """
+    try:
+        annotations = annotate_skeleton(skeleton, paths, dialects=dialects)
+    except Exception:  # evidence is advisory; never block generation on it
+        return {}
+    owners: dict[str, dict[str, str]] = {}
+    for name, ann in (annotations.get("maps") or {}).items():
+        borrowed = ann.get("borrowed_columns") or []
+        if borrowed:
+            owners[str(name)] = {b["column"]: b["owner_map"] for b in borrowed}
+    return owners
 
 
 def _overlay_detected_dialects(
@@ -692,6 +715,11 @@ def run_design_loop(
             dialects=effective,
         )
         inspection_md = render_markdown(inspections, fks)
+        # Column ownership on the CONFIRMED skeleton (ADR
+        # column-ownership-and-growth G6). Recomputed here rather than carried
+        # from the gate: the human may have edited a key, and the verdict must
+        # describe the skeleton actually being generated from.
+        column_owners = _column_owners(skeleton, paths, effective)
         _emit(on_progress, phase="propose", round=0, message="骨格から設計を生成中")
         schema_md = propose_from_skeleton(
             skeleton,
@@ -703,6 +731,7 @@ def run_design_loop(
             function_names=function_names,
             on_progress=lambda **d: _emit(on_progress, **d),
             on_llm_call=on_llm_call,
+            column_owners=column_owners,
         )
         metadata: dict[str, Any] = {"llm_class": type(llm).__name__, "staged": True}
     else:
