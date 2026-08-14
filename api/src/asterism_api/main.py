@@ -47,6 +47,7 @@ from asterism import (
     crosswalk_runtime,
     documents,
     grounding,
+    shapes,
     substrate,
 )
 from asterism.datasets import datasets_root, load_dataset
@@ -1789,6 +1790,12 @@ async def _append_batch_to_dataset(
         append_seq=append_seq,
         batch_id=batch_id,
     )
+    # Re-check the shapes on the grown graph (ADR data-shape-checks.md): a feed
+    # that starts clean can drift — a batch whose key is formatted differently
+    # lands as dangling links, and the previous round's findings would otherwise
+    # keep saying "all clear". Recomputed (not merged) so a fixed batch clears
+    # stale advice. Advisory and best-effort: never fails an append.
+    await _record_shape_findings(registry_root, client, dataset_id, live_graph, rml_ttl)
     # crosswalk-hub.md ②: the hub is a derived projection over the canonical scope;
     # this append may have introduced new shared values. Mark stale ONLY if the
     # dataset participates, and schedule a debounced rebuild (self-healing).
@@ -2113,6 +2120,42 @@ def _design_checks_at_materialize(
     except Exception:  # a check failure must never break materialize
         logger.exception("advisory design validation at materialize failed (continuing)")
         return [], advisories
+
+
+async def _record_shape_findings(
+    registry_root: Path,
+    client: OxigraphClient,
+    dataset_id: str,
+    graph_iri: str,
+    rml_ttl: str,
+) -> list[str]:
+    """Check the INGESTED graph against the shapes its own RML declares, and
+    persist the findings on the dataset (ADR ``data-shape-checks.md``).
+
+    Runs once per ingest — not per page view — because the answer only changes
+    when the data does, and a browse of the catalog must stay instant. The
+    findings ride the existing ``advisories`` channel, so no new UI surface
+    exists to keep in sync.
+
+    Best-effort in every direction: no RML (a document dataset), an unparseable
+    mapping, a store hiccup — all degrade to "no findings". A shape check must
+    never be the reason an otherwise-successful ingest reports failure.
+    """
+    if not (rml_ttl or "").strip():
+        return []
+    try:
+        compiled = await asyncio.to_thread(shapes.compile_shapes, rml_ttl)
+        if not compiled:
+            return []
+        findings = await shapes.run_shape_checks(
+            compiled, graph_iri, client.sparql_select
+        )
+        messages = [f.message for f in findings]
+        registry.record_shape_findings(registry_root, dataset_id, messages)
+        return messages
+    except Exception:
+        logger.exception("shape checks after ingest failed (continuing)")
+        return []
 
 
 # ----------------------------------------------------------------------------
@@ -3343,11 +3386,46 @@ def build_app(
         issues, advisories = await asyncio.to_thread(
             _design_checks_at_materialize, cfg.registry_root, dataset_id, rml_ttl
         )
+        # The data shape findings recorded at ingest (ADR data-shape-checks.md)
+        # ride the SAME advisories list — they are the same kind of thing to the
+        # reader ("something about this dataset is worth knowing"), and merging
+        # them here means no new UI surface, no second fetch, no second empty
+        # state. Design advisories come first: they are about the design the user
+        # can still edit, while a shape finding describes data already ingested.
+        shape_findings = [
+            str(f) for f in ((data.get("meta") or {}).get("shape_findings") or [])
+        ]
         return {
             "dataset_id": dataset_id,
             "validation_issues": issues,
-            "advisories": advisories,
+            "advisories": advisories + shape_findings,
         }
+
+    @app.get("/api/datasets/{dataset_id}/shapes.ttl")
+    async def get_dataset_shapes(dataset_id: str) -> Response:
+        """This dataset's constraints as standard SHACL (ADR data-shape-checks.md §D3).
+
+        Compiled deterministically from the dataset's own RML — the same shapes
+        Asterism checks with SPARQL, in the form the rest of the world runs
+        (pySHACL, TopBraid, any SHACL-aware semantic layer). Read-only, and
+        offered for export rather than as the checking engine: an in-process
+        SHACL run cannot hold a graph this size, but a shapes FILE travels.
+
+        Empty (a valid, shape-less Turtle document) for a dataset with no RML —
+        a document dataset, or a design whose §9 spec never compiled.
+        """
+        data = registry.load_dataset(cfg.registry_root, dataset_id)
+        if data is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        rml_ttl = str((data.get("artifacts") or {}).get("mapping.rml.ttl") or "")
+        compiled = await asyncio.to_thread(shapes.compile_shapes, rml_ttl)
+        return Response(
+            content=shapes.shapes_to_shacl(compiled),
+            media_type="text/turtle",
+            headers={
+                "Content-Disposition": f'attachment; filename="{dataset_id}-shapes.ttl"'
+            },
+        )
 
     @app.get("/api/datasets/{dataset_id}/proposal")
     async def get_dataset_proposal(dataset_id: str) -> dict[str, object]:
@@ -4468,6 +4546,18 @@ def build_app(
                     ingested_at=datetime.now(UTC).isoformat(),
                     data_seq=data_seq,
                 )
+                # Does the graph we just built say what the design said it would?
+                # (ADR data-shape-checks.md) The existing gates stop at the design
+                # boundary — columns exist, functions type-check — so a predicate
+                # that materialized ZERO times, or a link whose target was never
+                # minted, reaches the catalog looking healthy and answers every
+                # question with silence. Advisory: the findings are persisted and
+                # surfaced next to the design advisories; nothing is blocked. A
+                # document dataset has no RML and is skipped inside the helper.
+                if not is_document:
+                    await _record_shape_findings(
+                        cfg.registry_root, client, dataset_id, staged_iri, rml_ttl
+                    )
                 return {
                     "dataset_id": dataset_id,
                     "graph_iri": staged_iri,
