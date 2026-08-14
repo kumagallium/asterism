@@ -268,10 +268,30 @@ export interface SkeletonMapAnnotation {
       conflict?: boolean
       values?: { value: string; line: number }[]
       more_values?: number
+      /** Set when another map's key decides this value (ADR
+       *  column-ownership-and-growth G2): the row physically carries it, but
+       *  storing it here copies one fact onto every row. */
+      owner_map?: string
     }[]
     varying_columns: string[]
     omitted_columns: number
   } | null
+  /** Columns this map would carry that another map OWNS (its key determines
+   *  them and it mints fewer entities). The parent's key column is exempt —
+   *  carrying it is how the join is declared. */
+  borrowed_columns?: { column: string; owner_map: string }[]
+  /** What the NEXT source file does to this design — only on a file-scoped
+   *  (singleton) map, which by definition mints one entity per file.
+   *  `shared_values` is measured, not forecast: columns that already repeat
+   *  across sibling files are the ones worth splitting into their own class,
+   *  since as-is each file mints its own copy instead of merging. */
+  growth_preview?: {
+    per_source_entities: number
+    source_count: number
+    row_maps: string[]
+    described_columns: string[]
+    shared_values?: { column: string; value: string; files: number }[]
+  }
   /** Real IDs minted from the first rows (prefix-expanded). */
   id_previews?: string[]
   /** Proven-unique column combinations (one-click fix candidates). `scoped`

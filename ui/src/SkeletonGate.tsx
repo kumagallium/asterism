@@ -96,6 +96,10 @@ function SkeletonEvidence({
   const measurementRisk = risks.find((r) => r.kind === 'measurement-id')
   const scopeRisk = risks.find((r) => r.kind === 'scope-missing')
   const card = ann.entity_preview
+  // Columns another map owns (ADR column-ownership-and-growth), and — on a
+  // file-scoped map — what appending the next file does to this design.
+  const borrowed = ann.borrowed_columns ?? []
+  const growth = ann.growth_preview
   const displayCls = (value: string) => (displayClass ? displayClass(value) : value)
   const cardCls = (ann.expanded_classes[0]?.curie && displayCls(ann.expanded_classes[0].curie)) || ''
   const candidateChips = (ann.key_candidates?.length ?? 0) > 0 && (
@@ -239,9 +243,22 @@ function SkeletonEvidence({
                       </td>
                     </tr>
                   ) : (
-                    <tr key={p.column}>
+                    /* A value another map owns is drawn dimmed with its origin
+                       (ADR column-ownership-and-growth G2). Without this the
+                       child card silently repeats the parent's columns and
+                       reads as "correct" — the singleton card explains its
+                       missing per-row columns, so this side must explain its
+                       extra ones or the asymmetry misleads. */
+                    <tr key={p.column} className={p.owner_map ? 'skeleton-entity-borrowed' : undefined}>
                       <th scope="row">{p.column}</th>
-                      <td>{p.value}</td>
+                      <td>
+                        {p.value}
+                        {p.owner_map && (
+                          <span className="skeleton-entity-owner">
+                            {t('workbench:skeleton.evidence.cardFromParent', { map: p.owner_map })}
+                          </span>
+                        )}
+                      </td>
                     </tr>
                   ),
                 )}
@@ -277,6 +294,19 @@ function SkeletonEvidence({
               })}
             </p>
           )}
+          {/* The mirror of cardVarying: this card carries columns that are
+              decided elsewhere, so say so here too. */}
+          {borrowed.length > 0 && (
+            <p className="skeleton-evidence-line skeleton-evidence-muted">
+              {t('workbench:skeleton.evidence.cardBorrowed', {
+                count: borrowed.length,
+                map: borrowed[0].owner_map,
+                columns:
+                  borrowed.slice(0, 5).map((b) => b.column).join(', ') +
+                  (borrowed.length > 5 ? ' …' : ''),
+              })}
+            </p>
+          )}
         </div>
       ) : (
         (ann.id_previews?.length ?? 0) > 0 && (
@@ -291,6 +321,45 @@ function SkeletonEvidence({
             ))}
           </div>
         )
+      )}
+      {/* What the NEXT file does to this design (ADR column-ownership-and-growth
+          G3/G4). A file-scoped entity mints one per file, so "should this be
+          split?" is answerable BEFORE the second file arrives — and once a
+          sibling file exists, the overlap is measured instead of forecast. */}
+      {growth && growth.described_columns.length > 0 && (
+        <div className="skeleton-growth">
+          <span className="skeleton-evidence-label">
+            {t('workbench:skeleton.evidence.growthHead')}
+          </span>
+          <p className="skeleton-evidence-line skeleton-evidence-muted">
+            {t('workbench:skeleton.evidence.growthPerFile', { count: growth.source_count })}
+          </p>
+          <p className="skeleton-evidence-line skeleton-evidence-muted">
+            {t('workbench:skeleton.evidence.growthDescribed', {
+              count: growth.described_columns.length,
+              columns:
+                growth.described_columns.slice(0, 5).join(', ') +
+                (growth.described_columns.length > 5 ? ' …' : ''),
+            })}
+          </p>
+          {(growth.shared_values?.length ?? 0) > 0 && (
+            <p className="skeleton-evidence-line skeleton-evidence-warn">
+              {t('workbench:skeleton.evidence.growthShared', {
+                count: growth.shared_values!.length,
+                examples: growth
+                  .shared_values!.slice(0, 3)
+                  .map((s) =>
+                    t('workbench:skeleton.evidence.growthSharedExample', {
+                      column: s.column,
+                      value: s.value,
+                      files: s.files,
+                    }),
+                  )
+                  .join(' / '),
+              })}
+            </p>
+          )}
+        </div>
       )}
       {showCandidates && (
         <div className="skeleton-evidence-candidates">

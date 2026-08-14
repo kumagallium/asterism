@@ -6083,6 +6083,24 @@ button.ds-artifact:disabled {
 .skeleton-entity-conflict td {
   color: var(--warn-fg);
 }
+/* 別のマップが持つべき値（ADR column-ownership-and-growth）。消さずに沈める＝
+   「行が実際に持つ値」は正直に見せたうえで、自分の値と一目で区別させる。 */
+.skeleton-entity-borrowed th,
+.skeleton-entity-borrowed td {
+  color: var(--faint);
+}
+.skeleton-entity-owner {
+  margin-left: 0.5rem;
+  font-size: 0.68rem;
+  color: var(--faint);
+  white-space: nowrap;
+}
+/* 「このあとファイルを足すと」ブロック — 1 枚目の時点で 2 枚目の帰結を見せる。 */
+.skeleton-growth {
+  margin-top: 0.55rem;
+  padding-top: 0.45rem;
+  border-top: 1px dashed var(--border);
+}
 .skeleton-entity-conflict-note {
   display: block;
   font-weight: 600;
