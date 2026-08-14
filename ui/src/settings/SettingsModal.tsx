@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import './SettingsModal.css'
 import { InstanceSection } from './InstanceSection'
@@ -10,6 +10,7 @@ import { fetchAvailableModels, type AvailableModel } from './modelsApi'
 import {
   API_BASE_HINTS,
   PROVIDERS,
+  type CredentialGroupInfo,
   type LlmModelConfig,
   type Provider,
   type RateCurrency,
@@ -17,6 +18,7 @@ import {
   credentialGroup,
   getKey,
   isRemembered,
+  listCredentialGroups,
   makeModel,
 } from './store'
 
@@ -228,6 +230,20 @@ function providerName(id: string): string {
   return PROVIDERS.find((p) => p.id === id)?.name ?? id
 }
 
+/** Sentinel value of the endpoint picker meaning "enter a new provider+endpoint". */
+const NEW_ENDPOINT = ''
+
+/** "Anthropic (Claude) — 2 models" / "OpenAI互換 — https://… — 1 model". */
+function groupLabel(
+  g: CredentialGroupInfo,
+  t: (key: string, opts?: Record<string, unknown>) => string,
+): string {
+  const parts = [providerName(g.provider)]
+  if (g.apiBase) parts.push(g.apiBase)
+  parts.push(t('form.endpointModelCount', { count: g.modelCount }))
+  return parts.join(' — ')
+}
+
 // ---------------------------------------------------------------------------
 // Add / edit form
 // ---------------------------------------------------------------------------
@@ -245,13 +261,25 @@ function ModelForm({
   const settings = useLlmSettings()
   const editing = model !== null
 
-  const [provider, setProvider] = useState<Provider>(model?.provider ?? 'anthropic')
+  // Registered provider+endpoint pairs (#2 "don't re-enter a provider you already
+  // set up"). In the add form the first one is preselected, so adding a second
+  // model on the same endpoint asks only for the model id: provider, base URL and
+  // key come from the group. `NEW_ENDPOINT` ('') switches back to free entry.
+  const groups = useMemo(() => listCredentialGroups(settings.models), [settings.models])
+  const defaultPreset = editing ? null : (groups[0] ?? null)
+  const [presetGroup, setPresetGroup] = useState<string>(defaultPreset?.group ?? NEW_ENDPOINT)
+  const preset: CredentialGroupInfo | null =
+    (presetGroup && groups.find((g) => g.group === presetGroup)) || null
+
+  const [provider, setProvider] = useState<Provider>(
+    model?.provider ?? defaultPreset?.provider ?? 'anthropic',
+  )
   const [name, setName] = useState(model?.name ?? '')
   const [modelId, setModelId] = useState(model?.modelId ?? '')
-  const [apiBase, setApiBase] = useState(model?.apiBase ?? '')
+  const [apiBase, setApiBase] = useState(model?.apiBase ?? defaultPreset?.apiBase ?? '')
   const initialGroup = credentialGroup(
-    model?.provider ?? 'anthropic',
-    model?.apiBase ?? (model ? null : ''),
+    model?.provider ?? defaultPreset?.provider ?? 'anthropic',
+    model?.apiBase ?? defaultPreset?.apiBase ?? (model ? null : ''),
   )
   // Prefill the key + remember flag from this credential group for BOTH the edit
   // and add forms: a key already saved for this provider+endpoint should populate
@@ -302,6 +330,26 @@ function ModelForm({
       setApiKey(existing)
       setRemember(isRemembered(group))
     }
+  }
+
+  // Pick a registered endpoint (or NEW_ENDPOINT): adopt its provider + base URL
+  // and reuse its stored key, so nothing has to be retyped.
+  function onPresetChange(nextGroup: string) {
+    setPresetGroup(nextGroup)
+    clearFetchedModels()
+    const g = groups.find((x) => x.group === nextGroup)
+    if (!g) {
+      // "New endpoint": start blank rather than carrying the previous group's key
+      // over — otherwise a key belonging to another endpoint would be silently
+      // saved under the new provider+base the user is about to type.
+      setApiKey('')
+      setRemember(true)
+      return
+    }
+    setProvider(g.provider)
+    setApiBase(g.apiBase ?? '')
+    setApiKey(getKey(g.group))
+    setRemember(isRemembered(g.group))
   }
 
   const idTrimmed = modelId.trim()
@@ -369,41 +417,64 @@ function ModelForm({
     <div className="model-form">
       <h3>{editing ? t('form.editTitle') : t('form.addTitle')}</h3>
 
-      <label className="field">
-        <span>{t('form.provider')}</span>
-        <select
-          value={provider}
-          onChange={(e) => {
-            const next = e.target.value as Provider
-            setProvider(next)
-            onProviderOrBaseChange(next, apiBase)
-            clearFetchedModels()
-          }}
-        >
-          {PROVIDERS.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-      </label>
+      {!editing && groups.length > 0 && (
+        <label className="field">
+          <span>{t('form.endpoint')}</span>
+          <select value={presetGroup} onChange={(e) => onPresetChange(e.target.value)}>
+            {groups.map((g) => (
+              <option key={g.group} value={g.group}>
+                {groupLabel(g, t)}
+              </option>
+            ))}
+            <option value={NEW_ENDPOINT}>{t('form.endpointNew')}</option>
+          </select>
+          <p className="field-help">
+            {preset ? t('form.endpointReuseHelp') : t('form.endpointNewHelp')}
+          </p>
+        </label>
+      )}
 
-      <label className="field">
-        <span>
-          {t('form.apiBase')}
-          {needsApiBase && <em className="req"> *</em>}
-        </span>
-        <input
-          type="text"
-          value={apiBase}
-          placeholder={API_BASE_HINTS[provider] ?? ''}
-          onChange={(e) => {
-            setApiBase(e.target.value)
-            clearFetchedModels()
-          }}
-          onBlur={() => onProviderOrBaseChange(provider, apiBase)}
-        />
-      </label>
+      {/* プロバイダ / base URL は接続先セレクタが既に示しているので、登録済みを
+          選んでいる間は入力欄そのものを出さない（再入力させないのが本題）。 */}
+      {!preset && (
+        <>
+          <label className="field">
+            <span>{t('form.provider')}</span>
+            <select
+              value={provider}
+              onChange={(e) => {
+                const next = e.target.value as Provider
+                setProvider(next)
+                onProviderOrBaseChange(next, apiBase)
+                clearFetchedModels()
+              }}
+            >
+              {PROVIDERS.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="field">
+            <span>
+              {t('form.apiBase')}
+              {needsApiBase && <em className="req"> *</em>}
+            </span>
+            <input
+              type="text"
+              value={apiBase}
+              placeholder={API_BASE_HINTS[provider] ?? ''}
+              onChange={(e) => {
+                setApiBase(e.target.value)
+                clearFetchedModels()
+              }}
+              onBlur={() => onProviderOrBaseChange(provider, apiBase)}
+            />
+          </label>
+        </>
+      )}
 
       <label className="field">
         <span>{t('form.apiKey')}</span>
@@ -414,8 +485,11 @@ function ModelForm({
           placeholder={apiKeyPlaceholder(provider)}
           onChange={(e) => setApiKey(e.target.value)}
         />
-        {providerHasServerKey && !apiKey.trim() && (
-          <p className="field-help">{t('form.apiKeyServerHint')}</p>
+        {preset && apiKey.trim() ? (
+          <p className="field-help">{t('form.apiKeyReused')}</p>
+        ) : (
+          providerHasServerKey &&
+          !apiKey.trim() && <p className="field-help">{t('form.apiKeyServerHint')}</p>
         )}
       </label>
 
