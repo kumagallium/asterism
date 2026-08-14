@@ -852,7 +852,9 @@ def test_untyped_numeric_column_flagged(tmp_path) -> None:
         "intensity,twoTheta,hkl\n100.0,40.07,(1;1;2)\n9.4,77.47,(1;1;6)\n5.0,21.34,(0;0;2)\n",
         encoding="utf-8",
     )
-    advisories = [a for a in design_advisories(_UNTYPED_NUMERIC, tmp_path) if "untyped literal" in a]
+    advisories = [
+        a for a in design_advisories(_UNTYPED_NUMERIC, tmp_path) if "untyped literal" in a
+    ]
     assert len(advisories) == 1
     assert advisories[0].startswith("column 'intensity'")
     assert "xsd:double" in advisories[0]
