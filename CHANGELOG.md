@@ -1,5 +1,11 @@
 # Changelog
 
+## [v0.14.1](https://github.com/kumagallium/asterism/compare/v0.14.0...v0.14.1) - 2026-08-14
+
+- feat(step0/ui): 列の所有権と成長プレビュー — 「この列は誰のもの」「次の1枚で何が起きる」 by @kumagallium in https://github.com/kumagallium/asterism/pull/352
+- ci(desktop): 更新フィードを Pages へ — リリース直後の 502 窓を閉じる by @kumagallium in https://github.com/kumagallium/asterism/pull/356
+- feat(desktop): 更新フィードを Pages の固定 URL に切り替える by @kumagallium in https://github.com/kumagallium/asterism/pull/357
+
 ## [v0.14.0](https://github.com/kumagallium/asterism/compare/v0.13.2...v0.14.0) - 2026-08-14
 
 - 取り込んだ実データが設計どおりか検査する（shape 検査） by @kumagallium in https://github.com/kumagallium/asterism/pull/351
