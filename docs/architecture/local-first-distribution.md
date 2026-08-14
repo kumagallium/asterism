@@ -97,6 +97,40 @@ Asterism は 1 つのソフトのまま **手元（ラップトップ）／常�
 - 実機: `asterism-local`（実 Oxigraph +ビルド済み SPA）でブラウザ起動 → `/health` ok → トークン無しの書き込み系呼び出しがループバックから通ることを確認。
 - 副次修正: 4 パッケージの `readme = "../README.md"`（プロジェクト外パス）を撤去 — 最新 hatchling が拒否するため**新規 venv 作成（=CI）が repo 全体で壊れていた**。
 
+## 6.1 決定: 更新フィードは Pages の固定 URL（2026-08-14）
+
+**フィードの置き場所は `docs/updater/latest.json`（GitHub Pages）であって、
+リリースアセットではない。**
+
+当初は `releases/latest/download/latest.json` を使っていた（「Pages の配管が
+要らない」という理由で選んだ）。これは壊れる。`releases/latest` は **tagpr が
+リリースを publish した瞬間に新しいタグを指す**が、その `latest.json` を作って
+添付するのは Desktop Release ワークフローで、ビルドに約 15 分かかる。その窓の
+あいだフィードは 404 になり、api はそれを 502 に翻訳する。**v0.14.0 のリリース
+直後に実際に発生**（設定→このアプリ→今すぐ確認が「更新の確認に失敗しました —
+HTTP 502」）。手動確認だけでなく、同じ URL を見る Tauri のネイティブ自動更新も
+黙って失敗していた。リリースのたびに必ず開く窓であり、たまたま踏まれていな
+かっただけ。
+
+Pages のコピーは**ビルドが成功した後にだけ**書き換わるので、
+
+- 欠けている瞬間が無い（切り替わりが原子的）、
+- ビルドが落ちたときは「前の版を提供し続ける」＝壊れるのではなく止まる、
+- `releases/latest` のようにタグの publish と連動しない。
+
+同じ事故を先に踏んだ Graphium（v0.16.4 / v0.16.5 で公証失敗により
+`latest.json` が古い版に固定された）の `tauri-build.yml` が出典で、逆行防止の
+semver 比較・同版は通す・push race の rebase リトライも含めて倣っている。
+
+Tauri の `endpoints` は **Pages を先頭・旧リリース URL を fallback** の 2 本
+立てにする。既に配布済みの 0.13.x は旧 URL しか焼き込んでいないため、旧 URL も
+生かしておく必要がある。
+
+**二重の安全網**: `release-update-drift-check.yml`（日次 cron）が「最新の
+安定版リリース」と「Pages が配信している version」の乖離を検知し、
+`release-failure` ラベル付き Issue を 1 本だけ起票する。ビルド失敗そのものは
+Actions の通知で分かるが、こちらは*結果として更新が出ていない*状態を直接見る。
+
 ## 7. スコープと残
 
 - **Phase 2（デスクトップシェル）**: **v1 実装済 = `desktop/`（Tauri v2）**。シェルの契約は 1 つだけ＝`asterism-local` を spawn（起動器が Oxigraph/demo-agent の孫を監督）→空きポートの HTTP readiness を待つ→そのループバック URL でネイティブウィンドウを開く。終了時は **SIGTERM**（SIGKILL は孫をみなしごにする）。起動器の解決順= `ASTERISM_LOCAL_CMD` → 実行ファイルから祖先を遡って `api/.venv/bin/asterism-local`（`tauri dev` と repo 内ビルドの .app を両カバー）→ PATH。バックエンドログは app log dir（`~/Library/Logs/com.kumagallium.asterism/backend.log`）。**v2 追補=自己完結バンドル実装済**: `scripts/bundle-backend.sh`（`beforeBuildCommand`）が `src-tauri/backend/` を組み立て（uv 管理の standalone CPython+全パッケージ非 editable install・Oxigraph 単一バイナリ・demo-agent・datasets・SPA）、Tauri resource として .app に同梱（約 370MB）。シェルは同梱 backend を最優先で解決し `python3 -m asterism_api.local` で起動（console script の shebang は再配置で壊れるため使わない）。env で全ペイロードをバンドルに向ける（`ASTERISM_UI_DIST`/`ASTERISM_OXIGRAPH_BIN`/`ASTERISM_DEMO_AGENT_DIR`/`ASTERISM_DATASETS_ROOT`。demo-agent の env override は本追補で `local.py` に追加）。**リポジトリ外・環境変数なしで全スタック起動を実機実証**（repo も Python も Docker も Homebrew も不要）。`tauri dev` はバンドルせず checkout 解決＝反復は速いまま。**残**= 署名/公証/updater（Graphium の tauri-action 構成と同一 secret 名を流用・workflow 追加は別 PR＝workflow-only PR は CI が回らない罠・Resources 内バイナリの署名カバレッジは Graphium の node 同梱が前例）・Windows（Job Object・バンドル script の asset 名）・Docling のオプショナルダウンロード。※Ask 実接続は Phase 1 追補で実装済（§3）。

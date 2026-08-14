@@ -1,0 +1,116 @@
+# 「最新リリースのタグ」と「Pages が配信している latest.json の version」が
+# 乖離していないか日次で監視する。
+#
+# 背景: リリース自体は tagpr が publish するのに、デスクトップのビルドが失敗すると
+# latest.json が再生成されない。すると自動更新は古い版を指したまま固定され、
+# 「アプリが更新されない」と誰かが気づくまで誰も知らない — Graphium が
+# v0.16.4 / v0.16.5 で実際に踏んだ事故（あちらの release-update-drift-check.yml が
+# 出典）。ビルド失敗そのものは Actions の失敗通知で分かるが、こちらは
+# **結果として更新が出ていない状態**を別経路で直接見る二重の安全網。
+#
+# 「リリース直後の数分」は正常な乖離なので、日次で十分（分単位で追わない）。
+name: Release Update Drift Check
+
+on:
+  schedule:
+    - cron: "0 0 * * *" # 毎日 00:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  drift-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Compare latest release vs the published feed
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo
+            const FEED = 'https://kumagallium.github.io/asterism/updater/latest.json'
+
+            // 同じ件で Issue を積み上げない（開いている限り 1 本）。
+            const openIssueOnce = async (title, body) => {
+              const existing = await github.rest.issues.listForRepo({
+                owner, repo, state: 'open', labels: 'release-failure', per_page: 100,
+              })
+              if (existing.data.some((i) => i.title === title)) {
+                core.info(`already open: "${title}" — not duplicating`)
+                return
+              }
+              await github.rest.issues.createLabel({
+                owner, repo, name: 'release-failure', color: 'b60205',
+                description: 'Release / desktop build pipeline failure',
+              }).catch(() => {})
+              const created = await github.rest.issues.create({
+                owner, repo, title, body, labels: ['release-failure'],
+              })
+              core.notice(`opened issue #${created.data.number}`)
+            }
+
+            // 1. 最新の安定版リリース（draft / prerelease は除く）
+            const releases = await github.rest.repos.listReleases({ owner, repo, per_page: 30 })
+            const stable = releases.data
+              .filter((r) => !r.draft && !r.prerelease)
+              .sort((a, b) => new Date(b.published_at) - new Date(a.published_at))[0]
+            if (!stable) {
+              core.info('no stable release yet — nothing to compare')
+              return
+            }
+            const releaseVersion = stable.tag_name.replace(/^v/, '')
+
+            // 2. Pages が配信している feed
+            let feedVersion = null
+            let feedError = null
+            try {
+              const res = await fetch(FEED, { headers: { 'cache-control': 'no-cache' } })
+              if (!res.ok) throw new Error(`HTTP ${res.status}`)
+              feedVersion = String((await res.json()).version || '').replace(/^v/, '')
+            } catch (e) {
+              feedError = e instanceof Error ? e.message : String(e)
+            }
+
+            if (feedError) {
+              await openIssueOnce(
+                `updater feed unreachable (${FEED})`,
+                [
+                  `The desktop update feed could not be read: **${feedError}**`,
+                  '',
+                  `Latest stable release: \`${stable.tag_name}\``,
+                  '',
+                  'Every desktop app checking for updates is failing right now.',
+                  'Check that `docs/updater/latest.json` exists on `main` and that Pages has deployed.',
+                ].join('\n'),
+              )
+              core.setFailed(`feed unreachable: ${feedError}`)
+              return
+            }
+
+            core.info(`release=${releaseVersion} feed=${feedVersion}`)
+            if (feedVersion === releaseVersion) {
+              core.info('in sync')
+              return
+            }
+
+            await openIssueOnce(
+              `updater feed is behind the latest release (${feedVersion} < ${releaseVersion})`,
+              [
+                `The latest stable release is \`${stable.tag_name}\`, but the update feed still offers **${feedVersion}**.`,
+                '',
+                'Desktop apps are therefore NOT being offered the new version.',
+                'The usual cause is a failed / skipped **Desktop Release** run, so',
+                '`docs/updater/latest.json` was never regenerated.',
+                '',
+                `- Release: ${stable.html_url}`,
+                `- Feed: ${FEED}`,
+                '',
+                'Re-run the build for that tag:',
+                '',
+                '```',
+                `gh workflow run "Desktop Release" -f tag=${stable.tag_name}`,
+                '```',
+              ].join('\n'),
+            )
+            core.setFailed(`feed ${feedVersion} is behind release ${releaseVersion}`)
