@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.14.2](https://github.com/kumagallium/asterism/compare/v0.14.1...v0.14.2) - 2026-08-14
+
+- feat(step0/ui): 行の置き場が無いことを検出して 1 クリックで直す／ゲートを読ませない形に by @kumagallium in https://github.com/kumagallium/asterism/pull/358
+
 ## [v0.14.1](https://github.com/kumagallium/asterism/compare/v0.14.0...v0.14.1) - 2026-08-14
 
 - feat(step0/ui): 列の所有権と成長プレビュー — 「この列は誰のもの」「次の1枚で何が起きる」 by @kumagallium in https://github.com/kumagallium/asterism/pull/352
