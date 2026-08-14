@@ -1701,4 +1701,116 @@ def test_instance_info_is_public(tmp_path: Path, healthy_client: OxigraphClient)
         assert r.json() == {
             "iri_base": "https://asterism.invalid",
             "iri_base_configured": False,
+            # No desktop shell started this backend: no version to report, and
+            # the About surface hides the update check rather than guessing.
+            "app_version": None,
+            "desktop": False,
+            # Protected deployment, and this caller sent no token: this is the
+            # one case where the settings write-token field is worth showing.
+            "write_gate": "token_required",
         }
+
+
+def test_instance_write_gate_reflects_the_caller(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    """The settings UI asks for a write token ONLY when pasting one would change
+    something. A caller that already carries it (desktop injects on loopback,
+    production caddy injects after its session gate) is 'authorized'; with no
+    server-side token the gate is 'closed' for everyone."""
+    protected = build_app(
+        _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
+    )
+    with TestClient(protected, headers=_AUTH) as client:
+        assert client.get("/api/instance").json()["write_gate"] == "authorized"
+    with TestClient(protected, headers={"Authorization": f"Bearer {_TEST_TOKEN}"}) as client:
+        assert client.get("/api/instance").json()["write_gate"] == "authorized"
+    with TestClient(protected, headers={"X-Asterism-Token": "wrong"}) as client:
+        assert client.get("/api/instance").json()["write_gate"] == "token_required"
+
+    unprotected = _settings(tmp_path)
+    unprotected.api_token = None
+    app = build_app(unprotected, oxigraph_client=healthy_client, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        assert client.get("/api/instance").json()["write_gate"] == "closed"
+
+
+def test_instance_info_reports_desktop_version(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    """The Tauri shell passes its bundle version as ASTERISM_APP_VERSION when it
+    spawns this backend — that is how the SPA (a remote 127.0.0.1 origin with no
+    Tauri IPC) learns which build it is running."""
+    cfg = _settings(tmp_path)
+    cfg.app_version = "0.13.1"
+    app = build_app(cfg, oxigraph_client=healthy_client, start_watcher=False)
+    with TestClient(app) as client:
+        body = client.get("/api/instance").json()
+    assert body["app_version"] == "0.13.1"
+    assert body["desktop"] is True
+
+
+def test_update_check_is_desktop_only(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    """A server/web install has no bundle to update: the endpoint is absent
+    rather than reporting on a release feed that does not apply to it."""
+    app = build_app(
+        _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
+    )
+    with TestClient(app) as client:
+        assert client.get("/api/desktop/update-check").status_code == 404
+
+
+@pytest.mark.parametrize(
+    ("current", "latest", "expected"),
+    [
+        ("0.13.1", "0.13.2", True),
+        ("0.13.2", "0.13.2", False),
+        # A build ahead of the feed (local dev) must not claim an update.
+        ("0.14.0", "0.13.2", False),
+        # Feeds may prefix the tag; ordering is by number, not string.
+        ("0.9.0", "v0.10.0", True),
+    ],
+)
+def test_update_check_compares_versions(
+    tmp_path: Path,
+    healthy_client: OxigraphClient,
+    monkeypatch: pytest.MonkeyPatch,
+    current: str,
+    latest: str,
+    expected: bool,
+) -> None:
+    """Reads the same updater manifest the native updater installs from, and
+    only reports — downloading/installing stays with the signed native path."""
+    cfg = _settings(tmp_path)
+    cfg.app_version = current
+
+    def fake_get(self: httpx.AsyncClient, url: str) -> httpx.Response:
+        assert url == cfg.updater_feed
+        return httpx.Response(200, json={"version": latest}, request=httpx.Request("GET", url))
+
+    async def get(self: httpx.AsyncClient, url: str) -> httpx.Response:
+        return fake_get(self, url)
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", get)
+    app = build_app(cfg, oxigraph_client=healthy_client, start_watcher=False)
+    with TestClient(app) as client:
+        body = client.get("/api/desktop/update-check").json()
+    assert body == {"current": current, "latest": latest.lstrip("v"), "update_available": expected}
+
+
+def test_update_check_reports_unreachable_feed(
+    tmp_path: Path, healthy_client: OxigraphClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Offline / rate-limited: fail loudly (502) — never a wrong 'up to date'."""
+    cfg = _settings(tmp_path)
+    cfg.app_version = "0.13.1"
+
+    async def boom(self: httpx.AsyncClient, url: str) -> httpx.Response:
+        raise httpx.ConnectError("offline")
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", boom)
+    app = build_app(cfg, oxigraph_client=healthy_client, start_watcher=False)
+    with TestClient(app) as client:
+        assert client.get("/api/desktop/update-check").status_code == 502

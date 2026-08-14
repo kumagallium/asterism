@@ -1,18 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-
-// 他のクライアントと同じ API ベース（既定は同一オリジン /api・別ホスト配備は VITE_API_URL）
-const API_BASE = ((import.meta.env.VITE_API_URL as string | undefined) ?? '').replace(/\/+$/, '')
+import { type InstanceInfo, fetchInstanceInfo } from './instanceApi'
 
 // このインスタンスが新規設計データセットの名前空間を mint する IRI base
 // （ADR instance-iri-base.md）。サーバ env ASTERISM_IRI_BASE で決まる read-only 情報 —
 // 未設定（RFC 2606 の .invalid フォールバック）なら「公開できる識別子ではない」ことを
 // ここで運用者に伝える。設計画面の骨格ゲートにも同じ namespace が出るが、
 // 「どこで設定するか」はサーバ設定の話なので Settings が正位置。
-interface InstanceInfo {
-  iri_base: string
-  iri_base_configured: boolean
-}
 
 export function InstanceSection() {
   const { t } = useTranslation('settings')
@@ -21,14 +15,11 @@ export function InstanceSection() {
 
   useEffect(() => {
     let cancelled = false
-    fetch(`${API_BASE}/api/instance`)
-      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
-      .then((data: InstanceInfo) => {
-        if (!cancelled) setInfo(data)
-      })
-      .catch(() => {
-        if (!cancelled) setFailed(true)
-      })
+    fetchInstanceInfo().then((data) => {
+      if (cancelled) return
+      if (data) setInfo(data)
+      else setFailed(true)
+    })
     return () => {
       cancelled = true
     }

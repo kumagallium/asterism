@@ -6,7 +6,8 @@
   "cancel": "キャンセル",
   "tabs": {
     "models": "モデル",
-    "usage": "API使用量"
+    "usage": "API使用量",
+    "about": "このアプリ"
   },
   "models": {
     "intro": "AI が使うモデルを登録します。Anthropic（Claude）のほか、OpenAI や OpenAI 互換エンドポイント（さくらの AI Engine・Groq・Ollama など）を base URL を入れるだけで追加できます。選択中のモデルが提案・Ask など全機能で使われます。",
@@ -23,6 +24,13 @@
     "addTitle": "モデルを追加",
     "editTitle": "モデルを編集",
     "provider": "プロバイダ",
+    "mode": "接続先の決め方",
+    "modeExisting": "登録済みの接続先を使う",
+    "modeNew": "新しい接続先",
+    "endpoint": "接続先",
+    "endpointReuseHelp": "この接続先のプロバイダ・エンドポイント・APIキーをそのまま使います（再入力は不要です）。",
+    "endpointModelCount_other": "モデル {{count}} 件",
+    "pickModel": "モデルを選ぶ",
     "apiBase": "エンドポイント（base URL）",
     "modelId": "モデルID",
     "fetchModels": "モデル一覧を取得",
@@ -103,6 +111,20 @@
       "open": "サーバ側にトークンが設定されていません（書き込みゲートは閉じています）",
       "error": "確認に失敗しました（サーバに接続できません）"
     }
+  },
+  "about": {
+    "title": "アプリ情報",
+    "appName": "アプリ名",
+    "version": "バージョン",
+    "updates": "アップデート",
+    "autoCheckNote": "起動時に自動で更新を確認します。ここから手動でも確認できます。",
+    "webNote": "更新確認はデスクトップアプリでのみ使えます（ブラウザ版はサーバの配信内容がそのまま最新です）。",
+    "checkNow": "今すぐ確認",
+    "checking": "確認中…",
+    "upToDate": "お使いの Asterism は最新です。",
+    "available": "新しいバージョン {{version}} があります。",
+    "installHint": "更新するには、メニューバーの「Asterism」→「アップデートを確認…」を選んでください（ダウンロードと差し替えはアプリ本体が署名を検証して行います）。",
+    "checkFailed": "更新の確認に失敗しました"
   },
   "instance": {
     "title": "このインスタンスの識別子（IRI）",

@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { authHeaders, getApiToken, setApiToken } from '../authToken'
+import { fetchInstanceInfo, invalidateInstanceInfo } from './instanceApi'
 
 // 他のクライアントと同じ API ベース（既定は同一オリジン /api・別ホスト配備は VITE_API_URL）
 const API_BASE = ((import.meta.env.VITE_API_URL as string | undefined) ?? '').replace(/\/+$/, '')
@@ -10,6 +11,11 @@ const API_BASE = ((import.meta.env.VITE_API_URL as string | undefined) ?? '').re
 // VITE_API_TOKEN か sessionStorage 直叩きしか手段がなく、UI から設定できなかった
 // （authToken.ts の "set from a settings field" が未実装だった）。ここがその設定欄。
 // 値はこのタブの sessionStorage にのみ保存し、サーバへは送信ヘッダとしてだけ使う。
+//
+// ただし出すのは「貼れば実際に変わる」配備だけ（write_gate=token_required）。
+// デスクトップはループバックで、本番はセッションゲート通過後に caddy が、いずれも
+// サーバ側でトークンを *置換* 注入するので、そこで貼った値は捨てられる — 欄が出て
+// いること自体が誤解になる。素の api に直結している構成でだけ意味がある。
 
 type CheckState = '' | 'checking' | 'ok' | 'mismatch' | 'open' | 'error'
 
@@ -19,12 +25,29 @@ export function WriteTokenSection() {
   const [draft, setDraft] = useState('')
   const [isSet, setIsSet] = useState(() => getApiToken().length > 0)
   const [check, setCheck] = useState<CheckState>('')
+  // null = 判定中（この間は出さない）。判定はモーダルを開いた時の 1 回だけで、
+  // 保存後に消えたりしないよう以後は保持する。
+  const [needed, setNeeded] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    fetchInstanceInfo().then((info) => {
+      if (cancelled) return
+      // 旧 api（write_gate 無し）では従来どおり出す — 判断材料が無いのに
+      // 隠すと、保護された配備で書き込み手段を失う。
+      setNeeded(info === null || info.write_gate === undefined || info.write_gate === 'token_required')
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   function save(clear: boolean) {
     setApiToken(clear ? '' : draft.trim())
     setDraft('')
     setIsSet(getApiToken().length > 0)
     setCheck('')
+    invalidateInstanceInfo() // 次に開いたときは新しいトークンで判定する
   }
 
   // 保存済みトークンで書き込みゲートを 1 回だけ叩いて即フィードバックする。
@@ -45,6 +68,8 @@ export function WriteTokenSection() {
       setCheck('error')
     }
   }
+
+  if (needed !== true) return null
 
   return (
     <section className="serverkeys">

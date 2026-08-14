@@ -122,6 +122,40 @@ export function groupOfModel(m: LlmModelConfig): string {
   return credentialGroup(m.provider, m.apiBase)
 }
 
+/** A provider+endpoint the user has already registered at least one model on. */
+export interface CredentialGroupInfo {
+  group: string
+  provider: Provider
+  apiBase: string | null
+  /** How many registered models share this provider+endpoint. */
+  modelCount: number
+  /** Whether a key is already stored for the group (browser-side). */
+  hasKey: boolean
+}
+
+/** Distinct provider+endpoint pairs across the registered models, in first-seen
+ *  order. The add-model form offers these so a second model on an endpoint the
+ *  user already set up never asks for the provider / base URL / key again. */
+export function listCredentialGroups(models: LlmModelConfig[]): CredentialGroupInfo[] {
+  const byGroup = new Map<string, CredentialGroupInfo>()
+  for (const m of models) {
+    const group = groupOfModel(m)
+    const seen = byGroup.get(group)
+    if (seen) {
+      seen.modelCount += 1
+      continue
+    }
+    byGroup.set(group, {
+      group,
+      provider: m.provider,
+      apiBase: m.apiBase,
+      modelCount: 1,
+      hasKey: hasKey(group),
+    })
+  }
+  return [...byGroup.values()]
+}
+
 // ---------------------------------------------------------------------------
 // Models (localStorage)
 // ---------------------------------------------------------------------------

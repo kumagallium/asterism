@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import './SettingsModal.css'
+import { AboutTab } from './AboutTab'
 import { InstanceSection } from './InstanceSection'
 import { ServerKeysSection } from './ServerKeysSection'
 import { WriteTokenSection } from './WriteTokenSection'
@@ -10,6 +11,7 @@ import { fetchAvailableModels, type AvailableModel } from './modelsApi'
 import {
   API_BASE_HINTS,
   PROVIDERS,
+  type CredentialGroupInfo,
   type LlmModelConfig,
   type Provider,
   type RateCurrency,
@@ -17,10 +19,11 @@ import {
   credentialGroup,
   getKey,
   isRemembered,
+  listCredentialGroups,
   makeModel,
 } from './store'
 
-type Tab = 'models' | 'usage'
+type Tab = 'models' | 'usage' | 'about'
 
 export function SettingsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { t } = useTranslation('settings')
@@ -101,9 +104,18 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
           >
             {t('tabs.usage')}
           </button>
+          <button
+            type="button"
+            className={`settings-tab${tab === 'about' ? ' active' : ''}`}
+            onClick={() => setTab('about')}
+          >
+            {t('tabs.about')}
+          </button>
         </nav>
         <div className="settings-body">
-          {tab === 'models' ? <ModelsTab /> : <UsageTab />}
+          {tab === 'models' && <ModelsTab />}
+          {tab === 'usage' && <UsageTab />}
+          {tab === 'about' && <AboutTab />}
         </div>
       </div>
     </div>
@@ -228,6 +240,20 @@ function providerName(id: string): string {
   return PROVIDERS.find((p) => p.id === id)?.name ?? id
 }
 
+/** Add-model form modes: reuse a registered provider+endpoint, or enter a new one. */
+type AddMode = 'existing' | 'new'
+
+/** "Anthropic (Claude) — 2 models" / "OpenAI互換 — https://… — 1 model". */
+function groupLabel(
+  g: CredentialGroupInfo,
+  t: (key: string, opts?: Record<string, unknown>) => string,
+): string {
+  const parts = [providerName(g.provider)]
+  if (g.apiBase) parts.push(g.apiBase)
+  parts.push(t('form.endpointModelCount', { count: g.modelCount }))
+  return parts.join(' — ')
+}
+
 // ---------------------------------------------------------------------------
 // Add / edit form
 // ---------------------------------------------------------------------------
@@ -245,13 +271,30 @@ function ModelForm({
   const settings = useLlmSettings()
   const editing = model !== null
 
-  const [provider, setProvider] = useState<Provider>(model?.provider ?? 'anthropic')
+  // Registered provider+endpoint pairs (#2 "don't re-enter a provider you already
+  // set up"), shaped after Graphium's add-model form: a two-button mode switch
+  // ("use one I already registered" / "new connection"), and in the existing mode
+  // only an endpoint picker — provider, base URL and key all come from the group,
+  // so a second model on the same endpoint asks for the model id alone.
+  const groups = useMemo(() => listCredentialGroups(settings.models), [settings.models])
+  const defaultPreset = editing ? null : (groups[0] ?? null)
+  // Graphium starts in "new"; we start in "existing" when there is something to
+  // reuse — that is the whole point of this form, and the mode switch is right
+  // there when the user does want a new endpoint.
+  const [addMode, setAddMode] = useState<AddMode>(defaultPreset ? 'existing' : 'new')
+  const [presetGroup, setPresetGroup] = useState<string>(defaultPreset?.group ?? '')
+  const preset: CredentialGroupInfo | null =
+    (addMode === 'existing' && groups.find((g) => g.group === presetGroup)) || null
+
+  const [provider, setProvider] = useState<Provider>(
+    model?.provider ?? defaultPreset?.provider ?? 'anthropic',
+  )
   const [name, setName] = useState(model?.name ?? '')
   const [modelId, setModelId] = useState(model?.modelId ?? '')
-  const [apiBase, setApiBase] = useState(model?.apiBase ?? '')
+  const [apiBase, setApiBase] = useState(model?.apiBase ?? defaultPreset?.apiBase ?? '')
   const initialGroup = credentialGroup(
-    model?.provider ?? 'anthropic',
-    model?.apiBase ?? (model ? null : ''),
+    model?.provider ?? defaultPreset?.provider ?? 'anthropic',
+    model?.apiBase ?? defaultPreset?.apiBase ?? (model ? null : ''),
   )
   // Prefill the key + remember flag from this credential group for BOTH the edit
   // and add forms: a key already saved for this provider+endpoint should populate
@@ -302,6 +345,41 @@ function ModelForm({
       setApiKey(existing)
       setRemember(isRemembered(group))
     }
+  }
+
+  /** Adopt a registered endpoint: its provider, base URL and stored key. */
+  function applyGroup(g: CredentialGroupInfo) {
+    setProvider(g.provider)
+    setApiBase(g.apiBase ?? '')
+    setApiKey(getKey(g.group))
+    setRemember(isRemembered(g.group))
+  }
+
+  // Pick another registered endpoint from the picker.
+  function onPresetChange(nextGroup: string) {
+    setPresetGroup(nextGroup)
+    clearFetchedModels()
+    const g = groups.find((x) => x.group === nextGroup)
+    if (g) applyGroup(g)
+  }
+
+  function onModeChange(next: AddMode) {
+    if (next === addMode) return
+    setAddMode(next)
+    clearFetchedModels()
+    if (next === 'existing') {
+      const g = groups.find((x) => x.group === presetGroup) ?? groups[0]
+      if (g) {
+        setPresetGroup(g.group)
+        applyGroup(g)
+      }
+      return
+    }
+    // "New connection": start the key blank rather than carrying the previous
+    // group's key over — otherwise a key belonging to another endpoint would be
+    // silently saved under the new provider+base the user is about to type.
+    setApiKey('')
+    setRemember(true)
   }
 
   const idTrimmed = modelId.trim()
@@ -369,85 +447,119 @@ function ModelForm({
     <div className="model-form">
       <h3>{editing ? t('form.editTitle') : t('form.addTitle')}</h3>
 
-      <label className="field">
-        <span>{t('form.provider')}</span>
-        <select
-          value={provider}
-          onChange={(e) => {
-            const next = e.target.value as Provider
-            setProvider(next)
-            onProviderOrBaseChange(next, apiBase)
-            clearFetchedModels()
-          }}
-        >
-          {PROVIDERS.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <label className="field">
-        <span>
-          {t('form.apiBase')}
-          {needsApiBase && <em className="req"> *</em>}
-        </span>
-        <input
-          type="text"
-          value={apiBase}
-          placeholder={API_BASE_HINTS[provider] ?? ''}
-          onChange={(e) => {
-            setApiBase(e.target.value)
-            clearFetchedModels()
-          }}
-          onBlur={() => onProviderOrBaseChange(provider, apiBase)}
-        />
-      </label>
-
-      <label className="field">
-        <span>{t('form.apiKey')}</span>
-        <input
-          type="password"
-          value={apiKey}
-          autoComplete="off"
-          placeholder={apiKeyPlaceholder(provider)}
-          onChange={(e) => setApiKey(e.target.value)}
-        />
-        {providerHasServerKey && !apiKey.trim() && (
-          <p className="field-help">{t('form.apiKeyServerHint')}</p>
-        )}
-      </label>
-
-      <label className="field">
-        <span>{t('form.modelId')}</span>
-        <div className="model-id-row">
-          <input
-            type="text"
-            value={modelId}
-            placeholder={modelIdPlaceholder(provider)}
-            onChange={(e) => setModelId(e.target.value)}
-          />
+      {/* 接続先の決め方 = 「登録済みを使う」か「新しく登録する」かの二択を先に
+          出す（Graphium の追加フォームと同じ形）。登録済みが無ければ迷いようが
+          ないので出さない。 */}
+      {!editing && groups.length > 0 && (
+        <div className="settings-seg settings-seg--block" role="group" aria-label={t('form.mode')}>
           <button
             type="button"
-            className="btn btn--ghost btn--sm"
-            onClick={onFetchModels}
-            disabled={
-              fetchingModels ||
-              (needsApiBase && baseNormalized === null) ||
-              (!apiKey.trim() && !providerHasServerKey)
-            }
+            className={addMode === 'existing' ? 'active' : ''}
+            onClick={() => onModeChange('existing')}
           >
-            {fetchingModels ? t('form.fetchingModels') : t('form.fetchModels')}
+            {t('form.modeExisting')}
+          </button>
+          <button
+            type="button"
+            className={addMode === 'new' ? 'active' : ''}
+            onClick={() => onModeChange('new')}
+          >
+            {t('form.modeNew')}
           </button>
         </div>
-        {/* Native <select> (not a <datalist>): a datalist filters its options by
-            the input's current value, so once a full id is chosen you can't see
-            the others to re-pick. A select always lists all fetched models. The
-            text input above still takes a custom id. */}
-        {availableModels.length > 0 && (
+      )}
+
+      {preset ? (
+        /* 登録済みを使うモード: 接続先を選ぶだけ。プロバイダ・base URL・API キーは
+           この接続先のものをそのまま使うので、入力欄そのものを出さない。 */
+        <label className="field">
+          <span>{t('form.endpoint')}</span>
+          <select value={presetGroup} onChange={(e) => onPresetChange(e.target.value)}>
+            {groups.map((g) => (
+              <option key={g.group} value={g.group}>
+                {groupLabel(g, t)}
+              </option>
+            ))}
+          </select>
+          <p className="field-help">{t('form.endpointReuseHelp')}</p>
+        </label>
+      ) : (
+        <>
+          <label className="field">
+            <span>{t('form.provider')}</span>
+            <select
+              value={provider}
+              onChange={(e) => {
+                const next = e.target.value as Provider
+                setProvider(next)
+                onProviderOrBaseChange(next, apiBase)
+                clearFetchedModels()
+              }}
+            >
+              {PROVIDERS.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="field">
+            <span>
+              {t('form.apiBase')}
+              {needsApiBase && <em className="req"> *</em>}
+            </span>
+            <input
+              type="text"
+              value={apiBase}
+              placeholder={API_BASE_HINTS[provider] ?? ''}
+              onChange={(e) => {
+                setApiBase(e.target.value)
+                clearFetchedModels()
+              }}
+              onBlur={() => onProviderOrBaseChange(provider, apiBase)}
+            />
+          </label>
+
+          <label className="field">
+            <span>{t('form.apiKey')}</span>
+            <input
+              type="password"
+              value={apiKey}
+              autoComplete="off"
+              placeholder={apiKeyPlaceholder(provider)}
+              onChange={(e) => setApiKey(e.target.value)}
+            />
+            {providerHasServerKey && !apiKey.trim() && (
+              <p className="field-help">{t('form.apiKeyServerHint')}</p>
+            )}
+          </label>
+        </>
+      )}
+
+      {/* 接続先が決まったら次の一手は「一覧を取得」＝主動線なので幅いっぱいに
+          置く（モデル ID を暗記して打つのは逃げ道であって既定ではない）。 */}
+      <button
+        type="button"
+        className="btn btn--block"
+        onClick={onFetchModels}
+        disabled={
+          fetchingModels ||
+          (needsApiBase && baseNormalized === null) ||
+          (!apiKey.trim() && !providerHasServerKey)
+        }
+      >
+        {fetchingModels ? t('form.fetchingModels') : t('form.fetchModels')}
+      </button>
+      {modelsError && <p className="field-help field-error">{modelsError}</p>}
+
+      {/* Native <select> (not a <datalist>): a datalist filters its options by
+          the input's current value, so once a full id is chosen you can't see
+          the others to re-pick. A select always lists all fetched models. */}
+      {availableModels.length > 0 && (
+        <label className="field">
+          <span>{t('form.pickModel')}</span>
           <select
-            className="model-id-select"
             value={availableModels.some((m) => m.id === modelId) ? modelId : ''}
             onChange={(e) => setModelId(e.target.value)}
           >
@@ -458,8 +570,19 @@ function ModelForm({
               </option>
             ))}
           </select>
-        )}
-        {modelsError && <p className="field-help field-error">{modelsError}</p>}
+        </label>
+      )}
+
+      {/* 一覧が取れない接続先（キーがサーバ側だけ／オフライン／独自 endpoint）でも
+          登録できるよう、ID の直接入力は常に出す。 */}
+      <label className="field">
+        <span>{t('form.modelId')}</span>
+        <input
+          type="text"
+          value={modelId}
+          placeholder={modelIdPlaceholder(provider)}
+          onChange={(e) => setModelId(e.target.value)}
+        />
       </label>
 
       <label className="field">
@@ -485,11 +608,21 @@ function ModelForm({
         <p className="field-help">{t('form.maxTokensHelp')}</p>
       </label>
 
-      <label className="field-check">
-        <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
-        <span>{t('form.remember')}</span>
-      </label>
-      <p className="field-help">{remember ? t('form.rememberOn') : t('form.rememberOff')}</p>
+      {/* キーを入力しない（登録済みを使う）モードでは、その接続先で決めた保存先を
+          そのまま引き継ぐので出さない。 */}
+      {!preset && (
+        <>
+          <label className="field-check">
+            <input
+              type="checkbox"
+              checked={remember}
+              onChange={(e) => setRemember(e.target.checked)}
+            />
+            <span>{t('form.remember')}</span>
+          </label>
+          <p className="field-help">{remember ? t('form.rememberOn') : t('form.rememberOff')}</p>
+        </>
+      )}
 
       <fieldset className="rate-fieldset">
         <legend>{t('form.rate')}</legend>

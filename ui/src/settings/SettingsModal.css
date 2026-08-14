@@ -215,22 +215,12 @@
   outline: 2px solid var(--primary-soft);
   border-color: var(--primary);
 }
-.model-id-row {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-.model-id-row input {
-  flex: 1;
-  min-width: 0;
-}
-.model-id-row button {
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-.model-id-select {
-  margin-top: 6px;
+/* 「モデル一覧を取得」= 接続先を決めた次の主動線。幅いっぱいで置く。 */
+.model-form .btn--block {
+  display: block;
   width: 100%;
+  margin-bottom: 12px;
+  text-align: center;
 }
 .serverkeys {
   margin-top: 20px;
@@ -300,6 +290,31 @@
   flex-shrink: 0;
   white-space: nowrap;
 }
+/* About タブ: 「項目 … 値」を 1 行ずつ。値は版数などの短い事実だけ。 */
+.about-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 0;
+}
+.about-label {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.about-value {
+  font-size: 0.85rem;
+  color: var(--fg);
+}
+.about-tab .serverkeys:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+.about-tab .btn {
+  margin-bottom: 8px;
+}
+
 .field-check {
   display: flex;
   align-items: center;
@@ -354,6 +369,17 @@
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
   overflow: hidden;
+}
+/* 横幅いっぱいの二択（モデル追加の「登録済みを使う / 新しい接続先」）。 */
+.settings-seg--block {
+  display: flex;
+  width: 100%;
+  margin-bottom: 12px;
+}
+.settings-seg--block button {
+  flex: 1;
+  padding: 8px 12px;
+  text-align: center;
 }
 .currency-btn,
 .settings-seg button {

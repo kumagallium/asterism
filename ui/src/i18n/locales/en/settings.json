@@ -6,7 +6,8 @@
   "cancel": "Cancel",
   "tabs": {
     "models": "Models",
-    "usage": "API usage"
+    "usage": "API usage",
+    "about": "About"
   },
   "models": {
     "intro": "Register the models the AI uses. Besides Anthropic (Claude), add OpenAI or any OpenAI-compatible endpoint (Sakura AI Engine, Groq, Ollama, …) just by entering a base URL. The active model is used across propose, Ask and every AI feature.",
@@ -23,6 +24,14 @@
     "addTitle": "Add model",
     "editTitle": "Edit model",
     "provider": "Provider",
+    "mode": "How to connect",
+    "modeExisting": "Use a registered connection",
+    "modeNew": "New connection",
+    "endpoint": "Connection",
+    "endpointReuseHelp": "Uses this connection's provider, endpoint and API key as they are — nothing to retype.",
+    "endpointModelCount_one": "{{count}} model",
+    "endpointModelCount_other": "{{count}} models",
+    "pickModel": "Pick a model",
     "apiBase": "Endpoint (base URL)",
     "modelId": "Model ID",
     "fetchModels": "Fetch models",
@@ -103,6 +112,20 @@
       "open": "No token is configured server-side (the write gate is closed)",
       "error": "Check failed (could not reach the server)"
     }
+  },
+  "about": {
+    "title": "App info",
+    "appName": "App",
+    "version": "Version",
+    "updates": "Updates",
+    "autoCheckNote": "Updates are checked automatically at startup; you can also check manually here.",
+    "webNote": "Update checks are for the desktop app (in the browser, whatever the server serves is already current).",
+    "checkNow": "Check now",
+    "checking": "Checking…",
+    "upToDate": "Asterism is up to date.",
+    "available": "Version {{version}} is available.",
+    "installHint": "To update, choose Asterism → “アップデートを確認…” from the menu bar (the app itself downloads and installs it, verifying the signature).",
+    "checkFailed": "Update check failed"
   },
   "instance": {
     "title": "This instance's identifiers (IRI)",
