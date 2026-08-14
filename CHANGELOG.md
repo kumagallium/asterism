@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.14.0](https://github.com/kumagallium/asterism/compare/v0.13.2...v0.14.0) - 2026-08-14
+
+- 取り込んだ実データが設計どおりか検査する（shape 検査） by @kumagallium in https://github.com/kumagallium/asterism/pull/351
+- docs(shapes): shape 検査の未確認 2 点を実測で埋める by @kumagallium in https://github.com/kumagallium/asterism/pull/354
+
 ## [v0.13.2](https://github.com/kumagallium/asterism/compare/v0.13.1...v0.13.2) - 2026-08-14
 
 - ci(tagpr): actions:write を付与 — desktop-release の dispatch 403 を修正 by @kumagallium in https://github.com/kumagallium/asterism/pull/344
