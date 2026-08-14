@@ -817,6 +817,23 @@ DEFAULT_UPDATER_FEED: Final = (
 )
 
 
+def _write_credential_ok(
+    cfg: Settings, authorization: str | None, x_asterism_token: str | None
+) -> bool:
+    """Does this request carry the write token? ``Authorization: Bearer <t>`` or
+    ``X-Asterism-Token: <t>``, compared in constant time. False when no token is
+    configured server-side (the gate is closed for everyone)."""
+    token = cfg.api_token
+    if not token:
+        return False
+    presented: str | None = None
+    if authorization and authorization.startswith("Bearer "):
+        presented = authorization[len("Bearer ") :].strip()
+    elif x_asterism_token:
+        presented = x_asterism_token.strip()
+    return bool(presented) and hmac.compare_digest(presented, token)
+
+
 def _version_tuple(version: str) -> tuple[int, int, int]:
     """``0.13.2`` → ``(0, 13, 2)`` for ordering. A pre-release/build suffix
     (``0.14.0-rc1``) contributes its numeric head only — enough to order
@@ -2304,12 +2321,7 @@ def build_app(
                 "この操作は ASTERISM_API_TOKEN を設定するまで無効です "
                 "(機微ストアへの匿名の書き込み・生 SPARQL を防ぐ fail-closed)",
             )
-        presented: str | None = None
-        if authorization and authorization.startswith("Bearer "):
-            presented = authorization[len("Bearer ") :].strip()
-        elif x_asterism_token:
-            presented = x_asterism_token.strip()
-        if not presented or not hmac.compare_digest(presented, token):
+        if not _write_credential_ok(cfg, authorization, x_asterism_token):
             raise HTTPException(401, "API トークンがありません/一致しません")
 
     # The set of routes that mutate the store/registry or expose raw SPARQL.
@@ -2374,11 +2386,27 @@ def build_app(
         return HTMLResponse(describe_mod.render_html(iri, data))
 
     @app.get("/api/instance")
-    async def instance_info() -> dict[str, object]:
+    async def instance_info(
+        authorization: str | None = Header(default=None),
+        x_asterism_token: str | None = Header(default=None),
+    ) -> dict[str, object]:
         """Public identity of this install (ADR instance-iri-base.md): where new
         designs mint their namespaces. Not a secret — the base is embedded in
         every minted IRI — so it is readable without the write token; the UI
         settings surface shows it and flags the unconfigured default."""
+        # Where this caller stands with the write gate, so the settings UI can
+        # ask for a token ONLY when pasting one would actually change something:
+        #   closed         — no server-side token: writes are off for everyone
+        #   authorized     — this request already carries it (desktop injects it
+        #                    on loopback; production caddy injects it after the
+        #                    session gate — in both, a pasted token is discarded)
+        #   token_required — protected, and this caller has no valid token yet
+        if cfg.api_token is None:
+            write_gate = "closed"
+        elif _write_credential_ok(cfg, authorization, x_asterism_token):
+            write_gate = "authorized"
+        else:
+            write_gate = "token_required"
         return {
             "iri_base": cfg.iri_base,
             "iri_base_configured": cfg.iri_base != DEFAULT_IRI_BASE,
@@ -2386,6 +2414,7 @@ def build_app(
             # (null on a server/web install — see Settings.app_version).
             "app_version": cfg.app_version,
             "desktop": cfg.app_version is not None,
+            "write_gate": write_gate,
         }
 
     @app.get("/api/desktop/update-check")

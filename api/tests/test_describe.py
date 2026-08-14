@@ -219,4 +219,7 @@ def test_instance_endpoint_still_reports_base(tmp_path: Path) -> None:
         # Desktop identity (settings → About). Absent here: no shell started this.
         "app_version": None,
         "desktop": False,
+        # No ASTERISM_API_TOKEN in this fixture: the write gate is shut for
+        # everyone, so the settings UI has no token field to offer.
+        "write_gate": "closed",
     }

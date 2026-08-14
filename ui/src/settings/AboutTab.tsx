@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { type InstanceInfo, fetchInstanceInfo } from './instanceApi'
 
 // 他のクライアントと同じ API ベース（既定は同一オリジン /api・別ホスト配備は VITE_API_URL）
 const API_BASE = ((import.meta.env.VITE_API_URL as string | undefined) ?? '').replace(/\/+$/, '')
@@ -8,10 +9,6 @@ const API_BASE = ((import.meta.env.VITE_API_URL as string | undefined) ?? '').re
 // バックエンドへ env で渡すので、窓が remote http://127.0.0.1 オリジンでも
 // （＝Tauri IPC に繋がなくても）SPA から版数が分かる。
 // サーバ/web インストールでは app_version=null＝更新確認そのものを出さない。
-interface InstanceInfo {
-  app_version: string | null
-  desktop: boolean
-}
 
 interface UpdateCheck {
   current: string
@@ -33,14 +30,10 @@ export function AboutTab() {
 
   useEffect(() => {
     let cancelled = false
-    fetch(`${API_BASE}/api/instance`)
-      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
-      .then((data: InstanceInfo) => {
-        if (!cancelled) setInfo(data)
-      })
-      .catch(() => {
-        // 旧 api / 到達不能: 版数は「—」のまま（推測で埋めない）
-      })
+    // 旧 api / 到達不能なら null＝版数は「—」のまま（推測で埋めない）
+    fetchInstanceInfo().then((data) => {
+      if (!cancelled && data) setInfo(data)
+    })
     return () => {
       cancelled = true
     }

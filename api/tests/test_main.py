@@ -1705,7 +1705,34 @@ def test_instance_info_is_public(tmp_path: Path, healthy_client: OxigraphClient)
             # the About surface hides the update check rather than guessing.
             "app_version": None,
             "desktop": False,
+            # Protected deployment, and this caller sent no token: this is the
+            # one case where the settings write-token field is worth showing.
+            "write_gate": "token_required",
         }
+
+
+def test_instance_write_gate_reflects_the_caller(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    """The settings UI asks for a write token ONLY when pasting one would change
+    something. A caller that already carries it (desktop injects on loopback,
+    production caddy injects after its session gate) is 'authorized'; with no
+    server-side token the gate is 'closed' for everyone."""
+    protected = build_app(
+        _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
+    )
+    with TestClient(protected, headers=_AUTH) as client:
+        assert client.get("/api/instance").json()["write_gate"] == "authorized"
+    with TestClient(protected, headers={"Authorization": f"Bearer {_TEST_TOKEN}"}) as client:
+        assert client.get("/api/instance").json()["write_gate"] == "authorized"
+    with TestClient(protected, headers={"X-Asterism-Token": "wrong"}) as client:
+        assert client.get("/api/instance").json()["write_gate"] == "token_required"
+
+    unprotected = _settings(tmp_path)
+    unprotected.api_token = None
+    app = build_app(unprotected, oxigraph_client=healthy_client, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        assert client.get("/api/instance").json()["write_gate"] == "closed"
 
 
 def test_instance_info_reports_desktop_version(
