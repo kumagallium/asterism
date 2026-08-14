@@ -182,6 +182,73 @@ jobs:
           echo "----- latest.json -----"; cat latest.json; echo
           gh release upload "$TAG" "$TARBALL" "$TARBALL.sig" latest.json --clobber
 
+      # The feed the app actually polls lives on GitHub Pages, NOT on the
+      # release. Why: `releases/latest/download/latest.json` starts pointing at
+      # a new tag the instant tagpr publishes it — but this workflow needs ~15
+      # minutes to attach the file, so every update check in that window got a
+      # 404 (the api turns it into a 502; observed live on v0.14.0). Pages is
+      # updated only AFTER a build succeeds, so the switch is atomic and a
+      # failed build simply leaves the previous version being offered.
+      # Borrowed from Graphium's tauri-build.yml, which hit the same class of
+      # failure (v0.16.4 / v0.16.5) and solved it this way.
+      - name: Publish latest.json to Pages (docs/updater/latest.json on main)
+        if: success()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          GENERATED="$PWD/latest.json"
+          if [ ! -f "$GENERATED" ]; then
+            echo "no latest.json (updater artifacts were skipped) — nothing to publish."
+            exit 0
+          fi
+          TAG="${{ steps.tag.outputs.tag }}"
+          NEW_VERSION="${{ steps.tag.outputs.version }}"
+
+          WORKDIR="$(mktemp -d)"
+          git clone --depth=1 --branch main \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" \
+            "$WORKDIR/repo"
+          cd "$WORKDIR/repo"
+
+          # Never move the feed BACKWARDS: a re-run of an old tag's workflow must
+          # not offer an older version to everyone. Equal versions are allowed
+          # through (a rebuild that fills in a missing artifact); an identical
+          # file is a no-op at the commit step below.
+          CURRENT_FILE="docs/updater/latest.json"
+          CURRENT_VERSION="0.0.0"
+          [ -f "$CURRENT_FILE" ] && CURRENT_VERSION=$(jq -r '.version // "0.0.0"' "$CURRENT_FILE")
+          HIGHEST=$(printf '%s\n%s\n' "$CURRENT_VERSION" "$NEW_VERSION" | sort -V | tail -n1)
+          if [ "$CURRENT_VERSION" != "$NEW_VERSION" ] && [ "$HIGHEST" != "$NEW_VERSION" ]; then
+            echo "skip: published feed is $CURRENT_VERSION, this build is $NEW_VERSION (older)."
+            exit 0
+          fi
+
+          mkdir -p docs/updater
+          cp "$GENERATED" "$CURRENT_FILE"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$CURRENT_FILE"
+          if git diff --cached --quiet; then
+            echo "feed already up to date — nothing to commit."
+            exit 0
+          fi
+          git commit -m "[chore] updater: publish latest.json for ${TAG} to Pages"
+          # main moves under us (tagpr, merges) — rebase and retry rather than fail
+          # the release over a push race.
+          for i in 1 2 3; do
+            if git pull --rebase origin main && git push origin main; then
+              echo "published ${NEW_VERSION} to the Pages feed."
+              exit 0
+            fi
+            echo "push race (attempt $i) — retrying"
+            sleep 5
+          done
+          echo "::error::could not push the Pages feed after 3 attempts"
+          exit 1
+
       - name: Upload build artifacts (always, for inspection)
         uses: actions/upload-artifact@v4
         with:
