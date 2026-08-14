@@ -1,11 +1,11 @@
 {
-  "version": "0.14.2",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 0260f2b8aae588f3a428d36bae89c9ae5206843d -->\n\n## What's Changed\n* feat(step0/ui): 行の置き場が無いことを検出して 1 クリックで直す／ゲートを読ませない形に by @kumagallium in https://github.com/kumagallium/asterism/pull/358\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.14.1...v0.14.2",
-  "pub_date": "2026-08-14T08:15:09Z",
+  "version": "0.14.3",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at e0aa820982212021be6a8aac16875998d81af42f -->\n\n## What's Changed\n* feat(ui): 骨格ゲートを可逆にする／使えない機能は理由ごと出す by @kumagallium in https://github.com/kumagallium/asterism/pull/360\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.14.2...v0.14.3",
+  "pub_date": "2026-08-14T09:22:12Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcWEyQkNzLzB3ejhySWttbjVESS9ybnR6MGhNTTBtcmg1bUVHYTV1R3kyT3oxZEJlN0VTdWdmOWM2NU50MlJoL3YwbkZickpDNGJWck4waUEySUxhRVFZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg2Njk1MzA5CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CjkzaWJTZ0NKNFBrdUJmRTBuSFQ2M042YUxzKzh2N1JXcDdUczFYY0cwa0FuN0pVVFUwTXVlV0pRd2VNa2llVlJleGlmOHhtc1JVU2ZHOEQ0QTl4N0R3PT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.14.2/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcWYwWjRFWFpOTlRFNE5VZHlIUWJWenZmK21SUjcwUFNXUk96TWFhY0VTWm9IR0Z2YlBkVHZkNVhydFp4NWFCUmJSUk50R1htdUVYU3lQVHJnZy9JL1FzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg2Njk5MzMyCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CnBtZFU2SmFSamhwd3BJYkxqNEJqYjdpUEJDR2w4ZlNEdXdlb0J1aGlPYmpvZUt0ZytrakFXTmhXeHFZUk56UHpzTU1Eazd3cGlqYXg3ZHppNnllYURRPT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.14.3/Asterism_aarch64.app.tar.gz"
     }
   }
 }
