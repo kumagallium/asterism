@@ -374,3 +374,38 @@ def test_disconnected_entities_surface_as_loop_issues(tmp_path) -> None:
         "    rr:objectMap [ rr:parentTriplesMap <#Samples> ] ] .",
     )
     assert not any("DISCONNECTED" in i.message for i in _collect_rml_issues(joined, tmp_path))
+
+
+def test_column_owners_feed_the_confirmed_skeleton_verdict(tmp_path: Path) -> None:
+    """ADR column-ownership-and-growth G6: the constraint handed to per-map
+    generation is the skeleton gate's own verdict, recomputed on the CONFIRMED
+    skeleton (the human may have edited a key before continuing)."""
+    card = tmp_path / "card.csv"
+    card.write_text(
+        "No,Name,2theta,(hkl)\n"
+        '03-065-2664,Aluminum Vanadium,21.34,"(0,0,2)"\n'
+        '03-065-2664,Aluminum Vanadium,25.87,"(1,0,1)"\n',
+        encoding="utf-8",
+    )
+    skeleton = {
+        "version": 1,
+        "prefixes": {"xo": "https://example.org/x#", "xr": "https://example.org/x/"},
+        "maps": [
+            {
+                "name": "sample",
+                "source": "card.csv",
+                "subject": {"template": "xr:sample/{No}", "classes": ["xo:Sample"]},
+            },
+            {
+                "name": "peak",
+                "source": "card.csv",
+                "subject": {"template": "xr:peak/{No}/{(hkl)}", "classes": ["xo:Peak"]},
+            },
+        ],
+    }
+    owners = design_loop._column_owners(skeleton, [card], {})
+    # The card's constant column belongs to the card, not to each of its peaks;
+    # the parent KEY stays available to the peak (that is the join).
+    assert owners == {"peak": {"Name": "sample"}}
+    # An unreadable source never blocks generation — it just yields no constraint.
+    assert design_loop._column_owners(skeleton, [tmp_path / "missing.csv"], {}) == {}

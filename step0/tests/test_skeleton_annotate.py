@@ -439,3 +439,83 @@ def test_dataset_namespace_info_in_annotations(tmp_path: Path) -> None:
     # No minted pair (this file's example.org fixtures) → explicit None.
     out3 = annotate_skeleton(_skeleton("xr:sample/{sample_id}", source="samples.csv"), [p])
     assert out3["dataset_namespace"] is None
+
+
+# ---------------------------------------------------------------------------
+# ADR column-ownership-and-growth: who owns each column, and what the next
+# file does to this design.
+# ---------------------------------------------------------------------------
+
+
+def test_child_map_marks_columns_borrowed_from_the_parent(tmp_path: Path) -> None:
+    """The peak rows physically carry No/Name, but those are decided by the
+    card, not by the peak: they are flagged as borrowed (with the owner) so the
+    gate can say "this comes from sample" instead of leaving 47 silent copies.
+    """
+    p = _write_reference_card(tmp_path)
+    out = annotate_skeleton(_card_skeleton(), [p])["maps"]
+    borrowed = {b["column"]: b["owner_map"] for b in out["peak"]["borrowed_columns"]}
+    assert borrowed == {"Name": "sample"}  # No is the parent KEY (a join, exempt)
+    # ... and the card's own property row is stamped, so the UI can grey it out.
+    props = {p["column"]: p for p in out["peak"]["entity_preview"]["properties"]}
+    assert props["Name"]["owner_map"] == "sample"
+    assert "owner_map" not in props["2theta"]  # genuinely the peak's own value
+    # The parent owns them, so it has nothing borrowed itself.
+    assert "borrowed_columns" not in out["sample"]
+
+
+def test_ownership_is_silent_without_a_finer_map(tmp_path: Path) -> None:
+    """One map alone determines everything it carries; calling those columns
+    "borrowed" would be nonsense. No second map → no verdict."""
+    p = _write_reference_card(tmp_path)
+    skeleton = _card_skeleton()
+    skeleton["maps"] = [skeleton["maps"][0]]
+    out = annotate_skeleton(skeleton, [p])["maps"]
+    assert "borrowed_columns" not in out["sample"]
+
+
+def test_growth_preview_forecasts_the_next_file(tmp_path: Path) -> None:
+    """A singleton map is "one entity per file", so the design's behaviour on
+    the SECOND file is knowable from one file: the card multiplies, and the
+    columns it describes get recorded independently per file."""
+    p = _write_reference_card(tmp_path)
+    out = annotate_skeleton(_card_skeleton(), [p])["maps"]
+    growth = out["sample"]["growth_preview"]
+    assert growth["per_source_entities"] == 1
+    assert growth["source_count"] == 1
+    assert growth["row_maps"] == ["peak"]
+    assert "Name" in growth["described_columns"]
+    assert "No" not in growth["described_columns"]  # the key IS the identity
+    assert "shared_values" not in growth  # nothing to measure with one file
+    # A row-level map never claims to be one-per-file.
+    assert "growth_preview" not in out["peak"]
+
+
+def test_growth_preview_measures_overlap_across_sibling_files(tmp_path: Path) -> None:
+    """Two cards of the SAME substance: the forecast becomes a measurement —
+    `Name` already repeats across files, so it is the column worth splitting
+    out (it would fork into two copies instead of merging)."""
+    first = _write_reference_card(tmp_path)
+    second = tmp_path / "card2.csv"
+    second.write_text(
+        "No,Name,2theta,d,I,(hkl)\n"
+        '03-065-5860,Aluminum Vanadium,21.40,4.150,6.0,"(0,0,2)"\n'
+        '03-065-5860,Aluminum Vanadium,25.90,3.430,12.0,"(1,0,1)"\n',
+        encoding="utf-8",
+    )
+    skeleton = _card_skeleton()
+    skeleton["maps"].append(
+        {
+            "name": "sample2",
+            "source": "card2.csv",
+            "subject": {"template": "xr:sample/{No}", "classes": ["xo:Material"]},
+        }
+    )
+    out = annotate_skeleton(skeleton, [first, second])["maps"]
+    growth = out["sample"]["growth_preview"]
+    assert growth["source_count"] == 2
+    shared = {s["column"]: s for s in growth["shared_values"]}
+    assert shared["Name"]["value"] == "Aluminum Vanadium"
+    assert shared["Name"]["files"] == 2
+    # The card number differs between the files, so it is NOT a merge candidate.
+    assert "No" not in shared

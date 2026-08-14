@@ -358,6 +358,238 @@ def _scoped_candidates(
     return [c for _, c in scored[:_KEY_CANDIDATES]]
 
 
+def _functional_dependencies(
+    rows: Sequence[Mapping[str, str]], key: Sequence[str], columns: Sequence[str]
+) -> set[str]:
+    """Columns whose value is determined by ``key`` (ADR column-ownership G1).
+
+    Group the rows by the key and keep every column that never shows two
+    different non-empty values inside a group: the key decides it, so storing it
+    per row of a FINER map would transcribe the same fact many times. Key
+    columns themselves are excluded — a map carrying another entity's key is how
+    a join is declared, not a duplicate (same exemption as the RML-stage
+    advisory).
+    """
+    groups: dict[tuple[str, ...], list[int]] = defaultdict(list)
+    for i, row in enumerate(rows):
+        values = tuple((row.get(col) or "").strip() for col in key)
+        if key and any(v == "" for v in values):
+            continue
+        groups[values].append(i)
+    if not groups:
+        return set()
+    key_set = set(key)
+    determined: set[str] = set()
+    for col in columns:
+        if col in key_set:
+            continue
+        ok = True
+        for idxs in groups.values():
+            seen = {v for i in idxs if (v := (rows[i].get(col) or "").strip())}
+            if len(seen) > 1:
+                ok = False
+                break
+        if ok:
+            determined.add(col)
+    return determined
+
+
+def _adjudicate_ownership(
+    annotations: dict[str, Any],
+    map_sources: Mapping[str, str],
+    inspections: Mapping[str, tuple[Path, SourceInspection]],
+) -> None:
+    """Which map should carry each column — decided from the data (ADR G1/G2).
+
+    For every source, each checkable map states which columns its own key
+    determines. A column determined by several maps belongs to the one minting
+    the FEWEST entities (normalisation: a constant-per-card property belongs to
+    the card, not to each of its 47 peaks). A tie, or a column no key
+    determines, gets no verdict — no claim beats a wrong one, the same posture
+    as the RML-stage duplicate-column advisory this mirrors.
+
+    Writes ``borrowed_columns`` on the finer maps and stamps ``owner_map`` onto
+    the entity card's properties so the gate can render "this value comes from
+    <parent>" instead of leaving the column silently duplicated.
+    """
+    by_source: dict[str, list[str]] = defaultdict(list)
+    for name, src in map_sources.items():
+        by_source[src].append(name)
+
+    for src, names in by_source.items():
+        entry = inspections.get(src)
+        if entry is None:
+            continue
+        path, inspection = entry
+        if inspection.source_kind != "csv":
+            continue
+        checkable = [
+            n
+            for n in names
+            if annotations[n].get("checkable") and annotations[n].get("key_columns")
+        ]
+        if len(checkable) < 2:
+            continue
+        try:
+            rows = _read_rows(path, inspection.dialect)
+        except OSError:
+            continue
+        columns = [c.name for c in inspection.columns]
+        # column -> [(entity_count, map_name)] for every map whose key decides it
+        claims: dict[str, list[tuple[int, str]]] = defaultdict(list)
+        for name in checkable:
+            ann = annotations[name]
+            key = list(ann["key_columns"])
+            count = int(ann.get("distinct_ids") or 0)
+            if not count:
+                continue
+            for col in _functional_dependencies(rows, key, columns):
+                claims[col].append((count, name))
+
+        owners: dict[str, str] = {}
+        for col, bids in claims.items():
+            bids.sort()
+            if len(bids) == 1 or bids[0][0] < bids[1][0]:
+                owners[col] = bids[0][1]
+
+        for name in checkable:
+            ann = annotations[name]
+            key_set = set(ann["key_columns"])
+            # Borrowed = someone else owns it, this map would still carry it,
+            # and it is not this map's own key. A PARENT key column lands here
+            # too — but it is exempt: carrying it is how the join is declared
+            # (it wins ownership on its own map, so `owner != name` filters it).
+            borrowed = [
+                {"column": col, "owner_map": owner}
+                for col, owner in sorted(owners.items())
+                if owner != name and col not in key_set
+                and any(m == name for _, m in claims[col])
+            ]
+            if borrowed:
+                ann["borrowed_columns"] = borrowed
+            card = ann.get("entity_preview")
+            if not isinstance(card, Mapping):
+                continue
+            borrowed_cols = {b["column"] for b in borrowed}
+            for prop in card.get("properties") or []:
+                if prop.get("column") in borrowed_cols:
+                    prop["owner_map"] = owners[prop["column"]]
+
+
+def _growth_preview(
+    annotations: dict[str, Any],
+    map_sources: Mapping[str, str],
+    inspections: Mapping[str, tuple[Path, SourceInspection]],
+) -> None:
+    """What the NEXT file does to this design (ADR column-ownership G3/G4).
+
+    A singleton map is by definition "one entity per source file", so adding
+    sources multiplies it — and every non-key column it carries is recorded
+    independently per file. When two files happen to share a value there
+    (the same substance described by two cards), those are the columns worth
+    splitting into their own class so they MERGE instead of forking.
+
+    With one file this is a forecast derived from the structure alone; with
+    several it is measured (``shared_values``) — the crosswalk-hub principle
+    (overlapping values are the bridge) applied before ingest.
+    """
+    by_source: dict[str, list[str]] = defaultdict(list)
+    for name, src in map_sources.items():
+        by_source[src].append(name)
+    # Sources that look alike (same columns) are the ones a growing dataset
+    # appends; comparing values across them is what makes the forecast concrete.
+    signatures: dict[str, frozenset[str]] = {}
+    for src, entry in inspections.items():
+        _path, ins = entry
+        if ins.source_kind == "csv":
+            signatures[src] = frozenset(c.name for c in ins.columns)
+
+    for src, names in by_source.items():
+        singletons = [n for n in names if annotations[n].get("collapse_kind") == "singleton"]
+        if len(singletons) != 1:
+            continue  # G7: no parent, or ambiguous — stay silent
+        parent = singletons[0]
+        ann = annotations[parent]
+        entry = inspections.get(src)
+        if entry is None or not ann.get("key_columns"):
+            continue
+        path, inspection = entry
+        if inspection.source_kind != "csv":
+            continue
+        try:
+            rows = _read_rows(path, inspection.dialect)
+        except OSError:
+            continue
+        # Everything this file-scoped entity DESCRIBES: the non-key columns its
+        # key determines and that actually hold a value. Not the card's list —
+        # the card caps at _CARD_VALUE_COLUMNS, the forecast is about the whole
+        # entity (the real card has 18 such columns, the drawing shows 8).
+        columns = [c.name for c in inspection.columns]
+        determined = _functional_dependencies(rows, list(ann["key_columns"]), columns)
+        described = [
+            col
+            for col in columns
+            if col in determined and any((r.get(col) or "").strip() for r in rows)
+        ]
+        siblings = [
+            other
+            for other in signatures
+            if other != src and signatures.get(other) == signatures.get(src)
+        ]
+        preview: dict[str, Any] = {
+            "per_source_entities": 1,
+            "source_count": 1 + len(siblings),
+            "row_maps": [n for n in names if n != parent],
+            "described_columns": described,
+        }
+        if siblings:
+            preview["shared_values"] = _shared_column_values(
+                src, siblings, described, inspections
+            )
+        ann["growth_preview"] = preview
+
+
+def _shared_column_values(
+    src: str,
+    siblings: Sequence[str],
+    columns: Sequence[str],
+    inspections: Mapping[str, tuple[Path, SourceInspection]],
+) -> list[dict[str, Any]]:
+    """Measured overlap: which of ``columns`` already repeat across the files.
+
+    A column holding the same value in another file is the concrete evidence
+    that those two files describe one shared thing — split it out and they
+    merge; leave it and each file mints its own copy.
+    """
+    def _values(name: str) -> dict[str, str]:
+        entry = inspections.get(name)
+        if entry is None:
+            return {}
+        path, ins = entry
+        try:
+            rows = _read_rows(path, ins.dialect)
+        except OSError:
+            return {}
+        out: dict[str, str] = {}
+        for col in columns:
+            seen = {v for r in rows if (v := (r.get(col) or "").strip())}
+            if len(seen) == 1:
+                out[col] = next(iter(seen))
+        return out
+
+    mine = _values(src)
+    theirs = [_values(name) for name in siblings]
+    shared: list[dict[str, Any]] = []
+    for col in columns:
+        value = mine.get(col)
+        if not value:
+            continue
+        hits = sum(1 for other in theirs if other.get(col) == value)
+        if hits:
+            shared.append({"column": col, "value": value, "files": hits + 1})
+    return shared
+
+
 def _inject_scope_risks(
     annotations: dict[str, Any],
     map_sources: Mapping[str, str],
@@ -577,6 +809,11 @@ def annotate_skeleton(
     # key is the file's namespace, and row-level keys missing it are unique
     # only until the next file is appended (see _inject_scope_risks).
     _inject_scope_risks(annotations, map_sources, by_name)
+    # Third pass (ADR column-ownership-and-growth): who owns each column, and
+    # what the next file does to this design. Both need every map's key and
+    # entity count, so they run after the per-map pass.
+    _adjudicate_ownership(annotations, map_sources, by_name)
+    _growth_preview(annotations, map_sources, by_name)
     # Skeleton-level (not per-map): namespaces minted on a placeholder domain
     # (ADR instance-iri-base.md). The design loop would catch this after the
     # (paid, minutes-long) continue run — the gate shows it in milliseconds,

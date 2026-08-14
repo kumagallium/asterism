@@ -22,6 +22,8 @@ from asterism_step0.staged_propose import (  # noqa: E402
     PERMAP_SYSTEM_PROMPT,
     SKELETON_SYSTEM_PROMPT,
     assemble_mapping_ir,
+    build_permap_user,
+    drop_borrowed_properties,
     fill_mapping_spec_block,
     generate_map_properties,
     generate_skeleton,
@@ -594,3 +596,98 @@ def test_skeleton_context_lists_settled_prefixes() -> None:
     ctx = render_skeleton_context(skeleton_obj)
     for name, iri in FULL_IR["prefixes"].items():
         assert f"prefix {name}: <{iri}>" in ctx
+
+
+# ---------------------------------------------------------------------------
+# ADR column-ownership-and-growth G6: the gate's ownership verdict reaches
+# generation — named in the prompt, and enforced on the way out.
+# ---------------------------------------------------------------------------
+
+
+def test_owned_columns_are_named_in_the_permap_prompt() -> None:
+    """The system prompt states the rule in general; the per-call message names
+    the actual columns, because a weak model broke the general rule in real
+    dogfood (13 instrument columns written onto both maps)."""
+    user = build_permap_user(
+        "peak",
+        {"source": "card.txt", "subject": {"template": "xr:peak/{No}/{(hkl)}", "classes": []}},
+        "ctx",
+        "menu",
+        owned_elsewhere={"Name": "sample", "Cell": "sample"},
+    )
+    assert "Columns owned by ANOTHER map" in user
+    assert "`Cell` → owned by map 'sample'" in user
+    assert "`Name` → owned by map 'sample'" in user
+    # …and nothing appears when there is no verdict (byte-identical to before).
+    assert "Columns owned by ANOTHER map" not in build_permap_user(
+        "peak",
+        {"source": "card.txt", "subject": {"template": "xr:peak/{No}", "classes": []}},
+        "ctx",
+        "menu",
+    )
+
+
+def test_borrowed_plain_properties_are_dropped_but_links_survive() -> None:
+    """Asking is a request; this is the guarantee. A borrowed column copied as a
+    plain property is removed, while the join that USES it (object_template) and
+    a genuine multi-input derivation stay untouched."""
+    result = {
+        "properties": [
+            {"predicate": "xo:name", "column": "Name"},  # borrowed → dropped
+            {"predicate": "xo:twoTheta", "column": "2theta"},  # its own → kept
+            {"predicate": "xo:ofSample", "object_template": "xr:sample/{No}"},  # join → kept
+            {"predicate": "xo:combined", "columns": ["Name", "2theta"], "function": "concat"},
+        ]
+    }
+    cleaned, dropped = drop_borrowed_properties(result, {"Name": "sample", "No": "sample"})
+    assert dropped == ["Name"]
+    predicates = [p["predicate"] for p in cleaned["properties"]]
+    assert predicates == ["xo:twoTheta", "xo:ofSample", "xo:combined"]
+    # No verdict → the result is returned unchanged.
+    assert drop_borrowed_properties(result, None) == (result, [])
+
+
+def test_owned_columns_reach_generation_and_are_enforced() -> None:
+    """End to end through the staged path: the constraint rides the prompt, and a
+    model that ignores it still cannot write the borrowed column into §9."""
+    skeleton_obj, _ = skeleton_from_full_ir(FULL_IR)
+
+    def handler(system: str, user: str) -> str:
+        if system == SKELETON_SYSTEM_PROMPT:
+            return json.dumps(skeleton_obj)
+        if system == PERMAP_SYSTEM_PROMPT:
+            if "This map: 'part'" in user:
+                # The model transcribes the owned column anyway.
+                return json.dumps(
+                    {
+                        "properties": [
+                            {"predicate": "schema:name", "column": "name"},
+                            {"predicate": "ex:ofThing", "object_template": "exr:thing/{id}"},
+                        ]
+                    }
+                )
+            return json.dumps({"properties": [{"predicate": "schema:name", "column": "name"}]})
+        if system == DOCUMENT_SYSTEM_PROMPT:
+            return "### 1. Class hierarchy\n\n(design)\n"
+        raise AssertionError("unexpected system prompt")
+
+    llm = GuidedMock(handler)
+    md = propose_from_skeleton(
+        skeleton_obj,
+        "# insp",
+        "# dom",
+        llm=llm,
+        menu="menu",
+        function_names=FN_NAMES,
+        column_owners={"part": {"name": "thing"}},
+    )
+    part_user = next(
+        u for (s, u, _sch) in llm.calls if s == PERMAP_SYSTEM_PROMPT and "This map: 'part'" in u
+    )
+    assert "`name` → owned by map 'thing'" in part_user
+    spec = parse_mapping_ir(_extract_spec(md))
+    part = next(m for m in spec.maps if m.name == "part")
+    assert [p.predicate for p in part.properties] == ["ex:ofThing"]  # transcription removed
+    # The owner keeps it.
+    thing = next(m for m in spec.maps if m.name == "thing")
+    assert [p.column for p in thing.properties] == ["name"]
