@@ -4,8 +4,10 @@
 # merge). Always builds and attaches the macOS .dmg for direct download. When
 # the minisign secret TAURI_SIGNING_PRIVATE_KEY is present, it ALSO produces the
 # signed updater bundle (Asterism_aarch64.app.tar.gz + .sig) and a latest.json,
-# and attaches all three — the app's updater endpoint is
-# `releases/latest/download/latest.json`, so no GitHub Pages plumbing is needed.
+# and attaches all three. The feed the app POLLS, however, is the Pages copy
+# published by the last step (docs/updater/latest.json) — `releases/latest` flips
+# to a new tag the moment tagpr publishes it, ~15 minutes before this workflow
+# can attach the file (ADR local-first-distribution.md §6.1).
 #
 # Signing config mirrors Graphium's tauri-build.yml (same secret names). The
 # updater signature is hand-produced with `tauri signer sign` (not
