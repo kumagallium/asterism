@@ -6119,6 +6119,45 @@ button.ds-artifact:disabled {
 .skeleton-gap {
   margin-top: 0.55rem;
 }
+/* 種類の削除。増やせるなら消せる（片道にしない）。名前の隣に小さく。 */
+.skeleton-remove {
+  margin-left: 0.5rem;
+  padding: 0.1rem 0.4rem;
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 400;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.skeleton-remove:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.skeleton-remove--yes {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.skeleton-remove-confirm {
+  display: inline-flex;
+  gap: 0.3rem;
+}
+/* 追加直後の行 — 押した結果がどこに出たかを一目で分かるように短時間だけ光らせる。 */
+.skeleton-gate-row--added td,
+tr[data-map].skeleton-gate-row--added td {
+  animation: skeleton-added-flash 2.2s ease-out 1;
+}
+@keyframes skeleton-added-flash {
+  0%,
+  55% {
+    background: var(--primary-soft);
+  }
+  100% {
+    background: transparent;
+  }
+}
 .skeleton-gap-add {
   margin-top: 0.3rem;
   padding: 0.35rem 0.8rem;
