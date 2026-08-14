@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.14.3](https://github.com/kumagallium/asterism/compare/v0.14.2...v0.14.3) - 2026-08-14
+
+- feat(ui): 骨格ゲートを可逆にする／使えない機能は理由ごと出す by @kumagallium in https://github.com/kumagallium/asterism/pull/360
+
 ## [v0.14.2](https://github.com/kumagallium/asterism/compare/v0.14.1...v0.14.2) - 2026-08-14
 
 - feat(step0/ui): 行の置き場が無いことを検出して 1 クリックで直す／ゲートを読ませない形に by @kumagallium in https://github.com/kumagallium/asterism/pull/358
