@@ -216,4 +216,7 @@ def test_instance_endpoint_still_reports_base(tmp_path: Path) -> None:
     assert json.loads(json.dumps(body)) == {
         "iri_base": "https://asterism.invalid",
         "iri_base_configured": False,
+        # Desktop identity (settings → About). Absent here: no shell started this.
+        "app_version": None,
+        "desktop": False,
     }
