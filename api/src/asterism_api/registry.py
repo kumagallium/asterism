@@ -679,6 +679,20 @@ def _update_meta(root: Path, dataset_id: str, changes: dict) -> dict | None:
     return meta
 
 
+def record_shape_findings(root: Path, dataset_id: str, findings: list[str]) -> dict | None:
+    """Persist the data shape findings for ``dataset_id`` (ADR data-shape-checks.md).
+
+    Computed once per ingest — the answer changes only when the data does — and
+    read back by the design-validation endpoint, which merges them into the
+    existing ``advisories`` list. An empty list is written on a clean check so a
+    re-ingest CLEARS the previous round's findings (a stale "dangling link" on a
+    dataset the user just fixed is worse than no advice at all).
+    """
+    return _update_meta(
+        root, dataset_id, {"shape_findings": [str(f) for f in findings]}
+    )
+
+
 def rename_dataset(root: Path, dataset_id: str, name: str) -> dict | None:
     """Change a dataset's DISPLAY name only — the ``id`` (the IRI seed) never changes.
 

@@ -24,6 +24,20 @@ const DISCONNECTED = 'DISCONNECTED groups'
 const DUPLICATE_COLUMN = 'is bound as a plain datatype property by'
 const UNMAPPED_COLUMN = 'column(s) the mapping never uses'
 
+/**
+ * Marker phrases from `asterism/shapes.py` (ADR data-shape-checks.md).
+ *
+ * These describe the INGESTED DATA, not the design: the design advisories above
+ * are read from the mapping alone, while these are what the graph actually
+ * turned out to be. They arrive on the same `advisories` list on purpose (no
+ * second UI surface, ADR §D5), so they get the same treatment — one plain
+ * sentence each, raw text in the fold.
+ */
+const SHAPE_MISSING = 'declared but MISSING in the ingested data'
+const SHAPE_DANGLING = 'DANGLING reference'
+const SHAPE_WRONG_CLASS = 'WRONG class'
+const SHAPE_DATATYPE = 'datatype MISMATCH'
+
 /** `… groups: MaterialSample  |  Measurement.` → ["MaterialSample", "Measurement"] */
 function disconnectedGroups(advisory: string): string[] {
   const m = /DISCONNECTED groups:\s*(.+?)\.(?:\s|$)/.exec(advisory)
@@ -41,12 +55,41 @@ export interface PlainAdvisory {
   raw: string[]
 }
 
+/** `Sample.hasMeasurement is a DANGLING reference: …` → "Sample.hasMeasurement" */
+function subjectOf(advisory: string): string {
+  const m = /^([\w:.-]+)\s/.exec(advisory)
+  return m ? m[1] : ''
+}
+
+/** One line per shape finding — each names the class.predicate it is about, which
+ * is what lets the reader go straight to that row in the design. */
+function shapeLines(
+  advisories: string[],
+  marker: string,
+  key: string,
+  out: PlainAdvisory[],
+): string[] {
+  const t = i18n.t.bind(i18n)
+  const hits = advisories.filter((a) => a.includes(marker))
+  for (const a of hits) {
+    out.push({ text: t(key, { subject: subjectOf(a) }), raw: [a] })
+  }
+  return hits
+}
+
 export function plainAdvisories(advisories: string[]): PlainAdvisory[] {
   const t = i18n.t.bind(i18n)
   const disconnected = advisories.filter((a) => a.includes(DISCONNECTED))
   const duplicate = advisories.filter((a) => a.includes(DUPLICATE_COLUMN))
   const unmapped = advisories.filter((a) => a.includes(UNMAPPED_COLUMN))
-  const known = new Set([...disconnected, ...duplicate, ...unmapped])
+  const shape: PlainAdvisory[] = []
+  const shapeHits = [
+    ...shapeLines(advisories, SHAPE_MISSING, 'gallery:advisory.shapeMissing', shape),
+    ...shapeLines(advisories, SHAPE_DANGLING, 'gallery:advisory.shapeDangling', shape),
+    ...shapeLines(advisories, SHAPE_WRONG_CLASS, 'gallery:advisory.shapeWrongClass', shape),
+    ...shapeLines(advisories, SHAPE_DATATYPE, 'gallery:advisory.shapeDatatype', shape),
+  ]
+  const known = new Set([...disconnected, ...duplicate, ...unmapped, ...shapeHits])
   const other = advisories.filter((a) => !known.has(a))
 
   const out: PlainAdvisory[] = []
@@ -68,6 +111,9 @@ export function plainAdvisories(advisories: string[]): PlainAdvisory[] {
   if (unmapped.length > 0) {
     out.push({ text: t('gallery:advisory.unmapped', { count: unmapped.length }), raw: unmapped })
   }
+  // Data findings last: the design lines above are about something the user can
+  // still edit, these are about data already ingested.
+  out.push(...shape)
   if (other.length > 0) {
     out.push({ text: t('gallery:advisory.other', { count: other.length }), raw: other })
   }

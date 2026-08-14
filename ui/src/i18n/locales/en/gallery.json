@@ -112,7 +112,7 @@
     "reusesHead": "Standard words borrowed from elsewhere (detected from the actual data)",
     "classCount_one": "{{n}} class",
     "classCount_other": "{{n}} classes",
-    "advisoryHead": "About how this links up",
+    "advisoryHead": "Worth knowing",
     "advisoryNote": "Use “review the design” below to have the AI add the links."
   },
   "rules": {
@@ -298,6 +298,10 @@
     "unmapped_other": "{{count}} columns are not used. If they carry meaning, adding them to the design makes them questionable.",
     "other_one": "{{count}} further note.",
     "other_other": "{{count}} further notes.",
+    "shapeMissing": "“{{subject}}” is declared in the design but never appears in the ingested data — the source column may be empty for every row, or a conversion returned nothing.",
+    "shapeDangling": "“{{subject}}” points at something that is not in this data. The link looks connected but cannot be followed — usually the two sides build the key differently.",
+    "shapeWrongClass": "“{{subject}}” points at a different kind of thing than the design expects.",
+    "shapeDatatype": "“{{subject}}” holds values of a different type than the design declares, so comparing them by size will not work.",
     "rawSummary": "The notes as written (technical)"
   }
 }
