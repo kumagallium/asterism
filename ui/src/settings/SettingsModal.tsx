@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import './SettingsModal.css'
+import { AboutTab } from './AboutTab'
 import { InstanceSection } from './InstanceSection'
 import { ServerKeysSection } from './ServerKeysSection'
 import { WriteTokenSection } from './WriteTokenSection'
@@ -22,7 +23,7 @@ import {
   makeModel,
 } from './store'
 
-type Tab = 'models' | 'usage'
+type Tab = 'models' | 'usage' | 'about'
 
 export function SettingsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { t } = useTranslation('settings')
@@ -103,9 +104,18 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
           >
             {t('tabs.usage')}
           </button>
+          <button
+            type="button"
+            className={`settings-tab${tab === 'about' ? ' active' : ''}`}
+            onClick={() => setTab('about')}
+          >
+            {t('tabs.about')}
+          </button>
         </nav>
         <div className="settings-body">
-          {tab === 'models' ? <ModelsTab /> : <UsageTab />}
+          {tab === 'models' && <ModelsTab />}
+          {tab === 'usage' && <UsageTab />}
+          {tab === 'about' && <AboutTab />}
         </div>
       </div>
     </div>

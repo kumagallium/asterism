@@ -316,6 +316,14 @@ fn boot(app: tauri::AppHandle) {
     for (key, value) in &backend.envs {
         command.env(key, value);
     }
+    // Tell the backend which build it belongs to. The window is a remote
+    // http://127.0.0.1 origin with no Tauri IPC, so this env var is how the SPA
+    // learns the app version (settings → About) and how it knows it is running
+    // inside the desktop app at all. Installing updates stays here in the shell.
+    command.env(
+        "ASTERISM_APP_VERSION",
+        app.package_info().version.to_string(),
+    );
     // New process group with pgid = launcher pid: the Oxigraph / demo-agent
     // grandchildren inherit it, so terminate() can signal the whole tree.
     #[cfg(unix)]

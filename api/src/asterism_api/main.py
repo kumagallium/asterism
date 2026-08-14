@@ -39,6 +39,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
+import httpx
 import yaml
 from asterism import (
     crosswalk,
@@ -807,6 +808,24 @@ _DEFAULT_RESOURCE = (
     _SD.resource_iri if _SD else "https://kumagallium.github.io/asterism/starrydata/resource/"
 )
 
+# The desktop release feed (Tauri updater manifest). ONE endpoint, the same the
+# native updater installs from — this backend only *reads* it to answer "is a
+# newer version out?"; installing stays with the shell (ADR
+# local-first-distribution.md: the SPA is never wired to Tauri IPC).
+DEFAULT_UPDATER_FEED: Final = (
+    "https://github.com/kumagallium/asterism/releases/latest/download/latest.json"
+)
+
+
+def _version_tuple(version: str) -> tuple[int, int, int]:
+    """``0.13.2`` → ``(0, 13, 2)`` for ordering. A pre-release/build suffix
+    (``0.14.0-rc1``) contributes its numeric head only — enough to order
+    releases, and a malformed feed can never raise here."""
+    parts = re.split(r"[.+-]", version.strip().lstrip("v"))[:3]
+    nums = [int(m.group()) if (m := re.match(r"\d+", part)) else 0 for part in parts]
+    nums += [0] * (3 - len(nums))
+    return (nums[0], nums[1], nums[2])
+
 # Restrict uploaded filenames to a safe subset to avoid directory traversal
 # (``..`` segments, absolute paths, NULs). We also reject names without a
 # ``.csv`` suffix so the watcher's ``_classify`` actually fires.
@@ -908,6 +927,18 @@ class Settings:
         # unpublished); set it to a namespace the operator controls to mint
         # citable identifiers. Bundled datasets keep their dataset.toml IRIs.
         self.iri_base = normalize_iri_base(e.get("ASTERISM_IRI_BASE"))
+        # Desktop shell identity. The Tauri shell passes its own bundle version
+        # when it spawns this backend, so "which Asterism am I running?" has one
+        # answer the SPA can read (the window is a remote http://127.0.0.1 origin
+        # and deliberately has no Tauri IPC — see local-first-distribution.md).
+        # Unset → a server/web install: the About surface hides the desktop-only
+        # update check instead of inventing a version.
+        self.app_version = (e.get("ASTERISM_APP_VERSION") or "").strip() or None
+        # Release feed the desktop update check reads — the same single endpoint
+        # the native updater installs from (tauri.conf.json plugins.updater).
+        self.updater_feed = (
+            e.get("ASTERISM_UPDATER_FEED") or DEFAULT_UPDATER_FEED
+        ).strip()
         # togomcp auto-publish (ADR togomcp-auto-publish.md): promote projects the
         # dataset's MIE into this togomcp TOGOMCP_DIR (mie/<id>.yaml + an
         # endpoints.csv row) so promoted datasets appear in the DBCLS togomcp
@@ -2351,6 +2382,37 @@ def build_app(
         return {
             "iri_base": cfg.iri_base,
             "iri_base_configured": cfg.iri_base != DEFAULT_IRI_BASE,
+            # Which build is running, when the desktop shell started this backend
+            # (null on a server/web install — see Settings.app_version).
+            "app_version": cfg.app_version,
+            "desktop": cfg.app_version is not None,
+        }
+
+    @app.get("/api/desktop/update-check")
+    async def desktop_update_check() -> dict[str, object]:
+        """Desktop only: is a newer release out? Reads the same updater manifest
+        the shell installs from and compares versions — it never downloads or
+        installs anything (that stays with the native updater: auto at startup
+        and the "アップデートを確認…" menu item). 404 on a server/web install,
+        where there is no bundle to update."""
+        if cfg.app_version is None:
+            raise HTTPException(404, "not a desktop install")
+        try:
+            async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as http:
+                res = await http.get(cfg.updater_feed)
+                res.raise_for_status()
+                feed = res.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            # Offline / rate-limited / malformed feed: the caller shows "check
+            # failed", never a wrong "you are up to date".
+            raise HTTPException(502, "update feed unreachable") from exc
+        latest = str(feed.get("version") or "").strip().lstrip("v")
+        if not latest:
+            raise HTTPException(502, "update feed has no version")
+        return {
+            "current": cfg.app_version,
+            "latest": latest,
+            "update_available": _version_tuple(latest) > _version_tuple(cfg.app_version),
         }
 
     @app.post("/upload/{kind}", dependencies=_write_auth)
