@@ -813,9 +813,13 @@ _DEFAULT_RESOURCE = (
 # native updater installs from — this backend only *reads* it to answer "is a
 # newer version out?"; installing stays with the shell (ADR
 # local-first-distribution.md: the SPA is never wired to Tauri IPC).
-DEFAULT_UPDATER_FEED: Final = (
-    "https://github.com/kumagallium/asterism/releases/latest/download/latest.json"
-)
+# Served from GitHub Pages (`docs/updater/latest.json` on main), NOT from the
+# release. `releases/latest/download/...` starts pointing at a new tag the moment
+# tagpr publishes it, but the desktop build needs ~15 minutes to attach the file
+# — so every update check in that window 404'd and surfaced here as a 502
+# (observed live on v0.14.0). The Pages copy is written only after a build
+# succeeds, so it is never missing and never half-published.
+DEFAULT_UPDATER_FEED: Final = "https://kumagallium.github.io/asterism/updater/latest.json"
 
 
 def _write_credential_ok(
