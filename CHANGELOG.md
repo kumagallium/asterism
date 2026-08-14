@@ -1,5 +1,14 @@
 # Changelog
 
+## [v0.13.2](https://github.com/kumagallium/asterism/compare/v0.13.1...v0.13.2) - 2026-08-14
+
+- ci(tagpr): actions:write を付与 — desktop-release の dispatch 403 を修正 by @kumagallium in https://github.com/kumagallium/asterism/pull/344
+- feat(desktop): 同梱バイナリを deep-sign して Apple 公証を通す（app + dmg） by @kumagallium in https://github.com/kumagallium/asterism/pull/346
+- docs(roadmap): デスクトップの署名/公証完了を反映 by @kumagallium in https://github.com/kumagallium/asterism/pull/347
+- ci(desktop): PR チェックは常に無署名 — 署名 secrets を release 専用に閉じ込める by @kumagallium in https://github.com/kumagallium/asterism/pull/349
+- fix(desktop): 固定ポートで設定消失を根治 — 再起動のたびに登録 AI が消えるバグ by @kumagallium in https://github.com/kumagallium/asterism/pull/348
+- feat(settings): 設定画面を Graphium の形へ — 接続先の再利用と「このアプリ」タブ by @kumagallium in https://github.com/kumagallium/asterism/pull/350
+
 ## [v0.13.1](https://github.com/kumagallium/asterism/compare/v0.13.0...v0.13.1) - 2026-08-13
 
 - ci(tagpr): リリース発番時に Desktop Release を明示 dispatch by @kumagallium in https://github.com/kumagallium/asterism/pull/342
