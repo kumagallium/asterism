@@ -460,7 +460,10 @@ def test_propose_autocorrect_loop_streams_rounds_and_converges(
         r = client.post(
             "/api/propose",
             params={"autocorrect": 2},
-            files={"files": ("samples.csv", b"SID,sample_id\n1,10\n2,11\n", "text/csv")},
+            # Non-numeric ids: this test is about the refine loop converging, and
+            # all-numeric columns would (correctly) raise the untyped-number
+            # advisory the scripted LLM never fixes.
+            files={"files": ("samples.csv", b"SID,sample_id\nS-1,A-10\nS-2,A-11\n", "text/csv")},
         )
         assert r.status_code == 202
         job_id = r.json()["job_id"]

@@ -149,6 +149,39 @@ def _detect_json_kind(samples: Sequence[str]) -> str | None:
     return None  # mixed; let the LLM decide
 
 
+def numeric_column_types(
+    rows: Sequence[Mapping[str, str]], columns: Iterable[str]
+) -> dict[str, str]:
+    """Columns whose EVERY non-empty cell is a number -> its xsd type.
+
+    Why not reuse ``ColumnSummary.inferred_type``: that votes over a bounded
+    sample (``_SAMPLE_RING``), which is right for showing the AI what a column
+    looks like but NOT for deciding to stamp a datatype onto every triple. A
+    single non-numeric cell outside the sample would mint an invalid literal, so
+    this scans all the rows it is given.
+
+    ``xsd:integer`` only when no cell has a fractional part; empty cells are
+    skipped (a gap does not make a measurement column a string). A column with
+    no values at all is absent from the result.
+    """
+    out: dict[str, str] = {}
+    for col in columns:
+        kinds: set[str] = set()
+        for row in rows:
+            value = (row.get(col) or "").strip()
+            if not value:
+                continue
+            kind = _infer_cell_type(value)
+            if kind not in ("xsd:integer", "xsd:double"):
+                kinds = set()
+                break
+            kinds.add(kind)
+        if not kinds:
+            continue
+        out[col] = "xsd:double" if "xsd:double" in kinds else "xsd:integer"
+    return out
+
+
 def _aggregate_types(types: Iterable[str]) -> str:
     """Return the broadest type that every observed type fits into."""
     seen = set(types)

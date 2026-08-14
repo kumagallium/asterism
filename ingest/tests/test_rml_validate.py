@@ -590,7 +590,11 @@ def test_duplicate_column_flagged_and_adjudicated(tmp_path) -> None:
         "temp,resistivity,diameter\n300,1.0,5.0\n310,1.1,5.0\n320,1.2,5.0\n",
         encoding="utf-8",
     )
-    advisories = design_advisories(_DUP_COLUMNS, tmp_path)
+    # This fixture's columns are also numeric-and-untyped, so filter to the
+    # duplicate-column verdicts this test is about (that advisory has its own).
+    advisories = [
+        a for a in design_advisories(_DUP_COLUMNS, tmp_path) if "plain datatype property by" in a
+    ]
     assert len(advisories) == 2  # one per duplicated column, ordered by name
     dia, res = advisories
     assert dia.startswith("column 'diameter'") and "Reading + Sample" in dia
@@ -820,3 +824,47 @@ def test_fully_mapped_source_gets_no_unmapped_advisory(tmp_path: Path) -> None:
     assert [a for a in design_review_notes(rml, tmp_path) if "never uses" in a] == []
     # and the loop-facing advisories never carry unmapped-column notes at all
     assert [a for a in design_advisories(rml, tmp_path) if "never uses" in a] == []
+
+
+_UNTYPED_NUMERIC = """\
+@prefix rr: <http://www.w3.org/ns/r2rml#> .
+@prefix rml: <http://w3id.org/rml/> .
+@prefix ex: <https://example.org/ns#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<#Peak> a rr:TriplesMap ;
+  rml:logicalSource [ rml:source "peaks.csv" ] ;
+  rr:subjectMap [ rr:template "https://example.org/r/peak/{hkl}" ; rr:class ex:Peak ] ;
+  rr:predicateObjectMap [ rr:predicate ex:intensity ;
+    rr:objectMap [ rml:reference "intensity" ] ] ;
+  rr:predicateObjectMap [ rr:predicate ex:twoTheta ;
+    rr:objectMap [ rml:reference "twoTheta" ; rr:datatype xsd:double ] ] ;
+  rr:predicateObjectMap [ rr:predicate ex:hkl ;
+    rr:objectMap [ rml:reference "hkl" ] ] .
+"""
+
+
+def test_untyped_numeric_column_flagged(tmp_path) -> None:
+    """The quiet defect: a number stored as an untyped literal compares as TEXT,
+    so ORDER BY answers wrongly with no error (observed live: the highest
+    intensity read as 9.4 instead of 100.0)."""
+    (tmp_path / "peaks.csv").write_text(
+        "intensity,twoTheta,hkl\n100.0,40.07,(1;1;2)\n9.4,77.47,(1;1;6)\n5.0,21.34,(0;0;2)\n",
+        encoding="utf-8",
+    )
+    advisories = [a for a in design_advisories(_UNTYPED_NUMERIC, tmp_path) if "untyped literal" in a]
+    assert len(advisories) == 1
+    assert advisories[0].startswith("column 'intensity'")
+    assert "xsd:double" in advisories[0]
+    # twoTheta already declares its datatype, and hkl is not numeric — silent.
+    assert not any("twoTheta" in a or "hkl" in a for a in advisories)
+
+
+def test_untyped_numeric_silent_on_mixed_column(tmp_path) -> None:
+    """One non-numeric cell and the column is not a number column — stamping a
+    datatype there would mint invalid literals, so the advisory stays silent."""
+    (tmp_path / "peaks.csv").write_text(
+        "intensity,twoTheta,hkl\n100.0,40.07,(1;1;2)\nn/a,77.47,(1;1;6)\n",
+        encoding="utf-8",
+    )
+    assert not [a for a in design_advisories(_UNTYPED_NUMERIC, tmp_path) if "untyped literal" in a]

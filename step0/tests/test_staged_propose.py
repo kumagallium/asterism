@@ -21,6 +21,7 @@ from asterism_step0.staged_propose import (  # noqa: E402
     DOCUMENT_SYSTEM_PROMPT,
     PERMAP_SYSTEM_PROMPT,
     SKELETON_SYSTEM_PROMPT,
+    apply_numeric_datatypes,
     assemble_mapping_ir,
     build_permap_user,
     drop_borrowed_properties,
@@ -691,3 +692,65 @@ def test_owned_columns_reach_generation_and_are_enforced() -> None:
     # The owner keeps it.
     thing = next(m for m in spec.maps if m.name == "thing")
     assert [p.column for p in thing.properties] == ["name"]
+
+
+# ---------------------------------------------------------------------------
+# Numeric datatypes: an untyped number compares as TEXT in SPARQL.
+# ---------------------------------------------------------------------------
+
+
+def test_numeric_columns_get_their_datatype_stamped() -> None:
+    """Observed live: "which angle has the highest intensity?" answered 77.47°
+    (intensity 9.4) instead of 40.07° (intensity 100.0), because "9.4" sorts
+    above "100.0" as text. The inspector knows the column is numeric, so the
+    machine stamps the type instead of hoping the model remembered."""
+    result = {
+        "properties": [
+            {"predicate": "xo:intensity", "column": "intensity"},
+            {"predicate": "xo:hkl", "column": "(hkl)"},  # not numeric — untouched
+            {"predicate": "xo:d", "column": "d", "datatype": "xsd:decimal"},  # explicit wins
+            {"predicate": "xo:when", "column": "date", "function": "date_iso"},  # fn owns it
+            {"predicate": "xo:src", "column": "url", "object_type": "iri"},  # not a literal
+        ]
+    }
+    types = dict.fromkeys(["intensity", "d", "date", "url"], "xsd:double")
+    typed_result, typed = apply_numeric_datatypes(result, types)
+    assert typed == ["intensity"]
+    rows = {p["predicate"]: p for p in typed_result["properties"]}
+    assert rows["xo:intensity"]["datatype"] == "xsd:double"
+    assert "datatype" not in rows["xo:hkl"]
+    assert rows["xo:d"]["datatype"] == "xsd:decimal"  # the model's explicit choice stands
+    assert "datatype" not in rows["xo:when"]
+    assert "datatype" not in rows["xo:src"]
+    # No verdict -> unchanged.
+    assert apply_numeric_datatypes(result, None) == (result, [])
+
+
+def test_numeric_datatypes_reach_generation() -> None:
+    """End to end: a model that omits the datatype still produces a typed §9."""
+    skeleton_obj, _ = skeleton_from_full_ir(FULL_IR)
+
+    def handler(system: str, user: str) -> str:
+        if system == SKELETON_SYSTEM_PROMPT:
+            return json.dumps(skeleton_obj)
+        if system == PERMAP_SYSTEM_PROMPT:
+            return json.dumps({"properties": [{"predicate": "schema:name", "column": "name"}]})
+        if system == DOCUMENT_SYSTEM_PROMPT:
+            return "### 1. Class hierarchy\n\n(design)\n"
+        raise AssertionError("unexpected system prompt")
+
+    md = propose_from_skeleton(
+        skeleton_obj,
+        "# insp",
+        "# dom",
+        llm=GuidedMock(handler),
+        menu="menu",
+        function_names=FN_NAMES,
+        column_types={"thing": {"name": "xsd:double"}},
+    )
+    spec = parse_mapping_ir(_extract_spec(md))
+    thing = next(m for m in spec.maps if m.name == "thing")
+    assert thing.properties[0].datatype == "xsd:double"
+    # The other map had no verdict — untouched.
+    part = next(m for m in spec.maps if m.name == "part")
+    assert all(p.datatype is None for p in part.properties)

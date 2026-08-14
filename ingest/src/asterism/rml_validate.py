@@ -900,6 +900,85 @@ def _tm_plain_reference_columns(graph, tm) -> set[str]:
     return out
 
 
+_NUMBER = re.compile(r"[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$")
+
+
+def _tm_untyped_plain_columns(graph, tm) -> set[str]:
+    """Plain-literal columns this map binds with NO ``rr:datatype``.
+
+    Same shape as :func:`_tm_plain_reference_columns` (a direct reference, not an
+    IRI term), minus the ones already carrying a datatype — those made their
+    choice. A function pipeline is excluded there too: its output type is the
+    function's business.
+    """
+    import rdflib
+
+    uri = rdflib.URIRef
+    out: set[str] = set()
+    for pom in graph.objects(tm, uri(_R2RML + "predicateObjectMap")):
+        for om in graph.objects(pom, uri(_R2RML + "objectMap")):
+            is_iri = any(
+                _local_name(str(t)) == "IRI"
+                for tp in _TERM_TYPE_PREDS
+                for t in graph.objects(om, uri(tp))
+            )
+            if is_iri:
+                continue
+            if any(True for _ in graph.objects(om, uri(_R2RML + "datatype"))):
+                continue
+            for rp in _REFERENCE_PREDS:
+                for r in graph.objects(om, uri(rp)):
+                    out.add(str(r))
+    return out
+
+
+def _untyped_numeric_advisories(graph, csv_dir: Path | str | None) -> list[str]:
+    """Flag a NUMERIC column bound as a plain literal with no ``rr:datatype``.
+
+    The quietest defect in the pipeline. Every gate passes, the ingest succeeds,
+    and then SPARQL compares the values as STRINGS. Observed live (XRD reference
+    card, 2026-08-14): "which angle has the highest intensity?" answered 77.47°
+    (intensity 9.4) instead of 40.07° (intensity 100.0) — because "9.4" sorts
+    above "100.0" lexically. No error, no warning: a confident wrong answer with
+    provenance attached.
+
+    The verdict needs the real rows (a column NAME never proves a type), so an
+    unreadable source stays silent. Every non-empty cell must be numeric — one
+    stray "n/a" and a stamped datatype would be a lie.
+    """
+    if csv_dir is None:
+        return []
+    dialects = _mapping_dialects(graph)
+    issues: list[str] = []
+    for tm in _triples_map_subjects(graph):
+        src = _tm_source_name(graph, tm)
+        if src is None:
+            continue
+        columns = _tm_untyped_plain_columns(graph, tm)
+        if not columns:
+            continue
+        header, rows = _source_table(Path(csv_dir) / src, dialects.get(src))
+        if not header or not rows:
+            continue
+        index = {name: i for i, name in enumerate(header)}
+        for col in sorted(columns):
+            i = index.get(col)
+            if i is None:
+                continue
+            values = [
+                v for r in rows if (v := (r[i].strip() if i < len(r) else ""))
+            ]
+            if not values or not all(_NUMBER.match(v) for v in values):
+                continue
+            issues.append(
+                f"column '{col}' holds numbers but is mapped as an untyped literal — "
+                'SPARQL then compares it as TEXT ("9.4" sorts above "100.0"), so '
+                "max/min/ORDER BY answer WRONGLY with no error. Add "
+                "`datatype: xsd:double` (or xsd:integer) to that property row."
+            )
+    return sorted(set(issues))
+
+
 def _duplicate_column_advisories(graph, csv_dir: Path | str | None) -> list[str]:
     """Flag a source column transcribed onto MULTIPLE entities as a plain
     datatype property.
@@ -1130,8 +1209,10 @@ def design_advisories(rml_ttl: str, csv_dir: Path | str | None = None) -> list[s
     except Exception:
         return []
     headers = _source_headers(graph, csv_dir) if csv_dir is not None else {}
-    return _connectivity_advisories(graph, headers or None) + _duplicate_column_advisories(
-        graph, csv_dir
+    return (
+        _connectivity_advisories(graph, headers or None)
+        + _duplicate_column_advisories(graph, csv_dir)
+        + _untyped_numeric_advisories(graph, csv_dir)
     )
 
 

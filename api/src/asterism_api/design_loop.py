@@ -62,7 +62,13 @@ from typing import Any
 from asterism import substrate
 from asterism.rml_validate import read_csv_header
 from asterism_step0.dialect import apply_detected_dialects, detect_dialect, is_default
-from asterism_step0.inspect import inspect_source_set, render_markdown
+from asterism_step0.inspect import (
+    _dialect_rows,
+    _stream_rows,
+    inspect_source_set,
+    numeric_column_types,
+    render_markdown,
+)
 from asterism_step0.instance_iri import placeholder_prefix_issue
 from asterism_step0.llm import LLMCancelledError, LLMTruncatedError
 from asterism_step0.mapping_ir import (
@@ -238,6 +244,42 @@ def _detect_source_dialects(paths: list[Path]) -> dict[str, Any]:
         if not is_default(dialect):
             detected[p.name] = dialect
     return detected
+
+
+def _column_datatypes(
+    skeleton: Mapping[str, Any], paths: list[Path], dialects: Mapping[str, Any]
+) -> dict[str, dict[str, str]]:
+    """Per map, the columns whose values are numbers IN THE DATA -> xsd type.
+
+    Fed to per-map generation so a measurement lands as a typed literal. Without
+    it SPARQL compares numbers as strings and answers confidently wrong ("the
+    highest intensity is 9.4, not 100.0"). Scans every row rather than trusting
+    the inspector's sampled `inferred_type`: one stray non-numeric cell would
+    make the stamped datatype a lie.
+
+    Best-effort — any failure yields ``{}`` and generation proceeds as before.
+    """
+    try:
+        inspections, _fks = inspect_source_set(paths, dialects=dialects)
+    except Exception:
+        return {}
+    by_source: dict[str, dict[str, str]] = {}
+    for path, ins in zip(paths, inspections, strict=False):
+        if ins.source_kind != "csv":
+            continue
+        try:
+            rows = _dialect_rows(path, ins.dialect) if ins.dialect else list(_stream_rows(path))
+        except OSError:
+            continue
+        by_source[path.name] = numeric_column_types(rows, [c.name for c in ins.columns])
+    out: dict[str, dict[str, str]] = {}
+    for map_entry in skeleton.get("maps") or []:
+        if not isinstance(map_entry, Mapping):
+            continue
+        types = by_source.get(Path(str(map_entry.get("source") or "")).name)
+        if types:
+            out[str(map_entry.get("name"))] = types
+    return out
 
 
 def _column_owners(
@@ -720,6 +762,9 @@ def run_design_loop(
         # from the gate: the human may have edited a key, and the verdict must
         # describe the skeleton actually being generated from.
         column_owners = _column_owners(skeleton, paths, effective)
+        # Numeric columns get a datatype from the DATA (ADR §B): an untyped
+        # number is compared lexically by SPARQL — a silent wrong answer.
+        column_datatypes = _column_datatypes(skeleton, paths, effective)
         _emit(on_progress, phase="propose", round=0, message="骨格から設計を生成中")
         schema_md = propose_from_skeleton(
             skeleton,
@@ -732,6 +777,7 @@ def run_design_loop(
             on_progress=lambda **d: _emit(on_progress, **d),
             on_llm_call=on_llm_call,
             column_owners=column_owners,
+            column_types=column_datatypes,
         )
         metadata: dict[str, Any] = {"llm_class": type(llm).__name__, "staged": True}
     else:

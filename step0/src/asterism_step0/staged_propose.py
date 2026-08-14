@@ -47,6 +47,7 @@ from asterism_step0.mapping_ir_schema import (
 
 __all__ = [
     "SkeletonProposal",
+    "apply_numeric_datatypes",
     "assemble_mapping_ir",
     "fill_mapping_spec_block",
     "generate_document",
@@ -493,6 +494,53 @@ def drop_borrowed_properties(
     return {**result, "properties": kept}, dropped
 
 
+def apply_numeric_datatypes(
+    result: Mapping[str, Any], column_types: Mapping[str, str] | None
+) -> tuple[dict, list[str]]:
+    """Stamp ``datatype`` onto plain columns the data proves are numeric.
+
+    An untyped numeric literal is the quietest defect in the whole pipeline:
+    every gate passes, the ingest succeeds, and then SPARQL compares the values
+    as STRINGS. Observed live — "which angle has the highest intensity?" answered
+    77.47° (intensity 9.4) instead of 40.07° (intensity 100.0), because "9.4"
+    sorts above "100.0" lexically. No error, a confident wrong answer with
+    provenance attached.
+
+    The inspector already knows the column is numeric, so this is a mechanical
+    requirement the machine can meet instead of hoping the model does (the same
+    posture as the borrowed-column backstop). Only rows that carry a bare
+    ``column`` and NO datatype are touched: a ``function`` decides its own output
+    type, an IRI object is not a literal, and an explicit datatype is the model's
+    (or a human's) call. Returns the result plus the columns typed, for reporting.
+    """
+    props = result.get("properties")
+    if not column_types or not isinstance(props, list):
+        return dict(result), []
+    typed: list[str] = []
+    out: list[Any] = []
+    for prop in props:
+        if not isinstance(prop, Mapping):
+            out.append(prop)
+            continue
+        col = prop.get("column")
+        eligible = (
+            isinstance(col, str)
+            and col in column_types
+            and not prop.get("datatype")
+            and not prop.get("function")
+            and not prop.get("transform")
+            and prop.get("object_type") != "iri"
+        )
+        if eligible:
+            out.append({**prop, "datatype": column_types[str(col)]})
+            typed.append(str(col))
+        else:
+            out.append(prop)
+    if not typed:
+        return dict(result), []
+    return {**result, "properties": out}, typed
+
+
 def generate_map_properties(
     map_name: str,
     map_skeleton: Mapping[str, Any],
@@ -638,6 +686,7 @@ def _generate_map_properties_gated(
     emit: Callable[..., None],
     record: Callable[[], None],
     owned_elsewhere: Mapping[str, str] | None = None,
+    column_types: Mapping[str, str] | None = None,
 ) -> dict:
     """Generate ONE map's property table, then run a BOUNDED structural repair.
 
@@ -709,6 +758,14 @@ def _generate_map_properties_gated(
             f"map '{map_name}': 他のマップが持つ列を外しました - 重複記録の防止: "
             + ", ".join(sorted(set(dropped)))
         )
+    # Numeric columns get their datatype from the data, not from the model's
+    # memory — an untyped number compares as a string in SPARQL.
+    result, typed = apply_numeric_datatypes(result, column_types)
+    if typed:
+        _emit(
+            f"map '{map_name}': 数値列に型を付けました - 文字列比較の防止: "
+            + ", ".join(sorted(set(typed)))
+        )
     return result
 
 
@@ -724,6 +781,7 @@ def propose_from_skeleton(
     on_progress: Any = None,
     on_llm_call: Callable[[str], None] | None = None,
     column_owners: Mapping[str, Mapping[str, str]] | None = None,
+    column_types: Mapping[str, Mapping[str, str]] | None = None,
 ) -> str:
     """Job 2: from a confirmed skeleton, generate each map's property table, assemble
     the full IR, generate the §1-8 document, and splice §9 in deterministically.
@@ -739,7 +797,12 @@ def propose_from_skeleton(
     ``column_owners`` maps a map name to ``{column: owning map}`` — the skeleton
     gate's ownership verdict (ADR column-ownership-and-growth). Those columns are
     named in that map's prompt AND dropped from its result if they come back
-    anyway, so one source cell becomes a fact on exactly one entity."""
+    anyway, so one source cell becomes a fact on exactly one entity.
+
+    ``column_types`` maps a map name to ``{column: xsd type}`` for the columns the
+    DATA proves numeric; those properties get that ``datatype`` stamped on, so a
+    number never lands in the store as a string (where SPARQL compares it
+    lexically and quietly returns the wrong maximum)."""
     names = _resolve_function_names(function_names)
     menu_text = menu if menu is not None else render_tier0_menu(names)
     context = render_skeleton_context(skeleton)
@@ -778,6 +841,7 @@ def propose_from_skeleton(
             # Which of this map's columns another map owns (ADR
             # column-ownership G6) — the gate's verdict, carried into generation.
             owned_elsewhere=(column_owners or {}).get(str(name)),
+            column_types=(column_types or {}).get(str(name)),
         )
 
     assembled = assemble_mapping_ir(skeleton, permaps)
