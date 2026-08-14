@@ -519,3 +519,33 @@ def test_growth_preview_measures_overlap_across_sibling_files(tmp_path: Path) ->
     assert shared["Name"]["files"] == 2
     # The card number differs between the files, so it is NOT a merge candidate.
     assert "No" not in shared
+
+
+def test_missing_row_kind_offers_the_map_that_does_not_exist(tmp_path: Path) -> None:
+    """Round-0 returning ONE map for a card + its rows leaves the per-row values
+    homeless. The card already says they "belong to the row-level kind" — so the
+    gate names that missing kind and hands over the one-click repair."""
+    p = _write_reference_card(tmp_path)
+    skeleton = _card_skeleton()
+    skeleton["maps"] = [skeleton["maps"][0]]  # only 'sample' — the observed round-0
+    ann = annotate_skeleton(skeleton, [p])["maps"]["sample"]
+    gap = ann["missing_row_kind"]
+    assert gap["columns"] == ["2theta", "d", "I", "(hkl)"]
+    # Parent-scoped and NOT measurement-only: {No}/{(hkl)} beats {No}/{2theta}.
+    assert gap["suggested_key"] == ["No", "(hkl)"]
+    assert gap["entity_count"] == 3
+    assert gap["suggested_name"] == "sample_detail"
+    # Minted in the parent's namespace — never an invented one.
+    # A CURIE, like the skeleton it goes back into (never a half-expanded IRI).
+    assert gap["suggested_template"] == "xr:sample_detail/{No}/{(hkl)}"
+    # A starter class in the parent's own vocabulary — an empty "what is this
+    # row?" column is what makes a machine-added map meaningless.
+    assert gap["suggested_classes"] == ["xo:SampleDetail"]
+
+
+def test_no_missing_row_kind_once_a_row_level_map_exists(tmp_path: Path) -> None:
+    """With both maps present nothing is homeless — the gate stays silent."""
+    p = _write_reference_card(tmp_path)
+    out = annotate_skeleton(_card_skeleton(), [p])["maps"]
+    assert "missing_row_kind" not in out["sample"]
+    assert "missing_row_kind" not in out["peak"]

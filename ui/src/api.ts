@@ -292,6 +292,19 @@ export interface SkeletonMapAnnotation {
     described_columns: string[]
     shared_values?: { column: string; value: string; files: number }[]
   }
+  /** Per-row values with no map to live in: this source has a file-scoped
+   *  (singleton) map but NO row-level one, so the columns that vary per row are
+   *  silently dropped. Carries the one-click repair (name / key / template /
+   *  resulting count) — round-0 returning a single map is the observed case. */
+  missing_row_kind?: {
+    columns: string[]
+    suggested_name: string
+    suggested_key: string[]
+    suggested_template: string
+    /** Starter class in the dataset's own vocabulary (the human renames it). */
+    suggested_classes?: string[]
+    entity_count: number
+  }
   /** Real IDs minted from the first rows (prefix-expanded). */
   id_previews?: string[]
   /** Proven-unique column combinations (one-click fix candidates). `scoped`
