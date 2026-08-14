@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useLlmSettings } from './context'
+import { type InstanceInfo, fetchInstanceInfo } from './instanceApi'
 import { setServerKey } from './serverKeysApi'
 import { PROVIDERS } from './store'
 
@@ -8,6 +9,13 @@ import { PROVIDERS } from './store'
 // don't have to enter one. Written via the write-gated POST /api/llm/server-keys
 // (any logged-in user, same trust as the other write routes); the value is
 // persisted server-side and never read back (we only ever see set/unset).
+//
+// This is a SHARED-instance feature (an authenticated deployment where one
+// operator key serves everyone). On the desktop app there is nobody to share
+// with — the per-connection key in the models tab already persists — so the
+// section only clutters the "where do I put my key?" question. Hidden there
+// unless a shared key is actually set (never make an already-effective key
+// invisible), and hidden anywhere the write gate is shut (saving would 503).
 
 function ServerKeyRow({
   provider,
@@ -83,6 +91,29 @@ function ServerKeyRow({
 
 export function ServerKeysSection() {
   const { t } = useTranslation('settings')
+  const { hasServerKey } = useLlmSettings()
+  // undefined = 判定中（出さない）。null = 旧 api / 到達不能で、判断材料が無い
+  // ので従来どおり出す。
+  const [info, setInfo] = useState<InstanceInfo | null | undefined>(undefined)
+
+  useEffect(() => {
+    let cancelled = false
+    fetchInstanceInfo().then((data) => {
+      if (!cancelled) setInfo(data)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  if (info === undefined) return null
+  if (info) {
+    // 保存が必ず 503 になる配備では出さない。
+    if (info.write_gate === 'closed') return null
+    // デスクトップは単一ユーザー。既に効いている共有キーがあるときだけ見せる。
+    if (info.desktop && !PROVIDERS.some((p) => hasServerKey(p.id))) return null
+  }
+
   return (
     <section className="serverkeys">
       <h4 className="serverkeys-title">{t('serverKeys.title')}</h4>
