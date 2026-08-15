@@ -1,11 +1,11 @@
 {
-  "version": "0.14.3",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at e0aa820982212021be6a8aac16875998d81af42f -->\n\n## What's Changed\n* feat(ui): 骨格ゲートを可逆にする／使えない機能は理由ごと出す by @kumagallium in https://github.com/kumagallium/asterism/pull/360\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.14.2...v0.14.3",
-  "pub_date": "2026-08-14T09:22:12Z",
+  "version": "0.14.4",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 53f772e40a6d727aaa2d7ffc0f20e0fe6c79e9f3 -->\n\n## What's Changed\n* feat: 数値列に型を付ける — 型のない数は SPARQL が文字列として比較する by @kumagallium in https://github.com/kumagallium/asterism/pull/362\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.14.3...v0.14.4",
+  "pub_date": "2026-08-15T07:26:49Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcWYwWjRFWFpOTlRFNE5VZHlIUWJWenZmK21SUjcwUFNXUk96TWFhY0VTWm9IR0Z2YlBkVHZkNVhydFp4NWFCUmJSUk50R1htdUVYU3lQVHJnZy9JL1FzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg2Njk5MzMyCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CnBtZFU2SmFSamhwd3BJYkxqNEJqYjdpUEJDR2w4ZlNEdXdlb0J1aGlPYmpvZUt0ZytrakFXTmhXeHFZUk56UHpzTU1Eazd3cGlqYXg3ZHppNnllYURRPT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.14.3/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcWRuUU9QWHd6RGxnQy94VGttTkFvck9pTEFoOG1WL2RGcW8rcFFtdDIzWHVQUGpHbFhDdHlEaHhML1c0MHIwNmtFNjRCcUsvanA2WFlxbVR5ZHRjcGdnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg2Nzc4ODA5CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CnRhZEg2eHhWckM2UVVuSUVQYy85NzRQQjlwMVpjbnN2blpPKzhTUmtUSkNGc2FKRjZiM2tlazdkdnJhTXpSUTNjWmNrNC9TVHQxQVRySWlCSUZnTEJRPT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.14.4/Asterism_aarch64.app.tar.gz"
     }
   }
 }
