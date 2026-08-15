@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.14.4](https://github.com/kumagallium/asterism/compare/v0.14.3...v0.14.4) - 2026-08-15
+
+- feat: 数値列に型を付ける — 型のない数は SPARQL が文字列として比較する by @kumagallium in https://github.com/kumagallium/asterism/pull/362
+
 ## [v0.14.3](https://github.com/kumagallium/asterism/compare/v0.14.2...v0.14.3) - 2026-08-14
 
 - feat(ui): 骨格ゲートを可逆にする／使えない機能は理由ごと出す by @kumagallium in https://github.com/kumagallium/asterism/pull/360
