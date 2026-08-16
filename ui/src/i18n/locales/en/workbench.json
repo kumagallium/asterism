@@ -237,7 +237,10 @@
       "notChecked": "This item could not be checked",
       "revalidating": "Re-checking your edit…",
       "reattach": "Re-attach the file to re-check edited IDs",
-      "gapNeedsFiles": "Re-attach the files to create this kind (the check runs there too)."
+      "gapNeedsFiles": "Re-attach the files to create this kind (the check runs there too).",
+      "splitLead": "If some of these columns name one shared thing, split just those into their own kind. Then another file carrying the same values lands on the same one record.",
+      "splitKey": "The column that identifies it",
+      "splitAdd": "Split the {{count}} checked column(s) into their own kind"
     },
     "ns": {
       "title": "Namespaces (where this design mints its IDs)",

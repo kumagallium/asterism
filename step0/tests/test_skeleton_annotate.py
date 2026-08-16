@@ -591,3 +591,87 @@ def test_no_missing_row_kind_once_a_row_level_map_exists(tmp_path: Path) -> None
     out = annotate_skeleton(_card_skeleton(), [p])["maps"]
     assert "missing_row_kind" not in out["sample"]
     assert "missing_row_kind" not in out["peak"]
+
+
+# ---------------------------------------------------------------------------
+# ADR G15: splitting a shared concept out — the human's `owns` wins, and the
+# gate keeps working with two singletons on one source.
+# ---------------------------------------------------------------------------
+
+
+def _split_skeleton() -> dict:
+    """The card design after the human split the substance out: `sample`
+    (the card, keyed by No) + `substance` (keyed by Name, `owns` Name) + `peak`."""
+    sk = _card_skeleton()
+    sk["maps"][1]["subject"]["template"] = "xr:peak/{No}/{(hkl)}"  # already scoped
+    sk["maps"].append(
+        {
+            "name": "substance",
+            "source": "card.csv",
+            "subject": {"template": "xr:substance/{Name}", "classes": ["xo:Substance"]},
+            "owns": ["Name"],
+        }
+    )
+    return sk
+
+
+def test_human_owns_wins_the_singleton_tie(tmp_path: Path) -> None:
+    """Within ONE file `sample/{No}` and `substance/{Name}` both mint one entity,
+    so the machine cannot say who owns `Name` (a tie → silence). The human's
+    `owns` is world knowledge: substance owns it, and the card now BORROWS it."""
+    p = _write_reference_card(tmp_path)
+    out = annotate_skeleton(_split_skeleton(), [p])["maps"]
+    card_borrowed = {b["column"]: b["owner_map"] for b in out["sample"].get("borrowed_columns", [])}
+    assert card_borrowed == {"Name": "substance"}
+    # …and the peak, which used to borrow Name from the card, now borrows it
+    # from its real owner.
+    peak_borrowed = {b["column"]: b["owner_map"] for b in out["peak"]["borrowed_columns"]}
+    assert peak_borrowed["Name"] == "substance"
+    # The substance's own key is never "borrowed" by itself.
+    assert "borrowed_columns" not in out["substance"] or not any(
+        b["column"] == "Name" for b in out["substance"]["borrowed_columns"]
+    )
+
+
+def test_split_keeps_the_parent_and_the_forecast_alive(tmp_path: Path) -> None:
+    """G7 wanted exactly one singleton; a split adds a second ON PURPOSE. The
+    map carrying `owns` is never the parent, so the growth forecast still hangs
+    off the card — and now describes only what stayed on it."""
+    p = _write_reference_card(tmp_path)
+    out = annotate_skeleton(_split_skeleton(), [p])["maps"]
+    growth = out["sample"]["growth_preview"]
+    assert "Name" not in growth["described_columns"]  # it left with the substance
+    assert "growth_preview" not in out["substance"]  # the split map is not the parent
+    # The offer is always there; with one file nothing is pre-checked.
+    assert growth["split_default"] == {"columns": [], "key": None}
+
+
+def test_split_default_prefills_from_measured_overlap(tmp_path: Path) -> None:
+    """Two cards of the same substance: the pre-check IS the measured overlap,
+    and the suggested key is the identity-like shared column (Name), not a
+    number the files happen to agree on."""
+    first = _write_reference_card(tmp_path)
+    second = tmp_path / "card2.csv"
+    second.write_text(
+        "No,Name,2theta,d,I,(hkl)\n"
+        '03-065-5860,Aluminum Vanadium,21.40,4.150,6.0,"(0,0,2)"\n',
+        encoding="utf-8",
+    )
+    sk = _card_skeleton()
+    sk["maps"].append(
+        {"name": "sample2", "source": "card2.csv",
+         "subject": {"template": "xr:sample/{No}", "classes": ["xo:Material"]}}
+    )
+    growth = annotate_skeleton(sk, [first, second])["maps"]["sample"]["growth_preview"]
+    assert growth["split_default"] == {"columns": ["Name"], "key": "Name"}
+
+
+def test_missing_row_kind_survives_a_split(tmp_path: Path) -> None:
+    """A split (two singletons) must not silence the "peaks have nowhere to go"
+    repair — the parent is still the original card."""
+    p = _write_reference_card(tmp_path)
+    sk = _split_skeleton()
+    sk["maps"] = [m for m in sk["maps"] if m["name"] != "peak"]  # no row-level map
+    out = annotate_skeleton(sk, [p])["maps"]
+    assert out["sample"]["missing_row_kind"]["suggested_key"] == ["No", "(hkl)"]
+    assert "missing_row_kind" not in out["substance"]
