@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.14.6](https://github.com/kumagallium/asterism/compare/v0.14.5...v0.14.6) - 2026-08-16
+
+- 「AI に直してもらう」連打の 2 段目の真因 — splice 不能と既知修正の LLM 依存 by @kumagallium in https://github.com/kumagallium/asterism/pull/367
+
 ## [v0.14.5](https://github.com/kumagallium/asterism/compare/v0.14.4...v0.14.5) - 2026-08-16
 
 - 「確かめる」のやり直しを機械が回す — トラップ検証を自己修正ループのオラクルに合流 by @kumagallium in https://github.com/kumagallium/asterism/pull/364
