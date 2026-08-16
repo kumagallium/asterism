@@ -22,6 +22,24 @@ import { skeletonMermaid } from './skeletonDiagram'
 //  so the kantan tier can show plain-language copy — defaults keep the exact
 //  workbench strings, so the detail tier is byte-identical.)
 
+// Ghost rows on one card, before the rest fold into a count. A card that
+// delegates 40 measurement columns should still read as a card.
+const _GHOST_ROWS = 6
+
+// Consecutive blocks under one boundary line, in first-seen order. A card can
+// in principle borrow from two parents — that stays two blocks rather than one
+// averaged claim.
+function groupByOwner<T>(items: T[], owner: (item: T) => string | undefined) {
+  const groups: { owner: string | undefined; items: T[] }[] = []
+  for (const item of items) {
+    const key = owner(item)
+    const existing = groups.find((g) => g.owner === key)
+    if (existing) existing.items.push(item)
+    else groups.push({ owner: key, items: [item] })
+  }
+  return groups
+}
+
 // Human-readable reasons a map's key could not be checked (kept in sync with
 // skeleton_annotate's machine-readable `reason` values).
 function evidenceReasonKey(reason: string | undefined): string {
@@ -106,6 +124,12 @@ function SkeletonEvidence({
   // Columns another map owns (ADR column-ownership-and-growth), and — on a
   // file-scoped map — what appending the next file does to this design.
   const borrowed = ann.borrowed_columns ?? []
+  // Where each column this card CANNOT carry will live (G12). The card names
+  // them either way (`varying_columns`); the destination is what turns "not
+  // here" into "over there".
+  const delegatedOwner = new Map(
+    (ann.delegated_columns ?? []).map((d) => [d.column, d.owner_map] as const),
+  )
   const growth = ann.growth_preview
   const gap = ann.missing_row_kind
   const displayCls = (value: string) => (displayClass ? displayClass(value) : value)
@@ -138,6 +162,43 @@ function SkeletonEvidence({
   // risk). Singleton: merging is normal, so the chips fold behind the explicit
   // "should this be one record per row?" question instead.
   const showCandidates = !singleton && (collides || caution || risks.length > 0) && candidateChips
+  // The card's three ownership blocks (G12): what it carries, what another map
+  // owns, and what it cannot carry at all.
+  const cardProps = card?.properties ?? []
+  const ownProps = cardProps.filter((p) => !p.owner_map)
+  const borrowedGroups = groupByOwner(
+    cardProps.filter((p) => !!p.owner_map),
+    (p) => p.owner_map,
+  )
+  const ghostCols = (card?.varying_columns ?? []).slice(0, _GHOST_ROWS)
+  const ghostMore = (card?.varying_columns.length ?? 0) - ghostCols.length
+  const ghostGroups = groupByOwner(ghostCols, (col) => delegatedOwner.get(col))
+  const renderProp = (p: (typeof cardProps)[number], rowClass?: string) =>
+    p.conflict ? (
+      <tr key={p.column} className="skeleton-entity-conflict">
+        <th scope="row">{p.column}</th>
+        <td>
+          <span className="skeleton-entity-conflict-note">
+            ⚠ {t('workbench:skeleton.evidence.cardConflict')}
+          </span>
+          {(p.values ?? []).map((v) => (
+            <div key={v.line} className="skeleton-entity-conflict-value">
+              {t('workbench:skeleton.evidence.cardConflictLine', { value: v.value, line: v.line })}
+            </div>
+          ))}
+          {(p.more_values ?? 0) > 0 && (
+            <div className="skeleton-entity-conflict-value">
+              {t('workbench:skeleton.evidence.cardConflictMore', { count: p.more_values })}
+            </div>
+          )}
+        </td>
+      </tr>
+    ) : (
+      <tr key={p.column} className={rowClass}>
+        <th scope="row">{p.column}</th>
+        <td>{p.value}</td>
+      </tr>
+    )
   return (
     <div className="skeleton-evidence">
       {singleton ? (
@@ -223,59 +284,65 @@ function SkeletonEvidence({
               <code className="skeleton-evidence-id">{card.id}</code>
               {cardCls && <span className="skeleton-entity-class">{cardCls}</span>}
             </div>
+            {/* Ownership is POSITION + a boundary line, not dimming: the old
+                greyed row used the same --faint as the omitted-columns line, so
+                "this value is the parent's" read as "skipped". The value itself
+                is real — what differs is where it belongs (ADR G12). */}
             <table className="skeleton-entity-props">
               <tbody>
-                {card.properties.map((p) =>
-                  p.conflict ? (
-                    <tr key={p.column} className="skeleton-entity-conflict">
-                      <th scope="row">{p.column}</th>
-                      <td>
-                        <span className="skeleton-entity-conflict-note">
-                          ⚠ {t('workbench:skeleton.evidence.cardConflict')}
-                        </span>
-                        {(p.values ?? []).map((v) => (
-                          <div key={v.line} className="skeleton-entity-conflict-value">
-                            {t('workbench:skeleton.evidence.cardConflictLine', {
-                              value: v.value,
-                              line: v.line,
-                            })}
-                          </div>
-                        ))}
-                        {(p.more_values ?? 0) > 0 && (
-                          <div className="skeleton-entity-conflict-value">
-                            {t('workbench:skeleton.evidence.cardConflictMore', {
-                              count: p.more_values,
-                            })}
-                          </div>
-                        )}
+                {ownProps.map((p) => renderProp(p))}
+                {borrowedGroups.map((g) => (
+                  <Fragment key={`borrowed:${g.owner}`}>
+                    <tr className="skeleton-entity-band">
+                      <td colSpan={2}>
+                        ↓{' '}
+                        {t('workbench:skeleton.evidence.cardBorrowedBand', {
+                          map: g.owner,
+                          count: card.entity_count,
+                        })}
                       </td>
                     </tr>
-                  ) : (
-                    /* A value another map owns is drawn dimmed with its origin
-                       (ADR column-ownership-and-growth G2). Without this the
-                       child card silently repeats the parent's columns and
-                       reads as "correct" — the singleton card explains its
-                       missing per-row columns, so this side must explain its
-                       extra ones or the asymmetry misleads. */
-                    <tr key={p.column} className={p.owner_map ? 'skeleton-entity-borrowed' : undefined}>
-                      <th scope="row">{p.column}</th>
-                      <td>
-                        {p.value}
-                        {p.owner_map && (
-                          <span className="skeleton-entity-owner">
-                            {t('workbench:skeleton.evidence.cardFromParent', { map: p.owner_map })}
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  ),
-                )}
+                    {g.items.map((p) => renderProp(p, 'skeleton-entity-borrowed'))}
+                  </Fragment>
+                ))}
+                {/* Real columns the card cap left out — before the ghost block,
+                    since those are values the card DOES carry. */}
                 {card.omitted_columns > 0 && (
                   <tr>
                     <td colSpan={2} className="skeleton-entity-muted">
                       {t('workbench:skeleton.evidence.cardOmitted', {
                         count: card.omitted_columns,
                       })}
+                    </td>
+                  </tr>
+                )}
+                {/* The mirror block: columns this card cannot carry, drawn as
+                    ghost rows so the parent states its absence in the same
+                    shape the child states its extras. */}
+                {ghostGroups.map((g) => (
+                  <Fragment key={`delegated:${g.owner ?? ''}`}>
+                    <tr className="skeleton-entity-band">
+                      <td colSpan={2}>
+                        ↓{' '}
+                        {g.owner
+                          ? t('workbench:skeleton.evidence.cardDelegatedBand', { map: g.owner })
+                          : t('workbench:skeleton.evidence.cardDelegatedBandPlain')}
+                      </td>
+                    </tr>
+                    {g.items.map((col) => (
+                      <tr key={col} className="skeleton-entity-delegated">
+                        <th scope="row">{col}</th>
+                        <td className="skeleton-entity-ghost-value">
+                          {t('workbench:skeleton.evidence.cardVaries')}
+                        </td>
+                      </tr>
+                    ))}
+                  </Fragment>
+                ))}
+                {ghostMore > 0 && (
+                  <tr className="skeleton-entity-delegated">
+                    <td colSpan={2} className="skeleton-entity-muted">
+                      {t('workbench:skeleton.evidence.cardOmitted', { count: ghostMore })}
                     </td>
                   </tr>
                 )}
@@ -292,24 +359,13 @@ function SkeletonEvidence({
               {t('workbench:skeleton.evidence.cardMore', { count: card.entity_count - 1 })}
             </p>
           )}
-          {singleton && card.varying_columns.length > 0 && (
-            <p className="skeleton-evidence-line skeleton-evidence-muted">
-              {t('workbench:skeleton.evidence.cardVarying', {
-                count: card.varying_columns.length,
-                columns:
-                  card.varying_columns.slice(0, 5).join(', ') +
-                  (card.varying_columns.length > 5 ? ' …' : ''),
-              })}
-            </p>
-          )}
-          {/* The mirror of cardVarying: this card carries columns that are
-              decided elsewhere. One line states it; the reasoning folds away —
-              a wall of prose at the gate does not get read (real feedback). */}
+          {/* The boundary line inside the table already states WHAT; this holds
+              only the WHY, folded — a wall of prose at the gate does not get
+              read (real feedback). The column list is gone: the rows are it. */}
           {borrowed.length > 0 && (
             <details className="skeleton-fold">
               <summary>
-                {t('workbench:skeleton.evidence.cardBorrowed', {
-                  count: borrowed.length,
+                {t('workbench:skeleton.evidence.cardBorrowedWhyHead', {
                   map: borrowed[0].owner_map,
                 })}
               </summary>
@@ -317,9 +373,6 @@ function SkeletonEvidence({
                 {t('workbench:skeleton.evidence.cardBorrowedWhy', {
                   map: borrowed[0].owner_map,
                 })}
-              </p>
-              <p className="skeleton-evidence-line skeleton-evidence-muted">
-                {borrowed.map((b) => b.column).join(', ')}
               </p>
             </details>
           )}
