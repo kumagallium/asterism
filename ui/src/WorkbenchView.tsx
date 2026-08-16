@@ -36,6 +36,7 @@ import { SchemaGroundingPanel } from './SchemaGroundingPanel'
 import { useLlmSettings } from './settings/context'
 import { LlmGate } from './settings/LlmGate'
 import { SkeletonGate } from './SkeletonGate'
+import { clearSourceFiles, loadSourceFiles, saveSourceFiles } from './sourceFileStore'
 
 // Data-source kinds. CSV and JSON (#19) are wired end-to-end (Morph-KGC reads
 // both via the RML's referenceFormulation); API/DB are shown (the redesign's
@@ -419,6 +420,19 @@ export function WorkbenchView({
     else refineJobRef.current = handle
     return () => handle.close()
     // Mount-only: resume whatever job was persisted before this mount.
+  }, [])
+
+  // Mount-only: the source files come back from IndexedDB (this tab's set), so
+  // a restored proposal is no longer "read-only until you re-select the files"
+  // — the skeleton re-check, propose and ingest all have their input again.
+  useEffect(() => {
+    let cancelled = false
+    void loadSourceFiles().then((restored) => {
+      if (!cancelled && restored.length > 0) setFiles(restored)
+    })
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   const fks = () =>
@@ -911,6 +925,7 @@ export function WorkbenchView({
     setLastSaveKind(undefined)
     resetDialectContext() // FIX3: don't carry a stale override into the next dataset
     sessionStorage.removeItem(WB_STORAGE)
+    void clearSourceFiles()
   }
 
   // Completion drives the ✓ marks. Refine (2) is optional, so it has none.
@@ -1056,7 +1071,9 @@ export function WorkbenchView({
               accept={SOURCE_ACCEPT[source] ?? TABULAR_ACCEPT}
               multiple
               onChange={(e) => {
-                setFiles(Array.from(e.target.files ?? []))
+                const picked = Array.from(e.target.files ?? [])
+                setFiles(picked)
+                void saveSourceFiles(picked) // survive a reload
                 // FIX3: a new file set drops any stale dialect from the previous one (a
                 // same-named device export must not inherit the prior override); a fresh
                 // inspect re-detects and the human can re-confirm before generation.

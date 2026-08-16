@@ -51,6 +51,7 @@ import { clearIngestJob, loadIngestJob, saveIngestJob } from '../ingestJob'
 import { JobProgress } from '../JobProgress'
 import { useLlmSettings } from '../settings/context'
 import { SkeletonGate } from '../SkeletonGate'
+import { clearSourceFiles, loadSourceFiles, saveSourceFiles } from '../sourceFileStore'
 import { localName } from '../vocab'
 import { plainError } from './errorMessages'
 import { RecipeCard } from './RecipeCard'
@@ -468,6 +469,7 @@ export function KantanWizard({
     setSeededRedesign(redesignTarget.datasetId)
     resetPipelineState()
     setFiles([])
+    void clearSourceFiles() // the redesign's source is persisted server-side
     setKind('tabular')
     setSkeleton(null)
     setAnnotations(null)
@@ -649,6 +651,28 @@ export function KantanWizard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Mount-only: bring the source files back (IndexedDB, this tab's own set).
+  // With them, every restore that used to strand the user — the gate with no
+  // re-check, re-ingest asking for the files again — simply continues:
+  //   S1 with a kept skeleton → onFilesChosen takes its resume branch (S4 +
+  //   a fresh evidence check); S1 without one → a normal re-inspect;
+  //   S4-S9 → the files are just there again (re-check, rethink, re-ingest).
+  useEffect(() => {
+    let cancelled = false
+    void loadSourceFiles().then((restored) => {
+      if (cancelled || restored.length === 0) return
+      if (step === 1) {
+        onFilesChosen(restored)
+      } else {
+        setFiles(restored)
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // S5-S9 reload recovery (best-effort, ADR K3/K11): a still-running draft
   // ingest is re-attached through the same SSE replay the catalog uses
   // (StrictMode-safe — re-subscribing twice is harmless, unlike re-POSTing;
@@ -748,6 +772,7 @@ export function KantanWizard({
     setJobNotice('')
     setInspectErr('')
     setFiles(arr)
+    void saveSourceFiles(arr) // survive a reload (sessionStorage cannot hold a File)
 
     if (k === 'document') {
       // Documents need no AI design — the existing panel handles the whole
@@ -874,6 +899,7 @@ export function KantanWizard({
 
   function backToPick() {
     setFiles([])
+    void clearSourceFiles()
     setKind(null)
     setPreviews([])
     setInspection(null)
@@ -1568,6 +1594,7 @@ export function KantanWizard({
     }
     setPickError('')
     setFiles(arr)
+    void saveSourceFiles(arr)
     void runPipeline('attach', undefined, arr)
   }
 
@@ -1576,6 +1603,7 @@ export function KantanWizard({
   // (doRestart). Only component state — callers own sessionStorage + the confirm.
   function resetWizardToStart() {
     setFiles([])
+    void clearSourceFiles()
     setKind(null)
     setPreviews([])
     setInspection(null)
