@@ -48,10 +48,23 @@ api/main.py は既にこの 3 つを import 済み。step0→ingest の依存反
   実列・全 REGISTRY 関数と厳密なパラメータ名）を**USER メッセージに**（cache 安全）。弱モデルの再幻覚を「閉じた
   メニューから選べ」で抑える＝全判定が一致した最強レバー。refine には **単一結合文字列**（手動 composeFixComment と
   同一形＝実績のあるプロンプト形状）で渡す。
+- **トラップ検証（T1-T10）も同じオラクルに入れる（2026-08-16 追記）**。同じ materialize 済みバンドルに対して
+  `validate_schema` を回し、`fail` を issue 化する（`warn` は wizard も止めないので対象外）。バンドルの構成は
+  `/api/materialize` と**同一フィールド**＝ループの「収束」は wizard のゲート通過と一致する（source CSV を渡さない
+  ので T1/T6 は両方で skip）。issue の message は wizard の `runAiFix` と同形＝**症状＋決定論修正レシピ**
+  （症状だけでは弱モデルは無限ループする＝2026-07-14 の T4 事故）。キーは trap ID（レシピ本文は導出語を含み揺れる
+  ため、停滞検出をすり抜ける）。
+  **なぜ必要だったか**: それまでループはこのゲートを回しておらず、trap 不合格は「収束」の**後**に materialize で
+  初めて出た。wizard はそこで停止し、人間の「AI に直してもらう」クリックが**欠けていたラウンドそのもの**だった
+  （実測 2026-08-16: 70 行の XRD ファイルで約 5 クリック）。
+- **trap issue があるラウンドは全文 refine を強制**。surgical repair は §9 だけを再生成するので、実際に落ちる
+  trap の在処（T4/T7＝§7 MIE・T5＝図ドキュメント）に届かない。surgical のままだと 1 コールを空振りし、次の
+  ラウンドで停滞判定＝trap を残したまま止まる。
 - **停止条件（優先順）**: (a) 収束＝issue ゼロ; (b) env-bail＝LLM 例外全般（truncation/429/quota）＋
   registry/rdflib import 失敗 → 最良を保持・非ループ; (c) refine truncated（`complete` False）→ 直前の
   complete な `effective_schema_md` を保持し停止; (d) 停滞/循環＝正規化 issue キー集合が既出 or 直前と同一 → 停止;
-  (e) max_rounds（既定 3・`autocorrect=0` で kill-switch）。
+  (e) max_rounds（api 既定 5・`autocorrect=0` で kill-switch）。既定を 3→5 にしたのは trap 分の仕事が増えたため
+  ＝人間が手で回していた回数（実測 ~5）より機械の上限が少ないと、結局尻尾を人間に返すことになる。
 - 常に **`effective_schema_md`** を前進値に（`refined_md` でなく）。**最良（issue 最小）**の設計を snapshot し
   **それを返す**。返す設計に対応する `remaining_issues` を surface（最終ラウンドでなく返却設計のもの＝skew 修正）。
 - usage は毎ラウンド記録（`last_usage` は毎回上書き）。tag は round0=`propose` / refine=`propose.autocorrect`
@@ -66,7 +79,8 @@ api/main.py は既にこの 3 つを import 済み。step0→ingest の依存反
 
 ### API / UI
 
-- `/api/propose` は形を保ち、`autocorrect`（int・既定 `Settings.autocorrect_rounds`=3・0 で無効）を Query 追加。
+- `/api/propose` は形を保ち、`autocorrect`（int・既定 `Settings.autocorrect_rounds`=5・
+  `ASTERISM_AUTOCORRECT_ROUNDS` で上書き・0 で無効）を Query 追加。
   done 結果に `autocorrect` サマリ（converged / terminal_reason / rounds / remaining_issues / tabular_only /
   coverage_dropped）を additive で追加。`proposal_md` は最良設計。
 - UI: ラウンド進捗（既存 JobProgress に message 流す）＋ **正直な**収束/best-effort バナー。手動「AI に修正を依頼」は
