@@ -1,11 +1,11 @@
 {
-  "version": "0.14.4",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 53f772e40a6d727aaa2d7ffc0f20e0fe6c79e9f3 -->\n\n## What's Changed\n* feat: 数値列に型を付ける — 型のない数は SPARQL が文字列として比較する by @kumagallium in https://github.com/kumagallium/asterism/pull/362\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.14.3...v0.14.4",
-  "pub_date": "2026-08-15T07:26:49Z",
+  "version": "0.14.5",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at e5e24706bb2ec5c95c04603f33c66fff60a31086 -->\n\n## What's Changed\n* 「確かめる」のやり直しを機械が回す — トラップ検証を自己修正ループのオラクルに合流 by @kumagallium in https://github.com/kumagallium/asterism/pull/364\n* 列の帰属を「薄さ」ではなく帯と境界行で示す（親側にも行き先を出す） by @kumagallium in https://github.com/kumagallium/asterism/pull/365\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.14.4...v0.14.5",
+  "pub_date": "2026-08-16T08:02:27Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcWRuUU9QWHd6RGxnQy94VGttTkFvck9pTEFoOG1WL2RGcW8rcFFtdDIzWHVQUGpHbFhDdHlEaHhML1c0MHIwNmtFNjRCcUsvanA2WFlxbVR5ZHRjcGdnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg2Nzc4ODA5CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CnRhZEg2eHhWckM2UVVuSUVQYy85NzRQQjlwMVpjbnN2blpPKzhTUmtUSkNGc2FKRjZiM2tlazdkdnJhTXpSUTNjWmNrNC9TVHQxQVRySWlCSUZnTEJRPT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.14.4/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVZwVU5Wb3h5cTBXS0Z0R1pvK0FleU5HZVRqM3V0dGsxNVFpTVdicmJWYVNWMDNpRXYxOTZ1L0x1QTdXUmxOVk5IRlppSk82Rlh0aVZoWCthMGJjeHdRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg2ODY3MzQ3CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CmVsUU9XdXhnUmhnS0pIc0VFQ2FLWWEyYVhIc2ZKTlpXaW0xaDROWXpTOGJZV0FVeHZWVUV2T01WL05mcmlVdHUxbDdGTnREK2REblhhdVAvMzZKM0NBPT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.14.5/Asterism_aarch64.app.tar.gz"
     }
   }
 }
