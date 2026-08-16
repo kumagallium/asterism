@@ -258,16 +258,28 @@ function normalizeChain(raw: unknown, iri: string): ProvenanceChain {
 
 // ---- public API -----------------------------------------------------------
 
+/** One earlier turn of the chat a question continues (`history` in /demo/ask). */
+export interface AskHistoryTurn {
+  role: 'user' | 'assistant'
+  content: string
+}
+
 /** Ask a natural-language question; get a grounded answer + citations + notes.
  *
  * The deterministic typed path needs no key. When it finds nothing (e.g. a
  * user-designed schema), the agent falls back to an LLM that writes read-only
  * SPARQL — that path needs a key. We reuse the workbench's user-brought key
  * (sessionStorage, never persisted) so a question over a freshly-designed
- * schema "just works" without a second key prompt. */
+ * schema "just works" without a second key prompt.
+ *
+ * `history` = the earlier turns of the chat thread this question belongs to
+ * (oldest first; see askThreads.historyFor). The agent is stateless — the
+ * thread lives in the browser — and replays these as the LLM's message prefix
+ * so follow-ups resolve. Omit/empty for a single question. */
 export async function ask(
   question: string,
   creds?: LlmCredentials | null,
+  history: AskHistoryTurn[] = [],
 ): Promise<AskResponse> {
   if (IS_MOCK) {
     await delay(450) // feel of a real call
@@ -280,7 +292,7 @@ export async function ask(
       'Content-Type': 'application/json',
       ...llmHeaders(creds ?? null),
     },
-    body: JSON.stringify({ question }),
+    body: JSON.stringify(history.length > 0 ? { question, history } : { question }),
   })
   if (!res.ok) {
     const detail = await res.text().catch(() => '')

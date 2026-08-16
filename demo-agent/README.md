@@ -16,7 +16,12 @@ contract. The real version will call the asterism typed MCP tools
 The UI calls only these two endpoints (full shapes in
 [`../../handoff_to_claude_code_arise_demo.md`](../../handoff_to_claude_code_arise_demo.md) §3):
 
-- `POST /demo/ask` → `{answer, citations[], notes[]}`
+- `POST /demo/ask` `{question, history?}` → `{answer, citations[], notes[]}`
+  — `history` = the earlier `{role, content}` turns of the chat this question
+  continues (the UI holds the thread; the agent is stateless and replays them
+  as the LLM's message prefix — see
+  [`../docs/architecture/ask-chat-threads.md`](../docs/architecture/ask-chat-threads.md)).
+  Omit it for a single question.
 - `GET /demo/provenance?iri=<iri>` → `{iri, chain[]}`
 
 ## Run

@@ -137,6 +137,53 @@ export function ChevronIcon(p: IconProps) {
   )
 }
 
+/** Up arrow in a circle-less stem — send a chat message. */
+export function SendIcon(p: IconProps) {
+  return (
+    <Icon {...p} sw={2}>
+      <path d="M12 19V5M6 11l6-6 6 6" />
+    </Icon>
+  )
+}
+
+/** Trash — delete a chat thread. */
+export function TrashIcon(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M4 7h16M9 7V4.5h6V7M6.5 7l.8 12.2A1.5 1.5 0 0 0 8.8 20.6h6.4a1.5 1.5 0 0 0 1.5-1.4L17.5 7" />
+      <path d="M10 11v6M14 11v6" />
+    </Icon>
+  )
+}
+
+/** X — close a panel. */
+export function CloseIcon(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M6 6l12 12M18 6L6 18" />
+    </Icon>
+  )
+}
+
+/** Circular arrow — retry. */
+export function RetryIcon(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M20 12a8 8 0 1 1-2.6-5.9" />
+      <path d="M20 4v5h-5" />
+    </Icon>
+  )
+}
+
+/** Stacked chat lines — the thread list (narrow-screen toggle). */
+export function ThreadsIcon(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M4 6h16M4 12h16M4 18h10" />
+    </Icon>
+  )
+}
+
 /** Two linked nodes — provenance trace. */
 export function TraceIcon(p: IconProps) {
   return (
