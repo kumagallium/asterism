@@ -96,3 +96,56 @@ for md in sorted(Path("experiments/mapping-ir-weakmodel-dogfood/results").glob("
         mat = materialize_schema(md.read_text(), tmp, "design", write=True)
         print(md.name, [i.subject for i in trap_issues(mat)])
 ```
+
+---
+
+## Addendum 2026-08-17 — ライブ再現で見つかった 2 段目の障害（splice 不能＋既知修正の LLM 依存）
+
+v0.14.5（トラップ合流を含む）でユーザーが同じ XRD ファイルを再取り込みしたところ、
+**依然として「AI に直してもらう」が繰り返し必要**だった。usage 台帳の実測:
+propose 8・propose.autocorrect 2・refine 3（すべて gpt-oss-120b）。最終保存された設計には
+**数値 4 列（Z value / Volume / RIR(I/Ic) / Dcalc）の untyped-numeric advisory が残ったまま**
+だった。
+
+### 真因は 2 つ
+
+**① splice 不能 — `unit:` 自動補完が外科修復を全滅させていた。**
+materialize は抽出した §9 を `enrich_units` / `apply_source_dialects` で決定論加工して
+**再シリアライズ**する（PyYAML はリストのインデントと引用符を正規化する）。
+`replace_mapping_spec_block` はこの加工後テキストを文書中から探すため、
+`RIR(I/Ic)` のような括弧付き列名から `unit:` が 1 つ補完されただけで
+**「could not locate the mapping-spec block」→ 全外科修復ラウンドが空振り**していた。
+ループは `spec repair discarded` を記録して `no_progress` 停止（実測どおり
+autocorrect 2 回で打ち切り）。dialect 再ピン（`_overlay_detected_dialects`）も同じ関数を
+使うため、同様に黙って no-op していた。
+→ **修正**: `MaterializeResult.mapping_ir_source`（文書に実在する原文ブロック）を追加し、
+splice はそれをキーにする。
+
+**② 既知の修正を LLM に「お願い」していた。**
+untyped-numeric advisory が発火する時点で、機械は全行を読み、全セルが数値であることを
+証明し、integer/double まで決定済み＝**厳密な編集内容が既知**。それでも修正は refine
+コメント頼みで、gpt-oss-120b は 3 回の refine で 1 列も直せなかった。
+→ **修正**: `_stamp_numeric_datatypes` — advisory が名指しした §9 の property 行に
+`datatype:` を決定論で押印し、**LLM 0 コール**で解消する。修復後に再検証し、issue が
+**厳密に減った場合のみ採用**（悪化しない安全性）。structural エラー・legacy raw-RML・
+`function`/`datatype` 既設行は対象外＝LLM に残す。
+
+### 実測（ユーザーの実データ dataset-13dea822 の proposal.md をリプレイ）
+
+| | issues | LLM コール |
+|---|---|---|
+| 修正前（ライブで詰まっていた状態） | 4 | 5 ラウンド費やして解消せず |
+| 修正後 | **0** | **0** |
+
+前回 addendum の「T10 が同ラウンドを要求する以上、決定論適用の節約はゼロ」という判断は
+**このデータには当てはまらなかった**: 実際に残っていたのはトラップではなく advisory 4 件
+のみで、そのすべてが機械が答えを知っている類だった。「LLM 先・決定論フォールバック」の
+一般則は維持しつつ、**機械が編集内容を厳密に知っている advisory は決定論が先**が正しい。
+
+### 再現
+
+```bash
+cd api && PYTHONPATH=../api/src:../step0/src:../ingest/src \
+  python -m pytest tests/test_design_loop_datatype_repair.py tests/test_design_loop_traps.py -q
+cd ../step0 && python -m pytest tests/test_mapping_ir_schema.py -q  # splice 回帰
+```

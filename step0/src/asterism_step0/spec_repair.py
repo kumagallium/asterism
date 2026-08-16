@@ -100,8 +100,20 @@ def parse_spec_json(raw: str) -> str:
 def replace_mapping_spec_block(schema_md: str, new_spec_yaml: str) -> str:
     """Splice a new spec into the document's §9 yaml block, byte-preserving
     everything else. Uses the SAME extractor materialize uses to find the
-    block, so what gets replaced is exactly what downstream would extract."""
-    current = materialize_schema(schema_md, ".", "splice", write=False).mapping_ir_yaml
+    block, so what gets replaced is exactly what downstream would extract.
+
+    Reads ``mapping_ir_source`` — the block as it literally appears — NOT
+    ``mapping_ir_yaml``, which materialize re-serializes through its
+    deterministic overlays (``enrich_units`` / ``apply_source_dialects``).
+    PyYAML normalizes list indentation and quoting, so the overlaid text is not
+    a substring of the document and every splice raised "could not locate the
+    mapping-spec block". Live consequence (2026-08-17, XRD reference card): a
+    ``unit:`` auto-filled from the column name ``RIR(I/Ic)`` was enough to make
+    EVERY surgical repair round fail and be discarded — the loop then stopped on
+    ``no_progress`` with the design unfixed, and the user clicked
+    "AI に直してもらう" over and over with nothing changing."""
+    mat = materialize_schema(schema_md, ".", "splice", write=False)
+    current = mat.mapping_ir_source or mat.mapping_ir_yaml
     if current is None:
         raise ValueError("the document has no mapping-spec block to replace")
     if current not in schema_md:

@@ -152,6 +152,37 @@ def test_replace_mapping_spec_block_splices_only_section_nine() -> None:
         replace_mapping_spec_block("# no spec here\n", "x: 1")
 
 
+def test_replace_mapping_spec_block_survives_the_unit_overlay() -> None:
+    """Regression (live 2026-08-17, XRD reference card): materialize fills a
+    display ``unit`` from a bracketed column name and re-serializes the spec on
+    the way out. The overlaid text is NOT a substring of the document (PyYAML
+    normalizes list indentation and quoting), so a splice that searched for it
+    raised "could not locate the mapping-spec block" — silently disabling EVERY
+    surgical repair round on such a design. The splice must key on the block as
+    it literally appears in the document."""
+    doc = (
+        "# Title\n\n### 9. Declarative mapping spec\n\n```yaml\n"
+        "version: 1\n"
+        "prefixes:\n"
+        '  ex: "https://ns.invalid/ns#"\n'
+        "maps:\n"
+        "  - name: m\n"
+        "    source: data.csv\n"
+        "    subject:\n"
+        '      template: "ex:m/{SID}"\n'
+        "      classes:\n"
+        "        - ex:Thing\n"          # 4-space list indent: PyYAML emits 2
+        "    properties:\n"
+        "      - predicate: ex:rir\n"
+        "        column: 'RIR(I/Ic)'\n"  # bracketed name → enrich_units fires
+        "```\n\n### tail\nprose stays\n"
+    )
+    out = replace_mapping_spec_block(doc, "version: 1\nprefixes: {}\nmaps: [1]\n")
+    assert "maps: [1]" in out
+    assert "RIR(I/Ic)" not in out  # the whole old block is gone, not just part
+    assert "prose stays" in out
+
+
 def test_schema_accepts_dialects_and_stays_propertynames_free() -> None:
     doc = _minimal(column="name")
     doc["maps"][0]["source"] = "xrd.txt"

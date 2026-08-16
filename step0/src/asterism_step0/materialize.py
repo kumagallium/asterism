@@ -146,6 +146,13 @@ class MaterializeResult:
     ingester_py: str | None = None
     rml_ttl: str | None = None  # compiled from the mapping spec, or legacy raw RML
     mapping_ir_yaml: str | None = None  # the extracted Mapping IR block (additive)
+    mapping_ir_source: str | None = None
+    """The §9 block EXACTLY as it appears in the document, before the
+    deterministic overlays (``enrich_units`` / ``apply_source_dialects``)
+    re-serialize :attr:`mapping_ir_yaml`. Only a splice needs this: the overlaid
+    text is not a substring of the document, so searching for it fails (observed
+    live 2026-08-17 — a `unit:` filled from a bracketed column name silently
+    disabled every surgical repair round on that design)."""
     diagram_from_ir: bool = False
     """True when :attr:`mermaid` was compiled deterministically from the
     mapping spec (IR) rather than taken from the LLM's §1 sketch."""
@@ -381,6 +388,12 @@ def materialize_schema(
         language_prefs=("yaml", "yml"),
         allow_lang_only=False,
     )
+    # Remember the block VERBATIM, before the deterministic overlays below
+    # (enrich_units / apply_source_dialects) re-serialize it. Splicing a repaired
+    # spec back needs the text that is actually IN the document; the overlaid
+    # value is not (PyYAML normalizes list indentation and quoting), so a caller
+    # searching for it finds nothing. See ``spec_repair.replace_mapping_spec_block``.
+    result.mapping_ir_source = result.mapping_ir_yaml
 
     # For MIE, exclude the blocks already claimed as the model / mapping spec.
     mie_candidates = [
