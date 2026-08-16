@@ -23,6 +23,7 @@ import i18n from './i18n'
 const DISCONNECTED = 'DISCONNECTED groups'
 const DUPLICATE_COLUMN = 'is bound as a plain datatype property by'
 const UNMAPPED_COLUMN = 'column(s) the mapping never uses'
+const EMPTY_SHELL = 'binds NO value column of its own'
 
 /**
  * Marker phrases from `asterism/shapes.py` (ADR data-shape-checks.md).
@@ -55,6 +56,25 @@ export interface PlainAdvisory {
   raw: string[]
 }
 
+/** `map 'XRD-card' mints one entity per row …` → "XRD-card" */
+function shellMap(advisory: string): string {
+  const m = /^map '([^']+)' mints one entity per row/.exec(advisory)
+  return m ? m[1] : ''
+}
+
+/** The columns the shell advisory names as dropped (`… bound by no map at all —
+ * 2theta, d, I. Put them on 'XRD-card'.`). Only these are quoted in the plain
+ * line; a MOVE clause (values parked on the header card) stays in the raw fold.
+ * Anchored on the fixed tail so a column name containing `.` survives. */
+function shellDroppedColumns(advisory: string): string[] {
+  const m = /bound by no map at all — (.+?)\. Put them on '/.exec(advisory)
+  if (!m) return []
+  return m[1]
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s && s !== '…')
+}
+
 /** `Sample.hasMeasurement is a DANGLING reference: …` → "Sample.hasMeasurement" */
 function subjectOf(advisory: string): string {
   const m = /^([\w:.-]+)\s/.exec(advisory)
@@ -82,6 +102,7 @@ export function plainAdvisories(advisories: string[]): PlainAdvisory[] {
   const disconnected = advisories.filter((a) => a.includes(DISCONNECTED))
   const duplicate = advisories.filter((a) => a.includes(DUPLICATE_COLUMN))
   const unmapped = advisories.filter((a) => a.includes(UNMAPPED_COLUMN))
+  const shells = advisories.filter((a) => a.includes(EMPTY_SHELL))
   const shape: PlainAdvisory[] = []
   const shapeHits = [
     ...shapeLines(advisories, SHAPE_MISSING, 'gallery:advisory.shapeMissing', shape),
@@ -89,7 +110,7 @@ export function plainAdvisories(advisories: string[]): PlainAdvisory[] {
     ...shapeLines(advisories, SHAPE_WRONG_CLASS, 'gallery:advisory.shapeWrongClass', shape),
     ...shapeLines(advisories, SHAPE_DATATYPE, 'gallery:advisory.shapeDatatype', shape),
   ]
-  const known = new Set([...disconnected, ...duplicate, ...unmapped, ...shapeHits])
+  const known = new Set([...disconnected, ...duplicate, ...unmapped, ...shells, ...shapeHits])
   const other = advisories.filter((a) => !known.has(a))
 
   const out: PlainAdvisory[] = []
@@ -102,6 +123,21 @@ export function plainAdvisories(advisories: string[]): PlainAdvisory[] {
         groups.length === 2
           ? t('gallery:advisory.disconnectedPair', { a: groups[0], b: groups[1] })
           : t('gallery:advisory.disconnected', { count: groups.length || 2 }),
+      raw: [a],
+    })
+  }
+  // A per-row kind that records nothing of its own — named per kind, with the
+  // columns the data says are its (the human saw those on the gate's card).
+  for (const a of shells) {
+    const cols = shellDroppedColumns(a)
+    out.push({
+      text:
+        cols.length > 0
+          ? t('gallery:advisory.emptyShellColumns', {
+              cls: shellMap(a),
+              columns: cols.join(', '),
+            })
+          : t('gallery:advisory.emptyShell', { cls: shellMap(a) }),
       raw: [a],
     })
   }
