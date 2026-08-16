@@ -73,5 +73,8 @@
     "hint": "These are the read-only queries this answer ran (verified tools use a fixed template; the escape is AI-generated).",
     "copy": "Copy SPARQL",
     "copied": "✓ Copied"
+  },
+  "warning": {
+    "untypedNumeric": "This answer orders or compares “{{variable}}”, but those values are stored as untyped text. SPARQL compares them as strings (\"9.4\" > \"100.0\"), so a maximum, minimum or ranking here may be wrong. Rebuild the dataset with the column typed, or cast in the query: xsd:double({{variable}})."
   }
 }

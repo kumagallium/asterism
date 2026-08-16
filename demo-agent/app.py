@@ -392,6 +392,10 @@ Choosing a tool:
 - Data-quality honesty: if a verified ranking tool takes a plausibility-cap
   parameter (e.g. max_plausible), consider calling it once WITHOUT the cap too,
   and mention any physically-implausible outliers you excluded.
+- If a tool result carries `warnings`, the data itself is suspect for that
+  question (e.g. numbers stored as text under ORDER BY). Do NOT present the
+  value as settled: state the caveat in the answer, and prefer re-running with
+  the suggested cast (xsd:double(?var)) when the warning names one.
 - ANYTHING ELSE — cross-dataset joins, correlations between two things, custom
   shapes, or a question no verified tool covers — write SPARQL and run_sparql.
 
@@ -683,6 +687,10 @@ async def _llm_answer_via(
     used_sparql: list[str] = []
     verified_used: list[dict] = []  # provenance: vetted tools the answer used
     state = {"unverified": False}  # whether the unverified SPARQL escape was used
+    # Deterministic caveats the tools raised about their OWN results (an untyped
+    # number under ORDER BY, …). Carried to the answer regardless of whether the
+    # model chose to mention them — the last line of defence is not the model.
+    data_warnings: list[dict] = []
     usage: dict = {
         "input_tokens": 0,
         "output_tokens": 0,
@@ -702,6 +710,9 @@ async def _llm_answer_via(
                 # plain SELECT to read the cross-dataset canonical FROM-merge (#20),
                 # so the user sees the real, reproducible query string.
                 used_sparql.append(result.get("effective_query") or q)
+                for warning in result.get("warnings") or []:
+                    if warning not in data_warnings:
+                        data_warnings.append(warning)
                 return result
             if name in content_registry:
                 # A declared (verified) query tool from another dataset, e.g.
@@ -732,6 +743,7 @@ async def _llm_answer_via(
             "sparql": used_sparql,
             "verified_tools": verified_used,
             "unverified_sparql": state["unverified"],
+            "warnings": data_warnings,
         }
 
     def finalize_text(text: str) -> dict:

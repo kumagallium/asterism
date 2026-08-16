@@ -418,3 +418,47 @@ def test_column_owners_feed_the_confirmed_skeleton_verdict(tmp_path: Path) -> No
     assert owners == {"peak": {"Name": "sample"}}
     # An unreadable source never blocks generation — it just yields no constraint.
     assert design_loop._column_owners(skeleton, [tmp_path / "missing.csv"], {}) == {}
+
+
+def test_overlay_data_facts_survives_a_round_that_dropped_them() -> None:
+    """The live failure: round-0 typed the numeric columns; the autocorrect
+    round's LLM rewrote §9 without them (0 datatypes in the saved mapping). The
+    overlay runs after EVERY round, so what the data proved is re-asserted no
+    matter which round was last — and it is idempotent, so a clean §9 is
+    byte-untouched."""
+    from asterism_step0.staged_propose import fill_mapping_spec_block, mapping_ir_to_yaml
+
+    ir_after_refine = {
+        "version": 1,
+        "prefixes": {"xo": "https://x/#", "xr": "https://x/r/"},
+        "maps": [
+            {
+                "name": "sample",
+                "source": "card.txt",
+                "subject": {"template": "xr:sample/{No}", "classes": ["xo:Material"]},
+                "properties": [{"predicate": "xo:volume", "column": "Volume"}],
+            },
+            {
+                "name": "peak",
+                "source": "card.txt",
+                "subject": {"template": "xr:peak/{No}/{(hkl)}", "classes": ["xo:Peak"]},
+                "properties": [
+                    {"predicate": "xo:intensity", "column": "I"},
+                    {"predicate": "xo:name", "column": "Name"},  # borrowed, came back
+                ],
+            },
+        ],
+    }
+    schema_md = fill_mapping_spec_block(
+        "### 1. Class hierarchy\n\n(design)\n", mapping_ir_to_yaml(ir_after_refine)
+    )
+    owners = {"peak": {"Name": "sample"}}
+    types = {"sample": {"Volume": "xsd:double"}, "peak": {"I": "xsd:double"}}
+    fixed = design_loop._overlay_data_facts(schema_md, owners, types)
+    assert fixed != schema_md
+    assert "datatype: xsd:double" in fixed
+    assert "column: Name" not in fixed  # the transcription is gone…
+    assert "column: Volume" in fixed and "column: I" in fixed  # …the real values stay
+    # Idempotent, and a no-verdict call is a no-op.
+    assert design_loop._overlay_data_facts(fixed, owners, types) == fixed
+    assert design_loop._overlay_data_facts(schema_md, {}, {}) == schema_md

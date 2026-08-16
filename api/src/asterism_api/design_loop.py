@@ -96,7 +96,7 @@ from asterism_step0.spec_repair import (
     parse_spec_json,
     replace_mapping_spec_block,
 )
-from asterism_step0.staged_propose import propose_from_skeleton
+from asterism_step0.staged_propose import apply_data_facts, propose_from_skeleton
 from asterism_step0.validate import SchemaBundle, validate_schema
 
 # Column-checkable delimited files: classic CSV/TSV plus the legacy instrument
@@ -957,6 +957,9 @@ def run_design_loop(
     # default (e.g. skip_rows corrected 1→0) survives the materialize re-pin (FIX2).
     override_names = frozenset(dialect_overrides or {})
     oracle = build_oracle(base, paths, dialects=effective)
+    # The data-derived facts (who owns a column, which columns are numbers) —
+    # re-asserted on §9 after EVERY round below, so no LLM round can undo them.
+    data_facts: tuple[Mapping[str, Mapping[str, str]], Mapping[str, Mapping[str, str]]] = ({}, {})
     if skeleton is not None:
         # Phase 2b staged round-0. The oracle IS the per-map menu (exact files /
         # columns / function signatures), so property generation stays inside the
@@ -979,6 +982,7 @@ def run_design_loop(
         # Numeric columns get a datatype from the DATA (ADR §B): an untyped
         # number is compared lexically by SPARQL — a silent wrong answer.
         column_datatypes = _column_datatypes(skeleton, paths, effective)
+        data_facts = (column_owners, column_datatypes)
         _emit(on_progress, phase="propose", round=0, message="骨格から設計を生成中")
         schema_md = propose_from_skeleton(
             skeleton,
@@ -1012,6 +1016,7 @@ def run_design_loop(
         inspection_md = proposal.csv_inspection_md
         metadata = dict(proposal.metadata)
     schema_md = _overlay_detected_dialects(schema_md, effective, override_names)
+    schema_md = _overlay_data_facts(schema_md, *data_facts)
 
     def _result(
         best_schema: str,
@@ -1146,6 +1151,7 @@ def run_design_loop(
         # Re-pin the effective dialects (a repair round could have dropped the
         # section; explicit values the round kept still win). Idempotent.
         schema_md = _overlay_detected_dialects(schema_md, effective, override_names)
+        schema_md = _overlay_data_facts(schema_md, *data_facts)
         try:
             schema_md, ir_yaml, issues = _evaluate(schema_md, base)
         except _LoopEnvError as exc:
@@ -1165,6 +1171,46 @@ def run_design_loop(
 
     return _result(best_schema, best_issues, rounds, converged=False,
                    reason="max_rounds", initial=initial, base_refs=base_refs)
+
+
+def _overlay_data_facts(
+    schema_md: str,
+    column_owners: Mapping[str, Mapping[str, str]] | None,
+    column_types: Mapping[str, Mapping[str, str]] | None,
+) -> str:
+    """Re-assert the data-derived facts on the §9 spec after ANY round.
+
+    Sibling of :func:`_overlay_detected_dialects`, same posture: the model may
+    rearrange predicates and prose, it may not un-know what the rows proved —
+    a column belongs to one map (ADR column-ownership G6) and a number is
+    typed (ADR numeric-literal-typing N2). Round-0 applied both per map; a
+    later self-correction round rewrote §9 from memory and lost them (live).
+    Idempotent; a schema with no §9 spec, or one that cannot be re-spliced, is
+    left byte-untouched. No-op when there is nothing to assert.
+    """
+    if not column_owners and not column_types:
+        return schema_md
+    ir_yaml, _ = _extract_design(schema_md)
+    if not ir_yaml or not ir_yaml.strip():
+        return schema_md
+    import yaml
+
+    try:
+        doc = yaml.safe_load(ir_yaml)
+    except yaml.YAMLError:
+        return schema_md
+    if not isinstance(doc, dict):
+        return schema_md
+    new_doc, changed = apply_data_facts(
+        doc, column_owners=column_owners, column_types=column_types
+    )
+    if not changed:
+        return schema_md
+    new_yaml = yaml.safe_dump(new_doc, sort_keys=False, allow_unicode=True)
+    try:
+        return replace_mapping_spec_block(schema_md, new_yaml)
+    except ValueError:
+        return schema_md
 
 
 def _extract_design(schema_md: str) -> tuple[str | None, str | None]:

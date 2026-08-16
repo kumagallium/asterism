@@ -777,6 +777,96 @@ def _attach_label_value(item: dict[str, Any], key: str, labels: dict[str, str]) 
         item["label"] = label
 
 
+# The SPARQL constructs whose result depends on how a value COMPARES: order,
+# aggregate, or a numeric relation in FILTER/HAVING. Untyped literals compare as
+# text under all of them ("9.4" > "100.0"), and that is the failure this guard
+# exists for (ADR numeric-literal-typing.md).
+_COMPARE_CONSTRUCTS = re.compile(
+    r"\bORDER\s+BY\b|\b(?:MAX|MIN|AVG|SUM)\s*\(|\bHAVING\b|[<>]=?",
+    re.IGNORECASE,
+)
+_QUERY_VAR = re.compile(r"[?$](\w+)")
+_NUMERIC_TEXT = re.compile(r"[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$")
+
+
+def untyped_numeric_warnings(query: str, columns: list[str], rows: list[dict]) -> list[dict]:
+    """The last line of defence against a number stored as a string.
+
+    Design-time typing (staged propose stamps ``xsd:double``; the validator flags
+    an untyped numeric column) covers NEW designs. Data ingested before that, or
+    through a hand-written mapping, still holds ``"9.4"`` as a plain literal —
+    and a query that ORDERs, aggregates or compares it answers WRONGLY with no
+    error (live: highest intensity reported as 9.4, not 100.0). This inspects
+    what actually came back: a projected variable whose every value is an
+    untyped literal that LOOKS numeric, in a query that compares — that is
+    exactly the shape of the silent wrong answer, so say so alongside the rows.
+
+    Only variables the query mentions in a comparing construct are judged (a
+    ``?label`` that happens to be numeric text is not the problem), and a
+    variable is judged only when it is projected (unprojected → no evidence,
+    no claim). One warning per variable, machine-readable ``kind`` + the human
+    sentence, so both an LLM tool loop and a UI strip can carry it.
+    """
+    # IRIs first: `<…/ontology#intensity>` holds a `#`, and a plain "strip to
+    # end of line" would swallow the ORDER BY after it (the real query shape).
+    # We never need the IRI text here — only clauses and ?variables.
+    stripped = re.sub(r"#.*", "", re.sub(r"<[^>\s]*>", "<>", query or ""))
+    if not rows or not _COMPARE_CONSTRUCTS.search(stripped):
+        return []
+    # Variables that appear anywhere the comparison happens: after ORDER BY,
+    # inside an aggregate, in HAVING, or on either side of a relation. Cheap
+    # over-approximation: every var in those clauses' text.
+    mentioned: set[str] = set()
+    for m in re.finditer(
+        r"\bORDER\s+BY\b(.*?)(?:\bLIMIT\b|\bOFFSET\b|$)|"
+        r"\b(?:MAX|MIN|AVG|SUM)\s*\(([^)]*)\)|"
+        r"\bHAVING\b(.*?)(?:\bORDER\b|\bLIMIT\b|$)|"
+        r"\bFILTER\s*\((.*?)\)",
+        stripped,
+        re.IGNORECASE | re.DOTALL,
+    ):
+        for group in m.groups():
+            if group and re.search(r"[<>]=?|ORDER|MAX|MIN|AVG|SUM|HAVING", m.group(0), re.I):
+                mentioned.update(_QUERY_VAR.findall(group))
+    # `(MAX(?i) AS ?m)`: the aggregate is over ?i, but what comes back is ?m —
+    # judge the alias, since that is the value the caller will present.
+    for m in re.finditer(
+        r"\(\s*(?:MAX|MIN|AVG|SUM)\s*\([^)]*\)\s+AS\s+[?$](\w+)\s*\)", stripped, re.I
+    ):
+        mentioned.add(m.group(1))
+    if not mentioned:
+        return []
+    out: list[dict] = []
+    for var in columns:
+        if var not in mentioned:
+            continue
+        cells = [r.get(var) for r in rows if r.get(var) is not None]
+        if not cells:
+            continue
+        untyped_numeric = all(
+            c.get("type") == "literal"
+            and not c.get("datatype")
+            and isinstance(c.get("value"), str)
+            and _NUMERIC_TEXT.match(c["value"].strip() or "x")
+            for c in cells
+        )
+        if untyped_numeric:
+            out.append(
+                {
+                    "kind": "untyped-numeric-compare",
+                    "variable": var,
+                    "message": (
+                        f"?{var} holds numbers stored WITHOUT a datatype, and this query "
+                        f"orders/aggregates/compares it — SPARQL then compares TEXT "
+                        f'("9.4" sorts above "100.0"), so the result may be wrong. '
+                        f"Re-ingest the dataset with the column typed (xsd:double), or "
+                        f"cast in the query: xsd:double(?{var})."
+                    ),
+                }
+            )
+    return out
+
+
 def _flatten_cell(node: dict[str, Any] | None) -> dict[str, Any] | None:
     """Flatten a SPARQL-Results binding cell to ``{value, type, datatype?, lang?}``."""
     if not node:
@@ -856,6 +946,12 @@ async def sparql_query(
         {var: _flatten_cell(r.get(var)) for var in columns}
         for r in bindings[:max_rows]
     ]
+    # Untyped numbers under ORDER/aggregate/compare: the silent wrong answer.
+    # Reported next to the rows so the caller (an LLM loop, a UI) can qualify
+    # what it says instead of presenting a text-sorted "maximum" as a fact.
+    warnings = untyped_numeric_warnings(effective, columns, rows)
+    if warnings:
+        extra["warnings"] = warnings
     return {
         "columns": columns,
         "rows": rows,

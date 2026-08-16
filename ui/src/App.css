@@ -2081,6 +2081,24 @@ textarea:focus {
   color: var(--accent);
   background: var(--accent-soft);
 }
+/* ツールがデータそのものに付けた注意（型なしの数を並べ替えた等）。回答の直下に、
+   モデルが触れたかどうかに関係なく出す＝最後の砦。 */
+.answer-warnings {
+  margin: 0.6rem 0 0.4rem;
+  padding: 0.55rem 0.8rem;
+  border-left: 3px solid var(--accent);
+  background: var(--accent-soft);
+  border-radius: var(--radius-sm);
+}
+.answer-warning {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.55;
+  color: var(--fg);
+}
+.answer-warning + .answer-warning {
+  margin-top: 0.35rem;
+}
 .answer-head-note {
   font-size: 0.74rem;
   color: var(--faint);
