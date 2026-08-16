@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.14.5](https://github.com/kumagallium/asterism/compare/v0.14.4...v0.14.5) - 2026-08-16
+
+- 「確かめる」のやり直しを機械が回す — トラップ検証を自己修正ループのオラクルに合流 by @kumagallium in https://github.com/kumagallium/asterism/pull/364
+- 列の帰属を「薄さ」ではなく帯と境界行で示す（親側にも行き先を出す） by @kumagallium in https://github.com/kumagallium/asterism/pull/365
+
 ## [v0.14.4](https://github.com/kumagallium/asterism/compare/v0.14.3...v0.14.4) - 2026-08-15
 
 - feat: 数値列に型を付ける — 型のない数は SPARQL が文字列として比較する by @kumagallium in https://github.com/kumagallium/asterism/pull/362
