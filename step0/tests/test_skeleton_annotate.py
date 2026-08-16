@@ -464,6 +464,48 @@ def test_child_map_marks_columns_borrowed_from_the_parent(tmp_path: Path) -> Non
     assert "borrowed_columns" not in out["sample"]
 
 
+def test_parent_map_names_where_its_per_row_columns_go(tmp_path: Path) -> None:
+    """The mirror of `borrowed` (G12). The parent card already knows WHICH
+    columns it cannot carry (`varying_columns`); without the destination it can
+    only state an absence, while the child states the same relation with rows.
+    """
+    p = _write_reference_card(tmp_path)
+    out = annotate_skeleton(_card_skeleton(), [p])["maps"]
+    assert out["sample"]["entity_preview"]["varying_columns"] == ["2theta", "d", "I", "(hkl)"]
+    delegated = {d["column"]: d["owner_map"] for d in out["sample"]["delegated_columns"]}
+    assert delegated == {"2theta": "peak", "d": "peak", "I": "peak", "(hkl)": "peak"}
+    # The child carries them itself, so it delegates nothing.
+    assert "delegated_columns" not in out["peak"]
+
+
+def test_card_keeps_its_own_values_when_metadata_fills_the_cap(tmp_path: Path) -> None:
+    """The column cap must not be spent on columns identical in every row.
+
+    Real XRD card: 13 file-scoped metadata columns come FIRST in file order, so
+    the peak card showed its key and then CSD/Name/Formula/… while its own
+    2theta/d/I fell into "…and N more" — the card for a peak showed no peak.
+    """
+    p = tmp_path / "wide.csv"
+    meta = [f"M{i}" for i in range(10)]
+    p.write_text(
+        ",".join([*meta, "2theta", "d", "I", "(hkl)"])
+        + "\n"
+        + "\n".join(
+            ",".join([*(f"m{i}" for i in range(10)), f"2{n}.5", f"4.{n}", f"{n}.0", f'"(0,0,{n})"'])
+            for n in range(1, 5)
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    skeleton = _skeleton("xr:peak/{(hkl)}", source="wide.csv")
+    card = annotate_skeleton(skeleton, [p])["maps"]["point"]["entity_preview"]
+    shown = [prop["column"] for prop in card["properties"]]
+    assert shown[0] == "(hkl)"  # the key still leads
+    assert {"2theta", "d", "I"} <= set(shown)  # this row's own values survive
+    # 7 slots after the key: the 3 own values, then 4 of the 10 metadata columns.
+    assert card["omitted_columns"] == 6
+
+
 def test_ownership_is_silent_without_a_finer_map(tmp_path: Path) -> None:
     """One map alone determines everything it carries; calling those columns
     "borrowed" would be nonsense. No second map → no verdict."""

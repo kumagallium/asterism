@@ -6071,7 +6071,10 @@ button.ds-artifact:disabled {
   text-align: left;
   font-weight: 500;
   color: var(--muted);
-  padding: 0.12rem 0.9rem 0.12rem 0;
+  /* 全行に同じ幅の帯を確保しておく（自前の行は透明）。帯の有無で列がずれると
+     「印が付いた行」ではなく「別の表」に見える。 */
+  border-left: 3px solid transparent;
+  padding: 0.12rem 0.9rem 0.12rem 0.4rem;
   vertical-align: top;
   white-space: nowrap;
 }
@@ -6083,17 +6086,26 @@ button.ds-artifact:disabled {
 .skeleton-entity-conflict td {
   color: var(--warn-fg);
 }
-/* 別のマップが持つべき値（ADR column-ownership-and-growth）。消さずに沈める＝
-   「行が実際に持つ値」は正直に見せたうえで、自分の値と一目で区別させる。 */
-.skeleton-entity-borrowed th,
-.skeleton-entity-borrowed td {
+/* 帰属（ADR column-ownership-and-growth G2/G12）は「位置と帯」で示す。
+   値を薄くしていた旧実装は --faint ＝ 省略行（…ほか N 列）と同じ色で、
+   「別の種類の値」が「読まなくていい行」に見えていた。値そのものは本物なので
+   濃度は変えず、意味色は「つながり」の青（--link）を使う。 */
+.skeleton-entity-band td {
+  padding: 0.5rem 0 0.16rem;
+  font-size: 0.7rem;
+  color: var(--link);
+}
+.skeleton-entity-borrowed th {
+  border-left-color: var(--link);
+}
+/* ここには載らない列＝ゴースト行。値が無いので、薄いのはここだけが正しい。 */
+.skeleton-entity-delegated th {
+  border-left: 3px dashed var(--link);
   color: var(--faint);
 }
-.skeleton-entity-owner {
-  margin-left: 0.5rem;
-  font-size: 0.68rem;
+.skeleton-entity-ghost-value {
   color: var(--faint);
-  white-space: nowrap;
+  font-style: italic;
 }
 /* 常時見せるのは 1 行だけ。理由と列名は畳む（ゲートに長文を置くと読まれない）。 */
 .skeleton-fold {

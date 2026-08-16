@@ -309,6 +309,16 @@ def _entity_preview(
     key_set = set(key)
     key_props = [p for p in props if p["column"] in key_set]
     rest = [p for p in props if p["column"] not in key_set]
+    # What survives the cap must be what tells THIS record apart. A column with
+    # one value in the whole file is file-scoped metadata (the coarse map's
+    # columns, by G1) — real, but it says nothing about which record you are
+    # looking at. Observed on the XRD card: the 13 metadata columns come first
+    # in file order and filled every slot, so the peak card showed its key and
+    # none of its own measurements. Stable sort: file order survives per rank.
+    file_wide = {
+        p["column"]: len({(row.get(p["column"]) or "").strip() for row in rows}) for p in rest
+    }
+    rest.sort(key=lambda p: file_wide[p["column"]] <= 1)
     room = max(0, _CARD_VALUE_COLUMNS - len(key_props) - len(conflicts))
     return {
         "id": _render_template(template, rows[rep[0]], prefixes),
@@ -410,7 +420,10 @@ def _adjudicate_ownership(
 
     Writes ``borrowed_columns`` on the finer maps and stamps ``owner_map`` onto
     the entity card's properties so the gate can render "this value comes from
-    <parent>" instead of leaving the column silently duplicated.
+    <parent>" instead of leaving the column silently duplicated. The coarse side
+    gets the mirror image — ``delegated_columns``, the columns this card cannot
+    carry and the map that will — so both cards state the same relation in the
+    same shape (G12).
     """
     by_source: dict[str, list[str]] = defaultdict(list)
     for name, src in map_sources.items():
@@ -452,6 +465,20 @@ def _adjudicate_ownership(
             if len(bids) == 1 or bids[0][0] < bids[1][0]:
                 owners[col] = bids[0][1]
 
+        # Key columns never appear in `claims`: `_functional_dependencies`
+        # exempts them (carrying another entity's key is a join, not a copy).
+        # That exemption is right for borrowing and wrong for delegation — the
+        # row-level map is usually keyed on exactly the column that varies
+        # ({(hkl)} on the peaks), so without this the parent could not say where
+        # its most important per-row column goes.
+        key_claims: dict[str, list[tuple[int, str]]] = defaultdict(list)
+        for name in checkable:
+            count = int(annotations[name].get("distinct_ids") or 0)
+            if not count:
+                continue
+            for col in annotations[name]["key_columns"]:
+                key_claims[col].append((count, name))
+
         for name in checkable:
             ann = annotations[name]
             key_set = set(ann["key_columns"])
@@ -474,6 +501,27 @@ def _adjudicate_ownership(
             for prop in card.get("properties") or []:
                 if prop.get("column") in borrowed_cols:
                     prop["owner_map"] = owners[prop["column"]]
+            # The mirror of `borrowed`, on the coarse side: columns this card
+            # CANNOT carry (they vary inside its group) and the map that will.
+            # `varying_columns` already names them; only the destination was
+            # missing, so the parent could state the fact but not point at the
+            # kind that answers it. Columns nobody owns stay out — the card
+            # still lists them as varying, without a destination claim.
+            delegated: list[dict[str, str]] = []
+            for col in card.get("varying_columns") or []:
+                dest = owners.get(col)
+                if dest == name:
+                    dest = None
+                if dest is None:
+                    # Same adjudication as `owners`: fewest entities wins, a tie
+                    # stays silent.
+                    bids = sorted(b for b in key_claims.get(col, []) if b[1] != name)
+                    if bids and (len(bids) == 1 or bids[0][0] < bids[1][0]):
+                        dest = bids[0][1]
+                if dest:
+                    delegated.append({"column": col, "owner_map": dest})
+            if delegated:
+                ann["delegated_columns"] = delegated
 
 
 def _missing_row_kind(

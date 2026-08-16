@@ -280,6 +280,10 @@ export interface SkeletonMapAnnotation {
    *  them and it mints fewer entities). The parent's key column is exempt —
    *  carrying it is how the join is declared. */
   borrowed_columns?: { column: string; owner_map: string }[]
+  /** The mirror on the coarse side: columns this card CANNOT carry (they vary
+   *  inside its group — `entity_preview.varying_columns`) and the map that
+   *  owns them. Absent for a varying column nobody owns. */
+  delegated_columns?: { column: string; owner_map: string }[]
   /** What the NEXT source file does to this design — only on a file-scoped
    *  (singleton) map, which by definition mints one entity per file.
    *  `shared_values` is measured, not forecast: columns that already repeat
