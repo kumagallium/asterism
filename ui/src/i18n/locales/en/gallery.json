@@ -294,6 +294,8 @@
     "disconnected": "{{count}} groups of data are not linked to each other, so questions spanning them cannot be answered.",
     "duplicateColumn_one": "{{count}} column is written twice, onto two different things. Choosing one owner removes the duplicated facts.",
     "duplicateColumn_other": "{{count}} columns are written twice, onto two different things. Choosing one owner each removes the duplicated facts.",
+    "emptyShellColumns": "“{{cls}}” makes one record per row but holds none of that row's values. The per-row columns ({{columns}}) are recorded nowhere and cannot be asked about. Adding them to “{{cls}}” fixes it.",
+    "emptyShell": "“{{cls}}” makes one record per row but holds none of that row's values — an empty shell with only links. Adding the per-row columns to “{{cls}}” fixes it.",
     "unmapped_one": "{{count}} column is not used. If it carries meaning, adding it to the design makes it questionable.",
     "unmapped_other": "{{count}} columns are not used. If they carry meaning, adding them to the design makes them questionable.",
     "other_one": "{{count}} further note.",

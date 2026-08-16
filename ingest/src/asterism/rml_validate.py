@@ -1114,6 +1114,187 @@ def _duplicate_column_advisories(graph, csv_dir: Path | str | None) -> list[str]
     return issues
 
 
+def _tm_object_maps(graph, tm):
+    """Every object map of a TriplesMap (predicateObjectMap → objectMap)."""
+    import rdflib
+
+    uri = rdflib.URIRef
+    for pom in graph.objects(tm, uri(_R2RML + "predicateObjectMap")):
+        yield from graph.objects(pom, uri(_R2RML + "objectMap"))
+
+
+def _tm_own_value_columns(graph, tm) -> set[str]:
+    """Columns this map turns into a VALUE on its own subject.
+
+    Everything a per-row entity can carry: plain references, typed literals,
+    function inputs, and templates *other than* the subject template itself.
+    Not counted: a parent-join, a constant, or an object template that only
+    re-mints ANOTHER map's key (``xrdr:sample/{No}``) — those are links, and a
+    row that carries only links is exactly what this check is looking for.
+    """
+    import rdflib
+
+    uri = rdflib.URIRef
+    keys = _tm_subject_key_columns(graph, tm) or frozenset()
+    out: set[str] = set()
+    for om in _tm_object_maps(graph, tm):
+        for node in _reachable_nodes(graph, om):
+            for rp in _REFERENCE_PREDS:
+                for r in graph.objects(node, uri(rp)):
+                    out.add(str(r))
+            for tp in _TEMPLATE_PREDS:
+                for tpl in graph.objects(node, uri(tp)):
+                    out |= _template_columns(str(tpl))
+    # A key column re-used in a link template is the join, not a value.
+    return out - keys
+
+
+def _cell(row: list[str], idx: int) -> str:
+    return row[idx].strip() if idx < len(row) else ""
+
+
+def _determined_by(
+    rows: list[list[str]], col_index: dict[str, int], col: str, keys: frozenset[str]
+) -> bool:
+    """Does ``keys`` functionally determine ``col`` over the real rows (G1)?
+
+    Group by the key; the column is determined iff no group holds two different
+    non-empty values. An unreadable key answers ``True`` — no claim against a
+    map we cannot test.
+    """
+    ci = col_index[col]
+    kidx = [col_index[k] for k in sorted(keys) if k in col_index]
+    if len(kidx) != len(keys):
+        return True
+    seen: dict[tuple[str, ...], str] = {}
+    for r in rows:
+        v = _cell(r, ci)
+        if not v:
+            continue
+        g = tuple(_cell(r, i) for i in kidx)
+        if seen.setdefault(g, v) != v:
+            return False
+    return True
+
+
+def _empty_shell_advisories(graph, csv_dir: Path | str | None) -> list[str]:
+    """A per-row map that mints an entity per row and gives it NO row-level value.
+
+    Observed live (XRD reference card, 2026-08-16): the skeleton gate said
+    ``sample_detail`` = "47 rows → 47 XRD-card entities, keyed {No}/{(hkl)}",
+    and the human confirmed. The per-map stage then wrote ONE property on it —
+    ``dcterms:isPartOf`` back to the sample — and stopped. The four columns
+    that make each row a row (2theta, d, I, (hkl)) went nowhere. Every gate
+    passed: the classes exist, the join resolves, T1-T10 are green, and the
+    "column meanings" review shows a table for ``Material`` and NOTHING for
+    ``XRD-card`` — a class with no columns has no rows to review, so its
+    absence is invisible in exactly the screen meant to catch it.
+
+    A map whose subject template has ≥1 placeholder is a per-row entity by
+    declaration; if it binds no value column of its own, its rows are shells.
+    Whether that is a DEFECT is decided from the data, the same way the
+    duplicate-column advisory adjudicates ownership (G1): a column that varies
+    across the file is a per-row value, and it is misplaced if it is bound
+    nowhere (dropped) or only on a map whose key does NOT determine it (parked
+    on the header card, where 47 readings collapse onto one entity as
+    multi-values). Either finding names the columns and the map to put them
+    on — the repair, not the absence (ADR G8's principle). No such column →
+    silence: a per-row map whose key IS the whole datum is legitimate.
+
+    Without readable rows the check degrades to the structural reading, fired
+    only when a sibling map shares the source (the header+detail shape this
+    defect lives in) — minimal single-map fixtures stay quiet.
+    """
+    dialects = _mapping_dialects(graph)
+    per_source: dict[str, list[tuple[str, frozenset[str], set[str]]]] = {}
+    for tm in _triples_map_subjects(graph):
+        src = _tm_source_name(graph, tm)
+        if src is None:
+            continue
+        keys = _tm_subject_key_columns(graph, tm)
+        if keys is None:
+            continue
+        per_source.setdefault(src, []).append(
+            (_tm_label(graph, tm), keys, _tm_own_value_columns(graph, tm))
+        )
+
+    issues: list[str] = []
+    for src in sorted(per_source):
+        entries = per_source[src]
+        shells = [(label, keys) for label, keys, own in entries if keys and not own]
+        if not shells:
+            continue
+        header: list[str] = []
+        rows: list[list[str]] = []
+        if csv_dir is not None:
+            header, rows = _source_table(Path(csv_dir) / src, dialects.get(src))
+        col_index = {c: i for i, c in enumerate(header)}
+
+        # Where each column lives as a VALUE (own binding), and every bound name.
+        value_holders: dict[str, list[tuple[str, frozenset[str]]]] = {}
+        bound: set[str] = set()
+        for label, keys, own in entries:
+            bound |= keys | own
+            for c in own:
+                value_holders.setdefault(c, []).append((label, keys))
+
+        for label, keys in shells:
+            key_txt = ", ".join(sorted(keys))
+            dropped: list[str] = []
+            parked: list[tuple[str, str]] = []  # (column, map it sits on)
+            if header and rows:
+                for col in header:
+                    if col in keys:
+                        continue
+                    ci = col_index[col]
+                    values = {_cell(r, ci) for r in rows} - {""}
+                    if len(values) <= 1:
+                        continue  # file-scoped metadata — the header card's, by G1
+                    if col not in bound:
+                        dropped.append(col)
+                        continue
+                    for holder, holder_keys in value_holders.get(col, []):
+                        if holder != label and not _determined_by(
+                            rows, col_index, col, holder_keys
+                        ):
+                            parked.append((col, holder))
+                            break
+                if not dropped and not parked:
+                    continue  # data shows nothing per-row was lost — a legit anchor
+            elif len(entries) < 2:
+                continue  # structural fallback only inside a header+detail shape
+
+            base = (
+                f"map '{label}' mints one entity per row (subject keyed by {key_txt}) "
+                "but binds NO value column of its own — every entity it creates is an "
+                "empty shell carrying only links, so the row's own values are recorded "
+                "nowhere and cannot be queried. Add the per-row value columns as "
+                "`column:` properties on THIS map (they belong to the entity the row IS, "
+                "not to its parent)."
+            )
+            hint = ""
+            if dropped:
+                shown = ", ".join(dropped[:10]) + (" …" if len(dropped) > 10 else "")
+                hint += (
+                    f" From the real rows: {len(dropped)} column(s) vary across the file "
+                    f"and are bound by no map at all — {shown}. Put them on '{label}'."
+                )
+            if parked:
+                by_holder: dict[str, list[str]] = {}
+                for col, holder in parked:
+                    by_holder.setdefault(holder, []).append(col)
+                for holder, cols in sorted(by_holder.items()):
+                    shown = ", ".join(cols[:10]) + (" …" if len(cols) > 10 else "")
+                    hint += (
+                        f" From the real rows: {len(cols)} column(s) vary per row but sit "
+                        f"on '{holder}', whose key does not determine them — there they "
+                        f"collapse onto one entity as multi-values: {shown}. MOVE them to "
+                        f"'{label}' and DELETE them from '{holder}'."
+                    )
+            issues.append(base + hint)
+    return issues
+
+
 def _source_headers(graph, csv_dir: Path | str) -> dict[str, list[str]]:
     """Header row of every tabular source file in ``csv_dir``, keyed by file name.
 
@@ -1212,6 +1393,7 @@ def design_advisories(rml_ttl: str, csv_dir: Path | str | None = None) -> list[s
     return (
         _connectivity_advisories(graph, headers or None)
         + _duplicate_column_advisories(graph, csv_dir)
+        + _empty_shell_advisories(graph, csv_dir)
         + _untyped_numeric_advisories(graph, csv_dir)
     )
 

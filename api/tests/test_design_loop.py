@@ -283,6 +283,15 @@ def test_classify_shapes() -> None:
     ).category == "function"
     assert classify("json_pluck is missing required parameter 'p_field'.").category == "function"
     assert classify("RML mapping is not parseable Turtle: bad").category == "turtle"
+    # The empty-shell advisory is keyed by MAP: the column hint in its tail can
+    # change round to round (as the model adds some of them) without the loop
+    # reading it as a new issue — and it must not fall into the `column '…'`
+    # shape even though the message talks about columns.
+    shell = classify(
+        "map 'XRD-card' mints one entity per row (subject keyed by (hkl), No) but binds "
+        "NO value column of its own — … Put them on 'XRD-card'."
+    )
+    assert (shell.category, shell.subject) == ("structural", "empty-shell/XRD-card")
     # Unknown shape is still keyed (never silently dropped).
     assert classify("something totally new").category == "other"
 

@@ -153,6 +153,10 @@ _RE_IR_TRANSFORM_MISUSE = re.compile(r"\(([^)]+)\): transform cannot contain")
 _RE_IR_FN_NEEDS_COLUMN = re.compile(r"\(([^)]+)\)\.function requires 'column'")
 _RE_IR_CARDINALITY = re.compile(r"'([^']+)' carries a cardinality marker")
 _RE_IR_TYPE_CAST = re.compile(r"'([^']+)' is a type, not a Tier-0 function")
+# Design advisory: a per-row map with no value of its own (asterism.rml_validate
+# `_empty_shell_advisories`). Keyed by map so the column list in the message can
+# change round to round without reading as a new issue.
+_RE_EMPTY_SHELL = re.compile(r"^map '([^']+)' mints one entity per row")
 
 # Message stems that mean the validator ENVIRONMENT is broken (missing rdflib /
 # unimportable Tier-0 registry), NOT that the LLM made a mistake. The loop bails on
@@ -199,6 +203,8 @@ def classify(message: str) -> Issue:
         return Issue("structural", f"cardinality/{mm.group(1)}", m)
     if (mm := _RE_IR_TYPE_CAST.search(m)):
         return Issue("function", f"typecast/{mm.group(1)}", m)
+    if (mm := _RE_EMPTY_SHELL.match(m)):
+        return Issue("structural", f"empty-shell/{mm.group(1)}", m)
     # assert_rml_safe shapes
     if "outside the closed Tier 0 set" in m:
         return Issue("function-set", _fn_set_subject(m), m)

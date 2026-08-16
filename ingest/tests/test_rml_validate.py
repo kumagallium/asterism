@@ -656,6 +656,146 @@ def test_unparseable_rml_degrades_to_no_advisories() -> None:
 
 
 # ---------------------------------------------------------------------------
+# design advisories: empty shell (a per-row entity that carries no row value)
+# ---------------------------------------------------------------------------
+
+# The live XRD reference-card shape (2026-08-16): the skeleton gate confirmed a
+# per-row map keyed {No}/{(hkl)}, then the per-map stage wrote ONE property on
+# it — the link back to the sample — and stopped. 2theta / d / I went nowhere.
+_EMPTY_SHELL = _ADV_PREFIXES + """
+<#Sample> rml:logicalSource [ rml:source "card.csv" ] ;
+  rr:subjectMap [ rr:template "https://ex/sample/{No}" ; rr:class ex:Material ] ;
+  rr:predicateObjectMap [ rr:predicate ex:name ; rr:objectMap [ rml:reference "Name" ] ] .
+<#Peak> rml:logicalSource [ rml:source "card.csv" ] ;
+  rr:subjectMap [ rr:template "https://ex/peak/{No}/{hkl}" ; rr:class ex:Peak ] ;
+  rr:predicateObjectMap [ rr:predicate ex:isPartOf ;
+    rr:objectMap [ rr:template "https://ex/sample/{No}" ; rr:termType rr:IRI ] ] .
+"""
+
+
+def _write_card(tmp_path):
+    (tmp_path / "card.csv").write_text(
+        "No,Name,2theta,d,I,hkl\n"
+        "A1,Aluminum,21.34,4.161,5.0,002\n"
+        "A1,Aluminum,25.87,3.441,11.5,101\n"
+        "A1,Aluminum,33.51,2.672,2.7,110\n",
+        encoding="utf-8",
+    )
+
+
+def _shell_advisories(rml: str, csv_dir=None) -> list[str]:
+    return [a for a in design_advisories(rml, csv_dir) if "empty shell" in a]
+
+
+def test_empty_shell_flagged_with_the_dropped_columns(tmp_path) -> None:
+    _write_card(tmp_path)
+    advisories = _shell_advisories(_EMPTY_SHELL, tmp_path)
+    assert len(advisories) == 1
+    msg = advisories[0]
+    assert msg.startswith("map 'Peak'")
+    assert "keyed by No, hkl" in msg  # the declared per-row identity
+    # The repair names the exact per-row values the mapping dropped — and NOT
+    # the key (already bound) nor a metadata column (constant across the file).
+    assert "3 column(s) vary across the file" in msg
+    assert "2theta, d, I" in msg
+    assert "Name" not in msg.split("From the real rows")[1]
+    assert "Put them on 'Peak'" in msg
+    # The parent is a real card (Name), so it is not a shell.
+    assert not any(a.startswith("map 'Material'") for a in advisories)
+
+
+def test_empty_shell_flags_values_parked_on_the_header_card(tmp_path) -> None:
+    # The other way to lose a per-row value: the per-map stage put 2theta on the
+    # SAMPLE (keyed {No}), where 3 rows' readings collapse onto one entity as
+    # multi-values. Nothing is unbound, so only the ownership reading (G1: the
+    # sample key does not determine 2theta) can say the shell is a defect.
+    _write_card(tmp_path)
+    name_pom = (
+        'rr:predicateObjectMap [ rr:predicate ex:name ; rr:objectMap [ rml:reference "Name" ] ]'
+    )
+    parked = _EMPTY_SHELL.replace(
+        name_pom + " .",
+        name_pom + ' ;\n  rr:predicateObjectMap [ rr:predicate ex:twoTheta ;'
+        ' rr:objectMap [ rml:reference "2theta" ] ] .',
+    )
+    advisories = _shell_advisories(parked, tmp_path)
+    assert len(advisories) == 1
+    msg = advisories[0]
+    assert "2 column(s) vary across the file and are bound by no map" in msg  # d, I
+    # (map labels are the rr:class local names, as everywhere in these advisories)
+    assert "vary per row but sit on 'Material'" in msg
+    assert "2theta" in msg.split("sit on 'Material'")[1]
+    assert "MOVE them to 'Peak' and DELETE them from 'Material'" in msg
+    # Name is determined by {No} → the Material's own, never in the MOVE list.
+    assert "Name" not in msg.split("sit on 'Material'")[1]
+
+
+def test_empty_shell_silent_when_the_key_is_the_whole_datum(tmp_path) -> None:
+    # A per-row map with no values, but the file has nothing per-row beyond its
+    # key: the entity is a legitimate identity anchor, not a lost measurement.
+    (tmp_path / "card.csv").write_text(
+        "No,Name,hkl\nA1,Aluminum,002\nA1,Aluminum,101\nA1,Aluminum,110\n",
+        encoding="utf-8",
+    )
+    assert _shell_advisories(_EMPTY_SHELL, tmp_path) == []
+
+
+def test_empty_shell_without_rows_states_the_defect_only() -> None:
+    # No source: the structural reading fires (a sibling shares the source, so
+    # this is the header+detail shape) but claims nothing about which columns.
+    advisories = _shell_advisories(_EMPTY_SHELL)
+    assert len(advisories) == 1
+    assert "From the real rows" not in advisories[0]
+
+
+def test_lone_per_row_map_without_rows_stays_quiet() -> None:
+    # A single map over its own source with no properties (the connectivity
+    # fixtures' shape): no data and no sibling → nothing to adjudicate against.
+    assert _shell_advisories(_JOINED_BY_PARENT) == []
+
+
+def test_per_row_map_with_a_value_is_not_a_shell(tmp_path) -> None:
+    _write_card(tmp_path)
+    link_om = 'rr:objectMap [ rr:template "https://ex/sample/{No}" ; rr:termType rr:IRI ] ]'
+    fixed = _EMPTY_SHELL.replace(
+        link_om + " .",
+        link_om + ' ;\n  rr:predicateObjectMap [ rr:predicate ex:twoTheta ;'
+        ' rr:objectMap [ rml:reference "2theta" ] ] .',
+    )
+    assert _shell_advisories(fixed, tmp_path) == []
+
+
+def test_constant_subject_map_is_never_a_shell() -> None:
+    # A file-scoped map with only a link (a header card that just points at a
+    # run) mints ONE entity per file by design — not a per-row shell.
+    rml = _ADV_PREFIXES + """
+<#Run> rml:logicalSource [ rml:source "r.csv" ] ;
+  rr:subjectMap [ rr:constant <https://ex/run/1> ; rr:class ex:Run ] ;
+  rr:predicateObjectMap [ rr:predicate ex:instrument ;
+    rr:objectMap [ rr:constant <https://ex/instr/x> ] ] .
+"""
+    assert _shell_advisories(rml) == []
+
+
+def test_function_input_counts_as_an_own_value() -> None:
+    # A per-row map whose only value goes through a Tier-0 function still
+    # carries that row's value — the input column is bound on this map.
+    rml = _ADV_PREFIXES + """
+@prefix fnml: <http://w3id.org/rml/fnml/> .
+@prefix fno: <https://w3id.org/function/ontology#> .
+<#Peak> rml:logicalSource [ rml:source "card.csv" ] ;
+  rr:subjectMap [ rr:template "https://ex/peak/{No}/{hkl}" ; rr:class ex:Peak ] ;
+  rr:predicateObjectMap [ rr:predicate ex:intensity ;
+    rr:objectMap [ fnml:functionValue [
+      rr:predicateObjectMap [ rr:predicate fno:executes ;
+        rr:objectMap [ rr:constant <https://ex/fn/to_float> ] ] ;
+      rr:predicateObjectMap [ rr:predicate <https://ex/fn/param> ;
+        rr:objectMap [ rml:reference "I" ] ] ] ] ] .
+"""
+    assert _shell_advisories(rml) == []
+
+
+# ---------------------------------------------------------------------------
 # cross-source link-direction hint (a link declared on the wrong side)
 # ---------------------------------------------------------------------------
 
