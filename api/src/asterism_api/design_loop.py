@@ -25,7 +25,13 @@ Design (ADR ``propose-self-correction-loop.md``)
   RML) keep the original pipeline: ``substitute_run_id`` then ``assert_rml_safe`` FIRST
   (the ONLY layer that flags invalid Turtle — ``validate_rml_design`` silently returns
   [] on unparseable Turtle), then ``validate_rml_design`` against the REAL uploaded
-  source dir.
+  source dir. FINALLY the **bundle trap validator** (T1-T10) runs on the SAME
+  materialized bundle — the second gate ``/api/materialize`` runs and the kantan
+  wizard stops on. Until 2026-08-16 the loop did not run it, so a trap failure
+  surfaced only AFTER "converged" and the human's "AI に直してもらう" click WAS the
+  missing round (live: ~5 clicks on a 70-line XRD file). Trap issues also force the
+  whole-document refine — surgical §9 splicing cannot reach the §7 MIE or the
+  diagram doc, where the traps that actually fire live.
 * Feedback = ``composeFixComment``'s server twin PLUS a deterministic **Tier-0 oracle**
   appendix (exact filenames, BOM-safe real columns, every REGISTRY function with its
   exact parameter local-names) — the closed menu that stops a weak model from
@@ -37,7 +43,8 @@ Design (ADR ``propose-self-correction-loop.md``)
   registry/rdflib import failure → keep best, do NOT iterate); refine truncated
   (``complete`` False → keep the prior complete ``effective_schema_md``, stop); no-progress
   (normalized issue key-set unchanged or seen before → stop); ``max_rounds`` cap
-  (default 3; 0 disables the loop = plain propose). Always carry ``effective_schema_md``
+  (api default 5 since the traps joined the oracle; 0 disables the loop = plain
+  propose). Always carry ``effective_schema_md``
   (never ``refined_md``); snapshot the SMALLEST-issue schema as ``best`` and RETURN it
   with ITS remaining issues (not the last round's).
 
@@ -90,6 +97,7 @@ from asterism_step0.spec_repair import (
     replace_mapping_spec_block,
 )
 from asterism_step0.staged_propose import propose_from_skeleton
+from asterism_step0.validate import SchemaBundle, validate_schema
 
 # Column-checkable delimited files: classic CSV/TSV plus the legacy instrument
 # export suffixes (ADR source-dialect.md) whose read rules a pinned dialect carries.
@@ -565,6 +573,82 @@ def _collect_rml_issues(rml_ttl: str, source_dir: Path) -> list[Issue]:
     return _dedup(issues)
 
 
+def trap_issues(mat: Any) -> list[Issue]:
+    """The BLOCKING failures of the bundle trap validator (T1-T10), as
+    loop-feedable issues.
+
+    Why the loop runs this at all: ``/api/materialize`` runs the SAME validator,
+    and the kantan wizard stops on a blocking failure with a one-click
+    "AI に直してもらう" button whose only effect is a refine round carrying
+    exactly these lines. Before this, the loop converged on a validator the
+    wizard does not run — so every trap failure surfaced AFTER "converged" and
+    became a human click doing, by hand, a round the machine could do itself
+    (live, 2026-08-16: ~5 clicks on a 70-line XRD file).
+
+    The bundle carries the SAME fields ``/api/materialize`` passes, so the loop
+    converges iff the wizard's gate would pass: no source CSVs, hence T1/T6
+    report ``skip`` here exactly as they do there. Only ``fail`` counts — a
+    ``warn`` (the T5 classDiagram lint) does not stop the wizard either.
+
+    Each issue's message is the wizard's own fix shape: symptom + the trap's
+    deterministic repair recipe. A symptom-only line loops weak models forever
+    (the 2026-07-14 live T4 incident) — the recipe is the whole point.
+    """
+    paths = {k: Path(v) for k, v in mat.written_paths.items()}
+    try:
+        report = validate_schema(
+            SchemaBundle(
+                diagram_md=paths.get("mermaid") or paths.get("diagram"),
+                mie_yaml=paths.get("mie_yaml") or paths.get("mie"),
+                ingester_py=paths.get("ingester_py") or paths.get("ingester"),
+                rml_ttl=paths.get("rml_ttl"),
+                mapping_ir_yaml=paths.get("mapping_ir"),
+            )
+        )
+    except Exception as exc:  # PyYAML / rdflib / pyoxigraph missing, or a check crash
+        # Surfaced as an env failure (loop keeps the best schema and STOPS with the
+        # reason recorded) — never swallowed. A silently-empty trap list would make
+        # this whole gate a no-op that nothing would ever notice.
+        raise _LoopEnvError(str(exc)) from exc
+    out: list[Issue] = []
+    for r in report.results:
+        if r.status != "fail":
+            continue
+        head = f"{r.trap_id} {r.name}: {r.detail}"
+        indented = "\n    ".join(r.fix.split("\n")) if r.fix else ""
+        message = f"{head}\n  ↳ {indented}" if indented else head
+        # Keyed by trap id (not the message): a recipe embeds derived candidate
+        # terms, so keying on text would defeat the no-progress detection the
+        # moment the model reshuffles a keyword list.
+        out.append(Issue("trap", r.trap_id, message))
+    return out
+
+
+def _evaluate(schema_md: str, base: Path) -> tuple[str | None, list[Issue]]:
+    """One round's complete deterministic verdict, from ONE materialize call:
+    the extracted §9 design plus every issue BOTH gates report — the IR/RML
+    validators against the real source, and the bundle trap validator.
+
+    Returns ``(ir_yaml, issues)``. Only the spec matters to the caller (it picks
+    the surgical-vs-whole-document repair path); the legacy raw RML is consumed
+    here and never leaves.
+    """
+    with tempfile.TemporaryDirectory(prefix="asterism-loop-mat-") as tmp:
+        # write=True (not the extraction-only write=False): the trap validator
+        # reads the bundle off disk.
+        mat = materialize_schema(schema_md, tmp, "design", write=True)
+        if mat.mapping_ir_yaml is not None:
+            ir_yaml, rml_ttl = mat.mapping_ir_yaml, None
+        else:
+            ir_yaml, rml_ttl = None, mat.rml_ttl
+        issues = collect_issues(ir_yaml, rml_ttl, base)
+        # A T9 mole is reported by both gates under different keys (the closed-set
+        # check and the trap). Harmless: they name the same function and are fixed
+        # by the same edit; dedup only collapses exact key matches.
+        issues = _dedup(issues + trap_issues(mat))
+    return ir_yaml, issues
+
+
 def _reference_count(ir_yaml: str | None, rml_ttl: str | None) -> int:
     """A cheap proxy for how much of the source a design covers. Used only to
     surface a soft ``coverage_dropped`` signal (a cornered weak model can delete
@@ -831,8 +915,7 @@ def run_design_loop(
 
     # Evaluate round 0.
     try:
-        ir_yaml, rml_ttl = _extract_design(schema_md)
-        issues = collect_issues(ir_yaml, rml_ttl, base)
+        ir_yaml, issues = _evaluate(schema_md, base)
     except _LoopEnvError as exc:
         return _result(
             schema_md, [], [RoundRecord(0, 0, {}, env_error=str(exc))],
@@ -870,7 +953,16 @@ def run_design_loop(
         # ~10x fewer output tokens per round, no whole-document truncation
         # risk, and unrelated sections are byte-untouched. The legacy raw-RML
         # path keeps the whole-document refine.
-        surgical = bool(ir_yaml and ir_yaml.strip())
+        #
+        # Trap issues force the whole-document path: surgical repair regenerates
+        # ONLY the §9 spec, and the traps that actually fire live in the OTHER
+        # artifacts (T4/T7 in the §7 MIE, T5 in the diagram doc). Splicing §9
+        # cannot touch them, so a surgical round would burn a call and change
+        # nothing — the no-progress detector would then stop the loop one round
+        # later with the trap still open.
+        surgical = bool(ir_yaml and ir_yaml.strip()) and not any(
+            i.category == "trap" for i in prev_issues
+        )
         _emit(on_progress, phase="refine", round=n, issue_count=len(prev_issues),
               categories=_cats(prev_issues),
               message=(
@@ -925,8 +1017,7 @@ def run_design_loop(
         # section; explicit values the round kept still win). Idempotent.
         schema_md = _overlay_detected_dialects(schema_md, effective, override_names)
         try:
-            ir_yaml, rml_ttl = _extract_design(schema_md)
-            issues = collect_issues(ir_yaml, rml_ttl, base)
+            ir_yaml, issues = _evaluate(schema_md, base)
         except _LoopEnvError as exc:
             rounds.append(RoundRecord(n, len(prev_issues), _cats(prev_issues), env_error=str(exc)))
             return _result(best_schema, best_issues, rounds, converged=False,

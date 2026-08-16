@@ -991,10 +991,16 @@ class Settings:
         # how many refine rounds propose may run to auto-fix a design against the real
         # source + Tier-0 signatures before returning. 0 disables the loop (plain
         # propose). Per-request ``?autocorrect=N`` overrides this default.
+        #
+        # 5, not 3, since 2026-08-16: the loop now also has to clear the bundle
+        # traps (T1-T10) that used to be left to the human's repeated "AI に直し
+        # てもらう" click. The observed live count on a small XRD file was ~5
+        # clicks; giving the machine fewer rounds than the human was making
+        # would just hand the tail back to the human.
         try:
-            self.autocorrect_rounds = max(0, int(e.get("ASTERISM_AUTOCORRECT_ROUNDS", "3")))
+            self.autocorrect_rounds = max(0, int(e.get("ASTERISM_AUTOCORRECT_ROUNDS", "5")))
         except ValueError:
-            self.autocorrect_rounds = 3
+            self.autocorrect_rounds = 5
         # Wall-clock cap on ONE background job (propose / refine / ingest). A stuck
         # LLM call otherwise runs forever with no signal (the 400-minute propose).
         # "0" disables the cap (None → JobManager runs jobs unbounded, as before).

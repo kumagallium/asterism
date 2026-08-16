@@ -39,3 +39,4 @@ verdict, add a dated addendum rather than silently editing the numbers.
 | 2026-06-11 | [Tier 0 function library — sufficiency](tier0-coverage-sufficiency.md) | ✅ sufficient (gate PASS) |
 | 2026-07-06 | [Mapping IR — deterministic RML compilation equivalence](mapping-ir-compiler-equivalence.md) | ✅ equivalent + syntax classes eliminated · ✅ live Qwen3.6/gpt-oss both converge (0 syntax issues in 5 runs) |
 | 2026-07-07 | [↳ Phase 2a addendum — guided JSON surgical repair](mapping-ir-compiler-equivalence.md#addendum-2026-07-07--phase-2a-guided-json-surgical-repair-live-probe) | ✅ one guided call repairs all invention families; Sakura vLLM accepts json_schema natively |
+| 2026-08-16 | [「確かめる」の人間クリックは機械が回せていなかったラウンド](traps-in-autocorrect-loop.md) | ✅ 実弱モデル出力 7/7 がトラップ不合格＝ループのオラクル漏れを確認 → T1-T10 を合流 |
