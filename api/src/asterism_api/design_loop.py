@@ -624,7 +624,7 @@ def trap_issues(mat: Any) -> list[Issue]:
     return out
 
 
-def _evaluate(schema_md: str, base: Path) -> tuple[str | None, list[Issue]]:
+def _verdict(schema_md: str, base: Path) -> tuple[str | None, list[Issue]]:
     """One round's complete deterministic verdict, from ONE materialize call:
     the extracted §9 design plus every issue BOTH gates report — the IR/RML
     validators against the real source, and the bundle trap validator.
@@ -647,6 +647,130 @@ def _evaluate(schema_md: str, base: Path) -> tuple[str | None, list[Issue]]:
         # by the same edit; dedup only collapses exact key matches.
         issues = _dedup(issues + trap_issues(mat))
     return ir_yaml, issues
+
+
+# The advisory whose repair the machine can carry out ITSELF — see
+# ``_stamp_numeric_datatypes``. Message shape: asterism.rml_validate
+# ``_untyped_numeric_advisories``.
+_RE_UNTYPED_NUMERIC = re.compile(
+    r"column '([^']+)' holds numbers but is mapped as an untyped literal"
+)
+
+
+def _numeric_types_by_source(base: Path, ir: Any) -> dict[str, dict[str, str]]:
+    """Per source file, the columns whose EVERY non-empty cell is a number ->
+    xsd type, read through the spec's own pinned dialect (so the legacy
+    instrument files' preamble/body split is the one the mapping will see)."""
+    dialects: Mapping[str, Any] = getattr(ir, "dialects", None) or {}
+    out: dict[str, dict[str, str]] = {}
+    for name in {str(m.source) for m in ir.maps if getattr(m, "source", None)}:
+        path = Path(base) / name
+        if not path.is_file():
+            continue
+        dialect = dialects.get(name)
+        try:
+            rows = (
+                _dialect_rows(path, dialect)
+                if dialect is not None and not is_default(dialect)
+                else list(_stream_rows(path))
+            )
+        except Exception:  # unreadable/odd source — simply not repairable here
+            continue
+        if not rows:
+            continue
+        out[name] = numeric_column_types(rows, list(rows[0].keys()))
+    return out
+
+
+def _stamp_numeric_datatypes(schema_md: str, base: Path, issues: list[Issue]) -> str | None:
+    """Deterministically add the missing ``datatype:`` to the §9 property rows
+    the untyped-numeric advisory named. Returns the repaired document, or None
+    when there is nothing (or nothing repairable) to do.
+
+    Why this is not the LLM's job: by the time the advisory fires, the machine
+    has already read every row, proven every non-empty cell is a number, and
+    decided integer-vs-double. The exact edit is KNOWN. Handing that to a model
+    and hoping adds a round-trip, and weak models simply fail it — live
+    2026-08-17, gpt-oss-120b on a 70-line XRD card: the loop spent its rounds,
+    stopped on ``no_progress``, and the user then clicked "AI に直してもらう"
+    three more times; all four columns (Z value / Volume / RIR(I/Ic) / Dcalc)
+    were still untyped at the end. Applying the same 4-line edit here clears it
+    in zero LLM calls.
+
+    Repairs only what the advisory proved: a property row that binds one of the
+    named columns, from a source whose rows are all-numeric for it, and that has
+    no ``datatype`` and no ``function`` of its own (a pipeline's output type is
+    the function's business — the same carve-out the validator makes). LEGACY
+    raw-RML designs carry no spec to edit and are left to the LLM.
+    """
+    columns = {m.group(1) for iss in issues if (m := _RE_UNTYPED_NUMERIC.search(iss.message))}
+    if not columns:
+        return None
+    import yaml  # lazy (PyYAML is a step0 dependency)
+
+    with tempfile.TemporaryDirectory(prefix="asterism-loop-dt-") as tmp:
+        ir_yaml = materialize_schema(schema_md, tmp, "design", write=False).mapping_ir_yaml
+    if not ir_yaml or not ir_yaml.strip():
+        return None
+    try:
+        ir = parse_mapping_ir(ir_yaml)
+        spec = yaml.safe_load(ir_yaml)
+    except Exception:
+        return None
+    if not isinstance(spec, dict) or not isinstance(spec.get("maps"), list):
+        return None
+
+    by_source = _numeric_types_by_source(base, ir)
+    changed = 0
+    for map_entry in spec["maps"]:
+        if not isinstance(map_entry, dict):
+            continue
+        types = by_source.get(str(map_entry.get("source") or ""))
+        if not types:
+            continue
+        for prop in map_entry.get("properties") or []:
+            if not isinstance(prop, dict):
+                continue
+            column = prop.get("column")
+            if not isinstance(column, str) or column not in columns:
+                continue
+            if prop.get("datatype") or prop.get("function"):
+                continue
+            xsd = types.get(column)
+            if not xsd:
+                continue
+            prop["datatype"] = xsd
+            changed += 1
+    if not changed:
+        return None
+    repaired = yaml.safe_dump(spec, allow_unicode=True, sort_keys=False).rstrip("\n")
+    try:
+        return replace_mapping_spec_block(schema_md, repaired)
+    except ValueError:
+        return None
+
+
+def _evaluate(schema_md: str, base: Path) -> tuple[str, str | None, list[Issue]]:
+    """Evaluate, then let the machine fix what it can BEFORE the LLM is asked.
+
+    Returns ``(schema_md, ir_yaml, issues)`` — ``schema_md`` is the possibly
+    deterministically-repaired document, and the issues are those of THAT
+    document. A repair that does not actually reduce the issue count is
+    discarded, so a bad rule can never make a round worse than doing nothing.
+    """
+    ir_yaml, issues = _verdict(schema_md, base)
+    if not issues:
+        return schema_md, ir_yaml, issues
+    repaired_md = _stamp_numeric_datatypes(schema_md, base, issues)
+    if repaired_md is None:
+        return schema_md, ir_yaml, issues
+    try:
+        repaired_ir, repaired_issues = _verdict(repaired_md, base)
+    except _LoopEnvError:
+        return schema_md, ir_yaml, issues
+    if len(repaired_issues) >= len(issues):
+        return schema_md, ir_yaml, issues
+    return repaired_md, repaired_ir, repaired_issues
 
 
 def _reference_count(ir_yaml: str | None, rml_ttl: str | None) -> int:
@@ -915,7 +1039,7 @@ def run_design_loop(
 
     # Evaluate round 0.
     try:
-        ir_yaml, issues = _evaluate(schema_md, base)
+        schema_md, ir_yaml, issues = _evaluate(schema_md, base)
     except _LoopEnvError as exc:
         return _result(
             schema_md, [], [RoundRecord(0, 0, {}, env_error=str(exc))],
@@ -1017,7 +1141,7 @@ def run_design_loop(
         # section; explicit values the round kept still win). Idempotent.
         schema_md = _overlay_detected_dialects(schema_md, effective, override_names)
         try:
-            ir_yaml, issues = _evaluate(schema_md, base)
+            schema_md, ir_yaml, issues = _evaluate(schema_md, base)
         except _LoopEnvError as exc:
             rounds.append(RoundRecord(n, len(prev_issues), _cats(prev_issues), env_error=str(exc)))
             return _result(best_schema, best_issues, rounds, converged=False,

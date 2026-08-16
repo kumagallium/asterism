@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from asterism_api.design_loop import _evaluate, run_design_loop
+from asterism_api.design_loop import _verdict, run_design_loop
 
 _HEADER = b"SID,composition\n1,Bi2Te3\n"
 
@@ -83,9 +83,9 @@ def _run(tmp_path: Path, llm, *, max_rounds: int = 3):
 
 def test_evaluate_reports_a_real_trap_failure(tmp_path: Path) -> None:
     """The ground truth this whole change rests on: a design the IR/RML gates
-    accept can still fail a trap, and ``_evaluate`` returns it as an issue."""
+    accept can still fail a trap, and the round verdict returns it as an issue."""
     (tmp_path / "data.csv").write_bytes(_HEADER)
-    _, issues = _evaluate(_MD_TRAP_FAIL, tmp_path)
+    _, issues = _verdict(_MD_TRAP_FAIL, tmp_path)
     assert [(i.category, i.subject) for i in issues] == [("trap", "T4")]
     # The message carries the symptom AND the deterministic repair recipe — a
     # symptom-only line loops weak models forever (the 2026-07-14 T4 incident).
@@ -96,7 +96,7 @@ def test_evaluate_reports_a_real_trap_failure(tmp_path: Path) -> None:
 
 def test_evaluate_is_quiet_on_a_clean_bundle(tmp_path: Path) -> None:
     (tmp_path / "data.csv").write_bytes(_HEADER)
-    _, issues = _evaluate(_MD_TRAP_OK, tmp_path)
+    _, issues = _verdict(_MD_TRAP_OK, tmp_path)
     assert issues == []
 
 
