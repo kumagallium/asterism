@@ -621,3 +621,59 @@ async def test_sparql_query_rejects_empty() -> None:
     async with _make_client(lambda r: _rows([], [])) as client:
         with pytest.raises(ValueError):
             await sparql_query("   ", client)
+
+
+# ---------------------------------------------------------------------------
+# ADR numeric-literal-typing: the last line of defence in the Ask path
+# ---------------------------------------------------------------------------
+
+
+def _untyped(v: str) -> dict:
+    return {"value": v, "type": "literal"}
+
+
+def test_untyped_numeric_warning_fires_on_the_real_wrong_answer_shape() -> None:
+    """Live: "which angle has the highest intensity?" — ORDER BY over untyped
+    literals returned 9.4 as the max (text sort). The tool must say so."""
+    from asterism_mcp.tools import untyped_numeric_warnings
+
+    q = (
+        "SELECT ?intensity ?twoTheta FROM <https://k/g/v1> WHERE { "
+        "?s <https://asterism.invalid/d/ontology#intensity> ?intensity . "
+        "?s <https://asterism.invalid/d/ontology#twoTheta> ?twoTheta } "
+        "ORDER BY DESC(?intensity) LIMIT 1"
+    )
+    rows = [{"intensity": _untyped("9.4"), "twoTheta": _untyped("77.47")}]
+    out = untyped_numeric_warnings(q, ["intensity", "twoTheta"], rows)
+    assert [w["variable"] for w in out] == ["intensity"]  # twoTheta is not compared
+    assert out[0]["kind"] == "untyped-numeric-compare"
+    assert "xsd:double(?intensity)" in out[0]["message"]
+
+
+def test_untyped_numeric_warning_stays_silent_when_typed_or_uncompared() -> None:
+    from asterism_mcp.tools import untyped_numeric_warnings
+
+    q = "SELECT ?i WHERE { ?s ?p ?i } ORDER BY DESC(?i)"
+    xsd_double = "http://www.w3.org/2001/XMLSchema#double"
+    typed = [{"i": {"value": "9.4", "type": "literal", "datatype": xsd_double}}]
+    assert untyped_numeric_warnings(q, ["i"], typed) == []
+    # No comparing construct at all — a plain projection is fine as text.
+    plain = "SELECT ?i WHERE { ?s ?p ?i }"
+    assert untyped_numeric_warnings(plain, ["i"], [{"i": _untyped("9.4")}]) == []
+    # Non-numeric text is not the failure this guards against.
+    assert untyped_numeric_warnings(q, ["i"], [{"i": _untyped("high")}]) == []
+    # An IRI containing `#` must not swallow the ORDER BY (the real query shape).
+    q_iri = "SELECT ?i WHERE { ?s <https://x/ontology#i> ?i } ORDER BY DESC(?i)"
+    hits = untyped_numeric_warnings(q_iri, ["i"], [{"i": _untyped("9.4")}])
+    assert [w["variable"] for w in hits] == ["i"]
+
+
+def test_untyped_numeric_warning_covers_filter_and_aggregate_alias() -> None:
+    from asterism_mcp.tools import untyped_numeric_warnings
+
+    fil = "SELECT ?v WHERE { ?s ?p ?v FILTER(?v > 10) }"
+    hits = untyped_numeric_warnings(fil, ["v"], [{"v": _untyped("100.0")}])
+    assert [w["variable"] for w in hits] == ["v"]
+    agg = "SELECT (MAX(?i) AS ?m) WHERE { ?s ?p ?i }"
+    hits = untyped_numeric_warnings(agg, ["m"], [{"m": _untyped("9.4")}])
+    assert [w["variable"] for w in hits] == ["m"]

@@ -56,6 +56,17 @@ export interface AskResponse {
   // LLM-generated SPARQL escape was used. Drives the answer provenance badge.
   verifiedTools?: VerifiedTool[]
   unverifiedSparql?: boolean
+  // Deterministic caveats the tools raised about their own results — e.g. a
+  // number stored as an untyped literal that this answer ORDERed or compared
+  // (SPARQL then compares text, so the "maximum" can be wrong). Shown as an
+  // amber strip whether or not the model chose to mention it.
+  warnings?: DataWarning[]
+}
+
+export interface DataWarning {
+  kind: string
+  variable?: string
+  message: string
 }
 
 export interface ProvenanceStep {
@@ -237,6 +248,14 @@ function normalizeAsk(raw: unknown): AskResponse {
       ? r.verified_tools.map(normalizeVerifiedTool).filter((t) => t.name)
       : [],
     unverifiedSparql: r.unverified_sparql === true,
+    warnings: Array.isArray(r.warnings)
+      ? r.warnings
+          .map((w) => {
+            const o = (w ?? {}) as Record<string, unknown>
+            return { kind: asString(o.kind), variable: asString(o.variable), message: asString(o.message) }
+          })
+          .filter((w) => w.kind)
+      : [],
   }
 }
 

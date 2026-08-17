@@ -657,6 +657,21 @@ function AnswerCard({
       <div className="answer-text answer-md">
         <ReactMarkdown remarkPlugins={[remarkGfm]}>{result.answer}</ReactMarkdown>
       </div>
+      {/* The tools' own caveats about the DATA (not the model's prose): a
+          number stored as text under ORDER BY makes the "maximum" above
+          unreliable — say so right under the answer, deterministically. */}
+      {(result.warnings?.length ?? 0) > 0 && (
+        <div className="answer-warnings" role="alert">
+          {result.warnings!.map((w, i) => (
+            <p key={i} className="answer-warning">
+              ⚠{' '}
+              {w.kind === 'untyped-numeric-compare'
+                ? t('ask:warning.untypedNumeric', { variable: w.variable ?? '?' })
+                : w.message}
+            </p>
+          ))}
+        </div>
+      )}
 
       {result.citations.length > 0 && (
         <div className="citations">

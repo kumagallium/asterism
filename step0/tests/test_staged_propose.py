@@ -21,6 +21,7 @@ from asterism_step0.staged_propose import (  # noqa: E402
     DOCUMENT_SYSTEM_PROMPT,
     PERMAP_SYSTEM_PROMPT,
     SKELETON_SYSTEM_PROMPT,
+    apply_data_facts,
     apply_numeric_datatypes,
     assemble_mapping_ir,
     build_permap_user,
@@ -754,3 +755,60 @@ def test_numeric_datatypes_reach_generation() -> None:
     # The other map had no verdict — untouched.
     part = next(m for m in spec.maps if m.name == "part")
     assert all(p.datatype is None for p in part.properties)
+
+
+def test_apply_data_facts_reasserts_ownership_and_types_on_a_whole_ir() -> None:
+    """The live failure: round-0 typed the numbers and dropped the borrowed
+    columns, then an autocorrect round rewrote §9 from memory — 0 datatypes and
+    the parent's columns back on the child. Re-asserting on the assembled IR is
+    what makes the machine's facts survive any later LLM round."""
+    ir = {
+        "version": 1,
+        "prefixes": {"xo": "https://x/#", "xr": "https://x/r/"},
+        "maps": [
+            {
+                "name": "sample",
+                "source": "card.txt",
+                "subject": {"template": "xr:sample/{No}", "classes": ["xo:Material"]},
+                "properties": [
+                    {"predicate": "xo:volume", "column": "Volume"},  # numeric, untyped
+                    {"predicate": "xo:name", "column": "Name"},
+                ],
+            },
+            {
+                "name": "peak",
+                "source": "card.txt",
+                "subject": {"template": "xr:peak/{No}/{(hkl)}", "classes": ["xo:Peak"]},
+                "properties": [
+                    {"predicate": "xo:intensity", "column": "I"},  # numeric, untyped
+                    {"predicate": "xo:name", "column": "Name"},  # borrowed — came back
+                    {"predicate": "xo:ofSample", "object_template": "xr:sample/{No}"},
+                ],
+            },
+        ],
+    }
+    out, changed = apply_data_facts(
+        ir,
+        column_owners={"peak": {"Name": "sample"}},
+        column_types={"sample": {"Volume": "xsd:double"}, "peak": {"I": "xsd:double"}},
+    )
+    assert changed == {"sample": ["Volume"], "peak": ["Name", "I"]}
+    sample, peak = out["maps"]
+    assert {p["column"]: p.get("datatype") for p in sample["properties"]} == {
+        "Volume": "xsd:double",
+        "Name": None,
+    }
+    assert [p.get("column") or p.get("object_template") for p in peak["properties"]] == [
+        "I",
+        "xr:sample/{No}",  # the join survives; the transcription is gone
+    ]
+    assert peak["properties"][0]["datatype"] == "xsd:double"
+    # Idempotent: a second pass changes nothing.
+    again = apply_data_facts(
+        out,
+        column_owners={"peak": {"Name": "sample"}},
+        column_types={"sample": {"Volume": "xsd:double"}, "peak": {"I": "xsd:double"}},
+    )
+    assert again == (out, {})
+    # No verdicts → untouched.
+    assert apply_data_facts(ir) == (ir, {})

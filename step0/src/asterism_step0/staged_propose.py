@@ -47,6 +47,7 @@ from asterism_step0.mapping_ir_schema import (
 
 __all__ = [
     "SkeletonProposal",
+    "apply_data_facts",
     "apply_numeric_datatypes",
     "assemble_mapping_ir",
     "fill_mapping_spec_block",
@@ -539,6 +540,47 @@ def apply_numeric_datatypes(
     if not typed:
         return dict(result), []
     return {**result, "properties": out}, typed
+
+
+def apply_data_facts(
+    ir: Mapping[str, Any],
+    *,
+    column_owners: Mapping[str, Mapping[str, str]] | None = None,
+    column_types: Mapping[str, Mapping[str, str]] | None = None,
+) -> tuple[dict, dict[str, list[str]]]:
+    """Re-assert on a WHOLE IR what the data proved: ownership and numeric types.
+
+    ``drop_borrowed_properties`` and ``apply_numeric_datatypes`` ran on each map's
+    round-0 table — and then a self-correction round handed §9 back to the model,
+    which rewrote it from memory: the borrowed columns came back and every
+    ``datatype`` was gone (live: a rebuilt XRD dataset, 2 autocorrect rounds, 0
+    datatypes in the saved mapping). A fact the machine derived from the rows
+    must not depend on which LLM round happened to be last, so the SAME two
+    normalisations run on the assembled IR after every round. Idempotent; a map
+    with no verdict is untouched; anything not a plain ``column:`` binding is
+    left alone (see the two helpers for the exact rules).
+
+    Returns the new IR and ``{map: [changed columns]}`` for reporting.
+    """
+    maps = ir.get("maps")
+    if not isinstance(maps, list):
+        return dict(ir), {}
+    changed: dict[str, list[str]] = {}
+    out_maps: list[Any] = []
+    for m in maps:
+        if not isinstance(m, Mapping) or not isinstance(m.get("properties"), list):
+            out_maps.append(m)
+            continue
+        name = str(m.get("name") or "")
+        table: Mapping[str, Any] = {"properties": m["properties"]}
+        table, dropped = drop_borrowed_properties(table, (column_owners or {}).get(name))
+        table, typed = apply_numeric_datatypes(table, (column_types or {}).get(name))
+        if dropped or typed:
+            changed[name] = [*dropped, *typed]
+        out_maps.append({**m, "properties": table["properties"]})
+    if not changed:
+        return dict(ir), {}
+    return {**ir, "maps": out_maps}, changed
 
 
 def generate_map_properties(
