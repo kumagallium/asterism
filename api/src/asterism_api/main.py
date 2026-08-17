@@ -106,7 +106,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from asterism_api import describe as describe_mod
-from asterism_api import design_loop, exchange, registry, server_keys, togomcp_sync
+from asterism_api import design_loop, exchange, registry, server_keys, staging, togomcp_sync
 from asterism_api import usage as usage_ledger
 from asterism_api.jobs import JobManager
 from asterism_api.tool_loop import ToolLoopResult, propose_tool_with_correction
@@ -1278,6 +1278,43 @@ async def _save_tabular_uploads(files: list[UploadFile], dest_dir: Path) -> list
             await _save_upload(upload, dest)
             paths.append(dest)
     return paths
+
+
+def _uploads_from_dir(directory: Path) -> list[UploadFile]:
+    """Wrap files on disk as UploadFiles, so a staged source flows through the
+    SAME converters (`_persist_source_uploads`, `_save_tabular_uploads`) as a
+    fresh upload — one conversion path, not two."""
+    out: list[UploadFile] = []
+    for p in sorted(x for x in directory.iterdir() if x.is_file()):
+        out.append(UploadFile(file=p.open("rb"), filename=p.name))
+    return out
+
+
+async def _design_sources(
+    registry_root: Path,
+    files: list[UploadFile],
+    staging_id: str | None,
+    *,
+    prefix: str,
+) -> tuple[Path, list[Path], bool]:
+    """Where a design call reads its sources from: ``(work_dir, paths, owned)``.
+
+    ``staging_id`` (ADR source-staging.md) → the staged record's own directory,
+    ``owned=False`` (the caller must NOT delete it; the record outlives the
+    call). Otherwise the legacy shape: uploads canonicalised into a fresh temp
+    dir, ``owned=True`` (delete when done). A missing/expired staging id is a
+    404 the client answers by re-uploading its own copy.
+    """
+    if staging_id:
+        try:
+            sdir, paths = staging.load(registry_root, staging_id)
+        except staging.StagingNotFound as exc:
+            raise HTTPException(404, f"staging {staging_id!r} not found (expired?)") from exc
+        return sdir, paths, False
+    if not files:
+        raise HTTPException(400, "no files uploaded")
+    tmpdir = Path(tempfile.mkdtemp(prefix=prefix))
+    return tmpdir, await _save_tabular_uploads(files, tmpdir), True
 
 
 async def _persist_source_uploads(
@@ -2522,9 +2559,71 @@ def build_app(
         entries = _tail_jsonl(cfg.jobs_log, limit)
         return {"count": len(entries), "jobs": entries}
 
+    @app.post("/api/staging", dependencies=_write_auth)
+    async def create_staging(
+        files: list[UploadFile] = File(..., description="Source file(s) to stage for design"),
+    ) -> dict[str, object]:
+        """Give the design-time source a server-side home the moment it is
+        dropped (ADR source-staging.md). Returns ``staging_id`` + the canonical
+        source names; every later design call takes the id instead of the files,
+        and S5's attach copies from here. Write-gated like every other write to
+        the registry; a bare instance with the gate closed answers 503 and the
+        client keeps its own copy (the legacy path is unchanged)."""
+        if not files:
+            raise HTTPException(400, "no files uploaded")
+        staging.sweep(cfg.registry_root)
+        sid = staging.new_id()
+        sdir = staging.dir_for(cfg.registry_root, sid, create=True)
+        try:
+            # raw/ = as received (attach converts it like a fresh upload);
+            # root = the canonical design files (xlsx expanded, names slugged).
+            for upload in files:
+                if upload.filename is None:
+                    raise HTTPException(400, "missing filename")
+                await _save_upload(upload, sdir / "raw" / _sanitize_tabular_name(upload.filename))
+            replay = _uploads_from_dir(sdir / "raw")
+            try:
+                paths = await _save_tabular_uploads(replay, sdir)
+            finally:
+                for u in replay:
+                    await u.close()
+            meta = staging.write_meta(sdir, [p.name for p in paths])
+        except Exception:
+            shutil.rmtree(sdir, ignore_errors=True)
+            raise
+        return {
+            "staging_id": sid,
+            "sources": meta["sources"],
+            "expires_at": staging.expires_at(sdir),
+        }
+
+    @app.get("/api/staging/{staging_id}")
+    async def get_staging(staging_id: str) -> dict[str, object]:
+        """Is this record still live, and what does it hold? The client asks on
+        reload before trusting a remembered id."""
+        try:
+            sdir, paths = staging.load(cfg.registry_root, staging_id)
+        except staging.StagingNotFound as exc:
+            raise HTTPException(404, "staging not found") from exc
+        return {
+            "staging_id": staging_id,
+            "sources": [p.name for p in paths],
+            "expires_at": staging.expires_at(sdir),
+        }
+
+    @app.delete("/api/staging/{staging_id}", dependencies=_write_auth)
+    async def delete_staging(staging_id: str) -> dict[str, object]:
+        """Forget a record (a fresh start). Idempotent."""
+        return {"deleted": staging.delete(cfg.registry_root, staging_id)}
+
     @app.post("/api/inspect")
     async def inspect_csvs(
-        files: list[UploadFile] = File(..., description="Source file(s) to inspect (CSV or JSON)"),
+        files: list[UploadFile] = File(
+            default=[], description="Source file(s) to inspect (CSV or JSON)"),
+        staging_id: str = Form(
+            default="",
+            description="A staged source (POST /api/staging) to read INSTEAD of files.",
+        ),
         fk: list[str] = Query(
             default=[], description="Foreign-key hint column (repeatable, e.g. SID)"
         ),
@@ -2544,10 +2643,10 @@ def build_app(
         source-dialect.md). A file the inspector cannot decode or parse is a 422 (a
         readable message, not a traceback) — dialect detection normally prevents this.
         """
-        if not files:
-            raise HTTPException(400, "no files uploaded")
-        with tempfile.TemporaryDirectory() as td:
-            paths = await _save_tabular_uploads(files, Path(td))
+        work, paths, owned = await _design_sources(
+            cfg.registry_root, files, staging_id or None, prefix="asterism-inspect-"
+        )
+        try:
             try:
                 inspections, fks = inspect_source_set(paths, fk_hint_columns=fk or None)
             except UnicodeDecodeError as exc:
@@ -2561,6 +2660,9 @@ def build_app(
                     422, f"ソースを表として解析できませんでした: {exc}"
                 ) from exc
             markdown = render_markdown(inspections, fks)
+        finally:
+            if owned:
+                shutil.rmtree(work, ignore_errors=True)
         return Response(
             content=markdown,
             media_type="text/markdown",
@@ -2659,7 +2761,11 @@ def build_app(
     @app.post("/api/propose")
     async def propose(
         files: list[UploadFile] = File(
-            ..., description="Source file(s) to model (CSV or JSON)"
+            default=[], description="Source file(s) to model (CSV or JSON)"
+        ),
+        staging_id: str = Form(
+            default="",
+            description="A staged source (POST /api/staging) to read INSTEAD of files.",
         ),
         domain: str = Form(
             default="",
@@ -2714,17 +2820,15 @@ def build_app(
         (header ``X-API-Key``) is used only to build the LLM client for this run
         and is never persisted (D7).
         """
-        if not files:
-            raise HTTPException(400, "no files uploaded")
         # Parse (and 400/422 on) the cap header + dialect overrides BEFORE the upload
         # dir exists so a bad value cannot leak a temp dir.
         max_tokens = _llm_max_tokens(x_llm_max_tokens)
         dialect_overrides = _parse_dialect_overrides(dialects)
 
-        import tempfile as _tempfile
-
-        tmpdir = _tempfile.mkdtemp(prefix="asterism-propose-")
-        paths = await _save_tabular_uploads(files, Path(tmpdir))
+        work, paths, owned = await _design_sources(
+            cfg.registry_root, files, staging_id or None, prefix="asterism-propose-"
+        )
+        tmpdir = str(work)
 
         provider, model, api_base, key = _llm_coords(
             x_api_key, x_llm_provider, x_llm_model, x_llm_api_base, cfg.registry_root
@@ -2785,7 +2889,8 @@ def build_app(
                     iri_base=cfg.iri_base,
                 )
             finally:
-                shutil.rmtree(tmpdir, ignore_errors=True)
+                if owned:
+                    shutil.rmtree(tmpdir, ignore_errors=True)
             return {
                 "proposal_md": result.proposal_md,
                 "inspection_md": result.csv_inspection_md,
@@ -2818,7 +2923,11 @@ def build_app(
     @app.post("/api/propose/skeleton")
     async def propose_skeleton_endpoint(
         files: list[UploadFile] = File(
-            ..., description="Source file(s) to model (CSV or JSON)"
+            default=[], description="Source file(s) to model (CSV or JSON)"
+        ),
+        staging_id: str = Form(
+            default="",
+            description="A staged source (POST /api/staging) to read INSTEAD of files.",
         ),
         domain: str = Form(default="", description="Domain hint (Markdown). Optional."),
         language: str = Form(
@@ -2842,15 +2951,13 @@ def build_app(
         ``{skeleton, inspection_md, metadata}``. The human confirms/edits the
         skeleton, then re-attaches the source and POSTs it to /api/propose/continue.
         The API key is used only for this run and never persisted (D7)."""
-        if not files:
-            raise HTTPException(400, "no files uploaded")
         max_tokens = _llm_max_tokens(x_llm_max_tokens)
         dialect_overrides = _parse_dialect_overrides(dialects)
 
-        import tempfile as _tempfile
-
-        tmpdir = _tempfile.mkdtemp(prefix="asterism-skeleton-")
-        paths = await _save_tabular_uploads(files, Path(tmpdir))
+        work, paths, owned = await _design_sources(
+            cfg.registry_root, files, staging_id or None, prefix="asterism-skeleton-"
+        )
+        tmpdir = str(work)
 
         provider, model, api_base, key = _llm_coords(
             x_api_key, x_llm_provider, x_llm_model, x_llm_api_base, cfg.registry_root
@@ -2903,7 +3010,8 @@ def build_app(
                     logger.warning("skeleton annotation failed: %s", exc)
                     annotations = None
             finally:
-                shutil.rmtree(tmpdir, ignore_errors=True)
+                if owned:
+                    shutil.rmtree(tmpdir, ignore_errors=True)
             return {
                 "skeleton": result.skeleton,
                 "inspection_md": result.csv_inspection_md,
@@ -2919,7 +3027,11 @@ def build_app(
     @app.post("/api/propose/skeleton/validate")
     async def validate_skeleton_endpoint(
         files: list[UploadFile] = File(
-            ..., description="The same source file(s) the skeleton was generated from"
+            default=[], description="The same source file(s) the skeleton was generated from"
+        ),
+        staging_id: str = Form(
+            default="",
+            description="A staged source (POST /api/staging) to read INSTEAD of files.",
         ),
         skeleton: str = Form(..., description="The (possibly edited) skeleton as a JSON object"),
         dialects: str = Form(
@@ -2934,8 +3046,6 @@ def build_app(
         milliseconds, not after the (minutes-long, paid) continue run. Same
         computation the initial skeleton response ships in ``annotations``;
         stateless like /api/propose/continue (the source rides the request)."""
-        if not files:
-            raise HTTPException(400, "no files uploaded")
         try:
             skeleton_obj = json.loads(skeleton)
         except json.JSONDecodeError as exc:
@@ -2944,9 +3054,10 @@ def build_app(
             raise HTTPException(400, "skeleton must be a JSON object")
         dialect_overrides = _parse_dialect_overrides(dialects)
 
-        tmpdir = tempfile.mkdtemp(prefix="asterism-skelcheck-")
+        work, paths, owned = await _design_sources(
+            cfg.registry_root, files, staging_id or None, prefix="asterism-skelcheck-"
+        )
         try:
-            paths = await _save_tabular_uploads(files, Path(tmpdir))
             annotations = await asyncio.to_thread(
                 annotate_skeleton,
                 skeleton_obj,
@@ -2955,13 +3066,18 @@ def build_app(
                 iri_base=cfg.iri_base,
             )
         finally:
-            shutil.rmtree(tmpdir, ignore_errors=True)
+            if owned:
+                shutil.rmtree(work, ignore_errors=True)
         return {"annotations": annotations}
 
     @app.post("/api/propose/continue")
     async def propose_continue_endpoint(
         files: list[UploadFile] = File(
-            ..., description="Source file(s) — re-attach the same source the skeleton used"
+            default=[], description="Source file(s) — re-attach the same source the skeleton used"
+        ),
+        staging_id: str = Form(
+            default="",
+            description="A staged source (POST /api/staging) to read INSTEAD of files.",
         ),
         skeleton: str = Form(..., description="The confirmed skeleton IR as a JSON object"),
         domain: str = Form(default="", description="Domain hint (Markdown). Optional."),
@@ -2985,8 +3101,6 @@ def build_app(
         generate each map's property table, the §1-8 document, splice §9 in
         deterministically, then run the SAME self-correction loop. The done payload is
         identical to /api/propose — materialize and everything downstream is unchanged."""
-        if not files:
-            raise HTTPException(400, "no files uploaded")
         try:
             skeleton_obj = json.loads(skeleton)
         except (ValueError, TypeError) as exc:
@@ -2996,10 +3110,10 @@ def build_app(
         max_tokens = _llm_max_tokens(x_llm_max_tokens)
         dialect_overrides = _parse_dialect_overrides(dialects)
 
-        import tempfile as _tempfile
-
-        tmpdir = _tempfile.mkdtemp(prefix="asterism-continue-")
-        paths = await _save_tabular_uploads(files, Path(tmpdir))
+        work, paths, owned = await _design_sources(
+            cfg.registry_root, files, staging_id or None, prefix="asterism-continue-"
+        )
+        tmpdir = str(work)
 
         provider, model, api_base, key = _llm_coords(
             x_api_key, x_llm_provider, x_llm_model, x_llm_api_base, cfg.registry_root
@@ -3049,7 +3163,8 @@ def build_app(
                     iri_base=cfg.iri_base,
                 )
             finally:
-                shutil.rmtree(tmpdir, ignore_errors=True)
+                if owned:
+                    shutil.rmtree(tmpdir, ignore_errors=True)
             return {
                 "proposal_md": result.proposal_md,
                 "inspection_md": result.csv_inspection_md,
@@ -4108,7 +4223,11 @@ def build_app(
     async def attach_source(
         dataset_id: str,
         files: list[UploadFile] = File(
-            ..., description="Design-time source file(s) (CSV or JSON)"
+            default=[], description="Design-time source file(s) (CSV or JSON)"
+        ),
+        staging_id: str = Form(
+            default="",
+            description="A staged source (POST /api/staging) to attach INSTEAD of files.",
         ),
     ) -> JSONResponse:
         """Persist the sources a dataset was designed from (reproducibility, Task E).
@@ -4117,12 +4236,34 @@ def build_app(
         dataset can later be ingested from the catalog with no re-attach. The
         workbench calls this right after materialize (step 3 保存). CSV and JSON
         sources are both accepted (#19). Overwrites any previously attached source.
+
+        ``staging_id`` (ADR source-staging.md): attach what was staged at drop
+        time — its RAW uploads replay through the very same converter as a fresh
+        upload (an ``.xlsx`` keeps its original alongside, exactly as before),
+        and the staging record is consumed.
         """
         if registry.load_dataset(cfg.registry_root, dataset_id) is None:
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
-        if not files:
-            raise HTTPException(400, "no source files uploaded")
-        saved, meta = await _persist_source_uploads(cfg.registry_root, dataset_id, files)
+        if staging_id:
+            try:
+                sdir, _paths = staging.load(cfg.registry_root, staging_id)
+            except staging.StagingNotFound as exc:
+                raise HTTPException(404, f"staging {staging_id!r} not found (expired?)") from exc
+            raw = staging.raw_paths(sdir)
+            if not raw:
+                raise HTTPException(404, f"staging {staging_id!r} holds no sources")
+            uploads = _uploads_from_dir(sdir / "raw")
+            try:
+                saved, meta = await _persist_source_uploads(cfg.registry_root, dataset_id, uploads)
+            finally:
+                for u in uploads:
+                    await u.close()
+            # Consumed: the dataset's source/ is now the durable home.
+            staging.delete(cfg.registry_root, staging_id)
+        else:
+            if not files:
+                raise HTTPException(400, "no source files uploaded")
+            saved, meta = await _persist_source_uploads(cfg.registry_root, dataset_id, files)
         return JSONResponse(
             {"dataset_id": dataset_id, "source_files": saved, "dataset": meta}
         )

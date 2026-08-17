@@ -37,6 +37,7 @@ import { useLlmSettings } from './settings/context'
 import { LlmGate } from './settings/LlmGate'
 import { SkeletonGate } from './SkeletonGate'
 import { clearSourceFiles, loadSourceFiles, saveSourceFiles } from './sourceFileStore'
+import { stageSources, stagingAlive, unstageSources } from './api'
 
 // Data-source kinds. CSV and JSON (#19) are wired end-to-end (Morph-KGC reads
 // both via the RML's referenceFormulation); API/DB are shown (the redesign's
@@ -167,6 +168,8 @@ interface WorkbenchSnapshot {
   // (File objects can't be serialized) — the gate says so.
   stagedSkeleton?: MappingSkeleton | null
   stagedAnnotations?: SkeletonAnnotations | null
+  /** The server-side staged copy of the source (ADR source-staging.md). */
+  stagingId?: string | null
 }
 
 /**
@@ -285,6 +288,11 @@ export function WorkbenchView({
   const [stagedAnnotations, setStagedAnnotations] = useState<SkeletonAnnotations | null>(
     snap.stagedAnnotations ?? null,
   )
+  // The staged copy on the server (ADR source-staging.md): once set, design
+  // calls pass the id and nothing is re-uploaded; `null` = the files in this
+  // tab are the only copy (the legacy path).
+  const [stagingId, setStagingId] = useState<string | null>(snap.stagingId ?? null)
+  const hasSource = files.length > 0 || !!stagingId
   const [annotationsBusy, setAnnotationsBusy] = useState(false)
   const revalidateTimer = useRef<number | null>(null)
   const proposeJobRef = useRef<JobHandle | null>(null)
@@ -327,13 +335,14 @@ export function WorkbenchView({
       dialectOverrides,
       stagedSkeleton,
       stagedAnnotations,
+      stagingId,
     }
     try {
       sessionStorage.setItem(WB_STORAGE, JSON.stringify(snapshot))
     } catch {
       // sessionStorage may be unavailable (private mode quota) — non-fatal.
     }
-  }, [mode, step, source, fk, markdown, domainFree, presetIds, proposal, materialized, redesignId, redesignName, redesignOrigin, lastSaveKind, dialectOverrides, stagedSkeleton, stagedAnnotations])
+  }, [mode, step, source, fk, markdown, domainFree, presetIds, proposal, materialized, redesignId, redesignName, redesignOrigin, lastSaveKind, dialectOverrides, stagedSkeleton, stagedAnnotations, stagingId])
 
   // Seed the workbench from a redesign target during render (the "adjust state on
   // prop change" pattern — same as GalleryView's focusClass handling — so we avoid a
@@ -430,9 +439,17 @@ export function WorkbenchView({
     void loadSourceFiles().then((restored) => {
       if (!cancelled && restored.length > 0) setFiles(restored)
     })
+    // A remembered staging id must still be live; otherwise forget it (the
+    // local copy above, or a re-pick, takes over).
+    if (snap.stagingId) {
+      void stagingAlive(snap.stagingId).then((alive) => {
+        if (!cancelled && !alive) setStagingId(null)
+      })
+    }
     return () => {
       cancelled = true
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const fks = () =>
@@ -446,7 +463,7 @@ export function WorkbenchView({
     setMarkdown('')
     setInspecting(true)
     try {
-      const result = await inspectCsvs(files, fks())
+      const result = await inspectCsvs(files, fks(), stagingId)
       setMarkdown(result.markdown)
       setSourceNames(result.sourceNames)
       setDetectedDialects(result.dialects)
@@ -498,7 +515,7 @@ export function WorkbenchView({
   function onToggleInspect() {
     const next = !showInspect
     setShowInspect(next)
-    if (next && !markdown && files.length > 0) onInspect()
+    if (next && !markdown && hasSource) onInspect()
   }
 
   function togglePreset(id: string) {
@@ -592,6 +609,7 @@ export function WorkbenchView({
         },
         i18n.language,
         dialectOverrides,
+        stagingId,
       )
     } catch (e) {
       setProposeErr(e instanceof Error ? e.message : String(e))
@@ -651,6 +669,7 @@ export function WorkbenchView({
         },
         i18n.language,
         dialectOverrides,
+        stagingId,
       )
     } catch (e) {
       setProposeErr(e instanceof Error ? e.message : String(e))
@@ -665,11 +684,11 @@ export function WorkbenchView({
   function onSkeletonEdited(edited: MappingSkeleton) {
     setStagedSkeleton(edited)
     if (revalidateTimer.current !== null) window.clearTimeout(revalidateTimer.current)
-    if (files.length === 0) return // nothing to check against (gate shows a hint)
+    if (!hasSource) return // nothing to check against (gate shows a hint)
     revalidateTimer.current = window.setTimeout(async () => {
       setAnnotationsBusy(true)
       try {
-        setStagedAnnotations(await validateSkeleton(files, edited, dialectOverrides))
+        setStagedAnnotations(await validateSkeleton(files, edited, dialectOverrides, stagingId))
       } catch {
         // Evidence is enrichment — a failed re-check never blocks editing.
       } finally {
@@ -730,6 +749,7 @@ export function WorkbenchView({
         i18n.language,
         undefined, // autocorrect: server default
         dialectOverrides,
+        stagingId,
       )
     } catch (e) {
       setProposeErr(e instanceof Error ? e.message : String(e))
@@ -858,9 +878,10 @@ export function WorkbenchView({
       // can be ingested from the catalog later with no re-attach. Best-effort —
       // never block the save (ingest can still re-upload if this fails).
       const datasetId = result.dataset?.id
-      if (datasetId && files.length > 0) {
+      if (datasetId && hasSource) {
         try {
-          await attachSource(datasetId, files)
+          await attachSource(datasetId, files, stagingId)
+          setStagingId(null) // consumed into the dataset's source/
           // Now that the source is persisted, re-run the advisory design check so a
           // BRAND-NEW design gets the same pre-ingest advice a redesign gets inline
           // (at materialize a fresh design has no source yet, so `validation_issues`
@@ -926,6 +947,8 @@ export function WorkbenchView({
     resetDialectContext() // FIX3: don't carry a stale override into the next dataset
     sessionStorage.removeItem(WB_STORAGE)
     void clearSourceFiles()
+    if (stagingId) void unstageSources(stagingId)
+    setStagingId(null)
   }
 
   // Completion drives the ✓ marks. Refine (2) is optional, so it has none.
@@ -966,7 +989,7 @@ export function WorkbenchView({
 
   // Artifacts that were restored from a previous session (proposal exists but
   // the File objects, which can't be persisted, are gone).
-  const restored = proposal !== '' && files.length === 0
+  const restored = proposal !== '' && !hasSource
   const hasArtifacts = markdown !== '' || proposal !== '' || materialized !== null
 
   return (
@@ -1074,6 +1097,15 @@ export function WorkbenchView({
                 const picked = Array.from(e.target.files ?? [])
                 setFiles(picked)
                 void saveSourceFiles(picked) // survive a reload
+                // Server-side home right away (ADR source-staging.md); until it
+                // lands (or if it never does) calls upload the files as before.
+                if (stagingId) void unstageSources(stagingId)
+                setStagingId(null)
+                if (picked.length > 0) {
+                  stageSources(picked)
+                    .then((r) => setStagingId(r.stagingId))
+                    .catch(() => setStagingId(null))
+                }
                 // FIX3: a new file set drops any stale dialect from the previous one (a
                 // same-named device export must not inherit the prior override); a fresh
                 // inspect re-detects and the human can re-confirm before generation.
@@ -1191,7 +1223,7 @@ export function WorkbenchView({
               <div className="wb-generate-actions">
                 <button
                   onClick={onProposeSkeleton}
-                  disabled={skeletonBusy || proposing || files.length === 0 || !isReady}
+                  disabled={skeletonBusy || proposing || !hasSource || !isReady}
                 >
                   {skeletonBusy ? (
                     <>
@@ -1206,7 +1238,7 @@ export function WorkbenchView({
                   type="button"
                   className="btn btn--ghost"
                   onClick={onPropose}
-                  disabled={skeletonBusy || proposing || files.length === 0 || !isReady}
+                  disabled={skeletonBusy || proposing || !hasSource || !isReady}
                 >
                   {t('workbench:skeleton.singleShot')}
                 </button>
@@ -1230,7 +1262,7 @@ export function WorkbenchView({
                   skeleton={stagedSkeleton}
                   annotations={stagedAnnotations}
                   annotationsBusy={annotationsBusy}
-                  canRevalidate={files.length > 0}
+                  canRevalidate={hasSource}
                   busy={proposing}
                   onChange={onSkeletonEdited}
                   onContinue={onContinueFromSkeleton}

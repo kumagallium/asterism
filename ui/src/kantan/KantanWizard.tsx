@@ -52,6 +52,7 @@ import { JobProgress } from '../JobProgress'
 import { useLlmSettings } from '../settings/context'
 import { SkeletonGate } from '../SkeletonGate'
 import { clearSourceFiles, loadSourceFiles, saveSourceFiles } from '../sourceFileStore'
+import { stageSources, stagingAlive, unstageSources } from '../api'
 import { localName } from '../vocab'
 import { plainError } from './errorMessages'
 import { RecipeCard } from './RecipeCard'
@@ -273,6 +274,8 @@ interface KantanSnapshot {
   // to publish — there is no staged graph to promote until a refine ran.
   redesigning: boolean
   reingested: boolean
+  /** The server-side staged copy of the source (ADR source-staging.md). */
+  stagingId?: string | null
 }
 
 function loadSnapshot(): Partial<KantanSnapshot> {
@@ -357,6 +360,13 @@ export function KantanWizard({
     return snap.skeleton && loadSavedJob()?.kind === 'propose' ? 4 : 1
   })
   const [files, setFiles] = useState<File[]>([])
+  // The staged copy on the server (ADR source-staging.md). Once set, design
+  // calls pass the id and nothing is re-uploaded; a reload keeps working
+  // because the id is a string the snapshot can hold. `null` = not staged
+  // (an old server, a closed write gate, or the record expired) → the files in
+  // this tab are the only copy, exactly the legacy path.
+  const [stagingId, setStagingId] = useState<string | null>(snap.stagingId ?? null)
+  const hasSource = files.length > 0 || !!stagingId
   const [kind, setKind] = useState<KantanKind | null>(
     snap.kind === 'json' ? 'json' : snap.kind === 'csv' ? 'tabular' : null,
   )
@@ -470,6 +480,7 @@ export function KantanWizard({
     resetPipelineState()
     setFiles([])
     void clearSourceFiles() // the redesign's source is persisted server-side
+    setStagingId(null)
     setKind('tabular')
     setSkeleton(null)
     setAnnotations(null)
@@ -526,6 +537,7 @@ export function KantanWizard({
       proposal,
       datasetId: kzDatasetId,
       datasetName: kzDatasetName,
+      stagingId,
       sourceAttached,
       autoFixed,
       confirmed,
@@ -552,6 +564,7 @@ export function KantanWizard({
     proposal,
     kzDatasetId,
     kzDatasetName,
+    stagingId,
     sourceAttached,
     autoFixed,
     confirmed,
@@ -651,22 +664,49 @@ export function KantanWizard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Mount-only: bring the source files back (IndexedDB, this tab's own set).
-  // With them, every restore that used to strand the user — the gate with no
-  // re-check, re-ingest asking for the files again — simply continues:
-  //   S1 with a kept skeleton → onFilesChosen takes its resume branch (S4 +
-  //   a fresh evidence check); S1 without one → a normal re-inspect;
+  // Mount-only: bring the source back. Two copies may exist — the server's
+  // staged record (ADR source-staging.md; its id is a string the snapshot
+  // holds) and this tab's own files (IndexedDB) — and either is enough:
+  //   S1 with a kept skeleton → straight to the gate (S4) with a fresh evidence
+  //     check, reading whichever copy is there (the live staging, else the
+  //     local files); S1 without one → a normal re-inspect;
   //   S4-S9 → the files are just there again (re-check, rethink, re-ingest).
+  // A remembered id that died (expired, consumed) is forgotten; a fresh drop
+  // will stage anew. Nothing here re-stages a source the server still holds.
   useEffect(() => {
     let cancelled = false
-    void loadSourceFiles().then((restored) => {
-      if (cancelled || restored.length === 0) return
-      if (step === 1) {
-        onFilesChosen(restored)
-      } else {
+    void (async () => {
+      const remembered = snap.stagingId ?? null
+      const [restored, live] = await Promise.all([
+        loadSourceFiles(),
+        remembered ? stagingAlive(remembered) : Promise.resolve(false),
+      ])
+      if (cancelled) return
+      const sid = live ? remembered : null
+      if (!live) setStagingId(null)
+      if (restored.length === 0 && !sid) return
+      if (step !== 1) {
         setFiles(restored)
+        return
       }
-    })
+      if (skeleton && kind) {
+        // The resume branch, without re-staging what the server already has.
+        setFiles(restored)
+        setStep(4)
+        setAnnotationsBusy(true)
+        validateSkeleton(restored, skeleton, dialectOverrides, sid)
+          .then(setAnnotations)
+          .catch(() => {
+            /* evidence is enrichment */
+          })
+          .finally(() => setAnnotationsBusy(false))
+        return
+      }
+      if (restored.length > 0) {
+        if (sid) void unstageSources(sid) // onFilesChosen stages afresh
+        onFilesChosen(restored)
+      }
+    })()
     return () => {
       cancelled = true
     }
@@ -773,6 +813,12 @@ export function KantanWizard({
     setInspectErr('')
     setFiles(arr)
     void saveSourceFiles(arr) // survive a reload (sessionStorage cannot hold a File)
+    // And give them a server-side home right away (ADR source-staging.md).
+    // Later calls prefer the id; until it lands (or if it never does) they
+    // upload the files as before, so nothing waits on this.
+    stageSources(arr)
+      .then((r) => setStagingId(r.stagingId))
+      .catch(() => setStagingId(null))
 
     if (k === 'document') {
       // Documents need no AI design — the existing panel handles the whole
@@ -892,7 +938,7 @@ export function KantanWizard({
   }
 
   function onProceed() {
-    if (!isReady || files.length === 0) return
+    if (!isReady || !hasSource) return
     setStep(3)
     void runSkeleton()
   }
@@ -900,6 +946,8 @@ export function KantanWizard({
   function backToPick() {
     setFiles([])
     void clearSourceFiles()
+    if (stagingId) void unstageSources(stagingId)
+    setStagingId(null)
     setKind(null)
     setPreviews([])
     setInspection(null)
@@ -964,6 +1012,7 @@ export function KantanWizard({
         },
         i18n.language,
         dialectOverrides,
+        stagingId,
       )
     } catch (e) {
       setErrMsg(e instanceof Error ? e.message : String(e))
@@ -978,11 +1027,11 @@ export function KantanWizard({
   function onSkeletonEdited(edited: MappingSkeleton) {
     setSkeleton(edited)
     if (revalidateTimer.current !== null) window.clearTimeout(revalidateTimer.current)
-    if (files.length === 0) return // nothing to check against (gate shows a hint)
+    if (!hasSource) return // nothing to check against (gate shows a hint)
     revalidateTimer.current = window.setTimeout(async () => {
       setAnnotationsBusy(true)
       try {
-        setAnnotations(await validateSkeleton(files, edited, dialectOverrides))
+        setAnnotations(await validateSkeleton(files, edited, dialectOverrides, stagingId))
       } catch {
         // Evidence is enrichment — a failed re-check never blocks editing.
       } finally {
@@ -993,7 +1042,7 @@ export function KantanWizard({
 
   async function runContinue() {
     if (!skeleton) return
-    if (files.length === 0) {
+    if (!hasSource) {
       setErrMsg(t('kantan:s4.needFiles'))
       return
     }
@@ -1043,6 +1092,7 @@ export function KantanWizard({
         i18n.language,
         undefined, // autocorrect: server default
         dialectOverrides,
+        stagingId,
       )
     } catch (e) {
       setErrMsg(e instanceof Error ? e.message : String(e))
@@ -1165,13 +1215,16 @@ export function KantanWizard({
       // 2) Persist the S1 files as the dataset's source, so this ingest — and
       //    every later re-ingest (S6 refine loop, catalog) — needs no re-attach.
       if (!attached) {
-        if (fs.length === 0) {
+        if (fs.length === 0 && !stagingId) {
           setStop({ kind: 'files', detail: '' })
           return
         }
         setPipePhase('save')
         try {
-          await attachSource(datasetId, fs)
+          // The staged copy is consumed here (it becomes the dataset's
+          // source/); the files in this tab are the fallback.
+          await attachSource(datasetId, fs, stagingId)
+          setStagingId(null)
           setSourceAttached(true)
         } catch (e) {
           setStop({ kind: 'attach', detail: errText(e), retryFrom: 'attach' })
@@ -1595,6 +1648,9 @@ export function KantanWizard({
     setPickError('')
     setFiles(arr)
     void saveSourceFiles(arr)
+    stageSources(arr)
+      .then((r) => setStagingId(r.stagingId))
+      .catch(() => setStagingId(null))
     void runPipeline('attach', undefined, arr)
   }
 
@@ -1604,6 +1660,8 @@ export function KantanWizard({
   function resetWizardToStart() {
     setFiles([])
     void clearSourceFiles()
+    if (stagingId) void unstageSources(stagingId)
+    setStagingId(null)
     setKind(null)
     setPreviews([])
     setInspection(null)
@@ -1664,7 +1722,7 @@ export function KantanWizard({
   // is running"). ②+ are inert (RecipeCard renders only ① as a button).
   function onRecipeStep(target: 1 | 2 | 3 | 4 | 5) {
     if (target !== 1 || step === 1) return
-    const dirty = busy || files.length > 0 || !!proposal || !!skeleton || !!kzDatasetId
+    const dirty = busy || hasSource || !!proposal || !!skeleton || !!kzDatasetId
     if (dirty && !window.confirm(t('kantan:s5.stop.restartConfirm'))) return
     doRestart()
   }
@@ -1675,7 +1733,7 @@ export function KantanWizard({
   // (S9 renders ⑤ as done — the run is complete).
   const recipePos: 1 | 2 | 3 | 4 | 5 =
     step <= 2 ? 1 : step === 3 ? 2 : step <= 6 ? 3 : step === 7 ? 4 : 5
-  const resumeAvailable = !!skeleton && files.length === 0 && !proposal && step === 1
+  const resumeAvailable = !!skeleton && !hasSource && !proposal && step === 1
   const showS5 = pipeBusy || refining !== false || step === 5
 
   // S7 cards / S9 chips: assembled sentences over the deterministic results.
@@ -2542,7 +2600,7 @@ export function KantanWizard({
               skeleton={skeleton}
               annotations={annotations}
               annotationsBusy={annotationsBusy}
-              canRevalidate={files.length > 0}
+              canRevalidate={hasSource}
               busy={continuing}
               plain
               onChange={onSkeletonEdited}
@@ -2550,13 +2608,13 @@ export function KantanWizard({
               onDiscard={() => {
                 setSkeleton(null)
                 setAnnotations(null)
-                setStep(files.length > 0 ? 2 : 1)
+                setStep(hasSource ? 2 : 1)
               }}
               onRethink={
                 // A structural objection goes back to the AI (S3 rerun with the
                 // note folded into the hint). Needs the files — a restore lost
                 // them (the gate then keeps only the edit/discard exits).
-                files.length > 0
+                hasSource
                   ? (note) => {
                       setSkeleton(null)
                       setAnnotations(null)
