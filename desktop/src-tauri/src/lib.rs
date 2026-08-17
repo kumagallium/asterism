@@ -10,6 +10,14 @@
 //! found by walking up from the executable, or `ASTERISM_LOCAL_CMD`, or PATH).
 //! Bundling a self-contained Python runtime is the follow-up step; the process
 //! contract stays the same, mirroring Graphium's sidecar layout.
+//!
+//! Updates (ADR local-first-distribution.md §6.2): the SPA owns the everyday
+//! flow — it checks on launch and every 24 h and shows a banner at the top of
+//! the window with a one-click "download, install, relaunch" (the same
+//! `@tauri-apps/plugin-updater` calls Graphium makes). The shell's part is to
+//! grant that loopback origin exactly the updater/relaunch IPC it needs
+//! (`grant_spa_update_ipc`) and to keep the native menu item as the fallback
+//! that works even when the page does not.
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -18,15 +26,13 @@ use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+use tauri::ipc::CapabilityBuilder;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::{Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_updater::UpdaterExt;
 
 const READY_TIMEOUT: Duration = Duration::from_secs(60);
-// The updater plugin can't install over a dev build, and the auto-check would
-// annoy on every `tauri dev` run; the menu item still works in all builds.
-const AUTO_CHECK_DELAY: Duration = Duration::from_secs(8);
 
 struct Backend(Mutex<Option<Child>>);
 
@@ -200,22 +206,22 @@ fn notify(app: &tauri::AppHandle, message: &str, kind: MessageDialogKind) {
         .blocking_show();
 }
 
-/// Native auto-update flow (chosen surface: no SPA/IPC coupling, since the
-/// window is a remote http://127.0.0.1 URL). Checks the release `latest.json`
-/// against the bundled version, offers a native dialog, then downloads,
-/// installs, and relaunches. `user_initiated` controls whether "already up to
-/// date" and errors surface a dialog (menu check) or stay silent (auto-check).
-async fn check_for_updates(app: tauri::AppHandle, user_initiated: bool) {
+/// Native update flow behind the menu item "アップデートを確認…" — the fallback
+/// that needs no page: checks the release `latest.json` against the bundled
+/// version, offers a native dialog, then downloads, installs, and relaunches.
+/// The everyday surface is the SPA banner (see the module doc); this stays for
+/// when the page cannot help (blank window, IPC refused, a broken build).
+/// Always user-initiated, so every outcome — including "already up to date"
+/// and errors — gets a dialog.
+async fn check_for_updates(app: tauri::AppHandle) {
     let updater = match app.updater() {
         Ok(updater) => updater,
         Err(err) => {
-            if user_initiated {
-                notify(
-                    &app,
-                    &format!("アップデータを初期化できません: {err}"),
-                    MessageDialogKind::Error,
-                );
-            }
+            notify(
+                &app,
+                &format!("アップデータを初期化できません: {err}"),
+                MessageDialogKind::Error,
+            );
             return;
         }
     };
@@ -250,25 +256,42 @@ async fn check_for_updates(app: tauri::AppHandle, user_initiated: bool) {
             }
             app.restart();
         }
-        Ok(None) => {
-            if user_initiated {
-                notify(
-                    &app,
-                    "お使いの Asterism は最新です。",
-                    MessageDialogKind::Info,
-                );
-            }
-        }
-        Err(err) => {
-            if user_initiated {
-                notify(
-                    &app,
-                    &format!("アップデートの確認に失敗しました: {err}"),
-                    MessageDialogKind::Error,
-                );
-            }
-        }
+        Ok(None) => notify(
+            &app,
+            "お使いの Asterism は最新です。",
+            MessageDialogKind::Info,
+        ),
+        Err(err) => notify(
+            &app,
+            &format!("アップデートの確認に失敗しました: {err}"),
+            MessageDialogKind::Error,
+        ),
     }
+}
+
+/// Let the SPA drive updates from inside the window. The page is a remote
+/// `http://127.0.0.1:<port>` origin, and Tauri grants remote origins nothing
+/// unless a capability names them (the static `capabilities/default.json`
+/// covers local `tauri://` pages only). This registers, at runtime, a
+/// capability scoped to the ONE origin the window is about to load — port
+/// included, so it also holds on the random-port fallback — that opens exactly:
+///
+/// - `updater:default`: check / download-and-install. Endpoints and the minisign
+///   pubkey are baked into tauri.conf.json, so the page can neither point the
+///   updater elsewhere nor skip signature verification;
+/// - `process:allow-restart`: relaunch after install;
+/// - `core:resources:allow-close`: release the update handle `check()` returns.
+///
+/// Nothing else — no shell, fs, dialog, or window control reaches the page.
+fn grant_spa_update_ipc(app: &tauri::AppHandle, port: u16) -> tauri::Result<()> {
+    let capability = CapabilityBuilder::new("loopback-spa-updater")
+        .local(false)
+        .remote(format!("http://127.0.0.1:{port}"))
+        .window("main")
+        .permission("updater:default")
+        .permission("process:allow-restart")
+        .permission("core:resources:allow-close");
+    app.add_capability(capability)
 }
 
 fn boot(app: tauri::AppHandle) {
@@ -280,6 +303,11 @@ fn boot(app: tauri::AppHandle) {
         return;
     };
     let port = app_port();
+    // Before the window exists: the grant is keyed by the origin the window
+    // will load. Failure is not fatal — the menu item still updates the app.
+    if let Err(err) = grant_spa_update_ipc(&app, port) {
+        eprintln!("asterism-desktop: could not grant updater IPC to the SPA: {err}");
+    }
 
     let log_path = app.path().app_log_dir().ok().map(|dir| {
         let _ = std::fs::create_dir_all(&dir);
@@ -316,10 +344,9 @@ fn boot(app: tauri::AppHandle) {
     for (key, value) in &backend.envs {
         command.env(key, value);
     }
-    // Tell the backend which build it belongs to. The window is a remote
-    // http://127.0.0.1 origin with no Tauri IPC, so this env var is how the SPA
-    // learns the app version (settings → About) and how it knows it is running
-    // inside the desktop app at all. Installing updates stays here in the shell.
+    // Tell the backend which build it belongs to: `/api/instance` relays it, so
+    // the SPA shows the version (settings → About) and knows it is running
+    // inside the desktop app — without any IPC beyond the updater grant above.
     command.env(
         "ASTERISM_APP_VERSION",
         app.package_info().version.to_string(),
@@ -398,16 +425,8 @@ fn boot(app: tauri::AppHandle) {
             handle.exit(1);
         }
     });
-
-    // Auto-check for updates once the window is up (release builds only).
-    #[cfg(not(debug_assertions))]
-    {
-        let handle = app.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(AUTO_CHECK_DELAY);
-            tauri::async_runtime::spawn(check_for_updates(handle, false));
-        });
-    }
+    // No native auto-check here any more: the SPA checks once the window is up
+    // and shows a banner instead of a modal dialog (ui/src/desktop/updater.ts).
 }
 
 /// macOS-standard menu (so webview copy/paste keeps working) with a
@@ -465,7 +484,7 @@ pub fn run() {
         .menu(build_menu)
         .on_menu_event(|app, event| {
             if event.id() == "check_update" {
-                tauri::async_runtime::spawn(check_for_updates(app.clone(), true));
+                tauri::async_runtime::spawn(check_for_updates(app.clone()));
             }
         })
         .setup(|app| {

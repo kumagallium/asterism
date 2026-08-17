@@ -5,6 +5,7 @@ import { prefillAskQuestion } from './askPrefill'
 import { AskView } from './AskView'
 import { CrosswalkView } from './CrosswalkView'
 import { isMockMode } from './demoApi'
+import { UpdateBanner } from './desktop/UpdateBanner'
 import { type DetailTab, GalleryView } from './GalleryView'
 import { HomeView } from './HomeView'
 import { LanguageToggle } from './i18n/LanguageToggle'
@@ -208,151 +209,156 @@ function App() {
   }
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand">
-          <span className="brand-mark">
-            <BrandMark />
-          </span>
-          <span className="brand-text">
-            <span className="brand-name">{t('brand.name')}</span>
-            <span className="brand-tag">{t('brand.tag')}</span>
-          </span>
+    // .app-frame: 縦積み＝上に更新のお知らせ（デスクトップ版で更新があるときだけ・
+    // サイドバーも含めた全幅）、下に従来の 2 列シェル。
+    <div className="app-frame">
+      <UpdateBanner />
+      <div className="app-shell">
+        <aside className="sidebar">
+          <div className="brand">
+            <span className="brand-mark">
+              <BrandMark />
+            </span>
+            <span className="brand-text">
+              <span className="brand-name">{t('brand.name')}</span>
+              <span className="brand-tag">{t('brand.tag')}</span>
+            </span>
+          </div>
+
+          <nav className="side-nav">
+            <div className="side-nav-group">
+              {NAV_ITEMS.map((it) => {
+                const Icon = it.icon
+                return (
+                  <button
+                    key={it.id}
+                    type="button"
+                    className={`side-nav-item${tab === it.id ? ' active' : ''}`}
+                    onClick={() => navTo(it.id)}
+                    aria-current={tab === it.id ? 'page' : undefined}
+                    // 860px 以下でラベルが display:none になるアイコンレールでも
+                    // 名前が残るように（ツールチップ兼スクリーンリーダー名）
+                    aria-label={t(`nav.${it.id}`)}
+                    title={t(`nav.${it.id}`)}
+                  >
+                    <Icon className="side-nav-icon" />
+                    <span className="side-nav-text">{t(`nav.${it.id}`)}</span>
+                    <span className="side-nav-en">{glossT(`nav.${it.id}`)}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </nav>
+
+          <div className="sidebar-foot">
+            <button
+              type="button"
+              className="side-nav-item side-nav-settings"
+              onClick={openSettings}
+              aria-label={tSettings('open')}
+              title={tSettings('open')}
+            >
+              <GearIcon className="side-nav-icon" />
+              <span className="side-nav-text">{tSettings('open')}</span>
+              <span className="side-nav-en">{glossSettingsT('open')}</span>
+            </button>
+            <button
+              type="button"
+              className={`side-nav-item side-nav-dev${tab === 'sparql' ? ' active' : ''}`}
+              onClick={() => navTo('sparql')}
+              aria-current={tab === 'sparql' ? 'page' : undefined}
+              aria-label={t('nav.sparql')}
+              title={t('nav.sparql')}
+            >
+              <CodeIcon className="side-nav-icon" />
+              <span className="side-nav-text">{t('nav.sparql')}</span>
+              <span className="side-nav-en">{t('nav.sparqlTag')}</span>
+            </button>
+            <div className="graph-status">
+              <span className={`status-dot ${isMockMode ? 'status-dot--mock' : 'status-dot--live'}`} />
+              {isMockMode ? t('status.mock') : t('status.live')}
+            </div>
+          </div>
+        </aside>
+
+        <div className="app-main" ref={mainRef}>
+          <header className="topbar">
+            <div className="topbar-titles">
+              <span className="topbar-eyebrow">{t(`view.${tab}.eyebrow`)}</span>
+              <h1 className="topbar-title">{t(`view.${tab}.title`)}</h1>
+            </div>
+            <span className="topbar-sub">{t(`view.${tab}.sub`)}</span>
+            <LanguageToggle />
+          </header>
+
+          {/* 質問する（チャット）は画面の残り高さを使い切り、各列が内側でスクロール
+              する（メッセージ一覧はスクロール・入力欄は下に固定）。他画面は従来通り
+              .app-main がスクロールコンテナ。 */}
+          <main className={`app-content${tab === 'ask' ? ' app-content--chat' : ''}`}>
+            {tab === 'home' && (
+              <HomeView
+                onNavigate={navTo}
+                onOpenDataset={openDataset}
+                onCreateCrosswalk={() => navigate({ tab: 'crosswalk', create: true })}
+              />
+            )}
+            {tab === 'workbench' && (
+              <WorkbenchTier
+                redesignTarget={redesignTarget}
+                onRedesignConsumed={() => setRedesignTarget(null)}
+                onOpenDataset={openDataset}
+                onOpenAsk={openAsk}
+                onCreateCrosswalk={() => navigate({ tab: 'crosswalk', create: true })}
+              />
+            )}
+            {tab === 'ask' && (
+              <AskView
+                onShowVocab={showVocab}
+                threadId={route.threadId ?? null}
+                onSelectThread={(id, opts) =>
+                  navigate(id ? { tab: 'ask', threadId: id } : { tab: 'ask' }, opts)
+                }
+              />
+            )}
+            {tab === 'gallery' && (
+              <GalleryView
+                focusClass={galleryFocus}
+                selectedId={route.datasetId ?? null}
+                detailTab={route.detailTab ?? 'structure'}
+                onSelect={(id) =>
+                  navigate(id ? { tab: 'gallery', datasetId: id } : { tab: 'gallery' })
+                }
+                onDetailTab={(dt) =>
+                  navigate({ tab: 'gallery', datasetId: route.datasetId, detailTab: dt }, { replace: true })
+                }
+                onOpenCrosswalk={() => navTo('crosswalk')}
+                onCreateCrosswalk={() => navigate({ tab: 'crosswalk', create: true })}
+                onOpenMap={() => {
+                  setMapReturn(route)
+                  navTo('map')
+                }}
+                onAddData={() => navTo('workbench')}
+                onRedesign={redesignDataset}
+              />
+            )}
+            {tab === 'vocab' && <SharedVocabView />}
+            {tab === 'crosswalk' && (
+              <CrosswalkView
+                createMode={!!route.create}
+                onCreateMode={(on) => navigate({ tab: 'crosswalk', create: on })}
+                onAddData={() => navTo('workbench')}
+                onOpenAsk={openAsk}
+                onOpenMap={() => {
+                  setMapReturn({ tab: 'crosswalk' })
+                  navTo('map')
+                }}
+              />
+            )}
+            {tab === 'map' && <OntologyMapView onBack={() => navigate(mapReturn)} />}
+            {tab === 'jobs' && <JobsView />}
+            {tab === 'sparql' && <SparqlView />}
+          </main>
         </div>
-
-        <nav className="side-nav">
-          <div className="side-nav-group">
-            {NAV_ITEMS.map((it) => {
-              const Icon = it.icon
-              return (
-                <button
-                  key={it.id}
-                  type="button"
-                  className={`side-nav-item${tab === it.id ? ' active' : ''}`}
-                  onClick={() => navTo(it.id)}
-                  aria-current={tab === it.id ? 'page' : undefined}
-                  // 860px 以下でラベルが display:none になるアイコンレールでも
-                  // 名前が残るように（ツールチップ兼スクリーンリーダー名）
-                  aria-label={t(`nav.${it.id}`)}
-                  title={t(`nav.${it.id}`)}
-                >
-                  <Icon className="side-nav-icon" />
-                  <span className="side-nav-text">{t(`nav.${it.id}`)}</span>
-                  <span className="side-nav-en">{glossT(`nav.${it.id}`)}</span>
-                </button>
-              )
-            })}
-          </div>
-        </nav>
-
-        <div className="sidebar-foot">
-          <button
-            type="button"
-            className="side-nav-item side-nav-settings"
-            onClick={openSettings}
-            aria-label={tSettings('open')}
-            title={tSettings('open')}
-          >
-            <GearIcon className="side-nav-icon" />
-            <span className="side-nav-text">{tSettings('open')}</span>
-            <span className="side-nav-en">{glossSettingsT('open')}</span>
-          </button>
-          <button
-            type="button"
-            className={`side-nav-item side-nav-dev${tab === 'sparql' ? ' active' : ''}`}
-            onClick={() => navTo('sparql')}
-            aria-current={tab === 'sparql' ? 'page' : undefined}
-            aria-label={t('nav.sparql')}
-            title={t('nav.sparql')}
-          >
-            <CodeIcon className="side-nav-icon" />
-            <span className="side-nav-text">{t('nav.sparql')}</span>
-            <span className="side-nav-en">{t('nav.sparqlTag')}</span>
-          </button>
-          <div className="graph-status">
-            <span className={`status-dot ${isMockMode ? 'status-dot--mock' : 'status-dot--live'}`} />
-            {isMockMode ? t('status.mock') : t('status.live')}
-          </div>
-        </div>
-      </aside>
-
-      <div className="app-main" ref={mainRef}>
-        <header className="topbar">
-          <div className="topbar-titles">
-            <span className="topbar-eyebrow">{t(`view.${tab}.eyebrow`)}</span>
-            <h1 className="topbar-title">{t(`view.${tab}.title`)}</h1>
-          </div>
-          <span className="topbar-sub">{t(`view.${tab}.sub`)}</span>
-          <LanguageToggle />
-        </header>
-
-        {/* 質問する（チャット）は画面の残り高さを使い切り、各列が内側でスクロール
-            する（メッセージ一覧はスクロール・入力欄は下に固定）。他画面は従来通り
-            .app-main がスクロールコンテナ。 */}
-        <main className={`app-content${tab === 'ask' ? ' app-content--chat' : ''}`}>
-          {tab === 'home' && (
-            <HomeView
-              onNavigate={navTo}
-              onOpenDataset={openDataset}
-              onCreateCrosswalk={() => navigate({ tab: 'crosswalk', create: true })}
-            />
-          )}
-          {tab === 'workbench' && (
-            <WorkbenchTier
-              redesignTarget={redesignTarget}
-              onRedesignConsumed={() => setRedesignTarget(null)}
-              onOpenDataset={openDataset}
-              onOpenAsk={openAsk}
-              onCreateCrosswalk={() => navigate({ tab: 'crosswalk', create: true })}
-            />
-          )}
-          {tab === 'ask' && (
-            <AskView
-              onShowVocab={showVocab}
-              threadId={route.threadId ?? null}
-              onSelectThread={(id, opts) =>
-                navigate(id ? { tab: 'ask', threadId: id } : { tab: 'ask' }, opts)
-              }
-            />
-          )}
-          {tab === 'gallery' && (
-            <GalleryView
-              focusClass={galleryFocus}
-              selectedId={route.datasetId ?? null}
-              detailTab={route.detailTab ?? 'structure'}
-              onSelect={(id) =>
-                navigate(id ? { tab: 'gallery', datasetId: id } : { tab: 'gallery' })
-              }
-              onDetailTab={(dt) =>
-                navigate({ tab: 'gallery', datasetId: route.datasetId, detailTab: dt }, { replace: true })
-              }
-              onOpenCrosswalk={() => navTo('crosswalk')}
-              onCreateCrosswalk={() => navigate({ tab: 'crosswalk', create: true })}
-              onOpenMap={() => {
-                setMapReturn(route)
-                navTo('map')
-              }}
-              onAddData={() => navTo('workbench')}
-              onRedesign={redesignDataset}
-            />
-          )}
-          {tab === 'vocab' && <SharedVocabView />}
-          {tab === 'crosswalk' && (
-            <CrosswalkView
-              createMode={!!route.create}
-              onCreateMode={(on) => navigate({ tab: 'crosswalk', create: on })}
-              onAddData={() => navTo('workbench')}
-              onOpenAsk={openAsk}
-              onOpenMap={() => {
-                setMapReturn({ tab: 'crosswalk' })
-                navTo('map')
-              }}
-            />
-          )}
-          {tab === 'map' && <OntologyMapView onBack={() => navigate(mapReturn)} />}
-          {tab === 'jobs' && <JobsView />}
-          {tab === 'sparql' && <SparqlView />}
-        </main>
       </div>
     </div>
   )

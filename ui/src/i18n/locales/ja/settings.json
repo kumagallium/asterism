@@ -117,13 +117,14 @@
     "appName": "アプリ名",
     "version": "バージョン",
     "updates": "アップデート",
-    "autoCheckNote": "起動時に自動で更新を確認します。ここから手動でも確認できます。",
+    "autoCheckNote": "起動時と 24 時間ごとに自動で確認し、更新があれば画面上部にお知らせを出します。ここから手動でも確認できます。",
     "webNote": "更新確認はデスクトップアプリでのみ使えます（ブラウザ版はサーバの配信内容がそのまま最新です）。",
     "checkNow": "今すぐ確認",
     "checking": "確認中…",
     "upToDate": "お使いの Asterism は最新です。",
     "available": "新しいバージョン {{version}} があります。",
-    "installHint": "更新するには、メニューバーの「Asterism」→「アップデートを確認…」を選んでください（ダウンロードと差し替えはアプリ本体が署名を検証して行います）。",
+    "availableBanner": "新しいバージョン {{version}} があります。画面上部のお知らせから更新できます。",
+    "installHint": "更新はデスクトップアプリ本体で行います（アプリの画面上部のお知らせ、またはメニューバーの「Asterism」→「アップデートを確認…」。ダウンロードと差し替えはアプリが署名を検証して行います）。",
     "checkFailed": "更新の確認に失敗しました"
   },
   "instance": {
@@ -132,5 +133,12 @@
     "name": "IRI base",
     "unset": "未設定",
     "unsetHelp": "未設定のため、発行される ID は公開されない前提の仮の置き場所（.invalid）になります。お試しには十分ですが、引用・公開できる識別子にするには、サーバの ASTERISM_IRI_BASE に組織の名前空間（例: 組織ドメインや GitHub Pages）を設定してください。"
+  },
+  "updater": {
+    "available": "Asterism {{version}} が利用できます",
+    "install": "再起動して更新",
+    "installing": "ダウンロード中…",
+    "downloading": "ダウンロード中… {{pct}}%",
+    "installFailed": "更新に失敗しました"
   }
 }

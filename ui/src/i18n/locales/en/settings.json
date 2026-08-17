@@ -118,13 +118,14 @@
     "appName": "App",
     "version": "Version",
     "updates": "Updates",
-    "autoCheckNote": "Updates are checked automatically at startup; you can also check manually here.",
+    "autoCheckNote": "Checked automatically at startup and every 24 hours; when an update is out, a notice appears at the top of the window. You can also check manually here.",
     "webNote": "Update checks are for the desktop app (in the browser, whatever the server serves is already current).",
     "checkNow": "Check now",
     "checking": "Checking…",
     "upToDate": "Asterism is up to date.",
     "available": "Version {{version}} is available.",
-    "installHint": "To update, choose Asterism → “アップデートを確認…” from the menu bar (the app itself downloads and installs it, verifying the signature).",
+    "availableBanner": "Version {{version}} is available — update from the notice at the top of the window.",
+    "installHint": "Updates are installed by the desktop app itself (the notice at the top of the app window, or Asterism → “アップデートを確認…” in the menu bar; the app downloads and installs it, verifying the signature).",
     "checkFailed": "Update check failed"
   },
   "instance": {
@@ -133,5 +134,12 @@
     "name": "IRI base",
     "unset": "not set",
     "unsetHelp": "Unset, so minted IDs live on a deliberately unpublishable placeholder (.invalid). Fine for trying things out — to mint citable, publishable identifiers, set ASTERISM_IRI_BASE on the server to a namespace your org controls (an org domain or GitHub Pages)."
+  },
+  "updater": {
+    "available": "Asterism {{version}} is available",
+    "install": "Restart to update",
+    "installing": "Downloading…",
+    "downloading": "Downloading… {{pct}}%",
+    "installFailed": "Update failed"
   }
 }

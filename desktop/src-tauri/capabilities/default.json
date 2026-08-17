@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Main window (remote loopback URL; update flow is Rust-side, no page IPC)",
+  "description": "Main window, LOCAL context only (the window is a remote loopback URL, so this grants the page nothing). The updater/relaunch IPC the SPA's update banner needs is granted at runtime, scoped to the exact http://127.0.0.1:<port> origin — see grant_spa_update_ipc in src/lib.rs.",
   "windows": ["main"],
   "permissions": ["core:default", "updater:default", "process:allow-restart"]
 }
