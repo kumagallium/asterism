@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.17.0](https://github.com/kumagallium/asterism/compare/v0.16.0...v0.17.0) - 2026-08-17
+
+- feat(desktop): 更新を画面上部のバナーからワンクリックに — Graphium と同じ形 by @kumagallium in https://github.com/kumagallium/asterism/pull/377
+
 ## [v0.16.0](https://github.com/kumagallium/asterism/compare/v0.15.0...v0.16.0) - 2026-08-17
 
 - feat(ui): ソースファイルをリロード越しに保持する — IndexedDB に置く by @kumagallium in https://github.com/kumagallium/asterism/pull/369
