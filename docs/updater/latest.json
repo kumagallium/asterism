@@ -1,11 +1,11 @@
 {
-  "version": "0.14.6",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 4e7f8aec024b5963dd71999704372ba383940ee0 -->\n\n## What's Changed\n* 「AI に直してもらう」連打の 2 段目の真因 — splice 不能と既知修正の LLM 依存 by @kumagallium in https://github.com/kumagallium/asterism/pull/367\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.14.5...v0.14.6",
-  "pub_date": "2026-08-16T21:52:06Z",
+  "version": "0.15.0",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 5dbab9ed7129c91966790dd520935d391a64c7c1 -->\n\n## What's Changed\n* 空の入れ物を検出 — 行ごとの種類が、行の値を 1 つも持たない (ADR G14) by @kumagallium in https://github.com/kumagallium/asterism/pull/370\n* feat(ask): 質問する をチャットにする — 履歴一覧＋会話＋入力欄、スレッドは手元・エージェントは無状態 by @kumagallium in https://github.com/kumagallium/asterism/pull/373\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.14.6...v0.15.0",
+  "pub_date": "2026-08-17T00:30:32Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcWVzQVpQUmpYbTZKVnFqRXJVbm95b2dOYko3VHFhdXIvN3NBVk5zc1FEcXNMYnFYblpkM3ZKUHBrV1FEaVZqYlRHNEZJQjJmLy95RjFhNVFqMk1OOHdjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg2OTE3MTI2CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CnBleVdpMmNOSHNMcUROZmlsZXlDa09mbURpK1NxZitUSkNnak5QRGh1VFgzd0d6c3dFOUgxQkxCOUx2V2JDQjlVTzJWbExtY3JUekNkeDlZWER5a0J3PT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.14.6/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVNvZXZ4V2F3d2djZ3YrdEtJcWJxWE5OS1NIMUdJMWRkL0JoZysxa0Z4cFlYZmVlWUVITHJtbk95SmlSaWJkb3hjNnJCODdLZkNlUEt5NWk1K3pObUFRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg2OTI2NjMxCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CjJWMHZlMnZ0Um04MmN3cGtvc1JPQXQyZ1dFRGtQT0ppUVZ5YTNQazdLYWFVVVowSFFQNlN2WENuaEdNdDdYUGRpZUYwbmNNaHdEZHlubUpMWStjSkFnPT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.15.0/Asterism_aarch64.app.tar.gz"
     }
   }
 }
