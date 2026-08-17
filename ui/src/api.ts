@@ -45,11 +45,13 @@ export interface InspectResult {
  * source-dialect.md, for the wizard "read settings" panel). `fks` are optional
  * foreign-key hint columns (e.g. ["SID"]).
  */
-export async function inspectCsvs(files: File[], fks: string[]): Promise<InspectResult> {
+export async function inspectCsvs(
+  files: File[],
+  fks: string[],
+  stagingId?: string | null,
+): Promise<InspectResult> {
   const form = new FormData()
-  for (const file of files) {
-    form.append('files', file)
-  }
+  appendSources(form, files, stagingId)
   const params = new URLSearchParams()
   for (const fk of fks) {
     params.append('fk', fk)
@@ -133,6 +135,19 @@ export interface ProposeHandlers {
  * `dialects` JSON form field — ONLY when non-empty, so a clean-CSV design stays
  * byte-identical to today (empty ⇒ the server uses auto-detection).
  */
+/**
+ * The source of a design call: the files themselves, or — once they have been
+ * staged (ADR source-staging.md) — the staging id, in which case nothing is
+ * re-uploaded and the server reads its own copy. `stagingId` wins when set.
+ */
+function appendSources(form: FormData, files: File[], stagingId?: string | null): void {
+  if (stagingId) {
+    form.append('staging_id', stagingId)
+    return
+  }
+  for (const file of files) form.append('files', file)
+}
+
 function appendDialects(form: FormData, dialects?: Record<string, SourceDialect>): void {
   if (dialects && Object.keys(dialects).length > 0) {
     form.append('dialects', JSON.stringify(dialects))
@@ -147,11 +162,10 @@ export async function proposeCsvs(
   handlers: ProposeHandlers,
   language?: string,
   dialects?: Record<string, SourceDialect>,
+  stagingId?: string | null,
 ): Promise<JobHandle> {
   const form = new FormData()
-  for (const file of files) {
-    form.append('files', file)
-  }
+  appendSources(form, files, stagingId)
   form.append('domain', domain)
   // Output language for the proposal's prose (i18next code, e.g. 'ja').
   // Headings / identifiers stay English server-side (materialize contract).
@@ -384,9 +398,10 @@ export async function proposeSkeleton(
   handlers: SkeletonHandlers,
   language?: string,
   dialects?: Record<string, SourceDialect>,
+  stagingId?: string | null,
 ): Promise<JobHandle> {
   const form = new FormData()
-  for (const file of files) form.append('files', file)
+  appendSources(form, files, stagingId)
   form.append('domain', domain)
   if (language) form.append('language', language)
   appendDialects(form, dialects)
@@ -420,9 +435,10 @@ export async function proposeContinue(
   language?: string,
   autocorrect?: number,
   dialects?: Record<string, SourceDialect>,
+  stagingId?: string | null,
 ): Promise<JobHandle> {
   const form = new FormData()
-  for (const file of files) form.append('files', file)
+  appendSources(form, files, stagingId)
   form.append('skeleton', JSON.stringify(skeleton))
   form.append('domain', domain)
   if (language) form.append('language', language)
@@ -452,9 +468,10 @@ export async function validateSkeleton(
   files: File[],
   skeleton: MappingSkeleton,
   dialects?: Record<string, SourceDialect>,
+  stagingId?: string | null,
 ): Promise<SkeletonAnnotations> {
   const form = new FormData()
-  for (const file of files) form.append('files', file)
+  appendSources(form, files, stagingId)
   form.append('skeleton', JSON.stringify(skeleton))
   appendDialects(form, dialects)
   const res = await fetch('/api/propose/skeleton/validate', { method: 'POST', body: form })
@@ -646,11 +663,13 @@ export interface AttachSourceResult {
  * materialize so the design-stage dataset carries its source server-side and
  * can later be ingested from the catalog with no CSV re-attach.
  */
-export async function attachSource(datasetId: string, files: File[]): Promise<AttachSourceResult> {
+export async function attachSource(
+  datasetId: string,
+  files: File[],
+  stagingId?: string | null,
+): Promise<AttachSourceResult> {
   const form = new FormData()
-  for (const file of files) {
-    form.append('files', file)
-  }
+  appendSources(form, files, stagingId)
   const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/source`, {
     method: 'POST',
     headers: authHeaders(),
@@ -1115,4 +1134,53 @@ export function subscribeJob<T>(
   })
 
   return { jobId, close, cancel: () => cancelJob(jobId) }
+}
+
+// ---------------------------------------------------------------------------
+// Design-time source staging (ADR source-staging.md)
+// ---------------------------------------------------------------------------
+
+export interface StagedSources {
+  stagingId: string
+  /** Canonical (slugged) source names — the ones the design's rml:source uses. */
+  sources: string[]
+  expiresAt: string
+}
+
+/**
+ * Give the dropped files a server-side home right away. Every later design call
+ * passes the id instead of re-uploading, and S5's attach copies from it. Throws
+ * on any failure — the caller keeps its own copy of the files and the legacy
+ * upload path is unchanged (an old server, a closed write gate: both just mean
+ * "no staging this time").
+ */
+export async function stageSources(files: File[]): Promise<StagedSources> {
+  const form = new FormData()
+  for (const file of files) form.append('files', file)
+  const res = await fetch('/api/staging', { method: 'POST', headers: authHeaders(), body: form })
+  if (!res.ok) throw new Error(`staging failed (HTTP ${res.status})`)
+  const body = (await res.json()) as { staging_id: string; sources: string[]; expires_at: string }
+  return { stagingId: body.staging_id, sources: body.sources ?? [], expiresAt: body.expires_at }
+}
+
+/** Is a remembered staging id still live? (asked on reload before trusting it) */
+export async function stagingAlive(stagingId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/staging/${encodeURIComponent(stagingId)}`)
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+/** Forget a staged source (a fresh start). Best-effort. */
+export async function unstageSources(stagingId: string): Promise<void> {
+  try {
+    await fetch(`/api/staging/${encodeURIComponent(stagingId)}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    })
+  } catch {
+    /* best-effort */
+  }
 }
