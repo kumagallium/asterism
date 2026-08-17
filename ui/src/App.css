@@ -1586,7 +1586,7 @@ textarea:focus {
   background: transparent;
   border: none;
   border-radius: var(--radius-sm);
-  padding: 0.45rem 2rem 0.45rem 0.6rem;
+  padding: 0.45rem 3.7rem 0.45rem 0.6rem; /* room for the rename/delete icons */
   color: var(--fg);
   font-size: 0.84rem;
   font-weight: 500;
@@ -1616,11 +1616,23 @@ textarea:focus {
   width: 0.7em;
   height: 0.7em;
 }
-.chat-thread-del {
+/* Row actions (rename / delete): revealed on hover, focus, or the active row. */
+.chat-thread-actions {
   position: absolute;
   right: 0.3rem;
   top: 50%;
   transform: translateY(-50%);
+  display: inline-flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.chat-thread-item:hover .chat-thread-actions,
+.chat-thread-item.active .chat-thread-actions,
+.chat-thread-actions:focus-within {
+  opacity: 1;
+}
+.chat-thread-action {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1631,17 +1643,35 @@ textarea:focus {
   border-radius: 6px;
   background: transparent;
   color: var(--faint);
-  opacity: 0;
-  transition: opacity 0.12s;
 }
-.chat-thread-item:hover .chat-thread-del,
-.chat-thread-item.active .chat-thread-del,
-.chat-thread-del:focus-visible {
-  opacity: 1;
+.chat-thread-action:hover:not(:disabled) {
+  background: var(--surface);
+  color: var(--fg);
 }
-.chat-thread-del:hover:not(:disabled) {
+.chat-thread-action--danger:hover:not(:disabled) {
   background: var(--error-bg);
   color: var(--error-fg);
+}
+/* Inline rename: the row turns into a text field (Enter/blur commit, Esc cancel). */
+.chat-thread-item.editing {
+  background: var(--surface);
+}
+.chat-thread-rename {
+  flex: 1;
+  min-width: 0;
+  margin: 0.2rem;
+  padding: 0.35rem 0.5rem;
+  border: 1.5px solid var(--primary);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 500;
+  color: var(--fg);
+}
+.chat-thread-rename:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(63, 111, 73, 0.2);
 }
 .chat-thread-confirm {
   flex: 1;
@@ -1784,6 +1814,12 @@ textarea:focus {
   white-space: pre-wrap;
   word-break: break-word;
 }
+/* A stopped wait is not a failure — neutral tone, same retry affordance. */
+.chat-msg-error--stopped {
+  color: var(--muted);
+  background: var(--surface-alt);
+  border-color: var(--border);
+}
 
 /* empty state = a new chat: what this is, and (mock) example questions */
 .chat-empty {
@@ -1903,8 +1939,16 @@ textarea:focus {
 .chat-send:disabled {
   opacity: 0.35;
 }
-.chat-send .spinner {
-  margin: 0;
+/* While an answer is pending the send button becomes "stop" — a dark, quiet
+   square (not red: it stops the wait, it does not destroy anything). */
+.chat-send--stop {
+  background: var(--sky);
+  border-color: var(--sky);
+  color: var(--sky-fg);
+}
+.chat-send--stop:hover:not(:disabled) {
+  background: #2a3d2e;
+  border-color: #2a3d2e;
 }
 .chat-composer-foot {
   max-width: 920px;

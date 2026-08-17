@@ -175,6 +175,25 @@ export function RetryIcon(p: IconProps) {
   )
 }
 
+/** Filled square — stop waiting for an answer. */
+export function StopIcon({ className, size = 18 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" className={className} aria-hidden="true">
+      <rect x="6.5" y="6.5" width="11" height="11" rx="2" fill="currentColor" />
+    </svg>
+  )
+}
+
+/** Pencil — rename a chat thread. */
+export function PencilIcon(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M4 20l4.2-1 10.3-10.3a1.8 1.8 0 0 0 0-2.5l-.7-.7a1.8 1.8 0 0 0-2.5 0L5 15.8z" />
+      <path d="M13.5 6.5l4 4" />
+    </Icon>
+  )
+}
+
 /** Stacked chat lines — the thread list (narrow-screen toggle). */
 export function ThreadsIcon(p: IconProps) {
   return (

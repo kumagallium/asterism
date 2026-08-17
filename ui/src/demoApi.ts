@@ -275,14 +275,18 @@ export interface AskHistoryTurn {
  * `history` = the earlier turns of the chat thread this question belongs to
  * (oldest first; see askThreads.historyFor). The agent is stateless — the
  * thread lives in the browser — and replays these as the LLM's message prefix
- * so follow-ups resolve. Omit/empty for a single question. */
+ * so follow-ups resolve. Omit/empty for a single question.
+ *
+ * `signal` aborts the wait (the chat's stop button); the agent's own work is
+ * not cancelled server-side, the caller just stops listening. */
 export async function ask(
   question: string,
   creds?: LlmCredentials | null,
   history: AskHistoryTurn[] = [],
+  signal?: AbortSignal,
 ): Promise<AskResponse> {
   if (IS_MOCK) {
-    await delay(450) // feel of a real call
+    await delay(1400, signal) // feel of a real call (long enough to try "stop")
     const hit = ASK_FIXTURES.find((f) => f.match(question))
     return hit ? hit.build() : askFallback()
   }
@@ -293,6 +297,7 @@ export async function ask(
       ...llmHeaders(creds ?? null),
     },
     body: JSON.stringify(history.length > 0 ? { question, history } : { question }),
+    signal,
   })
   if (!res.ok) {
     const detail = await res.text().catch(() => '')
@@ -386,6 +391,26 @@ export async function getSchema(): Promise<SchemaSummary | null> {
 /** True when serving fixtures (so the UI can show a "demo data" hint). */
 export const isMockMode = IS_MOCK
 
-function delay(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms))
+/** Rejects with an AbortError (like fetch) if `signal` aborts first. */
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException('aborted', 'AbortError'))
+      return
+    }
+    const id = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    function onAbort() {
+      clearTimeout(id)
+      reject(new DOMException('aborted', 'AbortError'))
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
+/** True for a fetch/delay rejected because its AbortSignal fired. */
+export function isAbortError(e: unknown): boolean {
+  return e instanceof DOMException && e.name === 'AbortError'
 }

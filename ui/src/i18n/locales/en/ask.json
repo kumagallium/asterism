@@ -10,6 +10,9 @@
   "interrupted": "The page was closed while this answer was pending, so it never arrived.",
   "failed": "Could not get an answer.",
   "retry": "Retry",
+  "stop": "Stop",
+  "stopTitle": "Stop waiting for the answer (Retry re-sends it)",
+  "stopped": "Stopped waiting for the answer.",
   "empty": {
     "title": "Grounded answers over your ingested data"
   },
@@ -36,6 +39,9 @@
     "deleteConfirm": "Delete this chat?",
     "deleteYes": "Delete",
     "deleteNo": "Cancel",
+    "rename": "Rename \"{{title}}\"",
+    "renameTitle": "Rename",
+    "renamePlaceholder": "Chat name",
     "group": {
       "today": "Today",
       "yesterday": "Yesterday",

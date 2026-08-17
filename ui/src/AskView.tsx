@@ -12,20 +12,26 @@ import {
   getThread,
   historyFor,
   isThreadBusy,
+  registerInflight,
+  renameThread,
   resolveAnswer,
   retryAnswer,
   startThread,
+  stopAnswer,
+  unregisterInflight,
   useAskThreads,
 } from './askThreads'
 import { CitationCard } from './CitationCard'
-import { ask, isMockMode, type AskResponse, type Citation } from './demoApi'
+import { ask, isAbortError, isMockMode, type AskResponse, type Citation } from './demoApi'
 import {
   AddIcon,
   BrandMark,
   CheckIcon,
   CloseIcon,
+  PencilIcon,
   RetryIcon,
   SendIcon,
+  StopIcon,
   ThreadsIcon,
   TrashIcon,
 } from './icons'
@@ -93,14 +99,25 @@ export function AskView({
 
   const busy = isThreadBusy(thread)
 
-  async function runAsk(tid: string, assistantTurnId: string, question: string) {
+  // One ask() call = one attempt on one answer slot. The store only accepts the
+  // outcome if the slot is still pending for THIS attempt (a stopped or retried
+  // slot ignores late responses); the AbortController is registered so "stop"
+  // can cut the wait from anywhere.
+  async function runAsk(tid: string, assistantTurnId: string, question: string, attempt: number) {
     const th = getThread(tid)
     const history = th ? historyFor(th, assistantTurnId) : []
+    const ctrl = new AbortController()
+    registerInflight(assistantTurnId, ctrl)
     try {
-      const res = await ask(question, getActiveCredentials(), history)
-      resolveAnswer(tid, assistantTurnId, res)
+      const res = await ask(question, getActiveCredentials(), history, ctrl.signal)
+      resolveAnswer(tid, assistantTurnId, res, attempt)
     } catch (e) {
-      failAnswer(tid, assistantTurnId, e instanceof Error ? e.message : String(e))
+      // Aborted = the user pressed stop; the slot is already marked stopped.
+      if (!isAbortError(e)) {
+        failAnswer(tid, assistantTurnId, e instanceof Error ? e.message : String(e), attempt)
+      }
+    } finally {
+      unregisterInflight(assistantTurnId, ctrl)
     }
   }
 
@@ -110,7 +127,7 @@ export function AskView({
     if (thread) {
       if (isThreadBusy(thread)) return // one question at a time per thread
       const added = appendQuestion(thread.id, q)
-      if (added) void runAsk(thread.id, added.assistantTurnId, q)
+      if (added) void runAsk(thread.id, added.assistantTurnId, q, added.attempt)
       return
     }
     // First message of a new chat: the thread is created now (not on "new
@@ -118,13 +135,20 @@ export function AskView({
     // returns to wherever the user came from, not to an empty new chat.
     const started = startThread(q)
     onSelectThread(started.thread.id, { replace: true })
-    void runAsk(started.thread.id, started.assistantTurnId, q)
+    void runAsk(started.thread.id, started.assistantTurnId, q, started.attempt)
   }
 
   function retry(assistantTurnId: string) {
     if (!thread || isThreadBusy(thread)) return
-    const q = retryAnswer(thread.id, assistantTurnId)
-    if (q !== null) void runAsk(thread.id, assistantTurnId, q)
+    const again = retryAnswer(thread.id, assistantTurnId)
+    if (again) void runAsk(thread.id, assistantTurnId, again.question, again.attempt)
+  }
+
+  // Stop waiting for the current thread's pending answer (the agent's work is
+  // not cancelled server-side; the slot becomes retry-able).
+  function stop() {
+    const slot = thread?.turns.find((t) => t.role === 'assistant' && t.pending)
+    if (thread && slot) stopAnswer(thread.id, slot.id)
   }
 
   function selectThread(id: string | null) {
@@ -146,6 +170,7 @@ export function AskView({
         activeId={thread?.id ?? null}
         onSelect={selectThread}
         onDelete={removeThread}
+        onRename={renameThread}
         onClose={() => setThreadsOpen(false)}
       />
       {/* Backdrop for the narrow-screen thread overlay (CSS shows it only there). */}
@@ -192,6 +217,7 @@ export function AskView({
           disabled={keyMissing}
           busy={busy}
           onSend={send}
+          onStop={stop}
         />
       </section>
 
@@ -237,16 +263,21 @@ function ThreadList({
   activeId,
   onSelect,
   onDelete,
+  onRename,
   onClose,
 }: {
   threads: AskThread[]
   activeId: string | null
   onSelect: (id: string | null) => void
   onDelete: (id: string) => void
+  onRename: (id: string, title: string) => void
   onClose: () => void
 }) {
   const { t, i18n } = useTranslation()
   const [confirmId, setConfirmId] = useState<string | null>(null)
+  // Inline rename: which row is being edited (the input is keyed by row, so
+  // the draft starts from that row's title and resets when editing ends).
+  const [editingId, setEditingId] = useState<string | null>(null)
   const now = useNow()
   const groups: { key: GroupKey; items: AskThread[] }[] = []
   for (const th of threads) {
@@ -285,10 +316,24 @@ function ThreadList({
               {g.items.map((th) => {
                 const active = th.id === activeId
                 const confirming = confirmId === th.id
+                const editing = editingId === th.id
                 const n = th.turns.filter((x) => x.role === 'user').length
                 return (
-                  <li key={th.id} className={`chat-thread-item${active ? ' active' : ''}`}>
-                    {confirming ? (
+                  <li
+                    key={th.id}
+                    className={`chat-thread-item${active ? ' active' : ''}${editing ? ' editing' : ''}`}
+                  >
+                    {editing ? (
+                      <RenameField
+                        key={`rename:${th.id}`}
+                        initial={th.title}
+                        onCommit={(title) => {
+                          setEditingId(null)
+                          onRename(th.id, title)
+                        }}
+                        onCancel={() => setEditingId(null)}
+                      />
+                    ) : confirming ? (
                       <div className="chat-thread-confirm" role="group" aria-label={t('ask:threads.deleteConfirm')}>
                         <span className="chat-thread-confirm-text">{t('ask:threads.deleteConfirm')}</span>
                         <button
@@ -315,6 +360,7 @@ function ThreadList({
                           type="button"
                           className="chat-thread-btn"
                           onClick={() => onSelect(th.id)}
+                          onDoubleClick={() => setEditingId(th.id)}
                           aria-current={active ? 'page' : undefined}
                           title={th.title}
                         >
@@ -326,15 +372,26 @@ function ThreadList({
                             {isThreadBusy(th) && <span className="spinner" aria-label={t('ask:answering')} />}
                           </span>
                         </button>
-                        <button
-                          type="button"
-                          className="chat-thread-del"
-                          onClick={() => setConfirmId(th.id)}
-                          aria-label={t('ask:threads.delete', { title: th.title })}
-                          title={t('ask:threads.deleteTitle')}
-                        >
-                          <TrashIcon size={15} />
-                        </button>
+                        <span className="chat-thread-actions">
+                          <button
+                            type="button"
+                            className="chat-thread-action"
+                            onClick={() => setEditingId(th.id)}
+                            aria-label={t('ask:threads.rename', { title: th.title })}
+                            title={t('ask:threads.renameTitle')}
+                          >
+                            <PencilIcon size={15} />
+                          </button>
+                          <button
+                            type="button"
+                            className="chat-thread-action chat-thread-action--danger"
+                            onClick={() => setConfirmId(th.id)}
+                            aria-label={t('ask:threads.delete', { title: th.title })}
+                            title={t('ask:threads.deleteTitle')}
+                          >
+                            <TrashIcon size={15} />
+                          </button>
+                        </span>
                       </>
                     )}
                   </li>
@@ -345,6 +402,48 @@ function ThreadList({
         ))}
       </div>
     </nav>
+  )
+}
+
+// Inline rename input for one thread row: Enter / blur commit, Esc cancels.
+function RenameField({
+  initial,
+  onCommit,
+  onCancel,
+}: {
+  initial: string
+  onCommit: (title: string) => void
+  onCancel: () => void
+}) {
+  const { t } = useTranslation()
+  const [value, setValue] = useState(initial)
+  // Esc must not also "commit on blur" when the input unmounts — remember it.
+  const cancelledRef = useRef(false)
+  return (
+    <input
+      type="text"
+      className="chat-thread-rename"
+      value={value}
+      autoFocus
+      aria-label={t('ask:threads.renameTitle')}
+      placeholder={t('ask:threads.renamePlaceholder')}
+      onFocus={(e) => e.currentTarget.select()}
+      onChange={(e) => setValue(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.nativeEvent.isComposing) return // IME: let the conversion finish
+        if (e.key === 'Enter') {
+          e.preventDefault()
+          onCommit(value)
+        } else if (e.key === 'Escape') {
+          e.preventDefault()
+          cancelledRef.current = true
+          onCancel()
+        }
+      }}
+      onBlur={() => {
+        if (!cancelledRef.current) onCommit(value)
+      }}
+    />
   )
 }
 
@@ -478,9 +577,13 @@ function AnswerMessage({
           </div>
         )}
         {!turn.pending && !turn.result && (
-          <div className="chat-msg-error" role="alert">
+          <div className={`chat-msg-error${turn.stopped ? ' chat-msg-error--stopped' : ''}`} role="alert">
             <span className="chat-msg-error-text">
-              {turn.interrupted ? t('ask:interrupted') : turn.error || t('ask:failed')}
+              {turn.stopped
+                ? t('ask:stopped')
+                : turn.interrupted
+                  ? t('ask:interrupted')
+                  : turn.error || t('ask:failed')}
             </span>
             <button
               type="button"
@@ -610,12 +713,15 @@ function Composer({
   disabled,
   busy,
   onSend,
+  onStop,
 }: {
   /** No model configured (live mode) — sending is blocked; the gate says why. */
   disabled: boolean
-  /** An answer is pending in this thread — one question at a time. */
+  /** An answer is pending in this thread — one question at a time; the send
+   *  button becomes a stop button. */
   busy: boolean
   onSend: (text: string) => void
+  onStop: () => void
 }) {
   const { t } = useTranslation()
   // The composer is keyed by thread, so a question handed over from another
@@ -675,15 +781,27 @@ function Composer({
             }
           }}
         />
-        <button
-          type="submit"
-          className="chat-send"
-          disabled={!canSend}
-          aria-label={busy ? t('ask:answering') : t('ask:send')}
-          title={disabled ? t('ask:submitTitle') : busy ? t('ask:answering') : t('ask:send')}
-        >
-          {busy ? <span className="spinner" /> : <SendIcon size={18} />}
-        </button>
+        {busy ? (
+          <button
+            type="button"
+            className="chat-send chat-send--stop"
+            onClick={onStop}
+            aria-label={t('ask:stop')}
+            title={t('ask:stopTitle')}
+          >
+            <StopIcon size={18} />
+          </button>
+        ) : (
+          <button
+            type="submit"
+            className="chat-send"
+            disabled={!canSend}
+            aria-label={t('ask:send')}
+            title={disabled ? t('ask:submitTitle') : t('ask:send')}
+          >
+            <SendIcon size={18} />
+          </button>
+        )}
       </div>
       <div className="chat-composer-foot">
         <span className="chat-composer-hint">{t('ask:composerHint')}</span>

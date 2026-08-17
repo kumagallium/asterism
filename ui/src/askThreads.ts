@@ -29,21 +29,28 @@ export interface AskAssistantTurn {
   id: string
   role: 'assistant'
   at: number
-  /** The grounded answer; null while pending, on error, or when interrupted. */
+  /** The grounded answer; null while pending, on error, when interrupted, or stopped. */
   result: AskResponse | null
   /** Waiting for the agent (in-memory only — persisted as `interrupted`). */
   pending?: boolean
+  /** Which ask() attempt owns this pending slot (in-memory): a late response
+   *  from a stopped/superseded attempt must not overwrite a newer one. */
+  attempt?: number
   /** The call failed; the message is shown with a retry action. */
   error?: string
   /** The page unloaded while the answer was pending (retry-able). */
   interrupted?: boolean
+  /** The user stopped waiting (retry-able). The agent's work is not cancelled
+   *  server-side; the UI just stops listening. */
+  stopped?: boolean
 }
 
 export type AskTurn = AskUserTurn | AskAssistantTurn
 
 export interface AskThread {
   id: string
-  /** Derived from the first question (deterministic — no LLM titling). */
+  /** Derived from the first question (deterministic — no LLM titling); the
+   *  user can rename it. */
   title: string
   createdAt: number
   updatedAt: number
@@ -131,6 +138,7 @@ function normalizeThread(raw: unknown): AskThread | null {
         result: interrupted ? null : result,
         error: typeof o.error === 'string' && o.error ? o.error : undefined,
         interrupted: interrupted || undefined,
+        stopped: o.stopped === true && !interrupted ? true : undefined,
       })
     }
   }
@@ -150,8 +158,10 @@ function save() {
     ...t,
     turns: t.turns.map((turn) =>
       turn.role === 'assistant' && turn.pending
-        ? { ...turn, pending: undefined, interrupted: true }
-        : turn,
+        ? { ...turn, pending: undefined, attempt: undefined, interrupted: true }
+        : turn.role === 'assistant'
+          ? { ...turn, attempt: undefined }
+          : turn,
     ),
   }))
   try {
@@ -205,25 +215,38 @@ function updateThread(id: string, fn: (t: AskThread) => AskThread): AskThread | 
 
 // ---- mutations ----------------------------------------------------------------
 
+// Each ask() attempt gets a token; a pending slot remembers which attempt owns
+// it, so a late response from a stopped or superseded attempt (stop → retry →
+// the first fetch finally returns) cannot overwrite the newer state.
+let attemptSeq = 0
+
+function pendingSlot(): AskAssistantTurn {
+  return {
+    id: newId(),
+    role: 'assistant',
+    at: Date.now(),
+    result: null,
+    pending: true,
+    attempt: ++attemptSeq,
+  }
+}
+
+export interface AskAttempt {
+  userTurnId: string
+  assistantTurnId: string
+  /** Pass back to resolveAnswer / failAnswer so a stale attempt is ignored. */
+  attempt: number
+}
+
 /**
  * Start a new thread with the first question already asked (pending answer).
  * A "new chat" is transient until the first message — no empty threads pile up
- * in the list. Returns the thread and the ids of the two turns just added.
+ * in the list. Returns the thread and the attempt handle for the answer slot.
  */
-export function startThread(question: string): {
-  thread: AskThread
-  userTurnId: string
-  assistantTurnId: string
-} {
+export function startThread(question: string): AskAttempt & { thread: AskThread } {
   const now = Date.now()
   const user: AskUserTurn = { id: newId(), role: 'user', text: question, at: now }
-  const assistant: AskAssistantTurn = {
-    id: newId(),
-    role: 'assistant',
-    at: now,
-    result: null,
-    pending: true,
-  }
+  const assistant = pendingSlot()
   const thread: AskThread = {
     id: newId(),
     title: clipTitle(question),
@@ -232,65 +255,126 @@ export function startThread(question: string): {
     turns: [user, assistant],
   }
   commit([thread, ...threads])
-  return { thread, userTurnId: user.id, assistantTurnId: assistant.id }
+  return {
+    thread,
+    userTurnId: user.id,
+    assistantTurnId: assistant.id,
+    attempt: assistant.attempt!,
+  }
 }
 
 /** Ask a follow-up in an existing thread (pending answer). */
-export function appendQuestion(
-  threadId: string,
-  question: string,
-): { userTurnId: string; assistantTurnId: string } | null {
+export function appendQuestion(threadId: string, question: string): AskAttempt | null {
   const now = Date.now()
   const user: AskUserTurn = { id: newId(), role: 'user', text: question, at: now }
-  const assistant: AskAssistantTurn = {
-    id: newId(),
-    role: 'assistant',
-    at: now,
-    result: null,
-    pending: true,
-  }
+  const assistant = pendingSlot()
   const next = updateThread(threadId, (t) => ({
     ...t,
     updatedAt: now,
     turns: [...t.turns, user, assistant],
   }))
-  return next ? { userTurnId: user.id, assistantTurnId: assistant.id } : null
+  return next
+    ? { userTurnId: user.id, assistantTurnId: assistant.id, attempt: assistant.attempt! }
+    : null
 }
 
-/** The answer arrived. */
-export function resolveAnswer(threadId: string, assistantTurnId: string, result: AskResponse) {
+// Replace the answer slot ONLY if it is still the pending slot of this attempt
+// (a stopped or superseded attempt reports into the void). Returns whether the
+// update was applied.
+function settleSlot(
+  threadId: string,
+  assistantTurnId: string,
+  attempt: number | undefined,
+  make: (slot: AskAssistantTurn, now: number) => AskAssistantTurn,
+): boolean {
+  const cur = getThread(threadId)
+  const slot = cur?.turns.find((t) => t.id === assistantTurnId)
+  if (!cur || !slot || slot.role !== 'assistant' || !slot.pending) return false
+  if (attempt !== undefined && slot.attempt !== attempt) return false
   const now = Date.now()
   updateThread(threadId, (t) => ({
     ...t,
     updatedAt: now,
     turns: t.turns.map((turn) =>
-      turn.id === assistantTurnId && turn.role === 'assistant'
-        ? { id: turn.id, role: 'assistant', at: now, result }
-        : turn,
+      turn.id === assistantTurnId && turn.role === 'assistant' ? make(turn, now) : turn,
     ),
+  }))
+  return true
+}
+
+/** The answer arrived. Ignored if the slot was stopped/superseded meanwhile. */
+export function resolveAnswer(
+  threadId: string,
+  assistantTurnId: string,
+  result: AskResponse,
+  attempt?: number,
+): boolean {
+  return settleSlot(threadId, assistantTurnId, attempt, (slot, now) => ({
+    id: slot.id,
+    role: 'assistant',
+    at: now,
+    result,
   }))
 }
 
 /** The call failed — keep the question, mark the answer slot retry-able. */
-export function failAnswer(threadId: string, assistantTurnId: string, error: string) {
-  const now = Date.now()
-  updateThread(threadId, (t) => ({
-    ...t,
-    updatedAt: now,
-    turns: t.turns.map((turn) =>
-      turn.id === assistantTurnId && turn.role === 'assistant'
-        ? { id: turn.id, role: 'assistant', at: now, result: null, error }
-        : turn,
-    ),
+export function failAnswer(
+  threadId: string,
+  assistantTurnId: string,
+  error: string,
+  attempt?: number,
+): boolean {
+  return settleSlot(threadId, assistantTurnId, attempt, (slot, now) => ({
+    id: slot.id,
+    role: 'assistant',
+    at: now,
+    result: null,
+    error,
   }))
 }
 
+// In-flight requests by answer slot, so "stop" can abort the fetch from
+// wherever the UI is (the view may have re-mounted since the question was sent).
+const inflight = new Map<string, AbortController>()
+
+export function registerInflight(assistantTurnId: string, controller: AbortController) {
+  inflight.set(assistantTurnId, controller)
+}
+
+export function unregisterInflight(assistantTurnId: string, controller: AbortController) {
+  if (inflight.get(assistantTurnId) === controller) inflight.delete(assistantTurnId)
+}
+
 /**
- * Re-ask the question that precedes an errored/interrupted answer. Puts the
- * answer slot back to pending and returns the question text (null if the slot
- * is not retry-able).
+ * Stop waiting for an answer: abort the request (the agent's own work is not
+ * cancelled — the UI just stops listening) and mark the slot stopped +
+ * retry-able. A response that arrives anyway is ignored (attempt guard).
  */
-export function retryAnswer(threadId: string, assistantTurnId: string): string | null {
+export function stopAnswer(threadId: string, assistantTurnId: string): boolean {
+  const applied = settleSlot(threadId, assistantTurnId, undefined, (slot, now) => ({
+    id: slot.id,
+    role: 'assistant',
+    at: now,
+    result: null,
+    stopped: true,
+  }))
+  const ctrl = inflight.get(assistantTurnId)
+  if (ctrl) {
+    inflight.delete(assistantTurnId)
+    ctrl.abort()
+  }
+  return applied
+}
+
+/**
+ * Re-ask the question that precedes an errored/interrupted/stopped answer. Puts
+ * the answer slot back to pending and returns the question text plus the new
+ * attempt handle (null if the slot is not retry-able).
+ */
+export function retryAnswer(
+  threadId: string,
+  assistantTurnId: string,
+): { question: string; attempt: number } | null {
   const thread = getThread(threadId)
   if (!thread) return null
   const idx = thread.turns.findIndex((t) => t.id === assistantTurnId)
@@ -299,20 +383,40 @@ export function retryAnswer(threadId: string, assistantTurnId: string): string |
   if (!slot || slot.role !== 'assistant' || slot.pending || slot.result) return null
   if (!question || question.role !== 'user') return null
   const now = Date.now()
+  const attempt = ++attemptSeq
   updateThread(threadId, (t) => ({
     ...t,
     updatedAt: now,
     turns: t.turns.map((turn) =>
       turn.id === assistantTurnId
-        ? { id: turn.id, role: 'assistant', at: now, result: null, pending: true }
+        ? { id: turn.id, role: 'assistant', at: now, result: null, pending: true, attempt }
         : turn,
     ),
   }))
-  return question.text
+  return { question: question.text, attempt }
+}
+
+/** Rename a thread (empty → back to the first-question title). Does not touch
+ *  updatedAt, so the list order stays. */
+export function renameThread(threadId: string, title: string) {
+  updateThread(threadId, (t) => ({
+    ...t,
+    title: clipTitle(title) || titleFrom(t.turns),
+  }))
 }
 
 export function deleteThread(threadId: string) {
-  if (!threads.some((t) => t.id === threadId)) return
+  const thread = threads.find((t) => t.id === threadId)
+  if (!thread) return
+  // A deleted thread has no slot to receive its pending answer — stop listening.
+  for (const turn of thread.turns) {
+    if (turn.role !== 'assistant' || !turn.pending) continue
+    const ctrl = inflight.get(turn.id)
+    if (ctrl) {
+      inflight.delete(turn.id)
+      ctrl.abort()
+    }
+  }
   commit(threads.filter((t) => t.id !== threadId))
 }
 

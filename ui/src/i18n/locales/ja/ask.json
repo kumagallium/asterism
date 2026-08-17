@@ -10,6 +10,9 @@
   "interrupted": "回答を待っている間にページが閉じられたため、この回答は届きませんでした。",
   "failed": "回答を取得できませんでした。",
   "retry": "もう一度",
+  "stop": "停止",
+  "stopTitle": "回答を待つのをやめる（もう一度 で再送できます）",
+  "stopped": "回答を待つのを停止しました。",
   "empty": {
     "title": "取り込んだデータに、根拠つきで答えます"
   },
@@ -35,6 +38,9 @@
     "deleteConfirm": "このチャットを削除しますか？",
     "deleteYes": "削除",
     "deleteNo": "取消",
+    "rename": "「{{title}}」の名前を変更",
+    "renameTitle": "名前を変更",
+    "renamePlaceholder": "チャットの名前",
     "group": {
       "today": "今日",
       "yesterday": "昨日",
