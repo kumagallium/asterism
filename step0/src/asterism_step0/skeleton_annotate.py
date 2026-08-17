@@ -368,6 +368,29 @@ def _scoped_candidates(
     return [c for _, c in scored[:_KEY_CANDIDATES]]
 
 
+# Which of a source's file-scoped (singleton) maps is THE parent — the one the
+# scope risks, the growth preview and the missing-row-kind repair hang off.
+# G7 said "exactly one singleton, else silence". A human split (ADR G15) adds
+# a SECOND singleton on the same source on purpose (the shared concept, keyed
+# by a column that repeats across files); that map carries `owns` and is never
+# the parent — so with one original left, the parent is still unambiguous and
+# nothing that used to work goes dark the moment the human splits.
+def _parent_singleton(
+    names: Sequence[str],
+    annotations: Mapping[str, Any],
+    human_owns: Mapping[str, Sequence[str]],
+) -> str | None:
+    singletons = [
+        n
+        for n in names
+        if annotations[n].get("collapse_kind") == "singleton" and annotations[n].get("key_columns")
+    ]
+    if len(singletons) == 1:
+        return singletons[0]
+    originals = [n for n in singletons if n not in human_owns]
+    return originals[0] if len(originals) == 1 else None
+
+
 def _functional_dependencies(
     rows: Sequence[Mapping[str, str]], key: Sequence[str], columns: Sequence[str]
 ) -> set[str]:
@@ -408,6 +431,7 @@ def _adjudicate_ownership(
     annotations: dict[str, Any],
     map_sources: Mapping[str, str],
     inspections: Mapping[str, tuple[Path, SourceInspection]],
+    human_owns: Mapping[str, Sequence[str]] | None = None,
 ) -> None:
     """Which map should carry each column — decided from the data (ADR G1/G2).
 
@@ -460,10 +484,20 @@ def _adjudicate_ownership(
                 claims[col].append((count, name))
 
         owners: dict[str, str] = {}
+        declared = {n: set(cols) for n, cols in (human_owns or {}).items() if n in checkable}
         for col, bids in claims.items():
-            bids.sort()
-            if len(bids) == 1 or bids[0][0] < bids[1][0]:
-                owners[col] = bids[0][1]
+            # A human split (ADR G15) is world knowledge the rows cannot hold:
+            # the map that DECLARES the column owns it outright, and a map that
+            # declares a list NOT containing the column steps out of the tie —
+            # so "material" vs "substance", both one entity per file, resolves.
+            declared_owner = [n for n, cols in declared.items() if col in cols]
+            if declared_owner:
+                owners[col] = declared_owner[0]
+                continue
+            live = [b for b in bids if b[1] not in declared]
+            live.sort()
+            if len(live) == 1 or (len(live) > 1 and live[0][0] < live[1][0]):
+                owners[col] = live[0][1]
 
         # Key columns never appear in `claims`: `_functional_dependencies`
         # exempts them (carrying another entity's key is a join, not a copy).
@@ -530,6 +564,7 @@ def _missing_row_kind(
     inspections: Mapping[str, tuple[Path, SourceInspection]],
     templates: Mapping[str, str],
     prefixes: Mapping[str, str],
+    human_owns: Mapping[str, Sequence[str]] | None = None,
 ) -> None:
     """A source whose per-row values have NO map to live in (ADR §5).
 
@@ -549,10 +584,9 @@ def _missing_row_kind(
         by_source[src].append(name)
     taken = set(map_sources)
     for src, names in by_source.items():
-        singletons = [n for n in names if annotations[n].get("collapse_kind") == "singleton"]
-        if len(singletons) != 1:
+        parent = _parent_singleton(names, annotations, human_owns or {})
+        if parent is None:
             continue
-        parent = singletons[0]
         # A row-level map already exists for this source: nothing is homeless.
         if any(
             annotations[n].get("collapse_kind") in ("unique", "partial")
@@ -667,6 +701,7 @@ def _growth_preview(
     annotations: dict[str, Any],
     map_sources: Mapping[str, str],
     inspections: Mapping[str, tuple[Path, SourceInspection]],
+    human_owns: Mapping[str, Sequence[str]] | None = None,
 ) -> None:
     """What the NEXT file does to this design (ADR column-ownership G3/G4).
 
@@ -692,10 +727,9 @@ def _growth_preview(
             signatures[src] = frozenset(c.name for c in ins.columns)
 
     for src, names in by_source.items():
-        singletons = [n for n in names if annotations[n].get("collapse_kind") == "singleton"]
-        if len(singletons) != 1:
+        parent = _parent_singleton(names, annotations, human_owns or {})
+        if parent is None:
             continue  # G7: no parent, or ambiguous — stay silent
-        parent = singletons[0]
         ann = annotations[parent]
         entry = inspections.get(src)
         if entry is None or not ann.get("key_columns"):
@@ -713,10 +747,16 @@ def _growth_preview(
         # entity (the real card has 18 such columns, the drawing shows 8).
         columns = [c.name for c in inspection.columns]
         determined = _functional_dependencies(rows, list(ann["key_columns"]), columns)
+        # Columns another map already owns (a human split, or the machine's
+        # verdict) have LEFT this entity — the forecast is about what is still
+        # recorded per file here.
+        elsewhere = {b["column"] for b in ann.get("borrowed_columns") or []}
         described = [
             col
             for col in columns
-            if col in determined and any((r.get(col) or "").strip() for r in rows)
+            if col in determined
+            and col not in elsewhere
+            and any((r.get(col) or "").strip() for r in rows)
         ]
         siblings = [
             other
@@ -729,10 +769,22 @@ def _growth_preview(
             "row_maps": [n for n in names if n != parent],
             "described_columns": described,
         }
+        shared: list[dict[str, Any]] = []
         if siblings:
-            preview["shared_values"] = _shared_column_values(
-                src, siblings, described, inspections
-            )
+            shared = _shared_column_values(src, siblings, described, inspections)
+            preview["shared_values"] = shared
+        # The one-click "split these into their own kind" (ADR G15): the human
+        # decides WHICH columns name one shared thing (world knowledge), the
+        # machine pre-fills what the files already agree on and picks the
+        # identity-like column as the key (a name/formula over a measured
+        # number). One file → no measured overlap → nothing pre-checked, only
+        # the offer.
+        types = {c.name: c.inferred_type for c in inspection.columns}
+        shared_cols = [x["column"] for x in shared]
+        key = next((c for c in shared_cols if types.get(c) not in _MEASUREMENT_TYPES), None)
+        if key is None and shared_cols:
+            key = shared_cols[0]
+        preview["split_default"] = {"columns": shared_cols, "key": key}
         ann["growth_preview"] = preview
 
 
@@ -781,6 +833,7 @@ def _inject_scope_risks(
     annotations: dict[str, Any],
     map_sources: Mapping[str, str],
     inspections: Mapping[str, tuple[Path, SourceInspection]],
+    human_owns: Mapping[str, Sequence[str]] | None = None,
 ) -> None:
     """Cross-map pass: append-safety of row-level IDs (the citation question).
 
@@ -796,15 +849,9 @@ def _inject_scope_risks(
     for name, src in map_sources.items():
         by_source[src].append(name)
     for src, names in by_source.items():
-        singletons = [
-            n
-            for n in names
-            if annotations[n].get("collapse_kind") == "singleton"
-            and annotations[n].get("key_columns")
-        ]
-        if len(singletons) != 1:
+        parent = _parent_singleton(names, annotations, human_owns or {})
+        if parent is None:
             continue
-        parent = singletons[0]
         parent_cols = list(annotations[parent]["key_columns"])
         parent_classes = [c["curie"] for c in annotations[parent].get("expanded_classes") or []]
         entry = inspections.get(src)
@@ -985,6 +1032,7 @@ def annotate_skeleton(
     annotations: dict[str, Any] = {}
     map_sources: dict[str, str] = {}
     raw_templates: dict[str, str] = {}
+    human_owns: dict[str, list[str]] = {}
     for map_entry in skeleton.get("maps") or []:
         if not isinstance(map_entry, Mapping):
             continue
@@ -995,19 +1043,25 @@ def annotate_skeleton(
         subject = map_entry.get("subject")
         if isinstance(subject, Mapping) and subject.get("template"):
             raw_templates[name] = str(subject["template"])
+        # `owns` (ADR G15): the columns a human assigned to this map when they
+        # split a shared concept out at the gate. World knowledge the rows
+        # cannot hold — it wins over the machine's ownership verdict.
+        owns = map_entry.get("owns")
+        if isinstance(owns, list) and owns:
+            human_owns[name] = [str(c) for c in owns]
         annotations[name] = _annotate_map(map_entry, prefixes, path, inspection)
     # Second pass — needs every map's collapse verdict: the singleton map's
     # key is the file's namespace, and row-level keys missing it are unique
     # only until the next file is appended (see _inject_scope_risks).
-    _inject_scope_risks(annotations, map_sources, by_name)
+    _inject_scope_risks(annotations, map_sources, by_name, human_owns)
     # Third pass (ADR column-ownership-and-growth): who owns each column, and
     # what the next file does to this design. Both need every map's key and
     # entity count, so they run after the per-map pass.
-    _adjudicate_ownership(annotations, map_sources, by_name)
-    _growth_preview(annotations, map_sources, by_name)
+    _adjudicate_ownership(annotations, map_sources, by_name, human_owns)
+    _growth_preview(annotations, map_sources, by_name, human_owns)
     # A source whose per-row values have no map at all — the gap round-0 can
     # leave, stated with its one-click repair.
-    _missing_row_kind(annotations, map_sources, by_name, raw_templates, prefixes)
+    _missing_row_kind(annotations, map_sources, by_name, raw_templates, prefixes, human_owns)
     # Skeleton-level (not per-map): namespaces minted on a placeholder domain
     # (ADR instance-iri-base.md). The design loop would catch this after the
     # (paid, minutes-long) continue run — the gate shows it in milliseconds,

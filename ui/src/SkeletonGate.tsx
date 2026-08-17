@@ -59,6 +59,7 @@ function SkeletonEvidence({
   ann,
   onApplyCandidate,
   onAddRowKind,
+  onSplit,
   canRevalidate = true,
   displayClass,
 }: {
@@ -66,6 +67,9 @@ function SkeletonEvidence({
   onApplyCandidate: (columns: string[]) => void
   /** Add the row-level map this source is missing (one click, server-suggested). */
   onAddRowKind?: () => void
+  /** Split a shared concept out of this file-scoped map: the checked columns
+   *  become their own kind, keyed by `key` (ADR column-ownership G15). */
+  onSplit?: (columns: string[], key: string) => void
   /** False when the sources are gone (restored session / reload): the edit
    *  cannot be re-checked, so the one-click add would land unverified. */
   canRevalidate?: boolean
@@ -74,6 +78,16 @@ function SkeletonEvidence({
   displayClass?: (value: string) => string
 }) {
   const { t } = useTranslation()
+  // The split control (G15): which described columns name one shared thing,
+  // and which of them is its identity. Pre-filled from what sibling files
+  // already agree on; with one file nothing is checked — only the offer.
+  // (Hooks first — this component returns early for an uncheckable map.)
+  const [splitCols, setSplitCols] = useState<string[]>(
+    () => ann.growth_preview?.split_default?.columns ?? [],
+  )
+  const [splitKey, setSplitKey] = useState<string>(
+    () => ann.growth_preview?.split_default?.key ?? '',
+  )
 
   const prefixWarning = ann.undeclared_prefixes.length > 0 && (
     <p className="skeleton-evidence-line skeleton-evidence-warn">
@@ -467,6 +481,62 @@ function SkeletonEvidence({
                 .join(' / ')}
             </p>
           )}
+          {/* "These name one thing — make it its own kind." The human ticks
+              WHICH columns (world knowledge); the machine pre-ticks the ones
+              the files already agree on and picks the identity-like key. The
+              measured overlap above shows the evidence; this is the action. */}
+          {onSplit && (
+            <div className="skeleton-split">
+              <p className="skeleton-evidence-line skeleton-evidence-muted">
+                {t('workbench:skeleton.evidence.splitLead')}
+              </p>
+              <div className="skeleton-split-cols">
+                {growth.described_columns.map((col) => (
+                  <label key={col} className="skeleton-split-col">
+                    <input
+                      type="checkbox"
+                      checked={splitCols.includes(col)}
+                      onChange={(e) => {
+                        const next = e.target.checked
+                          ? [...splitCols, col]
+                          : splitCols.filter((c) => c !== col)
+                        setSplitCols(next)
+                        // The key must be one of the checked columns.
+                        if (!next.includes(splitKey)) setSplitKey(next[0] ?? '')
+                      }}
+                    />
+                    <span>{col}</span>
+                  </label>
+                ))}
+              </div>
+              <div className="skeleton-split-row">
+                <label className="skeleton-split-keylabel">
+                  {t('workbench:skeleton.evidence.splitKey')}
+                  <select
+                    className="skeleton-split-key"
+                    value={splitKey}
+                    disabled={splitCols.length === 0}
+                    onChange={(e) => setSplitKey(e.target.value)}
+                  >
+                    {splitCols.length === 0 && <option value="">—</option>}
+                    {splitCols.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  className="skeleton-gap-add"
+                  disabled={!canRevalidate || splitCols.length === 0 || !splitKey}
+                  onClick={() => onSplit(splitCols, splitKey)}
+                >
+                  {t('workbench:skeleton.evidence.splitAdd', { count: splitCols.length })}
+                </button>
+              </div>
+            </div>
+          )}
         </details>
       )}
       {showCandidates && (
@@ -551,9 +621,16 @@ export function SkeletonGate({
 
   useEffect(() => {
     if (!addedMap) return
-    document
-      .querySelector(`[data-map="${CSS.escape(addedMap)}"]`)
-      ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    const row = document.querySelector(`[data-map="${CSS.escape(addedMap)}"]`)
+    row?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    // A machine-added map carries a placeholder class (named after its key
+    // column — "Name" is not a kind of thing). Put the caret in that field,
+    // text selected: "name this" without a sentence, and typing replaces it.
+    const cls = row?.querySelector<HTMLInputElement>('td:last-child input')
+    if (cls) {
+      cls.focus({ preventScroll: true })
+      cls.select()
+    }
     const timer = window.setTimeout(() => setAddedMap(null), 2200)
     return () => window.clearTimeout(timer)
   }, [addedMap])
@@ -595,6 +672,39 @@ export function SkeletonGate({
     // Where the click landed: the new row appears BELOW, so scroll to it and
     // hold a highlight for a beat. An edit you cannot see reads as "nothing
     // happened" — the add button alone was not enough (real feedback).
+    setAddedMap(added.name)
+  }
+
+  /** Split a shared concept out of a file-scoped map (ADR G15): a new map on
+   *  the same source, keyed by the human's identity column, carrying `owns` =
+   *  the columns they ticked. Named after the key so the row reads as what it
+   *  is; a starter class in the parent's vocabulary (renamable, like the rest). */
+  function splitConcept(idx: number, columns: string[], key: string) {
+    const parent = skeleton.maps[idx]
+    if (!parent || columns.length === 0 || !key) return
+    const template = parent.subject.template ?? ''
+    const cut = template.indexOf(parent.name)
+    const head = cut >= 0 ? template.slice(0, cut) : template.slice(0, template.indexOf('{'))
+    const base = key.toLowerCase().replace(/[^0-9a-z]+/g, '_').replace(/^_+|_+$/g, '') || 'shared'
+    let name = base
+    for (let i = 2; skeleton.maps.some((m) => m.name === name); i += 1) name = `${base}${i}`
+    const pascal = name
+      .split('_')
+      .filter(Boolean)
+      .map((w) => w[0].toUpperCase() + w.slice(1))
+      .join('')
+    const parentClass = parent.subject.classes?.[0] ?? ''
+    const clsPrefix = parentClass.includes(':') ? parentClass.slice(0, parentClass.indexOf(':') + 1) : ''
+    const added: SkeletonMap = {
+      name,
+      source: parent.source,
+      subject: { template: `${head}${name}/{${key}}`, classes: clsPrefix ? [`${clsPrefix}${pascal}`] : [] },
+      owns: columns,
+    }
+    onChange({
+      ...skeleton,
+      maps: [...skeleton.maps.slice(0, idx + 1), added, ...skeleton.maps.slice(idx + 1)],
+    })
     setAddedMap(added.name)
   }
 
@@ -885,6 +995,7 @@ export function SkeletonGate({
                           ann={ann}
                           onApplyCandidate={(cols) => applyCandidate(idx, cols)}
                           onAddRowKind={() => addRowKind(idx)}
+                          onSplit={(cols, key) => splitConcept(idx, cols, key)}
                           canRevalidate={canRevalidate}
                           displayClass={
                             plain ? (c) => compactClass(c, nsDetected) : undefined

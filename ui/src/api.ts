@@ -199,6 +199,11 @@ export interface SkeletonMap {
   /** Free-text rationale for the subject-key choice (a hint for the human gate;
    *  dropped from the final IR at assembly). */
   note?: string
+  /** Columns the HUMAN assigned to this map when splitting a shared concept
+   *  out at the gate (ADR column-ownership G15). World knowledge the rows
+   *  cannot hold; wins over the machine's ownership verdict. Dropped from the
+   *  final IR at assembly — it steers per-map generation, it is not mapping. */
+  owns?: string[]
 }
 
 /** The Mapping IR SKELETON — the early human-gate artifact. */
@@ -295,6 +300,10 @@ export interface SkeletonMapAnnotation {
     row_maps: string[]
     described_columns: string[]
     shared_values?: { column: string; value: string; files: number }[]
+    /** Pre-fill for the one-click split: the columns the sibling files already
+     *  agree on (measured), and the identity-like one among them as the key.
+     *  One file → nothing pre-checked, only the offer. */
+    split_default?: { columns: string[]; key: string | null }
   }
   /** Per-row values with no map to live in: this source has a file-scoped
    *  (singleton) map but NO row-level one, so the columns that vary per row are

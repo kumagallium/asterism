@@ -6641,6 +6641,49 @@ button.ds-artifact:disabled {
 .skeleton-gap {
   margin-top: 0.55rem;
 }
+/* 共有概念の切り出し（G15）。証拠（重なりの実測）の直下に、選ぶ→押す。 */
+.skeleton-split {
+  margin-top: 0.5rem;
+  padding-top: 0.45rem;
+  border-top: 1px dashed var(--border);
+}
+.skeleton-split-cols {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.9rem;
+  margin: 0.3rem 0 0.45rem 1rem;
+}
+.skeleton-split-col {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.78rem;
+  color: var(--fg);
+  cursor: pointer;
+}
+.skeleton-split-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem 1rem;
+  margin-left: 1rem;
+}
+.skeleton-split-keylabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+.skeleton-split-key {
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--fg);
+}
 /* 種類の削除。増やせるなら消せる（片道にしない）。名前の隣に小さく。 */
 .skeleton-remove {
   margin-left: 0.5rem;
