@@ -1,11 +1,11 @@
 {
-  "version": "0.15.0",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 5dbab9ed7129c91966790dd520935d391a64c7c1 -->\n\n## What's Changed\n* 空の入れ物を検出 — 行ごとの種類が、行の値を 1 つも持たない (ADR G14) by @kumagallium in https://github.com/kumagallium/asterism/pull/370\n* feat(ask): 質問する をチャットにする — 履歴一覧＋会話＋入力欄、スレッドは手元・エージェントは無状態 by @kumagallium in https://github.com/kumagallium/asterism/pull/373\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.14.6...v0.15.0",
-  "pub_date": "2026-08-17T00:30:32Z",
+  "version": "0.16.0",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 1707182ff896e3b27a523fc4ef45f4155bcdc6dc -->\n\n## What's Changed\n* feat(ui): ソースファイルをリロード越しに保持する — IndexedDB に置く by @kumagallium in https://github.com/kumagallium/asterism/pull/369\n* feat: Ask に最後の砦 ＋ データの事実を毎ラウンド再主張する by @kumagallium in https://github.com/kumagallium/asterism/pull/372\n* feat(step0/ui): 共有概念を別の種類に分ける — 実測を見せた先に押すものを置く by @kumagallium in https://github.com/kumagallium/asterism/pull/374\n* feat: 設計中のソースをサーバに置く — ドロップした瞬間から by @kumagallium in https://github.com/kumagallium/asterism/pull/376\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.15.0...v0.16.0",
+  "pub_date": "2026-08-17T01:19:03Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVNvZXZ4V2F3d2djZ3YrdEtJcWJxWE5OS1NIMUdJMWRkL0JoZysxa0Z4cFlYZmVlWUVITHJtbk95SmlSaWJkb3hjNnJCODdLZkNlUEt5NWk1K3pObUFRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg2OTI2NjMxCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CjJWMHZlMnZ0Um04MmN3cGtvc1JPQXQyZ1dFRGtQT0ppUVZ5YTNQazdLYWFVVVowSFFQNlN2WENuaEdNdDdYUGRpZUYwbmNNaHdEZHlubUpMWStjSkFnPT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.15.0/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcWJ4dlBNbEV5a1p1b09lK2pzL2dnNnJYYU1sSEtTaVo3bDVxUGxjWnl4bGEvS1JwdEVqK0JxNForVU9xM1J1MWdNeFNqOEVLUU5Dc1BxaXB1b2NJZ3dvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg2OTI5NTQzCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CjhmLy9TTzE4OUJjWEZ6a013UXR2QlFENGN4Ujd2bUt3N3lHd2c1UFg5RDR4RFJ3UVZoZmlxRWdJcE50a3o2VDh4R3BFdG8rakdwbnVxZlQwWUs0UUNRPT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.16.0/Asterism_aarch64.app.tar.gz"
     }
   }
 }
