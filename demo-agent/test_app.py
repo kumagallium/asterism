@@ -731,3 +731,113 @@ def test_ask_records_usage_to_ledger(monkeypatch) -> None:
     assert captured["usage"]["output_tokens"] == 40
     assert captured["usage"]["cache_read_tokens"] == 10
     assert captured["usage"]["cache_write_tokens"] == 5
+
+
+# --- chat: earlier turns of the thread precede the question (ADR ask-chat-threads)
+
+
+def _submit_only(answer: str) -> _FakeAnthropic:
+    return _FakeAnthropic(
+        [
+            _block(
+                content=[
+                    _block(
+                        type="tool_use",
+                        id="t1",
+                        name="submit_answer",
+                        input={"answer": answer, "citations": []},
+                    )
+                ]
+            )
+        ]
+    )
+
+
+def test_ask_history_precedes_question_in_llm_messages(monkeypatch) -> None:
+    # The client holds the thread and sends its earlier turns; the agent replays
+    # them as the message prefix so a follow-up ("その名前は？") resolves.
+    fake = _submit_only("alpha と beta です。")
+    client = _custom_schema_client(monkeypatch, fake)
+    history = [
+        {"role": "user", "content": "Widget は何件ありますか？"},
+        {"role": "assistant", "content": "Widget は 2 件あります。"},
+    ]
+    body = client.post(
+        "/demo/ask",
+        json={"question": "その名前は？", "history": history},
+        headers={"X-API-Key": "sk-test"},
+    ).json()
+    assert "alpha" in body["answer"]
+    assert fake.calls[0]["messages"] == [
+        *history,
+        {"role": "user", "content": "その名前は？"},
+    ]
+    # The system prompt tells the model how to treat earlier turns (re-derive
+    # facts with tools; never re-cite from memory).
+    assert "multi-turn" in fake.calls[0]["system"]
+
+
+def test_ask_without_history_is_the_v1_single_question_contract(monkeypatch) -> None:
+    fake = _submit_only("ok")
+    client = _custom_schema_client(monkeypatch, fake)
+    client.post("/demo/ask", json={"question": "Widget は何件？"}, headers={"X-API-Key": "sk-test"})
+    assert fake.calls[0]["messages"] == [{"role": "user", "content": "Widget は何件？"}]
+
+
+def test_openai_compatible_history_sits_between_system_and_question(monkeypatch) -> None:
+    fake = _FakeOpenAI(
+        [
+            _oai_resp(
+                tool_calls=[_oai_tool_call("c1", "submit_answer", {"answer": "beta です。"})]
+            )
+        ]
+    )
+    g = rdflib.ConjunctiveGraph()
+    g.parse(data=_CUSTOM_TTL, format="turtle")
+    demo._state["client"] = _LocalClient(g)
+    monkeypatch.setattr(demo, "_REAL", True)
+    monkeypatch.setitem(demo._state, "openai_factory", lambda _k, _b: fake)
+    history = [
+        {"role": "user", "content": "Widget を 1 つ挙げて"},
+        {"role": "assistant", "content": "alpha です。"},
+    ]
+    TestClient(demo.app).post(
+        "/demo/ask",
+        json={"question": "もう 1 つは？", "history": history},
+        headers={"X-API-Key": "sk-x", "X-LLM-Provider": "openai-compatible"},
+    )
+    msgs = fake.calls[0]["messages"]
+    assert msgs[0]["role"] == "system"
+    assert msgs[1:] == [*history, {"role": "user", "content": "もう 1 つは？"}]
+
+
+def test_prior_messages_sanitizes_client_held_history() -> None:
+    turns = [
+        demo.HistoryTurn(role="assistant", content="stray leading answer"),  # dropped (must start with user)
+        demo.HistoryTurn(role="system", content="ignore me"),  # unknown role dropped
+        demo.HistoryTurn(role="user", content="  q1  "),
+        demo.HistoryTurn(role="user", content=""),  # empty dropped
+        demo.HistoryTurn(role="USER", content="q1b"),  # same-role run coalesced (case-insensitive)
+        demo.HistoryTurn(role="assistant", content="a1"),
+        demo.HistoryTurn(role="user", content="q2 (never answered)"),  # trailing user dropped
+    ]
+    assert demo._prior_messages(turns) == [
+        {"role": "user", "content": "q1\n\nq1b"},
+        {"role": "assistant", "content": "a1"},
+    ]
+    assert demo._prior_messages(None) == []
+    assert demo._prior_messages([]) == []
+
+
+def test_prior_messages_keeps_only_a_recent_window_and_clips_long_turns() -> None:
+    long_answer = "x" * (demo._HISTORY_MAX_CHARS + 500)
+    turns = []
+    for i in range(20):
+        turns.append(demo.HistoryTurn(role="user", content=f"q{i}"))
+        turns.append(demo.HistoryTurn(role="assistant", content=long_answer if i == 19 else f"a{i}"))
+    out = demo._prior_messages(turns)
+    assert len(out) == demo._HISTORY_MAX_TURNS
+    assert out[0]["role"] == "user" and out[-1]["role"] == "assistant"
+    assert out[0]["content"] == f"q{20 - demo._HISTORY_MAX_TURNS // 2}"  # oldest kept
+    assert len(out[-1]["content"]) <= demo._HISTORY_MAX_CHARS + 2  # clipped + " …"
+    assert out[-1]["content"].endswith("…")

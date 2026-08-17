@@ -43,6 +43,7 @@ type Tab =
 //   #/home … #/sparql        画面タブ
 //   #/datasets/<id>          データセット詳細（一覧⇄詳細の往復でも選択が消えない）
 //   #/datasets/<id>/<tab>    詳細内タブ（structure/tools/files/connect/design）
+//   #/ask/<threadId>         質問する: チャットのスレッド（#/ask だけなら新しいチャット）
 // hash が唯一の真実源: 画面遷移は navigate() が hash を書き、hashchange で state
 // に反映する（ブラウザの戻る/進むもそのまま効く）。
 
@@ -53,6 +54,8 @@ interface Route {
   /** `#/crosswalk/new` — the guided "make a connection" flow, deep-linkable so other
    *  screens can send someone straight into it and back/forward still work. */
   create?: boolean
+  /** `#/ask/<id>` — the open chat thread (reload / back / forward keep it). */
+  threadId?: string
 }
 
 const TABS: readonly Tab[] = [
@@ -79,6 +82,7 @@ function parseHash(hash: string): Route {
   // 旧 URL 互換: #/datasets はタブ名 gallery の別名
   if (parts[0] === 'datasets') return { tab: 'gallery' }
   if (parts[0] === 'crosswalk' && parts[1] === 'new') return { tab: 'crosswalk', create: true }
+  if (parts[0] === 'ask' && parts[1]) return { tab: 'ask', threadId: decodeURIComponent(parts[1]) }
   if (TABS.includes(parts[0] as Tab)) return { tab: parts[0] as Tab }
   return { tab: 'home' }
 }
@@ -90,6 +94,7 @@ function routeToHash(r: Route): string {
   }
   if (r.tab === 'gallery') return '#/datasets'
   if (r.tab === 'crosswalk' && r.create) return '#/crosswalk/new'
+  if (r.tab === 'ask' && r.threadId) return `#/ask/${encodeURIComponent(r.threadId)}`
   return `#/${r.tab}`
 }
 
@@ -281,7 +286,10 @@ function App() {
           <LanguageToggle />
         </header>
 
-        <main className="app-content">
+        {/* 質問する（チャット）は画面の残り高さを使い切り、各列が内側でスクロール
+            する（メッセージ一覧はスクロール・入力欄は下に固定）。他画面は従来通り
+            .app-main がスクロールコンテナ。 */}
+        <main className={`app-content${tab === 'ask' ? ' app-content--chat' : ''}`}>
           {tab === 'home' && (
             <HomeView
               onNavigate={navTo}
@@ -298,7 +306,15 @@ function App() {
               onCreateCrosswalk={() => navigate({ tab: 'crosswalk', create: true })}
             />
           )}
-          {tab === 'ask' && <AskView onShowVocab={showVocab} />}
+          {tab === 'ask' && (
+            <AskView
+              onShowVocab={showVocab}
+              threadId={route.threadId ?? null}
+              onSelectThread={(id, opts) =>
+                navigate(id ? { tab: 'ask', threadId: id } : { tab: 'ask' }, opts)
+              }
+            />
+          )}
           {tab === 'gallery' && (
             <GalleryView
               focusClass={galleryFocus}

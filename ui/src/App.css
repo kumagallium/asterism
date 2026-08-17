@@ -1489,67 +1489,561 @@ textarea:focus {
   vertical-align: middle;
 }
 
-/* Two columns: question + answer (left), provenance trace (right). */
-.ask-view {
-  display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
-  gap: var(--space-4);
-  align-items: start;
-}
-.ask-main {
+/* ---- Ask = chat (ADR ask-chat-threads.md) ----
+   Three panes: thread list | conversation (messages + composer) | provenance
+   trace (opens on citation click). The chat uses the WHOLE remaining viewport
+   height and each pane scrolls inside itself — messages scroll, the composer
+   stays pinned at the bottom — so .app-content gets a modifier that turns off
+   the page padding/scroll for this tab only. */
+.app-content--chat {
+  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
-  min-width: 0;
+  min-height: 0; /* flex item: allow it to be exactly the remaining height */
+  overflow: hidden;
 }
-.ask-intro {
-  margin: 0;
-  font-size: 0.9rem;
-  color: var(--body);
-  line-height: 1.6;
+.chat {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+}
+.chat--trace {
+  grid-template-columns: 260px minmax(0, 1fr) minmax(300px, 360px);
 }
 
-.ask-bar {
+/* -- thread list (left) -- */
+.chat-threads {
   display: flex;
-  gap: 0.5rem;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
 }
-.ask-input-wrap {
+.chat-threads-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-3) var(--space-2);
+}
+.chat-new-btn {
+  flex: 1;
+  justify-content: center;
+}
+/* (0,2,0) so the shared .chat-topline-btn display does not resurrect it. */
+.chat-threads .chat-threads-close {
+  display: none;
+}
+.chat-threads-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 var(--space-2) var(--space-4);
+}
+.chat-threads-empty {
+  margin: var(--space-4) var(--space-2);
+  font-size: 0.8rem;
+  color: var(--muted);
+  line-height: 1.6;
+}
+.chat-threads-group-h {
+  margin: var(--space-3) var(--space-2) var(--space-1);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.chat-threads-ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.chat-thread-item {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  border-radius: var(--radius-sm);
+}
+.chat-thread-item:hover {
+  background: var(--surface-alt);
+}
+.chat-thread-item.active {
+  background: var(--primary-soft);
+}
+.chat-thread-btn {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 0.45rem 3.7rem 0.45rem 0.6rem; /* room for the rename/delete icons */
+  color: var(--fg);
+  font-size: 0.84rem;
+  font-weight: 500;
+}
+.chat-thread-btn:hover:not(:disabled) {
+  background: transparent;
+}
+.chat-thread-item.active .chat-thread-btn {
+  color: var(--primary);
+  font-weight: 600;
+}
+.chat-thread-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-thread-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--faint);
+}
+.chat-thread-meta .spinner {
+  margin: 0;
+  width: 0.7em;
+  height: 0.7em;
+}
+/* Row actions (rename / delete): revealed on hover, focus, or the active row. */
+.chat-thread-actions {
+  position: absolute;
+  right: 0.3rem;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.chat-thread-item:hover .chat-thread-actions,
+.chat-thread-item.active .chat-thread-actions,
+.chat-thread-actions:focus-within {
+  opacity: 1;
+}
+.chat-thread-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--faint);
+}
+.chat-thread-action:hover:not(:disabled) {
+  background: var(--surface);
+  color: var(--fg);
+}
+.chat-thread-action--danger:hover:not(:disabled) {
+  background: var(--error-bg);
+  color: var(--error-fg);
+}
+/* Inline rename: the row turns into a text field (Enter/blur commit, Esc cancel). */
+.chat-thread-item.editing {
+  background: var(--surface);
+}
+.chat-thread-rename {
+  flex: 1;
+  min-width: 0;
+  margin: 0.2rem;
+  padding: 0.35rem 0.5rem;
+  border: 1.5px solid var(--primary);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 500;
+  color: var(--fg);
+}
+.chat-thread-rename:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(63, 111, 73, 0.2);
+}
+.chat-thread-confirm {
   flex: 1;
   display: flex;
   align-items: center;
-  gap: 0.55rem;
-  padding: 0.55rem 0.85rem;
-  border-radius: var(--radius);
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.78rem;
+  color: var(--fg);
+}
+.chat-thread-confirm-text {
+  flex: 1 1 100%;
+}
+
+/* -- conversation (middle) -- */
+.chat-main {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  background: var(--bg);
+}
+.chat-topline {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 2.75rem;
+  padding: 0.5rem var(--space-6);
   background: var(--surface);
-  border: 1.5px solid var(--primary);
-  box-shadow: var(--shadow-soft);
+  border-bottom: 1px solid var(--border);
+}
+.chat-topline-title {
+  margin: 0;
+  min-width: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-topline-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--muted);
+}
+.chat-topline-btn:hover:not(:disabled) {
+  background: var(--surface-alt);
+  border-color: var(--border-strong);
+  color: var(--fg);
+}
+.chat-topline .chat-threads-toggle {
+  display: none;
+}
+.chat-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-6) var(--space-6) var(--space-4);
+}
+.chat-thread {
+  max-width: 920px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+.chat-msg {
+  display: flex;
+  gap: var(--space-3);
   min-width: 0;
 }
-.ask-icon {
-  color: var(--primary);
-  display: flex;
-  flex: none;
+.chat-msg--user {
+  justify-content: flex-end;
 }
-.ask-input {
+.chat-bubble {
+  max-width: min(78%, 40rem);
+  padding: 0.7rem 1rem;
+  border-radius: 16px 16px 4px 16px;
+  background: var(--primary-soft);
+  color: var(--fg);
+  font-size: 0.95rem;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.chat-msg--assistant {
+  align-items: flex-start;
+}
+.chat-avatar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  margin-top: 0.2rem;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--primary);
+}
+.chat-msg-body {
   flex: 1;
+  min-width: 0;
+}
+.chat-pending {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.55rem 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+.chat-msg-error {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding: 0.6rem 0.9rem;
+  border-radius: var(--radius);
+  color: var(--error-fg);
+  background: var(--error-bg);
+  border: 1px solid var(--error-border);
+  font-size: 0.85rem;
+}
+.chat-msg-error-text {
+  flex: 1 1 16rem;
+  min-width: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+/* A stopped wait is not a failure — neutral tone, same retry affordance. */
+.chat-msg-error--stopped {
+  color: var(--muted);
+  background: var(--surface-alt);
+  border-color: var(--border);
+}
+
+/* empty state = a new chat: what this is, and (mock) example questions */
+.chat-empty {
+  max-width: 640px;
+  margin: 8vh auto 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  text-align: center;
+}
+.chat-empty-mark {
+  color: var(--primary);
+}
+.chat-empty-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.chat-empty-intro {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--body);
+  line-height: 1.7;
+  text-align: left;
+}
+.chat-examples {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.chat-example {
+  padding: 0.4rem 0.9rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--fg);
+  font-size: 0.84rem;
+  font-weight: 500;
+}
+.chat-example:hover:not(:disabled) {
+  background: var(--primary-soft);
+  border-color: var(--primary-soft);
+  color: var(--primary);
+}
+
+/* -- composer (pinned at the bottom of the conversation) -- */
+.chat-composer {
+  flex: none;
+  padding: var(--space-2) var(--space-6) var(--space-4);
+  background: var(--bg);
+}
+.chat-composer-box {
+  max-width: 920px;
+  margin: 0 auto;
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+  padding: 0.5rem 0.5rem 0.5rem 1rem;
+  border-radius: 16px;
+  background: var(--surface);
+  border: 1.5px solid var(--border-strong);
+  box-shadow: var(--shadow);
+}
+/* 入力自体のリングは消しても、外枠がフォーカスを示す（WCAG 2.4.7） */
+.chat-composer-box:focus-within {
+  border-color: var(--primary);
+  box-shadow:
+    0 0 0 3px rgba(63, 111, 73, 0.2),
+    var(--shadow);
+}
+.chat-composer-box--disabled {
+  background: var(--surface-alt);
+}
+.chat-input {
+  flex: 1;
+  min-width: 0;
+  max-height: 200px;
+  overflow-y: auto;
+  resize: none;
   border: none;
   background: none;
-  padding: 0;
+  padding: 0.35rem 0;
+  font: inherit;
   font-size: 0.98rem;
+  line-height: 1.55;
   color: var(--fg);
-  min-width: 0;
 }
-.ask-input:focus {
+.chat-input:focus {
   outline: none;
   box-shadow: none;
 }
-/* 入力自体のリングは消しても、外枠がフォーカスを示す（WCAG 2.4.7） */
-.ask-input-wrap:focus-within {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(63, 111, 73, 0.3);
+.chat-input::placeholder {
+  color: var(--faint);
 }
-.ask-bar button {
-  white-space: nowrap;
+.chat-send {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.4rem;
+  height: 2.4rem;
+  padding: 0;
+  border-radius: 999px;
+  background: var(--primary);
+  border: 1px solid var(--primary);
+  color: var(--primary-fg);
+}
+.chat-send:hover:not(:disabled) {
+  background: #356040;
+  border-color: #356040;
+}
+.chat-send:disabled {
+  opacity: 0.35;
+}
+/* While an answer is pending the send button becomes "stop" — a dark, quiet
+   square (not red: it stops the wait, it does not destroy anything). */
+.chat-send--stop {
+  background: var(--sky);
+  border-color: var(--sky);
+  color: var(--sky-fg);
+}
+.chat-send--stop:hover:not(:disabled) {
+  background: #2a3d2e;
+  border-color: #2a3d2e;
+}
+.chat-composer-foot {
+  max-width: 920px;
+  margin: var(--space-2) auto 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.chat-composer-hint {
+  font-size: 0.72rem;
+  color: var(--faint);
+}
+.chat-composer-gate {
+  flex: 1 1 24rem;
+  min-width: 0;
+}
+.chat-composer-gate .llm-gate {
+  margin: 0;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.76rem;
+}
+
+/* -- narrow screens -- */
+.chat-threads-backdrop {
+  display: none;
+}
+/* Provenance panel becomes an overlay over the conversation (no third column):
+   below ~1360px three columns beside the app sidebar leave the conversation too
+   narrow to read an answer card. */
+@media (max-width: 1360px) {
+  .chat--trace {
+    grid-template-columns: 260px minmax(0, 1fr);
+  }
+  .chat--trace .ask-trace {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 4;
+    width: min(420px, 100%);
+    box-shadow: var(--shadow);
+  }
+}
+/* Thread list becomes a slide-in overlay toggled from the topline. */
+@media (max-width: 900px) {
+  .chat,
+  .chat--trace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .chat-threads {
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 6;
+    width: min(300px, 85%);
+    transform: translateX(-100%);
+    transition: transform 0.18s ease;
+  }
+  .chat--threads-open .chat-threads {
+    transform: none;
+    box-shadow: var(--shadow);
+  }
+  .chat-threads-backdrop {
+    display: block;
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    padding: 0;
+    border: none;
+    border-radius: 0;
+    background: rgba(22, 36, 26, 0.25);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.18s ease;
+  }
+  .chat--threads-open .chat-threads-backdrop {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .chat-topline .chat-threads-toggle,
+  .chat-threads .chat-threads-close {
+    display: inline-flex;
+  }
+  .chat-topline,
+  .chat-scroll,
+  .chat-composer {
+    padding-left: var(--space-4);
+    padding-right: var(--space-4);
+  }
+  .chat-bubble {
+    max-width: 88%;
+  }
 }
 
 .answer-card {
@@ -1964,22 +2458,41 @@ textarea:focus {
   right: 0.5rem;
 }
 
-/* ---- provenance trace (inline right panel) ---- */
+/* ---- provenance trace (right pane of the chat; own scroll) ---- */
 .ask-trace {
-  position: sticky;
-  top: 5.25rem;
+  position: relative;
   display: flex;
   flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  overflow: hidden;
+  border-left: 1px solid var(--border);
 }
 
 .trace-header {
-  padding: 0.95rem 1.1rem;
+  position: relative;
+  padding: 0.95rem 2.75rem 0.95rem 1.1rem;
   border-bottom: 1px solid var(--border);
+}
+.trace-close {
+  position: absolute;
+  top: 0.7rem;
+  right: 0.7rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--muted);
+}
+.trace-close:hover:not(:disabled) {
+  background: var(--surface-alt);
+  border-color: var(--border-strong);
+  color: var(--fg);
 }
 .trace-eyebrow {
   font-size: 0.66rem;
@@ -2128,27 +2641,6 @@ button.trace-iri-copy:hover:not(:disabled) {
   flex: none;
 }
 
-/* Stack the Ask columns on narrow viewports. */
-@media (max-width: 900px) {
-  .ask-view {
-    grid-template-columns: 1fr;
-  }
-  .ask-trace {
-    position: static;
-  }
-}
-/* Stack the question bar (input over a full-width button) when very narrow. */
-@media (max-width: 560px) {
-  .ask-bar {
-    flex-wrap: wrap;
-  }
-  .ask-input-wrap {
-    flex-basis: 100%;
-  }
-  .ask-bar > button {
-    flex: 1;
-  }
-}
 .onto-diagram {
   overflow-x: auto;
   border-top: 1px solid var(--border);

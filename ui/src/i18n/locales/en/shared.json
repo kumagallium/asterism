@@ -19,7 +19,8 @@
     "vocabLink": "View the words",
     "noRecord": "No provenance is recorded for this item.",
     "copyIri": "Click to copy the ID",
-    "copied": "Copied"
+    "copied": "Copied",
+    "close": "Close the provenance panel"
   },
   "step": {
     "curve": "Measurement curve",

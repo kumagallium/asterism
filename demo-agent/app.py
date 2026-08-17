@@ -16,7 +16,9 @@ Two modes:
   starrydata's tools are content like everyone else's (#20 P4).
 
 Contract (also in ../handoff_to_claude_code_arise_demo.md §3):
-    POST /demo/ask        -> {answer, citations[], notes[]}
+    POST /demo/ask        {question, history?[]} -> {answer, citations[], notes[]}
+                          (history = earlier {role, content} turns of the chat
+                           this question continues — ADR ask-chat-threads.md)
     GET  /demo/provenance -> {iri, chain[]}
 
 Run (mock):  uvicorn app:app --port 8090 --reload
@@ -105,8 +107,23 @@ app.add_middleware(
 )
 
 
+class HistoryTurn(BaseModel):
+    """One earlier turn of the chat this question continues (``role`` = user |
+    assistant, ``content`` = the question text / the answer text)."""
+
+    role: str
+    content: str
+
+
 class AskRequest(BaseModel):
     question: str
+    # Chat (ADR ask-chat-threads.md): the EARLIER turns of the conversation this
+    # question belongs to, oldest first. The client holds the thread (the agent
+    # stays stateless — the registry is mounted read-only here); the turns are
+    # replayed as the LLM's message prefix so a follow-up ("and for Seebeck?",
+    # "those samples") resolves. Only the LLM routing path uses it; the no-key
+    # typed showcase is one-shot by nature. Empty = a single question (v1 contract).
+    history: list[HistoryTurn] = []
 
 
 class SparqlRequest(BaseModel):
@@ -385,6 +402,12 @@ shared value, e.g.
   ?samp <…/compositionString> ?c . ?mat <…/formula> ?c . ?mat <…/hasCrystalStructure> ?cs .
 Use the EXACT class/predicate IRIs from the schema, in <>.
 
+Conversation: this may be a multi-turn chat. Any earlier turns precede the current
+question; a follow-up may refer back to them ("those samples", "the same paper",
+"and for Seebeck?"). Resolve such references from the earlier turns, but ALWAYS
+re-derive the facts by calling tools in THIS turn — never repeat numbers or IRIs
+from memory, and never cite an IRI that did not appear in this turn's results.
+
 Rules:
 - Use ONLY IRIs that appear in the schema. SELECT enough to cite (the subject IRI).
   Add LIMIT (<=50).
@@ -486,6 +509,45 @@ async def _post_usage(provider: str, model: str, usage: dict) -> None:
         pass
 
 
+# Chat history bounds. The thread lives in the client; we replay only a recent
+# window so a long chat cannot blow the context (or the bill) — older turns fall
+# off, and one over-long turn (a big GFM table) is clipped, not dropped.
+_HISTORY_MAX_TURNS = 12  # most recent turns kept (= 6 question/answer exchanges)
+_HISTORY_MAX_CHARS = 4000  # per turn
+
+
+def _prior_messages(history: list | None) -> list[dict]:
+    """Earlier chat turns → the ``messages`` prefix the LLM sees before the
+    current question (both providers take the same {role, content} shape).
+
+    Defensive by design — the turns come from the browser's local store:
+    unknown roles and empty turns are dropped, over-long turns are clipped,
+    same-role runs are coalesced (an errored answer leaves two user turns in a
+    row), only the most recent window is kept, and the result is normalised to
+    start with a user turn and end with an assistant turn — the current
+    question is appended as the next user turn by the caller, so a dangling
+    trailing user turn (an earlier question that never got its answer) is
+    dropped rather than merged into the new question."""
+    out: list[dict] = []
+    for turn in history or ():
+        role = str(getattr(turn, "role", "") or "").strip().lower()
+        text = str(getattr(turn, "content", "") or "").strip()
+        if role not in ("user", "assistant") or not text:
+            continue
+        if len(text) > _HISTORY_MAX_CHARS:
+            text = text[:_HISTORY_MAX_CHARS].rstrip() + " …"
+        if out and out[-1]["role"] == role:
+            out[-1]["content"] += "\n\n" + text
+        else:
+            out.append({"role": role, "content": text})
+    out = out[-_HISTORY_MAX_TURNS:]
+    while out and out[0]["role"] != "user":
+        out.pop(0)
+    if out and out[-1]["role"] == "user":
+        out.pop()
+    return out
+
+
 def _render_schema(schema: dict) -> str:
     """Compact text rendering of schema_summary for the system prompt."""
     lines: list[str] = ["Classes:"]
@@ -576,6 +638,7 @@ async def _llm_answer_via(
     provider: str,
     model: str | None,
     api_base: str | None,
+    history: list | None = None,
 ) -> tuple[dict, dict]:
     """Schema-grounded LLM agent: it PICKS among the deterministic VERIFIED tools
     (every dataset's declared query tools — starrydata's property_ranking and
@@ -674,6 +737,12 @@ async def _llm_answer_via(
     def finalize_text(text: str) -> dict:
         return finalize({"answer": text or "回答を生成できませんでした。"})
 
+    # Chat: the earlier turns of this thread go in front of the question (same
+    # {role, content} shape for both providers). Tool calls/results of EARLIER
+    # turns are not replayed — only what the user saw — so the model must
+    # re-derive facts with tools in this turn (the system prompt says so).
+    prior = _prior_messages(history)
+
     if provider in _OPENAI_PROVIDERS:
         answer = await _openai_agent_loop(
             _openai_client(api_key, api_base),
@@ -685,6 +754,7 @@ async def _llm_answer_via(
             usage,
             finalize,
             finalize_text,
+            prior=prior,
         )
     else:
         answer = await _anthropic_agent_loop(
@@ -697,14 +767,24 @@ async def _llm_answer_via(
             usage,
             finalize,
             finalize_text,
+            prior=prior,
         )
     return answer, usage
 
 
 async def _anthropic_agent_loop(
-    anthropic, model, system, tools, question, execute_tool, usage, finalize, finalize_text
+    anthropic,
+    model,
+    system,
+    tools,
+    question,
+    execute_tool,
+    usage,
+    finalize,
+    finalize_text,
+    prior=(),
 ):
-    messages: list[dict] = [{"role": "user", "content": question}]
+    messages: list[dict] = [*prior, {"role": "user", "content": question}]
     for step in range(_ASK_MAX_STEPS):
         force_final = step == _ASK_MAX_STEPS - 1  # never loop forever
         kwargs = {
@@ -744,10 +824,20 @@ async def _anthropic_agent_loop(
 
 
 async def _openai_agent_loop(
-    openai, model, system, oai_tools, question, execute_tool, usage, finalize, finalize_text
+    openai,
+    model,
+    system,
+    oai_tools,
+    question,
+    execute_tool,
+    usage,
+    finalize,
+    finalize_text,
+    prior=(),
 ):
     messages: list[dict] = [
         {"role": "system", "content": system},
+        *prior,
         {"role": "user", "content": question},
     ]
     for step in range(_ASK_MAX_STEPS):
@@ -942,6 +1032,7 @@ async def ask(
             provider=provider,
             model=model,
             api_base=api_base,
+            history=req.history,
         )
         await _post_usage(provider, model, usage)
         return answer

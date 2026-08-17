@@ -73,6 +73,7 @@ Web UI（`ui/`・React + TS + Vite + react-i18next）の**実装側デザイン�
 - **タブ**：`.ds-tabs`（`--surface-sink` のピル列）＋ `.ds-tab`（選択＝白＋`--shadow-soft`）。
 - **StdToken**（外部標準）：平易語 + 標準名 + mono CURIE。確定=実線 / AI候補=accent 点線。
 - **意味色の使い分け**：データ/件数=entity、つながり/橋=link、注意/AI候補=accent。
+- **チャット（質問する）**（`.chat*`・ADR `ask-chat-threads.md`）：3 ペイン＝スレッド一覧（260px・surface・グループ見出しは `--faint` 0.66rem 大文字）｜会話（`--bg`・読み幅 `max-width: 920px` 中央寄せ・質問は右寄せ `--primary-soft` の吹き出し・回答は `.answer-card` そのまま＋ブランドマークのアバター）｜来歴 `.ask-trace`（引用クリック時のみ・第 3 列 300–360px・×/Esc）。入力欄は下端固定の丸角ボックス（`--border-strong` → focus-within で `--primary` リング）。**この画面だけ `.app-content--chat` でページ余白/スクロールを外し、各ペインが内側でスクロール**する（他画面は従来どおり `.app-main` がスクロール）。ブレークポイント: ≤1360 で来歴はオーバーレイ、≤900 で一覧はスライド式（トグルは topline）。
 
 ## 7. i18n
 

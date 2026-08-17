@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
-import { ArrowIcon, TraceIcon } from './icons'
+import { ArrowIcon, CloseIcon, TraceIcon } from './icons'
 import { provenance, type Citation, type ProvenanceChain, type ProvenanceStep } from './demoApi'
 import { KIND_TO_CLASS } from './galleryApi'
 
@@ -25,18 +25,22 @@ function stepColors(step: string): { color: string; ring: string } {
 const KNOWN_STEPS = new Set(['curve', 'sample', 'paper', 'digitization', 'ingestion'])
 
 /**
- * The provenance trace, rendered as a permanent right-hand panel of the Ask
- * view (not a drawer). When a citation is selected it resolves and renders the
- * chain (curve → sample → paper → digitization → ingestion) from the demo agent
- * contract (GET /demo/provenance). With no selection it shows a hint. This view
- * only renders the contract; it generates nothing.
+ * The provenance trace, rendered as the right-hand panel of the Ask chat: it
+ * opens when a citation is clicked (and closes via `onClose`). When a citation
+ * is selected it resolves and renders the chain (curve → sample → paper →
+ * digitization → ingestion) from the demo agent contract (GET /demo/provenance).
+ * With no selection it shows a hint. This view only renders the contract; it
+ * generates nothing.
  */
 export function ProvenanceTrace({
   citation,
   onShowVocab,
+  onClose,
 }: {
   citation: Citation | null
   onShowVocab?: (className: string) => void
+  /** Rendered as a close (×) button in the header when given. */
+  onClose?: () => void
 }) {
   const { t } = useTranslation()
   const iri = citation?.iri ?? ''
@@ -74,6 +78,17 @@ export function ProvenanceTrace({
   return (
     <aside className="ask-trace" aria-label={t('shared:trace.ariaLabel')}>
       <div className="trace-header">
+        {onClose && (
+          <button
+            type="button"
+            className="trace-close"
+            onClick={onClose}
+            aria-label={t('shared:trace.close')}
+            title={t('shared:trace.close')}
+          >
+            <CloseIcon size={16} />
+          </button>
+        )}
         <div className="trace-eyebrow">{t('shared:trace.eyebrow')}</div>
         <h3 className="trace-title">{t('shared:trace.title')}</h3>
         <p className="trace-sub">
