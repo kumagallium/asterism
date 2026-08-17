@@ -1,5 +1,12 @@
 # Changelog
 
+## [v0.16.0](https://github.com/kumagallium/asterism/compare/v0.15.0...v0.16.0) - 2026-08-17
+
+- feat(ui): ソースファイルをリロード越しに保持する — IndexedDB に置く by @kumagallium in https://github.com/kumagallium/asterism/pull/369
+- feat: Ask に最後の砦 ＋ データの事実を毎ラウンド再主張する by @kumagallium in https://github.com/kumagallium/asterism/pull/372
+- feat(step0/ui): 共有概念を別の種類に分ける — 実測を見せた先に押すものを置く by @kumagallium in https://github.com/kumagallium/asterism/pull/374
+- feat: 設計中のソースをサーバに置く — ドロップした瞬間から by @kumagallium in https://github.com/kumagallium/asterism/pull/376
+
 ## [v0.15.0](https://github.com/kumagallium/asterism/compare/v0.14.6...v0.15.0) - 2026-08-17
 
 - 空の入れ物を検出 — 行ごとの種類が、行の値を 1 つも持たない (ADR G14) by @kumagallium in https://github.com/kumagallium/asterism/pull/370
