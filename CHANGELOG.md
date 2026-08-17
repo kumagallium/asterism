@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.15.0](https://github.com/kumagallium/asterism/compare/v0.14.6...v0.15.0) - 2026-08-17
+
+- 空の入れ物を検出 — 行ごとの種類が、行の値を 1 つも持たない (ADR G14) by @kumagallium in https://github.com/kumagallium/asterism/pull/370
+- feat(ask): 質問する をチャットにする — 履歴一覧＋会話＋入力欄、スレッドは手元・エージェントは無状態 by @kumagallium in https://github.com/kumagallium/asterism/pull/373
+
 ## [v0.14.6](https://github.com/kumagallium/asterism/compare/v0.14.5...v0.14.6) - 2026-08-16
 
 - 「AI に直してもらう」連打の 2 段目の真因 — splice 不能と既知修正の LLM 依存 by @kumagallium in https://github.com/kumagallium/asterism/pull/367
