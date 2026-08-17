@@ -131,6 +131,62 @@ Tauri の `endpoints` は **Pages を先頭・旧リリース URL を fallback**
 `release-failure` ラベル付き Issue を 1 本だけ起票する。ビルド失敗そのものは
 Actions の通知で分かるが、こちらは*結果として更新が出ていない*状態を直接見る。
 
+## 6.2 決定: 更新の日常導線は SPA のバナー（2026-08-17）
+
+**更新は画面上部のバナーからワンクリック**（Graphium と同じ）。ネイティブの
+メニュー項目「アップデートを確認…」は fallback として残す。
+
+それまでの形（#338/#350）は「起動 8 秒後にネイティブの modal ダイアログ、
+以後はメニューバーから探す」で、設定→このアプリの「今すぐ確認」も知らせる
+だけだった（更新にはメニューを辿らせる）。ユーザー報告＝「Graphium は
+UI 上部にボタンが出る。asterism はメニューの中から選ばないといけないので手間」。
+
+**なぜ SPA から直接できなかったか**: 窓は `http://127.0.0.1:<port>` の
+**リモート**オリジンで、Tauri はリモートオリジンに **capability が名指し
+しない限り一切の IPC を許さない**（`capabilities/default.json` はローカル
+`tauri://` 文脈にしか効かない）。「SPA は IPC に繋がない」はこの制約の裏返し
+であって、目的ではなかった。
+
+**決定**:
+
+- シェルが起動時、窓が読み込む**その 1 オリジンだけ**を対象に runtime
+  capability を登録する（`desktop/src-tauri/src/lib.rs`
+  `grant_spa_update_ipc`＝`tauri::ipc::CapabilityBuilder` を
+  `.remote("http://127.0.0.1:{port}")` で）。ポート込みなので、8765 が
+  取られていて乱数ポートに落ちた起動でも効く。**開くのは 3 つだけ**＝
+  `updater:default`（check / download-and-install。endpoints と minisign
+  公開鍵は tauri.conf.json 固定＝ページは接続先を変えることも署名検証を
+  飛ばすこともできない）・`process:allow-restart`・`core:resources:allow-close`
+  （`check()` が返す Update ハンドルの返却）。shell/fs/dialog/window は開けない。
+  ＝ページが乗っ取られても「正規に署名されたリリースをインストールする」
+  「アプリを再起動する」以上のことはできない。
+- SPA（`ui/src/desktop/updater.ts` + `UpdateBanner.tsx`）が Graphium の
+  `lib/updater.ts` + `components/UpdateBanner.tsx` と同じ形で持つ: 起動 5 秒後
+  と 24 時間ごとに `@tauri-apps/plugin-updater` の `check()`、見つかれば
+  CustomEvent → 最上部の全幅バナー「Asterism X.Y.Z が利用できます
+  ［今すぐ確認］［再起動して更新］」、押せば `downloadAndInstall`（DL 進捗 %
+  を表示）→ `relaunch`。Tauri の JS パッケージは dynamic import＝web 版では
+  遅延チャンクが存在するだけで読み込まれない。`isTauri()`
+  （`__TAURI_INTERNALS__` の有無）が false なら全て no-op。
+- 設定→このアプリの「今すぐ確認」も同じ `check()` を叩き、更新があれば
+  「画面上部のお知らせから更新できます」。デスクトップのバックエンドを普通の
+  ブラウザで開いている場合（`/api/instance` は desktop・IPC は無い）だけ、
+  api の `/api/desktop/update-check`（報告のみ）に fallback。
+- シェルの起動時ネイティブ自動チェック（modal）は撤去。メニュー項目は
+  ページが助けにならないとき（白い窓・IPC 拒否・壊れたビルド）のために残す。
+
+**検証（実機）**: `tauri build --debug --bundles app` で版数 0.1.0 の .app を
+作り、checkout バックエンド＋本 PR の SPA で起動 → 8765 は本物の Asterism が
+使用中で**乱数ポート（57245）に落ちた状態のまま**バナー「Asterism 0.15.0 が
+利用できます」が出る（＝runtime capability がその場のポートで効いている）→
+「再起動して更新」→ 28%→100% → 差し替え → 再起動後の `/api/instance` が
+`app_version 0.15.0`・`update-check` が `update_available false`。
+一周が SPA のクリック 1 回で完了。
+
+**罠**: `tauri dev` の生バイナリで「再起動して更新」を押してはいけない。
+updater の macOS 差し替え先は実行ファイルの親（`Contents/MacOS` を含まなければ
+そのディレクトリ）＝`target/debug/` ごと置き換えに行く。検証は必ず .app で。
+
 ## 7. スコープと残
 
 - **Phase 2（デスクトップシェル）**: **v1 実装済 = `desktop/`（Tauri v2）**。シェルの契約は 1 つだけ＝`asterism-local` を spawn（起動器が Oxigraph/demo-agent の孫を監督）→空きポートの HTTP readiness を待つ→そのループバック URL でネイティブウィンドウを開く。終了時は **SIGTERM**（SIGKILL は孫をみなしごにする）。起動器の解決順= `ASTERISM_LOCAL_CMD` → 実行ファイルから祖先を遡って `api/.venv/bin/asterism-local`（`tauri dev` と repo 内ビルドの .app を両カバー）→ PATH。バックエンドログは app log dir（`~/Library/Logs/com.kumagallium.asterism/backend.log`）。**v2 追補=自己完結バンドル実装済**: `scripts/bundle-backend.sh`（`beforeBuildCommand`）が `src-tauri/backend/` を組み立て（uv 管理の standalone CPython+全パッケージ非 editable install・Oxigraph 単一バイナリ・demo-agent・datasets・SPA）、Tauri resource として .app に同梱（約 370MB）。シェルは同梱 backend を最優先で解決し `python3 -m asterism_api.local` で起動（console script の shebang は再配置で壊れるため使わない）。env で全ペイロードをバンドルに向ける（`ASTERISM_UI_DIST`/`ASTERISM_OXIGRAPH_BIN`/`ASTERISM_DEMO_AGENT_DIR`/`ASTERISM_DATASETS_ROOT`。demo-agent の env override は本追補で `local.py` に追加）。**リポジトリ外・環境変数なしで全スタック起動を実機実証**（repo も Python も Docker も Homebrew も不要）。`tauri dev` はバンドルせず checkout 解決＝反復は速いまま。**残**= 署名/公証/updater（Graphium の tauri-action 構成と同一 secret 名を流用・workflow 追加は別 PR＝workflow-only PR は CI が回らない罠・Resources 内バイナリの署名カバレッジは Graphium の node 同梱が前例）・Windows（Job Object・バンドル script の asset 名）・Docling のオプショナルダウンロード。※Ask 実接続は Phase 1 追補で実装済（§3）。

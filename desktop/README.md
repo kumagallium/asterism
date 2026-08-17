@@ -66,14 +66,30 @@ upscale SVGs and drops the blur filters, which produced the blank-icon bug.)
 
 ## Auto-update
 
-The shell checks for updates itself (Rust-side, native dialog — the SPA is a
-remote `http://127.0.0.1` page and stays uncoupled from Tauri IPC):
+The everyday flow lives in the SPA, the same way Graphium does it
+(`ui/src/desktop/updater.ts` + `UpdateBanner.tsx`): 5 s after the window opens
+and every 24 h it calls `@tauri-apps/plugin-updater`'s `check()`; when a newer
+signed version exists, a banner across the top of the window offers
+**再起動して更新** (download with progress → install → relaunch) and
+**今すぐ確認** (re-check). Settings → このアプリ → 今すぐ確認 runs the same check.
 
-- on launch (release builds only, 8 s after the window opens) it queries the
-  release `latest.json`; if a newer signed version exists it offers a native
-  "update now?" dialog, then downloads, installs, and relaunches;
-- the app menu item **アップデートを確認…** runs the same check on demand and
-  reports "up to date" / errors.
+The window is a remote `http://127.0.0.1:<port>` page, and Tauri grants remote
+origins no IPC unless a capability names them — so the shell registers one at
+runtime for exactly that origin (`grant_spa_update_ipc` in `src/lib.rs`, port
+included so the random-port fallback still works). It opens only
+`updater:default`, `process:allow-restart` and `core:resources:allow-close`;
+endpoints and the minisign pubkey are fixed in `tauri.conf.json`, so the page
+can install nothing but a signed release.
+
+The app menu item **アップデートを確認…** remains as the native fallback (dialog
+→ download → relaunch) for when the page cannot help.
+
+Do NOT press "再起動して更新" in a `tauri dev` binary: the updater's macOS
+install target is derived from the executable path, and for an unbundled
+binary that is `target/debug/` itself. Verify with a built `.app`
+(`tauri build --debug --bundles app`, launched directly with `ASTERISM_LOCAL_CMD`
+/ `ASTERISM_UI_DIST` / `ASTERISM_LOCAL_HOME` set), which is what §6.2 of the ADR
+did end to end.
 
 Version is kept in sync by tagpr: `.tagpr`'s `versionFile` bumps both `VERSION`
 and `desktop/src-tauri/tauri.conf.json`, so the bundled app version tracks the
@@ -84,9 +100,10 @@ release and the "current < latest" comparison is correct.
 On a published GitHub release, the workflow builds the macOS app, always
 uploads the `.dmg` for direct download, and — when the signing secret is
 present — also produces the signed updater artifacts (`Asterism_aarch64.app.tar.gz`
-+ `.sig`) and a `latest.json`, uploading all three to the release. The updater
-endpoint is `releases/latest/download/latest.json`, so no GitHub Pages plumbing
-is needed.
++ `.sig`) and a `latest.json`, uploading all three to the release. The feed the
+app polls is the GitHub Pages copy (`docs/updater/latest.json`, written by the
+workflow's last step only after a successful build — ADR §6.1); the release
+asset URL is kept as the second endpoint for already-shipped builds.
 
 ### One-time signing setup (required for auto-update to work)
 
