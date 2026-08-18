@@ -3,6 +3,13 @@ import type { Citation } from './demoApi'
 import { KIND_TO_CLASS } from './galleryApi'
 import { TraceIcon } from './icons'
 
+// The citation kinds that have a human label in `shared:step.*` — the same set
+// ProvenanceTrace uses for its step badges, so a datum is named identically in
+// the card and in the trace panel. The LLM escape can return any string as a
+// kind (a class name, an empty string), so anything outside this set is NEVER
+// pushed through t(): it would render a raw i18n key.
+const KNOWN_KINDS = new Set(['curve', 'sample', 'paper', 'digitization', 'ingestion'])
+
 // Map a citation `kind` to a PROV-DM accent color (see index.css tokens).
 // Data entities (curve/sample/paper) are green; process steps are blue.
 function kindColor(kind: string): string {
@@ -41,6 +48,10 @@ export function CitationCard({
   const { t } = useTranslation()
   const color = kindColor(citation.kind)
   const vocabClass = KIND_TO_CLASS[citation.kind]
+  // Known kind → the plain-language name; unknown/empty → no chip at all (the
+  // colored bar still marks the card), rather than an English identifier in
+  // uppercase mono that reads as a code.
+  const kindLabel = KNOWN_KINDS.has(citation.kind) ? t(`shared:step.${citation.kind}`) : ''
   return (
     <div className="citation-card-wrap">
       <button
@@ -52,10 +63,14 @@ export function CitationCard({
         <span className="citation-bar" style={{ backgroundColor: color }} />
         <span className="citation-body">
           <span className="citation-head">
-            <span className="citation-kind" style={{ backgroundColor: color }}>
-              {citation.kind}
+            {kindLabel && (
+              <span className="citation-kind" style={{ backgroundColor: color }}>
+                {kindLabel}
+              </span>
+            )}
+            <span className="citation-label">
+              {citation.label || kindLabel || citation.kind || t('shared:citation.untitled')}
             </span>
-            <span className="citation-label">{citation.label || citation.kind || t('shared:citation.untitled')}</span>
             <span className="citation-trace-hint">
               <TraceIcon size={13} /> {t('shared:citation.traceHint')}
             </span>

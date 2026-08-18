@@ -591,8 +591,19 @@ export interface CatalogDataset {
   name: string
   sub: string
   statusKind: CatalogStatusKind
-  /** `key` is a locale-independent id ('fact' | 'class') for data matching; `label` is display-only. */
+  /** `key` is a locale-independent id ('class' | 'file') for data matching; `label` is display-only.
+   *  K12: the raw triple count is NOT in here — it does not correspond to rows, so
+   *  calling it "facts" on a card hides a collapsed primary key. See `factCount`. */
   counts: { key?: string; value: string; label: string }[]
+  /** The stored triple count, formatted — for the few screens that legitimately
+   *  want the raw size (SPARQL/detail tooling). Never rendered on a kantan card. */
+  factCount?: string
+  /** `status === 'retracted'`: still `promoted` in the registry (the flag is not
+   *  cleared) but withdrawn from citation, so the "published" pill alone would lie. */
+  retracted: boolean
+  /** Re-ingested after a publish (version ≥ 1, staged but not promoted again): the
+   *  PUBLISHED version is still live and citable, so this is not a plain draft. */
+  updatePending: boolean
   purposes: { tag: string; detail: string }[]
   classes: string[]
   reuses: { prefix: string; what: string }[]
@@ -633,8 +644,11 @@ function liveToCatalog(l: LiveDataset): CatalogDataset {
   const counts = [
     { key: 'class', value: String(l.ontology.classes.length), label: i18n.t('gallery:api.count.class') },
   ]
-  if (n != null)
-    counts.unshift({ key: 'fact', value: n.toLocaleString(), label: i18n.t('gallery:api.count.fact') })
+  // K12: kinds and files, not triples. "1,234 事実" does not correspond to the
+  // rows the reader put in, so a collapsed primary key stays invisible behind it.
+  const fileCount = l.meta.source_files?.length ?? 0
+  if (fileCount > 0)
+    counts.push({ key: 'file', value: String(fileCount), label: i18n.t('shared:count.file') })
   // 直近のライフサイクルイベントを表す（常に「設計を保存」だと公開済みでも
   // 設計日しか見えず誤解を招く）。日時はイベントに対応するものへ。
   const sub =
@@ -653,6 +667,9 @@ function liveToCatalog(l: LiveDataset): CatalogDataset {
     sub,
     statusKind,
     counts,
+    factCount: n != null ? n.toLocaleString() : undefined,
+    retracted: l.meta.status === 'retracted',
+    updatePending: stage === 'ingested' && (l.meta.version ?? 0) >= 1,
     purposes: [],
     classes: l.ontology.classes,
     reuses: l.ontology.reuses,
@@ -668,6 +685,17 @@ function liveToCatalog(l: LiveDataset): CatalogDataset {
     live: l,
     isCrosswalk: l.meta.is_crosswalk === true,
   }
+}
+
+/**
+ * Whether Ask can cite this dataset: a published version is live in the canonical
+ * graph. A retracted dataset is NOT (its `promoted` flag is still set, so the raw
+ * stage would say yes); a published dataset with a re-ingested draft staged on top
+ * still IS, because the published version keeps answering until it is re-promoted.
+ */
+export function isAskable(d: CatalogDataset): boolean {
+  if (d.isCrosswalk || d.retracted) return false
+  return d.statusKind === 'pub' || d.updatePending
 }
 
 /** All catalogued datasets: the workbench-materialized drafts. Real, live-only. */

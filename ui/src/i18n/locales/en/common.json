@@ -12,7 +12,7 @@
   "nav": {
     "home": "Home",
     "gallery": "Datasets",
-    "crosswalk": "Crosswalk",
+    "crosswalk": "Connections",
     "ask": "Ask",
     "vocab": "Shared terms",
     "jobs": "Activity",
@@ -23,6 +23,17 @@
   "status": {
     "mock": "Ask / Datasets: demo data (mock)",
     "live": "Data live"
+  },
+  "updater": {
+    "confirmText": "The app will restart to update. Anything in progress (AI reading, ingesting) will be interrupted.",
+    "confirmCancel": "Not now",
+    "confirmGo": "Restart and update",
+    "installFailed": "The update failed. Check your network connection and try again.",
+    "checkFailed": "Couldn't check for updates. Please try again later."
+  },
+  "portFallback": {
+    "text": "Another program is using the same entrance, so your settings are temporary this time. Quit that program and open Asterism again to get them back.",
+    "dismiss": "Dismiss"
   },
   "view": {
     "home": {
@@ -38,7 +49,7 @@
     "ask": {
       "eyebrow": "Use",
       "title": "Ask",
-      "sub": "Answer questions over your ingested data, with citations"
+      "sub": "Answer questions over your published data, with citations"
     },
     "gallery": {
       "eyebrow": "Data",
@@ -52,7 +63,7 @@
     },
     "crosswalk": {
       "eyebrow": "Connect",
-      "title": "Crosswalk",
+      "title": "Connections",
       "sub": "Connect separate datasets by a shared value"
     },
     "map": {

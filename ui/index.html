@@ -8,7 +8,10 @@
          translation rewrites text nodes and breaks React's DOM reconciliation
          (white-screen "removeChild" crash), so we opt out of machine translation. -->
     <meta name="google" content="notranslate" />
-    <title>asterism — 研究データを RDF 化</title>
+    <!-- Kept byte-identical to common.json `docTitle` (ja): App.tsx overwrites it
+         once i18n is up, but this string is what the tab, the history entry and a
+         no-JS load show. -->
+    <title>asterism — 研究データをつながったデータに</title>
     <!-- Forest design system fonts: Hanken Grotesk (UI/display, Latin),
          Zen Kaku Gothic New / Noto Sans JP (Japanese gothic), IBM Plex Mono
          (numbers / IDs / code). See ui/src/index.css design tokens. -->

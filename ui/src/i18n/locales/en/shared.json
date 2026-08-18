@@ -20,6 +20,8 @@
     "noRecord": "No provenance is recorded for this item.",
     "copyIri": "Click to copy the ID",
     "copied": "Copied",
+    "idLabel": "ID",
+    "openDescribe": "Open this ID's page",
     "close": "Close the provenance panel"
   },
   "step": {
@@ -27,7 +29,24 @@
     "sample": "Sample",
     "paper": "Paper",
     "digitization": "Digitization",
-    "ingestion": "Ingestion"
+    "ingestion": "Ingestion",
+    "activity": "Processing"
+  },
+  "activityLabel": {
+    "Activity": "Processing",
+    "IngestionActivity": "Ingestion",
+    "DigitizationActivity": "Digitization",
+    "DocumentParsingActivity": "Document reading"
+  },
+  "detailKey": {
+    "atTime": "Date",
+    "composition": "Composition",
+    "id": "ID",
+    "title": "Title",
+    "doi": "DOI"
+  },
+  "count": {
+    "file": "files"
   },
   "demo": {
     "zt": {

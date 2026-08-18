@@ -1,7 +1,16 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { type CatalogDataset, getCatalogDatasets, getGraphStats } from './galleryApi'
-import { AddIcon, ArrowIcon, AskIcon, ChevronIcon, ConnectIcon, LayersIcon } from './icons'
+import { type CatalogDataset, getCatalogDatasets, getGraphStats, isAskable } from './galleryApi'
+import { AddIcon, ArrowIcon, AskIcon, ChevronIcon, ConnectIcon, LayersIcon, RetryIcon } from './icons'
+
+/** Which pill a row shows. `statusKind` alone cannot say "withdrawn" (the registry
+ *  keeps `promoted` set when a dataset is retracted) nor "published, update staged"
+ *  (a re-ingest clears `promoted` while the published version stays citable). */
+function rowStatusKey(d: CatalogDataset): string {
+  if (d.retracted) return 'retracted'
+  if (d.updatePending) return 'pubStaged'
+  return d.statusKind
+}
 
 interface Stats {
   facts: number | null
@@ -33,17 +42,34 @@ export function HomeView({
   const [loadFailed, setLoadFailed] = useState(false)
   const [stats, setStats] = useState<Stats | null>(null)
 
-  useEffect(() => {
-    let cancelled = false
-    getCatalogDatasets()
-      .then((d) => !cancelled && setDatasets(d))
-      // 障害を「まだデータセットがありません」という誤った空状態にしない
-      .catch(() => {
-        if (!cancelled) {
+  // 一覧の取得だけは押し直せる必要がある（デスクトップ版は起動直後、ローカルサーバが
+  // まだ上がっていないだけで失敗する＝待てば直る一時状態）。
+  const loadDatasets = useCallback(
+    () =>
+      getCatalogDatasets()
+        .then((d) => {
+          setDatasets(d)
+          setLoadFailed(false)
+        })
+        // 障害を「まだデータセットがありません」という誤った空状態にしない
+        .catch(() => {
           setDatasets([])
           setLoadFailed(true)
-        }
-      })
+        }),
+    [],
+  )
+
+  useEffect(() => {
+    void loadDatasets()
+  }, [loadDatasets])
+
+  function retryLoad() {
+    setDatasets(null)
+    void loadDatasets()
+  }
+
+  useEffect(() => {
+    let cancelled = false
     getGraphStats()
       .then((s) => !cancelled && setStats(s))
       .catch(() => !cancelled && setStats({ facts: null, classes: null, datasets: 0 }))
@@ -57,25 +83,44 @@ export function HomeView({
   // list here, matching the Catalog.
   const recent = (datasets ?? []).filter((d) => !d.isCrosswalk).slice(0, 5)
   // Connectable datasets: published, and not a connection itself.
-  const publishedCount = (datasets ?? []).filter(
-    (d) => d.statusKind === 'pub' && !d.isCrosswalk,
-  ).length
+  const publishedCount = (datasets ?? []).filter(isAskable).length
+  // Nothing there yet (and we know it — a failed fetch is not an empty account):
+  // the stats band would be "— / 0 / —", which says nothing about what to do.
+  const firstRun = !!datasets && !loadFailed && datasets.length === 0
+  const recipeFlow = ['1', '2', '3', '4', '5']
+    .map((n, i) => `${'①②③④⑤'[i]} ${t(`kantan:recipe.step${n}`)}`)
+    .join(' → ')
 
   return (
     <div className="home">
-      <section className="home-band">
-        <div className="home-band-head">{t('home:band.head')}</div>
-        <div className="home-stats">
-          <Stat value={fmt(stats?.facts)} label={t('home:stat.facts')} tone="entity" />
-          <Stat value={stats ? String(stats.datasets) : '—'} label={t('home:stat.datasets')} />
-          <Stat value={fmt(stats?.classes)} label={t('home:stat.classes')} tone="primary" />
-        </div>
-        {/* SPARQL 統計だけ取れない配備（書き込みトークン未設定/raw SPARQL 非公開）で
-            「—」を黙って出すと故障に見える。原因への手がかりを一言添える。 */}
-        {stats && stats.facts == null && stats.classes == null && (
-          <p className="home-stats-note">{t('home:stat.unavailable')}</p>
-        )}
-      </section>
+      {firstRun ? (
+        <section className="home-band">
+          <div className="home-band-head">{t('home:firstRun.title')}</div>
+          <p className="home-first-run">
+            {t('home:firstRun.lead')} {t('home:firstRun.steps', { flow: recipeFlow })}
+          </p>
+          <p className="home-stats-note">{t('home:firstRun.privacy')}</p>
+        </section>
+      ) : (
+        <section className="home-band">
+          <div className="home-band-head">{t('home:band.head')}</div>
+          <div className="home-stats">
+            <Stat
+              value={fmt(stats?.facts)}
+              label={t('home:stat.facts')}
+              title={t('home:stat.factsTitle')}
+              tone="entity"
+            />
+            <Stat value={stats ? String(stats.datasets) : '—'} label={t('home:stat.datasets')} />
+            <Stat value={fmt(stats?.classes)} label={t('home:stat.classes')} tone="primary" />
+          </div>
+          {/* SPARQL 統計だけ取れない配備（書き込みトークン未設定/raw SPARQL 非公開）で
+              「—」を黙って出すと故障に見える。原因への手がかりを一言添える。 */}
+          {stats && stats.facts == null && stats.classes == null && (
+            <p className="home-stats-note">{t('home:stat.unavailable')}</p>
+          )}
+        </section>
+      )}
 
       <div className="home-actions">
         <button type="button" className="home-action home-action--primary" onClick={() => onNavigate('workbench')}>
@@ -96,7 +141,13 @@ export function HomeView({
           </span>
           <span className="home-action-body">
             <span className="home-action-title">{t('home:action.ask.title')}</span>
-            <span className="home-action-sub">{t('home:action.ask.sub')}</span>
+            {/* 押せるままにする（存在を見せた方が到達目標が伝わる）。ただし公開が 0 件
+                なら、押した先で行き止まりになる理由をここで言う。 */}
+            <span className="home-action-sub">
+              {datasets && !loadFailed && publishedCount === 0
+                ? t('home:action.ask.subNone')
+                : t('home:action.ask.sub')}
+            </span>
           </span>
           <span className="home-action-arrow">
             <ArrowIcon size={18} />
@@ -133,9 +184,17 @@ export function HomeView({
             {t('home:recent.loading')}
           </p>
         )}
-        {datasets && recent.length === 0 && (
+        {datasets && recent.length === 0 && !loadFailed && (
+          <p className="ds-empty-note">{t('home:recent.empty')}</p>
+        )}
+        {/* 「再読み込みしてください」と言うだけで手段が無いのが行き止まりだった。
+            文と同じ場所に、もう一度取りに行くボタンを置く。 */}
+        {datasets && loadFailed && (
           <p className="ds-empty-note">
-            {loadFailed ? t('home:recent.loadFailed') : t('home:recent.empty')}
+            {t('home:recent.loadFailed')}{' '}
+            <button type="button" className="link-btn" onClick={retryLoad}>
+              <RetryIcon size={14} /> {t('home:recent.retry')}
+            </button>
           </p>
         )}
         <div className="ds-rows">
@@ -152,17 +211,38 @@ export function HomeView({
   )
 }
 
-function Stat({ value, label, tone }: { value: string; label: string; tone?: 'primary' | 'entity' }) {
+function Stat({
+  value,
+  label,
+  title,
+  tone,
+}: {
+  value: string
+  label: string
+  title?: string
+  tone?: 'primary' | 'entity'
+}) {
   return (
     <div className="home-stat">
       <span className={`home-stat-value${tone ? ` home-stat-value--${tone}` : ''}`}>{value}</span>
-      <span className="home-stat-label">{label}</span>
+      <span className="home-stat-label" title={title}>
+        {label}
+      </span>
     </div>
   )
 }
 
 function DatasetRow({ dataset, onOpen }: { dataset: CatalogDataset; onOpen: () => void }) {
   const { t } = useTranslation()
+  const statusKey = rowStatusKey(dataset)
+  // ホームは「次の一手」を掲げる画面 — 途中で離れた人に、その行から何をすれば
+  // 質問できるようになるかを 1 行で言う（遷移は従来どおり詳細へ）。
+  const hint =
+    dataset.statusKind === 'draft' && !dataset.updatePending
+      ? t('home:rowHint.draft')
+      : dataset.statusKind === 'design'
+        ? t('home:rowHint.design')
+        : ''
   return (
     <button type="button" className="ds-row" onClick={onOpen}>
       <span className="ds-row-icon">
@@ -178,8 +258,9 @@ function DatasetRow({ dataset, onOpen }: { dataset: CatalogDataset; onOpen: () =
             <span className="ds-row-count-val">{c.value}</span> {c.label}
           </span>
         ))}
+        {hint && <span className="ds-row-count ds-row-hint">{hint}</span>}
       </span>
-      <span className={`status-pill status-pill--${dataset.statusKind}`}>{t(`home:status.${dataset.statusKind}`)}</span>
+      <span className={`status-pill status-pill--${statusKey}`}>{t(`home:status.${statusKey}`)}</span>
       <span className="ds-row-chevron">
         <ChevronIcon size={16} />
       </span>

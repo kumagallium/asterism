@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Trans, useTranslation } from 'react-i18next'
+import { useTranslation } from 'react-i18next'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { takeAskPrefill } from './askPrefill'
@@ -23,6 +23,7 @@ import {
 } from './askThreads'
 import { CitationCard } from './CitationCard'
 import { ask, isAbortError, isMockMode, type AskResponse, type Citation } from './demoApi'
+import { getCatalogDatasets, isAskable } from './galleryApi'
 import {
   AddIcon,
   BrandMark,
@@ -38,6 +39,27 @@ import {
 import { ProvenanceTrace } from './ProvenanceTrace'
 import { useLlmSettings } from './settings/context'
 import { LlmGate } from './settings/LlmGate'
+
+/**
+ * Which plain sentence a failed turn gets. Ask never prints the raw error: it is
+ * an English HTTP/JSON line (`ask failed (HTTP 500): {"detail":…}`, `Failed to
+ * fetch`) shown at the moment the reader is most disappointed, and it names no
+ * next step. The raw string is still available, folded under 技術情報.
+ *
+ * Deliberately narrow: the bare word "token" is NOT a settings marker (a model
+ * answer can mention tokens), and only an auth-shaped failure routes to Settings.
+ */
+type AskErrorKind = 'settings' | 'timeout' | 'network' | 'other'
+
+function classifyAskError(raw: string): AskErrorKind {
+  const s = raw.toLowerCase()
+  if (/\b(401|403)\b|unauthorized|forbidden|api[ _-]?key|authentication|invalid_api_key/.test(s))
+    return 'settings'
+  if (/timeout|timed out|etimedout|deadline exceeded/.test(s)) return 'timeout'
+  if (/failed to fetch|networkerror|load failed|econnrefused|network error|\b5\d\d\b/.test(s))
+    return 'network'
+  return 'other'
+}
 
 // Ask REQUIRES a configured model: the AI uses it to route the question to the
 // verified tools (it only picks the tool + args; the facts/citations come from the
@@ -62,18 +84,48 @@ export function AskView({
   onShowVocab,
   threadId,
   onSelectThread,
+  onAddData,
 }: {
   onShowVocab?: (className: string) => void
   /** Active thread id from the route (null = new chat). */
   threadId: string | null
   /** Change the active thread (null = new chat); the App writes the hash. */
   onSelectThread: (id: string | null, opts?: { replace?: boolean }) => void
+  /** Go to データを追加 — the next step when nothing is published yet. */
+  onAddData?: () => void
 }) {
   const { t } = useTranslation()
   const threads = useAskThreads()
   const thread = threadId ? threads.find((th) => th.id === threadId) : undefined
-  const { isReady, getActiveCredentials } = useLlmSettings()
+  const { isReady, getActiveCredentials, openSettings } = useLlmSettings()
   const keyMissing = !isReady && !isMockMode
+  const conversationEmpty = !thread || thread.turns.length === 0
+
+  // Ask only ever cites PUBLISHED data (ADR K3). With nothing published the AI
+  // would answer "no match" and the reader would not learn why — so the empty
+  // state says what to do instead. 'unknown' = the catalog could not be read:
+  // fail open to the normal introduction rather than a wrong "you have nothing".
+  const [published, setPublished] = useState<'unknown' | 'none' | 'some'>('unknown')
+  useEffect(() => {
+    if (isMockMode || !conversationEmpty) return
+    let cancelled = false
+    getCatalogDatasets()
+      .then((ds) => {
+        if (!cancelled) setPublished(ds.some(isAskable) ? 'some' : 'none')
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [conversationEmpty])
+
+  // An example chip only FILLS the box — a question is sent by a human
+  // (askPrefill.ts states the same rule for the かんたん S9 hand-off). The
+  // counter makes picking the same chip twice re-fill it.
+  const [prefill, setPrefill] = useState<{ text: string; n: number }>({ text: '', n: 0 })
+  function pickExample(q: string) {
+    setPrefill((p) => ({ text: q, n: p.n + 1 }))
+  }
 
   // Provenance panel selection, tagged with the thread it belongs to so a
   // citation picked in one thread does not stay open after switching (back /
@@ -209,7 +261,11 @@ export function AskView({
           onSelectCitation={(c) => setPicked({ threadId: threadId ?? null, citation: c })}
           onShowVocab={onShowVocab}
           onRetry={retry}
-          onExample={send}
+          onExample={pickExample}
+          keyMissing={keyMissing}
+          published={published}
+          onOpenSettings={() => openSettings('ai')}
+          onAddData={onAddData}
         />
 
         <Composer
@@ -218,6 +274,9 @@ export function AskView({
           busy={busy}
           onSend={send}
           onStop={stop}
+          prefill={prefill}
+          // 空状態のカードが同じことを言うので、そのときは帯を出さない（同じ文を 2 回出さない）
+          hideGate={conversationEmpty}
         />
       </section>
 
@@ -449,6 +508,30 @@ function RenameField({
 
 // ---- conversation (middle column) ---------------------------------------------
 
+/** The example chips: they FILL the box, never send.
+ *
+ *  In mock mode the fixtures' own questions are the only ones that resolve. In
+ *  live mode the wording is reused verbatim from かんたん S7 (the same three
+ *  questions the deterministic try-it-out step already answered), so a first-time
+ *  reader is not asked to invent a question in front of an empty box. Only the
+ *  label-free S7 questions are used — the others need a column label we do not
+ *  have here, and inventing one would name a column that may not exist. */
+function ExampleChips({ onPick }: { onPick: (q: string) => void }) {
+  const { t } = useTranslation()
+  const items = isMockMode
+    ? (t('ask:examples.items', { returnObjects: true }) as string[])
+    : [t('kantan:s7.qCountMany'), t('kantan:s7.qCountAny'), t('kantan:s7.qSamplesAny')]
+  return (
+    <div className="chat-examples" aria-label={t('ask:examples.aria')}>
+      {items.map((q) => (
+        <button key={q} type="button" className="chat-example" onClick={() => onPick(q)}>
+          {q}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 function Conversation({
   thread,
   selectedIri,
@@ -456,6 +539,10 @@ function Conversation({
   onShowVocab,
   onRetry,
   onExample,
+  keyMissing,
+  published,
+  onOpenSettings,
+  onAddData,
 }: {
   thread: AskThread | undefined
   selectedIri: string | null
@@ -463,6 +550,12 @@ function Conversation({
   onShowVocab?: (className: string) => void
   onRetry: (assistantTurnId: string) => void
   onExample: (question: string) => void
+  /** Live mode with no AI configured — the composer is disabled. */
+  keyMissing: boolean
+  /** Whether anything is published (Ask cites published data only). */
+  published: 'unknown' | 'none' | 'some'
+  onOpenSettings: () => void
+  onAddData?: () => void
 }) {
   const { t } = useTranslation()
   const endRef = useRef<HTMLDivElement | null>(null)
@@ -479,35 +572,44 @@ function Conversation({
   }, [turns])
 
   if (!thread || thread.turns.length === 0) {
+    // Exactly one of these three: the blocked states name the user's next step
+    // (K5 / K3), and only when neither blocks does the introduction + chips show.
+    const gate = keyMissing ? 'ai' : published === 'none' ? 'nothing' : 'none'
     return (
       <div className="chat-scroll">
         <div className="chat-empty">
           <span className="chat-empty-mark">
             <BrandMark size={44} />
           </span>
-          <h3 className="chat-empty-title">{t('ask:empty.title')}</h3>
-          <p className="chat-empty-intro">
-            <Trans
-              i18nKey="ask:intro"
-              components={[
-                <strong key="0" />,
-                <strong key="1" />,
-                <strong key="2" />,
-                <strong key="3" />,
-                <strong key="4" />,
-                <strong key="5" />,
-                <strong key="6" />,
-              ]}
-            />
-          </p>
-          {isMockMode && (
-            <div className="chat-examples" aria-label={t('ask:examples.aria')}>
-              {(t('ask:examples.items', { returnObjects: true }) as string[]).map((q) => (
-                <button key={q} type="button" className="chat-example" onClick={() => onExample(q)}>
-                  {q}
+          {gate === 'ai' ? (
+            <>
+              <h3 className="chat-empty-title">{t('ask:empty.aiNotReady.title')}</h3>
+              <p className="chat-empty-intro">{t('ask:empty.aiNotReady.body')}</p>
+              <button type="button" className="btn" onClick={onOpenSettings}>
+                {t('ask:empty.aiNotReady.cta')}
+              </button>
+            </>
+          ) : gate === 'nothing' ? (
+            <>
+              <h3 className="chat-empty-title">{t('ask:empty.noPublished.title')}</h3>
+              <p className="chat-empty-intro">{t('ask:empty.noPublished.body')}</p>
+              {onAddData && (
+                <button type="button" className="btn" onClick={onAddData}>
+                  {t('ask:empty.noPublished.cta')}
                 </button>
-              ))}
-            </div>
+              )}
+            </>
+          ) : (
+            <>
+              <h3 className="chat-empty-title">{t('ask:empty.title')}</h3>
+              <p className="chat-empty-intro">{t('ask:intro')}</p>
+              {(isMockMode || published === 'some') && (
+                <>
+                  <ExampleChips onPick={onExample} />
+                  <p className="chat-empty-intro">{t('ask:examples.hint')}</p>
+                </>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -539,6 +641,8 @@ function Conversation({
               onShowVocab={onShowVocab}
               onRetry={() => onRetry(turn.id)}
               retryable={!busy}
+              onExample={onExample}
+              onOpenSettings={onOpenSettings}
             />
           ),
         )}
@@ -555,6 +659,8 @@ function AnswerMessage({
   onShowVocab,
   onRetry,
   retryable,
+  onExample,
+  onOpenSettings,
 }: {
   turn: AskAssistantTurn
   selectedIri: string | null
@@ -562,8 +668,16 @@ function AnswerMessage({
   onShowVocab?: (className: string) => void
   onRetry: () => void
   retryable: boolean
+  onExample: (question: string) => void
+  onOpenSettings: () => void
 }) {
   const { t } = useTranslation()
+  // `answered: false` = the agent produced no answer text at all (attempts
+  // exhausted). Showing that as a normal answer card would dress "nothing" up as
+  // a finding — render the "didn't work" state, with a way out.
+  const unanswered = !!turn.result && turn.result.answered === false
+  const failed = !turn.pending && !turn.result
+  const kind = failed && !turn.stopped && !turn.interrupted ? classifyAskError(turn.error ?? '') : null
   return (
     <div className="chat-msg chat-msg--assistant">
       <span className="chat-avatar" aria-hidden="true">
@@ -576,15 +690,23 @@ function AnswerMessage({
             {t('ask:answering')}
           </div>
         )}
-        {!turn.pending && !turn.result && (
+        {(failed || unanswered) && (
           <div className={`chat-msg-error${turn.stopped ? ' chat-msg-error--stopped' : ''}`} role="alert">
             <span className="chat-msg-error-text">
               {turn.stopped
                 ? t('ask:stopped')
                 : turn.interrupted
                   ? t('ask:interrupted')
-                  : turn.error || t('ask:failed')}
+                  : unanswered
+                    ? t('ask:unanswered')
+                    : t(`ask:error.${kind}`)}
             </span>
+            {/* 出口は常に 2 つ以上。原因が設定のときだけ、設定への導線を主にする。 */}
+            {kind === 'settings' && (
+              <button type="button" className="btn btn--sm" onClick={onOpenSettings}>
+                {t('ask:error.openSettings')}
+              </button>
+            )}
             <button
               type="button"
               className="btn btn--ghost btn--sm"
@@ -593,9 +715,23 @@ function AnswerMessage({
             >
               <RetryIcon size={14} /> {t('ask:retry')}
             </button>
+            {/* 聞き方を変えれば通ることが多い — 例を出して、押すと入力欄に入れる。
+                flexBasis: この帯は横並びの flex — 例と技術情報は自分の行を取る。 */}
+            {unanswered && (
+              <div style={{ flexBasis: '100%' }}>
+                <ExampleChips onPick={onExample} />
+              </div>
+            )}
+            {/* 生の英語 API エラーは通常表示から外し、確認したい人だけが開ける場所へ。 */}
+            {turn.error && !turn.stopped && !turn.interrupted && (
+              <details className="sparql-disclosure" style={{ flexBasis: '100%' }}>
+                <summary>{t('ask:techSummary')}</summary>
+                <pre className="sparql-block">{turn.error}</pre>
+              </details>
+            )}
           </div>
         )}
-        {turn.result && (
+        {turn.result && !unanswered && (
           <AnswerCard
             result={turn.result}
             selectedIri={selectedIri}
@@ -623,15 +759,23 @@ function AnswerCard({
 }) {
   const { t } = useTranslation()
   const verified = result.verifiedTools?.length ?? 0
+  // Citations first: with none, this answer cannot be traced back to any datum,
+  // so it must not wear a ✓ that says it can. A weak model that never called a
+  // tool lands exactly here (the old default branch said 「根拠つきの回答」).
+  const noSources = result.citations.length === 0
   return (
     <section className="answer-card">
       <div className="answer-head">
-        {verified > 0 ? (
-          <span className="answer-badge answer-badge-verified">
-            <CheckIcon size={13} />{' '}
-            {t('ask:badge.verifiedTools', {
+        {noSources ? (
+          <span className="answer-badge">{t('ask:badge.noSources')}</span>
+        ) : verified > 0 ? (
+          <span
+            className="answer-badge answer-badge-verified"
+            title={t('ask:badge.verifiedToolsTitle', {
               tools: result.verifiedTools!.map((vt) => vt.title).join(' · '),
             })}
+          >
+            <CheckIcon size={13} /> {t('ask:badge.verifiedTools')}
           </span>
         ) : result.unverifiedSparql ? (
           <span className="answer-badge answer-badge-unverified">{t('ask:badge.unverifiedSparql')}</span>
@@ -640,15 +784,17 @@ function AnswerCard({
             <CheckIcon size={13} /> {t('ask:badge.grounded')}
           </span>
         )}
-        {result.unverifiedSparql && verified > 0 && (
+        {!noSources && result.unverifiedSparql && verified > 0 && (
           <span className="answer-badge answer-badge-unverified">{t('ask:badge.plusUnverifiedSparql')}</span>
         )}
         <span className="answer-head-note">
-          {verified > 0
-            ? t('ask:headNote.verified')
-            : result.unverifiedSparql
-              ? t('ask:headNote.unverified')
-              : t('ask:headNote.grounded')}
+          {noSources
+            ? t('ask:headNote.noSources')
+            : verified > 0
+              ? t('ask:headNote.verified')
+              : result.unverifiedSparql
+                ? t('ask:headNote.unverified')
+                : t('ask:headNote.grounded')}
         </span>
       </div>
       {/* The LLM escape can return Markdown (GFM tables / lists); typed
@@ -662,14 +808,26 @@ function AnswerCard({
           unreliable — say so right under the answer, deterministically. */}
       {(result.warnings?.length ?? 0) > 0 && (
         <div className="answer-warnings" role="alert">
-          {result.warnings!.map((w, i) => (
-            <p key={i} className="answer-warning">
-              ⚠{' '}
-              {w.kind === 'untyped-numeric-compare'
-                ? t('ask:warning.untypedNumeric', { variable: w.variable ?? '?' })
-                : w.message}
-            </p>
-          ))}
+          {result.warnings!.map((w, i) =>
+            w.kind === 'untyped-numeric-compare' ? (
+              // The plain sentence names the problem and where to fix it. The
+              // SPARQL variable and the xsd:double cast are for whoever writes
+              // queries — they are the escape hatch, not the instruction.
+              <div key={i} className="answer-warning">
+                ⚠ {t('ask:warning.untypedNumeric')}
+                <details className="sparql-disclosure">
+                  <summary>{t('ask:techSummary')}</summary>
+                  <p className="sparql-disclosure-hint">
+                    {t('ask:warning.untypedNumericTech', { variable: w.variable ?? '?' })}
+                  </p>
+                </details>
+              </div>
+            ) : (
+              <p key={i} className="answer-warning">
+                ⚠ {w.message}
+              </p>
+            ),
+          )}
         </div>
       )}
 
@@ -729,6 +887,8 @@ function Composer({
   busy,
   onSend,
   onStop,
+  prefill,
+  hideGate,
 }: {
   /** No model configured (live mode) — sending is blocked; the gate says why. */
   disabled: boolean
@@ -737,6 +897,11 @@ function Composer({
   busy: boolean
   onSend: (text: string) => void
   onStop: () => void
+  /** A question handed over from an example chip: fills the box, never sends.
+   *  `n` increments per pick so the same chip re-fills. */
+  prefill: { text: string; n: number }
+  /** The empty state already carries the "AI is not set up" card — don't repeat it. */
+  hideGate: boolean
 }) {
   const { t } = useTranslation()
   const { isReady } = useLlmSettings()
@@ -760,6 +925,20 @@ function Composer({
     el.style.height = `${Math.min(el.scrollHeight, COMPOSER_MAX_HEIGHT)}px`
   }, [draft])
 
+  // An example chip fills the box and puts the cursor in it — the human sends.
+  // The draft is adjusted during render (the supported "state derived from a
+  // changed prop" pattern) rather than in an effect, so no extra paint happens
+  // between the click and the filled box; only the focus needs the DOM.
+  const [prefillSeen, setPrefillSeen] = useState(prefill.n)
+  if (prefill.n !== prefillSeen) {
+    setPrefillSeen(prefill.n)
+    setDraft(prefill.text)
+  }
+  useEffect(() => {
+    if (prefill.n === 0) return
+    taRef.current?.focus()
+  }, [prefill.n])
+
   const canSend = !disabled && !busy && draft.trim().length > 0
 
   function submit() {
@@ -782,8 +961,9 @@ function Composer({
           className="chat-input"
           rows={1}
           value={draft}
-          placeholder={t('ask:inputPlaceholder')}
-          aria-label={t('ask:inputPlaceholder')}
+          // A greyed-out box with no reason in it is a dead end — say what makes it live.
+          placeholder={disabled ? t('ask:inputPlaceholderLocked') : t('ask:inputPlaceholder')}
+          aria-label={disabled ? t('ask:inputPlaceholderLocked') : t('ask:inputPlaceholder')}
           disabled={disabled}
           autoFocus
           onChange={(e) => setDraft(e.target.value)}
@@ -824,7 +1004,7 @@ function Composer({
         {/* Asking a question is the point of this screen; which model answers is
             not a decision to keep on the table. The band only appears while AI
             is not usable yet, i.e. when it names the user's next step. */}
-        {!isMockMode && !isReady && (
+        {!isMockMode && !isReady && !hideGate && (
           <div className="chat-composer-gate">
             <LlmGate plain />
           </div>

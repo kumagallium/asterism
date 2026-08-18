@@ -24,12 +24,17 @@ interface Failure {
 }
 
 export function UpdateBanner() {
-  const { t } = useTranslation('settings')
+  // 更新固有の文言は settings、確認 2 段めの文言は common（settings.json は別 chain 所有）
+  const { t } = useTranslation(['settings', 'common'])
   // マウント前に見つかっていた更新も拾う（イベントは一度きりなので）
   const [update, setUpdate] = useState<UpdateAvailableDetail | null>(() => pendingUpdate())
   const [phase, setPhase] = useState<Phase>('idle')
   const [progress, setProgress] = useState<DownloadProgress | null>(null)
   const [error, setError] = useState<Failure | null>(null)
+  // 再起動はデスクトップ版では同梱のローカルサーバごと落ちる＝ S3「AI が読んでいます」
+  // や S5「取り込み中」を巻き込む。押した瞬間に実行せず、何が中断されるかを言ってから
+  // もう一度押してもらう（K10 と同じ「確認は 1 本」の形）。
+  const [confirming, setConfirming] = useState(false)
 
   useEffect(() => {
     const onAvailable = (e: Event) => {
@@ -42,6 +47,7 @@ export function UpdateBanner() {
 
   async function onInstall() {
     if (!update) return
+    setConfirming(false)
     setPhase('installing')
     setError(null)
     setProgress(null)
@@ -83,25 +89,52 @@ export function UpdateBanner() {
   return (
     <div className="update-banner" role="status" aria-live="polite">
       <span className="update-banner-text">
-        {t('updater.available', { version: update.version })}
+        {confirming
+          ? t('common:updater.confirmText')
+          : t('updater.available', { version: update.version })}
       </span>
       <span className="update-banner-actions">
-        <button
-          type="button"
-          className="btn btn--ghost btn--sm"
-          onClick={onRecheck}
-          disabled={busy}
-        >
-          {phase === 'rechecking' ? t('about.checking') : t('about.checkNow')}
-        </button>
-        <button type="button" className="btn btn--sm" onClick={onInstall} disabled={busy}>
-          {installLabel}
-        </button>
+        {confirming ? (
+          <>
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm"
+              onClick={() => setConfirming(false)}
+            >
+              {t('common:updater.confirmCancel')}
+            </button>
+            <button type="button" className="btn btn--sm" onClick={onInstall} disabled={busy}>
+              {t('common:updater.confirmGo')}
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm"
+              onClick={onRecheck}
+              disabled={busy}
+            >
+              {phase === 'rechecking' ? t('about.checking') : t('about.checkNow')}
+            </button>
+            <button
+              type="button"
+              className="btn btn--sm"
+              onClick={() => (phase === 'installing' ? undefined : setConfirming(true))}
+              disabled={busy}
+            >
+              {installLabel}
+            </button>
+          </>
+        )}
       </span>
+      {/* 生の Tauri/Rust エラー（英語）は本文に出さず title に退避する — 共有シェルの
+          通常表示は平易文だけにし、次の一手をその文が持つ。 */}
       {error && (
-        <span className="update-banner-error">
-          {error.step === 'install' ? t('updater.installFailed') : t('about.checkFailed')} —{' '}
-          {error.message}
+        <span className="update-banner-error" title={error.message}>
+          {error.step === 'install'
+            ? t('common:updater.installFailed')
+            : t('common:updater.checkFailed')}
         </span>
       )}
     </div>

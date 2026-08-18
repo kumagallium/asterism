@@ -119,6 +119,36 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'jobs', icon: ActivityIcon },
 ]
 
+/**
+ * The desktop shell adds `?port_fallback=1` to the window URL when its usual
+ * entrance (port 8765) was taken by ANOTHER program, so this run is on a
+ * different port and its settings will not be the ones the user set up before.
+ * The shell already says so before launching; this is the reminder while working.
+ * Nothing to decide here — so this is a note, not a dialog. (It never appears
+ * when the other side is Asterism itself: the shell then reuses that window.)
+ */
+function PortFallbackBanner() {
+  const { t } = useTranslation()
+  const [shown, setShown] = useState(() => {
+    try {
+      return new URLSearchParams(window.location.search).get('port_fallback') === '1'
+    } catch {
+      return false
+    }
+  })
+  if (!shown) return null
+  return (
+    <div className="update-banner" role="status" aria-live="polite">
+      <span className="update-banner-text">{t('portFallback.text')}</span>
+      <span className="update-banner-actions">
+        <button type="button" className="btn btn--ghost btn--sm" onClick={() => setShown(false)}>
+          {t('portFallback.dismiss')}
+        </button>
+      </span>
+    </div>
+  )
+}
+
 function App() {
   const { t, i18n } = useTranslation()
   // Keep the existing two-line nav aesthetic: the active language is primary and
@@ -212,6 +242,7 @@ function App() {
     // .app-frame: 縦積み＝上に更新のお知らせ（デスクトップ版で更新があるときだけ・
     // サイドバーも含めた全幅）、下に従来の 2 列シェル。
     <div className="app-frame">
+      <PortFallbackBanner />
       <UpdateBanner />
       <div className="app-shell">
         <aside className="sidebar">
@@ -318,6 +349,7 @@ function App() {
                 onSelectThread={(id, opts) =>
                   navigate(id ? { tab: 'ask', threadId: id } : { tab: 'ask' }, opts)
                 }
+                onAddData={() => navTo('workbench')}
               />
             )}
             {tab === 'gallery' && (

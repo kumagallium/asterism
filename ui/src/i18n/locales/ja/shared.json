@@ -20,6 +20,8 @@
     "noRecord": "この項目に対する来歴は記録されていません。",
     "copyIri": "クリックで ID をコピー",
     "copied": "コピーしました",
+    "idLabel": "ID",
+    "openDescribe": "この ID のページを開く",
     "close": "出どころのパネルを閉じる"
   },
   "step": {
@@ -27,7 +29,24 @@
     "sample": "試料",
     "paper": "論文",
     "digitization": "デジタル化",
-    "ingestion": "取り込み"
+    "ingestion": "取り込み",
+    "activity": "処理"
+  },
+  "activityLabel": {
+    "Activity": "処理",
+    "IngestionActivity": "取り込み",
+    "DigitizationActivity": "デジタル化",
+    "DocumentParsingActivity": "文書の読み取り"
+  },
+  "detailKey": {
+    "atTime": "日時",
+    "composition": "組成",
+    "id": "ID",
+    "title": "タイトル",
+    "doi": "DOI"
+  },
+  "count": {
+    "file": "ファイル"
   },
   "demo": {
     "zt": {

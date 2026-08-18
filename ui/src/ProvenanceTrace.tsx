@@ -13,6 +13,7 @@ function stepColors(step: string): { color: string; ring: string } {
       return { color: 'var(--entity)', ring: 'var(--entity-soft)' }
     case 'digitization':
     case 'ingestion':
+    case 'activity':
       return { color: 'var(--activity)', ring: 'var(--activity-soft)' }
     default:
       return { color: 'var(--muted)', ring: 'var(--surface-alt)' }
@@ -21,8 +22,55 @@ function stepColors(step: string): { color: string; ring: string } {
 
 // Steps that have a human label (the chain reads back-in-time: what the datum
 // came from). Resolved per-render via t('shared:step.<step>'); unknown steps fall
-// back to the raw key.
-const KNOWN_STEPS = new Set(['curve', 'sample', 'paper', 'digitization', 'ingestion'])
+// back to the raw key. `activity` is what the generic (non-starrydata) provenance
+// path returns for a prov:Activity.
+const KNOWN_STEPS = new Set(['curve', 'sample', 'paper', 'digitization', 'ingestion', 'activity'])
+
+// Activity class names the agent hands back as a step LABEL when the activity has
+// no rdfs:label of its own. Only these are translated — anything else is a real
+// label from the data and must be shown verbatim.
+const KNOWN_ACTIVITY_LABELS = new Set([
+  'Activity',
+  'IngestionActivity',
+  'DigitizationActivity',
+  'DocumentParsingActivity',
+])
+
+// Detail keys the agent emits as `key=value`. Anything else keeps its own key.
+const KNOWN_DETAIL_KEYS = new Set(['atTime', 'composition', 'id', 'title', 'doi'])
+
+/**
+ * Turn the agent's `key=value` detail line into a readable one.
+ *
+ * The contract sends detail as machine pairs (`atTime=2026-…`, `composition=SnSe`).
+ * Rendered raw that is an English identifier and an ISO timestamp. This maps the
+ * known keys to words and formats a timestamp in the reader's locale. Anything
+ * that is not entirely `key=value` pairs is passed through untouched — the detail
+ * may also be a plain human sentence, and rewriting that would lose meaning.
+ */
+function formatDetail(detail: string, t: (k: string) => string, lng: string): string {
+  const raw = detail.trim()
+  if (!raw || !raw.includes('=')) return detail
+  const parts = raw.split(/\s*[,;]\s+/)
+  const out: string[] = []
+  for (const part of parts) {
+    const m = /^([A-Za-z_][A-Za-z0-9_]*)=([\s\S]*)$/.exec(part)
+    if (!m) return detail // not a pure key=value line — leave it alone
+    const [, key, value] = m
+    const label = KNOWN_DETAIL_KEYS.has(key) ? t(`shared:detailKey.${key}`) : key
+    out.push(`${label}: ${key === 'atTime' ? formatWhen(value, lng) : value}`)
+  }
+  return out.join(' · ')
+}
+
+function formatWhen(value: string, lng: string): string {
+  const ms = Date.parse(value)
+  if (Number.isNaN(ms)) return value
+  return new Intl.DateTimeFormat(lng.startsWith('en') ? 'en' : 'ja', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(new Date(ms))
+}
 
 /**
  * The provenance trace, rendered as the right-hand panel of the Ask chat: it
@@ -155,8 +203,15 @@ export function ProvenanceTrace({
 }
 
 function TraceNode({ step, last }: { step: ProvenanceStep; last: boolean }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { color, ring } = stepColors(step.step)
+  const label = KNOWN_ACTIVITY_LABELS.has(step.label)
+    ? t(`shared:activityLabel.${step.label}`)
+    : step.label
+  const detail = formatDetail(step.detail, t, i18n.language)
+  // The citation landing page (IRI dereference). Same origin as the SPA in both
+  // production (Caddy) and dev (vite proxy), so a relative href is enough.
+  const describeHref = `/describe?iri=${encodeURIComponent(step.iri)}`
   // 引用 IRI は「引用できる事実」の中核成果物 — 手動選択に頼らずクリックでコピー。
   const [copied, setCopied] = useState(false)
   function copyIri() {
@@ -179,20 +234,34 @@ function TraceNode({ step, last }: { step: ProvenanceStep; last: boolean }) {
           <span className="trace-step-badge" style={{ backgroundColor: color }}>
             {KNOWN_STEPS.has(step.step) ? t(`shared:step.${step.step}`) : step.step}
           </span>
-          <span className="trace-step-label">{step.label}</span>
+          <span className="trace-step-label">{label}</span>
         </div>
-        <div className="trace-detail">{step.detail}</div>
-        <button
-          type="button"
-          className={`trace-iri trace-iri-copy${copied ? ' cell-copied' : ''}`}
-          title={t('shared:trace.copyIri')}
-          onClick={copyIri}
-        >
-          {step.iri}
-          <span className="trace-iri-copied" aria-live="polite">
-            {copied ? t('shared:trace.copied') : ''}
-          </span>
-        </button>
+        <div className="trace-detail">{detail}</div>
+        {/* The ID is the citable artifact: copy it (existing) OR open the page it
+            lands on. Without the second action /describe is unreachable from the
+            app, and "show this to a colleague" has no button. */}
+        <div className="trace-iri-line">
+          <button
+            type="button"
+            className={`trace-iri trace-iri-copy${copied ? ' cell-copied' : ''}`}
+            title={t('shared:trace.copyIri')}
+            onClick={copyIri}
+          >
+            <span className="trace-iri-label">{t('shared:trace.idLabel')}</span> {step.iri}
+            <span className="trace-iri-copied" aria-live="polite">
+              {copied ? t('shared:trace.copied') : ''}
+            </span>
+          </button>
+          <a
+            className="link-btn trace-iri-open"
+            href={describeHref}
+            target="_blank"
+            rel="noreferrer"
+            title={t('shared:trace.openDescribe')}
+          >
+            {t('shared:trace.openDescribe')} <ArrowIcon size={12} />
+          </a>
+        </div>
       </div>
     </li>
   )

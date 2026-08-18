@@ -49,6 +49,29 @@ https://{$ASTERISM_DOMAIN} {
 		reverse_proxy authgate:9000
 	}
 
+	# Citation IDs, optionally PUBLIC.
+	#
+	# By default everything (a citation ID included) sits behind the login gate,
+	# so the colleague you hand a link to lands on a login screen, not on the
+	# data. Set ASTERISM_PUBLIC_DEREF=1 to let an ID resolve for anyone. Only
+	# PUBLISHED (canonical) data is reachable this way, and only through the
+	# api's read-only /describe — a draft is never served here.
+	#
+	# The UI must say which of the two states is in force wherever it offers a
+	# link to share (かんたん S9), so nobody hands out a link that only they can
+	# open. Leave the default off unless the deployment is meant to publish.
+	@public_deref expression {env.ASTERISM_PUBLIC_DEREF} == "1" && (path('/datasets/*') || path('/describe'))
+	handle @public_deref {
+		@iri_public path /datasets/*
+		handle @iri_public {
+			rewrite * /describe?iri=https://{$ASTERISM_DOMAIN}{path}
+			reverse_proxy api:8080
+		}
+		handle {
+			reverse_proxy api:8080
+		}
+	}
+
 	# Everything else requires a valid session cookie. `route` keeps the order
 	# explicit: forward_auth runs FIRST — it calls the gate's /__auth/verify with the
 	# request's Cookie; 2xx -> the request falls through to the routing below; a 302
