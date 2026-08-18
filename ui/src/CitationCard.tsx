@@ -126,7 +126,13 @@ export function CitationCard({
               .filter(([, v]) => v !== null && v !== undefined && v !== '')
               .map(([k, v]) => (
                 <span key={k} className="citation-field">
-                  <span className="citation-field-key">
+                  {/* The key is a WORD — either the plain-language name of a tool
+                      output ("Maximum") or the column heading a person typed
+                      themselves. ui-guidelines §5 reserves the mono face for
+                      numbers, IDs and code, so the key does not wear it; the
+                      inline token is a stopgap until App.css drops the
+                      `font-family` on `.citation-field-key` (handoff). */}
+                  <span className="citation-field-key" style={{ fontFamily: 'var(--font-ui)' }}>
                     {KNOWN_FIELD_KEYS.has(k) ? t(`shared:field.${k}`) : k}
                   </span>
                   <span className="citation-field-val" title={String(v)}>

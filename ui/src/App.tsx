@@ -367,13 +367,18 @@ function App() {
               <span className="side-nav-text">{tSettings('open')}</span>
               <span className="side-nav-en">{glossSettingsT('open')}</span>
             </button>
+            {/* The gloss slot under every other nav item holds the same label in
+                the other language; under this one it holds "SPARQL", which says
+                nothing about what the screen is BEFORE you open it. The name
+                stays the plain one (ui-guidelines §2) and the tooltip carries
+                what it is for, so nobody has to open a code editor to find out. */}
             <button
               type="button"
               className={`side-nav-item side-nav-dev${tab === 'sparql' ? ' active' : ''}`}
               onClick={() => navTo('sparql')}
               aria-current={tab === 'sparql' ? 'page' : undefined}
               aria-label={t('nav.sparql')}
-              title={t('nav.sparql')}
+              title={t('nav.sparqlTitle')}
             >
               <CodeIcon className="side-nav-icon" />
               <span className="side-nav-text">{t('nav.sparql')}</span>

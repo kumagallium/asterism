@@ -18,7 +18,8 @@
     "jobs": "アクティビティ",
     "workbench": "データを追加",
     "sparql": "開発者向け",
-    "sparqlTag": "SPARQL"
+    "sparqlTag": "SPARQL",
+    "sparqlTitle": "開発者向け: クエリを直接書く画面です。ふつうの質問は「質問する」へ"
   },
   "status": {
     "mock": "お試し用のサンプルデータを表示中"

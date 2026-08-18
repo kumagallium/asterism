@@ -18,7 +18,8 @@
     "jobs": "Activity",
     "workbench": "Add data",
     "sparql": "Developer",
-    "sparqlTag": "SPARQL"
+    "sparqlTag": "SPARQL",
+    "sparqlTitle": "Developer: write queries directly. For everyday questions, use Ask"
   },
   "status": {
     "mock": "Showing sample data"
