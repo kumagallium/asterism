@@ -337,9 +337,13 @@ def synthesize_query_tools_from_trial_queries(trial: dict[str, Any]) -> list[dic
     ``GET /api/datasets/{id}/trial-queries`` response (the exact JSON dict the
     endpoint returns).
 
-    Produces up to three parameter-free, read-only tools, each scoped to the
+    Produces up to three parameter-free, read-only tools, each narrowed to this
     dataset by baking in the exact class/predicate IRIs trial-queries just
-    reported (never a caller-supplied value, so there is nothing to inject):
+    reported (never a caller-supplied value, so there is nothing to inject).
+    Like every declared tool they run over the canonical FROM-merge rather than a
+    single graph, so a term this dataset shares with another — a predicate both
+    grounded to the same external standard — is answered across both on purpose;
+    minted terms (the usual case) are unique to the dataset and stay narrow:
 
     * ``counts_by_kind`` — per-kind entity counts (``trial["classes"]``).
     * ``value_range`` — min/max of the busiest numeric field (``trial["range"]``).

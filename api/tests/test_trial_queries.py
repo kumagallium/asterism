@@ -511,3 +511,83 @@ def test_trial_queries_name_falls_back_to_the_column_then_to_words(tmp_path: Pat
     assert body["top"]["label"] == "Power Factor"
     # A class name that is already a plain word gets no manufactured label.
     assert "label" not in body["classes"][0]
+
+
+def test_promote_registers_the_trial_queries_as_declared_tools(tmp_path: Path) -> None:
+    """Promote turns S7's deterministic questions into this dataset's query tools.
+
+    ADR ask-quality-and-generality.md: "how many / what range / which is largest"
+    must be answerable from the verified path, so a weak model only picks a tool
+    instead of composing SPARQL — and the answer keeps its citation. The tools land
+    in registry/<id>/query_tools.yaml, which demo-agent and the MCP server already
+    load unconditionally.
+    """
+    import yaml as _yaml
+
+    meta = _save(tmp_path)
+    dataset_id = meta["id"]
+    _ingest(tmp_path, dataset_id)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path != "/query":
+            return httpx.Response(204)
+        q = request.content.decode("utf-8")
+        if "?s a ?class" in q:
+            return _sparql_json(
+                [{"class": {"type": "uri", "value": f"{_EX}Sample"},
+                  "n": {"type": "literal", "value": "24"}}]
+            )
+        if "GROUP BY ?p" in q:
+            return _sparql_json(
+                [{"p": {"type": "uri", "value": f"{_EX}temperature"},
+                  "n": {"type": "literal", "value": "500"},
+                  "min": {"type": "literal", "value": "300"},
+                  "max": {"type": "literal", "value": "800"}}]
+            )
+        if "ORDER BY DESC(?num)" in q:
+            return _sparql_json(
+                [{"s": {"type": "uri", "value": _TOP_SUBJECT},
+                  "v": {"type": "literal", "value": "800"}}]
+            )
+        return _sparql_json([])
+
+    app = build_app(_settings(tmp_path), oxigraph_client=_oxigraph(handler), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        body = client.post(f"/api/datasets/{dataset_id}/promote").json()
+    assert body["promoted"] is True
+
+    declared = _yaml.safe_load(
+        (tmp_path / "registry" / dataset_id / "query_tools.yaml").read_text(encoding="utf-8")
+    )
+    tools = declared["tools"] if isinstance(declared, dict) else declared
+    by_name = {t["name"]: t for t in tools}
+    assert set(by_name) == {"counts_by_kind", "value_range", "top_value"}
+    # Every tool is a plain, parameterless read pinned to this dataset's live graph.
+    for tool in tools:
+        assert not tool.get("parameters")  # parameterless: nothing for a model to get wrong
+    # Narrowed by this dataset's own terms (declared tools run over the canonical
+    # FROM-merge, so the IRIs — not a GRAPH clause — are what keeps them on topic).
+    assert f"<{_EX}Sample>" in by_name["counts_by_kind"]["query"]
+    assert f"<{_EX}temperature>" in by_name["value_range"]["query"]
+    # The citation-bearing question keeps the subject IRI in its projection.
+    assert "?s" in by_name["top_value"]["query"]
+
+
+def test_promote_survives_a_store_that_cannot_answer_the_trial_queries(tmp_path: Path) -> None:
+    """Tool synthesis is best-effort: publishing must not depend on it."""
+    meta = _save(tmp_path)
+    _ingest(tmp_path, meta["id"])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path != "/query":
+            return httpx.Response(204)
+        q = request.content.decode("utf-8")
+        # Everything promote itself needs answers; only the trial queries fail.
+        if "?s a ?class" in q or "GROUP BY ?p" in q or "ORDER BY DESC(?num)" in q:
+            return httpx.Response(500, text="boom")
+        return _sparql_json([])
+
+    app = build_app(_settings(tmp_path), oxigraph_client=_oxigraph(handler), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        assert client.post(f"/api/datasets/{meta['id']}/promote").json()["promoted"] is True
+    assert not (tmp_path / "registry" / meta["id"] / "query_tools.yaml").exists()

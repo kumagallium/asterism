@@ -63,6 +63,8 @@ from asterism.query_tools import (
     lint_query_tool,
     parse_query_tools,
     run_query_tool,
+    synthesize_query_tools_from_trial_queries,
+    write_registry_query_tools,
 )
 from asterism.rml_summary import summarize_rml
 from asterism.starrydata import IngestConfig
@@ -5801,6 +5803,22 @@ def build_app(
         # crosswalk-hub.md ②: if this dataset participates in the crosswalk, rebuild
         # the hub now (inline best-effort) so its newly-citable values are joined.
         await _maybe_rebuild_crosswalk(client, cfg.registry_root, dataset_id)
+        # ADR ask-quality-and-generality.md: register this dataset's deterministic
+        # trial queries as typed query tools, so Ask answers "how many / what range
+        # / which is largest" from the verified path instead of asking a weak model
+        # to compose SPARQL. Best-effort: a failure here must not undo the promote.
+        try:
+            trial = await dataset_trial_queries(dataset_id)
+            tools = synthesize_query_tools_from_trial_queries(trial)
+            if tools:
+                await asyncio.to_thread(
+                    write_registry_query_tools,
+                    cfg.registry_root,
+                    dataset_id,
+                    tools,
+                )
+        except Exception:  # never block a promote on tool synthesis
+            logger.exception("query tool synthesis failed for %s (continuing)", dataset_id)
         # ADR togomcp-auto-publish.md: project the vetted MIE into the togomcp
         # catalog (best-effort, opt-in via ASTERISM_TOGOMCP_DIR). Only promoted
         # data is ever published; the projection pins the CURRENT live graph.
