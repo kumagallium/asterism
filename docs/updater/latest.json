@@ -1,11 +1,11 @@
 {
-  "version": "0.17.2",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 54b386f24f1be45640623d9835d9ca2f909273b8 -->\n\n## What's Changed\n* .dmg 作成の \"Resource busy\" でリリースが資産ゼロになるのを止める by @kumagallium in https://github.com/kumagallium/asterism/pull/382\n* ループが「値が 1 つも出ない設計」を合格にしていた — 検査を結果基準に変える by @kumagallium in https://github.com/kumagallium/asterism/pull/384\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.17.1...v0.17.2",
-  "pub_date": "2026-08-18T06:06:54Z",
+  "version": "0.17.3",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 61f32f0cbb606c091486710bcaa0a293a9dbb670 -->\n\n## What's Changed\n* デスクトップは手元のディスクに保存する — チャットと設定をブラウザから出す by @kumagallium in https://github.com/kumagallium/asterism/pull/385\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.17.2...v0.17.3",
+  "pub_date": "2026-08-18T09:27:13Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVgrcWplWU1UVDR4Wks5L3NMUTI1MXUxbzF5Mk9XMTFPSVlRZUxxenFEVkMrYWdEZ0YvRTZTaWljWnJVVnZCUHVXY1RXQXlCVXAwRGxsNFFoTWxwelFBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3MDMzMjE0CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6Cm9LRXVMZ3k2dlkrZmIyaUs1WkdvUlNrK1A0QXRIa1paTVlyK1JzMGhhL05JVFlzalBGcHlJbC9WWkhlbmM3N1RyYW01TDZBbUNMSndYb0U4Zi9Lb0JBPT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.17.2/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcWJTek5zT3B0eVpXeGFiaWFQbi84c0RZTmxJcFZuSHpGU0pvZXJPUkpoeW1rbjB0M2xhTzZjaGVaVUZQWjhoRWRaVW9YZVVvekczNTlIei81Um05d2c4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3MDQ1MjMyCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CkhleU1pRWNQcHJWNnM5VDdNWEJwQlF0ckxycUFuNFNkSUg3S2MvTmI2TjB3VjBSdjY3dXRTVk5yaXBGZTNhSHpRWVNJRnVoU2IzcEtXd3J0RHJhbEFnPT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.17.3/Asterism_aarch64.app.tar.gz"
     }
   }
 }
