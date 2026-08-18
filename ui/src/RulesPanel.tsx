@@ -29,33 +29,40 @@ import {
   getDatasetHistorySnapshot,
   getDatasetRules,
 } from './galleryApi'
+import { labelFor, tailOf } from './termLabels'
 
 // ---------------------------------------------------------------------------
 // small helpers
 // ---------------------------------------------------------------------------
 
-/** A model.yaml label for a term, matched by full IRI first, local name second.
- *  Returns undefined when it would only repeat the CURIE's own tail (noise). */
-function labelFor(
-  labels: Record<string, string>,
-  fullIri: string | undefined,
-  shown: string,
-): string | undefined {
-  const tail = shown.split(':').pop()
-  let label: string | undefined
-  if (fullIri && labels[fullIri]) label = labels[fullIri]
-  else {
-    const local = (fullIri ?? shown).split(/[#/:]/).pop()
-    if (local) {
-      for (const [iri, l] of Object.entries(labels)) {
-        if (iri.endsWith(`#${local}`) || iri.endsWith(`/${local}`)) {
-          label = l
-          break
-        }
-      }
-    }
+/** The columns of the uploaded file a rule reads its value from. Returns null for
+ *  values that are not read from a column (a constant, or a function with no
+ *  column argument) — the caller says so in words instead of showing nothing. */
+function sourceColumns(term: RuleTerm): string | null {
+  if (term.kind === 'reference') return term.reference ?? null
+  if (term.kind === 'template') {
+    const refs = (term.template ?? '').match(/\{[^{}]+\}/g)
+    return refs?.length ? refs.map((r) => r.slice(1, -1)).join(' + ') : null
   }
-  return label && label !== tail ? label : undefined
+  if (term.kind === 'function') {
+    const cols = (term.args ?? []).map(sourceColumns).filter(Boolean)
+    return cols.length ? cols.join(' + ') : null
+  }
+  return null
+}
+
+/** Drop the dataset's own minting namespace from an ID template so it reads as
+ *  `measurement/{No}` instead of a full URL (K13). Fail-open: a template whose
+ *  base cannot be identified is returned unchanged. */
+function shortenTemplate(template: string, prefixes: Record<string, string>): string {
+  let best = ''
+  for (const ns of Object.values(prefixes)) {
+    if (ns && template.startsWith(ns) && ns.length > best.length) best = ns
+  }
+  if (best) return template.slice(best.length)
+  const marker = '/resource/'
+  const at = template.indexOf(marker)
+  return at >= 0 ? template.slice(at + marker.length) : template
 }
 
 /** Render an IRI/literal template with its {placeholder} column refs highlighted. */
@@ -76,8 +83,17 @@ function TemplateText({ template }: { template: string }) {
   )
 }
 
-/** One term-map value ("値の作り方") — shared by subjects, objects and function args. */
-function TermValue({ term, compact }: { term: RuleTerm; compact?: boolean }) {
+/** One term-map value ("値の作り方") — shared by subjects, objects and function args.
+ *  `shorten` (when given) trims the dataset's own namespace off IRI templates. */
+function TermValue({
+  term,
+  compact,
+  shorten,
+}: {
+  term: RuleTerm
+  compact?: boolean
+  shorten?: (template: string) => string
+}) {
   const { t } = useTranslation()
   switch (term.kind) {
     case 'reference':
@@ -89,9 +105,9 @@ function TermValue({ term, compact }: { term: RuleTerm; compact?: boolean }) {
       )
     case 'template':
       return (
-        <span className="rules-val">
+        <span className="rules-val" title={shorten ? term.template : undefined}>
           {!compact && <span className="rules-kind-chip">{t('gallery:rules.kind.template')}</span>}
-          <TemplateText template={term.template ?? ''} />
+          <TemplateText template={shorten ? shorten(term.template ?? '') : (term.template ?? '')} />
         </span>
       )
     case 'constant':
@@ -386,9 +402,70 @@ export function RulesSection({ dataset }: { dataset: CatalogDataset }) {
         <span className="ds-section-title">{t('gallery:rules.title')}</span>
       </div>
 
-      {/* 1. わかりやすい表示 — the deterministic projection of the real mapping. */}
+      {/* 1a. 何が何として読まれたか — the reading a first-time visitor needs:
+              this column, this meaning, this unit. Deterministic (no LLM), from
+              the same /rules projection the technical view below uses. */}
       {maps.length > 0 && (
         <div className="rules-projection">
+          <p className="rules-intro">{t('rules:plain.intro')}</p>
+          {maps.map((m) => {
+            const cls = (m.subject.classes?.length ? m.subject.classes : [m.id])[0]
+            const what = labelFor(labels, undefined, cls) ?? tailOf(cls)
+            return (
+              <div className="rules-map" key={`plain-${m.id}`}>
+                <div className="rules-map-head">
+                  <span className="rules-plain-what">{t('rules:plain.rowIs', { what })}</span>
+                </div>
+                {m.properties.length > 0 && (
+                  <div className="rules-table-wrap">
+                    <table className="rules-table">
+                      <thead>
+                        <tr>
+                          <th>{t('rules:plain.colColumn')}</th>
+                          <th>{t('rules:plain.colMeaning')}</th>
+                          <th>{t('rules:plain.colUnit')}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {m.properties.map((p, i) => {
+                          const from = sourceColumns(p)
+                          const meaning =
+                            p.label ??
+                            labelFor(labels, p.predicate_iri, p.predicate) ??
+                            tailOf(p.predicate)
+                          return (
+                            <tr key={`plain-${p.predicate}-${i}`}>
+                              <td>
+                                {from ?? (
+                                  <span className="rules-plain-none">
+                                    {t(
+                                      p.kind === 'function'
+                                        ? 'rules:plain.computed'
+                                        : 'rules:plain.fixed',
+                                    )}
+                                  </span>
+                                )}
+                              </td>
+                              <td title={p.predicate_iri}>{meaning}</td>
+                              <td>{p.unit ?? ''}</td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* 1b. わかりやすい表示 — the deterministic projection of the real mapping,
+              folded: it is the escape hatch for whoever needs the exact rule. */}
+      {maps.length > 0 && (
+        <details className="rules-tech-details">
+          <summary>{t('rules:techSummary')}</summary>
           <p className="rules-intro">{t('gallery:rules.projectionIntro')}</p>
           {maps.map((m) => {
             const hasUnit = m.properties.some((p) => p.unit)
@@ -399,9 +476,9 @@ export function RulesSection({ dataset }: { dataset: CatalogDataset }) {
                   {(m.subject.classes?.length ? m.subject.classes : [m.id]).map((c) => {
                     const label = labelFor(labels, undefined, c)
                     return (
-                      <span key={c} className="rules-class-chip" title={label}>
-                        {c}
-                        {label && <span className="rules-term-label">{label}</span>}
+                      <span key={c} className="rules-class-chip" title={c}>
+                        {label ?? tailOf(c)}
+                        {label && <span className="rules-term-label">{c}</span>}
                       </span>
                     )
                   })}
@@ -422,7 +499,11 @@ export function RulesSection({ dataset }: { dataset: CatalogDataset }) {
               {m.subject.kind && (
                 <div className="rules-subject">
                   <span className="rules-row-label">{t('gallery:rules.subject')}</span>
-                  <TermValue term={m.subject} compact />
+                  <TermValue
+                    term={m.subject}
+                    compact
+                    shorten={(tpl) => shortenTemplate(tpl, rules?.prefixes ?? {})}
+                  />
                 </div>
               )}
               {m.properties.length > 0 && (
@@ -441,11 +522,11 @@ export function RulesSection({ dataset }: { dataset: CatalogDataset }) {
                         const label = p.label ?? labelFor(labels, p.predicate_iri, p.predicate)
                         return (
                           <tr key={`${p.predicate}-${i}`}>
-                            <td>
-                              <code className="rules-code-inline" title={p.predicate_iri}>
+                            <td title={p.predicate_iri}>
+                              {label ?? tailOf(p.predicate)}
+                              <code className="rules-code-inline rules-curie-gloss">
                                 {p.predicate}
                               </code>
-                              {label && <span className="rules-term-label">{label}</span>}
                             </td>
                             <td>
                               <TermValue term={p} />
@@ -462,26 +543,36 @@ export function RulesSection({ dataset }: { dataset: CatalogDataset }) {
             </div>
             )
           })}
-        </div>
+        </details>
       )}
 
+      {/* Rule forms this viewer could not read out. The count is the fact that
+          matters (the data itself is unaffected); the English originals stay in
+          the folded technical view rather than leading the section. */}
       {(rules?.warnings?.length ?? 0) > 0 && (
         <div className="rules-warnings">
-          <div className="ds-subhead">{t('gallery:rules.warningsHead')}</div>
-          <ul>
-            {rules!.warnings.map((w, i) => (
-              <li key={i}>{w}</li>
-            ))}
-          </ul>
+          <div className="ds-subhead">{t('rules:warningsHead')}</div>
+          <p>{t('rules:warningsCount', { n: rules!.warnings.length })}</p>
+          <details className="rules-tech-details">
+            <summary>{t('rules:techSummary')}</summary>
+            <ul>
+              {rules!.warnings.map((w, i) => (
+                <li key={i}>{w}</li>
+              ))}
+            </ul>
+          </details>
         </div>
       )}
 
       {loadErr && <p className="ds-card-err">{t('gallery:rules.loadError', { message: loadErr })}</p>}
 
-      {/* 2. 生成物ファイル — every persisted artifact opens in the raw viewer. */}
+      {/* 2. 生成物ファイル — every persisted artifact opens in the raw viewer.
+             Folded: this IS the escape hatch for the exact rules, so it must
+             stay reachable, but a list of file extensions is not what the
+             shared screen is for. */}
       {dataset.artifacts.length > 0 ? (
-        <>
-          {maps.length > 0 && <div className="ds-subhead">{t('gallery:rules.artifactsHead')}</div>}
+        <details className="rules-artifacts">
+          <summary>{t('rules:artifactsSummary')}</summary>
           <div className="ds-artifacts">
             {dataset.artifacts.map((a) => (
               <button
@@ -492,7 +583,11 @@ export function RulesSection({ dataset }: { dataset: CatalogDataset }) {
                 onClick={() => openArtifact(a.name)}
                 title={datasetId ? t('gallery:rules.open') : undefined}
               >
-                <span className="ds-artifact-kind">{a.kind}</span>
+                <span className="ds-artifact-kind">
+                  {i18n.exists(`rules:artifactKind.${a.kind}`)
+                    ? t(`rules:artifactKind.${a.kind}`)
+                    : a.kind}
+                </span>
                 <code className="ds-artifact-name">{a.name}</code>
                 {a.name === 'ingester.py' && (
                   <span className="rules-legacy-chip" title={t('gallery:rules.legacyNote')}>
@@ -504,7 +599,7 @@ export function RulesSection({ dataset }: { dataset: CatalogDataset }) {
               </button>
             ))}
           </div>
-        </>
+        </details>
       ) : (
         <p className="ds-empty-note">{t('gallery:rules.empty')}</p>
       )}

@@ -1,11 +1,12 @@
 {
   "panel": {
-    "sectionTitle": "ツール（このデータの検証済み Ask 操作）",
     "count": "{{n}} 件",
-    "intro": "このデータセットに、型付き・決定論の<1>読み取り専用 SPARQL ツール</1>を足せます。保存するとすぐに<3>「質問する」の検証済みツール</3>として使われます（保存＝人による確定）。",
-    "loading": "ツールを読み込み中…",
-    "emptyList": "まだツールはありません。下の「AI で下書き」から作れます。",
+    "intro": "ここにある操作は、AI を使わずにこのデータから直接、出どころつきの答えを取り出します。同じ質問にはいつも同じ答えが返り、「質問する」でも自動で使われます。",
+    "loading": "読み込み中…",
+    "emptyList": "まだ操作はありません。下の「自分で操作を作る（開発者向け）」から作れます。",
+    "errHead": "操作の一覧を読み込めませんでした。",
     "author": {
+      "summary": "自分で操作を作る（開発者向け）",
       "subhead": "AI で下書き（やりたいことから 1 つ作る）",
       "hint": "「やりたいこと」を書くと、このデータのことばをもとに <1>AI が読み取り専用の検索ツール（SPARQL）を下書き</1>します。下書きは<3>その場で編集</3>でき、<5>保存して初めて確定</5>します（保存＝人による検証ゲート）。AI には、設定で選択中のモデルを使います。",
       "intentPlaceholder": "例: 組成を渡すと結晶構造（空間群・結晶系）を返す",
@@ -13,10 +14,11 @@
       "proposing": "下書き中…",
       "propose": "AI で下書き",
       "startEmpty": "手で一から作る",
+      "proposeErrHead": "下書きを作れませんでした。",
       "dirtyConfirm": "編集中の下書きがあります。破棄して続けますか？"
     },
     "notice": {
-      "saved": "「{{name}}」を保存しました。Ask の検証済みツールとして使えます。",
+      "saved": "「{{name}}」を保存しました。「質問する」で使えます。",
       "deleted": "「{{name}}」を削除しました。"
     },
     "save": {
@@ -76,9 +78,18 @@
     "defaultHint": "既定: {{value}}",
     "running": "実行中…",
     "run": "実行（キー不要）",
-    "cellCopyTip": "・セルをクリックすると全体をコピーします（例: <0>sentence_iri</0> を <1>quote_with_citation</1> に貼り付け）。",
+    "cellCopyTip": "・セルをクリックするとコピーできます。",
     "cellCopyTitle": "クリックで全体をコピー",
     "cellCopied": "✓ コピー",
+    "cite": "この文を引用",
+    "citing": "引用を組み立て中…",
+    "citeHead": "引用",
+    "citeSource": "出どころ",
+    "citeErrHead": "引用を組み立てられませんでした。",
+    "citeClose": "閉じる",
+    "errHead": "実行できませんでした。",
+    "errBody": "入力を見直して、もう一度お試しください。",
+    "techSummary": "詳しい内容（技術情報）",
     "result": {
       "count": "{{n}} 件",
       "countTruncated": "{{n}} 件（上限で切り詰め）",
@@ -86,6 +97,82 @@
       "sparqlSummary": "実行した SPARQL（読み取り専用）"
     },
     "missingRequired": "必須パラメータを入力してください: {{names}}"
+  },
+  "bundled": {
+    "search_text": {
+      "title": "文書の全文検索",
+      "description": "取り込んだ文書の文章を、ことばで検索します。見つかった文はそのまま引用できます。",
+      "params": {
+        "query": { "label": "探すことば", "placeholder": "例: アルゴン雰囲気" },
+        "limit": { "label": "最大件数", "placeholder": "例: 20" }
+      },
+      "columns": {
+        "text": "文",
+        "section_title": "節",
+        "structural_path": "節の位置",
+        "begin_index": "位置",
+        "sentence_iri": "文の ID",
+        "section_iri": "節の ID",
+        "paper_iri": "文書の ID"
+      }
+    },
+    "quote_with_citation": {
+      "title": "文を出典つきで引用",
+      "description": "1 つの文を、本文と出どころ（文書・節・読み取りの記録）ごと取り出します。",
+      "params": {
+        "node": { "label": "文の ID", "placeholder": "全文検索の結果からコピーした ID" }
+      },
+      "columns": {
+        "verbatim": "本文",
+        "node_iri": "文の ID",
+        "begin_index": "位置（はじめ）",
+        "end_index": "位置（おわり）",
+        "section_title": "節",
+        "structural_path": "節の位置",
+        "paper_title": "文書名",
+        "section_iri": "節の ID",
+        "paper_iri": "文書の ID",
+        "parse_activity": "読み取りの記録",
+        "source_format": "元の形式",
+        "parser": "読み取りに使ったツール",
+        "parsed_at": "読み取った日時"
+      }
+    },
+    "fetch_passage": {
+      "title": "節をまとめて読む",
+      "description": "文書の中の節を選んで、段落の本文をまとめて読みます。段落ごとに引用できます。",
+      "params": {
+        "paper": { "label": "文書", "placeholder": "文書の ID、または PMCID（例: PMC5951533）" },
+        "section": { "label": "節（任意）", "placeholder": "例: 4 や 2-1" }
+      },
+      "columns": {
+        "text": "本文",
+        "section_title": "節",
+        "structural_path": "節の位置",
+        "paragraph_iri": "段落の ID",
+        "section_iri": "節の ID"
+      }
+    },
+    "measurement_provenance": {
+      "title": "測った値を、図と測定条件の文につなぐ",
+      "description": "グラフから読み取った値について、元になった図と、測定条件を書いた文をいっしょに返します。",
+      "params": {
+        "composition": { "label": "組成（任意）", "placeholder": "例: Ti0.5Zr0.25Hf0.25NiSn" }
+      },
+      "columns": {
+        "composition": "組成",
+        "property": "測った量",
+        "value": "値",
+        "figure_label": "図",
+        "figure_caption": "図の説明",
+        "condition_text": "測定条件の文",
+        "paper_title": "文書名",
+        "curve_iri": "曲線の ID",
+        "figure_iri": "図の ID",
+        "condition_sentence_iri": "文の ID",
+        "paper_iri": "文書の ID"
+      }
+    }
   },
   "error": {
     "ops": {

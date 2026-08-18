@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
+import { isBundledTool } from './bundledTools'
+import { plainError } from './kantan/errorMessages'
 import { ToolRunner } from './ToolRunner'
 import { useLlmSettings } from './settings/context'
 import { LlmGate } from './settings/LlmGate'
@@ -122,6 +124,9 @@ export function ToolsPanel({ datasetId }: { datasetId: string }) {
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
   const [notice, setNotice] = useState('')
+  // Whether the (folded) authoring section is open. Kept in state so the fold
+  // survives re-renders and can be forced open while a draft is under review.
+  const [authorOpen, setAuthorOpen] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -259,21 +264,25 @@ export function ToolsPanel({ datasetId }: { datasetId: string }) {
   }
 
   return (
+    // No heading of its own: every caller (the catalog's ツール tab, the
+    // crosswalk hub) already titles this section, and two stacked titles with
+    // different names read as two different things (K4).
     <div className="ds-tab-body tools-panel">
-      <div className="ds-section-head">
-        <span className="ds-section-title">{t('tools:panel.sectionTitle')}</span>
-        <span className="ds-section-note">
-          {tools ? t('tools:panel.count', { n: tools.length }) : '—'}
-        </span>
-      </div>
-      <p className="tools-intro">
-        <Trans i18nKey="tools:panel.intro">
-          このデータセットに、型付き・決定論の<strong>読み取り専用 SPARQL ツール</strong>を足せます。
-          保存したツールは PR なしで <strong>Ask の検証済みツール</strong>になります（保存＝人による確定）。
-        </Trans>
-      </p>
+      <p className="tools-intro">{t('tools:panel.intro')}</p>
+      {tools && tools.length > 0 && (
+        <p className="tools-count">{t('tools:panel.count', { n: tools.length })}</p>
+      )}
 
-      {loadError && <pre className="error">{loadError}</pre>}
+      {loadError && (
+        <div className="tool-run-err">
+          <p className="doc-error-head">{t('tools:panel.errHead')}</p>
+          <p className="hint">{t(plainError(loadError).body)}</p>
+          <details className="tool-sparql-details">
+            <summary>{t('tools:runner.techSummary')}</summary>
+            <pre className="sparql-block">{loadError}</pre>
+          </details>
+        </div>
+      )}
       {notice && <p className="tools-notice">✓ {notice}</p>}
 
       {/* --- existing tools --- */}
@@ -301,8 +310,16 @@ export function ToolsPanel({ datasetId }: { datasetId: string }) {
         </div>
       )}
 
-      {/* --- author a new tool --- */}
-      <div className="tool-author">
+      {/* --- author a new tool: a developer move, folded away by default so the
+              shared tab reads as "what this data can answer", not as a SPARQL
+              editor. Forced open while a draft is being reviewed. --- */}
+      <details
+        className="tool-author-details"
+        open={authorOpen || draft !== null}
+        onToggle={(e) => setAuthorOpen(e.currentTarget.open)}
+      >
+        <summary>{t('tools:panel.author.summary')}</summary>
+        <div className="tool-author">
         <div className="ds-subhead">{t('tools:panel.author.subhead')}</div>
         <p className="tools-hint">
           <Trans i18nKey="tools:panel.author.hint">
@@ -318,7 +335,7 @@ export function ToolsPanel({ datasetId }: { datasetId: string }) {
           placeholder={t('tools:panel.author.intentPlaceholder')}
           onChange={(e) => setIntent(e.target.value)}
         />
-        <LlmGate />
+        <LlmGate plain />
         <div className="tool-author-row">
           <button
             type="button"
@@ -338,29 +355,39 @@ export function ToolsPanel({ datasetId }: { datasetId: string }) {
             {t('tools:panel.author.startEmpty')}
           </button>
         </div>
-        {proposeError && <pre className="error">{proposeError}</pre>}
-      </div>
+        {proposeError && (
+          <div className="tool-run-err">
+            <p className="doc-error-head">{t('tools:panel.author.proposeErrHead')}</p>
+            <p className="hint">{t(plainError(proposeError).body)}</p>
+            <details className="tool-sparql-details">
+              <summary>{t('tools:runner.techSummary')}</summary>
+              <pre className="sparql-block">{proposeError}</pre>
+            </details>
+          </div>
+        )}
+        </div>
 
-      {/* --- draft editor --- */}
-      {draft && (
-        <DraftEditor
-          draft={draft}
-          dirty={dirty}
-          valid={draftValid}
-          gateError={draftGateError}
-          saving={saving}
-          saveError={saveError}
-          patch={patch}
-          updateParam={updateParam}
-          addParam={addParam}
-          removeParam={removeParam}
-          updateRow={updateRow}
-          addRow={addRow}
-          removeRow={removeRow}
-          onSave={save}
-          onDiscard={discard}
-        />
-      )}
+        {/* --- draft editor --- */}
+        {draft && (
+          <DraftEditor
+            draft={draft}
+            dirty={dirty}
+            valid={draftValid}
+            gateError={draftGateError}
+            saving={saving}
+            saveError={saveError}
+            patch={patch}
+            updateParam={updateParam}
+            addParam={addParam}
+            removeParam={removeParam}
+            updateRow={updateRow}
+            addRow={addRow}
+            removeRow={removeRow}
+            onSave={save}
+            onDiscard={discard}
+          />
+        )}
+      </details>
     </div>
   )
 }
@@ -384,15 +411,32 @@ function ToolCard({
   onEdit: () => void
   onDelete: () => void
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const params = tool.parameters ?? []
   const [open, setOpen] = useState(false)
+  const bundled = isBundledTool(tool.name)
+  /** A shipped tool's own title/description are written for the agent that calls
+   *  it (English, ontology terms); the reader gets the translated wording. */
+  function bundledText(rest: string): string | undefined {
+    if (!bundled) return undefined
+    const key = `tools:bundled.${tool.name}.${rest}`
+    return i18n.exists(key) ? t(key) : undefined
+  }
+  const title = bundledText('title') ?? tool.title
+  const description = bundledText('description') ?? tool.description
 
   return (
     <div className="tool-card">
       <div className="tool-card-head">
-        <code className="tool-name">{tool.name}</code>
-        {tool.title && <span className="tool-title">{tool.title}</span>}
+        {/* What the tool does leads; its identifier is the faint gloss. */}
+        {title ? (
+          <>
+            <span className="tool-title tool-title--lead">{title}</span>
+            <code className="tool-name tool-name--gloss">{tool.name}</code>
+          </>
+        ) : (
+          <code className="tool-name">{tool.name}</code>
+        )}
         <span className="tool-card-actions">
           <button
             type="button"
@@ -401,29 +445,38 @@ function ToolCard({
           >
             {open ? t('tools:card.close') : t('tools:card.run')}
           </button>
-          <button type="button" className="btn btn--ghost btn--sm" onClick={onEdit}>
-            {t('tools:card.edit')}
-          </button>
-          <button
-            type="button"
-            className="btn btn--danger btn--sm"
-            disabled={deleting}
-            onClick={onDelete}
-          >
-            {deleting ? t('tools:card.deleting') : t('tools:card.delete')}
-          </button>
+          {/* 編集 / 削除 only for tools this user authored: deleting a shipped one
+              silently removes the document search + citation this dataset runs on. */}
+          {!bundled && (
+            <>
+              <button type="button" className="btn btn--ghost btn--sm" onClick={onEdit}>
+                {t('tools:card.edit')}
+              </button>
+              <button
+                type="button"
+                className="btn btn--danger btn--sm"
+                disabled={deleting}
+                onClick={onDelete}
+              >
+                {deleting ? t('tools:card.deleting') : t('tools:card.delete')}
+              </button>
+            </>
+          )}
         </span>
       </div>
-      {tool.description && <p className="tool-desc">{tool.description}</p>}
+      {description && <p className="tool-desc">{description}</p>}
       {params.length > 0 && (
         <div className="tool-params">
-          {params.map((p) => (
-            <span key={p.name} className="param-chip" title={p.description}>
-              <code>{p.name}</code>
-              <span className="param-chip-type">{p.type}</span>
-              {p.required && <span className="param-chip-req">{t('tools:card.required')}</span>}
-            </span>
-          ))}
+          {params.map((p) => {
+            const label = bundledText(`params.${p.name}.label`)
+            return (
+              <span key={p.name} className="param-chip" title={label ? p.name : p.description}>
+                {label ? <span>{label}</span> : <code>{p.name}</code>}
+                {!label && <span className="param-chip-type">{p.type}</span>}
+                {p.required && <span className="param-chip-req">{t('tools:card.required')}</span>}
+              </span>
+            )
+          })}
         </div>
       )}
       <details className="tool-sparql-details">

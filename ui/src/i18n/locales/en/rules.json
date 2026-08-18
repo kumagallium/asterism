@@ -1,0 +1,23 @@
+{
+  "plain": {
+    "intro": "What each column of the file you took in was read to mean.",
+    "rowIs": "one row = {{what}}",
+    "colColumn": "Original column",
+    "colMeaning": "Read as",
+    "colUnit": "Unit",
+    "computed": "(computed value)",
+    "fixed": "(fixed value)"
+  },
+  "techSummary": "Technical details: the transformation rules, read out",
+  "artifactsSummary": "Technical details: the transformation rules (RML) and related files",
+  "artifactKind": {
+    "RML": "Transformation rules",
+    "IR": "Specification",
+    "MIE": "Search tags",
+    "CODE": "Old script",
+    "MD": "Design document",
+    "ShEx": "Shape rules"
+  },
+  "warningsHead": "Not shown here",
+  "warningsCount": "{{n}} rule form(s) could not be displayed here (your data is unaffected)."
+}

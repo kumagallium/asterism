@@ -1,11 +1,12 @@
 {
   "panel": {
-    "sectionTitle": "Tools (verified Ask operations for this data)",
     "count": "{{n}}",
-    "intro": "Add typed, deterministic <1>read-only SPARQL tools</1> to this dataset. A saved tool is immediately used as a <3>verified tool for Ask</3> (saving is the human sign-off).",
-    "loading": "Loading tools…",
-    "emptyList": "No tools yet. Create one from \"Draft with AI\" below.",
+    "intro": "The operations here pull answers straight from this data without AI, each with its source. The same question always returns the same answer, and Ask uses them automatically.",
+    "loading": "Loading…",
+    "emptyList": "No operations yet. You can build one under \"Build your own operation (for developers)\" below.",
+    "errHead": "The list of operations could not be loaded.",
     "author": {
+      "summary": "Build your own operation (for developers)",
       "subhead": "Draft with AI (build one from what you want)",
       "hint": "Describe what you want and <1>the AI drafts a read-only search tool (SPARQL)</1> grounded in this data's words. The draft is <3>editable in place</3> and is <5>only finalized once you save</5> (saving is the human vetting gate). It uses the model selected in Settings.",
       "intentPlaceholder": "e.g. given a composition, return the crystal structure (space group, crystal system)",
@@ -13,10 +14,11 @@
       "proposing": "Drafting…",
       "propose": "Draft with AI",
       "startEmpty": "Build by hand from scratch",
+      "proposeErrHead": "The draft could not be created.",
       "dirtyConfirm": "You have unsaved edits in the draft. Discard them and continue?"
     },
     "notice": {
-      "saved": "Saved \"{{name}}\". It is now usable as a verified Ask tool.",
+      "saved": "Saved \"{{name}}\". Ask can use it now.",
       "deleted": "Deleted \"{{name}}\"."
     },
     "save": {
@@ -76,9 +78,18 @@
     "defaultHint": "default: {{value}}",
     "running": "Running…",
     "run": "Run (no key needed)",
-    "cellCopyTip": "· Click a cell to copy its full value (e.g. paste <0>sentence_iri</0> into <1>quote_with_citation</1>).",
+    "cellCopyTip": "· Click a cell to copy it.",
     "cellCopyTitle": "Click to copy the full value",
     "cellCopied": "✓ Copied",
+    "cite": "Cite this sentence",
+    "citing": "Building the citation…",
+    "citeHead": "Citation",
+    "citeSource": "Source",
+    "citeErrHead": "The citation could not be built.",
+    "citeClose": "Close",
+    "errHead": "It could not run.",
+    "errBody": "Check the values you entered and try again.",
+    "techSummary": "Technical details",
     "result": {
       "count": "{{n}} rows",
       "countTruncated": "{{n}} rows (truncated at limit)",
@@ -90,6 +101,82 @@
       "countTruncated_other": "{{n}} rows (truncated at limit)"
     },
     "missingRequired": "Fill the required parameters: {{names}}"
+  },
+  "bundled": {
+    "search_text": {
+      "title": "Search the full text of documents",
+      "description": "Search the sentences of the documents you took in. Any hit can be cited as it stands.",
+      "params": {
+        "query": { "label": "Words to look for", "placeholder": "e.g. argon atmosphere" },
+        "limit": { "label": "Most results", "placeholder": "e.g. 20" }
+      },
+      "columns": {
+        "text": "Sentence",
+        "section_title": "Section",
+        "structural_path": "Where in the document",
+        "begin_index": "Position",
+        "sentence_iri": "Sentence ID",
+        "section_iri": "Section ID",
+        "paper_iri": "Document ID"
+      }
+    },
+    "quote_with_citation": {
+      "title": "Quote a sentence with its source",
+      "description": "Take one sentence out together with its source — the document, the section, and the record of how it was read.",
+      "params": {
+        "node": { "label": "Sentence ID", "placeholder": "the ID copied from a full-text search result" }
+      },
+      "columns": {
+        "verbatim": "Sentence",
+        "node_iri": "Sentence ID",
+        "begin_index": "Position (start)",
+        "end_index": "Position (end)",
+        "section_title": "Section",
+        "structural_path": "Where in the document",
+        "paper_title": "Document name",
+        "section_iri": "Section ID",
+        "paper_iri": "Document ID",
+        "parse_activity": "Reading record",
+        "source_format": "Original format",
+        "parser": "Tool that read it",
+        "parsed_at": "Read at"
+      }
+    },
+    "fetch_passage": {
+      "title": "Read a whole section",
+      "description": "Pick a section of a document and read its paragraphs together. Every paragraph stays citable.",
+      "params": {
+        "paper": { "label": "Document", "placeholder": "the document ID, or a PMCID (e.g. PMC5951533)" },
+        "section": { "label": "Section (optional)", "placeholder": "e.g. 4 or 2-1" }
+      },
+      "columns": {
+        "text": "Text",
+        "section_title": "Section",
+        "structural_path": "Where in the document",
+        "paragraph_iri": "Paragraph ID",
+        "section_iri": "Section ID"
+      }
+    },
+    "measurement_provenance": {
+      "title": "Link a measured value to its figure and its stated condition",
+      "description": "For a value read off a graph, return the figure it came from and the sentence that states how it was measured.",
+      "params": {
+        "composition": { "label": "Composition (optional)", "placeholder": "e.g. Ti0.5Zr0.25Hf0.25NiSn" }
+      },
+      "columns": {
+        "composition": "Composition",
+        "property": "Measured quantity",
+        "value": "Value",
+        "figure_label": "Figure",
+        "figure_caption": "Figure caption",
+        "condition_text": "Sentence stating the condition",
+        "paper_title": "Document name",
+        "curve_iri": "Curve ID",
+        "figure_iri": "Figure ID",
+        "condition_sentence_iri": "Sentence ID",
+        "paper_iri": "Document ID"
+      }
+    }
   },
   "error": {
     "ops": {
