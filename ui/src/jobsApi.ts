@@ -11,6 +11,11 @@ const API_BASE = ((import.meta.env.VITE_API_URL as string | undefined) ?? '').re
 
 export interface IngestJob {
   kind: string // papers | samples | curves
+  /** Which dataset this pass belongs to (ingest/append records carry it; the
+   *  watcher does not — then both stay empty and the row shows no dataset,
+   *  rather than a guessed one). */
+  dataset_id: string
+  dataset_name: string
   csv_path: string
   ttl_path: string | null
   rows_in: number
@@ -33,6 +38,10 @@ function normalizeJob(raw: unknown): IngestJob {
   const str = (v: unknown) => (typeof v === 'string' ? v : '')
   return {
     kind: str(r.kind),
+    dataset_id: str(r.dataset_id),
+    // Fall back to the id so a record written before names were recorded still
+    // says WHICH dataset it was; never invent a name.
+    dataset_name: str(r.dataset_name) || str(r.dataset_id),
     // Watcher records carry csv_path; append/ingest records carry `file` (a
     // name or comma list) — fall back so the file column is never blank.
     csv_path: str(r.csv_path) || str(r.file),

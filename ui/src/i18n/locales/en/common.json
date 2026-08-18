@@ -12,17 +12,35 @@
   "nav": {
     "home": "Home",
     "gallery": "Datasets",
-    "crosswalk": "Crosswalk",
+    "crosswalk": "Connections",
     "ask": "Ask",
     "vocab": "Shared terms",
     "jobs": "Activity",
     "workbench": "Add data",
-    "sparql": "Advanced",
-    "sparqlTag": "SPARQL"
+    "sparql": "Developer",
+    "sparqlTag": "SPARQL",
+    "sparqlTitle": "Developer: write queries directly. For everyday questions, use Ask"
   },
   "status": {
-    "mock": "Ask / Datasets: demo data (mock)",
-    "live": "Data live"
+    "mock": "Showing sample data"
+  },
+  "updater": {
+    "confirmText": "The app will restart to update. Anything in progress (AI reading, ingesting) will be interrupted.",
+    "confirmCancel": "Not now",
+    "confirmGo": "Restart and update",
+    "later": "Later",
+    "laterTitle": "Dismiss this notice (you can update any time from Settings → This app)",
+    "installFailed": "The update failed. Check your network connection and try again."
+  },
+  "portFallback": {
+    "text": "Another program is using the same entrance, so your settings are temporary this time. Quit that program and open Asterism again to get them back.",
+    "dismiss": "Dismiss"
+  },
+  "staleChunk": {
+    "reloaded": "The app was updated, so this page reloaded.",
+    "failed": "The app couldn't be updated to the new version. Please reload the page.",
+    "reload": "Reload",
+    "dismiss": "Dismiss"
   },
   "view": {
     "home": {
@@ -33,12 +51,12 @@
     "workbench": {
       "eyebrow": "Create",
       "title": "Add data",
-      "sub": "Build connected data from a CSV or JSON, with AI"
+      "sub": "Turn your measurement files into connected data, with AI"
     },
     "ask": {
       "eyebrow": "Use",
       "title": "Ask",
-      "sub": "Answer questions over your ingested data, with citations"
+      "sub": "Answer questions over your published data, with citations"
     },
     "gallery": {
       "eyebrow": "Data",
@@ -48,11 +66,11 @@
     "vocab": {
       "eyebrow": "Shared",
       "title": "Shared terms",
-      "sub": "Agreeing on one name for the same thing across datasets"
+      "sub": "Kinds of data and fields your datasets share"
     },
     "crosswalk": {
       "eyebrow": "Connect",
-      "title": "Crosswalk",
+      "title": "Connections",
       "sub": "Connect separate datasets by a shared value"
     },
     "map": {
@@ -68,7 +86,7 @@
     "sparql": {
       "eyebrow": "Developer",
       "title": "SPARQL",
-      "sub": "Read-only queries"
+      "sub": "Write read-only queries directly. For everyday questions, use Ask"
     }
   }
 }

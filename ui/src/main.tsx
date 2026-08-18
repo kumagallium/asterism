@@ -16,10 +16,22 @@ import { SettingsProvider } from './settings/SettingsContext.tsx'
 // broken deploy from reload-looping; per-session (not per-URL) is deliberate:
 // one deploy invalidates every chunk, and the tab's next successful load makes
 // the stale flag irrelevant.
+//
+// The reload is never silent: it can land mid-wizard (the AI is narrating, an
+// ingest is running), where a screen that resets with no explanation reads as
+// "my work vanished". So leave a note for the next load — App's StaleChunkBanner
+// shows it once and clears it. A second failure means the deploy really is
+// broken; the same banner then says so instead of the tab quietly doing nothing.
 window.addEventListener('vite:preloadError', (event) => {
   const KEY = 'asterism.staleChunkReloaded'
-  if (sessionStorage.getItem(KEY)) return // already tried — surface the failure
-  sessionStorage.setItem(KEY, '1')
+  const NOTICE = 'asterism.staleChunkNotice'
+  try {
+    if (sessionStorage.getItem(KEY)) return // already tried — the banner explains it
+    sessionStorage.setItem(KEY, '1')
+    sessionStorage.setItem(NOTICE, '1')
+  } catch {
+    return // no sessionStorage means no loop guard — never auto-reload blind
+  }
   event.preventDefault()
   window.location.reload()
 })

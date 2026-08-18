@@ -56,6 +56,11 @@ export interface AskResponse {
   // LLM-generated SPARQL escape was used. Drives the answer provenance badge.
   verifiedTools?: VerifiedTool[]
   unverifiedSparql?: boolean
+  // False when the turn produced no answer text at all (the agent exhausted its
+  // attempts). The UI must not dress that up as a finding — it renders the
+  // "didn't work" state with a retry and example questions instead. Absent on
+  // older agents / the mock, where it is treated as answered.
+  answered?: boolean
   // Deterministic caveats the tools raised about their own results — e.g. a
   // number stored as an untyped literal that this answer ORDERed or compared
   // (SPARQL then compares text, so the "maximum" can be wrong). Shown as an
@@ -248,6 +253,9 @@ function normalizeAsk(raw: unknown): AskResponse {
       ? r.verified_tools.map(normalizeVerifiedTool).filter((t) => t.name)
       : [],
     unverifiedSparql: r.unverified_sparql === true,
+    // Only an explicit `false` means "no answer" — a missing field is an older
+    // agent, and treating that as unanswered would blank out every reply.
+    answered: r.answered === false ? false : undefined,
     warnings: Array.isArray(r.warnings)
       ? r.warnings
           .map((w) => {
@@ -297,7 +305,11 @@ export interface AskHistoryTurn {
  * so follow-ups resolve. Omit/empty for a single question.
  *
  * `signal` aborts the wait (the chat's stop button); the agent's own work is
- * not cancelled server-side, the caller just stops listening. */
+ * not cancelled server-side, the caller just stops listening.
+ *
+ * `language` is the UI language, so the answer prose comes back in the language
+ * the reader is reading the screen in (the agent used to answer in Japanese
+ * whatever the UI said). Agents that don't know the field ignore it. */
 export async function ask(
   question: string,
   creds?: LlmCredentials | null,
@@ -309,13 +321,16 @@ export async function ask(
     const hit = ASK_FIXTURES.find((f) => f.match(question))
     return hit ? hit.build() : askFallback()
   }
+  const language = i18n.language.startsWith('en') ? 'en' : 'ja'
   const res = await fetch(`${AGENT_BASE}/demo/ask`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       ...llmHeaders(creds ?? null),
     },
-    body: JSON.stringify(history.length > 0 ? { question, history } : { question }),
+    body: JSON.stringify(
+      history.length > 0 ? { question, history, language } : { question, language },
+    ),
     signal,
   })
   if (!res.ok) {
