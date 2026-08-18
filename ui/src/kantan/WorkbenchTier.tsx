@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { DetailTab } from '../GalleryView'
 import { type RedesignTarget, WorkbenchView } from '../WorkbenchView'
@@ -66,6 +66,22 @@ export function WorkbenchTier({
   // as a RedesignTarget so WorkbenchView opens it exactly like a catalog
   // redesign — same consumption path, dataset identity preserved.
   const [detailTarget, setDetailTarget] = useState<RedesignTarget | null>(null)
+  // The wizard fills this with its "prepare the detail-tier handoff" writer.
+  // The toggle below switches tiers without going through the wizard's own
+  // 詳細モードで確認する, so it has to run the same preparation — the snapshot is
+  // no longer written on every design change (DETAIL-GAP-V3).
+  const handoffRef = useRef<(() => boolean) | null>(null)
+
+  function toggleTier() {
+    if (tier === 'detail') {
+      setTier('kantan')
+      return
+    }
+    // The writer answers false when the reader declined to replace unfinished
+    // work saved in the detail tier: staying put is then the whole point.
+    if (handoffRef.current && !handoffRef.current()) return
+    setTier('detail')
+  }
 
   // sessionStorage writes don't trigger renders — poll cheaply while mounted so
   // the toggle locks/unlocks as jobs start and finish on either tier.
@@ -104,7 +120,7 @@ export function WorkbenchTier({
         <button
           type="button"
           className="btn btn--ghost btn--sm kz-tier-toggle"
-          onClick={() => setTier(tier === 'kantan' ? 'detail' : 'kantan')}
+          onClick={toggleTier}
           disabled={locked}
           // Say what is on the other side and that it is reversible: "詳細" alone
           // reads as "more about MY data" to a first-timer (DETAIL-GAP-02).
@@ -123,6 +139,7 @@ export function WorkbenchTier({
         <KantanWizard
           onBusyChange={setKantanBusy}
           onHandoffToDetail={() => setTier('detail')}
+          handoffRef={handoffRef}
           onOpenDataset={onOpenDataset}
           onOpenAsk={onOpenAsk}
           redesignTarget={redesignTarget}

@@ -139,6 +139,11 @@ interface TrialQA {
   q: string
   a: string
   citeIri?: string
+  /** The answer is itself a list of IDs (the "what samples are in there?"
+   *  card). Opening "the source of this number" on the first of them says the
+   *  wrong thing twice — it is not a number, and it is not just that one
+   *  (KZ-B-20). The IRI is still kept: S9's share link needs one. */
+  citeIsList?: boolean
   /** The other fields of the SAME record, so "where does this number come from"
    *  is answerable in place (S7 runs on the still-unpublished draft, which no
    *  citation landing page can resolve yet — DEREF-LANDING-01). */
@@ -161,8 +166,47 @@ const JSON_EXTS = ['.json', '.geojson']
 const DOCUMENT_EXTS = ['.xml', '.docx', '.pdf']
 const DROP_ACCEPT = [...TABULAR_EXTS, ...JSON_EXTS, ...DOCUMENT_EXTS].join(',')
 
-// Columns that look like a per-file serial ID (the Q2 trigger).
-const ID_COLUMN_RE = /(^|[_-])(id|no|code)$/i
+// Columns that look like a per-file serial ID (the Q2 trigger). The heading is
+// tokenised first, so `Sample ID`, `SampleNo` and `sample_no` are all read the
+// same way — a bare `/(^|[_-])(id|no|code)$/` missed the two spellings a
+// spreadsheet actually contains, and Q2 (the one question only the human can
+// answer) was then never asked (KZ-A-13).
+const ID_TOKEN_RE = /^(id|no\.?|number|code)$/i
+// `code` is a row ID only when nothing in front of it says otherwise: an
+// `error_code` / `status code` / `zip code` column names something else.
+const NOT_AN_ID_BEFORE_CODE = new Set([
+  'error',
+  'status',
+  'zip',
+  'postal',
+  'http',
+  'country',
+  'area',
+  'colour',
+  'color',
+])
+
+function idColumnTokens(name: string): string[] {
+  return name
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2') // camelCase → separate words
+    .split(/[\s_.-]+/)
+    .filter(Boolean)
+}
+
+function looksLikeIdColumn(name: string): boolean {
+  const trimmed = name.trim()
+  if (trimmed === '') return false
+  // Japanese headings carry no separator: 「試料番号」 is one word.
+  if (/番号$/.test(trimmed)) return true
+  const tokens = idColumnTokens(trimmed)
+  const last = tokens[tokens.length - 1]
+  if (!last || !ID_TOKEN_RE.test(last)) return false
+  if (/^code$/i.test(last)) {
+    const prev = tokens[tokens.length - 2]?.toLowerCase()
+    if (prev && NOT_AN_ID_BEFORE_CODE.has(prev)) return false
+  }
+  return true
+}
 
 // The S2 "the table is not being read right" corrections. Values are the
 // canonical tokens the server pins (never localized text); the labels are what
@@ -194,6 +238,17 @@ function encodingChoices(detected: string): { value: string; key: string }[] {
  *  full stop (KZ-A-24). The detail tier is unchanged: it still shows the grid. */
 const DOC_ONLY_TRAPS = new Set(['T5', 'T6', 'T7', 'T10'])
 
+/** The api reports a mapping-spec compile failure TWICE: once as a summary
+ *  warning ("The mapping spec could not be compiled to RML (N issue(s)); see
+ *  mapping_ir_issues.") and once as the N issues themselves, which it has
+ *  already merged into `validation_issues`. Counting both told the reader N+1
+ *  and made the "N 件" line — the whole point of K11's count — untrustworthy
+ *  (BACKEND-TEXT-31). The raw warning still travels to the AI fix untouched. */
+const MAPPING_IR_SUMMARY = 'could not be compiled to RML'
+function countableWarnings(warnings: string[]): string[] {
+  return warnings.filter((w) => !w.includes(MAPPING_IR_SUMMARY))
+}
+
 /** Plain-error families whose body ends in "ask your administrator to check the
  *  AI setup". When the reader IS that person (their own key in Settings), the
  *  sentence has to come with the way there — as a small secondary button, never
@@ -217,7 +272,12 @@ function draftStem(files: File[]): string {
   return stem
 }
 
-const PREVIEW_BYTES = 2048
+// How much of a file the on-screen preview reads. Instrument exports carry long
+// settings headers, and a flat 2 KB window fell short of the table exactly on
+// the files that most need checking — the card then said "no preview" and S2
+// had nothing to confirm. So: widen in steps until the header + PREVIEW_ROWS
+// rows are actually in hand (KZ-A-47).
+const PREVIEW_BYTE_STEPS = [2048, 16384, 65536, 262144]
 const PREVIEW_ROWS = 5
 
 function extOf(name: string): string {
@@ -240,6 +300,22 @@ function acceptFor(k: KantanKind | null): string {
   if (k === 'json') return JSON_EXTS.join(',')
   if (k === 'document') return DOCUMENT_EXTS.join(',')
   return DROP_ACCEPT
+}
+
+/** The tail of a citation ID as a person can read it: the path below
+ *  `resource/` (`measurement/BiTe-04/300`), percent-decoded. Sample IDs are
+ *  built from the user's own values, so they routinely carry escaped spaces and
+ *  equals signs — `Bi2Te3%20x%3D0.1` is not an answer anyone can check
+ *  (KZ-B-21). Falls back to the last segment for IRIs of other shapes. */
+function readableId(iri: string): string {
+  const marker = '/resource/'
+  const at = iri.indexOf(marker)
+  const raw = at >= 0 ? iri.slice(at + marker.length) : localName(iri)
+  try {
+    return decodeURIComponent(raw)
+  } catch {
+    return raw // a stray % — the escaped form is still better than nothing
+  }
 }
 
 /** An English identifier as a readable phrase: `hasSeebeckCoefficient` →
@@ -347,12 +423,20 @@ async function buildPreviews(
     // A human correction from the S2 read-fix panel wins over detection, so the
     // table on screen shows the read the design will actually use (KZ-A-10).
     const dialect = overrides[canonical] ?? inspect.dialects[canonical]
+    const skip = dialect?.skip_rows ?? 0
+    // The header plus the rows we mean to show; anything less and the card
+    // would fall back to "no preview" on a file that does have a table.
+    const wanted = skip + PREVIEW_ROWS + 1
     try {
-      const buf = await file.slice(0, PREVIEW_BYTES).arrayBuffer()
-      const text = decodeSlice(buf, dialect?.encoding)
-      let lines = text.split(/\r\n|\r|\n/)
-      if (file.size > PREVIEW_BYTES) lines = lines.slice(0, -1) // drop the cut-off tail
-      const skip = dialect?.skip_rows ?? 0
+      let lines: string[] = []
+      for (const bytes of PREVIEW_BYTE_STEPS) {
+        const buf = await file.slice(0, bytes).arrayBuffer()
+        const text = decodeSlice(buf, dialect?.encoding)
+        lines = text.split(/\r\n|\r|\n/)
+        if (file.size > bytes) lines = lines.slice(0, -1) // drop the cut-off tail
+        if (file.size <= bytes) break
+        if (lines.filter((l) => l.trim() !== '').length >= wanted) break
+      }
       const preambleLines = lines.slice(0, skip).filter((l) => l.trim() !== '')
       lines = lines.slice(skip).filter((l) => l.trim() !== '')
       const delim = dialect?.delimiter ?? (ext === '.tsv' ? '\t' : ',')
@@ -425,6 +509,10 @@ interface KantanSnapshot {
   kind: 'csv' | 'json' | 'document' | null
   q1: Q1Answer | null
   q2: Q2Answer | null
+  /** S2's optional "anything to tell the AI first" line (DETAIL-GAP-11). */
+  preHint?: string
+  /** The column the human said the dropped files share (DETAIL-GAP-19). */
+  sharedKey?: string | null
   dialectOverrides: Record<string, SourceDialect>
   skeleton: MappingSkeleton | null
   annotations: SkeletonAnnotations | null
@@ -506,8 +594,15 @@ function clearJob() {
  *  handoff effect can write the (older) kantan copy back over it: otherwise a
  *  round trip through the detail tier silently loses everything fixed there
  *  and the two tiers publish different designs (DETAIL-GAP-05). */
-function detailProposalFor(datasetId: string | null | undefined): string | null {
-  if (!datasetId) return null
+function detailProposalFor(
+  datasetId: string | null | undefined,
+  handedToDetail: boolean | undefined,
+): string | null {
+  // Only when the reader actually went over. The handoff snapshot is written at
+  // the crossing and then left alone, so without this flag a LATER kantan-side
+  // fix would be silently replaced by that older copy on the next reload
+  // (DETAIL-GAP-V3 / DETAIL-GAP-05).
+  if (!datasetId || !handedToDetail) return null
   try {
     const raw = sessionStorage.getItem(WB_STORAGE)
     if (!raw) return null
@@ -555,6 +650,7 @@ function clearKantanJob() {
 export function KantanWizard({
   onBusyChange,
   onHandoffToDetail,
+  handoffRef,
   onOpenDataset,
   onOpenAsk,
   redesignTarget,
@@ -566,6 +662,11 @@ export function KantanWizard({
   onBusyChange: (busy: boolean) => void
   /** Called when the user opens the finished design in the detail tier. */
   onHandoffToDetail: () => void
+  /** Filled with the "prepare the detail-tier handoff" writer, so the tier
+   *  toggle above can run it before switching. It answers false when the reader
+   *  declined to replace an unfinished session saved over there — the caller
+   *  must then stay put (DETAIL-GAP-V3). */
+  handoffRef?: { current: (() => boolean) | null }
   /** Opens the catalog detail for a dataset (S9's grow-the-dataset exits land
    *  on the ファイル tab, where the append / re-ingest controls live). `focus`
    *  names which of the two the person chose — a receiver that does not use it
@@ -662,6 +763,14 @@ export function KantanWizard({
   const [previews, setPreviews] = useState<PreviewCard[]>([])
   const [q1, setQ1] = useState<Q1Answer | null>(snap.q1 ?? null)
   const [q2, setQ2] = useState<Q2Answer | null>(snap.q2 ?? null)
+  // What the experimenter knows and the AI cannot guess — an abbreviation, a
+  // unit, what a column is for. Optional, and never a gate: the whole point is
+  // that it costs nothing to skip (DETAIL-GAP-11).
+  const [preHint, setPreHint] = useState(snap.preHint ?? '')
+  // The column the human confirmed the files share, when several were dropped.
+  // '' / null = not answered or "none of these", which travels as no key at all
+  // (DETAIL-GAP-19).
+  const [sharedKey, setSharedKey] = useState<string | null>(snap.sharedKey ?? null)
   const [dialectOverrides, setDialectOverrides] = useState<Record<string, SourceDialect>>(
     snap.dialectOverrides ?? {},
   )
@@ -678,6 +787,10 @@ export function KantanWizard({
     snap.annotations ?? null,
   )
   const [annotationsBusy, setAnnotationsBusy] = useState(false)
+  // The row-ID evidence is enrichment and a failed check never blocks editing —
+  // but it used to fail in complete silence, leaving the gate's ✓/⚠ column
+  // simply absent with nothing saying why (GATE-30).
+  const [annotationsFailed, setAnnotationsFailed] = useState(false)
   // A skeleton job persisted across the last unmount is picked up on mount, so
   // the screen must already read as busy on the first paint (KZ-A-06).
   const [skeletonBusy, setSkeletonBusy] = useState(() => loadKantanJob()?.kind === 'skeleton')
@@ -686,6 +799,11 @@ export function KantanWizard({
   const [lastPulseAt, setLastPulseAt] = useState<number | null>(null)
   const [jobNotice, setJobNotice] = useState('')
   const [errMsg, setErrMsg] = useState('')
+  // An AI run that was still going when the tab was reloaded, and that the
+  // server no longer knows about (it restarted). The wizard drops back to S1,
+  // where the reason has to be readable — otherwise the work looks vanished
+  // with no explanation at all (BACKEND-TEXT-30 / KZ-A-40).
+  const [resumeFailed, setResumeFailed] = useState<string | null>(null)
   // "The gate is ready but the files are gone" is NOT a job failure: it has its
   // own recovery (drop them again, right here) and must not be read through the
   // error classifier or offered a retry button (GATE-29 / RESUME-07).
@@ -698,7 +816,7 @@ export function KantanWizard({
   // card's "詳細モードで確認する".
   const [initialDesign] = useState(() => {
     const own = snap.proposal ?? ''
-    const fromDetail = detailProposalFor(snap.datasetId)
+    const fromDetail = detailProposalFor(snap.datasetId, snap.handedToDetail)
     return { text: fromDetail ?? own, adopted: !!fromDetail && fromDetail !== own }
   })
   const [proposal, setProposal] = useState(initialDesign.text)
@@ -716,7 +834,7 @@ export function KantanWizard({
   const [sourceAttached, setSourceAttached] = useState<boolean>(snap.sourceAttached ?? false)
   const [autoFixed, setAutoFixed] = useState<boolean>(snap.autoFixed ?? false)
   const [pipeBusy, setPipeBusy] = useState(false)
-  const [pipePhase, setPipePhase] = useState<'save' | 'ingest' | null>(null)
+  const [pipePhase, setPipePhase] = useState<'save' | 'attach' | 'ingest' | null>(null)
   const [ingestProgress, setIngestProgress] = useState<IngestProgress | null>(null)
   const [ingestHandle, setIngestHandle] = useState<IngestJobHandle | null>(null)
   // An S5 restore with NO still-running ingest job lands on a "resume from
@@ -751,6 +869,13 @@ export function KantanWizard({
   const [s6Loading, setS6Loading] = useState(false)
   const [s6Err, setS6Err] = useState('')
   const [note, setNote] = useState('')
+  // What the last "AI に反映して作り直す" was asked to change, and which rows it
+  // actually changed. Without it the table comes back looking identical and a
+  // note the model ignored is indistinguishable from one it applied — so the
+  // same sentence gets typed again, round after round (KZ-B-29).
+  const [reflectedNote, setReflectedNote] = useState('')
+  const [reflectChanged, setReflectChanged] = useState<Set<string> | null>(null)
+  const rulesBeforeReflect = useRef<DatasetRules | null>(null)
   // 'note' = the S6 free-text reflect; 'fix' = the S5 design-stop AI fix. Both
   // ride the SAME refine → re-materialize chain; the flag only picks the
   // progress label and where a failure lands. A refine that outlived the last
@@ -886,6 +1011,8 @@ export function KantanWizard({
               : null,
       q1,
       q2,
+      preHint,
+      sharedKey,
       dialectOverrides,
       skeleton,
       annotations,
@@ -922,6 +1049,8 @@ export function KantanWizard({
     kind,
     q1,
     q2,
+    preHint,
+    sharedKey,
     dialectOverrides,
     skeleton,
     annotations,
@@ -946,41 +1075,31 @@ export function KantanWizard({
     gateSkeleton,
   ])
 
-  // Hand the finished design to the detail tier: a WB_STORAGE-compatible
-  // snapshot (mirrors WorkbenchView's WorkbenchSnapshot shape) opening on the
-  // review step. Written as soon as the proposal exists, so "詳細モードで確認"
-  // works from every later screen — including the S5 stop cards (K11).
-  useEffect(() => {
-    if (!proposal) return
-    const detailSnapshot = {
+  // Hand the design in hand to the detail tier: a WB_STORAGE-compatible
+  // snapshot (mirrors WorkbenchView's WorkbenchSnapshot shape). Returns null
+  // when there is nothing to hand over — at S1/S2 the detail tier should keep
+  // whatever it had rather than be reset to an empty design.
+  function buildDetailSnapshot(): Record<string, unknown> | null {
+    if (!proposal && !skeleton) return null
+    const shared = {
       mode: 'new',
-      step: 2,
       source: kind === 'json' ? 'json' : 'csv',
-      fk: '',
+      // The column the human said the files share (S2's third question), in the
+      // very field the detail tier asks for it — DETAIL-GAP-19.
+      fk: sharedKey ?? '',
       markdown: inspectionMd,
-      domainFree: '',
+      // What the human told the AI up front (S2's optional line) belongs in the
+      // detail tier's own free-text hint box — DETAIL-GAP-11.
+      domainFree: preHint.trim(),
       // Q2 said the ID recurs elsewhere (or unknown = safe side): the detail
       // tier shows the same composite-key hint pre-ticked.
       presetIds: q2 === 'elsewhere' || q2 === 'unknown' ? ['composite-key'] : [],
-      proposal,
       materialized: null,
       dialectOverrides,
-      stagedSkeleton: null,
-      stagedAnnotations: null,
       // The server-side copy of the source: without it, "fix it yourself in
       // detail mode" arrives with no files at all in the browsers that cannot
       // keep them (private windows, old WebViews) — RESUME-13.
       ...(stagingId ? { stagingId } : {}),
-      // WHAT to fix, pre-filled into the detail tier's refine box. The AI-facing
-      // technical lines are handed over verbatim (the plain sentences are for
-      // this screen only), so the reader can press 修正を依頼 straight away.
-      ...(stop?.fixLines?.length
-        ? {
-            comment: `${t('workbench:fix.commentIntro')}\n${stop.fixLines
-              .map((l) => `- ${l}`)
-              .join('\n')}`,
-          }
-        : {}),
       // The wizard's registered record (once the auto chain minted / reopened
       // one): the detail tier must UPDATE this dataset in place on save —
       // without this, a handoff after S5 would re-mint a duplicate record.
@@ -992,24 +1111,83 @@ export function KantanWizard({
           }
         : {}),
     }
+    // Still at the row-counting gate: the design does not exist yet, and what
+    // the reader is looking at IS the staged skeleton. Handing over an empty
+    // snapshot made it read as "the gate I was on is gone" (DETAIL-GAP-18).
+    if (!proposal) {
+      return {
+        ...shared,
+        step: 1,
+        proposal: '',
+        stagedSkeleton: skeleton,
+        stagedAnnotations: annotations,
+      }
+    }
+    return {
+      ...shared,
+      step: 2,
+      proposal,
+      stagedSkeleton: null,
+      stagedAnnotations: null,
+      // WHAT to fix, pre-filled into the detail tier's refine box. The AI-facing
+      // technical lines are handed over verbatim (the plain sentences are for
+      // this screen only), so the reader can press 修正を依頼 straight away.
+      ...(stop?.fixLines?.length
+        ? {
+            comment: `${t('workbench:fix.commentIntro')}\n${stop.fixLines
+              .map((l) => `- ${l}`)
+              .join('\n')}`,
+          }
+        : {}),
+    }
+  }
+
+  /** Write that snapshot — ONLY when the reader actually crosses over. It used
+   *  to be written on every design change, so one visit to かんたん silently
+   *  overwrote an unfinished session saved in the detail tier, which K1 promises
+   *  to leave alone. Answers false when the reader declines to replace such a
+   *  session, in which case the caller must NOT switch tiers (DETAIL-GAP-V3). */
+  function writeDetailHandoff(): boolean {
+    const snapshot = buildDetailSnapshot()
+    if (!snapshot) return true
     try {
-      sessionStorage.setItem(WB_STORAGE, JSON.stringify(detailSnapshot))
+      const raw = sessionStorage.getItem(WB_STORAGE)
+      if (raw) {
+        const wb = JSON.parse(raw) as { mode?: string; redesignId?: string; proposal?: string }
+        const otherWork =
+          wb.mode === 'crosswalk' ||
+          (!!wb.redesignId && wb.redesignId !== kzDatasetId) ||
+          (!wb.redesignId && !!wb.proposal && !kzDatasetId && wb.proposal !== proposal)
+        if (otherWork && !window.confirm(t('kantan:tier.replaceDetailConfirm'))) return false
+      }
+    } catch {
+      /* unreadable snapshot — nothing worth protecting */
+    }
+    try {
+      sessionStorage.setItem(WB_STORAGE, JSON.stringify(snapshot))
+      // Mark the crossing on kantan's own snapshot, synchronously: this
+      // component unmounts on the very next render, so a state update would
+      // never reach the persist effect. Coming back reads it to know that the
+      // detail tier's copy is the newer one (DETAIL-GAP-04 / DETAIL-GAP-05).
+      const raw = sessionStorage.getItem(KZ_STORAGE)
+      const current = raw ? (JSON.parse(raw) as Partial<KantanSnapshot>) : {}
+      sessionStorage.setItem(KZ_STORAGE, JSON.stringify({ ...current, handedToDetail: true }))
     } catch {
       /* non-fatal */
     }
-  }, [
-    proposal,
-    inspectionMd,
-    kind,
-    q2,
-    dialectOverrides,
-    kzDatasetId,
-    kzDatasetName,
-    redesigning,
-    stagingId,
-    stop,
-    t,
-  ])
+    return true
+  }
+
+  // The tier toggle lives one level up (WorkbenchTier) and switches without
+  // going through openDetail, so it needs the same preparation: hand it the
+  // current writer rather than a stale closure.
+  useEffect(() => {
+    if (!handoffRef) return
+    handoffRef.current = writeDetailHandoff
+    return () => {
+      handoffRef.current = null
+    }
+  })
 
   // Resume an in-flight job this tier owns (S3 skeleton, or the AI fix / S6
   // reflect) after leaving the screen: the same SSE replay, under kantan's own
@@ -1115,7 +1293,11 @@ export function KantanWizard({
         void runPipeline('materialize', r.proposal_md)
       },
       onError: (message) => {
-        setErrMsg(t('kantan:job.resumedFailed', { message }))
+        // Lands on S1, so the reason has to be readable THERE: the sentence
+        // used to be written into `errMsg`, which only S3/S4 render — the
+        // reader was dropped at the drop zone with no explanation at all
+        // (BACKEND-TEXT-30).
+        setResumeFailed(message)
         setStatus('')
         setContinuing(false)
         clearJob()
@@ -1175,13 +1357,7 @@ export function KantanWizard({
         // The resume branch, without re-staging what the server already has.
         setFiles(restored)
         setStep(4)
-        setAnnotationsBusy(true)
-        validateSkeleton(restored, skeleton, dialectOverrides, sid)
-          .then(setAnnotations)
-          .catch(() => {
-            /* evidence is enrichment */
-          })
-          .finally(() => setAnnotationsBusy(false))
+        recheckEvidence(restored, skeleton, sid)
         return
       }
       if (restored.length > 0) {
@@ -1378,13 +1554,29 @@ export function KantanWizard({
     return out
   }
 
-  // The one domain hint this tier can produce: Q2 said the ID column recurs
-  // outside this file (or the user doesn't know = safe side) → composite key.
+  // What this tier can tell the AI up front: the composite-key hint Q2 implies
+  // (the ID recurs outside this file, or the user doesn't know = safe side),
+  // plus the one optional line the human wrote at S2 — the meaning of an
+  // abbreviation or a unit, which no amount of column-name reading can supply
+  // and which a weak model otherwise gets wrong on the first pass
+  // (DETAIL-GAP-11).
   function composedDomain(): string {
+    const lines: string[] = []
     if (q2 === 'elsewhere' || q2 === 'unknown') {
-      return PRESET_HINTS.find((h) => h.id === 'composite-key')?.text ?? ''
+      const preset = PRESET_HINTS.find((h) => h.id === 'composite-key')?.text
+      if (preset) lines.push(preset)
     }
-    return ''
+    const hint = preHint.trim()
+    if (hint) lines.push(hint)
+    return lines.join('\n')
+  }
+
+  /** The join key the human confirmed at S2, in the shape the propose calls
+   *  want. Empty when they said "none of these" or never answered — a guess
+   *  here would be worse than the model's own (DETAIL-GAP-19). */
+  function composedFks(): string[] {
+    const key = sharedKey?.trim()
+    return key ? [key] : []
   }
 
   // ---- S1: files in ---------------------------------------------------------
@@ -1412,6 +1604,7 @@ export function KantanWizard({
     setPendingRestore(null)
     setPickError('')
     setErrMsg('')
+    setResumeFailed(null)
     setGateNeedsFiles(false)
     setJobNotice('')
     setInspectErr('')
@@ -1441,17 +1634,15 @@ export function KantanWizard({
       return
     }
 
-    // Best-effort resume: a restored skeleton + a re-drop of the same-kind
-    // files goes straight back to the gate (with a fresh evidence re-check).
-    if (skeleton && k === kind) {
+    // Best-effort resume: a restored skeleton + a re-drop of THE SAME files
+    // goes straight back to the gate (with a fresh evidence re-check). The file
+    // names have to match: a design written for one file, shown at the gate
+    // over a different one, asks the reader to confirm column names they have
+    // never seen (KZ-A-49). A different file set falls through to a normal
+    // fresh read below.
+    if (skeleton && k === kind && sameFileSet(arr)) {
       setStep(4)
-      setAnnotationsBusy(true)
-      validateSkeleton(arr, skeleton, dialectOverrides)
-        .then(setAnnotations)
-        .catch(() => {
-          /* evidence is enrichment */
-        })
-        .finally(() => setAnnotationsBusy(false))
+      recheckEvidence(arr, skeleton)
       return
     }
 
@@ -1466,6 +1657,7 @@ export function KantanWizard({
     // A fresh (or different) file set: drop everything downstream and inspect.
     setQ1(null)
     setQ2(null)
+    setSharedKey(null)
     setKeptAnswers(false)
     setDialectOverrides({})
     setSkeleton(null)
@@ -1498,6 +1690,8 @@ export function KantanWizard({
     setStats(null)
     setStop(null)
     setNote('')
+    setReflectedNote('')
+    setReflectChanged(null)
     setS6Err('')
     setRefineErr('')
     setFixErr('')
@@ -1558,14 +1752,29 @@ export function KantanWizard({
   const preambleRowCount = preambleSources.reduce((acc, [, d]) => acc + d.skip_rows, 0)
 
   // Q2 applies when a header column looks like a serial-number ID.
-  const idColumn =
-    previews.flatMap((p) => p.header ?? []).find((c) => ID_COLUMN_RE.test(c.trim())) ?? null
+  const idColumn = previews.flatMap((p) => p.header ?? []).find((c) => looksLikeIdColumn(c)) ?? null
   const q2Needed = idColumn !== null
+
+  // Q3 applies when several tables were dropped and they share a column name.
+  // Whether the same value means the same thing across files is knowledge only
+  // the person who ran the experiments has — the detail tier asks for it in its
+  // own field, and this tier asked nobody, leaving a weak model to guess
+  // (DETAIL-GAP-19). Optional: it never blocks 「この内容で進む」.
+  const tableHeaders = previews.map((p) => p.header).filter((h): h is string[] => !!h && h.length > 0)
+  const sharedColumns =
+    tableHeaders.length > 1
+      ? tableHeaders[0]
+          .map((c) => c.trim())
+          .filter(
+            (c) => c !== '' && tableHeaders.every((h) => h.some((x) => x.trim() === c)),
+          )
+      : []
+  const q3Needed = sharedColumns.length > 0
 
   const questionsAnswered = (!q1Needed || q1 !== null) && (!q2Needed || q2 !== null)
   // How many of the two S2 questions this file actually raises — the lead line
   // states this number instead of always promising two (KZ-A-11).
-  const askCount = (q1Needed ? 1 : 0) + (q2Needed ? 1 : 0)
+  const askCount = (q1Needed ? 1 : 0) + (q2Needed ? 1 : 0) + (q3Needed ? 1 : 0)
 
   function answerQ1(a: Q1Answer) {
     setQ1(a)
@@ -1651,6 +1860,7 @@ export function KantanWizard({
     setAnnotations(null)
     setQ1(null)
     setQ2(null)
+    setSharedKey(null)
     setDialectOverrides({})
     setErrMsg('')
     setJobNotice('')
@@ -1681,7 +1891,7 @@ export function KantanWizard({
       jobRef.current = await proposeSkeleton(
         files,
         domain,
-        [],
+        composedFks(),
         getActiveCredentials(),
         {
           onStart: (jobId) => saveKantanJob({ jobId, kind: 'skeleton' }),
@@ -1723,21 +1933,36 @@ export function KantanWizard({
 
   // ---- S4: the row-counting gate → continue ----------------------------------
 
+  /** Whether a re-drop is the SAME file set this design was written against.
+   *  Compared by name, order-insensitively; with nothing remembered (an old
+   *  snapshot) the answer is yes, exactly as before (KZ-A-49). */
+  function sameFileSet(arr: File[]): boolean {
+    if (sourceNames.length === 0) return true
+    const key = (names: string[]) => [...names].sort().join(' ')
+    return key(sourceNames.map((f) => f.name)) === key(arr.map((f) => f.name))
+  }
+
+  /** Re-run the deterministic row-ID check (no LLM) and remember whether it
+   *  came back. Evidence is enrichment — a failure never blocks editing — but
+   *  it must be visible, or the gate quietly loses the ✓/⚠ column that K7 asks
+   *  the human to read (GATE-30). */
+  function recheckEvidence(fs: File[], target: MappingSkeleton, sid?: string | null) {
+    setAnnotationsBusy(true)
+    setAnnotationsFailed(false)
+    validateSkeleton(fs, target, dialectOverrides, sid)
+      .then((a) => setAnnotations(a))
+      .catch(() => setAnnotationsFailed(true))
+      .finally(() => setAnnotationsBusy(false))
+  }
+
   // A human edit re-checks the evidence server-side (no LLM) after a short
   // debounce — same contract as the detail tier's onSkeletonEdited.
   function onSkeletonEdited(edited: MappingSkeleton) {
     setSkeleton(edited)
     if (revalidateTimer.current !== null) window.clearTimeout(revalidateTimer.current)
     if (!hasSource) return // nothing to check against (gate shows a hint)
-    revalidateTimer.current = window.setTimeout(async () => {
-      setAnnotationsBusy(true)
-      try {
-        setAnnotations(await validateSkeleton(files, edited, dialectOverrides, stagingId))
-      } catch {
-        // Evidence is enrichment — a failed re-check never blocks editing.
-      } finally {
-        setAnnotationsBusy(false)
-      }
+    revalidateTimer.current = window.setTimeout(() => {
+      recheckEvidence(files, edited, stagingId)
     }, 700)
   }
 
@@ -1781,13 +2006,7 @@ export function KantanWizard({
       .then((r) => setStagingId(r.stagingId))
       .catch(() => setStagingId(null))
     if (!skeleton) return
-    setAnnotationsBusy(true)
-    validateSkeleton(arr, skeleton, dialectOverrides)
-      .then(setAnnotations)
-      .catch(() => {
-        /* evidence is enrichment — the gate stays usable without it */
-      })
-      .finally(() => setAnnotationsBusy(false))
+    recheckEvidence(arr, skeleton)
   }
 
   async function runContinue() {
@@ -1811,7 +2030,7 @@ export function KantanWizard({
         files,
         skeleton,
         composedDomain(),
-        [],
+        composedFks(),
         getActiveCredentials(),
         {
           onStart: (jobId) => saveJob(jobId),
@@ -1957,7 +2176,7 @@ export function KantanWizard({
           // deterministic-phrase classifier (so "a column that isn't in your
           // file" is named, not counted).
           const issueLines = issuePlainLines([
-            ...result.warnings,
+            ...countableWarnings(result.warnings),
             ...(result.validation_issues ?? []),
           ])
           setDesignStop({
@@ -2017,7 +2236,10 @@ export function KantanWizard({
           setStop({ kind: 'files', detail: '' })
           return
         }
-        setPipePhase('save')
+        // Its own phase: a big instrument export uploads for a while, and
+        // saying "設計を保存しています" through all of it named the wrong step
+        // for exactly as long as the wait was worst (KZ-A-50).
+        setPipePhase('attach')
         try {
           // The staged copy is consumed here (it becomes the dataset's
           // source/); the files in this tab are the fallback.
@@ -2098,6 +2320,21 @@ export function KantanWizard({
 
   // ---- S6: the column-meaning review (human gate ②) --------------------------
 
+  /** What the S6 table says about each of the user's own columns, keyed by the
+   *  column heading (the one name that survives a redesign — map ids and term
+   *  identifiers do not). Used to tell an applied note from an ignored one. */
+  function columnMeanings(r: DatasetRules | null): Map<string, string> {
+    const out = new Map<string, string>()
+    for (const m of r?.maps ?? []) {
+      for (const p of m.properties) {
+        if (p.kind !== 'reference' || !p.reference) continue
+        const label = p.label || r?.labels?.[p.predicate_iri] || ''
+        out.set(p.reference, `${label}${p.unit ?? ''}`)
+      }
+    }
+    return out
+  }
+
   async function loadS6(datasetId: string) {
     setS6Loading(true)
     setS6Err('')
@@ -2108,6 +2345,21 @@ export function KantanWizard({
       ])
       setRules(r)
       setStats(s)
+      // Coming back from "AI に反映して作り直す": say which columns actually
+      // moved. A weak model that ignored the note used to return a table that
+      // looks exactly the same, and the only way to find out was to type the
+      // sentence again (KZ-B-29).
+      const before = rulesBeforeReflect.current
+      if (before) {
+        rulesBeforeReflect.current = null
+        const was = columnMeanings(before)
+        const now = columnMeanings(r)
+        const changed = new Set<string>()
+        for (const [column, meaning] of now) {
+          if (!was.has(column) || was.get(column) !== meaning) changed.add(column)
+        }
+        setReflectChanged(changed)
+      }
     } catch (e) {
       setS6Err(errText(e))
     } finally {
@@ -2121,9 +2373,24 @@ export function KantanWizard({
   // gate: its exits are "looks right → publish" and "something is off → back
   // to the column meanings".
 
+  /** The dataset's own names for its kinds and terms. S7/S8/S9 can be entered
+   *  directly (a reload, a restored snapshot) without ever passing through S6,
+   *  and without these the very same kind that read 「測定」 on the review screen
+   *  comes back as `Measurement` on the publish confirmation (KZ-B-08 /
+   *  KZ-B-35). Enrichment: a failure leaves the existing fallbacks in place. */
+  function ensureRules(datasetId: string) {
+    if (rules) return
+    void getDatasetRules(datasetId)
+      .then(setRules)
+      .catch(() => {
+        /* names fall back to the readable identifier, as before */
+      })
+  }
+
   async function loadS7(datasetId: string) {
     setTrialLoading(true)
     setTrialErr('')
+    ensureRules(datasetId)
     try {
       setTrial(await fetchTrialQueries(datasetId))
     } catch (e) {
@@ -2135,6 +2402,8 @@ export function KantanWizard({
 
   // S6 確定 → straight into S7 with the queries already running.
   function confirmMeanings() {
+    setReflectedNote('')
+    setReflectChanged(null)
     setResumed(false)
     setReturnedFromDetail(false)
     setConfirmed(true)
@@ -2173,13 +2442,7 @@ export function KantanWizard({
     setSkeleton(gateSkeleton)
     setAnnotations(null)
     setStep(4)
-    setAnnotationsBusy(true)
-    validateSkeleton(files, gateSkeleton, dialectOverrides, stagingId)
-      .then(setAnnotations)
-      .catch(() => {
-        /* evidence is enrichment */
-      })
-      .finally(() => setAnnotationsBusy(false))
+    recheckEvidence(files, gateSkeleton, stagingId)
   }
 
   /** The name of one item, in this order: the reviewed IR label (K8) → the
@@ -2276,8 +2539,9 @@ export function KantanWizard({
         tr.samples.label ?? (tr.samples.class_iri ? classLabel(tr.samples.class_iri) : null)
       out.push({
         q: label ? t('kantan:s7.qSamples', { label }) : t('kantan:s7.qSamplesAny'),
-        a: tr.samples.iris.map((iri) => localName(iri)).join(join),
+        a: tr.samples.iris.map((iri) => readableId(iri)).join(join),
         citeIri: tr.samples.iris[0],
+        citeIsList: true,
         sparql: tr.samples.sparql,
       })
     }
@@ -2307,6 +2571,7 @@ export function KantanWizard({
   async function loadS8(datasetId: string) {
     setS8Loading(true)
     setPubErr('')
+    ensureRules(datasetId) // the counts card names kinds, so it needs the labels
     if (!pubName.trim()) setPubName(derivePublishName())
     // Display material only: the counts card may already be loaded (S6), and
     // the word summary is enrichment — its absence never blocks publishing.
@@ -2510,6 +2775,11 @@ export function KantanWizard({
   async function runRefine() {
     const trimmed = note.trim()
     if (!trimmed) return
+    // Keep the table as it stands and the sentence being sent, so the screen
+    // that comes back can say which columns actually moved (KZ-B-29).
+    rulesBeforeReflect.current = rules
+    setReflectedNote(trimmed)
+    setReflectChanged(null)
     await startRefineChain([t('kantan:s6.refineWrap', { note: trimmed })], 'note')
   }
 
@@ -2568,19 +2838,13 @@ export function KantanWizard({
   }
 
   function openDetail() {
-    // The WB_STORAGE handoff snapshot is already written (effect above). The
-    // kantan snapshot STAYS — switching tiers is a look, not a goodbye: coming
-    // back must reopen the same screen rather than an empty drop zone that
-    // reads as "everything is gone" (DETAIL-GAP-04). The flag is written
-    // synchronously (this component unmounts on the very next render, so a
-    // state update would never reach the persist effect).
-    try {
-      const raw = sessionStorage.getItem(KZ_STORAGE)
-      const current = raw ? (JSON.parse(raw) as Partial<KantanSnapshot>) : {}
-      sessionStorage.setItem(KZ_STORAGE, JSON.stringify({ ...current, handedToDetail: true }))
-    } catch {
-      /* non-fatal */
-    }
+    // Write the WB_STORAGE handoff snapshot now — crossing over is the moment
+    // it becomes true, and the only moment at which replacing whatever the
+    // detail tier had is what the reader asked for (DETAIL-GAP-V3).
+    if (!writeDetailHandoff()) return
+    // The kantan snapshot STAYS — switching tiers is a look, not a goodbye:
+    // coming back must reopen the same screen rather than an empty drop zone
+    // that reads as "everything is gone" (DETAIL-GAP-04).
     onHandoffToDetail()
   }
 
@@ -2647,9 +2911,12 @@ export function KantanWizard({
     setAnnotations(null)
     setQ1(null)
     setQ2(null)
+    setSharedKey(null)
+    setPreHint('')
     setDialectOverrides({})
     setProposal('')
     setErrMsg('')
+    setResumeFailed(null)
     setJobNotice('')
     resetPipelineState()
     // Re-arm the redesign seed: a LATER 見直す on the same dataset must seed
@@ -2734,6 +3001,9 @@ export function KantanWizard({
   const trialFailed = !trialLoading && (!!trialErr || (trial !== null && !trial.available))
   // The questions ran and found NOTHING: an empty draft (KZ-B-33).
   const trialEmpty = !trialLoading && !!trial?.available && trialQAs.length === 0
+  // The name this data now carries in the public list (S8 renames before it
+  // promotes, so by S9 the two agree; the edited field is the fallback).
+  const publishedName = (kzDatasetName ?? pubName).trim()
   // One published record to hand to someone else (S9's "show this to people").
   const shareIri = published ? (trialQAs.find((qa) => qa.citeIri)?.citeIri ?? null) : null
   // "Back to the row counting" is offered only when it can actually re-run:
@@ -2743,6 +3013,19 @@ export function KantanWizard({
   // S8: word summary (structural terms are plumbing, not words) + plain error.
   const words = alignment ? alignmentWordSplit(alignment) : null
   const pubPlain = pubErr ? plainError(pubErr) : null
+  const pubHint = pubPlain?.hint
+  // The shared plain bodies were written for the S5 stop card and name ITS
+  // exits ("AI に直してもらう", "詳細モードで確認", "最初からやり直す"). On the
+  // publish screen only the ones whose button is actually present may be
+  // reused — the rest get a body that names a move this screen can make
+  // (KZ-B-14). 'restart' keeps its own sentence because the button is added
+  // below alongside it.
+  const pubBodyKey =
+    pubHint === 'settings' || pubHint === 'meanings' || pubHint === 'restart'
+      ? pubPlain?.body
+      : pubHint === 'fix'
+        ? 'kantan:s8.failedDesignBody'
+        : 'kantan:s8.failedBody'
 
   // Stop-card plain-language translation (#7): only the HTTP-error kinds carry a
   // raw technical detail worth translating. The design / files / interrupted
@@ -2753,6 +3036,9 @@ export function KantanWizard({
       : null
   const stopHint = stopPlain?.hint
   const aiFixable = stopAllowsAiFix(stop)
+  // Which stops detail mode can actually help with: the ones about the DESIGN.
+  const showOpenDetail =
+    stop?.kind === 'design' || stop?.kind === 'weakness' || stopPlain?.hint === 'fix'
   // Whether a more specific primary already exists — retry is then demoted to a
   // secondary (ghost) button so a card never shows two filled CTAs.
   const stopPrimaryElsewhere =
@@ -2769,6 +3055,10 @@ export function KantanWizard({
   // Only the settings key-holder can act on "check the AI setup" (ADR K5: the
   // model is not this tier's decision when the administrator owns the key).
   const canOpenAiSettings = !activeUsesServerKey
+  const showAiSetupExit =
+    canOpenAiSettings && !!stopPlain?.title && AI_SETUP_TITLES.has(stopPlain.title)
+  // …so the stop card's quieter second row is never an empty flex box.
+  const showMinorActions = stopHint !== 'restart' || showOpenDetail || showAiSetupExit
 
   // The S3/S4 job failure, in the same plain vocabulary as the S5 stop card.
   const jobPlain = errMsg ? plainError(errMsg) : null
@@ -2929,6 +3219,10 @@ export function KantanWizard({
             </span>
           </div>
           <p className="kz-note">{t('kantan:redesign.bannerNote')}</p>
+          {/* The button above opens the specialists' screen. Unsaid, it is a
+              door people either never open or open and get lost behind
+              (DETAIL-GAP-09). */}
+          <p className="kz-note">{t('kantan:redesign.structuralNote')}</p>
         </section>
       )}
 
@@ -2964,8 +3258,14 @@ export function KantanWizard({
               {t('kantan:redesign.findingsDismiss')}
             </button>
           </div>
-          {!isReady && <p className="kz-note">{t('kantan:s1.aiNotReady')}</p>}
-          {fixErr && <FixFailure raw={fixErr} plainBody={plainBody(fixErr)} />}
+          {!isReady && <AiNotReadyNote onConnect={() => openSettings('ai')} />}
+          {fixErr && (
+            <FixFailure
+              raw={fixErr}
+              plainBody={plainBody(fixErr)}
+              onOpenAiSettings={canOpenAiSettings ? () => openSettings('ai') : undefined}
+            />
+          )}
           <details className="kz-carried-raw">
             <summary>{t('gallery:advisory.rawSummary')}</summary>
             <ul className="kz-stop-plainlist">
@@ -3054,7 +3354,13 @@ export function KantanWizard({
           {aiFixCount >= 2 && aiFixable && !fixStuck && (
             <p className="kz-note">{t('kantan:s5.fix.attemptedHint')}</p>
           )}
-          {aiFixable && fixErr && <FixFailure raw={fixErr} plainBody={plainBody(fixErr)} />}
+          {aiFixable && fixErr && (
+            <FixFailure
+              raw={fixErr}
+              plainBody={plainBody(fixErr)}
+              onOpenAiSettings={canOpenAiSettings ? () => openSettings('ai') : undefined}
+            />
+          )}
           {/* The same findings came back after an AI fix: saying so — and
               stepping the button down — is what stops the endless retry
               (WEAK-MODEL-24). */}
@@ -3133,35 +3439,55 @@ export function KantanWizard({
                 {t('kantan:s5.stop.retry')}
               </button>
             )}
-            {/* #9 escape hatch: always available (secondary), unless it is
-                already the primary above (the 404 case). */}
-            {stopHint !== 'restart' && (
-              <button type="button" className="btn btn--ghost btn--sm" onClick={restartFromScratch}>
-                {t('kantan:s5.stop.restart')}
-              </button>
-            )}
-            <button
-              type="button"
-              className={fixStuck ? undefined : 'btn btn--ghost'}
-              onClick={openDetail}
-            >
-              {t('kantan:s5.stop.openDetail')}
-            </button>
-            {/* The failures that ARE about the AI setup, offered only to whoever
-                can change it — with an administrator's key there is nothing for
-                the reader to do here (ADR K5). */}
-            {canOpenAiSettings && stopPlain?.title && AI_SETUP_TITLES.has(stopPlain.title) && (
-              <button
-                type="button"
-                className="btn btn--ghost btn--sm"
-                onClick={() => openSettings('ai')}
-              >
-                {t('kantan:s1.openSettings')}
-              </button>
-            )}
           </div>
+          {/* Second row, deliberately quieter. K11 gives this card two real
+              exits (fix / go on); four equal-weight buttons made the actual
+              decision one of four (KZ-A-27). */}
+          {showMinorActions && (
+            <div className="kz-actions">
+              {/* #9 escape hatch: always available, unless it is already the
+                  primary above (the 404 case). */}
+              {stopHint !== 'restart' && (
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--sm"
+                  onClick={restartFromScratch}
+                >
+                  {t('kantan:s5.stop.restart')}
+                </button>
+              )}
+              {/* Detail mode is the second of K11's two exits — but only for
+                  the stops it can DO anything about. Sending someone into the
+                  specialists' screen over an unreachable server or a missing
+                  access code is a detour with no exit (DETAIL-GAP-20). */}
+              {showOpenDetail && (
+                <button
+                  type="button"
+                  className={fixStuck ? undefined : 'btn btn--ghost btn--sm'}
+                  onClick={openDetail}
+                >
+                  {t('kantan:s5.stop.openDetail')}
+                </button>
+              )}
+              {/* The failures that ARE about the AI setup, offered only to
+                  whoever can change it — with an administrator's key there is
+                  nothing for the reader to do here (ADR K5). */}
+              {showAiSetupExit && (
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--sm"
+                  onClick={() => openSettings('ai')}
+                >
+                  {t('kantan:s1.openSettings')}
+                </button>
+              )}
+            </div>
+          )}
+          {/* The primary exit is disabled because no AI is connected. Saying
+              why without saying where to go leaves the card with one working
+              exit out of two (KZ-A-46). */}
           {(aiFixable || stop.kind === 'refineTruncated') && !isReady && (
-            <p className="kz-note">{t('kantan:s1.aiNotReady')}</p>
+            <AiNotReadyNote onConnect={() => openSettings('ai')} />
           )}
           {jobNotice && (
             <p className="job-cancelled-note" role="status">
@@ -3171,7 +3497,18 @@ export function KantanWizard({
         </section>
       ) : showS5 ? (
         <section className="kz-card">
-          <h3 className="kz-title">{t('kantan:s5.title')}</h3>
+          {/* The live line below says "AI が設計を直しています" while the heading
+              said "列の意味を調べ…": two different claims about the same moment
+              (KZ-A-18). */}
+          <h3 className="kz-title">
+            {t(
+              refining === 'fix'
+                ? 'kantan:s5.titleFixing'
+                : refining === 'note'
+                  ? 'kantan:s5.titleReflecting'
+                  : 'kantan:s5.title',
+            )}
+          </h3>
           {refining ? (
             <JobProgress
               label={
@@ -3192,14 +3529,15 @@ export function KantanWizard({
                   </span>
                   {t('kantan:s5.meanings')}
                 </p>
-                {autoFixed && (
-                  <p className="kz-live-line done">
-                    <span className="kz-live-mark" aria-hidden="true">
-                      ✓
-                    </span>
-                    {t('kantan:s5.quality')}
-                  </p>
-                )}
+                {/* Always said: the checks ran either way, and hiding the line
+                    on the happy path made the ADR's S5 narration disappear on
+                    exactly the runs that went well (KZ-A-17). */}
+                <p className="kz-live-line done">
+                  <span className="kz-live-mark" aria-hidden="true">
+                    ✓
+                  </span>
+                  {t(autoFixed ? 'kantan:s5.quality' : 'kantan:s5.qualityChecked')}
+                </p>
                 <p className="kz-live-line active">
                   <span className="kz-live-mark" aria-hidden="true">
                     <span className="spinner" />
@@ -3208,9 +3546,11 @@ export function KantanWizard({
                       five-digit number reads as "rows of my file" (K12). */}
                   {pipePhase === 'save'
                     ? t('kantan:s5.saving')
-                    : uploadPct !== null && up?.total
-                      ? t('kantan:s5.ingestingCount', { pct: uploadPct })
-                      : t('kantan:s5.ingesting')}
+                    : pipePhase === 'attach'
+                      ? t('kantan:s5.attaching')
+                      : uploadPct !== null && up?.total
+                        ? t('kantan:s5.ingestingCount', { pct: uploadPct })
+                        : t('kantan:s5.ingesting')}
                 </p>
                 {uploadPct !== null && (
                   <div className="ingest-progress-track">
@@ -3237,7 +3577,13 @@ export function KantanWizard({
                   tab's own call. Say which of the two is true right now — and,
                   for the safe one, where to come back to (RESUME-05). */}
               <p className="kz-note">
-                {t(pipePhase === 'ingest' ? 'kantan:s5.closeNote' : 'kantan:s5.savingNote')}
+                {t(
+                  pipePhase === 'ingest'
+                    ? 'kantan:s5.closeNote'
+                    : pipePhase === 'attach'
+                      ? 'kantan:s5.attachingNote'
+                      : 'kantan:s5.savingNote',
+                )}
               </p>
             </>
           )}
@@ -3287,7 +3633,7 @@ export function KantanWizard({
                 <div key={i} className="kz-qa">
                   <div className="kz-qa-q">{qa.q}</div>
                   <div className="kz-qa-a">{qa.a}</div>
-                  {qa.citeIri && (
+                  {qa.citeIri && !qa.citeIsList && (
                     // The citation the whole screen exists to show — opened HERE,
                     // not as a link. S7 runs on the still-unpublished draft, and
                     // the citation landing page only answers for published data,
@@ -3350,7 +3696,11 @@ export function KantanWizard({
               onClick={goPublish}
               disabled={trialLoading}
             >
-              {trialEmpty ? t('kantan:s7.okAnyway') : t('kantan:s7.ok')}
+              {trialFailed
+                ? t('kantan:s7.okNoTrial')
+                : trialEmpty
+                  ? t('kantan:s7.okAnyway')
+                  : t('kantan:s7.ok')}
             </button>
             <button
               type="button"
@@ -3418,7 +3768,17 @@ export function KantanWizard({
               <span className="kz-kv-key">{t('kantan:s8.contentLabel')}</span>
               <span>{t('kantan:s7.aCountAny', { n: trial.entities.n.toLocaleString() })}</span>
             </div>
-          ) : null}
+          ) : (
+            // K10 asks this one screen to say WHAT is being published. When
+            // neither count could be read, saying so is the honest version —
+            // an absent row reads as "there is nothing to say" (KZ-B-16).
+            !s8Loading && (
+              <div className="kz-kv">
+                <span className="kz-kv-key">{t('kantan:s8.contentLabel')}</span>
+                <span>{t('kantan:s8.contentUnknown')}</span>
+              </div>
+            )
+          )}
           {words && (
             <div className="kz-kv">
               <span className="kz-kv-key">{t('kantan:s8.wordsLabel')}</span>
@@ -3456,7 +3816,7 @@ export function KantanWizard({
               <p className="kz-note kz-pub-err">
                 {pubPlain?.title ? t(pubPlain.title) : t('kantan:s8.failed')}
               </p>
-              {pubPlain && <p className="kz-note">{t(pubPlain.body, pubPlain.vars)}</p>}
+              {pubBodyKey && <p className="kz-note">{t(pubBodyKey, pubPlain?.vars)}</p>}
               <details className="kz-stop-detail">
                 <summary>{t('kantan:s5.stop.detailSummary')}</summary>
                 <pre className="error">{pubErr}</pre>
@@ -3473,14 +3833,21 @@ export function KantanWizard({
                 ? t('kantan:s8.publishing')
                 : t(redesigning ? 'kantan:s8.publishUpdate' : 'kantan:s8.publish')}
             </button>
-            {pubPlain?.hint === 'settings' && (
+            {pubHint === 'settings' && (
               <button type="button" onClick={() => openSettings('server-token')}>
                 {t('kantan:s1.openSettings')}
               </button>
             )}
+            {/* The record this screen is about is gone — "publish" can only
+                fail again, so the sentence's own advice gets its button. */}
+            {pubHint === 'restart' && (
+              <button type="button" onClick={restartFromScratch} disabled={publishing}>
+                {t('kantan:s5.stop.restart')}
+              </button>
+            )}
             {/* Publishing was refused because nothing is in the draft yet —
                 pressing publish again cannot change that (BACKEND-TEXT-29). */}
-            {pubPlain?.hint === 'meanings' && (
+            {pubHint === 'meanings' && (
               <button type="button" onClick={() => setStep(6)} disabled={publishing}>
                 {t('kantan:s8.backToMeanings')}
               </button>
@@ -3501,7 +3868,14 @@ export function KantanWizard({
       ) : step === 9 ? (
         <section className="kz-card kz-done">
           <h3 className="kz-done-title">
-            ✓ {t(redesigning ? 'kantan:s9.titleUpdate' : 'kantan:s9.title')}
+            {/* Which data? Someone adding several sets in a row cannot tell
+                from "公開しました" alone (KZ-B-35). */}
+            ✓{' '}
+            {publishedName
+              ? t(redesigning ? 'kantan:s9.titleUpdateNamed' : 'kantan:s9.titleNamed', {
+                  name: publishedName,
+                })
+              : t(redesigning ? 'kantan:s9.titleUpdate' : 'kantan:s9.title')}
           </h3>
           {onOpenAsk && trialQAs.length > 0 && (
             <>
@@ -3691,6 +4065,19 @@ export function KantanWizard({
               )}
             </>
           )}
+          {/* Did the sentence you sent actually change anything? Without this
+              an ignored note and an applied one look identical, and the only
+              way to find out is to send it again (KZ-B-29). */}
+          {reflectedNote !== '' && reflectChanged !== null && !s6Loading && (
+            <p className="kz-note">
+              {reflectChanged.size > 0
+                ? t('kantan:s6.reflectApplied', {
+                    note: reflectedNote,
+                    n: reflectChanged.size,
+                  })
+                : t('kantan:s6.reflectNoChange', { note: reflectedNote })}
+            </p>
+          )}
           {s6Maps.map((m) => {
             const refs = m.properties.filter((p) => p.kind === 'reference')
             if (refs.length === 0) return null
@@ -3731,6 +4118,9 @@ export function KantanWizard({
                             <td>
                               {meaning || t('kantan:s6.meaningUnknown')}
                               {missing && ' ⚠'}
+                              {reflectChanged?.has(p.reference ?? '') && (
+                                <span className="kz-map-note"> {t('kantan:s6.updatedBadge')}</span>
+                              )}
                             </td>
                             <td>{p.unit ?? ''}</td>
                             <td className="kz-cols-samples">{samples.join('、')}</td>
@@ -3838,6 +4228,19 @@ export function KantanWizard({
                     </button>
                   </div>
                 )}
+                {canOpenAiSettings &&
+                  refinePlain?.title &&
+                  AI_SETUP_TITLES.has(refinePlain.title) && (
+                    <div className="kz-actions">
+                      <button
+                        type="button"
+                        className="btn btn--ghost btn--sm"
+                        onClick={() => openSettings('ai')}
+                      >
+                        {t('kantan:s1.openSettings')}
+                      </button>
+                    </div>
+                  )}
               </div>
             )}
           </div>
@@ -3924,6 +4327,41 @@ export function KantanWizard({
                   <pre className="error">{inspectErr}</pre>
                 </details>
               </div>
+            )}
+            {/* Sent back here because the AI run that was in flight could not be
+                picked up (the api restarted). Without this the previous work
+                just vanishes and the drop zone gives no reason at all
+                (BACKEND-TEXT-30). */}
+            {resumeFailed !== null && (
+              <div role="alert">
+                <p className="kz-title">{t('kantan:s1.resumeFailedTitle')}</p>
+                <p className="kz-note">{t('kantan:s1.resumeFailedBody')}</p>
+                {resumeFailed !== '' && (
+                  <details className="kz-stop-detail">
+                    <summary>{t('kantan:s5.stop.detailSummary')}</summary>
+                    <pre className="error">{resumeFailed}</pre>
+                  </details>
+                )}
+              </div>
+            )}
+            {/* A job failure or a cancellation can also land on this screen —
+                say so in the same plain shape the later steps use (KZ-A-40). */}
+            {errMsg && (
+              <div role="alert">
+                <p className="kz-title">
+                  {jobPlain?.title ? t(jobPlain.title) : t('kantan:s3.failed')}
+                </p>
+                {jobPlain && <p className="kz-note">{t(jobPlain.body, jobPlain.vars)}</p>}
+                <details className="kz-stop-detail">
+                  <summary>{t('kantan:s5.stop.detailSummary')}</summary>
+                  <pre className="error">{errMsg}</pre>
+                </details>
+              </div>
+            )}
+            {jobNotice && (
+              <p className="job-cancelled-note" role="status">
+                {jobNotice}
+              </p>
             )}
           </section>
           {kind === 'document' && (
@@ -4099,6 +4537,61 @@ export function KantanWizard({
               </div>
             </div>
           )}
+          {q3Needed && (
+            <div className="kz-q">
+              <p className="kz-q-text">
+                {sharedColumns.length === 1
+                  ? t('kantan:s2.q3One', { column: sharedColumns[0] })
+                  : t('kantan:s2.q3Many')}
+              </p>
+              <div className="kz-q-options">
+                {sharedColumns.length === 1 ? (
+                  <button
+                    type="button"
+                    className={`kz-pill${sharedKey === sharedColumns[0] ? ' selected' : ''}`}
+                    onClick={() => setSharedKey(sharedColumns[0])}
+                  >
+                    {t('kantan:s2.q3Yes')}
+                  </button>
+                ) : (
+                  sharedColumns.map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      className={`kz-pill${sharedKey === c ? ' selected' : ''}`}
+                      onClick={() => setSharedKey(c)}
+                    >
+                      {c}
+                    </button>
+                  ))
+                )}
+                <button
+                  type="button"
+                  className={`kz-pill${sharedKey === '' ? ' selected' : ''}`}
+                  onClick={() => setSharedKey('')}
+                >
+                  {t(sharedColumns.length === 1 ? 'kantan:s2.q3No' : 'kantan:s2.q3None')}
+                </button>
+              </div>
+            </div>
+          )}
+          {/* The abbreviations, units and intents only the person who made the
+              measurements knows. Said here it shapes the FIRST design; said at
+              S6 it costs another AI round (DETAIL-GAP-11). Never a gate. */}
+          <div className="kz-q">
+            <label className="kz-q-text" htmlFor="kz-s2-hint">
+              {t('kantan:s2.hintLabel')}
+            </label>
+            <textarea
+              id="kz-s2-hint"
+              className="kz-s6-note"
+              rows={2}
+              placeholder={t('kantan:s6.notePlaceholder')}
+              value={preHint}
+              onChange={(e) => setPreHint(e.target.value)}
+            />
+            <p className="kz-note">{t('kantan:s2.hintNote')}</p>
+          </div>
           <div className="kz-actions">
             <button
               type="button"
@@ -4179,6 +4672,24 @@ export function KantanWizard({
             <p className="kz-note" role="status">
               {t('kantan:s4.needFiles')}
             </p>
+          )}
+          {/* K7 asks the human to read the ✓/⚠ column. When the check itself
+              could not run, the column is simply absent — which reads as "no
+              problems found" (GATE-30). */}
+          {skeleton && annotationsFailed && !annotationsBusy && (
+            <div className="kz-q" role="status">
+              <p className="kz-note">{t('kantan:s4.evidenceFailed')}</p>
+              <div className="kz-actions">
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--sm"
+                  onClick={() => recheckEvidence(files, skeleton, stagingId)}
+                  disabled={!hasSource}
+                >
+                  {t('kantan:s4.evidenceRetry')}
+                </button>
+              </div>
+            </div>
           )}
           {skeleton && (
             <SkeletonGate
@@ -4302,11 +4813,40 @@ function CopyIdButton({ iri, labelKey }: { iri: string; labelKey?: string }) {
   )
 }
 
+/** "No AI is connected" wherever a primary button depends on one: the sentence
+ *  AND the one screen that fixes it. The sentence on its own left the card with
+ *  a disabled primary and nowhere to go (KZ-A-46). */
+function AiNotReadyNote({ onConnect }: { onConnect: () => void }) {
+  const { t } = useTranslation()
+  return (
+    <>
+      <p className="kz-note">{t('kantan:s1.aiNotReady')}</p>
+      <div className="kz-actions">
+        <button type="button" className="btn btn--ghost btn--sm" onClick={onConnect}>
+          {t('kantan:s1.connectAi')}
+        </button>
+      </div>
+    </>
+  )
+}
+
 /** An AI fix / reflect that failed: a plain headline, the plain reason, and the
  *  raw server text folded away — never the English string as the message
  *  (BACKEND-TEXT-08 / KZ-B-11 / KZ-B-10). */
-function FixFailure({ raw, plainBody }: { raw: string; plainBody: string }) {
+function FixFailure({
+  raw,
+  plainBody,
+  onOpenAiSettings,
+}: {
+  raw: string
+  plainBody: string
+  /** Present only when the reader is the one who owns the AI key: the bodies of
+   *  the AI-setup families end in "check the AI setup", and that sentence needs
+   *  the way there (WEAK-MODEL-25 / -29). */
+  onOpenAiSettings?: () => void
+}) {
   const { t } = useTranslation()
+  const title = plainError(raw).title
   return (
     <>
       <p className="kz-note">{t('kantan:s5.fix.failed')}</p>
@@ -4315,6 +4855,13 @@ function FixFailure({ raw, plainBody }: { raw: string; plainBody: string }) {
         <summary>{t('kantan:s5.stop.detailSummary')}</summary>
         <pre className="error">{raw}</pre>
       </details>
+      {onOpenAiSettings && title && AI_SETUP_TITLES.has(title) && (
+        <div className="kz-actions">
+          <button type="button" className="btn btn--ghost btn--sm" onClick={onOpenAiSettings}>
+            {t('kantan:s1.openSettings')}
+          </button>
+        </div>
+      )}
     </>
   )
 }
