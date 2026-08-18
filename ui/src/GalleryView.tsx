@@ -2226,11 +2226,12 @@ function AppendControl({
       <div className="ds-subhead">{t('gallery:append.head')}</div>
       <p className="ingest-note">
         {t('gallery:append.note')}
-        {/* Until the server accepts a differently-named batch (it matches the
-            design's source name), the name is the one thing the reader has to
-            get right — so it is said with the actual name, not as a rule. */}
-        {meta.source_files?.length
-          ? ` ${t('gallery:append.noteFilename', { names: meta.source_files.join('、') })}`
+        {/* GAL-A-40: a single-source design now resolves a differently-named
+            batch by its column content (server-side), so the name only still
+            matters for a MULTI-source design (ambiguous which source a lone
+            file continues) — the note is shown only then. */}
+        {(meta.source_files?.length ?? 0) > 1
+          ? ` ${t('gallery:append.noteFilename', { names: meta.source_files!.join('、') })}`
           : ''}
       </p>
       {(meta.append_seq ?? 0) > 0 && (

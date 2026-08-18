@@ -1663,6 +1663,112 @@ def test_append_rejects_mismatched_batch_name_400(tmp_path: Path) -> None:
     assert "does not match any rml:source" in r.json()["detail"]
 
 
+_IR_FOR_RML = (
+    "version: 1\n"
+    "prefixes:\n"
+    '  ex: "https://ex/"\n'
+    "maps:\n"
+    "  - name: paper\n"
+    "    source: papers.csv\n"
+    "    subject:\n"
+    '      template: "ex:paper/{SID}"\n'
+    "    properties:\n"
+    "      - predicate: ex:name\n"
+    "        column: SID\n"
+)
+
+
+def _promoted_feed_dataset_with_ir(tmp: Path) -> tuple[str, str]:
+    """Like :func:`_promoted_feed_dataset` but also carries a Mapping IR
+    (``mapping.yaml``) referencing ``SID`` on its single source (``papers.csv``) —
+    the GAL-A-40 content-check path reads this to prove a differently-named batch
+    is safe to rename."""
+    dataset_id = registry.save_dataset(
+        tmp / "registry",
+        "demo",
+        {
+            "diagram.md": "classDiagram\n  class Paper",
+            "model.yaml": "- Paper:",
+            "mie.yaml": "schema_info:\n  title: x",
+            "ingester.py": "def go(): ...",
+            "mapping.rml.ttl": _RML,
+            "mapping.yaml": _IR_FOR_RML,
+        },
+        complete=True,
+        warnings=[],
+        traps=[],
+        exit_code=0,
+        created_at="2026-06-03T00:00:00+00:00",
+    )["id"]
+    live = substrate.versioned_graph_iri(dataset_id, 1)
+    sdir = tmp / "registry" / dataset_id / "source"
+    sdir.mkdir(parents=True, exist_ok=True)
+    (sdir / "papers.csv").write_bytes(b"SID\n1\n")
+    registry.mark_source_saved(tmp / "registry", dataset_id, ["papers.csv"])
+    registry.mark_ingested(
+        tmp / "registry",
+        dataset_id,
+        graph_iri=live,
+        triple_count=1,
+        ingested_at="2026-06-10T00:00:00+00:00",
+        data_seq=1,
+    )
+    registry.mark_promoted(
+        tmp / "registry",
+        dataset_id,
+        triples_promoted=1,
+        alignment={},
+        promoted_at="2026-06-10T00:01:00+00:00",
+        canonical_graph=substrate.canonical_graph_iri(dataset_id),
+        live_graph=live,
+    )
+    return dataset_id, live
+
+
+def test_append_single_source_renames_by_content_when_columns_match(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """GAL-A-40: an instrument-named batch (not ``papers.csv``) is machine-resolved
+    to the design's one ``rml:source`` when its header carries every column the
+    Mapping IR references — the safety check moves from the NAME to the CONTENT."""
+    dataset_id, live = _promoted_feed_dataset_with_ir(tmp_path)
+    monkeypatch.setattr(substrate, "materialize_to_nt_file", _fake_nt_materializer(triples=1))
+    oxi = _FeedOxi(live)
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            f"/api/datasets/{dataset_id}/append",
+            files={"files": ("papers_20260817.csv", b"SID\n2\n", "text/csv")},
+        )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    # Provenance keeps the instrument's own filename in the append log...
+    assert body["dataset"]["appends"][0]["batch_files"] == ["papers_20260817.csv"]
+    # ...while the persisted source (used for a later snapshot re-ingest) grew
+    # under the design's pinned source name, not the instrument's.
+    src = (tmp_path / "registry" / dataset_id / "source" / "papers.csv").read_text()
+    assert src.splitlines() == ["SID", "1", "2"]
+    assert not (tmp_path / "registry" / dataset_id / "source" / "papers_20260817.csv").exists()
+
+
+def test_append_single_source_column_mismatch_400(tmp_path: Path) -> None:
+    """A batch whose header does NOT carry the design's referenced column(s) is
+    refused with a plain-language, content-specific reason — never silently
+    renamed (that would append rows Morph-KGC cannot actually read)."""
+    dataset_id, live = _promoted_feed_dataset_with_ir(tmp_path)
+    oxi = _FeedOxi(live)
+    app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            f"/api/datasets/{dataset_id}/append",
+            files={"files": ("other_20260817.csv", b"NOT_SID\n2\n", "text/csv")},
+        )
+    assert r.status_code == 400
+    detail = r.json()["detail"]
+    assert "見つからない列" in detail
+    assert "SID" in detail
+
+
 def test_append_unknown_dataset_404(tmp_path: Path) -> None:
     oxi = _RecordingOxi()
     app = build_app(_settings(tmp_path), oxigraph_client=oxi.client, start_watcher=False)

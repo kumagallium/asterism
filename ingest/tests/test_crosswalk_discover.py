@@ -330,6 +330,60 @@ async def test_discover_finds_the_join_across_three_datasets() -> None:
     assert cand["normalizer"] == "identity"
 
 
+async def test_discover_resolves_predicate_and_concept_labels_when_all_agree() -> None:
+    # XW-01: the human word the design chose, not the predicate IRI's local name —
+    # and when every participant agrees on that word, it becomes the concept_label.
+    store = rdflib.Dataset()
+    _seed(store, "ds-a", f"{NS}comp", ["Bi2Te3", "PbTe", "SnSe"])
+    _seed(store, "ds-b", f"{NS}formula", ["Bi2Te3", "PbTe", "ZnO"])
+
+    def labels(dataset_id: str, predicate: str) -> str | None:
+        return "組成" if predicate in (f"{NS}comp", f"{NS}formula") else None
+
+    result = await discover(
+        _DatasetClient(store), _ds("ds-a", "ds-b"), predicate_label_of=labels
+    )
+
+    cand = result["candidates"][0]
+    assert cand["concept_label"] == "組成"
+    assert {p["predicate_label"] for p in cand["participants"]} == {"組成"}
+
+
+async def test_discover_predicate_label_falls_back_to_local_name_when_unresolved() -> None:
+    # No resolver at all (today's behavior) — and a resolver present but returning
+    # nothing for THIS predicate — both fall back to the local name, never a blank.
+    store = rdflib.Dataset()
+    _seed(store, "ds-a", f"{NS}comp", ["Bi2Te3", "PbTe", "SnSe"])
+    _seed(store, "ds-b", f"{NS}formula", ["Bi2Te3", "PbTe", "ZnO"])
+
+    result = await discover(_DatasetClient(store), _ds("ds-a", "ds-b"))
+    cand = result["candidates"][0]
+    assert {p["predicate_label"] for p in cand["participants"]} == {"comp", "formula"}
+    assert cand["concept_label"] == ""
+
+    result2 = await discover(
+        _DatasetClient(store), _ds("ds-a", "ds-b"), predicate_label_of=lambda d, p: None
+    )
+    cand2 = result2["candidates"][0]
+    assert {p["predicate_label"] for p in cand2["participants"]} == {"comp", "formula"}
+    assert cand2["concept_label"] == ""
+
+
+async def test_discover_concept_label_joins_disagreeing_participant_labels() -> None:
+    store = rdflib.Dataset()
+    _seed(store, "ds-a", f"{NS}comp", ["Bi2Te3", "PbTe", "SnSe"])
+    _seed(store, "ds-b", f"{NS}formula", ["Bi2Te3", "PbTe", "ZnO"])
+
+    def labels(dataset_id: str, predicate: str) -> str | None:
+        return {"ds-a": "組成", "ds-b": "化学式"}.get(dataset_id)
+
+    result = await discover(
+        _DatasetClient(store), _ds("ds-a", "ds-b"), predicate_label_of=labels
+    )
+    cand = result["candidates"][0]
+    assert cand["concept_label"] == "組成 / 化学式"
+
+
 async def test_discover_folds_spelling_differences_and_shows_them_as_evidence() -> None:
     # The case the feature exists for: the same composition written two ways. Folding
     # has to actually buy matches (identity finds one, nfkc finds two), and the sample

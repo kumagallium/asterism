@@ -841,6 +841,57 @@ def _crosswalk_label(name: str, dataset_id: str) -> str:
     return slug or dataset_id
 
 
+def _crosswalk_predicate_labels(registry_root: Path, dataset_id: str) -> dict[str, str]:
+    """``{predicate_iri: label}`` for one dataset's design (XW-01/XW-04/XW-06).
+
+    The SAME 2-step chain as the design SSOT: an authored §9 ``label`` (Mapping
+    IR), then the ``model.yaml`` projection's ``rdfs:label`` — nothing else (no
+    column-heading / term-IRI fallback here, unlike S7's fuller ``label_of``):
+    a crosswalk candidate's heading and try-it question must say a word the
+    design actually chose, or say nothing rather than guess one. Best-effort —
+    an unreadable dataset/IR/model.yaml simply contributes no labels.
+    """
+    data = registry.load_dataset(registry_root, dataset_id)
+    artifacts = (data or {}).get("artifacts") or {}
+    labels: dict[str, str] = {}
+    with contextlib.suppress(Exception):
+        labels.update(
+            _model_yaml_labels(
+                str(artifacts.get("model.yaml") or ""),
+                str(artifacts.get("mapping.rml.ttl") or ""),
+                str(artifacts.get("mie.yaml") or ""),
+            )
+        )
+    try:
+        ir_meta = _ir_predicate_display(str(artifacts.get("mapping.yaml") or ""))
+    except Exception:
+        ir_meta = {}
+    for iri, meta in ir_meta.items():
+        lbl = meta.get("label")
+        if lbl:  # the authored label wins over the model.yaml projection
+            labels[iri] = lbl
+    return labels
+
+
+def _crosswalk_predicate_label_resolver(
+    registry_root: Path,
+) -> Callable[[str, str], str | None]:
+    """A cached ``(dataset_id, predicate_iri) -> label|None`` closure for
+    :func:`asterism.crosswalk_discover.discover`'s ``predicate_label_of`` hook —
+    one registry read per dataset touched, however many predicates/candidates
+    reference it (a discovery run reads every participant's predicates)."""
+    cache: dict[str, dict[str, str]] = {}
+
+    def resolve(dataset_id: str, predicate_iri: str) -> str | None:
+        labels = cache.get(dataset_id)
+        if labels is None:
+            labels = _crosswalk_predicate_labels(registry_root, dataset_id)
+            cache[dataset_id] = labels
+        return labels.get(predicate_iri)
+
+    return resolve
+
+
 async def _literal_predicates(client: OxigraphClient, graph_iri: str) -> list[dict]:
     """Literal-valued predicates of a dataset's live graph, with a sample value and a
     usage count (most-used first). The crosswalk AI-assist offers these as candidates
@@ -1800,6 +1851,57 @@ def _dialect_standin_bytes(raw: bytes, dialect: SourceDialect) -> bytes:
     return raw[: len(raw) - len(data)]
 
 
+def _batch_header_columns(content: bytes, dialect: SourceDialect | None) -> set[str]:
+    """The header row's column names for a batch's bytes, read the same way
+    materialization will (GAL-A-40's content check must see what Morph-KGC sees).
+
+    Falls back to a bare comma / ``utf-8-sig`` read when the source has no pinned
+    dialect (today's plain-CSV append path — :data:`asterism.dialect.DEFAULT_DIALECT`
+    is exactly that). Any read failure (bad encoding, empty file, …) returns an
+    empty set, which the caller treats as "every expected column is missing" — the
+    fail-closed direction for a rename decision.
+    """
+    from asterism.dialect import DEFAULT_DIALECT, dialect_rows
+
+    work = Path(tempfile.mkdtemp(prefix="asterism-append-header-"))
+    try:
+        tmp = work / "batch"
+        tmp.write_bytes(content)
+        try:
+            row = next(dialect_rows(tmp, dialect or DEFAULT_DIALECT))
+        except (StopIteration, UnicodeDecodeError, OSError, ValueError):
+            return set()
+        return {c for c in row if c}
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def _expected_columns_for_single_source(
+    mapping_ir_yaml: str, source_name: str
+) -> set[str] | None:
+    """The Mapping IR's referenced columns for the dataset's single ``rml:source``.
+
+    GAL-A-40: before a mismatched batch filename is machine-renamed to the pinned
+    source name, this proves the rename is safe by CONTENT — the design's
+    referenced columns must all be present in the batch's header — rather than
+    trusting the (arbitrary, instrument-chosen) filename alone. Returns ``None``
+    when the IR cannot be read; the caller then refuses the rename (fail-closed).
+    """
+    try:
+        from asterism_step0.mapping_ir import parse_mapping_ir, referenced_columns
+    except Exception:
+        return None
+    try:
+        ir = parse_mapping_ir(mapping_ir_yaml)
+    except Exception:
+        return None
+    matched = [tm for tm in ir.maps if Path(tm.source).name == source_name]
+    cols: set[str] = set()
+    for tm in matched or list(ir.maps):
+        cols.update(referenced_columns(tm))
+    return cols
+
+
 class AppendError(Exception):
     """An append precondition / materialization failure carrying an HTTP status.
 
@@ -1872,6 +1974,12 @@ async def _append_batch_to_dataset(
             "(再取り込み) instead",
         ) from exc
     canonical: list[tuple[str, bytes]] = []
+    # GAL-A-40: the design-source rename below changes what materialization sees,
+    # but the "取り込んだファイル" history must keep showing the file the instrument
+    # actually produced — so provenance names are tracked in parallel, one per
+    # batch entry, and used for ``mark_appended`` instead of the (possibly renamed)
+    # ``canonical`` names.
+    provenance_names: list[str] = []
     for name, content in batch:
         # Canonicalize the SAME way the design entrances do, so a batch dropped
         # under the instrument's original (non-ASCII) filename matches the
@@ -1896,12 +2004,40 @@ async def _append_batch_to_dataset(
                     "シートを 1 つにするか、CSV に変換してから追加してください",
                 )
             cname, content = derived[0]
+        provenance_names.append(cname)  # pre-rename: what the instrument actually named it
         if sources and cname not in sources:
-            raise AppendError(
-                400,
-                f"batch file {cname!r} does not match any rml:source in the mapping "
-                f"(expected one of {sorted(sources)})",
-            )
+            # GAL-A-40: an instrument names each export differently (dates,
+            # run numbers, …) — S9 promises "the same device's files, as-is",
+            # so a single-source design machine-resolves the name instead of
+            # rejecting it. The safety check moves from the NAME to the
+            # CONTENT: the batch's header must carry every column the design
+            # reads before it is accepted under the pinned source name. A
+            # multi-source design stays name-matched (ambiguous which source a
+            # lone file continues) — unchanged from today.
+            if len(sources) == 1:
+                target = next(iter(sources))
+                expected_cols = _expected_columns_for_single_source(
+                    str(data["artifacts"].get("mapping.yaml") or ""), target
+                )
+                if expected_cols is not None:
+                    header_cols = await asyncio.to_thread(
+                        _batch_header_columns, content, dialected.get(target)
+                    )
+                    missing = sorted(expected_cols - header_cols)
+                    if not missing:
+                        cname = target
+                    else:
+                        raise AppendError(
+                            400,
+                            "このファイルは最初のファイルと列が違います"
+                            f"(見つからない列: {'、'.join(missing)})",
+                        )
+            if cname not in sources:
+                raise AppendError(
+                    400,
+                    f"batch file {cname!r} does not match any rml:source in the mapping "
+                    f"(expected one of {sorted(sources)})",
+                )
         canonical.append((cname, content))
     batch = canonical
 
@@ -1986,7 +2122,7 @@ async def _append_batch_to_dataset(
     new_meta = registry.mark_appended(
         registry_root,
         dataset_id,
-        batch_files=[n for n, _ in batch],
+        batch_files=provenance_names,
         source_files=all_files,
         triples_in_batch=triples_in_batch,
         appended_at=datetime.now(UTC).isoformat(),
@@ -5417,6 +5553,42 @@ def build_app(
             raise HTTPException(400, str(exc)) from exc
         return perspective_id
 
+    def _enrich_crosswalk_config_dict(config_dict: dict | None) -> dict | None:
+        """Read-time DISPLAY enrichment for a crosswalk config response
+        (XW-01/XW-04/XW-06): each participant gets the dataset's CURRENT name
+        and a ``predicate_label``, each concept gets a ``concept_label`` —
+        resolved fresh on every read via :func:`_crosswalk_predicate_label_resolver`.
+        The persisted config (ids + predicate IRIs) is never touched, only this
+        response dict — a rename or a redesign is reflected without a migration.
+        """
+        if config_dict is None:
+            return None
+        names = {
+            str(m.get("id")): str(m.get("name") or m.get("id"))
+            for m in registry.list_datasets(cfg.registry_root)
+        }
+        label_of = _crosswalk_predicate_label_resolver(cfg.registry_root)
+        for concept in config_dict.get("concepts") or []:
+            resolved: list[str] = []
+            for p in concept.get("participants") or []:
+                ds_id = str(p.get("dataset_id") or "")
+                if ds_id in names:
+                    p["name"] = names[ds_id]
+                preds = (
+                    [p["predicate"]]
+                    if p.get("predicate")
+                    else list((p.get("predicates") or {}).values())
+                )
+                label = next(
+                    (got for pred in preds if (got := label_of(ds_id, pred))), None
+                )
+                if label:
+                    p["predicate_label"] = label
+                    if label not in resolved:
+                        resolved.append(label)
+            concept["concept_label"] = resolved[0] if len(resolved) == 1 else " / ".join(resolved)
+        return config_dict
+
     def _crosswalk_view(perspective_id: str) -> dict:
         config = crosswalk_runtime.load_config(cfg.registry_root, perspective_id)
         data = registry.load_dataset(
@@ -5425,7 +5597,9 @@ def build_app(
         return {
             "perspective_id": perspective_id,
             "exists": config is not None,
-            "config": crosswalk_runtime.config_to_dict(config) if config else None,
+            "config": _enrich_crosswalk_config_dict(
+                crosswalk_runtime.config_to_dict(config) if config else None
+            ),
             "dataset": data["meta"] if data else None,
         }
 
@@ -5493,7 +5667,9 @@ def build_app(
             out.append(
                 {
                     "perspective_id": pid,
-                    "config": crosswalk_runtime.config_to_dict(config) if config else None,
+                    "config": _enrich_crosswalk_config_dict(
+                        crosswalk_runtime.config_to_dict(config) if config else None
+                    ),
                     "dataset": meta,
                 }
             )
@@ -5551,6 +5727,7 @@ def build_app(
                 skipped_datasets=skipped,
                 progress=lambda phase, payload: emit(phase=phase, **payload),
                 should_cancel=should_cancel,
+                predicate_label_of=_crosswalk_predicate_label_resolver(cfg.registry_root),
             )
             # Building a candidate whose id already exists REPLACES that crosswalk —
             # the UI has to be able to warn before that happens.
