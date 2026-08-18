@@ -1,7 +1,6 @@
-import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { groundSchema, type SchemaTermGrounding } from './groundingApi'
 import { LinkIcon } from './icons'
+import { useSchemaGrounding } from './schemaGrounding'
 
 /**
  * Propose-time DISCOVERY: for each class/predicate the AI design would MINT, show the
@@ -10,30 +9,13 @@ import { LinkIcon } from './icons'
  * informational + deterministic (closed-set, never the LLM's memory); the actual REUSE
  * / ALIGN happens later in the catalog (a human-vetted alignment). Renders nothing when
  * nothing grounds, to keep the review uncluttered.
+ *
+ * This CURIE table is the DETAIL tier's face of the lookup; the simple tier gets the
+ * same candidates as one sentence + a button, off `useSchemaGrounding` (DETAIL-GAP-10).
  */
 export function SchemaGroundingPanel({ proposalMd }: { proposalMd: string }) {
   const { t } = useTranslation()
-  const [terms, setTerms] = useState<SchemaTermGrounding[]>([])
-  const [err, setErr] = useState('')
-
-  useEffect(() => {
-    // setState only inside the async callbacks (never synchronously in the effect body).
-    let off = false
-    groundSchema(proposalMd)
-      .then((r) => {
-        if (off) return
-        setTerms(r)
-        setErr('')
-      })
-      .catch((e) => {
-        if (off) return
-        setTerms([])
-        setErr(e instanceof Error ? e.message : String(e))
-      })
-    return () => {
-      off = true
-    }
-  }, [proposalMd])
+  const { terms, err } = useSchemaGrounding(proposalMd)
 
   if (err) return <p className="grounding-hint schema-grounding-err">{err}</p>
   if (terms.length === 0) return null
