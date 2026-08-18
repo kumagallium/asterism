@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.17.1](https://github.com/kumagallium/asterism/compare/v0.17.0...v0.17.1) - 2026-08-18
+
+- 「AI に直してもらう」が 5 回押しても直らない 4 つの構造欠陥を潰す by @kumagallium in https://github.com/kumagallium/asterism/pull/379
+- YAML 1.2 化の巻き添えで `collapse: no` / `fallback: yes` が新たな設計問題になっていた by @kumagallium in https://github.com/kumagallium/asterism/pull/381
+
 ## [v0.17.0](https://github.com/kumagallium/asterism/compare/v0.16.0...v0.17.0) - 2026-08-17
 
 - feat(desktop): 更新を画面上部のバナーからワンクリックに — Graphium と同じ形 by @kumagallium in https://github.com/kumagallium/asterism/pull/377
