@@ -20,6 +20,9 @@ export interface PlainError {
   body: string
   /** Recovery action to promote; absent → retry stays the primary action. */
   hint?: ErrorHint
+  /** Interpolation values for `body` (e.g. the size limit read out of the
+   *  server's own sentence). Callers pass them straight to `t(body, vars)`. */
+  vars?: Record<string, string | number>
 }
 
 /** Pull the human sentence out of a FastAPI `{"detail":"…"}` body when the raw
@@ -95,6 +98,25 @@ export function plainError(raw: string): PlainError {
   ) {
     return { title: 'kantan:s5.plain.tokenTitle', body: 'kantan:s5.plain.tokenBody', hint: 'settings' }
   }
+  // The file was too big for the upload gate. The limit is read out of the
+  // server's OWN sentence ("exceeds the 1024 MiB limit") rather than duplicated
+  // here, so the two can never drift; without a number the sentence simply
+  // omits it (BACKEND-TEXT-02).
+  if (has('http 413', 'exceeds the', 'too large', 'entity too large')) {
+    const mb = /exceeds the (\d+) mib limit/.exec(hay)?.[1]
+    return mb
+      ? { title: 'kantan:s5.plain.tooLargeTitle', body: 'kantan:s5.plain.tooLargeBody', vars: { mb } }
+      : { title: 'kantan:s5.plain.tooLargeTitle', body: 'kantan:s5.plain.tooLargeBodyNoSize' }
+  }
+  // The characters could not be read: a CSV saved in an encoding this reader
+  // does not accept. Named on the server's deterministic sentence and on the
+  // Python codec error it wraps.
+  if (
+    has('ソースをテキストとして読み取れませんでした') ||
+    (has('decode', 'decoding') && has('codec', 'utf-8', 'utf8', 'byte', 'encoding'))
+  ) {
+    return { title: 'kantan:s5.plain.decodeTitle', body: 'kantan:s5.plain.decodeBody' }
+  }
   // The saved design record vanished (deleted in the catalog meanwhile) — a
   // fresh start is the only clean recovery.
   if (has('http 404', 'not found')) {
@@ -155,6 +177,15 @@ export function plainError(raw: string): PlainError {
     )
   ) {
     return { title: 'kantan:s5.plain.serverTitle', body: 'kantan:s5.plain.serverBody', hint: 'wait' }
+  }
+  // A file the reader could not open at all (unsupported / malformed upload).
+  // Last of the specific families, and deliberately narrow: the status alone
+  // would also swallow a design 422, so the message must be about a SOURCE.
+  if (
+    has('http 400', 'http 415', 'http 422', 'unsupported', 'unreadable') &&
+    has('inspect', 'source', 'file', 'upload', 'ソース', 'ファイル')
+  ) {
+    return { title: 'kantan:s5.plain.unreadableTitle', body: 'kantan:s5.plain.unreadableBody' }
   }
   // Anything else: keep the card's per-stage headline, add a gentle nudge.
   return { body: 'kantan:s5.plain.genericBody' }

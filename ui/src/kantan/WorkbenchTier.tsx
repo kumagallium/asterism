@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { DetailTab } from '../GalleryView'
 import { type RedesignTarget, WorkbenchView } from '../WorkbenchView'
-import { KantanWizard } from './KantanWizard'
+import { type GrowFocus, KantanWizard } from './KantanWizard'
 
 // Two-tier entry for データを追加 (ADR kantan-mode-two-tier-ux.md): the kantan
 // wizard is the default; the full workbench remains untouched as the detail
@@ -23,8 +23,9 @@ function loadTier(): Tier {
 // Same sessionStorage keys WorkbenchView/KantanWizard persist their in-flight
 // LLM job under: while one is saved, switching tiers is locked (both tiers
 // resume it on mount, so a mid-job switch could adopt a job of the wrong kind).
-// The second key is the kantan tier's own (its S3 skeleton job, which the
-// detail tier must never adopt); both are duplicated by value, as before.
+// The second key is the kantan tier's own (its S3 skeleton job and its AI fix /
+// reflect, which the detail tier must never adopt); both are duplicated by
+// value, as before.
 function hasSavedJob(): boolean {
   try {
     return (
@@ -45,7 +46,9 @@ export function WorkbenchTier({
 }: {
   redesignTarget?: RedesignTarget | null
   onRedesignConsumed?: () => void
-  onOpenDataset?: (id: string, tab?: DetailTab) => void
+  /** `focus` says which of S9's two grow exits was taken (add / replace), so
+   *  the catalog can land on that control; receivers may ignore it. */
+  onOpenDataset?: (id: string, tab?: DetailTab, focus?: GrowFocus) => void
   /** Opens the Ask view with a question prefilled (the kantan S9 chips). */
   onOpenAsk?: (question: string) => void
   /** Opens the guided "connect your data" flow (offered on S9). */
