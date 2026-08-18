@@ -98,10 +98,11 @@ https://{$ASTERISM_DOMAIN} {
 			# api's content-negotiated /describe (Turtle for machines, HTML for
 			# humans; published/canonical data only, no token needed). /describe
 			# itself is routed too so the HTML view's follow-links work.
-			# NOTE: sits inside the session gate like everything else — citation
-			# links resolve for logged-in users. To make dereference PUBLIC
-			# (anonymous citation links), move these lines into their own
-			# `handle /datasets/* { … }` block next to /__auth/* above.
+			# NOTE: this copy sits inside the session gate like everything else —
+			# citation links resolve for logged-in users. To make dereference
+			# PUBLIC (anonymous citation links), set ASTERISM_PUBLIC_DEREF=1;
+			# the @public_deref block above then answers these paths before the
+			# gate is reached, and this copy never sees them.
 			@iri path /datasets/*
 			handle @iri {
 				rewrite * /describe?iri=https://{$ASTERISM_DOMAIN}{path}

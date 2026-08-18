@@ -12,6 +12,17 @@ function rowStatusKey(d: CatalogDataset): string {
   return d.statusKind
 }
 
+/** The pill's LOOK. The two extra states say something new in words, but they are
+ *  the same two situations the existing tones already carry — published and live
+ *  (green) vs. saved but not answering (grey) — so they reuse those classes
+ *  instead of leaving `.status-pill--<new>` unstyled, which would strip the pill
+ *  of its shape. A dedicated tone can be added later without touching this file. */
+function rowStatusTone(key: string): string {
+  if (key === 'pubStaged') return 'pub'
+  if (key === 'retracted') return 'design'
+  return key
+}
+
 interface Stats {
   facts: number | null
   classes: number | null
@@ -263,7 +274,9 @@ function DatasetRow({ dataset, onOpen }: { dataset: CatalogDataset; onOpen: () =
         ))}
         {hint && <span className="ds-row-count ds-row-hint">{hint}</span>}
       </span>
-      <span className={`status-pill status-pill--${statusKey}`}>{t(`home:status.${statusKey}`)}</span>
+      <span className={`status-pill status-pill--${rowStatusTone(statusKey)}`}>
+        {t(`home:status.${statusKey}`)}
+      </span>
       <span className="ds-row-chevron">
         <ChevronIcon size={16} />
       </span>

@@ -181,7 +181,19 @@ function StaleChunkBanner() {
     STALE_CHUNK_RELOADED ? 'reloaded' : 'none',
   )
   useEffect(() => {
-    const onPreloadError = () => setState('failed')
+    const onPreloadError = () => {
+      // main.tsx's listener runs first (registered at module load). On the FIRST
+      // failure it leaves the notice and reloads — a reload takes a moment,
+      // during which this banner would sit there claiming the update failed. So
+      // treat "a notice is pending" as "a reload is on its way" and stay quiet;
+      // the note is consumed at the next load and becomes the 'reloaded' line.
+      try {
+        if (sessionStorage.getItem('asterism.staleChunkNotice')) return
+      } catch {
+        /* no sessionStorage — main.tsx never auto-reloads, so this IS the failure */
+      }
+      setState('failed')
+    }
     window.addEventListener('vite:preloadError', onPreloadError)
     return () => window.removeEventListener('vite:preloadError', onPreloadError)
   }, [])
