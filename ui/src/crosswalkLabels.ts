@@ -81,6 +81,13 @@ export function conceptDisplay(
  * but they are an implementation word plus a slug, which is not a name. */
 const IMPLEMENTATION_NAME = /^crosswalk(\s|:)/i
 
+/** What the server writes into the registry when a crosswalk was built without a name
+ * (`UNNAMED_PERSPECTIVE_NAME` in `ingest/src/asterism/crosswalk_runtime.py`). It is
+ * not a name — it is the words for HAVING no name, in one language — so the screen
+ * says it through i18n instead (identical in Japanese, readable in English). Keep the
+ * two in step: the server constant is the only thing that can produce this string. */
+const SERVER_UNNAMED = '名前のないつながり'
+
 /** What to call a crosswalk in the tab strip / the overview: its name, or `undefined`
  * when it has none worth showing (the caller then says "unnamed connection" and keeps
  * the id in a `title`). */
@@ -89,7 +96,7 @@ export function perspectiveDisplayName(p: {
   perspective_id?: string
 }): string | undefined {
   const name = (p.dataset?.name ?? '').trim()
-  return !name || IMPLEMENTATION_NAME.test(name) ? undefined : name
+  return !name || name === SERVER_UNNAMED || IMPLEMENTATION_NAME.test(name) ? undefined : name
 }
 
 /** The same rule for a SAVED crosswalk's concept (a stored config has the key; the
@@ -183,10 +190,21 @@ export interface CrosswalkError {
   hint?: 'settings'
 }
 
+/** The half of the error string the SERVER wrote: everything from the HTTP status on.
+ * What comes before it is this screen's own sentence for the operation, and in English
+ * that sentence now says "connection" ("Building the connection failed (HTTP 400)…") —
+ * a word the shared classifier reads as a dropped network connection, which would turn
+ * every rejected request into "the server was briefly unreachable". A string with no
+ * status prefix (a job error like "Request timed out") is classified whole. */
+function serverPart(raw: string): string {
+  const at = raw.indexOf('(HTTP')
+  return at > 0 ? raw.slice(at) : raw
+}
+
 /** A raw api error string → the plain sentence this screen should show. The technical
  * string is never thrown away: callers keep it in the folded "詳しい内容（技術情報）". */
 export function crosswalkError(raw: string): CrosswalkError {
-  const family = FAMILY_BY_BODY[plainError(raw).body] ?? 'generic'
+  const family = FAMILY_BY_BODY[plainError(serverPart(raw)).body] ?? 'generic'
   return {
     title: `crosswalk:error.plain.${family}Title`,
     body: `crosswalk:error.plain.${family}Body`,
