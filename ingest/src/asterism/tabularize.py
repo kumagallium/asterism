@@ -224,9 +224,24 @@ def _sheet_slug(title: str) -> str:
 
 
 def xlsx_to_csvs(data: bytes, *, stem: str) -> list[tuple[str, bytes]]:
+    """``[(csv_filename, csv_bytes), …]`` — see :func:`xlsx_to_csv_sheets`.
+
+    The long-standing entry point; identical output, with the worksheet titles
+    dropped.
+    """
+    return [(name, body) for name, _title, body in xlsx_to_csv_sheets(data, stem=stem)]
+
+
+def xlsx_to_csv_sheets(data: bytes, *, stem: str) -> list[tuple[str, str, bytes]]:
     """Convert an ``.xlsx`` workbook to CSV bytes, one CSV per non-empty sheet.
 
-    Returns ``[(csv_filename, csv_bytes), …]`` in workbook sheet order. A workbook
+    Returns ``[(csv_filename, worksheet_title, csv_bytes), …]``. The title is the
+    name the person gave the sheet in Excel — the derived filename may be a hash
+    slug (a Japanese sheet name has nothing safe to slug), and a table called
+    ``sheet-3f2a91c4`` is not something anyone can recognise as their own
+    (kantan-mode ADR K6: ask which sheet to use, in the words the workbook uses).
+
+    In workbook sheet order. A workbook
     with ONE non-empty sheet yields ``<stem>.csv`` (the friendly common case);
     more yield ``<stem>__<sheetslug>.csv`` each (slug collisions — two titles that
     slug identically — are disambiguated with the short hash of the original
@@ -269,7 +284,7 @@ def xlsx_to_csvs(data: bytes, *, stem: str) -> list[tuple[str, bytes]]:
     if not sheets:
         raise ValueError("workbook has no non-empty sheet")
 
-    out: list[tuple[str, bytes]] = []
+    out: list[tuple[str, str, bytes]] = []
     used: set[str] = set()
     for title, rows in sheets:
         if len(sheets) == 1:
@@ -286,5 +301,5 @@ def xlsx_to_csvs(data: bytes, *, stem: str) -> list[tuple[str, bytes]]:
         writer = csv.writer(buf)
         for row in rows:
             writer.writerow([_stringify_cell(v) for v in row])
-        out.append((name, buf.getvalue().encode("utf-8")))
+        out.append((name, title, buf.getvalue().encode("utf-8")))
     return out

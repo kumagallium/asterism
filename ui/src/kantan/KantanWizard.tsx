@@ -32,7 +32,7 @@ import {
   type TrialDetail,
   type TrialQueries,
 } from '../api'
-import { plainAdvisories } from '../advisoryPlain'
+import { plainAdvisories, plainIssues } from '../advisoryPlain'
 import { TABULAR_ACCEPT } from '../datasetsApi'
 import { detectDatasetNamespace } from '../datasetNamespace'
 import { DocumentPanel } from '../DocumentPanel'
@@ -59,7 +59,16 @@ import { useLlmSettings } from '../settings/context'
 import { fetchInstanceInfo, type WriteGate } from '../settings/instanceApi'
 import { SkeletonGate } from '../SkeletonGate'
 import { clearSourceFiles, loadSourceFiles, saveSourceFiles } from '../sourceFileStore'
-import { stageSources, stagingAlive, unstageSources } from '../api'
+import {
+  fetchDatasetProposal,
+  fetchSourceSamples,
+  saveDisplayMeta,
+  selectStagingSources,
+  stageSources,
+  stagingAlive,
+  unstageSources,
+  type StagingLiveness,
+} from '../api'
 import { localName } from '../vocab'
 import { plainError } from './errorMessages'
 import { RecipeCard } from './RecipeCard'
@@ -452,6 +461,11 @@ interface PreviewCard {
   header: string[] | null
   rows: string[][]
   preambleLines?: string[]
+  /** `{column: [up to 3 real values]}` as the SERVER read this file. The only
+   *  evidence there is for .xlsx / .json, which no browser can parse — without
+   *  it the persona's main format reached the "read check" screen with nothing
+   *  to check and left the meaning screen's example column empty (KZ-A-08). */
+  samples?: Record<string, string[]>
 }
 
 async function buildPreviews(
@@ -460,6 +474,7 @@ async function buildPreviews(
   overrides: Record<string, SourceDialect> = {},
 ): Promise<PreviewCard[]> {
   const out: PreviewCard[] = []
+  const unparsed: string[] = []
   for (let i = 0; i < files.length; i++) {
     const file = files[i]
     const ext = extOf(file.name)
@@ -468,7 +483,10 @@ async function buildPreviews(
     const canonical =
       inspect.sourceNames.length === files.length ? inspect.sourceNames[i] : file.name
     if (kindOf(file.name) !== 'tabular' || ext === '.xlsx') {
-      out.push({ name: file.name, canonical, header: null, rows: [] })
+      // No client-side parse. The server HAS read it, and one workbook becomes
+      // one table per sheet, so the cards for this file are added below from
+      // the server's own reading rather than one bare card per upload (KZ-A-08).
+      unparsed.push(file.name)
       continue
     }
     // A human correction from the S2 read-fix panel wins over detection, so the
@@ -501,9 +519,23 @@ async function buildPreviews(
         ...(preambleLines.length > 0 ? { preambleLines } : {}),
       })
     } catch {
-      // preview is enrichment
-      out.push({ name: file.name, canonical, header: null, rows: [] })
+      // preview is enrichment — the server's own reading stands in below
+      unparsed.push(file.name)
     }
+  }
+  // Everything the server read that no client-side card already shows: one card
+  // per TABLE, which is what the design will see (a workbook with three sheets
+  // is three tables). Named by the worksheet the person titled, when known.
+  const claimed = new Set(out.map((c) => c.canonical))
+  for (const [name, samples] of Object.entries(inspect.samples)) {
+    if (claimed.has(name) || Object.keys(samples).length === 0) continue
+    out.push({ name: inspect.sheets[name]?.sheet ?? name, canonical: name, header: null, rows: [], samples })
+  }
+  // Only when the server read nothing at all (an old api, a file it could not
+  // parse): say the file is there and will be read as it is — the pre-existing
+  // behaviour, now the fallback rather than the rule.
+  if (Object.keys(inspect.samples).length === 0) {
+    for (const name of unparsed) out.push({ name, canonical: name, header: null, rows: [] })
   }
   return out
 }
@@ -521,7 +553,8 @@ function templateColumns(template?: string): string[] {
 function deriveSourceColumns(cards: PreviewCard[]): string[] {
   const out: string[] = []
   for (const card of cards) {
-    for (const col of card.header ?? []) {
+    // The server's column list is the only one there is for .xlsx / .json.
+    for (const col of card.header ?? Object.keys(card.samples ?? {})) {
       const name = col.trim()
       if (name !== '' && !out.includes(name)) out.push(name)
     }
@@ -535,7 +568,13 @@ function deriveSourceColumns(cards: PreviewCard[]): string[] {
 function deriveColumnSamples(cards: PreviewCard[]): Record<string, string[]> {
   const out: Record<string, string[]> = {}
   for (const card of cards) {
-    if (!card.header) continue
+    if (!card.header) {
+      // .xlsx / .json: the server read the file and sent the examples back.
+      for (const [col, values] of Object.entries(card.samples ?? {})) {
+        if (!out[col] && values.length > 0) out[col] = values.slice(0, 3)
+      }
+      continue
+    }
     card.header.forEach((col, ci) => {
       if (out[col]) return
       const vals = card.rows
@@ -812,6 +851,10 @@ export function KantanWizard({
   const [inspectionMd, setInspectionMd] = useState(snap.inspectionMd ?? '')
   const [inspection, setInspection] = useState<InspectResult | null>(null)
   const [previews, setPreviews] = useState<PreviewCard[]>([])
+  /** Which of a workbook's sheets to use (K6). `null` = all of them, the state
+   *  every run starts in; a set only exists once the human has answered. */
+  const [sheetChoice, setSheetChoice] = useState<string[] | null>(null)
+  const [sheetBusy, setSheetBusy] = useState(false)
   const [q1, setQ1] = useState<Q1Answer | null>(snap.q1 ?? null)
   const [q2, setQ2] = useState<Q2Answer | null>(snap.q2 ?? null)
   // What the experimenter knows and the AI cannot guess — an abbreviation, a
@@ -918,6 +961,14 @@ export function KantanWizard({
   const [rules, setRules] = useState<DatasetRules | null>(null)
   const [stats, setStats] = useState<DraftStats | null>(null)
   const [s6Loading, setS6Loading] = useState(false)
+  /** S6's in-place meaning/unit correction (K8): a person is the only one who
+   *  knows what a column means, and the only route used to be a free-text note
+   *  → an LLM rewrite of the whole design → a re-ingest (KZ-B-05). */
+  const [metaSaving, setMetaSaving] = useState(false)
+  const [metaSaved, setMetaSaved] = useState(0)
+  /** The save went through but matched no row — a silent revert otherwise. */
+  const [metaNoop, setMetaNoop] = useState(false)
+  const [metaErr, setMetaErr] = useState('')
   const [s6Err, setS6Err] = useState('')
   const [note, setNote] = useState('')
   // What the last "AI に反映して作り直す" was asked to change, and which rows it
@@ -1403,7 +1454,7 @@ export function KantanWizard({
       const remembered = snap.stagingId ?? null
       const [restored, live] = await Promise.all([
         loadSourceFiles(),
-        remembered ? stagingAlive(remembered) : Promise.resolve(false),
+        remembered ? stagingAlive(remembered) : Promise.resolve<StagingLiveness>('gone'),
       ])
       if (cancelled) return
       setRestoring(false)
@@ -1411,8 +1462,13 @@ export function KantanWizard({
       // server round-trip): their intent wins — a late restore must not
       // overwrite it and start a second read of the OLD files (RESUME-A2).
       if (userActedRef.current) return
-      const sid = live ? remembered : null
-      if (!live) setStagingId(null)
+      // Only a server that SAYS the record is gone makes us forget it. A blip
+      // on reload ('unknown') keeps the id: if it really did expire, the next
+      // design call stops with the usual card — whereas forgetting it here is
+      // permanent, and the server's copy (7 days) becomes unreachable for a
+      // browser that has no local copy of its own (RESUME-20).
+      const sid = live === 'gone' ? null : remembered
+      if (live === 'gone') setStagingId(null)
       if (restored.length === 0 && !sid) return
       setResumed(true)
       if (step !== 1) {
@@ -1446,6 +1502,35 @@ export function KantanWizard({
         onFilesChosen(restored, { restored: true })
       }
     })()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Coming back from the detail tier, the SERVER settles which design is
+  // current: this tier's snapshot copy is only as new as the last time it
+  // materialized, and the detail tier saves to the same dataset. Refining the
+  // stale copy here would overwrite what was fixed over there, with nobody told
+  // (DETAIL-GAP-05). Mount-only, and only after a crossing: a normal run never
+  // has two copies to reconcile. Enrichment — a failed read leaves the design
+  // in hand exactly as it was.
+  useEffect(() => {
+    const id = snap.datasetId
+    if (!id || !snap.handedToDetail) return
+    let cancelled = false
+    void fetchDatasetProposal(id)
+      .then((md) => {
+        if (cancelled || !md.trim()) return
+        setProposal((cur) => {
+          if (md === cur) return cur
+          setReturnedFromDetail(true)
+          return md
+        })
+      })
+      .catch(() => {
+        /* the snapshot's copy stands, as before */
+      })
     return () => {
       cancelled = true
     }
@@ -1586,44 +1671,12 @@ export function KantanWizard({
 
   /** The plain face of free-form validation / mapping issues.
    *
-   *  These are NOT model prose: they come from the deterministic generators
-   *  (`asterism.rml_validate`, `mapping_ir`), so their fixed phrases are stable
-   *  enough to translate one by one — and they carry the single most common weak
-   *  model failure (a column that isn't in the file), for which K11 already has
-   *  a canonical sentence. Counting them all as "その他" hid exactly that.
-   *  Unrecognised lines still fold into the count, so a new phrase degrades to
-   *  the old behaviour rather than to a wrong sentence. `fixLines` keeps the raw
-   *  English — display and AI input stay separate (ADR §5.1). */
+   *  The classifier itself lives in `advisoryPlain.ts` so the catalog says the
+   *  same sentences about the same server text (BACKEND-TEXT-09); this wrapper
+   *  only drops the raw strings, which the stop card carries separately in
+   *  `fixLines` — display and AI input stay separate (ADR §5.1). */
   function issuePlainLines(issues: string[], precededByLines = false): string[] {
-    const markers: { marker: string; key: string }[] = [
-      { marker: 'referenced by the mapping is not in', key: 'kantan:s5.trap.T8' }, // rml_validate
-      { marker: "' is not in ", key: 'kantan:s5.trap.T8' }, // mapping_ir compile
-      { marker: 'does not accept parameter', key: 'kantan:s5.trap.function' },
-      { marker: 'is missing required parameter', key: 'kantan:s5.trap.function' },
-      { marker: 'referenced by rml:source does not exist', key: 'kantan:s5.trap.source' },
-      { marker: 'no compiled RML mapping', key: 'kantan:s5.trap.uncompiled' },
-      { marker: 'is not parseable YAML', key: 'kantan:s5.trap.mieBroken' },
-    ]
-    const out: string[] = []
-    const seen = new Set<string>()
-    let others = 0
-    for (const issue of issues) {
-      const hit = markers.find((m) => issue.includes(m.marker))
-      if (!hit) {
-        others += 1
-        continue
-      }
-      if (seen.has(hit.key)) continue // one sentence per family, not per line
-      seen.add(hit.key)
-      out.push(t(hit.key))
-    }
-    if (others > 0) {
-      // "このほか、" reads right only when a line came before it — either one of
-      // ours above, or the trap sentences this list is appended to (ADR §5.1).
-      const after = precededByLines || out.length > 0
-      out.push(t(after ? 'kantan:s5.trap.others' : 'kantan:s5.trap.othersOnly', { count: others }))
-    }
-    return out
+    return plainIssues(issues, precededByLines).map((a) => a.text)
   }
 
   // What this tier can tell the AI up front: the composite-key hint Q2 implies
@@ -1731,6 +1784,7 @@ export function KantanWizard({
     setQ2(null)
     setSharedKey(null)
     setKeptAnswers(false)
+    setSheetChoice(null)
     setDialectOverrides({})
     setSkeleton(null)
     setAnnotations(null)
@@ -1780,11 +1834,13 @@ export function KantanWizard({
     setReingested(true)
   }
 
-  async function runInspect(arr: File[]) {
+  async function runInspect(arr: File[], staged?: string | null) {
     setInspecting(true)
     setInspectErr('')
     try {
-      const result = await inspectCsvs(arr, [])
+      // `staged` = read the server's own (possibly narrowed) copy instead of
+      // re-uploading — that is how a sheet choice takes effect (K6).
+      const result = await inspectCsvs(arr, [], staged ?? null)
       setInspection(result)
       setInspectionMd(result.markdown)
       const cards = await buildPreviews(arr, result, dialectOverrides)
@@ -1796,6 +1852,41 @@ export function KantanWizard({
       setInspectErr(e instanceof Error ? e.message : String(e))
     } finally {
       setInspecting(false)
+    }
+  }
+
+  /** Every table one workbook produced, in workbook order (K6). Empty unless a
+   *  single .xlsx expanded into more than one sheet — the only case the human is
+   *  asked about, because it is the only case with a wrong answer. */
+  const sheetTables = Object.entries(inspection?.sheets ?? {})
+  /** The tables currently in use: all of them until the human says otherwise. */
+  const sheetsInUse = sheetChoice ?? sheetTables.map(([name]) => name)
+
+  /** Turn one sheet on / off. The choice is pinned on the server's copy of the
+   *  source, so every later step — the design, the save, the published data —
+   *  reads exactly the sheets that are lit here (KZ-A-09). */
+  async function toggleSheet(name: string) {
+    if (!stagingId || sheetBusy) return
+    const chosen = new Set(sheetsInUse)
+    if (chosen.has(name)) {
+      if (chosen.size <= 1) return // one table has to remain: this is not "use nothing"
+      chosen.delete(name)
+    } else {
+      chosen.add(name)
+    }
+    // Files that are not sheets of a workbook (a CSV dropped alongside) are
+    // never part of this question and must stay in the record.
+    const others = (inspection?.sourceNames ?? []).filter((n) => !(n in (inspection?.sheets ?? {})))
+    const next = sheetTables.map(([n]) => n).filter((n) => chosen.has(n))
+    setSheetBusy(true)
+    setSheetChoice(next)
+    try {
+      await selectStagingSources(stagingId, [...others, ...next])
+      await runInspect(files, stagingId)
+    } catch (e) {
+      setInspectErr(errText(e))
+    } finally {
+      setSheetBusy(false)
     }
   }
 
@@ -2421,12 +2512,23 @@ export function KantanWizard({
     setS6Loading(true)
     setS6Err('')
     try {
-      const [r, s] = await Promise.all([
+      const [r, s, serverSamples] = await Promise.all([
         getDatasetRules(datasetId),
         fetchDraftStats(datasetId).catch(() => null), // the count card is enrichment
+        // Real values from the dataset's OWN persisted source. This browser may
+        // never have parsed the file (a review reopened from the catalog, a
+        // resume after a reload, any .xlsx), and without them the evidence
+        // column on this screen is blank — on the one screen whose job is to
+        // check the design against the data (KZ-B-25).
+        fetchSourceSamples(datasetId).catch(() => ({})),
       ])
       setRules(r)
       setStats(s)
+      // What this tab read itself wins: it is the same file, read with the
+      // corrections the human made at S2.
+      if (Object.keys(serverSamples).length > 0) {
+        setColumnSamples((cur) => ({ ...serverSamples, ...cur }))
+      }
       // Coming back from "AI に反映して作り直す": say which columns actually
       // moved. A weak model that ignored the note used to return a table that
       // looks exactly the same, and the only way to find out was to type the
@@ -2845,6 +2947,9 @@ export function KantanWizard({
           },
         },
         i18n.language,
+        // Naming the dataset is what lets the server run its own repair round
+        // and put back the meanings/units this person typed (KZ-B-05 / N6).
+        kzDatasetId,
       )
     } catch (e) {
       clearKantanJob()
@@ -3222,6 +3327,42 @@ export function KantanWizard({
     const label = p.label || rules?.labels?.[p.predicate_iri] || ''
     if (!label) return ''
     return isEchoOfTerm(label, p.predicate_iri || p.predicate) ? '' : label
+  }
+
+  /** Save one corrected meaning / unit. Deterministic: the server splices the
+   *  design's own §9 row and re-projects the artifacts — no AI round, no
+   *  re-ingest, and the value is remembered as the HUMAN's so a later AI round
+   *  cannot quietly revert it (KZ-B-05 / N6). */
+  async function commitMeta(p: RuleProperty, field: 'label' | 'unit', raw: string) {
+    const datasetId = kzDatasetId
+    if (!datasetId || metaSaving) return
+    const value = raw.trim()
+    const before = (field === 'label' ? readMeaning(p) : (p.unit ?? '')).trim()
+    if (value === before) return
+    setMetaSaving(true)
+    setMetaErr('')
+    setMetaNoop(false)
+    try {
+      const changed = await saveDisplayMeta(datasetId, [
+        {
+          predicate: p.predicate_iri || p.predicate,
+          // The column pins WHICH row, when one predicate is bound twice.
+          ...(p.reference ? { column: p.reference } : {}),
+          [field]: value,
+        },
+      ])
+      setMetaSaved(changed.length)
+      // Nothing matched: the row the table shows and the row the design holds
+      // did not line up. Say so — the reload below is about to put the old
+      // wording back in the box, and a correction that vanishes without a word
+      // is how someone concludes the screen is lying to them (KZ-B-05).
+      setMetaNoop(changed.length === 0)
+      await loadS6(datasetId)
+    } catch (e) {
+      setMetaErr(errText(e))
+    } finally {
+      setMetaSaving(false)
+    }
   }
 
   // The name of one KIND of thing. Same deterministic ladder as termLabel,
@@ -4258,13 +4399,50 @@ export function KantanWizard({
                           >
                             <td className="kz-cols-name">{p.reference}</td>
                             <td>
-                              {meaning || t('kantan:s6.meaningUnknown')}
+                              {/* Editable in place (KZ-B-05): a meaning and a
+                                  unit are display metadata, so a correction is
+                                  a deterministic splice — the only thing an AI
+                                  round was ever needed for here was that it
+                                  happened to be the only door. `key` re-seeds
+                                  the field after a save so the server's stored
+                                  value is what is on screen. */}
+                              <input
+                                key={`${p.predicate_iri}-label-${meaning}`}
+                                type="text"
+                                className="kz-cols-input"
+                                defaultValue={meaning}
+                                placeholder={t('kantan:s6.meaningPlaceholder')}
+                                aria-label={t('kantan:s6.editAria', { column: p.reference ?? '' })}
+                                disabled={metaSaving || !kzDatasetId}
+                                onBlur={(e) => void commitMeta(p, 'label', e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') e.currentTarget.blur()
+                                }}
+                              />
                               {missing && ' ⚠'}
                               {reflectChanged?.has(p.reference ?? '') && (
                                 <span className="kz-map-note"> {t('kantan:s6.updatedBadge')}</span>
                               )}
                             </td>
-                            <td>{p.unit ?? ''}</td>
+                            <td>
+                              <input
+                                key={`${p.predicate_iri}-unit-${p.unit ?? ''}`}
+                                type="text"
+                                className="kz-cols-input kz-cols-input--unit"
+                                // A unit is a handful of characters; the field
+                                // is sized in characters (no raw px) so the
+                                // table does not grow a column of empty box.
+                                size={8}
+                                defaultValue={p.unit ?? ''}
+                                placeholder={t('kantan:s6.unitPlaceholder')}
+                                aria-label={t('kantan:s6.unitAria', { column: p.reference ?? '' })}
+                                disabled={metaSaving || !kzDatasetId}
+                                onBlur={(e) => void commitMeta(p, 'unit', e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') e.currentTarget.blur()
+                                }}
+                              />
+                            </td>
                             <td className="kz-cols-samples">{samples.join('、')}</td>
                           </tr>
                         )
@@ -4275,6 +4453,20 @@ export function KantanWizard({
               </div>
             )
           })}
+          {/* Say the table is editable, then what happened when it was edited.
+              A save is seconds, so the states are: saving / saved / failed. */}
+          {s6Maps.length > 0 && <p className="kz-note">{t('kantan:s6.editHint')}</p>}
+          {metaSaving && <p className="kz-note">{t('kantan:s6.editSaving')}</p>}
+          {!metaSaving && metaSaved > 0 && (
+            <p className="kz-note">{t('kantan:s6.editSaved', { n: metaSaved })}</p>
+          )}
+          {!metaSaving && metaNoop && <p className="kz-note">{t('kantan:s6.editNoChange')}</p>}
+          {metaErr && (
+            <>
+              <p className="kz-note">{t('kantan:s6.editFailed')}</p>
+              <p className="kz-note">{plainBody(metaErr)}</p>
+            </>
+          )}
           {/* Standing text, not a tooltip: whoever sees a ⚠ must be told what
               it means and that they may continue (KZ-B-04). */}
           {missingMeanings > 0 && <p className="kz-note">{t('kantan:s6.missingMeaning')}</p>}
@@ -4323,7 +4515,10 @@ export function KantanWizard({
           )}
           <div className="kz-q">
             <label className="kz-q-text" htmlFor="kz-s6-note">
-              {t('kantan:s6.noteLabel')}
+              {/* The free-text box is no longer the way to fix a meaning — say
+                  what it IS for, or people keep paying an AI round for a unit
+                  (KZ-B-05). */}
+              {t(s6Maps.length > 0 ? 'kantan:s6.noteLabelEditable' : 'kantan:s6.noteLabel')}
             </label>
             <textarea
               id="kz-s6-note"
@@ -4539,25 +4734,17 @@ export function KantanWizard({
           </section>
           {kind === 'document' && (
             <section className="kz-card">
-              {/* The panel below keeps its own file picker and does not yet
-                  receive what was dropped here, so it opens on "no file
-                  selected". Saying "press the button below" made that read as
-                  a failed drop; naming the file and asking for it once more is
-                  at least true (GAL-B-27 — the panel prop is handed off). */}
-              <p className="kz-note">
-                {files.length > 0
-                  ? t('kantan:s1.documentPickNote', {
-                      name: files.map((f) => f.name).join('、'),
-                    })
-                  : t('kantan:s1.documentNote')}
-              </p>
+              {/* The panel below now OPENS on what was dropped here, so there
+                  is one sentence again — the old "choose it once more" line was
+                  only ever true while the panel ignored the drop (GAL-B-27). */}
+              <p className="kz-note">{t('kantan:s1.documentNote')}</p>
               {/* A document run survives a reload now (the snapshot keeps the
                   kind), and the panel reconnects on its own — say so, or the
                   reader sees a bare form and starts again (RESUME-19). */}
               {documentResumed && (
                 <p className="kz-note kz-resume">{t('kantan:s1.documentResumeNote')}</p>
               )}
-              <DocumentPanel />
+              <DocumentPanel plain initialFiles={files} />
             </section>
           )}
         </>
@@ -4579,6 +4766,29 @@ export function KantanWizard({
               are the human's own knowledge and must not be asked twice (RESUME-09). */}
           {keptAnswers && (q1Needed || q2Needed) && (
             <p className="kz-note">{t('kantan:s2.keptAnswers')}</p>
+          )}
+          {/* One workbook, several sheets: the chart sheet and the notes sheet
+              were being handed to the AI as data, and came back as tables with
+              names like `sheet-3f2a91c4` that nobody recognises. Ask, once, in
+              the names the workbook itself uses (K6 / KZ-A-09). */}
+          {sheetTables.length > 1 && stagingId && (
+            <div className="kz-q">
+              <p className="kz-q-text">{t('kantan:s2.sheetsQuestion')}</p>
+              <div className="kz-q-options">
+                {sheetTables.map(([name, origin]) => (
+                  <button
+                    key={name}
+                    type="button"
+                    className={`kz-pill${sheetsInUse.includes(name) ? ' selected' : ''}`}
+                    disabled={sheetBusy || inspecting}
+                    onClick={() => void toggleSheet(name)}
+                  >
+                    {origin.sheet || name}
+                  </button>
+                ))}
+              </div>
+              <p className="kz-note">{t('kantan:s2.sheetsNote')}</p>
+            </div>
           )}
           <PreviewList previews={previews} />
           {/* "It says it is showing me the read, but the read is wrong" — the
@@ -4882,6 +5092,9 @@ export function KantanWizard({
               canRevalidate={hasSource}
               busy={continuing}
               plain
+              // The provisional-issuer note is otherwise a dead end here: this
+              // tier has no settings tab of its own to point at (GATE-13).
+              onOpenSettings={() => openSettings('server-instance')}
               onChange={onSkeletonEdited}
               onContinue={runContinue}
               onDiscard={() => {
@@ -5119,6 +5332,35 @@ function PreviewList({ previews }: { previews: PreviewCard[] }) {
                       {p.header!.map((_, ci) => (
                         <td key={ci}>{row[ci] ?? ''}</td>
                       ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : p.samples && Object.keys(p.samples).length > 0 ? (
+          // Excel / JSON: the browser cannot open it, but the server already
+          // read it. Columns and their real values, NOT assembled into rows —
+          // the examples are picked per column, so a row of them would be a
+          // record that is in nobody's file (KZ-A-08).
+          <div key={p.name} className="kz-preview-item">
+            <div className="kz-preview-name">
+              {p.name}
+              <span className="kz-preview-caption"> — {t('kantan:s2.samplesCaption')}</span>
+            </div>
+            <div className="kz-preview-tablewrap">
+              <table className="kz-preview-table">
+                <thead>
+                  <tr>
+                    <th>{t('kantan:s2.samplesColumn')}</th>
+                    <th>{t('kantan:s2.samplesValues')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(p.samples).map(([col, values]) => (
+                    <tr key={col}>
+                      <td>{col}</td>
+                      <td>{values.join(t('kantan:s7.join'))}</td>
                     </tr>
                   ))}
                 </tbody>

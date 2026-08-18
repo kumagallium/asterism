@@ -20,7 +20,7 @@
     "step5": "Publish"
   },
   "s1": {
-    "title": "Add measurement data",
+    "title": "Add data",
     "dropTitle": "Drag your measurement-data or document files here, or click to choose them",
     "dropFormats": "Excel, CSV, instrument exports (.txt / .dat), Word / PDF",
     "privacy": "Once dropped, the reading starts. Along the way we only ask what only you can know. Nothing is visible to anyone until you publish.",
@@ -29,10 +29,9 @@
     "unsupported": "This file format is not supported yet. Please drop Excel, CSV, instrument exports, Word or PDF files.",
     "mixed": "These files are of different kinds. Please add tables (Excel / CSV / instrument files), JSON and documents (Word / PDF) separately.",
     "documentNote": "Word / PDF files can be added as they are (no AI involved). Choose the file below and it is taken in from there.",
-    "documentPickNote": "Word / PDF files can be added as they are (no AI involved). Choose {{name}} again below and it is taken in from there.",
-    "aiNotReady": "The AI is not connected yet. Once an administrator sets one up on the server, this screen works as it is. To use your own, connect it in one screen below.",
+    "aiNotReady": "The AI isn't ready yet. Once your administrator finishes the AI setup, this screen works as is.",
     "openSettings": "Open settings",
-    "connectAi": "Connect an AI",
+    "connectAi": "Set up your own AI (advanced)",
     "inspectFailed": "This file could not be read",
     "leftoverFile": "This browser still holds the file you added before ({{name}}). Choose one, so the same data is not registered twice.",
     "leftoverUse": "Carry on with this file",
@@ -89,7 +88,12 @@
     "proceed": "Continue with this",
     "repick": "Choose different files",
     "keptAnswers": "We kept your previous answers — change them only if you want to.",
-    "needAnswers": "Answer the questions above to continue."
+    "needAnswers": "Answer the questions above to continue.",
+    "samplesCaption": "the columns read from this file, with example values",
+    "samplesColumn": "Column",
+    "samplesValues": "Example values",
+    "sheetsQuestion": "This Excel file holds more than one table. Choose the ones to use.",
+    "sheetsNote": "Tap to switch each one on or off (the lit ones are used). Leaving out chart and note sheets makes the later checks easier."
   },
   "s3": {
     "jobLabel": "The AI is reading your data",
@@ -257,8 +261,7 @@
     "updatedBadge": "(updated)",
     "reflectApplied": "Your note “{{note}}” updated the meaning of {{n}} column(s).",
     "reflectNoChange": "Your note “{{note}}” changed nothing in the table below. Try wording it differently, or just continue.",
-    "missingMeaning": "Columns marked ⚠ could not be read by the AI. You can still continue (they stay searchable under their column name). To fix one, tell us in the box below.",
-    "meaningUnknown": "(couldn't be read)",
+    "missingMeaning": "The ⚠ rows are columns the AI could not read a meaning for. You can continue as is (they stay searchable under their column name). To fix one, type it into that row's meaning box.",
     "droppedColumns": "Columns not taken in: {{columns}} (the AI could not read what they mean)",
     "droppedColumnsHint": "If you need them, tell us what they mean in the box below.",
     "mapRowsNote": "When the count is far below the number of rows, several rows became one record (for example many measurements of the same sample). If that is not what you meant, you can go back to how rows are counted.",
@@ -284,7 +287,17 @@
     "aiNotReadyOk": "You can still confirm the table as it stands and carry on.",
     "refineWrap": "While reviewing the column meanings, the user pointed this out. Follow it and fix the affected columns' meaning (label) and unit (unit) — and the design itself if needed: {{note}}",
     "confirm": "Confirm these meanings",
-    "confirmBlocked": "The column meanings could not be loaded, so there is nothing to confirm yet. Press “Reload” above."
+    "confirmBlocked": "The column meanings could not be loaded, so there is nothing to confirm yet. Press “Reload” above.",
+    "editHint": "You can fix a column's meaning and unit right here (no AI, saved in seconds).",
+    "editSaving": "Saving your corrections…",
+    "editSaved": "Saved the meaning / unit of {{n}} column(s).",
+    "editNoChange": "That column could not be found in the design, so the correction was not saved. Tell us in the box below instead.",
+    "editFailed": "Your corrections could not be saved.",
+    "meaningPlaceholder": "what this column means",
+    "unitPlaceholder": "unit",
+    "editAria": "meaning of {{column}}",
+    "unitAria": "unit of {{column}}",
+    "noteLabelEditable": "Meanings and units are editable in the table above. Anything else you noticed?"
   },
   "s7": {
     "title": "Try it — we asked your data a few questions",

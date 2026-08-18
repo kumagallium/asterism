@@ -736,6 +736,7 @@ export function SkeletonGate({
   onContinue,
   onDiscard,
   onRethink,
+  onOpenSettings,
   titleKey = 'workbench:skeleton.gateTitle',
   hintKey = 'workbench:skeleton.gateHint',
   continueKey = 'workbench:skeleton.continue',
@@ -760,6 +761,12 @@ export function SkeletonGate({
    *  the skeleton generation — the AI-redo exit for a structurally wrong
    *  skeleton, next to the human-edit exit the table already is. */
   onRethink?: (note: string) => void
+  /** When set, the "the ID issuer is still provisional" note gets a way to act
+   *  on it. Without it the note used to be a dead end: a warning band with no
+   *  button and a tab name only the detail tier knows (GATE-13). Personal
+   *  installs can open the setting themselves; on a shared server the note
+   *  already says to ask the administrator. */
+  onOpenSettings?: () => void
   /** i18n key overrides so the kantan tier can swap in plain-language copy.
    *  Defaults are the existing workbench strings (behavior unchanged). */
   titleKey?: string
@@ -1193,9 +1200,28 @@ export function SkeletonGate({
           )}
           <p className="skeleton-gate-hint">{t('workbench:skeleton.ns.nameHint')}</p>
           {baseUnconfigured && (
-            <p className="skeleton-evidence-line skeleton-evidence-warn">
-              {t('workbench:skeleton.ns.baseUnconfigured', { base: nsDetected.base })}
-            </p>
+            <>
+              {/* Plain tier: NOT a warning band. A provisional issuer is the
+                  normal state of a fresh install, and painting the normal path
+                  red teaches people to ignore red — one muted sentence about
+                  what it means for them instead (GATE-13). */}
+              {plain ? (
+                <p className="skeleton-gate-hint">
+                  {t('skeletongate:ns.baseProvisional', { base: nsDetected.base })}
+                </p>
+              ) : (
+                <p className="skeleton-evidence-line skeleton-evidence-warn">
+                  {t('workbench:skeleton.ns.baseUnconfigured', { base: nsDetected.base })}
+                </p>
+              )}
+              {/* Both tiers: a note that names a setting and gives no way to
+                  reach it is a dead end (GATE-13 / MISC-13). */}
+              {onOpenSettings && (
+                <button type="button" className="btn btn--ghost btn--sm" onClick={onOpenSettings}>
+                  {t(plain ? 'skeletongate:ns.openSettings' : 'workbench:skeleton.ns.openSettings')}
+                </button>
+              )}
+            </>
           )}
         </>
       )}

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   createDocumentDataset,
@@ -32,6 +32,16 @@ type Phase = 'idle' | 'creating' | 'ingesting' | 'confirm' | 'promoting' | 'done
 // key — DocumentPanel takes no props and owns its own persistence.
 const DOC_STORAGE = 'asterism.workbench.document'
 
+/** A document file name without its extension — the default dataset name. */
+function stemOf(filename?: string): string {
+  return (filename ?? '').replace(/\.(xml|docx|pdf)$/i, '')
+}
+
+/** Identity of a file set, for "did the caller hand us something else?". */
+function fileKey(list?: File[]): string {
+  return (list ?? []).map((f) => `${f.name}:${f.size}`).join('|')
+}
+
 function loadCreated(): { id: string; name: string } | null {
   try {
     const raw = sessionStorage.getItem(DOC_STORAGE)
@@ -51,11 +61,18 @@ function persistCreated(v: { id: string; name: string } | null) {
 }
 
 /** `plain` は かんたん層（S1）からの埋め込み用。説明文・完了文だけを平易な言い方に
- *  切り替える（機能は同じ）。詳細モードは既定の false のまま。 */
-export function DocumentPanel({ plain = false }: { plain?: boolean } = {}) {
+ *  切り替える（機能は同じ）。詳細モードは既定の false のまま。
+ *
+ *  `initialFiles` = 呼び出し側が既に受け取っているファイル。かんたん S1 は
+ *  「置いたら、あとは自動で進みます」と言うので、同じファイルをこの中でもう一度
+ *  選ばせてはいけない（GAL-B-27 / KZ-A-31）。詳細モードは渡さない＝現状のまま。 */
+export function DocumentPanel({
+  plain = false,
+  initialFiles,
+}: { plain?: boolean; initialFiles?: File[] } = {}) {
   const { t } = useTranslation()
-  const [files, setFiles] = useState<File[]>([])
-  const [name, setName] = useState('')
+  const [files, setFiles] = useState<File[]>(initialFiles ?? [])
+  const [name, setName] = useState(() => stemOf(initialFiles?.[0]?.name))
   const [phase, setPhase] = useState<Phase>('idle')
   const [progress, setProgress] = useState<IngestProgress | null>(null)
   const [error, setError] = useState('')
@@ -75,6 +92,20 @@ export function DocumentPanel({ plain = false }: { plain?: boolean } = {}) {
     setCreatedState(v)
     persistCreated(v)
   }
+
+  // The caller's files are adopted whenever the SET changes, so dropping a
+  // different document upstream replaces the selection here instead of leaving
+  // the first one behind. Keyed by name+size so a re-render with an equal array
+  // is a no-op (the parent rebuilds the array on every render).
+  const adoptedRef = useRef<string>(fileKey(initialFiles))
+  useEffect(() => {
+    const key = fileKey(initialFiles)
+    if (key === adoptedRef.current) return
+    adoptedRef.current = key
+    if (!initialFiles || initialFiles.length === 0) return
+    pick(initialFiles)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialFiles])
 
   // Reload recovery: an ingest job saved by a prior run of THIS pipeline (the
   // PDF conversion can take minutes) is re-attached, and — because the panel
@@ -103,10 +134,10 @@ export function DocumentPanel({ plain = false }: { plain?: boolean } = {}) {
   // A retry is pending when a prior attempt created the dataset but did not finish.
   const resuming = created !== null && phase === 'idle'
 
-  function pick(list: FileList | null) {
+  function pick(list: FileList | File[] | null) {
     const arr = Array.from(list ?? [])
     setFiles(arr)
-    if (arr.length && !name.trim()) setName(arr[0].name.replace(/\.(xml|docx|pdf)$/i, ''))
+    if (arr.length && !name.trim()) setName(stemOf(arr[0].name))
     setError('')
     setCancelled(false)
     setResult(null)
@@ -202,7 +233,9 @@ export function DocumentPanel({ plain = false }: { plain?: boolean } = {}) {
 
       <div className="data-source-row">
         <label className="file-btn">
-          {t('document:pickFile')}
+          {/* Already holding the caller's file: the picker is a change of mind,
+              not the way in — say so instead of "文書を選択" (GAL-B-27). */}
+          {t(files.length > 0 && initialFiles ? 'document:pickAnother' : 'document:pickFile')}
           <input
             type="file"
             accept=".xml,.docx,.pdf"
