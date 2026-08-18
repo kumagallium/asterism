@@ -112,15 +112,84 @@ function expectedFromMessage(raw: string): string[] {
 }
 
 /**
+ * The HTTP status and the server's own sentence behind a failed call, from
+ * either shape this screen sees.
+ *
+ * `api.ts` and `galleryApi.ts` throw a typed {@link ApiError}; a job stream and
+ * the catalog list still surface a plain `Error` whose message the api module
+ * composed, so the status has to be read back out of the text. Both paths are
+ * best-effort: an unrecognised message simply yields no status and no sentence,
+ * and the caller falls back to the generic family.
+ */
+function errorFacts(err: unknown): { status: number | null; sentence: string } {
+  if (err instanceof ApiError) {
+    return {
+      status: err.status,
+      sentence: err.detail && !err.detail.trimStart().startsWith('{') ? err.detail : '',
+    }
+  }
+  const raw = err instanceof Error ? err.message : String(err)
+  const m = /\(HTTP (\d{3})\)/.exec(raw)
+  if (!m) {
+    // Not the api module's wrapper at all — the message IS the sentence (the
+    // server answers several of these endpoints with a finished one).
+    return { status: null, sentence: raw.trimStart().startsWith('{') ? '' : raw }
+  }
+  const body = raw.slice(m.index + m[0].length).replace(/^:\s*/, '')
+  let sentence = ''
+  if (body.trimStart().startsWith('{')) {
+    try {
+      const parsed = JSON.parse(body) as { detail?: unknown }
+      if (typeof parsed.detail === 'string') sentence = parsed.detail.trim()
+    } catch {
+      /* not JSON after all — no sentence to show */
+    }
+  }
+  return { status: Number(m[1]), sentence }
+}
+
+/**
+ * The catalog-only failures, each recognised by the ONE server sentence it comes
+ * with — never by the status alone.
+ *
+ * 409 is not a single situation: the api answers it for a delete that would
+ * break citations (whose fix is "unpublish first") and for an append onto data
+ * that is not live (whose fix is the exact opposite — publish it, or reinstate
+ * it). A status-only rule would have sent two of these three readers the wrong
+ * way, so each one keys on the sentence and anything unrecognised falls through
+ * to `plainError`'s families.
+ *
+ * Matching on English prose is a deliberate best-effort: a miss costs the
+ * generic wording, never a wrong instruction. If the server ever gains a
+ * machine-readable `code` for these, switch to it here.
+ */
+function catalogFamily(raw: string, status: number | null): { title: string; body: string } | null {
+  // The commonest append failure: the instrument named today's file with today's
+  // date, and the server matches batch files against the design's source name.
+  // Said in the server's words it is `does not match any rml:source in the
+  // mapping` — a sentence about our internals, in a screen about their file.
+  if (/does not match any rml:source/i.test(raw))
+    return { title: 'gallery:append.nameMismatchTitle', body: 'gallery:append.nameMismatchBody' }
+  if (status !== 409) return null
+  if (/retract it instead|citable canonical/i.test(raw))
+    return { title: 'gallery:error.conflictTitle', body: 'gallery:error.conflictBody' }
+  if (/reinstate it before appending/i.test(raw))
+    return { title: 'gallery:error.retractedTitle', body: 'gallery:error.retractedBody' }
+  if (/append needs a live canonical graph/i.test(raw))
+    return { title: 'gallery:error.notLiveTitle', body: 'gallery:error.notLiveBody' }
+  return null
+}
+
+/**
  * The plain-language face of a failed catalog action (K11, ADR §5.1).
  *
  * Every action here used to print the api's own sentence — `promote failed
  * (HTTP 409): {"detail":…}` — which names neither the cause nor the next move.
  * The classification is the SAME one the kantan stop card uses (`plainError`),
- * so one failure never reads two ways depending on which screen you are on; the
- * two things added are the 409 family (on this screen it always means the one
- * thing: the dataset is still published, so unpublish first) and the append
- * batch-name mismatch. The raw string stays one click away for whoever needs it.
+ * so one failure never reads two ways depending on which screen you are on;
+ * what is added on top is {@link catalogFamily}, the handful of failures only
+ * this screen can act on. The raw string stays one click away for whoever needs
+ * it.
  */
 function ErrorNote({
   err,
@@ -134,34 +203,20 @@ function ErrorNote({
 }) {
   const { t } = useTranslation()
   const raw = err instanceof Error ? err.message : String(err)
-  const api = err instanceof ApiError ? err : null
-  const conflict = api?.status === 409
-  // The commonest append failure: the instrument named today's file with today's
-  // date, and the server matches batch files against the design's source name.
-  // Said in the server's words it is `does not match any rml:source in the
-  // mapping` — a sentence about our internals, in a screen about their file.
-  const nameMismatch = /does not match any rml:source/i.test(raw)
+  const { status, sentence: serverSentence } = errorFacts(err)
+  const own = catalogFamily(raw, status)
   const p = plainError(raw)
   // The server answers these endpoints with its own plain sentence. It beats the
   // generic "something went wrong" nudge, but never a classified family (those
   // carry the recovery step too).
   const generic = p.body === 'kantan:s5.plain.genericBody'
-  const serverSentence = api?.detail && !api.detail.trimStart().startsWith('{') ? api.detail : ''
   const expected = (expectedFiles?.length ? expectedFiles : expectedFromMessage(raw)).join('、')
-  const title = nameMismatch
-    ? t('gallery:append.nameMismatchTitle')
-    : conflict
-      ? t('gallery:error.conflictTitle')
-      : p.title
-        ? t(p.title)
-        : t(titleKey)
-  const body = nameMismatch
-    ? t('gallery:append.nameMismatchBody', { expected })
-    : conflict
-      ? t('gallery:error.conflictBody')
-      : generic && serverSentence
-        ? serverSentence
-        : t(p.body)
+  const title = own ? t(own.title) : p.title ? t(p.title) : t(titleKey)
+  const body = own
+    ? t(own.body, { expected })
+    : generic && serverSentence
+      ? serverSentence
+      : t(p.body)
   return (
     <div className="promote-err ingest-issues">
       <p className="ingest-issues-head">{title}</p>
@@ -755,9 +810,14 @@ function PublishDialog({
 
   const name = (meta.name ?? '').trim()
   const words = alignment ? alignmentWordSplit(alignment) : null
+  // K12: 「what is inside」 is counted in kinds, never in triples. The catalog's
+  // `counts` still carries a `fact` entry (the raw triple total) for the detail
+  // tooling, and that number is exactly the one a collapsed primary key hides —
+  // so the publish decision is never phrased with it.
+  const plainCounts = (counts ?? []).filter((c) => c.key !== 'fact')
   const countsText =
-    counts && counts.length > 0
-      ? counts.map((c) => `${c.value} ${c.label}`).join(' · ')
+    plainCounts.length > 0
+      ? plainCounts.map((c) => `${c.value} ${c.label}`).join(' · ')
       : t('gallery:promote.dialogCountsUnknown')
 
   async function publish() {

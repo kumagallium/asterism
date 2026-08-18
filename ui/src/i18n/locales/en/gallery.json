@@ -197,7 +197,11 @@
   },
   "error": {
     "conflictTitle": "Cannot delete while it is published",
-    "conflictBody": "Press \"Unpublish\" first, then try again."
+    "conflictBody": "Press \"Unpublish\" first, then try again.",
+    "retractedTitle": "Cannot add measurements while it is unpublished",
+    "retractedBody": "Press \"Publish it again\" first, then add these measurements.",
+    "notLiveTitle": "Nothing is published yet, so there is nothing to add to",
+    "notLiveBody": "Press \"Publish\" first. Once it is published, what you add goes straight into the published data."
   },
   "grow": {
     "head": "Grow this dataset",
