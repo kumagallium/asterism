@@ -290,6 +290,187 @@ def load_all_query_tools(root: Path | str | None = None) -> dict[str, list[Query
 
 
 # ----------------------------------------------------------------------------
+# Synthesizing tools from a dataset's own /trial-queries answers (ASK-34)
+# ----------------------------------------------------------------------------
+#
+# S9's example chips ("データは何件入っている?" / "{{label}}の範囲は?") ask the
+# SAME questions the kantan S7 "ためす" screen already answered deterministically
+# (``GET /api/datasets/{id}/trial-queries``). Making Ask re-derive those answers
+# via free-form LLM SPARQL means a weak model can fail a question the server
+# already knows the answer to. Per the two-persona reconciliation on ASK-34 (see
+# audit/handoff-shell-ask.md §6): the fix must NOT intercept question text in the
+# UI (that would show an AI-shaped answer card for something the AI never ran) —
+# it must make the dataset itself carry a VERIFIED tool for these, the same
+# mechanism ``datasets/<name>/query_tools.yaml`` already gives bundled examples
+# (#112/#113). This synthesizes that declaration from a promoted dataset's own
+# trial-queries payload, so a freshly kantan-published dataset gets a typed,
+# citation-bearing "how many / what range / which record is biggest" tool for
+# free — no vocabulary-specific code, same as every other query tool.
+
+
+def _safe_iri(value: Any) -> str | None:
+    """``value`` if it is a well-formed http(s) IRI safe to embed literally.
+
+    Mirrors the ``iri`` parameter check in :func:`_serialize`: defence in depth
+    even though callers only ever pass IRIs the server itself just read back
+    from the store (SPARQL bindings typed ``uri``), never user input.
+    """
+    if not isinstance(value, str) or not value:
+        return None
+    text = value.strip()
+    if not text.startswith(("http://", "https://")):
+        return None
+    if "<" in text or ">" in text or '"' in text or " " in text:
+        return None
+    return text
+
+
+def synthesize_query_tools_from_trial_queries(trial: dict[str, Any]) -> list[dict[str, Any]]:
+    """Build ``query_tools.yaml``-shaped tool declarations from a dataset's own
+    ``GET /api/datasets/{id}/trial-queries`` response (the exact JSON dict the
+    endpoint returns).
+
+    Produces up to three parameter-free, read-only tools, each scoped to the
+    dataset by baking in the exact class/predicate IRIs trial-queries just
+    reported (never a caller-supplied value, so there is nothing to inject):
+
+    * ``counts_by_kind`` — per-kind entity counts (``trial["classes"]``).
+    * ``value_range`` — min/max of the busiest numeric field (``trial["range"]``).
+    * ``top_value`` — the record holding that field's maximum, ``subject_iri``
+      included as the citation (``trial["top"]``).
+
+    Returns ``[]`` when trial-queries reported nothing usable (``available``
+    false, or none of the three sources present) — callers should treat that as
+    "nothing to write", not an error. Pure and deterministic: same input, same
+    output, no store access of its own.
+    """
+    if not isinstance(trial, dict) or not trial.get("available"):
+        return []
+    tools: list[dict[str, Any]] = []
+
+    classes = trial.get("classes") or []
+    class_iris = [
+        iri for c in classes if isinstance(c, dict) and (iri := _safe_iri(c.get("iri")))
+    ]
+    if class_iris:
+        values = " ".join(f"<{iri}>" for iri in class_iris)
+        tools.append(
+            {
+                "name": "counts_by_kind",
+                "title": "種類別の件数",
+                "description": "This dataset's entities, counted by their declared kind.",
+                "parameters": [],
+                "query": (
+                    "SELECT ?class (COUNT(DISTINCT ?s) AS ?n) WHERE { "
+                    f"VALUES ?class {{ {values} }} ?s a ?class "
+                    "} GROUP BY ?class ORDER BY DESC(?n) ?class"
+                ),
+                "result": {
+                    "item": {"class_iri": "class", "count": {"var": "n", "number": True}}
+                },
+            }
+        )
+
+    range_info = trial.get("range")
+    if isinstance(range_info, dict) and (p_iri := _safe_iri(range_info.get("predicate_iri"))):
+        label = str(range_info.get("label") or p_iri)
+        tools.append(
+            {
+                "name": "value_range",
+                "title": f"{label}の範囲",
+                "description": f"Minimum and maximum observed value of {label}.",
+                "parameters": [],
+                "query": (
+                    "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#> "
+                    "SELECT (COUNT(?num) AS ?n) (MIN(?num) AS ?min) (MAX(?num) AS ?max) WHERE { "
+                    f"?s <{p_iri}> ?v FILTER(isLiteral(?v)) "
+                    "BIND(xsd:double(str(?v)) AS ?num) FILTER(BOUND(?num)) }"
+                ),
+                "result": {
+                    "item": {
+                        "count": {"var": "n", "number": True},
+                        "min": {"var": "min", "number": True},
+                        "max": {"var": "max", "number": True},
+                    }
+                },
+            }
+        )
+
+    top_info = trial.get("top")
+    if isinstance(top_info, dict) and (p_iri := _safe_iri(top_info.get("predicate_iri"))):
+        label = str(top_info.get("label") or p_iri)
+        tools.append(
+            {
+                "name": "top_value",
+                "title": f"{label}が最大の記録",
+                "description": (
+                    f"The record with the maximum {label}, citable via its subject IRI."
+                ),
+                "parameters": [],
+                "query": (
+                    "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#> "
+                    "SELECT ?s ?v WHERE { "
+                    f"?s <{p_iri}> ?v FILTER(isLiteral(?v)) "
+                    "BIND(xsd:double(str(?v)) AS ?num) FILTER(BOUND(?num)) "
+                    "} ORDER BY DESC(?num) ?s LIMIT 1"
+                ),
+                "result": {"item": {"subject_iri": "s", "value": {"var": "v", "number": True}}},
+            }
+        )
+    return tools
+
+
+def write_registry_query_tools(
+    registry_root: Path | str, dataset_id: str, tools: list[dict[str, Any]]
+) -> Path | None:
+    """Persist synthesized tool declarations to ``registry/<id>/query_tools.yaml``.
+
+    Vets every declaration through the same lint gate an authored save would
+    use (this module's docstring: "Save/propose paths gate on it") — a tool
+    that fails to parse or lint is dropped rather than persisted broken; a
+    dataset that ends up with zero surviving tools gets no file at all (never
+    an empty/broken one). Overwrites any prior synthesis so a re-promote
+    re-derives the file from the CURRENT live data — this function only ever
+    receives freshly-synthesized content (see :func:`synthesize_query_tools_from_trial_queries`),
+    never a hand-authored declaration, so there is nothing of a human's to lose.
+
+    Best-effort like the rest of promote's optional post-steps: returns the
+    written path on success, or ``None`` when there is nothing to write (no
+    tools) or the dataset directory does not exist (never mints a new registry
+    entry out of a synthesis call). Raises nothing — a malformed ``tools`` list
+    degrades to "dropped, logged", matching :func:`load_query_tools`'s lenience.
+    """
+    base = Path(registry_root)
+    dataset_dir = base / dataset_id
+    if not tools or not dataset_dir.is_dir():
+        return None
+    parsed, issues = parse_query_tools_lenient({"tools": tools})
+    for msg in issues:
+        _log.warning("synthesize_query_tools[%s]: dropped %s", dataset_id, msg)
+    kept_names = set()
+    for qt in parsed:
+        lint = lint_query_tool(qt)
+        if lint.errors:
+            _log.warning(
+                "synthesize_query_tools[%s]: dropped tool %r (%s)",
+                dataset_id,
+                qt.name,
+                "; ".join(lint.errors),
+            )
+            continue
+        kept_names.add(qt.name)
+    kept_raw = [t for t in tools if str(t.get("name")) in kept_names]
+    if not kept_raw:
+        return None
+    path = dataset_dir / "query_tools.yaml"
+    path.write_text(
+        yaml.safe_dump({"tools": kept_raw}, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+    return path
+
+
+# ----------------------------------------------------------------------------
 # Safe parameter binding
 # ----------------------------------------------------------------------------
 

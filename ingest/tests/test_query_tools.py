@@ -20,6 +20,8 @@ from asterism.query_tools import (
     parse_query_tools,
     render_query,
     run_query_tool,
+    synthesize_query_tools_from_trial_queries,
+    write_registry_query_tools,
 )
 from asterism.substrate import (
     CANONICAL_GRAPH_BASE,
@@ -564,3 +566,127 @@ def test_bundled_tools_enabled_env_parsing(monkeypatch) -> None:
     for falsy in ("", "0", "false", "off", "nope"):
         monkeypatch.setenv("ASTERISM_BUNDLED_TOOLS", falsy)
         assert bundled_tools_enabled() is False, falsy
+
+
+# ---------------------------------------------------------------------------
+# ASK-34: synthesizing verified tools from a dataset's own /trial-queries reply
+# ---------------------------------------------------------------------------
+
+_TRIAL_FULL = {
+    "dataset_id": "my-dataset-abc12345",
+    "available": True,
+    "classes": [
+        {"iri": "https://ex/my-dataset#Sample", "n": 42, "label": "試料"},
+        {"iri": "https://ex/my-dataset#Measurement", "n": 7},
+    ],
+    "range": {
+        "predicate_iri": "https://ex/my-dataset#seebeck",
+        "n": 30,
+        "min": "1.0",
+        "max": "9.0",
+        "label": "ゼーベック係数",
+    },
+    "top": {
+        "predicate_iri": "https://ex/my-dataset#seebeck",
+        "value": "9.0",
+        "subject_iri": "https://ex/my-dataset/sample/1",
+        "label": "ゼーベック係数",
+    },
+}
+
+
+def test_synthesize_from_trial_queries_full() -> None:
+    tools = synthesize_query_tools_from_trial_queries(_TRIAL_FULL)
+    names = [t["name"] for t in tools]
+    assert names == ["counts_by_kind", "value_range", "top_value"]
+
+    counts = tools[0]
+    assert "<https://ex/my-dataset#Sample>" in counts["query"]
+    assert "<https://ex/my-dataset#Measurement>" in counts["query"]
+    assert counts["parameters"] == []
+
+    value_range = tools[1]
+    assert "<https://ex/my-dataset#seebeck>" in value_range["query"]
+    assert "ゼーベック係数" in value_range["title"]
+
+    top_value = tools[2]
+    assert "<https://ex/my-dataset#seebeck>" in top_value["query"]
+    assert top_value["result"]["item"]["subject_iri"] == "s"
+
+    # Every synthesized tool must itself parse+lint clean (round-trips as an
+    # ordinary declared tool — no special-casing at load/run time).
+    parsed = parse_query_tools({"tools": tools})
+    assert len(parsed) == 3
+    for tool in parsed:
+        lint = lint_query_tool(tool)
+        assert lint.ok, (tool.name, lint.errors)
+
+
+def test_synthesize_from_trial_queries_unavailable() -> None:
+    assert synthesize_query_tools_from_trial_queries({"available": False}) == []
+    assert synthesize_query_tools_from_trial_queries({}) == []
+
+
+def test_synthesize_from_trial_queries_partial() -> None:
+    # Only a range, no classes / top (e.g. no rr:class declared, or a single
+    # numeric field so top == range's field with nothing left over).
+    tools = synthesize_query_tools_from_trial_queries(
+        {
+            "available": True,
+            "classes": [],
+            "range": {"predicate_iri": "https://ex/x#v", "label": "値"},
+        }
+    )
+    assert [t["name"] for t in tools] == ["value_range"]
+
+
+def test_synthesize_from_trial_queries_rejects_non_iri() -> None:
+    # A non-http(s) or otherwise malformed "IRI" (should never happen — the
+    # source is the server's own SPARQL bindings — but the synthesizer must not
+    # trust it blindly) is skipped rather than embedded raw into a query.
+    tools = synthesize_query_tools_from_trial_queries(
+        {
+            "available": True,
+            "classes": [{"iri": "not-an-iri"}, {"iri": '"; DROP GRAPH <x>'}],
+            "range": {"predicate_iri": "ftp://ex/x#v"},
+            "top": {"predicate_iri": None},
+        }
+    )
+    assert tools == []
+
+
+def test_write_registry_query_tools_round_trip(tmp_path) -> None:
+    reg = tmp_path / "registry"
+    (reg / "my-dataset-abc12345").mkdir(parents=True)
+    tools = synthesize_query_tools_from_trial_queries(_TRIAL_FULL)
+
+    path = write_registry_query_tools(reg, "my-dataset-abc12345", tools)
+    assert path == reg / "my-dataset-abc12345" / "query_tools.yaml"
+    assert path.is_file()
+
+    loaded = {t.name: t for t in load_query_tools("my-dataset-abc12345", reg)}
+    assert set(loaded) == {"counts_by_kind", "value_range", "top_value"}
+
+    # Re-promote re-derives the file from fresh data (overwrite, not append).
+    fewer = synthesize_query_tools_from_trial_queries(
+        {"available": True, "classes": [], "range": _TRIAL_FULL["range"]}
+    )
+    write_registry_query_tools(reg, "my-dataset-abc12345", fewer)
+    reloaded = {t.name for t in load_query_tools("my-dataset-abc12345", reg)}
+    assert reloaded == {"value_range"}
+
+
+def test_write_registry_query_tools_no_dataset_dir(tmp_path) -> None:
+    # Never mints a new registry entry out of a synthesis call.
+    reg = tmp_path / "registry"
+    reg.mkdir()
+    tools = synthesize_query_tools_from_trial_queries(_TRIAL_FULL)
+    assert write_registry_query_tools(reg, "does-not-exist", tools) is None
+    assert not (reg / "does-not-exist").exists()
+
+
+def test_write_registry_query_tools_empty(tmp_path) -> None:
+    reg = tmp_path / "registry"
+    (reg / "ds").mkdir(parents=True)
+    assert write_registry_query_tools(reg, "ds", []) is None
+    assert not (reg / "ds" / "query_tools.yaml").exists()

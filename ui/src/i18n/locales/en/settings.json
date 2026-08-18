@@ -136,7 +136,7 @@
     "using": "Model:",
     "usingServerSetup": "Ready — using the administrator's setup",
     "change": "Change",
-    "notSetUp": "AI isn't set up yet.",
+    "notSetUp": "The AI is not connected yet. Once an administrator sets one up on the server, this screen works as it is. To use your own, connect it in one screen below.",
     "openSettings": "Open settings",
     "serverKey": "using the administrator's setup"
   },
