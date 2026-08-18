@@ -60,3 +60,38 @@ def test_describe_bare_scalar_is_silent_for_strings_and_none() -> None:
     assert describe_bare_scalar("x") == ""
     assert describe_bare_scalar(None) == ""
     assert "boolean" in describe_bare_scalar(True)
+
+
+def test_boolean_typed_fields_still_accept_the_yaml_11_spellings() -> None:
+    """The flip side of the 1.2 loader: a column named ``No`` must stay a
+    string, but ``collapse: no`` is unambiguous and was silently accepted
+    before. Coercing it here keeps the loader change from costing an LLM round
+    over punctuation."""
+    from asterism_step0.spec_yaml import coerce_bool
+
+    assert coerce_bool(True) is True and coerce_bool(False) is False
+    for word in ("no", "No", "NO", "off", "Off", "n", "false", "FALSE"):
+        assert coerce_bool(word) is False, word
+    for word in ("yes", "Yes", "on", "y", "true", "True"):
+        assert coerce_bool(word) is True, word
+    # Not boolean at all → None, so the caller still reports its own issue.
+    assert coerce_bool("maybe") is None
+    assert coerce_bool(1) is None
+    assert coerce_bool(None) is None
+
+
+def test_collapse_written_as_no_is_not_a_new_design_issue() -> None:
+    """End-to-end: the whole point is that this spec parses clean."""
+    spec = (
+        "version: 1\nprefixes:\n  ex: https://ns.invalid/ns#\n"
+        "maps:\n  - name: m\n    source: d.txt\n"
+        "    subject:\n      template: ex:m/{No}\n      classes: [ex:T]\n"
+        "    properties:\n      - predicate: ex:n\n        column: No\n"
+        "        fallback: yes\n"
+        "dialects:\n  d.txt:\n    encoding: utf-8\n    delimiter: ','\n"
+        "    collapse: no\n    skip_rows: 0\n"
+    )
+    ir = parse_mapping_ir(spec)
+    assert ir.maps[0].properties[0].column == "No"
+    assert ir.maps[0].properties[0].fallback is True
+    assert ir.dialects["d.txt"].collapse is False
