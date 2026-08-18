@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Trans, useTranslation } from 'react-i18next'
+import { useTranslation } from 'react-i18next'
+import { isBundledTool } from './bundledTools'
+import { plainError } from './kantan/errorMessages'
 import { ToolRunner } from './ToolRunner'
 import { useLlmSettings } from './settings/context'
 import { LlmGate } from './settings/LlmGate'
@@ -66,6 +68,32 @@ function toForm(t: QueryTool): ToolForm {
   }
 }
 
+/** snake_case identifier derived from the human title (K13: an identifier that
+ *  carries no meaning of its own is derived by the machine, not decided by the
+ *  user). A title with no ascii letters — a Japanese one — yields an empty slug,
+ *  so a numbered fallback keeps the form saveable instead of dead-ending on the
+ *  "enter a title and the query" error. */
+function slugify(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 40)
+}
+
+/** `base`, or `base_2` / `base_3` … when the name is already taken. */
+function uniqueName(base: string, taken: Set<string>): string {
+  if (!taken.has(base)) return base
+  for (let i = 2; ; i++) {
+    const candidate = `${base}_${i}`
+    if (!taken.has(candidate)) return candidate
+  }
+}
+
+function derivedToolName(title: string, taken: Iterable<string>): string {
+  return uniqueName(slugify(title) || 'tool', new Set(taken))
+}
+
 function fromForm(f: ToolForm): QueryTool {
   const parameters: QueryToolParam[] = f.parameters.map((p) => {
     const out: QueryToolParam = { name: p.name.trim(), type: p.type }
@@ -102,9 +130,26 @@ function fromForm(f: ToolForm): QueryTool {
  * 編集 → 保存. Saving IS the human-vet gate (the backend re-validates read-only
  * SELECT/ASK + safe binding); a saved tool routes into Ask immediately. Real data
  * only — every call goes through /api (no fixture fallback).
+ *
+ * `mode="run-only"` is for surfaces that are not this dataset's own page (the
+ * つながり hub): the authoring loop and each tool's identifier / query stay
+ * reachable, but behind a fold, so the panel reads as "what this data can
+ * answer". Nothing is removed (K1).
+ *
+ * `onOpenAsk` lets the host route to 質問する; without it the panel falls back to
+ * the hash route, which is the app's single source of truth for navigation.
  */
-export function ToolsPanel({ datasetId }: { datasetId: string }) {
+export function ToolsPanel({
+  datasetId,
+  mode = 'full',
+  onOpenAsk,
+}: {
+  datasetId: string
+  mode?: 'full' | 'run-only'
+  onOpenAsk?: () => void
+}) {
   const { t } = useTranslation()
+  const runOnly = mode === 'run-only'
   const [tools, setTools] = useState<QueryTool[] | null>(null)
   const [loadError, setLoadError] = useState('')
   const [busyDelete, setBusyDelete] = useState('')
@@ -122,6 +167,14 @@ export function ToolsPanel({ datasetId }: { datasetId: string }) {
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
   const [notice, setNotice] = useState('')
+  // Whether the (folded) authoring section is open. Kept in state so the fold
+  // survives re-renders and can be forced open while a draft is under review.
+  const [authorOpen, setAuthorOpen] = useState(false)
+  // The draft's identifier follows the title while the machine owns it (K13).
+  // Cleared as soon as the AI supplies one or the user types their own, and
+  // locked while editing a saved tool (a rename would break every reference).
+  const [nameAuto, setNameAuto] = useState(true)
+  const [nameLocked, setNameLocked] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -136,7 +189,14 @@ export function ToolsPanel({ datasetId }: { datasetId: string }) {
 
   // Any edit to the draft invalidates the AI-draft gate → re-checked on save.
   function patch(p: Partial<ToolForm>) {
-    setDraft((d) => (d ? { ...d, ...p } : d))
+    setDraft((d) => {
+      if (!d) return d
+      const next = { ...d, ...p }
+      if (p.title !== undefined && nameAuto && !nameLocked) {
+        next.name = derivedToolName(next.title, (tools ?? []).map((x) => x.name))
+      }
+      return next
+    })
     setDirty(true)
     setSaveError('')
   }
@@ -177,6 +237,8 @@ export function ToolsPanel({ datasetId }: { datasetId: string }) {
   function startEmpty() {
     if (!confirmDropDirty()) return
     setDraft({ ...EMPTY_FORM })
+    setNameAuto(true)
+    setNameLocked(false)
     setDraftValid(null)
     setDraftGateError(null)
     setDirty(false)
@@ -186,6 +248,8 @@ export function ToolsPanel({ datasetId }: { datasetId: string }) {
   function startEdit(t: QueryTool) {
     if (!confirmDropDirty()) return
     setDraft(toForm(t))
+    setNameAuto(false)
+    setNameLocked(true) // a saved tool is called by this name from Ask / MCP
     setDraftValid(null)
     setDraftGateError(null)
     setDirty(false)
@@ -209,6 +273,8 @@ export function ToolsPanel({ datasetId }: { datasetId: string }) {
     try {
       const res = await proposeTool(datasetId, intent.trim(), getActiveCredentials())
       setDraft(toForm(res.draft))
+      setNameAuto(!res.draft.name) // keep the AI's identifier when it supplied one
+      setNameLocked(false)
       setDraftValid(res.valid)
       setDraftGateError(res.error)
       setDirty(false)
@@ -222,7 +288,15 @@ export function ToolsPanel({ datasetId }: { datasetId: string }) {
 
   async function save() {
     if (!draft) return
-    const tool = fromForm(draft)
+    // The identifier is machine-derived from the title when the draft carries
+    // none (K13); with neither, there is nothing to derive from and the form
+    // asks for a title.
+    const name =
+      draft.name.trim() ||
+      (draft.title.trim()
+        ? derivedToolName(draft.title, (tools ?? []).map((x) => x.name))
+        : '')
+    const tool = fromForm({ ...draft, name })
     if (!tool.name || !tool.query.trim()) {
       setSaveError(t('tools:panel.save.required'))
       return
@@ -236,7 +310,8 @@ export function ToolsPanel({ datasetId }: { datasetId: string }) {
       setDraftValid(null)
       setDraftGateError(null)
       setDirty(false)
-      setNotice(t('tools:panel.notice.saved', { name: tool.name }))
+      // The human title leads in every message; the identifier is machinery.
+      setNotice(t('tools:panel.notice.saved', { name: tool.title || tool.name }))
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -244,13 +319,20 @@ export function ToolsPanel({ datasetId }: { datasetId: string }) {
     }
   }
 
-  async function del(name: string) {
-    if (!window.confirm(t('tools:panel.deleteConfirm', { name }))) return
+  /** 質問する — via the host's router when it passes one, otherwise the hash
+   *  route (the app re-reads it on hashchange, so this works from anywhere). */
+  function openAsk() {
+    if (onOpenAsk) onOpenAsk()
+    else window.location.hash = '#/ask'
+  }
+
+  async function del(name: string, label: string) {
+    if (!window.confirm(t('tools:panel.deleteConfirm', { name: label }))) return
     setBusyDelete(name)
     setLoadError('')
     try {
       setTools(await deleteTool(datasetId, name))
-      setNotice(t('tools:panel.notice.deleted', { name }))
+      setNotice(t('tools:panel.notice.deleted', { name: label }))
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -259,21 +341,29 @@ export function ToolsPanel({ datasetId }: { datasetId: string }) {
   }
 
   return (
+    // No heading of its own: every caller (the catalog's ツール tab, the
+    // crosswalk hub) already titles this section, and two stacked titles with
+    // different names read as two different things (K4).
     <div className="ds-tab-body tools-panel">
-      <div className="ds-section-head">
-        <span className="ds-section-title">{t('tools:panel.sectionTitle')}</span>
-        <span className="ds-section-note">
-          {tools ? t('tools:panel.count', { n: tools.length }) : '—'}
-        </span>
-      </div>
-      <p className="tools-intro">
-        <Trans i18nKey="tools:panel.intro">
-          このデータセットに、型付き・決定論の<strong>読み取り専用 SPARQL ツール</strong>を足せます。
-          保存したツールは PR なしで <strong>Ask の検証済みツール</strong>になります（保存＝人による確定）。
-        </Trans>
-      </p>
+      <p className="tools-intro">{t('tools:panel.intro')}</p>
+      {/* `count` drives i18next's plural selection, `n` fills the {{n}}
+          placeholder both locales use. */}
+      {tools && tools.length > 0 && (
+        <p className="tools-count">
+          {t('tools:panel.count', { count: tools.length, n: tools.length })}
+        </p>
+      )}
 
-      {loadError && <pre className="error">{loadError}</pre>}
+      {loadError && (
+        <div className="tool-run-err">
+          <p className="doc-error-head">{t('tools:panel.errHead')}</p>
+          <p className="hint">{t(plainError(loadError).body)}</p>
+          <details className="tool-sparql-details">
+            <summary>{t('tools:runner.techSummary')}</summary>
+            <pre className="sparql-block">{loadError}</pre>
+          </details>
+        </div>
+      )}
       {notice && <p className="tools-notice">✓ {notice}</p>}
 
       {/* --- existing tools --- */}
@@ -283,8 +373,15 @@ export function ToolsPanel({ datasetId }: { datasetId: string }) {
           {t('tools:panel.loading')}
         </p>
       )}
+      {/* An empty list points at 質問する — a free-text question, not the SPARQL
+          editor below, is what someone with a table in front of them wants. */}
       {tools && tools.length === 0 && (
-        <p className="ds-empty-note">{t('tools:panel.emptyList')}</p>
+        <>
+          <p className="ds-empty-note">{t('tools:panel.emptyList')}</p>
+          <button type="button" className="btn btn--ghost btn--sm" onClick={openAsk}>
+            {t('tools:panel.openAsk')}
+          </button>
+        </>
       )}
       {tools && tools.length > 0 && (
         <div className="tool-list">
@@ -293,24 +390,30 @@ export function ToolsPanel({ datasetId }: { datasetId: string }) {
               key={t.name}
               tool={t}
               datasetId={datasetId}
+              compact={runOnly}
               deleting={busyDelete === t.name}
               onEdit={() => startEdit(t)}
-              onDelete={() => del(t.name)}
+              onDelete={() => del(t.name, t.title || t.name)}
             />
           ))}
         </div>
       )}
 
-      {/* --- author a new tool --- */}
-      <div className="tool-author">
+      {/* --- author a new tool: a developer move, folded away by default so the
+              shared tab reads as "what this data can answer", not as a SPARQL
+              editor. Forced open while a draft is being reviewed. --- */}
+      <details
+        className="tool-author-details"
+        open={authorOpen || draft !== null}
+        onToggle={(e) => setAuthorOpen(e.currentTarget.open)}
+      >
+        <summary>{t('tools:panel.author.summary')}</summary>
+        <div className="tool-author">
         <div className="ds-subhead">{t('tools:panel.author.subhead')}</div>
-        <p className="tools-hint">
-          <Trans i18nKey="tools:panel.author.hint">
-            「やりたいこと」を書くと、このデータのことばをもとに <strong>AI が読み取り専用の検索ツール（SPARQL）を下書き</strong>します。
-            下書きは<strong>その場で編集</strong>でき、<strong>保存して初めて確定</strong>します（保存＝人による検証ゲート）。
-            AI には、設定で選択中のモデルを使います。
-          </Trans>
-        </p>
+        {/* Plain t(), not <Trans>: two sources for one sentence (the ja default
+            children here and the translated string) had already drifted apart.
+            Which model runs is the LlmGate's job to say, not this sentence's. */}
+        <p className="tools-hint">{t('tools:panel.author.hint')}</p>
         <textarea
           className="tool-intent-input"
           rows={2}
@@ -318,7 +421,7 @@ export function ToolsPanel({ datasetId }: { datasetId: string }) {
           placeholder={t('tools:panel.author.intentPlaceholder')}
           onChange={(e) => setIntent(e.target.value)}
         />
-        <LlmGate />
+        <LlmGate plain />
         <div className="tool-author-row">
           <button
             type="button"
@@ -338,29 +441,41 @@ export function ToolsPanel({ datasetId }: { datasetId: string }) {
             {t('tools:panel.author.startEmpty')}
           </button>
         </div>
-        {proposeError && <pre className="error">{proposeError}</pre>}
-      </div>
+        {proposeError && (
+          <div className="tool-run-err">
+            <p className="doc-error-head">{t('tools:panel.author.proposeErrHead')}</p>
+            <p className="hint">{t(plainError(proposeError).body)}</p>
+            <details className="tool-sparql-details">
+              <summary>{t('tools:runner.techSummary')}</summary>
+              <pre className="sparql-block">{proposeError}</pre>
+            </details>
+          </div>
+        )}
+        </div>
 
-      {/* --- draft editor --- */}
-      {draft && (
-        <DraftEditor
-          draft={draft}
-          dirty={dirty}
-          valid={draftValid}
-          gateError={draftGateError}
-          saving={saving}
-          saveError={saveError}
-          patch={patch}
-          updateParam={updateParam}
-          addParam={addParam}
-          removeParam={removeParam}
-          updateRow={updateRow}
-          addRow={addRow}
-          removeRow={removeRow}
-          onSave={save}
-          onDiscard={discard}
-        />
-      )}
+        {/* --- draft editor --- */}
+        {draft && (
+          <DraftEditor
+            draft={draft}
+            dirty={dirty}
+            valid={draftValid}
+            gateError={draftGateError}
+            saving={saving}
+            saveError={saveError}
+            nameLocked={nameLocked}
+            onNameEdited={() => setNameAuto(false)}
+            patch={patch}
+            updateParam={updateParam}
+            addParam={addParam}
+            removeParam={removeParam}
+            updateRow={updateRow}
+            addRow={addRow}
+            removeRow={removeRow}
+            onSave={save}
+            onDiscard={discard}
+          />
+        )}
+      </details>
     </div>
   )
 }
@@ -374,25 +489,68 @@ export function ToolsPanel({ datasetId }: { datasetId: string }) {
 function ToolCard({
   tool,
   datasetId,
+  compact = false,
   deleting,
   onEdit,
   onDelete,
 }: {
   tool: QueryTool
   datasetId: string
+  compact?: boolean
   deleting: boolean
   onEdit: () => void
   onDelete: () => void
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const params = tool.parameters ?? []
   const [open, setOpen] = useState(false)
+  const bundled = isBundledTool(tool.name)
+  /** The declared kind of a value, in words — never the wire identifier. */
+  function typeLabel(type: string): string {
+    const key = `tools:paramType.${type}`
+    return i18n.exists(key) ? t(key) : type
+  }
+  /** A shipped tool's own title/description are written for the agent that calls
+   *  it (English, ontology terms); the reader gets the translated wording. */
+  function bundledText(rest: string): string | undefined {
+    if (!bundled) return undefined
+    const key = `tools:bundled.${tool.name}.${rest}`
+    return i18n.exists(key) ? t(key) : undefined
+  }
+  const title = bundledText('title') ?? tool.title
+  const description = bundledText('description') ?? tool.description
+  const editActions = (
+    <>
+      <button type="button" className="btn btn--ghost btn--sm" onClick={onEdit}>
+        {t('tools:card.edit')}
+      </button>
+      <button
+        type="button"
+        className="btn btn--danger btn--sm"
+        disabled={deleting}
+        onClick={onDelete}
+      >
+        {deleting ? t('tools:card.deleting') : t('tools:card.delete')}
+      </button>
+    </>
+  )
 
   return (
     <div className="tool-card">
       <div className="tool-card-head">
-        <code className="tool-name">{tool.name}</code>
-        {tool.title && <span className="tool-title">{tool.title}</span>}
+        {/* What the tool does leads; its identifier is the faint gloss. */}
+        {title ? (
+          <>
+            <span className="tool-title tool-title--lead" title={compact ? tool.name : undefined}>
+              {title}
+            </span>
+            {/* Away from this dataset's own page the identifier is noise: it
+                moves into the hover title and the fold at the bottom. */}
+            {!compact && <code className="tool-name tool-name--gloss">{tool.name}</code>}
+          </>
+        ) : (
+          <code className="tool-name">{tool.name}</code>
+        )}
         <span className="tool-card-actions">
           <button
             type="button"
@@ -401,35 +559,42 @@ function ToolCard({
           >
             {open ? t('tools:card.close') : t('tools:card.run')}
           </button>
-          <button type="button" className="btn btn--ghost btn--sm" onClick={onEdit}>
-            {t('tools:card.edit')}
-          </button>
-          <button
-            type="button"
-            className="btn btn--danger btn--sm"
-            disabled={deleting}
-            onClick={onDelete}
-          >
-            {deleting ? t('tools:card.deleting') : t('tools:card.delete')}
-          </button>
+          {/* 編集 / 削除 only for tools this user authored: deleting a shipped one
+              silently removes the document search + citation this dataset runs on.
+              In compact mode they move into the fold below — never removed (K1). */}
+          {!bundled && !compact && editActions}
         </span>
       </div>
-      {tool.description && <p className="tool-desc">{tool.description}</p>}
+      {description && <p className="tool-desc">{description}</p>}
       {params.length > 0 && (
         <div className="tool-params">
-          {params.map((p) => (
-            <span key={p.name} className="param-chip" title={p.description}>
-              <code>{p.name}</code>
-              <span className="param-chip-type">{p.type}</span>
-              {p.required && <span className="param-chip-req">{t('tools:card.required')}</span>}
-            </span>
-          ))}
+          {params.map((p) => {
+            const label = bundledText(`params.${p.name}.label`)
+            return (
+              <span key={p.name} className="param-chip" title={label ? p.name : p.description}>
+                {label ? <span>{label}</span> : <code>{p.name}</code>}
+                {!label && <span className="param-chip-type">{typeLabel(p.type)}</span>}
+                {p.required && <span className="param-chip-req">{t('tools:card.required')}</span>}
+              </span>
+            )
+          })}
         </div>
       )}
-      <details className="tool-sparql-details">
-        <summary>{t('tools:card.sparqlSummary')}</summary>
-        <pre className="sparql-block">{tool.query}</pre>
-      </details>
+      {compact ? (
+        <details className="tool-sparql-details">
+          <summary>{t('tools:card.tweakSummary')}</summary>
+          <p className="tools-hint">
+            <code className="tool-name">{tool.name}</code>
+          </p>
+          {!bundled && <div className="tool-card-actions">{editActions}</div>}
+          <pre className="sparql-block">{tool.query}</pre>
+        </details>
+      ) : (
+        <details className="tool-sparql-details">
+          <summary>{t('tools:card.sparqlSummary')}</summary>
+          <pre className="sparql-block">{tool.query}</pre>
+        </details>
+      )}
 
       {open && <ToolRunner datasetId={datasetId} tool={tool} />}
     </div>
@@ -443,6 +608,8 @@ function DraftEditor({
   gateError,
   saving,
   saveError,
+  nameLocked,
+  onNameEdited,
   patch,
   updateParam,
   addParam,
@@ -459,6 +626,8 @@ function DraftEditor({
   gateError: string | null
   saving: boolean
   saveError: string
+  nameLocked: boolean
+  onNameEdited: () => void
   patch: (p: Partial<ToolForm>) => void
   updateParam: (i: number, p: Partial<QueryToolParam>) => void
   addParam: () => void
@@ -492,15 +661,26 @@ function DraftEditor({
       </div>
       {banner}
 
-      <label className="draft-field">
-        <span className="draft-label">{t('tools:draft.nameLabel')}</span>
-        <input
-          className="draft-text"
-          value={draft.name}
-          placeholder="structure_lookup"
-          onChange={(e) => patch({ name: e.target.value })}
-        />
-      </label>
+      {/* The identifier is derived from the title (K13) and, once saved, is the
+          name Ask / MCP call the tool by — so it is read-only while editing an
+          existing tool. The field itself stays reachable for whoever needs it. */}
+      <details className="tool-sparql-details">
+        <summary>{t('tools:draft.advancedSummary')}</summary>
+        <label className="draft-field">
+          <span className="draft-label">{t('tools:draft.nameLabel')}</span>
+          <input
+            className="draft-text"
+            value={draft.name}
+            readOnly={nameLocked}
+            placeholder="structure_lookup"
+            onChange={(e) => {
+              onNameEdited()
+              patch({ name: e.target.value })
+            }}
+          />
+        </label>
+        <p className="tools-hint">{t('tools:draft.nameHint')}</p>
+      </details>
       <label className="draft-field">
         <span className="draft-label">{t('tools:draft.titleLabel')}</span>
         <input

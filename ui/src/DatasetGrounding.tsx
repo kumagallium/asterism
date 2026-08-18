@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { type Alignment, align, getAlignments, unalign } from './crosswalkApi'
-import type { CatalogDataset } from './galleryApi'
+import { type CatalogDataset, getDatasetRules } from './galleryApi'
 import { GroundingPicker } from './GroundingPicker'
 import { type GroundCandidate, groundTerms } from './groundingApi'
-import { CheckIcon, ConnectIcon, GlobeIcon, LinkIcon, SearchIcon, SparkIcon } from './icons'
+import { CheckIcon, ConnectIcon, GlobeIcon, LinkIcon, SearchIcon } from './icons'
+import { plainError } from './kantan/errorMessages'
+import { labelFor } from './termLabels'
 import { knownVocabForIri, localName } from './vocab'
 
 /**
@@ -23,6 +25,13 @@ const RELATION_FOR: Record<'class' | 'property', string> = {
   class: 'equivalentClass',
   property: 'equivalentProperty',
 }
+
+/** Minimum closed-set score a top candidate needs before it is offered as "the"
+ *  suggestion with a one-click confirm. Mirrors the propose-side gate in
+ *  step0/schema.py (min_score=40) so a 20-point single-word overlap — which a
+ *  weak model's vague identifier (`hasVal`) trivially produces — never reaches a
+ *  reviewer who cannot judge it. Weaker hits stay reachable via 候補をさがす. */
+const MIN_CANDIDATE_SCORE = 40
 
 /** The dataset's own minted terms, split into classes (もの) and fields (項目). Terms
  * already under a known external namespace are reused already, so they are skipped. */
@@ -69,10 +78,22 @@ export function DatasetGrounding({ dataset }: { dataset: CatalogDataset }) {
   const [removing, setRemoving] = useState('')
   const [err, setErr] = useState('')
   const [note, setNote] = useState('')
+  // Human-readable names for the dataset's own terms (the same model.yaml labels
+  // the 設計 tab's rule table shows). Read-only enrichment: a failure just leaves
+  // the minted local name, it never blocks grounding.
+  const [labels, setLabels] = useState<Record<string, string>>({})
 
   const { classes, fields } = ownTerms(dataset)
   const allTerms = [...classes, ...fields]
   const termIris = new Set(allTerms.map((tm) => tm.iri))
+  const datasetId = dataset.live?.meta?.id
+
+  /** What the user sees for one of their own terms: the reviewed label when the
+   *  design carries one, the minted local name otherwise. The identifier itself
+   *  moves to `title` (K4: no raw English identifiers in the shared screens). */
+  function shownName(term: SourceTerm): string {
+    return labelFor(labels, term.iri, term.name) ?? term.name
+  }
 
   function load() {
     getAlignments()
@@ -90,13 +111,18 @@ export function DatasetGrounding({ dataset }: { dataset: CatalogDataset }) {
     }
   }, [])
 
-  // Eager top-candidate per term (closed-set) → drives the 確認待ち (AI候補) state. Runs
-  // once per dataset; the human still confirms before anything is asserted.
+  // Eager top-candidate per term (closed-set, deterministic — no LLM) → drives the
+  // 候補 state. Runs once per dataset; the human still confirms before anything is
+  // asserted, and a weak match is dropped rather than dressed up as "the" answer.
   useEffect(() => {
     let off = false
     for (const tm of allTerms) {
       groundTerms(tm.name, { kind: tm.kind, limit: 1 })
-        .then((r) => !off && setCands((prev) => ({ ...prev, [tm.iri]: r[0] ?? null })))
+        .then((r) => {
+          const top = r[0]
+          const strong = top && top.score >= MIN_CANDIDATE_SCORE ? top : null
+          if (!off) setCands((prev) => ({ ...prev, [tm.iri]: strong }))
+        })
         .catch(() => !off && setCands((prev) => ({ ...prev, [tm.iri]: null })))
     }
     return () => {
@@ -104,6 +130,18 @@ export function DatasetGrounding({ dataset }: { dataset: CatalogDataset }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dataset.id])
+
+  // The design's reviewed labels, so a row reads 「ZT」 rather than 「hasZT」.
+  useEffect(() => {
+    if (!datasetId) return
+    let off = false
+    getDatasetRules(datasetId)
+      .then((r) => !off && setLabels(r.labels ?? {}))
+      .catch(() => undefined)
+    return () => {
+      off = true
+    }
+  }, [datasetId])
 
   // This dataset's EXTERNAL groundings: alignments whose source is one of its terms and
   // whose target is a recognized standard term. Keyed by source IRI (one shown per term).
@@ -120,7 +158,13 @@ export function DatasetGrounding({ dataset }: { dataset: CatalogDataset }) {
     setNote('')
     try {
       await align(term.iri, c.iri, RELATION_FOR[term.kind], dataset.name, c.vocab_title)
-      setNote(t('grounding:adopt.done', { source: term.name, target: c.curie }))
+      setNote(
+        t('grounding:adopt.done', {
+          source: shownName(term),
+          target: c.label,
+          vocab: c.vocab_title,
+        }),
+      )
       setActiveIri('')
       load()
     } catch (e) {
@@ -151,9 +195,9 @@ export function DatasetGrounding({ dataset }: { dataset: CatalogDataset }) {
     return (
       <div className="ground-row" key={term.iri}>
         <div className="ground-own">
-          <div className="ground-own-name">
-            {term.name}
-            <span className="ground-own-en">{term.kind}</span>
+          <div className="ground-own-name" title={term.name}>
+            {shownName(term)}
+            <span className="ground-own-kind">{t(`grounding:kind.${term.kind}`)}</span>
           </div>
         </div>
         <span className="ground-arrow">→</span>
@@ -195,7 +239,7 @@ export function DatasetGrounding({ dataset }: { dataset: CatalogDataset }) {
               <StdToken gloss={cand.label} std={cand.vocab_title} token={cand.curie} dashed />
               <span className="ground-suggest">
                 <span className="ground-state ground-state--suggest">
-                  <SparkIcon size={12} /> {t('grounding:state.suggest')}
+                  <SearchIcon size={12} /> {t('grounding:state.suggest')}
                 </span>
                 <span className="ground-suggest-actions">
                   <button
@@ -211,7 +255,7 @@ export function DatasetGrounding({ dataset }: { dataset: CatalogDataset }) {
                     className="ground-link-btn"
                     onClick={() => setActiveIri(term.iri)}
                   >
-                    {t('grounding:search')}
+                    {t('grounding:searchOther')}
                   </button>
                 </span>
               </span>
@@ -245,7 +289,19 @@ export function DatasetGrounding({ dataset }: { dataset: CatalogDataset }) {
         </div>
       </div>
 
-      {err && <p className="promote-err">{t('grounding:adopt.err', { detail: err })}</p>}
+      {/* A failed align / withdraw says what happened in plain words; the raw api
+          string (which carries the HTTP status and the internal op name) stays in
+          the folded technical view (K11). */}
+      {err && (
+        <div className="grounding-err">
+          <p className="promote-err">{t('grounding:adopt.errHead')}</p>
+          <p className="hint">{t(plainError(err).body)}</p>
+          <details className="grounding-err-raw">
+            <summary>{t('kantan:s5.stop.detailSummary')}</summary>
+            <pre className="sparql-block">{err}</pre>
+          </details>
+        </div>
+      )}
       {note && <p className="lifecycle-ok">{note}</p>}
 
       {allTerms.length === 0 ? (
@@ -261,21 +317,18 @@ export function DatasetGrounding({ dataset }: { dataset: CatalogDataset }) {
                 <span style={{ width: `${pct}%` }} />
               </span>
             </div>
+            {/* No English gloss next to the group name: "classes" / "fields" is
+                the K4 fatal wording the plain name exists to replace, and in the
+                English UI it read as "Fields / fields". */}
             {classes.length > 0 && (
               <>
-                <div className="ground-group-head">
-                  {t('grounding:group.classes')}{' '}
-                  <span className="ground-group-en">{t('grounding:group.classesEn')}</span>
-                </div>
+                <div className="ground-group-head">{t('grounding:group.classes')}</div>
                 {classes.map(row)}
               </>
             )}
             {fields.length > 0 && (
               <>
-                <div className="ground-group-head">
-                  {t('grounding:group.fields')}{' '}
-                  <span className="ground-group-en">{t('grounding:group.fieldsEn')}</span>
-                </div>
+                <div className="ground-group-head">{t('grounding:group.fields')}</div>
                 {fields.map(row)}
               </>
             )}
@@ -313,10 +366,12 @@ export function DatasetGrounding({ dataset }: { dataset: CatalogDataset }) {
                   </span>
                 </div>
                 <p className="ground-detected-sub">{t('grounding:detected.sub')}</p>
+                {/* The plain description leads; the CURIE prefix is a faint
+                    trailing hint (K13: no bare 略記 in the shared screens). */}
                 {dataset.reuses.map((r) => (
-                  <div className="ground-detected-row" key={r.prefix}>
-                    <code className="ground-detected-prefix">{r.prefix}</code>
+                  <div className="ground-detected-row" key={r.prefix} title={r.prefix}>
                     <span className="ground-detected-what">{t(r.what)}</span>
+                    <code className="ground-detected-prefix">{r.prefix}</code>
                   </div>
                 ))}
               </div>

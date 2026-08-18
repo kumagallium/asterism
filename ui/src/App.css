@@ -7438,3 +7438,197 @@ tr.kz-attn td {
 .kz-grow-title {
   font-weight: 600;
 }
+
+/* ---------------------------------------------------------------------------
+   Dataset panels — plain-language layer (kantan everywhere / dataset-panels)
+
+   Every rule below either (a) demotes a technical token that used to lead, or
+   (b) styles a plain-language block that replaced a raw string. Tokens only —
+   no literal colors or pixel values.
+   --------------------------------------------------------------------------- */
+
+/* 外部の標準に合わせる: the kind of a term ("データの種類" / "項目") reads as prose,
+   not as the mono English identifier it replaced. */
+.ground-own-kind {
+  font-size: 0.68rem;
+  color: var(--faint);
+  font-weight: 500;
+}
+/* 自動で見つかった標準: the plain description leads, the CURIE prefix trails. */
+.ground-detected-row .ground-detected-what {
+  flex: 1 1 auto;
+  font-size: 0.78rem;
+  color: var(--body);
+}
+.ground-detected-row .ground-detected-prefix {
+  color: var(--faint);
+  font-weight: 500;
+}
+.grounding-err {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+}
+.grounding-err-raw > summary {
+  cursor: pointer;
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+
+/* 文書を追加: the stop card, the publish gate and the "what now" row. */
+.doc-error,
+.tool-run-err {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--warn-border);
+  border-radius: var(--radius-sm);
+  background: var(--warn-bg);
+}
+.doc-error-head {
+  margin: 0;
+  font-weight: 600;
+  color: var(--fg);
+}
+.doc-error-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+.doc-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  align-items: flex-start;
+  margin-top: var(--space-3);
+}
+.doc-confirm-head {
+  margin: 0;
+  font-weight: 600;
+  color: var(--fg);
+}
+.doc-confirm-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+  font-size: 0.85rem;
+}
+.doc-confirm-facts dt {
+  color: var(--muted);
+}
+.doc-confirm-facts dd {
+  margin: 0;
+  color: var(--body);
+}
+.doc-done-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+/* ツール: the count that replaced the duplicate section title, the folded
+   authoring block, and the tool card's title-first head. */
+.tools-count {
+  margin: 0;
+  font-size: 0.76rem;
+  color: var(--faint);
+}
+.tool-author-details {
+  margin-top: var(--space-4);
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-3);
+}
+.tool-author-details > summary {
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+.tool-author-details > summary + .tool-author {
+  margin-top: var(--space-2);
+  padding-top: 0;
+  border-top: none;
+}
+.tool-title--lead {
+  font-weight: 600;
+  color: var(--fg);
+}
+.tool-name--gloss {
+  color: var(--faint);
+  font-weight: 500;
+}
+/* A run form label that carries plain wording is prose, not an identifier. */
+.run-label--plain {
+  font-family: var(--font-ui);
+  color: var(--body);
+}
+/* The citation pulled inline from a search hit. */
+.tool-cite {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.tool-cite-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-weight: 600;
+  color: var(--fg);
+}
+.tool-cite-text {
+  margin: 0;
+  color: var(--body);
+}
+.tool-cite-facts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  font-size: 0.78rem;
+}
+.tool-cite-facts div {
+  display: flex;
+  gap: var(--space-2);
+}
+.tool-cite-facts dt {
+  color: var(--muted);
+  flex: none;
+}
+.tool-cite-facts dd {
+  margin: 0;
+  color: var(--body);
+  overflow-wrap: anywhere;
+}
+
+/* 設計タブ: the plain "column → meaning → unit" table leads; the compiler's
+   own projection and the generated files fold away behind 技術情報. */
+.rules-plain-what {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+.rules-plain-none {
+  color: var(--faint);
+}
+.rules-tech-details,
+.rules-artifacts {
+  margin-top: var(--space-3);
+}
+.rules-tech-details > summary,
+.rules-artifacts > summary {
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+.rules-curie-gloss {
+  margin-left: 0.35rem;
+  color: var(--faint);
+}

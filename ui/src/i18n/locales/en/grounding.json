@@ -16,39 +16,36 @@
     "property": "field"
   },
   "picker": {
-    "placeholder": "Search a standard term (e.g. crystal structure)",
-    "cancel": "Cancel",
+    "placeholder": "Search in plain English (e.g. temperature, crystal structure)",
+    "cancel": "Leave as is",
     "searching": "Searching…",
-    "none": "No matching standard term. Try different words."
+    "none": "Nothing found. Try a common English word (temperature, density, sample) — or just leave it as is; search and citation work without it.",
+    "errHead": "Couldn't look for candidates."
   },
   "adopt": {
-    "head": "Ground to an external standard",
-    "hint": "Map this dataset's own terms to a real term in a famous standard ontology (candidates come from a closed set; a human confirms).",
-    "ground": "Ground",
-    "done": "Aligned \"{{source}}\" to {{target}}.",
+    "done": "Aligned \"{{source}}\" to \"{{target}}\" ({{vocab}}).",
     "withdraw": "Withdraw",
     "withdrawing": "Withdrawing…",
-    "err": "Action failed: {{detail}}",
+    "errHead": "It could not be aligned.",
     "noTerms": "No own terms to align yet (they appear once the words settle after ingest)."
   },
   "banner": {
     "title": "Align your words to the world's standard words",
-    "sub": "Link this data's own words to commonly used standard terms. Once aligned, your data connects automatically with others, and external tools and AI understand it directly."
+    "sub": "Link this data's own words to commonly used standard terms. Once aligned, your data connects automatically with others, and external tools and AI understand it directly. Aligning is optional — search and citation work either way."
   },
-  "progress": "{{done}} / {{total}} aligned",
+  "progress": "{{done}} / {{total}} aligned (optional)",
   "group": {
-    "classes": "Things",
-    "classesEn": "classes",
-    "fields": "Fields",
-    "fieldsEn": "fields"
+    "classes": "Kinds of data",
+    "fields": "Fields"
   },
   "state": {
     "done": "Aligned",
-    "suggest": "AI suggestion",
-    "none": "No matching standard yet"
+    "suggest": "Suggested (found automatically in the standards list)",
+    "none": "No matching standard found (fine to leave as is)"
   },
-  "confirm": "Confirm",
+  "confirm": "Align to this",
   "search": "Find candidates",
+  "searchOther": "Find another candidate",
   "why": {
     "head": "Why align?",
     "p1": "Connect to other data with the same meaning, automatically",
@@ -56,9 +53,9 @@
     "p3": "Searchable by the world's common terms too"
   },
   "detected": {
-    "head": "Standards found automatically",
+    "head": "Standard words already in use (found automatically)",
     "badge": "detected",
     "sub": "Well-known standard words already used inside the data."
   },
-  "caution": "Candidates are found by AI; a human confirms. Similar words can mean subtly different things, so only what you confirm gets aligned."
+  "caution": "Candidates are matched mechanically from the standards list — no AI is involved. Similar words can still mean different things, so read them and only what you align stays aligned."
 }
