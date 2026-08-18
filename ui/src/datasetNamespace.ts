@@ -24,9 +24,13 @@ const RESERVED_PREFIX_NAMES = new Set([
 /** Standard vocabulary IRIs the machine may declare on the human's behalf when
  * the AI used one of them without declaring it (kantan ADR K4/K13: a missing
  * declaration is a machine-knowable fact, not a judgment). Mirror of ingest's
- * `STANDARD_PREFIXES` plus the curated `vocab.ts` KNOWN_VOCABS namespaces —
- * keep the three in sync. A prefix NOT in this table is never guessed at: an
- * invented IRI would silently change what the data means. */
+ * `STANDARD_PREFIXES`, the curated `vocab.ts` KNOWN_VOCABS namespaces and the
+ * document layer's SPAR set (`ingest/asterism/documents.py`) — keep the four
+ * in sync. Every name {@link RESERVED_PREFIX_NAMES} reserves and whose real
+ * IRI this repo states belongs here: what is missing gets folded into a
+ * dataset-local word instead, which quietly drops the standard term's meaning.
+ * A prefix NOT in this table is never guessed at either way — an invented IRI
+ * would silently change what the data means. */
 export const STANDARD_VOCAB_IRIS: Record<string, string> = {
   rdf: 'http://www.w3.org/1999/02/22-rdf-syntax-ns#',
   rdfs: 'http://www.w3.org/2000/01/rdf-schema#',
@@ -46,6 +50,10 @@ export const STANDARD_VOCAB_IRIS: Record<string, string> = {
   unit: 'http://qudt.org/vocab/unit/',
   emmo: 'https://w3id.org/emmo#',
   cmso: 'http://purls.helmholtz-metadaten.de/cmso/',
+  fabio: 'http://purl.org/spar/fabio/',
+  doco: 'http://purl.org/spar/doco/',
+  deo: 'http://purl.org/spar/deo/',
+  po: 'http://www.essepuntato.it/2008/12/pattern#',
 }
 
 /** The leading `prefix:` of a CURIE-ish value (`schema:Dataset`, `zemr:m/{a}`). */

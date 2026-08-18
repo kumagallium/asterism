@@ -33,7 +33,7 @@
   "vocab": {
     "declared": "Registered the well-known words ({{names}}) as standard words.",
     "renamed": "Registered the unfamiliar words ({{names}}) as new words for this data.",
-    "unresolved": "The AI's ID recipe uses words with no agreed meaning ({{names}}). As it is, saving will trip up.",
+    "unresolved": "The AI's ID recipe uses words with no agreed meaning ({{names}}). As it is, saving will fail.",
     "fix": "Register these words and fix it"
   },
   "filesGone": "The files are not at hand, so re-checking, asking the AI again and adding kinds are unavailable. Use “{{back}}” below to drop the files again.",
@@ -49,7 +49,7 @@
     "rethinkFix": "Have the AI think again",
     "gap": "“{{columns}}” will not be imported. Create the per-row kind before continuing?",
     "gapFix": "Create the per-row kind",
-    "missing": "The ID of “{{map}}” uses columns this table does not have ({{columns}}). Continuing will trip up the import.",
+    "missing": "The ID of “{{map}}” uses columns this table does not have ({{columns}}). Continuing will make the import fail.",
     "missingFix": "Use the closest column name",
     "showRow": "Look at this row",
     "placeholder": "The AI's ID recipe contains a part this screen cannot fix (a placeholder address). If you continue, the automatic fix will try to repair it.",

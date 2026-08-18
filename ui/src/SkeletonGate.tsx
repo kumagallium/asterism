@@ -33,6 +33,18 @@ const _GHOST_ROWS = 6
 // rest fold into a count (a 40-column instrument file made that line a wall).
 const _GAP_COLUMNS = 5
 
+/** The first few column names plus a count for the rest, as ONE interpolated
+ *  value — appending the count AFTER the sentence broke its grammar in
+ *  Japanese ("… を入れる種類がありません …ほか 35 列") and, worse, the confirm
+ *  block dropped the count entirely: naming 5 of 40 columns understates what
+ *  continuing costs, in the one place the human decides to accept that cost.
+ *  The full list stays one hover away (the caller puts it in a `title`). */
+function columnsSummary(columns: string[], more: (count: number) => string): string {
+  const head = columns.slice(0, _GAP_COLUMNS).join(', ')
+  const rest = columns.length - _GAP_COLUMNS
+  return rest > 0 ? `${head} ${more(rest)}` : head
+}
+
 // Consecutive blocks under one boundary line, in first-seen order. A card can
 // in principle borrow from two parents — that stays two blocks rather than one
 // averaged claim.
@@ -545,16 +557,10 @@ function SkeletonEvidence({
               rest, keep the full list one hover away. */}
           <p className="skeleton-evidence-line skeleton-evidence-bad" title={gap.columns.join(', ')}>
             ⚠ {t('workbench:skeleton.evidence.gapHead', {
-              columns: gap.columns.slice(0, _GAP_COLUMNS).join(', '),
+              columns: columnsSummary(gap.columns, (count) =>
+                t('workbench:skeleton.evidence.cardOmitted', { count }),
+              ),
             })}
-            {gap.columns.length > _GAP_COLUMNS && (
-              <span className="skeleton-entity-muted">
-                {' '}
-                {t('workbench:skeleton.evidence.cardOmitted', {
-                  count: gap.columns.length - _GAP_COLUMNS,
-                })}
-              </span>
-            )}
           </p>
           {onAddRowKind && (
             <button
@@ -1576,34 +1582,42 @@ export function SkeletonGate({
               </button>
             </div>
           ))}
-          {gapping.map((m) => (
-            <div key={`gap:${m.name}`} className="skeleton-gap">
-              <p className="skeleton-evidence-line skeleton-evidence-bad">
-                ⚠{' '}
-                {t('skeletongate:confirm.gap', {
-                  columns: (annotations?.maps?.[m.name]?.missing_row_kind?.columns ?? [])
-                    .slice(0, _GAP_COLUMNS)
-                    .join(', '),
-                })}
-              </p>
-              <button
-                type="button"
-                className="skeleton-gap-add"
-                disabled={!canRevalidate || busy}
-                onClick={() => {
-                  setConfirming(false)
-                  addRowKind(skeleton.maps.findIndex((x) => x.name === m.name))
-                }}
-              >
-                {t('skeletongate:confirm.gapFix')}
-              </button>
-              {!canRevalidate && (
-                <p className="skeleton-evidence-line skeleton-evidence-muted">
-                  {filesGoneText ?? t('workbench:skeleton.evidence.gapNeedsFiles')}
+          {gapping.map((m) => {
+            const gapColumns = annotations?.maps?.[m.name]?.missing_row_kind?.columns ?? []
+            return (
+              <div key={`gap:${m.name}`} className="skeleton-gap">
+                {/* Name a few, COUNT the rest: this is where the human accepts
+                    the loss, so "5 columns" must not stand in for 40. */}
+                <p
+                  className="skeleton-evidence-line skeleton-evidence-bad"
+                  title={gapColumns.join(', ')}
+                >
+                  ⚠{' '}
+                  {t('skeletongate:confirm.gap', {
+                    columns: columnsSummary(gapColumns, (count) =>
+                      t('workbench:skeleton.evidence.cardOmitted', { count }),
+                    ),
+                  })}
                 </p>
-              )}
-            </div>
-          ))}
+                <button
+                  type="button"
+                  className="skeleton-gap-add"
+                  disabled={!canRevalidate || busy}
+                  onClick={() => {
+                    setConfirming(false)
+                    addRowKind(skeleton.maps.findIndex((x) => x.name === m.name))
+                  }}
+                >
+                  {t('skeletongate:confirm.gapFix')}
+                </button>
+                {!canRevalidate && (
+                  <p className="skeleton-evidence-line skeleton-evidence-muted">
+                    {filesGoneText ?? t('workbench:skeleton.evidence.gapNeedsFiles')}
+                  </p>
+                )}
+              </div>
+            )
+          })}
           {collapsing.map((m) => (
             <div key={`collides:${m.name}`} className="skeleton-gap">
               <p className="skeleton-evidence-line skeleton-evidence-bad">
