@@ -10,19 +10,43 @@ const API_BASE = ((import.meta.env.VITE_API_URL as string | undefined) ?? '').re
 /** provider id -> whether the server has a fallback key for it. */
 export type ServerKeyProviders = Record<string, boolean>
 
+/** provider id -> the model id to use when the caller pins none (null = none
+ *  known, which is the normal case for a custom endpoint). Not secret. */
+export type ServerDefaultModels = Record<string, string | null>
+
+export interface ServerKeyInfo {
+  providers: ServerKeyProviders
+  defaultModels: ServerDefaultModels
+}
+
 /**
- * Fetch the providers that have a server-side key. Returns {} on any failure
- * (endpoint absent on an older server, network error) so the UI simply falls
- * back to requiring a browser key — never blocks on this optional capability.
+ * Fetch the providers that have a server-side key, plus the server's default
+ * model id per provider. Returns empty maps on any failure (endpoint absent on
+ * an older server, network error) so the UI simply falls back to requiring a
+ * browser key — never blocks on this optional capability.
  */
-export async function fetchServerKeyProviders(): Promise<ServerKeyProviders> {
+export async function fetchServerKeyInfo(): Promise<ServerKeyInfo> {
   try {
     const res = await fetch(`${API_BASE}/api/llm/server-keys`)
-    if (!res.ok) return {}
-    const body = (await res.json()) as { providers?: ServerKeyProviders }
-    return body.providers ?? {}
+    if (!res.ok) return { providers: {}, defaultModels: {} }
+    const body = (await res.json()) as {
+      providers?: ServerKeyProviders
+      default_models?: ServerDefaultModels
+    }
+    return { providers: body.providers ?? {}, defaultModels: body.default_models ?? {} }
   } catch {
-    return {}
+    return { providers: {}, defaultModels: {} }
+  }
+}
+
+/** A failed save, carrying the HTTP status so the UI can say what to do next
+ *  (the server's own detail is English prose and stays as `message`). */
+export class ServerKeyError extends Error {
+  readonly status: number
+  constructor(status: number, detail: string) {
+    super(detail)
+    this.name = 'ServerKeyError'
+    this.status = status
   }
 }
 
@@ -30,8 +54,8 @@ export async function fetchServerKeyProviders(): Promise<ServerKeyProviders> {
  * Set (or, with a blank `apiKey`, clear) the shared server-side key for a
  * provider. Write-gated: sends the write-auth token (authHeaders). The key is
  * persisted server-side and never returned. Returns the updated provider→bool
- * map; throws with the server's detail on failure (e.g. 401 without a token,
- * 400 if an openai-compatible key is sent without a base URL).
+ * map; throws a ServerKeyError on failure (e.g. 401 without a token, 400 if an
+ * openai-compatible key is sent without a base URL).
  */
 export async function setServerKey(
   provider: string,
@@ -52,7 +76,7 @@ export async function setServerKey(
     } catch {
       /* not JSON — keep raw text */
     }
-    throw new Error(detail || `HTTP ${res.status}`)
+    throw new ServerKeyError(res.status, detail || `HTTP ${res.status}`)
   }
   return ((await res.json()) as { providers?: ServerKeyProviders }).providers ?? {}
 }
