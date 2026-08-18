@@ -673,6 +673,10 @@ export function KantanWizard({
   const [lastPulseAt, setLastPulseAt] = useState<number | null>(null)
   const [jobNotice, setJobNotice] = useState('')
   const [errMsg, setErrMsg] = useState('')
+  // "The gate is ready but the files are gone" is NOT a job failure: it has its
+  // own recovery (drop them again, right here) and must not be read through the
+  // error classifier or offered a retry button (GATE-29 / RESUME-07).
+  const [gateNeedsFiles, setGateNeedsFiles] = useState(false)
   // Coming back from the detail tier: whatever is saved THERE for this same
   // dataset is the newer design (DETAIL-GAP-05). Read at init, never in an
   // effect — the handoff effect below would otherwise write this snapshot's
@@ -1395,6 +1399,7 @@ export function KantanWizard({
     setPendingRestore(null)
     setPickError('')
     setErrMsg('')
+    setGateNeedsFiles(false)
     setJobNotice('')
     setInspectErr('')
     setFiles(arr)
@@ -1545,6 +1550,9 @@ export function KantanWizard({
   const q2Needed = idColumn !== null
 
   const questionsAnswered = (!q1Needed || q1 !== null) && (!q2Needed || q2 !== null)
+  // How many of the two S2 questions this file actually raises — the lead line
+  // states this number instead of always promising two (KZ-A-11).
+  const askCount = (q1Needed ? 1 : 0) + (q2Needed ? 1 : 0)
 
   function answerQ1(a: Q1Answer) {
     setQ1(a)
@@ -1720,15 +1728,65 @@ export function KantanWizard({
     }, 700)
   }
 
+  /** The files this design was written against came back at the S4 gate. Same
+   *  machine checks as the S5 stop card (right kind, same names) — then the
+   *  evidence band is recomputed so ✓/⚠ and 「AI にもう一度考えさせる」 come back
+   *  to life without leaving the gate (RESUME-07 / KZ-A-41). */
+  function onGateFilesDropped(list: FileList | null) {
+    const arr = Array.from(list ?? [])
+    if (arr.length === 0) return
+    const kinds = new Set(arr.map((f) => kindOf(f.name)))
+    if (kinds.has(null)) {
+      setPickError(t('kantan:s1.unsupported'))
+      return
+    }
+    if (kinds.size > 1) {
+      setPickError(t('kantan:s1.mixed'))
+      return
+    }
+    const dropped = [...kinds][0] as KantanKind
+    if (kind && dropped !== kind) {
+      setPickError(t(`kantan:s5.stop.wrongKind.${kind}`))
+      return
+    }
+    if (sourceNames.length > 0) {
+      const before = sourceNames.map((f) => f.name).join('、')
+      const after = arr.map((f) => f.name).join('、')
+      if (before !== after) {
+        const ok = window.confirm(t('kantan:s5.stop.filesDifferentConfirm', { before, after }))
+        if (!ok) return
+      }
+    }
+    setPickError('')
+    setGateNeedsFiles(false)
+    setErrMsg('')
+    userActedRef.current = true
+    setFiles(arr)
+    setSourceNames(arr.map((f) => ({ name: f.name, size: f.size })))
+    void saveSourceFiles(arr)
+    stageSources(arr)
+      .then((r) => setStagingId(r.stagingId))
+      .catch(() => setStagingId(null))
+    if (!skeleton) return
+    setAnnotationsBusy(true)
+    validateSkeleton(arr, skeleton, dialectOverrides)
+      .then(setAnnotations)
+      .catch(() => {
+        /* evidence is enrichment — the gate stays usable without it */
+      })
+      .finally(() => setAnnotationsBusy(false))
+  }
+
   async function runContinue() {
     if (!skeleton) return
     if (!hasSource) {
-      setErrMsg(t('kantan:s4.needFiles'))
+      setGateNeedsFiles(true)
       return
     }
     // The human just settled the row counting: keep that gate in hand so S6/S7
     // can come back to it if the counts turn out wrong (KZ-B-03).
     setGateSkeleton(skeleton)
+    setGateNeedsFiles(false)
     setErrMsg('')
     setJobNotice('')
     setStatus('')
@@ -2689,7 +2747,8 @@ export function KantanWizard({
     (aiFixable ||
       stop.kind === 'refineTruncated' ||
       stopHint === 'settings' ||
-      stopHint === 'restart')
+      stopHint === 'restart' ||
+      stopHint === 'meanings')
   // The weakness card's headline counts what it is about to list, and its body
   // only claims "questions across things" when a disconnect is actually there.
   const weaknessCount = stop?.plainLines?.length ?? 0
@@ -2919,6 +2978,13 @@ export function KantanWizard({
           {/* Plain body for the HTTP-error kinds (#7); the technical string stays
               folded below. The other kinds keep their own dedicated bodies. */}
           {stopPlain && <p className="kz-note">{t(stopPlain.body, stopPlain.vars)}</p>}
+          {/* The "where to look next" half of the generic body. It lives here,
+              not in the sentence, because the other screens that reuse
+              plainError have neither a technical fold nor a detail mode to send
+              anyone to (BACKEND-TEXT-35). */}
+          {stopPlain?.body === 'kantan:s5.plain.genericBody' && (
+            <p className="kz-note">{t('kantan:s5.plain.genericHint')}</p>
+          )}
           {stop.kind === 'design' && <p className="kz-note">{t('kantan:s5.stop.designBody')}</p>}
           {stop.kind === 'weakness' && (
             <>
@@ -2968,6 +3034,12 @@ export function KantanWizard({
           )}
           {aiFixCount > 0 && (aiFixable || stop.kind === 'refineTruncated') && (
             <p className="kz-note">{t('kantan:s5.fix.attempted', { n: aiFixCount })}</p>
+          )}
+          {/* Two rounds in, say where the road out is — otherwise the only
+              visible move is to press the same button a third time (KZ-A-23).
+              Suppressed once fixStuck has already said it more sharply. */}
+          {aiFixCount >= 2 && aiFixable && !fixStuck && (
+            <p className="kz-note">{t('kantan:s5.fix.attemptedHint')}</p>
           )}
           {aiFixable && fixErr && <FixFailure raw={fixErr} plainBody={plainBody(fixErr)} />}
           {/* The same findings came back after an AI fix: saying so — and
@@ -3021,6 +3093,13 @@ export function KantanWizard({
             {stopHint === 'settings' && (
               <button type="button" onClick={() => openSettings('server-token')}>
                 {t('kantan:s1.openSettings')}
+              </button>
+            )}
+            {/* Nothing was ingested yet: retrying this step can never succeed —
+                the road back is the column meanings (BACKEND-TEXT-29). */}
+            {stopHint === 'meanings' && (
+              <button type="button" onClick={() => setStep(6)}>
+                {t('kantan:s8.backToMeanings')}
               </button>
             )}
             {stopHint === 'restart' && (
@@ -3278,7 +3357,11 @@ export function KantanWizard({
         </section>
       ) : step === 8 ? (
         <section className="kz-card">
-          <h3 className="kz-title">{t('kantan:s8.title')}</h3>
+          {/* A review republishes something that is already public: "公開する"
+              there reads as "so it was never published?" (KZ-B-15). */}
+          <h3 className="kz-title">
+            {t(redesigning ? 'kantan:s8.titleUpdate' : 'kantan:s8.title')}
+          </h3>
           <div className="kz-q">
             <label className="kz-q-text" htmlFor="kz-s8-name">
               {t('kantan:s8.nameLabel')}
@@ -3373,11 +3456,20 @@ export function KantanWizard({
               onClick={() => void runPublish()}
               disabled={!pubName.trim() || publishing}
             >
-              {publishing ? t('kantan:s8.publishing') : t('kantan:s8.publish')}
+              {publishing
+                ? t('kantan:s8.publishing')
+                : t(redesigning ? 'kantan:s8.publishUpdate' : 'kantan:s8.publish')}
             </button>
             {pubPlain?.hint === 'settings' && (
               <button type="button" onClick={() => openSettings('server-token')}>
                 {t('kantan:s1.openSettings')}
+              </button>
+            )}
+            {/* Publishing was refused because nothing is in the draft yet —
+                pressing publish again cannot change that (BACKEND-TEXT-29). */}
+            {pubPlain?.hint === 'meanings' && (
+              <button type="button" onClick={() => setStep(6)} disabled={publishing}>
+                {t('kantan:s8.backToMeanings')}
               </button>
             )}
             <button
@@ -3389,11 +3481,15 @@ export function KantanWizard({
               {t('kantan:s8.back')}
             </button>
           </div>
-          <p className="kz-note">{t('kantan:s8.publishNote')}</p>
+          <p className="kz-note">
+            {t(redesigning ? 'kantan:s8.publishNoteUpdate' : 'kantan:s8.publishNote')}
+          </p>
         </section>
       ) : step === 9 ? (
         <section className="kz-card kz-done">
-          <h3 className="kz-done-title">✓ {t('kantan:s9.title')}</h3>
+          <h3 className="kz-done-title">
+            ✓ {t(redesigning ? 'kantan:s9.titleUpdate' : 'kantan:s9.title')}
+          </h3>
           {onOpenAsk && trialQAs.length > 0 && (
             <>
               <p className="kz-note">{t('kantan:s9.lead')}</p>
@@ -3485,7 +3581,11 @@ export function KantanWizard({
         </section>
       ) : step === 6 ? (
         <section className="kz-card">
-          <h3 className="kz-title">{t('kantan:s6.title')}</h3>
+          {/* A review enters here directly, so "(2/2)" would count a step nobody
+              took (KZ-B-36). */}
+          <h3 className="kz-title">
+            {t(redesigning ? 'kantan:s6.titleReview' : 'kantan:s6.title')}
+          </h3>
           <p className="kz-note">{t('kantan:s6.lead')}</p>
           {/* The self-correction may have dropped mappings on its way to a
               clean design — say so where the columns are listed (DETAIL-GAP-22). */}
@@ -3686,6 +3786,10 @@ export function KantanWizard({
                 {t('kantan:s6.reflect')}
               </button>
             </div>
+            {/* "作り直す" reads as "my data gets wiped" the first time through.
+                In a review the banner already says a new version is published,
+                so the reassurance would only add noise (KZ-B-30). */}
+            {!redesigning && <p className="kz-note">{t('kantan:s6.reflectNote')}</p>}
             {!isReady && note.trim() !== '' && <p className="kz-note">{t('kantan:s1.aiNotReady')}</p>}
             {/* Plain headline + plain reason + folded raw text, and a line
                 saying the run is not stuck on this (KZ-B-10). */}
@@ -3814,7 +3918,15 @@ export function KantanWizard({
         <section className="kz-card">
           <h3 className="kz-title">{t('kantan:s2.title')}</h3>
           <p className="kz-note">
-            {q1Needed || q2Needed ? t('kantan:s2.lead') : t('kantan:s2.leadNoQuestions')}
+            {/* Say how many questions there actually are: promising "two" when
+                only one is on screen sends people hunting for a second (KZ-A-11).
+                The count picks the key by hand — Japanese has no plural form,
+                so i18next's own _one/_other split cannot carry it. */}
+            {askCount === 0
+              ? t('kantan:s2.leadNoQuestions')
+              : askCount === 1
+                ? t('kantan:s2.leadOne')
+                : t('kantan:s2.leadMany', { count: askCount })}
           </p>
           {/* Resumed with the previous answers still in place: the two questions
               are the human's own knowledge and must not be asked twice (RESUME-09). */}
@@ -4014,6 +4126,24 @@ export function KantanWizard({
         </section>
       ) : (
         <section className="kz-card">
+          {/* Landed here empty-handed (a restore without the files, or a job
+              resumed in a fresh tab): the gate says twice that choosing the
+              files again would help, so the place to choose them belongs on
+              this screen — not on a first screen that discards the reading to
+              get there (RESUME-07 / KZ-A-41). */}
+          {skeleton && !hasSource && (
+            <div className="kz-q">
+              <p className="kz-title">{t('kantan:s4.reattachTitle')}</p>
+              <p className="kz-note">{t('kantan:s4.reattachBody')}</p>
+              <DropZone onFiles={onGateFilesDropped} accept={acceptFor(kind)} />
+              {pickError && <p className="kz-note kz-pick-error">{pickError}</p>}
+            </div>
+          )}
+          {gateNeedsFiles && !hasSource && (
+            <p className="kz-note" role="status">
+              {t('kantan:s4.needFiles')}
+            </p>
+          )}
           {skeleton && (
             <SkeletonGate
               skeleton={skeleton}
@@ -4027,6 +4157,7 @@ export function KantanWizard({
               onDiscard={() => {
                 setSkeleton(null)
                 setAnnotations(null)
+                setGateNeedsFiles(false)
                 setStep(hasSource ? 2 : 1)
               }}
               onRethink={
@@ -4047,7 +4178,11 @@ export function KantanWizard({
               continueKey="kantan:s4.continue"
               continuingKey="kantan:s4.continuing"
               discardKey="kantan:s4.discard"
-              discardConfirmKey="kantan:s4.discardConfirm"
+              // Without the files this exit lands on the FIRST screen, where the
+              // files are not "still usable" — say what actually happens (GATE-35).
+              discardConfirmKey={
+                hasSource ? 'kantan:s4.discardConfirm' : 'kantan:s4.discardConfirmNoFiles'
+              }
             />
           )}
           {continuing && (
@@ -4066,19 +4201,29 @@ export function KantanWizard({
               {jobNotice}
             </p>
           )}
-          {/* S4: the gate's own buttons are the exits (never two CTAs on one
-              card), so the failure only needs to be readable — plain sentence
-              here, raw text folded (BACKEND-TEXT-01). */}
+          {/* S4: plain headline + plain reason + folded raw text, and the one
+              move that can still work — pressing 「この数えかたで進む」 again. Nobody
+              guesses that from an English HTTP line, so it gets its own button
+              (BACKEND-TEXT-01 / GATE-29 / KZ-A-05 / WEAK-MODEL-28). */}
           {errMsg && (
             <div role="alert">
-              <p className="kz-note">
-                {jobPlain?.title ? t(jobPlain.title) : t('kantan:s3.failed')}
+              <p className="kz-title">
+                {jobPlain?.title ? t(jobPlain.title) : t('kantan:s4.continueFailed')}
               </p>
               {jobPlain && <p className="kz-note">{t(jobPlain.body, jobPlain.vars)}</p>}
               <details className="kz-stop-detail">
                 <summary>{t('kantan:s5.stop.detailSummary')}</summary>
                 <pre className="error">{errMsg}</pre>
               </details>
+              <div className="kz-actions">
+                <button
+                  type="button"
+                  onClick={() => void runContinue()}
+                  disabled={!isReady || !hasSource || continuing}
+                >
+                  {t('kantan:s5.stop.retry')}
+                </button>
+              </div>
             </div>
           )}
         </section>

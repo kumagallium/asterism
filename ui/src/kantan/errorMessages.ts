@@ -9,8 +9,11 @@
 // string because the HTTP status sits in the "(HTTP 404)" prefix while the cause
 // keywords sit in the folded `{"detail":…}` body.
 
-/** Which recovery action the stop card should surface as its primary button. */
-export type ErrorHint = 'settings' | 'restart' | 'fix' | 'wait'
+/** Which recovery action the stop card should surface as its primary button.
+ *  `meanings` sends the reader back to the column-meaning step (S6): the only
+ *  useful move when a publish is refused because nothing was ingested yet —
+ *  retrying the publish itself can never succeed (BACKEND-TEXT-29). */
+export type ErrorHint = 'settings' | 'restart' | 'fix' | 'wait' | 'meanings'
 
 export interface PlainError {
   /** i18n key for the plain headline. Absent → the card keeps its per-stage
@@ -82,16 +85,48 @@ export function plainError(raw: string): PlainError {
   if (has('rate limit', 'rate_limit', 'http 429', 'too many requests', 'overloaded')) {
     return { title: 'kantan:s5.plain.rateTitle', body: 'kantan:s5.plain.rateBody', hint: 'wait' }
   }
+  // The step did not finish in time. Evaluated BEFORE the permission family on
+  // purpose: the shared job-timeout sentence ends with "…or a lower max-tokens
+  // setting", which a token-shaped match would turn into "you lack permission →
+  // open Settings" — an access code nobody can find (BACKEND-TEXT-03). Retry is
+  // the primary action: this family also covers ingest/attach (no model
+  // involved), and the model choice is not the reader's to make (ADR K5).
+  if (has('timed out', 'timeout', 'time out')) {
+    return {
+      title: 'kantan:s5.plain.timeoutTitle',
+      body: 'kantan:s5.plain.timeoutBody',
+      hint: 'wait',
+    }
+  }
+  // The model spent its output budget before finishing (a reasoning model that
+  // thought until it ran out). Also above the permission family: its sentence
+  // names "max output tokens" (WEAK-MODEL-32).
+  if (
+    has(
+      'output budget',
+      'reasoning effort',
+      'max output tokens',
+      'still truncated',
+      'truncated after',
+    )
+  ) {
+    return {
+      title: 'kantan:s5.plain.budgetTitle',
+      body: 'kantan:s5.plain.budgetBody',
+      hint: 'wait',
+    }
+  }
   // Permission — a missing / rejected write token (the 503 gate or a 401/403).
   // Matched on the words the server actually emits (the plain Japanese sentence
-  // and the env-var name); a bare 'token' would also swallow "max_tokens".
+  // and the env-var name) plus the HTTP status this module always prefixes; a
+  // bare 'token' would swallow "max_tokens", and a bare 'unauthorized' /
+  // 'forbidden' would swallow a provider's own wording (KZ-A-21).
   if (
     has(
       'asterism_api_token',
+      'x-asterism-token',
       'api token',
       '利用許可コード',
-      'unauthorized',
-      'forbidden',
       'http 401',
       'http 403',
     )
@@ -117,23 +152,29 @@ export function plainError(raw: string): PlainError {
   ) {
     return { title: 'kantan:s5.plain.decodeTitle', body: 'kantan:s5.plain.decodeBody' }
   }
+  // An Excel workbook the server could not open (its own machine-readable code
+  // — the openpyxl wording never reaches the reader).
+  if (has('xlsx.convert_failed', 'xlsx.unreadable')) {
+    return { title: 'kantan:s5.plain.xlsxTitle', body: 'kantan:s5.plain.xlsxBody' }
+  }
+  // Publish refused because nothing was ingested yet: retrying the publish can
+  // never succeed, so the only exit is back to the column meanings.
+  if (has('dataset.not_ingested', 'not ingested', 'no staged graph')) {
+    return {
+      title: 'kantan:s5.plain.notIngestedTitle',
+      body: 'kantan:s5.plain.notIngestedBody',
+      hint: 'meanings',
+    }
+  }
   // The saved design record vanished (deleted in the catalog meanwhile) — a
-  // fresh start is the only clean recovery.
-  if (has('http 404', 'not found')) {
+  // fresh start is the only clean recovery. Keyed on the status alone: a bare
+  // 'not found' also appears in "column 'X' not found", which is a design
+  // problem, not a deleted dataset (KZ-A-21).
+  if (has('http 404')) {
     return {
       title: 'kantan:s5.plain.notFoundTitle',
       body: 'kantan:s5.plain.notFoundBody',
       hint: 'restart',
-    }
-  }
-  // The step did not finish in time. Retry is the primary action: this family
-  // also covers ingest/attach (no model involved), and the model choice is not
-  // the reader's to make in this tier (ADR K5).
-  if (has('timed out', 'timeout', 'time out')) {
-    return {
-      title: 'kantan:s5.plain.timeoutTitle',
-      body: 'kantan:s5.plain.timeoutBody',
-      hint: 'wait',
     }
   }
   // The AI answered, but not in the shape the reader step can parse.
@@ -150,6 +191,31 @@ export function plainError(raw: string): PlainError {
   // The AI produced nothing usable (empty answer / reasoning text only).
   if (has('only reasoning', 'reasoning_only', 'empty output', 'returned no output')) {
     return { title: 'kantan:s5.plain.emptyTitle', body: 'kantan:s5.plain.emptyBody' }
+  }
+  // The design asked for an operation outside the safety-vetted set. K11 already
+  // has the canonical one-liner for this (T9) — reuse it rather than letting the
+  // English "unsafe RML mapping: …" fall through to "please try again", which a
+  // retry can never clear (BACKEND-TEXT-05).
+  if (has('unsafe rml')) {
+    return { title: 'kantan:s5.trap.T9', body: 'kantan:s5.plain.designBody', hint: 'fix' }
+  }
+  // The conversion engine refused the design as written — deterministic, so a
+  // retry is pointless; the AI fix is the move.
+  if (has('morph-kgc', 'materialization failed')) {
+    return {
+      title: 'kantan:s5.plain.materializeTitle',
+      body: 'kantan:s5.plain.designBody',
+      hint: 'fix',
+    }
+  }
+  // The design never became conversion rules at all (a legacy / half-saved
+  // record). Same exit: hand it back to the AI.
+  if (has('no compiled rml mapping')) {
+    return {
+      title: 'kantan:s5.plain.uncompiledTitle',
+      body: 'kantan:s5.plain.uncompiledBody',
+      hint: 'fix',
+    }
   }
   // The AI design still has something that cannot be ingested as-is. (Real trap
   // failures normally arrive as the dedicated `design` stop kind, which keeps
@@ -180,10 +246,14 @@ export function plainError(raw: string): PlainError {
   }
   // A file the reader could not open at all (unsupported / malformed upload).
   // Last of the specific families, and deliberately narrow: the status alone
-  // would also swallow a design 422, so the message must be about a SOURCE.
+  // would swallow a design 422, and so would a keyword like "source" — the
+  // ingest complaint «column 'ZT' not found in source» is about the DESIGN, not
+  // about an unreadable file (KZ-A-21). So the failing operation itself has to
+  // be one that reads a source; `api.ts` always prefixes it.
   if (
-    has('http 400', 'http 415', 'http 422', 'unsupported', 'unreadable') &&
-    has('inspect', 'source', 'file', 'upload', 'ソース', 'ファイル')
+    (/^(inspect|attach|stage|upload)\b/i.test(raw) &&
+      has('http 400', 'http 415', 'http 422', 'unsupported', 'unreadable')) ||
+    has('unsupported file', 'unreadable source', 'ソースを読み取れ')
   ) {
     return { title: 'kantan:s5.plain.unreadableTitle', body: 'kantan:s5.plain.unreadableBody' }
   }

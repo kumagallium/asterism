@@ -9,12 +9,16 @@ import { type GrowFocus, KantanWizard } from './KantanWizard'
 // tier. The tiers are NEVER mounted together — WorkbenchView's mount-only job
 // resume effect is tab-global, so double-mounting would double-resume.
 
+// sessionStorage, NOT localStorage: an explicit switch holds for the rest of
+// this visit, and the next visit always starts in かんたんモード (ADR K1). One
+// curious click on 詳細モードへ used to make the expert workbench the permanent
+// default for 「データを追加」 and for the catalog's 「見直す」 (DETAIL-GAP-01).
 const TIER_STORAGE = 'asterism.workbench.tier'
 type Tier = 'kantan' | 'detail'
 
 function loadTier(): Tier {
   try {
-    return localStorage.getItem(TIER_STORAGE) === 'detail' ? 'detail' : 'kantan'
+    return sessionStorage.getItem(TIER_STORAGE) === 'detail' ? 'detail' : 'kantan'
   } catch {
     return 'kantan'
   }
@@ -72,7 +76,7 @@ export function WorkbenchTier({
 
   useEffect(() => {
     try {
-      localStorage.setItem(TIER_STORAGE, tier)
+      sessionStorage.setItem(TIER_STORAGE, tier)
     } catch {
       /* non-fatal */
     }
