@@ -4,6 +4,7 @@ import type {
   ReactNode,
 } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Trans, useTranslation } from 'react-i18next'
 import {
   ApiError,
@@ -114,11 +115,11 @@ function expectedFromMessage(raw: string): string[] {
  * The HTTP status and the server's own sentence behind a failed call, from
  * either shape this screen sees.
  *
- * `api.ts` and `galleryApi.ts` throw a typed {@link ApiError}; a job stream and
- * the catalog list still surface a plain `Error` whose message the api module
- * composed, so the status has to be read back out of the text. Both paths are
- * best-effort: an unrecognised message simply yields no status and no sentence,
- * and the caller falls back to the generic family.
+ * `api.ts` throws a typed {@link ApiError}; `galleryApi.ts`, a job stream and the
+ * catalog list surface a plain `Error` whose message the api module composed
+ * (`promote failed (HTTP 409): {…}`), so the status has to be read back out of
+ * the text. Both paths are best-effort: an unrecognised message simply yields no
+ * status and no sentence, and the caller falls back to the generic family.
  */
 function errorFacts(err: unknown): { status: number | null; sentence: string } {
   if (err instanceof ApiError) {
@@ -831,7 +832,12 @@ function PublishDialog({
     }
   }
 
-  return (
+  // Portalled to <body>: one of the two callers is the catalog card, whose
+  // `.ds-card-actions` is a `z-index: 2` stacking context. Rendered in place the
+  // `position: fixed` overlay would be stacked at 2 for the whole page — under
+  // the sticky topbar (z-index 5) and under the action row of every card after
+  // this one, which would show through the dim backdrop.
+  return createPortal(
     <div
       className="rules-overlay"
       role="presentation"
@@ -900,7 +906,8 @@ function PublishDialog({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
