@@ -23,7 +23,8 @@
     "privacy": "Once dropped, the reading starts. Along the way we only ask what only you can know. Nothing is visible to anyone until you publish.",
     "unsupported": "This file format is not supported yet. Please drop Excel, CSV, instrument exports, Word or PDF files.",
     "mixed": "These files are of different kinds. Please add tables (Excel / CSV / instrument files), JSON and documents (Word / PDF) separately.",
-    "documentNote": "Word / PDF files can be added as they are (no AI involved). Continue with the button below.",
+    "documentNote": "Word / PDF files can be added as they are (no AI involved). Choose the file below and it is taken in from there.",
+    "documentPickNote": "Word / PDF files can be added as they are (no AI involved). Choose {{name}} again below and it is taken in from there.",
     "aiNotReady": "The AI is not connected yet. Once an administrator sets one up on the server, this screen works as it is. To use your own, connect it in one screen below.",
     "openSettings": "Open settings",
     "connectAi": "Connect an AI",
@@ -242,6 +243,7 @@
       "function": "Derived value",
       "other": "Other"
     },
+    "otherFromColumns": "(from {{columns}})",
     "noteLabel": "Anything that looks off? One line is enough",
     "notePlaceholder": "e.g. \"ZT\" means the dimensionless figure of merit / temperatures are in K",
     "reflect": "Have the AI apply it and rebuild",

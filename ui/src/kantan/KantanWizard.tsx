@@ -3749,18 +3749,30 @@ export function KantanWizard({
             <details className="kz-links">
               <summary>{t('kantan:s6.othersSummary', { n: linkRows.length })}</summary>
               <ul className="kz-links-list">
-                {linkRows.map(({ map, prop }, i) => (
-                  <li key={`${map.id}-${i}`}>
-                    <code>{prop.label || rules?.labels?.[prop.predicate_iri] || prop.predicate}</code>
-                    {' — '}
-                    {t(`kantan:s6.otherKind.${otherKindKey(prop.kind)}`)}
-                    {(prop.template || prop.constant || prop.parent_map || prop.function) && (
-                      <code className="kz-links-detail">
-                        {prop.template ?? prop.constant ?? prop.parent_map ?? prop.function}
-                      </code>
-                    )}
-                  </li>
-                ))}
+                {linkRows.map(({ map, prop }, i) => {
+                  // The fold already says WHAT each item is, in words. The only
+                  // detail worth adding is something the reader wrote: the
+                  // columns an automatic ID is built from, or a fixed value
+                  // they recognise. Map ids, function names and IRI-shaped
+                  // constants are machine notation and stay out of this tier
+                  // (K4) — the same rule the table above follows (KZ-B-06).
+                  const fromColumns = templateColumns(prop.template)
+                  const constant = prop.constant?.trim()
+                  const detail =
+                    fromColumns.length > 0
+                      ? t('kantan:s6.otherFromColumns', { columns: fromColumns.join('、') })
+                      : constant && !/^[A-Za-z][\w+.-]*:/.test(constant)
+                        ? constant
+                        : null
+                  return (
+                    <li key={`${map.id}-${i}`}>
+                      <code>{termLabel(prop.predicate_iri || prop.predicate, prop.label)}</code>
+                      {' — '}
+                      {t(`kantan:s6.otherKind.${otherKindKey(prop.kind)}`)}
+                      {detail && <code className="kz-links-detail">{detail}</code>}
+                    </li>
+                  )
+                })}
               </ul>
             </details>
           )}
@@ -3903,7 +3915,18 @@ export function KantanWizard({
           </section>
           {kind === 'document' && (
             <section className="kz-card">
-              <p className="kz-note">{t('kantan:s1.documentNote')}</p>
+              {/* The panel below keeps its own file picker and does not yet
+                  receive what was dropped here, so it opens on "no file
+                  selected". Saying "press the button below" made that read as
+                  a failed drop; naming the file and asking for it once more is
+                  at least true (GAL-B-27 — the panel prop is handed off). */}
+              <p className="kz-note">
+                {files.length > 0
+                  ? t('kantan:s1.documentPickNote', {
+                      name: files.map((f) => f.name).join('、'),
+                    })
+                  : t('kantan:s1.documentNote')}
+              </p>
               {/* A document run survives a reload now (the snapshot keeps the
                   kind), and the panel reconnects on its own — say so, or the
                   reader sees a bare form and starts again (RESUME-19). */}

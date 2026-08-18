@@ -23,7 +23,8 @@
     "privacy": "置いたら読み取りが始まります。あなたにしか分からないことだけ、途中で聞きます。公開するまで誰にも見えません。",
     "unsupported": "このファイルの形式にはまだ対応していません。Excel・CSV・装置の出力ファイル・Word・PDF を置いてください。",
     "mixed": "種類のちがうファイルが混ざっています。表（Excel / CSV / 装置ファイル）・JSON・文書（Word / PDF）は、分けて置いてください。",
-    "documentNote": "Word / PDF は、このまま追加できます（AI は使いません）。下のボタンで進めてください。",
+    "documentNote": "Word / PDF は、このまま追加できます（AI は使いません）。下の欄でファイルを選ぶと、そのまま取り込めます。",
+    "documentPickNote": "Word / PDF は、このまま追加できます（AI は使いません）。下の欄で {{name}} をもう一度選ぶと、そのまま取り込めます。",
     "aiNotReady": "AI がまだつながっていません。管理者がサーバ側で設定すると、この画面はそのまま使えます。自分で使うときは、下のボタンから 1 画面でつなげます。",
     "openSettings": "設定を開く",
     "connectAi": "AI をつなぐ",
@@ -242,6 +243,7 @@
       "function": "変換した値",
       "other": "その他"
     },
+    "otherFromColumns": "（{{columns}} から）",
     "noteLabel": "気になる点があれば一言",
     "notePlaceholder": "例: 「ZT」は無次元性能指数のことです / 温度の単位は K です",
     "reflect": "AI に反映して作り直す",
