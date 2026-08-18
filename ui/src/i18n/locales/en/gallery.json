@@ -49,7 +49,7 @@
     "files": "Load & publish",
     "connect": "Connections",
     "tools": "Tools (developer)",
-    "design": "Conversion rules (technical)"
+    "design": "Transformation rules (technical)"
   },
   "grid": {
     "search": "Search by dataset name",
@@ -131,7 +131,7 @@
     "advisoryNote": "Use “review the design” below to have the AI add the links."
   },
   "rules": {
-    "title": "How each column is recorded",
+    "title": "Transformation rules — how each column is recorded",
     "empty": "No design saved yet. Once the AI reads your file via \"Add data\", what each column means appears here.",
     "emptyDocument": "Documents are loaded by a fixed procedure (sections → paragraphs → sentences), so there are no column meanings to show here.",
     "projectionIntro": "How each column of your file is recorded, and as which item — built mechanically from the saved rules, no AI involved. The actual rules that run (RML) are in the files below.",
@@ -150,7 +150,7 @@
       "unknown": "This form cannot be shown here (your data is unaffected)."
     },
     "joinTo": "links to {{parent}}",
-    "warningsHead": "Reading notes",
+    "warningsHead": "Items this view could not show (technical)",
     "artifactsHead": "Source files (RML etc., technical)",
     "open": "Open",
     "legacyChip": "Old method",
