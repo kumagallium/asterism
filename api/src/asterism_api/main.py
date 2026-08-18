@@ -33,7 +33,7 @@ import os
 import re
 import shutil
 import tempfile
-from collections.abc import AsyncIterator, Callable, Mapping
+from collections.abc import AsyncIterator, Callable, Collection, Mapping
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -92,7 +92,10 @@ from asterism_step0.materialize import (
 from asterism_step0.propose import LLMClient
 from asterism_step0.refine import refine_schema
 from asterism_step0.skeleton_annotate import annotate_skeleton
-from asterism_step0.staged_propose import propose_skeleton
+from asterism_step0.staged_propose import (
+    apply_display_meta_to_document,
+    propose_skeleton,
+)
 from asterism_step0.validate import SchemaBundle, validate_schema
 from fastapi import (
     Depends,
@@ -155,6 +158,42 @@ class SparqlRequest(BaseModel):
     """Body for POST /api/sparql: a read-only SPARQL query (escape hatch)."""
 
     query: str
+
+
+class StagingSourcesBody(BaseModel):
+    """Body for POST /api/staging/{id}/sources: the tables to actually use.
+
+    One Excel workbook becomes one table per sheet (K6), and the human is the
+    only one who knows which sheets hold data and which hold a chart. Names are
+    the canonical (slugged) source names the record already holds; anything else
+    is ignored, so a stale client can never widen the selection to a file the
+    record does not have.
+    """
+
+    sources: list[str] = []
+
+
+class DisplayMetaEdit(BaseModel):
+    """One human correction to a column's MEANING or UNIT (kantan S6, K8).
+
+    Display metadata only: it changes what the reviewer reads, never a value,
+    never a triple. ``predicate`` identifies the row (expanded IRI or the CURIE
+    the design wrote); ``map`` / ``column`` narrow it when one predicate is bound
+    by more than one map. An omitted field is left alone; an empty string clears
+    it (the human saying "this was wrong and I have nothing better").
+    """
+
+    predicate: str
+    map: str | None = None
+    column: str | None = None
+    label: str | None = None
+    unit: str | None = None
+
+
+class DisplayMetaBody(BaseModel):
+    """Body for POST /api/datasets/{id}/display-meta: a batch of S6 corrections."""
+
+    edits: list[DisplayMetaEdit] = []
 
 
 class RenameRequest(BaseModel):
@@ -1354,7 +1393,16 @@ _MAX_XLSX_BYTES: Final[int] = 64 * 1024 * 1024
 
 
 def _expand_xlsx_bytes(name: str, data: bytes) -> list[tuple[str, bytes]]:
+    """``[(csv_name, csv_bytes), …]`` — :func:`_expand_xlsx_sheets` without titles."""
+    return [(n, body) for n, _title, body in _expand_xlsx_sheets(name, data)]
+
+
+def _expand_xlsx_sheets(name: str, data: bytes) -> list[tuple[str, str, bytes]]:
     """Convert a canonicalized ``.xlsx`` upload to its derived CSV set (K6).
+
+    ``[(csv_name, worksheet_title, csv_bytes), …]`` — the title is what the person
+    called the sheet in Excel, which the derived filename may have hashed away
+    (K6's "which sheet do you mean?" has to ask in their words, not in slugs).
 
     One sheet = one CSV (``asterism.tabularize.xlsx_to_csvs`` — openpyxl,
     deterministic). Everything downstream — inspect, the design loop,
@@ -1365,10 +1413,10 @@ def _expand_xlsx_bytes(name: str, data: bytes) -> list[tuple[str, bytes]]:
     who just dropped a spreadsheet, so it is logged and the client renders one
     plain sentence off the code.
     """
-    from asterism.tabularize import xlsx_to_csvs
+    from asterism.tabularize import xlsx_to_csv_sheets
 
     try:
-        return xlsx_to_csvs(data, stem=Path(name).stem)
+        return xlsx_to_csv_sheets(data, stem=Path(name).stem)
     except ValueError as exc:
         logger.warning("xlsx → csv conversion failed for %r: %s", name, exc)
         raise _coded_error(
@@ -1382,7 +1430,7 @@ def _expand_xlsx_bytes(name: str, data: bytes) -> list[tuple[str, bytes]]:
 
 
 async def _persist_converted_xlsx(
-    upload: UploadFile, sdir: Path, name: str
+    upload: UploadFile, sdir: Path, name: str, keep: Collection[str] | None = None
 ) -> tuple[list[str], dict]:
     """Convert an Excel ``.xlsx`` upload to CSV(s) and persist them as the source.
 
@@ -1396,6 +1444,14 @@ async def _persist_converted_xlsx(
 
     data = await _read_upload_bounded(upload, _MAX_XLSX_BYTES)
     derived = await asyncio.to_thread(_expand_xlsx_bytes, name, data)
+    # ``keep`` = the sheets the human chose at S2 (K6). A workbook routinely
+    # carries a chart sheet and a notes sheet; persisting those as sources makes
+    # the design answer for columns nobody meant to publish. None = keep all
+    # (every caller that never asks the question).
+    if keep is not None:
+        chosen = [(n, b) for n, b in derived if n in keep]
+        if chosen:  # an empty selection is a client bug — never drop the source
+            derived = chosen
     await asyncio.to_thread(sdir.mkdir, parents=True, exist_ok=True)
     conversion = {"tool": "openpyxl", "version": openpyxl.__version__, "from": name}
     for csv_name, csv_bytes in derived:
@@ -1409,7 +1465,9 @@ async def _persist_converted_xlsx(
     return [csv_name for csv_name, _ in derived], conversion
 
 
-async def _save_tabular_uploads(files: list[UploadFile], dest_dir: Path) -> list[Path]:
+async def _save_tabular_uploads(
+    files: list[UploadFile], dest_dir: Path, sheets_out: dict[str, dict[str, str]] | None = None
+) -> list[Path]:
     """Canonicalize + save tabular uploads for a design entrance (inspect / propose
     / skeleton / validate / continue) — the ONE convert+sanitize seam.
 
@@ -1417,6 +1475,10 @@ async def _save_tabular_uploads(files: list[UploadFile], dest_dir: Path) -> list
     expanded to its derived CSV set here, BEFORE the path list is built, so the
     returned paths (and thus ``X-Asterism-Source-Names`` / the design's
     ``rml:source``) are always the canonical CSV names.
+
+    ``sheets_out``, when given, collects ``{csv_name: {"from": xlsx, "sheet":
+    title}}`` for every workbook that expanded into MORE THAN ONE table — the
+    only case K6 asks "which sheet do you mean?" about.
     """
     paths: list[Path] = []
     for upload in files:
@@ -1425,10 +1487,13 @@ async def _save_tabular_uploads(files: list[UploadFile], dest_dir: Path) -> list
         name = _sanitize_tabular_name(upload.filename)
         if name.lower().endswith(".xlsx"):
             data = await _read_upload_bounded(upload, _MAX_XLSX_BYTES)
-            for csv_name, csv_bytes in await asyncio.to_thread(_expand_xlsx_bytes, name, data):
+            derived = await asyncio.to_thread(_expand_xlsx_sheets, name, data)
+            for csv_name, title, csv_bytes in derived:
                 dest = dest_dir / csv_name
                 await asyncio.to_thread(dest.write_bytes, csv_bytes)
                 paths.append(dest)
+                if sheets_out is not None and len(derived) > 1:
+                    sheets_out[csv_name] = {"from": name, "sheet": title}
         else:
             dest = dest_dir / name
             await _save_upload(upload, dest)
@@ -1452,6 +1517,7 @@ async def _design_sources(
     staging_id: str | None,
     *,
     prefix: str,
+    sheets_out: dict[str, dict[str, str]] | None = None,
 ) -> tuple[Path, list[Path], bool]:
     """Where a design call reads its sources from: ``(work_dir, paths, owned)``.
 
@@ -1460,21 +1526,32 @@ async def _design_sources(
     call). Otherwise the legacy shape: uploads canonicalised into a fresh temp
     dir, ``owned=True`` (delete when done). A missing/expired staging id is a
     404 the client answers by re-uploading its own copy.
+
+    ``sheets_out`` collects ``{derived csv: {"from", "sheet"}}`` for multi-sheet
+    workbooks (K6) — read off the staged record when there is one, computed from
+    the uploads otherwise.
     """
     if staging_id:
         try:
             sdir, paths = staging.load(registry_root, staging_id)
         except staging.StagingNotFound as exc:
             raise HTTPException(404, f"staging {staging_id!r} not found (expired?)") from exc
+        if sheets_out is not None:
+            known = _staging_meta(sdir).get("sheets")
+            if isinstance(known, dict):
+                sheets_out.update(known)
         return sdir, paths, False
     if not files:
         raise HTTPException(400, "no files uploaded")
     tmpdir = Path(tempfile.mkdtemp(prefix=prefix))
-    return tmpdir, await _save_tabular_uploads(files, tmpdir), True
+    return tmpdir, await _save_tabular_uploads(files, tmpdir, sheets_out), True
 
 
 async def _persist_source_uploads(
-    registry_root: Path, dataset_id: str, files: list[UploadFile]
+    registry_root: Path,
+    dataset_id: str,
+    files: list[UploadFile],
+    keep: Collection[str] | None = None,
 ) -> tuple[list[str], dict | None]:
     """Persist uploaded sources as the dataset's design-time source (Task E, #19).
 
@@ -1507,7 +1584,7 @@ async def _persist_source_uploads(
             jats_name, conversion = await _persist_converted_docx(upload, sdir, name)
             saved.append(jats_name)
         elif name.lower().endswith(".xlsx"):
-            csv_names, conversion = await _persist_converted_xlsx(upload, sdir, name)
+            csv_names, conversion = await _persist_converted_xlsx(upload, sdir, name, keep)
             saved.extend(csv_names)
         else:
             await _save_upload(upload, sdir / name)
@@ -1681,6 +1758,75 @@ def _dialects_header_json(inspections: list) -> str:
         if hint is not None:
             out[ins.name]["preamble_hint"] = hint
     return json.dumps(out, separators=(",", ":"))
+
+
+# How many example values per column travel to the client, and how long each
+# one may be. The wizard shows at most three per column; a 200-character cell
+# (a JSON blob, a pasted note) is not an example anyone reads, and the whole set
+# rides a response HEADER, which has to stay small.
+_SAMPLE_VALUES_PER_COLUMN = 3
+_SAMPLE_VALUE_MAX_CHARS = 60
+# Hard ceiling on the serialized samples header. Past it the header is dropped
+# entirely (the client falls back to its own client-side preview) rather than
+# truncated into something half-true.
+_SAMPLES_HEADER_BUDGET = 6000
+
+
+# Persisted source files that HAVE columns to sample. The source directory also
+# keeps the original ``.xlsx`` a design was converted from and, for a document
+# dataset, the ``.pdf`` / ``.xml`` — none of which the tabular inspector reads.
+_SAMPLEABLE_SUFFIXES = (".csv", ".tsv", ".txt", ".dat", ".asc", ".json", ".geojson")
+
+
+def _column_samples(inspections: list) -> dict[str, dict[str, list[str]]]:
+    """``{source_name: {column: [up to 3 real values]}}`` from an inspection set.
+
+    The values are the inspector's own ``sample_values`` — the first non-empty
+    cells of that column, in file order. Deliberately NOT assembled into rows:
+    each column's examples are taken independently, so presenting them as a table
+    of rows would show a record that does not exist in anyone's file.
+    """
+    out: dict[str, dict[str, list[str]]] = {}
+    for ins in inspections:
+        cols: dict[str, list[str]] = {}
+        for col in getattr(ins, "columns", []) or []:
+            values = [
+                v if len(v) <= _SAMPLE_VALUE_MAX_CHARS else v[:_SAMPLE_VALUE_MAX_CHARS] + "…"
+                for v in (getattr(col, "sample_values", []) or [])[:_SAMPLE_VALUES_PER_COLUMN]
+            ]
+            cols[col.name] = values
+        if cols:
+            out[ins.name] = cols
+    return out
+
+
+def _samples_header_json(inspections: list) -> str:
+    """Compact JSON for the ``X-Asterism-Samples`` response header of /api/inspect.
+
+    Why it exists: ``.xlsx`` and ``.json`` cannot be parsed in the browser, so the
+    "read check" screen showed a bare filename card for the persona's MAIN file
+    format — nothing to confirm, and the column examples on the meaning screen
+    stayed empty for the whole run (KZ-A-08). The server has already read those
+    files; this hands back what it saw. Over budget → ``{}`` (the client keeps its
+    own preview): a partial answer here would silently hide columns.
+    """
+    payload = json.dumps(_column_samples(inspections), separators=(",", ":"))
+    return payload if len(payload) <= _SAMPLES_HEADER_BUDGET else "{}"
+
+
+def _staging_meta(sdir: Path) -> dict:
+    """The staging record's ``meta.json`` (``{}`` when unreadable)."""
+    try:
+        data = json.loads((sdir / "meta.json").read_text("utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _write_staging_meta(sdir: Path, meta: dict) -> None:
+    (sdir / "meta.json").write_text(
+        json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
 
 def _parse_dialect_overrides(raw: str) -> dict:
@@ -2275,6 +2421,89 @@ def _design_source_files(registry_root: Path, dataset_id: str | None) -> list[Pa
         return []
 
 
+# Where a dataset remembers the meanings/units a HUMAN typed (kantan S6).
+# Beside the bundle rather than inside the design: the design is regenerated by
+# every AI round, and the whole point of this file is to outlive those rounds
+# (ADR data-facts-invariant N6 — a fact a person asserted is not the model's to
+# forget).
+_DISPLAY_META_FILE = "display-meta.json"
+
+
+def _display_meta_path(registry_root: Path, dataset_id: str) -> Path | None:
+    """``<root>/<id>/display-meta.json``, or None for an unknown/unsafe id."""
+    sdir = registry.source_dir(registry_root, dataset_id)
+    return None if sdir is None else sdir.parent / _DISPLAY_META_FILE
+
+
+def _load_display_meta(registry_root: Path, dataset_id: str | None) -> list[dict]:
+    """The human's meaning/unit corrections for this dataset (``[]``, never raises)."""
+    if not dataset_id:
+        return []
+    path = _display_meta_path(registry_root, dataset_id)
+    if path is None or not path.is_file():
+        return []
+    try:
+        data = json.loads(path.read_text("utf-8"))
+    except (OSError, ValueError):
+        logger.warning("display-meta for %s is unreadable (ignoring)", dataset_id)
+        return []
+    edits = data.get("edits") if isinstance(data, dict) else None
+    return [e for e in edits or [] if isinstance(e, dict) and e.get("predicate")]
+
+
+def _remember_display_meta(registry_root: Path, dataset_id: str, edits: list[dict]) -> None:
+    """Record (upsert) the human's corrections. Best-effort — losing the memo
+    must not fail the edit the user already sees applied."""
+    path = _display_meta_path(registry_root, dataset_id)
+    if path is None:
+        return
+    kept = {_display_meta_key(e): e for e in _load_display_meta(registry_root, dataset_id)}
+    for edit in edits:
+        kept[_display_meta_key(edit)] = edit
+    try:
+        path.write_text(
+            json.dumps({"edits": list(kept.values())}, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    except OSError:
+        logger.exception("could not persist display-meta for %s (continuing)", dataset_id)
+
+
+def _display_meta_key(edit: Mapping[str, object]) -> tuple[str, str, str]:
+    return (
+        str(edit.get("predicate") or ""),
+        str(edit.get("map") or ""),
+        str(edit.get("column") or ""),
+    )
+
+
+def _artifacts_from_document(
+    document_md: str, dataset_name: str, source_dir: Path | None
+) -> tuple[dict[str, str | None], list[str]]:
+    """Re-project the stored artifacts from a design document (no LLM, no writes).
+
+    The same deterministic split ``/api/materialize`` performs; used by the
+    display-meta edit, where the §9 change is display-only and the compiled RML
+    is expected to come back byte-identical.
+    """
+    mat = materialize_schema(
+        document_md,
+        ".",
+        dataset_name,
+        write=False,
+        source_dir=source_dir if source_dir is not None and source_dir.is_dir() else None,
+    )
+    artifacts: dict[str, str | None] = {
+        "diagram.md": mat.diagram_md,
+        "model.yaml": mat.rdf_config_model,
+        "mie.yaml": mat.mie_yaml,
+        "ingester.py": mat.ingester_py,
+        "mapping.rml.ttl": mat.rml_ttl,
+        "mapping.yaml": mat.mapping_ir_yaml,
+    }
+    return artifacts, list(mat.warnings)
+
+
 def _design_checks_at_materialize(
     registry_root: Path, dataset_id: str | None, rml_ttl: str | None
 ) -> tuple[list[str], list[str]]:
@@ -2812,18 +3041,27 @@ def build_app(
                     raise HTTPException(400, "missing filename")
                 await _save_upload(upload, sdir / "raw" / _sanitize_tabular_name(upload.filename))
             replay = _uploads_from_dir(sdir / "raw")
+            sheets: dict[str, dict[str, str]] = {}
             try:
-                paths = await _save_tabular_uploads(replay, sdir)
+                paths = await _save_tabular_uploads(replay, sdir, sheets)
             finally:
                 for u in replay:
                     await u.close()
             meta = staging.write_meta(sdir, [p.name for p in paths])
+            if sheets:
+                # Which derived table came from which worksheet — the record has
+                # to remember it, because everything downstream sees only the
+                # slugged CSV names (K6). Kept on the record, not recomputed:
+                # re-opening the workbook to answer would read it a second time.
+                meta["sheets"] = sheets
+                _write_staging_meta(sdir, meta)
         except Exception:
             shutil.rmtree(sdir, ignore_errors=True)
             raise
         return {
             "staging_id": sid,
             "sources": meta["sources"],
+            "sheets": meta.get("sheets") or {},
             "expires_at": staging.expires_at(sdir),
         }
 
@@ -2838,8 +3076,40 @@ def build_app(
         return {
             "staging_id": staging_id,
             "sources": [p.name for p in paths],
+            "sheets": _staging_meta(sdir).get("sheets") or {},
             "expires_at": staging.expires_at(sdir),
         }
+
+    @app.post("/api/staging/{staging_id}/sources", dependencies=_write_auth)
+    async def select_staging_sources(
+        staging_id: str, body: StagingSourcesBody
+    ) -> dict[str, object]:
+        """Narrow a staged record to the tables the human actually meant (K6).
+
+        One Excel workbook becomes one table per sheet, and a real workbook
+        routinely carries a chart sheet, a notes sheet and a legend — all of which
+        were handed to the AI as data. This is the answer to "which sheet do you
+        want to use?": the chosen names become the record's sources, so every
+        later design call (inspect / skeleton / continue) reads only those, and
+        the attach persists only those. Nothing is deleted — an unchosen table
+        stays on disk and can be chosen again until the record expires.
+        """
+        try:
+            sdir, _paths = staging.load(cfg.registry_root, staging_id)
+        except staging.StagingNotFound as exc:
+            raise HTTPException(404, "staging not found") from exc
+        meta = _staging_meta(sdir)
+        # The full set is what the record was created with; "sources" may already
+        # be a narrowed selection, so a re-pick must widen back from disk.
+        known = {p.name for p in sdir.iterdir() if p.is_file() and p.name != "meta.json"}
+        chosen = [n for n in dict.fromkeys(body.sources) if n in known]
+        if not chosen:
+            raise HTTPException(
+                422, "none of the requested sources belong to this staged record"
+            )
+        meta["sources"] = chosen
+        _write_staging_meta(sdir, meta)
+        return {"staging_id": staging_id, "sources": chosen}
 
     @app.delete("/api/staging/{staging_id}", dependencies=_write_auth)
     async def delete_staging(staging_id: str) -> dict[str, object]:
@@ -2873,8 +3143,13 @@ def build_app(
         source-dialect.md). A file the inspector cannot decode or parse is a 422 (a
         readable message, not a traceback) — dialect detection normally prevents this.
         """
+        sheets: dict[str, dict[str, str]] = {}
         work, paths, owned = await _design_sources(
-            cfg.registry_root, files, staging_id or None, prefix="asterism-inspect-"
+            cfg.registry_root,
+            files,
+            staging_id or None,
+            prefix="asterism-inspect-",
+            sheets_out=sheets,
         )
         try:
             try:
@@ -2893,16 +3168,21 @@ def build_app(
         finally:
             if owned:
                 shutil.rmtree(work, ignore_errors=True)
-        return Response(
-            content=markdown,
-            media_type="text/markdown",
-            headers={
-                "X-Asterism-Source-Names": ",".join(p.name for p in paths),
-                # Structured detected dialects for the wizard "read settings" panel
-                # (ADR source-dialect.md); non-default sources only, clean set → {}.
-                "X-Asterism-Dialects": _dialects_header_json(inspections),
-            },
-        )
+        headers = {
+            "X-Asterism-Source-Names": ",".join(p.name for p in paths),
+            # Structured detected dialects for the wizard "read settings" panel
+            # (ADR source-dialect.md); non-default sources only, clean set → {}.
+            "X-Asterism-Dialects": _dialects_header_json(inspections),
+            # Real example values per column, so the "read check" screen has
+            # something to check for the formats the browser cannot parse
+            # (.xlsx / .json) — KZ-A-08.
+            "X-Asterism-Samples": _samples_header_json(inspections),
+        }
+        if sheets:
+            # {derived csv: {from, sheet}} — only for workbooks that produced more
+            # than one table, i.e. exactly when K6 says to ask which one to use.
+            headers["X-Asterism-Sheets"] = json.dumps(sheets, separators=(",", ":"))
+        return Response(content=markdown, media_type="text/markdown", headers=headers)
 
     @app.post("/api/models/available")
     def models_available(body: ModelsAvailableBody) -> JSONResponse:
@@ -3487,6 +3767,18 @@ def build_app(
                         ),
                         should_cancel=should_cancel,
                     )
+            # A meaning or a unit the HUMAN typed at S6 is not the model's to
+            # forget: re-assert it on whatever document this round produced,
+            # deterministically and last (ADR data-facts-invariant N6). Without
+            # this, "fix the wording of that one column" quietly reverted every
+            # correction the person had already made.
+            human_meta = _load_display_meta(cfg.registry_root, body.dataset_id)
+            if human_meta:
+                # ValueError = a legacy design with no §9 to re-assert onto.
+                with contextlib.suppress(ValueError):
+                    effective_md, _restored = apply_display_meta_to_document(
+                        effective_md, human_meta
+                    )
             # Surface the truncation guard: `refined_md` stays the raw output for
             # transparency; `effective_schema_md` is what's safe to materialize
             # next (the previous complete schema when the refine was truncated,
@@ -3889,6 +4181,137 @@ def build_app(
             # as words) so a design that skipped K8's labels still reads.
             _fill_missing_labels(summary, labels, ir_meta)
             return {"dataset_id": dataset_id, **summary, "labels": labels}
+
+        return await asyncio.to_thread(run)
+
+    @app.get("/api/datasets/{dataset_id}/source-samples")
+    async def get_dataset_source_samples(dataset_id: str) -> dict[str, object]:
+        """Real example values per column, read from the dataset's OWN persisted source.
+
+        The kantan tier's column-meaning screen (S6) asks "is this what this column
+        means?" and answers it with three real values from the file. Those used to
+        come from a preview the BROWSER parsed at drop time — so re-opening the
+        design from the catalog, resuming after a reload, or dropping an ``.xlsx``
+        (which no browser can parse) left the evidence column blank on the one
+        screen that exists to check the design against the data (KZ-B-25).
+
+        Deterministic and LLM-free: the same inspector the design entrance uses,
+        run over ``<id>/source/`` with the dialects the mapping pinned, so an
+        instrument export with a preamble is read the way the design reads it. An
+        ``.xlsx`` was already converted to CSV at attach, so it is covered.
+        Best-effort by contract — a missing/unreadable source answers ``{}``
+        rather than failing the screen.
+        """
+        data = registry.load_dataset(cfg.registry_root, dataset_id)
+        if data is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        rml_ttl = str((data.get("artifacts") or {}).get("mapping.rml.ttl") or "")
+        paths = _design_source_files(cfg.registry_root, dataset_id)
+
+        def run() -> dict[str, object]:
+            if not paths:
+                return {"dataset_id": dataset_id, "sources": {}, "columns": {}}
+            try:
+                dialects = _dialected_sources(rml_ttl)
+            except _DialectReadError:
+                dialects = {}
+            per_source: dict[str, dict[str, list[str]]] = {}
+            for path in paths:
+                # One file at a time, and only files that HAVE columns: the source
+                # directory also holds the original .xlsx a design was converted
+                # from (kept for provenance) and, for a document dataset, a PDF.
+                # Inspecting those as tables raises — and one raise used to take
+                # the whole answer with it, which is exactly the .xlsx case this
+                # endpoint exists for.
+                if path.suffix.lower() not in _SAMPLEABLE_SUFFIXES:
+                    continue
+                try:
+                    inspections, _fks = inspect_source_set([path], dialects=dialects or None)
+                except Exception:
+                    logger.warning("source samples: %s could not be read", path.name)
+                    continue
+                per_source.update(_column_samples(inspections))
+            # Flat view for the common single-source design; first file wins on a
+            # name clash, matching what the client-side preview did.
+            flat: dict[str, list[str]] = {}
+            for cols in per_source.values():
+                for name, values in cols.items():
+                    if values and name not in flat:
+                        flat[name] = values
+            return {"dataset_id": dataset_id, "sources": per_source, "columns": flat}
+
+        return await asyncio.to_thread(run)
+
+    @app.post("/api/datasets/{dataset_id}/display-meta", dependencies=_write_auth)
+    async def set_dataset_display_meta(
+        dataset_id: str, body: DisplayMetaBody
+    ) -> dict[str, object]:
+        """Correct a column's MEANING / UNIT in place — deterministic, no LLM (K8).
+
+        The meaning of a column and the unit it is in are the two things only the
+        person who took the measurements knows, and until now the only way to fix
+        them was a free-text note → a full LLM refine → a rewrite of the whole
+        design → a re-ingest. That is minutes of waiting to fix "K", and weak
+        models were observed ignoring the note or breaking something else while
+        obeying it (KZ-B-05 / WEAK-MODEL-20).
+
+        ``label`` and ``unit`` are DISPLAY metadata on the mapping spec: no triple
+        and no value changes, so the correction is a splice of the §9 block plus a
+        re-projection of the artifacts (:func:`materialize_schema`) — the same
+        deterministic path the unit auto-fill uses. The edits are also recorded
+        beside the dataset as HUMAN-owned, so a later AI round cannot silently
+        revert them (re-asserted on /api/refine).
+
+        Returns the rows it actually changed. 409 when the dataset has no stored
+        design to splice (nothing to be the single source of truth).
+        """
+        data = registry.load_dataset(cfg.registry_root, dataset_id)
+        if data is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        edits = [e for e in body.edits if e.predicate.strip()]
+        if not edits:
+            raise HTTPException(422, "at least one edit is required")
+        proposal_md = registry.load_proposal(cfg.registry_root, dataset_id) or ""
+        if not proposal_md.strip():
+            raise HTTPException(
+                409, f"dataset {dataset_id!r} has no stored design to edit"
+            )
+        source_dir = registry.source_dir(cfg.registry_root, dataset_id)
+
+        def run() -> dict[str, object]:
+            spec = [e.model_dump() for e in edits]
+            try:
+                new_md, changed = apply_display_meta_to_document(proposal_md, spec)
+            except ValueError as exc:
+                raise HTTPException(422, str(exc)) from exc
+            if not changed:
+                return {"dataset_id": dataset_id, "changed": [], "stored": False}
+            projected, warnings = _artifacts_from_document(new_md, dataset_id, source_dir)
+            artifacts = {k: v or "" for k, v in projected.items()}
+            # A meaning is display metadata: the compiled mapping must come back
+            # unchanged. If it did not, something else is wrong with the document
+            # and overwriting a working mapping over a label edit would be the
+            # worst possible trade — refuse and leave the dataset as it was.
+            stored_rml = str((data.get("artifacts") or {}).get("mapping.rml.ttl") or "")
+            if stored_rml.strip() and not artifacts["mapping.rml.ttl"].strip():
+                raise HTTPException(
+                    409,
+                    "the stored design no longer compiles, so the meaning could not "
+                    "be saved without losing the mapping",
+                )
+            meta = registry.update_dataset_artifacts(
+                cfg.registry_root,
+                dataset_id,
+                artifacts,
+                complete=bool(data["meta"].get("complete")),
+                warnings=warnings,
+                traps=list(data["meta"].get("traps") or []),
+                exit_code=int(data["meta"].get("exit_code") or 0),
+                proposal_md=new_md,
+                advisories=list(data["meta"].get("advisories") or []),
+            )
+            _remember_display_meta(cfg.registry_root, dataset_id, spec)
+            return {"dataset_id": dataset_id, "changed": changed, "stored": meta is not None}
 
         return await asyncio.to_thread(run)
 
@@ -4573,8 +4996,14 @@ def build_app(
             if not raw:
                 raise HTTPException(404, f"staging {staging_id!r} holds no sources")
             uploads = _uploads_from_dir(sdir / "raw")
+            # The raw workbook is re-converted here, so the sheet choice made at
+            # S2 has to be re-applied — otherwise the design maps three sheets
+            # and the dataset persists all seven (K6 / KZ-A-09).
+            keep = {str(n) for n in (_staging_meta(sdir).get("sources") or [])} or None
             try:
-                saved, meta = await _persist_source_uploads(cfg.registry_root, dataset_id, uploads)
+                saved, meta = await _persist_source_uploads(
+                    cfg.registry_root, dataset_id, uploads, keep
+                )
             finally:
                 for u in uploads:
                     await u.close()

@@ -28,7 +28,9 @@
     "shape": "ID shape",
     "provisional": "(provisional)",
     "change": "Change",
-    "nameInvalid": "IDs can only use letters, digits and hyphens (e.g. thermoelectric-2026). You will give the display name at the last step, “Publish”."
+    "nameInvalid": "IDs can only use letters, digits and hyphens (e.g. thermoelectric-2026). You will give the display name at the last step, “Publish”.",
+    "baseProvisional": "The web address at the front of every ID is still provisional ({{base}}). You can continue as is for trying things out or personal use. A permanent address others can cite is set by the server administrator.",
+    "openSettings": "Open settings"
   },
   "vocab": {
     "declared": "Registered the well-known words ({{names}}) as standard words.",

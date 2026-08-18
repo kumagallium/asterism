@@ -37,6 +37,32 @@ export interface InspectResult {
   sourceNames: string[]
   /** Detected NON-default dialects keyed by canonical name (clean sources absent). */
   dialects: Record<string, DetectedDialect>
+  /** `{source: {column: [up to 3 real values]}}` as the SERVER read the file.
+   *  The only preview there is for .xlsx / .json, which the browser cannot parse
+   *  (KZ-A-08). Per column, never assembled into rows: the examples are picked
+   *  per column, so a row of them would be a record nobody's file contains. */
+  samples: Record<string, Record<string, string[]>>
+  /** `{derived table: {from: workbook, sheet: worksheet title}}` — only for a
+   *  workbook that produced MORE THAN ONE table, i.e. exactly when the user has
+   *  to be asked which sheets to use (K6). */
+  sheets: Record<string, SheetOrigin>
+}
+
+/** Where a derived table came from, in the words of the workbook (K6). */
+export interface SheetOrigin {
+  from: string
+  sheet: string
+}
+
+/** Parse a JSON response header; an unreadable one degrades to `fallback`
+ *  rather than breaking the call it rode along with. */
+function jsonHeader<T>(res: Response, name: string, fallback: T): T {
+  try {
+    const raw = res.headers.get(name)
+    return raw ? (JSON.parse(raw) as T) : fallback
+  } catch {
+    return fallback
+  }
 }
 
 /**
@@ -64,13 +90,15 @@ export async function inspectCsvs(
   const markdown = await res.text()
   const namesHeader = res.headers.get('X-Asterism-Source-Names') ?? ''
   const sourceNames = namesHeader ? namesHeader.split(',').filter(Boolean) : []
-  let dialects: Record<string, DetectedDialect>
-  try {
-    dialects = JSON.parse(res.headers.get('X-Asterism-Dialects') ?? '{}')
-  } catch {
-    dialects = {} // an unreadable header must not break inspect (byte-safe fallback)
-  }
-  return { markdown, sourceNames, dialects }
+  // an unreadable header must not break inspect (byte-safe fallback)
+  const dialects = jsonHeader<Record<string, DetectedDialect>>(res, 'X-Asterism-Dialects', {})
+  const samples = jsonHeader<Record<string, Record<string, string[]>>>(
+    res,
+    'X-Asterism-Samples',
+    {},
+  )
+  const sheets = jsonHeader<Record<string, SheetOrigin>>(res, 'X-Asterism-Sheets', {})
+  return { markdown, sourceNames, dialects, samples, sheets }
 }
 
 /**
@@ -494,6 +522,11 @@ export async function refineSchema(
   creds: LlmCredentials | null,
   handlers: RefineHandlers,
   language?: string,
+  /** The dataset being refined, when there is one. It buys two things the
+   *  server can only do knowing WHICH dataset this is: the same bounded
+   *  self-correction round 0 runs, and the meanings/units a human typed are
+   *  re-asserted on the result instead of being quietly rewritten (N6). */
+  datasetId?: string | null,
 ): Promise<JobHandle> {
   const res = await fetch('/api/refine', {
     method: 'POST',
@@ -501,7 +534,12 @@ export async function refineSchema(
       'Content-Type': 'application/json',
       ...llmHeaders(creds),
     },
-    body: JSON.stringify({ schema_md: schemaMd, comments, language: language || undefined }),
+    body: JSON.stringify({
+      schema_md: schemaMd,
+      comments,
+      language: language || undefined,
+      dataset_id: datasetId || undefined,
+    }),
   })
   if (!res.ok) await throwApiError(res, 'refine')
   const { job_id } = (await res.json()) as { job_id: string }
@@ -972,6 +1010,58 @@ export async function fetchDraftStats(datasetId: string): Promise<DraftStats> {
   return (await res.json()) as DraftStats
 }
 
+/** The design a dataset is CURRENTLY stored with (the server's own copy).
+ *
+ *  The kantan tier keeps a copy of the design in its snapshot, and the detail
+ *  tier writes its own to the same dataset — so a round trip through the detail
+ *  tier could leave the two disagreeing, with the wizard then refining and
+ *  saving the older one over the newer (DETAIL-GAP-05). The server's copy
+ *  settles it. Empty string when the dataset has no stored design. */
+export async function fetchDatasetProposal(datasetId: string): Promise<string> {
+  const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/proposal`, {
+    headers: authHeaders(),
+  })
+  if (!res.ok) await throwApiError(res, 'proposal')
+  return ((await res.json()) as { proposal_md?: string }).proposal_md ?? ''
+}
+
+/** Up to 3 real values per column, read from the dataset's OWN persisted source.
+ *  What the column-meaning screen shows as evidence when this browser never
+ *  parsed the file itself — a review reopened from the catalog, a resume after a
+ *  reload, or any .xlsx (KZ-B-25). */
+export async function fetchSourceSamples(datasetId: string): Promise<Record<string, string[]>> {
+  const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/source-samples`, {
+    headers: authHeaders(),
+  })
+  if (!res.ok) await throwApiError(res, 'source samples')
+  const body = (await res.json()) as { columns?: Record<string, string[]> }
+  return body.columns ?? {}
+}
+
+/** One human correction to what a column MEANS or the unit it is in (K8). */
+export interface DisplayMetaEdit {
+  predicate: string
+  map?: string
+  column?: string
+  label?: string
+  unit?: string
+}
+
+/** Save meanings/units the human typed — deterministic, no AI, no re-ingest.
+ *  Returns the rows the server actually changed. */
+export async function saveDisplayMeta(
+  datasetId: string,
+  edits: DisplayMetaEdit[],
+): Promise<string[]> {
+  const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/display-meta`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ edits }),
+  })
+  if (!res.ok) await throwApiError(res, 'display meta')
+  return ((await res.json()) as { changed?: string[] }).changed ?? []
+}
+
 /** One context literal of the trial "top" entity ("試料名: BiTe-04"). */
 export interface TrialDetail {
   predicate_iri: string
@@ -1163,6 +1253,8 @@ export interface StagedSources {
   stagingId: string
   /** Canonical (slugged) source names — the ones the design's rml:source uses. */
   sources: string[]
+  /** Worksheet origin of every derived table, for multi-sheet workbooks (K6). */
+  sheets: Record<string, SheetOrigin>
   expiresAt: string
 }
 
@@ -1178,17 +1270,52 @@ export async function stageSources(files: File[]): Promise<StagedSources> {
   for (const file of files) form.append('files', file)
   const res = await fetch('/api/staging', { method: 'POST', headers: authHeaders(), body: form })
   if (!res.ok) await throwApiError(res, 'staging')
-  const body = (await res.json()) as { staging_id: string; sources: string[]; expires_at: string }
-  return { stagingId: body.staging_id, sources: body.sources ?? [], expiresAt: body.expires_at }
+  const body = (await res.json()) as {
+    staging_id: string
+    sources: string[]
+    sheets?: Record<string, SheetOrigin>
+    expires_at: string
+  }
+  return {
+    stagingId: body.staging_id,
+    sources: body.sources ?? [],
+    sheets: body.sheets ?? {},
+    expiresAt: body.expires_at,
+  }
 }
 
+/** Narrow a staged record to the tables the human chose (K6 「どのシートを使いますか？」).
+ *  Every later design call reads only these, and the attach persists only these. */
+export async function selectStagingSources(
+  stagingId: string,
+  sources: string[],
+): Promise<string[]> {
+  const res = await fetch(`/api/staging/${encodeURIComponent(stagingId)}/sources`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ sources }),
+  })
+  if (!res.ok) await throwApiError(res, 'staging sources')
+  return ((await res.json()) as { sources: string[] }).sources ?? []
+}
+
+/** Whether a remembered staging record is still there.
+ *
+ *  Three values on purpose: only the server SAYING the record is gone (404 /
+ *  410) is proof. A network blip on reload, an api still coming up, a 5xx —
+ *  those say nothing about the record, and answering "gone" to them threw away
+ *  a source the server was still holding, with no way back for a browser whose
+ *  own copy (IndexedDB) is unavailable (RESUME-20). */
+export type StagingLiveness = 'alive' | 'gone' | 'unknown'
+
 /** Is a remembered staging id still live? (asked on reload before trusting it) */
-export async function stagingAlive(stagingId: string): Promise<boolean> {
+export async function stagingAlive(stagingId: string): Promise<StagingLiveness> {
   try {
     const res = await fetch(`/api/staging/${encodeURIComponent(stagingId)}`)
-    return res.ok
+    if (res.ok) return 'alive'
+    return res.status === 404 || res.status === 410 ? 'gone' : 'unknown'
   } catch {
-    return false
+    return 'unknown'
   }
 }
 

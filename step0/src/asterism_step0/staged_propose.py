@@ -57,6 +57,8 @@ from asterism_step0.mapping_ir_schema import (
 __all__ = [
     "SkeletonProposal",
     "apply_data_facts",
+    "apply_display_meta",
+    "apply_display_meta_to_document",
     "apply_numeric_datatypes",
     "assemble_mapping_ir",
     "default_property_table",
@@ -780,6 +782,124 @@ def apply_data_facts(
     if not changed:
         return dict(ir), {}
     return {**ir, "maps": out_maps}, changed
+
+
+def _display_meta_matches(
+    prop: Mapping[str, Any], map_name: str, edit: Mapping[str, Any]
+) -> bool:
+    """Is this property row the one the human corrected?
+
+    ``predicate`` is compared on its LAST segment (after ``:``, ``#`` or ``/``),
+    so the same row matches whether the client sent the expanded IRI, the CURIE
+    the design wrote, or the CURIE under a prefix that has since been re-derived
+    (K13 renames those mechanically). ``map`` / ``column``, when given, narrow
+    it further — one predicate can legitimately be bound by two maps.
+    """
+    want = str(edit.get("predicate") or "")
+    if not want:
+        return False
+    if _term_tail(str(prop.get("predicate") or "")) != _term_tail(want):
+        return False
+    wanted_map = str(edit.get("map") or "")
+    if wanted_map and wanted_map != map_name:
+        return False
+    wanted_col = str(edit.get("column") or "")
+    return not (wanted_col and wanted_col != str(prop.get("column") or ""))
+
+
+def _term_tail(term: str) -> str:
+    for sep in ("#", "/", ":"):
+        if sep in term:
+            term = term.rsplit(sep, 1)[-1]
+    return term
+
+
+def apply_display_meta(
+    ir: Mapping[str, Any], edits: Sequence[Mapping[str, Any]]
+) -> tuple[dict, list[str]]:
+    """Set the human's ``label`` / ``unit`` on the matching §9 property rows.
+
+    Display metadata ONLY (ADR K8): the meaning of a column and the notation of
+    its unit are what a reviewer reads — no triple, no value and no datatype
+    changes here. The meaning of a column is knowledge the person who measured it
+    holds, so it must be settable without asking a model to rewrite the design
+    (KZ-B-05), and it must survive the models that come later: this same function
+    re-asserts it after an AI round (ADR data-facts-invariant N6).
+
+    An empty string CLEARS the field (the human saying "this was wrong and I have
+    nothing better"); an absent key leaves it alone. Returns the new IR and the
+    columns/predicates actually changed, so the caller can say what it did.
+    """
+    maps = ir.get("maps")
+    if not isinstance(maps, list) or not edits:
+        return dict(ir), []
+    changed: list[str] = []
+    out_maps: list[Any] = []
+    for m in maps:
+        if not isinstance(m, Mapping) or not isinstance(m.get("properties"), list):
+            out_maps.append(m)
+            continue
+        name = str(m.get("name") or "")
+        props: list[Any] = []
+        for prop in m["properties"]:
+            if not isinstance(prop, Mapping):
+                props.append(prop)
+                continue
+            row = dict(prop)
+            touched = False
+            for edit in edits:
+                if not _display_meta_matches(prop, name, edit):
+                    continue
+                for field_name in ("label", "unit"):
+                    if field_name not in edit:
+                        continue
+                    value = edit.get(field_name)
+                    if value is None:
+                        continue
+                    text = str(value).strip()
+                    if text == row.get(field_name) or (not text and field_name not in row):
+                        continue
+                    if text:
+                        row[field_name] = text
+                    else:
+                        row.pop(field_name, None)
+                    touched = True
+            if touched:
+                changed.append(str(row.get("column") or row.get("predicate") or ""))
+                props.append(row)
+            else:
+                props.append(prop)
+        out_maps.append({**m, "properties": props} if props else m)
+    if not changed:
+        return dict(ir), []
+    return {**ir, "maps": out_maps}, changed
+
+
+def apply_display_meta_to_document(
+    document_md: str, edits: Sequence[Mapping[str, Any]]
+) -> tuple[str, list[str]]:
+    """:func:`apply_display_meta`, spliced back into a design document's §9.
+
+    Byte-preserving outside the mapping-spec block. Raises ``ValueError`` when the
+    document has no §9 to edit (a legacy raw-RML design — there is no display
+    metadata to carry, and the caller says so instead of pretending it worked).
+    """
+    import yaml
+
+    from asterism_step0.materialize import materialize_schema
+    from asterism_step0.spec_repair import replace_mapping_spec_block
+
+    ir_yaml = materialize_schema(document_md, ".", "display-meta", write=False).mapping_ir_yaml
+    if ir_yaml is None:
+        raise ValueError("this design has no mapping spec to edit")
+    doc = yaml.safe_load(ir_yaml)
+    if not isinstance(doc, dict):
+        raise ValueError("the design's mapping spec is not a mapping")
+    new_doc, changed = apply_display_meta(doc, edits)
+    if not changed:
+        return document_md, []
+    new_yaml = yaml.safe_dump(new_doc, sort_keys=False, allow_unicode=True)
+    return replace_mapping_spec_block(document_md, new_yaml), changed
 
 
 def generate_map_properties(

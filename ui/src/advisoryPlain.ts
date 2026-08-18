@@ -299,3 +299,69 @@ export function plainAdvisories(advisories: string[], labels?: TermLabels): Plai
   }
   return out
 }
+
+/**
+ * Marker phrases from the DETERMINISTIC validators (`asterism.rml_validate`,
+ * `asterism_step0.mapping_ir`) → their plain sentence (ADR §5.1).
+ *
+ * These are NOT model prose, so their fixed phrases are stable enough to
+ * translate one by one — and they carry the single most common weak-model
+ * failure (a column that is not in the file), for which K11 already has a
+ * canonical sentence. Counting them all as "その他" hid exactly that.
+ */
+const ISSUE_MARKERS: { marker: string; key: string }[] = [
+  { marker: 'referenced by the mapping is not in', key: 'kantan:s5.trap.T8' }, // rml_validate
+  { marker: "' is not in ", key: 'kantan:s5.trap.T8' }, // mapping_ir compile
+  { marker: 'does not accept parameter', key: 'kantan:s5.trap.function' },
+  { marker: 'is missing required parameter', key: 'kantan:s5.trap.function' },
+  { marker: 'referenced by rml:source does not exist', key: 'kantan:s5.trap.source' },
+  { marker: 'no compiled RML mapping', key: 'kantan:s5.trap.uncompiled' },
+  { marker: 'is not parseable YAML', key: 'kantan:s5.trap.mieBroken' },
+]
+
+/**
+ * The plain face of free-form validation / mapping issues — the shared
+ * classifier for the wizard's stop card AND the catalog (BACKEND-TEXT-09).
+ *
+ * One sentence per FAMILY (a design that names four missing columns still reads
+ * as one problem), unrecognised lines folded into a single count so a reworded
+ * generator degrades to the old behaviour rather than to a wrong sentence.
+ * `precededByLines` = other lines are already on the card, which decides
+ * between 「このほか、…」 and the standalone wording (ADR §5.1).
+ *
+ * Nothing here is fed to the AI: callers keep passing the raw English for that
+ * (display and AI input stay separate).
+ */
+export function plainIssues(issues: string[], precededByLines = false): PlainAdvisory[] {
+  const t = i18n.t.bind(i18n)
+  const out: PlainAdvisory[] = []
+  const byKey = new Map<string, PlainAdvisory>()
+  const others: string[] = []
+  for (const issue of issues) {
+    const hit = ISSUE_MARKERS.find((m) => issue.includes(m.marker))
+    if (!hit) {
+      others.push(issue)
+      continue
+    }
+    const seen = byKey.get(hit.key)
+    if (seen) {
+      seen.raw.push(issue)
+      continue
+    }
+    const line = { text: t(hit.key), raw: [issue] }
+    byKey.set(hit.key, line)
+    out.push(line)
+  }
+  if (others.length > 0) {
+    // 「このほか、」 reads right only when a line came before it — either one of
+    // ours above, or the trap sentences this list is appended to (ADR §5.1).
+    const after = precededByLines || out.length > 0
+    out.push({
+      text: t(after ? 'kantan:s5.trap.others' : 'kantan:s5.trap.othersOnly', {
+        count: others.length,
+      }),
+      raw: others,
+    })
+  }
+  return out
+}
