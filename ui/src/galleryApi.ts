@@ -19,7 +19,7 @@
 // /demo/schema). Nothing is fabricated: when a signal is unavailable, the UI
 // shows "—" or an explicit empty state rather than a placeholder.
 
-import { fetchProposal } from './api'
+import { fetchProposal, throwApiError } from './api'
 import { authHeaders } from './authToken'
 import i18n from './i18n'
 import { deriveReuses } from './vocab'
@@ -220,7 +220,7 @@ export interface DatasetRules {
 /** The human-readable projection of a dataset's persisted mapping. */
 export async function getDatasetRules(datasetId: string): Promise<DatasetRules> {
   const res = await fetch(`${API_BASE}/api/datasets/${encodeURIComponent(datasetId)}/rules`)
-  if (!res.ok) throw new Error(await _errText(res, 'rules'))
+  if (!res.ok) await throwApiError(res, 'rules')
   return (await res.json()) as DatasetRules
 }
 
@@ -230,7 +230,7 @@ export async function getDatasetArtifactContents(
   datasetId: string,
 ): Promise<Record<string, string>> {
   const res = await fetch(`${API_BASE}/api/datasets/${encodeURIComponent(datasetId)}`)
-  if (!res.ok) throw new Error(await _errText(res, 'artifacts'))
+  if (!res.ok) await throwApiError(res, 'artifacts')
   const body = (await res.json()) as { artifacts?: Record<string, string> }
   const contents: Record<string, string> = { ...(body.artifacts ?? {}) }
   try {
@@ -251,7 +251,7 @@ export interface DatasetHistoryEntry {
 
 export async function getDatasetHistory(datasetId: string): Promise<DatasetHistoryEntry[]> {
   const res = await fetch(`${API_BASE}/api/datasets/${encodeURIComponent(datasetId)}/history`)
-  if (!res.ok) throw new Error(await _errText(res, 'history'))
+  if (!res.ok) await throwApiError(res, 'history')
   const body = (await res.json()) as { snapshots?: DatasetHistoryEntry[] }
   return body.snapshots ?? []
 }
@@ -269,17 +269,14 @@ export async function getDatasetHistorySnapshot(
   const res = await fetch(
     `${API_BASE}/api/datasets/${encodeURIComponent(datasetId)}/history/${encodeURIComponent(snapshotId)}`,
   )
-  if (!res.ok) throw new Error(await _errText(res, 'history'))
+  if (!res.ok) await throwApiError(res, 'history')
   return (await res.json()) as DatasetHistorySnapshot
 }
 
 /** Preview which draft terms are Reuse (in canonical) vs New, before promoting. */
 export async function getAlignment(datasetId: string): Promise<AlignmentReport> {
   const res = await fetch(`${API_BASE}/api/datasets/${encodeURIComponent(datasetId)}/alignment`)
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new Error(`alignment failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
-  }
+  if (!res.ok) await throwApiError(res, 'alignment')
   return ((await res.json()) as { alignment: AlignmentReport }).alignment
 }
 
@@ -291,16 +288,8 @@ export async function promoteDataset(
     method: 'POST',
     headers: authHeaders(),
   })
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new Error(`promote failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
-  }
+  if (!res.ok) await throwApiError(res, 'promote')
   return (await res.json()) as { triples_promoted: number; alignment: AlignmentReport }
-}
-
-async function _errText(res: Response, op: string): Promise<string> {
-  const detail = await res.text().catch(() => '')
-  return `${op} failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`
 }
 
 /** #20 P3: withdraw a promoted dataset from the citable corpus (tombstone, not
@@ -310,7 +299,7 @@ export async function retractDataset(datasetId: string): Promise<void> {
     method: 'POST',
     headers: authHeaders(),
   })
-  if (!res.ok) throw new Error(await _errText(res, 'retract'))
+  if (!res.ok) await throwApiError(res, 'retract')
 }
 
 /** #20 P3: undo a retraction — the dataset re-enters the citable scope. */
@@ -319,7 +308,7 @@ export async function reinstateDataset(datasetId: string): Promise<void> {
     method: 'POST',
     headers: authHeaders(),
   })
-  if (!res.ok) throw new Error(await _errText(res, 'reinstate'))
+  if (!res.ok) await throwApiError(res, 'reinstate')
 }
 
 /** #20 P3: hard-delete a dataset. A promoted (citable) dataset needs force=true
@@ -330,7 +319,7 @@ export async function deleteDataset(datasetId: string, force = false): Promise<v
     method: 'DELETE',
     headers: authHeaders(),
   })
-  if (!res.ok) throw new Error(await _errText(res, 'delete'))
+  if (!res.ok) await throwApiError(res, 'delete')
 }
 
 /** Change a dataset's DISPLAY name only — the id (the IRI seed / data identity) is
@@ -341,7 +330,7 @@ export async function renameDataset(datasetId: string, name: string): Promise<vo
     headers: { ...authHeaders(), 'content-type': 'application/json' },
     body: JSON.stringify({ name }),
   })
-  if (!res.ok) throw new Error(await _errText(res, 'rename'))
+  if (!res.ok) await throwApiError(res, 'rename')
 }
 
 /** Result of an incremental append (ADR incremental-ingest.md): a new batch was
@@ -371,7 +360,7 @@ export async function appendToDataset(datasetId: string, files: File[]): Promise
     headers: authHeaders(),
     body: form,
   })
-  if (!res.ok) throw new Error(await _errText(res, 'append'))
+  if (!res.ok) await throwApiError(res, 'append')
   return (await res.json()) as AppendResult
 }
 
@@ -401,7 +390,7 @@ export async function appendDocument(
     headers: authHeaders(),
     body: form,
   })
-  if (!res.ok) throw new Error(await _errText(res, 'append document'))
+  if (!res.ok) await throwApiError(res, 'append document')
   return (await res.json()) as DocumentAppendResult
 }
 
@@ -546,7 +535,7 @@ function toMapping(meta: DatasetMeta): MappingEntry {
  */
 export async function getLiveDatasets(): Promise<LiveDataset[]> {
   const res = await fetch(`${API_BASE}/api/datasets`)
-  if (!res.ok) throw new Error(`datasets: HTTP ${res.status}`)
+  if (!res.ok) await throwApiError(res, 'datasets')
   const body = (await res.json()) as { datasets?: DatasetMeta[] }
   const metas: DatasetMeta[] = Array.isArray(body.datasets) ? body.datasets : []
   // Pull each dataset's detail for its Mermaid diagram + the richer meta (which
