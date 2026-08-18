@@ -3181,7 +3181,13 @@ def build_app(
         if sheets:
             # {derived csv: {from, sheet}} — only for workbooks that produced more
             # than one table, i.e. exactly when K6 says to ask which one to use.
-            headers["X-Asterism-Sheets"] = json.dumps(sheets, separators=(",", ":"))
+            # Same budget as the samples header, and for the same reason: a
+            # workbook with dozens of long (escaped, so 6x) sheet titles must
+            # degrade to "no sheet chooser", never to a response the server
+            # cannot send at all.
+            encoded = json.dumps(sheets, separators=(",", ":"))
+            if len(encoded) <= _SAMPLES_HEADER_BUDGET:
+                headers["X-Asterism-Sheets"] = encoded
         return Response(content=markdown, media_type="text/markdown", headers=headers)
 
     @app.post("/api/models/available")

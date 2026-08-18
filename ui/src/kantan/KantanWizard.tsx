@@ -966,6 +966,8 @@ export function KantanWizard({
    *  → an LLM rewrite of the whole design → a re-ingest (KZ-B-05). */
   const [metaSaving, setMetaSaving] = useState(false)
   const [metaSaved, setMetaSaved] = useState(0)
+  /** The save went through but matched no row — a silent revert otherwise. */
+  const [metaNoop, setMetaNoop] = useState(false)
   const [metaErr, setMetaErr] = useState('')
   const [s6Err, setS6Err] = useState('')
   const [note, setNote] = useState('')
@@ -3339,6 +3341,7 @@ export function KantanWizard({
     if (value === before) return
     setMetaSaving(true)
     setMetaErr('')
+    setMetaNoop(false)
     try {
       const changed = await saveDisplayMeta(datasetId, [
         {
@@ -3349,6 +3352,11 @@ export function KantanWizard({
         },
       ])
       setMetaSaved(changed.length)
+      // Nothing matched: the row the table shows and the row the design holds
+      // did not line up. Say so — the reload below is about to put the old
+      // wording back in the box, and a correction that vanishes without a word
+      // is how someone concludes the screen is lying to them (KZ-B-05).
+      setMetaNoop(changed.length === 0)
       await loadS6(datasetId)
     } catch (e) {
       setMetaErr(errText(e))
@@ -4452,6 +4460,7 @@ export function KantanWizard({
           {!metaSaving && metaSaved > 0 && (
             <p className="kz-note">{t('kantan:s6.editSaved', { n: metaSaved })}</p>
           )}
+          {!metaSaving && metaNoop && <p className="kz-note">{t('kantan:s6.editNoChange')}</p>}
           {metaErr && (
             <>
               <p className="kz-note">{t('kantan:s6.editFailed')}</p>

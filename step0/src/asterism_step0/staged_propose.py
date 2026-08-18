@@ -892,7 +892,13 @@ def apply_display_meta_to_document(
     ir_yaml = materialize_schema(document_md, ".", "display-meta", write=False).mapping_ir_yaml
     if ir_yaml is None:
         raise ValueError("this design has no mapping spec to edit")
-    doc = yaml.safe_load(ir_yaml)
+    # A §9 a weak model left unparseable is a routine outcome, not a crash: the
+    # caller (the refine tail, the S6 edit) has to keep going and let the normal
+    # validation report it, so every unreadable spec leaves here as ValueError.
+    try:
+        doc = yaml.safe_load(ir_yaml)
+    except yaml.YAMLError as exc:
+        raise ValueError(f"the design's mapping spec is not readable: {exc}") from exc
     if not isinstance(doc, dict):
         raise ValueError("the design's mapping spec is not a mapping")
     new_doc, changed = apply_display_meta(doc, edits)

@@ -125,3 +125,17 @@ def test_document_splice_is_idempotent() -> None:
 def test_legacy_design_without_a_mapping_spec_says_so() -> None:
     with pytest.raises(ValueError, match="no mapping spec"):
         apply_display_meta_to_document("# Title\n\nno section nine here\n", [{"predicate": "x"}])
+
+
+def test_unreadable_section_nine_is_a_valueerror_not_a_crash() -> None:
+    """The refine tail re-asserts human meanings on WHATEVER the round produced,
+    and an unparseable §9 is a routine weak-model outcome. It has to arrive as
+    the same ValueError a legacy design does — the caller suppresses that and
+    lets the normal validation report the broken spec, instead of the whole
+    refine job dying on a YAML error nobody can act on."""
+    broken = (
+        "# Title\n\n### 9. Declarative mapping spec\n\n"
+        "```yaml\nmaps:\n  - name: m\n   source: [unclosed\n```\n"
+    )
+    with pytest.raises(ValueError):
+        apply_display_meta_to_document(broken, [{"predicate": "ex:hasSeebeck", "label": "x"}])
