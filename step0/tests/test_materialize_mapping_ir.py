@@ -153,14 +153,20 @@ def test_legacy_turtle_only_proposal_unchanged(tmp_path: Path) -> None:
 
 def test_mie_absent_does_not_steal_mapping_spec(tmp_path: Path) -> None:
     """A truncated proposal (no MIE section) must still classify the mapping
-    spec as the mapping spec — the MIE lang-only fallback must not claim it."""
+    spec as the mapping spec — the MIE lang-only fallback must not claim it.
+
+    §7 is then synthesized from the spec (WEAK-MODEL-06), so the assertion is
+    that the two blocks stay DISTINCT, not that §7 stays missing.
+    """
     truncated = PROPOSAL_WITH_IR.replace(
         "### 7. MIE YAML extras\n\n```yaml\nschema_info:\n  title: things\n```\n\n", ""
     )
     result = materialize_schema(truncated, tmp_path, "demo", write=False)
     assert result.mapping_ir_yaml is not None
     assert "maps:" in result.mapping_ir_yaml
-    assert result.mie_yaml is None
+    assert result.mie_yaml is not None
+    assert result.mie_yaml != result.mapping_ir_yaml
+    assert "maps:" not in result.mie_yaml
     assert result.rml_ttl is not None
 
 
