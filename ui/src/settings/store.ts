@@ -102,6 +102,12 @@ export const PROVIDERS: ProviderMeta[] = [
  *  OpenAI-compatible endpoint) — the one local runtime with a stable default. */
 export const LOCAL_AI_BASE = 'http://localhost:11434/v1'
 
+/** A local runtime ignores the key entirely, but the OpenAI SDK refuses to make
+ *  a call without one, so "use the AI on this computer" carries this
+ *  placeholder. It is not a secret and grants nothing: without it, listing the
+ *  local models fails and the registered entry would count as "needs a key". */
+export const LOCAL_AI_KEY = 'local'
+
 // ---------------------------------------------------------------------------
 // Storage keys
 // ---------------------------------------------------------------------------

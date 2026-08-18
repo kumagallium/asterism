@@ -113,27 +113,6 @@ def test_server_keys_endpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
         assert provs["openai"] is False
 
 
-def test_server_keys_endpoint_advertises_default_models(tmp_path: Path) -> None:
-    """A browser with an empty model registry needs a model id to go with a
-    shared key; openai-compatible has no built-in one (endpoint-specific)."""
-    app = build_app(_settings(tmp_path), oxigraph_client=_healthy(tmp_path), start_watcher=False)
-    with TestClient(app) as client:
-        defaults = client.get("/api/llm/server-keys").json()["default_models"]
-    assert defaults["anthropic"]
-    assert defaults["openai"]
-    assert defaults["openai-compatible"] is None
-
-
-def test_default_model_can_be_pinned_by_env(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("ASTERISM_LLM_MODEL_OPENAI_COMPATIBLE", "gpt-oss-120b")
-    app = build_app(_settings(tmp_path), oxigraph_client=_healthy(tmp_path), start_watcher=False)
-    with TestClient(app) as client:
-        defaults = client.get("/api/llm/server-keys").json()["default_models"]
-    assert defaults["openai-compatible"] == "gpt-oss-120b"
-
-
 def test_models_available_uses_server_key(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

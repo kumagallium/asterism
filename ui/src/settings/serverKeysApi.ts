@@ -24,6 +24,11 @@ export interface ServerKeyInfo {
  * model id per provider. Returns empty maps on any failure (endpoint absent on
  * an older server, network error) so the UI simply falls back to requiring a
  * browser key — never blocks on this optional capability.
+ *
+ * `default_models` is optional and absent on a server that does not advertise
+ * it; every caller must behave as if the map were empty (the two public
+ * providers then run on the server's own built-in default, and a custom
+ * endpoint — whose ids only it knows — keeps asking for a key here).
  */
 export async function fetchServerKeyInfo(): Promise<ServerKeyInfo> {
   try {

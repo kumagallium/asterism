@@ -77,11 +77,7 @@ from asterism.watcher import (
 from asterism_step0.crosswalk_propose import propose_crosswalk_mapping
 from asterism_step0.inspect import inspect_source_set, render_markdown
 from asterism_step0.instance_iri import DEFAULT_IRI_BASE, normalize_iri_base
-from asterism_step0.llm import (
-    DEFAULT_ANTHROPIC_MODEL,
-    DEFAULT_OPENAI_MODEL,
-    list_available_models,
-)
+from asterism_step0.llm import list_available_models
 from asterism_step0.llm import make_llm as build_llm_client
 from asterism_step0.materialize import (
     _MODEL_HEADERS,
@@ -454,28 +450,6 @@ def _llm_coords(
     key, pinned_base = server_keys.resolve(provider, registry_root)
     api_base = pinned_base or (x_llm_api_base or None)
     return provider, (x_llm_model or None), api_base, key
-
-
-def _default_llm_models() -> dict[str, str | None]:
-    """Non-secret per-provider default model ids, advertised to the browser.
-
-    A fresh browser has an empty model registry, so without this it could not use
-    an operator-configured shared key without first being asked to pick a
-    provider and type a model id — the entry-gate the two-tier UX removes. These
-    are plain identifiers (no secret), and an operator can pin one per provider
-    with ``ASTERISM_LLM_MODEL_<PROVIDER>``. There is no built-in default for
-    ``openai-compatible`` (model ids are endpoint-specific), so it stays ``None``
-    unless the operator names one."""
-    builtin: dict[str, str | None] = {
-        "anthropic": DEFAULT_ANTHROPIC_MODEL,
-        "openai": DEFAULT_OPENAI_MODEL,
-        "openai-compatible": None,
-    }
-    resolved: dict[str, str | None] = {}
-    for provider, fallback in builtin.items():
-        env_name = f"ASTERISM_LLM_MODEL_{provider.replace('-', '_').upper()}"
-        resolved[provider] = os.environ.get(env_name, "").strip() or fallback
-    return resolved
 
 
 def _llm_max_tokens(value: str | None) -> int | None:
@@ -2751,16 +2725,9 @@ def build_app(
         Booleans only — never the key. Lets the UI let a user proceed (and fetch
         models / Ask / propose) without typing a key when the server already has
         one for that provider. Read-open (reveals no secret); all-false unless a
-        key was set via env or ``POST /api/llm/server-keys`` (opt-in).
-
-        ``default_models`` rides along (non-secret): with it a browser whose model
-        registry is empty can use a shared key straight away, instead of being
-        asked to pick a provider and type a model id before anything works."""
+        key was set via env or ``POST /api/llm/server-keys`` (opt-in)."""
         return JSONResponse(
-            {
-                "providers": server_keys.configured_providers(cfg.registry_root),
-                "default_models": _default_llm_models(),
-            }
+            {"providers": server_keys.configured_providers(cfg.registry_root)}
         )
 
     @app.post("/api/llm/server-keys", dependencies=_write_auth)

@@ -3,7 +3,13 @@ import { useTranslation } from 'react-i18next'
 import { useLlmSettings } from './context'
 import { type InstanceInfo, fetchInstanceInfo } from './instanceApi'
 import { fetchAvailableModels } from './modelsApi'
-import { LOCAL_AI_BASE, type Provider, makeModel, providerOfPastedKey } from './store'
+import {
+  LOCAL_AI_BASE,
+  LOCAL_AI_KEY,
+  type Provider,
+  makeModel,
+  providerOfPastedKey,
+} from './store'
 
 // First run: what a person who has never set up an AI service sees instead of
 // the model registry. Three ways out, each one thing to do — ask an
@@ -19,6 +25,10 @@ export function AiSetup({ onAdvanced }: { onAdvanced: () => void }) {
   const [info, setInfo] = useState<InstanceInfo | null>(null)
 
   const [copied, setCopied] = useState(false)
+  // A page served over plain http (a lab machine on the LAN) has no clipboard
+  // API, and a copy can be refused. Showing the text is the fallback — the
+  // point is that the person can hand the request to their administrator.
+  const [showTemplate, setShowTemplate] = useState(false)
   const [key, setKey] = useState('')
   const [choice, setChoice] = useState<Choice | null>(null)
   const [base, setBase] = useState('')
@@ -62,7 +72,10 @@ export function AiSetup({ onAdvanced }: { onAdvanced: () => void }) {
     setError('')
     try {
       // Custom endpoints have endpoint-specific model ids, so ask the endpoint
-      // itself rather than guessing one that would fail at call time.
+      // itself rather than guessing one that would fail at call time. For the
+      // two public services the id comes from the server (never hardcoded
+      // here); an empty one is fine and means "whatever the server runs by
+      // default", which is what the call then uses.
       const modelId = needsBase
         ? ((await fetchAvailableModels(provider, trimmed, base.trim()))[0]?.id ?? '')
         : (settings.serverDefaultModels[provider] ?? '')
@@ -83,13 +96,13 @@ export function AiSetup({ onAdvanced }: { onAdvanced: () => void }) {
     setBusy(true)
     setLocalFailed(false)
     try {
-      const models = await fetchAvailableModels('openai-compatible', '', LOCAL_AI_BASE)
+      const models = await fetchAvailableModels('openai-compatible', LOCAL_AI_KEY, LOCAL_AI_BASE)
       const first = models[0]?.id
       if (!first) {
         setLocalFailed(true)
         return
       }
-      register('openai-compatible', first, LOCAL_AI_BASE, '')
+      register('openai-compatible', first, LOCAL_AI_BASE, LOCAL_AI_KEY)
     } catch {
       setLocalFailed(true)
     } finally {
@@ -98,12 +111,17 @@ export function AiSetup({ onAdvanced }: { onAdvanced: () => void }) {
   }
 
   function copyRequest() {
-    navigator.clipboard?.writeText(t('setup.ask.template')).then(
+    const done = navigator.clipboard?.writeText(t('setup.ask.template'))
+    if (!done) {
+      setShowTemplate(true)
+      return
+    }
+    done.then(
       () => {
         setCopied(true)
         window.setTimeout(() => setCopied(false), 2000)
       },
-      () => setCopied(false),
+      () => setShowTemplate(true),
     )
   }
 
@@ -117,6 +135,12 @@ export function AiSetup({ onAdvanced }: { onAdvanced: () => void }) {
         <button type="button" className="btn btn--ghost btn--sm" onClick={copyRequest}>
           {copied ? t('setup.ask.copied') : t('setup.ask.copy')}
         </button>
+        {showTemplate && (
+          <>
+            <p className="field-help field-error">{t('setup.ask.copyFailed')}</p>
+            <p className="field-help">{t('setup.ask.template')}</p>
+          </>
+        )}
       </section>
 
       <section className="serverkeys">

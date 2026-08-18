@@ -29,6 +29,7 @@
       "body": "An administrator sets this up once and everyone on this server can use AI as they are. The button below copies a request you can send.",
       "copy": "Copy the request",
       "copied": "Copied",
+      "copyFailed": "Couldn't copy. Send the text below to your administrator as it is.",
       "template": "Please enable AI in Asterism. Under Settings → “This server” → “Shared AI setup”, register a key from an AI service once, and everyone using this server will be able to use AI."
     },
     "own": {
@@ -61,6 +62,7 @@
     "keySet": "using your key",
     "keyServer": "using the server's setup (no key needed)",
     "keyMissing": "needs a key",
+    "modelIdDefault": "server default",
     "edit": "Edit",
     "delete": "Delete",
     "confirmDelete": "Delete",

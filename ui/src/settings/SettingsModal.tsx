@@ -259,7 +259,9 @@ function ModelsTab() {
                   </div>
                   <div className="model-sub">
                     <span className="model-provider">{providerName(m.provider, t)}</span>
-                    <span className="model-id">{m.modelId}</span>
+                    {/* An entry registered without an id runs on whatever the
+                        server picks; a blank cell here just looks broken. */}
+                    <span className="model-id">{m.modelId || t('models.modelIdDefault')}</span>
                     {m.apiBase && <span className="model-base">{m.apiBase}</span>}
                   </div>
                   {/* A model the server holds a key for works as it is; marking
