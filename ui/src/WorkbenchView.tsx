@@ -388,11 +388,7 @@ export function WorkbenchView({
     // already there (same composition as the kantan tier's carried fix).
     const carried = redesignTarget.advisories ?? []
     setCarriedAdvisories(carried)
-    setComment(
-      carried.length > 0
-        ? `${t('workbench:fix.commentIntro')}\n${carried.map((l) => `- ${l}`).join('\n')}`
-        : '',
-    )
+    setComment(carriedFixComment(carried, t))
     setMaterialized(null)
     setSourcePersisted(false)
     setStatus('')
@@ -1363,7 +1359,14 @@ export function WorkbenchView({
                   <button
                     type="button"
                     className="btn btn--ghost btn--sm"
-                    onClick={() => setCarriedAdvisories([])}
+                    onClick={() => {
+                      // Dismiss = the whole arrival, including the text we typed
+                      // into the comment box on the user's behalf. Anything they
+                      // edited or wrote themselves stays.
+                      const prefilled = carriedFixComment(carriedAdvisories, t)
+                      setComment((c) => (c === prefilled ? '' : c))
+                      setCarriedAdvisories([])
+                    }}
                   >
                     {t('workbench:redesign.findingsDismiss')}
                   </button>
@@ -1625,6 +1628,18 @@ function composeFixComment(result: MaterializeResult | null, t: TFunction): stri
   if (lines.length === 0) return ''
   const bullets = lines.map((l) => `- ${l}`).join('\n')
   return `${t('workbench:fix.commentIntro')}\n${bullets}`
+}
+
+/**
+ * The review comment pre-filled on the user's behalf when a redesign arrives with
+ * findings from the catalog. Same composition as the simple tier's carried fix
+ * (KantanWizard.fixCarriedAdvisories), so both tiers hand the AI identical text.
+ * Also used to recognise that pre-fill later: dismissing the arrival note drops
+ * the text WE wrote, never a sentence the user typed.
+ */
+function carriedFixComment(advisories: string[], t: TFunction): string {
+  if (advisories.length === 0) return ''
+  return `${t('workbench:fix.commentIntro')}\n${advisories.map((l) => `- ${l}`).join('\n')}`
 }
 
 /**

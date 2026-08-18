@@ -262,7 +262,7 @@
       "confirmPlaceholder": "Some namespaces still point at a placeholder domain ({{prefixes}}). Continue anyway? (The self-correction pass will try to re-mint, but fixing it here is the sure path.)",
       "nameLabel": "Dataset name (used in the IDs)",
       "nameHint": "The name inside the ID (letters, digits and hyphens only). The display name shown in the catalog is given separately at the last step, “Publish”. Pick a name that still fits data you will add later (e.g. the kind of measurement rather than one material).",
-      "baseUnconfigured": "The ID issuer is still a provisional address ({{base}}). That is fine for trying things out. To keep IDs citable after publishing, set the issuer address under Settings → “ID issuer” (your server administrator sets it).",
+      "baseUnconfigured": "The ID issuer is still a provisional address ({{base}}). That is fine for trying things out. To keep IDs citable after publishing, set the issuer address under Settings → “This server” (on a shared server, ask an administrator to set it).",
       "openSettings": "Open settings",
       "advancedTitle": "Advanced: namespaces and shorthands",
       "advancedNote": "Shorthands (al3v: etc.) are display abbreviations — changing them never changes the data. They are re-derived automatically when you rename the dataset. You can also edit the namespace URLs directly here."
