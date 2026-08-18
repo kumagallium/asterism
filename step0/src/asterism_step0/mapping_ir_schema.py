@@ -21,6 +21,25 @@ Deliberately grammar-friendly: no ``oneOf`` (uneven support across guided
 decoders); the object-form exclusivity rules stay with the strict parser
 (:mod:`asterism_step0.mapping_ir`), which remains the gate for ALL providers —
 the schema narrows generation, it never replaces validation.
+
+Two things the grammar DOES enforce, because the strict parser can only report
+them after the fact and a weak model does not recover (live 2026-08-18,
+gpt-oss-120b, XRD card: 17 rows with no object form at all, ``unit`` strings
+thousands of characters long, degenerate zero-width repetition):
+
+* **an object form is present** — every property row branch (``anyOf`` of
+  COMPLETE row schemas, one per form) requires ``column`` / ``columns`` /
+  ``object_template`` / ``constant``. "got: none" becomes unrepresentable.
+  ``anyOf`` of full object schemas is the one union shape every decoder
+  (xgrammar / outlines / llama.cpp / OpenAI) compiles the same way; a sibling
+  ``anyOf`` of bare ``required`` clauses is not.
+* **bounded strings** — ``maxLength`` on every free-text field. A grammar
+  forces the model to CLOSE the string, so a repetition loop inside ``unit``
+  or ``label`` cannot eat the whole completion (and the round with it).
+
+The client degrades ``json_schema`` → ``json_object`` → off when a server
+rejects the schema, so a decoder that lacks a keyword costs guidance, never
+the call.
 """
 
 from __future__ import annotations
@@ -40,11 +59,25 @@ _MAP_NAME_PATTERN = r"^[A-Za-z][\w-]*$"
 _IRI_PATTERN = r"^https?://\S+$"
 
 
-def _string(pattern: str | None = None) -> dict:
-    out: dict = {"type": "string", "minLength": 1}
+# String caps: generous for real content, fatal for a repetition loop. A CSV
+# header, a CURIE, a unit — none is legitimately hundreds of characters.
+_LEN_TERM = 200  # predicate / class / column header / datatype / map name
+_LEN_TEMPLATE = 500  # IRI templates
+_LEN_LABEL = 160  # human label
+_LEN_UNIT = 40  # display unit ("W/(m·K)", "Ohm m", "Å³")
+_LEN_CONSTANT = 2000  # a constant literal can be a sentence, not a page
+
+
+def _string(pattern: str | None = None, *, max_length: int = _LEN_TERM) -> dict:
+    out: dict = {"type": "string", "minLength": 1, "maxLength": max_length}
     if pattern:
         out["pattern"] = pattern
     return out
+
+
+# The property-row object forms; exactly one must be present (parser-enforced
+# exclusivity), at least one is grammar-enforced via ``anyOf`` below.
+_OBJECT_FORMS = ("column", "columns", "object_template", "constant")
 
 
 def _function_value(function_names: Sequence[str] | None) -> dict:
@@ -102,37 +135,54 @@ def _subject_schema(function_names: Sequence[str] | None) -> dict:
         "type": "object",
         "additionalProperties": False,
         "properties": {
-            "template": _string(),
-            "constant": _string(),
+            "template": _string(max_length=_LEN_TEMPLATE),
+            "constant": _string(max_length=_LEN_TEMPLATE),
             "classes": {"type": "array", "items": _string(_TERM_PATTERN)},
             "transform": transform_obj,
         },
     }
 
 
-def _property_row_schema(function_names: Sequence[str] | None) -> dict:
+def _property_row_fields(function_names: Sequence[str] | None) -> dict:
     function_value = _function_value(function_names)
     transform_obj = {"type": "object", "additionalProperties": function_value}
     return {
-        "type": "object",
-        "additionalProperties": False,
-        "required": ["predicate"],
-        "properties": {
-            "predicate": _string(_TERM_PATTERN),
-            "column": _string(),
-            "columns": {"type": "array", "items": _string(), "minItems": 1},
-            "function": function_value,
-            "args": {"type": "object", "additionalProperties": {"type": "string"}},
-            "object_template": _string(),
-            "constant": {"type": "string"},
-            "object_type": {"type": "string", "enum": ["iri", "literal"]},
-            "datatype": _string(),
-            "language": _string(r"^[A-Za-z]{1,8}(-[A-Za-z0-9]{1,8})*$"),
-            "transform": transform_obj,
-            "fallback": {"type": "boolean"},
-            "label": _string(),
-            "unit": _string(),
+        "predicate": _string(_TERM_PATTERN),
+        "column": _string(),
+        "columns": {"type": "array", "items": _string(), "minItems": 1},
+        "function": function_value,
+        "args": {
+            "type": "object",
+            "additionalProperties": {"type": "string", "maxLength": _LEN_TEMPLATE},
         },
+        "object_template": _string(max_length=_LEN_TEMPLATE),
+        "constant": {"type": "string", "maxLength": _LEN_CONSTANT},
+        "object_type": {"type": "string", "enum": ["iri", "literal"]},
+        "datatype": _string(),
+        "language": _string(r"^[A-Za-z]{1,8}(-[A-Za-z0-9]{1,8})*$"),
+        "transform": transform_obj,
+        "fallback": {"type": "boolean"},
+        "label": _string(max_length=_LEN_LABEL),
+        "unit": _string(max_length=_LEN_UNIT),
+    }
+
+
+def _property_row_schema(function_names: Sequence[str] | None) -> dict:
+    """One property row: ``anyOf`` of COMPLETE row schemas, each requiring
+    ``predicate`` plus one object form. Same fields in every branch — the
+    branches differ only in ``required`` — so a decoder compiles it as a plain
+    union of objects (no cross-branch merging needed)."""
+    fields = _property_row_fields(function_names)
+    return {
+        "anyOf": [
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["predicate", form],
+                "properties": fields,
+            }
+            for form in _OBJECT_FORMS
+        ]
     }
 
 

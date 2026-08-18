@@ -32,6 +32,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from asterism_step0.spec_yaml import load_spec_yaml
+
 __all__ = [
     "LEGACY_SUFFIXES",
     "PREAMBLE_MODES",
@@ -654,7 +656,7 @@ def apply_detected_dialects(
             ) from exc
 
         try:
-            doc = yaml.safe_load(ir)
+            doc = load_spec_yaml(ir)
         except yaml.YAMLError:
             return ir  # a spec too broken to parse flows on; lint reports it
         if not isinstance(doc, Mapping):

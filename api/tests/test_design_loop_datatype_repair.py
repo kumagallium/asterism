@@ -139,3 +139,51 @@ def test_legacy_raw_rml_designs_are_left_to_the_llm(tmp_path: Path) -> None:
     assert ir_yaml is None  # no spec to repair
     assert repaired_md == md
     assert [i.subject for i in after] == ["Volume"]
+
+
+# ---- identity transforms (2026-08-18) -----------------------------------------
+
+
+def _spec_with_transform(transform_yaml: str) -> str:
+    return (
+        "## Schema proposal\n\n### 9. Declarative mapping spec\n\n"
+        "```yaml\n"
+        "version: 1\n"
+        "prefixes:\n"
+        '  ex: "https://ns.invalid/ns#"\n'
+        '  exr: "https://ns.invalid/r/"\n'
+        "maps:\n"
+        "  - name: sample\n"
+        "    source: data.csv\n"
+        "    subject:\n"
+        '      template: "exr:sample/{SID}"\n'
+        f"{transform_yaml}"
+        "      classes: [ex:Sample]\n"
+        "    properties:\n"
+        "      - predicate: ex:name\n"
+        "        column: Name\n"
+        "```\n"
+    )
+
+
+def test_identity_transform_is_dropped_without_an_llm(tmp_path: Path) -> None:
+    """The live 2026-08-18 shape: ``transform: {SID: SID}`` — the model read
+    transform as "placeholder ← column". The value names no function, so the
+    entry cannot mean anything valid; the machine removes it (0 LLM calls)."""
+    (tmp_path / "data.csv").write_bytes(_CSV)
+    md = _spec_with_transform("      transform:\n        SID: SID\n")
+    _, before = _verdict(md, tmp_path)
+    assert any("transform function 'SID'" in i.message for i in before)
+    repaired_md, _, after = _evaluate(md, tmp_path)
+    assert after == []
+    assert "transform" not in repaired_md.split("### 9.")[1]
+
+
+def test_a_real_transform_survives(tmp_path: Path) -> None:
+    """``transform: {SID: slug}`` is a legitimate per-placeholder function and
+    must not be touched by the identity rule (its value IS a Tier-0 function)."""
+    (tmp_path / "data.csv").write_bytes(_CSV)
+    md = _spec_with_transform("      transform:\n        SID: slug\n")
+    repaired_md, _, after = _evaluate(md, tmp_path)
+    assert after == []
+    assert "SID: slug" in repaired_md

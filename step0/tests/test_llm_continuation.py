@@ -1058,6 +1058,71 @@ def test_response_schema_degrades_to_json_object_then_off(
 
 
 @pytest.mark.usefixtures("nonstreaming")
+def test_named_unimplemented_keys_are_stripped_before_degrading(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """vLLM/xgrammar names the keywords it cannot compile. Strip exactly those
+    and retry with json_schema — one unsupported refinement (a string cap, a
+    property-row anyOf) must never knock the server back to unguided output."""
+    schema = {
+        "type": "object",
+        "properties": {
+            "x": {"type": "string", "maxLength": 40, "minLength": 1},
+            # a FIELD named like a keyword is data, not a keyword: must survive
+            "maxLength": {"type": "integer"},
+        },
+        "anyOf": [{"required": ["x"]}],
+        "propertyNames": {"pattern": "^[a-z]+$"},
+    }
+    fake = _install_fake_openai(
+        monkeypatch,
+        [
+            _FakeBadRequestError("Grammar error: Unimplemented keys: [maxLength, propertyNames]"),
+            ('{"x": "ok"}', "stop"),
+        ],
+    )
+    client = OpenAICompatibleLLMClient(model="m", api_key="k")
+    client.response_schema = schema
+    out = client.complete("sys", "user")
+    assert out.text == '{"x": "ok"}'
+    kw = fake.chat.completions.kwargs_calls
+    assert kw[0]["response_format"]["json_schema"]["schema"] == schema  # type: ignore[index]
+    relaxed = kw[1]["response_format"]["json_schema"]["schema"]  # type: ignore[index]
+    assert relaxed == {
+        "type": "object",
+        "properties": {
+            "x": {"type": "string", "minLength": 1},
+            "maxLength": {"type": "integer"},
+        },
+        "anyOf": [{"required": ["x"]}],
+    }
+    assert client.response_schema == schema  # the caller's schema is untouched
+    assert any("server lacks maxLength, propertyNames" in n for n in client.last_notes)
+
+
+@pytest.mark.usefixtures("nonstreaming")
+def test_unimplemented_keys_strip_happens_once_then_degrades(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _install_fake_openai(
+        monkeypatch,
+        [
+            _FakeBadRequestError("Grammar error: Unimplemented keys: [maxLength]"),
+            _FakeBadRequestError("Grammar error: Unimplemented keys: [anyOf]"),
+            ('{"x": "ok"}', "stop"),
+        ],
+    )
+    client = OpenAICompatibleLLMClient(model="m", api_key="k")
+    client.response_schema = {"type": "object", "anyOf": [{"required": ["x"]}]}
+    out = client.complete("sys", "user")
+    assert out.text == '{"x": "ok"}'
+    kw = fake.chat.completions.kwargs_calls
+    assert kw[0]["response_format"]["type"] == "json_schema"  # type: ignore[index]
+    assert kw[1]["response_format"]["type"] == "json_schema"  # type: ignore[index]
+    assert kw[2]["response_format"] == {"type": "json_object"}  # bounded: then degrade
+
+
+@pytest.mark.usefixtures("nonstreaming")
 def test_no_response_schema_sends_no_response_format(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

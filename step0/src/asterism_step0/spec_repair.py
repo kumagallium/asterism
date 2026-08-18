@@ -18,6 +18,7 @@ replaces validation.
 from __future__ import annotations
 
 from asterism_step0.materialize import materialize_schema
+from asterism_step0.spec_yaml import load_spec_yaml
 
 __all__ = [
     "SPEC_REPAIR_SYSTEM_PROMPT",
@@ -89,7 +90,7 @@ def parse_spec_json(raw: str) -> str:
         if first_nl != -1 and closing > first_nl:
             text = text[first_nl + 1 : closing].strip()
     try:
-        doc = yaml.safe_load(text)
+        doc = load_spec_yaml(text)
     except yaml.YAMLError as exc:
         raise ValueError(f"the repaired mapping spec is not valid JSON/YAML: {exc}") from exc
     if not isinstance(doc, dict):

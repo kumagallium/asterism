@@ -509,6 +509,7 @@ export async function refineSchema(
   creds: LlmCredentials | null,
   handlers: RefineHandlers,
   language?: string,
+  source?: { datasetId?: string | null; stagingId?: string | null },
 ): Promise<JobHandle> {
   const res = await fetch('/api/refine', {
     method: 'POST',
@@ -516,7 +517,16 @@ export async function refineSchema(
       'Content-Type': 'application/json',
       ...llmHeaders(creds),
     },
-    body: JSON.stringify({ schema_md: schemaMd, comments, language: language || undefined }),
+    body: JSON.stringify({
+      schema_md: schemaMd,
+      comments,
+      language: language || undefined,
+      // Lets the server append the closed-menu oracle (real filenames /
+      // columns / Tier-0 menu) — the manual round then sees the same facts the
+      // automatic loop does instead of guessing column names.
+      dataset_id: source?.datasetId || undefined,
+      staging_id: source?.stagingId || undefined,
+    }),
   })
   if (!res.ok) {
     const detail = await res.text().catch(() => '')
@@ -902,12 +912,17 @@ export async function materializeSchema(
   proposalMd: string,
   datasetName = 'dataset',
   datasetId?: string,
+  stagingId?: string | null,
 ): Promise<MaterializeResult> {
   const body: Record<string, unknown> = {
     proposal_md: proposalMd,
     dataset_name: datasetName,
   }
   if (datasetId) body.dataset_id = datasetId
+  // The staged (not yet attached) source, so the save-time checks — column
+  // existence with did-you-mean, dialect re-pin, numeric typing — run against
+  // real data on a brand-new design instead of being skipped until attach.
+  if (stagingId) body.staging_id = stagingId
   const res = await fetch('/api/materialize', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
