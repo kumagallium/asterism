@@ -346,8 +346,12 @@ export function ToolsPanel({
     // different names read as two different things (K4).
     <div className="ds-tab-body tools-panel">
       <p className="tools-intro">{t('tools:panel.intro')}</p>
+      {/* `count` drives i18next's plural selection, `n` fills the {{n}}
+          placeholder both locales use. */}
       {tools && tools.length > 0 && (
-        <p className="tools-count">{t('tools:panel.count', { n: tools.length })}</p>
+        <p className="tools-count">
+          {t('tools:panel.count', { count: tools.length, n: tools.length })}
+        </p>
       )}
 
       {loadError && (

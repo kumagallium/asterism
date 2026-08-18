@@ -1,6 +1,8 @@
 {
   "panel": {
-    "count": "{{n}}",
+    "count": "{{n}} operations",
+    "count_one": "{{n}} operation",
+    "count_other": "{{n}} operations",
     "intro": "The operations here pull answers straight from this data without AI, each with its source. The same question always returns the same answer, and Ask uses them automatically.",
     "loading": "Loading…",
     "emptyList": "There are no operations for this kind of data yet. You can ask anything in Ask.",
@@ -94,7 +96,6 @@
     "cite": "Cite this sentence",
     "citing": "Building the citation…",
     "citeHead": "Citation",
-    "citeSource": "Source",
     "citeErrHead": "The citation could not be built.",
     "citeClose": "Close",
     "errHead": "It could not run.",

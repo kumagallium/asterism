@@ -57,6 +57,9 @@ function sourceColumns(term: RuleTerm): string | null {
 function noColumnKey(kind: RuleTerm['kind']): string {
   if (kind === 'function') return 'rules:plain.computed'
   if (kind === 'join') return 'rules:plain.linked'
+  // A form the projection could not read out (it also raises a warning server
+  // side). Saying 「決まった値」 here would assert something the rules do not say.
+  if (!kind || kind === 'unknown') return 'rules:plain.unreadable'
   return 'rules:plain.fixed'
 }
 
