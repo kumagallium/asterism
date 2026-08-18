@@ -630,6 +630,15 @@ def trap_issues(mat: Any) -> list[Issue]:
     return out
 
 
+#: Traps whose fix recipe edits the §9 mapping spec ONLY — exactly the block a
+#: surgical repair round regenerates and splices. Everything else fires in
+#: another artifact (T2 §8 ingester, T4/T6/T7/T10 §7 MIE, T5 diagram doc) or
+#: spans several (T3), so it still needs the whole-document path. Keep this set
+#: conservative: a trap listed here wrongly costs a wasted round, not a wrong
+#: design — the round checks re-run either way.
+_SPEC_REPAIRABLE_TRAPS = frozenset({"T1", "T9"})
+
+
 def _verdict(schema_md: str, base: Path) -> tuple[str | None, list[Issue]]:
     """One round's complete deterministic verdict, from ONE materialize call:
     the extracted §9 design plus every issue BOTH gates report — the IR/RML
@@ -756,6 +765,45 @@ def _stamp_numeric_datatypes(schema_md: str, base: Path, issues: list[Issue]) ->
         return None
 
 
+# Plain ``utf-8`` opens in the §8 ingester — the exact thing T2 fails on. The
+# BOM-stripping variant differs by four characters and the intent is identical,
+# so this is a mechanical edit, not a design decision.
+_RE_PLAIN_UTF8 = re.compile(r"""(encoding\s*=\s*)(["'])utf[-_]?8\2""")
+
+
+def _stamp_utf8_sig(schema_md: str, issues: list[Issue]) -> str | None:
+    """Deterministically switch the §8 ingester's ``encoding="utf-8"`` opens to
+    ``utf-8-sig`` when T2 failed. Returns the repaired document, or None.
+
+    Why not the LLM's job: T2's own fix recipe already spells out the whole
+    edit ("replace any plain `utf-8` open with `utf-8-sig`"). Sending a weak
+    model to perform a four-character substitution costs a round and — live —
+    often comes back with the rest of §8 subtly rewritten.
+    """
+    if not any(iss.category == "trap" and iss.subject == "T2" for iss in issues):
+        return None
+    with tempfile.TemporaryDirectory(prefix="asterism-loop-t2-") as tmp:
+        ingester = materialize_schema(schema_md, tmp, "design", write=False).ingester_py
+    if not ingester or "utf-8-sig" in ingester or "utf_8_sig" in ingester:
+        return None
+    repaired, n = _RE_PLAIN_UTF8.subn(r"\1\g<2>utf-8-sig\2", ingester)
+    if not n:
+        # No explicit encoding= to fix: the recipe needs a real edit by the model.
+        return None
+    doc = schema_md if ingester in schema_md else schema_md.replace("\r\n", "\n")
+    if ingester not in doc:
+        return None
+    return doc.replace(ingester, repaired, 1)
+
+
+#: The deterministic repairs, applied in order before any LLM round. Each takes
+#: ``(schema_md, base, issues)`` and returns a repaired document or None.
+_DETERMINISTIC_REPAIRS: tuple[Callable[[str, Path, list[Issue]], str | None], ...] = (
+    lambda md, base, issues: _stamp_numeric_datatypes(md, base, issues),
+    lambda md, base, issues: _stamp_utf8_sig(md, issues),
+)
+
+
 def _evaluate(schema_md: str, base: Path) -> tuple[str, str | None, list[Issue]]:
     """Evaluate, then let the machine fix what it can BEFORE the LLM is asked.
 
@@ -763,20 +811,25 @@ def _evaluate(schema_md: str, base: Path) -> tuple[str, str | None, list[Issue]]
     deterministically-repaired document, and the issues are those of THAT
     document. A repair that does not actually reduce the issue count is
     discarded, so a bad rule can never make a round worse than doing nothing.
+    Repairs compose: each runs against the issues of the document the previous
+    one produced, so a trap cleared here never reaches the routing decision (and
+    therefore never forces the whole-document path — see the loop below).
     """
     ir_yaml, issues = _verdict(schema_md, base)
-    if not issues:
-        return schema_md, ir_yaml, issues
-    repaired_md = _stamp_numeric_datatypes(schema_md, base, issues)
-    if repaired_md is None:
-        return schema_md, ir_yaml, issues
-    try:
-        repaired_ir, repaired_issues = _verdict(repaired_md, base)
-    except _LoopEnvError:
-        return schema_md, ir_yaml, issues
-    if len(repaired_issues) >= len(issues):
-        return schema_md, ir_yaml, issues
-    return repaired_md, repaired_ir, repaired_issues
+    for repair in _DETERMINISTIC_REPAIRS:
+        if not issues:
+            break
+        repaired_md = repair(schema_md, base, issues)
+        if repaired_md is None:
+            continue
+        try:
+            repaired_ir, repaired_issues = _verdict(repaired_md, base)
+        except _LoopEnvError:
+            continue
+        if len(repaired_issues) >= len(issues):
+            continue  # a repair that does not help is discarded, never applied
+        schema_md, ir_yaml, issues = repaired_md, repaired_ir, repaired_issues
+    return schema_md, ir_yaml, issues
 
 
 def _reference_count(ir_yaml: str | None, rml_ttl: str | None) -> int:
@@ -1089,15 +1142,27 @@ def run_design_loop(
         # risk, and unrelated sections are byte-untouched. The legacy raw-RML
         # path keeps the whole-document refine.
         #
-        # Trap issues force the whole-document path: surgical repair regenerates
-        # ONLY the §9 spec, and the traps that actually fire live in the OTHER
-        # artifacts (T4/T7 in the §7 MIE, T5 in the diagram doc). Splicing §9
-        # cannot touch them, so a surgical round would burn a call and change
-        # nothing — the no-progress detector would then stop the loop one round
+        # Which traps force the whole-document path: surgical repair regenerates
+        # ONLY the §9 spec, so a trap that fires in ANOTHER artifact (T4/T7/T10
+        # in the §7 MIE, T5 in the diagram doc, T2 in the §8 ingester) cannot be
+        # cleared by splicing §9 — a surgical round would burn a call and change
+        # nothing, and the no-progress detector would stop the loop one round
         # later with the trap still open.
-        surgical = bool(ir_yaml and ir_yaml.strip()) and not any(
-            i.category == "trap" for i in prev_issues
-        )
+        #
+        # But the converse used to be true too: ONE such trap sent the round down
+        # the whole-document path even when every OTHER issue was a §9 issue —
+        # and whole-document refine is the path weak models fail worst (mid-
+        # document truncation, unrelated sections degraded). Since the machine
+        # now clears what it can before this point (``_evaluate``), the traps
+        # still standing here are only the ones that genuinely need a model; the
+        # routing looks at WHERE they live rather than at their mere existence.
+        # Whole-document refine remains the fallback, never the first resort.
+        blocking_traps = {
+            i.subject
+            for i in prev_issues
+            if i.category == "trap" and i.subject not in _SPEC_REPAIRABLE_TRAPS
+        }
+        surgical = bool(ir_yaml and ir_yaml.strip()) and not blocking_traps
         _emit(on_progress, phase="refine", round=n, issue_count=len(prev_issues),
               categories=_cats(prev_issues),
               message=(
@@ -1225,3 +1290,166 @@ def _extract_design(schema_md: str) -> tuple[str | None, str | None]:
     if mat.mapping_ir_yaml is not None:
         return mat.mapping_ir_yaml, None
     return None, mat.rml_ttl
+
+
+def restamp_numeric_datatypes(schema_md: str, source_dir: Path | str) -> str | None:
+    """Re-assert ``datatype:`` on the §9 rows the DATA proves are numeric.
+
+    The loop applies this every round (:func:`_stamp_numeric_datatypes`), but the
+    human-initiated path does not go through the loop: S6's "AI に反映して作り直す"
+    is refine → materialize, and a weak model rewriting §9 to honour one comment
+    drops ``datatype: xsd:double`` on the way. The re-ingest then stores numbers
+    as strings, and SPARQL compares them lexically — a range question answers
+    WRONGLY instead of failing, which is the one failure mode the citable-facts
+    invariant cannot tolerate (#372).
+
+    Deterministic and idempotent: only columns whose every non-empty cell the
+    machine has just read as a number, only rows with no ``datatype`` and no
+    ``function`` of their own, zero LLM calls. Returns the repaired document, or
+    None when there is nothing to do (or nothing safely repairable).
+    """
+    base = Path(source_dir)
+    try:
+        ir_yaml, rml_ttl = _extract_design(schema_md)
+        issues = collect_issues(ir_yaml, rml_ttl, base)
+    except Exception:  # unreadable source / unparseable design: simply no repair
+        return None
+    return _stamp_numeric_datatypes(schema_md, base, issues)
+
+
+# ---------------------------------------------------------------------------
+# The same backstop, for the "ask the AI to change it" path
+# ---------------------------------------------------------------------------
+
+
+def repair_after_refine(
+    schema_md: str,
+    csv_paths: list[Path | str],
+    source_dir: Path | str,
+    *,
+    llm: Any = None,
+    max_rounds: int = 2,
+    on_llm_call: Callable[[str], None] | None = None,
+    should_cancel: Callable[[], bool] | None = None,
+) -> tuple[str, dict[str, Any]]:
+    """Validate + self-correct a REFINED design, with the round-0 discipline.
+
+    Round 0 of :func:`run_design_loop` re-pins the source dialects, re-asserts
+    the data-derived facts, validates, and lets the machine repair what it can
+    before any model is asked. The human-initiated path — "AI に直してもらう" /
+    "AI に反映して作り直す" — did none of that: whatever the model returned went
+    straight to materialize. That is the most fragile document in the system
+    (a weak model rewriting §9 from memory drops ``datatype: xsd:double`` and
+    the numbers become strings — range questions then answer wrongly rather
+    than fail, the exact invariant #372 was built to hold), so it is the
+    document that most needs the backstop.
+
+    Returns ``(schema_md, autocorrect)`` — the possibly-repaired document plus a
+    summary shaped like the propose response's ``autocorrect`` block, so the UI
+    treats both paths identically. Only ``_surgical_spec_repair`` (the §9-only
+    round) is used here: the user asked for one change, and silently spending
+    whole-document refines on top of it would undo prose they just approved.
+    Never raises for a bad design; a cancel propagates like everywhere else.
+    """
+    paths = [Path(p) for p in csv_paths]
+    base = Path(source_dir)
+    rounds: list[RoundRecord] = []
+
+    def _summary(
+        *, converged: bool, reason: str, initial: int, remaining: list[Issue]
+    ) -> dict[str, Any]:
+        return {
+            "enabled": max_rounds > 0,
+            "converged": converged,
+            "terminal_reason": reason,
+            "initial_issue_count": initial,
+            "final_issue_count": len(remaining),
+            "rounds": [
+                {"n": r.n, "issue_count": r.issue_count, "categories": r.categories}
+                for r in rounds
+            ],
+            "remaining_issues": [i.message for i in remaining],
+        }
+
+    effective = _detect_source_dialects(paths)
+    schema_md = _overlay_detected_dialects(schema_md, effective, frozenset())
+    try:
+        schema_md, ir_yaml, issues = _evaluate(schema_md, base)
+    except _LoopEnvError as exc:
+        rounds.append(RoundRecord(0, 0, {}, env_error=str(exc)))
+        return schema_md, _summary(
+            converged=False, reason="env_error", initial=0, remaining=[]
+        )
+    initial = len(issues)
+    rounds.append(RoundRecord(0, initial, _cats(issues)))
+    if not issues:
+        return schema_md, _summary(
+            converged=True, reason="converged", initial=initial, remaining=[]
+        )
+    if max_rounds <= 0 or not (ir_yaml and ir_yaml.strip()) or llm is None:
+        # Legacy raw-RML designs carry no §9 spec to splice; report honestly
+        # rather than fall back to a whole-document rewrite behind the user.
+        return schema_md, _summary(
+            converged=False, reason="no_autocorrect", initial=initial, remaining=issues
+        )
+
+    oracle = build_oracle(base, paths, dialects=effective)
+    best_schema, best_issues = schema_md, issues
+    seen_keysets: set[frozenset[tuple[str, str]]] = set()
+    prev_issues = issues
+    for n in range(1, max_rounds + 1):
+        if should_cancel is not None and should_cancel():
+            raise LLMCancelledError("cancelled")
+        keyset = frozenset(i.key for i in prev_issues)
+        if keyset in seen_keysets:  # same issues as last round: stop, do not spin
+            return best_schema, _summary(
+                converged=False, reason="no_progress", initial=initial,
+                remaining=best_issues,
+            )
+        seen_keysets.add(keyset)
+        if any(i.subject not in _SPEC_REPAIRABLE_TRAPS
+               for i in prev_issues if i.category == "trap"):
+            # A trap outside §9 cannot be spliced away; the wizard's stop card
+            # (with its own fix recipe) is the honest next step.
+            return best_schema, _summary(
+                converged=False, reason="needs_whole_document", initial=initial,
+                remaining=best_issues,
+            )
+        try:
+            schema_md = _surgical_spec_repair(
+                llm, best_schema, ir_yaml or "", prev_issues, oracle
+            )
+        except LLMCancelledError:
+            raise
+        except Exception as exc:  # provider failure / unspliceable output
+            rounds.append(
+                RoundRecord(n, len(prev_issues), _cats(prev_issues), env_error=str(exc))
+            )
+            return best_schema, _summary(
+                converged=False, reason="env_error", initial=initial,
+                remaining=best_issues,
+            )
+        if on_llm_call is not None:
+            on_llm_call("refine.autocorrect")
+        schema_md = _overlay_detected_dialects(schema_md, effective, frozenset())
+        try:
+            schema_md, ir_yaml, issues = _evaluate(schema_md, base)
+        except _LoopEnvError as exc:
+            rounds.append(
+                RoundRecord(n, len(prev_issues), _cats(prev_issues), env_error=str(exc))
+            )
+            return best_schema, _summary(
+                converged=False, reason="env_error", initial=initial,
+                remaining=best_issues,
+            )
+        rounds.append(RoundRecord(n, len(issues), _cats(issues)))
+        if len(issues) < len(best_issues):
+            best_schema, best_issues = schema_md, issues
+        if not issues:
+            return schema_md, _summary(
+                converged=True, reason="converged", initial=initial, remaining=[]
+            )
+        prev_issues = issues
+    return best_schema, _summary(
+        converged=False, reason="max_rounds", initial=initial, remaining=best_issues
+    )

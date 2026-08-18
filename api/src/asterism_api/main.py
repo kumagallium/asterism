@@ -124,6 +124,12 @@ class RefineRequest(BaseModel):
     # Absent/empty → English (legacy behaviour). Headings / identifiers stay
     # English regardless — materialize extracts artifacts by English headings.
     language: str | None = None
+    # The dataset being refined, when there is one. Its persisted source is what
+    # lets the SAME validation + deterministic self-correction round-0 runs also
+    # run on the refined document (a weak model asked for one wording change can
+    # drop a `datatype:` and turn numbers into strings). Absent → refine behaves
+    # exactly as before: one LLM call, no backstop.
+    dataset_id: str | None = None
 
 
 class MaterializeRequest(BaseModel):
@@ -302,6 +308,49 @@ class ServerKeyBody(BaseModel):
     api_base: str | None = None
 
 
+# camelCase → words, for the last-resort reading of a term IRI.
+_RE_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
+# Full-width parens spelled as escapes: a Japanese column heading uses them,
+# and the literal characters read as typos next to their ASCII twins.
+_RE_TRAILING_PARENS = re.compile(r"[\uff08(][^\uff08()\uff09]*[)\uff09]\s*$")
+
+
+def _label_from_column(column: str | None) -> str | None:
+    """A source column heading, minus the unit its parentheses carried.
+
+    ``Seebeck coeff.(V/K)`` → ``Seebeck coeff.``. The unit is already shown
+    separately, and repeating it inside the name reads as a mistake.
+    """
+    if not column or not column.strip():
+        return None
+    from asterism_step0.units import extract_unit_from_label
+
+    text = column
+    if extract_unit_from_label(column):
+        text = _RE_TRAILING_PARENS.sub("", text)
+    text = text.strip().strip("_-").strip()
+    return text or None
+
+
+def _humanize_term_iri(iri: str) -> str | None:
+    """Last resort: read a term IRI's local name as words, or None.
+
+    ``…#hasSeebeckCoefficient`` → ``Seebeck Coefficient``. Returns None when the
+    reading is identical to the local name (``…#Sample`` → ``Sample``): a label
+    that repeats what the caller already shows is noise, and the endpoints
+    promise not to manufacture one out of nothing. Display only — it never
+    touches stored data, and every earlier source (authored label, model.yaml
+    projection, source column) wins over it.
+    """
+    tail = iri.rsplit("#", 1)[-1].rsplit("/", 1)[-1]
+    if not tail:
+        return None
+    stripped = re.sub(r"^(has|is)(?=[A-Z])", "", tail)
+    spaced = _RE_CAMEL_BOUNDARY.sub(" ", stripped.replace("_", " ").replace("-", " "))
+    words = " ".join(spaced.split())
+    return words if words and words != tail else None
+
+
 def _ir_predicate_display(mapping_ir_yaml: str) -> dict[str, dict[str, str]]:
     """The Mapping IR's reviewer-facing display metadata per expanded predicate IRI.
 
@@ -330,6 +379,15 @@ def _ir_predicate_display(mapping_ir_yaml: str) -> dict[str, dict[str, str]]:
             extra: dict[str, str] = {}
             if prop.label:
                 extra["label"] = prop.label
+            elif prop.column:
+                # Deterministic third choice, below the authored label and the
+                # model.yaml projection: the source column heading the user
+                # actually typed. A weak model that skipped K8's `label:` would
+                # otherwise put `hasSeebeckCoefficient` in a question the user is
+                # asked to read — a word from their own file always beats one.
+                derived_label = _label_from_column(prop.column)
+                if derived_label:
+                    extra["column_label"] = derived_label
             if prop.unit:
                 extra["unit"] = prop.unit
             elif (
@@ -364,25 +422,33 @@ def _model_yaml_labels(model_yaml: str, rml_ttl: str, mie_yaml: str) -> dict[str
     return labels
 
 
-def _merge_ir_display_metadata(mapping_ir_yaml: str, summary: dict) -> None:
+def _merge_ir_display_metadata(
+    mapping_ir_yaml: str, summary: dict
+) -> dict[str, dict[str, str]]:
     """Attach the Mapping IR's reviewer-facing ``label``/``unit`` to rule rows.
 
     Matching is by expanded predicate IRI so the compiled RML stays the single
     structural projection (see :func:`_ir_predicate_display`). Best-effort: an
     unparsable IR adds a warning instead of failing the read-only endpoint.
+    Returns the metadata it merged, so the caller can also use its fallbacks.
     """
+    meta: dict[str, dict[str, str]] = {}
     try:
         meta = _ir_predicate_display(mapping_ir_yaml)
         if not meta:
-            return
+            return meta
         for entry in summary.get("maps") or []:
             if not isinstance(entry, dict):
                 continue
             for row in entry.get("properties") or []:
                 extra = meta.get(str(row.get("predicate_iri") or ""))
                 if extra:
-                    for key, value in extra.items():
-                        row.setdefault(key, value)
+                    # ``column_label`` is a FALLBACK, resolved in
+                    # :func:`_fill_missing_labels` after model.yaml has had its
+                    # turn — it must not enter the row as the label here.
+                    for key in ("label", "unit"):
+                        if key in extra:
+                            row.setdefault(key, extra[key])
     except Exception:
         warnings = summary.setdefault("warnings", [])
         if isinstance(warnings, list):
@@ -390,6 +456,41 @@ def _merge_ir_display_metadata(mapping_ir_yaml: str, summary: dict) -> None:
                 "mapping.yaml (Mapping IR) could not be parsed; "
                 "label/unit enrichment was skipped."
             )
+        return {}
+    return meta
+
+
+def _fill_missing_labels(
+    summary: dict, labels: dict[str, str], ir_meta: dict[str, dict[str, str]]
+) -> None:
+    """Give every rule row a readable name, deterministically.
+
+    The order is fixed and never involves a model: ① the IR's authored ``label``
+    (K8), ② the ``model.yaml`` ``rdfs:label`` projection, ③ the source column
+    heading the row reads, ④ the term IRI's local name read as words. Before
+    this, a design whose weak model skipped ① and ② left the reader looking at
+    ``hasSeebeckCoefficient`` — while the server was holding the very column
+    heading that person typed. Display only; the stored data is untouched.
+    """
+    for entry in summary.get("maps") or []:
+        if not isinstance(entry, dict):
+            continue
+        for row in entry.get("properties") or []:
+            if not isinstance(row, dict) or row.get("label"):
+                continue
+            iri = str(row.get("predicate_iri") or "")
+            if not iri or iri in labels:
+                # ② is already answered: the response carries the model.yaml
+                # projection in its own ``labels`` map, so repeating it on the
+                # row would only give the reader two copies to reconcile.
+                continue
+            # ③ the source column heading the IR bound (the row already shows the
+            # raw reference in its own cell, so only the IR's cleaned form is
+            # used here) ④ the term IRI read as words, and only when that
+            # actually reads better than the local name.
+            fallback = (ir_meta.get(iri) or {}).get("column_label") or _humanize_term_iri(iri)
+            if fallback:
+                row["label"] = fallback
 
 
 def _validate_llm_api_base(api_base: str) -> None:
@@ -526,6 +627,26 @@ _SPARQL_UPDATE = re.compile(
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _coded_error(status: int, code: str, message: str) -> HTTPException:
+    """An HTTP error a client can act on WITHOUT reading English prose.
+
+    The detail is ``{"code", "message"}``: the stable ``code`` is what logic keys
+    off (the UI maps it to one plain sentence in one place — the same contract
+    ``jobs._ERROR_CODES`` gives job failures), while ``message`` stays a short
+    English technical summary for the folded technical view. The provider's /
+    library's raw exception text never reaches the screen: it goes to the log,
+    where it is useful, instead of into a stop card, where it is not.
+    """
+    return HTTPException(status, detail={"code": code, "message": message})
+
+
+def _error_text(detail: object) -> str:
+    """The human-readable half of a detail that may be coded or a bare string."""
+    if isinstance(detail, dict):
+        return str(detail.get("message") or detail.get("error") or detail)
+    return str(detail)
 
 
 # ----------------------------------------------------------------------------
@@ -1213,16 +1334,25 @@ def _expand_xlsx_bytes(name: str, data: bytes) -> list[tuple[str, bytes]]:
     deterministic). Everything downstream — inspect, the design loop,
     ``rml:source`` — only ever sees the derived ``.csv`` names; ``.xlsx`` is NOT
     in the rml_safety source allow-list. An unreadable workbook (corrupt zip,
-    every sheet empty) is a readable 422, not a traceback.
+    every sheet empty) is a coded 422, not a traceback: openpyxl's own wording
+    ("File is not a zip file", "Max value is 14") means nothing to the person
+    who just dropped a spreadsheet, so it is logged and the client renders one
+    plain sentence off the code.
     """
     from asterism.tabularize import xlsx_to_csvs
 
     try:
         return xlsx_to_csvs(data, stem=Path(name).stem)
     except ValueError as exc:
-        raise HTTPException(422, f"Excel ブックを CSV に変換できませんでした: {exc}") from exc
+        logger.warning("xlsx → csv conversion failed for %r: %s", name, exc)
+        raise _coded_error(
+            422, "xlsx.convert_failed", "the Excel workbook could not be converted to CSV"
+        ) from exc
     except Exception as exc:
-        raise HTTPException(422, f"Excel ブックを読み取れませんでした: {exc}") from exc
+        logger.warning("xlsx could not be read: %r: %s", name, exc, exc_info=True)
+        raise _coded_error(
+            422, "xlsx.unreadable", "the Excel workbook could not be read"
+        ) from exc
 
 
 async def _persist_converted_xlsx(
@@ -1723,7 +1853,7 @@ async def _append_batch_to_dataset(
         try:
             cname = _sanitize_tabular_name(name)
         except HTTPException as exc:
-            raise AppendError(400, str(exc.detail)) from exc
+            raise AppendError(400, _error_text(exc.detail)) from exc
         if cname.lower().endswith(".xlsx"):
             # K6: an .xlsx batch appends as its derived CSV — but only a
             # SINGLE-sheet workbook, whose derived name (<stem>.csv) matches the
@@ -1732,12 +1862,12 @@ async def _append_batch_to_dataset(
             try:
                 derived = await asyncio.to_thread(_expand_xlsx_bytes, cname, content)
             except HTTPException as exc:
-                raise AppendError(422, str(exc.detail)) from exc
+                raise AppendError(422, _error_text(exc.detail)) from exc
             if len(derived) > 1:
                 raise AppendError(
                     400,
-                    "Excel ブックに複数のシートがあります。追記はシートを 1 つにするか、"
-                    "CSV に変換してから追記してください",
+                    "この Excel ファイルには複数のシートがあります。追記するファイルは"
+                    "シートを 1 つにするか、CSV に変換してから追加してください",
                 )
             cname, content = derived[0]
         if sources and cname not in sources:
@@ -2104,6 +2234,21 @@ async def _append_watch_loop(
     )
 
 
+def _design_source_files(registry_root: Path, dataset_id: str | None) -> list[Path]:
+    """The dataset's persisted design-time sources, or [] (never raises).
+
+    Anything that wants to re-check a design against the DATA needs these; a
+    missing / unreadable source must degrade to "cannot check", never to a 500.
+    """
+    if not dataset_id:
+        return []
+    try:
+        return registry.list_source_files(registry_root, dataset_id)
+    except Exception:
+        logger.exception("listing design sources for %s failed (continuing)", dataset_id)
+        return []
+
+
 def _design_checks_at_materialize(
     registry_root: Path, dataset_id: str | None, rml_ttl: str | None
 ) -> tuple[list[str], list[str]]:
@@ -2406,13 +2551,22 @@ def build_app(
         """
         token = cfg.api_token
         if not token:
+            # The detail reaches a human verbatim (the catalog shows the raw
+            # server message), so it says what the person can do about it. The
+            # operational reason — env var name, fail-closed posture — is a log
+            # line for whoever runs the box, not a sentence for the scientist
+            # who just pressed 公開する.
+            logger.warning(
+                "write route refused: ASTERISM_API_TOKEN is unset "
+                "(fail-closed against anonymous writes / raw SPARQL)"
+            )
             raise HTTPException(
                 503,
-                "この操作は ASTERISM_API_TOKEN を設定するまで無効です "
-                "(機微ストアへの匿名の書き込み・生 SPARQL を防ぐ fail-closed)",
+                "利用許可コード (管理者が設定する API token) が未設定のため、"
+                "この操作はできません",
             )
         if not _write_credential_ok(cfg, authorization, x_asterism_token):
-            raise HTTPException(401, "API トークンがありません/一致しません")
+            raise HTTPException(401, "利用許可コードが違います")
 
     # The set of routes that mutate the store/registry or expose raw SPARQL.
     _write_auth = [Depends(require_write_auth)]
@@ -2426,26 +2580,63 @@ def build_app(
             status_code=200 if ok else 503,
         )
 
+    def _graph_display(graphs: list[str], lang: str) -> dict[str, dict[str, str]]:
+        """Resolve source graph IRIs to something a reader recognises.
+
+        ``…/graph/canonical/<dataset_id>[/v<n>]`` → the dataset's own name (so
+        the 出どころ column never shows ``dataset-9422ba7c``), and
+        ``…/graph/ontology/<id>`` → 「共通の言葉」. Unresolvable graphs are simply
+        omitted; the renderer then drops the column rather than showing an
+        internal id. Resolution lives here so ``describe.py`` stays free of any
+        registry dependency.
+        """
+        names = {
+            str(m.get("id")): str(m.get("name") or "")
+            for m in registry.list_datasets(cfg.registry_root)
+        }
+        info: dict[str, dict[str, str]] = {}
+        for graph in graphs:
+            base = re.sub(r"/v\d+$", "", graph)
+            if base.startswith(substrate.CANONICAL_GRAPH_BASE):
+                dataset_id = base[len(substrate.CANONICAL_GRAPH_BASE) :]
+                name = names.get(dataset_id)
+                if name:
+                    info[graph] = {"name": name, "dataset_id": dataset_id}
+            elif base.startswith(substrate.ONTOLOGY_GRAPH_BASE):
+                info[graph] = {"name": describe_mod.shared_terms_label(lang)}
+        return info
+
     @app.get("/describe")
     async def describe_iri(
         iri: str,
         format: str | None = None,
+        lang: str | None = None,
         accept: str | None = Header(default=None),
+        accept_language: str | None = Header(default=None),
     ) -> Response:
         """Dereference one IRI against the PUBLISHED (canonical + ontology)
         scope — ADR instance-iri-base.md phase 2. Content-negotiated: Turtle
         for machines (Accept: text/turtle / ?format=ttl), HTML for browsers.
         Tokenless by design: a bounded read of already-published data (same
         exposure class as the typed tools, narrower than the raw-SPARQL
-        escape) — see the module docstring of :mod:`asterism_api.describe`."""
+        escape) — see the module docstring of :mod:`asterism_api.describe`.
+
+        For a browser every failure answers in HTML too: this is where someone
+        who was handed a citation lands, and a raw JSON ``detail`` is a dead end
+        for them (ADR kantan-mode-two-tier-ux.md K11)."""
         iri = iri.strip()
-        if not describe_mod.valid_iri(iri):
-            raise HTTPException(400, "iri must be an absolute http(s) IRI")
+        page_lang = describe_mod.pick_language(lang, accept_language)
         wants_turtle = format in ("ttl", "turtle", "nt") or (
             format is None
             and accept is not None
             and ("text/turtle" in accept or "application/n-triples" in accept)
         )
+        if not describe_mod.valid_iri(iri):
+            if wants_turtle:
+                raise HTTPException(400, "iri must be an absolute http(s) IRI")
+            return HTMLResponse(
+                describe_mod.render_bad_request(iri, lang=page_lang), status_code=400
+            )
         client: OxigraphClient = app.state.client
         try:
             if wants_turtle:
@@ -2467,13 +2658,26 @@ def build_app(
         except Exception as exc:
             # Same posture as /api/sparql: never echo upstream details.
             logger.exception("describe error")
-            raise HTTPException(502, "upstream SPARQL error") from exc
+            if wants_turtle:
+                raise HTTPException(502, "upstream SPARQL error") from exc
+            return HTMLResponse(
+                describe_mod.render_upstream_error(lang=page_lang), status_code=502
+            )
         if data is None:
             graphs = await substrate.canonical_graphs(client)
             return HTMLResponse(
-                describe_mod.render_not_found(iri, len(graphs)), status_code=404
+                describe_mod.render_not_found(iri, len(graphs), lang=page_lang),
+                status_code=404,
             )
-        return HTMLResponse(describe_mod.render_html(iri, data))
+        return HTMLResponse(
+            describe_mod.render_html(
+                iri,
+                data,
+                lang=page_lang,
+                graph_info=_graph_display(list(data["graphs"]), page_lang),
+                iri_base=cfg.iri_base,
+            )
+        )
 
     @app.get("/api/instance")
     async def instance_info(
@@ -3207,6 +3411,12 @@ def build_app(
         Applies review comments to the current schema Markdown via the LLM and
         streams lifecycle events from ``/api/jobs/{job_id}/stream``. Like
         propose, the API key is used only for this run and never persisted (D7).
+
+        With ``dataset_id`` set (and a source attached to it) the refined
+        document then goes through the SAME bounded self-correction round 0
+        uses — validate, deterministic repair, at most two §9-only rounds — and
+        the response carries an ``autocorrect`` block of the same shape. Without
+        it the behaviour is byte-identical to before: one LLM call, no backstop.
         """
         comments = [c for c in (body.comments or []) if c.strip()]
         if not body.schema_md.strip():
@@ -3227,16 +3437,35 @@ def build_app(
             _arm_llm_callbacks(llm, should_cancel=should_cancel)
             result = refine_schema(body.schema_md, comments, llm=llm, language=body.language)
             _record_llm_usage(cfg.registry_root, "refine", provider, llm, model)
+            effective_md = result.effective_schema_md
+            autocorrect: dict[str, object] | None = None
+            # Only a COMPLETE refine is worth repairing: a truncated one already
+            # fell back to the previous schema, which round 0 had validated.
+            if body.dataset_id and result.complete:
+                sources = _design_source_files(cfg.registry_root, body.dataset_id)
+                if sources:
+                    effective_md, autocorrect = design_loop.repair_after_refine(
+                        effective_md,
+                        list(sources),
+                        sources[0].parent,
+                        llm=llm,
+                        on_llm_call=lambda feature: _record_llm_usage(
+                            cfg.registry_root, feature, provider, llm, model
+                        ),
+                        should_cancel=should_cancel,
+                    )
             # Surface the truncation guard: `refined_md` stays the raw output for
             # transparency; `effective_schema_md` is what's safe to materialize
-            # next (the previous complete schema when the refine was truncated).
+            # next (the previous complete schema when the refine was truncated,
+            # or the self-corrected document when the backstop ran).
             return {
                 "refined_md": result.refined_md,
-                "effective_schema_md": result.effective_schema_md,
+                "effective_schema_md": effective_md,
                 "complete": result.complete,
                 "missing_artifacts": result.missing_artifacts,
                 "warnings": result.warnings,
                 "metadata": result.metadata,
+                "autocorrect": autocorrect,
             }
 
         jobs: JobManager = app.state.jobs
@@ -3303,8 +3532,25 @@ def build_app(
                     if body.dataset_id
                     else None
                 )
+                # Same posture, one level up: re-assert the DATATYPES the data
+                # proves. Every design that reaches here has been through at
+                # least one LLM hand — S6's one-line refine included — and a
+                # dropped `datatype: xsd:double` turns numbers into strings,
+                # which SPARQL then compares lexically. That failure is silent
+                # (range questions answer, just wrongly), so it is re-asserted
+                # here rather than merely reported. Deterministic, idempotent,
+                # zero LLM calls; needs the persisted source, so it is a no-op
+                # for a brand-new design (which the loop already covered).
+                proposal_md = body.proposal_md
+                sources = _design_source_files(cfg.registry_root, body.dataset_id)
+                if sources:
+                    restamped = design_loop.restamp_numeric_datatypes(
+                        proposal_md, sources[0].parent
+                    )
+                    if restamped:
+                        proposal_md = restamped
                 mat = materialize_schema(
-                    body.proposal_md,
+                    proposal_md,
                     tmpdir,
                     body.dataset_name,
                     write=True,
@@ -3405,6 +3651,12 @@ def build_app(
                     # on a brand-new design.
                     "advisories": design_advisories,
                 }
+                if proposal_md != body.proposal_md:
+                    # The deterministic datatype re-assertion edited the design.
+                    # Hand it back so the client's in-memory copy matches what
+                    # was saved — otherwise the next refine would start from the
+                    # stale document and re-introduce the same drop.
+                    result["proposal_md"] = proposal_md
                 # Persist so the bundle appears in the Gallery (authoring→catalog).
                 if body.persist:
                     if body.dataset_id:
@@ -3419,7 +3671,7 @@ def build_app(
                             warnings=mat.warnings,
                             traps=traps,
                             exit_code=exit_code,
-                            proposal_md=body.proposal_md,
+                            proposal_md=proposal_md,
                             advisories=design_advisories,
                         )
                         if meta is None:
@@ -3434,7 +3686,7 @@ def build_app(
                             traps=traps,
                             exit_code=exit_code,
                             created_at=datetime.now(UTC).isoformat(),
-                            proposal_md=body.proposal_md,
+                            proposal_md=proposal_md,
                             advisories=design_advisories,
                         )
                     result["dataset"] = meta
@@ -3597,8 +3849,12 @@ def build_app(
         def run() -> dict[str, object]:
             summary = summarize_rml(rml_ttl)
             labels = _model_yaml_labels(model_yaml, rml_ttl, mie_yaml)
+            ir_meta: dict[str, dict[str, str]] = {}
             if mapping_ir_yaml.strip():
-                _merge_ir_display_metadata(mapping_ir_yaml, summary)
+                ir_meta = _merge_ir_display_metadata(mapping_ir_yaml, summary)
+            # Deterministic last resorts (source column, then the term IRI read
+            # as words) so a design that skipped K8's labels still reads.
+            _fill_missing_labels(summary, labels, ir_meta)
             return {"dataset_id": dataset_id, **summary, "labels": labels}
 
         return await asyncio.to_thread(run)
@@ -3628,9 +3884,18 @@ def build_app(
         artifacts = data.get("artifacts") or {}
 
         classes: list[dict[str, object]] = []
-        if meta.get("ingested"):
-            staged_iri = meta.get("graph_iri") or substrate.canonical_graph_iri(
-                dataset_id
+        # Before promote the data sits in the staged draft (``graph_iri``);
+        # promote clears ``ingested``/``graph_iri`` and records the SAME version
+        # graph as ``live_graph`` (an O(1) pointer flip — nothing moves). Reading
+        # only ``ingested`` therefore made the correspondence card vanish exactly
+        # when it matters most: 見直す on an already-published dataset, where the
+        # question is "does the published version still say what I meant?".
+        # /trial-queries already resolves it this way; this is the same rule.
+        if meta.get("ingested") or meta.get("promoted"):
+            staged_iri = (
+                meta.get("graph_iri")  # the staged draft (pre-promote)
+                or meta.get("live_graph")  # the live version graph (post-promote)
+                or substrate.canonical_graph_iri(dataset_id)  # pre-part5 records
             )
             q = (
                 f"SELECT ?class (COUNT(DISTINCT ?s) AS ?n) WHERE {{ "
@@ -3737,7 +4002,18 @@ def build_app(
         labels, ir_meta = await asyncio.to_thread(display_meta)
 
         def label_of(iri: str) -> str | None:
-            return (ir_meta.get(iri) or {}).get("label") or labels.get(iri) or None
+            # ① authored label (K8) ② model.yaml projection ③ the source column
+            # heading ④ the term IRI read as words. The last two are new: the
+            # trial questions on S7 are read aloud by the person who made the
+            # file, and "hasSeebeckCoefficient の範囲は" is not their language
+            # when the server is holding the column heading they typed.
+            return (
+                (ir_meta.get(iri) or {}).get("label")
+                or labels.get(iri)
+                or (ir_meta.get(iri) or {}).get("column_label")
+                or _humanize_term_iri(iri)
+                or None
+            )
 
         def unit_of(iri: str) -> str | None:
             return (ir_meta.get(iri) or {}).get("unit") or None
@@ -4241,8 +4517,19 @@ def build_app(
         time — its RAW uploads replay through the very same converter as a fresh
         upload (an ``.xlsx`` keeps its original alongside, exactly as before),
         and the staging record is consumed.
+
+        The response also carries ``validation_issues`` / ``advisories``
+        RECOMPUTED against the source that was just attached. The kantan flow
+        runs materialize → attach → ingest, so the first materialize mints the
+        dataset and therefore has no source: "column X of your file is not used
+        by this design" — the one thing that tells a user a weak model dropped
+        17 of their 20 columns — could not be computed even once, and the value
+        stored on the dataset at that moment was the source-less (empty) one.
+        Answering it here means the caller learns it at the first moment it is
+        knowable, with no extra round-trip and no LLM call.
         """
-        if registry.load_dataset(cfg.registry_root, dataset_id) is None:
+        existing = registry.load_dataset(cfg.registry_root, dataset_id)
+        if existing is None:
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
         if staging_id:
             try:
@@ -4264,8 +4551,22 @@ def build_app(
             if not files:
                 raise HTTPException(400, "no source files uploaded")
             saved, meta = await _persist_source_uploads(cfg.registry_root, dataset_id, files)
+        rml_ttl = (existing.get("artifacts") or {}).get("mapping.rml.ttl")
+        try:
+            issues, advisories = await asyncio.to_thread(
+                _design_checks_at_materialize, cfg.registry_root, dataset_id, rml_ttl
+            )
+        except Exception:  # advice must never fail an otherwise-successful attach
+            logger.exception("design checks after source attach failed (continuing)")
+            issues, advisories = [], []
         return JSONResponse(
-            {"dataset_id": dataset_id, "source_files": saved, "dataset": meta}
+            {
+                "dataset_id": dataset_id,
+                "source_files": saved,
+                "dataset": meta,
+                "validation_issues": issues,
+                "advisories": advisories,
+            }
         )
 
     @app.post("/api/documents", dependencies=_write_auth)
@@ -4428,8 +4729,8 @@ def build_app(
         if not source_paths:
             raise HTTPException(
                 400,
-                "投入には CSV / JSON / XML のソースファイルが必要です。"
-                "設計時に添付するか、ここでアップロードしてください",
+                "取り込むには元のファイル (CSV / JSON / XML) が必要です。"
+                "設計時に置いたファイルをもう一度追加してください",
             )
         source_dir = source_paths[0].parent
 
@@ -4830,7 +5131,7 @@ def build_app(
         if data is None:
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
         if not data["meta"].get("ingested"):
-            raise HTTPException(400, "dataset has no staged graph (not ingested)")
+            raise HTTPException(400, "まだ公開前の下書きに取り込まれていません。")
         client: OxigraphClient = app.state.client
         # part5: align the *staged version graph* (recorded at ingest) against the
         # citable corpus — it is not promoted yet, so it is not part of that scope.
@@ -4854,7 +5155,15 @@ def build_app(
         if data is None:
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
         if not data["meta"].get("ingested"):
-            raise HTTPException(400, "dataset has no staged graph to promote (not ingested)")
+            # kantan S8 can reach this (publish pressed before the draft ingest
+            # finished). The plain sentence and the "「確かめる」に戻る" button live
+            # in the UI's error dictionary keyed by this code; the English
+            # message stays for the folded technical view.
+            raise _coded_error(
+                400,
+                "dataset.not_ingested",
+                "dataset has no staged graph to promote (not ingested)",
+            )
         client: OxigraphClient = app.state.client
         dataset_key = substrate.canonical_graph_iri(dataset_id)
         # The staged version graph (recorded at ingest) holds the new data. Aligning
@@ -4933,7 +5242,12 @@ def build_app(
         if data is None:
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
         if not data["meta"].get("promoted"):
-            raise HTTPException(400, "dataset is not promoted (nothing canonical to retract)")
+            # S8 promises "間違いに気づいたら、いつでも引用対象から外せます" — the
+            # sentence that promise fails with is read by the same person, so it
+            # says what happened in their words, not the store's.
+            raise HTTPException(
+                400, "このデータはまだ公開されていないため、引用対象から外す操作はできません。"
+            )
         canonical_iri = substrate.canonical_graph_iri(dataset_id)
         client: OxigraphClient = app.state.client
         now = datetime.now(UTC).isoformat()

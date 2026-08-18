@@ -421,3 +421,93 @@ def test_trial_queries_degrades_when_store_is_down(tmp_path: Path) -> None:
         body = r.json()
         assert body["available"] is False  # the UI shows a plain retry note
         assert body["classes"] == []
+
+
+# A design from a weak model: K8's `label:` was never written, and there is no
+# model.yaml projection either — the exact case that used to put a camelCase
+# identifier into the question the user is asked to read.
+_UNLABELLED_IR = """\
+version: 1
+prefixes:
+  ex: "https://example.org/onto#"
+  exr: "https://example.org/resource/"
+maps:
+  - name: SampleMap
+    source: samples.csv
+    subject:
+      template: "exr:sample/{sid}"
+      classes: [ex:Sample]
+    properties:
+      - predicate: ex:hasSeebeckCoefficient
+        column: "Seebeck coeff.(V/K)"
+"""
+
+
+def test_trial_queries_name_falls_back_to_the_column_then_to_words(tmp_path: Path) -> None:
+    meta = registry.save_dataset(
+        tmp_path / "registry",
+        "Samples",
+        dict(_ARTIFACTS, **{"mapping.yaml": _UNLABELLED_IR}),
+        complete=True,
+        warnings=[],
+        traps=[],
+        exit_code=0,
+        created_at="2026-07-22T00:00:00+00:00",
+        proposal_md="# design v1\n",
+    )
+    _ingest(tmp_path, meta["id"])
+    seebeck = f"{_EX}hasSeebeckCoefficient"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path != "/query":
+            return httpx.Response(204)
+        q = request.content.decode("utf-8")
+        if "?s a ?class" in q:
+            return _sparql_json(
+                [
+                    {
+                        "class": {"type": "uri", "value": f"{_EX}Sample"},
+                        "n": {"type": "literal", "value": "3"},
+                    }
+                ]
+            )
+        if "GROUP BY ?p" in q:
+            return _sparql_json(
+                [
+                    {
+                        "p": {"type": "uri", "value": seebeck},
+                        "n": {"type": "literal", "value": "9"},
+                        "min": {"type": "literal", "value": "1"},
+                        "max": {"type": "literal", "value": "7"},
+                    },
+                    {
+                        # No column in the IR at all → the IRI read as words.
+                        "p": {"type": "uri", "value": f"{_EX}hasPowerFactor"},
+                        "n": {"type": "literal", "value": "8"},
+                        "min": {"type": "literal", "value": "2"},
+                        "max": {"type": "literal", "value": "6"},
+                    },
+                ]
+            )
+        if "ORDER BY DESC(?num)" in q:
+            return _sparql_json(
+                [
+                    {
+                        "s": {"type": "uri", "value": _TOP_SUBJECT},
+                        "v": {"type": "literal", "value": "6"},
+                    }
+                ]
+            )
+        return _sparql_json([])
+
+    app = build_app(_settings(tmp_path), oxigraph_client=_oxigraph(handler), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        body = client.get(f"/api/datasets/{meta['id']}/trial-queries").json()
+    # The column heading the user typed, with the unit parenthesis dropped (the
+    # unit is shown on its own).
+    assert body["range"]["label"] == "Seebeck coeff."
+    assert body["range"]["unit"] == "V/K"
+    # No column to borrow: the IRI is at least read as words, never raw.
+    assert body["top"]["label"] == "Power Factor"
+    # A class name that is already a plain word gets no manufactured label.
+    assert "label" not in body["classes"][0]

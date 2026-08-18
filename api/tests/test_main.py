@@ -1267,7 +1267,15 @@ def test_write_routes_fail_closed_without_token(
     app = build_app(s, oxigraph_client=healthy_client, start_watcher=False)
     with TestClient(app) as client:  # deliberately no auth header
         # A mutating route is fail-closed, not anonymously open.
-        assert client.delete("/api/datasets/whatever-00000000").status_code == 503
+        r = client.delete("/api/datasets/whatever-00000000")
+        assert r.status_code == 503
+        # The catalog shows this detail verbatim, so it speaks to the person who
+        # pressed the button — the env var name and the fail-closed rationale
+        # are a log line for the operator, not a sentence for a scientist.
+        detail = r.json()["detail"]
+        assert "利用許可コード" in detail
+        for jargon in ("ASTERISM_API_TOKEN", "機微ストア", "fail-closed", "SPARQL"):
+            assert jargon not in detail
         assert (
             client.post("/api/sparql", json={"query": "ASK {}"}).status_code == 503
         )
@@ -1285,7 +1293,9 @@ def test_write_routes_require_valid_token_when_configured(
     )
     with TestClient(app) as client:  # _settings configures _TEST_TOKEN
         # Absent / wrong token -> 401 (not 503: the route IS configured).
-        assert client.delete("/api/datasets/whatever-00000000").status_code == 401
+        r = client.delete("/api/datasets/whatever-00000000")
+        assert r.status_code == 401
+        assert r.json()["detail"] == "利用許可コードが違います"
         assert (
             client.delete(
                 "/api/datasets/whatever-00000000",

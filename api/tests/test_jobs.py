@@ -140,11 +140,64 @@ def test_job_timeout_errors_out_and_sets_cancel_event() -> None:
         assert job.error is not None
         assert "timed out" in job.error
         assert "ASTERISM_JOB_TIMEOUT_SECONDS" in job.error
+        # The timeout is job-kind agnostic, so it carries no LLM-specific
+        # advice: an ingest that times out must not be told about max-tokens.
+        assert "max-tokens" not in job.error
+        err = [e for e in job.events if e["event"] == "error"]
+        assert err and err[0]["code"] == "job.timeout"
         # The cooperative flag tells the (unkillable) worker to stop.
         assert job.cancel_event.is_set()
         release.set()  # unblock the leaked worker thread
 
     asyncio.run(main())
+
+
+# ----------------------------------------------------------------------------
+# machine-readable error codes
+# ----------------------------------------------------------------------------
+
+
+def test_error_event_carries_a_machine_readable_code() -> None:
+    """The UI must be able to branch on the error family without matching
+    English prose (which differs per provider SDK and per locale)."""
+    from asterism_step0.llm import LLMEmptyOutputError
+
+    async def main() -> None:
+        jm = JobManager()
+
+        def work(should_cancel):
+            raise LLMEmptyOutputError("model returned reasoning only")
+
+        job_id = jm.start(work)
+        job = jm.get(job_id)
+        assert job is not None and job.task is not None
+        await asyncio.wait_for(job.task, timeout=5)
+        err = [e for e in job.events if e["event"] == "error"]
+        assert err == [
+            {
+                "event": "error",
+                "message": "model returned reasoning only",
+                "code": "llm.reasoning_only",
+            }
+        ]
+
+    asyncio.run(main())
+
+
+def test_unknown_exception_still_gets_a_stable_code() -> None:
+    from asterism_api.jobs import UNKNOWN_ERROR_CODE, error_code
+
+    class WeirdError(RuntimeError):
+        pass
+
+    assert error_code(WeirdError("x")) == UNKNOWN_ERROR_CODE
+    # A subclass inherits its parent's family (matched along the MRO).
+    from asterism.rml_safety import RmlSafetyError
+
+    class Narrower(RmlSafetyError):
+        pass
+
+    assert error_code(Narrower("x")) == "ingest.unsafe_rml"
 
 
 def test_timeout_disabled_when_none() -> None:

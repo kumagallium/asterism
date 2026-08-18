@@ -734,8 +734,16 @@ async def _llm_answer_via(
                 used_sparql.append(inp.get("query", ""))
             return {"error": str(exc)}
 
-    def finalize(data: dict) -> dict:
+    def finalize(data: dict, *, answered: bool = True) -> dict:
         # Queries are disclosed via the dedicated ``sparql`` field (UI panel).
+        #
+        # ``answered`` separates "here is the answer" from "this turn produced
+        # no answer" (the model ran out of attempts, or replied without using a
+        # single tool). Both used to come back as an ordinary answer card, so a
+        # person who waited a minute got a flat sentence with no reason and no
+        # next step — and no [もう一度] button, because that only appears when
+        # the turn has no result at all. A flag lets the UI say "答えられません
+        # でした" and offer the way forward.
         return {
             "answer": data.get("answer", ""),
             "citations": data.get("citations") or [],
@@ -744,10 +752,16 @@ async def _llm_answer_via(
             "verified_tools": verified_used,
             "unverified_sparql": state["unverified"],
             "warnings": data_warnings,
+            "answered": answered,
         }
 
+    # What the reader sees when the turn produced nothing. Says what happened
+    # from THEIR side and what to try — never "試行回数の上限" (our bookkeeping).
+    no_answer = "うまく答えられませんでした。聞き方を変えると答えられることがあります。"
+
     def finalize_text(text: str) -> dict:
-        return finalize({"answer": text or "回答を生成できませんでした。"})
+        clean = (text or "").strip()
+        return finalize({"answer": clean or no_answer}, answered=bool(clean))
 
     # Chat: the earlier turns of this thread go in front of the question (same
     # {role, content} shape for both providers). Tool calls/results of EARLIER
@@ -832,7 +846,9 @@ async def _anthropic_agent_loop(
             )
         messages.append({"role": "user", "content": tool_results})
 
-    return finalize_text("回答を生成できませんでした（試行回数の上限に達しました）。")
+    # Attempts exhausted: no answer was produced, and saying so is the honest
+    # (and actionable) result — see ``finalize``.
+    return finalize_text("")
 
 
 async def _openai_agent_loop(
@@ -903,7 +919,9 @@ async def _openai_agent_loop(
                 }
             )
 
-    return finalize_text("回答を生成できませんでした（試行回数の上限に達しました）。")
+    # Attempts exhausted: no answer was produced, and saying so is the honest
+    # (and actionable) result — see ``finalize``.
+    return finalize_text("")
 
 
 # ---------------------------------------------------------------------------

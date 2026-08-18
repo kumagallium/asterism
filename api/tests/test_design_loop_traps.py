@@ -203,3 +203,60 @@ def test_unfixable_trap_stops_bounded_instead_of_looping(tmp_path: Path) -> None
     assert result.terminal_reason == "no_progress"
     assert any("T4" in m for m in result.remaining_issues)
     assert features == ["propose", "propose.autocorrect"]  # did NOT spin to max
+
+
+def _ingester(encoding: str) -> str:
+    return (
+        "\n### 8. Ingester\n\n```python\n"
+        "import csv\n\n\n"
+        "def read(path):\n"
+        f'    with open(path, encoding="{encoding}", newline="") as fh:\n'
+        "        return list(csv.DictReader(fh))\n"
+        "```\n"
+    )
+
+
+_CLEAN_MIE = _mie("xrd, diffraction, aluminum, vanadium, tetragonal", "materials")
+
+
+def test_t2_is_repaired_deterministically_without_an_llm_round(tmp_path: Path) -> None:
+    """T2's own fix recipe is a four-character substitution the machine can make
+    itself. Spending a round (and, for a weak model, risking the rest of §8
+    being rewritten) on it is the failure this closes."""
+    llm = _ScriptedLLM([_RML + _CLEAN_MIE + _ingester("utf-8")])
+    result, features = _run(tmp_path, llm)
+    assert result.converged is True
+    assert features == ["propose"]  # no autocorrect round was spent
+    assert 'encoding="utf-8-sig"' in result.proposal_md
+    assert 'encoding="utf-8"' not in result.proposal_md
+
+
+def test_t2_without_an_explicit_encoding_still_reaches_the_model(tmp_path: Path) -> None:
+    """The deterministic repair only performs the edit it can prove; an ingester
+    with no ``encoding=`` at all is a real edit, so it must not be silently
+    swallowed as 'repaired'."""
+    ingester = (
+        "\n### 8. Ingester\n\n```python\n"
+        "import csv\n\n\n"
+        "def read(path):\n"
+        "    with open(path) as fh:\n"
+        "        return list(csv.DictReader(fh))\n"
+        "```\n"
+    )
+    fixed = _RML + _CLEAN_MIE + _ingester("utf-8-sig")
+    llm = _ScriptedLLM([_RML + _CLEAN_MIE + ingester, fixed])
+    result, features = _run(tmp_path, llm)
+    assert features == ["propose", "propose.autocorrect"]
+    assert result.converged is True
+
+
+def test_spec_repairable_trap_keeps_the_surgical_path(tmp_path: Path) -> None:
+    """A trap that lives in §9 must NOT knock the round onto the whole-document
+    path — that path is the one weak models fail worst. Only traps in other
+    artifacts (T4 in the §7 MIE, T2 in §8) do."""
+    from asterism_api.design_loop import _SPEC_REPAIRABLE_TRAPS
+
+    assert "T1" in _SPEC_REPAIRABLE_TRAPS  # §9 subject.template
+    assert "T9" in _SPEC_REPAIRABLE_TRAPS  # §9 function: closed set
+    for elsewhere in ("T2", "T4", "T5", "T6", "T7", "T10"):
+        assert elsewhere not in _SPEC_REPAIRABLE_TRAPS
