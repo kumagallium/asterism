@@ -186,3 +186,64 @@ def test_draft_stats_degrades_when_store_is_down(tmp_path: Path) -> None:
         body = r.json()
         assert body["classes"] == []  # 200 + empty, so the UI just hides the card
         assert body["source_rows"] == {"samples.csv": 2, "extra.tsv": 1}
+
+
+def test_draft_stats_still_answers_after_promote(tmp_path: Path) -> None:
+    """見直す on a PUBLISHED dataset is where the correspondence card matters most
+    ("does the published version still say what I meant?"), and promote clears
+    ``ingested``/``graph_iri`` in favour of ``live_graph``. Reading only
+    ``ingested`` made the card silently vanish in exactly that case."""
+    meta = _save(tmp_path)
+    live = f"https://kumagallium.github.io/asterism/graph/canonical/{meta['id']}/v3"
+    registry.mark_ingested(
+        tmp_path / "registry",
+        meta["id"],
+        graph_iri=live,
+        triple_count=42,
+        ingested_at="2026-07-21T00:00:00+00:00",
+        data_seq=3,
+    )
+    after = registry.mark_promoted(
+        tmp_path / "registry",
+        meta["id"],
+        triples_promoted=42,
+        alignment={},
+        promoted_at="2026-07-22T00:00:00+00:00",
+        live_graph=live,
+    )
+    assert after is not None
+    assert not after.get("ingested") and not after.get("graph_iri")  # the trap
+
+    queries: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/query":
+            queries.append(request.content.decode("utf-8"))
+            return httpx.Response(
+                200,
+                text=json.dumps(
+                    {
+                        "results": {
+                            "bindings": [
+                                {
+                                    "class": {
+                                        "type": "uri",
+                                        "value": "https://example.org/onto#Sample",
+                                    },
+                                    "n": {"type": "literal", "value": "24"},
+                                }
+                            ]
+                        }
+                    }
+                ),
+                headers={"content-type": "application/sparql-results+json"},
+            )
+        return httpx.Response(204)
+
+    app = build_app(_settings(tmp_path), oxigraph_client=_oxigraph(handler), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        body = client.get(f"/api/datasets/{meta['id']}/draft-stats").json()
+    assert any(f"GRAPH <{live}>" in q for q in queries)
+    assert body["classes"] == [
+        {"iri": "https://example.org/onto#Sample", "curie": "ex:Sample", "n": 24}
+    ]

@@ -9,7 +9,10 @@ them via :meth:`JobManager.stream`.
 Scope note (M1a): ``LLMClient.complete()`` returns the *full* proposal string
 (the Anthropic streaming is reassembled inside step0), so we emit lifecycle
 events — ``started`` / ``running`` / ``done`` (with the result) / ``error`` /
-``cancelled`` — rather than token-by-token text. A transient ``heartbeat``
+``cancelled`` — rather than token-by-token text. Every ``error`` event carries a
+machine-readable ``code`` (see :data:`_ERROR_CODES`) next to its free-text
+``message``, so a client never has to substring-match English prose to tell a
+missing API key from a truncated design. A transient ``heartbeat``
 event (never recorded in the job's event log) is additionally sent to idle SSE
 subscribers so the client can tell "still working" from "connection dead".
 Token-level streaming would require extending step0's ``LLMClient`` Protocol
@@ -41,6 +44,50 @@ _DONE = "done"
 _ERROR = "error"
 _CANCELLED = "cancelled"
 _TERMINAL = frozenset({_DONE, _ERROR, _CANCELLED})
+
+# Every ``error`` event carries a machine-readable ``code`` alongside its free
+# text, so the UI can pick the right plain-language sentence and the right
+# recovery button WITHOUT substring-matching an English message that may be
+# reworded, translated, or produced by a third-party SDK. The message stays for
+# the folded technical view; the code is what logic keys off.
+#
+# Exception classes are matched by NAME along the MRO, so this table can name
+# provider-SDK errors (anthropic / openai) without importing either package.
+_ERROR_CODES: dict[str, str] = {
+    # step0 LLM layer
+    "LLMTruncatedError": "llm.truncated",
+    "LLMEmptyOutputError": "llm.reasoning_only",
+    "LLMCancelledError": "llm.cancelled",
+    # provider SDKs (anthropic / openai share these class names)
+    "AuthenticationError": "llm.auth",
+    "PermissionDeniedError": "llm.auth",
+    "RateLimitError": "llm.rate_limit",
+    "NotFoundError": "llm.model_not_found",
+    "APIConnectionError": "llm.unreachable",
+    "APITimeoutError": "llm.timeout",
+    # ingest / materialize
+    "RmlSafetyError": "ingest.unsafe_rml",
+    "RmlValidationError": "ingest.materialize_failed",
+    "IngestCancelledError": "ingest.cancelled",
+    "DialectAnnotationError": "ingest.source_dialect",
+    "JatsDocumentError": "document.invalid",
+    "ConversionError": "document.conversion_failed",
+    "QueryToolError": "tools.invalid_query",
+}
+#: Fallback when no class in the MRO is known — still a stable code to key off.
+UNKNOWN_ERROR_CODE = "job.failed"
+#: The wall-clock cap fired. Not tied to any one job kind (an ingest can time out
+#: too), so the advice belongs to the UI, per job kind — not to this message.
+TIMEOUT_ERROR_CODE = "job.timeout"
+
+
+def error_code(exc: BaseException) -> str:
+    """The error family of one failure, as a stable dotted code."""
+    for klass in type(exc).__mro__:
+        code = _ERROR_CODES.get(klass.__name__)
+        if code:
+            return code
+    return UNKNOWN_ERROR_CODE
 
 
 @dataclass
@@ -182,18 +229,20 @@ class JobManager:
             # checkpoint, and fail the job now so the client stops waiting.
             job.cancel_event.set()
             job.status = _ERROR
+            # Plain fact only. The advice ("try a smaller input / a faster
+            # model") depends on what timed out, so it lives in the UI's i18n
+            # per job kind — an ingest timeout must not advise about max-tokens.
             job.error = (
-                f"job timed out after {int(timeout or 0)}s (ASTERISM_JOB_TIMEOUT_SECONDS); "
-                "the LLM call may be stuck — cancel/retry with a smaller input, a "
-                "faster model, or a lower max-tokens setting"
+                f"job timed out after {int(timeout or 0)}s "
+                "(ASTERISM_JOB_TIMEOUT_SECONDS)"
             )
-            job.emit("error", message=job.error)
+            job.emit("error", message=job.error, code=TIMEOUT_ERROR_CODE)
         except Exception as exc:  # surface any failure to the SSE client
             if job.status in _TERMINAL:
                 return
             job.status = _ERROR
             job.error = str(exc) or type(exc).__name__
-            job.emit("error", message=job.error)
+            job.emit("error", message=job.error, code=error_code(exc))
         else:
             if job.status in _TERMINAL:
                 return
@@ -234,7 +283,13 @@ class JobManager:
         """
         job = self._jobs.get(job_id)
         if job is None:
-            yield _sse({"event": "error", "message": f"unknown job_id: {job_id}"})
+            yield _sse(
+                {
+                    "event": "error",
+                    "message": f"unknown job_id: {job_id}",
+                    "code": "job.unknown",
+                }
+            )
             return
 
         sent = 0

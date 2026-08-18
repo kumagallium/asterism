@@ -1,36 +1,75 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ja">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Asterism identifier — not a web page</title>
+<title>データの ID — Asterism</title>
 <style>
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; color: #1f2933; max-width: 800px; margin: 0 auto; padding: 2rem 1.25rem; line-height: 1.6; }
-  h1 { border-bottom: 2px solid #4B7A52; padding-bottom: 0.3rem; }
-  code, pre { font-family: "SF Mono", Menlo, Monaco, Consolas, monospace; background: #f3f4f6; padding: 0.1em 0.35em; border-radius: 3px; font-size: 0.92em; }
-  pre { padding: 0.75rem 1rem; overflow-x: auto; }
-  a { color: #4B7A52; }
-  .iri-box { border: 1px solid #d2d6dc; border-left: 4px solid #4B7A52; border-radius: 4px; padding: 0.75rem 1rem; margin: 1rem 0; word-break: break-all; }
-  .muted { color: #6b7280; font-size: 0.92em; }
+  :root { --bg: #eef3ec; --surface: #ffffff; --surface-alt: #f4f8f1; --fg: #16241a;
+    --body: #33453a; --muted: #54695b; --border: #dde6da; --primary: #3f6f49;
+    --radius: 12px; --radius-sm: 8px; }
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, "Hanken Grotesk", "Zen Kaku Gothic New", "Noto Sans JP",
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    background: var(--bg); color: var(--body); margin: 0; line-height: 1.65; }
+  .page { max-width: 800px; margin: 0 auto; padding: 24px 20px 48px; }
+  .card { background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 20px; }
+  h1 { color: var(--fg); font-size: 1.45rem; margin: 0 0 8px; line-height: 1.35; }
+  h2 { color: var(--fg); font-size: 1.05rem; margin: 24px 0 8px; }
+  p { margin: 8px 0; }
+  code, pre { font-family: "IBM Plex Mono", "SF Mono", Menlo, Monaco, Consolas, monospace;
+    background: var(--surface-alt); padding: 0.1em 0.35em; border-radius: 4px; font-size: 0.92em; }
+  pre { padding: 12px 16px; overflow-x: auto; }
+  a { color: var(--primary); }
+  .iri-box { background: var(--surface-alt); border: 1px solid var(--border);
+    border-left: 4px solid var(--primary); border-radius: var(--radius-sm);
+    padding: 12px 16px; margin: 16px 0; word-break: break-all; }
+  .muted { color: var(--muted); font-size: 0.92em; }
+  .gloss { color: var(--muted); font-size: 0.88em; margin-top: 2px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 12px; margin: 20px 0 8px; }
+  .actions a { display: inline-block; background: var(--primary); color: #fff;
+    border-radius: var(--radius-sm); padding: 10px 18px; text-decoration: none;
+    font-weight: 600; font-size: 0.95rem; }
+  .next { background: var(--surface-alt); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 12px 16px; margin: 0 0 8px; }
+  details { margin-top: 20px; border-top: 1px solid var(--border); padding-top: 12px; }
+  summary { cursor: pointer; color: var(--muted); font-size: 0.9rem; }
 </style>
 </head>
 <body>
+<div class="page">
+<div class="card">
 
-<h1>This is an Asterism identifier, not a web page</h1>
+<h1>このリンクは、データの ID です（ページではありません）</h1>
+<p class="gloss">This link is a data ID, not a web page.</p>
 
-<p>The URL you opened is an <strong>IRI</strong> — a permanent identifier that
-<a href="https://github.com/kumagallium/asterism">Asterism</a> minted for a
-piece of research data (an entity, a graph, or a vocabulary term). It names the
-thing; it is not (yet) a document about the thing, which is why you got a 404
-instead of a page.</p>
+<p>開いたリンクは、<a href="https://github.com/kumagallium/asterism">Asterism</a>
+が研究データに付けた ID（ずっと変わらないウェブ上の住所）です。ものの名前なので、
+それ自体はページではありません。</p>
+<p class="gloss">The link you opened is an ID — a permanent web address that Asterism
+gave to a piece of research data. It names the thing, so it is not a page by itself.</p>
+
+<p><strong>このリンクを送ってくれた人の Asterism に、実際のデータがあります。</strong>
+そこで「出どころ」を開くと、この ID の中身を確認できます。</p>
+<p class="gloss">The data lives in the Asterism that sent you this link — open its
+「出どころ」(provenance) view there.</p>
+
+<div class="actions">
+  <a href="/asterism/demo/">公開データを見る（ブラウザ内デモ）</a>
+</div>
+<p class="next"><strong>このリンクを送ってくれた人の Asterism で開く</strong><br />
+同じリンクを、送ってくれた人の Asterism で開くと、この ID の内容がそのまま表示されます。
+<span class="gloss">Open the same link in the Asterism that sent it to you.</span></p>
 
 <div class="iri-box">
-  <div class="muted">Requested identifier</div>
+  <div class="muted">ID（ずっと変わらないウェブ上の住所）</div>
   <code id="iri">…</code>
   <div id="parsed" class="muted" style="margin-top: 0.5rem;"></div>
 </div>
 
-<h2>How to see the data behind it</h2>
+<details>
+<summary>詳しい内容（技術情報） / More detail (technical)</summary>
 
 <p>The identifier works in SPARQL against the store that holds the dataset —
 your Asterism instance's <em>高度な検索 / SPARQL</em> view, the API's
@@ -43,33 +82,37 @@ for the published subset:</p>
 evidence row can be re-fetched, compared, and audited — identifier stability is
 the point; HTTP resolution is a convenience layered on top.</p>
 
-<h2>Why it doesn't resolve (yet)</h2>
-
-<p>Instance IRIs are currently <strong>identifiers only</strong> (see the
+<p>Instance IRIs on this static site are <strong>identifiers only</strong> (see the
 <a href="/asterism/starrydata/resource/">namespace note</a>): serving a
 description per IRI needs a live SPARQL service behind this domain, which a
-static GitHub Pages site cannot provide. A content-negotiated
-<code>DESCRIBE</code> responder (Turtle for machines, HTML for humans) is the
-planned phase 2.</p>
+static GitHub Pages site cannot provide. A running Asterism answers it at
+<code>/describe?iri=…</code> (Turtle for machines, HTML for humans).</p>
 
-<p class="muted">If you followed a citation link and expected data, the citing
-Asterism instance is where the data lives — open the provenance panel there.</p>
+</details>
+
+</div>
+</div>
 
 <script>
 (function () {
   var iri = location.href.split("#")[0].split("?")[0];
-  document.getElementById("iri").textContent = iri;
-  document.getElementById("describe").textContent = "DESCRIBE <" + iri + ">";
+  var iriEl = document.getElementById("iri");
+  if (iriEl) iriEl.textContent = iri;
+  // The DESCRIBE sample lives inside <details>; guard every lookup so one
+  // missing node can never blank the ID and the hint below it.
+  var describeEl = document.getElementById("describe");
+  if (describeEl) describeEl.textContent = "DESCRIBE <" + iri + ">";
   // Best-effort human hint: …/asterism/{ns…}/resource/{type}/{id} — the ns part
   // may span segments (bundled: starrydata; instance-based: datasets/xrd-powder).
   var m = location.pathname.match(/^\/asterism\/(.+?)\/resource\/([^/]+)\/(.+)$/);
   var parsed = document.getElementById("parsed");
+  if (!parsed) return;
   if (m) {
-    parsed.textContent = "dataset namespace: " + decodeURIComponent(m[1]) +
-      " · entity type: " + decodeURIComponent(m[2]) +
-      " · id: " + decodeURIComponent(m[3]);
+    parsed.textContent = "データセット: " + decodeURIComponent(m[1]) +
+      " ／ 種類: " + decodeURIComponent(m[2]) +
+      " ／ ID: " + decodeURIComponent(m[3]);
   } else if (/^\/asterism\/graph\//.test(location.pathname)) {
-    parsed.textContent = "a named graph (an ingestion/version container), not an entity";
+    parsed.textContent = "取り込みのまとまり（データ 1 件ではなく、まとめて取り込んだ単位）です。";
   }
 })();
 </script>

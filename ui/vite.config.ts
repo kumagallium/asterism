@@ -19,6 +19,11 @@ export default defineConfig({
       // /jobs is the ingest-history endpoint (no /api prefix). Proxy it too so
       // the Jobs view reaches the API in dev.
       '/jobs': API_TARGET,
+      // /describe is the citation landing page (IRI dereference, no /api
+      // prefix). Proxying it in dev keeps its "back into the app" links
+      // (/#/datasets, /#/ask) on the same origin as the SPA, exactly as Caddy
+      // arranges them in production.
+      '/describe': API_TARGET,
     },
   },
 })
