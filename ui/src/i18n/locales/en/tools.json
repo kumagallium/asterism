@@ -3,14 +3,14 @@
     "count": "{{n}}",
     "intro": "The operations here pull answers straight from this data without AI, each with its source. The same question always returns the same answer, and Ask uses them automatically.",
     "loading": "Loading…",
-    "emptyList": "No operations yet. You can build one under \"Build your own operation (for developers)\" below.",
+    "emptyList": "There are no operations for this kind of data yet. You can ask anything in Ask.",
+    "openAsk": "Open Ask",
     "errHead": "The list of operations could not be loaded.",
     "author": {
       "summary": "Build your own operation (for developers)",
       "subhead": "Draft with AI (build one from what you want)",
-      "hint": "Describe what you want and <1>the AI drafts a read-only search tool (SPARQL)</1> grounded in this data's words. The draft is <3>editable in place</3> and is <5>only finalized once you save</5> (saving is the human vetting gate). It uses the model selected in Settings.",
+      "hint": "Describe what you want and the AI drafts a read-only search (SPARQL) grounded in this data's words. The draft is editable in place, and nothing is final until you save it.",
       "intentPlaceholder": "e.g. given a composition, return the crystal structure (space group, crystal system)",
-      "keyPlaceholder": "sk-ant-… (required for AI drafting)",
       "proposing": "Drafting…",
       "propose": "Draft with AI",
       "startEmpty": "Build by hand from scratch",
@@ -22,9 +22,16 @@
       "deleted": "Deleted \"{{name}}\"."
     },
     "save": {
-      "required": "name and query are required."
+      "required": "Enter a title and the query."
     },
-    "deleteConfirm": "Delete the tool \"{{name}}\"?\nIt will be removed from this dataset's Ask."
+    "deleteConfirm": "Delete \"{{name}}\"?\nIt will be removed from this dataset's Ask."
+  },
+  "paramType": {
+    "string": "Text",
+    "number": "Number",
+    "integer": "Whole number",
+    "iri": "ID",
+    "enum": "Choice"
   },
   "card": {
     "close": "Close",
@@ -33,7 +40,8 @@
     "deleting": "Deleting…",
     "delete": "Delete",
     "required": "required",
-    "sparqlSummary": "View SPARQL"
+    "sparqlSummary": "Technical details: the query this tool runs",
+    "tweakSummary": "Fine-tune this (for developers)"
   },
   "draft": {
     "gate": {
@@ -42,7 +50,9 @@
       "note": "The server validates on save (read-only SELECT/ASK, safe binding)."
     },
     "title": "Review and edit the draft",
-    "nameLabel": "Name (snake_case)",
+    "advancedSummary": "Advanced",
+    "nameLabel": "Identifier (automatic)",
+    "nameHint": "Derived from the title. It cannot be changed after saving — Ask calls the tool by this identifier.",
     "titleLabel": "Title",
     "titlePlaceholder": "Short human-readable name",
     "descriptionLabel": "Description",
@@ -72,12 +82,12 @@
     "discard": "Discard"
   },
   "runner": {
-    "hint": "Run a verified tool <1>with no key and no LLM</1> (typed, deterministic, with citations).",
+    "hint": "Pulls the answer straight from this data, without AI (with sources).",
     "required": "required",
     "enumUnset": "(unset)",
     "defaultHint": "default: {{value}}",
     "running": "Running…",
-    "run": "Run (no key needed)",
+    "run": "Run",
     "cellCopyTip": "· Click a cell to copy it.",
     "cellCopyTitle": "Click to copy the full value",
     "cellCopied": "✓ Copied",
@@ -94,7 +104,7 @@
       "count": "{{n}} rows",
       "countTruncated": "{{n}} rows (truncated at limit)",
       "empty": "No matching results.",
-      "sparqlSummary": "SPARQL that ran (read-only)",
+      "sparqlSummary": "Technical details: the query that ran",
       "count_one": "{{n}} row",
       "count_other": "{{n}} rows",
       "countTruncated_one": "{{n}} row (truncated at limit)",

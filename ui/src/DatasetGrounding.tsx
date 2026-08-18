@@ -5,6 +5,7 @@ import { type CatalogDataset, getDatasetRules } from './galleryApi'
 import { GroundingPicker } from './GroundingPicker'
 import { type GroundCandidate, groundTerms } from './groundingApi'
 import { CheckIcon, ConnectIcon, GlobeIcon, LinkIcon, SearchIcon } from './icons'
+import { plainError } from './kantan/errorMessages'
 import { labelFor } from './termLabels'
 import { knownVocabForIri, localName } from './vocab'
 
@@ -288,7 +289,19 @@ export function DatasetGrounding({ dataset }: { dataset: CatalogDataset }) {
         </div>
       </div>
 
-      {err && <p className="promote-err">{t('grounding:adopt.err', { detail: err })}</p>}
+      {/* A failed align / withdraw says what happened in plain words; the raw api
+          string (which carries the HTTP status and the internal op name) stays in
+          the folded technical view (K11). */}
+      {err && (
+        <div className="grounding-err">
+          <p className="promote-err">{t('grounding:adopt.errHead')}</p>
+          <p className="hint">{t(plainError(err).body)}</p>
+          <details className="grounding-err-raw">
+            <summary>{t('kantan:s5.stop.detailSummary')}</summary>
+            <pre className="sparql-block">{err}</pre>
+          </details>
+        </div>
+      )}
       {note && <p className="lifecycle-ok">{note}</p>}
 
       {allTerms.length === 0 ? (
@@ -304,21 +317,18 @@ export function DatasetGrounding({ dataset }: { dataset: CatalogDataset }) {
                 <span style={{ width: `${pct}%` }} />
               </span>
             </div>
+            {/* No English gloss next to the group name: "classes" / "fields" is
+                the K4 fatal wording the plain name exists to replace, and in the
+                English UI it read as "Fields / fields". */}
             {classes.length > 0 && (
               <>
-                <div className="ground-group-head">
-                  {t('grounding:group.classes')}{' '}
-                  <span className="ground-group-en">{t('grounding:group.classesEn')}</span>
-                </div>
+                <div className="ground-group-head">{t('grounding:group.classes')}</div>
                 {classes.map(row)}
               </>
             )}
             {fields.length > 0 && (
               <>
-                <div className="ground-group-head">
-                  {t('grounding:group.fields')}{' '}
-                  <span className="ground-group-en">{t('grounding:group.fieldsEn')}</span>
-                </div>
+                <div className="ground-group-head">{t('grounding:group.fields')}</div>
                 {fields.map(row)}
               </>
             )}

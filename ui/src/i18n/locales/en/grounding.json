@@ -16,37 +16,32 @@
     "property": "field"
   },
   "picker": {
-    "placeholder": "Search a standard term (e.g. crystal structure)",
-    "cancel": "Cancel (leave it as it is)",
+    "placeholder": "Search in plain English (e.g. temperature, crystal structure)",
+    "cancel": "Leave as is",
     "searching": "Searching…",
-    "none": "No matching standard term. Try different words.",
+    "none": "Nothing found. Try a common English word (temperature, density, sample) — or just leave it as is; search and citation work without it.",
     "errHead": "Couldn't look for candidates."
   },
   "adopt": {
-    "head": "Ground to an external standard",
-    "hint": "Map this dataset's own terms to a real term in a famous standard ontology (candidates come from a closed set; a human confirms).",
-    "ground": "Ground",
     "done": "Aligned \"{{source}}\" to \"{{target}}\" ({{vocab}}).",
     "withdraw": "Withdraw",
     "withdrawing": "Withdrawing…",
-    "err": "Action failed: {{detail}}",
+    "errHead": "It could not be aligned.",
     "noTerms": "No own terms to align yet (they appear once the words settle after ingest)."
   },
   "banner": {
     "title": "Align your words to the world's standard words",
-    "sub": "Link this data's own words to commonly used standard terms. Once aligned, your data connects automatically with others, and external tools and AI understand it directly."
+    "sub": "Link this data's own words to commonly used standard terms. Once aligned, your data connects automatically with others, and external tools and AI understand it directly. Aligning is optional — search and citation work either way."
   },
-  "progress": "{{done}} / {{total}} aligned",
+  "progress": "{{done}} / {{total}} aligned (optional)",
   "group": {
-    "classes": "Things",
-    "classesEn": "classes",
-    "fields": "Fields",
-    "fieldsEn": "fields"
+    "classes": "Kinds of data",
+    "fields": "Fields"
   },
   "state": {
     "done": "Aligned",
     "suggest": "Suggested (found automatically in the standards list)",
-    "none": "No matching standard found"
+    "none": "No matching standard found (fine to leave as is)"
   },
   "confirm": "Align to this",
   "search": "Find candidates",

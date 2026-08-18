@@ -76,7 +76,7 @@ export function GroundingPicker({
       </div>
       {/* A failed lookup says what happened in plain words and what to do next;
           the raw api string stays reachable but never leads (K11). The existing
-          「キャンセル（そのままにする）」 button is the way out, so no new one. */}
+          「そのままにする」 button is the way out, so no new one. */}
       {err && (
         <div className="grounding-err">
           <p className="promote-err">{t('grounding:picker.errHead')}</p>

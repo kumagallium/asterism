@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Trans, useTranslation } from 'react-i18next'
+import { useTranslation } from 'react-i18next'
 import { isBundledTool } from './bundledTools'
 import { plainError } from './kantan/errorMessages'
 import { runTool, type QueryTool, type QueryToolParam, type ToolRunResult } from './toolsApi'
@@ -83,6 +83,13 @@ export function ToolRunner({ datasetId, tool }: { datasetId: string; tool: Query
   function paramLabel(p: QueryToolParam): string {
     return bundledText(`params.${p.name}.label`) ?? p.name
   }
+  /** The declared kind of a value, in words ("文字" / "整数"), never the wire
+   *  identifier (`string` / `integer`). Falls back to the identifier so a type
+   *  added later never renders an empty badge. */
+  function typeLabel(type: string): string {
+    const key = `tools:paramType.${type}`
+    return i18n.exists(key) ? t(key) : type
+  }
   function columnLabel(col: string): string {
     return bundledText(`columns.${col}`) ?? col
   }
@@ -148,11 +155,10 @@ export function ToolRunner({ datasetId, tool }: { datasetId: string; tool: Query
 
   return (
     <div className="tool-run">
-      <p className="tool-run-hint">
-        <Trans i18nKey="tools:runner.hint">
-          検証済みツールを<strong>キー不要・LLM 不要</strong>で実行します（型付き・決定論・引用つき）。
-        </Trans>
-      </p>
+      {/* Plain t(), not <Trans>: the inline markup let the ja default children in
+          this file drift away from the translated string (they are two sources
+          for one sentence). */}
+      <p className="tool-run-hint">{t('tools:runner.hint')}</p>
       {params.length > 0 && (
         <div className="tool-run-form">
           {params.map((p) => {
@@ -163,7 +169,7 @@ export function ToolRunner({ datasetId, tool }: { datasetId: string; tool: Query
                   {label}
                   {p.required && <span className="run-req">{t('tools:runner.required')}</span>}
                   {/* The declared type only helps whoever authored the tool. */}
-                  {label === p.name && <span className="run-type">{p.type}</span>}
+                  {label === p.name && <span className="run-type">{typeLabel(p.type)}</span>}
                 </span>
                 {p.type === 'enum' ? (
                   <select
@@ -236,9 +242,12 @@ export function ToolRunner({ datasetId, tool }: { datasetId: string; tool: Query
       {result && (
         <div className="tool-run-result">
           <p className="hint">
+            {/* `count` drives i18next's plural selection, `n` fills the existing
+                {{n}} placeholder in both locales — without `count` an English
+                one-row result rendered "1 rows". */}
             {result.truncated
-              ? t('tools:runner.result.countTruncated', { n: result.count })
-              : t('tools:runner.result.count', { n: result.count })}
+              ? t('tools:runner.result.countTruncated', { count: result.count, n: result.count })
+              : t('tools:runner.result.count', { count: result.count, n: result.count })}
             {result.count > 0 && (
               <span className="cell-copy-tip"> {t('tools:runner.cellCopyTip')}</span>
             )}
