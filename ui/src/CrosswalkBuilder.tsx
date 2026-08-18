@@ -5,6 +5,7 @@ import {
   buildPerspective,
   type BuildResult,
   type CrosswalkConfig,
+  getCrosswalks,
   type PredicateCandidate,
   previewNormalizer,
   proposeCrosswalkMapping,
@@ -14,6 +15,7 @@ import {
   linkPredicateForConcept,
   pascalCase,
   perspectiveIdFromName,
+  uniqueCrosswalkId,
 } from './crosswalkMint'
 import { conceptLabel } from './crosswalkLabels'
 import { type CatalogDataset, getCatalogDatasets } from './galleryApi'
@@ -29,6 +31,11 @@ import { localName } from './vocab'
 const RECIPE_PRIMITIVE_IDS = ['nfkc', 'casefold', 'strip', 'collapse_ws', 'remove_ws', 'fold_subscripts']
 // Sentinel select value: author a custom recipe instead of a named normalizer.
 const RECIPE_OPTION = '__recipe__'
+
+// The standard crosswalk's own id (`DEFAULT_PERSPECTIVE_ID` in
+// `ingest/src/asterism/crosswalk_runtime.py`). Building onto it REPLACES it, so an
+// automatically named build must never land here by accident.
+const STANDARD_ID = 'composition'
 
 // One-line explanation per normalizer (the closed, vetted join-key set — generic core
 // + materials pack; mirrors asterism.crosswalk.NORMALIZERS). Maps the select value to
@@ -156,6 +163,8 @@ export function CrosswalkBuilder({ seed }: { seed?: CrosswalkSeed } = {}) {
   // Opt-in (deliberately NOT persisted): with no name, build a new crosswalk unless
   // the user says they mean to replace the standard one.
   const [replaceDefault, setReplaceDefault] = useState(false)
+  // The ids of the crosswalks that already exist (see the load effect below).
+  const [takenIds, setTakenIds] = useState<string[]>([])
   const [proposing, setProposing] = useState(false)
   const [proposeErr, setProposeErr] = useState('')
   const [proposeNote, setProposeNote] = useState('')
@@ -189,6 +198,12 @@ export function CrosswalkBuilder({ seed }: { seed?: CrosswalkSeed } = {}) {
         setDatasets(all.filter((d) => d.statusKind === 'pub' && !d.isCrosswalk))
       })
       .catch((e) => !off && setLoadErr(e instanceof Error ? e.message : String(e)))
+    // The crosswalks that already exist, so an auto-named build gets a FREE id
+    // instead of overwriting one of them. Best-effort: failing to read the list only
+    // costs the collision check, and the standard id is excluded either way.
+    getCrosswalks()
+      .then((ps) => !off && setTakenIds(ps.map((p) => p.perspective_id)))
+      .catch(() => undefined)
     return () => {
       off = true
     }
@@ -254,6 +269,12 @@ export function CrosswalkBuilder({ seed }: { seed?: CrosswalkSeed } = {}) {
   // leaving the box empty still produces something a person can tell apart in the
   // list (and never replaces an existing crosswalk by accident).
   const autoName = t('crosswalk:create.defaultName', { label: conceptLabel(conceptKey) })
+  // …and the id that name lands on. `STANDARD_ID` counts as taken even when the
+  // standard crosswalk does not exist yet: in Japanese the auto name for the default
+  // concept slugs straight back to it ("compositionでつなぐ" → `composition`), which
+  // would make an empty name silently replace the standard crosswalk again — the
+  // exact thing the checkbox below exists to ask about.
+  const autoId = uniqueCrosswalkId(perspectiveIdFromName(autoName), [...takenIds, STANDARD_ID])
   const classIri = classIriForConcept(conceptKey)
   const linkPred = linkPredicateForConcept(conceptKey)
   // A concept needs an ascii key so the minted hub IRI stays clean + citable.
@@ -399,11 +420,13 @@ export function CrosswalkBuilder({ seed }: { seed?: CrosswalkSeed } = {}) {
       // silently overwrite the standard composition crosswalk; now it is named
       // automatically from the chosen field and built as a new one. Replacing the
       // standard one is still possible — it just has to be asked for (the checkbox).
-      const trimmed = perspectiveName.trim() || autoName
+      const typed = perspectiveName.trim()
       setResult(
-        replaceDefault && !perspectiveName.trim()
+        replaceDefault && !typed
           ? await buildCrosswalk(config)
-          : await buildPerspective(perspectiveIdFromName(trimmed), config, trimmed),
+          : typed
+            ? await buildPerspective(perspectiveIdFromName(typed), config, typed)
+            : await buildPerspective(autoId, config, autoName),
       )
     } catch (e) {
       setBuildErr(e instanceof Error ? e.message : String(e))
