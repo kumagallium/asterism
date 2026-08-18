@@ -151,17 +151,32 @@ function labelIndex(labels?: TermLabels): LabelIndex {
   return index.size > 0 ? index : null
 }
 
-/** `Sample.hasMeasurement` → 「試料.測定した」. Each dot-separated segment is
- *  looked up on its own, so a pair whose class has a label and whose property
- *  does not still reads better than the bare identifier. */
+/**
+ * The two separators the generator builds a compound identifier from:
+ * `Class.predicate` (shape rows) and `A + B` (a disconnected group that holds
+ * several maps — `" + ".join(...)` in rml_validate.py). Kept as a capture group
+ * so the separators survive the round trip.
+ */
+const IDENTIFIER_PARTS = /(\s\+\s|\.)/
+
+/** `Sample.hasMeasurement` → 「試料.測定した」, `Sample + Batch` → 「試料 + 群」.
+ *  Each segment is looked up on its own, so a compound whose class has a label
+ *  and whose property does not still reads better than the bare identifier. */
 function labelFor(name: string, index: LabelIndex): string {
   if (!index || !name) return name
   const hit = index.get(name)
   if (hit) return hit
-  if (!name.includes('.')) return name
-  const parts = name.split('.')
-  const mapped = parts.map((p) => index.get(p) ?? p)
-  return mapped.some((p, i) => p !== parts[i]) ? mapped.join('.') : name
+  const parts = name.split(IDENTIFIER_PARTS)
+  if (parts.length < 2) return name
+  let changed = false
+  // split() with a capture group interleaves separators at the odd indices.
+  const mapped = parts.map((p, i) => {
+    if (i % 2 === 1) return p
+    const label = index.get(p)
+    if (label) changed = true
+    return label ?? p
+  })
+  return changed ? mapped.join('') : name
 }
 
 /** Whether the locale actually carries a sentence for this key. A finding whose
@@ -256,8 +271,11 @@ export function plainAdvisories(advisories: string[], labels?: TermLabels): Plai
     // invisible when only a count is (K11: never leave the reader with a number).
     // `count` counts COLUMNS, not advisories: one advisory per source file can
     // carry seventeen of them.
+    // Never show a 0: if the generator ever reworded the sentence the count is
+    // read from, fall back to the names we did extract, then to today's number.
     const cols = unmapped.flatMap(unmappedColumns)
-    const count = unmapped.reduce((n, a) => n + unmappedCount(a), 0) || cols.length
+    const count =
+      unmapped.reduce((n, a) => n + unmappedCount(a), 0) || cols.length || unmapped.length
     const opts = { count, columns: cols.join(', ') }
     out.push({
       text:
