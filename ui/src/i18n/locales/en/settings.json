@@ -5,20 +5,68 @@
   "save": "Save",
   "cancel": "Cancel",
   "tabs": {
-    "models": "Models",
-    "usage": "API usage",
+    "ai": "AI",
+    "server": "This server",
+    "usage": "AI usage",
     "about": "About"
   },
+  "provider": {
+    "anthropic": "Anthropic (Claude)",
+    "openai": "OpenAI",
+    "openaiCompatible": "OpenAI-compatible (Sakura AI Engine / Groq / Ollama …)",
+    "baseHint": {
+      "anthropic": "https://api.anthropic.com",
+      "openai": "https://api.openai.com/v1",
+      "openaiCompatible": "https://api.openai.iniad.org/v1 (e.g. Sakura = https://api.ai.sakura.ad.jp/v1)"
+    }
+  },
+  "setup": {
+    "intro": "AI isn't available yet. Pick one of these.",
+    "working": "Checking…",
+    "advanced": "Detailed settings",
+    "ask": {
+      "title": "Ask an administrator to set it up",
+      "body": "An administrator sets this up once and everyone on this server can use AI as they are. The button below copies a request you can send.",
+      "copy": "Copy the request",
+      "copied": "Copied",
+      "copyFailed": "Couldn't copy. Send the text below to your administrator as it is.",
+      "template": "Please enable AI in Asterism. Under Settings → “This server” → “Shared AI setup”, register a key from an AI service once, and everyone using this server will be able to use AI."
+    },
+    "own": {
+      "title": "Paste your own key",
+      "body": "Paste the string your AI service gave you. We work out which service it belongs to.",
+      "placeholder": "Paste the key you were given",
+      "save": "Use this",
+      "which": "Which service is it from?",
+      "choice": {
+        "anthropic": "Claude",
+        "openai": "OpenAI",
+        "other": "Something else (paste its address)"
+      },
+      "basePlaceholder": "The service's address (as given to you)",
+      "noModels": "No AI was found at that address. Check the address.",
+      "failed": "That didn't work. Check what you pasted and the address."
+    },
+    "local": {
+      "title": "Use the AI on this computer",
+      "body": "If you're running an AI on this computer, you can use it as it is.",
+      "use": "Use the AI on this computer",
+      "failed": "No AI was found on this computer."
+    }
+  },
   "models": {
-    "intro": "Register the models the AI uses. Besides Anthropic (Claude), add OpenAI or any OpenAI-compatible endpoint (Sakura AI Engine, Groq, Ollama, …) just by entering a base URL. The active model is used across propose, Ask and every AI feature.",
-    "empty": "No models yet. Add one with “+ Add model”.",
+    "intro": "Register where AI runs. If an administrator has set it up on the server, there is nothing to do here. To use your own key or an AI on your machine, add it with “+ Add” — the one you pick is used by “Add data”, “Ask” and every other AI feature.",
+    "empty": "No AI connection yet. To use your own key, press “+ Add”.",
+    "serverConfigured": "An administrator has already set up AI on this server ({{provider}}). You can use AI without adding anything here.",
     "activeBadge": "active",
-    "keySet": "API key set",
-    "keyMissing": "API key missing",
+    "keySet": "using your key",
+    "keyServer": "using the server's setup (no key needed)",
+    "keyMissing": "needs a key",
+    "modelIdDefault": "server default",
     "edit": "Edit",
     "delete": "Delete",
     "confirmDelete": "Delete",
-    "add": "Add model"
+    "add": "Add"
   },
   "form": {
     "addTitle": "Add model",
@@ -58,8 +106,9 @@
     "placeholder": "The usage dashboard ships in Phase C.",
     "intro": "The server records the tokens used by each AI call; this tab aggregates them and estimates cost from your model rate table at display time.",
     "loading": "Loading…",
-    "empty": "No usage recorded yet. Running propose or Ask will record events.",
-    "error": "Failed to load usage.",
+    "empty": "Nothing recorded yet. Using AI in “Add data” or “Ask” shows up here.",
+    "error": "Couldn't load usage. Wait a moment and press “Reload”.",
+    "reload": "Reload",
     "totalTokens": "Total tokens",
     "totalCost": "Estimated cost",
     "granularity": {
@@ -73,44 +122,55 @@
     "tokens": "Tokens",
     "cost": "Cost",
     "features": {
-      "propose": "Schema propose",
-      "refine": "Schema refine",
-      "tool.propose": "Tool propose",
-      "crosswalk.propose": "Crosswalk propose",
-      "ask": "Ask"
+      "propose": "Designing a dataset",
+      "refine": "Revising a design",
+      "propose_autocorrect": "Automatic design fixes",
+      "tool_propose": "Drafting a tool",
+      "crosswalk_propose": "Suggesting a connection",
+      "ask": "Asking a question"
     },
+    "otherFeature": "Other ({{id}})",
     "unratedNote": "Note: usage on models without a configured rate ({{tokens}} tokens) is NOT included in the estimated cost. Set a rate in the model editor to include it."
   },
   "gate": {
     "using": "Model:",
+    "usingServerSetup": "Ready — using the administrator's setup",
     "change": "Change",
-    "noModel": "Configure a model to use AI.",
+    "notSetUp": "AI isn't set up yet.",
     "openSettings": "Open settings",
-    "noKey": "The active model has no API key set.",
-    "serverKey": "server default key"
+    "serverKey": "using the administrator's setup"
   },
   "serverKeys": {
-    "title": "Shared key for this instance (stored server-side, used by everyone)",
-    "intro": "A key set here is stored on the server and used by users who haven't entered one (any logged-in user can set it). The value is never shown. For OpenAI-compatible the endpoint is pinned alongside it.",
+    "title": "Shared AI setup (for administrators)",
+    "intro": "Set this up and everyone using this server can use AI without bringing anything of their own. An administrator does it once. What you enter is never shown back.",
     "set": "set",
     "unset": "not set",
-    "keyPlaceholder": "API key (Save to apply; use Clear to remove)",
-    "basePlaceholder": "Endpoint (base URL)",
+    "keyPlaceholder": "Paste the key you were given",
+    "basePlaceholder": "The service's address (as given to you)",
     "save": "Save",
-    "clear": "Clear"
+    "clear": "Clear",
+    "confirmClear": "Yes, clear it",
+    "clearWarning": "Clearing this stops AI for everyone using this server. Restoring it means entering the key again.",
+    "error": {
+      "auth": "You don't have permission to save this. Enter the access code first, then try again.",
+      "disabled": "This server doesn't allow the shared AI setup to be saved.",
+      "badBase": "This server won't accept that address. Check it with your administrator.",
+      "generic": "Couldn't save. Wait a moment and try again.",
+      "details": "Details (technical)"
+    }
   },
   "writeToken": {
-    "title": "Write token (this browser)",
-    "intro": "When the server is protected with a write token (ASTERISM_API_TOKEN), enter the same token here to enable ingest, publish, tool saving and other write actions. The value is kept only in this browser tab and is cleared when the tab closes.",
-    "name": "Asterism API token",
-    "placeholder": "Token issued by the server operator",
-    "setAtBuild": "Set at build time",
-    "verify": "Check connection",
+    "title": "Access code (from your administrator)",
+    "intro": "To add data or publish on this server you need the access code your administrator gave you. Paste it here and it stays valid until you close this tab.",
+    "name": "Access code",
+    "placeholder": "Paste the code from your administrator",
+    "setAtBuild": "Already set (provided by this server)",
+    "verify": "Check it again",
     "check": {
-      "ok": "Token accepted — write actions are available",
-      "mismatch": "Token does not match the server",
-      "open": "No token is configured server-side (the write gate is closed)",
-      "error": "Check failed (could not reach the server)"
+      "ok": "This code lets you add data and publish",
+      "mismatch": "That code is wrong. Check it with your administrator",
+      "open": "No access code is set up on this server (check with your administrator)",
+      "error": "Couldn't reach the server. Wait a moment and try again"
     }
   },
   "about": {
@@ -125,18 +185,18 @@
     "upToDate": "Asterism is up to date.",
     "available": "Version {{version}} is available.",
     "availableBanner": "Version {{version}} is available — update from the notice at the top of the window.",
-    "installHint": "Updates are installed by the desktop app itself (the notice at the top of the app window, or Asterism → “アップデートを確認…” in the menu bar; the app downloads and installs it, verifying the signature).",
-    "checkFailed": "Update check failed"
+    "installHint": "Updates are installed by the desktop app itself (the notice at the top of the app window, or Asterism → “アップデートを確認…” (Check for Updates…) in the menu bar; the app downloads and installs it, verifying the signature).",
+    "checkFailed": "Update check failed. Check your network and try again."
   },
   "instance": {
-    "title": "This instance's identifiers (IRI)",
-    "intro": "Classes and data IDs of newly designed datasets are minted under this namespace (server setting ASTERISM_IRI_BASE; existing data is never rewritten).",
-    "name": "IRI base",
+    "title": "Where your IDs are issued from",
+    "intro": "New datasets issue their IDs under this address (existing data is never rewritten). An administrator sets it on the server.",
+    "name": "Issuer address",
     "unset": "not set",
-    "unsetHelp": "Unset, so minted IDs live on a deliberately unpublishable placeholder (.invalid). Fine for trying things out — to mint citable, publishable identifiers, set ASTERISM_IRI_BASE on the server to a namespace your org controls (an org domain or GitHub Pages)."
+    "unsetHelp": "No issuer has been chosen yet, so IDs are made under the placeholder address above. That is fine while you try things out. For IDs that stay citable after you publish, ask an administrator to set the issuer address (for example https://data.your-org.ac.jp/)."
   },
   "updater": {
-    "available": "Asterism {{version}} is available",
+    "available": "Version {{version}} is available",
     "install": "Restart to update",
     "installing": "Downloading…",
     "downloading": "Downloading… {{pct}}%",

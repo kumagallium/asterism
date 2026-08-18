@@ -49,7 +49,12 @@ export interface LlmCredentials {
 
 export interface ProviderMeta {
   id: Provider
-  name: string
+  /** i18n key (settings namespace) of the human-readable provider name — the
+   *  label is language-dependent and the shared-key section is read by
+   *  operators who may not read Japanese, so it is never hardcoded here. */
+  nameKey: string
+  /** i18n key of the base-URL placeholder hint. */
+  baseHintKey: string
   /** When true the base URL is required (no public default endpoint). */
   needsApiBase: boolean
 }
@@ -73,17 +78,35 @@ export function llmHeaders(creds: LlmCredentials | null): Record<string, string>
 // The provider catalog (ported from Graphium). openai-compatible is the seam for
 // any custom endpoint — Sakura AI Engine, Groq, Ollama, vLLM, LM Studio.
 export const PROVIDERS: ProviderMeta[] = [
-  { id: 'anthropic', name: 'Anthropic (Claude)', needsApiBase: false },
-  { id: 'openai', name: 'OpenAI', needsApiBase: false },
-  { id: 'openai-compatible', name: 'OpenAI互換 (Sakura AI Engine / Groq / Ollama …)', needsApiBase: true },
+  {
+    id: 'anthropic',
+    nameKey: 'provider.anthropic',
+    baseHintKey: 'provider.baseHint.anthropic',
+    needsApiBase: false,
+  },
+  {
+    id: 'openai',
+    nameKey: 'provider.openai',
+    baseHintKey: 'provider.baseHint.openai',
+    needsApiBase: false,
+  },
+  {
+    id: 'openai-compatible',
+    nameKey: 'provider.openaiCompatible',
+    baseHintKey: 'provider.baseHint.openaiCompatible',
+    needsApiBase: true,
+  },
 ]
 
-// Placeholder base-URL hints shown in the form per provider.
-export const API_BASE_HINTS: Record<string, string> = {
-  anthropic: 'https://api.anthropic.com',
-  openai: 'https://api.openai.com/v1',
-  'openai-compatible': 'https://api.openai.iniad.org/v1  (例: Sakura = https://api.ai.sakura.ad.jp/v1)',
-}
+/** The base URL a "use the AI on this computer" setup tries first (Ollama's
+ *  OpenAI-compatible endpoint) — the one local runtime with a stable default. */
+export const LOCAL_AI_BASE = 'http://localhost:11434/v1'
+
+/** A local runtime ignores the key entirely, but the OpenAI SDK refuses to make
+ *  a call without one, so "use the AI on this computer" carries this
+ *  placeholder. It is not a secret and grants nothing: without it, listing the
+ *  local models fails and the registered entry would count as "needs a key". */
+export const LOCAL_AI_KEY = 'local'
 
 // ---------------------------------------------------------------------------
 // Storage keys
@@ -120,6 +143,17 @@ export function credentialGroup(provider: string, apiBase: string | null): strin
 
 export function groupOfModel(m: LlmModelConfig): string {
   return credentialGroup(m.provider, m.apiBase)
+}
+
+/** Guess which service a pasted key belongs to, so the first-run setup can ask
+ *  for one thing (the key) instead of a provider + endpoint + model id.
+ *  Anthropic keys start with `sk-ant-`, OpenAI's with `sk-`; anything else is
+ *  unknown and the user picks. */
+export function providerOfPastedKey(key: string): Provider | null {
+  const k = key.trim()
+  if (k.startsWith('sk-ant-')) return 'anthropic'
+  if (k.startsWith('sk-')) return 'openai'
+  return null
 }
 
 /** A provider+endpoint the user has already registered at least one model on. */

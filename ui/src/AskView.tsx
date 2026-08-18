@@ -739,6 +739,7 @@ function Composer({
   onStop: () => void
 }) {
   const { t } = useTranslation()
+  const { isReady } = useLlmSettings()
   // The composer is keyed by thread, so a question handed over from another
   // screen (かんたん S9 chip → askPrefill.ts) is consumed exactly once, on the
   // mount that follows the navigation. It only fills the box — the human sends.
@@ -820,9 +821,12 @@ function Composer({
       </div>
       <div className="chat-composer-foot">
         <span className="chat-composer-hint">{t('ask:composerHint')}</span>
-        {!isMockMode && (
+        {/* Asking a question is the point of this screen; which model answers is
+            not a decision to keep on the table. The band only appears while AI
+            is not usable yet, i.e. when it names the user's next step. */}
+        {!isMockMode && !isReady && (
           <div className="chat-composer-gate">
-            <LlmGate />
+            <LlmGate plain />
           </div>
         )}
       </div>

@@ -105,10 +105,15 @@ export function AboutTab() {
                   <p className="field-help">{t('about.installHint')}</p>
                 </>
               ))}
+            {/* "HTTP 500" told nobody what to do next. The next move (network,
+                try again) is the message; the raw cause stays in the tooltip
+                for whoever is debugging. */}
             {(check.status === 'error' || check.status === 'unsupported') && (
-              <p className="field-help field-error">
+              <p
+                className="field-help field-error"
+                title={check.status === 'error' ? check.message : undefined}
+              >
                 {t('about.checkFailed')}
-                {check.status === 'error' && <> — {check.message}</>}
               </p>
             )}
           </>
