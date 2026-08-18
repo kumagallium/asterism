@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import './App.css'
 import { prefillAskQuestion } from './askPrefill'
@@ -182,7 +182,10 @@ function App() {
   }
 
   // Keep the document title and <html lang> in sync with the chosen language.
-  useEffect(() => {
+  // Before paint (useLayoutEffect, not useEffect): index.html ships lang="ja",
+  // so an English reader would otherwise have the first frame — what a screen
+  // reader picks its voice from — announced as Japanese.
+  useLayoutEffect(() => {
     document.title = t('docTitle')
     document.documentElement.lang = i18n.language.startsWith('en') ? 'en' : 'ja'
   }, [t, i18n.language])
@@ -305,10 +308,16 @@ function App() {
               <span className="side-nav-text">{t('nav.sparql')}</span>
               <span className="side-nav-en">{t('nav.sparqlTag')}</span>
             </button>
-            <div className="graph-status">
-              <span className={`status-dot ${isMockMode ? 'status-dot--mock' : 'status-dot--live'}`} />
-              {isMockMode ? t('status.mock') : t('status.live')}
-            </div>
+            {/* Only the sample-data notice is shown. The old green "データ稼働中"
+                came from a BUILD flag, not from the server: it stayed lit while
+                Home said it could not reach anything — two contradictory claims
+                on one screen. A real connection indicator needs a live check. */}
+            {isMockMode && (
+              <div className="graph-status">
+                <span className="status-dot status-dot--mock" />
+                {t('status.mock')}
+              </div>
+            )}
           </div>
         </aside>
 
@@ -350,6 +359,7 @@ function App() {
                   navigate(id ? { tab: 'ask', threadId: id } : { tab: 'ask' }, opts)
                 }
                 onAddData={() => navTo('workbench')}
+                onOpenDataset={openDataset}
               />
             )}
             {tab === 'gallery' && (

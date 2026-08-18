@@ -1,23 +1,28 @@
 {
   "citation": {
-    "cardTitle": "クリックで出どころ（来歴）を表示",
+    "cardTitle": "クリックで出どころを表示",
     "untitled": "(無題)",
     "traceHint": "出どころ",
+    "fromDataset": "{{name}} より",
     "vocabTitle": "データセットで「{{className}}」のことばを表示",
     "vocabLink": "ことば: {{className}} →"
   },
   "trace": {
-    "ariaLabel": "出どころ（来歴トレース）",
-    "eyebrow": "出どころ · provenance",
-    "title": "来歴をたどる",
-    "sub": "この値が<1>どの曲線・論文・取り込み</1>から来たかを、たどって示します。",
-    "empty": "引用カードを選ぶと、その値の出どころ（曲線 → 試料 → 論文 → 取り込み）が表示されます。",
-    "loading": "来歴を解決中…",
+    "ariaLabel": "出どころ",
+    "eyebrow": "出どころ",
+    "title": "出どころをたどる",
+    "sub": "この値が<1>どのデータ・どのファイル・どの取り込み</1>から来たかを、たどって示します。",
+    "empty": "引用カードを選ぶと、その値の出どころ（元のデータ → ファイル → 取り込み）が表示されます。",
+    "loading": "出どころを調べています…",
     "legendData": "データ",
     "legendProcess": "処理",
     "vocabTitle": "データセットで「{{className}}」のことばを表示",
     "vocabLink": "ことばを見る",
-    "noRecord": "この項目に対する来歴は記録されていません。",
+    "noRecord": "この項目の出どころは、ここには記録されていません。ID は下からコピーできます。",
+    "openDataset": "データセットを開く",
+    "failed": "出どころを取得できませんでした。",
+    "retry": "もう一度",
+    "tech": "詳しい内容（技術情報）",
     "copyIri": "クリックで ID をコピー",
     "copied": "コピーしました",
     "idLabel": "ID",
@@ -43,7 +48,23 @@
     "composition": "組成",
     "id": "ID",
     "title": "タイトル",
-    "doi": "DOI"
+    "doi": "DOI",
+    "propertyY": "測る量",
+    "yMax": "最大値",
+    "yMin": "最小値"
+  },
+  "field": {
+    "propertyY": "測る量",
+    "yMax": "最大値",
+    "yMin": "最小値",
+    "composition": "組成",
+    "paper": "論文",
+    "title": "題名",
+    "name": "名前",
+    "measurements": "測定",
+    "doi": "DOI",
+    "DOI": "DOI",
+    "id": "ID"
   },
   "count": {
     "file": "ファイル"

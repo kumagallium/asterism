@@ -17,19 +17,19 @@
     "vocab": "Shared terms",
     "jobs": "Activity",
     "workbench": "Add data",
-    "sparql": "Advanced",
+    "sparql": "Developer",
     "sparqlTag": "SPARQL"
   },
   "status": {
-    "mock": "Ask / Datasets: demo data (mock)",
-    "live": "Data live"
+    "mock": "Showing sample data"
   },
   "updater": {
     "confirmText": "The app will restart to update. Anything in progress (AI reading, ingesting) will be interrupted.",
     "confirmCancel": "Not now",
     "confirmGo": "Restart and update",
-    "installFailed": "The update failed. Check your network connection and try again.",
-    "checkFailed": "Couldn't check for updates. Please try again later."
+    "later": "Later",
+    "laterTitle": "Dismiss this notice (you can update any time from Settings → This app)",
+    "installFailed": "The update failed. Check your network connection and try again."
   },
   "portFallback": {
     "text": "Another program is using the same entrance, so your settings are temporary this time. Quit that program and open Asterism again to get them back.",
@@ -44,7 +44,7 @@
     "workbench": {
       "eyebrow": "Create",
       "title": "Add data",
-      "sub": "Build connected data from a CSV or JSON, with AI"
+      "sub": "Turn your measurement files into connected data, with AI"
     },
     "ask": {
       "eyebrow": "Use",
@@ -79,7 +79,7 @@
     "sparql": {
       "eyebrow": "Developer",
       "title": "SPARQL",
-      "sub": "Read-only queries"
+      "sub": "Write read-only queries directly. For everyday questions, use Ask"
     }
   }
 }

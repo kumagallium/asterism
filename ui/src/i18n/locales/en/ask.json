@@ -1,9 +1,9 @@
 {
   "intro": "Ask about your published data in plain language. Every answer shows where each number came from. Follow-up questions build on the earlier answers.",
-  "demoBadge": "demo data (mock)",
+  "demoBadge": "demo sample data",
   "inputPlaceholder": "Ask about your published data in plain language",
   "inputPlaceholderLocked": "You can ask once AI is set up",
-  "submitTitle": "To ask, finish setting up AI in Settings (⚙, bottom left)",
+  "submitTitle": "You can send once AI is set up (Settings: ⚙, bottom left)",
   "answering": "Answering…",
   "send": "Send",
   "composerHint": "Enter to send · Shift+Enter for a new line",
@@ -11,6 +11,7 @@
   "interrupted": "The page was closed while this answer was pending, so it never arrived.",
   "failed": "Could not get an answer.",
   "retry": "Retry",
+  "retryBusy": "You can't re-send while an answer is on its way",
   "stop": "Stop",
   "stopTitle": "Stop waiting for the answer (Retry re-sends it)",
   "stopped": "Stopped waiting for the answer.",
@@ -34,7 +35,7 @@
     "items": [
       "Which thermoelectric material has the highest ZT?",
       "Which samples contain SnSe?",
-      "What kinds does the new schema have?"
+      "What kinds of data does the new design have?"
     ]
   },
   "threads": {
@@ -77,7 +78,7 @@
     "noSources": "Don't rely on these numbers — try rephrasing"
   },
   "citations": {
-    "heading": "Evidence (citations)",
+    "heading": "Sources (citations)",
     "hint": "Click to show the source"
   },
   "notes": {
@@ -92,7 +93,7 @@
     "openSettings": "Open Settings"
   },
   "sparql": {
-    "summary": "The query that ran (SPARQL · {{n}})",
+    "summary": "Technical details · {{n}} queries run",
     "readonlyTag": "read-only",
     "hint": "These are the read-only queries this answer ran (verified tools use a fixed template; the escape is AI-generated).",
     "copy": "Copy SPARQL",

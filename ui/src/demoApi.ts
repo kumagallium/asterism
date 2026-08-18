@@ -305,7 +305,11 @@ export interface AskHistoryTurn {
  * so follow-ups resolve. Omit/empty for a single question.
  *
  * `signal` aborts the wait (the chat's stop button); the agent's own work is
- * not cancelled server-side, the caller just stops listening. */
+ * not cancelled server-side, the caller just stops listening.
+ *
+ * `language` is the UI language, so the answer prose comes back in the language
+ * the reader is reading the screen in (the agent used to answer in Japanese
+ * whatever the UI said). Agents that don't know the field ignore it. */
 export async function ask(
   question: string,
   creds?: LlmCredentials | null,
@@ -317,13 +321,16 @@ export async function ask(
     const hit = ASK_FIXTURES.find((f) => f.match(question))
     return hit ? hit.build() : askFallback()
   }
+  const language = i18n.language.startsWith('en') ? 'en' : 'ja'
   const res = await fetch(`${AGENT_BASE}/demo/ask`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       ...llmHeaders(creds ?? null),
     },
-    body: JSON.stringify(history.length > 0 ? { question, history } : { question }),
+    body: JSON.stringify(
+      history.length > 0 ? { question, history, language } : { question, language },
+    ),
     signal,
   })
   if (!res.ok) {

@@ -1,27 +1,22 @@
 // アプリ更新のお知らせバナー（デスクトップ版のみ・画面最上部の全幅ストリップ）。
 // updater.ts が更新を見つけると CustomEvent で知らせ、ここが
-// 「Asterism X.Y.Z が利用できます ［今すぐ確認］［再起動して更新］」を出す。
-// Graphium の UpdateBanner と同じ役割・同じ 2 ボタン構成。
+// 「Asterism X.Y.Z が利用できます ［あとで］［再起動して更新］」を出す。
 //
-// バナーは見つけた時点の版を持ち続けるので、表示中に次のリリースが出ると古い版を
-// 案内し続ける。「今すぐ確認」で取り直せる（新しい版が見つかれば同じイベントで
-// 差し替わり、最新に追いついていればバナーを閉じる）。
+// 更新は「今でなくてよい」情報なので、［あとで］でこのセッション中は引っ込む
+// （ウィザードの途中でも画面上部を占有し続けない）。次の起動・次の確認でまた出る。
+// 更新の再確認は保守操作なので、設定 →「このアプリ」の「今すぐ確認」に一本化した
+// （バナーに 2 つの似た選択肢を並べると、初見者はどちらを押すか迷う）。
 
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  checkForUpdates,
   type DownloadProgress,
   pendingUpdate,
   UPDATE_AVAILABLE_EVENT,
   type UpdateAvailableDetail,
 } from './updater'
 
-type Phase = 'idle' | 'rechecking' | 'installing'
-interface Failure {
-  step: 'check' | 'install'
-  message: string
-}
+type Phase = 'idle' | 'installing'
 
 export function UpdateBanner() {
   // 更新固有の文言は settings、確認 2 段めの文言は common（settings.json は別 chain 所有）
@@ -30,7 +25,9 @@ export function UpdateBanner() {
   const [update, setUpdate] = useState<UpdateAvailableDetail | null>(() => pendingUpdate())
   const [phase, setPhase] = useState<Phase>('idle')
   const [progress, setProgress] = useState<DownloadProgress | null>(null)
-  const [error, setError] = useState<Failure | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  // 「あとで」で引っ込めた版。次の版が見つかれば（イベントで update が変わる）また出す。
+  const [dismissed, setDismissed] = useState<string | null>(null)
   // 再起動はデスクトップ版では同梱のローカルサーバごと落ちる＝ S3「AI が読んでいます」
   // や S5「取り込み中」を巻き込む。押した瞬間に実行せず、何が中断されるかを言ってから
   // もう一度押してもらう（K10 と同じ「確認は 1 本」の形）。
@@ -55,24 +52,12 @@ export function UpdateBanner() {
       // 成功すればアプリが再起動する＝ここには戻らない
       await update.install(setProgress)
     } catch (e) {
-      setError({ step: 'install', message: e instanceof Error ? e.message : String(e) })
+      setError(e instanceof Error ? e.message : String(e))
       setPhase('idle')
     }
   }
 
-  async function onRecheck() {
-    setPhase('rechecking')
-    setError(null)
-    try {
-      const result = await checkForUpdates()
-      if (result.status === 'up-to-date') setUpdate(null)
-      else if (result.status === 'error') setError({ step: 'check', message: result.message })
-    } finally {
-      setPhase((p) => (p === 'rechecking' ? 'idle' : p))
-    }
-  }
-
-  if (!update) return null
+  if (!update || update.version === dismissed) return null
 
   const busy = phase !== 'idle'
   const pct =
@@ -112,10 +97,11 @@ export function UpdateBanner() {
             <button
               type="button"
               className="btn btn--ghost btn--sm"
-              onClick={onRecheck}
+              onClick={() => setDismissed(update.version)}
               disabled={busy}
+              title={t('common:updater.laterTitle')}
             >
-              {phase === 'rechecking' ? t('about.checking') : t('about.checkNow')}
+              {t('common:updater.later')}
             </button>
             <button
               type="button"
@@ -131,10 +117,8 @@ export function UpdateBanner() {
       {/* 生の Tauri/Rust エラー（英語）は本文に出さず title に退避する — 共有シェルの
           通常表示は平易文だけにし、次の一手をその文が持つ。 */}
       {error && (
-        <span className="update-banner-error" title={error.message}>
-          {error.step === 'install'
-            ? t('common:updater.installFailed')
-            : t('common:updater.checkFailed')}
+        <span className="update-banner-error" title={error}>
+          {t('common:updater.installFailed')}
         </span>
       )}
     </div>

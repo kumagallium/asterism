@@ -38,6 +38,53 @@ export const KIND_TO_CLASS: Record<string, string> = {
   ingestion: 'IngestionActivity',
 }
 
+/**
+ * The vocabulary class an Ask citation (or provenance step) links to, or
+ * undefined when nothing known matches.
+ *
+ * The seeded starrydata kinds keep their mapping; ANY other kind links too as
+ * soon as it names a class that actually exists in a catalogued dataset. Without
+ * that second branch the Ask⇄ことば link appeared only for starrydata data, and
+ * vanished silently for the datasets a person designed themselves.
+ */
+export function vocabClassFor(kind: string, known?: ReadonlySet<string>): string | undefined {
+  const seeded = KIND_TO_CLASS[kind]
+  if (seeded) return seeded
+  return kind && known?.has(kind) ? kind : undefined
+}
+
+/** Class names present in the catalogued datasets — the `known` set above. */
+export function catalogClassNames(datasets: readonly CatalogDataset[]): Set<string> {
+  const out = new Set<string>()
+  for (const d of datasets) for (const c of d.classes) out.add(c)
+  return out
+}
+
+/** The dataset slug of a minted IRI (`…/datasets/<slug>/…`, ADR K13), or null
+ *  when this IRI carries no dataset segment. Pure reading — nothing is minted. */
+export function datasetSlugFromIri(iri: string): string | null {
+  const m = /\/datasets\/([^/#?]+)\//.exec(iri)
+  return m ? m[1] : null
+}
+
+/**
+ * Which catalogued dataset minted `iri` — or undefined when it cannot be told.
+ *
+ * Matched on the slug that appears in the dataset's OWN term IRIs (from its
+ * alignment report), never guessed from its display name: a renamed dataset
+ * still resolves, and a wrong dataset is never offered as "the source".
+ */
+export function findDatasetByIri(
+  iri: string,
+  datasets: readonly CatalogDataset[],
+): CatalogDataset | undefined {
+  const slug = datasetSlugFromIri(iri)
+  if (!slug) return undefined
+  return datasets.find((d) =>
+    [...d.classIris, ...d.predicates].some((term) => datasetSlugFromIri(term) === slug),
+  )
+}
+
 // ---- ontology layer -------------------------------------------------------
 
 export interface OntologyEntry {
@@ -298,9 +345,35 @@ export async function promoteDataset(
   return (await res.json()) as { triples_promoted: number; alignment: AlignmentReport }
 }
 
+/**
+ * The message a failed catalog call throws.
+ *
+ * The api now answers these with a finished human sentence
+ * (`{"detail":"このデータはまだ公開されていないため…"}`), and the screens show
+ * the thrown message as-is — so wrapping it in `retract failed (HTTP 400): {…}`
+ * buried the one readable part inside an English/JSON shell. When the body
+ * carries a string `detail`, that sentence IS the message; anything else keeps
+ * the old shape so an unexpected failure still names its operation and status.
+ *
+ * (The promote path builds its own message inline and is deliberately left
+ * alone: the kantan stop card classifies it by the "(HTTP …)" prefix.)
+ */
 async function _errText(res: Response, op: string): Promise<string> {
-  const detail = await res.text().catch(() => '')
-  return `${op} failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`
+  const body = await res.text().catch(() => '')
+  const detail = _detailSentence(body)
+  if (detail) return detail
+  return `${op} failed (HTTP ${res.status})${body ? `: ${body}` : ''}`
+}
+
+/** The `detail` string of a FastAPI error body, or '' when there isn't one. */
+function _detailSentence(body: string): string {
+  if (!body.trimStart().startsWith('{')) return ''
+  try {
+    const parsed = JSON.parse(body) as { detail?: unknown }
+    return typeof parsed.detail === 'string' ? parsed.detail.trim() : ''
+  } catch {
+    return ''
+  }
 }
 
 /** #20 P3: withdraw a promoted dataset from the citable corpus (tombstone, not

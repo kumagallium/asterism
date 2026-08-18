@@ -115,9 +115,12 @@ export function HomeView({
             <Stat value={fmt(stats?.classes)} label={t('home:stat.classes')} tone="primary" />
           </div>
           {/* SPARQL 統計だけ取れない配備（書き込みトークン未設定/raw SPARQL 非公開）で
-              「—」を黙って出すと故障に見える。原因への手がかりを一言添える。 */}
+              「—」を黙って出すと故障に見える。本文は「使い続けて大丈夫」と次の一手
+              だけにし、管理者にしか意味のない設定名は title に退避する。 */}
           {stats && stats.facts == null && stats.classes == null && (
-            <p className="home-stats-note">{t('home:stat.unavailable')}</p>
+            <p className="home-stats-note" title={t('home:stat.unavailableTitle')}>
+              {t('home:stat.unavailable')}
+            </p>
           )}
         </section>
       )}

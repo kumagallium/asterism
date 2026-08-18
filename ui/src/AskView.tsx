@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -23,7 +23,13 @@ import {
 } from './askThreads'
 import { CitationCard } from './CitationCard'
 import { ask, isAbortError, isMockMode, type AskResponse, type Citation } from './demoApi'
-import { getCatalogDatasets, isAskable } from './galleryApi'
+import {
+  catalogClassNames,
+  findDatasetByIri,
+  getCatalogDatasets,
+  isAskable,
+  type CatalogDataset,
+} from './galleryApi'
 import {
   AddIcon,
   BrandMark,
@@ -61,6 +67,16 @@ function classifyAskError(raw: string): AskErrorKind {
   return 'other'
 }
 
+/** What a citation needs from the catalog, resolved once per catalog load.
+ *  Both are deterministic reads of the IRI a citation already carries — nothing
+ *  is inferred from a dataset's display name and no IRI is ever constructed. */
+interface AskCatalog {
+  /** Class names that exist in catalogued datasets (the ことば link, ASK-38). */
+  vocabClasses: ReadonlySet<string>
+  /** The dataset that minted an ID, when it can be told. */
+  datasetFor: (iri: string) => CatalogDataset | undefined
+}
+
 // Ask REQUIRES a configured model: the AI uses it to route the question to the
 // verified tools (it only picks the tool + args; the facts/citations come from the
 // deterministic tool, not the AI). The active model + its key come from Settings
@@ -85,6 +101,7 @@ export function AskView({
   threadId,
   onSelectThread,
   onAddData,
+  onOpenDataset,
 }: {
   onShowVocab?: (className: string) => void
   /** Active thread id from the route (null = new chat). */
@@ -93,6 +110,8 @@ export function AskView({
   onSelectThread: (id: string | null, opts?: { replace?: boolean }) => void
   /** Go to データを追加 — the next step when nothing is published yet. */
   onAddData?: () => void
+  /** Open a dataset — the way out when a citation has no recorded source trail. */
+  onOpenDataset?: (id: string) => void
 }) {
   const { t } = useTranslation()
   const threads = useAskThreads()
@@ -101,23 +120,39 @@ export function AskView({
   const keyMissing = !isReady && !isMockMode
   const conversationEmpty = !thread || thread.turns.length === 0
 
-  // Ask only ever cites PUBLISHED data (ADR K3). With nothing published the AI
-  // would answer "no match" and the reader would not learn why — so the empty
-  // state says what to do instead. 'unknown' = the catalog could not be read:
-  // fail open to the normal introduction rather than a wrong "you have nothing".
-  const [published, setPublished] = useState<'unknown' | 'none' | 'some'>('unknown')
+  // The catalog backs three things here: whether anything is published (the empty
+  // state), which dataset a citation's ID belongs to, and which class names exist
+  // (the ことば link). Best-effort — every consumer treats "not loaded" as "say
+  // nothing extra" rather than showing an error.
+  const [datasets, setDatasets] = useState<CatalogDataset[] | null>(null)
   useEffect(() => {
-    if (isMockMode || !conversationEmpty) return
     let cancelled = false
     getCatalogDatasets()
       .then((ds) => {
-        if (!cancelled) setPublished(ds.some(isAskable) ? 'some' : 'none')
+        if (!cancelled) setDatasets(ds)
       })
       .catch(() => {})
     return () => {
       cancelled = true
     }
   }, [conversationEmpty])
+
+  // Ask only ever cites PUBLISHED data (ADR K3). With nothing published the AI
+  // would answer "no match" and the reader would not learn why — so the empty
+  // state says what to do instead. 'unknown' = the catalog could not be read:
+  // fail open to the normal introduction rather than a wrong "you have nothing".
+  const published: 'unknown' | 'none' | 'some' =
+    isMockMode || datasets === null ? 'unknown' : datasets.some(isAskable) ? 'some' : 'none'
+
+  // Everything a citation card / the trace panel needs from the catalog. Both
+  // derivations are deterministic reads of the IRI the citation already carries.
+  const catalog = useMemo<AskCatalog>(() => {
+    const list = datasets ?? []
+    return {
+      vocabClasses: catalogClassNames(list),
+      datasetFor: (iri: string) => findDatasetByIri(iri, list),
+    }
+  }, [datasets])
 
   // An example chip only FILLS the box — a question is sent by a human
   // (askPrefill.ts states the same rule for the かんたん S9 hand-off). The
@@ -266,6 +301,7 @@ export function AskView({
           published={published}
           onOpenSettings={() => openSettings('ai')}
           onAddData={onAddData}
+          catalog={catalog}
         />
 
         <Composer
@@ -285,6 +321,16 @@ export function AskView({
           citation={selected}
           onShowVocab={onShowVocab}
           onClose={() => setPicked(null)}
+          datasetName={catalog.datasetFor(selected.iri)?.name}
+          onOpenDataset={
+            onOpenDataset
+              ? () => {
+                  const ds = catalog.datasetFor(selected.iri)
+                  if (ds) onOpenDataset(ds.id)
+                }
+              : undefined
+          }
+          vocabClasses={catalog.vocabClasses}
         />
       )}
     </div>
@@ -543,6 +589,7 @@ function Conversation({
   published,
   onOpenSettings,
   onAddData,
+  catalog,
 }: {
   thread: AskThread | undefined
   selectedIri: string | null
@@ -556,6 +603,7 @@ function Conversation({
   published: 'unknown' | 'none' | 'some'
   onOpenSettings: () => void
   onAddData?: () => void
+  catalog: AskCatalog
 }) {
   const { t } = useTranslation()
   const endRef = useRef<HTMLDivElement | null>(null)
@@ -643,6 +691,7 @@ function Conversation({
               retryable={!busy}
               onExample={onExample}
               onOpenSettings={onOpenSettings}
+              catalog={catalog}
             />
           ),
         )}
@@ -661,6 +710,7 @@ function AnswerMessage({
   retryable,
   onExample,
   onOpenSettings,
+  catalog,
 }: {
   turn: AskAssistantTurn
   selectedIri: string | null
@@ -670,6 +720,7 @@ function AnswerMessage({
   retryable: boolean
   onExample: (question: string) => void
   onOpenSettings: () => void
+  catalog: AskCatalog
 }) {
   const { t } = useTranslation()
   // `answered: false` = the agent produced no answer text at all (attempts
@@ -707,11 +758,14 @@ function AnswerMessage({
                 {t('ask:error.openSettings')}
               </button>
             )}
+            {/* Disabled while another answer is on its way — say so, so the dead
+                button is not read as "this is broken too". */}
             <button
               type="button"
               className="btn btn--ghost btn--sm"
               onClick={onRetry}
               disabled={!retryable}
+              title={retryable ? undefined : t('ask:retryBusy')}
             >
               <RetryIcon size={14} /> {t('ask:retry')}
             </button>
@@ -737,6 +791,7 @@ function AnswerMessage({
             selectedIri={selectedIri}
             onSelectCitation={onSelectCitation}
             onShowVocab={onShowVocab}
+            catalog={catalog}
           />
         )}
       </div>
@@ -751,11 +806,13 @@ function AnswerCard({
   selectedIri,
   onSelectCitation,
   onShowVocab,
+  catalog,
 }: {
   result: AskResponse
   selectedIri: string | null
   onSelectCitation: (c: Citation) => void
   onShowVocab?: (className: string) => void
+  catalog: AskCatalog
 }) {
   const { t } = useTranslation()
   const verified = result.verifiedTools?.length ?? 0
@@ -845,6 +902,8 @@ function AnswerCard({
                 selected={selectedIri === c.iri}
                 onSelect={onSelectCitation}
                 onShowVocab={onShowVocab}
+                datasetName={catalog.datasetFor(c.iri)?.name}
+                vocabClasses={catalog.vocabClasses}
               />
             ))}
           </div>

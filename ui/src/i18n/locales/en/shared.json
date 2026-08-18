@@ -1,28 +1,33 @@
 {
   "citation": {
-    "cardTitle": "Click to show the source (provenance)",
+    "cardTitle": "Click to show where this came from",
     "untitled": "(untitled)",
     "traceHint": "Source",
+    "fromDataset": "from {{name}}",
     "vocabTitle": "Show the words of \"{{className}}\" in Datasets",
     "vocabLink": "Words: {{className}} →"
   },
   "trace": {
-    "ariaLabel": "Source (provenance trace)",
-    "eyebrow": "Source · provenance",
-    "title": "Trace the provenance",
-    "sub": "Shows where this value came from by tracing <1>which curve, paper, and ingestion</1> it originated from.",
-    "empty": "Select a citation card to see that value's source (curve → sample → paper → ingestion).",
-    "loading": "Resolving provenance…",
+    "ariaLabel": "Source",
+    "eyebrow": "Source",
+    "title": "Trace the source",
+    "sub": "Shows <1>which data, which file and which ingest</1> this value came from.",
+    "empty": "Select a citation card to see where that value came from (original data → file → ingest).",
+    "loading": "Finding the source…",
     "legendData": "Data",
     "legendProcess": "Process",
     "vocabTitle": "Show the words of \"{{className}}\" in Datasets",
     "vocabLink": "View the words",
-    "noRecord": "No provenance is recorded for this item.",
+    "noRecord": "No source trail is recorded here for this item. You can copy its ID below.",
+    "openDataset": "Open the dataset",
+    "failed": "Couldn't load the source.",
+    "retry": "Try again",
+    "tech": "Technical details",
     "copyIri": "Click to copy the ID",
     "copied": "Copied",
     "idLabel": "ID",
     "openDescribe": "Open this ID's page",
-    "close": "Close the provenance panel"
+    "close": "Close the source panel"
   },
   "step": {
     "curve": "Measurement curve",
@@ -43,7 +48,23 @@
     "composition": "Composition",
     "id": "ID",
     "title": "Title",
-    "doi": "DOI"
+    "doi": "DOI",
+    "propertyY": "Property",
+    "yMax": "Maximum",
+    "yMin": "Minimum"
+  },
+  "field": {
+    "propertyY": "Property",
+    "yMax": "Maximum",
+    "yMin": "Minimum",
+    "composition": "Composition",
+    "paper": "Paper",
+    "title": "Title",
+    "name": "Name",
+    "measurements": "Measurements",
+    "doi": "DOI",
+    "DOI": "DOI",
+    "id": "ID"
   },
   "count": {
     "file": "files"
