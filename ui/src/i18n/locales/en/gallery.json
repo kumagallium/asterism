@@ -3,12 +3,13 @@
     "edit": "Edit name",
     "save": "Save",
     "cancel": "Cancel",
-    "placeholder": "Dataset name"
+    "placeholder": "Dataset name",
+    "error": "Could not rename this dataset"
   },
   "status": {
     "pub": "Published",
     "draft": "Draft",
-    "design": "Designing"
+    "design": "Not loaded yet"
   },
   "intro": "Your datasets. Open a card to check its contents, publish it, or add new measurements.",
   "listError": {
@@ -17,7 +18,7 @@
     "retry": "Reload"
   },
   "focusBanner": {
-    "label": "Kind of data behind this Ask citation: ",
+    "label": "The kind of data this answer used: ",
     "sub": "This answer is based on data of this kind."
   },
   "loading": "Loading datasets…",
@@ -39,12 +40,12 @@
   "crosswalkBand": {
     "title": "Connections",
     "en": "crosswalk",
-    "sub": "Connect datasets that share the same concept (composition, crystal system, author…) with <1>a single bridge</1>. It can answer \"how many datasets report this value?\" across datasets.",
-    "users": "<0>{{n}}</0> datasets bridged",
+    "sub": "Connect datasets that share the same concept (composition, crystal system, author…) with <1>one connection</1>. It can answer \"how many datasets report this value?\" across datasets.",
+    "users": "<0>{{n}}</0> datasets connected",
     "open": "Open"
   },
   "tab": {
-    "structure": "Design",
+    "structure": "Contents",
     "files": "Files",
     "connect": "Connections",
     "tools": "Tools",
@@ -59,6 +60,7 @@
   },
   "card": {
     "publish": "Publish for search",
+    "publishUpdate": "Update publication",
     "retract": "Retract",
     "reinstate": "Reinstate",
     "more": "More actions",
@@ -87,7 +89,8 @@
   },
   "connect": {
     "head": "This dataset's connections",
-    "concept": "across {{concept}}",
+    "concept": "Connected on {{concept}}",
+    "unnamed": "Connection {{n}}",
     "none": "This dataset is not yet connected to other data.",
     "seeAll": "Manage connections",
     "seeMap": "View overview",
@@ -116,15 +119,14 @@
     "republish": "Publish it again"
   },
   "design": {
-    "title": "Design (what is inside)",
+    "title": "Contents (kinds of data and fields)",
+    "navRules": "What each column means",
+    "navGrounding": "Match standard words",
     "classCount": "{{n}} kinds",
     "noClasses": "No kind-of-data information.",
     "classesHead": "Kinds of data",
     "predicatesHead": "Fields in use (from the actual data)",
     "diagramSummary": "Structure diagram",
-    "reusesHead": "Standard words borrowed from elsewhere (detected from the actual data)",
-    "classCount_one": "{{n}} class",
-    "classCount_other": "{{n}} classes",
     "advisoryHead": "Worth knowing",
     "advisoryNote": "Use “review the design” below to have the AI add the links."
   },
@@ -134,7 +136,7 @@
     "projectionIntro": "How each column of your file is recorded, and as which item — built mechanically from the saved rules, no AI involved. The actual rules that run (RML) are in the files below.",
     "subject": "How the ID is built",
     "iterator": "Iteration unit",
-    "colProperty": "Field",
+    "colProperty": "Item",
     "colValue": "How the value is produced",
     "colType": "Type",
     "colUnit": "Unit",
@@ -174,15 +176,23 @@
     }
   },
   "sourceKind": {
-    "tabular": "CSV/TSV/instrument text"
+    "tabular": "Excel / CSV / instrument file"
+  },
+  "fileKind": {
+    "tabular": "Table",
+    "json": "JSON",
+    "document": "Document"
   },
   "progress": {
     "materialize": "Converting your data…",
     "preparing": "Getting ready to load…",
     "converting": "Reading the document…",
-    "ingesting": "Ingesting…",
-    "ingestingPct": "Ingesting… {{pct}}%",
+    "ingesting": "Loading into your unpublished draft…",
+    "ingestingPct": "Loading into your unpublished draft… {{pct}}%",
     "unknown": "Working…"
+  },
+  "job": {
+    "elapsedPlain": "{{mm}}m {{ss}}s elapsed · usually 1–3 min"
   },
   "error": {
     "conflictTitle": "Cannot delete while it is published",
@@ -198,7 +208,8 @@
     "head": "Import data",
     "noRml": "This design has no ingest rules yet, so it cannot be ingested. Create them via \"Add data\" (the AI designs them), and you will be able to load safely from here.",
     "done": "✓ Loaded into the unpublished draft ({{n}} facts). Next, press \"Publish for search\" below so Ask can cite it.",
-    "note": "On approval, the ingest rules run and the result lands in an <1>unpublished draft</1> (visible to no one until you publish). Only safety-vetted transformations run — no AI-written code is executed.",
+    "note": "Loads the file into your unpublished draft using the saved design (nobody can see it until you publish).",
+    "keepGoing": "You can leave this screen — loading keeps going, and coming back picks the progress up again.",
     "noteDocument": "On approval, the saved document is structured into sections → paragraphs → sentences and loaded into the unpublished draft (visible to no one until you publish). Published data is untouched.",
     "sourceDocument": "document",
     "sourceSaved": "The design-time {{source}} is saved{{files}}. Ingest with no re-attach.",
@@ -212,8 +223,11 @@
     "cancelled": "Ingest cancelled. Any partially written data has been discarded — nothing reached the published surface."
   },
   "append": {
-    "head": "Add new data to the published data (for instrument feeds)",
-    "note": "Ingest <strong>only</strong> the new batch {{source}} and append it to the published data as-is (only the new part is processed, so it is fast even for large data). Existing facts and IDs are unchanged and identical rows never duplicate. The design and first version were approved at publish time, so appends skip the gate (for continuous device logs). Match the filename to the source filename fixed at design time (the design's <code>source</code> field).",
+    "head": "Add new measurements (the same instrument files as they are)",
+    "note": "Drop a new file from the same instrument and only that part is added to your published data. Rows that are already there are not duplicated.",
+    "noteFilename": "Give the file the same name as the first file you loaded ({{names}}).",
+    "nameMismatchTitle": "This file's name differs from the first one",
+    "nameMismatchBody": "Rename it to match the first file you loaded ({{expected}}) and drop it again (if your instrument adds a date to the name, only the name needs changing — the contents are fine).",
     "progress": "{{seq}} batches appended so far{{appended}}.",
     "progressAppended": " (+~{{n}} facts)",
     "pickPlaceholder": "Choose the batch {{source}} to append",
@@ -240,7 +254,7 @@
     "cancel": "Not now"
   },
   "reingest": {
-    "head": "Update data (re-ingest)",
+    "head": "Replace everything (rebuild from a new file)",
     "notePrefix": "Ingest the new {{source}} as a <strong>separate draft version</strong> (the published data stays as-is).",
     "notePublished": "<strong>The current published version (v{{version}}) keeps being cited by Ask</strong> during ingest, so answers are not interrupted. When done, \"Update publication (re-publish)\" below switches <strong>v{{version}} → v{{next}}</strong> and the old version is cleaned up automatically.",
     "noteUnpublished": "Re-ingests an unpublished draft (no effect on Ask). When done, you can publish it via \"Publish for search\" below.",
@@ -258,10 +272,11 @@
   },
   "redesign": {
     "head": "Revise the design",
-    "note": "Reopen this design and its ingest rules from \"Add data\" to fix or adjust them, then save (it updates the same dataset — no need to delete and recreate). After saving, apply the data via \"Update data (re-ingest)\".",
+    "note": "Review the column meanings and links the AI read. Your fixes become a new version of the same dataset in the draft and take over when you publish — no need to delete and recreate.",
     "noProposal": "This dataset has no stored design to reopen from \"Add data\" (it was created before the design was persisted). Please recreate it instead.",
     "open": "Revise the design",
-    "loading": "Loading the design…"
+    "loading": "Loading the design…",
+    "error": "Could not load the design to review"
   },
   "lifecycle": {
     "head": "Lifecycle actions",
@@ -282,7 +297,7 @@
   },
   "docAppend": {
     "head": "Add a document (to this dataset)",
-    "note": "Add one more Word <0>.docx</0> / structured XML <1>.xml</1> / PDF, and it is structured into sections → paragraphs → sentences and <2>appended straight to your published data</2>. From then on, search and citation in the \"Tools\" tab <3>cover the added document too</3> (for accumulating meeting minutes). <4>.docx</4> and PDF are auto-converted to XML server-side (the converter and its version are recorded in the file's history).",
+    "note": "Add one more Word / PDF / XML document and it is split sentence by sentence straight into your published data, so \"Ask\" can search and cite the added document too (for accumulating meeting minutes).",
     "appended": "{{n}} document(s) appended so far.",
     "pick": "Choose a document (Word / PDF / XML)",
     "noFile": "Choose a document to add",
@@ -297,9 +312,9 @@
   "api": {
     "ontologyDescription": "A design saved from \"Add data\" ({{date}}). A draft, not published yet.",
     "stage": {
-      "designBadge": "Design only (not ingested)",
-      "ingestedBadge": "Ingested into draft",
-      "promotedBadge": "Published (citable in Ask)"
+      "designBadge": "Not loaded yet (design saved)",
+      "ingestedBadge": "Draft (before publishing)",
+      "promotedBadge": "Published (you can ask about it)"
     },
     "rmlSummary": {
       "promoted": "Ingest rules (loaded into the published data · {{n}} facts)",

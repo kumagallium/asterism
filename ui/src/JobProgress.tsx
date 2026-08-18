@@ -5,19 +5,25 @@ import { useTranslation } from 'react-i18next'
  * Reassuring progress card for the long (1-6 min) LLM jobs. The backend streams
  * lifecycle events (started/running + generation progress) and a ~15s heartbeat,
  * not token-by-token text, so we can't show a real % — instead we show a live
- * elapsed timer, an indeterminate animated bar, the expected duration, the last
- * status, and a liveness line ("server responded Ns ago", switching to a warning
- * past 45s of silence while EventSource auto-reconnects). The cancel button asks
- * the server to STOP the job (the 400-minute-runaway guard) — it disables itself
- * on the first click and the stream's terminal `cancelled` event settles the UI.
+ * elapsed timer, an indeterminate animated bar, the expected duration and the
+ * last status. The connection only speaks up when it has gone quiet (>45s, while
+ * EventSource auto-reconnects): a per-second "server responded 3s ago" is the
+ * machine reporting on itself, and it said nothing the reader could act on. The
+ * cancel button asks the server to STOP the job (the 400-minute-runaway guard) —
+ * it disables itself on the first click and the stream's terminal `cancelled`
+ * event settles the UI.
  *
- * (Moved verbatim from WorkbenchView.tsx so the kantan wizard shares it.)
+ * `plain` is the kantan face of the same card: elapsed time and the expected
+ * wait, without the transport status. The detail layer keeps both.
+ *
+ * (Moved from WorkbenchView.tsx so the kantan wizard shares it.)
  */
 export function JobProgress({
   label,
   status,
   lastPulseAt,
   onCancel,
+  plain,
 }: {
   label: string
   status: string
@@ -25,6 +31,8 @@ export function JobProgress({
   lastPulseAt: number | null
   /** Requests a server-side cancel. A rejection re-arms the button for a retry. */
   onCancel: () => void | Promise<void>
+  /** かんたん層: drop the job status from the meta line and shorten the estimate. */
+  plain?: boolean
 }) {
   const { t } = useTranslation()
   const [elapsed, setElapsed] = useState(0)
@@ -77,15 +85,15 @@ export function JobProgress({
         <span />
       </div>
       <div className="job-progress-meta">
-        {showStatus
-          ? t('workbench:job.elapsedStatus', { mm, ss, status })
-          : t('workbench:job.elapsed', { mm, ss })}
+        {plain
+          ? t('gallery:job.elapsedPlain', { mm, ss })
+          : showStatus
+            ? t('workbench:job.elapsedStatus', { mm, ss, status })
+            : t('workbench:job.elapsed', { mm, ss })}
       </div>
-      {pulseAgeSec !== null && (
-        <div className={`job-progress-pulse${silent ? ' warn' : ''}`}>
-          {silent
-            ? t('workbench:job.silent', { s: pulseAgeSec })
-            : t('workbench:job.pulse', { s: pulseAgeSec })}
+      {silent && (
+        <div className="job-progress-pulse warn">
+          {t('workbench:job.silent', { s: pulseAgeSec })}
         </div>
       )}
     </div>

@@ -16,10 +16,10 @@ import { type IngestProgress } from './api'
  * `onCancel` (optional) renders the same cancel affordance the propose/refine
  * JobProgress card has — the server stops at its next cooperative checkpoint and
  * reclaims the partial staged graph. `lastPulseAt` (optional, epoch ms of the
- * last server-sent SSE event incl. heartbeats) adds the liveness line: the
+ * last server-sent SSE event incl. heartbeats) drives the liveness WARNING: the
  * server pulses at least every ~15s, so >45s of silence means the connection is
- * down and EventSource is auto-reconnecting — worth a visible warning during a
- * minutes-long silent materialize/convert phase.
+ * down and EventSource is auto-reconnecting — worth saying during a minutes-long
+ * silent materialize/convert phase. A healthy connection says nothing.
  */
 export function IngestProgressView({
   progress,
@@ -67,14 +67,12 @@ export function IngestProgressView({
     </button>
   ) : null
 
-  const pulseLine =
-    pulseAgeSec !== null ? (
-      <div className={`job-progress-pulse${silent ? ' warn' : ''}`}>
-        {silent
-          ? t('workbench:job.silent', { s: pulseAgeSec })
-          : t('workbench:job.pulse', { s: pulseAgeSec })}
-      </div>
-    ) : null
+  // Only the ABNORMAL case is worth a line. "サーバ応答: 3秒前", ticking once a
+  // second next to a progress bar, is the machine reporting on itself; what the
+  // reader needs to know is when it has gone quiet.
+  const pulseLine = silent ? (
+    <div className="job-progress-pulse warn">{t('workbench:job.silent', { s: pulseAgeSec })}</div>
+  ) : null
 
   if (progress?.phase === 'upload' && progress.total) {
     const done = progress.done ?? 0
