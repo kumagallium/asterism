@@ -333,6 +333,7 @@ export function GalleryView({
           onCreateCrosswalk={onCreateCrosswalk}
           onOpenMap={onOpenMap}
           onRedesign={onRedesign}
+          onAddData={onAddData}
         />
       )}
 
@@ -973,6 +974,7 @@ function DatasetDetail({
   onCreateCrosswalk,
   onOpenMap,
   onRedesign,
+  onAddData,
 }: {
   dataset: CatalogDataset
   perspectives: CrosswalkPerspective[]
@@ -986,6 +988,8 @@ function DatasetDetail({
   onCreateCrosswalk?: () => void
   onOpenMap?: () => void
   onRedesign?: (target: RedesignTarget) => void
+  /** 「データを追加」へ戻る（設計が無く、この画面では先へ進めないとき）。 */
+  onAddData?: () => void
 }) {
   const { t } = useTranslation()
   const meta = dataset.live?.meta
@@ -1083,12 +1087,15 @@ function DatasetDetail({
   const myPersp = perspectives.filter((p) =>
     (p.config?.concepts ?? []).some((c) => c.participants.some((part) => myIds.has(part.dataset_id))),
   )
+  // Reading order = the order the work happens in, with the two developer-facing
+  // tabs (the raw rules, the SPARQL tool list) last. ツール used to be second,
+  // one tab away from 中身, and it opens on saved SPARQL and an AI drafting box.
   const tabs: [DetailTab, string][] = [
     ['structure', t('gallery:tab.structure')],
-    ['tools', t('gallery:tab.tools')],
     ['files', t('gallery:tab.files')],
     ['connect', t('gallery:tab.connect')],
     ['design', t('gallery:tab.design')],
+    ['tools', t('gallery:tab.tools')],
   ]
   // The design tab's two destinations, for its sub-nav.
   const rulesRef = useRef<HTMLDivElement | null>(null)
@@ -1359,7 +1366,18 @@ function DatasetDetail({
           {dataset.live ? (
             <ToolsPanel datasetId={dataset.live.meta.id} />
           ) : (
-            <p className="ds-empty-note">{t('gallery:tools.none')}</p>
+            <>
+              {/* "Run 「データを取り込む」 first" named a control on another tab
+                  without saying which, and left no way to get there. */}
+              <p className="ds-empty-note">{t('gallery:tools.none')}</p>
+              <button
+                type="button"
+                className="btn btn--soft btn--sm"
+                onClick={() => goToControl('ingest')}
+              >
+                {t('gallery:tools.goFiles')}
+              </button>
+            </>
           )}
         </div>
       )}
@@ -1401,7 +1419,8 @@ function DatasetDetail({
           ) : (
             <p className="ds-empty-note">{t('gallery:files.none')}</p>
           )}
-          <p className="ds-files-future">{t('gallery:files.futureDedup')}</p>
+          {/* A roadmap footnote about content hashes used to sit here on every
+              visit; what the reader can act on is already in the note above. */}
 
           {/* Operations on this dataset's ingested data live here (the natural home
               for ingest / append / re-ingest / promote / lifecycle). State-gated, so
@@ -1413,6 +1432,7 @@ function DatasetDetail({
                 meta={dataset.live.meta}
                 onChanged={onChanged}
                 onRedesign={onRedesign}
+                onAddData={onAddData}
                 labels={termLabels}
                 focus={focusCtl === 'ingest'}
               />
@@ -1703,12 +1723,15 @@ function IngestControl({
   meta,
   onChanged,
   onRedesign,
+  onAddData,
   labels,
   focus,
 }: {
   meta: LiveDataset['meta']
   onChanged: () => void
   onRedesign?: (target: RedesignTarget) => void
+  /** 設計が無いデータセットの唯一の出口（「データを追加」へ戻る）。 */
+  onAddData?: () => void
   labels?: TermLabels
   focus?: boolean
 }) {
@@ -1783,7 +1806,14 @@ function IngestControl({
     return (
       <div className="ingest-gate" ref={rootRef}>
         <div className="ds-subhead">{t('gallery:ingest.head')}</div>
+        {/* Nothing on this screen can produce the missing design, so the only
+            honest next move is the one that can — as a button, not a sentence. */}
         <p className="ingest-hint">{t('gallery:ingest.noRml')}</p>
+        {onAddData && (
+          <button type="button" className="btn btn--soft btn--sm" onClick={onAddData}>
+            {t('gallery:ingest.goAddData')}
+          </button>
+        )}
       </div>
     )
   }
@@ -1792,7 +1822,8 @@ function IngestControl({
     return (
       <div className="ingest-gate" ref={rootRef}>
         <div className="ds-subhead">{t('gallery:ingest.head')}</div>
-        <p className="ingest-ok">{t('gallery:ingest.done', { n: done.triple_count })}</p>
+        {/* K12: the triple count said nothing the reader could check. */}
+        <p className="ingest-ok">{t('gallery:ingest.done')}</p>
       </div>
     )
   }
@@ -2055,14 +2086,8 @@ function AppendControl({
           : ''}
       </p>
       {(meta.append_seq ?? 0) > 0 && (
-        <p className="ingest-source">
-          {t('gallery:append.progress', {
-            seq: meta.append_seq,
-            appended: meta.triples_appended
-              ? t('gallery:append.progressAppended', { n: meta.triples_appended })
-              : '',
-          })}
-        </p>
+        // K12: "how many times you added" is checkable; "+~4,812 facts" is not.
+        <p className="ingest-source">{t('gallery:append.progress', { seq: meta.append_seq })}</p>
       )}
       <div className="ingest-pick">
         <label className="file-btn">
@@ -2087,9 +2112,7 @@ function AppendControl({
         {busy ? t('gallery:append.submitting') : t('gallery:append.submit')}
       </button>
       {done && (
-        <p className="ingest-ok">
-          {t('gallery:append.done', { n: done.triples_in_batch, seq: done.append_seq })}
-        </p>
+        <p className="ingest-ok">{t('gallery:append.done', { seq: done.append_seq })}</p>
       )}
       {err != null && (
         <ErrorNote

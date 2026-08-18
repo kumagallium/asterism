@@ -46,23 +46,23 @@
   },
   "tab": {
     "structure": "Contents",
-    "files": "Files",
+    "files": "Load & publish",
     "connect": "Connections",
-    "tools": "Tools",
+    "tools": "Tools (developer)",
     "design": "Conversion rules (technical)"
   },
   "grid": {
     "search": "Search by dataset name",
     "metaFiles": "files",
     "metaLinks": "connections",
-    "addTitle": "New dataset",
-    "addSub": "Create by ingesting files"
+    "addTitle": "Add data",
+    "addSub": "Just drop an Excel, CSV or instrument file"
   },
   "card": {
-    "publish": "Publish for search",
+    "publish": "Publish",
     "publishUpdate": "Update publication",
-    "retract": "Retract",
-    "reinstate": "Reinstate",
+    "retract": "Unpublish",
+    "reinstate": "Publish again",
     "more": "More actions",
     "delete": "Delete"
   },
@@ -71,19 +71,19 @@
     "tools": "Tools (answer from this data)"
   },
   "tools": {
-    "none": "This dataset has no answerable tools yet because it has not been imported. Run \"Import data\" first."
+    "none": "This dataset holds no data yet, so there are no tools to answer with. Press \"Import data\" on the \"Load & publish\" tab first.",
+    "goFiles": "Open the \"Load & publish\" tab"
   },
   "files": {
     "head": "Ingested files",
     "dedupe": "Every file that makes up this dataset. Files with the same name are detected and flagged at ingest time.",
-    "futureDedup": "* Content-hash duplicate detection is coming; for now you can check by file name.",
     "colName": "File name",
     "colType": "Type",
     "colWhen": "Ingested",
     "colStatus": "Status",
     "statusIngested": "Ingested",
-    "source": "design source",
-    "batch": "batch #{{seq}}",
+    "source": "Original file",
+    "batch": "Added later (#{{seq}})",
     "none": "No ingested-file records yet. Use the operations below to ingest.",
     "statusSavedOnly": "Saved · not ingested yet"
   },
@@ -132,29 +132,30 @@
   },
   "rules": {
     "title": "How each column is recorded",
-    "empty": "No ingest-rule artifacts yet.",
+    "empty": "No design saved yet. Once the AI reads your file via \"Add data\", what each column means appears here.",
+    "emptyDocument": "Documents are loaded by a fixed procedure (sections → paragraphs → sentences), so there are no column meanings to show here.",
     "projectionIntro": "How each column of your file is recorded, and as which item — built mechanically from the saved rules, no AI involved. The actual rules that run (RML) are in the files below.",
     "subject": "How the ID is built",
-    "iterator": "Iteration unit",
+    "iterator": "What counts as one record",
     "colProperty": "Item",
     "colValue": "How the value is produced",
-    "colType": "Type",
+    "colType": "Value format",
     "colUnit": "Unit",
     "kind": {
-      "reference": "column",
-      "template": "template",
-      "constant": "constant",
-      "function": "function",
-      "join": "join",
-      "unknown": "This form has no plain-language reading yet (check the raw file)"
+      "reference": "Column",
+      "template": "ID used for linking",
+      "constant": "Fixed value",
+      "function": "Derived value",
+      "join": "Link to another table",
+      "unknown": "This form cannot be shown here (your data is unaffected)."
     },
-    "joinTo": "joined to {{parent}}",
+    "joinTo": "links to {{parent}}",
     "warningsHead": "Reading notes",
-    "artifactsHead": "Artifact files (raw)",
+    "artifactsHead": "Source files (RML etc., technical)",
     "open": "Open",
-    "legacyChip": "legacy",
-    "legacyNote": "Not executed by the declarative ingest path (legacy artifact).",
-    "loadError": "Failed to load the ingest rules: {{message}}",
+    "legacyChip": "Old method",
+    "legacyNote": "An old-method file; not used by the current ingest.",
+    "loadError": "Could not load what each column means. Wait a moment, then open this tab again.",
     "viewer": {
       "copy": "Copy",
       "copied": "Copied",
@@ -163,16 +164,16 @@
       "empty": "(empty)"
     },
     "history": {
-      "head": "Change history (redesigns)",
-      "item": "Version before the redesign on {{when}}",
+      "head": "Change history (revisions)",
+      "item": "Version before the revision on {{when}}",
       "files": "{{count}} files",
       "diff": "View diff",
-      "diffTitle": "Redesign diff",
+      "diffTitle": "Revision diff",
       "diffIntro": "Comparison between the version replaced on {{when}} and the current one (− old, ＋ current).",
       "noChanges": "No differences between this version and the current one.",
       "unchangedNote": "Files without differences are not shown.",
       "fullText": "Full text of this version",
-      "fullTextSub": "Version before the redesign on {{when}}"
+      "fullTextSub": "Version before the revision on {{when}}"
     }
   },
   "sourceKind": {
@@ -206,21 +207,22 @@
   },
   "ingest": {
     "head": "Import data",
-    "noRml": "This design has no ingest rules yet, so it cannot be ingested. Create them via \"Add data\" (the AI designs them), and you will be able to load safely from here.",
-    "done": "✓ Loaded into the unpublished draft ({{n}} facts). Next, press \"Publish for search\" below so Ask can cite it.",
+    "noRml": "This dataset has no saved design to load with. Start again from \"Add data\".",
+    "goAddData": "Go to Add data",
+    "done": "✓ Loaded into the unpublished draft. Next, press \"Publish\" so it is used in answers.",
     "note": "Loads the file into your unpublished draft using the saved design (nobody can see it until you publish).",
     "keepGoing": "You can leave this screen — loading keeps going, and coming back picks the progress up again.",
-    "noteDocument": "On approval, the saved document is structured into sections → paragraphs → sentences and loaded into the unpublished draft (visible to no one until you publish). Published data is untouched.",
+    "noteDocument": "Splits the saved document into sections → paragraphs → sentences and loads it into your unpublished draft (visible to no one until you publish).",
     "sourceDocument": "document",
-    "sourceSaved": "The design-time {{source}} is saved{{files}}. Ingest with no re-attach.",
+    "sourceSaved": "The file you first dropped{{files}} is saved. You can load it again without choosing it.",
     "filesSuffix": " ({{names}})",
     "pickLabel": "Select {{source}}",
-    "pickPlaceholder": "Choose the {{source}} used for the design",
+    "pickPlaceholder": "Choose the same file you first dropped",
     "submit": "Import data",
     "submitting": "Ingesting…",
     "error": "Ingest failed",
     "validationHead": "{{n}} things in the design need fixing",
-    "cancelled": "Ingest cancelled. Any partially written data has been discarded — nothing reached the published surface."
+    "cancelled": "Loading stopped. The partial data has been cleaned up, and your published data is unaffected."
   },
   "append": {
     "head": "Add new measurements (the same instrument files as they are)",
@@ -228,13 +230,12 @@
     "noteFilename": "Give the file the same name as the first file you loaded ({{names}}).",
     "nameMismatchTitle": "This file's name differs from the first one",
     "nameMismatchBody": "Rename it to match the first file you loaded ({{expected}}) and drop it again (if your instrument adds a date to the name, only the name needs changing — the contents are fine).",
-    "progress": "{{seq}} batches appended so far{{appended}}.",
-    "progressAppended": " (+~{{n}} facts)",
-    "pickPlaceholder": "Choose the batch {{source}} to append",
-    "submit": "Add to the published data",
-    "submitting": "Appending…",
-    "done": "✓ Appended (+{{n}} facts · batch #{{seq}}). Ask can cite it immediately.",
-    "error": "Append failed"
+    "progress": "Added {{seq}} time(s) so far.",
+    "pickPlaceholder": "Choose the file to add (from the same instrument)",
+    "submit": "Add these measurements",
+    "submitting": "Adding…",
+    "done": "✓ Added (time {{seq}}). It is used in answers right away.",
+    "error": "Could not add these measurements"
   },
   "promote": {
     "ok": "✓ Published for search ({{n}} facts{{version}}). Ask can cite it with its source.",
