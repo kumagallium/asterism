@@ -629,6 +629,26 @@ _SPARQL_UPDATE = re.compile(
 logger = logging.getLogger(__name__)
 
 
+def _coded_error(status: int, code: str, message: str) -> HTTPException:
+    """An HTTP error a client can act on WITHOUT reading English prose.
+
+    The detail is ``{"code", "message"}``: the stable ``code`` is what logic keys
+    off (the UI maps it to one plain sentence in one place — the same contract
+    ``jobs._ERROR_CODES`` gives job failures), while ``message`` stays a short
+    English technical summary for the folded technical view. The provider's /
+    library's raw exception text never reaches the screen: it goes to the log,
+    where it is useful, instead of into a stop card, where it is not.
+    """
+    return HTTPException(status, detail={"code": code, "message": message})
+
+
+def _error_text(detail: object) -> str:
+    """The human-readable half of a detail that may be coded or a bare string."""
+    if isinstance(detail, dict):
+        return str(detail.get("message") or detail.get("error") or detail)
+    return str(detail)
+
+
 # ----------------------------------------------------------------------------
 # Crosswalk hub auto-rebuild (crosswalk-hub.md productize ②)
 # ----------------------------------------------------------------------------
@@ -1314,16 +1334,25 @@ def _expand_xlsx_bytes(name: str, data: bytes) -> list[tuple[str, bytes]]:
     deterministic). Everything downstream — inspect, the design loop,
     ``rml:source`` — only ever sees the derived ``.csv`` names; ``.xlsx`` is NOT
     in the rml_safety source allow-list. An unreadable workbook (corrupt zip,
-    every sheet empty) is a readable 422, not a traceback.
+    every sheet empty) is a coded 422, not a traceback: openpyxl's own wording
+    ("File is not a zip file", "Max value is 14") means nothing to the person
+    who just dropped a spreadsheet, so it is logged and the client renders one
+    plain sentence off the code.
     """
     from asterism.tabularize import xlsx_to_csvs
 
     try:
         return xlsx_to_csvs(data, stem=Path(name).stem)
     except ValueError as exc:
-        raise HTTPException(422, f"Excel ブックを CSV に変換できませんでした: {exc}") from exc
+        logger.warning("xlsx → csv conversion failed for %r: %s", name, exc)
+        raise _coded_error(
+            422, "xlsx.convert_failed", "the Excel workbook could not be converted to CSV"
+        ) from exc
     except Exception as exc:
-        raise HTTPException(422, f"Excel ブックを読み取れませんでした: {exc}") from exc
+        logger.warning("xlsx could not be read: %r: %s", name, exc, exc_info=True)
+        raise _coded_error(
+            422, "xlsx.unreadable", "the Excel workbook could not be read"
+        ) from exc
 
 
 async def _persist_converted_xlsx(
@@ -1824,7 +1853,7 @@ async def _append_batch_to_dataset(
         try:
             cname = _sanitize_tabular_name(name)
         except HTTPException as exc:
-            raise AppendError(400, str(exc.detail)) from exc
+            raise AppendError(400, _error_text(exc.detail)) from exc
         if cname.lower().endswith(".xlsx"):
             # K6: an .xlsx batch appends as its derived CSV — but only a
             # SINGLE-sheet workbook, whose derived name (<stem>.csv) matches the
@@ -1833,12 +1862,12 @@ async def _append_batch_to_dataset(
             try:
                 derived = await asyncio.to_thread(_expand_xlsx_bytes, cname, content)
             except HTTPException as exc:
-                raise AppendError(422, str(exc.detail)) from exc
+                raise AppendError(422, _error_text(exc.detail)) from exc
             if len(derived) > 1:
                 raise AppendError(
                     400,
-                    "Excel ブックに複数のシートがあります。追記はシートを 1 つにするか、"
-                    "CSV に変換してから追記してください",
+                    "この Excel ファイルには複数のシートがあります。追記するファイルは"
+                    "シートを 1 つにするか、CSV に変換してから追加してください",
                 )
             cname, content = derived[0]
         if sources and cname not in sources:
@@ -4700,8 +4729,8 @@ def build_app(
         if not source_paths:
             raise HTTPException(
                 400,
-                "投入には CSV / JSON / XML のソースファイルが必要です。"
-                "設計時に添付するか、ここでアップロードしてください",
+                "取り込むには元のファイル (CSV / JSON / XML) が必要です。"
+                "設計時に置いたファイルをもう一度追加してください",
             )
         source_dir = source_paths[0].parent
 
@@ -5102,7 +5131,7 @@ def build_app(
         if data is None:
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
         if not data["meta"].get("ingested"):
-            raise HTTPException(400, "dataset has no staged graph (not ingested)")
+            raise HTTPException(400, "まだ公開前の下書きに取り込まれていません。")
         client: OxigraphClient = app.state.client
         # part5: align the *staged version graph* (recorded at ingest) against the
         # citable corpus — it is not promoted yet, so it is not part of that scope.
@@ -5126,7 +5155,15 @@ def build_app(
         if data is None:
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
         if not data["meta"].get("ingested"):
-            raise HTTPException(400, "dataset has no staged graph to promote (not ingested)")
+            # kantan S8 can reach this (publish pressed before the draft ingest
+            # finished). The plain sentence and the "「確かめる」に戻る" button live
+            # in the UI's error dictionary keyed by this code; the English
+            # message stays for the folded technical view.
+            raise _coded_error(
+                400,
+                "dataset.not_ingested",
+                "dataset has no staged graph to promote (not ingested)",
+            )
         client: OxigraphClient = app.state.client
         dataset_key = substrate.canonical_graph_iri(dataset_id)
         # The staged version graph (recorded at ingest) holds the new data. Aligning
@@ -5205,7 +5242,12 @@ def build_app(
         if data is None:
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
         if not data["meta"].get("promoted"):
-            raise HTTPException(400, "dataset is not promoted (nothing canonical to retract)")
+            # S8 promises "間違いに気づいたら、いつでも引用対象から外せます" — the
+            # sentence that promise fails with is read by the same person, so it
+            # says what happened in their words, not the store's.
+            raise HTTPException(
+                400, "このデータはまだ公開されていないため、引用対象から外す操作はできません。"
+            )
         canonical_iri = substrate.canonical_graph_iri(dataset_id)
         client: OxigraphClient = app.state.client
         now = datetime.now(UTC).isoformat()

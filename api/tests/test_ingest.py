@@ -1323,6 +1323,14 @@ def test_promote_requires_ingested_draft(tmp_path: Path) -> None:
     with TestClient(app, headers=_AUTH) as client:
         r = client.post(f"/api/datasets/{dataset_id}/promote")
         assert r.status_code == 400
+        # Pressing publish again can never succeed, so the client has to be able
+        # to say "go back to 確かめる" — it picks that off the CODE, not off
+        # English prose that may be reworded or translated.
+        assert r.json()["detail"]["code"] == "dataset.not_ingested"
+        # The alignment preview behind the same button answers in plain words.
+        a = client.get(f"/api/datasets/{dataset_id}/alignment")
+        assert a.status_code == 400
+        assert a.json()["detail"] == "まだ公開前の下書きに取り込まれていません。"
     assert oxi.updates == []  # nothing moved
 
 
@@ -1376,6 +1384,11 @@ def test_retract_requires_promoted(tmp_path: Path) -> None:
     with TestClient(app, headers=_AUTH) as client:
         r = client.post(f"/api/datasets/{dataset_id}/retract")
         assert r.status_code == 400
+        # S8 promises "いつでも引用対象から外せます"; when that is not yet possible
+        # the reason is said in the reader's words, not the store's.
+        detail = r.json()["detail"]
+        assert "引用対象から外す" in detail
+        assert "canonical" not in detail and "promoted" not in detail
     assert oxi.updates == []  # nothing tombstoned
 
 

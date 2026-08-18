@@ -116,6 +116,13 @@ def _mock_client(*, promoted: bool = True) -> tuple[OxigraphClient, list[str]]:
                         "o": _uri("http://qudt.org/vocab/unit/DEG"),
                         "g": _uri(_CANONICAL),
                     },
+                    {
+                        "p": _uri("http://www.w3.org/ns/prov#wasGeneratedBy"),
+                        "o": _uri(
+                            "https://data.lab.jp/asterism/datasets/xrd/resource/batch/b1"
+                        ),
+                        "g": _uri(_CANONICAL),
+                    },
                 ]
             )
         if f"?s ?p <{_ENTITY}>" in q:  # inbound
@@ -183,11 +190,72 @@ def test_describe_uses_labels_and_folds_the_bookkeeping(tmp_path: Path) -> None:
     label_queries = [q for q in queries if "VALUES ?lp" in q]
     assert label_queries and f"FROM NAMED <{_ONTOLOGY}>" in label_queries[0]
     assert "強度" in body  # rdfs:label from the projected ontology, not hasIntensity
-    # rdf:type / rdfs:label are plumbing: they live in the folded block, and the
+    # The pipeline's own bookkeeping (prov:*) lives in the folded block, and the
     # user's own value row is in the main table above it.
     head, _, folded = body.partition("<details>")
     assert "強度" in head
-    assert "rdf-syntax-ns#type" in folded
+    assert "wasGeneratedBy" in folded
+    assert "wasGeneratedBy" not in head
+
+
+def test_describe_does_not_repeat_the_heading_and_the_type_chips(tmp_path: Path) -> None:
+    """rdf:type and rdfs:label are ALREADY the h1 and the chips above the table —
+    repeating them would spend the table's first rows on nothing new."""
+    oxi, _ = _mock_client()
+    with _app_client(tmp_path, oxi) as client:
+        body = client.get("/describe", params={"iri": _ENTITY}).text
+    assert "S1 @ 10.00°" in body  # still the heading
+    assert "DiffractionPoint" in body  # still a chip
+    # ...but neither is a row any more.
+    assert "rdf-syntax-ns#type" not in body
+    assert "rdf-schema#label" not in body
+
+
+def test_describe_says_so_when_only_a_name_and_a_type_are_recorded() -> None:
+    """Dropping the rows must never leave an empty table under a promising
+    heading — an entity whose whole description IS its name and type says that
+    in one sentence."""
+    from asterism_api.describe import render_html
+
+    body = render_html(
+        _ENTITY,
+        {
+            "graphs": [_CANONICAL],
+            "outbound": [
+                {
+                    "p": _uri("http://www.w3.org/1999/02/22-rdf-syntax-ns#type"),
+                    "o": _uri(f"{_ONTOLOGY_NS}DiffractionPoint"),
+                    "g": _uri(_CANONICAL),
+                },
+                {
+                    "p": _uri("http://www.w3.org/2000/01/rdf-schema#label"),
+                    "o": _lit("S1 @ 10.00°"),
+                    "g": _uri(_CANONICAL),
+                },
+            ],
+            "inbound": [],
+            "out_truncated": False,
+            "in_truncated": False,
+            "label": "S1 @ 10.00°",
+            "labels": {},
+            "types": [f"{_ONTOLOGY_NS}DiffractionPoint"],
+        },
+    )
+    assert "この ID について記録されているのは、名前と種類だけです。" in body
+    assert "<tbody></tbody>" not in body
+
+
+def test_describe_does_not_link_the_item_column(tmp_path: Path) -> None:
+    """項目 names a word, not a thing: following it lands on a definition page
+    with none of the reader's data on it, one level deeper into nowhere."""
+    oxi, _ = _mock_client()
+    with _app_client(tmp_path, oxi) as client:
+        body = client.get("/describe", params={"iri": _ENTITY}).text
+    assert "ontology%23hasIntensity" not in body  # the 項目 cell is not a link
+    assert f'title="{_ONTOLOGY_NS}hasIntensity"' in body  # the full IRI is on hover
+    assert "ontology%23hasPoint" not in body  # …in the inbound table either
+    # The 値 column and the inbound subject — real things — stay followable.
+    assert "resource%2Fscan%2FS1" in body
 
 
 def test_describe_does_not_link_external_vocabulary(tmp_path: Path) -> None:
@@ -199,7 +267,7 @@ def test_describe_does_not_link_external_vocabulary(tmp_path: Path) -> None:
     assert "qudt.org%2Fvocab%2Funit%2FDEG" not in body
     assert 'title="http://qudt.org/vocab/unit/DEG"' in body
     # ...while an IRI this install mints stays browsable.
-    assert "ontology%23hasIntensity" in body
+    assert "resource%2Fbatch%2Fb1" in body
 
 
 def test_describe_resolves_source_graphs_to_dataset_names(tmp_path: Path) -> None:

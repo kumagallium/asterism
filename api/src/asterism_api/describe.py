@@ -118,8 +118,9 @@ _TEXT: dict[str, dict[str, str]] = {
         "records": "取り込みの記録（技術情報）",
         "inbound": "この ID を使っている（参照している）データ",
         "th_from": "参照元",
-        "out_note": "はじめの {n} 件だけを表示しています。",
-        "in_note": "はじめの {n} 件だけを表示しています。",
+        "only_meta": "この ID について記録されているのは、名前と種類だけです。",
+        "out_note": "数が多いので、はじめの {n} 件だけを表示しています。",
+        "in_note": "参照しているデータのうち、はじめの {n} 件だけを表示しています。",
         "tech": "詳しい内容（技術情報）",
         "machine": "同じ内容を機械向けに取り出す:",
         "shared_terms": "共通の言葉",
@@ -159,8 +160,9 @@ _TEXT: dict[str, dict[str, str]] = {
         "records": "How this was recorded (technical)",
         "inbound": "Data that references this ID",
         "th_from": "Referenced from",
-        "out_note": "Showing the first {n} entries only.",
-        "in_note": "Showing the first {n} entries only.",
+        "only_meta": "The only things recorded for this ID are its name and its type.",
+        "out_note": "Showing the first {n} items only.",
+        "in_note": "Showing the first {n} of the data that references this ID.",
         "tech": "More detail (technical)",
         "machine": "The same content for machines:",
         "shared_terms": "Shared terms",
@@ -416,12 +418,16 @@ def _is_local(iri: str, bases: tuple[str, ...]) -> bool:
     return any(iri.startswith(b) for b in bases)
 
 
+def _term_name(iri: str, ctx: _Ctx) -> str:
+    """What an IRI is *called* on this page: its human name when the shared
+    vocabulary has one, otherwise the readable tail in code style."""
+    label = _pick_label(ctx.labels.get(iri), ctx.lang)
+    return html.escape(label) if label else f"<code>{html.escape(_local(iri))}</code>"
+
+
 def _iri_cell(iri: str, ctx: _Ctx, *, force_link: bool = False) -> str:
     """One IRI cell: its human name, linked only when this install can answer."""
-    label = _pick_label(ctx.labels.get(iri), ctx.lang)
-    inner = (
-        html.escape(label) if label else f"<code>{html.escape(_local(iri))}</code>"
-    )
+    inner = _term_name(iri, ctx)
     title = html.escape(iri, quote=True)
     if force_link or _is_local(iri, ctx.bases):
         href = html.escape(_urlquote(iri), quote=True)
@@ -430,6 +436,18 @@ def _iri_cell(iri: str, ctx: _Ctx, *, force_link: bool = False) -> str:
             f'title="{title}">{inner}</a>'
         )
     return f'<span title="{title}">{inner}</span>'
+
+
+def _item_cell(iri: str, ctx: _Ctx) -> str:
+    """The 項目 column: a name, never a link.
+
+    A term IRI *does* resolve here — the shared vocabulary is inside the read
+    scope — but what it resolves to is a definition of the word, with none of
+    the reader's own data on it. Pressing 「温度」 and landing on that is a dead
+    end one level deeper, so only the 値 column (a real thing in the data) is
+    followed. The full IRI stays available on hover.
+    """
+    return f'<span title="{html.escape(iri, quote=True)}">{_term_name(iri, ctx)}</span>'
 
 
 def _term_cell(term: dict[str, str], ctx: _Ctx) -> str:
@@ -657,10 +675,29 @@ def render_html(
         cells = "".join(f"<th>{html.escape(c)}</th>" for c in cols)
         return f"<thead><tr>{cells}</tr></thead>"
 
+    def _already_above(row: dict[str, Any]) -> bool:
+        """True when this row is *literally* the heading or a type chip already
+        rendered above the table.
+
+        Repeating them would spend the table's first (most-read) rows on
+        information the reader just saw, in the technical notation this page
+        exists to avoid. Only the exact terms shown above are dropped — an
+        alternate name or an unrendered type still reaches the page, so nothing
+        the data says disappears.
+        """
+        p, o = row["p"]["value"], row["o"]
+        if p == _TYPE_PREDICATE and o["type"] == "uri":
+            return o["value"] in set(data["types"])
+        if p in _LABEL_PREDICATES and o["type"] == "literal":
+            return o["value"] == own_label
+        return False
+
     # Values the reader came for first; the pipeline's own bookkeeping folded away.
     value_rows: list[dict] = []
     record_rows: list[dict] = []
     for r in data["outbound"]:
+        if _already_above(r):
+            continue
         bucket = (
             record_rows
             if r["p"]["value"].startswith(_RECORD_NAMESPACES)
@@ -673,7 +710,7 @@ def render_html(
     def _out_table(rows: list[dict]) -> str:
         body = "".join(
             _row(
-                [_iri_cell(r["p"]["value"], ctx), _term_cell(r["o"], ctx)],
+                [_item_cell(r["p"]["value"], ctx), _term_cell(r["o"], ctx)],
                 r["g"]["value"],
             )
             for r in rows
@@ -693,6 +730,19 @@ def render_html(
         if data["in_truncated"]
         else ""
     )
+    # When the only outbound rows were the heading and the chips, say so in one
+    # sentence rather than printing an empty table under a promising heading.
+    if value_rows:
+        values_section = (
+            f"<h2>{html.escape(t['statements'])}</h2>{out_note}{_out_table(value_rows)}"
+        )
+    elif data["outbound"]:
+        values_section = (
+            f"<h2>{html.escape(t['statements'])}</h2>"
+            f'<p class="muted">{html.escape(t["only_meta"])}</p>'
+        )
+    else:  # only referenced by others: the inbound section carries the page
+        values_section = ""
     records_section = (
         f"<details><summary>{html.escape(t['records'])}</summary>"
         f"{_out_table(record_rows)}</details>"
@@ -704,7 +754,7 @@ def render_html(
         _row(
             [
                 _iri_cell(r["s"]["value"], ctx, force_link=True),
-                _iri_cell(r["p"]["value"], ctx),
+                _item_cell(r["p"]["value"], ctx),
             ],
             r["g"]["value"],
         )
@@ -729,7 +779,7 @@ def render_html(
         f"<h1>{html.escape(title)}</h1>{meta_line}{chips_html}"
         f"{_iri_box(iri, lang)}"
         f'<p class="muted">{html.escape(t["intro"])}</p>'
-        f"<h2>{html.escape(t['statements'])}</h2>{out_note}{_out_table(value_rows)}"
+        f"{values_section}"
         f"{records_section}{inbound_section}{tech}"
         f"</div>"
         f"{_exits(lang)}"
