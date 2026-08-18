@@ -3,8 +3,9 @@
 // clients are plain functions, so components read `getActiveCredentials()` (via
 // useLlmSettings) and pass the result through `llmHeaders(creds)` on the call.
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
+import { bootstrapAppSettings, isAppSettingsServerMode } from '../appSettings'
 import { SettingsModal } from './SettingsModal'
 import { type LlmSettings, SettingsCtx } from './context'
 import { fetchServerKeyProviders, type ServerKeyProviders } from './serverKeysApi'
@@ -43,7 +44,25 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     refreshServerKeys()
   }, [refreshServerKeys])
 
+  // In single-user mode the model registry lives on disk (ADR app-data-on-disk
+  // D1) and that read is async, so what this provider started with — the
+  // localStorage copy, which the one-time migration deletes — has to be
+  // replaced once the disk copy lands. Skip it if the user already changed
+  // something here in the meantime: their edit is the newer truth.
+  const edited = useRef(false)
+  useEffect(() => {
+    let cancelled = false
+    bootstrapAppSettings().then(() => {
+      if (cancelled || edited.current || !isAppSettingsServerMode()) return
+      setState(migrateLegacy(loadModelsState()))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   const persist = useCallback((next: typeof state) => {
+    edited.current = true
     saveModelsState(next)
     setState(next)
   }, [])

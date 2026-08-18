@@ -1,21 +1,40 @@
-// Ask chat threads — the client-held conversation store (ADR ask-chat-threads.md).
+// Ask chat threads — the client-held conversation store (ADR ask-chat-threads.md,
+// ADR app-data-on-disk.md).
 //
 // A thread is a list of turns: the user's question, then the agent's grounded
 // answer (the AskResponse contract: answer + citations + notes + sparql), and so
 // on. The demo-agent stays STATELESS: on every question the UI sends the
 // thread's earlier turns as `history` and the agent replays them as the LLM's
-// message prefix. Persistence is per browser (localStorage) — the shared
-// production instance has one login for everyone, so keeping each person's
-// questions in their own browser is the privacy-preserving default, and it is
-// exactly what the desktop (local-first) app wants too. Cross-tab changes are
-// picked up via the `storage` event.
+// message prefix.
+//
+// Persistence has a store-boundary swap (ADR app-data-on-disk.md D1): the
+// module always loads synchronously from `localStorage` on boot (unchanged
+// browser behavior, so nothing regresses before the server has answered), then
+// asks the server `/api/appdata/info` who it is. If the server declares itself
+// single-user (a hand-run `asterism-local`), the in-memory list is replaced by
+// the server's copy (or, on first run, the localStorage threads are migrated
+// up — ADR D5) and every further mutation is persisted to disk via
+// PUT/DELETE instead of localStorage. A shared api (production) keeps the
+// original browser-only behavior — the privacy-preserving default when there is
+// one login for everyone. `useAskThreadsLoaded()` reports when that decision +
+// the initial read have both settled. Cross-tab changes are picked up via the
+// `storage` event, but only in browser mode (a disk-backed store has no other
+// browser tab racing it).
 //
 // The store is a plain module (not React state) so a thread keeps receiving its
 // answer while the user navigates elsewhere; components subscribe through
 // useSyncExternalStore. Every mutation produces new array/object references
-// (immutable updates) so subscribers re-render only on real change.
+// (immutable updates) so subscribers re-render only on real change. `getSnapshot`
+// stays synchronous always — memory is the source of truth; disk is a write-behind
+// mirror.
 
 import { useSyncExternalStore } from 'react'
+import {
+  deleteAppDataThread,
+  fetchAppDataThreads,
+  initAppData,
+  putAppDataThread,
+} from './appdata'
 import type { AskHistoryTurn, AskResponse } from './demoApi'
 
 export interface AskUserTurn {
@@ -60,10 +79,17 @@ export interface AskThread {
 const STORAGE_KEY = 'asterism.ask.threads.v1'
 const MAX_THREADS = 60 // oldest threads fall off (localStorage is ~5 MB)
 const TITLE_MAX = 48
+const FLUSH_DEBOUNCE_MS = 300
 
 // ---- state + subscription -------------------------------------------------
 
 let threads: AskThread[] = load()
+// True once the single-user check + (if applicable) the server's own thread
+// list have both been read. Browser mode also waits for this (it just settles
+// fast) so the UI never has to special-case "which mode am I in".
+let loaded = false
+// Persist to the server instead of localStorage — decided once by bootstrap().
+let serverMode = false
 const listeners = new Set<() => void>()
 
 function emit() {
@@ -86,18 +112,86 @@ export function useAskThreads(): AskThread[] {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
 }
 
+function getLoadedSnapshot(): boolean {
+  return loaded
+}
+
+/** False until the single-user check (and, in single-user mode, the initial
+ *  server read) have settled. Use this to hold off empty-state copy — it
+ *  should never flash "no chats yet" before the real list has had a chance to
+ *  arrive. */
+export function useAskThreadsLoaded(): boolean {
+  return useSyncExternalStore(subscribe, getLoadedSnapshot, getLoadedSnapshot)
+}
+
 export function getThread(id: string | null | undefined): AskThread | undefined {
   return id ? threads.find((t) => t.id === id) : undefined
 }
 
 // Another tab wrote the store — adopt its snapshot (an in-flight answer here is
-// finished by resolveAnswer, which re-reads by id, so nothing is lost).
+// finished by resolveAnswer, which re-reads by id, so nothing is lost). Only
+// meaningful in browser mode: a disk-backed store has no other localStorage tab
+// to race, and server mode never writes STORAGE_KEY.
 if (typeof window !== 'undefined') {
   window.addEventListener('storage', (e) => {
-    if (e.key !== STORAGE_KEY) return
+    if (serverMode || e.key !== STORAGE_KEY) return
     threads = load()
     emit()
   })
+  window.addEventListener('beforeunload', flushServerNow)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushServerNow()
+  })
+  void bootstrap()
+}
+
+/** Decide the persistence mode (ADR app-data-on-disk.md D1) and, in single-user
+ *  mode, replace the localStorage-loaded snapshot with the server's — migrating
+ *  it up first if the server is empty (D5). Runs once at module load. */
+async function bootstrap(): Promise<void> {
+  try {
+    const info = await initAppData()
+    if (!info.singleUser) return
+    serverMode = true
+    const serverThreads = await fetchAppDataThreads()
+    const normalized = serverThreads
+      .map(normalizeThread)
+      .filter((t): t is AskThread => t !== null)
+    if (normalized.length === 0 && threads.length > 0) {
+      const migrated = await migrateToServer(threads)
+      if (migrated) {
+        try {
+          localStorage.removeItem(STORAGE_KEY)
+        } catch {
+          /* ignore */
+        }
+      }
+      // Keep the in-memory (just-migrated) threads as-is either way.
+    } else {
+      threads = [...normalized].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, MAX_THREADS)
+    }
+  } catch {
+    // /api/appdata/info itself falls back internally; a failure here means the
+    // single-user thread GET failed after info said yes. Stay in whatever mode
+    // we reached — memory (from localStorage) keeps working either way.
+  } finally {
+    loaded = true
+    emit()
+  }
+}
+
+/** One-time upload of the localStorage threads to an empty server (ADR D5).
+ *  All-or-nothing: on any failure nothing is removed locally, so the next
+ *  bootstrap can try again. */
+async function migrateToServer(localThreads: AskThread[]): Promise<boolean> {
+  try {
+    for (const t of localThreads) {
+      await putAppDataThread(serializeThread(t))
+    }
+    return true
+  } catch {
+    return false
+  }
 }
 
 // ---- persistence ------------------------------------------------------------
@@ -152,9 +246,12 @@ function normalizeThread(raw: unknown): AskThread | null {
   }
 }
 
-function save() {
-  if (typeof localStorage === 'undefined') return
-  const serializable = threads.map((t) => ({
+// Turn shape as written to storage (either localStorage or a server PUT body):
+// a pending slot that never resolved becomes `interrupted` (so a reload/restart
+// offers retry instead of hanging forever), and the in-memory-only `attempt`
+// token is dropped.
+function serializeThread(t: AskThread): AskThread {
+  return {
     ...t,
     turns: t.turns.map((turn) =>
       turn.role === 'assistant' && turn.pending
@@ -163,7 +260,12 @@ function save() {
           ? { ...turn, attempt: undefined }
           : turn,
     ),
-  }))
+  }
+}
+
+function saveLocal() {
+  if (typeof localStorage === 'undefined') return
+  const serializable = threads.map(serializeThread)
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ v: 1, threads: serializable }))
   } catch {
@@ -178,10 +280,96 @@ function save() {
   }
 }
 
+// ---- server persistence (single-user mode) ----------------------------------
+//
+// Only the threads that actually changed are queued (Graphium-style, one file
+// per thread — ADR D2). A short debounce coalesces bursts (an answer streaming
+// in touches the same thread repeatedly); `beforeunload` / tab-hide flush
+// immediately so a closed window does not lose the last few hundred ms. A PUT
+// that fails leaves the id queued so the *next* mutation (or the next flush)
+// retries it — the in-memory thread is never rolled back for a network error.
+
+const pendingPuts = new Set<string>()
+const pendingDeletes = new Set<string>()
+let flushTimer: ReturnType<typeof setTimeout> | null = null
+
+function queueServerPut(id: string) {
+  pendingDeletes.delete(id)
+  pendingPuts.add(id)
+  scheduleFlush()
+}
+
+function queueServerDelete(id: string) {
+  pendingPuts.delete(id)
+  pendingDeletes.add(id)
+  scheduleFlush()
+}
+
+function scheduleFlush() {
+  if (flushTimer !== null) return
+  flushTimer = setTimeout(() => {
+    flushTimer = null
+    void flushServer()
+  }, FLUSH_DEBOUNCE_MS)
+}
+
+function flushServerNow() {
+  if (!serverMode || (pendingPuts.size === 0 && pendingDeletes.size === 0)) return
+  if (flushTimer !== null) {
+    clearTimeout(flushTimer)
+    flushTimer = null
+  }
+  void flushServer()
+}
+
+async function flushServer(): Promise<void> {
+  for (const id of [...pendingPuts]) {
+    const t = threads.find((th) => th.id === id)
+    if (!t) {
+      pendingPuts.delete(id)
+      continue
+    }
+    try {
+      await putAppDataThread(serializeThread(t))
+      pendingPuts.delete(id)
+    } catch {
+      // Left queued; retried on the next mutation/flush.
+    }
+  }
+  for (const id of [...pendingDeletes]) {
+    try {
+      await deleteAppDataThread(id)
+      pendingDeletes.delete(id)
+    } catch {
+      // Left queued; retried on the next mutation/flush.
+    }
+  }
+}
+
+function persist(changedIds: Set<string>, deletedIds: Set<string>) {
+  if (serverMode) {
+    for (const id of changedIds) queueServerPut(id)
+    for (const id of deletedIds) queueServerDelete(id)
+  } else {
+    saveLocal()
+  }
+}
+
 function commit(next: AskThread[]) {
+  const prevById = new Map(threads.map((t) => [t.id, t]))
   // Most recently updated first; cap the count.
-  threads = [...next].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, MAX_THREADS)
-  save()
+  const nextThreads = [...next].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, MAX_THREADS)
+  const nextIds = new Set(nextThreads.map((t) => t.id))
+  const changedIds = new Set<string>()
+  for (const t of nextThreads) {
+    if (prevById.get(t.id) !== t) changedIds.add(t.id)
+  }
+  const deletedIds = new Set<string>()
+  for (const id of prevById.keys()) {
+    if (!nextIds.has(id)) deletedIds.add(id)
+  }
+  threads = nextThreads
+  persist(changedIds, deletedIds)
   emit()
 }
 

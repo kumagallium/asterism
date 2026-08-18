@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { getAppDataInfo } from './appdata'
 import { takeAskPrefill } from './askPrefill'
 import {
   type AskAssistantTurn,
@@ -20,6 +21,7 @@ import {
   stopAnswer,
   unregisterInflight,
   useAskThreads,
+  useAskThreadsLoaded,
 } from './askThreads'
 import { CitationCard } from './CitationCard'
 import { ask, isAbortError, isMockMode, type AskResponse, type Citation } from './demoApi'
@@ -71,6 +73,7 @@ export function AskView({
 }) {
   const { t } = useTranslation()
   const threads = useAskThreads()
+  const threadsLoaded = useAskThreadsLoaded()
   const thread = threadId ? threads.find((th) => th.id === threadId) : undefined
   const { isReady, getActiveCredentials } = useLlmSettings()
   const keyMissing = !isReady && !isMockMode
@@ -167,6 +170,7 @@ export function AskView({
     <div className={`chat${selected ? ' chat--trace' : ''}${threadsOpen ? ' chat--threads-open' : ''}`}>
       <ThreadList
         threads={threads}
+        loaded={threadsLoaded}
         activeId={thread?.id ?? null}
         onSelect={selectThread}
         onDelete={removeThread}
@@ -260,6 +264,7 @@ function groupOf(updatedAt: number, now: number): GroupKey {
 
 function ThreadList({
   threads,
+  loaded,
   activeId,
   onSelect,
   onDelete,
@@ -267,6 +272,10 @@ function ThreadList({
   onClose,
 }: {
   threads: AskThread[]
+  /** False while the single-user check / initial server read are still in
+   *  flight — hold off the empty-state copy so it does not flash before the
+   *  real history arrives. */
+  loaded: boolean
   activeId: string | null
   onSelect: (id: string | null) => void
   onDelete: (id: string) => void
@@ -308,7 +317,11 @@ function ThreadList({
         </button>
       </div>
       <div className="chat-threads-list">
-        {threads.length === 0 && <p className="chat-threads-empty">{t('ask:threads.empty')}</p>}
+        {loaded && threads.length === 0 && (
+          <p className="chat-threads-empty">
+            {t(getAppDataInfo()?.singleUser ? 'ask:threads.emptyDisk' : 'ask:threads.empty')}
+          </p>
+        )}
         {groups.map((g) => (
           <section key={g.key} className="chat-threads-group">
             <h3 className="chat-threads-group-h">{t(`ask:threads.group.${g.key}`)}</h3>

@@ -32,6 +32,7 @@ from asterism_api.local import (
     find_demo_agent_dir,
     find_oxigraph_binary,
     find_ui_dist,
+    legacy_data_home,
     local_env,
     main,
 )
@@ -267,6 +268,53 @@ def test_write_token_is_minted_once_and_private(tmp_path: Path) -> None:
 def test_default_data_home_is_user_scoped() -> None:
     home = default_data_home()
     assert Path.home() in home.parents
+
+
+def test_default_data_home_prefers_documents_for_fresh_install(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    home = default_data_home()
+    assert home == tmp_path / "Documents" / "Asterism"
+    # No side effects: calling the function does not create the directory.
+    assert not home.exists()
+
+
+def test_default_data_home_keeps_legacy_when_populated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.delenv("APPDATA", raising=False)
+    monkeypatch.delenv("XDG_DATA_HOME", raising=False)
+    legacy = legacy_data_home()
+    legacy.mkdir(parents=True)
+    (legacy / "write_token").write_text("token\n", encoding="utf-8")
+
+    home = default_data_home()
+
+    assert home == legacy
+
+
+def test_default_data_home_ignores_empty_legacy_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.delenv("APPDATA", raising=False)
+    monkeypatch.delenv("XDG_DATA_HOME", raising=False)
+    legacy = legacy_data_home()
+    legacy.mkdir(parents=True)  # exists, but empty
+
+    home = default_data_home()
+
+    assert home == tmp_path / "Documents" / "Asterism"
+
+
+def test_default_data_home_has_no_side_effects(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    default_data_home()
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_find_ui_dist_requires_index(tmp_path: Path) -> None:

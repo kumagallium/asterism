@@ -1,0 +1,15 @@
+# App-defined command permissions for the storage-location setting (ADR
+# app-data-on-disk.md D4). These are the app's own commands, not a plugin's,
+# so they are namespaced by identifier only (no `<plugin>:` prefix) — see
+# https://tauri.app/security/permissions/#permission-identifier.
+
+[[permission]]
+identifier = "allow-get-data-home-override"
+description = "Read the saved storage-location override (null if unset)."
+commands.allow = ["get_data_home_override"]
+
+[[permission]]
+identifier = "allow-set-data-home-override"
+description = """Save or clear the storage-location override. Writes only —
+does not restart the backend; the new location takes effect on next launch."""
+commands.allow = ["set_data_home_override"]

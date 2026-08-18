@@ -72,8 +72,12 @@ _NO_OXIGRAPH_MSG = (
 # user-data directory + write token
 
 
-def default_data_home() -> Path:
-    """OS-conventional per-user data directory (override: ``--data-dir``)."""
+def legacy_data_home() -> Path:
+    """The pre-``~/Documents/Asterism`` OS-conventional data directory.
+
+    Existing installs keep using this location (see ``default_data_home``);
+    it is only a fresh-install default that moved.
+    """
     if sys.platform == "darwin":
         return Path.home() / "Library" / "Application Support" / "Asterism"
     if os.name == "nt":
@@ -81,6 +85,41 @@ def default_data_home() -> Path:
         return (Path(appdata) if appdata else Path.home()) / "Asterism"
     xdg = os.environ.get("XDG_DATA_HOME")
     return (Path(xdg) if xdg else Path.home() / ".local" / "share") / "asterism"
+
+
+def _has_existing_data(home: Path) -> bool:
+    """True if ``home`` exists and is non-empty (used, not just created)."""
+    try:
+        return home.is_dir() and any(home.iterdir())
+    except OSError:
+        return False
+
+
+def default_data_home() -> Path:
+    """Default per-user data directory (override: ``--data-dir``).
+
+    Fresh installs default to ``~/Documents/Asterism`` — a visible,
+    Finder-browsable location shared with the sister app Graphium
+    (``~/Documents/Graphium``). Installs that already have data under the
+    legacy OS-conventional location (macOS ``~/Library/Application
+    Support/Asterism``, Windows ``%APPDATA%/Asterism``) keep using it
+    unchanged; nothing is moved or copied.
+    """
+    legacy = legacy_data_home()
+    if _has_existing_data(legacy):
+        logger.info("data home: using existing legacy location %s", legacy)
+        return legacy
+    try:
+        documents = Path.home() / "Documents" / "Asterism"
+    except RuntimeError:
+        # Path.home() can raise if $HOME is unresolvable.
+        logger.info(
+            "data home: could not resolve ~/Documents, falling back to %s",
+            legacy,
+        )
+        return legacy
+    logger.info("data home: using %s", documents)
+    return documents
 
 
 def ensure_write_token(home: Path) -> str:
@@ -123,6 +162,12 @@ def local_env(home: Path, oxigraph_url: str, token: str) -> dict[str, str]:
         "ASTERISM_API_TOKEN": token,
         "ASTERISM_EXPOSE_RAW_SPARQL": "1",
         "ASTERISM_ALLOW_PRIVATE_LLM_BASE": "1",
+        # Single-user mode (ADR app-data-on-disk.md): Ask chat history
+        # and app settings get a server-side home under the data dir instead
+        # of the browser's localStorage. Unset in the shared/hosted api, so
+        # the appdata routes there stay 404 and behaviour is unchanged.
+        "ASTERISM_SINGLE_USER": "1",
+        "ASTERISM_APPDATA_ROOT": str(home / "appdata"),
     }
 
 
@@ -517,8 +562,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--data-dir",
         default=None,
-        help="data home (default: OS user-data dir, e.g. ~/Library/Application "
-        "Support/Asterism; env ASTERISM_LOCAL_HOME)",
+        help="data home (default: ~/Documents/Asterism, or the legacy OS "
+        "user-data dir if it already has data; env ASTERISM_LOCAL_HOME)",
     )
     parser.add_argument(
         "--oxigraph-url",
