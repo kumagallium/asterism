@@ -100,7 +100,7 @@
     "copied": "✓ Copied"
   },
   "warning": {
-    "untypedNumeric": "This answer compares values that are saved as text, not as numbers — so a maximum, minimum or ranking here can be wrong. Open that dataset, choose “Revise”, tell the AI that this column is numeric, and rebuild it.",
+    "untypedNumeric": "This answer compares values that are saved as text, not as numbers — so a maximum, minimum or ranking here can be wrong. Open that dataset, choose “Revise the design”, tell the AI that this column is numeric, and rebuild it.",
     "untypedNumericTech": "SPARQL compares untyped values as strings (\"9.4\" > \"100.0\"). Variable: {{variable}}. To handle it in the query itself, cast with xsd:double({{variable}})."
   }
 }

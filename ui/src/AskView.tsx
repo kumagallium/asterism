@@ -750,7 +750,7 @@ function AnswerMessage({
                   ? t('ask:interrupted')
                   : unanswered
                     ? t('ask:unanswered')
-                    : t(`ask:error.${kind}`)}
+                    : t(`ask:error.${kind ?? 'other'}`)}
             </span>
             {/* 出口は常に 2 つ以上。原因が設定のときだけ、設定への導線を主にする。 */}
             {kind === 'settings' && (
