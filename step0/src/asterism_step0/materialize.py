@@ -55,6 +55,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from asterism_step0.ir2mermaid import render_diagram_doc
+from asterism_step0.spec_yaml import load_spec_yaml
 from asterism_step0.units import enrich_units
 
 # ----------------------------------------------------------------------------
@@ -300,7 +301,7 @@ def apply_source_dialects(mapping_ir_yaml: str, source_dir: Path | str) -> str:
     )
 
     try:
-        doc = yaml.safe_load(mapping_ir_yaml)
+        doc = load_spec_yaml(mapping_ir_yaml)
     except yaml.YAMLError:
         return mapping_ir_yaml  # a broken spec flows on; the compiler reports it
     if not isinstance(doc, dict) or not isinstance(doc.get("maps"), list):

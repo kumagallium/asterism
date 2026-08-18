@@ -96,6 +96,7 @@ from asterism_step0.spec_repair import (
     parse_spec_json,
     replace_mapping_spec_block,
 )
+from asterism_step0.spec_yaml import load_spec_yaml
 from asterism_step0.staged_propose import apply_data_facts, propose_from_skeleton
 from asterism_step0.validate import SchemaBundle, validate_schema
 
@@ -720,7 +721,7 @@ def _stamp_numeric_datatypes(schema_md: str, base: Path, issues: list[Issue]) ->
         return None
     try:
         ir = parse_mapping_ir(ir_yaml)
-        spec = yaml.safe_load(ir_yaml)
+        spec = load_spec_yaml(ir_yaml)
     except Exception:
         return None
     if not isinstance(spec, dict) or not isinstance(spec.get("maps"), list):
@@ -756,27 +757,105 @@ def _stamp_numeric_datatypes(schema_md: str, base: Path, issues: list[Issue]) ->
         return None
 
 
+# The transform message the identity repair keys on (mapping_ir._check_transform).
+_RE_TRANSFORM_NOT_FN = re.compile(r"transform function '([^']+)' \(for \{([^}]+)\}\)")
+
+
+def _drop_identity_transforms(schema_md: str, base: Path, issues: list[Issue]) -> str | None:
+    """Deterministically remove ``transform: {X: X}`` entries whose value is NOT a
+    Tier-0 function. Returns the repaired document, or None when nothing applies.
+
+    Live 2026-08-18 (gpt-oss-120b, XRD card): the model wrote
+    ``subject.transform: {No: No}`` / ``{hkl: hkl}`` — reading ``transform`` as
+    "placeholder ← column" — and kept re-emitting it through five manual rounds.
+    A transform maps a placeholder to a FUNCTION; a value equal to its own key
+    that names no function cannot mean anything valid, so removing it is the
+    only edit the message can lead to. Kept when the value IS a function (a
+    column literally named ``slug`` with ``transform: {slug: slug}`` is legal).
+    """
+    named = {m.group(1) for iss in issues if (m := _RE_TRANSFORM_NOT_FN.search(iss.message))}
+    if not named:
+        return None
+    try:
+        functions = set(catalog_from_registry().names())
+    except Exception:
+        return None
+    with tempfile.TemporaryDirectory(prefix="asterism-loop-tf-") as tmp:
+        ir_yaml = materialize_schema(schema_md, tmp, "design", write=False).mapping_ir_yaml
+    if not ir_yaml or not ir_yaml.strip():
+        return None
+    import yaml
+
+    try:
+        spec = load_spec_yaml(ir_yaml)
+    except yaml.YAMLError:
+        return None
+    if not isinstance(spec, dict) or not isinstance(spec.get("maps"), list):
+        return None
+
+    def _prune(owner: Any) -> int:
+        if not isinstance(owner, dict) or not isinstance(owner.get("transform"), dict):
+            return 0
+        tf = owner["transform"]
+        drop = [
+            k for k, v in tf.items()
+            if isinstance(v, str) and str(k) == v and v in named and v not in functions
+        ]
+        for k in drop:
+            del tf[k]
+        if not tf:
+            del owner["transform"]
+        return len(drop)
+
+    changed = 0
+    for map_entry in spec["maps"]:
+        if not isinstance(map_entry, dict):
+            continue
+        changed += _prune(map_entry.get("subject"))
+        for prop in map_entry.get("properties") or []:
+            changed += _prune(prop)
+    if not changed:
+        return None
+    repaired = yaml.safe_dump(spec, allow_unicode=True, sort_keys=False).rstrip("\n")
+    try:
+        return replace_mapping_spec_block(schema_md, repaired)
+    except ValueError:
+        return None
+
+
+# Deterministic repairs, in order. Each sees the CURRENT document + its issues
+# and returns a repaired document or None; each is kept only if the re-verdict
+# has strictly fewer issues (see _evaluate).
+_REPAIRS: tuple[Callable[[str, Path, list[Issue]], str | None], ...] = (
+    _drop_identity_transforms,  # parse-level: unblocks every later check
+    _stamp_numeric_datatypes,
+)
+
+
 def _evaluate(schema_md: str, base: Path) -> tuple[str, str | None, list[Issue]]:
     """Evaluate, then let the machine fix what it can BEFORE the LLM is asked.
 
     Returns ``(schema_md, ir_yaml, issues)`` — ``schema_md`` is the possibly
     deterministically-repaired document, and the issues are those of THAT
-    document. A repair that does not actually reduce the issue count is
-    discarded, so a bad rule can never make a round worse than doing nothing.
+    document. Each repair in :data:`_REPAIRS` is applied in turn and kept only
+    if it STRICTLY reduces the issue count, so a bad rule can never make a
+    round worse than doing nothing.
     """
     ir_yaml, issues = _verdict(schema_md, base)
-    if not issues:
-        return schema_md, ir_yaml, issues
-    repaired_md = _stamp_numeric_datatypes(schema_md, base, issues)
-    if repaired_md is None:
-        return schema_md, ir_yaml, issues
-    try:
-        repaired_ir, repaired_issues = _verdict(repaired_md, base)
-    except _LoopEnvError:
-        return schema_md, ir_yaml, issues
-    if len(repaired_issues) >= len(issues):
-        return schema_md, ir_yaml, issues
-    return repaired_md, repaired_ir, repaired_issues
+    for repair in _REPAIRS:
+        if not issues:
+            break
+        repaired_md = repair(schema_md, base, issues)
+        if repaired_md is None:
+            continue
+        try:
+            repaired_ir, repaired_issues = _verdict(repaired_md, base)
+        except _LoopEnvError:
+            continue
+        if len(repaired_issues) >= len(issues):
+            continue
+        schema_md, ir_yaml, issues = repaired_md, repaired_ir, repaired_issues
+    return schema_md, ir_yaml, issues
 
 
 def _reference_count(ir_yaml: str | None, rml_ttl: str | None) -> int:
@@ -1069,7 +1148,18 @@ def run_design_loop(
         return _result(best_schema, best_issues, rounds, converged=False,
                        reason="no_autocorrect", initial=initial, base_refs=base_refs)
 
-    seen_keysets: set[frozenset[tuple[str, str]]] = set()
+    # No-progress detection is PER REPAIR MODE. Surgical (§9-only, guided JSON)
+    # and whole-document refine are different tools; a keyset surgical could not
+    # move gets ONE whole-document attempt before the loop gives up. Live
+    # 2026-08-18 (gpt-oss-120b, XRD card): the two surgical rounds returned
+    # degenerate JSON that was discarded, the loop stopped on no_progress at 38
+    # issues — and the human's five "AI に直してもらう" clicks, which are exactly
+    # whole-document refines, then took the same design 38 → 2. Those were
+    # rounds the machine could have run.
+    seen_by_mode: dict[str, set[frozenset[tuple[str, str]]]] = {
+        "surgical": set(), "document": set(),
+    }
+    escalated = False  # once surgical failed on a keyset, stay whole-document
     prev_issues = issues
     for n in range(1, max_rounds + 1):
         # A pending cancel outranks every stop condition: raise before spending
@@ -1077,10 +1167,6 @@ def run_design_loop(
         if should_cancel is not None and should_cancel():
             raise LLMCancelledError("cancelled")
         keyset = frozenset(i.key for i in prev_issues)
-        if keyset in seen_keysets:  # cycle / no-progress (checked before spending a round)
-            return _result(best_schema, best_issues, rounds, converged=False,
-                           reason="no_progress", initial=initial, base_refs=base_refs)
-        seen_keysets.add(keyset)
 
         # Phase 2 surgical repair (ADR mapping-ir-phase2-guided-repair): with a
         # mapping spec present, ONLY the §9 block is regenerated — guided JSON
@@ -1095,15 +1181,27 @@ def run_design_loop(
         # cannot touch them, so a surgical round would burn a call and change
         # nothing — the no-progress detector would then stop the loop one round
         # later with the trap still open.
-        surgical = bool(ir_yaml and ir_yaml.strip()) and not any(
-            i.category == "trap" for i in prev_issues
+        surgical = (
+            bool(ir_yaml and ir_yaml.strip())
+            and not escalated
+            and not any(i.category == "trap" for i in prev_issues)
         )
+        mode = "surgical" if surgical else "document"
+        if keyset in seen_by_mode[mode]:  # cycle / no-progress in THIS mode
+            if surgical:
+                # Escalate: the same issues, one whole-document attempt.
+                surgical, mode, escalated = False, "document", True
+            if keyset in seen_by_mode[mode]:  # both tools already failed here
+                return _result(best_schema, best_issues, rounds, converged=False,
+                               reason="no_progress", initial=initial, base_refs=base_refs)
+        seen_by_mode[mode].add(keyset)
         _emit(on_progress, phase="refine", round=n, issue_count=len(prev_issues),
               categories=_cats(prev_issues),
               message=(
                   f"{len(prev_issues)} 件の問題を修正中 (§9 仕様のみ再生成)"
                   if surgical
                   else f"{len(prev_issues)} 件の問題を修正中"
+                  + (" (設計全体を再生成)" if escalated else "")
               ))
         try:
             if surgical:
@@ -1124,13 +1222,14 @@ def run_design_loop(
                            reason="refine_truncated", initial=initial, base_refs=base_refs)
         except ValueError as exc:
             # Unparseable/unspliceable surgical output — an LLM-quality flake,
-            # not an env failure: record the round (schema unchanged) and let
-            # the next iteration's seen-keyset check stop as no_progress if it
-            # repeats. Guided decoding makes this rare by construction.
+            # not an env failure: record the round (schema unchanged) and
+            # escalate, so the next round retries the SAME issues with the
+            # whole-document refine instead of stopping on no_progress.
             if on_llm_call is not None:
                 on_llm_call("propose.autocorrect")
             rounds.append(RoundRecord(n, len(prev_issues), _cats(prev_issues),
                                       env_error=f"spec repair discarded: {exc}"))
+            escalated = True
             continue
         except Exception as exc:  # provider 429/quota/etc — non-loopable, keep best
             rounds.append(RoundRecord(n, len(prev_issues), _cats(prev_issues), env_error=str(exc)))
@@ -1196,7 +1295,7 @@ def _overlay_data_facts(
     import yaml
 
     try:
-        doc = yaml.safe_load(ir_yaml)
+        doc = load_spec_yaml(ir_yaml)
     except yaml.YAMLError:
         return schema_md
     if not isinstance(doc, dict):

@@ -366,6 +366,33 @@ _STREAM_UNSUPPORTED_ERROR_RE = re.compile(r"stream", re.IGNORECASE)
 _RESPONSE_FORMAT_ERROR_RE = re.compile(
     r"response_format|json_schema|guided|grammar|unimplemented", re.IGNORECASE
 )
+# A grammar backend that names the JSON Schema keywords it cannot compile
+# ("Grammar error: Unimplemented keys: [maxLength, propertyNames]" — vLLM /
+# xgrammar). Those keys are stripped and the SAME call retried with json_schema
+# before degrading to json_object, so one unsupported refinement never costs the
+# whole guidance (observed: the property-row `anyOf` + string caps added
+# 2026-08-18 must not knock a server back to unguided output).
+_UNIMPLEMENTED_KEYS_RE = re.compile(r"unimplemented keys?:\s*\[([^\]]*)\]", re.IGNORECASE)
+
+
+def _strip_schema_keys(schema: object, keys: set[str]) -> object:
+    """Recursively drop the named keywords from a JSON Schema (pure; new object).
+    Only DICT KEYS that are schema keywords are dropped — a property literally
+    named like a keyword under ``properties`` is kept, since ``properties``
+    values are schemas but its keys are field names."""
+    if isinstance(schema, dict):
+        out: dict = {}
+        for k, v in schema.items():
+            if k in keys:
+                continue
+            if k == "properties" and isinstance(v, dict):
+                out[k] = {name: _strip_schema_keys(sub, keys) for name, sub in v.items()}
+            else:
+                out[k] = _strip_schema_keys(v, keys)
+        return out
+    if isinstance(schema, list):
+        return [_strip_schema_keys(x, keys) for x in schema]
+    return schema
 
 # Reasoning models (qwen3 / DeepSeek-R1 style) served over plain Chat
 # Completions can leak chain-of-thought inline as a <think>…</think> prefix in
@@ -472,6 +499,8 @@ class OpenAICompatibleLLMClient:
         # Structured-output mode for THIS call: full schema when the caller set
         # one, degrading per server capability (each step flips at most once).
         response_mode = "schema" if self.response_schema else "off"
+        active_schema = self.response_schema  # may be relaxed once, see below
+        stripped_once = False
         self.last_notes = []
 
         # Same continuation-on-truncation strategy as the Anthropic client: the
@@ -504,7 +533,7 @@ class OpenAICompatibleLLMClient:
                 if response_mode == "schema":
                     request_kwargs["response_format"] = {
                         "type": "json_schema",
-                        "json_schema": {"name": "mapping_spec", "schema": self.response_schema},
+                        "json_schema": {"name": "mapping_spec", "schema": active_schema},
                     }
                 elif response_mode == "json_object":
                     request_kwargs["response_format"] = {"type": "json_object"}
@@ -544,6 +573,21 @@ class OpenAICompatibleLLMClient:
                     # stream patterns so a response_format message never
                     # mis-triggers the broad stream fallback.
                     if response_mode == "schema" and _RESPONSE_FORMAT_ERROR_RE.search(err_text):
+                        # First: if the server NAMES the keywords it lacks,
+                        # strip just those and keep guided decoding.
+                        named = _UNIMPLEMENTED_KEYS_RE.search(err_text)
+                        if named and not stripped_once:
+                            keys = {k.strip().strip("'\"") for k in named.group(1).split(",")}
+                            keys.discard("")
+                            if keys:
+                                stripped_once = True
+                                active_schema = _strip_schema_keys(active_schema, keys)
+                                self._record_note(
+                                    "guided json_schema: server lacks "
+                                    + ", ".join(sorted(keys))
+                                    + " — retrying without those keywords"
+                                )
+                                continue
                         response_mode = "json_object"
                         self._record_note(
                             "guided json_schema rejected by server — retrying with json_object"

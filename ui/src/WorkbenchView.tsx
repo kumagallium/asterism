@@ -803,6 +803,7 @@ export function WorkbenchView({
           },
         },
         i18n.language,
+        { datasetId: redesignId, stagingId },
       )
     } catch (e) {
       setProposeErr(e instanceof Error ? e.message : String(e))

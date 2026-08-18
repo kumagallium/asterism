@@ -26,6 +26,8 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping, MutableMapping
 
+from asterism_step0.spec_yaml import load_spec_yaml
+
 __all__ = ["enrich_units", "extract_unit_from_label"]
 
 # The longest string we accept as a unit. A trailing parenthetical longer than
@@ -154,7 +156,7 @@ def enrich_units(mapping_ir_yaml: str) -> str:
     import yaml
 
     try:
-        doc = yaml.safe_load(mapping_ir_yaml)
+        doc = load_spec_yaml(mapping_ir_yaml)
     except yaml.YAMLError:
         return mapping_ir_yaml
     if not isinstance(doc, Mapping) or not isinstance(doc.get("maps"), list):

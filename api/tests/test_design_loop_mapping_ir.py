@@ -129,10 +129,13 @@ def test_surgical_repair_sets_guided_schema_on_capable_clients(tmp_path: Path) -
     assert llm.schemas_seen[0] is None  # round-0 propose: no schema constraint
     repair_schema = llm.schemas_seen[1]
     assert isinstance(repair_schema, dict)
-    fn_enum = repair_schema["properties"]["maps"]["items"]["properties"]["properties"][
+    # The property row is a union of complete row schemas (one per object
+    # form) since 2026-08-18; the menu enum is enforced in every branch.
+    row_branches = repair_schema["properties"]["maps"]["items"]["properties"]["properties"][
         "items"
-    ]["properties"]["function"]
-    assert "trim_collapse" in fn_enum["enum"]  # menu enforced at generation
+    ]["anyOf"]
+    for branch in row_branches:
+        assert "trim_collapse" in branch["properties"]["function"]["enum"]
     assert llm.response_schema is None  # restored after the call
 
 
@@ -271,12 +274,52 @@ def test_coverage_dropped_when_ir_rows_shrink(tmp_path: Path) -> None:
 
 def test_unparseable_repair_output_stops_bounded(tmp_path: Path) -> None:
     """A repair reply that is not a spec (prose) is discarded — the schema
-    stays unchanged and the loop stops on no-progress instead of looping."""
+    stays unchanged. The loop then ESCALATES once to the whole-document refine
+    (the tool the human's "AI に直してもらう" click uses) rather than giving up;
+    when that too returns nothing usable it stops, still bounded (3 calls)."""
     llm = _ScriptedLLM([_SPEC_BAD_COLUMN, "sorry, here is some prose", "more prose"])
     result = _run(tmp_path, llm)
     assert result.converged is False
-    assert result.terminal_reason == "no_progress"
+    assert result.terminal_reason == "refine_truncated"  # the escalated attempt was empty
+    assert len(llm.calls) == 3
     assert any("column 'comp'" in m for m in result.remaining_issues)
+
+
+def test_discarded_surgical_repair_escalates_to_whole_document(tmp_path: Path) -> None:
+    """The live 2026-08-18 shape: surgical (guided JSON) returns garbage, but a
+    whole-document refine on the same issues succeeds. Before this the loop
+    stopped on no_progress after the discarded round and the human ran the
+    whole-document rounds by hand."""
+    from asterism_step0.spec_repair import SPEC_REPAIR_SYSTEM_PROMPT
+
+    llm = _ScriptedLLM([_SPEC_BAD_COLUMN, "sorry, here is some prose", _SPEC_GOOD])
+    result = _run(tmp_path, llm)
+    assert result.converged is True
+    assert result.terminal_reason == "converged"
+    assert len(llm.calls) == 3
+    assert llm.calls[1][0] == SPEC_REPAIR_SYSTEM_PROMPT  # round 1: surgical, discarded
+    assert llm.calls[2][0] != SPEC_REPAIR_SYSTEM_PROMPT  # round 2: whole document
+    # The escalated round still carries the actionable feedback + oracle.
+    assert "column 'comp'" in llm.calls[2][1]
+    assert "composition" in llm.calls[2][1]
+
+
+def test_surgical_no_progress_escalates_before_giving_up(tmp_path: Path) -> None:
+    """A surgical round that parses and splices but changes NOTHING (same
+    keyset) is not the end: one whole-document attempt follows. Only when both
+    tools fail on the same keyset does the loop stop on no_progress."""
+    from asterism_step0.spec_repair import SPEC_REPAIR_SYSTEM_PROMPT
+
+    bad_again = _FIXED_SPEC_JSON.replace('"column": "composition"', '"column": "comp"')
+    llm = _ScriptedLLM([_SPEC_BAD_COLUMN, bad_again, _SPEC_BAD_COLUMN, _SPEC_BAD_COLUMN])
+    result = _run(tmp_path, llm, max_rounds=5)
+    assert result.converged is False
+    assert result.terminal_reason == "no_progress"
+    # surgical (no change) → escalate → whole-document (no change) → stop: 3 calls,
+    # NOT the max of 6, and the second repair round is the whole-document one.
+    assert len(llm.calls) == 3
+    assert llm.calls[1][0] == SPEC_REPAIR_SYSTEM_PROMPT
+    assert llm.calls[2][0] != SPEC_REPAIR_SYSTEM_PROMPT
 
 
 def test_ir_placeholder_namespace_is_rejected_then_reminted(tmp_path: Path) -> None:

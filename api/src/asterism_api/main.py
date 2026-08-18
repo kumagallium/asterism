@@ -124,6 +124,15 @@ class RefineRequest(BaseModel):
     # Absent/empty → English (legacy behaviour). Headings / identifiers stay
     # English regardless — materialize extracts artifacts by English headings.
     language: str | None = None
+    # Where the design's source lives, so the manual round gets the SAME
+    # closed-menu oracle (exact filenames, real columns, Tier-0 menu) the
+    # automatic loop appends to every refine. Without it the human's "AI に直し
+    # てもらう" rounds ran on the symptom text alone — live 2026-08-18 the model
+    # invented 17 camel-cased column names over five clicks. The dataset's own
+    # persisted source wins; the staged copy (ADR source-staging.md) covers a
+    # design not attached yet. Both optional: absent → the legacy ungrounded round.
+    dataset_id: str | None = None
+    staging_id: str | None = None
 
 
 class MaterializeRequest(BaseModel):
@@ -139,6 +148,16 @@ class MaterializeRequest(BaseModel):
     # preserved) instead of minting a new dataset. The user re-applies data via the
     # existing re-ingest controls. Ignored when persist is false.
     dataset_id: str | None = None
+    # Design-time source that is NOT yet attached (ADR source-staging.md): the
+    # wizard stages uploads once and designs against them; attach happens only
+    # after materialize succeeds. Until then the dataset has no source dir, so
+    # every source-grounded check here (dialect re-pin, column existence with
+    # did-you-mean, numeric typing, join-key candidates) used to be silently
+    # skipped on a brand-new design — the manual "AI に直してもらう" rounds ran
+    # blind and a design with 17 invented column names was reported "clean"
+    # (live 2026-08-18). With the staging id the same checks run against the
+    # staged copy. The dataset's own persisted source still wins when present.
+    staging_id: str | None = None
 
 
 class SparqlRequest(BaseModel):
@@ -2104,8 +2123,35 @@ async def _append_watch_loop(
     )
 
 
+def _refine_oracle(registry_root: Path, dataset_id: str | None, staging_id: str | None) -> str:
+    """The closed-menu appendix for a MANUAL refine round, or "" when no source
+    is known. Best-effort: any failure means an ungrounded round (today's
+    behaviour), never a failed request. Dialects are re-detected from the files
+    the same way the loop does, so the column list matches what ingest reads."""
+    try:
+        paths: list[Path] = []
+        if dataset_id:
+            with contextlib.suppress(Exception):
+                paths = registry.list_source_files(registry_root, dataset_id)
+        if not paths and staging_id:
+            with contextlib.suppress(staging.StagingNotFound, ValueError):
+                _sdir, paths = staging.load(registry_root, staging_id)
+        if not paths:
+            return ""
+        base = paths[0].parent
+        return design_loop.build_oracle(
+            base, paths, dialects=design_loop._detect_source_dialects(paths)
+        )
+    except Exception:
+        return ""
+
+
 def _design_checks_at_materialize(
-    registry_root: Path, dataset_id: str | None, rml_ttl: str | None
+    registry_root: Path,
+    dataset_id: str | None,
+    rml_ttl: str | None,
+    *,
+    source_dir: Path | None = None,
 ) -> tuple[list[str], list[str]]:
     """Design checks for the materialize response (NEVER raises).
 
@@ -2132,6 +2178,10 @@ def _design_checks_at_materialize(
     connectivity advisory additionally names the join-key candidates, turning a
     diagnosis into a work order.
 
+    ``source_dir`` is the design-time source when the dataset has none attached
+    yet (the wizard's staged copy, ADR source-staging.md); the dataset's own
+    persisted source wins when it exists.
+
     Both lists are best-effort: any unexpected error degrades to "no advice",
     never a 500.
     """
@@ -2144,7 +2194,8 @@ def _design_checks_at_materialize(
             source_paths = registry.list_source_files(registry_root, dataset_id)
         except Exception:
             source_paths = []
-    source_dir = source_paths[0].parent if source_paths else None
+    if source_paths:
+        source_dir = source_paths[0].parent
     try:
         # Review notes (unmapped columns) are human-judgement items: shown so the
         # person can weigh them / include them in a fix request, but NOT fed to
@@ -2155,7 +2206,7 @@ def _design_checks_at_materialize(
     except Exception:  # advisory only
         logger.exception("design advisories at materialize failed (continuing)")
         advisories = []
-    if not source_paths:
+    if source_dir is None:
         return [], advisories
     try:
         # Validate the run-id-substituted form so the runtime-only {__run_id__}
@@ -3221,6 +3272,13 @@ def build_app(
             provider, model, api_base, key, max_tokens=_llm_max_tokens(x_llm_max_tokens)
         )
 
+        oracle = _refine_oracle(cfg.registry_root, body.dataset_id, body.staging_id)
+        if oracle:
+            # Same shape the loop uses: the menu rides the LAST comment's tail
+            # (one cohesive block — a weak model follows that better than a
+            # separately numbered directive).
+            comments = [*comments[:-1], f"{comments[-1]}\n\n{oracle}"]
+
         def work(should_cancel: Callable[[], bool]) -> dict[str, object]:
             # Cooperative cancel only (jobs.start has no emit to bridge progress
             # through): the client checks it before each generation.
@@ -3303,6 +3361,14 @@ def build_app(
                     if body.dataset_id
                     else None
                 )
+                if src_dir is None or not src_dir.is_dir():
+                    # Not attached yet — the staged copy is the design-time source.
+                    # An expired/unknown staging id is not an error HERE (the save
+                    # must go through); the chain's attach step 404s and re-uploads.
+                    src_dir = None
+                    if body.staging_id:
+                        with contextlib.suppress(staging.StagingNotFound, ValueError):
+                            src_dir, _paths = staging.load(cfg.registry_root, body.staging_id)
                 mat = materialize_schema(
                     body.proposal_md,
                     tmpdir,
@@ -3383,6 +3449,7 @@ def build_app(
                     cfg.registry_root,
                     body.dataset_id,
                     artifacts.get("mapping.rml.ttl"),
+                    source_dir=src_dir if src_dir is not None and src_dir.is_dir() else None,
                 )
                 # Mapping-spec parse/compile problems are the same class of
                 # advisory, readable design issue — surface them first (when the

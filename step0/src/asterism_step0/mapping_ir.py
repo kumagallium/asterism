@@ -38,6 +38,7 @@ from asterism_step0.dialect import (
     WHITESPACE,
     SourceDialect,
 )
+from asterism_step0.spec_yaml import describe_bare_scalar, load_spec_yaml
 
 __all__ = [
     "CatalogFunction",
@@ -324,7 +325,12 @@ def _check_cardinality_marker(term: str, where: str, issues: list[str]) -> None:
 def _expect_str(value: Any, where: str, issues: list[str]) -> str | None:
     if isinstance(value, str) and value.strip():
         return value.strip()
-    issues.append(f"{where} must be a non-empty string (got {value!r}).")
+    # A bare scalar YAML typed for us (``column: 2023`` → int) gets the quoted
+    # form spelled out — the model never wrote "2023" as a number and cannot
+    # otherwise connect the complaint to its own text.
+    issues.append(
+        f"{where} must be a non-empty string (got {value!r}).{describe_bare_scalar(value)}"
+    )
     return None
 
 
@@ -930,7 +936,7 @@ def parse_mapping_ir(text: str) -> MappingIR:
         ) from exc
 
     try:
-        doc = yaml.safe_load(text)
+        doc = load_spec_yaml(text)
     except yaml.YAMLError as exc:
         raise MappingIRParseError(
             [f"The mapping spec is not valid YAML: {exc}"]

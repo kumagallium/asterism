@@ -1127,7 +1127,12 @@ export function KantanWizard({
         let result: MaterializeResult
         try {
           try {
-            result = await materializeSchema(md, kzDatasetName ?? 'dataset', datasetId ?? undefined)
+            result = await materializeSchema(
+              md,
+              kzDatasetName ?? 'dataset',
+              datasetId ?? undefined,
+              stagingId,
+            )
           } catch (e) {
             // The adopted record vanished (deleted in the catalog meanwhile) —
             // recreate once instead of dead-ending the chain on a stale id.
@@ -1136,7 +1141,7 @@ export function KantanWizard({
             attached = false
             setKzDatasetId(null)
             setSourceAttached(false)
-            result = await materializeSchema(md, 'dataset')
+            result = await materializeSchema(md, 'dataset', undefined, stagingId)
           }
         } catch (e) {
           setStop({ kind: 'materialize', detail: errText(e), retryFrom: 'materialize' })
@@ -1576,6 +1581,8 @@ export function KantanWizard({
           },
         },
         i18n.language,
+        // The manual round sees the real files/columns/Tier-0 menu, like the loop.
+        { datasetId: kzDatasetId, stagingId },
       )
     } catch (e) {
       fail(errText(e))
