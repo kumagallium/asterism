@@ -13,6 +13,9 @@ import {
   expandClass,
   expandTemplate,
   renameDatasetNamespace,
+  resolveUndeclaredPrefixes,
+  slugifyDatasetName,
+  STANDARD_VOCAB_IRIS,
 } from './datasetNamespace'
 import { Mermaid } from './Mermaid'
 import { skeletonMermaid } from './skeletonDiagram'
@@ -25,6 +28,10 @@ import { skeletonMermaid } from './skeletonDiagram'
 // Ghost rows on one card, before the rest fold into a count. A card that
 // delegates 40 measurement columns should still read as a card.
 const _GHOST_ROWS = 6
+
+// Column names spelled out in the "nowhere to put these" warning before the
+// rest fold into a count (a 40-column instrument file made that line a wall).
+const _GAP_COLUMNS = 5
 
 // Consecutive blocks under one boundary line, in first-seen order. A card can
 // in principle borrow from two parents — that stays two blocks rather than one
@@ -62,6 +69,14 @@ function SkeletonEvidence({
   onSplit,
   canRevalidate = true,
   displayClass,
+  plain = false,
+  reading,
+  displayMap,
+  shortId,
+  filesGoneText,
+  suggestedClass,
+  onUseSuggestedClass,
+  onFixColumn,
 }: {
   ann: SkeletonMapAnnotation
   onApplyCandidate: (columns: string[]) => void
@@ -76,6 +91,22 @@ function SkeletonEvidence({
   /** Kantan tier: fold the minted prefix out of class names in evidence copy
    *  (the annotation carries full CURIEs). Absent on the detail tier. */
   displayClass?: (value: string) => string
+  /** Kantan tier: plain-language copy, no template syntax, quiet maps folded. */
+  plain?: boolean
+  /** "1 row = one …" — the reading of this map in the human's words (K7). */
+  reading?: string
+  /** Another map's INTERNAL name → what the human sees for it (K4/GATE-05). */
+  displayMap?: (name: string) => string
+  /** Full minted IRI → its readable tail (the dataset's resource base folds). */
+  shortId?: (iri: string) => string
+  /** One shared sentence for every "the files are gone" dead end (GATE-26). */
+  filesGoneText?: string
+  /** A machine-derived row-class name offered when the AI named the row class
+   *  after a measured column (the ZEM trap) — one tap, no typing. */
+  suggestedClass?: string
+  onUseSuggestedClass?: () => void
+  /** Replace a column name the AI invented with the closest real one. */
+  onFixColumn?: (wrong: string, right: string) => void
 }) {
   const { t } = useTranslation()
   // The split control (G15): which described columns name one shared thing,
@@ -89,26 +120,103 @@ function SkeletonEvidence({
     () => ann.growth_preview?.split_default?.key ?? '',
   )
 
-  const prefixWarning = ann.undeclared_prefixes.length > 0 && (
+  const showId = (iri: string) => (shortId ? shortId(iri) : iri)
+  const mapName = (name: string | undefined) =>
+    name ? (displayMap ? displayMap(name) : name) : ''
+  const readingLine = reading && (
+    <p className="skeleton-evidence-line">
+      <strong>{reading}</strong>
+    </p>
+  )
+  // The kantan tier states the same thing once, at gate level, in plain words
+  // (the deterministic repair usually makes it moot) — the raw prefix list is
+  // detail-tier copy for a table the kantan tier does not show.
+  const prefixWarning = !plain && ann.undeclared_prefixes.length > 0 && (
     <p className="skeleton-evidence-line skeleton-evidence-warn">
       {t('workbench:skeleton.evidence.undeclaredPrefixes', {
         prefixes: ann.undeclared_prefixes.join(', '),
       })}
     </p>
   )
+  // Proven-unique column combinations. Defined before the uncheckable early
+  // return: a map whose key names a column that does not exist gets the same
+  // one-tap chips (the fix is the point, not the diagnosis).
+  const candidateChips = (ann.key_candidates?.length ?? 0) > 0 && (
+    <>
+      {ann.key_candidates!.map((c) => (
+        <button
+          key={c.columns.join(' ')}
+          type="button"
+          className={
+            c.scoped ? 'skeleton-candidate-chip skeleton-candidate-chip--scoped' : 'skeleton-candidate-chip'
+          }
+          title={
+            c.scoped
+              ? t('workbench:skeleton.evidence.scopedCandidate')
+              : c.measurement_only
+                ? t('workbench:skeleton.evidence.measurementOnly')
+                : undefined
+          }
+          onClick={() => onApplyCandidate(c.columns)}
+        >
+          {/* Braces are template syntax; the kantan tier reads column names. */}
+          {c.columns.map((col) => (plain ? col : `{${col}}`)).join(' + ')}
+          {c.measurement_only && ' ⚠'}
+        </button>
+      ))}
+    </>
+  )
 
   if (!ann.checkable) {
+    // Newer servers name the closest REAL column for each invented one; the
+    // field is optional, so read it defensively (older servers send nothing).
+    const columnSuggestions =
+      (ann as { column_suggestions?: { column: string; suggestions: string[] }[] })
+        .column_suggestions ?? []
     return (
       <div className="skeleton-evidence">
+        {readingLine}
         <p className="skeleton-evidence-line skeleton-evidence-muted">
-          {t(evidenceReasonKey(ann.reason), {
-            columns: (ann.missing_columns ?? []).join(', '),
-          })}
+          {t(
+            plain && ann.reason === 'missing-columns'
+              ? 'skeletongate:missingColumns'
+              : evidenceReasonKey(ann.reason),
+            { columns: (ann.missing_columns ?? []).join(', ') },
+          )}
         </p>
         {ann.reason === 'constant' && ann.expanded_template && (
           <p className="skeleton-evidence-line skeleton-evidence-muted">
-            <code className="skeleton-evidence-id">{ann.expanded_template}</code>
+            <code className="skeleton-evidence-id" title={ann.expanded_template}>
+              {showId(ann.expanded_template)}
+            </code>
           </p>
+        )}
+        {ann.reason === 'missing-columns' && onFixColumn && (
+          <div className="skeleton-evidence-candidates">
+            {columnSuggestions
+              .filter((s) => s.suggestions.length > 0)
+              .map((s) => (
+                <button
+                  key={s.column}
+                  type="button"
+                  className="skeleton-candidate-chip"
+                  onClick={() => onFixColumn(s.column, s.suggestions[0])}
+                >
+                  {t('skeletongate:fixColumn', {
+                    wrong: s.column,
+                    suggestion: s.suggestions[0],
+                  })}
+                </button>
+              ))}
+          </div>
+        )}
+        {ann.reason === 'missing-columns' && candidateChips && (
+          <div className="skeleton-evidence-candidates">
+            <span className="skeleton-evidence-label">
+              {t('workbench:skeleton.evidence.candidatesHead')}
+            </span>
+            {candidateChips}
+          </div>
         )}
         {prefixWarning}
       </div>
@@ -148,30 +256,6 @@ function SkeletonEvidence({
   const gap = ann.missing_row_kind
   const displayCls = (value: string) => (displayClass ? displayClass(value) : value)
   const cardCls = (ann.expanded_classes[0]?.curie && displayCls(ann.expanded_classes[0].curie)) || ''
-  const candidateChips = (ann.key_candidates?.length ?? 0) > 0 && (
-    <>
-      {ann.key_candidates!.map((c) => (
-        <button
-          key={c.columns.join(' ')}
-          type="button"
-          className={
-            c.scoped ? 'skeleton-candidate-chip skeleton-candidate-chip--scoped' : 'skeleton-candidate-chip'
-          }
-          title={
-            c.scoped
-              ? t('workbench:skeleton.evidence.scopedCandidate')
-              : c.measurement_only
-                ? t('workbench:skeleton.evidence.measurementOnly')
-                : undefined
-          }
-          onClick={() => onApplyCandidate(c.columns)}
-        >
-          {c.columns.map((col) => `{${col}}`).join(' + ')}
-          {c.measurement_only && ' ⚠'}
-        </button>
-      ))}
-    </>
-  )
   // Non-singleton: chips show whenever something is wrong (collision, caution,
   // risk). Singleton: merging is normal, so the chips fold behind the explicit
   // "should this be one record per row?" question instead.
@@ -213,8 +297,21 @@ function SkeletonEvidence({
         <td>{p.value}</td>
       </tr>
     )
-  return (
-    <div className="skeleton-evidence">
+  // K7: a map with nothing left to decide may fold on the kantan tier — but
+  // never its two head lines (the reading and the ✓), which are the thing the
+  // human came here to confirm. Anything amber keeps the block open.
+  const quiet =
+    plain &&
+    !collides &&
+    !caution &&
+    risks.length === 0 &&
+    !gap &&
+    (ann.class_numeric_key_caution?.length ?? 0) === 0 &&
+    (ann.collapse_kind === 'unique' || ann.collapse_kind === 'singleton')
+
+  const headLines = (
+    <>
+      {readingLine}
       {singleton ? (
         <p className="skeleton-evidence-line skeleton-evidence-ok">
           ✓ {t('workbench:skeleton.evidence.singleton', { total: ann.total_rows })}
@@ -231,6 +328,11 @@ function SkeletonEvidence({
           })}
         </p>
       )}
+    </>
+  )
+
+  const body = (
+    <>
       {collides &&
         (ann.collision_examples ?? []).map((ex, i) => (
           <p key={i} className="skeleton-evidence-line skeleton-evidence-muted">
@@ -260,7 +362,7 @@ function SkeletonEvidence({
           ⚠ {t('workbench:skeleton.evidence.riskScopeMissing', {
             parent: scopeRisk.parent_classes?.[0]
               ? displayCls(scopeRisk.parent_classes[0])
-              : (scopeRisk.parent_map ?? ''),
+              : mapName(scopeRisk.parent_map),
             columns: (scopeRisk.parent_columns ?? []).join(', '),
           })}
         </p>
@@ -269,15 +371,31 @@ function SkeletonEvidence({
           ("Temperature" over key {Measurement temp.(C)}) — the row identity
           mislabeled as one of its measurements. */}
       {(ann.class_numeric_key_caution?.length ?? 0) > 0 && (
-        <p className="skeleton-evidence-line skeleton-evidence-caution">
-          ⚠{' '}
-          {t('workbench:skeleton.evidence.classNumericKeyCaution', {
-            cls: ann
-              .class_numeric_key_caution!.map((c) => (displayClass ? displayClass(c.class) : c.class))
-              .join(', '),
-            column: ann.class_numeric_key_caution!.map((c) => c.column).join(', '),
-          })}
-        </p>
+        <>
+          <p className="skeleton-evidence-line skeleton-evidence-caution">
+            ⚠{' '}
+            {t('workbench:skeleton.evidence.classNumericKeyCaution', {
+              cls: ann
+                .class_numeric_key_caution!.map((c) => (displayClass ? displayClass(c.class) : c.class))
+                .join(', '),
+              column: ann.class_numeric_key_caution!.map((c) => c.column).join(', '),
+            })}
+          </p>
+          {/* Naming the row kind is world knowledge, but the machine already
+              knows a defensible default (this map's own name) — offer it as
+              one tap instead of asking for a typed identifier. */}
+          {suggestedClass && onUseSuggestedClass && (
+            <div className="skeleton-evidence-candidates">
+              <button
+                type="button"
+                className="skeleton-candidate-chip"
+                onClick={onUseSuggestedClass}
+              >
+                {t('skeletongate:suggestClass', { suggested: suggestedClass })}
+              </button>
+            </div>
+          )}
+        </>
       )}
       {card ? (
         /* The consequence, not the syntax: ONE representative entity rendered
@@ -295,7 +413,11 @@ function SkeletonEvidence({
           </span>
           <div className="skeleton-entity-card-box">
             <div className="skeleton-entity-card-head">
-              <code className="skeleton-evidence-id">{card.id}</code>
+              {/* The readable tail is the point; the full minted IRI stays one
+                  hover away (a URL as a card title buries the ID). */}
+              <code className="skeleton-evidence-id" title={card.id}>
+                {showId(card.id)}
+              </code>
               {cardCls && <span className="skeleton-entity-class">{cardCls}</span>}
             </div>
             {/* Ownership is POSITION + a boundary line, not dimming: the old
@@ -311,7 +433,7 @@ function SkeletonEvidence({
                       <td colSpan={2}>
                         ↓{' '}
                         {t('workbench:skeleton.evidence.cardBorrowedBand', {
-                          map: g.owner,
+                          map: mapName(g.owner),
                           count: card.entity_count,
                         })}
                       </td>
@@ -339,7 +461,9 @@ function SkeletonEvidence({
                       <td colSpan={2}>
                         ↓{' '}
                         {g.owner
-                          ? t('workbench:skeleton.evidence.cardDelegatedBand', { map: g.owner })
+                          ? t('workbench:skeleton.evidence.cardDelegatedBand', {
+                              map: mapName(g.owner),
+                            })
                           : t('workbench:skeleton.evidence.cardDelegatedBandPlain')}
                       </td>
                     </tr>
@@ -380,12 +504,12 @@ function SkeletonEvidence({
             <details className="skeleton-fold">
               <summary>
                 {t('workbench:skeleton.evidence.cardBorrowedWhyHead', {
-                  map: borrowed[0].owner_map,
+                  map: mapName(borrowed[0].owner_map),
                 })}
               </summary>
               <p className="skeleton-evidence-line skeleton-evidence-muted">
                 {t('workbench:skeleton.evidence.cardBorrowedWhy', {
-                  map: borrowed[0].owner_map,
+                  map: mapName(borrowed[0].owner_map),
                 })}
               </p>
             </details>
@@ -398,8 +522,8 @@ function SkeletonEvidence({
               {t('workbench:skeleton.evidence.previewHead', { n: ann.id_previews!.length })}
             </span>
             {ann.id_previews!.map((id, i) => (
-              <code key={i} className="skeleton-evidence-id">
-                {id}
+              <code key={i} className="skeleton-evidence-id" title={id}>
+                {showId(id)}
               </code>
             ))}
           </div>
@@ -416,10 +540,21 @@ function SkeletonEvidence({
           skip). */}
       {gap && (
         <div className="skeleton-gap">
-          <p className="skeleton-evidence-line skeleton-evidence-bad">
+          {/* 40 measurement columns in one sentence is a wall the eye skips —
+              and the one-tap fix sits right under it. Name a few, count the
+              rest, keep the full list one hover away. */}
+          <p className="skeleton-evidence-line skeleton-evidence-bad" title={gap.columns.join(', ')}>
             ⚠ {t('workbench:skeleton.evidence.gapHead', {
-              columns: gap.columns.join(', '),
+              columns: gap.columns.slice(0, _GAP_COLUMNS).join(', '),
             })}
+            {gap.columns.length > _GAP_COLUMNS && (
+              <span className="skeleton-entity-muted">
+                {' '}
+                {t('workbench:skeleton.evidence.cardOmitted', {
+                  count: gap.columns.length - _GAP_COLUMNS,
+                })}
+              </span>
+            )}
           </p>
           {onAddRowKind && (
             <button
@@ -430,15 +565,16 @@ function SkeletonEvidence({
             >
               {t('workbench:skeleton.evidence.gapAdd', {
                 count: gap.entity_count,
-                key: gap.suggested_key.map((c) => `{${c}}`).join(' + '),
+                key: gap.suggested_key.map((c) => (plain ? c : `{${c}}`)).join(' + '),
               })}
             </button>
           )}
           {/* A button that adds something nothing can check is worse than no
-              button: say WHY it is off instead of letting the click do half. */}
+              button: say WHY it is off instead of letting the click do half.
+              One shared sentence for every "the files are gone" dead end. */}
           {onAddRowKind && !canRevalidate && (
             <p className="skeleton-evidence-line skeleton-evidence-muted">
-              {t('workbench:skeleton.evidence.gapNeedsFiles')}
+              {filesGoneText ?? t('workbench:skeleton.evidence.gapNeedsFiles')}
             </p>
           )}
         </div>
@@ -559,6 +695,20 @@ function SkeletonEvidence({
         </details>
       )}
       {prefixWarning}
+    </>
+  )
+
+  return (
+    <div className="skeleton-evidence">
+      {headLines}
+      {quiet ? (
+        <details className="skeleton-fold">
+          <summary>{t('skeletongate:quietMore')}</summary>
+          {body}
+        </details>
+      ) : (
+        body
+      )}
     </div>
   )
 }
@@ -586,6 +736,7 @@ export function SkeletonGate({
   continuingKey = 'workbench:skeleton.continuing',
   discardKey = 'workbench:skeleton.discard',
   discardConfirmKey = 'workbench:skeleton.discardConfirm',
+  filesGoneKey = 'skeletongate:filesGone',
 }: {
   skeleton: MappingSkeleton
   annotations: SkeletonAnnotations | null
@@ -611,6 +762,11 @@ export function SkeletonGate({
   continuingKey?: string
   discardKey?: string
   discardConfirmKey?: string
+  /** One sentence for every "the files are gone, so this is off" dead end —
+   *  it must name the way back (the discard button), which the three separate
+   *  detail-tier sentences never did. Kantan default; the detail tier keeps
+   *  its own per-place wording. */
+  filesGoneKey?: string
 }) {
   const { t } = useTranslation()
   // The optional rethink note (only rendered when onRethink is provided).
@@ -618,6 +774,20 @@ export function SkeletonGate({
   // Two-step removal, and the just-added map (scroll target + brief highlight).
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null)
   const [addedMap, setAddedMap] = useState<string | null>(null)
+  // A dataset name that cleans away to nothing (a Japanese one) used to do
+  // NOTHING at all — the field kept the typed text and the ID kept the old
+  // slug. Say what an ID may contain, right under the field.
+  const [nameInvalid, setNameInvalid] = useState(false)
+  // Kantan tier: the ID-shape card opens only when the human asks (or when the
+  // issuer is still provisional and they must be told).
+  const [nsOpen, setNsOpen] = useState(false)
+  // "Are you sure?" as an inline block instead of window.confirm (whose Enter
+  // key means "proceed with the collision" — the one default K7 forbids).
+  const [confirming, setConfirming] = useState(false)
+  // What the deterministic vocabulary repair did, kept after the re-check that
+  // makes the server warning disappear: a silent meaning change is worse than
+  // the warning it replaces.
+  const [vocabFix, setVocabFix] = useState<{ declared: string[]; renamed: string[] } | null>(null)
 
   useEffect(() => {
     if (!addedMap) return
@@ -626,14 +796,19 @@ export function SkeletonGate({
     // A machine-added map carries a placeholder class (named after its key
     // column — "Name" is not a kind of thing). Put the caret in that field,
     // text selected: "name this" without a sentence, and typing replaces it.
-    const cls = row?.querySelector<HTMLInputElement>('td:last-child input')
-    if (cls) {
-      cls.focus({ preventScroll: true })
-      cls.select()
+    // On the kantan tier that silent jump reads as "something broke": the
+    // caret lands on an English identifier with no instruction, so the row
+    // gets a sentence instead and the field is left alone.
+    if (!plain) {
+      const cls = row?.querySelector<HTMLInputElement>('td:last-child input')
+      if (cls) {
+        cls.focus({ preventScroll: true })
+        cls.select()
+      }
     }
     const timer = window.setTimeout(() => setAddedMap(null), 2200)
     return () => window.clearTimeout(timer)
-  }, [addedMap])
+  }, [addedMap, plain])
 
   function updateSubject(idx: number, patch: Partial<SkeletonMap['subject']>) {
     const maps = skeleton.maps.map((m, i) =>
@@ -651,6 +826,37 @@ export function SkeletonGate({
     updateSubject(idx, {
       template: head + columns.map((c) => `{${c}}`).join('/'),
     })
+  }
+
+  /** Swap a column name the AI invented for the closest REAL one (server-
+   *  measured suggestion). Placeholder-level replacement: the rest of the ID
+   *  recipe — its head, its other columns — is left exactly as it was. */
+  function fixColumnName(idx: number, wrong: string, right: string) {
+    const current = skeleton.maps[idx]?.subject.template
+    if (current === undefined) return
+    updateSubject(idx, { template: current.split(`{${wrong}}`).join(`{${right}}`) })
+  }
+
+  /** The row-class name a map's OWN name suggests (`sample_detail` →
+   *  `SampleDetail`), in the dataset's own vocabulary. Used to offer a one-tap
+   *  escape from the ZEM trap (a row class named after a measured column). */
+  function suggestedClassFor(idx: number): string | null {
+    const m = skeleton.maps[idx]
+    if (!m) return null
+    const pascal = m.name
+      .split(/[^0-9A-Za-z]+/)
+      .filter(Boolean)
+      .map((w) => w[0].toUpperCase() + w.slice(1))
+      .join('')
+    if (!pascal || /^[0-9]/.test(pascal)) return null
+    const current = m.subject.classes ?? []
+    const prefix = current[0]?.includes(':')
+      ? current[0].slice(0, current[0].indexOf(':') + 1)
+      : nsDetected?.ontology_prefix
+        ? `${nsDetected.ontology_prefix}:`
+        : ''
+    const curie = `${prefix}${pascal}`
+    return current.includes(curie) ? null : curie
   }
 
   /** Add the row-level map the source is missing, right after its parent. The
@@ -736,10 +942,79 @@ export function SkeletonGate({
   // The one naming judgment that persists: the dataset name inside the minted
   // IRI. Renaming cascades deterministically (IRI pair, derived prefix pair,
   // every CURIE in the maps) and re-checks like any other edit.
-  function commitDatasetName(raw: string) {
+  function commitDatasetName(input: HTMLInputElement) {
     if (!nsDetected) return
+    const raw = input.value
     const next = renameDatasetNamespace(skeleton, nsDetected, raw)
-    if (next) onChange(next)
+    if (next) {
+      setNameInvalid(false)
+      onChange(next)
+      return
+    }
+    // Nothing changed: either the same name (fine) or a name that cleans away
+    // to nothing — a Japanese one, which is what this field invites. Silence
+    // there reads as a broken field, so put the rule under it and restore the
+    // ID the dataset actually has.
+    const empty = raw.trim() !== '' && slugifyDatasetName(raw) === ''
+    setNameInvalid(empty)
+    if (empty) input.value = nsDetected.slug
+  }
+
+  // Kantan tier (K4/GATE-05): one kind, one name. The internal map name
+  // (`sample_detail`) is machine bookkeeping — the human sees the kind, and
+  // only falls back to the internal name when the kind cannot name it alone.
+  const displayMapName = (name: string): string => {
+    if (!plain) return name
+    const m = skeleton.maps.find((x) => x.name === name)
+    const cls = m?.subject.classes?.[0]
+    if (!cls) return name
+    const shown = compactClass(cls, nsDetected)
+    const twin = skeleton.maps.some(
+      (x) => x.name !== name && compactClass(x.subject.classes?.[0] ?? '', nsDetected) === shown,
+    )
+    return twin || !shown ? name : shown
+  }
+
+  // A minted ID reads as its tail; the issuer part is the same on every card.
+  const resourceBase = nsDetected ? `${nsDetected.base}/datasets/${nsDetected.slug}/resource/` : ''
+  const shortId = (iri: string): string =>
+    plain && resourceBase && iri.startsWith(resourceBase) ? iri.slice(resourceBase.length) : iri
+
+  // "1 row = one …" (K7): the reading of a map in the human's words. Without a
+  // human-readable label from the AI, the kind's own (folded) name is it.
+  function readingFor(m: SkeletonMap, ann: SkeletonMapAnnotation | undefined): string | undefined {
+    if (!plain) return undefined
+    const label = compactClass(m.subject.classes?.[0] ?? '', nsDetected)
+    if (!label) return undefined
+    const kind = ann?.collapse_kind
+    if (kind === 'singleton') return t('skeletongate:reading.singleton', { label })
+    if (kind === 'partial') return t('skeletongate:reading.partial', { label })
+    if (kind === 'unique') return t('skeletongate:reading.unique', { label })
+    return t('skeletongate:reading.plain', { label })
+  }
+
+  // One sentence for every dead end the missing sources cause, naming the way
+  // back — the three detail-tier sentences each described their own control.
+  const filesGoneText = plain ? t(filesGoneKey, { back: t(discardKey) }) : undefined
+
+  // A prefix the design USES but never DECLARES is what a weak model reliably
+  // produces (`schema:Dataset`, no declaration) — and the server says plainly
+  // that it will fail on save. The kantan tier has no prefix table to fix it
+  // in, so the fix is one tap of deterministic machinery: known vocabularies
+  // get their real IRI, anything else becomes a word of this dataset. Never a
+  // guessed IRI, and never silent — the button says it, the report keeps it.
+  const undeclared = [
+    ...new Set(Object.values(annotations?.maps ?? {}).flatMap((a) => a.undeclared_prefixes ?? [])),
+  ].sort()
+  const vocabFixable =
+    undeclared.length > 0 &&
+    (undeclared.some((p) => p in STANDARD_VOCAB_IRIS) ||
+      !!(nsDetected?.ontology_prefix || nsDetected?.resource_prefix))
+  function repairVocabulary() {
+    const fixed = resolveUndeclaredPrefixes(skeleton, undeclared, nsDetected)
+    if (!fixed) return
+    setVocabFix({ declared: fixed.declared, renamed: fixed.renamed })
+    onChange(fixed.skeleton)
   }
 
   // The raw prefix table (IRI editing per prefix) — the detail tier's escape
@@ -776,51 +1051,97 @@ export function SkeletonGate({
     if (!a) return false
     return a.collapse_kind ? a.collapse_kind === 'partial' : a.is_unique === false
   })
+  // Values that would be dropped whole (no kind to put a row's columns in) and
+  // ID recipes naming columns the table does not have: heavier losses than a
+  // collision, and until now both walked straight past the continue button.
+  const gapping = skeleton.maps.filter((m) => !!annotations?.maps?.[m.name]?.missing_row_kind)
+  const missingCols = skeleton.maps.filter(
+    (m) => annotations?.maps?.[m.name]?.reason === 'missing-columns',
+  )
+  const blockers =
+    placeholderPrefixes.length +
+    collapsing.length +
+    gapping.length +
+    missingCols.length +
+    (plain ? undeclared.length : 0)
+
+  /** Does this map's evidence actually carry a one-tap fix? A button that
+   *  promises "pick another candidate" must not land on a row that has none. */
+  function hasOneTapFix(name: string): boolean {
+    const a = annotations?.maps?.[name]
+    if (!a) return false
+    const suggestions =
+      (a as { column_suggestions?: { suggestions: string[] }[] }).column_suggestions ?? []
+    return (a.key_candidates?.length ?? 0) > 0 || suggestions.some((s) => s.suggestions.length > 0)
+  }
+
+  /** Scroll to a map's row and put the focus on its first one-tap fix — "pick
+   *  another candidate" has to LAND somewhere, not just close a dialog. */
+  function focusRow(name: string) {
+    setConfirming(false)
+    const row = document.querySelector(`[data-map="${CSS.escape(name)}"]`)
+    row?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    const chip = row?.parentElement?.querySelector<HTMLButtonElement>(
+      '.skeleton-candidate-chip, .skeleton-gap-add',
+    )
+    chip?.focus({ preventScroll: true })
+  }
+
   function onContinueGuarded() {
-    if (placeholderPrefixes.length > 0) {
-      const ok = window.confirm(
-        t('workbench:skeleton.ns.confirmPlaceholder', {
-          prefixes: placeholderPrefixes.map((p) => p.prefix).join(', '),
-        }),
-      )
-      if (!ok) return
+    // The old window.confirm chain made "proceed with the damage" the Enter
+    // key's default and offered no way to fix anything (K7). One inline block
+    // instead, where every item carries the repair as its main button.
+    if (blockers > 0 && !confirming) {
+      setConfirming(true)
+      return
     }
-    if (collapsing.length > 0) {
-      const ok = window.confirm(
-        t('workbench:skeleton.confirmCollides', {
-          maps: collapsing.map((m) => m.name).join(', '),
-        }),
-      )
-      if (!ok) return
-    }
+    setConfirming(false)
     onContinue()
   }
 
-  return (
-    <section className="skeleton-gate">
-      <h4>{t(titleKey)}</h4>
-      <p className="skeleton-gate-hint">{t(hintKey)}</p>
-      {/* The skeleton at a glance: how many kinds, linked how. A one-box
-          skeleton that should be two is visible here before any table reading. */}
-      <div className="skeleton-diagram">
-        <Mermaid chart={skeletonMermaid(skeleton, t('workbench:skeleton.diagram.edge'))} />
-        <p className="skeleton-diagram-note">{t('workbench:skeleton.diagram.note')}</p>
-      </div>
-      {annotationsBusy && (
-        <p className="skeleton-gate-revalidating" role="status">
-          <span className="spinner" />
-          {t('workbench:skeleton.evidence.revalidating')}
-        </p>
-      )}
-      {!canRevalidate && (
-        <p className="skeleton-gate-revalidating">{t('workbench:skeleton.evidence.reattach')}</p>
-      )}
-      {nsDetected ? (
-        /* Namespace card (ADR K13): the ONE naming judgment — the dataset name
-           inside the permanent ID — is the editable thing; the prefix pair and
-           both IRIs derive from it mechanically. Base fixes route to Settings,
-           never to a raw-IRI textbox. */
-        <section className="skeleton-ns-card">
+  // The skeleton at a glance: how many kinds, linked how. A one-box skeleton
+  // that should be two is visible here before any table reading — but with a
+  // single kind the picture says nothing, and on the kantan tier it pushed the
+  // thing the human must actually confirm below the fold.
+  const diagramLinked = skeletonMermaid(skeleton, '|').includes('-->')
+  const diagram = (
+    <div className="skeleton-diagram">
+      <Mermaid chart={skeletonMermaid(skeleton, t('workbench:skeleton.diagram.edge'))} />
+      <p className="skeleton-diagram-note">{t('workbench:skeleton.diagram.note')}</p>
+    </div>
+  )
+  const diagramBlock = !plain ? (
+    diagram
+  ) : skeleton.maps.length > 1 ? (
+    <details className="skeleton-fold">
+      <summary>
+        {t('skeletongate:diagram.summary', { count: skeleton.maps.length })}
+        {diagramLinked && t('skeletongate:diagram.linked')}
+      </summary>
+      {diagram}
+    </details>
+  ) : null
+
+  // The ID-shape card. Once the issuer is configured this is one settled line
+  // ("this is what your IDs look like"), not a form to fill in.
+  const shortNsPreview = nsDetected ? `${nsDetected.base}/datasets/${nsDetected.slug}/…` : ''
+  const nsCompact = plain && !baseUnconfigured && !nsOpen
+  const nsCard = nsDetected ? (
+    /* Namespace card (ADR K13): the ONE naming judgment — the dataset name
+       inside the permanent ID — is the editable thing; the prefix pair and
+       both IRIs derive from it mechanically. Base fixes route to Settings,
+       never to a raw-IRI textbox. */
+    <section className="skeleton-ns-card">
+      {nsCompact ? (
+        <div className="skeleton-ns-name-row">
+          <span className="skeleton-ns-name-label">{t('skeletongate:ns.shape')}</span>
+          <code className="skeleton-ns-preview">{shortNsPreview}</code>
+          <button type="button" className="btn btn--ghost" onClick={() => setNsOpen(true)}>
+            {t('skeletongate:ns.change')}
+          </button>
+        </div>
+      ) : (
+        <>
           <label className="skeleton-ns-name-label" htmlFor="skeleton-ns-name">
             {t('workbench:skeleton.ns.nameLabel')}
           </label>
@@ -832,61 +1153,131 @@ export function SkeletonGate({
               className="skeleton-gate-input skeleton-ns-name-input"
               defaultValue={nsDetected.slug}
               disabled={busy}
-              onBlur={(e) => commitDatasetName(e.target.value)}
+              onBlur={(e) => commitDatasetName(e.target)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') e.currentTarget.blur()
               }}
             />
+            {/* A bare URL with no label reads as a bug (localhost especially):
+                say what it is, and mark it provisional while it is. */}
+            <span className="skeleton-ns-name-label">{t('skeletongate:ns.shape')}</span>
             <code className="skeleton-ns-preview">
-              {nsDetected.base}/datasets/{nsDetected.slug}/…
+              {shortNsPreview}
+              {baseUnconfigured && ` ${t('skeletongate:ns.provisional')}`}
             </code>
           </div>
+          {nameInvalid && (
+            <p className="skeleton-evidence-line skeleton-evidence-warn">
+              {t('skeletongate:ns.nameInvalid')}
+            </p>
+          )}
           <p className="skeleton-gate-hint">{t('workbench:skeleton.ns.nameHint')}</p>
           {baseUnconfigured && (
             <p className="skeleton-evidence-line skeleton-evidence-warn">
               {t('workbench:skeleton.ns.baseUnconfigured', { base: nsDetected.base })}
             </p>
           )}
-          {!plain && (
-            <details className="skeleton-ns" open={placeholderPrefixes.length > 0}>
-              <summary>
-                {t('workbench:skeleton.ns.advancedTitle')}
-                {placeholderPrefixes.length > 0 && (
-                  <span className="skeleton-ns-flag">
-                    {t('workbench:skeleton.ns.flag', { count: placeholderPrefixes.length })}
-                  </span>
-                )}
-              </summary>
-              <p className="skeleton-gate-hint">{t('workbench:skeleton.ns.advancedNote')}</p>
-              {prefixRows}
-            </details>
-          )}
-        </section>
-      ) : (
-        /* Fallback (no recognizable minted pair, e.g. a restored legacy
-           skeleton): the raw prefix table stays the escape hatch — even on the
-           kantan tier, because a placeholder mint MUST stay visible/fixable. */
+        </>
+      )}
+      {!plain && (
         <details className="skeleton-ns" open={placeholderPrefixes.length > 0}>
           <summary>
-            {t('workbench:skeleton.ns.title')}
+            {t('workbench:skeleton.ns.advancedTitle')}
             {placeholderPrefixes.length > 0 && (
               <span className="skeleton-ns-flag">
                 {t('workbench:skeleton.ns.flag', { count: placeholderPrefixes.length })}
               </span>
             )}
           </summary>
-          <p className="skeleton-gate-hint">{t('workbench:skeleton.ns.hint')}</p>
+          <p className="skeleton-gate-hint">{t('workbench:skeleton.ns.advancedNote')}</p>
           {prefixRows}
         </details>
       )}
+    </section>
+  ) : (
+    /* Fallback (no recognizable minted pair, e.g. a restored legacy
+       skeleton): the raw prefix table stays the escape hatch — even on the
+       kantan tier, because a placeholder mint MUST stay visible/fixable. */
+    <details className="skeleton-ns" open={placeholderPrefixes.length > 0}>
+      <summary>
+        {t('workbench:skeleton.ns.title')}
+        {placeholderPrefixes.length > 0 && (
+          <span className="skeleton-ns-flag">
+            {t('workbench:skeleton.ns.flag', { count: placeholderPrefixes.length })}
+          </span>
+        )}
+      </summary>
+      <p className="skeleton-gate-hint">{t('workbench:skeleton.ns.hint')}</p>
+      {prefixRows}
+    </details>
+  )
+
+  return (
+    <section className="skeleton-gate">
+      <h4>{t(titleKey)}</h4>
+      <p className="skeleton-gate-hint">{t(hintKey)}</p>
+      {/* What the deterministic vocabulary repair did — never silent. */}
+      {vocabFix && vocabFix.declared.length > 0 && (
+        <p className="skeleton-evidence-line skeleton-evidence-muted">
+          {t('skeletongate:vocab.declared', { names: vocabFix.declared.join(', ') })}
+        </p>
+      )}
+      {vocabFix && vocabFix.renamed.length > 0 && (
+        <p className="skeleton-evidence-line skeleton-evidence-muted">
+          {t('skeletongate:vocab.renamed', { names: vocabFix.renamed.join(', ') })}
+        </p>
+      )}
+      {plain && undeclared.length > 0 && (
+        <div className="skeleton-gap">
+          <p className="skeleton-evidence-line skeleton-evidence-warn">
+            {t('skeletongate:vocab.unresolved', { names: undeclared.join(', ') })}
+          </p>
+          {vocabFixable && (
+            <button type="button" className="skeleton-gap-add" disabled={busy} onClick={repairVocabulary}>
+              {t('skeletongate:vocab.fix')}
+            </button>
+          )}
+        </div>
+      )}
+      {diagramBlock}
+      {annotationsBusy && (
+        <p className="skeleton-gate-revalidating" role="status">
+          <span className="spinner" />
+          {t('workbench:skeleton.evidence.revalidating')}
+        </p>
+      )}
+      {/* The files are gone: say it once, in the words the rest of the gate
+          uses, and put the way back right next to it. */}
+      {!canRevalidate && (
+        <p className="skeleton-gate-revalidating">
+          {filesGoneText ?? t('workbench:skeleton.evidence.reattach')}
+          {plain && (
+            <button
+              type="button"
+              className="btn btn--ghost"
+              onClick={() => {
+                if (window.confirm(t(discardConfirmKey))) onDiscard()
+              }}
+            >
+              {t(discardKey)}
+            </button>
+          )}
+        </p>
+      )}
+      {!plain && nsCard}
       <div className="skeleton-gate-table-wrap">
         <table className="skeleton-gate-table">
           <thead>
             <tr>
-              <th>{t('workbench:skeleton.colClass')}</th>
-              <th>{t('workbench:skeleton.colSource')}</th>
-              <th>{t('workbench:skeleton.colKey')}</th>
-              <th>{t('workbench:skeleton.colClasses')}</th>
+              {/* K4: one kind, one name. The internal map name is machine
+                  bookkeeping — showing it beside the kind put two English
+                  identifiers on every row and named the same thing twice. */}
+              {!plain && <th>{t('workbench:skeleton.colClass')}</th>}
+              <th>{plain ? t('skeletongate:col.source') : t('workbench:skeleton.colSource')}</th>
+              <th>{plain ? t('skeletongate:col.key') : t('workbench:skeleton.colKey')}</th>
+              {/* K4: "クラス" is a fatal-tier word — the kantan header asks the
+                  question the column answers instead. */}
+              <th>{plain ? t('skeletongate:col.kind') : t('workbench:skeleton.colClasses')}</th>
             </tr>
           </thead>
           <tbody>
@@ -901,6 +1292,52 @@ export function SkeletonGate({
               // CURIEs, so evidence/continue see detail-tier values.
               const displayKey = plain ? compactTemplate(keyValue, nsDetected) : keyValue
               const ann = annotations?.maps?.[m.name]
+              // K14 in the cell itself: the ID recipe as its CONSEQUENCE (which
+              // columns decide the ID), never as template syntax. The raw
+              // template stays one fold away for whoever wants it. Read from
+              // the LIVE template, not the annotation: the annotation lags a
+              // candidate chip by one re-check, and a sentence that describes
+              // the previous key is worse than no sentence.
+              const templateColumns = [...keyValue.matchAll(/\{([^{}]+)\}/g)].map((x) => x[1])
+              const keyColumns =
+                templateColumns.length > 0 ? templateColumns : (ann?.key_columns ?? [])
+              const keySentence = usesConstant
+                ? t('skeletongate:key.constant')
+                : keyColumns.length === 0
+                  ? t('skeletongate:key.none')
+                  : t(keyColumns.length === 1 ? 'skeletongate:key.from1' : 'skeletongate:key.fromN', {
+                      columns: keyColumns.join(t('skeletongate:key.join')),
+                    })
+              const removeControl = skeleton.maps.length > 1 &&
+                (confirmRemove === m.name ? (
+                  <span className="skeleton-remove-confirm">
+                    <button
+                      type="button"
+                      className="skeleton-remove skeleton-remove--yes"
+                      disabled={busy}
+                      onClick={() => removeMap(idx)}
+                    >
+                      {t('workbench:skeleton.removeConfirm')}
+                    </button>
+                    <button
+                      type="button"
+                      className="skeleton-remove"
+                      onClick={() => setConfirmRemove(null)}
+                    >
+                      {t('workbench:skeleton.removeCancel')}
+                    </button>
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    className="skeleton-remove"
+                    disabled={busy}
+                    title={plain ? t('skeletongate:remove') : t('workbench:skeleton.remove')}
+                    onClick={() => setConfirmRemove(m.name)}
+                  >
+                    {plain ? t('skeletongate:remove') : t('workbench:skeleton.remove')}
+                  </button>
+                ))
               return (
                 <Fragment key={m.name}>
                   <tr
@@ -912,61 +1349,70 @@ export function SkeletonGate({
                       .filter(Boolean)
                       .join(' ') || undefined}
                   >
-                    <td className="skeleton-gate-name">
-                      {m.name}
-                      {/* Removal is the other half of "add": without it the gate
-                          is a one-way door. Two-step, and never the last map. */}
-                      {skeleton.maps.length > 1 &&
-                        (confirmRemove === m.name ? (
-                          <span className="skeleton-remove-confirm">
-                            <button
-                              type="button"
-                              className="skeleton-remove skeleton-remove--yes"
-                              disabled={busy}
-                              onClick={() => removeMap(idx)}
-                            >
-                              {t('workbench:skeleton.removeConfirm')}
-                            </button>
-                            <button
-                              type="button"
-                              className="skeleton-remove"
-                              onClick={() => setConfirmRemove(null)}
-                            >
-                              {t('workbench:skeleton.removeCancel')}
-                            </button>
-                          </span>
-                        ) : (
-                          <button
-                            type="button"
-                            className="skeleton-remove"
-                            disabled={busy}
-                            title={t('workbench:skeleton.remove')}
-                            onClick={() => setConfirmRemove(m.name)}
-                          >
-                            {t('workbench:skeleton.remove')}
-                          </button>
-                        ))}
-                    </td>
+                    {/* Removal is the other half of "add": without it the gate
+                        is a one-way door. Two-step, and never the last map. */}
+                    {!plain && (
+                      <td className="skeleton-gate-name">
+                        {m.name}
+                        {removeControl}
+                      </td>
+                    )}
                     <td className="skeleton-gate-source">{m.source}</td>
                     <td>
-                      {/* A full IRI template rarely fits one line — wrap it
-                          (rows grow with content) so the tail is never cut off. */}
-                      <textarea
-                        className="skeleton-gate-input skeleton-gate-key"
-                        value={displayKey}
-                        rows={Math.max(1, Math.ceil(displayKey.length / 48))}
-                        disabled={busy}
-                        title={m.note ?? undefined}
-                        onChange={(e) => {
-                          const raw = e.target.value.replace(/\n/g, '')
-                          const value = plain ? expandTemplate(raw, nsDetected) : raw
-                          updateSubject(
-                            idx,
-                            usesConstant ? { constant: value } : { template: value },
-                          )
-                        }}
-                      />
-                      {m.note && <div className="skeleton-gate-note">{m.note}</div>}
+                      {plain ? (
+                        <>
+                          <p className="skeleton-evidence-line">{keySentence}</p>
+                          <details className="skeleton-fold">
+                            <summary>{t('skeletongate:key.editSummary')}</summary>
+                            <textarea
+                              className="skeleton-gate-input skeleton-gate-key"
+                              value={displayKey}
+                              rows={Math.max(1, Math.ceil(displayKey.length / 48))}
+                              disabled={busy}
+                              onChange={(e) => {
+                                const raw = e.target.value.replace(/\n/g, '')
+                                updateSubject(
+                                  idx,
+                                  usesConstant
+                                    ? { constant: expandTemplate(raw, nsDetected) }
+                                    : { template: expandTemplate(raw, nsDetected) },
+                                )
+                              }}
+                            />
+                          </details>
+                        </>
+                      ) : (
+                        /* A full IRI template rarely fits one line — wrap it
+                           (rows grow with content) so the tail is never cut off. */
+                        <textarea
+                          className="skeleton-gate-input skeleton-gate-key"
+                          value={displayKey}
+                          rows={Math.max(1, Math.ceil(displayKey.length / 48))}
+                          disabled={busy}
+                          title={m.note ?? undefined}
+                          onChange={(e) => {
+                            const raw = e.target.value.replace(/\n/g, '')
+                            updateSubject(
+                              idx,
+                              usesConstant ? { constant: raw } : { template: raw },
+                            )
+                          }}
+                        />
+                      )}
+                      {/* The AI's own note is raw model output (English, jargon
+                          on a weak model) — information for whoever asks, not
+                          the kantan tier's default reading. */}
+                      {m.note &&
+                        (plain ? (
+                          <details className="skeleton-fold">
+                            <summary>{t('skeletongate:noteSummary')}</summary>
+                            <p className="skeleton-evidence-line skeleton-evidence-muted">
+                              {m.note}
+                            </p>
+                          </details>
+                        ) : (
+                          <div className="skeleton-gate-note">{m.note}</div>
+                        ))}
                     </td>
                     <td>
                       <input
@@ -986,11 +1432,20 @@ export function SkeletonGate({
                           })
                         }
                       />
+                      {/* A destructive control at the START of the row is the
+                          first thing the eye lands on; at the end it reads as
+                          what it is (after the row has been described). */}
+                      {plain && removeControl}
+                      {plain && addedMap === m.name && (
+                        <p className="skeleton-evidence-line skeleton-evidence-muted">
+                          {t('skeletongate:addedHint')}
+                        </p>
+                      )}
                     </td>
                   </tr>
                   {ann && (
                     <tr className="skeleton-evidence-row">
-                      <td colSpan={4}>
+                      <td colSpan={plain ? 3 : 4}>
                         <SkeletonEvidence
                           ann={ann}
                           onApplyCandidate={(cols) => applyCandidate(idx, cols)}
@@ -1000,6 +1455,21 @@ export function SkeletonGate({
                           displayClass={
                             plain ? (c) => compactClass(c, nsDetected) : undefined
                           }
+                          plain={plain}
+                          reading={readingFor(m, ann)}
+                          displayMap={displayMapName}
+                          shortId={shortId}
+                          filesGoneText={filesGoneText}
+                          suggestedClass={
+                            (ann.class_numeric_key_caution?.length ?? 0) > 0
+                              ? (compactClass(suggestedClassFor(idx) ?? '', nsDetected) || undefined)
+                              : undefined
+                          }
+                          onUseSuggestedClass={() => {
+                            const cls = suggestedClassFor(idx)
+                            if (cls) updateSubject(idx, { classes: [cls] })
+                          }}
+                          onFixColumn={(wrong, right) => fixColumnName(idx, wrong, right)}
                         />
                       </td>
                     </tr>
@@ -1010,6 +1480,10 @@ export function SkeletonGate({
           </tbody>
         </table>
       </div>
+      {/* The kantan tier reads the table FIRST (that is the one question this
+          screen asks) and meets the naming card after — settled, one line, on
+          the way out. The detail tier keeps the card above the table. */}
+      {plain && nsCard}
       {/* AI-redo exit: when the skeleton is STRUCTURALLY wrong (wrong split
           into kinds, wrong key idea), editing cells is the wrong tool — hand
           a plain-language note back to the generation instead. */}
@@ -1019,7 +1493,9 @@ export function SkeletonGate({
           this gate. Keep the block, disabled, with the reason. */}
       {!onRethink && !canRevalidate && (
         <div className="skeleton-rethink">
-          <p className="skeleton-gate-hint">{t('workbench:skeleton.rethink.needsFiles')}</p>
+          <p className="skeleton-gate-hint">
+            {filesGoneText ?? t('workbench:skeleton.rethink.needsFiles')}
+          </p>
         </div>
       )}
       {onRethink && (
@@ -1048,8 +1524,146 @@ export function SkeletonGate({
           </div>
         </div>
       )}
+      {/* "Are you sure?" where the answer can be "no, fix it": every item names
+          what continuing costs and carries the repair as its own button. The
+          native confirm this replaces had OK/Cancel only — and its Enter-key
+          default was "proceed with the collision" (K7 forbids exactly that). */}
+      {/* Fixing every item from inside the block empties it: close it then, so
+          the normal continue button comes back instead of an empty alert. */}
+      {confirming && blockers > 0 && (
+        <div className="wb-fix-box" role="alert">
+          <p className="skeleton-evidence-line">
+            <strong>{t('skeletongate:confirm.head')}</strong>
+          </p>
+          {missingCols.map((m) => (
+            <div key={`missing:${m.name}`} className="skeleton-gap">
+              <p className="skeleton-evidence-line skeleton-evidence-bad">
+                ⚠{' '}
+                {t('skeletongate:confirm.missing', {
+                  map: displayMapName(m.name),
+                  columns: (annotations?.maps?.[m.name]?.missing_columns ?? []).join(', '),
+                })}
+              </p>
+              <button
+                type="button"
+                className="skeleton-gap-add"
+                onClick={() => focusRow(m.name)}
+              >
+                {hasOneTapFix(m.name)
+                  ? t('skeletongate:confirm.missingFix')
+                  : t('skeletongate:confirm.showRow')}
+              </button>
+            </div>
+          ))}
+          {gapping.map((m) => (
+            <div key={`gap:${m.name}`} className="skeleton-gap">
+              <p className="skeleton-evidence-line skeleton-evidence-bad">
+                ⚠{' '}
+                {t('skeletongate:confirm.gap', {
+                  columns: (annotations?.maps?.[m.name]?.missing_row_kind?.columns ?? [])
+                    .slice(0, _GAP_COLUMNS)
+                    .join(', '),
+                })}
+              </p>
+              <button
+                type="button"
+                className="skeleton-gap-add"
+                disabled={!canRevalidate || busy}
+                onClick={() => {
+                  setConfirming(false)
+                  addRowKind(skeleton.maps.findIndex((x) => x.name === m.name))
+                }}
+              >
+                {t('skeletongate:confirm.gapFix')}
+              </button>
+              {!canRevalidate && (
+                <p className="skeleton-evidence-line skeleton-evidence-muted">
+                  {filesGoneText ?? t('workbench:skeleton.evidence.gapNeedsFiles')}
+                </p>
+              )}
+            </div>
+          ))}
+          {collapsing.map((m) => (
+            <div key={`collides:${m.name}`} className="skeleton-gap">
+              <p className="skeleton-evidence-line skeleton-evidence-bad">
+                ⚠{' '}
+                {plain
+                  ? t('skeletongate:confirm.collides', { map: displayMapName(m.name) })
+                  : t('workbench:skeleton.confirmCollides', { maps: m.name })}
+              </p>
+              <button type="button" className="skeleton-gap-add" onClick={() => focusRow(m.name)}>
+                {hasOneTapFix(m.name)
+                  ? t('skeletongate:confirm.collidesFix')
+                  : t('skeletongate:confirm.showRow')}
+              </button>
+            </div>
+          ))}
+          {plain && undeclared.length > 0 && (
+            <div className="skeleton-gap">
+              <p className="skeleton-evidence-line skeleton-evidence-bad">
+                ⚠ {t('skeletongate:vocab.unresolved', { names: undeclared.join(', ') })}
+              </p>
+              {vocabFixable && (
+                <button
+                  type="button"
+                  className="skeleton-gap-add"
+                  disabled={busy}
+                  onClick={() => {
+                    setConfirming(false)
+                    repairVocabulary()
+                  }}
+                >
+                  {t('skeletongate:vocab.fix')}
+                </button>
+              )}
+            </div>
+          )}
+          {placeholderPrefixes.length > 0 && (
+            <p className="skeleton-evidence-line skeleton-evidence-warn">
+              {/* K13: the machine-derived shorthand is not the human's to know,
+                  so the kantan copy names neither the prefixes nor Settings. */}
+              {plain
+                ? t('skeletongate:confirm.placeholder')
+                : t('workbench:skeleton.ns.confirmPlaceholder', {
+                    prefixes: placeholderPrefixes.map((p) => p.prefix).join(', '),
+                  })}
+            </p>
+          )}
+          <div className="skeleton-gate-actions">
+            {onRethink && (
+              <button
+                type="button"
+                className="skeleton-gap-add"
+                disabled={busy}
+                onClick={() => {
+                  setConfirming(false)
+                  onRethink(rethinkNote.trim())
+                }}
+              >
+                {t('skeletongate:confirm.rethinkFix')}
+              </button>
+            )}
+            <button
+              type="button"
+              className="btn btn--ghost"
+              disabled={busy}
+              onClick={() => setConfirming(false)}
+            >
+              {t('skeletongate:confirm.cancel')}
+            </button>
+            <button
+              type="button"
+              className="btn btn--ghost"
+              disabled={busy}
+              onClick={onContinueGuarded}
+            >
+              {t('skeletongate:confirm.proceed')}
+            </button>
+          </div>
+        </div>
+      )}
       <div className="skeleton-gate-actions">
-        <button onClick={onContinueGuarded} disabled={busy}>
+        <button onClick={onContinueGuarded} disabled={busy || (confirming && blockers > 0)}>
           {busy ? (
             <>
               <span className="spinner" />

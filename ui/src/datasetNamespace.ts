@@ -21,6 +21,101 @@ const RESERVED_PREFIX_NAMES = new Set([
   'doco', 'deo', 'fabio', 'cito', 'po', 'sd', 'sdr', 'ast',
 ])
 
+/** Standard vocabulary IRIs the machine may declare on the human's behalf when
+ * the AI used one of them without declaring it (kantan ADR K4/K13: a missing
+ * declaration is a machine-knowable fact, not a judgment). Mirror of ingest's
+ * `STANDARD_PREFIXES` plus the curated `vocab.ts` KNOWN_VOCABS namespaces —
+ * keep the three in sync. A prefix NOT in this table is never guessed at: an
+ * invented IRI would silently change what the data means. */
+export const STANDARD_VOCAB_IRIS: Record<string, string> = {
+  rdf: 'http://www.w3.org/1999/02/22-rdf-syntax-ns#',
+  rdfs: 'http://www.w3.org/2000/01/rdf-schema#',
+  owl: 'http://www.w3.org/2002/07/owl#',
+  xsd: 'http://www.w3.org/2001/XMLSchema#',
+  sh: 'http://www.w3.org/ns/shacl#',
+  schema: 'https://schema.org/',
+  dcterms: 'http://purl.org/dc/terms/',
+  dc: 'http://purl.org/dc/elements/1.1/',
+  prov: 'http://www.w3.org/ns/prov#',
+  bibo: 'http://purl.org/ontology/bibo/',
+  skos: 'http://www.w3.org/2004/02/skos/core#',
+  foaf: 'http://xmlns.com/foaf/0.1/',
+  dcat: 'http://www.w3.org/ns/dcat#',
+  sosa: 'http://www.w3.org/ns/sosa/',
+  qudt: 'http://qudt.org/schema/qudt/',
+  unit: 'http://qudt.org/vocab/unit/',
+  emmo: 'https://w3id.org/emmo#',
+  cmso: 'http://purls.helmholtz-metadaten.de/cmso/',
+}
+
+/** The leading `prefix:` of a CURIE-ish value (`schema:Dataset`, `zemr:m/{a}`). */
+const CURIE_HEAD = /^([A-Za-z][\w.-]*):/
+
+function renameHead(value: string, from: string, to: string): string {
+  return value.startsWith(`${from}:`) ? `${to}:${value.slice(from.length + 1)}` : value
+}
+
+/**
+ * Deterministic repair for prefixes the skeleton USES but never DECLARES — the
+ * failure a weak model reliably produces (`schema:Dataset` with no `schema`
+ * declaration), which the server evidence reports as "this will error on save"
+ * while the kantan tier has no prefix table to fix it in.
+ *
+ * Two moves, both machine-knowable:
+ *  - a name in {@link STANDARD_VOCAB_IRIS} is DECLARED with its real IRI;
+ *  - any other name is folded onto this dataset's own minted prefix pair
+ *    (`Foo:Bar` → `<ontology>:Bar`), i.e. treated as a new word of this
+ *    dataset. An IRI is never invented for an unknown prefix.
+ *
+ * Returns null when nothing can (or needs to) change; the caller reports what
+ * happened — a silent meaning change would be worse than the warning.
+ */
+export function resolveUndeclaredPrefixes(
+  skeleton: MappingSkeleton,
+  undeclared: Iterable<string>,
+  info: Pick<DatasetNamespaceInfo, 'ontology_prefix' | 'resource_prefix'> | null,
+): { skeleton: MappingSkeleton; declared: string[]; renamed: string[] } | null {
+  const declaredAlready = skeleton.prefixes ?? {}
+  const names = [...new Set(undeclared)].filter((n) => n && !(n in declaredAlready)).sort()
+  if (names.length === 0) return null
+
+  const declared = names.filter((n) => n in STANDARD_VOCAB_IRIS)
+  const unknown = names.filter((n) => !(n in STANDARD_VOCAB_IRIS))
+  const onto = info?.ontology_prefix ?? null
+  const res = info?.resource_prefix ?? null
+  // Without a minted pair there is nothing to fold unknown names onto.
+  const renamed = onto || res ? unknown : []
+  if (declared.length === 0 && renamed.length === 0) return null
+
+  const prefixes: Record<string, string> = { ...declaredAlready }
+  for (const name of declared) prefixes[name] = STANDARD_VOCAB_IRIS[name]
+
+  const fold = (value: string, target: string | null): string => {
+    if (!target || !CURIE_HEAD.test(value) || value.startsWith('http://') || value.startsWith('https://')) {
+      return value
+    }
+    let out = value
+    for (const name of renamed) out = renameHead(out, name, target)
+    return out
+  }
+
+  const maps = skeleton.maps.map((m) => ({
+    ...m,
+    subject: {
+      ...m.subject,
+      ...(m.subject.template !== undefined ? { template: fold(m.subject.template, res ?? onto) } : {}),
+      ...(m.subject.constant !== undefined ? { constant: fold(m.subject.constant, res ?? onto) } : {}),
+      ...(m.subject.classes
+        ? { classes: m.subject.classes.map((c) => fold(c, onto ?? res)) }
+        : {}),
+    },
+  }))
+
+  const next = { ...skeleton, prefixes, maps }
+  if (JSON.stringify(next) === JSON.stringify(skeleton)) return null
+  return { skeleton: next, declared, renamed }
+}
+
 /** Kebab slug for the minted-IRI dataset segment (same cleaning rule as the
  * server; non-ASCII — e.g. a Japanese name — cleans away, and the caller
  * treats an empty result as "keep the current slug"). */

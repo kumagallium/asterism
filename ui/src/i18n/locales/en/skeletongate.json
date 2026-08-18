@@ -1,0 +1,59 @@
+{
+  "reading": {
+    "unique": "1 row = one “{{label}}”",
+    "singleton": "the whole table = one “{{label}}”",
+    "partial": "1 row should be one “{{label}}”, but some IDs repeat",
+    "plain": "1 row of this table = “{{label}}”"
+  },
+  "col": {
+    "source": "File",
+    "key": "How the ID is decided",
+    "kind": "What one row is"
+  },
+  "quietMore": "See the details",
+  "noteSummary": "Show the AI's note",
+  "diagram": {
+    "summary": "See the sketch ({{count}} kinds)",
+    "linked": " · the IDs link to each other"
+  },
+  "key": {
+    "from1": "The ID is decided by {{columns}}",
+    "fromN": "The ID is decided by the combination of {{columns}}",
+    "constant": "One ID per file",
+    "none": "No ID recipe yet",
+    "join": " + ",
+    "editSummary": "Edit the ID recipe directly (advanced)"
+  },
+  "ns": {
+    "shape": "ID shape",
+    "provisional": "(provisional)",
+    "change": "Change",
+    "nameInvalid": "IDs can only use letters, digits and hyphens (e.g. thermoelectric-2026). You will give the display name at the last step, “Publish”."
+  },
+  "vocab": {
+    "declared": "Registered the well-known words ({{names}}) as standard words.",
+    "renamed": "Registered the unfamiliar words ({{names}}) as new words for this data.",
+    "unresolved": "The AI's ID recipe uses words with no agreed meaning ({{names}}). As it is, saving will trip up.",
+    "fix": "Register these words and fix it"
+  },
+  "filesGone": "The files are not at hand, so re-checking, asking the AI again and adding kinds are unavailable. Use “{{back}}” below to drop the files again.",
+  "addedHint": "Added a per-row kind. You can continue with this name (column meanings are checked on the next screen).",
+  "suggestClass": "Use “{{suggested}}”",
+  "missingColumns": "The columns the AI named are not in this table: {{columns}}",
+  "fixColumn": "The column “{{wrong}}” the AI named is not in this table. Closest match: “{{suggestion}}” (tap to fix).",
+  "remove": "I don't need this kind",
+  "confirm": {
+    "head": "Please check these before continuing.",
+    "collides": "“{{map}}” still gives several rows the same ID. If you continue, those rows are merged into one.",
+    "collidesFix": "Pick another candidate",
+    "rethinkFix": "Have the AI think again",
+    "gap": "“{{columns}}” will not be imported. Create the per-row kind before continuing?",
+    "gapFix": "Create the per-row kind",
+    "missing": "The ID of “{{map}}” uses columns this table does not have ({{columns}}). Continuing will trip up the import.",
+    "missingFix": "Use the closest column name",
+    "showRow": "Look at this row",
+    "placeholder": "The AI's ID recipe contains a part this screen cannot fix (a placeholder address). If you continue, the automatic fix will try to repair it.",
+    "proceed": "Continue anyway",
+    "cancel": "Cancel"
+  }
+}

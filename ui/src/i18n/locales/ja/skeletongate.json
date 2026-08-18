@@ -1,0 +1,59 @@
+{
+  "reading": {
+    "unique": "1 行 = 1 つの「{{label}}」",
+    "singleton": "この表全体で 1 つの「{{label}}」",
+    "partial": "1 行 = 1 つの「{{label}}」のはずが、ID が重なっています",
+    "plain": "この表の 1 行 = 「{{label}}」"
+  },
+  "col": {
+    "source": "ファイル",
+    "key": "ID の決まりかた",
+    "kind": "1 行が表すもの"
+  },
+  "quietMore": "くわしく見る",
+  "noteSummary": "AI の説明を見る",
+  "diagram": {
+    "summary": "見取り図を見る（{{count}} 種類）",
+    "linked": "・ID どうしがつながっています"
+  },
+  "key": {
+    "from1": "ID は {{columns}} で決まります",
+    "fromN": "ID は {{columns}} の組み合わせで決まります",
+    "constant": "ID はファイルごとに 1 つです",
+    "none": "ID の作り方がまだ決まっていません",
+    "join": " と ",
+    "editSummary": "ID の作り方を直接編集する（上級者向け）"
+  },
+  "ns": {
+    "shape": "ID の形",
+    "provisional": "（仮）",
+    "change": "変える",
+    "nameInvalid": "ID には英字・数字・ハイフンだけ使えます（例: thermoelectric-2026）。表示用の名前は最後の「公開する」で付けます。"
+  },
+  "vocab": {
+    "declared": "よく使われることば（{{names}}）を、標準のことばとして登録しました。",
+    "renamed": "見慣れないことば（{{names}}）は、このデータ用の新しいことばとして登録しました。",
+    "unresolved": "AI が書いた ID の中に、意味の決まっていないことば（{{names}}）があります。このままでは保存でつまずきます。",
+    "fix": "このことばを登録して直す"
+  },
+  "filesGone": "ファイルが手元にないため、再検査・AI にもう一度・種類の追加はいまは使えません。下の「{{back}}」からファイルを置き直すと使えるようになります。",
+  "addedHint": "行ごとの種類を追加しました。名前はそのままで進めます（列の意味は次の画面で確かめます）。",
+  "suggestClass": "「{{suggested}}」にする",
+  "missingColumns": "AI が指定した列がこの表にありません: {{columns}}",
+  "fixColumn": "AI が指定した列「{{wrong}}」はこの表にありません。近い名前の列:「{{suggestion}}」（押すと直します）",
+  "remove": "この種類は要らない",
+  "confirm": {
+    "head": "進む前に、確かめてください。",
+    "collides": "「{{map}}」は複数の行が同じ ID になったままです。このまま進むと、同じ ID の行は 1 件にまとまります。",
+    "collidesFix": "候補から選び直す",
+    "rethinkFix": "AI にもう一度考えさせる",
+    "gap": "「{{columns}}」は取り込まれません。行ごとの種類を作ってから進みますか？",
+    "gapFix": "行ごとの種類を作る",
+    "missing": "「{{map}}」の ID に、この表にない列（{{columns}}）が使われています。このまま進むと取り込みでつまずきます。",
+    "missingFix": "近い名前の列に直す",
+    "showRow": "この行を確かめる",
+    "placeholder": "AI の書いた ID の形に、この画面では直せない部分（仮のアドレス）が混ざっています。このまま進むと自動修正が直しを試みます。",
+    "proceed": "このまま進む",
+    "cancel": "やめる"
+  }
+}
