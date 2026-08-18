@@ -307,6 +307,13 @@ def load_all_query_tools(root: Path | str | None = None) -> dict[str, list[Query
 # citation-bearing "how many / what range / which record is biggest" tool for
 # free — no vocabulary-specific code, same as every other query tool.
 
+# The fixed set of names this synthesizer ever emits. Reserved: on a re-promote,
+# :func:`write_registry_query_tools` replaces exactly these names (dropping one
+# that no longer applies, e.g. no ``classes`` this time round) and leaves every
+# other entry in the file — including a human-authored tool saved via
+# ``registry.save_query_tool`` — untouched.
+SYNTHESIZED_TOOL_NAMES = frozenset({"counts_by_kind", "value_range", "top_value"})
+
 
 def _safe_iri(value: Any) -> str | None:
     """``value`` if it is a well-formed http(s) IRI safe to embed literally.
@@ -428,17 +435,27 @@ def write_registry_query_tools(
     Vets every declaration through the same lint gate an authored save would
     use (this module's docstring: "Save/propose paths gate on it") — a tool
     that fails to parse or lint is dropped rather than persisted broken; a
-    dataset that ends up with zero surviving tools gets no file at all (never
-    an empty/broken one). Overwrites any prior synthesis so a re-promote
-    re-derives the file from the CURRENT live data — this function only ever
-    receives freshly-synthesized content (see :func:`synthesize_query_tools_from_trial_queries`),
-    never a hand-authored declaration, so there is nothing of a human's to lose.
+    dataset that ends up with zero surviving tools leaves the file untouched
+    (never writes an empty/broken one).
+
+    MERGES by name rather than overwriting the file: ``registry.save_query_tool``
+    (``api/src/asterism_api/registry.py``) upserts human-authored tools into this
+    exact same ``query_tools.yaml`` (the ToolsPanel "save as tool" path), so a
+    blind overwrite here would silently delete a human's tool the next time the
+    dataset is (re-)promoted. Every existing entry whose name is one of
+    :data:`SYNTHESIZED_TOOL_NAMES` is dropped (whether or not this call
+    reproduces it — e.g. a dataset that no longer has classes stops carrying a
+    stale ``counts_by_kind``) and replaced with this call's fresh output; every
+    other existing entry (hand-authored, or anything not using a reserved name)
+    is carried over unchanged.
 
     Best-effort like the rest of promote's optional post-steps: returns the
-    written path on success, or ``None`` when there is nothing to write (no
-    tools) or the dataset directory does not exist (never mints a new registry
-    entry out of a synthesis call). Raises nothing — a malformed ``tools`` list
-    degrades to "dropped, logged", matching :func:`load_query_tools`'s lenience.
+    written path on success, or ``None`` when there is nothing new to write (no
+    ``tools`` passed in, all failed lint, or the dataset directory does not
+    exist — never mints a new registry entry out of a synthesis call). Raises
+    nothing — a malformed ``tools`` list degrades to "dropped, logged", matching
+    :func:`load_query_tools`'s lenience; an unreadable existing file is treated
+    as empty rather than aborting the write.
     """
     base = Path(registry_root)
     dataset_dir = base / dataset_id
@@ -463,8 +480,23 @@ def write_registry_query_tools(
     if not kept_raw:
         return None
     path = dataset_dir / "query_tools.yaml"
+    existing_raw: list[dict[str, Any]] = []
+    if path.is_file():
+        try:
+            data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        except (yaml.YAMLError, OSError) as exc:
+            _log.warning(
+                "synthesize_query_tools[%s]: unreadable existing file (%s)", dataset_id, exc
+            )
+        else:
+            existing = data.get("tools") if isinstance(data, dict) else None
+            if isinstance(existing, list):
+                existing_raw = [t for t in existing if isinstance(t, dict)]
+    merged = [
+        t for t in existing_raw if str(t.get("name")) not in SYNTHESIZED_TOOL_NAMES
+    ] + kept_raw
     path.write_text(
-        yaml.safe_dump({"tools": kept_raw}, sort_keys=False, allow_unicode=True),
+        yaml.safe_dump({"tools": merged}, sort_keys=False, allow_unicode=True),
         encoding="utf-8",
     )
     return path

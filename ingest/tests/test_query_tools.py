@@ -11,6 +11,7 @@ import json
 
 import pytest
 import rdflib
+import yaml
 
 from asterism.query_tools import (
     QueryTool,
@@ -674,6 +675,43 @@ def test_write_registry_query_tools_round_trip(tmp_path) -> None:
     write_registry_query_tools(reg, "my-dataset-abc12345", fewer)
     reloaded = {t.name for t in load_query_tools("my-dataset-abc12345", reg)}
     assert reloaded == {"value_range"}
+
+
+def test_write_registry_query_tools_preserves_hand_authored_tool(tmp_path) -> None:
+    # registry.save_query_tool (api/src/asterism_api/registry.py) upserts
+    # human-authored tools into this exact same query_tools.yaml — a re-promote
+    # must not wipe one out just because it wasn't in this call's synthesized
+    # batch.
+    reg = tmp_path / "registry"
+    ds = reg / "my-dataset-abc12345"
+    ds.mkdir(parents=True)
+    hand_authored = {
+        "name": "custom_lookup",
+        "title": "手作業で保存したツール",
+        "description": "A human saved this via the ToolsPanel.",
+        "parameters": [],
+        "query": "SELECT ?s WHERE { ?s a <https://ex/my-dataset#Sample> } LIMIT 5",
+        "result": {"item": {"subject_iri": "s"}},
+    }
+    (ds / "query_tools.yaml").write_text(
+        yaml.safe_dump({"tools": [hand_authored]}, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+
+    tools = synthesize_query_tools_from_trial_queries(_TRIAL_FULL)
+    write_registry_query_tools(reg, "my-dataset-abc12345", tools)
+
+    loaded = {t.name for t in load_query_tools("my-dataset-abc12345", reg)}
+    assert loaded == {"custom_lookup", "counts_by_kind", "value_range", "top_value"}
+
+    # A later re-promote whose trial-queries no longer has classes must drop the
+    # now-stale counts_by_kind while still leaving the hand-authored tool alone.
+    fewer = synthesize_query_tools_from_trial_queries(
+        {"available": True, "classes": [], "range": _TRIAL_FULL["range"]}
+    )
+    write_registry_query_tools(reg, "my-dataset-abc12345", fewer)
+    reloaded = {t.name for t in load_query_tools("my-dataset-abc12345", reg)}
+    assert reloaded == {"custom_lookup", "value_range"}
 
 
 def test_write_registry_query_tools_no_dataset_dir(tmp_path) -> None:
