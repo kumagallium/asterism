@@ -96,6 +96,7 @@ from asterism_step0.spec_repair import (
     parse_spec_json,
     replace_mapping_spec_block,
 )
+from asterism_step0.spec_yaml import load_spec_yaml
 from asterism_step0.staged_propose import apply_data_facts, propose_from_skeleton
 from asterism_step0.validate import SchemaBundle, validate_schema
 
@@ -271,6 +272,16 @@ def _column_datatypes(
     the inspector's sampled `inferred_type`: one stray non-numeric cell would
     make the stamped datatype a lie.
 
+    The columns considered are the ones the MATERIALIZED rows actually have, not
+    ``ins.columns``: on a legacy instrument export the key/value preamble is
+    broadcast onto every row (ADR source-dialect.md), so ``Volume`` /
+    ``RIR(I/Ic)`` / ``Dcalc`` exist in the data but not in the inspector's body
+    column list — and were silently never typed (live 2026-08-18: the review
+    screen kept advising "column 'Volume' holds numbers but is mapped as an
+    untyped literal" with nothing able to act on it). The dialect-aware reader
+    is likewise the only one that sees them, so a non-``csv`` source kind no
+    longer skips the check outright.
+
     Best-effort — any failure yields ``{}`` and generation proceeds as before.
     """
     try:
@@ -279,13 +290,15 @@ def _column_datatypes(
         return {}
     by_source: dict[str, dict[str, str]] = {}
     for path, ins in zip(paths, inspections, strict=False):
-        if ins.source_kind != "csv":
+        if path.suffix.lower() not in _TABULAR_SUFFIXES:
             continue
         try:
             rows = _dialect_rows(path, ins.dialect) if ins.dialect else list(_stream_rows(path))
-        except OSError:
+        except Exception:
             continue
-        by_source[path.name] = numeric_column_types(rows, [c.name for c in ins.columns])
+        if not rows:
+            continue
+        by_source[path.name] = numeric_column_types(rows, list(rows[0].keys()))
     out: dict[str, dict[str, str]] = {}
     for map_entry in skeleton.get("maps") or []:
         if not isinstance(map_entry, Mapping):
@@ -729,7 +742,7 @@ def _stamp_numeric_datatypes(schema_md: str, base: Path, issues: list[Issue]) ->
         return None
     try:
         ir = parse_mapping_ir(ir_yaml)
-        spec = yaml.safe_load(ir_yaml)
+        spec = load_spec_yaml(ir_yaml)
     except Exception:
         return None
     if not isinstance(spec, dict) or not isinstance(spec.get("maps"), list):
@@ -796,11 +809,129 @@ def _stamp_utf8_sig(schema_md: str, issues: list[Issue]) -> str | None:
     return doc.replace(ingester, repaired, 1)
 
 
-#: The deterministic repairs, applied in order before any LLM round. Each takes
-#: ``(schema_md, base, issues)`` and returns a repaired document or None.
-_DETERMINISTIC_REPAIRS: tuple[Callable[[str, Path, list[Issue]], str | None], ...] = (
-    lambda md, base, issues: _stamp_numeric_datatypes(md, base, issues),
-    lambda md, base, issues: _stamp_utf8_sig(md, issues),
+# The transform message the identity repair keys on (mapping_ir._check_transform).
+_RE_TRANSFORM_NOT_FN = re.compile(r"transform function '([^']+)' \(for \{([^}]+)\}\)")
+
+
+def _drop_identity_transforms(schema_md: str, base: Path, issues: list[Issue]) -> str | None:
+    """Deterministically remove ``transform: {X: X}`` entries whose value is NOT a
+    Tier-0 function. Returns the repaired document, or None when nothing applies.
+
+    Live 2026-08-18 (gpt-oss-120b, XRD card): the model wrote
+    ``subject.transform: {No: No}`` / ``{hkl: hkl}`` — reading ``transform`` as
+    "placeholder ← column" — and kept re-emitting it through five manual rounds.
+    A transform maps a placeholder to a FUNCTION; a value equal to its own key
+    that names no function cannot mean anything valid, so removing it is the
+    only edit the message can lead to. Kept when the value IS a function (a
+    column literally named ``slug`` with ``transform: {slug: slug}`` is legal).
+    """
+    named = {m.group(1) for iss in issues if (m := _RE_TRANSFORM_NOT_FN.search(iss.message))}
+    if not named:
+        return None
+    try:
+        functions = set(catalog_from_registry().names())
+    except Exception:
+        return None
+    with tempfile.TemporaryDirectory(prefix="asterism-loop-tf-") as tmp:
+        ir_yaml = materialize_schema(schema_md, tmp, "design", write=False).mapping_ir_yaml
+    if not ir_yaml or not ir_yaml.strip():
+        return None
+    import yaml
+
+    try:
+        spec = load_spec_yaml(ir_yaml)
+    except yaml.YAMLError:
+        return None
+    if not isinstance(spec, dict) or not isinstance(spec.get("maps"), list):
+        return None
+
+    def _prune(owner: Any) -> int:
+        if not isinstance(owner, dict) or not isinstance(owner.get("transform"), dict):
+            return 0
+        tf = owner["transform"]
+        drop = [
+            k for k, v in tf.items()
+            if isinstance(v, str) and str(k) == v and v in named and v not in functions
+        ]
+        for k in drop:
+            del tf[k]
+        if not tf:
+            del owner["transform"]
+        return len(drop)
+
+    changed = 0
+    for map_entry in spec["maps"]:
+        if not isinstance(map_entry, dict):
+            continue
+        changed += _prune(map_entry.get("subject"))
+        for prop in map_entry.get("properties") or []:
+            changed += _prune(prop)
+    if not changed:
+        return None
+    repaired = yaml.safe_dump(spec, allow_unicode=True, sort_keys=False).rstrip("\n")
+    try:
+        return replace_mapping_spec_block(schema_md, repaired)
+    except ValueError:
+        return None
+
+
+def _move_xsd_unit_to_datatype(schema_md: str, base: Path, issues: list[Issue]) -> str | None:
+    """Move an xsd: CURIE written into unit: over to datatype:.
+
+    unit is display metadata — a human-readable string like "W/(m·K)" that
+    never compiles into RML. An xsd: term there is never a unit; it is the
+    datatype field filled in one line too low. Observed live (2026-08-18, XRD
+    card): unit: xsd:integer on the Z-value row, while the datatype the data
+    proved was silently absent, so the value stayed untyped AND the review screen
+    showed "xsd:integer" as its unit.
+
+    Deterministic because there is exactly one thing it can mean. Skipped when
+    the row already has a datatype (the author's choice wins — the stray unit
+    is then just dropped as the display noise it is).
+    """
+    import yaml
+
+    with tempfile.TemporaryDirectory(prefix="asterism-loop-unit-") as tmp:
+        ir_yaml = materialize_schema(schema_md, tmp, "design", write=False).mapping_ir_yaml
+    if not ir_yaml or not ir_yaml.strip():
+        return None
+    try:
+        spec = load_spec_yaml(ir_yaml)
+    except yaml.YAMLError:
+        return None
+    if not isinstance(spec, dict) or not isinstance(spec.get("maps"), list):
+        return None
+    changed = 0
+    for map_entry in spec["maps"]:
+        if not isinstance(map_entry, dict):
+            continue
+        for prop in map_entry.get("properties") or []:
+            if not isinstance(prop, dict):
+                continue
+            unit = prop.get("unit")
+            if not isinstance(unit, str) or not unit.strip().startswith("xsd:"):
+                continue
+            if not prop.get("datatype"):
+                prop["datatype"] = unit.strip()
+            del prop["unit"]
+            changed += 1
+    if not changed:
+        return None
+    repaired = yaml.safe_dump(spec, allow_unicode=True, sort_keys=False).rstrip("\n")
+    try:
+        return replace_mapping_spec_block(schema_md, repaired)
+    except ValueError:
+        return None
+
+
+# Deterministic repairs, in order. Each sees the CURRENT document + its issues
+# and returns a repaired document or None; each is kept only if the re-verdict
+# has strictly fewer issues (see _evaluate).
+_REPAIRS: tuple[Callable[[str, Path, list[Issue]], str | None], ...] = (
+    _drop_identity_transforms,  # parse-level: unblocks every later check
+    _move_xsd_unit_to_datatype,  # a misfiled datatype, before typing is judged
+    _stamp_numeric_datatypes,
+    lambda md, base, issues: _stamp_utf8_sig(md, issues),  # T2 lives in §8, not §9
 )
 
 
@@ -809,14 +940,15 @@ def _evaluate(schema_md: str, base: Path) -> tuple[str, str | None, list[Issue]]
 
     Returns ``(schema_md, ir_yaml, issues)`` — ``schema_md`` is the possibly
     deterministically-repaired document, and the issues are those of THAT
-    document. A repair that does not actually reduce the issue count is
-    discarded, so a bad rule can never make a round worse than doing nothing.
-    Repairs compose: each runs against the issues of the document the previous
-    one produced, so a trap cleared here never reaches the routing decision (and
-    therefore never forces the whole-document path — see the loop below).
+    document. Each repair in :data:`_REPAIRS` is applied in turn and kept only
+    if it STRICTLY reduces the issue count, so a bad rule can never make a
+    round worse than doing nothing. Repairs compose: each runs against the
+    issues of the document the previous one produced, so a trap cleared here
+    never reaches the routing decision (and therefore never forces the
+    whole-document path — see the loop below).
     """
     ir_yaml, issues = _verdict(schema_md, base)
-    for repair in _DETERMINISTIC_REPAIRS:
+    for repair in _REPAIRS:
         if not issues:
             break
         repaired_md = repair(schema_md, base, issues)
@@ -1122,7 +1254,18 @@ def run_design_loop(
         return _result(best_schema, best_issues, rounds, converged=False,
                        reason="no_autocorrect", initial=initial, base_refs=base_refs)
 
-    seen_keysets: set[frozenset[tuple[str, str]]] = set()
+    # No-progress detection is PER REPAIR MODE. Surgical (§9-only, guided JSON)
+    # and whole-document refine are different tools; a keyset surgical could not
+    # move gets ONE whole-document attempt before the loop gives up. Live
+    # 2026-08-18 (gpt-oss-120b, XRD card): the two surgical rounds returned
+    # degenerate JSON that was discarded, the loop stopped on no_progress at 38
+    # issues — and the human's five "AI に直してもらう" clicks, which are exactly
+    # whole-document refines, then took the same design 38 → 2. Those were
+    # rounds the machine could have run.
+    seen_by_mode: dict[str, set[frozenset[tuple[str, str]]]] = {
+        "surgical": set(), "document": set(),
+    }
+    escalated = False  # once surgical failed on a keyset, stay whole-document
     prev_issues = issues
     for n in range(1, max_rounds + 1):
         # A pending cancel outranks every stop condition: raise before spending
@@ -1130,10 +1273,6 @@ def run_design_loop(
         if should_cancel is not None and should_cancel():
             raise LLMCancelledError("cancelled")
         keyset = frozenset(i.key for i in prev_issues)
-        if keyset in seen_keysets:  # cycle / no-progress (checked before spending a round)
-            return _result(best_schema, best_issues, rounds, converged=False,
-                           reason="no_progress", initial=initial, base_refs=base_refs)
-        seen_keysets.add(keyset)
 
         # Phase 2 surgical repair (ADR mapping-ir-phase2-guided-repair): with a
         # mapping spec present, ONLY the §9 block is regenerated — guided JSON
@@ -1162,13 +1301,27 @@ def run_design_loop(
             for i in prev_issues
             if i.category == "trap" and i.subject not in _SPEC_REPAIRABLE_TRAPS
         }
-        surgical = bool(ir_yaml and ir_yaml.strip()) and not blocking_traps
+        surgical = (
+            bool(ir_yaml and ir_yaml.strip())
+            and not escalated
+            and not blocking_traps
+        )
+        mode = "surgical" if surgical else "document"
+        if keyset in seen_by_mode[mode]:  # cycle / no-progress in THIS mode
+            if surgical:
+                # Escalate: the same issues, one whole-document attempt.
+                surgical, mode, escalated = False, "document", True
+            if keyset in seen_by_mode[mode]:  # both tools already failed here
+                return _result(best_schema, best_issues, rounds, converged=False,
+                               reason="no_progress", initial=initial, base_refs=base_refs)
+        seen_by_mode[mode].add(keyset)
         _emit(on_progress, phase="refine", round=n, issue_count=len(prev_issues),
               categories=_cats(prev_issues),
               message=(
                   f"{len(prev_issues)} 件の問題を修正中 (§9 仕様のみ再生成)"
                   if surgical
                   else f"{len(prev_issues)} 件の問題を修正中"
+                  + (" (設計全体を再生成)" if escalated else "")
               ))
         try:
             if surgical:
@@ -1189,13 +1342,14 @@ def run_design_loop(
                            reason="refine_truncated", initial=initial, base_refs=base_refs)
         except ValueError as exc:
             # Unparseable/unspliceable surgical output — an LLM-quality flake,
-            # not an env failure: record the round (schema unchanged) and let
-            # the next iteration's seen-keyset check stop as no_progress if it
-            # repeats. Guided decoding makes this rare by construction.
+            # not an env failure: record the round (schema unchanged) and
+            # escalate, so the next round retries the SAME issues with the
+            # whole-document refine instead of stopping on no_progress.
             if on_llm_call is not None:
                 on_llm_call("propose.autocorrect")
             rounds.append(RoundRecord(n, len(prev_issues), _cats(prev_issues),
                                       env_error=f"spec repair discarded: {exc}"))
+            escalated = True
             continue
         except Exception as exc:  # provider 429/quota/etc — non-loopable, keep best
             rounds.append(RoundRecord(n, len(prev_issues), _cats(prev_issues), env_error=str(exc)))
@@ -1261,7 +1415,7 @@ def _overlay_data_facts(
     import yaml
 
     try:
-        doc = yaml.safe_load(ir_yaml)
+        doc = load_spec_yaml(ir_yaml)
     except yaml.YAMLError:
         return schema_md
     if not isinstance(doc, dict):
@@ -1278,6 +1432,60 @@ def _overlay_data_facts(
         return schema_md
 
 
+def repair_design(schema_md: str, source_dir: Path | str) -> str:
+    """Deterministic repair + data-fact re-assertion for a design that did NOT
+    come from :func:`run_design_loop`.
+
+    The loop re-asserts what the rows proved after EVERY round
+    (:func:`_overlay_data_facts`) and runs :data:`_REPAIRS` before spending a
+    call. The MANUAL path — the wizard's "AI に直してもらう" button, which is
+    ``/api/refine`` followed by ``/api/materialize`` — went through neither, so
+    every click could quietly un-do a fact the machine had already established.
+    Live 2026-08-18: the numeric datatypes were present after the loop and gone
+    after four manual rounds; the advisory came back each time, which invited
+    the next click. Same defect ADR data-facts-invariant fixed for automatic
+    rounds, on the path nobody had covered.
+
+    Map→source comes from the spec itself (the IR is skeleton-shaped for this
+    purpose), so no confirmed skeleton is needed. Best-effort in every
+    direction: an unreadable source, an unparseable spec or a validator
+    environment failure returns the input unchanged — this must never be the
+    reason a save fails.
+    """
+    base = Path(source_dir)
+    md = schema_md
+    try:
+        # 1) Unconditional: a number the rows proved stays typed, whatever the
+        #    round did to §9. Not issue-driven — the untyped-numeric advisory is
+        #    invisible while any earlier validation message short-circuits the
+        #    IR pipeline, and this fact does not depend on it.
+        #
+        #    Read through the spec's PINNED dialects, never a fresh detection:
+        #    re-detecting this file yields ``preamble: drop`` where the design
+        #    pinned ``keyvalue``, and the broadcast preamble columns (Volume,
+        #    RIR(I/Ic), Dcalc, …) then vanish from the rows — the exact columns
+        #    whose untyped-numeric advisory kept coming back (live 2026-08-18).
+        ir_yaml, _ = _extract_design(md)
+        if ir_yaml and ir_yaml.strip():
+            ir = parse_mapping_ir(ir_yaml)
+            by_source = _numeric_types_by_source(base, ir)
+            types = {
+                str(m.name): by_source[str(m.source)]
+                for m in ir.maps
+                if getattr(m, "source", None) and by_source.get(str(m.source))
+            }
+            if types:
+                md = _overlay_data_facts(md, None, types)
+    except Exception:  # a fact overlay must never break the save
+        md = schema_md
+    try:
+        # 2) Issue-driven, each kept only when it strictly reduces the count.
+        md, _ir, _issues = _evaluate(md, base)
+    except _LoopEnvError:
+        return md
+    return md
+
+
 def _extract_design(schema_md: str) -> tuple[str | None, str | None]:
     """Pull the §9 design out of a schema Markdown via the SAME deterministic
     extractor the materialize endpoint uses (no LLM): ``(mapping_ir_yaml,
@@ -1290,31 +1498,6 @@ def _extract_design(schema_md: str) -> tuple[str | None, str | None]:
     if mat.mapping_ir_yaml is not None:
         return mat.mapping_ir_yaml, None
     return None, mat.rml_ttl
-
-
-def restamp_numeric_datatypes(schema_md: str, source_dir: Path | str) -> str | None:
-    """Re-assert ``datatype:`` on the §9 rows the DATA proves are numeric.
-
-    The loop applies this every round (:func:`_stamp_numeric_datatypes`), but the
-    human-initiated path does not go through the loop: S6's "AI に反映して作り直す"
-    is refine → materialize, and a weak model rewriting §9 to honour one comment
-    drops ``datatype: xsd:double`` on the way. The re-ingest then stores numbers
-    as strings, and SPARQL compares them lexically — a range question answers
-    WRONGLY instead of failing, which is the one failure mode the citable-facts
-    invariant cannot tolerate (#372).
-
-    Deterministic and idempotent: only columns whose every non-empty cell the
-    machine has just read as a number, only rows with no ``datatype`` and no
-    ``function`` of their own, zero LLM calls. Returns the repaired document, or
-    None when there is nothing to do (or nothing safely repairable).
-    """
-    base = Path(source_dir)
-    try:
-        ir_yaml, rml_ttl = _extract_design(schema_md)
-        issues = collect_issues(ir_yaml, rml_ttl, base)
-    except Exception:  # unreadable source / unparseable design: simply no repair
-        return None
-    return _stamp_numeric_datatypes(schema_md, base, issues)
 
 
 # ---------------------------------------------------------------------------

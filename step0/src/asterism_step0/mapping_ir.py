@@ -38,6 +38,7 @@ from asterism_step0.dialect import (
     WHITESPACE,
     SourceDialect,
 )
+from asterism_step0.spec_yaml import coerce_bool, describe_bare_scalar, load_spec_yaml
 
 __all__ = [
     "CatalogFunction",
@@ -324,7 +325,12 @@ def _check_cardinality_marker(term: str, where: str, issues: list[str]) -> None:
 def _expect_str(value: Any, where: str, issues: list[str]) -> str | None:
     if isinstance(value, str) and value.strip():
         return value.strip()
-    issues.append(f"{where} must be a non-empty string (got {value!r}).")
+    # A bare scalar YAML typed for us (``column: 2023`` → int) gets the quoted
+    # form spelled out — the model never wrote "2023" as a number and cannot
+    # otherwise connect the complaint to its own text.
+    issues.append(
+        f"{where} must be a non-empty string (got {value!r}).{describe_bare_scalar(value)}"
+    )
     return None
 
 
@@ -640,8 +646,8 @@ def _parse_property(raw: Any, where: str, issues: list[str]) -> PropertyIR | Non
     if transform and object_template is None:
         issues.append(f"{where}.transform applies to object_template placeholders only.")
 
-    fallback = raw.get("fallback", False)
-    if not isinstance(fallback, bool):
+    fallback = coerce_bool(raw.get("fallback", False))
+    if fallback is None:
         issues.append(f"{where}.fallback must be true or false.")
         fallback = False
     if fallback and (function is not None or column is None):
@@ -822,8 +828,8 @@ def _parse_dialects(
                 f"'{WHITESPACE}' (got {delimiter!r})."
             )
             delimiter = ","
-        collapse = fields_raw.get("collapse", False)
-        if not isinstance(collapse, bool):
+        collapse = coerce_bool(fields_raw.get("collapse", False))
+        if collapse is None:
             issues.append(f"{where}.collapse must be true or false.")
             collapse = False
         skip_rows = fields_raw.get("skip_rows", 0)
@@ -930,7 +936,7 @@ def parse_mapping_ir(text: str) -> MappingIR:
         ) from exc
 
     try:
-        doc = yaml.safe_load(text)
+        doc = load_spec_yaml(text)
     except yaml.YAMLError as exc:
         raise MappingIRParseError(
             [f"The mapping spec is not valid YAML: {exc}"]

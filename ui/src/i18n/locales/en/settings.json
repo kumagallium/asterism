@@ -8,6 +8,7 @@
     "ai": "AI",
     "server": "This server",
     "usage": "AI usage",
+    "storage": "Storage",
     "about": "About"
   },
   "provider": {
@@ -201,5 +202,17 @@
     "installing": "Downloading…",
     "downloading": "Downloading… {{pct}}%",
     "installFailed": "Update failed"
+  },
+  "storage": {
+    "title": "Local storage location",
+    "intro": "The folder where datasets, graphs, chats, and settings are stored.",
+    "currentLabel": "Current location",
+    "unknown": "Unknown",
+    "change": "Change…",
+    "browserNote": "This cannot be changed from this view (viewed in a browser). Change it from the desktop app window instead.",
+    "restartPending": "{{path}} will be used starting from the next launch. Restart Asterism to apply it.",
+    "syncWarning": "The location you chose looks like a sync folder. The graph store (Oxigraph) is binary data that does not get along well with sync tools, and opening it from multiple devices at once can corrupt it.",
+    "migrateNote": "Existing data is not moved automatically. If you want to keep it, quit Asterism first, then manually copy the contents of the old folder into the new one.",
+    "resetDefault": "Reset to default location"
   }
 }

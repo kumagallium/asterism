@@ -107,6 +107,7 @@ from fastapi import (
     Header,
     HTTPException,
     Query,
+    Request,
     Response,
     UploadFile,
 )
@@ -114,8 +115,16 @@ from fastapi import Path as PathParam
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
+from asterism_api import (
+    appdata,
+    design_loop,
+    exchange,
+    registry,
+    server_keys,
+    staging,
+    togomcp_sync,
+)
 from asterism_api import describe as describe_mod
-from asterism_api import design_loop, exchange, registry, server_keys, staging, togomcp_sync
 from asterism_api import usage as usage_ledger
 from asterism_api.jobs import JobManager
 from asterism_api.tool_loop import ToolLoopResult, propose_tool_with_correction
@@ -133,12 +142,21 @@ class RefineRequest(BaseModel):
     # Absent/empty → English (legacy behaviour). Headings / identifiers stay
     # English regardless — materialize extracts artifacts by English headings.
     language: str | None = None
-    # The dataset being refined, when there is one. Its persisted source is what
-    # lets the SAME validation + deterministic self-correction round-0 runs also
-    # run on the refined document (a weak model asked for one wording change can
-    # drop a `datatype:` and turn numbers into strings). Absent → refine behaves
-    # exactly as before: one LLM call, no backstop.
+    # Where the design's source lives, when there is one. Two jobs, both of them
+    # backstops for the MANUAL round:
+    #   * the persisted source is what lets the refined document go through the
+    #     SAME validation + deterministic self-correction round 0 runs (a weak
+    #     model asked for one wording change can drop a `datatype:` and turn
+    #     numbers into strings);
+    #   * and it is where the closed-menu oracle (exact filenames, real columns,
+    #     Tier-0 menu) comes from — without it the human's "AI に直してもらう"
+    #     rounds ran on the symptom text alone (live 2026-08-18: the model
+    #     invented 17 camel-cased column names over five clicks).
+    # The dataset's own persisted source wins; the staged copy (ADR
+    # source-staging.md) covers a design not attached yet. Both optional: absent
+    # → refine behaves exactly as before, one LLM call, no menu and no backstop.
     dataset_id: str | None = None
+    staging_id: str | None = None
 
 
 class MaterializeRequest(BaseModel):
@@ -154,6 +172,16 @@ class MaterializeRequest(BaseModel):
     # preserved) instead of minting a new dataset. The user re-applies data via the
     # existing re-ingest controls. Ignored when persist is false.
     dataset_id: str | None = None
+    # Design-time source that is NOT yet attached (ADR source-staging.md): the
+    # wizard stages uploads once and designs against them; attach happens only
+    # after materialize succeeds. Until then the dataset has no source dir, so
+    # every source-grounded check here (dialect re-pin, column existence with
+    # did-you-mean, numeric typing, join-key candidates) used to be silently
+    # skipped on a brand-new design — the manual "AI に直してもらう" rounds ran
+    # blind and a design with 17 invented column names was reported "clean"
+    # (live 2026-08-18). With the staging id the same checks run against the
+    # staged copy. The dataset's own persisted source still wins when present.
+    staging_id: str | None = None
 
 
 class SparqlRequest(BaseModel):
@@ -1248,6 +1276,15 @@ class Settings:
         except ValueError:
             timeout_s = 3600.0
         self.job_timeout_seconds: float | None = timeout_s if timeout_s > 0 else None
+        # Single-user mode (ADR app-data-on-disk.md): asterism-local sets
+        # both of these so Ask threads / app settings get a server-side home on
+        # disk instead of the browser's localStorage. Unset (the shared/hosted
+        # api) → the /api/appdata/* routes stay 404 except GET .../info.
+        self.single_user = (e.get("ASTERISM_SINGLE_USER") or "").strip().lower() in (
+            "1", "true", "yes",
+        )
+        appdata_raw = (e.get("ASTERISM_APPDATA_ROOT") or "").strip()
+        self.appdata_root = Path(appdata_raw) if appdata_raw else None
 
 
 # ----------------------------------------------------------------------------
@@ -2642,8 +2679,35 @@ def _artifacts_from_document(
     return artifacts, list(mat.warnings)
 
 
+def _refine_oracle(registry_root: Path, dataset_id: str | None, staging_id: str | None) -> str:
+    """The closed-menu appendix for a MANUAL refine round, or "" when no source
+    is known. Best-effort: any failure means an ungrounded round (today's
+    behaviour), never a failed request. Dialects are re-detected from the files
+    the same way the loop does, so the column list matches what ingest reads."""
+    try:
+        paths: list[Path] = []
+        if dataset_id:
+            with contextlib.suppress(Exception):
+                paths = registry.list_source_files(registry_root, dataset_id)
+        if not paths and staging_id:
+            with contextlib.suppress(staging.StagingNotFound, ValueError):
+                _sdir, paths = staging.load(registry_root, staging_id)
+        if not paths:
+            return ""
+        base = paths[0].parent
+        return design_loop.build_oracle(
+            base, paths, dialects=design_loop._detect_source_dialects(paths)
+        )
+    except Exception:
+        return ""
+
+
 def _design_checks_at_materialize(
-    registry_root: Path, dataset_id: str | None, rml_ttl: str | None
+    registry_root: Path,
+    dataset_id: str | None,
+    rml_ttl: str | None,
+    *,
+    source_dir: Path | None = None,
 ) -> tuple[list[str], list[str]]:
     """Design checks for the materialize response (NEVER raises).
 
@@ -2670,6 +2734,10 @@ def _design_checks_at_materialize(
     connectivity advisory additionally names the join-key candidates, turning a
     diagnosis into a work order.
 
+    ``source_dir`` is the design-time source when the dataset has none attached
+    yet (the wizard's staged copy, ADR source-staging.md); the dataset's own
+    persisted source wins when it exists.
+
     Both lists are best-effort: any unexpected error degrades to "no advice",
     never a 500.
     """
@@ -2682,7 +2750,8 @@ def _design_checks_at_materialize(
             source_paths = registry.list_source_files(registry_root, dataset_id)
         except Exception:
             source_paths = []
-    source_dir = source_paths[0].parent if source_paths else None
+    if source_paths:
+        source_dir = source_paths[0].parent
     try:
         # Review notes (unmapped columns) are human-judgement items: shown so the
         # person can weigh them / include them in a fix request, but NOT fed to
@@ -2693,7 +2762,7 @@ def _design_checks_at_materialize(
     except Exception:  # advisory only
         logger.exception("design advisories at materialize failed (continuing)")
         advisories = []
-    if not source_paths:
+    if source_dir is None:
         return [], advisories
     try:
         # Validate the run-id-substituted form so the runtime-only {__run_id__}
@@ -3253,6 +3322,96 @@ def build_app(
     async def delete_staging(staging_id: str) -> dict[str, object]:
         """Forget a record (a fresh start). Idempotent."""
         return {"deleted": staging.delete(cfg.registry_root, staging_id)}
+
+    # ------------------------------------------------------------------
+    # Single-user on-disk appdata (ADR app-data-on-disk.md): Ask
+    # chat threads + app settings, for asterism-local only. Everything but
+    # GET /api/appdata/info 404s in the shared/hosted api (cfg.single_user
+    # is False there, and appdata_root is None), so this is a strict
+    # addition — the info probe is what lets the SPA branch on it.
+
+    def _reject_if_content_length_exceeds(request: Request, limit: int) -> None:
+        """Cheap pre-check before reading the body into memory: when the
+        client sends ``Content-Length`` and it already exceeds the limit,
+        413 immediately instead of buffering megabytes just to throw them
+        away. Missing/unparsable header falls through — the caller still
+        enforces the limit on the serialized body afterwards."""
+        raw = request.headers.get("content-length")
+        if raw is None:
+            return
+        try:
+            declared = int(raw)
+        except ValueError:
+            return
+        if declared > limit:
+            raise HTTPException(413, f"body is {declared} bytes, over the {limit} limit")
+
+    @app.get("/api/appdata/info")
+    async def appdata_info() -> dict[str, object]:
+        """Always 200 — the UI's only signal for "do I have a disk home?".
+        ``home`` is the appdata root's parent (the data home), not the
+        appdata dir itself, to match what a human recognizes from the app."""
+        if not cfg.single_user or cfg.appdata_root is None:
+            return {"single_user": False, "home": None}
+        return {"single_user": True, "home": str(cfg.appdata_root.parent)}
+
+    def _appdata_root_or_404() -> Path:
+        if not cfg.single_user or cfg.appdata_root is None:
+            raise HTTPException(404, "appdata is only available in single-user mode")
+        return cfg.appdata_root
+
+    @app.get("/api/appdata/ask/threads")
+    async def appdata_list_threads() -> dict[str, object]:
+        root = _appdata_root_or_404()
+        return {"threads": appdata.read_threads(root)}
+
+    @app.put("/api/appdata/ask/threads/{thread_id}", dependencies=_write_auth)
+    async def appdata_put_thread(thread_id: str, request: Request) -> dict[str, object]:
+        root = _appdata_root_or_404()
+        _reject_if_content_length_exceeds(request, appdata.MAX_THREAD_BYTES)
+        try:
+            payload = await request.json()
+        except ValueError as exc:
+            raise HTTPException(400, "body must be JSON") from exc
+        if not isinstance(payload, dict):
+            raise HTTPException(400, "thread body must be a JSON object")
+        try:
+            appdata.write_thread(root, thread_id, payload)
+        except appdata.InvalidThreadId as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except (appdata.ThreadTooLarge, appdata.TooManyThreads) as exc:
+            raise HTTPException(413, str(exc)) from exc
+        return {"saved": True}
+
+    @app.delete("/api/appdata/ask/threads/{thread_id}", dependencies=_write_auth)
+    async def appdata_delete_thread(thread_id: str) -> dict[str, object]:
+        root = _appdata_root_or_404()
+        try:
+            deleted = appdata.delete_thread(root, thread_id)
+        except appdata.InvalidThreadId as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return {"deleted": deleted}
+
+    @app.get("/api/appdata/settings")
+    async def appdata_get_settings() -> dict[str, object]:
+        root = _appdata_root_or_404()
+        return {"settings": appdata.read_settings(root)}
+
+    @app.put("/api/appdata/settings", dependencies=_write_auth)
+    async def appdata_put_settings(request: Request) -> dict[str, object]:
+        root = _appdata_root_or_404()
+        _reject_if_content_length_exceeds(request, appdata.MAX_SETTINGS_BYTES)
+        try:
+            payload = await request.json()
+        except ValueError as exc:
+            raise HTTPException(400, "body must be JSON") from exc
+        if not isinstance(payload, dict):
+            raise HTTPException(400, "settings body must be a JSON object")
+        try:
+            appdata.write_settings(root, payload)
+        except appdata.SettingsTooLarge as exc:
+            raise HTTPException(413, str(exc)) from exc
+        return {"saved": True}
 
     @app.post("/api/inspect")
     async def inspect_csvs(
@@ -3869,11 +4028,17 @@ def build_app(
         streams lifecycle events from ``/api/jobs/{job_id}/stream``. Like
         propose, the API key is used only for this run and never persisted (D7).
 
+        With ``dataset_id`` / ``staging_id`` set, the round is GROUNDED: the
+        closed-menu appendix the automatic loop appends to every refine (exact
+        filenames, the real columns, the Tier-0 menu) rides the last comment, so
+        the model cannot invent column names it never saw.
+
         With ``dataset_id`` set (and a source attached to it) the refined
         document then goes through the SAME bounded self-correction round 0
         uses — validate, deterministic repair, at most two §9-only rounds — and
         the response carries an ``autocorrect`` block of the same shape. Without
-        it the behaviour is byte-identical to before: one LLM call, no backstop.
+        either the behaviour is byte-identical to before: one LLM call, no menu
+        and no backstop.
         """
         comments = [c for c in (body.comments or []) if c.strip()]
         if not body.schema_md.strip():
@@ -3887,6 +4052,13 @@ def build_app(
         llm = _resolve_llm(
             provider, model, api_base, key, max_tokens=_llm_max_tokens(x_llm_max_tokens)
         )
+
+        oracle = _refine_oracle(cfg.registry_root, body.dataset_id, body.staging_id)
+        if oracle:
+            # Same shape the loop uses: the menu rides the LAST comment's tail
+            # (one cohesive block — a weak model follows that better than a
+            # separately numbered directive).
+            comments = [*comments[:-1], f"{comments[-1]}\n\n{oracle}"]
 
         def work(should_cancel: Callable[[], bool]) -> dict[str, object]:
             # Cooperative cancel only (jobs.start has no emit to bridge progress
@@ -4001,23 +4173,31 @@ def build_app(
                     if body.dataset_id
                     else None
                 )
-                # Same posture, one level up: re-assert the DATATYPES the data
-                # proves. Every design that reaches here has been through at
-                # least one LLM hand — S6's one-line refine included — and a
-                # dropped `datatype: xsd:double` turns numbers into strings,
-                # which SPARQL then compares lexically. That failure is silent
-                # (range questions answer, just wrongly), so it is re-asserted
-                # here rather than merely reported. Deterministic, idempotent,
-                # zero LLM calls; needs the persisted source, so it is a no-op
-                # for a brand-new design (which the loop already covered).
+                if src_dir is None or not src_dir.is_dir():
+                    # Not attached yet — the staged copy is the design-time source.
+                    # An expired/unknown staging id is not an error HERE (the save
+                    # must go through); the chain's attach step 404s and re-uploads.
+                    src_dir = None
+                    if body.staging_id:
+                        with contextlib.suppress(staging.StagingNotFound, ValueError):
+                            src_dir, _paths = staging.load(cfg.registry_root, body.staging_id)
+                # Deterministic repair + data-fact re-assertion BEFORE the split.
+                # Every path reaches materialize — the loop's own chain and the
+                # wizard's manual "AI に直してもらう" / S6 "AI に反映して作り直す"
+                # click — but only the loop re-asserted what the rows proved and
+                # ran the machine-known repairs. So each manual round could
+                # silently un-type a numeric column, and a dropped
+                # `datatype: xsd:double` makes SPARQL compare numbers lexically:
+                # a range question then answers WRONGLY instead of failing, the
+                # one failure mode the citable-facts invariant cannot tolerate.
+                # It also came back as an advisory, which invited the next click
+                # (live 2026-08-18). Doing it here covers both paths with one
+                # call — deterministic, idempotent, zero LLM calls, and a no-op
+                # without a readable source (a brand-new design the loop covered).
                 proposal_md = body.proposal_md
-                sources = _design_source_files(cfg.registry_root, body.dataset_id)
-                if sources:
-                    restamped = design_loop.restamp_numeric_datatypes(
-                        proposal_md, sources[0].parent
-                    )
-                    if restamped:
-                        proposal_md = restamped
+                if src_dir is not None and src_dir.is_dir():
+                    # (already inside asyncio.to_thread(run) — call directly)
+                    proposal_md = design_loop.repair_design(proposal_md, src_dir)
                 mat = materialize_schema(
                     proposal_md,
                     tmpdir,
@@ -4098,6 +4278,7 @@ def build_app(
                     cfg.registry_root,
                     body.dataset_id,
                     artifacts.get("mapping.rml.ttl"),
+                    source_dir=src_dir if src_dir is not None and src_dir.is_dir() else None,
                 )
                 # Mapping-spec parse/compile problems are the same class of
                 # advisory, readable design issue — surface them first (when the
@@ -4121,7 +4302,8 @@ def build_app(
                     "advisories": design_advisories,
                 }
                 if proposal_md != body.proposal_md:
-                    # The deterministic datatype re-assertion edited the design.
+                    # The deterministic repair edited the design (datatypes
+                    # re-asserted, machine-known fixes applied — no LLM).
                     # Hand it back so the client's in-memory copy matches what
                     # was saved — otherwise the next refine would start from the
                     # stale document and re-introduce the same drop.

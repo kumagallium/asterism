@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { getServerSetting, isAppSettingsServerMode, putAppSetting } from '../appSettings'
 import { useLlmSettings } from './context'
 import { cacheMultipliers } from './model-pricing'
 import type { RateCurrency, TokenRate } from './store'
@@ -22,6 +23,10 @@ export function UsageTab() {
   const [gran, setGran] = useState<Granularity>('day')
   const [currency, setCurrency] = useState<RateCurrency>('jpy')
   const [usdJpy, setUsdJpy] = useState<number>(() => {
+    if (isAppSettingsServerMode()) {
+      const remote = getServerSetting<number>('usdJpy')
+      if (typeof remote === 'number' && remote > 0) return remote
+    }
     const raw = Number.parseFloat(localStorage.getItem(USD_JPY_KEY) ?? '')
     return Number.isFinite(raw) && raw > 0 ? raw : 150
   })
@@ -53,7 +58,11 @@ export function UsageTab() {
     const n = Number.parseFloat(v)
     if (Number.isFinite(n) && n > 0) {
       setUsdJpy(n)
-      localStorage.setItem(USD_JPY_KEY, String(n))
+      if (isAppSettingsServerMode()) {
+        putAppSetting('usdJpy', n)
+      } else {
+        localStorage.setItem(USD_JPY_KEY, String(n))
+      }
     }
   }
 

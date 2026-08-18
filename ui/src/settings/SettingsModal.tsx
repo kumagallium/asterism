@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import './SettingsModal.css'
+import { getAppDataInfo } from '../appdata'
 import { AboutTab } from './AboutTab'
 import { AiSetup } from './AiSetup'
 import { InstanceSection } from './InstanceSection'
 import { ServerKeysSection } from './ServerKeysSection'
+import { StorageTab } from './StorageTab'
 import { WriteTokenSection } from './WriteTokenSection'
 import { type SettingsSection, useLlmSettings } from './context'
 import { UsageTab } from './UsageTab'
@@ -23,12 +25,13 @@ import {
   makeModel,
 } from './store'
 
-// Four tabs, named after what the user came to do: "AI" (what answers), "this
-// server" (things an administrator hands you — the access code, where IDs are
-// issued from, the shared AI setup), usage, and the app itself. Previously all
-// of those lived under "Models", so guidance like "enter it in settings" landed
-// on a page whose tab names said nothing about the field being described.
-type Tab = 'ai' | 'server' | 'usage' | 'about'
+// Tabs named after what the user came to do: "AI" (what answers), "this server"
+// (things an administrator hands you — the access code, where IDs are issued
+// from, the shared AI setup), usage, where things are saved, and the app itself.
+// Most of those used to live under "Models", so guidance like "enter it in
+// settings" landed on a page whose tab names said nothing about the field being
+// described. 'storage' only exists on a single-user server (see below).
+type Tab = 'ai' | 'server' | 'usage' | 'storage' | 'about'
 
 /** DOM id of the block a section name scrolls to. */
 const SECTION_ANCHOR: Record<SettingsSection, string> = {
@@ -57,6 +60,9 @@ export function SettingsModal({
 }) {
   const { t } = useTranslation('settings')
   const [tab, setTab] = useState<Tab>('ai')
+
+  // 共有ブラウザ版（複数ユーザーが同じ api を見ている）ではストレージタブ自体を出さない。
+  const showStorageTab = getAppDataInfo()?.singleUser === true
 
   // Land on the section the user was sent to. Chosen during render (rather than
   // after paint) so the modal never flashes the wrong tab, and remembered so a
@@ -140,7 +146,16 @@ export function SettingsModal({
           </button>
         </header>
         <nav className="settings-tabs">
-          {(['ai', 'server', 'usage', 'about'] as Tab[]).map((id) => (
+          {(
+            [
+              'ai',
+              'server',
+              'usage',
+              // 共有ブラウザ版では保存先を出さない（サーバの申告で決める）。
+              ...(showStorageTab ? (['storage'] as const) : []),
+              'about',
+            ] as Tab[]
+          ).map((id) => (
             <button
               key={id}
               type="button"
@@ -159,6 +174,7 @@ export function SettingsModal({
               <UsageTab />
             </div>
           )}
+          {tab === 'storage' && showStorageTab && <StorageTab />}
           {tab === 'about' && <AboutTab />}
         </div>
       </div>

@@ -9,6 +9,18 @@
 //
 // This module is framework-agnostic (pure storage helpers + types). React state
 // lives in SettingsContext, which calls these and re-renders.
+//
+// Model definitions + the active model id live under the `models` key of the
+// app's single settings.json in single-user mode (ADR app-data-on-disk.md
+// D1/D5) instead of localStorage; see appSettings.ts for the store-boundary
+// swap. `loadModelsState`/`saveModelsState` keep their exact signatures so
+// SettingsContext (which owns the React state and calls these once at mount /
+// on every write) needs no changes — see appSettings.ts's header comment for
+// the one known gap this leaves: a model list migrated up to the server on a
+// *previous* launch is not re-read until the app is reloaded, since nothing
+// currently re-invokes `loadModelsState()` after mount.
+
+import { getServerSetting, isAppSettingsServerMode, putAppSetting } from '../appSettings'
 
 export type Provider = 'anthropic' | 'openai' | 'openai-compatible'
 export type RateCurrency = 'usd' | 'jpy'
@@ -204,12 +216,20 @@ function readJSON<T>(store: Storage, key: string, fallback: T): T {
 }
 
 export function loadModelsState(): ModelsState {
+  if (isAppSettingsServerMode()) {
+    const remote = getServerSetting<ModelsState>('models')
+    if (remote && Array.isArray(remote.models)) return remote
+  }
   const state = readJSON<ModelsState>(localStorage, MODELS_KEY, { models: [], activeModelId: null })
   if (!Array.isArray(state.models)) return { models: [], activeModelId: null }
   return state
 }
 
 export function saveModelsState(state: ModelsState): void {
+  if (isAppSettingsServerMode()) {
+    putAppSetting('models', state)
+    return
+  }
   localStorage.setItem(MODELS_KEY, JSON.stringify(state))
 }
 

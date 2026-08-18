@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { shouldAutoFix } from './autoFix'
 import { useTranslation } from 'react-i18next'
 import {
   ApiError,
@@ -990,6 +991,16 @@ export function KantanWizard({
   // S5 design-stop AI fix: its own error slot + attempt counter (AI 修正 n 回目).
   const [fixErr, setFixErr] = useState('')
   const [aiFixCount, setAiFixCount] = useState(snap.aiFixCount ?? 0)
+  // Auto-fix (ADR K3 revision, 2026-08-18). A DEFECT stop used to render a card
+  // whose only exit was a button that runs `startRefineChain` — the very thing
+  // the machine can run itself. The human had no information the machine
+  // lacked; they pressed it blind, 2-5 times per import. So the wizard now
+  // presses it: bounded, and only while it is still making progress. The card
+  // returns the moment a decision is actually needed.
+  const AUTO_FIX_MAX = 3
+  const autoFixLeft = useRef(AUTO_FIX_MAX)
+  const lastAutoFixKey = useRef<string | null>(null)
+  const [autoFixing, setAutoFixing] = useState(0) // 0 = off, else the round number
   const [confirmed, setConfirmed] = useState<boolean>(snap.confirmed ?? false)
   // Whether the LAST design round's self-correction shrank the mapping while
   // repairing it (the columns it dropped are what S6 must be checked against).
@@ -1406,7 +1417,7 @@ export function KantanWizard({
         const remaining = adoptAutocorrect(r)
         setProposal(r.proposal_md)
         if (remaining.length > 0) {
-          setStopFromRemaining(remaining)
+          setStopFromRemaining(remaining, r.proposal_md)
           setStep(5)
           return
         }
@@ -1616,13 +1627,21 @@ export function KantanWizard({
   /** Stop on what the self-correction could not clear, BEFORE the auto chain
    *  runs: the same design card, with the machine's own remaining issues both
    *  as plain sentences and as the AI-fix input. */
-  function setStopFromRemaining(remaining: string[]) {
-    setDesignStop({
-      kind: 'design',
-      detail: remaining.join('\n'),
-      fixLines: remaining,
-      plainLines: issuePlainLines(remaining),
-    })
+  function setStopFromRemaining(remaining: string[], baseMd?: string) {
+    // A defect stop like any other: the machine takes it while it can still
+    // make progress (#387), and the card comes back the moment it cannot.
+    // `baseMd` = the markdown this very round produced — `proposal` is still
+    // one render behind here, and refining the previous design would waste
+    // the round.
+    stopOrAutoFix(
+      {
+        kind: 'design',
+        detail: remaining.join('\n'),
+        fixLines: remaining,
+        plainLines: issuePlainLines(remaining),
+      },
+      baseMd,
+    )
   }
 
   /** Read the self-correction summary the design job returns: whether it
@@ -2219,12 +2238,16 @@ export function KantanWizard({
             setContinuing(false)
             clearJob()
             const remaining = adoptAutocorrect(result)
+            // A new design = a new budget: the auto-fix rounds below are about
+            // THIS design, not the previous attempt's.
+            autoFixLeft.current = AUTO_FIX_MAX
+            lastAutoFixKey.current = null
             setProposal(result.proposal_md)
             if (remaining.length > 0) {
               // The machine already knows these are unresolved: say so here
               // rather than letting the run reach the 422 at ingest and show a
               // bare count (WEAK-MODEL-13).
-              setStopFromRemaining(remaining)
+              setStopFromRemaining(remaining, result.proposal_md)
               setStep(5)
               return
             }
@@ -2288,7 +2311,12 @@ export function KantanWizard({
         const draftName = kzDatasetName ?? defaultDraftName(fs)
         try {
           try {
-            result = await materializeSchema(md, draftName, datasetId ?? undefined)
+            result = await materializeSchema(
+              md,
+              draftName,
+              datasetId ?? undefined,
+              stagingId,
+            )
           } catch (e) {
             // The adopted record vanished (deleted in the catalog meanwhile) —
             // recreate once instead of dead-ending the chain on a stale id.
@@ -2297,7 +2325,7 @@ export function KantanWizard({
             attached = false
             setKzDatasetId(null)
             setSourceAttached(false)
-            result = await materializeSchema(md, draftName)
+            result = await materializeSchema(md, draftName, undefined, stagingId)
           }
         } catch (e) {
           setStop({ kind: 'materialize', detail: errText(e), retryFrom: 'materialize' })
@@ -2359,12 +2387,19 @@ export function KantanWizard({
             [...countableWarnings(result.warnings), ...(result.validation_issues ?? [])],
             trapLines.length > 0,
           )
-          setDesignStop({
-            kind: 'design',
-            detail: lines.join('\n'),
-            fixLines: lines,
-            plainLines: [...trapLines, ...issueLines],
-          })
+          // A DEFECT: the machine presses the fix itself while it is still
+          // making progress (#387). The card — plain sentences, its own exits —
+          // comes back only when a human decision is genuinely needed. `md` is
+          // passed because `proposal` is one render behind inside the pipeline.
+          stopOrAutoFix(
+            {
+              kind: 'design',
+              detail: lines.join('\n'),
+              fixLines: lines,
+              plainLines: [...trapLines, ...issueLines],
+            },
+            md,
+          )
           return
         }
         // The design is VALID but may be weak: entities with no link between
@@ -2436,12 +2471,15 @@ export function KantanWizard({
         )
       } catch (e) {
         if (e instanceof IngestValidationError) {
-          setDesignStop({
-            kind: 'design',
-            detail: e.issues.join('\n'),
-            fixLines: e.issues,
-            plainLines: issuePlainLines(e.issues),
-          })
+          stopOrAutoFix(
+            {
+              kind: 'design',
+              detail: e.issues.join('\n'),
+              fixLines: e.issues,
+              plainLines: issuePlainLines(e.issues),
+            },
+            md,
+          )
         } else {
           setStop({ kind: 'ingest', detail: errText(e), retryFrom: 'ingest' })
         }
@@ -2464,6 +2502,9 @@ export function KantanWizard({
     try {
       await handle.result
       setAiFixCount(0) // the fix loop (if any) landed — reset the counter
+      setAutoFixing(0)
+      autoFixLeft.current = AUTO_FIX_MAX
+      lastAutoFixKey.current = null
       setReingested(true) // a staged draft now exists → 確定 leads to publish
       setStep(6)
       void loadS6(datasetId)
@@ -2473,7 +2514,7 @@ export function KantanWizard({
         // nothing was committed; offer a clean resume of the same stage.
         setStop({ kind: 'interrupted', detail: '', retryFrom: 'ingest' })
       } else if (e instanceof IngestValidationError) {
-        setDesignStop({
+        stopOrAutoFix({
           kind: 'design',
           detail: e.issues.join('\n'),
           fixLines: e.issues,
@@ -2906,8 +2947,53 @@ export function KantanWizard({
   // lands, the SAME auto chain re-runs (the source is already persisted, so the
   // re-ingest needs no re-attach). `restoreStop` puts the original stop card
   // back when a 'fix' attempt itself fails or is cancelled.
-  async function startRefineChain(comments: string[], mode: 'note' | 'fix', restoreStop?: StopCard) {
-    if (!proposal || refining) return
+  /** A DEFECT stop: let the machine take it if it can still make progress,
+   *  otherwise hand it to the human. Weakness stops never come here — "is this
+   *  design too thin?" is a judgement, not a repair.
+   *
+   *  Stops auto-fixing when (a) the budget is spent, or (b) the SAME findings
+   *  came back — a model that cannot move this set will not move it on the
+   *  next try either, and the card is then genuinely worth a human's attention.
+   */
+  function stopOrAutoFix(card: StopCard, baseMd?: string): void {
+    const lines = card.fixLines?.length ? card.fixLines : card.detail ? [card.detail] : []
+    const base = baseMd ?? proposal
+    const { fix, key } = shouldAutoFix({
+      lines,
+      budgetLeft: autoFixLeft.current,
+      lastKey: lastAutoFixKey.current,
+      busy: !!refining,
+      hasDesign: !!base,
+    })
+    if (!fix) {
+      setAutoFixing(0)
+      // Through the raiser, not setStop: a card handed BACK to the human must
+      // still be compared with the last one, or the "same problem came back"
+      // line and the demoted button never appear (WEAK-MODEL-24).
+      setDesignStop(card)
+      return
+    }
+    autoFixLeft.current -= 1
+    lastAutoFixKey.current = key
+    const round = AUTO_FIX_MAX - autoFixLeft.current
+    setAutoFixing(round)
+    setStop(null)
+    const comment = `${t('workbench:fix.commentIntro')}\n${lines.map((l) => `- ${l}`).join('\n')}`
+    setAiFixCount((c) => c + 1)
+    void startRefineChain([comment], 'fix', card, base)
+  }
+
+  async function startRefineChain(
+    comments: string[],
+    mode: 'note' | 'fix',
+    restoreStop?: StopCard,
+    baseMd?: string,
+  ) {
+    // `baseMd` over `proposal`: the auto-fix fires from inside the pipeline,
+    // which was handed a fresh markdown that this render's `proposal` has not
+    // caught up with yet — refining the stale one would undo the round.
+    const base = baseMd ?? proposal
+    if (!base || refining) return
     setRefineErr('')
     setFixErr('')
     setJobNotice('')
@@ -2922,7 +3008,7 @@ export function KantanWizard({
       // resumes that one as a 'propose'): 1-3 minutes of AI work must survive
       // leaving the screen, exactly like the S3 skeleton job (KZ-A-30).
       jobRef.current = await refineSchema(
-        proposal,
+        base,
         comments,
         getActiveCredentials(),
         {
@@ -2947,9 +3033,11 @@ export function KantanWizard({
           },
         },
         i18n.language,
-        // Naming the dataset is what lets the server run its own repair round
-        // and put back the meanings/units this person typed (KZ-B-05 / N6).
-        kzDatasetId,
+        // Naming the data is what lets the server run its own repair round on the
+        // real files/columns/Tier-0 menu (the closed-menu oracle the automatic
+        // loop sees) and put back the meanings/units this person typed
+        // (KZ-B-05 / N6).
+        { datasetId: kzDatasetId, stagingId },
       )
     } catch (e) {
       clearKantanJob()
@@ -3005,6 +3093,11 @@ export function KantanWizard({
     const lines = card.fixLines?.length ? card.fixLines : card.detail ? [card.detail] : []
     const comment = `${t('workbench:fix.commentIntro')}\n${lines.map((l) => `- ${l}`).join('\n')}`
     setAiFixCount((c) => c + 1)
+    // The human deliberately spent a round: clear the no-progress memory so the
+    // machine may carry on from here (it stopped precisely because the findings
+    // had stopped changing).
+    lastAutoFixKey.current = null
+    if (autoFixLeft.current <= 0) autoFixLeft.current = 1
     setStop(null)
     void startRefineChain([comment], 'fix', card)
   }
@@ -3598,7 +3691,11 @@ export function KantanWizard({
             </details>
           )}
           {aiFixCount > 0 && (aiFixable || stop.kind === 'refineTruncated') && (
-            <p className="kz-note">{t('kantan:s5.fix.attempted', { n: aiFixCount })}</p>
+            <p className="kz-note">
+              {stop.kind === 'design'
+                ? t('kantan:s5.fix.autoStuck', { n: aiFixCount })
+                : t('kantan:s5.fix.attempted', { n: aiFixCount })}
+            </p>
           )}
           {/* Two rounds in, say where the road out is — otherwise the only
               visible move is to press the same button a third time (KZ-A-23).
@@ -3765,7 +3862,9 @@ export function KantanWizard({
             <JobProgress
               label={
                 refining === 'fix'
-                  ? t('kantan:s5.fix.progress', { n: aiFixCount })
+                  ? autoFixing > 0
+                    ? t('kantan:s5.fix.autoProgress', { n: autoFixing, max: AUTO_FIX_MAX })
+                    : t('kantan:s5.fix.progress', { n: aiFixCount })
                   : t('kantan:s6.reflecting')
               }
               status={status}

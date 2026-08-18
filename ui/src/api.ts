@@ -522,11 +522,14 @@ export async function refineSchema(
   creds: LlmCredentials | null,
   handlers: RefineHandlers,
   language?: string,
-  /** The dataset being refined, when there is one. It buys two things the
-   *  server can only do knowing WHICH dataset this is: the same bounded
-   *  self-correction round 0 runs, and the meanings/units a human typed are
-   *  re-asserted on the result instead of being quietly rewritten (N6). */
-  datasetId?: string | null,
+  /** Which data this refine is about — a saved dataset, or a source still
+   *  staged on the server. Naming it buys three things the server can only do
+   *  knowing WHICH data this is: the closed-menu oracle (real filenames /
+   *  columns / Tier-0 menu) so the manual round sees the same facts the
+   *  automatic loop does, the same bounded self-correction round 0 runs, and
+   *  the meanings/units a human typed are re-asserted on the result instead of
+   *  being quietly rewritten (N6). */
+  source?: { datasetId?: string | null; stagingId?: string | null },
 ): Promise<JobHandle> {
   const res = await fetch('/api/refine', {
     method: 'POST',
@@ -538,7 +541,8 @@ export async function refineSchema(
       schema_md: schemaMd,
       comments,
       language: language || undefined,
-      dataset_id: datasetId || undefined,
+      dataset_id: source?.datasetId || undefined,
+      staging_id: source?.stagingId || undefined,
     }),
   })
   if (!res.ok) await throwApiError(res, 'refine')
@@ -977,12 +981,17 @@ export async function materializeSchema(
   proposalMd: string,
   datasetName = 'dataset',
   datasetId?: string,
+  stagingId?: string | null,
 ): Promise<MaterializeResult> {
   const body: Record<string, unknown> = {
     proposal_md: proposalMd,
     dataset_name: datasetName,
   }
   if (datasetId) body.dataset_id = datasetId
+  // The staged (not yet attached) source, so the save-time checks — column
+  // existence with did-you-mean, dialect re-pin, numeric typing — run against
+  // real data on a brand-new design instead of being skipped until attach.
+  if (stagingId) body.staging_id = stagingId
   const res = await fetch('/api/materialize', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },

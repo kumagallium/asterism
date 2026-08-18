@@ -212,7 +212,9 @@
       "attempted": "AI fix attempts so far: {{n}}.",
       "attemptedHint": "If the same problem keeps coming back, check it in detail mode or ask your administrator about the AI setup (a stronger model).",
       "failed": "The AI fix didn't go through.",
-      "stuck": "The AI could not fix this — the same problem came back. Looking at it in detail mode, or starting over, is likely to be faster."
+      "stuck": "The AI could not fix this — the same problem came back. Looking at it in detail mode, or starting over, is likely to be faster.",
+      "autoProgress": "Fixing the design automatically (attempt {{n}} of {{max}})",
+      "autoStuck": "Fixed automatically {{n}} time(s); from here the same problem keeps coming back."
     },
     "trap": {
       "T1": "Row IDs would overlap (overlapping rows collapse into one record)",

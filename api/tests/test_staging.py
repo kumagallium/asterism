@@ -149,3 +149,85 @@ def test_staging_is_write_gated(tmp_path: Path, healthy_client) -> None:
     with TestClient(app) as client:  # deliberately no token
         r = client.post("/api/staging", files={"files": ("a.csv", _CSV, "text/csv")})
         assert r.status_code == 401
+
+
+# ---- the design-time checks see the staged source (2026-08-18) -------------
+
+# A design whose ONE column is a hallucination: 'compositon' for 'composition'.
+_MD_TYPO = _MATERIALIZE_MD_DISCONNECTED.replace(
+    'rml:reference "composition"', 'rml:reference "compositon"'
+)
+
+
+def test_materialize_checks_columns_against_the_staged_source(
+    tmp_path: Path, healthy_client
+) -> None:
+    """Before attach the dataset has no source dir, so every source-grounded
+    check at materialize used to be skipped and a design with invented column
+    names came back "clean" (live 2026-08-18: 17 camel-cased headers, five blind
+    manual rounds). With the staging id the same did-you-mean check runs."""
+    with _client(tmp_path, healthy_client) as client:
+        payload = b"SID,composition,zt\n1,Bi2Te3,0.9\n"
+        sid = client.post(
+            "/api/staging", files={"files": ("data.csv", payload, "text/csv")}
+        ).json()["staging_id"]
+        # Without the id: nothing to check against → no column issue (as before).
+        blind = client.post(
+            "/api/materialize", json={"proposal_md": _MD_TYPO, "persist": False}
+        ).json()
+        assert not any("compositon" in x for x in blind["validation_issues"])
+        # With the id: the typo surfaces at save time, with the real column.
+        seen = client.post(
+            "/api/materialize",
+            json={"proposal_md": _MD_TYPO, "persist": False, "staging_id": sid},
+        ).json()
+        hit = [x for x in seen["validation_issues"] if "compositon" in x]
+        assert hit, seen["validation_issues"]
+        assert "composition" in hit[0]  # did-you-mean names the real header
+        # The staged record is only READ (attach consumes it later).
+        assert client.get(f"/api/staging/{sid}").status_code == 200
+        # An expired id is not an error at save time — the save goes through.
+        r = client.post(
+            "/api/materialize",
+            json={"proposal_md": _MD_TYPO, "persist": False, "staging_id": "st-gone"},
+        )
+        assert r.status_code == 200
+
+
+def test_manual_refine_carries_the_closed_menu_when_a_source_is_known(
+    tmp_path: Path, healthy_client
+) -> None:
+    """The human's "AI に直してもらう" round gets the same oracle the automatic
+    loop appends — exact filenames, REAL columns, Tier-0 menu — instead of the
+    symptom text alone (which is how five clicks produced 17 invented names)."""
+    from tests.test_main import _MockLLM
+
+    captured: dict[str, object] = {}
+    app = build_app(
+        _settings(tmp_path),
+        oxigraph_client=healthy_client,
+        start_watcher=False,
+        llm_factory=lambda key: _MockLLM(captured, key),
+    )
+    with TestClient(app, headers=_AUTH) as client:
+        payload = b"SID,composition,zt\n1,Bi2Te3,0.9\n"
+        sid = client.post(
+            "/api/staging", files={"files": ("data.csv", payload, "text/csv")}
+        ).json()["staging_id"]
+        r = client.post(
+            "/api/refine",
+            json={
+                "schema_md": "## Proposed schema\n\nx",
+                "comments": ["fix the column"],
+                "staging_id": sid,
+            },
+            headers={"X-API-Key": "sk-user-test"},
+        )
+        assert r.status_code == 202
+        job_id = r.json()["job_id"]
+        client.get(f"/api/jobs/{job_id}/stream")
+    user = str(captured["user"])
+    assert "fix the column" in user
+    assert "closed menu" in user
+    assert "data.csv — columns: SID, composition, zt" in user
+    assert "Vetted Tier-0 functions" in user

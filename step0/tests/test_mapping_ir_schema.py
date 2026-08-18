@@ -29,10 +29,22 @@ MENU = ["date_iso", "trim_collapse", "iri_safe", "slug", "split", "json_pluck",
         "datetime_iso", "structural_slug", "qudt_quantity", "qudt_unit", "lookup"]
 
 
+def _flatten(errors) -> list[str]:
+    """Every message, including those nested under an ``anyOf`` branch
+    (``e.context``) — the property row is a union of branches, so a bad
+    predicate reports as "not valid under any of the given schemas" at the top
+    and "does not match" one level down."""
+    out: list[str] = []
+    for e in errors:
+        out.append(e.message)
+        out.extend(_flatten(e.context or []))
+    return out
+
+
 def _validate(doc: dict, names=None) -> list[str]:
     schema = mapping_ir_json_schema(names)
     v = jsonschema.Draft202012Validator(schema)
-    return [e.message for e in v.iter_errors(doc)]
+    return _flatten(v.iter_errors(doc))
 
 
 def _fixture_docs():
@@ -56,14 +68,57 @@ def test_schema_accepts_all_committed_ir_fixtures() -> None:
         assert not errors, f"{name}: {errors[:3]}"
 
 
+def _row_branches(schema: dict) -> list[dict]:
+    items = schema["properties"]["maps"]["items"]["properties"]["properties"]["items"]
+    assert set(items) == {"anyOf"}  # a union of COMPLETE row schemas, nothing else
+    return items["anyOf"]
+
+
 def test_property_row_offers_label_and_unit_as_plain_strings() -> None:
     """kantan-mode ADR K8: label/unit are plain-string display metadata —
     plain so Sakura's guided decoder (no propertyNames, no exotic keys) can
-    always generate them."""
-    schema = mapping_ir_json_schema(MENU)
-    row = schema["properties"]["maps"]["items"]["properties"]["properties"]["items"]
-    for key in ("label", "unit"):
-        assert row["properties"][key] == {"type": "string", "minLength": 1}
+    always generate them. Bounded (maxLength) since 2026-08-18: a grammar
+    that forces the string to close is what stops a repetition loop inside
+    ``unit`` from eating the completion (live gpt-oss-120b, XRD card)."""
+    for branch in _row_branches(mapping_ir_json_schema(MENU)):
+        for key in ("label", "unit"):
+            spec = branch["properties"][key]
+            assert spec["type"] == "string" and spec["minLength"] == 1
+            assert isinstance(spec["maxLength"], int) and spec["maxLength"] > 0
+            assert "pattern" not in spec and "enum" not in spec
+
+
+def test_property_row_requires_an_object_form_by_grammar() -> None:
+    """Live 2026-08-18: 17 rows with a predicate and a unit and NO column at
+    all. Under this schema such a row is unrepresentable — every branch of the
+    row union requires one of column / columns / object_template / constant."""
+    branches = _row_branches(mapping_ir_json_schema(MENU))
+    assert sorted(b["required"][1] for b in branches) == [
+        "column", "columns", "constant", "object_template",
+    ]
+    assert all(b["required"][0] == "predicate" for b in branches)
+    assert all(b["additionalProperties"] is False for b in branches)
+    # every branch carries the SAME field set — a plain union, no merging
+    fields = [tuple(sorted(b["properties"])) for b in branches]
+    assert len(set(fields)) == 1
+
+    def _doc(row: dict) -> dict:
+        return {
+            "version": 1,
+            "prefixes": {"ex": "https://ns.invalid/ns#"},
+            "maps": [{
+                "name": "m", "source": "d.csv",
+                "subject": {"template": "ex:m/{id}", "classes": ["ex:T"]},
+                "properties": [row],
+            }],
+        }
+
+    assert _validate(_doc({"predicate": "ex:p", "unit": "K"}), MENU)  # no object form
+    assert not _validate(_doc({"predicate": "ex:p", "column": "T", "unit": "K"}), MENU)
+    assert not _validate(_doc({"predicate": "ex:p", "constant": "x"}), MENU)
+    assert not _validate(_doc({"predicate": "ex:p", "object_template": "ex:o/{T}"}), MENU)
+    long_unit = {"predicate": "ex:p", "column": "T", "unit": "x" * 400}
+    assert any("too long" in e for e in _validate(_doc(long_unit), MENU))
 
 
 def test_schema_rejects_the_non_converged_live_spec() -> None:

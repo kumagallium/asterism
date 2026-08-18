@@ -149,3 +149,136 @@ cd api && PYTHONPATH=../api/src:../step0/src:../ingest/src \
   python -m pytest tests/test_design_loop_datatype_repair.py tests/test_design_loop_traps.py -q
 cd ../step0 && python -m pytest tests/test_mapping_ir_schema.py -q  # splice 回帰
 ```
+
+---
+
+## Addendum 2026-08-18 — v0.17.0 でまだ 5 クリック：3 段目（round 0 の崩壊＋4 つの構造欠陥）
+
+### Q
+
+#364/#367 を含む v0.17.0 で同じ XRD ファイルを取り込んでも「AI に直してもらう」が 5 回以上走った。仕方ないのか。
+
+### Method
+
+usage JSONL（`registry/_usage/events-2026-08.jsonl`）で feature 別コール数を数え、
+`registry/dataset-7146fe8d/history/*/mapping.yaml`（手動 refine 前スナップショット 5 個）と最終
+`proposal.md` を、`/api/materialize` 相当（source 無し）と `design_loop._verdict`（staged source 有り）の
+両方でリプレイした。
+
+### Result
+
+```
+propose ×7 → propose.autocorrect ×2（自動ループここで停止）→ refine ×5（手動クリック）
+```
+
+- **round 0 = モデル（gpt-oss-120b）の degeneration**。§9 の全 17 プロパティに `column:` が無く、`unit:` に
+  日本語の言い訳文、最後は zero-width 文字の反復ループ。当たり外れ（8/16 は正しく書けていた）。
+- **自動ループは 2 ラウンドで停止**（surgical guided JSON の出力が破棄 ×2 → no_progress）。一方、手動の
+  全文 refine は 38 → 2 issue まで進んだ＝機械が使えたラウンド。
+- **終盤 3 クリックは transform 行が 1 バイトも変わっていない**（履歴 diff）。残 2 issue は
+  `transform['False'] must be a non-empty string (got False)`＝モデルが書いた `transform: {No: No}` を
+  PyYAML 1.1 が boolean と読んだ。モデルは「False」を一度も書いていないので解読不能。
+- 手動経路（`/api/materialize` → `/api/refine`）は attach 前にソースを見られず（staging は別ディレクトリ）、
+  did-you-mean も oracle も一度も届いていない → でっち上げ列名 17 個が「問題なし」で通る。
+- per-map の guided スキーマは `required: ['predicate']` のみ・`unit/label` に上限なし＝round 0 の壊れ方を
+  文法が許していた。
+
+### 直したもの（PR #378）
+
+| # | 欠陥 | 修正 | 検証 |
+|---|---|---|---|
+| ④ | 列名 `No` が YAML 1.1 で `False` | `spec_yaml.load_spec_yaml`（YAML 1.2 boolean のみ）を IR を読む 9 箇所すべてに。非文字列スカラーには「引用符で書け」の hint | 最終 proposal のリプレイ: 解読不能 2 件 → 実列一覧付き did-you-mean 17 件 |
+| ⑤ | surgical 空振りで即停止 | no-progress をモード別に持ち、surgical が動かせない keyset は全文 refine を 1 回試してから諦める | mock で surgical 破棄→全文で収束 (3 コール)、両方失敗→no_progress (3 コール・max 未消化) |
+| ⑥ | 文法が `column` 欠落と string 内暴走を許容 | property row を「object form のいずれか必須」の `anyOf`（完全な row スキーマの union）に、全 free-text に `maxLength` | jsonschema で column 無し行が拒否・unit 400 字が拒否・収束済み実 dogfood spec 全件は通過。**vLLM 側の受理はライブ未確認** — 未実装キーは client が名指し分だけ剥がして json_schema で再試行（新規） |
+| ⑦ | attach 前の手動経路が盲目 | `/api/materialize` と `/api/refine` に `staging_id`（＋refine は `dataset_id`）。materialize は staged source で did-you-mean・方言再ピン、refine は自動ループと同じ closed-menu oracle を付与 | api テスト: 同じ typo 設計が staging_id 無しでは素通り、有りでは実列名付きで検出。refine の user message に oracle |
+| E | `transform: {No: No}` を 5 回書き続ける | 値が Tier-0 関数でなく key と同一の transform を決定論で除去（既存の「厳密に減った時だけ採用」ガード） | 実データ: transform 3 件が LLM 0 コールで消える |
+
+### 何が残るか（正直に）
+
+round 0 の崩壊そのものはモデル品質。⑥で「column 無し」は生成不能になるが、gpt-oss が別の形で崩れる可能性は残る。
+その場合でも ⑤ が全文 refine に格上げし、④⑦E により全ラウンドが**解読可能・実列付き**になるので、
+5 回押しても 1 バイトも変わらない状態は原理的に起きない。
+
+### 再現
+
+```bash
+# 最終 proposal（5 クリック後）を新ローダで
+PYTHONPATH=api/src:step0/src:ingest/src python - <<'PY'
+from pathlib import Path
+from asterism_api.design_loop import _verdict, _evaluate
+reg = Path.home()/"Library/Application Support/Asterism/sources/registry"
+md = (reg/"dataset-7146fe8d/proposal.md").read_text()
+src = reg/"_staging/4cae09fc-9ec2-4e6e-8e7d-74c08338a757"
+print(len(_verdict(md, src)[1]))          # 17（旧: 解読不能 2）
+print(len(_evaluate(md, src)[2]))         # 14（transform 3 件は決定論で消える）
+PY
+```
+
+---
+
+## Addendum 2026-08-18 (夕) — v0.17.1 でまだ 4 クリック：ループが「壊れた設計」を合格にしていた
+
+### Q
+
+v0.17.1（#379+#381 入り）で再取り込みしても手動修正が 4 回発生した。自動ループは 2→4 ラウンドに増えたのに、なぜまだ人間が押すのか。
+
+### Method
+
+usage JSONL で内訳、`registry/dataset-34ce6866/history/*`（手動 4 ラウンド分のスナップショット）を
+`design_loop._verdict` にリプレイ。ループ出口＝最初のクリック時点の状態を特定。
+
+### Result
+
+```
+propose ×5 → propose.autocorrect ×4（#379 ⑤ の格上げが効いて 2→4）→ refine ×4（手動）
+```
+
+**ループ出口の設計は `_verdict` で 0 issues＝「収束」と判定されていた。** その中身：
+
+| | ループ出口 | 手動 4 回後 |
+|---|---|---|
+| `column:` | **0** | 22 |
+| `object_template:` | **25** | 2 |
+| `unit: xsd:*`（datatype の誤記） | 1 | 0 |
+
+全 25 プロパティが `object_template: .../resource/{列名}` ＝**測定値がすべて不透明な IRI に変換され、
+リテラルが 1 つも出ない設計**。体積も強度も SPARQL から取り出せない。それを全ゲートが通していた
+（列は実在し、関数は vetted、T1-T10 緑、接続性も空の入れ物も沈黙）。ユーザーの 4 クリックは、
+機械が「合格」と言った設計を人間が作り直す作業だった。
+
+沈黙の理由は `_tm_own_value_columns` が **object_template を「その行が持つ値」として数える**こと。
+全列 IRI 化した設計は「値を持っている」ように見え、空の入れ物検査(G14)をすり抜ける。
+
+⚠ 正直な自己評価: これは **#379 ⑥（文法で object form を必須化）が失敗モードを移した**可能性が高い。
+「object form 無し」を生成不能にしたら、今度は「間違った object form」に逃げた。壊れ方が検査の外へ移動した。
+
+### 方針転換
+
+静的検査を 9 個目に増やすのをやめ、**結果（outcome）を見る**検査にした。壊れ方の形ではなく
+「値が取り出せるか」を問うので、次に別の形で壊れても同じ検査が捕まえる。
+
+| # | 修正 | 検証 |
+|---|---|---|
+| ⑧ | `_no_literal_advisories`: 列を読んでいるのにリテラルを 1 つも出さないマップ／設計を報告。R2RML の既定に忠実（template は既定 IRI・reference と関数パイプラインと datatype/language はリテラル）。**データが無いときは沈黙**（「値が届かない」はデータについての主張なので） | 実データのループ出口が **0 → 1 issue** で捕まる。正しい設計・関数経由の値・純リンクマップ・最小フィクスチャは誤検知ゼロ |
+| ⑨ | `unit: xsd:*` → `datatype:` へ決定論移送。`unit` は表示文字列で、`xsd:` が入るのは必ず誤記 | 単体テスト＋実データ |
+| ⑩ | `repair_design()`: 手動経路（refine → materialize）にも決定論修復と data-fact 再主張を通す。**それまで `_overlay_data_facts` と `_REPAIRS` は `run_design_loop` の中にしか無く、クリックのたびに機械が確定させた型が消えていた** | 実データで datatype **1 → 7 本**が LLM 0 コールで復活 |
+| ⑪ | `_column_datatypes` が keyvalue プリアンブルの broadcast 列（Volume/RIR(I/Ic)/Dcalc/Z value）を見落としていた。`ins.columns` ではなく実際の行のキーを使う＋`source_kind != csv` で切らない。**方言は spec に固定済みのものを使う**（再検出すると `preamble: drop` になり列ごと消える） | 上記 7 本のうち 4 本はこれが無いと拾えない |
+
+### Limitations
+
+- ⑧ は advisory（人間が判断）であって hard gate ではない。純クロスウォークのような正当なリンク専用設計があるため
+- round 0 でモデルが壊れること自体は防げない。防ぐのは「壊れたまま合格と言われること」
+- 「今度こそ大丈夫」とは言えない。⑧ は形に依存しない分これまでより広く効くが、保証ではない
+
+### Reproduce
+
+```bash
+PYTHONPATH=api/src:step0/src:ingest/src python - <<'PY'
+from pathlib import Path
+from asterism_api.design_loop import _verdict, repair_design
+reg = Path.home()/"Library/Application Support/Asterism/sources/registry"
+src = reg/"_staging/c44c8acc-22df-465d-a301-486c773ed1a7"
+md = (reg/"dataset-34ce6866/history/20260818T051028Z/proposal.md").read_text()
+print(len(_verdict(md, src)[1]))   # 旧 0 → 新 1（リテラル皆無を検出）
+PY
+```

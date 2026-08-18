@@ -29,6 +29,8 @@
 //! (`grant_spa_update_ipc`) and to keep the native menu item as the fallback
 //! that works even when the page does not.
 
+mod settings;
+
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
@@ -730,9 +732,10 @@ fn copy_payload(app: &tauri::AppHandle) -> String {
 // Commands the splash window calls
 // ---------------------------------------------------------------------------
 
-/// Tauri already refuses app commands from the remote SPA origin (only an
-/// explicit `remote` capability opens them, and `grant_spa_update_ipc` opens
-/// none). The label check makes that independent of ACL details.
+/// Tauri refuses app commands from the remote SPA origin unless a capability
+/// names them, and `grant_spa_update_ipc` names only the two storage-location
+/// commands — never these. The label check makes that independent of ACL
+/// details.
 fn splash_only(window: &tauri::WebviewWindow) -> Result<(), String> {
     if window.label() == SPLASH {
         Ok(())
@@ -778,21 +781,29 @@ fn boot_action(
 // Updates
 // ---------------------------------------------------------------------------
 
-/// Let the SPA drive updates from inside the window. The page is a remote
-/// `http://127.0.0.1:<port>` origin, and Tauri grants remote origins nothing
-/// unless a capability names them (the static `capabilities/default.json`
-/// covers local pages only). This registers, at runtime, a capability scoped to
-/// the ONE origin the window is about to load — port included, so it also holds
-/// on the random-port fallback — that opens exactly:
+/// Let the SPA drive updates — and the storage-location setting — from
+/// inside the window. The page is a remote `http://127.0.0.1:<port>` origin,
+/// and Tauri grants remote origins nothing unless a capability names them
+/// (the static `capabilities/default.json` covers local pages only — that is
+/// the splash window, never this one). This registers, at runtime, a
+/// capability scoped to the ONE origin the window is about to load — port
+/// included, so it also holds on the random-port fallback — that opens
+/// exactly:
 ///
 /// - `updater:default`: check / download-and-install. Endpoints and the minisign
 ///   pubkey are baked into tauri.conf.json, so the page can neither point the
 ///   updater elsewhere nor skip signature verification;
 /// - `process:allow-restart`: relaunch after install;
-/// - `core:resources:allow-close`: release the update handle `check()` returns.
+/// - `core:resources:allow-close`: release the update handle `check()` returns;
+/// - `allow-get-data-home-override` / `allow-set-data-home-override`
+///   (app-defined, see `permissions/data-home.toml`): read/save the
+///   storage-location setting (ADR `app-data-on-disk.md` D4). Save-only —
+///   the SPA cannot make the shell touch the filesystem beyond this file;
+/// - `dialog:allow-open`: lets the storage-location setting show a native
+///   folder picker. Only `open` — `save`/`message`/etc. stay closed (#377's
+///   "grant only the IPC that is needed" policy).
 ///
-/// Nothing else — no shell, fs, dialog, window control, or shell command
-/// reaches the page.
+/// Nothing else — no shell, fs, or window control reaches the page.
 fn grant_spa_update_ipc(app: &tauri::AppHandle, port: u16) -> tauri::Result<()> {
     let capability = CapabilityBuilder::new("loopback-spa-updater")
         .local(false)
@@ -800,9 +811,35 @@ fn grant_spa_update_ipc(app: &tauri::AppHandle, port: u16) -> tauri::Result<()> 
         .window(MAIN)
         .permission("updater:default")
         .permission("process:allow-restart")
-        .permission("core:resources:allow-close");
+        .permission("core:resources:allow-close")
+        .permission("allow-get-data-home-override")
+        .permission("allow-set-data-home-override")
+        .permission("dialog:allow-open");
     app.add_capability(capability)
 }
+
+// ---------------------------------------------------------------------------
+// Commands the SPA calls (storage location)
+// ---------------------------------------------------------------------------
+
+/// Current storage-location override, if any (ADR `app-data-on-disk.md` D4).
+/// `None` means "use the backend's own default data dir".
+#[tauri::command]
+fn get_data_home_override(app: tauri::AppHandle) -> Option<String> {
+    settings::read_data_home_override(&app)
+}
+
+/// Save (or, with `path: None`, clear) the storage-location override.
+/// Save-only: does not restart the backend. The new location is picked up on
+/// the next launch (same as Graphium).
+#[tauri::command]
+fn set_data_home_override(app: tauri::AppHandle, path: Option<String>) {
+    settings::write_data_home_override(&app, path);
+}
+
+// ---------------------------------------------------------------------------
+// Menu
+// ---------------------------------------------------------------------------
 
 fn collect_menu_items<R: tauri::Runtime>(
     items: Vec<MenuItemKind<R>>,
@@ -1110,6 +1147,15 @@ fn spawn_backend(
     for (key, value) in &backend.envs {
         command.env(key, value);
     }
+    // Storage-location override (ADR `app-data-on-disk.md` D4): if the user
+    // picked one in Settings, hand it to asterism-local the same way its own
+    // CLI documents (`--data-dir`, same value as env ASTERISM_LOCAL_HOME).
+    // Absent an override, behavior is unchanged — the backend's own default
+    // applies. A path that cannot be created falls back to that default too,
+    // rather than risk the app failing to boot over a bad setting.
+    if let Some(dir) = settings::resolve_data_home_override(app) {
+        command.args(["--data-dir", &dir]);
+    }
     // Tell the backend which build it belongs to: `/api/instance` relays it, so
     // the SPA shows the version (settings → About) and knows it is running
     // inside the desktop app — without any IPC beyond the updater grant above.
@@ -1327,7 +1373,12 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(Shell::default())
-        .invoke_handler(tauri::generate_handler![boot_status, boot_action])
+        .invoke_handler(tauri::generate_handler![
+            boot_status,
+            boot_action,
+            get_data_home_override,
+            set_data_home_override
+        ])
         .menu(build_menu)
         .on_menu_event(|app, event| {
             let id = event.id();

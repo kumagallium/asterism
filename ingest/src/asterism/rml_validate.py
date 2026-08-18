@@ -1177,6 +1177,116 @@ def _determined_by(
     return True
 
 
+def _tm_literal_object_count(graph, tm) -> int:
+    """How many of this map's predicate-object pairs actually emit a LITERAL.
+
+    R2RML term-type defaults decide this, not intent. An object map is an IRI
+    only when it SAYS so (``rr:termType rr:IRI``) or when it carries a
+    ``rr:template`` and says nothing — the template default. Everything else
+    that carries a source value is a literal: a direct ``rml:reference``, a
+    Tier-0 function pipeline (whose references sit inside the function's own
+    triples map, so the check must look through ``fnml:functionValue`` — a
+    design whose values all flow through ``trim_collapse`` emits literals and
+    must not be accused), an explicit ``rr:datatype`` / ``rr:language``.
+    ``rr:constant`` alone is excluded: it carries nothing from the source.
+    """
+    import rdflib
+
+    uri = rdflib.URIRef
+    count = 0
+    for pom in graph.objects(tm, uri(_R2RML + "predicateObjectMap")):
+        for om in graph.objects(pom, uri(_R2RML + "objectMap")):
+            term = {
+                _local_name(str(t))
+                for tp in _TERM_TYPE_PREDS
+                for t in graph.objects(om, uri(tp))
+            }
+            if "IRI" in term or "BlankNode" in term:
+                continue
+            on_om_template = any(
+                True for tp in _TEMPLATE_PREDS for _ in graph.objects(om, uri(tp))
+            )
+            if on_om_template and "Literal" not in term:
+                continue  # a template with no termType is an IRI (R2RML default)
+            typed = any(True for _ in graph.objects(om, uri(_R2RML + "datatype"))) or any(
+                True for _ in graph.objects(om, uri(_R2RML + "language"))
+            )
+            # Reachable so a function pipeline's inputs count as this map's value.
+            carries_source = any(
+                True
+                for node in _reachable_nodes(graph, om)
+                for rp in _REFERENCE_PREDS
+                for _ in graph.objects(node, uri(rp))
+            )
+            if carries_source or typed or (on_om_template and "Literal" in term):
+                count += 1
+    return count
+
+
+def _no_literal_advisories(graph, csv_dir: Path | str | None) -> list[str]:
+    """A design that binds source columns but emits NO literal values.
+
+    The failure this exists for (live 2026-08-18, XRD reference card): every one
+    of 25 properties was written as ``object_template:
+    .../resource/{Some Column}``, turning every measured value into an opaque
+    IRI that nothing else in the graph describes. Volume, intensity, 2theta —
+    all present as column references, none retrievable as a value. Every static
+    gate passed (the columns exist, the functions are vetted, T1-T10 green, the
+    connectivity and empty-shell advisories both silent because an object
+    template COUNTS as binding its column), so the self-correction loop reported
+    "0 issues" and the human spent four "AI に直してもらう" rounds rebuilding a
+    design the machine had certified.
+
+    The check is deliberately about the OUTCOME, not the shape of the mistake:
+    a dataset exists to answer questions with values, so a map that reads
+    columns and emits no literal cannot answer any, however it got that way.
+    That makes it robust to the next failure mode as well — earlier ones
+    (missing object form, invented column names) were each caught by a check
+    written for their exact shape, and each was replaced by a different shape
+    that slipped past.
+
+    Reported per map, plus one whole-design line when NO map emits a value at
+    all (the strongest form, and the live one). Advisory, not a hard gate: a
+    legitimately link-only map exists (a pure crosswalk), so the human decides —
+    but they are told.
+    """
+    # The claim is about the DATA ("the values in your source are unreachable"),
+    # so it needs the data: without a readable source this stays silent, the same
+    # posture the empty-shell check takes. Bare-mapping callers (unit fixtures,
+    # a design reviewed before its source is attached) therefore see nothing.
+    if csv_dir is None:
+        return []
+    per_map: list[tuple[str, int, int]] = []  # (label, literal count, bound columns)
+    for tm in _triples_map_subjects(graph):
+        own = _tm_own_value_columns(graph, tm)
+        per_map.append((_tm_label(graph, tm), _tm_literal_object_count(graph, tm), len(own)))
+    if not per_map:
+        return []
+
+    issues: list[str] = []
+    silent = [(label, cols) for label, lits, cols in per_map if lits == 0 and cols]
+    if silent and all(lits == 0 for _, lits, _ in per_map):
+        issues.append(
+            "this design emits NO literal values at all: every property writes an IRI "
+            "(rr:template / object_template) instead of a value, so the numbers and "
+            "text in the source are unreachable — no question about the data can be "
+            "answered from the result. A property that records a VALUE must bind its "
+            "column directly (`column: <header>`, plus `datatype: xsd:…` for numbers); "
+            "reserve `object_template:` for LINKS to another map's subject, whose IRI "
+            "template it must reuse verbatim."
+        )
+        return issues
+    for label, cols in silent:
+        issues.append(
+            f"map '{label}' reads {cols} source column(s) but emits no literal value — "
+            f"every property writes an IRI, so nothing from those columns can be read "
+            f"back. Bind the value columns directly on '{label}' (`column: <header>`, "
+            f"with `datatype: xsd:…` for numbers); keep `object_template:` only for a "
+            f"LINK that reuses another map's subject IRI template verbatim."
+        )
+    return issues
+
+
 def _empty_shell_advisories(graph, csv_dir: Path | str | None) -> list[str]:
     """A per-row map that mints an entity per row and gives it NO row-level value.
 
@@ -1394,6 +1504,7 @@ def design_advisories(rml_ttl: str, csv_dir: Path | str | None = None) -> list[s
         _connectivity_advisories(graph, headers or None)
         + _duplicate_column_advisories(graph, csv_dir)
         + _empty_shell_advisories(graph, csv_dir)
+        + _no_literal_advisories(graph, csv_dir)
         + _untyped_numeric_advisories(graph, csv_dir)
     )
 

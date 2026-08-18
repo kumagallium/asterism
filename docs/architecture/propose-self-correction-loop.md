@@ -60,6 +60,15 @@ api/main.py は既にこの 3 つを import 済み。step0→ingest の依存反
 - **trap issue があるラウンドは全文 refine を強制**。surgical repair は §9 だけを再生成するので、実際に落ちる
   trap の在処（T4/T7＝§7 MIE・T5＝図ドキュメント）に届かない。surgical のままだと 1 コールを空振りし、次の
   ラウンドで停滞判定＝trap を残したまま止まる。
+- **決定論修復をラウンド前に（2026-08-17/18 追記）**。`_evaluate` は verdict のあと `_REPAIRS`（identity transform
+  の除去 → 数値列の datatype 押印）を順に試し、**再 verdict で issue が厳密に減った時だけ採用**する。機械が編集内容を
+  厳密に知っている advisory は LLM に頼まない（LLM 先・決定論フォールバックの一般則の例外）。
+- **no-progress はモード別（2026-08-18 追記）**。surgical（§9 のみ・guided JSON）と全文 refine は別の道具。
+  surgical が動かせない keyset（同一 keyset 再来 or 出力破棄）は**全文 refine を 1 回**試してから諦める。実測
+  （gpt-oss-120b・XRD）で surgical は破棄 ×2、人間の全文 refine は 38→2 まで進んだ＝機械が回せたラウンド。
+- **§9 の YAML は `spec_yaml.load_spec_yaml`（YAML 1.2 boolean のみ）で読む（2026-08-18 追記）**。列名 `No`
+  が `False` に化けて解読不能メッセージ（`transform['False']`）になり 3 クリック無変化だった。IR を読む箇所は
+  すべてこのローダ経由＝素の `yaml.safe_load` を IR に使うと罠が再発する。
 - **停止条件（優先順）**: (a) 収束＝issue ゼロ; (b) env-bail＝LLM 例外全般（truncation/429/quota）＋
   registry/rdflib import 失敗 → 最良を保持・非ループ; (c) refine truncated（`complete` False）→ 直前の
   complete な `effective_schema_md` を保持し停止; (d) 停滞/循環＝正規化 issue キー集合が既出 or 直前と同一 → 停止;

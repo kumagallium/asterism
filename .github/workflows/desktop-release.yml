@@ -123,8 +123,11 @@ jobs:
           rm -rf "$STAGE"; mkdir -p "$STAGE"
           cp -R "$APP" "$STAGE/"
           ln -s /Applications "$STAGE/Applications"
-          hdiutil create -volname "Asterism" -srcfolder "$STAGE" -ov -format UDZO \
-            "Asterism_${VERSION}_aarch64.dmg"
+          # Same "Resource busy" flake the signed path hit on v0.17.1 — reuse
+          # its detach+retry helper rather than keeping a second bare hdiutil.
+          # shellcheck source=desktop/scripts/sign-notarize-macos.sh
+          source <(sed -n '/^make_dmg()/,/^}/p' desktop/scripts/sign-notarize-macos.sh)
+          make_dmg "Asterism_${VERSION}_aarch64.dmg" "$STAGE"
 
       - name: Attach .dmg to the release
         shell: bash

@@ -96,6 +96,32 @@ xcrun stapler staple "$APP"
 xcrun stapler validate "$APP"
 echo "signed + notarized + stapled: $APP"
 
+# hdiutil is flaky on CI: it fails with "Resource busy" when a stale /Volumes
+# mount or a background indexer still holds the volume name or the staging dir.
+# Observed on the v0.17.1 release (2026-08-18) — everything up to and including
+# notarization succeeded and the run died on the last step, leaving the release
+# with no .dmg and no updater feed. Detach any stale mount, then retry with
+# backoff; only a persistent failure is a real one.
+make_dmg() {
+  local dmg="$1" stage="$2" attempt
+  for attempt in 1 2 3 4 5; do
+    # A previous (failed) create can leave /Volumes/Asterism attached; a mount
+    # left over from ANOTHER job on the same runner counts too.
+    if [ -d "/Volumes/Asterism" ]; then
+      echo "detaching stale /Volumes/Asterism"
+      hdiutil detach "/Volumes/Asterism" -force >/dev/null 2>&1 || true
+    fi
+    if hdiutil create -volname "Asterism" -srcfolder "$stage" -ov -format UDZO "$dmg"; then
+      return 0
+    fi
+    echo "hdiutil create failed (attempt $attempt) — retrying in $((attempt * 10))s"
+    rm -f "$dmg"
+    sleep $((attempt * 10))
+  done
+  echo "hdiutil create failed after 5 attempts" >&2
+  return 1
+}
+
 # --- build + sign + notarize + staple the .dmg -----------------------------
 if [ -n "$VERSION" ]; then
   echo "Building the .dmg from the stapled app…"
@@ -105,7 +131,7 @@ if [ -n "$VERSION" ]; then
   cp -R "$APP" "$STAGE/"
   ln -s /Applications "$STAGE/Applications"
   rm -f "$DMG"
-  hdiutil create -volname "Asterism" -srcfolder "$STAGE" -ov -format UDZO "$DMG"
+  make_dmg "$DMG" "$STAGE"
   codesign --force --timestamp --keychain "$KEYCHAIN" \
     --sign "$APPLE_SIGNING_IDENTITY" "$DMG"
   echo "Submitting the .dmg for notarization…"

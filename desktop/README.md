@@ -186,6 +186,20 @@ Optional but recommended: add the Apple Developer signing secrets
 `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` — same names as Graphium) so the
 installed/updated app is notarized and not Gatekeeper-blocked.
 
+## Storage location
+
+By default the backend keeps all data (datasets, graphs, chat threads,
+settings) under the OS user-data dir, e.g. macOS
+`~/Library/Application Support/Asterism` — unchanged from `asterism-local`'s
+own default. Settings → ストレージ lets the user pick a different folder; the
+shell saves that choice in its own small config file (`settings.json` under
+the Tauri app config dir, *not* inside the data dir itself, since the data
+dir is exactly what's being redirected) and passes it to the backend as
+`--data-dir` on the next launch (`get_data_home_override` /
+`set_data_home_override` IPC, `src/settings.rs`). The change takes effect on
+restart — same as Graphium — and existing data at the old location is **not**
+moved automatically.
+
 ## Not yet done
 
 - **Windows**: grandchild cleanup needs a Job Object; the bundle script and the

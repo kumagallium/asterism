@@ -53,6 +53,7 @@ from asterism_step0.mapping_ir_schema import (
     permap_json_schema,
     skeleton_json_schema,
 )
+from asterism_step0.spec_yaml import load_spec_yaml
 
 __all__ = [
     "SkeletonProposal",
@@ -223,7 +224,7 @@ def _load_json_object(raw: str) -> dict:
         if first_nl != -1 and closing > first_nl:
             text = text[first_nl + 1 : closing].strip()
     try:
-        doc = yaml.safe_load(text)
+        doc = load_spec_yaml(text)
     except yaml.YAMLError as exc:
         raise ValueError(f"model output is not valid JSON/YAML: {exc}") from exc
     if not isinstance(doc, dict):

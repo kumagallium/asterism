@@ -1,11 +1,11 @@
 {
-  "version": "0.17.0",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 8b0ea266141e5198a8a8ee7d16ad744958538ea8 -->\n\n## What's Changed\n* feat(desktop): 更新を画面上部のバナーからワンクリックに — Graphium と同じ形 by @kumagallium in https://github.com/kumagallium/asterism/pull/377\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.16.0...v0.17.0",
-  "pub_date": "2026-08-17T02:06:17Z",
+  "version": "0.17.3",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 61f32f0cbb606c091486710bcaa0a293a9dbb670 -->\n\n## What's Changed\n* デスクトップは手元のディスクに保存する — チャットと設定をブラウザから出す by @kumagallium in https://github.com/kumagallium/asterism/pull/385\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.17.2...v0.17.3",
+  "pub_date": "2026-08-18T09:27:13Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVUrK3FNUlJRcHFpcGhRTVd3SWhWa0FxTXUvSnRTNUxmTmNGd1FuQUVjL1FCZ3RMMEJRWk5LMHdyKzBiTlo4U2llVGF6OEx1N0U4MHJJSEJWakRBTlFJPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg2OTMyMzc2CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6Cll6NE8zMDJ0c3p1M3NVMTQySFJnem0vNlRSRG9nQTVsWDN4OXJtZlUxUHpQb0JwT1dFdU43Z0tVZjJrd3JjWW1NYVgxVDF3N2grKzJya1BjQ0hzcUJRPT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.17.0/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcWJTek5zT3B0eVpXeGFiaWFQbi84c0RZTmxJcFZuSHpGU0pvZXJPUkpoeW1rbjB0M2xhTzZjaGVaVUZQWjhoRWRaVW9YZVVvekczNTlIei81Um05d2c4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3MDQ1MjMyCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CkhleU1pRWNQcHJWNnM5VDdNWEJwQlF0ckxycUFuNFNkSUg3S2MvTmI2TjB3VjBSdjY3dXRTVk5yaXBGZTNhSHpRWVNJRnVoU2IzcEtXd3J0RHJhbEFnPT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.17.3/Asterism_aarch64.app.tar.gz"
     }
   }
 }
