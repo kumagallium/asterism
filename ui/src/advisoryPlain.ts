@@ -1,4 +1,5 @@
 import i18n from './i18n'
+import { localName } from './vocab'
 
 /**
  * Plain-language face of the design advisories (ADR K11).
@@ -17,6 +18,11 @@ import i18n from './i18n'
  * the match is stable — and anything unrecognised degrades to a counted "other"
  * line rather than being dropped. Nothing here is fed to the AI; callers pass
  * the raw strings for that.
+ *
+ * Two things the plain sentence must carry, because they ARE the decision: the
+ * names of the things involved — under the label the rest of the screen uses,
+ * not the mapping's English identifier (K4) — and the actual columns at stake,
+ * never just how many there were.
  */
 
 /** Marker phrases, verbatim from `asterism/rml_validate.py`. */
@@ -38,6 +44,12 @@ const SHAPE_MISSING = 'declared but MISSING in the ingested data'
 const SHAPE_DANGLING = 'DANGLING reference'
 const SHAPE_WRONG_CLASS = 'WRONG class'
 const SHAPE_DATATYPE = 'datatype MISMATCH'
+
+/** A numeric column stored as text — SPARQL then compares "9.4" above "100.0",
+ *  so max/min/ORDER BY answer WRONGLY with no error. Deterministic post-processing
+ *  usually stamps the datatype in, but when one survives it must not read as an
+ *  anonymous "other": it is the one advisory that makes an ANSWER wrong. */
+const UNTYPED_NUMERIC = 'holds numbers but is mapped as an untyped literal'
 
 /** `… groups: MaterialSample  |  Measurement.` → ["MaterialSample", "Measurement"] */
 function disconnectedGroups(advisory: string): string[] {
@@ -81,6 +93,85 @@ function subjectOf(advisory: string): string {
   return m ? m[1] : ''
 }
 
+/** `column 'Seebeck' holds numbers but is mapped as …` → "Seebeck" */
+function untypedNumericColumn(advisory: string): string {
+  const m = /^column '([^']+)' holds numbers/.exec(advisory)
+  return m ? m[1] : ''
+}
+
+/**
+ * The columns one "never uses" advisory names (`source s has 17 column(s) the
+ * mapping never uses: a, b, c. If a column carries meaning …`). The generator
+ * prints at most ten and then glues a ` …` onto the last one, so the ellipsis is
+ * stripped before splitting. Anchored on the fixed tail, so a column name
+ * containing `.` survives (same rule as {@link shellDroppedColumns}).
+ */
+function unmappedColumns(advisory: string): string[] {
+  const m = /column\(s\) the mapping never uses: (.+?)\. If a column carries/.exec(advisory)
+  if (!m) return []
+  const list = m[1].trim().replace(/\s*…$/, '')
+  return list
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s && s !== '…')
+}
+
+/** How many columns the advisory DECLARES unused — the truth even when the
+ *  printed list is capped at ten. */
+function unmappedCount(advisory: string): number {
+  const m = /has (\d+) column\(s\) the mapping never uses/.exec(advisory)
+  return m ? Number(m[1]) : 0
+}
+
+/**
+ * Human-readable names for the identifiers an advisory quotes.
+ *
+ * The generator names things by their ENGLISH identifier (`MaterialSample`,
+ * `Sample.hasMeasurement`) because that is what the mapping calls them, while
+ * every other surface — the wizard's 列の意味 table, the catalog's rules tab —
+ * shows the model.yaml label for the very same thing. One concept under two
+ * names is exactly what ADR K4 forbids, so callers that already hold
+ * `rules.labels` pass it in. Keys may be full term IRIs or bare local names.
+ * Nothing is invented: an identifier with no label is printed as written.
+ */
+export type TermLabels = Record<string, string>
+
+type LabelIndex = Map<string, string> | null
+
+function labelIndex(labels?: TermLabels): LabelIndex {
+  if (!labels) return null
+  const index = new Map<string, string>()
+  for (const [key, label] of Object.entries(labels)) {
+    if (!label) continue
+    index.set(key, label)
+    // Advisories quote local names; first label wins if two IRIs collide there.
+    const local = localName(key)
+    if (!index.has(local)) index.set(local, label)
+  }
+  return index.size > 0 ? index : null
+}
+
+/** `Sample.hasMeasurement` → 「試料.測定した」. Each dot-separated segment is
+ *  looked up on its own, so a pair whose class has a label and whose property
+ *  does not still reads better than the bare identifier. */
+function labelFor(name: string, index: LabelIndex): string {
+  if (!index || !name) return name
+  const hit = index.get(name)
+  if (hit) return hit
+  if (!name.includes('.')) return name
+  const parts = name.split('.')
+  const mapped = parts.map((p) => index.get(p) ?? p)
+  return mapped.some((p, i) => p !== parts[i]) ? mapped.join('.') : name
+}
+
+/** Whether the locale actually carries a sentence for this key. A finding whose
+ *  sentence is not (yet) translated folds into the counted "other" line — the
+ *  same fail-closed rule ADR §5.1 sets for unknown trap ids, so a missing key can
+ *  never surface as a raw `gallery:advisory.…` in front of a researcher. */
+function hasSentence(key: string, opts?: Record<string, unknown>): boolean {
+  return i18n.exists(key, opts)
+}
+
 /** One line per shape finding — each names the class.predicate it is about, which
  * is what lets the reader go straight to that row in the design. */
 function shapeLines(
@@ -88,34 +179,51 @@ function shapeLines(
   marker: string,
   key: string,
   out: PlainAdvisory[],
+  labels: LabelIndex,
 ): string[] {
   const t = i18n.t.bind(i18n)
   const hits = advisories.filter((a) => a.includes(marker))
   for (const a of hits) {
-    out.push({ text: t(key, { subject: subjectOf(a) }), raw: [a] })
+    out.push({ text: t(key, { subject: labelFor(subjectOf(a), labels) }), raw: [a] })
   }
   return hits
 }
 
-export function plainAdvisories(advisories: string[]): PlainAdvisory[] {
+/**
+ * @param labels optional identifier → human label table (`rules.labels`), so the
+ * plain sentences name things the way the rest of the screen names them. Omitted
+ * ⇒ identifiers are printed exactly as the generator wrote them (today's text).
+ */
+export function plainAdvisories(advisories: string[], labels?: TermLabels): PlainAdvisory[] {
   const t = i18n.t.bind(i18n)
+  const names = labelIndex(labels)
   const disconnected = advisories.filter((a) => a.includes(DISCONNECTED))
   const duplicate = advisories.filter((a) => a.includes(DUPLICATE_COLUMN))
   const unmapped = advisories.filter((a) => a.includes(UNMAPPED_COLUMN))
   const shells = advisories.filter((a) => a.includes(EMPTY_SHELL))
+  const untyped = hasSentence('gallery:advisory.untypedNumeric')
+    ? advisories.filter((a) => a.includes(UNTYPED_NUMERIC))
+    : []
   const shape: PlainAdvisory[] = []
   const shapeHits = [
-    ...shapeLines(advisories, SHAPE_MISSING, 'gallery:advisory.shapeMissing', shape),
-    ...shapeLines(advisories, SHAPE_DANGLING, 'gallery:advisory.shapeDangling', shape),
-    ...shapeLines(advisories, SHAPE_WRONG_CLASS, 'gallery:advisory.shapeWrongClass', shape),
-    ...shapeLines(advisories, SHAPE_DATATYPE, 'gallery:advisory.shapeDatatype', shape),
+    ...shapeLines(advisories, SHAPE_MISSING, 'gallery:advisory.shapeMissing', shape, names),
+    ...shapeLines(advisories, SHAPE_DANGLING, 'gallery:advisory.shapeDangling', shape, names),
+    ...shapeLines(advisories, SHAPE_WRONG_CLASS, 'gallery:advisory.shapeWrongClass', shape, names),
+    ...shapeLines(advisories, SHAPE_DATATYPE, 'gallery:advisory.shapeDatatype', shape, names),
   ]
-  const known = new Set([...disconnected, ...duplicate, ...unmapped, ...shells, ...shapeHits])
+  const known = new Set([
+    ...disconnected,
+    ...duplicate,
+    ...unmapped,
+    ...shells,
+    ...untyped,
+    ...shapeHits,
+  ])
   const other = advisories.filter((a) => !known.has(a))
 
   const out: PlainAdvisory[] = []
   for (const a of disconnected) {
-    const groups = disconnectedGroups(a)
+    const groups = disconnectedGroups(a).map((g) => labelFor(g, names))
     out.push({
       // Naming the two boxes is what makes this actionable to a human — they can
       // look at the diagram right above and see the two islands.
@@ -130,14 +238,12 @@ export function plainAdvisories(advisories: string[]): PlainAdvisory[] {
   // columns the data says are its (the human saw those on the gate's card).
   for (const a of shells) {
     const cols = shellDroppedColumns(a)
+    const cls = labelFor(shellMap(a), names)
     out.push({
       text:
         cols.length > 0
-          ? t('gallery:advisory.emptyShellColumns', {
-              cls: shellMap(a),
-              columns: cols.join(', '),
-            })
-          : t('gallery:advisory.emptyShell', { cls: shellMap(a) }),
+          ? t('gallery:advisory.emptyShellColumns', { cls, columns: cols.join(', ') })
+          : t('gallery:advisory.emptyShell', { cls }),
       raw: [a],
     })
   }
@@ -145,7 +251,27 @@ export function plainAdvisories(advisories: string[]): PlainAdvisory[] {
     out.push({ text: t('gallery:advisory.duplicateColumn', { count: duplicate.length }), raw: duplicate })
   }
   if (unmapped.length > 0) {
-    out.push({ text: t('gallery:advisory.unmapped', { count: unmapped.length }), raw: unmapped })
+    // Which columns were dropped is the whole decision here — a weak model that
+    // maps 3 of 20 columns is obvious the moment the names are on screen, and
+    // invisible when only a count is (K11: never leave the reader with a number).
+    // `count` counts COLUMNS, not advisories: one advisory per source file can
+    // carry seventeen of them.
+    const cols = unmapped.flatMap(unmappedColumns)
+    const count = unmapped.reduce((n, a) => n + unmappedCount(a), 0) || cols.length
+    const opts = { count, columns: cols.join(', ') }
+    out.push({
+      text:
+        cols.length > 0 && hasSentence('gallery:advisory.unmappedColumns', opts)
+          ? t('gallery:advisory.unmappedColumns', opts)
+          : t('gallery:advisory.unmapped', opts),
+      raw: unmapped,
+    })
+  }
+  for (const a of untyped) {
+    out.push({
+      text: t('gallery:advisory.untypedNumeric', { column: untypedNumericColumn(a) }),
+      raw: [a],
+    })
   }
   // Data findings last: the design lines above are about something the user can
   // still edit, these are about data already ingested.

@@ -60,10 +60,7 @@ export async function inspectCsvs(
   const url = query ? `/api/inspect?${query}` : '/api/inspect'
 
   const res = await fetch(url, { method: 'POST', body: form })
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new Error(`inspect failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
-  }
+  if (!res.ok) await throwApiError(res, 'inspect')
   const markdown = await res.text()
   const namesHeader = res.headers.get('X-Asterism-Source-Names') ?? ''
   const sourceNames = namesHeader ? namesHeader.split(',').filter(Boolean) : []
@@ -183,10 +180,7 @@ export async function proposeCsvs(
     body: form,
     headers: llmHeaders(creds),
   })
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new Error(`propose failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
-  }
+  if (!res.ok) await throwApiError(res, 'propose')
   const { job_id } = (await res.json()) as { job_id: string }
   handlers.onStart?.(job_id)
   return subscribeJob(job_id, handlers)
@@ -411,10 +405,7 @@ export async function proposeSkeleton(
   const url = query ? `/api/propose/skeleton?${query}` : '/api/propose/skeleton'
 
   const res = await fetch(url, { method: 'POST', body: form, headers: llmHeaders(creds) })
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new Error(`skeleton failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
-  }
+  if (!res.ok) await throwApiError(res, 'skeleton')
   const { job_id } = (await res.json()) as { job_id: string }
   handlers.onStart?.(job_id)
   return subscribeJob(job_id, handlers)
@@ -450,10 +441,7 @@ export async function proposeContinue(
   const url = query ? `/api/propose/continue?${query}` : '/api/propose/continue'
 
   const res = await fetch(url, { method: 'POST', body: form, headers: llmHeaders(creds) })
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new Error(`continue failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
-  }
+  if (!res.ok) await throwApiError(res, 'continue')
   const { job_id } = (await res.json()) as { job_id: string }
   handlers.onStart?.(job_id)
   return subscribeJob(job_id, handlers)
@@ -475,10 +463,7 @@ export async function validateSkeleton(
   form.append('skeleton', JSON.stringify(skeleton))
   appendDialects(form, dialects)
   const res = await fetch('/api/propose/skeleton/validate', { method: 'POST', body: form })
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new Error(`skeleton validate failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
-  }
+  if (!res.ok) await throwApiError(res, 'skeleton validate')
   return ((await res.json()) as { annotations: SkeletonAnnotations }).annotations
 }
 
@@ -518,10 +503,7 @@ export async function refineSchema(
     },
     body: JSON.stringify({ schema_md: schemaMd, comments, language: language || undefined }),
   })
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new Error(`refine failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
-  }
+  if (!res.ok) await throwApiError(res, 'refine')
   const { job_id } = (await res.json()) as { job_id: string }
   handlers.onStart?.(job_id)
   return subscribeJob(job_id, handlers)
@@ -558,10 +540,7 @@ export async function cancelJob(jobId: string): Promise<void> {
     method: 'POST',
     headers: authHeaders(),
   })
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new Error(`cancel failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
-  }
+  if (!res.ok) await throwApiError(res, 'cancel')
 }
 
 /** One trap result from the 8-trap validator. */
@@ -579,14 +558,78 @@ export interface TrapResult {
   fix?: string
 }
 
-/** Error carrying the HTTP status so callers can branch (e.g. 404 → recreate). */
+/**
+ * A failed api call, as STRUCTURE rather than as a sentence.
+ *
+ * Every call in this module used to throw `new Error("ingest failed (HTTP 404):
+ * {\"detail\":…}")`, which dissolved the status and the server's detail into one
+ * English string — so the screens that must react to WHICH failure this is (the
+ * kantan stop card, the workbench's 404-recreate path) had no choice but to
+ * classify by substring, and whatever they failed to recognise reached the
+ * researcher raw. The fields below are what callers should branch on.
+ *
+ * `message` deliberately keeps the exact sentence this family always threw: it
+ * is what the folded "技術情報" view shows, and `plainError`
+ * (kantan/errorMessages.ts) still classifies on it.
+ */
 export class ApiError extends Error {
+  /** Which call failed — this module's own English verb ("ingest", "propose"). */
+  readonly op: string
+  /** HTTP status of the failed response. */
   readonly status: number
+  /** The response body verbatim (may be JSON, may be empty). */
+  readonly body: string
+  /** FastAPI's `{"detail": …}` unwrapped; the body itself when it is not that shape. */
+  readonly detail: string
+  /** Machine-readable cause when the server sends `{"detail": {"error": "…"}}`. */
+  readonly code?: string
 
-  constructor(message: string, status: number) {
-    super(message)
+  constructor(op: string, status: number, body = '') {
+    super(apiErrorMessage(op, status, body))
+    this.name = 'ApiError'
+    this.op = op
     this.status = status
+    this.body = body
+    const { detail, code } = unwrapDetail(body)
+    this.detail = detail
+    this.code = code
   }
+}
+
+/** The sentence this error family has always carried. Kept byte-for-byte —
+ *  the stop card's deterministic classifier reads it (K11). */
+function apiErrorMessage(op: string, status: number, body: string): string {
+  return `${op} failed (HTTP ${status})${body ? `: ${body}` : ''}`
+}
+
+/** Pull the server's human/machine cause out of a FastAPI error body. Parse
+ *  failure keeps the raw body — never less information than before. */
+function unwrapDetail(body: string): { detail: string; code?: string } {
+  const brace = body.indexOf('{')
+  if (brace >= 0) {
+    try {
+      const parsed = JSON.parse(body.slice(brace)) as { detail?: unknown }
+      const detail = parsed.detail
+      if (typeof detail === 'string') return { detail }
+      if (detail && typeof detail === 'object') {
+        const error = (detail as { error?: unknown }).error
+        if (typeof error === 'string') return { detail: error, code: error }
+      }
+    } catch {
+      /* not JSON — the body is already the best detail we have */
+    }
+  }
+  return { detail: body }
+}
+
+/**
+ * Read a failed response and throw the {@link ApiError} for it. Always throws;
+ * `await throwApiError(res, 'ingest')` is the one-line form every call site in
+ * this module uses, so status/detail can never be lost on the way out again.
+ */
+export async function throwApiError(res: Response, op: string): Promise<never> {
+  const body = await res.text().catch(() => '')
+  throw new ApiError(op, res.status, body)
 }
 
 /** Registry meta for a persisted dataset (subset the workbench needs). */
@@ -675,10 +718,7 @@ export async function attachSource(
     headers: authHeaders(),
     body: form,
   })
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new Error(`attach source failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
-  }
+  if (!res.ok) await throwApiError(res, 'attach source')
   return (await res.json()) as AttachSourceResult
 }
 
@@ -706,10 +746,7 @@ export async function createDocumentDataset(
   form.append('name', name)
   for (const file of files) form.append('files', file)
   const res = await fetch('/api/documents', { method: 'POST', headers: authHeaders(), body: form })
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new Error(`create document failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
-  }
+  if (!res.ok) await throwApiError(res, 'create document')
   return (await res.json()) as CreateDocumentResult
 }
 
@@ -833,7 +870,7 @@ export async function startIngestJob(
     // structured issues so the UI renders a readable bulleted list, not a raw string.
     const issues = parseIngestIssues(detail)
     if (issues) throw new IngestValidationError(issues)
-    throw new Error(`ingest failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
+    throw new ApiError('ingest', res.status, detail)
   }
   const { job_id } = (await res.json()) as { job_id: string }
   return attachIngestJob(job_id, datasetId, onProgress, onPulse)
@@ -913,13 +950,7 @@ export async function materializeSchema(
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(body),
   })
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new ApiError(
-      `materialize failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`,
-      res.status,
-    )
-  }
+  if (!res.ok) await throwApiError(res, 'materialize')
   return (await res.json()) as MaterializeResult
 }
 
@@ -937,10 +968,7 @@ export async function fetchDraftStats(datasetId: string): Promise<DraftStats> {
   const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/draft-stats`, {
     headers: authHeaders(),
   })
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new Error(`draft stats failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
-  }
+  if (!res.ok) await throwApiError(res, 'draft stats')
   return (await res.json()) as DraftStats
 }
 
@@ -997,10 +1025,7 @@ export async function fetchTrialQueries(datasetId: string): Promise<TrialQueries
   const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/trial-queries`, {
     headers: authHeaders(),
   })
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new Error(`trial queries failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
-  }
+  if (!res.ok) await throwApiError(res, 'trial queries')
   return (await res.json()) as TrialQueries
 }
 
@@ -1022,10 +1047,7 @@ export async function fetchProposal(datasetId: string): Promise<DatasetProposal>
   const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/proposal`, {
     headers: authHeaders(),
   })
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new Error(`load design failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
-  }
+  if (!res.ok) await throwApiError(res, 'load design')
   return (await res.json()) as DatasetProposal
 }
 
@@ -1049,10 +1071,7 @@ export async function validateDesign(datasetId: string): Promise<DesignCheck> {
     `/api/datasets/${encodeURIComponent(datasetId)}/validate-design`,
     { headers: authHeaders() },
   )
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new Error(`validate design failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
-  }
+  if (!res.ok) await throwApiError(res, 'validate design')
   const data = (await res.json()) as { validation_issues?: string[]; advisories?: string[] }
   return { issues: data.validation_issues ?? [], advisories: data.advisories ?? [] }
 }
@@ -1158,7 +1177,7 @@ export async function stageSources(files: File[]): Promise<StagedSources> {
   const form = new FormData()
   for (const file of files) form.append('files', file)
   const res = await fetch('/api/staging', { method: 'POST', headers: authHeaders(), body: form })
-  if (!res.ok) throw new Error(`staging failed (HTTP ${res.status})`)
+  if (!res.ok) await throwApiError(res, 'staging')
   const body = (await res.json()) as { staging_id: string; sources: string[]; expires_at: string }
   return { stagingId: body.staging_id, sources: body.sources ?? [], expiresAt: body.expires_at }
 }
