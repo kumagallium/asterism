@@ -19,6 +19,10 @@ export default defineConfig({
       // /jobs is the ingest-history endpoint (no /api prefix). Proxy it too so
       // the Jobs view reaches the API in dev.
       '/jobs': API_TARGET,
+      // /describe is where a citation ID lands (the shared, human-facing page
+      // the API renders). Without this the dev server answers with the SPA
+      // shell, so a citation link looks broken only in dev.
+      '/describe': API_TARGET,
     },
   },
 })
