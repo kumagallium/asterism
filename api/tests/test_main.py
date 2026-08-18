@@ -1005,10 +1005,14 @@ maps:
 def test_materialize_traps_carry_fix_recipes(
     tmp_path: Path, healthy_client: OxigraphClient
 ) -> None:
-    """2026-07-14 incident regression: a failing trap must ship its repair
-    recipe in the response (`fix`), and T4's recipe must derive keyword
-    candidates from the §9 mapping spec — proving materialize wires the
-    extracted spec into the validator bundle (mapping_ir_yaml)."""
+    """2026-07-14 incident regression, in its final form.
+
+    The recipe used to be shown to a HUMAN, who pressed "let the AI fix it" to
+    paste back a block the machine had already written. Materialize now stamps
+    that same repair itself (WEAK-MODEL-09 / BACKEND-TEXT-11), so T4 passes with
+    zero LLM calls — and the §9-only terms landing in the stamped §7 are still
+    the proof that the extracted spec reaches the validator bundle.
+    """
     app = build_app(
         _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
     )
@@ -1018,13 +1022,15 @@ def test_materialize_traps_carry_fix_recipes(
             json={"proposal_md": _FIX_RECIPE_MD, "dataset_name": "sensor"},
         )
         assert r.status_code == 200
-        traps = r.json()["traps"]
+        body = r.json()
+        traps = body["traps"]
         assert all("fix" in t for t in traps)  # additive key on every trap
         t4 = next(t for t in traps if t["id"] == "T4")
-        assert t4["status"] == "fail"
-        assert "schema_info:" in t4["fix"]  # the paste-ready YAML block
-        # §9-only terms in the recipe = the mapping spec reached the validator.
-        assert "channel" in t4["fix"] and "amplitude" in t4["fix"]
+        assert t4["status"] == "pass" and t4["fix"] == ""
+        mie = body["artifacts"]["mie.yaml"]
+        assert "reading" in mie  # the author's single keyword survives verbatim
+        # §9-only terms in the stamped block = the mapping spec reached it.
+        assert "channel" in mie and "amplitude" in mie
         # Passing traps carry no recipe.
         t2 = next(t for t in traps if t["id"] == "T2")
         assert t2["status"] == "pass" and t2["fix"] == ""

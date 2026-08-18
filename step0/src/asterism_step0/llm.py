@@ -97,6 +97,59 @@ class LLMEmptyOutputError(RuntimeError):
     simply retry — instead of failing later on an empty document.
     """
 
+    reasoning_only: bool = False
+    """True when the model DID produce reasoning but no answer (vs. a wholly
+    empty response). Read by :func:`error_code`; the advice is the same, the
+    cause is not."""
+
+
+# ---------------------------------------------------------------------------
+# Machine-readable classification of an LLM failure
+# ---------------------------------------------------------------------------
+#
+# The messages raised above (and the provider SDKs' own) are written for a log
+# and for the AI repair prompt: English, precise, and full of settings a person
+# using kantan mode has never been shown ("lower the model's reasoning effort",
+# "raise the max output tokens setting"). Kantan mode still has to say something
+# true and actionable in the person's language, and it must not do that by
+# matching English substrings — that is exactly how a wording change once broke
+# error handling in the UI.
+#
+# So the seam is a CODE. The server text stays as it is; the code says which
+# KIND of failure this is, and the UI owns the sentence (ja/en) for each kind.
+# Provider exceptions are matched by class NAME so no SDK has to be importable
+# here — the anthropic and openai SDKs happen to use the same names.
+
+ERROR_CODE_BY_CLASS: dict[str, str] = {
+    "LLMTruncatedError": "llm.truncated",
+    "LLMEmptyOutputError": "llm.empty",
+    "LLMCancelledError": "llm.cancelled",
+    "AuthenticationError": "llm.auth",
+    "PermissionDeniedError": "llm.auth",
+    "RateLimitError": "llm.rate_limit",
+    "NotFoundError": "llm.model_not_found",
+    "APITimeoutError": "llm.timeout",
+    "APIConnectionError": "llm.unreachable",
+    "InternalServerError": "llm.provider_error",
+}
+
+
+def error_code(exc: BaseException) -> str | None:
+    """The stable code for an LLM failure, or None when it is not one.
+
+    Walks the MRO so a provider's subclass of a known error still classifies.
+    ``LLMEmptyOutputError`` carries a ``reasoning_only`` flag for the case where
+    the model produced only hidden reasoning — same advice, different cause, and
+    the UI may want to say so.
+    """
+    if getattr(exc, "reasoning_only", False):
+        return "llm.reasoning_only"
+    for cls in type(exc).__mro__:
+        code = ERROR_CODE_BY_CLASS.get(cls.__name__)
+        if code is not None:
+            return code
+    return None
+
 
 @dataclass(frozen=True)
 class LLMUsage:
@@ -611,11 +664,13 @@ class OpenAICompatibleLLMClient:
                     # The FIRST generation produced nothing usable.
                     self.last_usage = total_usage
                     if reasoning_text:
-                        raise LLMEmptyOutputError(
+                        empty = LLMEmptyOutputError(
                             "The model returned only reasoning text and no answer. "
                             "Lower the model's reasoning effort or choose a "
                             "non-thinking model, then re-run."
                         )
+                        empty.reasoning_only = True
+                        raise empty
                     raise LLMEmptyOutputError(
                         "The model returned an empty response. Re-run the request, "
                         "or choose a different model."

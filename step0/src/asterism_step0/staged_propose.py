@@ -26,19 +26,26 @@ they never replace validation.
 """
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from asterism_step0.inspect import inspect_source_set, render_markdown
+from asterism_step0.inspect import SourceInspection, inspect_source_set, render_markdown
 from asterism_step0.instance_iri import (
     dataset_namespace_block,
+    derive_prefix_pair,
     normalize_dataset_namespace,
+    normalize_iri_base,
     slugify_dataset_name,
 )
 from asterism_step0.language import language_instruction
-from asterism_step0.llm import LLMClient, as_completion
+from asterism_step0.llm import (
+    LLMCancelledError,
+    LLMClient,
+    as_completion,
+)
 from asterism_step0.mapping_ir import structural_property_issues
 from asterism_step0.mapping_ir_schema import (
     permap_json_schema,
@@ -50,11 +57,14 @@ __all__ = [
     "apply_data_facts",
     "apply_numeric_datatypes",
     "assemble_mapping_ir",
+    "default_property_table",
+    "default_skeleton",
     "fill_mapping_spec_block",
     "generate_document",
     "generate_map_properties",
     "generate_skeleton",
     "mapping_ir_to_yaml",
+    "menu_columns",
     "propose_from_skeleton",
     "propose_skeleton",
     "render_skeleton_context",
@@ -336,6 +346,168 @@ def render_tier0_menu(function_names: Sequence[str] | None) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Deterministic defaults — what the machine writes when the model cannot.
+# ---------------------------------------------------------------------------
+#
+# Every stage below has a decision the DATA already settles: which table becomes
+# an entity (one per source), how a row is identified (the inspector's proven
+# unique keys), which columns describe it (the header, minus the ones another
+# map owns), and what type each value has (measured from every row). A model is
+# asked first because it names things better — but when it returns broken JSON
+# or runs out of tokens, the answer is still knowable, and handing the person a
+# raw parse error to relay back to the same model is the loop kantan mode
+# exists to end. These builders are LLM-free and never invent a column.
+
+_MEASUREMENT_TYPES = frozenset({"xsd:double", "xsd:float", "xsd:decimal"})
+_MENU_COLUMNS_RE = re.compile(r"^\s*[•*-]\s*(?P<name>.+?)\s+[—-]+\s+columns:\s*(?P<cols>.+?)\s*$")
+
+
+def _identifier(text: str) -> str:
+    """``Measurement temp.(C)`` → ``measurementTempC`` (lowerCamel, ASCII-safe)."""
+    parts = [p for p in re.split(r"[^0-9A-Za-z]+", str(text)) if p]
+    if not parts:
+        return "value"
+    head = parts[0]
+    head = head if head[:1].islower() else head[:1].lower() + head[1:]
+    out = head + "".join(p[:1].upper() + p[1:] for p in parts[1:])
+    return f"v{out}" if out[:1].isdigit() else out
+
+
+def _class_name(text: str) -> str:
+    """``xrd_peaks`` → ``XrdPeaks`` (PascalCase, ASCII-safe)."""
+    ident = _identifier(text)
+    return ident[:1].upper() + ident[1:] if ident else "Record"
+
+
+def menu_columns(menu: str) -> dict[str, list[str]]:
+    """``{source filename: [columns]}`` recovered from the closed-menu appendix.
+
+    The menu is machine-written (the api's oracle reads each header with the
+    same BOM-safe reader the validator uses), so these names are the real ones —
+    the only reason to parse rather than be handed them is that the menu is the
+    one place a caller already passes them in every path.
+    """
+    out: dict[str, list[str]] = {}
+    for line in (menu or "").splitlines():
+        m = _MENU_COLUMNS_RE.match(line)
+        if not m:
+            continue
+        cols = [c.strip() for c in m.group("cols").split(", ") if c.strip()]
+        if cols:
+            out[m.group("name").strip()] = cols
+    return out
+
+
+def default_property_table(
+    columns: Sequence[str],
+    *,
+    ontology_prefix: str,
+    owned_elsewhere: Mapping[str, str] | None = None,
+    column_types: Mapping[str, str] | None = None,
+) -> dict:
+    """A property row per column this map owns — column name as the meaning.
+
+    Used when a map's property generation failed outright. The alternative (the
+    previous behaviour) was an EMPTY table, which the review screen hides
+    entirely: the person's columns disappear with no way back except asking the
+    AI again. Column names are a poor ontology and a perfectly good starting
+    point — every value is carried, sourced, and typed, and the review screen's
+    per-property fields are where the wording gets fixed.
+    """
+    from asterism_step0.units import extract_unit_from_label
+
+    owned = dict(owned_elsewhere or {})
+    types = dict(column_types or {})
+    properties: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for column in columns:
+        name = str(column)
+        if not name or name in owned:
+            continue  # another map owns this value; a copy here is the same fact twice
+        predicate = f"{ontology_prefix}:{_identifier(name)}"
+        if predicate in seen:
+            continue
+        seen.add(predicate)
+        row: dict[str, Any] = {"predicate": predicate, "column": name}
+        datatype = types.get(name)
+        if datatype:
+            row["datatype"] = datatype
+        unit = extract_unit_from_label(name)
+        label = name
+        if unit:
+            row["unit"] = unit
+            # The label is the column name minus the unit it already states.
+            # Half- and full-width brackets both, matching units.extract_unit_from_label.
+            label = re.sub(r"[(\uFF08][^()\uFF08\uFF09]*[)\uFF09]\s*$", "", name).strip() or name
+        row["label"] = label
+        properties.append(row)
+    return {"properties": properties}
+
+
+def _proven_key(inspection: SourceInspection) -> tuple[str, ...]:
+    """The smallest key the inspector PROVED unique, measurement-only keys last.
+
+    Falls back to the first column: not unique, but the skeleton gate then shows
+    the collisions with one-click candidates, which is the honest state — a
+    silently invented key would be the costliest mistake in the pipeline.
+    """
+    types = {c.name: c.inferred_type for c in inspection.columns}
+
+    def measurement_only(key: Sequence[str]) -> bool:
+        return bool(key) and all(types.get(c) in _MEASUREMENT_TYPES for c in key)
+
+    unique = [r for r in inspection.uniqueness_reports if r.is_unique and r.key]
+    if unique:
+        best = min(unique, key=lambda r: (measurement_only(r.key), len(r.key)))
+        return tuple(best.key)
+    return (inspection.columns[0].name,) if inspection.columns else ()
+
+
+def default_skeleton(
+    inspections: Sequence[SourceInspection],
+    *,
+    iri_base: str | None = None,
+    dataset_name: str | None = None,
+) -> dict:
+    """One entity per source, keyed by a proven-unique column set — LLM-free.
+
+    The shape the human gate was built to review: it opens with the collision
+    evidence and the candidate chips either way, so a person confirms or
+    re-picks a key in one tap instead of reading a JSON parse error.
+    """
+    slug = slugify_dataset_name(
+        dataset_name or (inspections[0].name.rsplit(".", 1)[0] if inspections else None)
+    )
+    base = normalize_iri_base(iri_base)
+    onto, res = derive_prefix_pair(slug)
+    prefixes = {
+        onto: f"{base}/datasets/{slug}/ontology#",
+        res: f"{base}/datasets/{slug}/resource/",
+    }
+    maps: list[dict[str, Any]] = []
+    taken: set[str] = set()
+    for inspection in inspections:
+        stem = inspection.name.rsplit(".", 1)[0]
+        name = _identifier(stem)
+        while name in taken:
+            name = f"{name}2"
+        taken.add(name)
+        entry: dict[str, Any] = {"name": name, "source": inspection.name}
+        classes = [f"{onto}:{_class_name(stem)}"]
+        if inspection.source_kind == "xml":
+            iterators = inspection.xml_iterators or []
+            if iterators:
+                entry["iterator"] = iterators[0].iterator
+            entry["subject"] = {"constant": f"{res}:{name}", "classes": classes}
+        else:
+            key = _proven_key(inspection)
+            segment = "-".join(f"{{{c}}}" for c in key) if key else "1"
+            entry["subject"] = {"template": f"{res}:{name}/{segment}", "classes": classes}
+        maps.append(entry)
+    return {"version": 1, "prefixes": prefixes, "maps": maps}
+
+
+# ---------------------------------------------------------------------------
 # User-message builders (per-call variables).
 # ---------------------------------------------------------------------------
 
@@ -346,13 +518,20 @@ def build_skeleton_user(
     *,
     language: str | None = None,
     iri_base: str | None = None,
+    issues: list[str] | None = None,
 ) -> str:
     msg = (
         f"# Source inspection\n\n{inspection_md}\n\n"
         f"# Domain context\n\n{domain_hint.strip()}\n\n"
         f"{dataset_namespace_block(iri_base)}\n"
-        "Return the skeleton as a single JSON object."
     )
+    if issues:
+        msg += (
+            "# Your previous answer could not be read (fix ONLY this)\n\n"
+            + "\n".join(f"- {i}" for i in issues)
+            + "\n\nReturn ONLY the JSON object — no prose, no markdown fence.\n\n"
+        )
+    msg += "Return the skeleton as a single JSON object."
     lang = language_instruction(language)
     return f"{msg}\n\n{lang}\n" if lang else msg
 
@@ -455,10 +634,13 @@ def generate_skeleton(
     function_names: Sequence[str] | None = None,
     language: str | None = None,
     iri_base: str | None = None,
+    issues: list[str] | None = None,
 ) -> dict:
     """One guided call -> the skeleton dict (subject-only maps). Parsed here;
     structural/environment validation is the caller's gate."""
-    user = build_skeleton_user(inspection_md, domain_hint, language=language, iri_base=iri_base)
+    user = build_skeleton_user(
+        inspection_md, domain_hint, language=language, iri_base=iri_base, issues=issues
+    )
     schema = skeleton_json_schema(function_names)
     return _load_json_object(_complete_guided(llm, SKELETON_SYSTEM_PROMPT, user, schema))
 
@@ -638,6 +820,64 @@ class SkeletonProposal:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
+_SKELETON_PARSE_ROUNDS = 1
+"""How many times a skeleton whose JSON could not be read is asked again.
+
+The per-map stage already has bounded structural rounds; the skeleton had zero,
+so a model without guided decoding that emitted a stray fence turned S3 into a
+raw ``model output is not valid JSON/YAML`` error whose only exit was the person
+pressing the same button again. One retry (with the parse error fed back), then
+the deterministic default — the retries stay bounded so a model that cannot
+produce JSON does not burn a job's worth of tokens proving it."""
+
+
+def _generate_skeleton_gated(
+    inspection_md: str,
+    domain_hint: str,
+    *,
+    llm: LLMClient,
+    function_names: Sequence[str] | None,
+    language: str | None,
+    iri_base: str | None,
+    inspections: Sequence[SourceInspection],
+    dataset_name: str | None,
+) -> tuple[dict, bool]:
+    """The skeleton, with a bounded retry and a deterministic floor.
+
+    Returns ``(skeleton, used_fallback)``. Cancellation propagates untouched —
+    a person who pressed stop must not be handed a design instead.
+    """
+    issues: list[str] | None = None
+    for attempt in range(_SKELETON_PARSE_ROUNDS + 1):
+        try:
+            skeleton = generate_skeleton(
+                inspection_md,
+                domain_hint,
+                llm=llm,
+                function_names=function_names,
+                language=language,
+                iri_base=iri_base,
+                issues=issues,
+            )
+        except LLMCancelledError:
+            raise
+        except Exception as exc:  # unreadable JSON, truncation, empty answer
+            issues = [" ".join(str(exc).split())[:400]]
+            if attempt >= _SKELETON_PARSE_ROUNDS:
+                break
+            continue
+        if isinstance(skeleton.get("maps"), list) and skeleton["maps"]:
+            return skeleton, False
+        # Parsed, but says nothing — same dead end as a parse failure.
+        issues = ["the JSON object had no `maps` entries; every source needs one map"]
+        if attempt >= _SKELETON_PARSE_ROUNDS:
+            break
+    return (
+        default_skeleton(inspections, iri_base=iri_base, dataset_name=dataset_name),
+        True,
+    )
+
+
 def _resolve_function_names(function_names: Sequence[str] | None) -> list[str] | None:
     if function_names is not None:
         return list(function_names)
@@ -681,13 +921,15 @@ def propose_skeleton(
     )
     inspection_md = render_markdown(inspections, fks)
     names = _resolve_function_names(function_names)
-    skeleton = generate_skeleton(
+    skeleton, fallback = _generate_skeleton_gated(
         inspection_md,
         domain_hint,
         llm=llm,
         function_names=names,
         language=language,
         iri_base=iri_base,
+        inspections=inspections,
+        dataset_name=Path(csv_paths[0]).stem if csv_paths else None,
     )
     # Canonical namespace shape is a machine requirement, not a model skill
     # (kantan ADR K13): repair base/shape drift and derive the prefix pair
@@ -698,11 +940,14 @@ def propose_skeleton(
         iri_base,
         fallback_slug=slugify_dataset_name(Path(csv_paths[0]).stem) if csv_paths else None,
     )
+    metadata: dict[str, Any] = {"llm_class": type(llm).__name__}
+    if fallback:
+        metadata["fallback"] = True
     return SkeletonProposal(
         skeleton=skeleton,
         csv_inspection_md=inspection_md,
         domain_hint=domain_hint,
-        metadata={"llm_class": type(llm).__name__},
+        metadata=metadata,
     )
 
 
@@ -729,6 +974,9 @@ def _generate_map_properties_gated(
     record: Callable[[], None],
     owned_elsewhere: Mapping[str, str] | None = None,
     column_types: Mapping[str, str] | None = None,
+    source_columns: Sequence[str] | None = None,
+    ontology_prefix: str | None = None,
+    on_fallback: Callable[[str], None] | None = None,
 ) -> dict:
     """Generate ONE map's property table, then run a BOUNDED structural repair.
 
@@ -744,13 +992,36 @@ def _generate_map_properties_gated(
     This is the per-map arm of the ADR's "per-map runs inside the self-correction
     loop". Whole-IR concerns (CURIE/prefix, cross-map joins, column existence) are
     deliberately NOT judged here — they need the assembled IR and stay the
-    assembly-stage parse + §9 surgical repair. Truncated / unparseable output
-    degrades this map to no properties and continues (unchanged resilience: the
-    assembled IR then surfaces the gap to the full validation, exactly as the
-    single-shot round-0 would)."""
+    assembly-stage parse + §9 surgical repair.
+
+    A map whose generation fails outright — unreadable JSON, a truncated answer,
+    a reasoning-only answer, anything unexpected — degrades to the DETERMINISTIC
+    default table (this map's own columns, sourced and typed) and the run
+    continues; the other maps' results are kept either way. An empty table used
+    to make the whole entity vanish from the review screen, so one broken JSON
+    object silently cost the person a kind of thing and every column on it."""
 
     def _emit(message: str) -> None:
         emit(phase=f"map:{map_name}", index=index, total=total, message=message)
+
+    def _fallback(reason: str) -> dict:
+        table = default_property_table(
+            source_columns or [],
+            ontology_prefix=ontology_prefix or "",
+            owned_elsewhere=owned_elsewhere,
+            column_types=column_types,
+        )
+        if table["properties"] and ontology_prefix:
+            _emit(
+                f"map '{map_name}': AI が項目を書けなかったため、"
+                f"{len(table['properties'])} 列の列名をそのまま項目名にしました: {reason}"
+            )
+        else:
+            table = {"properties": []}
+            _emit(f"map '{map_name}' の生成に失敗しプロパティ無しで継続します: {reason}")
+        if on_fallback is not None:
+            on_fallback(map_name)
+        return table
 
     try:
         result = generate_map_properties(
@@ -758,10 +1029,14 @@ def _generate_map_properties_gated(
             llm=llm, function_names=function_names, language=language,
             owned_elsewhere=owned_elsewhere,
         )
-    except ValueError as exc:
-        _emit(f"map '{map_name}' の生成に失敗しプロパティ無しで継続します: {exc}")
+    except LLMCancelledError:
+        raise  # a person pressed stop — that must never become a design
+    except Exception as exc:
+        # ValueError (unreadable JSON) was the only case caught before, so a
+        # truncated or reasoning-only answer (RuntimeError subclasses) killed the
+        # whole continue job and discarded every other map's result with it.
         record()
-        return {"properties": []}
+        return _fallback(" ".join(str(exc).split())[:200])
     record()
 
     issues = structural_property_issues(
@@ -777,9 +1052,11 @@ def _generate_map_properties_gated(
                 llm=llm, function_names=function_names, issues=issues, language=language,
                 owned_elsewhere=owned_elsewhere,
             )
-        except ValueError:
-            # A truncated retry: the LLM call still happened (parse failed after
-            # completion), so record its usage like every other call, then keep the
+        except LLMCancelledError:
+            raise
+        except Exception:
+            # A failed retry (unreadable / truncated / empty): the LLM call still
+            # happened, so record its usage like every other call, then keep the
             # better prior result and stop.
             record()
             break
@@ -811,6 +1088,46 @@ def _generate_map_properties_gated(
     return result
 
 
+def _ontology_prefix(skeleton: Mapping[str, Any]) -> str:
+    """This design's own ontology CURIE prefix — where a default predicate lands.
+
+    The minted ``…/ontology#`` namespace first (K13 makes that pair
+    deterministic), then whatever prefix the skeleton's own classes use. An
+    empty result disables the default property table rather than inventing a
+    namespace: a predicate under a made-up prefix is a fact with no home.
+    """
+    prefixes = skeleton.get("prefixes")
+    if isinstance(prefixes, Mapping):
+        for name, iri in prefixes.items():
+            if str(iri).endswith("ontology#"):
+                return str(name)
+    for map_obj in skeleton.get("maps") or []:
+        if not isinstance(map_obj, Mapping):
+            continue
+        subject = map_obj.get("subject")
+        classes = subject.get("classes") if isinstance(subject, Mapping) else None
+        for cls in classes or []:
+            if isinstance(cls, str) and ":" in cls and not cls.startswith(("http://", "https://")):
+                return cls.split(":", 1)[0]
+    return ""
+
+
+def _synthesize_document(ir_yaml: str, *, dataset_name: str | None) -> str | None:
+    """The §1-9 Markdown written from the assembled spec alone, or None.
+
+    None when the spec does not parse — then there is nothing trustworthy to
+    describe and the original failure must surface as it always did.
+    """
+    try:
+        from asterism_step0.doc_synth import synthesize_document
+        from asterism_step0.mapping_ir import parse_mapping_ir
+
+        ir = parse_mapping_ir(ir_yaml)
+        return synthesize_document(ir, ir_yaml, dataset_name=dataset_name or "dataset")
+    except Exception:
+        return None
+
+
 def propose_from_skeleton(
     skeleton: Mapping[str, Any],
     inspection_md: str,
@@ -824,6 +1141,9 @@ def propose_from_skeleton(
     on_llm_call: Callable[[str], None] | None = None,
     column_owners: Mapping[str, Mapping[str, str]] | None = None,
     column_types: Mapping[str, Mapping[str, str]] | None = None,
+    map_columns: Mapping[str, Sequence[str]] | None = None,
+    dataset_name: str | None = None,
+    on_fallback: Callable[[str], None] | None = None,
 ) -> str:
     """Job 2: from a confirmed skeleton, generate each map's property table, assemble
     the full IR, generate the §1-8 document, and splice §9 in deterministically.
@@ -844,10 +1164,19 @@ def propose_from_skeleton(
     ``column_types`` maps a map name to ``{column: xsd type}`` for the columns the
     DATA proves numeric; those properties get that ``datatype`` stamped on, so a
     number never lands in the store as a string (where SPARQL compares it
-    lexically and quietly returns the wrong maximum)."""
+    lexically and quietly returns the wrong maximum).
+
+    ``map_columns`` maps a map name to ITS source's real columns; it is the raw
+    material for the deterministic default table used when a map's generation
+    fails. Omitted, the columns are recovered from ``menu`` (the api's oracle
+    already lists them per file), so the default works on every path.
+    ``on_fallback(map_name)`` fires for each map that ended up on that default —
+    the caller can record which kinds got column-name meanings."""
     names = _resolve_function_names(function_names)
     menu_text = menu if menu is not None else render_tier0_menu(names)
     context = render_skeleton_context(skeleton)
+    by_source = dict(menu_columns(menu_text)) if map_columns is None else {}
+    ontology_prefix = _ontology_prefix(skeleton)
 
     def emit(**data: Any) -> None:
         if on_progress is not None:
@@ -884,12 +1213,41 @@ def propose_from_skeleton(
             # column-ownership G6) — the gate's verdict, carried into generation.
             owned_elsewhere=(column_owners or {}).get(str(name)),
             column_types=(column_types or {}).get(str(name)),
+            source_columns=(
+                (map_columns or {}).get(str(name))
+                or by_source.get(str(map_obj.get("source") or ""))
+            ),
+            ontology_prefix=ontology_prefix,
+            on_fallback=on_fallback,
         )
 
     assembled = assemble_mapping_ir(skeleton, permaps)
     ir_yaml = mapping_ir_to_yaml(assembled)
 
     emit(phase="document", message="設計文書を生成中")
-    document_md = generate_document(ir_yaml, inspection_md, domain_hint, llm=llm, language=language)
-    record()
+    try:
+        document_md = generate_document(
+            ir_yaml, inspection_md, domain_hint, llm=llm, language=language
+        )
+        record()
+    except LLMCancelledError:
+        raise
+    except Exception as exc:
+        # §1-8 is the write-up ABOUT the design; §9 above IS the design and is
+        # already assembled. A model that ran out of tokens on the prose has not
+        # cost the person their dataset — the machine writes the prose from the
+        # spec instead of ending the run with a stop card whose only exit is the
+        # same (too long) generation again.
+        record()
+        emit(
+            phase="document",
+            message="AI の説明文が最後まで届かなかったため、設計から自動生成しました: "
+            + " ".join(str(exc).split())[:200],
+        )
+        synthesized = _synthesize_document(ir_yaml, dataset_name=dataset_name)
+        if synthesized is not None:
+            if on_fallback is not None:
+                on_fallback("document")
+            return synthesized
+        raise
     return fill_mapping_spec_block(document_md, ir_yaml)
