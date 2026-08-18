@@ -213,3 +213,72 @@ print(len(_verdict(md, src)[1]))          # 17（旧: 解読不能 2）
 print(len(_evaluate(md, src)[2]))         # 14（transform 3 件は決定論で消える）
 PY
 ```
+
+---
+
+## Addendum 2026-08-18 (夕) — v0.17.1 でまだ 4 クリック：ループが「壊れた設計」を合格にしていた
+
+### Q
+
+v0.17.1（#379+#381 入り）で再取り込みしても手動修正が 4 回発生した。自動ループは 2→4 ラウンドに増えたのに、なぜまだ人間が押すのか。
+
+### Method
+
+usage JSONL で内訳、`registry/dataset-34ce6866/history/*`（手動 4 ラウンド分のスナップショット）を
+`design_loop._verdict` にリプレイ。ループ出口＝最初のクリック時点の状態を特定。
+
+### Result
+
+```
+propose ×5 → propose.autocorrect ×4（#379 ⑤ の格上げが効いて 2→4）→ refine ×4（手動）
+```
+
+**ループ出口の設計は `_verdict` で 0 issues＝「収束」と判定されていた。** その中身：
+
+| | ループ出口 | 手動 4 回後 |
+|---|---|---|
+| `column:` | **0** | 22 |
+| `object_template:` | **25** | 2 |
+| `unit: xsd:*`（datatype の誤記） | 1 | 0 |
+
+全 25 プロパティが `object_template: .../resource/{列名}` ＝**測定値がすべて不透明な IRI に変換され、
+リテラルが 1 つも出ない設計**。体積も強度も SPARQL から取り出せない。それを全ゲートが通していた
+（列は実在し、関数は vetted、T1-T10 緑、接続性も空の入れ物も沈黙）。ユーザーの 4 クリックは、
+機械が「合格」と言った設計を人間が作り直す作業だった。
+
+沈黙の理由は `_tm_own_value_columns` が **object_template を「その行が持つ値」として数える**こと。
+全列 IRI 化した設計は「値を持っている」ように見え、空の入れ物検査(G14)をすり抜ける。
+
+⚠ 正直な自己評価: これは **#379 ⑥（文法で object form を必須化）が失敗モードを移した**可能性が高い。
+「object form 無し」を生成不能にしたら、今度は「間違った object form」に逃げた。壊れ方が検査の外へ移動した。
+
+### 方針転換
+
+静的検査を 9 個目に増やすのをやめ、**結果（outcome）を見る**検査にした。壊れ方の形ではなく
+「値が取り出せるか」を問うので、次に別の形で壊れても同じ検査が捕まえる。
+
+| # | 修正 | 検証 |
+|---|---|---|
+| ⑧ | `_no_literal_advisories`: 列を読んでいるのにリテラルを 1 つも出さないマップ／設計を報告。R2RML の既定に忠実（template は既定 IRI・reference と関数パイプラインと datatype/language はリテラル）。**データが無いときは沈黙**（「値が届かない」はデータについての主張なので） | 実データのループ出口が **0 → 1 issue** で捕まる。正しい設計・関数経由の値・純リンクマップ・最小フィクスチャは誤検知ゼロ |
+| ⑨ | `unit: xsd:*` → `datatype:` へ決定論移送。`unit` は表示文字列で、`xsd:` が入るのは必ず誤記 | 単体テスト＋実データ |
+| ⑩ | `repair_design()`: 手動経路（refine → materialize）にも決定論修復と data-fact 再主張を通す。**それまで `_overlay_data_facts` と `_REPAIRS` は `run_design_loop` の中にしか無く、クリックのたびに機械が確定させた型が消えていた** | 実データで datatype **1 → 7 本**が LLM 0 コールで復活 |
+| ⑪ | `_column_datatypes` が keyvalue プリアンブルの broadcast 列（Volume/RIR(I/Ic)/Dcalc/Z value）を見落としていた。`ins.columns` ではなく実際の行のキーを使う＋`source_kind != csv` で切らない。**方言は spec に固定済みのものを使う**（再検出すると `preamble: drop` になり列ごと消える） | 上記 7 本のうち 4 本はこれが無いと拾えない |
+
+### Limitations
+
+- ⑧ は advisory（人間が判断）であって hard gate ではない。純クロスウォークのような正当なリンク専用設計があるため
+- round 0 でモデルが壊れること自体は防げない。防ぐのは「壊れたまま合格と言われること」
+- 「今度こそ大丈夫」とは言えない。⑧ は形に依存しない分これまでより広く効くが、保証ではない
+
+### Reproduce
+
+```bash
+PYTHONPATH=api/src:step0/src:ingest/src python - <<'PY'
+from pathlib import Path
+from asterism_api.design_loop import _verdict, repair_design
+reg = Path.home()/"Library/Application Support/Asterism/sources/registry"
+src = reg/"_staging/c44c8acc-22df-465d-a301-486c773ed1a7"
+md = (reg/"dataset-34ce6866/history/20260818T051028Z/proposal.md").read_text()
+print(len(_verdict(md, src)[1]))   # 旧 0 → 新 1（リテラル皆無を検出）
+PY
+```

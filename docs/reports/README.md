@@ -41,3 +41,4 @@ verdict, add a dated addendum rather than silently editing the numbers.
 | 2026-07-07 | [↳ Phase 2a addendum — guided JSON surgical repair](mapping-ir-compiler-equivalence.md#addendum-2026-07-07--phase-2a-guided-json-surgical-repair-live-probe) | ✅ one guided call repairs all invention families; Sakura vLLM accepts json_schema natively |
 | 2026-08-16 | [「確かめる」の人間クリックは機械が回せていなかったラウンド](traps-in-autocorrect-loop.md) | ✅ 実弱モデル出力 7/7 がトラップ不合格＝ループのオラクル漏れを確認 → T1-T10 を合流 |
 | 2026-08-18 | [↳ addendum — v0.17.0 でまだ 5 クリック：列名 `No`→`False`・surgical 即停止・文法の穴・attach 前の盲目](traps-in-autocorrect-loop.md#addendum-2026-08-18--v0170-でまだ-5-クリック3-段目round-0-の崩壊4-つの構造欠陥) | ✅ 実データ: 解読不能 2 件 → 実列付き 17 件、transform 3 件は LLM 0 コールで消える。vLLM のスキーマ受理のみライブ未確認 |
+| 2026-08-18 | [↳ addendum — ループが「値が 1 つも出ない設計」を合格にしていた](traps-in-autocorrect-loop.md) | ✅ 検査を「仕様の形」から「結果＝値が取り出せるか」へ転換。実データのループ出口が 0→1 issue で捕まる・型 1→7 本が LLM 0 コールで復活 |

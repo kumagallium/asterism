@@ -187,3 +187,83 @@ def test_a_real_transform_survives(tmp_path: Path) -> None:
     repaired_md, _, after = _evaluate(md, tmp_path)
     assert after == []
     assert "SID: slug" in repaired_md
+
+
+# ---- the manual path gets the same treatment (2026-08-18) ---------------------
+
+_KV = (
+    b"No: 03-065-2664\nVolume: 118.845\nZ value: 2\n"
+    b"---------------- d-I list\n"
+    b"2theta d I\n21.34 4.161 5.0\n40.07 2.248 100.0\n"
+)
+
+
+def _kv_spec(datatypes: bool) -> str:
+    dt_vol = "        datatype: xsd:double\n" if datatypes else ""
+    return (
+        "## Schema proposal\n\n### 9. Declarative mapping spec\n\n"
+        "```yaml\n"
+        "version: 1\n"
+        "prefixes:\n"
+        '  ex: "https://ns.invalid/ns#"\n'
+        '  exr: "https://ns.invalid/r/"\n'
+        "maps:\n"
+        "  - name: card\n"
+        "    source: card.txt\n"
+        "    subject:\n"
+        '      template: "exr:card/{No}"\n'
+        "      classes: [ex:Card]\n"
+        "    properties:\n"
+        "      - predicate: ex:volume\n"
+        "        column: Volume\n"
+        f"{dt_vol}"
+        "dialects:\n"
+        "  card.txt:\n"
+        "    encoding: utf-8\n"
+        "    delimiter: whitespace\n"
+        "    collapse: true\n"
+        "    skip_rows: 4\n"
+        "    preamble: keyvalue\n"
+        "```\n"
+    )
+
+
+def test_repair_design_retypes_a_preamble_column_the_manual_round_dropped(
+    tmp_path: Path,
+) -> None:
+    """The manual "AI に直してもらう" path (refine → materialize) never ran the
+    loop's fact re-assertion, so each click could un-type a column the data had
+    already proven numeric — which came back as an advisory and invited the next
+    click. The column lives in the key/value PREAMBLE, visible only through the
+    spec's pinned dialect (a fresh detection reads it as `preamble: drop`)."""
+    from asterism_api.design_loop import repair_design
+
+    (tmp_path / "card.txt").write_bytes(_KV)
+    stripped = _kv_spec(datatypes=False)
+    assert "datatype: xsd:double" not in stripped
+
+    repaired = repair_design(stripped, tmp_path)
+    assert "datatype: xsd:double" in repaired  # re-asserted, zero LLM calls
+    # Idempotent: a second pass changes nothing.
+    assert repair_design(repaired, tmp_path).count("datatype: xsd:double") == 1
+
+
+def test_repair_design_is_a_no_op_without_a_readable_source(tmp_path: Path) -> None:
+    from asterism_api.design_loop import repair_design
+
+    md = _kv_spec(datatypes=False)
+    assert repair_design(md, tmp_path / "nope") == md
+
+
+def test_xsd_written_into_unit_moves_to_datatype(tmp_path: Path) -> None:
+    """``unit`` is a display string; an ``xsd:`` term there is the datatype one
+    line too low (live: ``unit: xsd:integer``). Exactly one thing it can mean."""
+    (tmp_path / "data.csv").write_bytes(_CSV)
+    md = _spec().replace(
+        "      - predicate: ex:zValue\n        column: Z value\n",
+        "      - predicate: ex:zValue\n        column: Z value\n        unit: xsd:integer\n",
+    )
+    repaired_md, _, after = _evaluate(md, tmp_path)
+    assert after == []
+    assert "unit: xsd:integer" not in repaired_md
+    assert "datatype: xsd:integer" in repaired_md
