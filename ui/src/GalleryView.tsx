@@ -40,7 +40,6 @@ import {
   datasetStage,
   deleteDataset,
   type DatasetRules,
-  type DocumentAppendResult,
   getAlignment,
   getCatalogDatasets,
   getDatasetRules,
@@ -1565,6 +1564,7 @@ function DatasetDetail({
                 meta={dataset.live.meta}
                 onChanged={onChanged}
                 onRedesign={onRedesign}
+                onAddData={onAddData}
                 labels={termLabels}
                 focus={focusCtl}
                 onFocus={setFocusCtl}
@@ -1801,12 +1801,18 @@ function IngestError({
   errorKey,
   meta,
   onRedesign,
+  onAddData,
   labels,
 }: {
   err: unknown
   errorKey: string
   meta: LiveDataset['meta']
   onRedesign?: (target: RedesignTarget) => void
+  /** Carried down so the dataset with no stored design keeps its ONE exit here
+   *  too: this branch renders RedesignControl, whose review button is disabled
+   *  for exactly those datasets — without it the reader is told to start over
+   *  with nothing to press. */
+  onAddData?: () => void
   labels?: TermLabels
 }) {
   const { t } = useTranslation()
@@ -1835,7 +1841,12 @@ function IngestError({
           </ul>
         </details>
         {onRedesign && (
-          <RedesignControl meta={meta} onRedesign={onRedesign} advisories={err.issues} />
+          <RedesignControl
+            meta={meta}
+            onRedesign={onRedesign}
+            onAddData={onAddData}
+            advisories={err.issues}
+          />
         )}
       </div>
     )
@@ -2035,6 +2046,7 @@ function IngestControl({
           errorKey="gallery:ingest.error"
           meta={meta}
           onRedesign={onRedesign}
+          onAddData={onAddData}
           labels={labels}
         />
       )}
@@ -2056,6 +2068,7 @@ function GrowBlock({
   meta,
   onChanged,
   onRedesign,
+  onAddData,
   labels,
   focus,
   onFocus,
@@ -2063,6 +2076,8 @@ function GrowBlock({
   meta: LiveDataset['meta']
   onChanged: () => void
   onRedesign?: (target: RedesignTarget) => void
+  /** The exit for a dataset whose design was never stored — see IngestError. */
+  onAddData?: () => void
   labels?: TermLabels
   focus: ControlFocus
   onFocus: (ctl: ControlFocus) => void
@@ -2095,6 +2110,7 @@ function GrowBlock({
       meta={meta}
       onChanged={onChanged}
       onRedesign={onRedesign}
+      onAddData={onAddData}
       labels={labels}
       embedded
       focus={focus === 'reingest'}
@@ -2110,6 +2126,7 @@ function GrowBlock({
           meta={meta}
           onChanged={onChanged}
           onRedesign={onRedesign}
+          onAddData={onAddData}
           labels={labels}
           focus={focus === 'reingest'}
         />
@@ -2272,7 +2289,10 @@ function DocumentAppendControl({
   useFocusScroll(focus, rootRef)
   const [files, setFiles] = useState<File[]>([])
   const [busy, setBusy] = useState(false)
-  const [done, setDone] = useState<{ docs: number; triples: number } | null>(null)
+  // K12: what was added is counted in DOCUMENTS. The triple total the server
+  // returns per batch is a number about our storage, not about the user's work,
+  // so it is not carried here at all.
+  const [done, setDone] = useState<{ docs: number } | null>(null)
   const [prog, setProg] = useState<{ i: number; n: number } | null>(null)
   const [err, setErr] = useState<unknown>(null)
 
@@ -2294,15 +2314,13 @@ function DocumentAppendControl({
     setErr(null)
     setDone(null)
     setProg(null)
-    let triples = 0
     try {
       // Append each document sequentially (one POST-merge per doc into the live graph).
       for (let i = 0; i < files.length; i++) {
         setProg({ i: i + 1, n: files.length })
-        const r: DocumentAppendResult = await appendDocument(meta.id, files[i])
-        triples += r.triples_in_batch
+        await appendDocument(meta.id, files[i])
       }
-      setDone({ docs: files.length, triples })
+      setDone({ docs: files.length })
       setFiles([])
       onChanged() // triple counts / doc count changed — refresh the catalog
     } catch (e) {
@@ -2519,6 +2537,7 @@ function ReingestControl({
   meta,
   onChanged,
   onRedesign,
+  onAddData,
   labels,
   embedded,
   focus,
@@ -2526,6 +2545,8 @@ function ReingestControl({
   meta: LiveDataset['meta']
   onChanged: () => void
   onRedesign?: (target: RedesignTarget) => void
+  /** The exit for a dataset whose design was never stored — see IngestError. */
+  onAddData?: () => void
   labels?: TermLabels
   embedded?: boolean
   focus?: boolean
@@ -2702,6 +2723,7 @@ function ReingestControl({
           errorKey="gallery:reingest.error"
           meta={meta}
           onRedesign={onRedesign}
+          onAddData={onAddData}
           labels={labels}
         />
       )}
