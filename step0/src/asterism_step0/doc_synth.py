@@ -36,7 +36,7 @@ Two hard rules, both from the "citable facts" invariant:
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping
 
 __all__ = [
     "keyword_candidates",
@@ -367,25 +367,15 @@ def _iri_scheme_md(ir: object) -> list[str]:
     return lines
 
 
-def synthesize_document(
-    ir: object,
-    ir_yaml: str,
-    *,
-    dataset_name: str,
-    sections: Sequence[str] | None = None,
-) -> str:
+def synthesize_document(ir: object, ir_yaml: str, *, dataset_name: str) -> str:
     """The whole §1-§9 Markdown, deterministically, from a parsed IR.
 
     Used when the document stage failed outright (truncated / empty answer):
     the design itself already exists, so the run finishes instead of asking a
     model that just ran out of tokens to try the same long write-up again.
-    ``sections`` is accepted for symmetry with partial synthesis but currently
-    only documents intent — the whole document is emitted.
     """
     from asterism_step0.ir2mermaid import build_graph_from_ir, property_table_md
     from asterism_step0.ttl2mermaid import render_mermaid_body
-
-    del sections  # whole-document synthesis; kept for call-site readability
 
     mermaid = render_mermaid_body(build_graph_from_ir(ir)).rstrip("\n")  # type: ignore[arg-type]
     table = property_table_md(ir) or ""  # type: ignore[arg-type]

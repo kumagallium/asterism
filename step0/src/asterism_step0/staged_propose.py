@@ -44,6 +44,8 @@ from asterism_step0.language import language_instruction
 from asterism_step0.llm import (
     LLMCancelledError,
     LLMClient,
+    LLMEmptyOutputError,
+    LLMTruncatedError,
     as_completion,
 )
 from asterism_step0.mapping_ir import structural_property_issues
@@ -359,6 +361,14 @@ def render_tier0_menu(function_names: Sequence[str] | None) -> str:
 # exists to end. These builders are LLM-free and never invent a column.
 
 _MEASUREMENT_TYPES = frozenset({"xsd:double", "xsd:float", "xsd:decimal"})
+
+# The failures a deterministic default may stand in for: the model ANSWERED and
+# the answer was unusable (unreadable JSON, cut off, empty). Everything else —
+# a bad key, an unreachable endpoint, a rate limit, a model name that does not
+# exist — means no AI ran at all, and quietly handing back a machine-written
+# design would hide a misconfiguration the person can actually fix (the very
+# thing the llm error codes exist to tell them). Those propagate, as before.
+_UNUSABLE_ANSWER = (ValueError, LLMTruncatedError, LLMEmptyOutputError)
 _MENU_COLUMNS_RE = re.compile(r"^\s*[•*-]\s*(?P<name>.+?)\s+[—-]+\s+columns:\s*(?P<cols>.+?)\s*$")
 
 
@@ -413,6 +423,10 @@ def default_property_table(
     AI again. Column names are a poor ontology and a perfectly good starting
     point — every value is carried, sourced, and typed, and the review screen's
     per-property fields are where the wording gets fixed.
+
+    Two columns whose names differ only in punctuation (``T (K)`` / ``T(K)``)
+    slug to the same predicate; the later one is numbered rather than dropped,
+    because losing a column here is the exact harm this table exists to prevent.
     """
     from asterism_step0.units import extract_unit_from_label
 
@@ -424,9 +438,12 @@ def default_property_table(
         name = str(column)
         if not name or name in owned:
             continue  # another map owns this value; a copy here is the same fact twice
-        predicate = f"{ontology_prefix}:{_identifier(name)}"
-        if predicate in seen:
-            continue
+        stem = f"{ontology_prefix}:{_identifier(name)}"
+        predicate = stem
+        n = 1
+        while predicate in seen:
+            n += 1
+            predicate = f"{stem}{n}"
         seen.add(predicate)
         row: dict[str, Any] = {"predicate": predicate, "column": name}
         datatype = types.get(name)
@@ -844,8 +861,10 @@ def _generate_skeleton_gated(
 ) -> tuple[dict, bool]:
     """The skeleton, with a bounded retry and a deterministic floor.
 
-    Returns ``(skeleton, used_fallback)``. Cancellation propagates untouched —
-    a person who pressed stop must not be handed a design instead.
+    Returns ``(skeleton, used_fallback)``. Only an unusable ANSWER
+    (:data:`_UNUSABLE_ANSWER`) reaches the floor: cancellation, a bad key and an
+    unreachable provider propagate untouched, because a person who pressed stop
+    — or whose AI never ran — must not be handed a design instead.
     """
     issues: list[str] | None = None
     for attempt in range(_SKELETON_PARSE_ROUNDS + 1):
@@ -861,7 +880,7 @@ def _generate_skeleton_gated(
             )
         except LLMCancelledError:
             raise
-        except Exception as exc:  # unreadable JSON, truncation, empty answer
+        except _UNUSABLE_ANSWER as exc:  # unreadable JSON, truncation, empty answer
             issues = [" ".join(str(exc).split())[:400]]
             if attempt >= _SKELETON_PARSE_ROUNDS:
                 break
@@ -994,12 +1013,14 @@ def _generate_map_properties_gated(
     deliberately NOT judged here — they need the assembled IR and stay the
     assembly-stage parse + §9 surgical repair.
 
-    A map whose generation fails outright — unreadable JSON, a truncated answer,
-    a reasoning-only answer, anything unexpected — degrades to the DETERMINISTIC
-    default table (this map's own columns, sourced and typed) and the run
-    continues; the other maps' results are kept either way. An empty table used
-    to make the whole entity vanish from the review screen, so one broken JSON
-    object silently cost the person a kind of thing and every column on it."""
+    A map whose ANSWER is unusable — unreadable JSON, a truncated answer, a
+    reasoning-only answer (:data:`_UNUSABLE_ANSWER`) — degrades to the
+    DETERMINISTIC default table (this map's own columns, sourced and typed) and
+    the run continues; the other maps' results are kept either way. An empty
+    table used to make the whole entity vanish from the review screen, so one
+    broken JSON object silently cost the person a kind of thing and every column
+    on it. A provider failure (bad key, unreachable, rate limit) still
+    propagates: no AI ran, and that is something the person must be told."""
 
     def _emit(message: str) -> None:
         emit(phase=f"map:{map_name}", index=index, total=total, message=message)
@@ -1031,7 +1052,7 @@ def _generate_map_properties_gated(
         )
     except LLMCancelledError:
         raise  # a person pressed stop — that must never become a design
-    except Exception as exc:
+    except _UNUSABLE_ANSWER as exc:
         # ValueError (unreadable JSON) was the only case caught before, so a
         # truncated or reasoning-only answer (RuntimeError subclasses) killed the
         # whole continue job and discarded every other map's result with it.
@@ -1054,7 +1075,7 @@ def _generate_map_properties_gated(
             )
         except LLMCancelledError:
             raise
-        except Exception:
+        except _UNUSABLE_ANSWER:
             # A failed retry (unreadable / truncated / empty): the LLM call still
             # happened, so record its usage like every other call, then keep the
             # better prior result and stop.

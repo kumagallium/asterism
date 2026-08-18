@@ -285,6 +285,15 @@ def test_default_property_table_carries_columns_units_and_types() -> None:
     assert rho["label"] == "Resistivity"
 
 
+def test_default_property_table_keeps_columns_that_slug_alike() -> None:
+    """Punctuation-only differences must not silently cost a column."""
+    table = default_property_table(["sample id", "sample_id"], ontology_prefix="ex")
+    assert [(p["predicate"], p["column"]) for p in table["properties"]] == [
+        ("ex:sampleId", "sample id"),
+        ("ex:sampleId2", "sample_id"),
+    ]
+
+
 def test_fallback_is_skipped_when_the_design_has_no_namespace_of_its_own() -> None:
     """No minted prefix means no home for a predicate — invent nothing."""
     skeleton = {
@@ -340,6 +349,39 @@ def test_skeleton_retry_that_parses_is_used(tmp_path: Path) -> None:
     proposal = propose_skeleton(list(paths), "demo", llm=llm, iri_base="https://x.test")
     assert "fallback" not in proposal.metadata
     assert [m["name"] for m in proposal.skeleton["maps"]] == ["thing", "part"]
+
+
+def test_provider_failure_is_never_turned_into_a_design(tmp_path: Path) -> None:
+    """A dead AI must surface as a failure, not as a machine-written design.
+
+    The deterministic floor stands in for an unusable ANSWER. A bad key or an
+    unreachable endpoint means no model ran at all: falling back there would
+    hide the one problem the person can actually fix (and would hand them a
+    design they believe an AI made).
+    """
+    paths = _write_sources(tmp_path)
+
+    class AuthenticationError(Exception):
+        pass
+
+    def handler(system: str, user: str) -> str:
+        raise AuthenticationError("invalid api key")
+
+    with pytest.raises(AuthenticationError):
+        propose_skeleton(list(paths), "demo", llm=_Mock(handler), iri_base="https://x.test")
+
+
+def test_provider_failure_during_a_map_is_not_a_default_table() -> None:
+    class APIConnectionError(Exception):
+        pass
+
+    def handler(system: str, user: str) -> str:
+        if system == PERMAP_SYSTEM_PROMPT:
+            raise APIConnectionError("connection reset")
+        raise AssertionError(system)
+
+    with pytest.raises(APIConnectionError):
+        propose_from_skeleton(_SKELETON, "# insp", "demo", llm=_Mock(handler), menu=_MENU)
 
 
 def test_cancel_during_the_skeleton_is_never_turned_into_a_design(tmp_path: Path) -> None:

@@ -587,9 +587,15 @@ def materialize_schema(
             _diagram_from_ir(result, mapping_ir)
             # …and, for the same reason, so does any prose section the model
             # failed to write. Best-effort by design: a synthesis bug must never
-            # take down a materialize that would otherwise have succeeded.
-            with contextlib.suppress(Exception):
+            # take down a materialize that would otherwise have succeeded — but
+            # it says so, because a silently skipped repair is how a stop card
+            # comes back with nobody able to explain it.
+            try:
                 _complete_sections(result, mapping_ir, dataset_name)
+            except Exception as exc:  # never fail the materialize over the write-up
+                result.notes.append(
+                    f"Could not complete the written sections from the mapping spec: {exc}"
+                )
     else:
         # Legacy raw-RML artifact. Turtle is unambiguous in a proposal (only
         # the RML block uses it), so a lone turtle block routes by language.
