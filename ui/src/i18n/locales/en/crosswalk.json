@@ -3,25 +3,28 @@
     "back": "Back",
     "seeMap": "View overview",
     "bannerTitle": "Connections",
-    "bannerSub": "There is more than one way to connect. Even for the same data, <0>which value you connect on</0> makes a different connection. You can keep each as <1>its own connection</1>, and questions work across all of them automatically.",
+    "bannerSub": "When two datasets hold the same value (a sample name, a composition…), you can use it to <0>ask questions across both</0>. There is more than one way to connect, and you can keep each as <1>its own connection</1>.",
     "loading": "Loading…",
     "empty": {
       "title": "No connections yet",
-      "sub": "Look for values that appear in two or more of your datasets, and build a connection from them.",
+      "sub": "Look for values that appear in two or more of your datasets, and build a connection from them. No AI involved.",
       "btn": "Look for pairs that could connect",
-      "manual": "Choose the combination myself"
+      "manual": "Choose the combination myself",
+      "needTwo": "Available once you have two or more published datasets (you have {{count}}).",
+      "addBtn": "Add data"
     },
     "unnamed": "Unnamed connection",
     "retryBtn": "Load again",
     "perspectiveHead": "Your connections",
-    "perspectiveHint": "{{count}} · each a different way to connect",
+    "perspectiveHint": "{{count}} connections · each a different way to connect",
     "perspMeta": "{{shared}} matched · {{count}} datasets",
     "summary": {
       "sharedValues": "Values found in both",
       "participants": "Connected data",
       "concepts": "What they connect on",
-      "note": "\"Values found in both\" is how many \"{{concept}}\" values matched across datasets (separate from the total number of facts). \"What they connect on\" is how many things this connection matches by."
+      "note": "\"Values found in both\" is how many values matched on what they connect on."
     },
+    "askLead": "You can ask questions across this connection.",
     "conceptHead": "Connects on \"{{name}}\"",
     "normalizerHint": "Treated as the same when: {{normalizer}}",
     "compoundKeyHint": "Connects when {{parts}} all match",
@@ -50,6 +53,7 @@
     "tooFew": {
       "title": "Connecting needs two published datasets",
       "sub": "You have {{count}} published right now. Add and publish one more and you can connect them here.",
+      "subNone": "You have none published yet. Add and publish two and you can connect them here.",
       "addBtn": "Add data",
       "seeBtn": "See your connections"
     },
@@ -100,7 +104,7 @@
       "partField": "{{field}} in {{name}}",
       "whatHead": "Data that connects",
       "onHead": "Connected on",
-      "matchHead": "Values that match",
+      "matchHead": "Values found in both",
       "nameLabel": "Name for this connection",
       "namePlaceholder": "e.g. connect on composition",
       "nameHint": "It will appear under \"your connections\" with this name. You can rebuild it later.",
@@ -118,10 +122,12 @@
       "stat": "<0>{{shared}}</0> values were shared across <1>{{count}}</1> datasets.",
       "skipped": "{{names}} did not join this time (not published). Publish it again and it comes back the next time you rebuild.",
       "askLead": "Try asking something across them.",
-      "askHint": "Tapping one fills the question box. Whether to send it is up to you.",
+      "askHint": "Tapping one opens the question screen with the question filled in. Whether to send it is up to you.",
       "askQ1": "Which datasets have {{value}}?",
       "askQ2": "List the {{label}} found in both {{a}} and {{b}}.",
+      "askQ2Plain": "List the values found in both {{a}} and {{b}}.",
       "askQ3": "Which {{label}} match across two or more datasets?",
+      "askQ3Plain": "Which values match across two or more datasets?",
       "seeBtn": "See this connection",
       "againBtn": "Build another"
     },
@@ -289,7 +295,7 @@
       "fetchAlignments": "Loading the matches between connections",
       "align": "Matching up two connections",
       "unalign": "Undoing the match",
-      "previewNormalizer": "Normalization preview",
+      "previewNormalizer": "Checking what counts as the same value",
       "discover": "Looking for pairs that could connect"
     }
   }

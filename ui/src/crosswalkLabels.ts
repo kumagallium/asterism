@@ -100,6 +100,16 @@ export function conceptName(name: string, label?: string): string | undefined {
   return PLACEHOLDER_KEY.test(name) ? undefined : conceptLabel(name)
 }
 
+/** The label to put INSIDE a sentence a person is about to send (a try-it question),
+ * or `undefined` when there is none. Stricter than `conceptDisplay` on purpose: a
+ * heading may fall back to the humanised key (`composition`), because a heading is
+ * read as a caption over evidence — but the same word inside a Japanese question
+ * reads as an identifier that leaked. Only the label the SERVER resolved from the
+ * design (K8) counts here; without it the caller asks about "values" instead. */
+export function conceptSentenceLabel(source: { concept_label?: string }): string | undefined {
+  return (source.concept_label ?? '').trim() || undefined
+}
+
 /** Did folding buy anything? Returns how many the strictest rung matched vs the chosen
  * one, so a card can say "as they are 12; ignoring case and width, 215". Undefined
  * when the strict rung already found everything (nothing worth saying). */
@@ -115,22 +125,39 @@ export function foldingGain(
 /** Try-it questions built from the candidate's own data (templates are i18n, values
  * are real). Returned as {key, values} so the caller resolves them in its language.
  * `label` is what the caller already shows as "what they connect on" — passed in so
- * the questions never disagree with the card above them. */
+ * the questions never disagree with the card above them, and `undefined` when there
+ * is no such word (the questions then ask about "values", never about a key). */
 export function askQuestionsFor(
   candidate: DiscoverCandidate,
-  label: string,
+  label: string | undefined,
 ): { key: string; values: Record<string, string> }[] {
-  const value = candidate.samples[0]?.key ?? ''
+  const sample = candidate.samples[0]
+  // The card shows the value AS ONE DATASET SPELLS IT; `key` is the folded join key
+  // (`Bi₂Te₃` vs `bi2te3`). A question about the folded form would put a string that
+  // exists nowhere in the person's data into their question box — and simply swapping
+  // the spelling in is not an option either, because the hub labels its values with
+  // the folded key, so the answer would come back empty. So this question is offered
+  // only when folding changed nothing.
+  const raw = sample ? (Object.values(sample.raw)[0] ?? '') : ''
+  const key = sample?.key ?? ''
+  const spellingKept = candidate.normalizer === 'identity' || (!!raw && raw === key)
   const names = candidate.participants.map((p) => p.name)
   const out: { key: string; values: Record<string, string> }[] = []
-  if (value) out.push({ key: 'crosswalk:create.done.askQ1', values: { value } })
-  if (names.length >= 2) {
-    out.push({
-      key: 'crosswalk:create.done.askQ2',
-      values: { a: names[0], b: names[1], label },
-    })
+  if (key && spellingKept) {
+    out.push({ key: 'crosswalk:create.done.askQ1', values: { value: raw || key } })
   }
-  out.push({ key: 'crosswalk:create.done.askQ3', values: { label } })
+  if (names.length >= 2) {
+    out.push(
+      label
+        ? { key: 'crosswalk:create.done.askQ2', values: { a: names[0], b: names[1], label } }
+        : { key: 'crosswalk:create.done.askQ2Plain', values: { a: names[0], b: names[1] } },
+    )
+  }
+  out.push(
+    label
+      ? { key: 'crosswalk:create.done.askQ3', values: { label } }
+      : { key: 'crosswalk:create.done.askQ3Plain', values: {} },
+  )
   return out
 }
 

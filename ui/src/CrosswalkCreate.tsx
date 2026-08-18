@@ -12,6 +12,7 @@ import {
 import {
   askQuestionsFor,
   conceptDisplay,
+  conceptSentenceLabel,
   crosswalkError,
   flagKey,
   foldingGain,
@@ -228,7 +229,9 @@ export function CrosswalkCreate({
             <>
               <p className="kz-note">{t('crosswalk:create.done.askLead')}</p>
               <div className="kz-q-options">
-                {askQuestionsFor(picked, labelOf(picked)).map((q) => {
+                {/* Not `labelOf`: with no human word for what they connect on, the
+                    questions ask about "values" rather than naming the key. */}
+                {askQuestionsFor(picked, conceptSentenceLabel(picked)).map((q) => {
                   const text = t(q.key, q.values)
                   return (
                     <button
@@ -423,8 +426,11 @@ export function CrosswalkCreate({
       {!scanErr && tooFew && (
         <div className="state-block">
           <p className="state-title">{t('crosswalk:create.tooFew.title')}</p>
+          {/* "One more" is only true when there IS one. With none published, say two. */}
           <p className="state-sub">
-            {t('crosswalk:create.tooFew.sub', { count: scanned?.datasets.length ?? 0 })}
+            {(scanned?.datasets.length ?? 0) === 0
+              ? t('crosswalk:create.tooFew.subNone')
+              : t('crosswalk:create.tooFew.sub', { count: scanned?.datasets.length ?? 0 })}
           </p>
           <div className="kz-actions">
             {onAddData && (

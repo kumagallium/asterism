@@ -15,6 +15,7 @@ import { CrosswalkBuilder, type CrosswalkSeed } from './CrosswalkBuilder'
 import { CrosswalkCreate } from './CrosswalkCreate'
 import {
   conceptName,
+  conceptSentenceLabel,
   crosswalkError,
   perspectiveDisplayName,
   sameAsKey,
@@ -67,6 +68,10 @@ export function CrosswalkView({
   // dataset_id -> the dataset's CURRENT name. The saved config keeps ids + an ascii
   // label; the screen has to show what the dataset is called today.
   const [dsNames, setDsNames] = useState<Record<string, string>>({})
+  // How many datasets are published right now, or null while unknown (not fetched
+  // yet, or the fetch failed). Connecting needs two, and saying so up front beats
+  // letting someone start a scan that can only end in a refusal.
+  const [publishedCount, setPublishedCount] = useState<number | null>(null)
 
   function load() {
     getCrosswalks()
@@ -90,6 +95,8 @@ export function CrosswalkView({
           if (d.live?.meta.id) names[d.live.meta.id] = d.name
         }
         setDsNames(names)
+        // Hubs are not candidates for connecting, so they do not count.
+        setPublishedCount(all.filter((d) => !d.isCrosswalk && d.statusKind === 'pub').length)
       })
       .catch(() => undefined)
     return () => {
@@ -154,6 +161,36 @@ export function CrosswalkView({
   const concepts = selected?.config?.concepts ?? []
   const participants = concepts.flatMap((c) => c.participants)
   const shared = selected?.dataset?.crosswalk_shared_compositions
+  /** Known to be short of the two published datasets connecting needs. `null` means
+   * "not known", which is deliberately NOT "too few" (fail open). */
+  const tooFewPublished = publishedCount !== null && publishedCount < 2
+
+  /** Try-it questions for the connection on screen — the "what now?" the just-built
+   * screen offers, kept available for a connection someone comes back to. The words
+   * are the datasets' current names plus the SERVER-resolved label for what they
+   * connect on; without that label the questions ask about "values" instead, so no
+   * key ever reaches a question box. */
+  const askQuestions: string[] = (() => {
+    const c = concepts[0]
+    if (!c) return []
+    const label = conceptSentenceLabel(c)
+    const names = c.participants.map((p) => dsName(p.dataset_id, p.name || p.label))
+    const out: string[] = []
+    if (names.length >= 2) {
+      const values = { a: names[0], b: names[1], label }
+      out.push(
+        label
+          ? t('crosswalk:create.done.askQ2', values)
+          : t('crosswalk:create.done.askQ2Plain', values),
+      )
+    }
+    out.push(
+      label
+        ? t('crosswalk:create.done.askQ3', { label })
+        : t('crosswalk:create.done.askQ3Plain'),
+    )
+    return out
+  })()
 
   /** Open the detail form, optionally seeded from a candidate the guided flow found.
    * `seedKey` forces a remount because the builder restores its state once, on mount. */
@@ -258,13 +295,27 @@ export function CrosswalkView({
                 : t('crosswalk:create.bandTitle')}
             </p>
             <p className="xw-create-band-sub">
-              {list.length === 0 ? t('crosswalk:view.empty.sub') : t('crosswalk:create.bandSub')}
+              {tooFewPublished
+                ? t('crosswalk:view.empty.needTwo', { count: publishedCount })
+                : list.length === 0
+                  ? t('crosswalk:view.empty.sub')
+                  : t('crosswalk:create.bandSub')}
             </p>
           </div>
           <div className="xw-create-band-actions">
-            <button type="button" onClick={() => onCreateMode?.(true)}>
-              {t('crosswalk:view.empty.btn')}
-            </button>
+            {/* With fewer than two published datasets the scan can only end in a
+                refusal, so the offer becomes the step that actually helps. Only when
+                the count is KNOWN: an unread or failed catalog leaves the search
+                button alone rather than blocking on a guess. */}
+            {tooFewPublished && onAddData ? (
+              <button type="button" onClick={onAddData}>
+                {t('crosswalk:view.empty.addBtn')}
+              </button>
+            ) : (
+              <button type="button" onClick={() => onCreateMode?.(true)}>
+                {t('crosswalk:view.empty.btn')}
+              </button>
+            )}
             <button
               type="button"
               className="btn btn--ghost btn--sm"
@@ -320,14 +371,9 @@ export function CrosswalkView({
                   <span className="xw-summary-label">{t('crosswalk:view.summary.concepts')}</span>
                 </div>
               </div>
-              <p className="xw-summary-note">
-                {t('crosswalk:view.summary.note', {
-                  concept: concepts[0]
-                    ? (conceptName(concepts[0].name, concepts[0].concept_label) ??
-                      t('crosswalk:create.sharedValueLabel'))
-                    : '—',
-                })}
-              </p>
+              {/* One sentence, no interpolation: what the big number counts. The rest
+                  of what the stats mean is the card underneath, not a caption. */}
+              <p className="xw-summary-note">{t('crosswalk:view.summary.note')}</p>
 
               {concepts.map((c) => (
                 <div className="xw-concept" key={c.name}>
@@ -384,6 +430,27 @@ export function CrosswalkView({
                   </div>
                 </div>
               ))}
+
+              {/* The point of having a connection, said where someone lands when they
+                  come back to it later — the same offer the just-built screen makes. */}
+              {onOpenAsk && askQuestions.length > 0 && (
+                <>
+                  <p className="kz-note">{t('crosswalk:view.askLead')}</p>
+                  <div className="kz-q-options">
+                    {askQuestions.map((q) => (
+                      <button
+                        key={q}
+                        type="button"
+                        className="kz-pill"
+                        onClick={() => onOpenAsk(q)}
+                      >
+                        {q}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="kz-note">{t('crosswalk:create.done.askHint')}</p>
+                </>
+              )}
 
               <div className="xw-rebuild-row">
                 <button

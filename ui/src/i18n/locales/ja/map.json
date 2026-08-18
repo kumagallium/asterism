@@ -1,15 +1,18 @@
 {
   "back": "戻る",
   "title": "どんなデータがあって、どうつながっているか",
-  "bannerSub": "それぞれのデータは自分の言葉を持ち、<0>つながり</0>が共通の値でデータをまたいで結びます。右はみんなで使う<1>外部の標準</1>です。",
+  "bannerSub": "それぞれのデータは自分のことばを持ち、<0>つながり</0>が両方に出てくる値を手がかりにデータをまたいで結びます。右はみんなで使う<1>外部の標準</1>です。",
   "legend": {
     "datasets": "データセット {{n}}",
     "crosswalks": "つながり {{n}}",
-    "alignments": "整合 {{n}}",
+    "alignments": "対応づけ {{n}}",
     "external": "外部の標準 {{n}}"
   },
   "showExternal": "外部の標準も表示",
   "loading": "読み込み中…",
+  "loadErr": {
+    "title": "全体像を読み込めませんでした"
+  },
   "empty": {
     "title": "まだデータがありません",
     "sub": "「データを追加」で取り込むと、ここに現れます。",
@@ -26,15 +29,18 @@
     "bridges": "つながり",
     "bridgesEn": "connections",
     "external": "外部の標準",
-    "externalEn": "reused"
+    "externalEn": "standards"
   },
   "node": {
-    "connectStd": "標準に接続",
-    "crossBy": "{{key}} で横断"
+    "connectStd": "標準のことばを使用",
+    "crossBy": "{{key}} でつなぐ",
+    "kindsHead": "入っている種類",
+    "openDs": "{{name}} の画面を開く（このデータに入っている種類も見られます）",
+    "openHub": "このつながりを見る"
   },
   "line": {
     "connect": "つなぐ",
-    "reuse": "標準を再利用",
-    "selected": "選択中"
+    "reuse": "標準のことばを使用",
+    "selected": "強調中"
   }
 }
