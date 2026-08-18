@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.17.3](https://github.com/kumagallium/asterism/compare/v0.17.2...v0.17.3) - 2026-08-18
+
+- デスクトップは手元のディスクに保存する — チャットと設定をブラウザから出す by @kumagallium in https://github.com/kumagallium/asterism/pull/385
+
 ## [v0.17.2](https://github.com/kumagallium/asterism/compare/v0.17.1...v0.17.2) - 2026-08-18
 
 - .dmg 作成の "Resource busy" でリリースが資産ゼロになるのを止める by @kumagallium in https://github.com/kumagallium/asterism/pull/382
