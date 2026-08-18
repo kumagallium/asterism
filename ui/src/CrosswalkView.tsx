@@ -25,6 +25,20 @@ import { ArrowIcon, ConnectIcon, LayersIcon, LinkIcon } from './icons'
 import { ToolsPanel } from './ToolsPanel'
 import { knownVocabForIri, localName } from './vocab'
 
+/** The connection the address bar names, when it names one. The overview links to a
+ * single connection as `#/crosswalk/<perspective_id>`; the app's router keeps only the
+ * tab, so this screen reads the rest of the address itself. `new` is the guided flow,
+ * not an id, and an id that no longer exists simply falls back to the first connection
+ * (the same thing that happens with no address at all). */
+function perspectiveIdFromHash(): string | null {
+  const parts = window.location.hash
+    .replace(/^#\/?/, '')
+    .split('/')
+    .filter(Boolean)
+  if (parts[0] !== 'crosswalk' || !parts[1] || parts[1] === 'new') return null
+  return decodeURIComponent(parts[1])
+}
+
 /**
  * Catalog → クロスウォーク管理面 (multi-perspective ADR, 管理=カタログ). The upper ontology
  * is PLURAL: a list of independent crosswalk PERSPECTIVES (lenses). Each is its own
@@ -57,7 +71,9 @@ export function CrosswalkView({
   const [seedKey, setSeedKey] = useState(0)
   const [perspectives, setPerspectives] = useState<CrosswalkPerspective[] | null>(null)
   const [err, setErr] = useState('')
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  // Which connection is open. Seeded from the address so a connection node on the
+  // overview lands ON that connection instead of on whichever one happens to be first.
+  const [selectedId, setSelectedId] = useState<string | null>(perspectiveIdFromHash)
   const [rebuilding, setRebuilding] = useState(false)
   const [rebuildErr, setRebuildErr] = useState('')
   const [note, setNote] = useState('')

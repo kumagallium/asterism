@@ -195,7 +195,8 @@ export function OntologyMapView({
   onAddData?: () => void
   onCreateConnection?: () => void
   onOpenDataset?: (datasetId: string) => void
-  onOpenConnections?: () => void
+  /** Given a connection's id when a connection node was the thing pressed. */
+  onOpenConnections?: (perspectiveId?: string) => void
 }) {
   const { t } = useTranslation()
   const addData = onAddData ?? (() => (window.location.hash = '#/workbench'))
@@ -203,7 +204,11 @@ export function OntologyMapView({
   const openDataset =
     onOpenDataset ??
     ((id: string) => (window.location.hash = `#/datasets/${encodeURIComponent(id)}`))
-  const openConnections = onOpenConnections ?? (() => (window.location.hash = '#/crosswalk'))
+  const openConnections =
+    onOpenConnections ??
+    ((id?: string) => {
+      window.location.hash = id ? `#/crosswalk/${encodeURIComponent(id)}` : '#/crosswalk'
+    })
   const [data, setData] = useState<MapData | null>(null)
   const [showExternal, setShowExternal] = useState(true)
   const [selected, setSelected] = useState<string | null>(null)
@@ -502,8 +507,8 @@ export function OntologyMapView({
               )
             })}
 
-            {/* crosswalk hubs — a connection on the map opens the connections screen,
-                where it can actually be read and rebuilt.
+            {/* crosswalk hubs — a connection on the map opens the connections screen ON
+                that connection, where it can actually be read and rebuilt.
                 `font`/`color: inherit` is the same reset `.ontomap-node--ds` carries in
                 App.css for being a <button> (index.css gives every button its own font
                 and colour). App.css belongs to no chain in this audit, so it lives
@@ -523,7 +528,7 @@ export function OntologyMapView({
                   color: 'inherit',
                 }}
                 title={t('map:node.openHub')}
-                onClick={openConnections}
+                onClick={() => openConnections(n.p.perspective_id)}
               >
                 <span className="ontomap-node-head">
                   <span className="ontomap-node-chip ontomap-node-chip--hub">
