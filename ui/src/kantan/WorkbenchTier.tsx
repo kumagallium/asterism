@@ -20,12 +20,17 @@ function loadTier(): Tier {
   }
 }
 
-// Same sessionStorage key WorkbenchView/KantanWizard persist their in-flight
+// Same sessionStorage keys WorkbenchView/KantanWizard persist their in-flight
 // LLM job under: while one is saved, switching tiers is locked (both tiers
 // resume it on mount, so a mid-job switch could adopt a job of the wrong kind).
+// The second key is the kantan tier's own (its S3 skeleton job, which the
+// detail tier must never adopt); both are duplicated by value, as before.
 function hasSavedJob(): boolean {
   try {
-    return sessionStorage.getItem('asterism.workbench.job') !== null
+    return (
+      sessionStorage.getItem('asterism.workbench.job') !== null ||
+      sessionStorage.getItem('asterism.kantan.job') !== null
+    )
   } catch {
     return false
   }
@@ -94,7 +99,15 @@ export function WorkbenchTier({
           className="btn btn--ghost btn--sm kz-tier-toggle"
           onClick={() => setTier(tier === 'kantan' ? 'detail' : 'kantan')}
           disabled={locked}
-          title={locked ? t('kantan:tier.busy') : undefined}
+          // Say what is on the other side and that it is reversible: "詳細" alone
+          // reads as "more about MY data" to a first-timer (DETAIL-GAP-02).
+          title={
+            locked
+              ? t('kantan:tier.busy')
+              : tier === 'kantan'
+                ? t('kantan:tier.detailHint')
+                : t('kantan:tier.kantanHint')
+          }
         >
           {tier === 'kantan' ? t('kantan:tier.toDetail') : t('kantan:tier.toKantan')}
         </button>

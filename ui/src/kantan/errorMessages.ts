@@ -46,10 +46,53 @@ export function plainError(raw: string): PlainError {
 
   // Order matters: the most specific / most actionable families win first, so a
   // 503 whose body names the write token is a permission problem, not a generic
-  // "server unreachable" one.
+  // "server unreachable" one — and an LLM-provider failure is classified as one
+  // BEFORE the generic 401/404 families, whose keywords it would otherwise trip
+  // ("model not found" is not a deleted dataset; an invalid provider key is not
+  // a missing write token).
 
+  // The AI provider rejected the key.
+  if (
+    has(
+      'x-api-key',
+      'invalid_api_key',
+      'invalid api key',
+      'incorrect api key',
+      'authentication_error',
+      'authentication error',
+      'invalid_request_error: no api key',
+    )
+  ) {
+    return {
+      title: 'kantan:s5.plain.llmAuthTitle',
+      body: 'kantan:s5.plain.llmAuthBody',
+    }
+  }
+  // The configured model id does not exist for this provider.
+  if (has('model not found', 'model_not_found', 'unknown model', 'does not exist or you do not')) {
+    return {
+      title: 'kantan:s5.plain.modelTitle',
+      body: 'kantan:s5.plain.modelBody',
+    }
+  }
+  // The AI provider is throttling / overloaded.
+  if (has('rate limit', 'rate_limit', 'http 429', 'too many requests', 'overloaded')) {
+    return { title: 'kantan:s5.plain.rateTitle', body: 'kantan:s5.plain.rateBody', hint: 'wait' }
+  }
   // Permission — a missing / rejected write token (the 503 gate or a 401/403).
-  if (has('asterism_api_token', 'token', 'unauthorized', 'forbidden', 'http 401', 'http 403')) {
+  // Matched on the words the server actually emits (the plain Japanese sentence
+  // and the env-var name); a bare 'token' would also swallow "max_tokens".
+  if (
+    has(
+      'asterism_api_token',
+      'api token',
+      '利用許可コード',
+      'unauthorized',
+      'forbidden',
+      'http 401',
+      'http 403',
+    )
+  ) {
     return { title: 'kantan:s5.plain.tokenTitle', body: 'kantan:s5.plain.tokenBody', hint: 'settings' }
   }
   // The saved design record vanished (deleted in the catalog meanwhile) — a
@@ -61,13 +104,30 @@ export function plainError(raw: string): PlainError {
       hint: 'restart',
     }
   }
-  // The model did not answer in time.
+  // The step did not finish in time. Retry is the primary action: this family
+  // also covers ingest/attach (no model involved), and the model choice is not
+  // the reader's to make in this tier (ADR K5).
   if (has('timed out', 'timeout', 'time out')) {
     return {
       title: 'kantan:s5.plain.timeoutTitle',
       body: 'kantan:s5.plain.timeoutBody',
-      hint: 'settings',
+      hint: 'wait',
     }
+  }
+  // The AI answered, but not in the shape the reader step can parse.
+  if (
+    has(
+      'not valid json',
+      'is not valid json/yaml',
+      'must be a single json object',
+      'could not parse',
+    )
+  ) {
+    return { title: 'kantan:s5.plain.parseTitle', body: 'kantan:s5.plain.parseBody' }
+  }
+  // The AI produced nothing usable (empty answer / reasoning text only).
+  if (has('only reasoning', 'reasoning_only', 'empty output', 'returned no output')) {
+    return { title: 'kantan:s5.plain.emptyTitle', body: 'kantan:s5.plain.emptyBody' }
   }
   // The AI design still has something that cannot be ingested as-is. (Real trap
   // failures normally arrive as the dedicated `design` stop kind, which keeps
