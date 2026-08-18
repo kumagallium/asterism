@@ -3,8 +3,453 @@
   <head>
     <meta charset="utf-8" />
     <title>Asterism</title>
+    <!--
+      The first face of the desktop app: it is on screen from the moment the
+      icon is double-clicked (tauri.conf.json defines this window, so it does
+      not wait for the backend), and it is also where every start-up failure
+      lands as a stop card — a plain sentence, two ways out, and the technical
+      text folded away (ADR kantan-mode-two-tier-ux.md K11).
+
+      All user-facing wording for this window lives here, in ja and en, so the
+      two languages are edited together. The shell only says WHICH message and
+      which buttons (src-tauri/src/lib.rs `Status`).
+    -->
+    <style>
+      /* Tokens mirror ui/src/index.css (forest). This page cannot import the
+         SPA stylesheet — it is served before the backend exists — so the few
+         tokens it needs are redeclared here and used as variables. */
+      :root {
+        --bg: #eef3ec;
+        --surface: #ffffff;
+        --surface-alt: #f4f8f1;
+        --fg: #16241a;
+        --body: #33453a;
+        --muted: #54695b;
+        --faint: #728579;
+        --border: #dde6da;
+        --border-strong: #c7d4c4;
+        --primary: #3f6f49;
+        --primary-fg: #ffffff;
+        --primary-soft: #e6efe4;
+        --radius: 12px;
+        --radius-sm: 8px;
+        --space-1: 4px;
+        --space-2: 8px;
+        --space-3: 12px;
+        --space-4: 16px;
+        --space-5: 20px;
+        --font-ui: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic",
+          "Segoe UI", system-ui, sans-serif;
+        --font-mono: "SFMono-Regular", "SF Mono", Menlo, Consolas, monospace;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        padding: var(--space-5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--bg);
+        color: var(--body);
+        font-family: var(--font-ui);
+        font-size: 14px;
+        line-height: 1.6;
+        overflow: auto;
+      }
+      .wrap {
+        width: 100%;
+        max-width: 420px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: var(--space-3);
+        text-align: center;
+      }
+      .mark {
+        width: 34px;
+        height: 33px;
+        fill: var(--primary);
+      }
+      h1 {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 650;
+        color: var(--fg);
+      }
+      p {
+        margin: 0;
+      }
+      .sub {
+        color: var(--muted);
+        font-size: 12.5px;
+      }
+      .hint {
+        color: var(--body);
+        font-size: 12.5px;
+      }
+      .elapsed {
+        color: var(--faint);
+        font-size: 11.5px;
+        font-family: var(--font-mono);
+      }
+
+      /* Progress: indeterminate while we cannot know, determinate on download. */
+      .bar {
+        width: 100%;
+        height: 4px;
+        border-radius: 999px;
+        background: var(--primary-soft);
+        overflow: hidden;
+      }
+      .bar > span {
+        display: block;
+        height: 100%;
+        border-radius: 999px;
+        background: var(--primary);
+      }
+      .bar.loop > span {
+        width: 36%;
+        animation: slide 1.4s ease-in-out infinite;
+      }
+      @keyframes slide {
+        0% {
+          transform: translateX(-100%);
+        }
+        100% {
+          transform: translateX(280%);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .bar.loop > span {
+          animation: none;
+          width: 100%;
+          opacity: 0.5;
+        }
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-2);
+        justify-content: center;
+      }
+      button {
+        font: inherit;
+        font-size: 13px;
+        padding: var(--space-2) var(--space-4);
+        border-radius: var(--radius-sm);
+        border: 1px solid var(--border-strong);
+        background: var(--surface);
+        color: var(--body);
+        cursor: pointer;
+      }
+      button:hover {
+        border-color: var(--primary);
+        color: var(--primary);
+      }
+      button.primary {
+        background: var(--primary);
+        border-color: var(--primary);
+        color: var(--primary-fg);
+      }
+      button.primary:hover {
+        color: var(--primary-fg);
+        opacity: 0.92;
+      }
+
+      details {
+        width: 100%;
+        text-align: left;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--surface);
+        padding: var(--space-2) var(--space-3);
+      }
+      summary {
+        cursor: pointer;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      pre {
+        margin: var(--space-2) 0 0;
+        max-height: 148px;
+        overflow: auto;
+        padding: var(--space-2);
+        border-radius: var(--radius-sm);
+        background: var(--surface-alt);
+        color: var(--body);
+        font-family: var(--font-mono);
+        font-size: 11px;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .toast {
+        color: var(--primary);
+        font-size: 12px;
+        min-height: 1em;
+      }
+      [hidden] {
+        display: none !important;
+      }
+    </style>
   </head>
-  <body style="font-family: sans-serif; display: grid; place-items: center; height: 100vh; margin: 0;">
-    <p>Asterism を起動しています…</p>
+  <body>
+    <main class="wrap">
+      <svg class="mark" viewBox="0 0 48 46" aria-hidden="true">
+        <path
+          d="M25.946 44.938c-.664.845-2.021.375-2.021-.698V33.937a2.26 2.26 0 0 0-2.262-2.262H10.287c-.92 0-1.456-1.04-.92-1.788l7.48-10.471c1.07-1.497 0-3.578-1.842-3.578H1.237c-.92 0-1.456-1.04-.92-1.788L10.013.474c.214-.297.556-.474.92-.474h28.894c.92 0 1.456 1.04.92 1.788l-7.48 10.471c-1.07 1.498 0 3.579 1.842 3.579h11.377c.943 0 1.473 1.088.89 1.83L25.947 44.94z"
+        />
+      </svg>
+      <h1 id="title">Asterism を準備しています…</h1>
+      <p class="sub" id="sub">
+        初めての起動は 1 分ほどかかることがあります。データはあなたのパソコンの中だけにあります。
+      </p>
+      <p class="hint" id="hint" hidden></p>
+      <div class="bar loop" id="bar"><span id="fill"></span></div>
+      <p class="elapsed" id="elapsed" hidden></p>
+      <div class="actions" id="actions" hidden></div>
+      <details id="tech" hidden>
+        <summary id="techLabel">詳しい内容（技術情報）</summary>
+        <pre id="detail"></pre>
+      </details>
+      <p class="toast" id="toast"></p>
+    </main>
+
+    <script>
+      const TEXT = {
+        ja: {
+          'boot.title': 'Asterism を準備しています…',
+          'boot.sub':
+            '初めての起動は 1 分ほどかかることがあります。データはあなたのパソコンの中だけにあります。',
+          'boot.still': 'まだ動いています。もう少しお待ちください。',
+          'stopping.title': '前の起動を止めています…',
+          'stopping.sub': 'もう一度はじめる準備をしています。',
+          'quitting.title': '終了しています…',
+          'quitting.sub': 'データを安全に閉じています。',
+          'updating.title': 'ダウンロードしています。',
+          'updating.sub': '終わると自動で再起動します。',
+          'card.notFound':
+            'Asterism を動かすのに必要なファイルが見つかりませんでした。アプリをダウンロードし直して入れ直すと、直ることがあります。',
+          'card.notFoundDev': 'Asterism を動かす準備がまだできていません。',
+          'card.startFailed':
+            'Asterism を起動できませんでした。アプリを入れ直すと直ることがあります。',
+          'card.stopped':
+            'Asterism を準備できませんでした。もう一度試しても直らないときは、アプリを入れ直してください。',
+          'card.slow': 'Asterism の準備に時間がかかっています。',
+          'card.windowFailed': '画面を開けませんでした。もう一度試してください。',
+          'card.portBusy':
+            '別のプログラムが同じ入口を使っているため、今回は設定（AI の設定など）が保存されません。',
+          'card.updateFailed':
+            '更新できませんでした。いまお使いの Asterism はそのまま使えます。',
+          'hint.portInUse': '同じ入口を別のプログラムが使っているようです。',
+          'hint.readOnly': 'データの保存先に書き込めませんでした。',
+          'hint.diskFull': 'パソコンの空き容量が足りないようです。',
+          'act.retry': 'もう一度試す',
+          'act.wait': 'もう少し待つ',
+          'act.continue': 'このまま使う',
+          'act.quit': 'やめる',
+          'act.close': '閉じる',
+          'act.log': 'ログを開く',
+          'act.copy': '内容をコピー',
+          'act.download': 'ダウンロードページを開く',
+          details: '詳しい内容（技術情報）',
+          copied: 'コピーしました',
+          elapsed: '経過 {s} 秒',
+        },
+        en: {
+          'boot.title': 'Getting Asterism ready…',
+          'boot.sub':
+            'The first launch can take about a minute. Your data stays on your own computer.',
+          'boot.still': 'Still working. This is taking a little longer than usual.',
+          'stopping.title': 'Stopping the previous start…',
+          'stopping.sub': 'Getting ready to try again.',
+          'quitting.title': 'Shutting down…',
+          'quitting.sub': 'Closing your data safely.',
+          'updating.title': 'Downloading the update.',
+          'updating.sub': 'Asterism will restart by itself when it finishes.',
+          'card.notFound':
+            "Asterism couldn't find the files it needs to run. Downloading and installing the app again usually fixes this.",
+          'card.notFoundDev': 'Asterism is not set up to run yet.',
+          'card.startFailed':
+            "Asterism couldn't start. Installing the app again usually fixes this.",
+          'card.stopped':
+            "Asterism couldn't get ready. If trying again doesn't help, please install the app again.",
+          'card.slow': 'Asterism is taking a while to get ready.',
+          'card.windowFailed': "Asterism couldn't open its window. Please try again.",
+          'card.portBusy':
+            "Another program is using the same entrance, so your settings (your AI settings, for example) won't be saved this time.",
+          'card.updateFailed':
+            "The update didn't go through. The Asterism you have now still works.",
+          'hint.portInUse': 'Another program seems to be using the same entrance.',
+          'hint.readOnly': "Asterism couldn't write to where it keeps your data.",
+          'hint.diskFull': 'Your computer seems to be out of free space.',
+          'act.retry': 'Try again',
+          'act.wait': 'Wait a bit longer',
+          'act.continue': 'Use it anyway',
+          'act.quit': 'Quit',
+          'act.close': 'Close',
+          'act.log': 'Open the log',
+          'act.copy': 'Copy the details',
+          'act.download': 'Open the download page',
+          details: 'Technical details',
+          copied: 'Copied',
+          elapsed: '{s}s elapsed',
+        },
+      }
+
+      const STILL_AFTER_MS = 20_000
+      const PRIMARY_ACTIONS = ['retry', 'wait', 'continue']
+
+      const el = (id) => document.getElementById(id)
+      let lang = (navigator.language || 'ja').toLowerCase().startsWith('ja') ? 'ja' : 'en'
+      let phase = 'starting'
+      let phaseSince = Date.now()
+      let renderedActions = ''
+      let renderedKey = null
+
+      function t(key) {
+        return (TEXT[lang] && TEXT[lang][key]) || TEXT.ja[key] || ''
+      }
+
+      /** The shell's own commands (src-tauri/src/lib.rs). Only this window may
+       *  call them: Tauri rejects app commands from the remote SPA origin, and
+       *  the shell also checks the window label. */
+      async function shell(cmd, args) {
+        const api = window.__TAURI__
+        if (!api || !api.core) return null
+        return api.core.invoke(cmd, args)
+      }
+
+      function setText(id, value) {
+        const node = el(id)
+        node.textContent = value || ''
+        node.hidden = !value
+      }
+
+      function drawActions(actions) {
+        const key = actions.join(',')
+        if (key === renderedActions) return
+        renderedActions = key
+        const box = el('actions')
+        box.textContent = ''
+        box.hidden = actions.length === 0
+        actions.forEach((action, index) => {
+          const button = document.createElement('button')
+          button.textContent = t('act.' + action)
+          if (index === 0 && PRIMARY_ACTIONS.includes(action)) button.className = 'primary'
+          button.addEventListener('click', () => run(action))
+          box.appendChild(button)
+        })
+      }
+
+      async function run(action) {
+        el('toast').textContent = ''
+        if (action === 'copy') {
+          const text = await shell('boot_action', { action: 'copy' })
+          if (text) await copy(text)
+          return
+        }
+        await shell('boot_action', { action })
+      }
+
+      async function copy(text) {
+        try {
+          await navigator.clipboard.writeText(text)
+        } catch (_) {
+          const area = document.createElement('textarea')
+          area.value = text
+          document.body.appendChild(area)
+          area.select()
+          try {
+            document.execCommand('copy')
+          } catch (__) {
+            /* nothing else to try — the text stays visible in 技術情報 */
+          }
+          area.remove()
+        }
+        el('toast').textContent = t('copied')
+      }
+
+      function render(status) {
+        if (status.lang && status.lang !== lang) {
+          lang = status.lang
+          document.documentElement.lang = lang
+          renderedActions = '' // labels changed language
+        }
+        if (status.phase !== phase) {
+          phase = status.phase
+          phaseSince = Date.now()
+          el('toast').textContent = ''
+        }
+
+        const waiting = Date.now() - phaseSince
+        const card = phase === 'card'
+        // Determinate only when there really is a percentage to show; a feed
+        // without a content length keeps the indeterminate bar.
+        const measured = phase === 'updating' && typeof status.percent === 'number'
+        el('bar').hidden = card
+        el('bar').classList.toggle('loop', !measured)
+        el('fill').style.width = measured ? status.percent + '%' : ''
+
+        if (card) {
+          setText('title', t(status.key))
+          setText('sub', '')
+          setText('hint', status.hint ? t(status.hint) : '')
+          setText('elapsed', '')
+        } else if (phase === 'updating') {
+          setText('title', t('updating.title'))
+          setText('sub', t('updating.sub'))
+          setText('hint', '')
+          setText(
+            'elapsed',
+            typeof status.percent === 'number' ? status.percent + '%' : ''
+          )
+        } else if (phase === 'quitting' || phase === 'stopping') {
+          setText('title', t(phase + '.title'))
+          setText('sub', t(phase + '.sub'))
+          setText('hint', '')
+          setText('elapsed', '')
+        } else {
+          const slow = waiting > STILL_AFTER_MS
+          setText('title', t('boot.title'))
+          setText('sub', slow ? t('boot.still') : t('boot.sub'))
+          setText('hint', '')
+          setText(
+            'elapsed',
+            slow ? t('elapsed').replace('{s}', String(Math.round(waiting / 1000))) : ''
+          )
+        }
+
+        drawActions(status.actions || [])
+        const tech = el('tech')
+        tech.hidden = !status.detail
+        el('techLabel').textContent = t('details')
+        el('detail').textContent = status.detail || ''
+        // Follow the shell only when the message changes, so a fold the user
+        // opened (or closed) themselves is not fought on every poll.
+        if (status.key !== renderedKey) {
+          renderedKey = status.key
+          tech.open = !!status.detail_open
+        }
+      }
+
+      async function tick() {
+        try {
+          const status = await shell('boot_status')
+          if (status) render(status)
+        } catch (_) {
+          /* the shell is busy or gone — keep the last frame and retry */
+        }
+        setTimeout(tick, 300)
+      }
+
+      document.documentElement.lang = lang
+      render({ lang, phase: 'starting', actions: [], detail: '' })
+      tick()
+    </script>
   </body>
 </html>
