@@ -981,10 +981,12 @@ export function SkeletonGate({
     plain && resourceBase && iri.startsWith(resourceBase) ? iri.slice(resourceBase.length) : iri
 
   // "1 row = one …" (K7): the reading of a map in the human's words. Without a
-  // human-readable label from the AI, the kind's own (folded) name is it.
+  // human-readable label from the AI, the kind's own (folded) name is it — and
+  // with no kind at all (the human cleared the field), the map's own name, the
+  // same last resort displayMapName uses. K7 wants this line ALWAYS.
   function readingFor(m: SkeletonMap, ann: SkeletonMapAnnotation | undefined): string | undefined {
     if (!plain) return undefined
-    const label = compactClass(m.subject.classes?.[0] ?? '', nsDetected)
+    const label = compactClass(m.subject.classes?.[0] ?? '', nsDetected) || m.name
     if (!label) return undefined
     const kind = ann?.collapse_kind
     if (kind === 'singleton') return t('skeletongate:reading.singleton', { label })
@@ -1076,25 +1078,37 @@ export function SkeletonGate({
   }
 
   /** Scroll to a map's row and put the focus on its first one-tap fix — "pick
-   *  another candidate" has to LAND somewhere, not just close a dialog. */
+   *  another candidate" has to LAND somewhere, not just close a dialog. The
+   *  chips live in THIS map's evidence row (the immediate sibling): searching
+   *  the whole tbody would focus whichever row happens to come first. */
   function focusRow(name: string) {
     setConfirming(false)
     const row = document.querySelector(`[data-map="${CSS.escape(name)}"]`)
     row?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    const chip = row?.parentElement?.querySelector<HTMLButtonElement>(
-      '.skeleton-candidate-chip, .skeleton-gap-add',
-    )
+    const evidence = row?.nextElementSibling
+    const chip = evidence?.classList.contains('skeleton-evidence-row')
+      ? evidence.querySelector<HTMLButtonElement>('.skeleton-candidate-chip, .skeleton-gap-add')
+      : null
     chip?.focus({ preventScroll: true })
   }
 
+  // The old window.confirm chain made "proceed with the damage" the Enter
+  // key's default and offered no way to fix anything (K7). One inline block
+  // instead, where every item carries the repair as its main button.
+  // The check reads the CURRENT blockers every time: gating on "was the block
+  // already open" would wave a NEW blocker (an edit made while the block was
+  // up) straight through — the auto-continue K7 forbids.
   function onContinueGuarded() {
-    // The old window.confirm chain made "proceed with the damage" the Enter
-    // key's default and offered no way to fix anything (K7). One inline block
-    // instead, where every item carries the repair as its main button.
-    if (blockers > 0 && !confirming) {
+    if (blockers > 0) {
       setConfirming(true)
       return
     }
+    setConfirming(false)
+    onContinue()
+  }
+
+  /** The ghost exit of the confirm block: proceed with the damage, knowingly. */
+  function continueAnyway() {
     setConfirming(false)
     onContinue()
   }
@@ -1301,13 +1315,20 @@ export function SkeletonGate({
               const templateColumns = [...keyValue.matchAll(/\{([^{}]+)\}/g)].map((x) => x[1])
               const keyColumns =
                 templateColumns.length > 0 ? templateColumns : (ann?.key_columns ?? [])
-              const keySentence = usesConstant
-                ? t('skeletongate:key.constant')
-                : keyColumns.length === 0
-                  ? t('skeletongate:key.none')
-                  : t(keyColumns.length === 1 ? 'skeletongate:key.from1' : 'skeletongate:key.fromN', {
-                      columns: keyColumns.join(t('skeletongate:key.join')),
-                    })
+              // A template with no {column} in it mints ONE id for the whole
+              // file — the same reading as a constant, not "no recipe yet"
+              // (which is only true of an empty cell).
+              const keySentence =
+                usesConstant || (keyColumns.length === 0 && keyValue.trim() !== '')
+                  ? t('skeletongate:key.constant')
+                  : keyColumns.length === 0
+                    ? t('skeletongate:key.none')
+                    : t(
+                        keyColumns.length === 1
+                          ? 'skeletongate:key.from1'
+                          : 'skeletongate:key.fromN',
+                        { columns: keyColumns.join(t('skeletongate:key.join')) },
+                      )
               const removeControl = skeleton.maps.length > 1 &&
                 (confirmRemove === m.name ? (
                   <span className="skeleton-remove-confirm">
@@ -1655,7 +1676,7 @@ export function SkeletonGate({
               type="button"
               className="btn btn--ghost"
               disabled={busy}
-              onClick={onContinueGuarded}
+              onClick={continueAnyway}
             >
               {t('skeletongate:confirm.proceed')}
             </button>
