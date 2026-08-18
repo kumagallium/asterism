@@ -3369,8 +3369,20 @@ def build_app(
                     if body.staging_id:
                         with contextlib.suppress(staging.StagingNotFound, ValueError):
                             src_dir, _paths = staging.load(cfg.registry_root, body.staging_id)
+                # Deterministic repair + data-fact re-assertion BEFORE the split.
+                # Every path reaches materialize — the loop's own chain and the
+                # wizard's manual "AI に直してもらう" click — but only the loop
+                # re-asserted what the rows proved and ran the machine-known
+                # repairs. So each manual round could silently un-type a numeric
+                # column, which then came back as an advisory and invited the
+                # next click (live 2026-08-18). Doing it here covers both paths
+                # with one call; it is a no-op without a readable source.
+                proposal_md = body.proposal_md
+                if src_dir is not None and src_dir.is_dir():
+                    # (already inside asyncio.to_thread(run) — call directly)
+                    proposal_md = design_loop.repair_design(proposal_md, src_dir)
                 mat = materialize_schema(
-                    body.proposal_md,
+                    proposal_md,
                     tmpdir,
                     body.dataset_name,
                     write=True,
@@ -3486,7 +3498,7 @@ def build_app(
                             warnings=mat.warnings,
                             traps=traps,
                             exit_code=exit_code,
-                            proposal_md=body.proposal_md,
+                            proposal_md=proposal_md,
                             advisories=design_advisories,
                         )
                         if meta is None:
@@ -3501,7 +3513,7 @@ def build_app(
                             traps=traps,
                             exit_code=exit_code,
                             created_at=datetime.now(UTC).isoformat(),
-                            proposal_md=body.proposal_md,
+                            proposal_md=proposal_md,
                             advisories=design_advisories,
                         )
                     result["dataset"] = meta

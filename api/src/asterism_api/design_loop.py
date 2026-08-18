@@ -272,6 +272,16 @@ def _column_datatypes(
     the inspector's sampled `inferred_type`: one stray non-numeric cell would
     make the stamped datatype a lie.
 
+    The columns considered are the ones the MATERIALIZED rows actually have, not
+    ``ins.columns``: on a legacy instrument export the key/value preamble is
+    broadcast onto every row (ADR source-dialect.md), so ``Volume`` /
+    ``RIR(I/Ic)`` / ``Dcalc`` exist in the data but not in the inspector's body
+    column list — and were silently never typed (live 2026-08-18: the review
+    screen kept advising "column 'Volume' holds numbers but is mapped as an
+    untyped literal" with nothing able to act on it). The dialect-aware reader
+    is likewise the only one that sees them, so a non-``csv`` source kind no
+    longer skips the check outright.
+
     Best-effort — any failure yields ``{}`` and generation proceeds as before.
     """
     try:
@@ -280,13 +290,15 @@ def _column_datatypes(
         return {}
     by_source: dict[str, dict[str, str]] = {}
     for path, ins in zip(paths, inspections, strict=False):
-        if ins.source_kind != "csv":
+        if path.suffix.lower() not in _TABULAR_SUFFIXES:
             continue
         try:
             rows = _dialect_rows(path, ins.dialect) if ins.dialect else list(_stream_rows(path))
-        except OSError:
+        except Exception:
             continue
-        by_source[path.name] = numeric_column_types(rows, [c.name for c in ins.columns])
+        if not rows:
+            continue
+        by_source[path.name] = numeric_column_types(rows, list(rows[0].keys()))
     out: dict[str, dict[str, str]] = {}
     for map_entry in skeleton.get("maps") or []:
         if not isinstance(map_entry, Mapping):
@@ -823,11 +835,61 @@ def _drop_identity_transforms(schema_md: str, base: Path, issues: list[Issue]) -
         return None
 
 
+def _move_xsd_unit_to_datatype(schema_md: str, base: Path, issues: list[Issue]) -> str | None:
+    """Move an xsd: CURIE written into unit: over to datatype:.
+
+    unit is display metadata — a human-readable string like "W/(m·K)" that
+    never compiles into RML. An xsd: term there is never a unit; it is the
+    datatype field filled in one line too low. Observed live (2026-08-18, XRD
+    card): unit: xsd:integer on the Z-value row, while the datatype the data
+    proved was silently absent, so the value stayed untyped AND the review screen
+    showed "xsd:integer" as its unit.
+
+    Deterministic because there is exactly one thing it can mean. Skipped when
+    the row already has a datatype (the author's choice wins — the stray unit
+    is then just dropped as the display noise it is).
+    """
+    import yaml
+
+    with tempfile.TemporaryDirectory(prefix="asterism-loop-unit-") as tmp:
+        ir_yaml = materialize_schema(schema_md, tmp, "design", write=False).mapping_ir_yaml
+    if not ir_yaml or not ir_yaml.strip():
+        return None
+    try:
+        spec = load_spec_yaml(ir_yaml)
+    except yaml.YAMLError:
+        return None
+    if not isinstance(spec, dict) or not isinstance(spec.get("maps"), list):
+        return None
+    changed = 0
+    for map_entry in spec["maps"]:
+        if not isinstance(map_entry, dict):
+            continue
+        for prop in map_entry.get("properties") or []:
+            if not isinstance(prop, dict):
+                continue
+            unit = prop.get("unit")
+            if not isinstance(unit, str) or not unit.strip().startswith("xsd:"):
+                continue
+            if not prop.get("datatype"):
+                prop["datatype"] = unit.strip()
+            del prop["unit"]
+            changed += 1
+    if not changed:
+        return None
+    repaired = yaml.safe_dump(spec, allow_unicode=True, sort_keys=False).rstrip("\n")
+    try:
+        return replace_mapping_spec_block(schema_md, repaired)
+    except ValueError:
+        return None
+
+
 # Deterministic repairs, in order. Each sees the CURRENT document + its issues
 # and returns a repaired document or None; each is kept only if the re-verdict
 # has strictly fewer issues (see _evaluate).
 _REPAIRS: tuple[Callable[[str, Path, list[Issue]], str | None], ...] = (
     _drop_identity_transforms,  # parse-level: unblocks every later check
+    _move_xsd_unit_to_datatype,  # a misfiled datatype, before typing is judged
     _stamp_numeric_datatypes,
 )
 
@@ -1311,6 +1373,60 @@ def _overlay_data_facts(
     except ValueError:
         return schema_md
 
+
+
+def repair_design(schema_md: str, source_dir: Path | str) -> str:
+    """Deterministic repair + data-fact re-assertion for a design that did NOT
+    come from :func:`run_design_loop`.
+
+    The loop re-asserts what the rows proved after EVERY round
+    (:func:`_overlay_data_facts`) and runs :data:`_REPAIRS` before spending a
+    call. The MANUAL path — the wizard's "AI に直してもらう" button, which is
+    ``/api/refine`` followed by ``/api/materialize`` — went through neither, so
+    every click could quietly un-do a fact the machine had already established.
+    Live 2026-08-18: the numeric datatypes were present after the loop and gone
+    after four manual rounds; the advisory came back each time, which invited
+    the next click. Same defect ADR data-facts-invariant fixed for automatic
+    rounds, on the path nobody had covered.
+
+    Map→source comes from the spec itself (the IR is skeleton-shaped for this
+    purpose), so no confirmed skeleton is needed. Best-effort in every
+    direction: an unreadable source, an unparseable spec or a validator
+    environment failure returns the input unchanged — this must never be the
+    reason a save fails.
+    """
+    base = Path(source_dir)
+    md = schema_md
+    try:
+        # 1) Unconditional: a number the rows proved stays typed, whatever the
+        #    round did to §9. Not issue-driven — the untyped-numeric advisory is
+        #    invisible while any earlier validation message short-circuits the
+        #    IR pipeline, and this fact does not depend on it.
+        #
+        #    Read through the spec's PINNED dialects, never a fresh detection:
+        #    re-detecting this file yields ``preamble: drop`` where the design
+        #    pinned ``keyvalue``, and the broadcast preamble columns (Volume,
+        #    RIR(I/Ic), Dcalc, …) then vanish from the rows — the exact columns
+        #    whose untyped-numeric advisory kept coming back (live 2026-08-18).
+        ir_yaml, _ = _extract_design(md)
+        if ir_yaml and ir_yaml.strip():
+            ir = parse_mapping_ir(ir_yaml)
+            by_source = _numeric_types_by_source(base, ir)
+            types = {
+                str(m.name): by_source[str(m.source)]
+                for m in ir.maps
+                if getattr(m, "source", None) and by_source.get(str(m.source))
+            }
+            if types:
+                md = _overlay_data_facts(md, None, types)
+    except Exception:  # a fact overlay must never break the save
+        md = schema_md
+    try:
+        # 2) Issue-driven, each kept only when it strictly reduces the count.
+        md, _ir, _issues = _evaluate(md, base)
+    except _LoopEnvError:
+        return md
+    return md
 
 def _extract_design(schema_md: str) -> tuple[str | None, str | None]:
     """Pull the §9 design out of a schema Markdown via the SAME deterministic
