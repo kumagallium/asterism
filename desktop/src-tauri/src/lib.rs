@@ -717,7 +717,9 @@ fn copy_payload(app: &tauri::AppHandle) -> String {
         out.push('\n');
     }
     let tail = log_tail(app, 50);
-    if !tail.is_empty() {
+    // Some cards already fold the same tail into `detail`; pasting it twice
+    // only makes the report someone else has to read longer.
+    if !tail.is_empty() && !detail.contains(&tail) {
         out.push_str("\n--- backend.log (last 50 lines) ---\n");
         out.push_str(&tail);
     }
