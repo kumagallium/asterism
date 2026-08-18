@@ -1030,6 +1030,26 @@ export function KantanWizard({
   }, [])
   const writeBlocked = writeGate === 'token_required' || writeGate === 'closed'
 
+  // …and ask again while it stays shut. The card above sends the reader to
+  // Settings to paste the access code, and saving it there only invalidates the
+  // module-level answer — without this re-read, the warning and the disabled
+  // 「この内容で進む」 would sit there until a page reload, which is the one move
+  // this tier never asks anyone to make. `fetchInstanceInfo` is memoized, so
+  // this costs a request only after that invalidation.
+  useEffect(() => {
+    if (!writeBlocked) return
+    let off = false
+    const id = window.setInterval(() => {
+      void fetchInstanceInfo().then((info) => {
+        if (!off && info?.write_gate) setWriteGate(info.write_gate)
+      })
+    }, 2000)
+    return () => {
+      off = true
+      window.clearInterval(id)
+    }
+  }, [writeBlocked])
+
   // Count published datasets when S9 is reached, to decide whether connecting is
   // even possible yet. A failure leaves it null and the offer simply does not
   // appear — a broken count must not produce a button that leads nowhere.
@@ -1574,7 +1594,7 @@ export function KantanWizard({
    *  Unrecognised lines still fold into the count, so a new phrase degrades to
    *  the old behaviour rather than to a wrong sentence. `fixLines` keeps the raw
    *  English — display and AI input stay separate (ADR §5.1). */
-  function issuePlainLines(issues: string[]): string[] {
+  function issuePlainLines(issues: string[], precededByLines = false): string[] {
     const markers: { marker: string; key: string }[] = [
       { marker: 'referenced by the mapping is not in', key: 'kantan:s5.trap.T8' }, // rml_validate
       { marker: "' is not in ", key: 'kantan:s5.trap.T8' }, // mapping_ir compile
@@ -1598,9 +1618,10 @@ export function KantanWizard({
       out.push(t(hit.key))
     }
     if (others > 0) {
-      out.push(t(out.length > 0 ? 'kantan:s5.trap.others' : 'kantan:s5.trap.othersOnly', {
-        count: others,
-      }))
+      // "このほか、" reads right only when a line came before it — either one of
+      // ours above, or the trap sentences this list is appended to (ADR §5.1).
+      const after = precededByLines || out.length > 0
+      out.push(t(after ? 'kantan:s5.trap.others' : 'kantan:s5.trap.othersOnly', { count: others }))
     }
     return out
   }
@@ -2001,7 +2022,7 @@ export function KantanWizard({
    *  snapshot) the answer is yes, exactly as before (KZ-A-49). */
   function sameFileSet(arr: File[]): boolean {
     if (sourceNames.length === 0) return true
-    const key = (names: string[]) => [...names].sort().join(' ')
+    const key = (names: string[]) => [...names].sort().join('\u0000')
     return key(sourceNames.map((f) => f.name)) === key(arr.map((f) => f.name))
   }
 
@@ -2238,22 +2259,20 @@ export function KantanWizard({
           // Trap ids get their canonical sentence; the free-form issues get the
           // deterministic-phrase classifier (so "a column that isn't in your
           // file" is named, not counted).
-          const issueLines = issuePlainLines([
-            ...countableWarnings(result.warnings),
-            ...(result.validation_issues ?? []),
-          ])
+          const trapLines = designPlainLines(
+            allFails.map((tr) => tr.id),
+            0,
+            !result.complete,
+          )
+          const issueLines = issuePlainLines(
+            [...countableWarnings(result.warnings), ...(result.validation_issues ?? [])],
+            trapLines.length > 0,
+          )
           setDesignStop({
             kind: 'design',
             detail: lines.join('\n'),
             fixLines: lines,
-            plainLines: [
-              ...designPlainLines(
-                allFails.map((tr) => tr.id),
-                0,
-                !result.complete,
-              ),
-              ...issueLines,
-            ],
+            plainLines: [...trapLines, ...issueLines],
           })
           return
         }
@@ -2392,7 +2411,7 @@ export function KantanWizard({
       for (const p of m.properties) {
         if (p.kind !== 'reference' || !p.reference) continue
         const label = p.label || r?.labels?.[p.predicate_iri] || ''
-        out.set(p.reference, `${label}${p.unit ?? ''}`)
+        out.set(p.reference, `${label}\u001f${p.unit ?? ''}`)
       }
     }
     return out
