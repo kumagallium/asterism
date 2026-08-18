@@ -5,7 +5,7 @@
     "traceHint": "出どころ",
     "fromDataset": "{{name}} より",
     "vocabTitle": "データセットで「{{className}}」のことばを表示",
-    "vocabLink": "ことば: {{className}} →"
+    "vocabLink": "この種類のことばを見る →"
   },
   "trace": {
     "ariaLabel": "出どころ",

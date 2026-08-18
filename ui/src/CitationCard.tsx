@@ -56,7 +56,7 @@ function kindColor(kind: string): string {
 /**
  * A clickable citation chip-card: a colored kind bar, the entity kind + label,
  * and a few key fields. Clicking selects the card, which loads its provenance
- * into the always-on trace panel beside the answer (Ask). A separate "語彙"
+ * into the always-on trace panel beside the answer (Ask). A separate "words"
  * link (when the kind maps to a vocabulary class) jumps to the Catalog and
  * highlights that class — connecting a grounded answer to the ontology that
  * backs it (Ask⇄Catalog).
@@ -145,7 +145,9 @@ export function CitationCard({
           onClick={() => onShowVocab(vocabClass)}
           title={t('shared:citation.vocabTitle', { className: vocabClass })}
         >
-          {t('shared:citation.vocabLink', { className: vocabClass })}
+          {/* The class name is an identifier the design happens to use; it goes
+              in the tooltip only, so the visible link stays plain language. */}
+          {t('shared:citation.vocabLink')}
         </button>
       )}
     </div>

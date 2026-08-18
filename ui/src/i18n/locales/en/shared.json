@@ -5,7 +5,7 @@
     "traceHint": "Source",
     "fromDataset": "from {{name}}",
     "vocabTitle": "Show the words of \"{{className}}\" in Datasets",
-    "vocabLink": "Words: {{className}} →"
+    "vocabLink": "See the words for this kind →"
   },
   "trace": {
     "ariaLabel": "Source",

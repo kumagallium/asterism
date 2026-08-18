@@ -149,6 +149,64 @@ function PortFallbackBanner() {
   )
 }
 
+/**
+ * Read (and immediately clear) the note main.tsx leaves before it reloads a tab
+ * whose chunks a deploy replaced. Done once at module load, not inside the
+ * component: StrictMode renders twice in dev, and a flag consumed in a state
+ * initializer would be gone by the render React keeps.
+ */
+const STALE_CHUNK_RELOADED = (() => {
+  try {
+    if (sessionStorage.getItem('asterism.staleChunkNotice')) {
+      sessionStorage.removeItem('asterism.staleChunkNotice')
+      return true
+    }
+  } catch {
+    /* no sessionStorage — nothing to announce */
+  }
+  return false
+})()
+
+/**
+ * Why the screen just reset. A deploy swaps the hashed chunks under a tab that
+ * is still running the pre-deploy shell, so main.tsx reloads once to pick up the
+ * new one — which mid-wizard looks like the work disappearing. Say it happened,
+ * once, then get out of the way. If a chunk still fails to load AFTER that
+ * reload, the deploy really is broken: the same banner then says so and offers
+ * the reload, instead of leaving buttons that quietly do nothing.
+ */
+function StaleChunkBanner() {
+  const { t } = useTranslation()
+  const [state, setState] = useState<'none' | 'reloaded' | 'failed'>(
+    STALE_CHUNK_RELOADED ? 'reloaded' : 'none',
+  )
+  useEffect(() => {
+    const onPreloadError = () => setState('failed')
+    window.addEventListener('vite:preloadError', onPreloadError)
+    return () => window.removeEventListener('vite:preloadError', onPreloadError)
+  }, [])
+  if (state === 'none') return null
+  const failed = state === 'failed'
+  return (
+    <div className="update-banner" role="status" aria-live="polite">
+      <span className="update-banner-text">
+        {failed ? t('staleChunk.failed') : t('staleChunk.reloaded')}
+      </span>
+      <span className="update-banner-actions">
+        {failed ? (
+          <button type="button" className="btn btn--sm" onClick={() => window.location.reload()}>
+            {t('staleChunk.reload')}
+          </button>
+        ) : (
+          <button type="button" className="btn btn--ghost btn--sm" onClick={() => setState('none')}>
+            {t('staleChunk.dismiss')}
+          </button>
+        )}
+      </span>
+    </div>
+  )
+}
+
 function App() {
   const { t, i18n } = useTranslation()
   // Keep the existing two-line nav aesthetic: the active language is primary and
@@ -245,6 +303,7 @@ function App() {
     // .app-frame: 縦積み＝上に更新のお知らせ（デスクトップ版で更新があるときだけ・
     // サイドバーも含めた全幅）、下に従来の 2 列シェル。
     <div className="app-frame">
+      <StaleChunkBanner />
       <PortFallbackBanner />
       <UpdateBanner />
       <div className="app-shell">
