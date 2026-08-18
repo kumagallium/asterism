@@ -104,7 +104,9 @@
       "button": "Have the AI fix this",
       "progress": "The AI is fixing the design (attempt {{n}}, 1–3 min)",
       "attempted": "AI fix attempts so far: {{n}}.",
-      "failed": "The AI fix didn't go through: {{message}}"
+      "failed": "The AI fix didn't go through: {{message}}",
+      "autoProgress": "Fixing the design automatically ({{n}}/{{max}}, 1-3 min)",
+      "autoStuck": "Fixed automatically {{n}} time(s); from here the same problem keeps coming back."
     },
     "trap": {
       "T1": "Row IDs would overlap (overlapping rows collapse into one record)",
