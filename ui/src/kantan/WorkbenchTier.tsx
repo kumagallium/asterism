@@ -117,23 +117,34 @@ export function WorkbenchTier({
   return (
     <div className="kz-tier">
       <div className="kz-tier-bar">
-        <button
-          type="button"
-          className="btn btn--ghost btn--sm kz-tier-toggle"
-          onClick={toggleTier}
-          disabled={locked}
-          // Say what is on the other side and that it is reversible: "詳細" alone
-          // reads as "more about MY data" to a first-timer (DETAIL-GAP-02).
-          title={
-            locked
-              ? t('kantan:tier.busy')
-              : tier === 'kantan'
-                ? t('kantan:tier.detailHint')
-                : t('kantan:tier.kantanHint')
-          }
-        >
-          {tier === 'kantan' ? t('kantan:tier.toDetail') : t('kantan:tier.toKantan')}
-        </button>
+        <div className="kz-actions">
+          {/* Standing sentences, not hover titles. The detail tier opens on
+              conversion rules and check tables; whoever came down from the
+              wizard has to be told, on screen, that the way back is right
+              there (DETAIL-GAP-03). And a toggle that refuses to move says
+              why — a `title` is invisible on a touch screen, so the button
+              just looked broken (DETAIL-GAP-17). */}
+          {tier === 'detail' && <p className="kz-note">{t('kantan:tier.detailStanding')}</p>}
+          {locked && <p className="kz-note">{t('kantan:tier.busy')}</p>}
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm kz-tier-toggle"
+            onClick={toggleTier}
+            disabled={locked}
+            // Say what is on the other side and that it is reversible: "詳細"
+            // alone reads as "more about MY data" to a first-timer
+            // (DETAIL-GAP-02).
+            title={
+              locked
+                ? t('kantan:tier.busy')
+                : tier === 'kantan'
+                  ? t('kantan:tier.detailHint')
+                  : t('kantan:tier.kantanHint')
+            }
+          >
+            {tier === 'kantan' ? t('kantan:tier.toDetail') : t('kantan:tier.toKantan')}
+          </button>
+        </div>
       </div>
       {tier === 'kantan' ? (
         <KantanWizard

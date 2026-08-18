@@ -45,7 +45,88 @@ function detailText(raw: string): string {
   return raw
 }
 
-export function plainError(raw: string): PlainError {
+/** Failures whose CAUSE the server already named. `jobs.py` sends a stable
+ *  `code` beside every job error and `ApiError` unwraps `{"detail":{"error":…}}`,
+ *  so whenever one reached us there is no need to read English prose at all —
+ *  a provider SDK rewording its message can no longer change what the reader is
+ *  told (BACKEND-TEXT-06 / -14). Codes not listed here fall through to the
+ *  keyword families below, and so does every failure that carries no code. */
+const BY_CODE: Record<string, PlainError> = {
+  'llm.auth': { title: 'kantan:s5.plain.llmAuthTitle', body: 'kantan:s5.plain.llmAuthBody' },
+  'llm.model_not_found': {
+    title: 'kantan:s5.plain.modelTitle',
+    body: 'kantan:s5.plain.modelBody',
+  },
+  'llm.rate_limit': {
+    title: 'kantan:s5.plain.rateTitle',
+    body: 'kantan:s5.plain.rateBody',
+    hint: 'wait',
+  },
+  'llm.timeout': {
+    title: 'kantan:s5.plain.timeoutTitle',
+    body: 'kantan:s5.plain.timeoutBody',
+    hint: 'wait',
+  },
+  'job.timeout': {
+    title: 'kantan:s5.plain.timeoutTitle',
+    body: 'kantan:s5.plain.timeoutBody',
+    hint: 'wait',
+  },
+  'llm.truncated': {
+    title: 'kantan:s5.plain.budgetTitle',
+    body: 'kantan:s5.plain.budgetBody',
+    hint: 'wait',
+  },
+  // Nothing usable came back: an empty answer, or reasoning text with no
+  // answer in it. Same advice either way — run it again (WEAK-MODEL-34).
+  'llm.empty': {
+    title: 'kantan:s5.plain.emptyTitle',
+    body: 'kantan:s5.plain.emptyBody',
+    hint: 'wait',
+  },
+  'llm.reasoning_only': {
+    title: 'kantan:s5.plain.emptyTitle',
+    body: 'kantan:s5.plain.emptyBody',
+    hint: 'wait',
+  },
+  'llm.unreachable': {
+    title: 'kantan:s5.plain.serverTitle',
+    body: 'kantan:s5.plain.serverBody',
+    hint: 'wait',
+  },
+  'llm.provider_error': {
+    title: 'kantan:s5.plain.serverTitle',
+    body: 'kantan:s5.plain.serverBody',
+    hint: 'wait',
+  },
+  'ingest.unsafe_rml': {
+    title: 'kantan:s5.trap.T9',
+    body: 'kantan:s5.plain.designBody',
+    hint: 'fix',
+  },
+  'ingest.materialize_failed': {
+    title: 'kantan:s5.plain.materializeTitle',
+    body: 'kantan:s5.plain.designBody',
+    hint: 'fix',
+  },
+  'dataset.not_ingested': {
+    title: 'kantan:s5.plain.notIngestedTitle',
+    body: 'kantan:s5.plain.notIngestedBody',
+    hint: 'meanings',
+  },
+}
+
+/** `api.ts` prefixes every failed call with its own verb, so a raw string of
+ *  this shape can only have come from THIS server — never from a model
+ *  provider. The 404 family keys on it: "your saved data is gone, start over"
+ *  must not be said because some provider answered 404 for a model id
+ *  (BACKEND-TEXT-32). Every 404 our api raises really is a missing record
+ *  (dataset / staging / job). */
+const API_404 = /\bfailed \(http 404\)/
+
+export function plainError(raw: string, code?: string): PlainError {
+  const known = code ? BY_CODE[code] : undefined
+  if (known) return known
   const detail = detailText(raw)
   const hay = `${raw} ${detail}`.toLowerCase()
   const has = (...needles: string[]) => needles.some((n) => hay.includes(n))
@@ -74,8 +155,19 @@ export function plainError(raw: string): PlainError {
       body: 'kantan:s5.plain.llmAuthBody',
     }
   }
-  // The configured model id does not exist for this provider.
-  if (has('model not found', 'model_not_found', 'unknown model', 'does not exist or you do not')) {
+  // The configured model id does not exist for this provider. Providers word
+  // this differently ("The model `x` does not exist", a bare `not_found_error`)
+  // and every wording arrives with a 404 in it — so this family has to win
+  // before the deleted-record one below, or a mistyped model name would tell
+  // the reader to throw their work away (BACKEND-TEXT-32).
+  if (
+    has('model not found', 'model_not_found', 'unknown model', 'does not exist or you do not') ||
+    // `model.yaml` is one of OUR files: "column … does not exist in model.yaml"
+    // is a design complaint, not a provider saying the model id is unknown.
+    (has('model') &&
+      !has('model.yaml') &&
+      has('does not exist', 'no such model', 'not_found_error'))
+  ) {
     return {
       title: 'kantan:s5.plain.modelTitle',
       body: 'kantan:s5.plain.modelBody',
@@ -95,6 +187,28 @@ export function plainError(raw: string): PlainError {
     return {
       title: 'kantan:s5.plain.timeoutTitle',
       body: 'kantan:s5.plain.timeoutBody',
+      hint: 'wait',
+    }
+  }
+  // The AI produced nothing usable (empty answer / reasoning text only) — the
+  // classic weak-thinking-model failure. Named on the sentences `llm.py`
+  // raises ("The model returned an empty response", "…only reasoning text and
+  // no answer") as well as the shorter provider phrasings, and running it
+  // again is what actually clears it (WEAK-MODEL-34).
+  if (
+    has(
+      'only reasoning',
+      'reasoning text',
+      'reasoning_only',
+      'empty output',
+      'empty response',
+      'no answer',
+      'returned no output',
+    )
+  ) {
+    return {
+      title: 'kantan:s5.plain.emptyTitle',
+      body: 'kantan:s5.plain.emptyBody',
       hint: 'wait',
     }
   }
@@ -167,10 +281,11 @@ export function plainError(raw: string): PlainError {
     }
   }
   // The saved design record vanished (deleted in the catalog meanwhile) — a
-  // fresh start is the only clean recovery. Keyed on the status alone: a bare
-  // 'not found' also appears in "column 'X' not found", which is a design
-  // problem, not a deleted dataset (KZ-A-21).
-  if (has('http 404')) {
+  // fresh start is the only clean recovery. Keyed on the status AND on the
+  // shape only this api produces: a bare 'not found' also appears in "column
+  // 'X' not found", which is a design problem (KZ-A-21), and a bare 404 also
+  // appears in an LLM provider's "model does not exist" (BACKEND-TEXT-32).
+  if (API_404.test(hay)) {
     return {
       title: 'kantan:s5.plain.notFoundTitle',
       body: 'kantan:s5.plain.notFoundBody',
@@ -187,10 +302,6 @@ export function plainError(raw: string): PlainError {
     )
   ) {
     return { title: 'kantan:s5.plain.parseTitle', body: 'kantan:s5.plain.parseBody' }
-  }
-  // The AI produced nothing usable (empty answer / reasoning text only).
-  if (has('only reasoning', 'reasoning_only', 'empty output', 'returned no output')) {
-    return { title: 'kantan:s5.plain.emptyTitle', body: 'kantan:s5.plain.emptyBody' }
   }
   // The design asked for an operation outside the safety-vetted set. K11 already
   // has the canonical one-liner for this (T9) — reuse it rather than letting the

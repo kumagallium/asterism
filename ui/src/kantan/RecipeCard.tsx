@@ -43,6 +43,13 @@ export function RecipeCard({
             </span>
             <span className="kz-recipe-text">{t(key)}</span>
             {active && <span className="kz-recipe-here">{t('kantan:recipe.here')}</span>}
+            {/* Standing label, not a tooltip: the escape hatch looked exactly
+                like the four indicative steps, so the only hint that ① could be
+                pressed was a hover title no touch screen ever shows
+                (KZ-A-34). */}
+            {clickable && (
+              <span className="kz-recipe-here">↺ {t('kantan:recipe.backToStartShort')}</span>
+            )}
           </>
         )
         return (

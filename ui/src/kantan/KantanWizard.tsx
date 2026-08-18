@@ -166,6 +166,36 @@ const JSON_EXTS = ['.json', '.geojson']
 const DOCUMENT_EXTS = ['.xml', '.docx', '.pdf']
 const DROP_ACCEPT = [...TABULAR_EXTS, ...JSON_EXTS, ...DOCUMENT_EXTS].join(',')
 
+/** The example table behind S1's 「まずサンプルデータで試す」. Five columns, twenty
+ *  rows, five samples measured at four temperatures — enough for the AI to
+ *  produce a two-kind design, for the S4 gate to have something to say about
+ *  the row count, and for S7 to come back with a real range and a real maximum.
+ *  Held here rather than fetched: the flow must work with no network of its own
+ *  and no file at hand (KZ-A-39). Obviously synthetic, and named so on screen. */
+const SAMPLE_CSV_NAME = 'sample-thermoelectric.csv'
+const SAMPLE_CSV = `sample_id,composition,temperature_K,seebeck_uV_per_K,resistivity_mohm_cm
+S-001,Bi2Te3,300,-210.4,1.05
+S-001,Bi2Te3,400,-195.2,1.3
+S-001,Bi2Te3,500,-171.8,1.62
+S-001,Bi2Te3,600,-149.6,1.95
+S-002,Sb2Te3,300,124.6,0.85
+S-002,Sb2Te3,400,139.8,1.06
+S-002,Sb2Te3,500,150.3,1.28
+S-002,Sb2Te3,600,155.1,1.51
+S-003,PbTe,300,-179.5,1.42
+S-003,PbTe,400,-214.7,1.86
+S-003,PbTe,500,-244.9,2.35
+S-003,PbTe,600,-259.8,2.9
+S-004,SnSe,300,312.4,8.52
+S-004,SnSe,400,351.0,6.21
+S-004,SnSe,500,398.6,4.44
+S-004,SnSe,600,431.2,3.13
+S-005,Mg2Si,300,-148.9,2.11
+S-005,Mg2Si,400,-179.4,2.62
+S-005,Mg2Si,500,-204.6,3.15
+S-005,Mg2Si,600,-216.3,3.71
+`
+
 // Columns that look like a per-file serial ID (the Q2 trigger). The heading is
 // tokenised first, so `Sample ID`, `SampleNo` and `sample_no` are all read the
 // same way — a bare `/(^|[_-])(id|no|code)$/` missed the two spellings a
@@ -334,6 +364,27 @@ function humanizeLocal(name: string): string {
     .trim()
   if (!spaced) return name
   return spaced.charAt(0).toUpperCase() + spaced.slice(1)
+}
+
+/** One word, stripped down to what it MEANS: case, separators and the `has`/`is`
+ *  prefix removed. `hasSeebeckCoefficient`, `seebeck_coefficient` and "Seebeck
+ *  coefficient" all collapse to the same key. */
+function meaningKey(word: string): string {
+  return word
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+    .replace(/^(has|is)/, '')
+}
+
+/** Whether a "label" is just the machine term written out again — the weak
+ *  model's favourite non-answer. The term goes through the same readable form
+ *  the rest of this tier shows (`ast:hasSeebeckCoefficient` → "Seebeck
+ *  Coefficient"), so both "seebeckCoefficient" and "Seebeck coefficient" are
+ *  caught. A label in the reader's own script normalises to '' and is never
+ *  an echo (WEAK-MODEL-31). */
+function isEchoOfTerm(label: string, term: string): boolean {
+  const key = meaningKey(label)
+  return key !== '' && key === meaningKey(humanizeLocal(localName(term)))
 }
 
 // Read settings the preview falls back to when detection reported nothing for a
@@ -1727,6 +1778,13 @@ export function KantanWizard({
     }
   }
 
+  /** Run the whole flow on an example table for someone who has no file to
+   *  drop. Goes through the normal picker path, so nothing downstream can tell
+   *  it apart from a dropped file (KZ-A-39). */
+  function useSampleData() {
+    onFilesChosen([new File([SAMPLE_CSV], SAMPLE_CSV_NAME, { type: 'text/csv' })])
+  }
+
   /** Keep the file this browser still holds (the resume choice, RESUME-11). */
   function usePendingRestore() {
     const arr = pendingRestore
@@ -1754,6 +1812,11 @@ export function KantanWizard({
   // Q2 applies when a header column looks like a serial-number ID.
   const idColumn = previews.flatMap((p) => p.header ?? []).find((c) => looksLikeIdColumn(c)) ?? null
   const q2Needed = idColumn !== null
+  // The first values of that column, read from the file this browser holds:
+  // the evidence the question is unanswerable without (KZ-A-12). Distinct ones
+  // — a column whose first rows repeat («S-001, S-001, S-001») shows nothing
+  // about how the numbering runs.
+  const q2Samples = [...new Set(idColumn ? (columnSamples[idColumn] ?? []) : [])].slice(0, 3)
 
   // Q3 applies when several tables were dropped and they share a column name.
   // Whether the same value means the same thing across files is knowledge only
@@ -3090,6 +3153,10 @@ export function KantanWizard({
     m.properties.filter((p) => p.kind !== 'reference').map((p) => ({ map: m, prop: p })),
   )
   const totalSourceRows = Object.values(stats?.source_rows ?? {}).reduce((a, b) => a + b, 0)
+  // A draft that declares no kinds still holds records, and S7's own count is
+  // the one place that number exists client-side. Only ever a stand-in for the
+  // per-kind chips — never shown next to them (KZ-B-26).
+  const draftEntityCount = trial?.entities?.n ?? null
   // Which columns of the file the design actually reads. "Reads" is more than
   // "has its own row in the table below": a column can also build an ID
   // (`{Sample name}` inside a template), feed a conversion, or be a join key —
@@ -3109,7 +3176,7 @@ export function KantanWizard({
   // How many columns came back with no meaning at all (the ⚠ rows).
   const missingMeanings = s6Maps
     .flatMap((m) => m.properties.filter((p) => p.kind === 'reference'))
-    .filter((p) => !(p.label || rules?.labels?.[p.predicate_iri])).length
+    .filter((p) => readMeaning(p) === '').length
   // …and the ones the design left out entirely. Only computable when S2 could
   // read the column list — with no list, nothing is said (never "nothing was
   // dropped" out of missing information).
@@ -3117,9 +3184,26 @@ export function KantanWizard({
     rules && sourceColumns.length > 0
       ? sourceColumns.filter((col) => !mappedColumns.has(col))
       : []
+  // Gate ② has nothing to gate while the column table failed to load. The
+  // review's no-change exit is not a confirmation, so it keeps working
+  // (KZ-B-28).
+  const confirmBlocked = !!s6Err && !rules && !(redesigning && !reingested)
   // Plain faces of the two S6 failures (load / reflect) — same table as S5.
   const s6Plain = s6Err ? plainError(s6Err) : null
   const refinePlain = refineErr ? plainError(refineErr) : null
+
+  /** The meaning to show for one column, or '' when there is none to show. A
+   *  weak model routinely answers with the machine term rewritten
+   *  (`seebeckCoefficient`, "Seebeck coefficient" for `ast:hasSeebeckCoefficient`),
+   *  which reads as a meaning while carrying no more information than the
+   *  identifier this tier refuses to print. Treated as absent, so it gets the
+   *  ⚠ that draws the eye and the invitation to say what it means
+   *  (WEAK-MODEL-31 / KZ-B-04). */
+  function readMeaning(p: RuleProperty): string {
+    const label = p.label || rules?.labels?.[p.predicate_iri] || ''
+    if (!label) return ''
+    return isEchoOfTerm(label, p.predicate_iri || p.predicate) ? '' : label
+  }
 
   // The name of one KIND of thing. Same deterministic ladder as termLabel,
   // minus the column step (a class has no single column) — an English
@@ -3128,12 +3212,20 @@ export function KantanWizard({
     return rules?.labels?.[iri] ?? humanizeLocal(localName(iri))
   }
 
+  /** The heading over one table: the reading sentence K7 asks for («1 行 = 測定»)
+   *  plus how many of them the draft holds. A missing label falls back to the
+   *  shorthand made readable (`ds:Measurement` → "Measurement"); the map id is
+   *  never a candidate — it is this program's own bookkeeping, not a name
+   *  anyone here has seen (KZ-B-27). */
   function mapCaption(m: RuleMap): string {
     const iri = m.subject.class_iris?.[0]
-    if (iri) return classLabel(iri)
-    // No expanded IRI (a legacy projection): the shorthand and the map id are
-    // both identifiers, so they are made readable rather than shown raw (K4).
-    return humanizeLocal(localName(m.subject.classes?.[0] ?? m.id))
+    const shorthand = m.subject.classes?.[0]
+    const label = iri ? classLabel(iri) : shorthand ? humanizeLocal(localName(shorthand)) : ''
+    if (!label) return t('kantan:s6.mapCaptionUnnamed')
+    const n = iri ? stats?.classes.find((c) => c.iri === iri)?.n : undefined
+    return n === undefined
+      ? t('kantan:s6.mapCaptionNoCount', { label })
+      : t('kantan:s6.mapCaption', { label, n: n.toLocaleString() })
   }
 
   function otherKindKey(k: RuleProperty['kind']): string {
@@ -3827,7 +3919,11 @@ export function KantanWizard({
             <button
               type="button"
               onClick={() => void runPublish()}
-              disabled={!pubName.trim() || publishing}
+              // K10 wants the name, the counts, the words and the withdrawal
+              // promise on ONE screen before this is pressed. Both fetches
+              // always settle (they catch), so waiting can never dead-end
+              // (KZ-B-36).
+              disabled={!pubName.trim() || publishing || s8Loading}
             >
               {publishing
                 ? t('kantan:s8.publishing')
@@ -3877,6 +3973,19 @@ export function KantanWizard({
                 })
               : t(redesigning ? 'kantan:s9.titleUpdate' : 'kantan:s9.title')}
           </h3>
+          {/* No chips came back (S7 failed, or a reload lost them): the payoff
+              of the whole run — asking your own data a question — must still
+              have a door here (KZ-B-22). */}
+          {onOpenAsk && trialQAs.length === 0 && (
+            <>
+              <p className="kz-note">{t('kantan:s9.askNoChips')}</p>
+              <div className="kz-actions">
+                <button type="button" onClick={() => onOpenAsk('')}>
+                  {t('kantan:s9.askOpen')}
+                </button>
+              </div>
+            </>
+          )}
           {onOpenAsk && trialQAs.length > 0 && (
             <>
               <p className="kz-note">{t('kantan:s9.lead')}</p>
@@ -4026,7 +4135,12 @@ export function KantanWizard({
               </div>
             </div>
           )}
-          {stats && stats.classes.length > 0 && (
+          {/* K12's 「元ファイル N 行 → …」 card, always on this screen. A draft
+              that declares no kinds (a legal shape) used to make it vanish, and
+              with it the only place that says what became of the reader's rows
+              — so the class-less count stands in, and an unreadable count says
+              so rather than showing nothing (KZ-B-26). */}
+          {!s6Loading && !s6Err && (rules || stats) && (
             <div className="kz-map-card">
               {totalSourceRows > 0 && (
                 <>
@@ -4038,14 +4152,22 @@ export function KantanWizard({
                   </span>
                 </>
               )}
-              {stats.classes.map((c) => (
-                <span key={c.iri} className="kz-map-class">
-                  {t('kantan:s6.classCount', {
-                    label: classLabel(c.iri),
-                    n: c.n.toLocaleString(),
-                  })}
+              {stats && stats.classes.length > 0 ? (
+                stats.classes.map((c) => (
+                  <span key={c.iri} className="kz-map-class">
+                    {t('kantan:s6.classCount', {
+                      label: classLabel(c.iri),
+                      n: c.n.toLocaleString(),
+                    })}
+                  </span>
+                ))
+              ) : draftEntityCount !== null ? (
+                <span className="kz-map-class">
+                  {t('kantan:s6.mapCountAny', { n: draftEntityCount.toLocaleString() })}
                 </span>
-              ))}
+              ) : (
+                <span className="kz-map-class">{t('kantan:s6.mapCountUnknown')}</span>
+              )}
               <span className="kz-map-note">{t('kantan:s6.mapDraftNote')}</span>
             </div>
           )}
@@ -4096,12 +4218,13 @@ export function KantanWizard({
                     </thead>
                     <tbody>
                       {refs.map((p, i) => {
-                        // Meaning: IR label (K8) → model.yaml label. When the
-                        // AI wrote neither, the cell SAYS so — the English
+                        // Meaning: IR label (K8) → model.yaml label, minus the
+                        // ones that only restate the identifier. When the AI
+                        // wrote neither, the cell SAYS so — the English
                         // identifier used to be shown here as if it were the
                         // meaning, and the only explanation was a hover
                         // tooltip no touch screen ever shows (KZ-B-04).
-                        const meaning = p.label || rules?.labels?.[p.predicate_iri] || ''
+                        const meaning = readMeaning(p)
                         const missing = !meaning
                         const samples = columnSamples[p.reference ?? ''] ?? []
                         return (
@@ -4205,7 +4328,16 @@ export function KantanWizard({
                 In a review the banner already says a new version is published,
                 so the reassurance would only add noise (KZ-B-30). */}
             {!redesigning && <p className="kz-note">{t('kantan:s6.reflectNote')}</p>}
-            {!isReady && note.trim() !== '' && <p className="kz-note">{t('kantan:s1.aiNotReady')}</p>}
+            {/* Typing a note is the one thing on this screen that needs the AI.
+                Saying so without the way to fix it — and without saying that
+                the table itself can still be confirmed — leaves the reader
+                stuck on a sentence (KZ-B-31 / KZ-A-15). */}
+            {!isReady && note.trim() !== '' && (
+              <>
+                <AiNotReadyNote onConnect={() => openSettings('ai')} />
+                <p className="kz-note">{t('kantan:s6.aiNotReadyOk')}</p>
+              </>
+            )}
             {/* Plain headline + plain reason + folded raw text, and a line
                 saying the run is not stuck on this (KZ-B-10). */}
             {refineErr && (
@@ -4251,13 +4383,18 @@ export function KantanWizard({
             <button
               type="button"
               onClick={onConfirmMeanings}
-              disabled={s6Loading || refining !== false}
+              disabled={s6Loading || refining !== false || confirmBlocked}
             >
               {redesigning && !reingested
                 ? t('kantan:redesign.confirmNoChange')
                 : t('kantan:s6.confirm')}
             </button>
           </div>
+          {/* Gate ② confirms what is on the table. With the table unread there
+              is nothing to confirm, and pressing on would wave through a
+              meaning nobody ever saw (KZ-B-28). The review's "nothing changed"
+              exit is not a confirmation and stays available. */}
+          {confirmBlocked && <p className="kz-note">{t('kantan:s6.confirmBlocked')}</p>}
         </section>
       ) : step === 1 ? (
         <>
@@ -4298,6 +4435,23 @@ export function KantanWizard({
             <h3 className="kz-title">{t('kantan:s1.title')}</h3>
             <DropZone onFiles={onFilesChosen} />
             <p className="kz-note">{t('kantan:s1.privacy')}</p>
+            {/* Nobody can be walked through a flow they cannot start. Without a
+                file of their own, the first screen used to be a dead end
+                (KZ-A-39). */}
+            {!inspecting && !restoring && (
+              <>
+                <div className="kz-actions">
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--sm"
+                    onClick={useSampleData}
+                  >
+                    {t('kantan:s1.trySample')}
+                  </button>
+                </div>
+                <p className="kz-note">{t('kantan:s1.trySampleNote')}</p>
+              </>
+            )}
             {/* Not while the restore is still running — that would invite a
                 re-drop of files the machine is about to hand back (RESUME-01). */}
             {resumeAvailable && !restoring && (
@@ -4512,6 +4666,14 @@ export function KantanWizard({
           {q2Needed && (
             <div className="kz-q">
               <p className="kz-q-text">{t('kantan:s2.q2', { column: idColumn })}</p>
+              {/* The values themselves, from the reader's own file: "1, 2, 3"
+                  and "S-2024-001" call for different answers, and neither is
+                  guessable from the column name (KZ-A-12). */}
+              {q2Samples.length > 0 && (
+                <div className="kz-preamble-name">
+                  {t('kantan:s2.q2Evidence', { values: q2Samples.join(t('kantan:s7.join')) })}
+                </div>
+              )}
               <div className="kz-q-options">
                 <button
                   type="button"
@@ -4605,7 +4767,9 @@ export function KantanWizard({
             </button>
           </div>
           {!questionsAnswered && <p className="kz-note">{t('kantan:s2.needAnswers')}</p>}
-          {!isReady && <p className="kz-note">{t('kantan:s1.aiNotReady')}</p>}
+          {/* The primary button above is dead without an AI: the sentence needs
+              the screen that fixes it next to it (KZ-A-15). */}
+          {!isReady && <AiNotReadyNote onConnect={() => openSettings('ai')} />}
         </section>
       ) : step === 3 ? (
         <section className="kz-card">
