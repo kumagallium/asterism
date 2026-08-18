@@ -98,6 +98,7 @@ from fastapi import (
     Header,
     HTTPException,
     Query,
+    Request,
     Response,
     UploadFile,
 )
@@ -105,8 +106,16 @@ from fastapi import Path as PathParam
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
+from asterism_api import (
+    appdata,
+    design_loop,
+    exchange,
+    registry,
+    server_keys,
+    staging,
+    togomcp_sync,
+)
 from asterism_api import describe as describe_mod
-from asterism_api import design_loop, exchange, registry, server_keys, staging, togomcp_sync
 from asterism_api import usage as usage_ledger
 from asterism_api.jobs import JobManager
 from asterism_api.tool_loop import ToolLoopResult, propose_tool_with_correction
@@ -1028,6 +1037,15 @@ class Settings:
         except ValueError:
             timeout_s = 3600.0
         self.job_timeout_seconds: float | None = timeout_s if timeout_s > 0 else None
+        # Single-user mode (ADR app-data-on-disk.md): asterism-local sets
+        # both of these so Ask threads / app settings get a server-side home on
+        # disk instead of the browser's localStorage. Unset (the shared/hosted
+        # api) → the /api/appdata/* routes stay 404 except GET .../info.
+        self.single_user = (e.get("ASTERISM_SINGLE_USER") or "").strip().lower() in (
+            "1", "true", "yes",
+        )
+        appdata_raw = (e.get("ASTERISM_APPDATA_ROOT") or "").strip()
+        self.appdata_root = Path(appdata_raw) if appdata_raw else None
 
 
 # ----------------------------------------------------------------------------
@@ -2666,6 +2684,96 @@ def build_app(
     async def delete_staging(staging_id: str) -> dict[str, object]:
         """Forget a record (a fresh start). Idempotent."""
         return {"deleted": staging.delete(cfg.registry_root, staging_id)}
+
+    # ------------------------------------------------------------------
+    # Single-user on-disk appdata (ADR app-data-on-disk.md): Ask
+    # chat threads + app settings, for asterism-local only. Everything but
+    # GET /api/appdata/info 404s in the shared/hosted api (cfg.single_user
+    # is False there, and appdata_root is None), so this is a strict
+    # addition — the info probe is what lets the SPA branch on it.
+
+    def _reject_if_content_length_exceeds(request: Request, limit: int) -> None:
+        """Cheap pre-check before reading the body into memory: when the
+        client sends ``Content-Length`` and it already exceeds the limit,
+        413 immediately instead of buffering megabytes just to throw them
+        away. Missing/unparsable header falls through — the caller still
+        enforces the limit on the serialized body afterwards."""
+        raw = request.headers.get("content-length")
+        if raw is None:
+            return
+        try:
+            declared = int(raw)
+        except ValueError:
+            return
+        if declared > limit:
+            raise HTTPException(413, f"body is {declared} bytes, over the {limit} limit")
+
+    @app.get("/api/appdata/info")
+    async def appdata_info() -> dict[str, object]:
+        """Always 200 — the UI's only signal for "do I have a disk home?".
+        ``home`` is the appdata root's parent (the data home), not the
+        appdata dir itself, to match what a human recognizes from the app."""
+        if not cfg.single_user or cfg.appdata_root is None:
+            return {"single_user": False, "home": None}
+        return {"single_user": True, "home": str(cfg.appdata_root.parent)}
+
+    def _appdata_root_or_404() -> Path:
+        if not cfg.single_user or cfg.appdata_root is None:
+            raise HTTPException(404, "appdata is only available in single-user mode")
+        return cfg.appdata_root
+
+    @app.get("/api/appdata/ask/threads")
+    async def appdata_list_threads() -> dict[str, object]:
+        root = _appdata_root_or_404()
+        return {"threads": appdata.read_threads(root)}
+
+    @app.put("/api/appdata/ask/threads/{thread_id}", dependencies=_write_auth)
+    async def appdata_put_thread(thread_id: str, request: Request) -> dict[str, object]:
+        root = _appdata_root_or_404()
+        _reject_if_content_length_exceeds(request, appdata.MAX_THREAD_BYTES)
+        try:
+            payload = await request.json()
+        except ValueError as exc:
+            raise HTTPException(400, "body must be JSON") from exc
+        if not isinstance(payload, dict):
+            raise HTTPException(400, "thread body must be a JSON object")
+        try:
+            appdata.write_thread(root, thread_id, payload)
+        except appdata.InvalidThreadId as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except (appdata.ThreadTooLarge, appdata.TooManyThreads) as exc:
+            raise HTTPException(413, str(exc)) from exc
+        return {"saved": True}
+
+    @app.delete("/api/appdata/ask/threads/{thread_id}", dependencies=_write_auth)
+    async def appdata_delete_thread(thread_id: str) -> dict[str, object]:
+        root = _appdata_root_or_404()
+        try:
+            deleted = appdata.delete_thread(root, thread_id)
+        except appdata.InvalidThreadId as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return {"deleted": deleted}
+
+    @app.get("/api/appdata/settings")
+    async def appdata_get_settings() -> dict[str, object]:
+        root = _appdata_root_or_404()
+        return {"settings": appdata.read_settings(root)}
+
+    @app.put("/api/appdata/settings", dependencies=_write_auth)
+    async def appdata_put_settings(request: Request) -> dict[str, object]:
+        root = _appdata_root_or_404()
+        _reject_if_content_length_exceeds(request, appdata.MAX_SETTINGS_BYTES)
+        try:
+            payload = await request.json()
+        except ValueError as exc:
+            raise HTTPException(400, "body must be JSON") from exc
+        if not isinstance(payload, dict):
+            raise HTTPException(400, "settings body must be a JSON object")
+        try:
+            appdata.write_settings(root, payload)
+        except appdata.SettingsTooLarge as exc:
+            raise HTTPException(413, str(exc)) from exc
+        return {"saved": True}
 
     @app.post("/api/inspect")
     async def inspect_csvs(

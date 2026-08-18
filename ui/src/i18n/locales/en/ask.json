@@ -29,6 +29,7 @@
     "new": "New chat",
     "newTitle": "New chat",
     "empty": "No chats yet. Ask a question below and it will be kept here (stored in this browser).",
+    "emptyDisk": "No chats yet. Ask a question below and it will be kept here (stored on this PC).",
     "untitled": "(untitled)",
     "turns_one": "{{count}} question",
     "turns_other": "{{count}} questions",

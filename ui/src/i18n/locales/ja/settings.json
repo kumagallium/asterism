@@ -7,7 +7,8 @@
   "tabs": {
     "models": "モデル",
     "usage": "API使用量",
-    "about": "このアプリ"
+    "about": "このアプリ",
+    "storage": "ストレージ"
   },
   "models": {
     "intro": "AI が使うモデルを登録します。Anthropic（Claude）のほか、OpenAI や OpenAI 互換エンドポイント（さくらの AI Engine・Groq・Ollama など）を base URL を入れるだけで追加できます。選択中のモデルが提案・Ask など全機能で使われます。",
@@ -140,5 +141,17 @@
     "installing": "ダウンロード中…",
     "downloading": "ダウンロード中… {{pct}}%",
     "installFailed": "更新に失敗しました"
+  },
+  "storage": {
+    "title": "ローカル保存先",
+    "intro": "データセット・グラフ・チャット・設定を保存するフォルダです。",
+    "currentLabel": "現在の場所",
+    "unknown": "不明",
+    "change": "変更…",
+    "browserNote": "この画面（ブラウザでの表示）からは変更できません。デスクトップアプリの画面から変更してください。",
+    "restartPending": "次回の起動から {{path}} が使われます。反映するには Asterism を再起動してください。",
+    "syncWarning": "選んだ場所は同期フォルダのようです。グラフの保存領域（Oxigraph）は同期と相性が悪く、複数の端末から同時に開くと壊れることがあります。",
+    "migrateNote": "既存のデータは自動では移動されません。引き継ぎたい場合は、Asterism を終了してから旧フォルダの中身を新しいフォルダへ手動でコピーしてください。",
+    "resetDefault": "既定の場所に戻す"
   }
 }

@@ -337,6 +337,31 @@
 .field-help.field-ok {
   color: var(--entity);
 }
+.field-help.field-warn {
+  color: var(--warn-fg);
+}
+
+/* ---- storage tab ---- */
+.storage-section {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+.storage-current {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.storage-current-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.storage-path {
+  word-break: break-all;
+}
 
 .rate-fieldset {
   border: 1px solid var(--border);

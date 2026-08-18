@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import './SettingsModal.css'
+import { getAppDataInfo } from '../appdata'
 import { AboutTab } from './AboutTab'
 import { InstanceSection } from './InstanceSection'
 import { ServerKeysSection } from './ServerKeysSection'
+import { StorageTab } from './StorageTab'
 import { WriteTokenSection } from './WriteTokenSection'
 import { useLlmSettings } from './context'
 import { UsageTab } from './UsageTab'
@@ -23,11 +25,13 @@ import {
   makeModel,
 } from './store'
 
-type Tab = 'models' | 'usage' | 'about'
+type Tab = 'models' | 'usage' | 'storage' | 'about'
 
 export function SettingsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { t } = useTranslation('settings')
   const [tab, setTab] = useState<Tab>('models')
+  // 共有ブラウザ版（複数ユーザーが同じ api を見ている）ではストレージタブ自体を出さない。
+  const showStorageTab = getAppDataInfo()?.singleUser === true
 
   // Close on Escape.
   useEffect(() => {
@@ -104,6 +108,15 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
           >
             {t('tabs.usage')}
           </button>
+          {showStorageTab && (
+            <button
+              type="button"
+              className={`settings-tab${tab === 'storage' ? ' active' : ''}`}
+              onClick={() => setTab('storage')}
+            >
+              {t('tabs.storage')}
+            </button>
+          )}
           <button
             type="button"
             className={`settings-tab${tab === 'about' ? ' active' : ''}`}
@@ -115,6 +128,7 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
         <div className="settings-body">
           {tab === 'models' && <ModelsTab />}
           {tab === 'usage' && <UsageTab />}
+          {tab === 'storage' && showStorageTab && <StorageTab />}
           {tab === 'about' && <AboutTab />}
         </div>
       </div>

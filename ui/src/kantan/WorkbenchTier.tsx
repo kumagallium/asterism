@@ -1,5 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import {
+  bootstrapAppSettings,
+  getServerSetting,
+  isAppSettingsServerMode,
+  putAppSetting,
+} from '../appSettings'
 import type { DetailTab } from '../GalleryView'
 import { type RedesignTarget, WorkbenchView } from '../WorkbenchView'
 import { KantanWizard } from './KantanWizard'
@@ -49,6 +55,21 @@ export function WorkbenchTier({
   const { t } = useTranslation()
   const [tier, setTier] = useState<Tier>(loadTier)
   const [kantanBusy, setKantanBusy] = useState(false)
+  // singleUser モード（ADR app-data-on-disk.md D1）ではサーバの settings.json の
+  // `workbenchTier` が正。起動直後は localStorage の値でそのまま描画し（ちらつき
+  // 防止）、サーバの申告が届いてから食い違っていれば切り替える。
+  useEffect(() => {
+    let cancelled = false
+    void bootstrapAppSettings().then(() => {
+      if (cancelled || !isAppSettingsServerMode()) return
+      const remote = getServerSetting<string>('workbenchTier')
+      if ((remote === 'detail' || remote === 'kantan') && remote !== tier) setTier(remote)
+    })
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const [jobSaved, setJobSaved] = useState(hasSavedJob)
   // "構造から見直す" (kantan → detail): the wizard re-emits its current design
   // as a RedesignTarget so WorkbenchView opens it exactly like a catalog
@@ -63,11 +84,14 @@ export function WorkbenchTier({
   }, [])
 
   useEffect(() => {
+    // localStorage への書き込みは singleUser モードでも残す（起動時キャッシュ —
+    // ADR app-data-on-disk.md 表）。サーバへの書き戻しは別途行う。
     try {
       localStorage.setItem(TIER_STORAGE, tier)
     } catch {
       /* non-fatal */
     }
+    if (isAppSettingsServerMode()) putAppSetting('workbenchTier', tier)
   }, [tier])
 
   // A redesign (カタログの「見直す」) opens in the user's CURRENT tier — the
