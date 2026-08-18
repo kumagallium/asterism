@@ -3,16 +3,22 @@
     "edit": "Edit name",
     "save": "Save",
     "cancel": "Cancel",
-    "placeholder": "Dataset name"
+    "placeholder": "Dataset name",
+    "error": "Could not rename this dataset"
   },
   "status": {
     "pub": "Published",
     "draft": "Draft",
-    "design": "Designing"
+    "design": "Not loaded yet"
   },
-  "intro": "Your <1>datasets</1> are the focus. Each dataset has a \"<3>design (its words)</3>\" and \"<5>ingest rules</5>\".",
+  "intro": "Your datasets. Open a card to check its contents, publish it, or add new measurements.",
+  "listError": {
+    "title": "Could not load the list of datasets",
+    "body": "Wait a moment, then press \"Reload\".",
+    "retry": "Reload"
+  },
   "focusBanner": {
-    "label": "Kind of data behind this Ask citation: ",
+    "label": "The kind of data this answer used: ",
     "sub": "This answer is based on data of this kind."
   },
   "loading": "Loading datasets…",
@@ -27,40 +33,36 @@
     "title": "Shared terms",
     "en": "shared terms",
     "warn": "Changes affect everything · handle with care",
-    "sub": "The schema multiple datasets share. Keeping it aligned lets you <1>search and compare across datasets</1>.",
+    "sub": "The words multiple datasets share. Keeping them aligned lets you <1>search and compare across datasets</1>.",
     "users": "<0>{{n}}</0> kinds shared",
     "open": "Open"
   },
   "crosswalkBand": {
     "title": "Connections",
     "en": "crosswalk",
-    "sub": "Connect datasets that share the same concept (composition, crystal system, author…) with <1>a single bridge</1>. It can answer \"how many datasets report this value?\" across datasets.",
-    "users": "<0>{{n}}</0> datasets bridged",
+    "sub": "Connect datasets that share the same concept (composition, crystal system, author…) with <1>one connection</1>. It can answer \"how many datasets report this value?\" across datasets.",
+    "users": "<0>{{n}}</0> datasets connected",
     "open": "Open"
   },
   "tab": {
-    "structure": "Schema",
-    "structureEn": "schema",
-    "files": "Files",
-    "filesEn": "files",
+    "structure": "Contents",
+    "files": "Load & publish",
     "connect": "Connections",
-    "connectEn": "connections",
-    "tools": "Tools",
-    "toolsEn": "tools",
-    "design": "Rules",
-    "designEn": "rules"
+    "tools": "Tools (developer)",
+    "design": "Transformation rules (technical)"
   },
   "grid": {
     "search": "Search by dataset name",
     "metaFiles": "files",
     "metaLinks": "connections",
-    "addTitle": "New dataset",
-    "addSub": "Create by ingesting files"
+    "addTitle": "Add data",
+    "addSub": "Just drop an Excel, CSV or instrument file"
   },
   "card": {
-    "publish": "Publish for search",
-    "retract": "Retract",
-    "reinstate": "Reinstate",
+    "publish": "Publish",
+    "publishUpdate": "Update publication",
+    "retract": "Unpublish",
+    "reinstate": "Publish again",
     "more": "More actions",
     "delete": "Delete"
   },
@@ -69,25 +71,26 @@
     "tools": "Tools (answer from this data)"
   },
   "tools": {
-    "none": "This dataset has no answerable tools yet because it has not been imported. Run \"Import data\" first."
+    "none": "This dataset holds no data yet, so there are no tools to answer with. Press \"Import data\" on the \"Load & publish\" tab first.",
+    "goFiles": "Open the \"Load & publish\" tab"
   },
   "files": {
     "head": "Ingested files",
     "dedupe": "Every file that makes up this dataset. Files with the same name are detected and flagged at ingest time.",
-    "futureDedup": "* Content-hash duplicate detection is coming; for now you can check by file name.",
     "colName": "File name",
     "colType": "Type",
     "colWhen": "Ingested",
     "colStatus": "Status",
     "statusIngested": "Ingested",
-    "source": "design source",
-    "batch": "batch #{{seq}}",
+    "source": "Original file",
+    "batch": "Added later (#{{seq}})",
     "none": "No ingested-file records yet. Use the operations below to ingest.",
     "statusSavedOnly": "Saved · not ingested yet"
   },
   "connect": {
     "head": "This dataset's connections",
-    "concept": "across {{concept}}",
+    "concept": "Connected on {{concept}}",
+    "unnamed": "Connection {{n}}",
     "none": "This dataset is not yet connected to other data.",
     "seeAll": "Manage connections",
     "seeMap": "View overview",
@@ -103,43 +106,56 @@
   "purposes": {
     "label": "Questions this data can answer"
   },
+  "band": {
+    "designLine": "No data has been loaded yet.",
+    "draftLine": "An unpublished draft (visible to no one until you publish).",
+    "publishedLine": "Published. Answers cite this data with its source.",
+    "retractedLine": "Unpublished (not used in answers; the data and IDs are still here).",
+    "stagedLine": "A draft of the new data is ready.",
+    "ask": "Ask a question",
+    "append": "Add new measurements",
+    "replace": "Replace everything",
+    "publish": "Publish",
+    "republish": "Publish it again"
+  },
   "design": {
-    "title": "Schema (structure of the content)",
+    "title": "Contents (kinds of data and fields)",
+    "navRules": "What each column means",
+    "navGrounding": "Match standard words",
     "classCount": "{{n}} kinds",
     "noClasses": "No kind-of-data information.",
+    "classesHead": "Kinds of data",
     "predicatesHead": "Fields in use (from the actual data)",
     "diagramSummary": "Structure diagram",
-    "reusesHead": "Standard words borrowed from elsewhere (detected from the actual data)",
-    "classCount_one": "{{n}} class",
-    "classCount_other": "{{n}} classes",
     "advisoryHead": "Worth knowing",
     "advisoryNote": "Use “review the design” below to have the AI add the links."
   },
   "rules": {
-    "title": "Ingest rules (artifacts)",
-    "empty": "No ingest-rule artifacts yet.",
-    "projectionIntro": "A plain-language reading generated from the stored ingest rules — a deterministic transformation, no AI involved. The exact executable original (RML form) is always available in the artifact files below.",
+    "title": "Transformation rules — how each column is recorded",
+    "empty": "No design saved yet. Once the AI reads your file via \"Add data\", what each column means appears here.",
+    "emptyDocument": "Documents are loaded by a fixed procedure (sections → paragraphs → sentences), so there are no column meanings to show here.",
+    "projectionIntro": "How each column of your file is recorded, and as which item — built mechanically from the saved rules, no AI involved. The actual rules that run (RML) are in the files below.",
     "subject": "How the ID is built",
-    "iterator": "Iteration unit",
-    "colProperty": "Property",
+    "iterator": "What counts as one record",
+    "colProperty": "Item",
     "colValue": "How the value is produced",
-    "colType": "Type",
+    "colType": "Value format",
     "colUnit": "Unit",
     "kind": {
-      "reference": "column",
-      "template": "template",
-      "constant": "constant",
-      "function": "function",
-      "join": "join",
-      "unknown": "This form has no plain-language reading yet (check the raw file)"
+      "reference": "Column",
+      "template": "ID used for linking",
+      "constant": "Fixed value",
+      "function": "Derived value",
+      "join": "Link to another table",
+      "unknown": "This form cannot be shown here (your data is unaffected)."
     },
-    "joinTo": "joined to {{parent}}",
-    "warningsHead": "Reading notes",
-    "artifactsHead": "Artifact files (raw)",
+    "joinTo": "links to {{parent}}",
+    "warningsHead": "Items this view could not show (technical)",
+    "artifactsHead": "Source files (RML etc., technical)",
     "open": "Open",
-    "legacyChip": "legacy",
-    "legacyNote": "Not executed by the declarative ingest path (legacy artifact).",
-    "loadError": "Failed to load the ingest rules: {{message}}",
+    "legacyChip": "Old method",
+    "legacyNote": "An old-method file; not used by the current ingest.",
+    "loadError": "Could not load what each column means. Wait a moment, then open this tab again.",
     "viewer": {
       "copy": "Copy",
       "copied": "Copied",
@@ -148,106 +164,138 @@
       "empty": "(empty)"
     },
     "history": {
-      "head": "Change history (redesigns)",
-      "item": "Version before the redesign on {{when}}",
+      "head": "Change history (revisions)",
+      "item": "Version before the revision on {{when}}",
       "files": "{{count}} files",
       "diff": "View diff",
-      "diffTitle": "Redesign diff",
+      "diffTitle": "Revision diff",
       "diffIntro": "Comparison between the version replaced on {{when}} and the current one (− old, ＋ current).",
       "noChanges": "No differences between this version and the current one.",
       "unchangedNote": "Files without differences are not shown.",
       "fullText": "Full text of this version",
-      "fullTextSub": "Version before the redesign on {{when}}"
+      "fullTextSub": "Version before the revision on {{when}}"
     }
   },
   "sourceKind": {
-    "tabular": "CSV/TSV/instrument text"
+    "tabular": "Excel / CSV / instrument file"
+  },
+  "fileKind": {
+    "tabular": "Table",
+    "json": "JSON",
+    "document": "Document"
+  },
+  "progress": {
+    "materialize": "Converting your data…",
+    "preparing": "Getting ready to load…",
+    "converting": "Reading the document…",
+    "ingesting": "Loading into your unpublished draft…",
+    "ingestingPct": "Loading into your unpublished draft… {{pct}}%",
+    "unknown": "Working…"
+  },
+  "job": {
+    "elapsedPlain": "{{mm}}m {{ss}}s elapsed · usually 1–3 min"
+  },
+  "error": {
+    "conflictTitle": "Cannot delete while it is published",
+    "conflictBody": "Press \"Unpublish\" first, then try again.",
+    "retractedTitle": "Cannot add measurements while it is unpublished",
+    "retractedBody": "Press \"Publish it again\" first, then add these measurements.",
+    "notLiveTitle": "Nothing is published yet, so there is nothing to add to",
+    "notLiveBody": "Press \"Publish\" first. Once it is published, what you add goes straight into the published data."
+  },
+  "grow": {
+    "head": "Grow this dataset",
+    "append": "Add new measurements",
+    "replace": "Replace everything",
+    "hint": "Pick one and its file picker opens."
   },
   "ingest": {
     "head": "Import data",
-    "noRml": "This design has no ingest rules yet, so it cannot be ingested. Create them via \"Add data\" (the AI designs them), and you will be able to load safely from here.",
-    "done": "✓ Loaded into the unpublished draft ({{n}} facts). Next, press \"Publish for search\" below so Ask can cite it.",
-    "note": "On approval, the ingest rules run and the result lands in an <1>unpublished draft</1> (visible to no one until you publish). Only safety-vetted transformations run — no AI-written code is executed.",
-    "noteDocument": "On approval, the saved document is structured into sections → paragraphs → sentences and loaded into the unpublished draft (visible to no one until you publish). Published data is untouched.",
+    "noRml": "This dataset has no saved design to load with. Start again from \"Add data\".",
+    "goAddData": "Go to Add data",
+    "done": "✓ Loaded into the unpublished draft. Next, press \"Publish\" so it is used in answers.",
+    "note": "Loads the file into your unpublished draft using the saved design (nobody can see it until you publish).",
+    "keepGoing": "You can leave this screen — loading keeps going, and coming back picks the progress up again.",
+    "noteDocument": "Splits the saved document into sections → paragraphs → sentences and loads it into your unpublished draft (visible to no one until you publish).",
     "sourceDocument": "document",
-    "sourceSaved": "The design-time {{source}} is saved{{files}}. Ingest with no re-attach.",
+    "sourceSaved": "The file you first dropped{{files}} is saved. You can load it again without choosing it.",
     "filesSuffix": " ({{names}})",
     "pickLabel": "Select {{source}}",
-    "pickPlaceholder": "Choose the {{source}} used for the design",
+    "pickPlaceholder": "Choose the same file you first dropped",
     "submit": "Import data",
-    "submitting": "Ingesting…",
-    "error": "Ingest failed: {{message}}",
-    "validationHead": "Validating the ingest rules before the run found these problems (fix them and try again):",
-    "cancelled": "Ingest cancelled. Any partially written data has been discarded — nothing reached the published surface."
+    "submitting": "Importing…",
+    "error": "Could not import the data",
+    "validationHead": "{{n}} things in the design need fixing",
+    "cancelled": "Loading stopped. The partial data has been cleaned up, and your published data is unaffected."
   },
   "append": {
-    "head": "Append to live (device feed)",
-    "note": "Ingest <strong>only</strong> the new batch {{source}} and append it to the published data as-is (only the new part is processed, so it is fast even for large data). Existing facts and IDs are unchanged and identical rows never duplicate. The design and first version were approved at publish time, so appends skip the gate (for continuous device logs). Match the filename to the source filename fixed at design time (the design's <code>source</code> field).",
-    "progress": "{{seq}} batches appended so far{{appended}}.",
-    "progressAppended": " (+~{{n}} triples)",
-    "pickPlaceholder": "Choose the batch {{source}} to append",
-    "submit": "Append to live",
-    "submitting": "Appending…",
-    "done": "✓ Appended (+{{n}} triples · batch #{{seq}}). Ask can cite it immediately.",
-    "error": "Append failed: {{message}}"
+    "head": "Add new measurements (drop the instrument file as-is)",
+    "note": "Drop a new file from the same instrument and only that part is added to your published data. Rows that are already there are not duplicated.",
+    "noteFilename": "Give the file the same name as the first file you loaded ({{names}}).",
+    "nameMismatchTitle": "This file's name differs from the first one",
+    "nameMismatchBody": "Rename it to match the first file you loaded ({{expected}}) and drop it again (if your instrument adds a date to the name, only the name needs changing — the contents are fine).",
+    "progress": "Added {{seq}} time(s) so far.",
+    "pickPlaceholder": "Choose the file to add (from the same instrument)",
+    "submit": "Add these measurements",
+    "submitting": "Adding…",
+    "done": "✓ Added (time {{seq}}). It is used in answers right away.",
+    "error": "Could not add these measurements"
   },
   "promote": {
-    "ok": "✓ Published for search ({{n}} facts{{version}}). Ask can cite it with its source.",
-    "okVersion": " · version v{{version}}",
-    "repromoteNote": "A new version is loaded into the unpublished draft. Pressing \"Update publication (re-publish)\" bumps the version Ask cites <strong>v{{version}} → v{{next}}</strong> and switches to the new data. The switch is instant and the old version is cleaned up automatically (the current version keeps being cited during ingest, so there is no gap).",
-    "note": "Publishing for search turns this unpublished draft into the <1>published data Ask cites</1>. Before publishing, you can check which of its words reuse the standard ones and which are new to this dataset.",
-    "alignmentSummary": "Fields: {{predReuse}} standard as-is · {{predNew}} new / Kinds: {{classReuse}} standard as-is · {{classNew}} new",
-    "alignmentNew": "Field words new to this dataset: {{terms}}",
-    "previewRepromote": "Check the word differences (pre-re-publish check)",
-    "preview": "Check the word differences (pre-publish check)",
-    "repromoting": "Applying…",
-    "promoting": "Publishing…",
-    "repromoteSubmit": "Update publication (re-publish → v{{next}})",
-    "submit": "Publish for search (make usable in Ask)",
-    "repromoteError": "Re-publish failed: {{message}}",
-    "error": "Publish failed: {{message}}"
+    "ok": "✓ Published{{version}}. Answers cite it with its source.",
+    "okVersion": " · version {{version}}",
+    "repromoteNote": "A new draft of your data is ready. Press \"Update publication\" and answers switch to the new data (answers keep working during the switch).",
+    "note": "Once published, answers to questions can cite this data with its source. If you spot a mistake, you can withdraw it from citation at any time.",
+    "alignmentLoading": "Checking the words this data uses…",
+    "repromoteSubmit": "Update publication",
+    "submit": "Publish",
+    "repromoteError": "Updating the publication failed",
+    "error": "Publish failed",
+    "dialogContent": "Contents: {{counts}}",
+    "dialogCountsUnknown": "the data you loaded",
+    "cancel": "Not now"
   },
   "reingest": {
-    "head": "Update data (re-ingest)",
-    "notePrefix": "Ingest the new {{source}} as a <strong>separate draft version</strong> (the published data stays as-is).",
-    "notePublished": "<strong>The current published version (v{{version}}) keeps being cited by Ask</strong> during ingest, so answers are not interrupted. When done, \"Update publication (re-publish)\" below switches <strong>v{{version}} → v{{next}}</strong> and the old version is cleaned up automatically.",
-    "noteUnpublished": "Re-ingests an unpublished draft (no effect on Ask). When done, you can publish it via \"Publish for search\" below.",
-    "sourceSaved": "The design-time {{source}} is saved{{files}}. Ingest with no re-attach. To swap in a different {{source}}, select it below.",
+    "head": "Replace everything (rebuild from a new file)",
+    "notePublished": "Rebuilds this dataset from a new file. Answers about the data you have now keep working while it rebuilds; when it is ready, \"Update publication\" switches answers to the new data.",
+    "noteUnpublished": "Rebuilds your unpublished draft from a new file (nothing is published yet, so answers are unaffected).",
+    "sourceSaved": "The file you first dropped{{files}} is saved. To replace it, choose the new file below.",
     "pickReplace": "Replace {{source}}",
     "pickSelect": "Select {{source}}",
-    "placeholderKeep": "If you do not replace it, the saved {{source}} is used",
+    "placeholderKeep": "No file chosen yet",
     "placeholderSelect": "Choose the {{source}} for the update",
-    "submit": "Re-ingest with new data",
+    "submit": "Replace with this file",
     "submitting": "Ingesting…",
-    "error": "Re-ingest failed: {{message}}"
+    "needFile": "Choose the file that replaces it.",
+    "rerunSaved": "Rebuild from the saved file",
+    "rerunNote": "After revising the design, press this to load the same file again into a new version.",
+    "error": "Replacing the data failed"
   },
   "redesign": {
     "head": "Revise the design",
-    "note": "Reopen this schema and ingest rules in the workbench to fix or adjust them, then save (it updates the same dataset — no need to delete and recreate). After saving, apply the data via \"Update data (re-ingest)\".",
-    "noProposal": "This dataset has no stored design to reopen in the workbench (it was created before the design was persisted). Please recreate it instead.",
+    "note": "Review the column meanings and links the AI read. Your fixes become a new version of the same dataset in the draft and take over when you publish — no need to delete and recreate.",
+    "noProposal": "This dataset has no stored design left to review, so it cannot be reopened.",
+    "recreate": "Rebuild it from Add data",
     "open": "Revise the design",
-    "loading": "Loading the design…"
+    "loading": "Loading the design…",
+    "error": "Could not load the design to review"
   },
   "lifecycle": {
     "head": "Lifecycle actions",
-    "retractedStatus": "Status: <1>Retracted</1> (excluded from Ask citations. The data and IDs remain, so existing citations are not broken. You can reinstate it.)",
-    "retractConfirm": "Retract this dataset?\nIt will be removed from Ask citations, but the data and IDs remain, so existing citations are not broken (you can reinstate it later).",
-    "retractDone": "Retracted (excluded from the published data · existing citations are not broken).",
-    "retracting": "Retracting…",
-    "retract": "Retract (remove from Ask citations)",
-    "reinstateDone": "Reinstated (cited by Ask again).",
-    "reinstating": "Reinstating…",
-    "reinstate": "Reinstate (cite again)",
-    "deleteConfirmPromoted": "Permanently delete this dataset?\nIt is published (citable), so existing citations may return 404. \"Retract\" is usually recommended.\n\nDelete anyway?",
+    "retractedStatus": "Status: <1>Unpublished</1> — not used in answers; data and IDs stay so existing citations keep working. You can publish it again any time.",
+    "retractConfirm": "Stop publishing this dataset?\nIt drops out of answers, but the data and IDs remain, so links to what has already been cited keep working (you can publish it again later).",
+    "retracting": "Unpublishing…",
+    "reinstating": "Publishing again…",
+    "deleteConfirmPromoted": "Permanently delete this dataset?\nIt is published, so links to what has already been cited may stop opening. \"Unpublish\" is usually the better choice.\n\nDelete anyway?",
     "deleteConfirm": "Delete this dataset? (Not published, so it is safe to delete.)",
     "deleteDone": "Deleted.",
     "deleting": "Deleting…",
     "delete": "Delete",
-    "error": "Action failed: {{message}}"
+    "error": "Action failed"
   },
   "docAppend": {
     "head": "Add a document (to this dataset)",
-    "note": "Add one more Word <0>.docx</0> / structured XML <1>.xml</1> / PDF, and it is structured into sections → paragraphs → sentences and <2>appended directly to the shared data (live)</2>. From then on, <3>search_text</3> / <4>quote_with_citation</4> in the \"Tools\" tab <5>search and cite the added document too</5> (for accumulating meeting minutes). <6>.docx</6> and PDF are auto-converted to XML server-side (the converter and version are recorded in provenance).",
+    "note": "Add one more Word / PDF / XML document and it is split sentence by sentence straight into your published data, so \"Ask\" can search and cite the added document too (for accumulating meeting minutes).",
     "appended": "{{n}} document(s) appended so far.",
     "pick": "Choose a document (Word / PDF / XML)",
     "noFile": "Choose a document to add",
@@ -255,28 +303,27 @@
     "busyN": "Adding ({{i}}/{{n}})…",
     "nFiles": "{{n}} documents",
     "submit": "Add this document",
-    "done": "✓ Document added (+{{n}} facts). You can search and cite the full text from the \"Tools\" tab.",
-    "doneN": "✓ Added {{docs}} document(s) (+{{n}} facts). You can search and cite the full text from the \"Tools\" tab.",
-    "error": "Failed to add: {{err}}"
+    "doneN": "✓ Added {{docs}} document(s). You can search and cite them from \"Ask\".",
+    "error": "Failed to add the document"
   },
   "api": {
-    "ontologyDescription": "A design materialized in the workbench ({{date}}). A draft before promotion into the shared vocabulary.",
+    "ontologyDescription": "A design saved from \"Add data\" ({{date}}). A draft, not published yet.",
     "stage": {
-      "designBadge": "Design only (not ingested)",
-      "ingestedBadge": "Ingested into draft",
-      "promotedBadge": "Shared data (usable in Ask)"
+      "designBadge": "Not loaded yet (design saved)",
+      "ingestedBadge": "Draft (before publishing)",
+      "promotedBadge": "Published (you can ask about it)"
     },
     "rmlSummary": {
-      "promoted": "Ingest rules (loaded into the published data · {{n}} facts)",
-      "ingested": "Ingest rules (loaded into the unpublished draft · {{n}} facts)",
-      "design": "Ingest rules (not ingested yet. You can ingest safely from this screen.)"
+      "promoted": "Transformation rules (RML) — applied to the published data · {{n}} facts",
+      "ingested": "Transformation rules (RML) — applied to the unpublished draft · {{n}} facts",
+      "design": "Transformation rules (RML) — nothing loaded yet (you can load it from this screen)"
     },
-    "ingesterSummary": "Generated ingest script (not run)",
-    "mieSummary": "Generated AI exploration meta",
+    "ingesterSummary": "Legacy-style script (never run)",
+    "mieSummary": "Search tags (words used to find this data)",
     "mappingDescription": {
-      "promoted": "In the published data (what Ask cites) · {{n}} facts. Also queryable via Advanced search (SPARQL).",
-      "ingested": "In the unpublished draft · {{n}} facts. Once verified, \"Publish for search\" makes it citable by Ask.",
-      "design": "Design only — no data ingested yet. With ingest rules present, you can ingest safely from this screen."
+      "promoted": "In the published data (what answers cite) · {{n}} facts. Also queryable via Advanced search (SPARQL).",
+      "ingested": "In the unpublished draft · {{n}} facts. Once verified, pressing \"Publish\" makes it citable in answers.",
+      "design": "Design only — no data loaded yet. With transformation rules present, you can load it from this screen."
     },
     "mappingDataset": "Design saved ({{date}})",
     "count": {
@@ -286,7 +333,7 @@
     "catalogSub": "Design saved · {{date}}",
     "catalogSubPublished": "Published · {{date}}",
     "catalogSubDraft": "Draft ingested · {{date}}",
-    "mappingIrSummary": "The reviewed ingest-rule spec (the executable rules are generated from it deterministically)",
+    "mappingIrSummary": "The transformation-rule spec (RML is generated from it deterministically)",
     "proposalSummary": "The reviewed design document (full text)"
   },
   "advisory": {
@@ -296,10 +343,13 @@
     "duplicateColumn_other": "{{count}} columns are written twice, onto two different things. Choosing one owner each removes the duplicated facts.",
     "emptyShellColumns": "“{{cls}}” makes one record per row but holds none of that row's values. The per-row columns ({{columns}}) are recorded nowhere and cannot be asked about. Adding them to “{{cls}}” fixes it.",
     "emptyShell": "“{{cls}}” makes one record per row but holds none of that row's values — an empty shell with only links. Adding the per-row columns to “{{cls}}” fixes it.",
-    "unmapped_one": "{{count}} column is not used. If it carries meaning, adding it to the design makes it questionable.",
-    "unmapped_other": "{{count}} columns are not used. If they carry meaning, adding them to the design makes them questionable.",
-    "other_one": "{{count}} further note.",
-    "other_other": "{{count}} further notes.",
+    "unmapped_one": "{{count}} column is not used. If it carries meaning, adding it to the design lets you ask about it.",
+    "unmapped_other": "{{count}} columns are not used. If they carry meaning, adding them to the design lets you ask about them.",
+    "unmappedColumns_one": "Unused column: {{columns}} ({{count}}). If it carries meaning, adding it to the design lets you ask about it.",
+    "unmappedColumns_other": "Unused columns: {{columns}} ({{count}}). If they carry meaning, adding them to the design lets you ask about them.",
+    "untypedNumeric": "“{{column}}” is numeric but stored as text, so size comparisons will answer wrongly.",
+    "other_one": "{{count}} more note (see the technical details below; it is handed to the AI when you ask it to fix the design).",
+    "other_other": "{{count}} more notes (see the technical details below; they are handed to the AI when you ask it to fix the design).",
     "shapeMissing": "“{{subject}}” is declared in the design but never appears in the ingested data — the source column may be empty for every row, or a conversion returned nothing.",
     "shapeDangling": "“{{subject}}” points at something that is not in this data. The link looks connected but cannot be followed — usually the two sides build the key differently.",
     "shapeWrongClass": "“{{subject}}” points at a different kind of thing than the design expects.",

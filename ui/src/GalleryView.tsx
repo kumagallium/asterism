@@ -1,8 +1,15 @@
-import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react'
-import { useEffect, useRef, useState } from 'react'
+import type {
+  KeyboardEvent as ReactKeyboardEvent,
+  MouseEvent as ReactMouseEvent,
+  ReactNode,
+} from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Trans, useTranslation } from 'react-i18next'
 import {
+  ApiError,
   fetchProposal,
+  fetchTrialQueries,
   IngestCancelledError,
   type IngestJobHandle,
   type IngestProgress,
@@ -12,8 +19,10 @@ import {
   StaleIngestJobError,
   startIngestJob,
 } from './api'
-import { plainAdvisories } from './advisoryPlain'
+import { plainAdvisories, type TermLabels } from './advisoryPlain'
 import { validateDesign } from './api'
+import { prefillAskQuestion } from './askPrefill'
+import { plainError } from './kantan/errorMessages'
 import { clearIngestJob, loadIngestJob, saveIngestJob } from './ingestJob'
 import type { RedesignTarget } from './WorkbenchView'
 import { type CrosswalkPerspective, getCrosswalks } from './crosswalkApi'
@@ -23,6 +32,7 @@ import { RulesSection } from './RulesPanel'
 import { TABULAR_ACCEPT } from './datasetsApi'
 import {
   type AlignmentReport,
+  alignmentWordSplit,
   appendDocument,
   appendToDataset,
   type AppendResult,
@@ -30,9 +40,10 @@ import {
   type CatalogStatusKind,
   datasetStage,
   deleteDataset,
-  type DocumentAppendResult,
+  type DatasetRules,
   getAlignment,
   getCatalogDatasets,
+  getDatasetRules,
   type LiveDataset,
   promoteDataset,
   reinstateDataset,
@@ -47,10 +58,31 @@ import { localName } from './vocab'
 
 export type DetailTab = 'structure' | 'tools' | 'files' | 'connect' | 'design'
 
-/** Display label for a dataset's source kind (used as the small mono type tag). */
-function sourceTag(meta?: LiveDataset['meta']): string {
+/** Which control on the files tab the state band is sending the reader to. */
+type ControlFocus = 'ingest' | 'promote' | 'append' | 'reingest' | null
+
+/** Scroll a control into view when the state band points at it. */
+function useFocusScroll(focus: boolean | undefined, ref: { current: HTMLDivElement | null }) {
+  useEffect(() => {
+    if (!focus) return
+    ref.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    // ref identity is stable for the lifetime of the control
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus])
+}
+
+/**
+ * Display label for a dataset's source kind (the small type tag on the card and
+ * in the file table). Says what the thing IS in the reader's language — an .xlsx
+ * that came in as a table used to be tagged 「CSV」, and a document 「DOC」.
+ */
+function sourceTag(t: (k: string) => string, meta?: LiveDataset['meta']): string {
   const k = meta?.source_kind
-  return k === 'json' ? 'JSON' : k === 'xml' ? 'DOC' : 'CSV'
+  return k === 'json'
+    ? t('gallery:fileKind.json')
+    : k === 'xml'
+      ? t('gallery:fileKind.document')
+      : t('gallery:fileKind.tabular')
 }
 
 /** How many crosswalk perspectives this dataset participates in (for the card meta). */
@@ -63,6 +95,138 @@ function connectionCount(d: CatalogDataset, perspectives: CrosswalkPerspective[]
 
 function statusLabel(t: (k: string) => string, kind: CatalogStatusKind): string {
   return t(`gallery:status.${kind}`)
+}
+
+/**
+ * The file names the server said it was expecting, when the caller could not
+ * supply them (`expected one of ['zem.csv']`). Best-effort: an empty list just
+ * leaves the sentence without the example, never a raw English fragment.
+ */
+function expectedFromMessage(raw: string): string[] {
+  const m = /expected one of \[(.*?)\]/i.exec(raw)
+  if (!m) return []
+  return m[1]
+    .split(',')
+    .map((s) => s.trim().replace(/^['"]|['"]$/g, ''))
+    .filter(Boolean)
+}
+
+/**
+ * The HTTP status and the server's own sentence behind a failed call, from
+ * either shape this screen sees.
+ *
+ * `api.ts` throws a typed {@link ApiError}; `galleryApi.ts`, a job stream and the
+ * catalog list surface a plain `Error` whose message the api module composed
+ * (`promote failed (HTTP 409): {…}`), so the status has to be read back out of
+ * the text. Both paths are best-effort: an unrecognised message simply yields no
+ * status and no sentence, and the caller falls back to the generic family.
+ */
+function errorFacts(err: unknown): { status: number | null; sentence: string } {
+  if (err instanceof ApiError) {
+    return {
+      status: err.status,
+      sentence: err.detail && !err.detail.trimStart().startsWith('{') ? err.detail : '',
+    }
+  }
+  const raw = err instanceof Error ? err.message : String(err)
+  const m = /\(HTTP (\d{3})\)/.exec(raw)
+  if (!m) {
+    // Not the api module's wrapper at all — the message IS the sentence (the
+    // server answers several of these endpoints with a finished one).
+    return { status: null, sentence: raw.trimStart().startsWith('{') ? '' : raw }
+  }
+  const body = raw.slice(m.index + m[0].length).replace(/^:\s*/, '')
+  let sentence = ''
+  if (body.trimStart().startsWith('{')) {
+    try {
+      const parsed = JSON.parse(body) as { detail?: unknown }
+      if (typeof parsed.detail === 'string') sentence = parsed.detail.trim()
+    } catch {
+      /* not JSON after all — no sentence to show */
+    }
+  }
+  return { status: Number(m[1]), sentence }
+}
+
+/**
+ * The catalog-only failures, each recognised by the ONE server sentence it comes
+ * with — never by the status alone.
+ *
+ * 409 is not a single situation: the api answers it for a delete that would
+ * break citations (whose fix is "unpublish first") and for an append onto data
+ * that is not live (whose fix is the exact opposite — publish it, or reinstate
+ * it). A status-only rule would have sent two of these three readers the wrong
+ * way, so each one keys on the sentence and anything unrecognised falls through
+ * to `plainError`'s families.
+ *
+ * Matching on English prose is a deliberate best-effort: a miss costs the
+ * generic wording, never a wrong instruction. If the server ever gains a
+ * machine-readable `code` for these, switch to it here.
+ */
+function catalogFamily(raw: string, status: number | null): { title: string; body: string } | null {
+  // The commonest append failure: the instrument named today's file with today's
+  // date, and the server matches batch files against the design's source name.
+  // Said in the server's words it is `does not match any rml:source in the
+  // mapping` — a sentence about our internals, in a screen about their file.
+  if (/does not match any rml:source/i.test(raw))
+    return { title: 'gallery:append.nameMismatchTitle', body: 'gallery:append.nameMismatchBody' }
+  if (status !== 409) return null
+  if (/retract it instead|citable canonical/i.test(raw))
+    return { title: 'gallery:error.conflictTitle', body: 'gallery:error.conflictBody' }
+  if (/reinstate it before appending/i.test(raw))
+    return { title: 'gallery:error.retractedTitle', body: 'gallery:error.retractedBody' }
+  if (/append needs a live canonical graph/i.test(raw))
+    return { title: 'gallery:error.notLiveTitle', body: 'gallery:error.notLiveBody' }
+  return null
+}
+
+/**
+ * The plain-language face of a failed catalog action (K11, ADR §5.1).
+ *
+ * Every action here used to print the api's own sentence — `promote failed
+ * (HTTP 409): {"detail":…}` — which names neither the cause nor the next move.
+ * The classification is the SAME one the kantan stop card uses (`plainError`),
+ * so one failure never reads two ways depending on which screen you are on;
+ * what is added on top is {@link catalogFamily}, the handful of failures only
+ * this screen can act on. The raw string stays one click away for whoever needs
+ * it.
+ */
+function ErrorNote({
+  err,
+  titleKey,
+  expectedFiles,
+}: {
+  err: unknown
+  titleKey: string
+  /** The design-time file names, for the one append failure that is about names. */
+  expectedFiles?: string[]
+}) {
+  const { t } = useTranslation()
+  const raw = err instanceof Error ? err.message : String(err)
+  const { status, sentence: serverSentence } = errorFacts(err)
+  const own = catalogFamily(raw, status)
+  const p = plainError(raw)
+  // The server answers these endpoints with its own plain sentence. It beats the
+  // generic "something went wrong" nudge, but never a classified family (those
+  // carry the recovery step too).
+  const generic = p.body === 'kantan:s5.plain.genericBody'
+  const expected = (expectedFiles?.length ? expectedFiles : expectedFromMessage(raw)).join('、')
+  const title = own ? t(own.title) : p.title ? t(p.title) : t(titleKey)
+  const body = own
+    ? t(own.body, { expected })
+    : generic && serverSentence
+      ? serverSentence
+      : t(p.body)
+  return (
+    <div className="promote-err ingest-issues">
+      <p className="ingest-issues-head">{title}</p>
+      <p>{body}</p>
+      <details className="ds-advisory-raw">
+        <summary>{t('kantan:s5.stop.detailSummary')}</summary>
+        <pre className="rules-code-block">{raw}</pre>
+      </details>
+    </div>
+  )
 }
 
 /**
@@ -160,7 +324,29 @@ export function GalleryView({
 
   return (
     <div className="catalog">
-      {error && <pre className="error">{error}</pre>}
+      {/* A failed list load used to end here, as `datasets: HTTP 500`. The reader
+          needs the same two things every other failure gives them: what happened
+          in their own words, and the way back. */}
+      {error && (
+        <div className="state-block">
+          <p className="state-title">{t('gallery:listError.title')}</p>
+          <p className="state-sub">{t('gallery:listError.body')}</p>
+          <button
+            type="button"
+            className="btn btn--soft btn--sm"
+            onClick={() => {
+              setError('')
+              reload()
+            }}
+          >
+            {t('gallery:listError.retry')}
+          </button>
+          <details className="ds-advisory-raw">
+            <summary>{t('kantan:s5.stop.detailSummary')}</summary>
+            <pre className="rules-code-block">{error}</pre>
+          </details>
+        </div>
+      )}
 
       {!datasets && !error && (
         <p className="loading-row">
@@ -202,6 +388,7 @@ export function GalleryView({
           onCreateCrosswalk={onCreateCrosswalk}
           onOpenMap={onOpenMap}
           onRedesign={onRedesign}
+          onAddData={onAddData}
         />
       )}
 
@@ -209,12 +396,7 @@ export function GalleryView({
       {datasets && !selected && list.length > 0 && (
         <>
           <div className="catalog-toolbar">
-            <p className="catalog-intro">
-              <Trans i18nKey="gallery:intro">
-                作った<strong>データセット</strong>が主役です。各データセットは「<strong>設計図（ことば）</strong>」と
-                「<strong>取り込みルール</strong>」を持ちます。
-              </Trans>
-            </p>
+            <p className="catalog-intro">{t('gallery:intro')}</p>
             <label className="catalog-search">
               <SearchIcon size={15} />
               <input
@@ -276,7 +458,6 @@ function DatasetGridCard({
   const { t } = useTranslation()
   const meta = dataset.live?.meta
   const files = meta?.source_files?.length ?? 0
-  const updated = meta?.created_at?.slice(0, 10) ?? ''
   function open(tab?: DetailTab) {
     onSelect(tab)
   }
@@ -296,7 +477,7 @@ function DatasetGridCard({
           <button type="button" className="ds-grid-card-open" onClick={() => open()}>
             <span className="ds-grid-card-name">{dataset.name}</span>
           </button>
-          <span className="ds-grid-card-type">{sourceTag(meta)}</span>
+          <span className="ds-grid-card-type">{sourceTag(t, meta)}</span>
         </span>
         <span className={`status-pill status-pill--${dataset.statusKind}`}>
           {statusLabel(t, dataset.statusKind)}
@@ -316,9 +497,14 @@ function DatasetGridCard({
         <span className="ds-grid-card-metaitem">
           <ConnectIcon size={13} /> {t('gallery:grid.metaLinks')} <b>{connections}</b>
         </span>
-        {updated && <span className="ds-grid-card-updated">{updated}</span>}
+        {/* The bare date said nothing about WHICH date it was (it was the design's
+            save date, even on a published dataset). `sub` is the same labelled
+            line the home screen shows, so one dataset reads the same in both. */}
+        {dataset.sub && <span className="ds-grid-card-updated">{dataset.sub}</span>}
       </div>
-      {meta && <CardActions meta={meta} onChanged={onChanged} onOpen={open} />}
+      {meta && (
+        <CardActions meta={meta} counts={dataset.counts} onChanged={onChanged} onOpen={open} />
+      )}
     </div>
   )
 }
@@ -330,29 +516,34 @@ function DatasetGridCard({
  * version) and the SAME galleryApi calls (promote / retract / reinstate / delete),
  * so card and detail never disagree.
  *
- *   - ingested (draft) → 「検索対象として公開」(promote) primary CTA. A re-stage of an
- *     already-published version (version ≥ 1) is a re-promote whose alignment preview
- *     lives in the detail, so that case opens the detail instead of one-clicking.
+ *   - design, with something to run → 「データを取り込む」 opens the detail's ingest form.
+ *   - ingested (draft) → publish, through the SAME confirm dialog every other
+ *     route uses (K10). A re-stage of an already-published version (version ≥ 1)
+ *     is a re-promote whose version bump belongs in the detail, so that case
+ *     opens the detail instead.
  *   - promoted, active → 「撤回」(retract, confirm).
  *   - promoted, retracted → 「復帰」(reinstate).
  *   - always → 「削除」(delete) tucked behind a compact ⋯ menu (window.confirm gated).
  *
- * The richer flows (first ingest needing a CSV, promote preview/options, append,
- * re-ingest) stay in the detail; the card only carries quick one-click actions.
+ * The richer flows (first ingest needing a CSV, append, re-ingest) stay in the
+ * detail; the card only carries the quick actions.
  */
 function CardActions({
   meta,
+  counts,
   onChanged,
   onOpen,
 }: {
   meta: LiveDataset['meta']
+  counts: CatalogDataset['counts']
   onChanged: () => void
   onOpen: (tab?: DetailTab) => void
 }) {
   const { t } = useTranslation()
   const [busy, setBusy] = useState('')
-  const [err, setErr] = useState('')
+  const [err, setErr] = useState<unknown>(null)
   const [menu, setMenu] = useState(false)
+  const [publishing, setPublishing] = useState(false)
   const stage = datasetStage(meta)
   const retracted = meta.status === 'retracted'
   const version = meta.version ?? 0
@@ -382,12 +573,12 @@ function CardActions({
 
   async function run(label: string, fn: () => Promise<void>) {
     setBusy(label)
-    setErr('')
+    setErr(null)
     try {
       await fn()
       onChanged()
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e))
+      setErr(e)
     } finally {
       setBusy('')
       setMenu(false)
@@ -398,30 +589,45 @@ function CardActions({
   // its alignment preview / version bump belongs in the detail (Files tab), so the
   // card "publish" routes there rather than one-clicking.
   const isRepromote = stage === 'ingested' && version >= 1
+  // A design-stage dataset can only be ingested when there is something to run:
+  // compiled rules, or a document (whose ingest goes through the structurer).
+  const canIngest = stage === 'design' && (meta.source_kind === 'xml' || !!meta.has_rml)
 
   return (
     <div className="ds-card-actions" onClick={stop} onKeyDown={stop} role="presentation">
+      {/* A kantan run whose auto-ingest failed lands back here as 「設計中」. Without
+          this the card offers no way forward and the ingest sits four clicks deep. */}
+      {canIngest && (
+        <button
+          type="button"
+          className="btn btn--soft btn--sm ds-card-cta"
+          onClick={() => onOpen('files')}
+        >
+          {t('gallery:ingest.submit')}
+        </button>
+      )}
+
       {stage === 'ingested' &&
         (isRepromote ? (
+          /* Already published — this stages the NEXT version. Calling it 「公開」
+             read as "not published yet?" on a dataset the reader just published. */
           <button
             type="button"
             className="btn btn--soft btn--sm ds-card-cta"
             onClick={() => onOpen('files')}
           >
-            {t('gallery:card.publish')}
+            {t('gallery:card.publishUpdate')}
           </button>
         ) : (
+          /* K10: publishing is one road, and it goes through the confirm dialog —
+             the card must not be a shortcut past what you are agreeing to. */
           <button
             type="button"
             className="btn btn--soft btn--sm ds-card-cta"
             disabled={!!busy}
-            onClick={() =>
-              run('promote', async () => {
-                await promoteDataset(meta.id)
-              })
-            }
+            onClick={() => setPublishing(true)}
           >
-            {busy === 'promote' ? t('gallery:promote.promoting') : t('gallery:card.publish')}
+            {t('gallery:card.publish')}
           </button>
         ))}
 
@@ -495,7 +701,378 @@ function CardActions({
         )}
       </div>
 
-      {err && <p className="ds-card-err">{t('gallery:lifecycle.error', { message: err })}</p>}
+      {err != null && (
+        <div className="ds-card-err">
+          <ErrorNote err={err} titleKey="gallery:lifecycle.error" />
+        </div>
+      )}
+
+      {publishing && (
+        <PublishDialog
+          meta={meta}
+          counts={counts}
+          onClose={() => setPublishing(false)}
+          onDone={() => {
+            setPublishing(false)
+            onChanged()
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+/**
+ * One named group of the publish dialog's word list (reused / new to this data).
+ * The human name from the Mapping IR leads and the identifier follows as a
+ * receipt — with no label the identifier stands alone rather than nothing.
+ */
+function WordGroup({
+  head,
+  iris,
+  labels,
+}: {
+  head: string
+  iris: string[]
+  labels?: TermLabels
+}) {
+  if (iris.length === 0) return null
+  return (
+    <>
+      <p className="ingest-hint">{head}</p>
+      <ul className="ds-advisory-list">
+        {iris.map((iri) => {
+          const local = localName(iri)
+          const label = labels?.[iri] ?? labels?.[local]
+          return (
+            <li key={iri}>
+              {label ? <>{label} </> : null}
+              <code title={iri}>{local}</code>
+            </li>
+          )
+        })}
+      </ul>
+    </>
+  )
+}
+
+/**
+ * K10: the one confirm dialog every first publish goes through — the catalog
+ * card, the dataset detail, and the kantan wizard's S8 all say the same four
+ * things before anything becomes citable: the name it will be published under,
+ * what is inside, which words it uses, and that this is reversible. The word
+ * summary loads by itself: an optional "check the differences" button is a
+ * button first-timers never press (K9), which is how it stopped being part of
+ * the decision.
+ */
+function PublishDialog({
+  meta,
+  counts,
+  labels,
+  onClose,
+  onDone,
+}: {
+  meta: LiveDataset['meta']
+  counts?: CatalogDataset['counts']
+  /** Human names for the words, so the list is not a column of identifiers. */
+  labels?: TermLabels
+  onClose: () => void
+  onDone: () => void
+}) {
+  const { t } = useTranslation()
+  const [alignment, setAlignment] = useState<AlignmentReport | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<unknown>(null)
+  const version = meta.version ?? 0
+  const isRepromote = version >= 1
+
+  useEffect(() => {
+    let cancelled = false
+    getAlignment(meta.id)
+      .then((a) => {
+        if (!cancelled) setAlignment(a)
+      })
+      .catch(() => {
+        /* the summary is a reassurance, not a gate — publishing still works */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [meta.id])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  const name = (meta.name ?? '').trim()
+  const words = alignment ? alignmentWordSplit(alignment) : null
+  // K12: 「what is inside」 is counted in kinds, never in triples. The catalog's
+  // `counts` still carries a `fact` entry (the raw triple total) for the detail
+  // tooling, and that number is exactly the one a collapsed primary key hides —
+  // so the publish decision is never phrased with it.
+  const plainCounts = (counts ?? []).filter((c) => c.key !== 'fact')
+  const countsText =
+    plainCounts.length > 0
+      ? plainCounts.map((c) => `${c.value} ${c.label}`).join(' · ')
+      : t('gallery:promote.dialogCountsUnknown')
+
+  async function publish() {
+    setBusy(true)
+    setErr(null)
+    try {
+      await promoteDataset(meta.id)
+      onDone()
+    } catch (e) {
+      setErr(e)
+      setBusy(false)
+    }
+  }
+
+  // Portalled to <body>: one of the two callers is the catalog card, whose
+  // `.ds-card-actions` is a `z-index: 2` stacking context. Rendered in place the
+  // `position: fixed` overlay would be stacked at 2 for the whole page — under
+  // the sticky topbar (z-index 5) and under the action row of every card after
+  // this one, which would show through the dim backdrop.
+  return createPortal(
+    <div
+      className="rules-overlay"
+      role="presentation"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose()
+      }}
+    >
+      <div className="rules-modal" role="dialog" aria-modal="true" aria-label={t('kantan:s8.title')}>
+        <header className="rules-modal-head">
+          <span className="ds-section-title">{t('kantan:s8.title')}</span>
+          <button
+            type="button"
+            className="rules-modal-close"
+            aria-label={t('gallery:rules.viewer.close')}
+            onClick={onClose}
+          >
+            ×
+          </button>
+        </header>
+        <div className="rules-modal-body">
+          <p className="promote-note">
+            {t('kantan:s8.nameLabel')}: <strong>{name || meta.id}</strong>
+          </p>
+          <p className="promote-note">{t('gallery:promote.dialogContent', { counts: countsText })}</p>
+          <p className="promote-note">
+            {words
+              ? t('kantan:s8.words', { reuse: words.reuse.length, added: words.added.length })
+              : t('gallery:promote.alignmentLoading')}
+          </p>
+          {/* The words themselves, in the same shape S8 shows them: the summary
+              sentence is the decision, the identifiers are the receipt. They used
+              to be dumped raw ("hasMeasurement、seebeckCoefficient…") next to the
+              publish button, which is where a reader without the vocabulary
+              stalls. */}
+          {words && words.reuse.length + words.added.length > 0 && (
+            <details className="ds-advisory-raw">
+              <summary>{t('kantan:s8.wordsList')}</summary>
+              <WordGroup head={t('kantan:s8.wordsReuse')} iris={words.reuse} labels={labels} />
+              <WordGroup head={t('kantan:s8.wordsNew')} iris={words.added} labels={labels} />
+            </details>
+          )}
+          <p className="ingest-hint">{t('kantan:s8.promise')}</p>
+          {!name && <p className="ingest-hint">{t('kantan:s8.needName')}</p>}
+          <div className="rules-viewer-actions">
+            <button type="button" className="promote-btn" disabled={busy || !name} onClick={publish}>
+              {busy
+                ? t('kantan:s8.publishing')
+                : isRepromote
+                  ? t('gallery:promote.repromoteSubmit')
+                  : t('kantan:s8.publish')}
+            </button>
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm"
+              disabled={busy}
+              onClick={onClose}
+            >
+              {t('gallery:promote.cancel')}
+            </button>
+          </div>
+          {err != null && (
+            <ErrorNote
+              err={err}
+              titleKey={isRepromote ? 'gallery:promote.repromoteError' : 'gallery:promote.error'}
+            />
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+/**
+ * The one line that says where this dataset is and what the next move is, kept
+ * directly under the name on every tab. Each button leads to the control that
+ * already does the work (the files tab's ingest / append / replace forms, the
+ * publish dialog) — nothing here performs a state change on its own, so the
+ * card, the band and the detail can never disagree about what publishing means.
+ */
+function StateBand({
+  meta,
+  onGo,
+  onPublish,
+  onChanged,
+  onConnect,
+}: {
+  meta: LiveDataset['meta']
+  onGo: (ctl: Exclude<ControlFocus, null>) => void
+  onPublish: () => void
+  onChanged: () => void
+  /** つながりを作る flow — the other half of S9's exits. */
+  onConnect?: () => void
+}) {
+  const { t } = useTranslation()
+  const stage = datasetStage(meta)
+  const retracted = meta.status === 'retracted'
+  const version = meta.version ?? 0
+  const isDoc = meta.source_kind === 'xml'
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<unknown>(null)
+
+  const line = retracted
+    ? t('gallery:band.retractedLine')
+    : stage === 'design'
+      ? t('gallery:band.designLine')
+      : stage === 'promoted'
+        ? t('gallery:band.publishedLine')
+        : version >= 1
+          ? t('gallery:band.stagedLine')
+          : t('gallery:band.draftLine')
+
+  const actions: ReactNode[] = []
+  if (retracted) {
+    actions.push(
+      <button
+        key="reinstate"
+        type="button"
+        className="btn btn--soft btn--sm"
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true)
+          setErr(null)
+          try {
+            await reinstateDataset(meta.id)
+            onChanged()
+          } catch (e) {
+            setErr(e)
+          } finally {
+            setBusy(false)
+          }
+        }}
+      >
+        {busy ? t('gallery:lifecycle.reinstating') : t('gallery:band.republish')}
+      </button>,
+    )
+  } else if (stage === 'design') {
+    if (isDoc || meta.has_rml)
+      actions.push(
+        <button
+          key="ingest"
+          type="button"
+          className="btn btn--soft btn--sm"
+          onClick={() => onGo('ingest')}
+        >
+          {t('gallery:ingest.submit')}
+        </button>,
+      )
+  } else if (stage === 'ingested') {
+    actions.push(
+      version >= 1 ? (
+        <button
+          key="repromote"
+          type="button"
+          className="btn btn--soft btn--sm"
+          onClick={() => onGo('promote')}
+        >
+          {t('gallery:promote.repromoteSubmit')}
+        </button>
+      ) : (
+        <button key="publish" type="button" className="btn btn--soft btn--sm" onClick={onPublish}>
+          {t('gallery:band.publish')}
+        </button>
+      ),
+    )
+  } else {
+    // S9 hands a published dataset three exits: ask it something, connect it,
+    // grow it. Publishing from the detail skipped S9 entirely, so the first two
+    // were missing here — and the question arrives pre-filled the same way the
+    // wizard's chips do (deterministic trial queries; nothing is auto-sent).
+    actions.push(
+      <button
+        key="ask"
+        type="button"
+        className="btn btn--soft btn--sm"
+        onClick={() => {
+          void (async () => {
+            try {
+              const tr = await fetchTrialQueries(meta.id)
+              const q =
+                !tr.available || (tr.classes.length === 0 && !tr.entities)
+                  ? null
+                  : tr.classes.length === 1
+                    ? t('kantan:s7.qCountOne', {
+                        label: tr.classes[0].label ?? localName(tr.classes[0].iri),
+                      })
+                    : tr.classes.length > 1
+                      ? t('kantan:s7.qCountMany')
+                      : t('kantan:s7.qCountAny')
+              if (q) prefillAskQuestion(q)
+            } catch {
+              /* the Ask screen still opens — just without a question in it */
+            }
+            window.location.hash = '#/ask'
+          })()
+        }}
+      >
+        {t('gallery:band.ask')}
+      </button>,
+    )
+    if (onConnect)
+      actions.push(
+        <button key="connect" type="button" className="btn btn--ghost btn--sm" onClick={onConnect}>
+          {t('kantan:s9.connectTitle')}
+        </button>,
+      )
+    if (isDoc || meta.has_rml)
+      actions.push(
+        <button
+          key="append"
+          type="button"
+          className="btn btn--ghost btn--sm"
+          onClick={() => onGo('append')}
+        >
+          {t('gallery:band.append')}
+        </button>,
+      )
+    if (meta.has_rml)
+      actions.push(
+        <button
+          key="replace"
+          type="button"
+          className="btn btn--ghost btn--sm"
+          onClick={() => onGo('reingest')}
+        >
+          {t('gallery:band.replace')}
+        </button>,
+      )
+  }
+
+  return (
+    <div className="promote-control">
+      <p className="ingest-note">{line}</p>
+      {actions.length > 0 && <div className="rules-viewer-actions">{actions}</div>}
+      {err != null && <ErrorNote err={err} titleKey="gallery:lifecycle.error" />}
     </div>
   )
 }
@@ -512,6 +1089,7 @@ function DatasetDetail({
   onCreateCrosswalk,
   onOpenMap,
   onRedesign,
+  onAddData,
 }: {
   dataset: CatalogDataset
   perspectives: CrosswalkPerspective[]
@@ -525,6 +1103,8 @@ function DatasetDetail({
   onCreateCrosswalk?: () => void
   onOpenMap?: () => void
   onRedesign?: (target: RedesignTarget) => void
+  /** 「データを追加」へ戻る（設計が無く、この画面では先へ進めないとき）。 */
+  onAddData?: () => void
 }) {
   const { t } = useTranslation()
   const meta = dataset.live?.meta
@@ -549,11 +1129,63 @@ function DatasetDetail({
       cancelled = true
     }
   }, [meta?.id])
+  // The dataset's own words (model.yaml labels + the Mapping IR units), so the
+  // 設計図 tab can say 「測定 Measurement」 instead of a bare English identifier
+  // (K8): the label is what the wizard's 列の意味 table and the rules tab already
+  // show for the very same thing. Advisory only — an unlabelled term is printed
+  // exactly as the design wrote it.
+  const [rules, setRules] = useState<DatasetRules | null>(null)
+  useEffect(() => {
+    const id = meta?.id
+    if (!id) return
+    let cancelled = false
+    getDatasetRules(id)
+      .then((r) => {
+        if (!cancelled) setRules(r)
+      })
+      .catch(() => {
+        /* labels are enrichment — the identifiers still render */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [meta?.id])
+  const termLabels: TermLabels = useMemo(() => {
+    const index: TermLabels = {}
+    for (const [iri, label] of Object.entries(rules?.labels ?? {})) {
+      if (!label) continue
+      index[iri] = label
+      const local = localName(iri)
+      if (!(local in index)) index[local] = label
+    }
+    return index
+  }, [rules])
+  /** Human unit notation per predicate (IRI and local name), from the Mapping IR. */
+  const termUnits: Record<string, string> = useMemo(() => {
+    const index: Record<string, string> = {}
+    for (const m of rules?.maps ?? [])
+      for (const p of m.properties) {
+        if (!p.unit) continue
+        if (p.predicate_iri) index[p.predicate_iri] = p.unit
+        const local = localName(p.predicate_iri || p.predicate)
+        if (local && !(local in index)) index[local] = p.unit
+      }
+    return index
+  }, [rules])
+  // Which control on the files tab the header band just sent the reader to.
+  const [focusCtl, setFocusCtl] = useState<ControlFocus>(null)
+  const [publishing, setPublishing] = useState(false)
+  function goToControl(ctl: Exclude<ControlFocus, null>) {
+    onTab('files')
+    setFocusCtl(null)
+    // Re-arm on the next frame so pressing the same button twice scrolls again.
+    requestAnimationFrame(() => setFocusCtl(ctl))
+  }
   // 取り込んだファイル: the design-time source + every appended batch (no dedupe
   // detection yet — that needs a backend content hash; surfaced as a note).
   const fileRows: { name: string; type: string; when: string; tag: string }[] = []
   if (meta) {
-    const typeLabel = sourceTag(meta)
+    const typeLabel = sourceTag(t, meta)
     for (const f of meta.source_files ?? [])
       fileRows.push({ name: f, type: typeLabel, when: meta.created_at.slice(0, 10), tag: t('gallery:files.source') })
     for (const a of meta.appends ?? [])
@@ -570,18 +1202,25 @@ function DatasetDetail({
   const myPersp = perspectives.filter((p) =>
     (p.config?.concepts ?? []).some((c) => c.participants.some((part) => myIds.has(part.dataset_id))),
   )
+  // Reading order = the order the work happens in, with the two developer-facing
+  // tabs (the raw rules, the SPARQL tool list) last. ツール used to be second,
+  // one tab away from 中身, and it opens on saved SPARQL and an AI drafting box.
   const tabs: [DetailTab, string][] = [
     ['structure', t('gallery:tab.structure')],
-    ['tools', t('gallery:tab.tools')],
     ['files', t('gallery:tab.files')],
     ['connect', t('gallery:tab.connect')],
     ['design', t('gallery:tab.design')],
+    ['tools', t('gallery:tab.tools')],
   ]
+  // The design tab's two destinations, for its sub-nav.
+  const rulesRef = useRef<HTMLDivElement | null>(null)
+  const groundingRef = useRef<HTMLDivElement | null>(null)
+  const showGrounding = dataset.classIris.length + dataset.predicates.length > 0
   // dataset rename (kept from #231) — inline edit in the detail header.
   const [editingName, setEditingName] = useState(false)
   const [draftName, setDraftName] = useState(dataset.name)
   const [renaming, setRenaming] = useState(false)
-  const [renameErr, setRenameErr] = useState('')
+  const [renameErr, setRenameErr] = useState<unknown>(null)
 
   async function saveRename() {
     const n = draftName.trim()
@@ -590,7 +1229,7 @@ function DatasetDetail({
       return
     }
     setRenaming(true)
-    setRenameErr('')
+    setRenameErr(null)
     try {
       // CatalogDataset.id is the synthetic catalog id (`live-<id>`); the registry id is
       // dataset.live.meta.id (what every other control uses). Strip the prefix as a fallback.
@@ -599,7 +1238,7 @@ function DatasetDetail({
       setEditingName(false)
       onChanged() // name changed — refresh the catalog list + detail
     } catch (e) {
-      setRenameErr(e instanceof Error ? e.message : String(e))
+      setRenameErr(e)
     } finally {
       setRenaming(false)
     }
@@ -639,7 +1278,7 @@ function DatasetDetail({
               onClick={() => {
                 setEditingName(false)
                 setDraftName(dataset.name)
-                setRenameErr('')
+                setRenameErr(null)
               }}
               disabled={renaming}
             >
@@ -666,7 +1305,7 @@ function DatasetDetail({
         <span className={`status-pill status-pill--${dataset.statusKind}`}>
           {statusLabel(t, dataset.statusKind)}
         </span>
-        {renameErr && <pre className="error">{renameErr}</pre>}
+        {renameErr != null && <ErrorNote err={renameErr} titleKey="gallery:rename.error" />}
         <div className="ds-tabs">
           {tabs.map(([id, label]) => (
             <button
@@ -681,6 +1320,34 @@ function DatasetDetail({
           ))}
         </div>
       </div>
+
+      {/* 「今どの段階で、次に何をすれば完了か」. Without this the detail opens on a
+          list of English identifiers and the publish button is a tab away and a
+          scroll down; a reader who came from the wizard has no idea the dataset
+          is still a draft. One sentence + the one or two moves that stage allows,
+          always in the same place. */}
+      {meta && (
+        <StateBand
+          meta={meta}
+          onGo={goToControl}
+          onPublish={() => setPublishing(true)}
+          onChanged={onChanged}
+          onConnect={onCreateCrosswalk}
+        />
+      )}
+
+      {publishing && meta && (
+        <PublishDialog
+          meta={meta}
+          counts={dataset.counts}
+          labels={termLabels}
+          onClose={() => setPublishing(false)}
+          onDone={() => {
+            setPublishing(false)
+            onChanged()
+          }}
+        />
+      )}
 
       {dataset.purposes.length > 0 && (
         <div className="ds-purposes">
@@ -697,10 +1364,9 @@ function DatasetDetail({
         </div>
       )}
 
-      {/* Dataset-level state actions (retract / reinstate / delete / quick publish)
-          now live on the catalog cards (CardActions), not in an always-visible band
-          here — that band showed on every tab and felt awkward. The detail keeps the
-          richer flows (first ingest, promote preview, append, re-ingest) in the
+      {/* Destructive lifecycle actions (retract / delete) stay on the catalog
+          cards; the band above carries the forward move for the current stage,
+          and the full forms (first ingest, publish, append, replace) live in the
           Files tab below. */}
 
       {/* 設計図 (schema): the dataset's structure — classes, predicates, and the
@@ -712,13 +1378,20 @@ function DatasetDetail({
             <span className="ds-section-note">{t('gallery:design.classCount', { n: dataset.classes.length })}</span>
           </div>
           {dataset.classes.length > 0 ? (
-            <div className="ds-classes">
-              {dataset.classes.map((c) => (
-                <span key={c} className={`class-chip${c === highlight ? ' onto-class-chip--focus' : ''}`}>
-                  <code className="class-chip-en">{c}</code>
-                </span>
-              ))}
-            </div>
+            <>
+              <div className="ds-subhead">{t('gallery:design.classesHead')}</div>
+              <div className="ds-classes">
+                {dataset.classes.map((c) => (
+                  <span
+                    key={c}
+                    className={`class-chip${c === highlight ? ' onto-class-chip--focus' : ''}`}
+                  >
+                    {termLabels[c] && <span>{termLabels[c]}</span>}
+                    <code className="class-chip-en">{c}</code>
+                  </span>
+                ))}
+              </div>
+            </>
           ) : (
             <p className="ds-empty-note">{t('gallery:design.noClasses')}</p>
           )}
@@ -727,11 +1400,18 @@ function DatasetDetail({
             <>
               <div className="ds-subhead">{t('gallery:design.predicatesHead')}</div>
               <div className="ds-classes">
-                {dataset.predicates.map((p) => (
-                  <span key={p} className="class-chip" title={p}>
-                    <code className="class-chip-en">{localName(p)}</code>
-                  </span>
-                ))}
+                {dataset.predicates.map((p) => {
+                  const local = localName(p)
+                  const label = termLabels[p] ?? termLabels[local]
+                  const unit = termUnits[p] ?? termUnits[local]
+                  return (
+                    <span key={p} className="class-chip" title={p}>
+                      {label && <span>{label}</span>}
+                      <code className="class-chip-en">{local}</code>
+                      {unit && <code className="class-chip-en">{unit}</code>}
+                    </span>
+                  )
+                })}
               </div>
             </>
           )}
@@ -758,7 +1438,7 @@ function DatasetDetail({
                   verbatim buried this page in untranslated jargon (2026-07-24).
                   The originals stay one click away. */}
               <ul className="ds-advisory-list">
-                {plainAdvisories(advisories).map((a, i) => (
+                {plainAdvisories(advisories, termLabels).map((a, i) => (
                   <li key={i}>{a.text}</li>
                 ))}
               </ul>
@@ -777,10 +1457,23 @@ function DatasetDetail({
                 <RedesignControl
                   meta={dataset.live.meta}
                   onRedesign={onRedesign}
+                  onAddData={onAddData}
                   advisories={advisories}
                 />
               )}
             </div>
+          )}
+
+          {/* "The column means something else" is realised long after publishing,
+              and on a dataset with nothing worth flagging the only way back used
+              to be a tab labelled 技術情報. The way to fix a design belongs with
+              the design. */}
+          {advisories.length === 0 && onRedesign && dataset.live && (
+            <RedesignControl
+              meta={dataset.live.meta}
+              onRedesign={onRedesign}
+              onAddData={onAddData}
+            />
           )}
         </div>
       )}
@@ -794,7 +1487,18 @@ function DatasetDetail({
           {dataset.live ? (
             <ToolsPanel datasetId={dataset.live.meta.id} />
           ) : (
-            <p className="ds-empty-note">{t('gallery:tools.none')}</p>
+            <>
+              {/* "Run 「データを取り込む」 first" named a control on another tab
+                  without saying which, and left no way to get there. */}
+              <p className="ds-empty-note">{t('gallery:tools.none')}</p>
+              <button
+                type="button"
+                className="btn btn--soft btn--sm"
+                onClick={() => goToControl('ingest')}
+              >
+                {t('gallery:tools.goFiles')}
+              </button>
+            </>
           )}
         </div>
       )}
@@ -836,7 +1540,8 @@ function DatasetDetail({
           ) : (
             <p className="ds-empty-note">{t('gallery:files.none')}</p>
           )}
-          <p className="ds-files-future">{t('gallery:files.futureDedup')}</p>
+          {/* A roadmap footnote about content hashes used to sit here on every
+              visit; what the reader can act on is already in the note above. */}
 
           {/* Operations on this dataset's ingested data live here (the natural home
               for ingest / append / re-ingest / promote / lifecycle). State-gated, so
@@ -844,15 +1549,33 @@ function DatasetDetail({
           {dataset.live && (
             <div className="ds-detail-controls">
               {/* Task E: ingest gate for design-stage datasets (no facts yet). */}
-              <IngestControl meta={dataset.live.meta} onChanged={onChanged} />
+              <IngestControl
+                meta={dataset.live.meta}
+                onChanged={onChanged}
+                onRedesign={onRedesign}
+                onAddData={onAddData}
+                labels={termLabels}
+                focus={focusCtl === 'ingest'}
+              />
               {/* S4 (re-)promote human-gate. */}
-              <PromoteControl meta={dataset.live.meta} onChanged={onChanged} />
-              {/* incremental-ingest.md: append a new batch to a promoted live feed. */}
-              <AppendControl meta={dataset.live.meta} onChanged={onChanged} />
-              {/* document layer: add another document to a promoted document dataset. */}
-              <DocumentAppendControl meta={dataset.live.meta} onChanged={onChanged} />
-              {/* part5: safe replace — re-ingest into a new version, then re-promote. */}
-              <ReingestControl meta={dataset.live.meta} onChanged={onChanged} />
+              <PromoteControl
+                meta={dataset.live.meta}
+                counts={dataset.counts}
+                labels={termLabels}
+                onChanged={onChanged}
+                focus={focusCtl === 'promote'}
+              />
+              {/* 育てる: 「足す」と「差し替える」 are one choice, not two forms open at
+                  once — a promoted tabular dataset used to show both in full. */}
+              <GrowBlock
+                meta={dataset.live.meta}
+                onChanged={onChanged}
+                onRedesign={onRedesign}
+                onAddData={onAddData}
+                labels={termLabels}
+                focus={focusCtl}
+                onFocus={setFocusCtl}
+              />
             </div>
           )}
         </div>
@@ -866,12 +1589,16 @@ function DatasetDetail({
           </div>
           {myPersp.length > 0 ? (
             <div className="ds-conn-list">
-              {myPersp.map((p) => (
+              {myPersp.map((p, i) => (
                 <div className="ds-conn-item" key={p.perspective_id}>
                   <span className="ds-conn-icon">
                     <ConnectIcon size={15} />
                   </span>
-                  <span className="ds-conn-name">{p.dataset?.name || p.perspective_id}</span>
+                  {/* An unnamed connection used to show its raw id here. It is a
+                      machine-minted string; the number is what the reader can use. */}
+                  <span className="ds-conn-name" title={p.perspective_id}>
+                    {p.dataset?.name || t('gallery:connect.unnamed', { n: i + 1 })}
+                  </span>
                   <span className="ds-conn-concept">
                     {t('gallery:connect.concept', {
                       concept: (p.config?.concepts ?? [])
@@ -917,31 +1644,53 @@ function DatasetDetail({
       {/* 設計 (design): the ingest rules, reused vocabularies, and grounding. */}
       {tab === 'design' && (
         <div className="ds-tab-body">
+          {/* 「標準のことばに合わせる」 sat at the very bottom of this tab, under the
+              rules — reachable only by scrolling past them, and named nowhere. Two
+              links at the top say what this tab holds and jump to it. */}
+          {showGrounding && (
+            <div className="rules-viewer-actions">
+              <button
+                type="button"
+                className="btn btn--ghost btn--sm"
+                onClick={() =>
+                  rulesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                }
+              >
+                {t('gallery:design.navRules')}
+              </button>
+              <button
+                type="button"
+                className="btn btn--ghost btn--sm"
+                onClick={() =>
+                  groundingRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                }
+              >
+                {t('gallery:design.navGrounding')}
+              </button>
+            </div>
+          )}
           {/* Reopen this dataset's design in the workbench to refine/edit it and
               re-materialize the SAME dataset (fix a wrong column/function without
               delete+recreate). Mapping-only — the user re-applies data via re-ingest. */}
           {dataset.live && onRedesign && (
-            <RedesignControl meta={dataset.live.meta} onRedesign={onRedesign} />
+            <RedesignControl
+              meta={dataset.live.meta}
+              onRedesign={onRedesign}
+              onAddData={onAddData}
+            />
           )}
-          <RulesSection dataset={dataset} />
+          <div ref={rulesRef}>
+            <RulesSection dataset={dataset} />
+          </div>
 
+          {/* The reuse chip row that used to sit here showed the same
+              `dataset.reuses` as DatasetGrounding's 「すでに使われている標準のことば」
+              card, twice on one tab under two different names (GAL-B-58). */}
 
-          {dataset.reuses.length > 0 && (
-            <>
-              <div className="ds-subhead">{t('gallery:design.reusesHead')}</div>
-              <div className="ds-reuse-list">
-                {dataset.reuses.map((r) => (
-                  <span key={r.prefix} className="reuse-chip" title={t(r.what)}>
-                    <code>{r.prefix}</code>
-                    <span className="reuse-chip-what">{t(r.what)}</span>
-                  </span>
-                ))}
-              </div>
-            </>
-          )}
-
-          {dataset.classIris.length + dataset.predicates.length > 0 && (
-            <DatasetGrounding dataset={dataset} />
+          {showGrounding && (
+            <div ref={groundingRef}>
+              <DatasetGrounding dataset={dataset} />
+            </div>
           )}
         </div>
       )}
@@ -950,9 +1699,10 @@ function DatasetDetail({
   )
 }
 
-function shortIri(iri: string): string {
-  const m = iri.split(/[#/]/).filter(Boolean)
-  return m.length ? m[m.length - 1] : iri
+/** Reuse/new counts for `kantan:s8.words` — structural terms excluded, once. */
+function wordCounts(alignment: AlignmentReport): { reuse: number; added: number } {
+  const w = alignmentWordSplit(alignment)
+  return { reuse: w.reuse.length, added: w.added.length }
 }
 
 /**
@@ -969,25 +1719,34 @@ function shortIri(iri: string): string {
 function RedesignControl({
   meta,
   onRedesign,
+  onAddData,
   advisories,
 }: {
   meta: LiveDataset['meta']
   onRedesign: (target: RedesignTarget) => void
+  /** The only way out for a dataset with no stored design — "recreate it" used
+   *  to be an instruction with no button behind it. */
+  onAddData?: () => void
   /** Carried into the review so the reviewer sees what prompted it. */
   advisories?: string[]
 }) {
   const { t } = useTranslation()
   const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState('')
+  // Two different things used to share one string state: "this dataset has no
+  // stored design" (a fact about the dataset, already in the reader's words) and
+  // "the fetch failed" (which arrived as `proposal: HTTP 500`).
+  const [note, setNote] = useState('')
+  const [err, setErr] = useState<unknown>(null)
   const hasProposal = meta.has_proposal !== false
 
   async function onClick() {
     setBusy(true)
-    setErr('')
+    setNote('')
+    setErr(null)
     try {
       const p = await fetchProposal(meta.id)
       if (!p.has_proposal || !p.proposal_md.trim()) {
-        setErr(t('gallery:redesign.noProposal'))
+        setNote(t('gallery:redesign.noProposal'))
         return
       }
       onRedesign({
@@ -997,7 +1756,7 @@ function RedesignControl({
         advisories,
       })
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e))
+      setErr(e)
     } finally {
       setBusy(false)
     }
@@ -1019,7 +1778,13 @@ function RedesignControl({
       >
         {busy ? t('gallery:redesign.loading') : t('gallery:redesign.open')}
       </button>
-      {err && <p className="promote-err">{err}</p>}
+      {(!hasProposal || note !== '') && onAddData && (
+        <button type="button" className="btn btn--soft btn--sm" onClick={onAddData}>
+          {t('gallery:redesign.recreate')}
+        </button>
+      )}
+      {note && <p className="ingest-hint">{note}</p>}
+      {err != null && <ErrorNote err={err} titleKey="gallery:redesign.error" />}
     </div>
   )
 }
@@ -1041,29 +1806,80 @@ function RedesignControl({
 function IngestError({
   err,
   errorKey,
+  meta,
+  onRedesign,
+  onAddData,
+  labels,
 }: {
   err: unknown
   errorKey: string
+  meta: LiveDataset['meta']
+  onRedesign?: (target: RedesignTarget) => void
+  /** Carried down so the dataset with no stored design keeps its ONE exit here
+   *  too: this branch renders RedesignControl, whose review button is disabled
+   *  for exactly those datasets — without it the reader is told to start over
+   *  with nothing to press. */
+  onAddData?: () => void
+  labels?: TermLabels
 }) {
   const { t } = useTranslation()
   if (err instanceof IngestValidationError && err.issues.length > 0) {
     return (
       <div className="promote-err ingest-issues">
-        <p className="ingest-issues-head">{t('gallery:ingest.validationHead')}</p>
+        {/* The issues are precise English written for the AI fix to act on. Shown
+            raw they told the reader to "fix them" without saying who fixes what;
+            the same deterministic classifier the advisories use says it in their
+            language, and the way out is the control that hands these very
+            strings back to the AI. */}
+        <p className="ingest-issues-head">
+          {t('gallery:ingest.validationHead', { n: err.issues.length })}
+        </p>
         <ul>
-          {err.issues.map((issue, i) => (
-            <li key={i}>{issue}</li>
+          {plainAdvisories(err.issues, labels).map((a, i) => (
+            <li key={i}>{a.text}</li>
           ))}
         </ul>
+        <details className="ds-advisory-raw">
+          <summary>{t('gallery:advisory.rawSummary')}</summary>
+          <ul className="ds-advisory-list">
+            {err.issues.map((issue, i) => (
+              <li key={i}>{issue}</li>
+            ))}
+          </ul>
+        </details>
+        {onRedesign && (
+          <RedesignControl
+            meta={meta}
+            onRedesign={onRedesign}
+            onAddData={onAddData}
+            advisories={err.issues}
+          />
+        )}
       </div>
     )
   }
-  const message = err instanceof Error ? err.message : String(err)
-  return <p className="promote-err">{t(errorKey, { message })}</p>
+  return <ErrorNote err={err} titleKey={errorKey} />
 }
 
-function IngestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChanged: () => void }) {
+function IngestControl({
+  meta,
+  onChanged,
+  onRedesign,
+  onAddData,
+  labels,
+  focus,
+}: {
+  meta: LiveDataset['meta']
+  onChanged: () => void
+  onRedesign?: (target: RedesignTarget) => void
+  /** 設計が無いデータセットの唯一の出口（「データを追加」へ戻る）。 */
+  onAddData?: () => void
+  labels?: TermLabels
+  focus?: boolean
+}) {
   const { t } = useTranslation()
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  useFocusScroll(focus, rootRef)
   const [files, setFiles] = useState<File[]>([])
   const [busy, setBusy] = useState(false)
   const [progress, setProgress] = useState<IngestProgress | null>(null)
@@ -1130,18 +1946,26 @@ function IngestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChang
 
   if (!isDocument && !meta.has_rml) {
     return (
-      <div className="ingest-gate">
+      <div className="ingest-gate" ref={rootRef}>
         <div className="ds-subhead">{t('gallery:ingest.head')}</div>
+        {/* Nothing on this screen can produce the missing design, so the only
+            honest next move is the one that can — as a button, not a sentence. */}
         <p className="ingest-hint">{t('gallery:ingest.noRml')}</p>
+        {onAddData && (
+          <button type="button" className="btn btn--soft btn--sm" onClick={onAddData}>
+            {t('gallery:ingest.goAddData')}
+          </button>
+        )}
       </div>
     )
   }
 
   if (done) {
     return (
-      <div className="ingest-gate">
+      <div className="ingest-gate" ref={rootRef}>
         <div className="ds-subhead">{t('gallery:ingest.head')}</div>
-        <p className="ingest-ok">{t('gallery:ingest.done', { n: done.triple_count })}</p>
+        {/* K12: the triple count said nothing the reader could check. */}
+        <p className="ingest-ok">{t('gallery:ingest.done')}</p>
       </div>
     )
   }
@@ -1175,18 +1999,10 @@ function IngestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChang
   }
 
   return (
-    <div className="ingest-gate">
+    <div className="ingest-gate" ref={rootRef}>
       <div className="ds-subhead">{t('gallery:ingest.head')}</div>
       <p className="ingest-note">
-        {isDocument ? (
-          t('gallery:ingest.noteDocument')
-        ) : (
-          <Trans i18nKey="gallery:ingest.note">
-            承認すると、取り込みルールが実行され、結果が<strong>公開前の下書き</strong>に入ります
-            （公開するまで誰にも見えません）。安全確認済みの変換だけが動き、AI
-            が書いたプログラムは実行されません。
-          </Trans>
-        )}
+        {isDocument ? t('gallery:ingest.noteDocument') : t('gallery:ingest.note')}
       </p>
       {hasSource ? (
         <p className="ingest-source">
@@ -1219,14 +2035,136 @@ function IngestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChang
         {busy ? t('gallery:ingest.submitting') : t('gallery:ingest.submit')}
       </button>
       {busy && (
-        <IngestProgressView
-          progress={progress}
-          onCancel={job ? job.cancel : undefined}
-          lastPulseAt={lastPulseAt}
-        />
+        <>
+          <IngestProgressView
+            progress={progress}
+            onCancel={job ? job.cancel : undefined}
+            lastPulseAt={lastPulseAt}
+          />
+          {/* The wizard says this at the same point; a minutes-long wait in the
+              catalog left the reader guessing whether leaving cancels it. */}
+          <p className="ingest-hint">{t('gallery:ingest.keepGoing')}</p>
+        </>
       )}
       {cancelled && <p className="ingest-hint">{t('gallery:ingest.cancelled')}</p>}
-      {err != null && <IngestError err={err} errorKey="gallery:ingest.error" />}
+      {err != null && (
+        <IngestError
+          err={err}
+          errorKey="gallery:ingest.error"
+          meta={meta}
+          onRedesign={onRedesign}
+          onAddData={onAddData}
+          labels={labels}
+        />
+      )}
+    </div>
+  )
+}
+
+/**
+ * 「足す」か「差し替える」か — one question, not two open forms.
+ *
+ * A promoted tabular dataset used to render the append form AND the re-ingest
+ * form in full, each with its own paragraph, file picker and button: two
+ * paragraphs to read before knowing which one you wanted. S9 already settled
+ * this as two buttons, so the catalog says it the same way. When only one of the
+ * two applies (a document dataset, a staged draft) there is no choice to make,
+ * and the controls render exactly as before.
+ */
+function GrowBlock({
+  meta,
+  onChanged,
+  onRedesign,
+  onAddData,
+  labels,
+  focus,
+  onFocus,
+}: {
+  meta: LiveDataset['meta']
+  onChanged: () => void
+  onRedesign?: (target: RedesignTarget) => void
+  /** The exit for a dataset whose design was never stored — see IngestError. */
+  onAddData?: () => void
+  labels?: TermLabels
+  focus: ControlFocus
+  onFocus: (ctl: ControlFocus) => void
+}) {
+  const { t } = useTranslation()
+  // Which pane is open is the same fact as "which control the band points at",
+  // so it lives in one place — press 「新しい測定分を足す」 in the band or here and
+  // the result is identical.
+  const mode = focus === 'append' ? 'append' : focus === 'reingest' ? 'replace' : null
+
+  const stage = datasetStage(meta)
+  const retracted = meta.status === 'retracted'
+  const isDoc = meta.source_kind === 'xml'
+  const canAppend = stage === 'promoted' && !retracted && (isDoc || !!meta.has_rml)
+  const canReplace = stage !== 'design' && !retracted && !!meta.has_rml
+
+  const appendPane = (
+    <>
+      <AppendControl meta={meta} onChanged={onChanged} embedded focus={focus === 'append'} />
+      <DocumentAppendControl
+        meta={meta}
+        onChanged={onChanged}
+        embedded
+        focus={focus === 'append'}
+      />
+    </>
+  )
+  const replacePane = (
+    <ReingestControl
+      meta={meta}
+      onChanged={onChanged}
+      onRedesign={onRedesign}
+      onAddData={onAddData}
+      labels={labels}
+      embedded
+      focus={focus === 'reingest'}
+    />
+  )
+
+  if (!(canAppend && canReplace)) {
+    return (
+      <>
+        <AppendControl meta={meta} onChanged={onChanged} focus={focus === 'append'} />
+        <DocumentAppendControl meta={meta} onChanged={onChanged} focus={focus === 'append'} />
+        <ReingestControl
+          meta={meta}
+          onChanged={onChanged}
+          onRedesign={onRedesign}
+          onAddData={onAddData}
+          labels={labels}
+          focus={focus === 'reingest'}
+        />
+      </>
+    )
+  }
+
+  return (
+    <div className="ingest-gate">
+      <div className="ds-subhead">{t('gallery:grow.head')}</div>
+      <p className="ingest-hint">{t('gallery:grow.hint')}</p>
+      <div className="rules-viewer-actions">
+        <button
+          type="button"
+          className={`btn btn--sm ${mode === 'append' ? 'btn--soft' : 'btn--ghost'}`}
+          aria-pressed={mode === 'append'}
+          onClick={() => onFocus(mode === 'append' ? null : 'append')}
+        >
+          {t('gallery:grow.append')}
+        </button>
+        <button
+          type="button"
+          className={`btn btn--sm ${mode === 'replace' ? 'btn--soft' : 'btn--ghost'}`}
+          aria-pressed={mode === 'replace'}
+          onClick={() => onFocus(mode === 'replace' ? null : 'reingest')}
+        >
+          {t('gallery:grow.replace')}
+        </button>
+      </div>
+      {mode === 'append' && appendPane}
+      {mode === 'replace' && replacePane}
     </div>
   )
 }
@@ -1239,12 +2177,25 @@ function IngestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChang
  * version were human-gated at promote, so per-batch appends do not re-gate — only
  * shown for a promoted, active dataset with declarative RML.
  */
-function AppendControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChanged: () => void }) {
+function AppendControl({
+  meta,
+  onChanged,
+  embedded,
+  focus,
+}: {
+  meta: LiveDataset['meta']
+  onChanged: () => void
+  /** Rendered inside the 「データを育てる」 block — the box is the block's. */
+  embedded?: boolean
+  focus?: boolean
+}) {
   const { t } = useTranslation()
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  useFocusScroll(focus, rootRef)
   const [files, setFiles] = useState<File[]>([])
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState<AppendResult | null>(null)
-  const [err, setErr] = useState('')
+  const [err, setErr] = useState<unknown>(null)
 
   // Append grows a LIVE feed: a promoted, active dataset with declarative RML.
   if (datasetStage(meta) !== 'promoted' || meta.status === 'retracted' || !meta.has_rml) {
@@ -1257,38 +2208,34 @@ function AppendControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChang
 
   async function onAppend() {
     setBusy(true)
-    setErr('')
+    setErr(null)
     try {
       const r = await appendToDataset(meta.id, files)
       setDone(r)
       setFiles([])
       onChanged() // append_seq / triple counts changed — refresh the catalog
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e))
+      setErr(e)
     } finally {
       setBusy(false)
     }
   }
 
   return (
-    <div className="ingest-gate">
+    <div className={embedded ? '' : 'ingest-gate'} ref={rootRef}>
       <div className="ds-subhead">{t('gallery:append.head')}</div>
       <p className="ingest-note">
-        <Trans
-          i18nKey="gallery:append.note"
-          values={{ source: sourceLabel }}
-          components={{ strong: <strong />, code: <code /> }}
-        />
+        {t('gallery:append.note')}
+        {/* Until the server accepts a differently-named batch (it matches the
+            design's source name), the name is the one thing the reader has to
+            get right — so it is said with the actual name, not as a rule. */}
+        {meta.source_files?.length
+          ? ` ${t('gallery:append.noteFilename', { names: meta.source_files.join('、') })}`
+          : ''}
       </p>
       {(meta.append_seq ?? 0) > 0 && (
-        <p className="ingest-source">
-          {t('gallery:append.progress', {
-            seq: meta.append_seq,
-            appended: meta.triples_appended
-              ? t('gallery:append.progressAppended', { n: meta.triples_appended })
-              : '',
-          })}
-        </p>
+        // K12: "how many times you added" is checkable; "+~4,812 facts" is not.
+        <p className="ingest-source">{t('gallery:append.progress', { seq: meta.append_seq })}</p>
       )}
       <div className="ingest-pick">
         <label className="file-btn">
@@ -1313,11 +2260,15 @@ function AppendControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChang
         {busy ? t('gallery:append.submitting') : t('gallery:append.submit')}
       </button>
       {done && (
-        <p className="ingest-ok">
-          {t('gallery:append.done', { n: done.triples_in_batch, seq: done.append_seq })}
-        </p>
+        <p className="ingest-ok">{t('gallery:append.done', { seq: done.append_seq })}</p>
       )}
-      {err && <p className="promote-err">{t('gallery:append.error', { message: err })}</p>}
+      {err != null && (
+        <ErrorNote
+          err={err}
+          titleKey="gallery:append.error"
+          expectedFiles={meta.source_files}
+        />
+      )}
     </div>
   )
 }
@@ -1332,16 +2283,25 @@ function AppendControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChang
 function DocumentAppendControl({
   meta,
   onChanged,
+  embedded,
+  focus,
 }: {
   meta: LiveDataset['meta']
   onChanged: () => void
+  embedded?: boolean
+  focus?: boolean
 }) {
   const { t } = useTranslation()
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  useFocusScroll(focus, rootRef)
   const [files, setFiles] = useState<File[]>([])
   const [busy, setBusy] = useState(false)
-  const [done, setDone] = useState<{ docs: number; triples: number } | null>(null)
+  // K12: what was added is counted in DOCUMENTS. The triple total the server
+  // returns per batch is a number about our storage, not about the user's work,
+  // so it is not carried here at all.
+  const [done, setDone] = useState<{ docs: number } | null>(null)
   const [prog, setProg] = useState<{ i: number; n: number } | null>(null)
-  const [err, setErr] = useState('')
+  const [err, setErr] = useState<unknown>(null)
 
   // A promoted, active DOCUMENT dataset (documents have no RML; their accumulation is
   // the source-kind=xml feed). Hidden otherwise.
@@ -1358,22 +2318,20 @@ function DocumentAppendControl({
   async function onAdd() {
     if (!files.length) return
     setBusy(true)
-    setErr('')
+    setErr(null)
     setDone(null)
     setProg(null)
-    let triples = 0
     try {
       // Append each document sequentially (one POST-merge per doc into the live graph).
       for (let i = 0; i < files.length; i++) {
         setProg({ i: i + 1, n: files.length })
-        const r: DocumentAppendResult = await appendDocument(meta.id, files[i])
-        triples += r.triples_in_batch
+        await appendDocument(meta.id, files[i])
       }
-      setDone({ docs: files.length, triples })
+      setDone({ docs: files.length })
       setFiles([])
       onChanged() // triple counts / doc count changed — refresh the catalog
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e))
+      setErr(e)
     } finally {
       setBusy(false)
       setProg(null)
@@ -1381,22 +2339,9 @@ function DocumentAppendControl({
   }
 
   return (
-    <div className="ingest-gate">
+    <div className={embedded ? '' : 'ingest-gate'} ref={rootRef}>
       <div className="ds-subhead">{t('gallery:docAppend.head')}</div>
-      <p className="ingest-note">
-        <Trans
-          i18nKey="gallery:docAppend.note"
-          components={[
-            <code />,
-            <code />,
-            <strong />,
-            <code />,
-            <code />,
-            <strong />,
-            <code />,
-          ]}
-        />
-      </p>
+      <p className="ingest-note">{t('gallery:docAppend.note')}</p>
       {(meta.append_seq ?? 0) > 0 && (
         <p className="ingest-source">{t('gallery:docAppend.appended', { n: meta.append_seq })}</p>
       )}
@@ -1428,12 +2373,10 @@ function DocumentAppendControl({
             : t('gallery:docAppend.busy')
           : t('gallery:docAppend.submit')}
       </button>
-      {done && (
-        <p className="ingest-ok">
-          {t('gallery:docAppend.doneN', { docs: done.docs, n: done.triples })}
-        </p>
-      )}
-      {err && <p className="promote-err">{t('gallery:docAppend.error', { err })}</p>}
+      {/* K12: what the reader added is documents, not triples — the fact count
+          was the only number here and meant nothing to them. */}
+      {done && <p className="ingest-ok">{t('gallery:docAppend.doneN', { docs: done.docs })}</p>}
+      {err != null && <ErrorNote err={err} titleKey="gallery:docAppend.error" />}
     </div>
   )
 }
@@ -1453,22 +2396,88 @@ function DocumentAppendControl({
  *   - promoted, none pending → citable; show status.
  *   - neither (design)   → nothing to gate.
  */
-function PromoteControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChanged: () => void }) {
+function PromoteControl({
+  meta,
+  counts,
+  labels,
+  onChanged,
+  focus,
+}: {
+  meta: LiveDataset['meta']
+  counts?: CatalogDataset['counts']
+  labels?: TermLabels
+  onChanged: () => void
+  focus?: boolean
+}) {
   const { t } = useTranslation()
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  useFocusScroll(focus, rootRef)
   const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState('')
+  const [err, setErr] = useState<unknown>(null)
   const [alignment, setAlignment] = useState<AlignmentReport | null>(null)
+  const [confirming, setConfirming] = useState(false)
   const version = meta.version ?? 0
+  const staged = !!meta.ingested
+  const retracted = meta.status === 'retracted'
 
-  if (!meta.ingested) {
+  // K9/K10: the word summary is part of the decision, so it loads by itself —
+  // an optional "check the differences" button is one first-timers never press.
+  useEffect(() => {
+    if (!staged) return
+    let cancelled = false
+    getAlignment(meta.id)
+      .then((a) => {
+        if (!cancelled) setAlignment(a)
+      })
+      .catch(() => {
+        /* reassurance, not a gate */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [meta.id, staged])
+
+  if (!staged) {
+    // `promoted` stays true through a retraction, so it alone must never be read
+    // as "citable" — it said 「引用できます」 about data Ask no longer answers from.
+    if (retracted) {
+      return (
+        <div className="promote-control" ref={rootRef}>
+          <p className="promote-note">
+            <Trans i18nKey="gallery:lifecycle.retractedStatus" components={{ 1: <strong /> }} />
+          </p>
+          <button
+            type="button"
+            className="promote-btn"
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true)
+              setErr(null)
+              try {
+                await reinstateDataset(meta.id)
+                onChanged()
+              } catch (e) {
+                setErr(e)
+              } finally {
+                setBusy(false)
+              }
+            }}
+          >
+            {busy ? t('gallery:lifecycle.reinstating') : t('gallery:band.republish')}
+          </button>
+          {err != null && <ErrorNote err={err} titleKey="gallery:lifecycle.error" />}
+        </div>
+      )
+    }
     if (meta.promoted) {
       return (
-        <p className="promote-ok">
-          {t('gallery:promote.ok', {
-            n: meta.triples_promoted ?? 0,
-            version: version ? t('gallery:promote.okVersion', { version }) : '',
-          })}
-        </p>
+        <div ref={rootRef}>
+          <p className="promote-ok">
+            {t('gallery:promote.ok', {
+              version: version ? t('gallery:promote.okVersion', { version }) : '',
+            })}
+          </p>
+        </div>
       )
     }
     return null
@@ -1478,85 +2487,44 @@ function PromoteControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChan
   // this is a re-promote: it swaps the live pointer to the new version (part5).
   const isRepromote = version >= 1
 
-  async function preview() {
-    setErr('')
-    try {
-      setAlignment(await getAlignment(meta.id))
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e))
-    }
-  }
-  async function promote() {
-    setBusy(true)
-    setErr('')
-    try {
-      await promoteDataset(meta.id)
-      // Refresh meta so this control settles into the citable (✓) view. Stays
-      // busy/disabled through the reload — the ✓ view replaces the button once
-      // the new meta lands, so there is no flash and no double-submit.
-      onChanged()
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e))
-      setBusy(false)
-    }
-  }
-
   return (
-    <div className="promote-control">
-      {isRepromote ? (
-        <p className="promote-note">
-          <Trans
-            i18nKey="gallery:promote.repromoteNote"
-            values={{ version, next: version + 1 }}
-            components={{ strong: <strong /> }}
-          />
-        </p>
-      ) : (
-        <p className="promote-note">
-          <Trans i18nKey="gallery:promote.note">
-            「検索対象として公開」すると、公開前の下書きのこのデータが <strong>公開済みデータ
-            （質問する（Ask）の引用対象）</strong> になります。公開前に、使っていることばが標準の再利用か、このデータの新しいことばかを確認できます。
-          </Trans>
-        </p>
-      )}
+    <div className="promote-control" ref={rootRef}>
+      <p className="promote-note">
+        {isRepromote ? t('gallery:promote.repromoteNote') : t('gallery:promote.note')}
+      </p>
       {alignment ? (
         <div className="alignment-summary">
-          <span>
-            {t('gallery:promote.alignmentSummary', {
-              predReuse: alignment.predicates.reuse.length,
-              predNew: alignment.predicates.new.length,
-              classReuse: alignment.classes.reuse.length,
-              classNew: alignment.classes.new.length,
-            })}
-          </span>
-          {alignment.predicates.new.length > 0 && (
-            <p className="alignment-new">
-              {t('gallery:promote.alignmentNew', {
-                terms: alignment.predicates.new.map(shortIri).join('、'),
-              })}
-            </p>
-          )}
+          {/* The same split, and the same sentence, the publish dialog and the
+              wizard's S8 use — a raw reuse/new count here disagreed with S8 on
+              the very same dataset (structural terms were in this one). The list
+              of the words themselves lives in the publish dialog, where it can
+              carry their human names instead of bare identifiers. */}
+          <span>{t('kantan:s8.words', wordCounts(alignment))}</span>
         </div>
       ) : (
-        <button type="button" className="btn btn--ghost btn--sm" onClick={preview}>
-          {isRepromote ? t('gallery:promote.previewRepromote') : t('gallery:promote.preview')}
-        </button>
+        <p className="promote-note">{t('gallery:promote.alignmentLoading')}</p>
       )}
-      <button type="button" className="promote-btn" onClick={promote} disabled={busy}>
-        {busy
-          ? isRepromote
-            ? t('gallery:promote.repromoting')
-            : t('gallery:promote.promoting')
-          : isRepromote
-            ? t('gallery:promote.repromoteSubmit', { next: version + 1 })
-            : t('gallery:promote.submit')}
+      {/* K10: one road to publishing, and it goes through the confirm dialog. */}
+      <button type="button" className="promote-btn" onClick={() => setConfirming(true)}>
+        {isRepromote ? t('gallery:promote.repromoteSubmit') : t('gallery:promote.submit')}
       </button>
-      {err && (
-        <p className="promote-err">
-          {isRepromote
-            ? t('gallery:promote.repromoteError', { message: err })
-            : t('gallery:promote.error', { message: err })}
-        </p>
+      {confirming && (
+        <PublishDialog
+          meta={meta}
+          counts={counts}
+          labels={labels}
+          onClose={() => setConfirming(false)}
+          onDone={() => {
+            setConfirming(false)
+            onChanged()
+          }}
+        />
+      )}
+      {err != null && (
+        <ErrorNote
+          err={err}
+          titleKey={isRepromote ? 'gallery:promote.repromoteError' : 'gallery:promote.error'}
+        />
       )}
     </div>
   )
@@ -1572,8 +2540,27 @@ function PromoteControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChan
  * IngestControl) and for retracted datasets. CSV is re-attached here, or the
  * persisted design-time source is reused.
  */
-function ReingestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onChanged: () => void }) {
+function ReingestControl({
+  meta,
+  onChanged,
+  onRedesign,
+  onAddData,
+  labels,
+  embedded,
+  focus,
+}: {
+  meta: LiveDataset['meta']
+  onChanged: () => void
+  onRedesign?: (target: RedesignTarget) => void
+  /** The exit for a dataset whose design was never stored — see IngestError. */
+  onAddData?: () => void
+  labels?: TermLabels
+  embedded?: boolean
+  focus?: boolean
+}) {
   const { t } = useTranslation()
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  useFocusScroll(focus, rootRef)
   const [files, setFiles] = useState<File[]>([])
   const [busy, setBusy] = useState(false)
   const [progress, setProgress] = useState<IngestProgress | null>(null)
@@ -1641,16 +2628,20 @@ function ReingestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onCha
   const hasSource = !!meta.has_source
   const isJson = meta.source_kind === 'json'
   const sourceLabel = isJson ? 'JSON' : t('gallery:sourceKind.tabular')
-  const canReingest = !busy && (hasSource || files.length > 0)
+  // 「差し替える」 means "with THIS file". Letting it run on the saved source when
+  // no file is picked silently re-ingested the same data — the same button for
+  // two different intentions. Rebuilding from the saved file (what you do after
+  // revising the design) is its own action below.
+  const canReingest = !busy && files.length > 0
 
-  async function onReingest() {
+  async function run(upload: File[]) {
     setBusy(true)
     setErr(null)
     setProgress(null)
     setCancelled(false)
     try {
-      // hasSource → no upload (server reuses the persisted source); else upload.
-      const handle = await startIngestJob(meta.id, hasSource ? [] : files, setProgress, () =>
+      // Empty upload → the server reuses the persisted design-time source.
+      const handle = await startIngestJob(meta.id, upload, setProgress, () =>
         setLastPulseAt(Date.now()),
       )
       await track(handle)
@@ -1661,28 +2652,19 @@ function ReingestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onCha
   }
 
   return (
-    <div className="ingest-gate">
+    <div className={embedded ? '' : 'ingest-gate'} ref={rootRef}>
       <div className="ds-subhead">{t('gallery:reingest.head')}</div>
+      {/* What happens to the reader's answers, not what happens to the version
+          graph: the version numbers and the old-version cleanup were the whole
+          of this paragraph and none of the decision. */}
       <p className="ingest-note">
-        <Trans
-          i18nKey="gallery:reingest.notePrefix"
-          values={{ source: sourceLabel, id: shortIri(meta.id) }}
-          components={{ strong: <strong /> }}
-        />{' '}
-        {published ? (
-          <Trans
-            i18nKey="gallery:reingest.notePublished"
-            values={{ version, next: version + 1 }}
-            components={{ strong: <strong /> }}
-          />
-        ) : (
-          t('gallery:reingest.noteUnpublished')
-        )}
+        {published
+          ? t('gallery:reingest.notePublished')
+          : t('gallery:reingest.noteUnpublished')}
       </p>
       {hasSource ? (
         <p className="ingest-source">
           {t('gallery:reingest.sourceSaved', {
-            source: sourceLabel,
             files: meta.source_files?.length
               ? t('gallery:ingest.filesSuffix', { names: meta.source_files.join('、') })
               : '',
@@ -1709,18 +2691,49 @@ function ReingestControl({ meta, onChanged }: { meta: LiveDataset['meta']; onCha
               : t('gallery:reingest.placeholderSelect', { source: sourceLabel })}
         </span>
       </div>
-      <button type="button" className="promote-btn" onClick={onReingest} disabled={!canReingest}>
+      <button
+        type="button"
+        className="promote-btn"
+        onClick={() => run(files)}
+        disabled={!canReingest}
+      >
         {busy ? t('gallery:reingest.submitting') : t('gallery:reingest.submit')}
       </button>
+      {!busy && files.length === 0 && <p className="ingest-hint">{t('gallery:reingest.needFile')}</p>}
+      {hasSource && (
+        <>
+          <p className="ingest-hint">{t('gallery:reingest.rerunNote')}</p>
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm"
+            onClick={() => run([])}
+            disabled={busy}
+          >
+            {t('gallery:reingest.rerunSaved')}
+          </button>
+        </>
+      )}
       {busy && (
-        <IngestProgressView
-          progress={progress}
-          onCancel={job ? job.cancel : undefined}
-          lastPulseAt={lastPulseAt}
-        />
+        <>
+          <IngestProgressView
+            progress={progress}
+            onCancel={job ? job.cancel : undefined}
+            lastPulseAt={lastPulseAt}
+          />
+          <p className="ingest-hint">{t('gallery:ingest.keepGoing')}</p>
+        </>
       )}
       {cancelled && <p className="ingest-hint">{t('gallery:ingest.cancelled')}</p>}
-      {err != null && <IngestError err={err} errorKey="gallery:reingest.error" />}
+      {err != null && (
+        <IngestError
+          err={err}
+          errorKey="gallery:reingest.error"
+          meta={meta}
+          onRedesign={onRedesign}
+          onAddData={onAddData}
+          labels={labels}
+        />
+      )}
     </div>
   )
 }
