@@ -51,6 +51,15 @@ function sourceColumns(term: RuleTerm): string | null {
   return null
 }
 
+/** What to say in the 元の列 cell when a value is not read from a column. A
+ *  parent-map reference is a LINK to another kind of row, not a fixed value —
+ *  calling it 「決まった値」 would state something the rules do not say. */
+function noColumnKey(kind: RuleTerm['kind']): string {
+  if (kind === 'function') return 'rules:plain.computed'
+  if (kind === 'join') return 'rules:plain.linked'
+  return 'rules:plain.fixed'
+}
+
 /** Drop the dataset's own minting namespace from an ID template so it reads as
  *  `measurement/{No}` instead of a full URL (K13). Fail-open: a template whose
  *  base cannot be identified is returned unchanged. */
@@ -438,11 +447,7 @@ export function RulesSection({ dataset }: { dataset: CatalogDataset }) {
                               <td>
                                 {from ?? (
                                   <span className="rules-plain-none">
-                                    {t(
-                                      p.kind === 'function'
-                                        ? 'rules:plain.computed'
-                                        : 'rules:plain.fixed',
-                                    )}
+                                    {t(noColumnKey(p.kind))}
                                   </span>
                                 )}
                               </td>
@@ -476,9 +481,12 @@ export function RulesSection({ dataset }: { dataset: CatalogDataset }) {
                   {(m.subject.classes?.length ? m.subject.classes : [m.id]).map((c) => {
                     const label = labelFor(labels, undefined, c)
                     return (
+                      // Inside the technical view the exact term always stays on
+                      // screen (this fold IS the escape hatch); the label just
+                      // leads it.
                       <span key={c} className="rules-class-chip" title={c}>
                         {label ?? tailOf(c)}
-                        {label && <span className="rules-term-label">{c}</span>}
+                        <span className="rules-term-label">{c}</span>
                       </span>
                     )
                   })}

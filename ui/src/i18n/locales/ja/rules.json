@@ -6,7 +6,8 @@
     "colMeaning": "読み取った意味",
     "colUnit": "単位",
     "computed": "（計算して作った値）",
-    "fixed": "（決まった値）"
+    "fixed": "（決まった値）",
+    "linked": "（ほかの種類のデータとのつながり）"
   },
   "techSummary": "詳しい内容（技術情報）: 変換ルールの読み下し",
   "artifactsSummary": "詳しい内容（技術情報）: 変換ルール（RML）と関連ファイル",

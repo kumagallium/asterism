@@ -6,7 +6,8 @@
     "colMeaning": "Read as",
     "colUnit": "Unit",
     "computed": "(computed value)",
-    "fixed": "(fixed value)"
+    "fixed": "(fixed value)",
+    "linked": "(a link to another kind of data)"
   },
   "techSummary": "Technical details: the transformation rules, read out",
   "artifactsSummary": "Technical details: the transformation rules (RML) and related files",

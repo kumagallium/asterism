@@ -165,7 +165,7 @@
     },
     "measurement_provenance": {
       "title": "測った値を、図と測定条件の文につなぐ",
-      "description": "グラフから読み取った値について、元になった図と、測定条件を書いた文をいっしょに返します。",
+      "description": "図から読み取った値について、元になった図と、測定条件を書いた文をいっしょに返します。",
       "params": {
         "composition": { "label": "組成（任意）", "placeholder": "例: Ti0.5Zr0.25Hf0.25NiSn" }
       },

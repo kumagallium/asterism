@@ -169,7 +169,7 @@
     },
     "measurement_provenance": {
       "title": "Link a measured value to its figure and its stated condition",
-      "description": "For a value read off a graph, return the figure it came from and the sentence that states how it was measured.",
+      "description": "For a value read off a figure, return the figure it came from and the sentence that states how it was measured.",
       "params": {
         "composition": { "label": "Composition (optional)", "placeholder": "e.g. Ti0.5Zr0.25Hf0.25NiSn" }
       },

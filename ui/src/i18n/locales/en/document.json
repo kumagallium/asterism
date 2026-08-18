@@ -1,8 +1,7 @@
 {
   "phase": {
     "creating": "Registering document…",
-    "ingesting": "Reading the document…",
-    "promoting": "Publishing…"
+    "ingesting": "Reading the document…"
   },
   "intro": "A document such as a paper or a contract can be taken in as it is. Once in, you can search the sentences inside it and cite them with their source. (Supported: Word .docx / PDF .pdf / XML .xml)",
   "introPlain": "Word / PDF files can be taken in as they are. Once in, you can search and cite the sentences inside.",
@@ -27,7 +26,7 @@
     "publishing": "Publishing…"
   },
   "result": "✓ Published \"{{name}}\". You can search it sentence by sentence and cite it with its source.",
-  "resultPlain": "✓ '{{name}}' is published. You can search and cite its sentences from Ask.",
+  "resultPlain": "✓ \"{{name}}\" is published. You can search and cite its sentences from Ask.",
   "tryAsk": "Try it in Ask",
   "tryAskQuestion": "Find sentences in \"{{name}}\" that talk about ...",
   "openDataset": "Open the dataset page",

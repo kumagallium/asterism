@@ -232,7 +232,10 @@ export function ToolRunner({ datasetId, tool }: { datasetId: string; tool: Query
         <div className="tool-run-err">
           <p className="doc-error-head">{t('tools:runner.errHead')}</p>
           <p className="hint">{t('tools:runner.errBody')}</p>
-          <p className="hint">{t(plain.body)}</p>
+          {/* Only when a specific failure family was recognized: the generic
+              fallback is another "please try again", and saying it twice reads
+              as a stutter rather than as guidance. */}
+          {plain.title && <p className="hint">{t(plain.body)}</p>}
           <details className="tool-sparql-details">
             <summary>{t('tools:runner.techSummary')}</summary>
             <pre className="sparql-block">{err}</pre>
@@ -323,10 +326,13 @@ export function ToolRunner({ datasetId, tool }: { datasetId: string; tool: Query
                 </button>
               </div>
               {cite.err ? (
-                <details className="tool-sparql-details">
-                  <summary>{t('tools:runner.techSummary')}</summary>
-                  <pre className="sparql-block">{cite.err}</pre>
-                </details>
+                <>
+                  <p className="hint">{t(plainError(cite.err).body)}</p>
+                  <details className="tool-sparql-details">
+                    <summary>{t('tools:runner.techSummary')}</summary>
+                    <pre className="sparql-block">{cite.err}</pre>
+                  </details>
+                </>
               ) : cite.row ? (
                 <>
                   <p className="tool-cite-text">{fmt(cite.row.verbatim)}</p>
