@@ -1,30 +1,33 @@
 {
   "back": "Back",
+  "addData": "Add data",
   "banner": {
-    "title": "Your \"design (its words)\" does not disappear — it is just <1>shared</1>",
-    "sub": "These are <1>words automatically read from the actual data</1> (across all datasets; names come from each dataset's design). The more they align, the better cross-dataset search and comparison work."
+    "title": "<1>Words</1> shared across your data",
+    "sub": "The <1>kinds of data and fields</1> collected automatically from what you have added. The more the names line up, the better questions and comparisons work across datasets.",
+    "fixNote": "To change the name of a word, open that dataset and use \"Revise the design\".",
+    "fixLink": "Open the dataset list"
   },
   "loading": "Loading…",
-  "schemaError": "Could not fetch the words of the actual data (the search backend is not responding).",
+  "schemaError": "Couldn't load the list of words. Wait a moment, then press \"Reload\". If it keeps happening, tell whoever set this server up.",
+  "reload": "Reload",
   "classesCard": {
-    "title": "Shared words (actual data)",
+    "title": "Words in use right now",
     "meta": "{{classes}} kinds · {{predicates}} fields",
-    "note1": "The number on the right = count in the actual data. <1>Kinds count how many things of that type exist</1>, <3>fields count how often they are used</3>.",
+    "note1": "The number on the right = the count. <1>Kinds count how many things of that kind exist</1>, <3>fields count how often they are used</3>.",
     "note2": "* Only <1>published (citable) data</1> is counted. Unpublished drafts are not included — they enter the tally once published.",
     "classesSubhead": "Kinds of data (count)",
     "predicatesSubhead": "Main fields (usage count)",
-    "reusesSubhead": "Reused standard words (detected from the actual data)"
+    "reusesSubhead": "Reused standard words",
+    "emptyAll": "There is no published data yet, so there are no words yet. Publish data via \"Add data\" and it will appear here."
   },
   "usersCard": {
     "title": "Datasets using these words",
-    "empty": "No ingested datasets yet. Once you save a design in the workbench and ingest it, it will appear here as a cross-dataset target.",
+    "empty": "No datasets yet. Add a file from \"Add data\" and it will appear here.",
     "classCount": "{{n}} kinds",
+    "draftNote": "Once published, its words also appear in the list on the left.",
     "caution": {
-      "title": "Why \"handle with care\"?",
-      "body": "Rewriting a shared word ripples into the search and answers of every dataset that uses it. Confirm changes after reviewing the <1>impact preview</1>."
-    },
-    "classCount_one": "{{n}} class",
-    "classCount_other": "{{n}} classes"
+      "body": "The words listed here are shared by several datasets. Renaming one affects search and answers for every dataset that uses it."
+    }
   },
   "status": {
     "pub": "Published",
@@ -32,19 +35,24 @@
     "design": "Designing"
   },
   "termList": {
-    "none": "(none)"
+    "none": "(none)",
+    "unnamed": "(no name set)",
+    "owner": "Revise this dataset",
+    "more": "…and {{n}} more",
+    "showAll": "Show all",
+    "showLess": "Show fewer"
   },
   "known": {
     "schema": "schema.org (metadata for people, publications, etc.)",
-    "prov": "PROV-O (provenance Entity / Activity / Agent)",
+    "prov": "PROV-O (who made the data, and how)",
     "dcterms": "Dublin Core terms (identifier / created, etc.)",
     "bibo": "BIBO (volume / issue / pages)",
     "qudt": "QUDT (standard words for quantities and units)",
-    "skos": "SKOS (concept schemes)",
+    "skos": "SKOS (grouping terms and their alternative names)",
     "foaf": "FOAF (people, organizations, relations)",
-    "dcat": "DCAT (catalog description of datasets)",
+    "dcat": "DCAT (describing a dataset)",
     "sosa": "SOSA/SSN (observations, sensors, samples)",
-    "emmo": "EMMO (foundational ontology for materials science)",
-    "cmso": "CMSO (computational material samples — crystal structure, composition, defects)"
+    "emmo": "EMMO (shared words for materials science)",
+    "cmso": "CMSO (shared words for crystal structure, composition and defects)"
   }
 }
