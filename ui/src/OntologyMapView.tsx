@@ -6,6 +6,7 @@ import {
   getAlignments,
   getCrosswalks,
 } from './crosswalkApi'
+import { conceptName, crosswalkError, perspectiveDisplayName } from './crosswalkLabels'
 import { type CatalogDataset, getCatalogDatasets } from './galleryApi'
 import { ArrowIcon, ConnectIcon, DataIcon, LayersIcon } from './icons'
 
@@ -24,7 +25,9 @@ import { ArrowIcon, ConnectIcon, DataIcon, LayersIcon } from './icons'
 const LANE_DS = { x: 0, w: 250 }
 const LANE_HUB = { x: 372, w: 224 }
 const LANE_EXT = { x: 744, w: 200 }
-const H_DS = 116
+// Dataset boxes carry a heading over their kind pills now, so they are a line taller
+// (the node clips its overflow — a box that no longer fits hides the standards row).
+const H_DS = 132
 const H_HUB = 86
 const H_EXT = 54
 const GAP = 22
@@ -50,6 +53,9 @@ function buildLayout(
   datasets: CatalogDataset[],
   perspectives: CrosswalkPerspective[],
   showExternal: boolean,
+  /** How to say "unnamed connection" / "the value found in both" in the reader's
+   * language — passed in so this stays a pure layout function. */
+  words: { unnamed: string; sharedValue: string },
 ): Layout {
   const dsList = datasets.filter((d) => !d.isCrosswalk)
 
@@ -70,8 +76,10 @@ function buildLayout(
   // Crosswalk bridges — center lane.
   const hubs: HubBox[] = perspectives.map((p, i) => ({
     p,
-    name: p.dataset?.name || p.perspective_id,
-    concepts: (p.config?.concepts ?? []).map((c) => c.name).join(' · '),
+    name: perspectiveDisplayName(p) ?? words.unnamed,
+    concepts: (p.config?.concepts ?? [])
+      .map((c) => conceptName(c.name, c.concept_label) ?? words.sharedValue)
+      .join(' · '),
     x: LANE_HUB.x,
     y: TOP + i * (H_HUB + GAP),
     w: LANE_HUB.w,
@@ -174,12 +182,40 @@ function LaneHead({
   )
 }
 
-export function OntologyMapView({ onBack }: { onBack?: () => void }) {
+export function OntologyMapView({
+  onBack,
+  onAddData,
+  onCreateConnection,
+  onOpenDataset,
+  onOpenConnections,
+}: {
+  onBack?: () => void
+  /** Where the empty states and the nodes send people. All default to the hash routes
+   * the app already owns, so this view works wherever it is mounted. */
+  onAddData?: () => void
+  onCreateConnection?: () => void
+  onOpenDataset?: (datasetId: string) => void
+  /** Given a connection's id when a connection node was the thing pressed. */
+  onOpenConnections?: (perspectiveId?: string) => void
+}) {
   const { t } = useTranslation()
+  const addData = onAddData ?? (() => (window.location.hash = '#/workbench'))
+  const createConnection = onCreateConnection ?? (() => (window.location.hash = '#/crosswalk/new'))
+  const openDataset =
+    onOpenDataset ??
+    ((id: string) => (window.location.hash = `#/datasets/${encodeURIComponent(id)}`))
+  const openConnections =
+    onOpenConnections ??
+    ((id?: string) => {
+      window.location.hash = id ? `#/crosswalk/${encodeURIComponent(id)}` : '#/crosswalk'
+    })
   const [data, setData] = useState<MapData | null>(null)
   const [showExternal, setShowExternal] = useState(true)
   const [selected, setSelected] = useState<string | null>(null)
   const [err, setErr] = useState('')
+  // Bumped by "load again": a map whose first fetch failed must be recoverable
+  // without a browser reload.
+  const [reloads, setReloads] = useState(0)
 
   useEffect(() => {
     let off = false
@@ -192,7 +228,7 @@ export function OntologyMapView({ onBack }: { onBack?: () => void }) {
     return () => {
       off = true
     }
-  }, [])
+  }, [reloads])
 
   const counts = data
     ? {
@@ -207,9 +243,14 @@ export function OntologyMapView({ onBack }: { onBack?: () => void }) {
       }
     : null
 
+  const unnamed = t('crosswalk:view.unnamed')
+  const sharedValue = t('crosswalk:create.sharedValueLabel')
   const layout = useMemo(
-    () => (data ? buildLayout(data.datasets, data.perspectives, showExternal) : null),
-    [data, showExternal],
+    () =>
+      data
+        ? buildLayout(data.datasets, data.perspectives, showExternal, { unnamed, sharedValue })
+        : null,
+    [data, showExternal, unnamed, sharedValue],
   )
 
   const empty = counts && counts.ds === 0 && counts.xw === 0
@@ -272,7 +313,30 @@ export function OntologyMapView({ onBack }: { onBack?: () => void }) {
         </div>
       )}
 
-      {err && <pre className="error">{err}</pre>}
+      {/* Same treatment as the connections screen: what happened, what to do, and the
+          raw HTTP/JSON still reachable for whoever needs it. */}
+      {err && (
+        <div className="state-block">
+          <p className="state-title">{t('map:loadErr.title')}</p>
+          <p className="state-sub">{t(crosswalkError(err).body)}</p>
+          <div className="kz-actions">
+            <button
+              type="button"
+              onClick={() => {
+                setErr('')
+                setData(null)
+                setReloads((n) => n + 1)
+              }}
+            >
+              {t('crosswalk:view.retryBtn')}
+            </button>
+          </div>
+          <details className="kz-stop-detail">
+            <summary>{t('crosswalk:create.details')}</summary>
+            <pre className="error">{err}</pre>
+          </details>
+        </div>
+      )}
       {!layout && !err && (
         <p className="loading-row">
           <span className="spinner" />
@@ -283,6 +347,25 @@ export function OntologyMapView({ onBack }: { onBack?: () => void }) {
         <div className="state-block">
           <p className="state-title">{t('map:empty.title')}</p>
           <p className="state-sub">{t('map:empty.sub')}</p>
+          <div className="kz-actions">
+            <button type="button" onClick={addData}>
+              {t('map:empty.addBtn')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Data but no connections — the state the first-time reader actually lands in.
+          The middle lane would otherwise be a headline over nothing. */}
+      {layout && !empty && layout.hubs.length === 0 && (
+        <div className="state-block">
+          <p className="state-title">{t('map:noHubs.title')}</p>
+          <p className="state-sub">{t('map:noHubs.sub')}</p>
+          <div className="kz-actions">
+            <button type="button" onClick={createConnection}>
+              {t('map:noHubs.btn')}
+            </button>
+          </div>
         </div>
       )}
 
@@ -368,7 +451,10 @@ export function OntologyMapView({ onBack }: { onBack?: () => void }) {
               })}
             </svg>
 
-            {/* dataset nodes */}
+            {/* dataset nodes — pointing at one lights up what it connects to; opening
+                one goes to that dataset, so the map stops being a dead end (the old
+                click-to-select is now hover/focus, which also works from the
+                keyboard). */}
             {layout.ds.map((n) => {
               const on = selected === n.d.id
               const std = [...new Set((n.d.reuses ?? []).map((r) => r.prefix))].slice(0, 3)
@@ -378,7 +464,12 @@ export function OntologyMapView({ onBack }: { onBack?: () => void }) {
                   key={n.d.id}
                   className={`ontomap-node ontomap-node--ds${on ? ' is-selected' : ''}`}
                   style={{ left: n.x, top: n.y, width: n.w, height: n.h }}
-                  onClick={() => setSelected(on ? null : n.d.id)}
+                  title={t('map:node.openDs', { name: n.d.name })}
+                  onClick={() => openDataset(n.d.id)}
+                  onMouseEnter={() => setSelected(n.d.id)}
+                  onMouseLeave={() => setSelected((cur) => (cur === n.d.id ? null : cur))}
+                  onFocus={() => setSelected(n.d.id)}
+                  onBlur={() => setSelected((cur) => (cur === n.d.id ? null : cur))}
                 >
                   <span className="ontomap-node-head">
                     <span className="ontomap-node-chip ontomap-node-chip--ds">
@@ -388,13 +479,19 @@ export function OntologyMapView({ onBack }: { onBack?: () => void }) {
                     {on && <span className="ontomap-node-badge">{t('map:line.selected')}</span>}
                   </span>
                   {n.d.classes.length > 0 && (
-                    <span className="ontomap-node-pills">
-                      {n.d.classes.slice(0, 4).map((c) => (
-                        <span key={c} className="ontomap-pill">
-                          {c}
-                        </span>
-                      ))}
-                    </span>
+                    <>
+                      {/* The pills are the design's own English class names. They stay
+                          as they are — they name what is in the data — but a heading
+                          says WHAT they are, so they do not read as stray tokens. */}
+                      <span className="ontomap-node-std-label">{t('map:node.kindsHead')}</span>
+                      <span className="ontomap-node-pills">
+                        {n.d.classes.slice(0, 4).map((c) => (
+                          <span key={c} className="ontomap-pill">
+                            {c}
+                          </span>
+                        ))}
+                      </span>
+                    </>
                   )}
                   {std.length > 0 && (
                     <span className="ontomap-node-std">
@@ -410,23 +507,41 @@ export function OntologyMapView({ onBack }: { onBack?: () => void }) {
               )
             })}
 
-            {/* crosswalk hubs */}
+            {/* crosswalk hubs — a connection on the map opens the connections screen ON
+                that connection, where it can actually be read and rebuilt.
+                `font`/`color: inherit` is the same reset `.ontomap-node--ds` carries in
+                App.css for being a <button> (index.css gives every button its own font
+                and colour). App.css belongs to no chain in this audit, so it lives
+                here until a `.ontomap-node--act` rule lands (see
+                audit/handoff-crosswalk.md). No colours or sizes are set here. */}
             {layout.hubs.map((n) => (
-              <div
+              <button
+                type="button"
                 key={n.p.perspective_id}
                 className="ontomap-node ontomap-node--hub"
-                style={{ left: n.x, top: n.y, width: n.w, height: n.h }}
+                style={{
+                  left: n.x,
+                  top: n.y,
+                  width: n.w,
+                  height: n.h,
+                  font: 'inherit',
+                  color: 'inherit',
+                }}
+                title={t('map:node.openHub')}
+                onClick={() => openConnections(n.p.perspective_id)}
               >
                 <span className="ontomap-node-head">
                   <span className="ontomap-node-chip ontomap-node-chip--hub">
                     <ConnectIcon size={14} />
                   </span>
-                  <span className="ontomap-node-name">{n.name}</span>
+                  <span className="ontomap-node-name" title={n.p.perspective_id}>
+                    {n.name}
+                  </span>
                 </span>
                 {n.concepts && (
                   <span className="ontomap-hub-key">{t('map:node.crossBy', { key: n.concepts })}</span>
                 )}
-              </div>
+              </button>
             ))}
 
             {/* external standards */}

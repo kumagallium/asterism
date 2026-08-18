@@ -98,6 +98,15 @@ DEFAULT_CLASS_IRI = f"{XW}Composition"
 DEFAULT_LINK_PREDICATE = f"{XW}hasComposition"
 DEFAULT_NORMALIZER = "composition"
 
+# The name a perspective gets when nobody named it. It is shown verbatim on the
+# shared screens (the tab strip, the overview, the catalog), so it says what the
+# thing IS in the reader's words — never "crosswalk hub" / "crosswalk: <id>", which
+# put an implementation word and a raw id in front of people who never chose either
+# (kantan-mode ADR §6). Japanese because the product is Japanese-first; a name the
+# user typed always wins over these.
+DEFAULT_PERSPECTIVE_NAME = "共通の値でつなぐ"
+UNNAMED_PERSPECTIVE_NAME = "名前のないつながり"
+
 _CONFIG_FILE = "crosswalk.yaml"
 _META_FILE = "meta.json"
 
@@ -811,9 +820,9 @@ def write_registry_scaffold(
     name: str = "",
 ) -> dict:
     """Create/refresh a perspective's registry dataset so the catalog lists it. Updates
-    meta stats every build; seeds model.yaml / diagram.md and the generic
-    ``datasets_for_composition`` tool **only if absent** (never clobbers human-authored
-    tools like ``zt_by_crystal_structure``)."""
+    meta stats every build; seeds model.yaml / diagram.md and one generic lookup tool
+    **per concept** (:func:`generic_tools_yaml`) **only if absent** (never clobbers
+    human-authored tools like ``zt_by_crystal_structure``)."""
     d = _dataset_dir(registry_root, perspective_id)
     d.mkdir(parents=True, exist_ok=True)
     meta_path = d / _META_FILE
@@ -827,9 +836,9 @@ def write_registry_scaffold(
     classes = sorted({_local_name(c.class_iri) for c in config.concepts})
     participants = sorted({p.label for c in config.concepts for p in c.participants})
     default_name = (
-        "crosswalk hub (composition across datasets)"
+        DEFAULT_PERSPECTIVE_NAME
         if perspective_id == DEFAULT_PERSPECTIVE_ID
-        else f"crosswalk: {perspective_id}"
+        else UNNAMED_PERSPECTIVE_NAME
     )
     meta.update(
         {
@@ -873,7 +882,9 @@ def write_registry_scaffold(
         diagram.write_text(_default_diagram(config), encoding="utf-8")
     tools = d / "query_tools.yaml"
     if not tools.is_file():
-        tools.write_text(GENERIC_TOOLS, encoding="utf-8")
+        seeded = generic_tools_yaml(config)
+        if seeded:
+            tools.write_text(seeded, encoding="utf-8")
     return meta
 
 
@@ -892,37 +903,88 @@ def _default_diagram(config: RuntimeCrosswalkConfig) -> str:
     return "\n".join(lines) + "\n"
 
 
-# Generic, hub-resident cross-dataset tool. Deterministic, citable, KEY-FREE — it
-# belongs to the JOIN (lives with the hub, not either source dataset). Seeded only
-# when no query_tools.yaml exists, so domain-specific tools authored later survive.
-GENERIC_TOOLS = r"""# Cross-dataset CROSSWALK tools — they live with the HUB, not with either source
+# Generic, hub-resident cross-dataset tools. Deterministic, citable, KEY-FREE — they
+# belong to the JOIN (they live with the hub, not with either source dataset). Seeded
+# only when no query_tools.yaml exists, so domain-specific tools authored later
+# survive.
+#
+# One tool PER CONCEPT, built from the config's own class + link predicate. A single
+# hardcoded composition tool answered 0 rows on every crosswalk that joined on
+# anything else (crystal_system, sample_id, …) — the "try it" moment right after
+# connecting went silently empty. Nothing here is generated code: the IRIs are the
+# ones already stored in the config, and the query is a fixed template.
+
+_TOOL_KEY = re.compile(r"[^A-Za-z0-9_]+")
+_SAFE_IRI = re.compile(r"^[^\s<>\"{}|\\^`]+$")
+
+_TOOLS_HEADER = """\
+# Cross-dataset CROSSWALK tools — they live with the HUB, not with either source
 # dataset, because they belong to the JOIN. The crosswalk shared entity is the
 # deterministic join key, so these are reproducible, citable, key-free.
 tools:
-  - name: datasets_for_composition
-    title: "Which datasets report a given composition (via the crosswalk hub)"
+"""
+
+
+def _tool_key(name: str) -> str:
+    """A concept name as a parameter/tool identifier (``^[A-Za-z_]\\w*$``), or ''."""
+    key = _TOOL_KEY.sub("_", name).strip("_")
+    return key if key and not key[0].isdigit() else ""
+
+
+def generic_tools_yaml(config: RuntimeCrosswalkConfig) -> str:
+    """The seeded ``query_tools.yaml`` for a perspective: one "which datasets report
+    this value?" lookup per concept, wired to that concept's own class and link
+    predicate. Returns '' when no concept yields a usable tool (nothing is seeded
+    rather than seeding a tool that can only answer nothing)."""
+    blocks: list[str] = []
+    seen: set[str] = set()
+    named = len(config.concepts) > 1
+    # The wording a reader sees in the tool list, kept out of the f-string below so
+    # the YAML template stays readable.
+    param_help = json.dumps(
+        "調べたい値。両方に出てくる値をひとつ入れてください。", ensure_ascii=False
+    )
+    for concept in config.concepts:
+        key = _tool_key(concept.name)
+        if not key or not _SAFE_IRI.match(concept.class_iri or ""):
+            continue
+        if not _SAFE_IRI.match(concept.link_predicate or ""):
+            continue
+        tool_name = f"datasets_for_{key}"
+        if tool_name in seen:
+            continue
+        seen.add(tool_name)
+        # The wording is what a reader sees in 「またいで使える道具」; the concept key
+        # is an internal identifier, so it only appears when several concepts would
+        # otherwise carry the same title.
+        title = "この値を載せているデータを調べる"
+        if named:
+            title = f"{title}: {concept.name}"
+        blocks.append(
+            f"""\
+  - name: {tool_name}
+    title: {json.dumps(title, ensure_ascii=False)}
     description: >
-      List the named graphs (datasets) that have an entity linked to the crosswalk
-      composition matching the given label — shows how many sources the hub joins
-      for one composition.
+      同じ値を報告しているデータがいくつあるかを、その場で数えます。
     parameters:
-      - name: composition
+      - name: {key}
         type: string
         required: true
-        description: 'normalized composition label, e.g. "Bi2Te3" or "Ba8Ga16Ge30"'
+        description: {param_help}
     query: |
-      PREFIX xw: <https://kumagallium.github.io/asterism/crosswalk/ontology#>
       PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
       SELECT ?dataset_graph (COUNT(DISTINCT ?e) AS ?entities)
-      WHERE {
-        ?comp a xw:Composition ; rdfs:label {{composition}} .
-        ?e xw:hasComposition ?comp .
-        GRAPH ?dataset_graph { ?e a ?cls }
-      }
+      WHERE {{
+        ?shared a <{concept.class_iri}> ; rdfs:label {{{{{key}}}}} .
+        ?e <{concept.link_predicate}> ?shared .
+        GRAPH ?dataset_graph {{ ?e a ?cls }}
+      }}
       GROUP BY ?dataset_graph
       ORDER BY DESC(?entities)
     result:
       item:
         dataset_graph: dataset_graph
-        entities: { var: entities, number: true }
+        entities: {{ var: entities, number: true }}
 """
+        )
+    return _TOOLS_HEADER + "".join(blocks) if blocks else ""

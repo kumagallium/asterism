@@ -13,11 +13,14 @@ from pathlib import Path
 
 import pytest
 import rdflib
+import yaml
 
 from asterism import substrate
 from asterism.crosswalk_runtime import (
     ALIGNMENT_GRAPH,
+    DEFAULT_PERSPECTIVE_NAME,
     HUB_GRAPH,
+    UNNAMED_PERSPECTIVE_NAME,
     BuildOutcome,
     RuntimeConcept,
     RuntimeCrosswalkConfig,
@@ -27,6 +30,7 @@ from asterism.crosswalk_runtime import (
     config_to_dict,
     crosswalk_graph_iri,
     crosswalk_registry_id,
+    generic_tools_yaml,
     list_alignments,
     list_perspectives,
     load_config,
@@ -36,6 +40,7 @@ from asterism.crosswalk_runtime import (
     save_config,
     write_registry_scaffold,
 )
+from asterism.query_tools import lint_query_tool, parse_query_tools
 
 XW = "https://kumagallium.github.io/asterism/crosswalk/ontology#"
 PRED = "https://kumagallium.github.io/asterism/x/ontology#comp"
@@ -235,6 +240,9 @@ def test_write_registry_scaffold_seeds_then_preserves(tmp_path: Path) -> None:
     assert meta["crosswalk_shared_compositions"] == 2
     assert meta["triple_count"] == 42
     assert meta["promoted"] is True
+    # An unnamed perspective is named in the reader's words, not "crosswalk hub …".
+    assert meta["name"] == DEFAULT_PERSPECTIVE_NAME
+    assert "crosswalk" not in meta["name"]
     d = tmp_path / "crosswalk-bridge"
     assert (d / "meta.json").is_file()
     tools = (d / "query_tools.yaml").read_text(encoding="utf-8")
@@ -245,6 +253,98 @@ def test_write_registry_scaffold_seeds_then_preserves(tmp_path: Path) -> None:
     write_registry_scaffold(tmp_path, cfg, outcome)
     assert "my_custom_tool" in (d / "query_tools.yaml").read_text(encoding="utf-8")
     assert "datasets_for_composition" not in (d / "query_tools.yaml").read_text(encoding="utf-8")
+
+
+def _crystal_config() -> RuntimeCrosswalkConfig:
+    return RuntimeCrosswalkConfig(
+        concepts=(
+            RuntimeConcept(
+                name="crystal_system",
+                class_iri=f"{XW}CrystalSystem",
+                link_predicate=f"{XW}hasCrystalSystem",
+                normalizer="identity",
+                participants=(
+                    RuntimeParticipant(dataset_id="ds-a", label="a", predicate=PRED2),
+                    RuntimeParticipant(dataset_id="ds-b", label="b", predicate=PRED2),
+                ),
+            ),
+        )
+    )
+
+
+def test_seeded_tool_follows_the_concept_not_composition() -> None:
+    # A crosswalk that joins on crystal_system gets a tool that queries
+    # xw:CrystalSystem — the old hardcoded composition tool answered 0 rows here.
+    text = generic_tools_yaml(_crystal_config())
+    assert "datasets_for_crystal_system" in text
+    assert "Composition" not in text
+    tools = parse_query_tools(yaml.safe_load(text))
+    assert [t.name for t in tools] == ["datasets_for_crystal_system"]
+    assert [p.name for p in tools[0].params] == ["crystal_system"]
+    assert f"<{XW}CrystalSystem>" in tools[0].query
+    assert f"<{XW}hasCrystalSystem>" in tools[0].query
+    # It is a valid, runnable read-only query (real SPARQL parse via the linter).
+    assert lint_query_tool(tools[0]).ok
+    # Nothing an implementation-word reader would have to decode.
+    assert "crosswalk hub" not in tools[0].title
+    assert "normalized" not in tools[0].params[0].description
+
+
+def test_seeded_tool_keeps_the_composition_tool_name() -> None:
+    # `datasets_for_composition` is an Ask/MCP contract — the wording changed, the
+    # name did not.
+    text = generic_tools_yaml(_composition_config([("ds-a", "a"), ("ds-b", "b")]))
+    tools = parse_query_tools(yaml.safe_load(text))
+    assert [t.name for t in tools] == ["datasets_for_composition"]
+
+
+def test_seeded_tools_skip_concepts_with_no_usable_key(tmp_path: Path) -> None:
+    # A concept whose name yields no identifier (and one with an unusable IRI) is
+    # skipped rather than written out as a broken declaration.
+    cfg = RuntimeCrosswalkConfig(
+        concepts=(
+            RuntimeConcept(
+                name="組成",
+                class_iri=f"{XW}Composition",
+                link_predicate=f"{XW}hasComposition",
+                normalizer="identity",
+                participants=(RuntimeParticipant(dataset_id="ds-a", label="a", predicate=PRED),),
+            ),
+        )
+    )
+    assert generic_tools_yaml(cfg) == ""
+    outcome = BuildOutcome(
+        built_at="2026-06-11T00:00:00+00:00",
+        hub_graph=HUB_GRAPH,
+        triple_count=1,
+        shared={},
+        links={},
+        participants_used=[],
+        participants_skipped=[],
+    )
+    write_registry_scaffold(tmp_path, cfg, outcome, perspective_id="jp")
+    assert not (tmp_path / "crosswalk-jp" / "query_tools.yaml").exists()
+
+
+def test_unnamed_named_perspective_gets_a_plain_name(tmp_path: Path) -> None:
+    outcome = BuildOutcome(
+        built_at="2026-06-11T00:00:00+00:00",
+        hub_graph=HUB_GRAPH,
+        triple_count=1,
+        shared={},
+        links={},
+        participants_used=[],
+        participants_skipped=[],
+    )
+    meta = write_registry_scaffold(
+        tmp_path, _crystal_config(), outcome, perspective_id="crystal"
+    )
+    assert meta["name"] == UNNAMED_PERSPECTIVE_NAME
+    # A name the user typed still wins.
+    meta = write_registry_scaffold(
+        tmp_path, _crystal_config(), outcome, perspective_id="crystal2", name="結晶構造でつなぐ"
+    )
+    assert meta["name"] == "結晶構造でつなぐ"
 
 
 def test_perspective_id_scheme() -> None:

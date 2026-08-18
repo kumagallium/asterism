@@ -1,34 +1,46 @@
 {
   "back": "Back",
   "title": "What data exists and how it connects",
-  "bannerSub": "Each dataset has its own words; <0>connections (bridges)</0> link them across shared concepts. On the right are the <1>external standards</1> everyone shares.",
+  "bannerSub": "Each dataset has its own words; <0>connections</0> link them across the values found in both. On the right are the <1>external standards</1> everyone shares.",
   "legend": {
     "datasets": "Datasets {{n}}",
     "crosswalks": "Connections {{n}}",
-    "alignments": "Alignments {{n}}",
+    "alignments": "Matches {{n}}",
     "external": "External standards {{n}}"
   },
   "showExternal": "Show external standards",
   "loading": "Loading…",
+  "loadErr": {
+    "title": "The overview could not be loaded"
+  },
   "empty": {
     "title": "No data yet",
-    "sub": "Ingest data via \"Add data\" and it will appear here."
+    "sub": "Ingest data via \"Add data\" and it will appear here.",
+    "addBtn": "Add data"
+  },
+  "noHubs": {
+    "title": "No connections yet",
+    "sub": "Look for values that appear in two or more of your datasets.",
+    "btn": "Look for pairs that could connect"
   },
   "lane": {
     "datasets": "Datasets",
-    "datasetsEn": "datasets",
-    "bridges": "Connections (bridges)",
-    "bridgesEn": "crosswalk",
+    "datasetsEn": "データセット",
+    "bridges": "Connections",
+    "bridgesEn": "つながり",
     "external": "External standards",
-    "externalEn": "reused"
+    "externalEn": "外部の標準"
   },
   "node": {
-    "connectStd": "Linked to",
-    "crossBy": "across {{key}}"
+    "connectStd": "uses standard words",
+    "crossBy": "connects on {{key}}",
+    "kindsHead": "What is inside",
+    "openDs": "Open {{name}} (and see what is inside it)",
+    "openHub": "See this connection"
   },
   "line": {
     "connect": "connect",
-    "reuse": "reuse standard",
-    "selected": "selected"
+    "reuse": "uses standard words",
+    "selected": "highlighted"
   }
 }

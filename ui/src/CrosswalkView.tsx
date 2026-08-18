@@ -13,10 +13,31 @@ import {
 } from './crosswalkApi'
 import { CrosswalkBuilder, type CrosswalkSeed } from './CrosswalkBuilder'
 import { CrosswalkCreate } from './CrosswalkCreate'
-import { conceptLabel, sameAsKey } from './crosswalkLabels'
+import {
+  conceptName,
+  conceptSentenceLabel,
+  crosswalkError,
+  perspectiveDisplayName,
+  sameAsKey,
+} from './crosswalkLabels'
+import { getCatalogDatasets } from './galleryApi'
 import { ArrowIcon, ConnectIcon, LayersIcon, LinkIcon } from './icons'
 import { ToolsPanel } from './ToolsPanel'
 import { knownVocabForIri, localName } from './vocab'
+
+/** The connection the address bar names, when it names one. The overview links to a
+ * single connection as `#/crosswalk/<perspective_id>`; the app's router keeps only the
+ * tab, so this screen reads the rest of the address itself. `new` is the guided flow,
+ * not an id, and an id that no longer exists simply falls back to the first connection
+ * (the same thing that happens with no address at all). */
+function perspectiveIdFromHash(): string | null {
+  const parts = window.location.hash
+    .replace(/^#\/?/, '')
+    .split('/')
+    .filter(Boolean)
+  if (parts[0] !== 'crosswalk' || !parts[1] || parts[1] === 'new') return null
+  return decodeURIComponent(parts[1])
+}
 
 /**
  * Catalog → クロスウォーク管理面 (multi-perspective ADR, 管理=カタログ). The upper ontology
@@ -50,10 +71,23 @@ export function CrosswalkView({
   const [seedKey, setSeedKey] = useState(0)
   const [perspectives, setPerspectives] = useState<CrosswalkPerspective[] | null>(null)
   const [err, setErr] = useState('')
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  // Which connection is open. Seeded from the address so a connection node on the
+  // overview lands ON that connection instead of on whichever one happens to be first.
+  const [selectedId, setSelectedId] = useState<string | null>(perspectiveIdFromHash)
   const [rebuilding, setRebuilding] = useState(false)
   const [rebuildErr, setRebuildErr] = useState('')
   const [note, setNote] = useState('')
+  const [skippedNote, setSkippedNote] = useState('')
+  // Bumped by "load again": a screen whose first fetch failed must be recoverable
+  // without a browser reload.
+  const [reloads, setReloads] = useState(0)
+  // dataset_id -> the dataset's CURRENT name. The saved config keeps ids + an ascii
+  // label; the screen has to show what the dataset is called today.
+  const [dsNames, setDsNames] = useState<Record<string, string>>({})
+  // How many datasets are published right now, or null while unknown (not fetched
+  // yet, or the fetch failed). Connecting needs two, and saying so up front beats
+  // letting someone start a scan that can only end in a refusal.
+  const [publishedCount, setPublishedCount] = useState<number | null>(null)
 
   function load() {
     getCrosswalks()
@@ -66,16 +100,36 @@ export function CrosswalkView({
     getCrosswalks()
       .then((ps) => !off && setPerspectives(ps))
       .catch((e) => !off && setErr(e instanceof Error ? e.message : String(e)))
+    // Names only — a failure here degrades the chips to their stored label, so it is
+    // deliberately not an error state for the screen.
+    getCatalogDatasets()
+      .then((all) => {
+        if (off) return
+        const names: Record<string, string> = {}
+        for (const d of all) {
+          names[d.id] = d.name
+          if (d.live?.meta.id) names[d.live.meta.id] = d.name
+        }
+        setDsNames(names)
+        // Hubs are not candidates for connecting, so they do not count.
+        setPublishedCount(all.filter((d) => !d.isCrosswalk && d.statusKind === 'pub').length)
+      })
+      .catch(() => undefined)
     return () => {
       off = true
     }
-  }, [])
+  }, [reloads])
 
   const list = perspectives ?? []
   const selected = list.find((p) => p.perspective_id === selectedId) ?? list[0] ?? null
 
   function pname(p: CrosswalkPerspective): string {
-    return p.dataset?.name || p.perspective_id
+    return perspectiveDisplayName(p) ?? t('crosswalk:view.unnamed')
+  }
+
+  /** A participant's dataset name (today's), falling back to the stored label. */
+  function dsName(datasetId: string, label: string): string {
+    return dsNames[datasetId] || label || datasetId
   }
 
   async function onRebuild() {
@@ -83,6 +137,7 @@ export function CrosswalkView({
     setRebuilding(true)
     setRebuildErr('')
     setNote('')
+    setSkippedNote('')
     try {
       const r = await buildPerspective(selected.perspective_id) // no config → rebuild persisted
       setNote(
@@ -91,6 +146,17 @@ export function CrosswalkView({
           count: r.participants_used.length,
         }),
       )
+      // A count that quietly shrank is the one thing people read as breakage. Say
+      // which data dropped out, and how it comes back.
+      if (r.participants_skipped.length > 0) {
+        setSkippedNote(
+          t('crosswalk:view.rebuildSkipped', {
+            names: r.participants_skipped
+              .map((s) => dsName(s.dataset_id, s.label))
+              .join(t('crosswalk:create.confirm.join')),
+          }),
+        )
+      }
       load()
     } catch (e) {
       setRebuildErr(e instanceof Error ? e.message : String(e))
@@ -99,9 +165,48 @@ export function CrosswalkView({
     }
   }
 
+  // NO "stop this connection" button yet, on purpose. `POST /api/datasets/{id}/retract`
+  // looks like the wiring for it, but for a crosswalk it retracts the WRONG graph:
+  // the registry id is `crosswalk-bridge` while the data lives in
+  // `…/canonical/crosswalk`, so the marker lands on a graph that does not exist —
+  // and `list_perspectives` does not filter on status, so the "stopped" connection
+  // would still be listed AND still answer questions. A button that promises removal
+  // and delivers neither is worse than saying what is true today, so the confirm
+  // screen now promises a rebuild instead (see audit/handoff-crosswalk.md).
+
   const concepts = selected?.config?.concepts ?? []
   const participants = concepts.flatMap((c) => c.participants)
   const shared = selected?.dataset?.crosswalk_shared_compositions
+  /** Known to be short of the two published datasets connecting needs. `null` means
+   * "not known", which is deliberately NOT "too few" (fail open). */
+  const tooFewPublished = publishedCount !== null && publishedCount < 2
+
+  /** Try-it questions for the connection on screen — the "what now?" the just-built
+   * screen offers, kept available for a connection someone comes back to. The words
+   * are the datasets' current names plus the SERVER-resolved label for what they
+   * connect on; without that label the questions ask about "values" instead, so no
+   * key ever reaches a question box. */
+  const askQuestions: string[] = (() => {
+    const c = concepts[0]
+    if (!c) return []
+    const label = conceptSentenceLabel(c)
+    const names = c.participants.map((p) => dsName(p.dataset_id, p.name || p.label))
+    const out: string[] = []
+    if (names.length >= 2) {
+      const values = { a: names[0], b: names[1], label }
+      out.push(
+        label
+          ? t('crosswalk:create.done.askQ2', values)
+          : t('crosswalk:create.done.askQ2Plain', values),
+      )
+    }
+    out.push(
+      label
+        ? t('crosswalk:create.done.askQ3', { label })
+        : t('crosswalk:create.done.askQ3Plain'),
+    )
+    return out
+  })()
 
   /** Open the detail form, optionally seeded from a candidate the guided flow found.
    * `seedKey` forces a remount because the builder restores its state once, on mount. */
@@ -121,7 +226,12 @@ export function CrosswalkView({
         <CrosswalkCreate
           perspectives={list}
           onCancel={() => onCreateMode?.(false)}
-          onBuilt={load}
+          onBuilt={(id) => {
+            // Select what was just made: "see this connection" must not land on
+            // whichever one happened to be open before.
+            setSelectedId(id)
+            load()
+          }}
           onOpenManual={openManual}
           onAddData={onAddData}
           onOpenAsk={onOpenAsk}
@@ -155,7 +265,30 @@ export function CrosswalkView({
         )}
       </div>
 
-      {err && <pre className="error">{err}</pre>}
+      {/* A failure on the shared screen says what happened and what to do; the raw
+          HTTP/JSON stays reachable, folded, for whoever needs it. */}
+      {err && (
+        <div className="state-block">
+          <p className="state-title">{t(crosswalkError(err).title)}</p>
+          <p className="state-sub">{t(crosswalkError(err).body)}</p>
+          <div className="kz-actions">
+            <button
+              type="button"
+              onClick={() => {
+                setErr('')
+                setPerspectives(null)
+                setReloads((n) => n + 1)
+              }}
+            >
+              {t('crosswalk:view.retryBtn')}
+            </button>
+          </div>
+          <details className="kz-stop-detail">
+            <summary>{t('crosswalk:create.details')}</summary>
+            <pre className="error">{err}</pre>
+          </details>
+        </div>
+      )}
       {!perspectives && !err && (
         <p className="loading-row">
           <span className="spinner" />
@@ -178,13 +311,27 @@ export function CrosswalkView({
                 : t('crosswalk:create.bandTitle')}
             </p>
             <p className="xw-create-band-sub">
-              {list.length === 0 ? t('crosswalk:view.empty.sub') : t('crosswalk:create.bandSub')}
+              {tooFewPublished
+                ? t('crosswalk:view.empty.needTwo', { count: publishedCount })
+                : list.length === 0
+                  ? t('crosswalk:view.empty.sub')
+                  : t('crosswalk:create.bandSub')}
             </p>
           </div>
           <div className="xw-create-band-actions">
-            <button type="button" onClick={() => onCreateMode?.(true)}>
-              {t('crosswalk:view.empty.btn')}
-            </button>
+            {/* With fewer than two published datasets the scan can only end in a
+                refusal, so the offer becomes the step that actually helps. Only when
+                the count is KNOWN: an unread or failed catalog leaves the search
+                button alone rather than blocking on a guess. */}
+            {tooFewPublished && onAddData ? (
+              <button type="button" onClick={onAddData}>
+                {t('crosswalk:view.empty.addBtn')}
+              </button>
+            ) : (
+              <button type="button" onClick={() => onCreateMode?.(true)}>
+                {t('crosswalk:view.empty.btn')}
+              </button>
+            )}
             <button
               type="button"
               className="btn btn--ghost btn--sm"
@@ -240,42 +387,86 @@ export function CrosswalkView({
                   <span className="xw-summary-label">{t('crosswalk:view.summary.concepts')}</span>
                 </div>
               </div>
-              <p className="xw-summary-note">
-                {t('crosswalk:view.summary.note', {
-                  concept: concepts[0] ? conceptLabel(concepts[0].name) : '—',
-                })}
-              </p>
+              {/* One sentence, no interpolation: what the big number counts. The rest
+                  of what the stats mean is the card underneath, not a caption. */}
+              <p className="xw-summary-note">{t('crosswalk:view.summary.note')}</p>
 
               {concepts.map((c) => (
                 <div className="xw-concept" key={c.name}>
-                  <div className="ds-subhead">
-                    {t('crosswalk:view.conceptHead', { name: conceptLabel(c.name) })}
-                    {/* Say what counts as the same value in a sentence — a raw
-                        normalizer id ("nfkc") means nothing outside the codebase. */}
-                    <span className="xw-hint-inline">
-                      {c.key_parts && c.key_parts.length > 0
-                        ? t('crosswalk:view.compoundKeyHint', {
-                            parts: c.key_parts.map((kp) => conceptLabel(kp.name)).join(' × '),
-                          })
-                        : t(sameAsKey(c.normalizer ?? 'identity'))}
-                    </span>
+                  <div className="ds-subhead" title={c.name}>
+                    {t('crosswalk:view.conceptHead', {
+                      name:
+                        conceptName(c.name, c.concept_label) ??
+                        t('crosswalk:create.sharedValueLabel'),
+                    })}
                   </div>
+                  {/* Say what counts as the same value in a sentence — a raw
+                      normalizer id ("nfkc") means nothing outside the codebase. This
+                      IS the point of the card, so it reads as body text, not as a
+                      caption in the faintest grey the palette has. */}
+                  <p className="kz-note">
+                    {c.key_parts && c.key_parts.length > 0
+                      ? t('crosswalk:view.compoundKeyHint', {
+                          parts: c.key_parts
+                            .map(
+                              (kp) =>
+                                conceptName(kp.name) ??
+                                t('crosswalk:create.sharedValueLabel'),
+                            )
+                            .join(' × '),
+                        })
+                      : t(sameAsKey(c.normalizer ?? 'identity'))}
+                  </p>
                   <div className="xw-participants">
                     {c.participants.map((p) => {
                       // single-part = one predicate; compound = one per key part.
                       const preds = p.predicate
                         ? [p.predicate]
                         : Object.values(p.predicates ?? {})
+                      // The chip says WHICH data and WHICH field, in the words those
+                      // things have today; the IRIs and their local names stay in the
+                      // tooltip for whoever needs them.
                       return (
-                        <span key={p.dataset_id} className="xw-part-chip" title={preds.join(', ')}>
-                          <span className="xw-part-name">{p.label}</span>
-                          <code className="xw-part-pred">{preds.map(localName).join(' · ')}</code>
+                        <span
+                          key={p.dataset_id}
+                          className="xw-part-chip"
+                          title={[...preds, ...preds.map(localName)].join(', ')}
+                        >
+                          <span className="xw-part-name">
+                            {dsName(p.dataset_id, p.name || p.label)}
+                          </span>
+                          {p.predicate_label && (
+                            /* Plain text, not the mono `xw-part-pred` slot: this is a
+                               field's NAME now, not its identifier. */
+                            <span className="xw-hint-inline">{p.predicate_label}</span>
+                          )}
                         </span>
                       )
                     })}
                   </div>
                 </div>
               ))}
+
+              {/* The point of having a connection, said where someone lands when they
+                  come back to it later — the same offer the just-built screen makes. */}
+              {onOpenAsk && askQuestions.length > 0 && (
+                <>
+                  <p className="kz-note">{t('crosswalk:view.askLead')}</p>
+                  <div className="kz-q-options">
+                    {askQuestions.map((q) => (
+                      <button
+                        key={q}
+                        type="button"
+                        className="kz-pill"
+                        onClick={() => onOpenAsk(q)}
+                      >
+                        {q}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="kz-note">{t('crosswalk:create.done.askHint')}</p>
+                </>
+              )}
 
               <div className="xw-rebuild-row">
                 <button
@@ -295,10 +486,16 @@ export function CrosswalkView({
                 )}
               </div>
               {note && <p className="lifecycle-ok">{note}</p>}
+              {skippedNote && <p className="kz-note kz-caution">{skippedNote}</p>}
               {rebuildErr && (
-                <p className="promote-err">
-                  {t('crosswalk:view.rebuildErr', { detail: rebuildErr })}
-                </p>
+                <div className="state-block">
+                  <p className="state-title">{t(crosswalkError(rebuildErr).title)}</p>
+                  <p className="state-sub">{t(crosswalkError(rebuildErr).body)}</p>
+                  <details className="kz-stop-detail">
+                    <summary>{t('crosswalk:create.details')}</summary>
+                    <pre className="error">{rebuildErr}</pre>
+                  </details>
+                </div>
               )}
               </div>
 
@@ -385,8 +582,9 @@ interface PerspTerm {
   name: string
 }
 
-function perspName(p: CrosswalkPerspective): string {
-  return p.dataset?.name || p.perspective_id
+function usePerspName(): (p: CrosswalkPerspective) => string {
+  const { t } = useTranslation()
+  return (p) => perspectiveDisplayName(p) ?? t('crosswalk:view.unnamed')
 }
 
 /** A perspective's alignable terms: each concept contributes its class + its link
@@ -415,6 +613,7 @@ function alignableIris(perspectives: CrosswalkPerspective[]): Set<string> {
 
 function PerspectiveAlignment({ perspectives }: { perspectives: CrosswalkPerspective[] }) {
   const { t } = useTranslation()
+  const perspName = usePerspName()
   const relationLabel = (rel: string): string =>
     RELATION_KEYS.has(rel) ? t(`crosswalk:relation.${rel}`) : rel
   const [data, setData] = useState<AlignmentsResult | null>(null)
