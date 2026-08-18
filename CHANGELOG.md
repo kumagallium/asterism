@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.17.2](https://github.com/kumagallium/asterism/compare/v0.17.1...v0.17.2) - 2026-08-18
+
+- .dmg 作成の "Resource busy" でリリースが資産ゼロになるのを止める by @kumagallium in https://github.com/kumagallium/asterism/pull/382
+- ループが「値が 1 つも出ない設計」を合格にしていた — 検査を結果基準に変える by @kumagallium in https://github.com/kumagallium/asterism/pull/384
+
 ## [v0.17.1](https://github.com/kumagallium/asterism/compare/v0.17.0...v0.17.1) - 2026-08-18
 
 - 「AI に直してもらう」が 5 回押しても直らない 4 つの構造欠陥を潰す by @kumagallium in https://github.com/kumagallium/asterism/pull/379
