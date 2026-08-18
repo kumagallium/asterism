@@ -238,16 +238,15 @@
     "error": "Could not add these measurements"
   },
   "promote": {
-    "ok": "✓ Published for search ({{n}} facts{{version}}). Ask can cite it with its source.",
-    "okVersion": " · version v{{version}}",
-    "repromoteNote": "A new version is loaded into the unpublished draft. Pressing \"Update publication (re-publish)\" bumps the version Ask cites <strong>v{{version}} → v{{next}}</strong> and switches to the new data. The switch is instant and the old version is cleaned up automatically (the current version keeps being cited during ingest, so there is no gap).",
-    "note": "Publishing for search turns this unpublished draft into the <1>published data Ask cites</1>. Before publishing, you can check which of its words reuse the standard ones and which are new to this dataset.",
-    "alignmentNew": "Field words new to this dataset: {{terms}}",
+    "ok": "✓ Published{{version}}. Answers cite it with its source.",
+    "okVersion": " · version {{version}}",
+    "repromoteNote": "A new draft of your data is ready. Press \"Update publication\" and answers switch to the new data (answers keep working during the switch).",
+    "note": "Once published, answers to questions can cite this data with its source. If you spot a mistake, you can withdraw it from citation at any time.",
     "alignmentLoading": "Checking the words this data uses…",
     "repromoting": "Applying…",
     "promoting": "Publishing…",
-    "repromoteSubmit": "Update publication (re-publish → v{{next}})",
-    "submit": "Publish for search (make usable in Ask)",
+    "repromoteSubmit": "Update publication",
+    "submit": "Publish",
     "repromoteError": "Updating the publication failed",
     "error": "Publish failed",
     "dialogContent": "Contents: {{counts}}",
@@ -256,10 +255,9 @@
   },
   "reingest": {
     "head": "Replace everything (rebuild from a new file)",
-    "notePrefix": "Ingest the new {{source}} as a <strong>separate draft version</strong> (the published data stays as-is).",
-    "notePublished": "<strong>The current published version (v{{version}}) keeps being cited by Ask</strong> during ingest, so answers are not interrupted. When done, \"Update publication (re-publish)\" below switches <strong>v{{version}} → v{{next}}</strong> and the old version is cleaned up automatically.",
-    "noteUnpublished": "Re-ingests an unpublished draft (no effect on Ask). When done, you can publish it via \"Publish for search\" below.",
-    "sourceSaved": "The design-time {{source}} is saved{{files}}. Pick the {{source}} that replaces it below, or rebuild from the saved file.",
+    "notePublished": "Rebuilds this dataset from a new file. Answers about the data you have now keep working while it rebuilds; when it is ready, \"Update publication\" switches answers to the new data.",
+    "noteUnpublished": "Rebuilds your unpublished draft from a new file (nothing is published yet, so answers are unaffected).",
+    "sourceSaved": "The file you first dropped{{files}} is saved. To replace it, choose the new file below.",
     "pickReplace": "Replace {{source}}",
     "pickSelect": "Select {{source}}",
     "placeholderKeep": "No file chosen yet",
@@ -274,7 +272,8 @@
   "redesign": {
     "head": "Revise the design",
     "note": "Review the column meanings and links the AI read. Your fixes become a new version of the same dataset in the draft and take over when you publish — no need to delete and recreate.",
-    "noProposal": "This dataset has no stored design to reopen from \"Add data\" (it was created before the design was persisted). Please recreate it instead.",
+    "noProposal": "This dataset has no stored design left to review, so it cannot be reopened.",
+    "recreate": "Rebuild it from Add data",
     "open": "Revise the design",
     "loading": "Loading the design…",
     "error": "Could not load the design to review"
@@ -282,14 +281,10 @@
   "lifecycle": {
     "head": "Lifecycle actions",
     "retractedStatus": "Status: <1>Unpublished</1> — not used in answers; data and IDs stay so existing citations keep working. You can publish it again any time.",
-    "retractConfirm": "Retract this dataset?\nIt will be removed from Ask citations, but the data and IDs remain, so existing citations are not broken (you can reinstate it later).",
-    "retractDone": "Retracted (excluded from the published data · existing citations are not broken).",
-    "retracting": "Retracting…",
-    "retract": "Retract (remove from Ask citations)",
-    "reinstateDone": "Reinstated (cited by Ask again).",
-    "reinstating": "Reinstating…",
-    "reinstate": "Reinstate (cite again)",
-    "deleteConfirmPromoted": "Permanently delete this dataset?\nIt is published (citable), so existing citations may return 404. \"Retract\" is usually recommended.\n\nDelete anyway?",
+    "retractConfirm": "Stop publishing this dataset?\nIt drops out of answers, but the data and IDs remain, so links to what has already been cited keep working (you can publish it again later).",
+    "retracting": "Unpublishing…",
+    "reinstating": "Publishing again…",
+    "deleteConfirmPromoted": "Permanently delete this dataset?\nIt is published, so links to what has already been cited may stop opening. \"Unpublish\" is usually the better choice.\n\nDelete anyway?",
     "deleteConfirm": "Delete this dataset? (Not published, so it is safe to delete.)",
     "deleteDone": "Deleted.",
     "deleting": "Deleting…",
@@ -306,8 +301,7 @@
     "busyN": "Adding ({{i}}/{{n}})…",
     "nFiles": "{{n}} documents",
     "submit": "Add this document",
-    "done": "✓ Document added (+{{n}} facts). You can search and cite the full text from the \"Tools\" tab.",
-    "doneN": "✓ Added {{docs}} document(s) (+{{n}} facts). You can search and cite the full text from the \"Tools\" tab.",
+    "doneN": "✓ Added {{docs}} document(s). You can search and cite them from \"Ask\".",
     "error": "Failed to add the document"
   },
   "api": {
@@ -318,16 +312,16 @@
       "promotedBadge": "Published (you can ask about it)"
     },
     "rmlSummary": {
-      "promoted": "Ingest rules (loaded into the published data · {{n}} facts)",
-      "ingested": "Ingest rules (loaded into the unpublished draft · {{n}} facts)",
-      "design": "Ingest rules (not ingested yet. You can ingest safely from this screen.)"
+      "promoted": "Transformation rules (RML) — applied to the published data · {{n}} facts",
+      "ingested": "Transformation rules (RML) — applied to the unpublished draft · {{n}} facts",
+      "design": "Transformation rules (RML) — nothing loaded yet (you can load it from this screen)"
     },
-    "ingesterSummary": "Generated ingest script (not run)",
-    "mieSummary": "Generated AI exploration meta",
+    "ingesterSummary": "Legacy-style script (never run)",
+    "mieSummary": "Search tags (words used to find this data)",
     "mappingDescription": {
-      "promoted": "In the published data (what Ask cites) · {{n}} facts. Also queryable via Advanced search (SPARQL).",
-      "ingested": "In the unpublished draft · {{n}} facts. Once verified, \"Publish for search\" makes it citable by Ask.",
-      "design": "Design only — no data ingested yet. With ingest rules present, you can ingest safely from this screen."
+      "promoted": "In the published data (what answers cite) · {{n}} facts. Also queryable via Advanced search (SPARQL).",
+      "ingested": "In the unpublished draft · {{n}} facts. Once verified, pressing \"Publish\" makes it citable in answers.",
+      "design": "Design only — no data loaded yet. With transformation rules present, you can load it from this screen."
     },
     "mappingDataset": "Design saved ({{date}})",
     "count": {
@@ -337,7 +331,7 @@
     "catalogSub": "Design saved · {{date}}",
     "catalogSubPublished": "Published · {{date}}",
     "catalogSubDraft": "Draft ingested · {{date}}",
-    "mappingIrSummary": "The reviewed ingest-rule spec (the executable rules are generated from it deterministically)",
+    "mappingIrSummary": "The transformation-rule spec (RML is generated from it deterministically)",
     "proposalSummary": "The reviewed design document (full text)"
   },
   "advisory": {

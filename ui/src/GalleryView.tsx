@@ -668,6 +668,40 @@ function CardActions({
 }
 
 /**
+ * One named group of the publish dialog's word list (reused / new to this data).
+ * The human name from the Mapping IR leads and the identifier follows as a
+ * receipt — with no label the identifier stands alone rather than nothing.
+ */
+function WordGroup({
+  head,
+  iris,
+  labels,
+}: {
+  head: string
+  iris: string[]
+  labels?: TermLabels
+}) {
+  if (iris.length === 0) return null
+  return (
+    <>
+      <p className="ingest-hint">{head}</p>
+      <ul className="ds-advisory-list">
+        {iris.map((iri) => {
+          const local = localName(iri)
+          const label = labels?.[iri] ?? labels?.[local]
+          return (
+            <li key={iri}>
+              {label ? <>{label} </> : null}
+              <code title={iri}>{local}</code>
+            </li>
+          )
+        })}
+      </ul>
+    </>
+  )
+}
+
+/**
  * K10: the one confirm dialog every first publish goes through — the catalog
  * card, the dataset detail, and the kantan wizard's S8 all say the same four
  * things before anything becomes citable: the name it will be published under,
@@ -679,11 +713,14 @@ function CardActions({
 function PublishDialog({
   meta,
   counts,
+  labels,
   onClose,
   onDone,
 }: {
   meta: LiveDataset['meta']
   counts?: CatalogDataset['counts']
+  /** Human names for the words, so the list is not a column of identifiers. */
+  labels?: TermLabels
   onClose: () => void
   onDone: () => void
 }) {
@@ -765,6 +802,18 @@ function PublishDialog({
               ? t('kantan:s8.words', { reuse: words.reuse.length, added: words.added.length })
               : t('gallery:promote.alignmentLoading')}
           </p>
+          {/* The words themselves, in the same shape S8 shows them: the summary
+              sentence is the decision, the identifiers are the receipt. They used
+              to be dumped raw ("hasMeasurement、seebeckCoefficient…") next to the
+              publish button, which is where a reader without the vocabulary
+              stalls. */}
+          {words && words.reuse.length + words.added.length > 0 && (
+            <details className="ds-advisory-raw">
+              <summary>{t('kantan:s8.wordsList')}</summary>
+              <WordGroup head={t('kantan:s8.wordsReuse')} iris={words.reuse} labels={labels} />
+              <WordGroup head={t('kantan:s8.wordsNew')} iris={words.added} labels={labels} />
+            </details>
+          )}
           <p className="ingest-hint">{t('kantan:s8.promise')}</p>
           {!name && <p className="ingest-hint">{t('kantan:s8.needName')}</p>}
           <div className="rules-viewer-actions">
@@ -772,7 +821,7 @@ function PublishDialog({
               {busy
                 ? t('kantan:s8.publishing')
                 : isRepromote
-                  ? t('gallery:promote.repromoteSubmit', { next: version + 1 })
+                  ? t('gallery:promote.repromoteSubmit')
                   : t('kantan:s8.publish')}
             </button>
             <button
@@ -880,7 +929,7 @@ function StateBand({
           className="btn btn--soft btn--sm"
           onClick={() => onGo('promote')}
         >
-          {t('gallery:promote.repromoteSubmit', { next: version + 1 })}
+          {t('gallery:promote.repromoteSubmit')}
         </button>
       ) : (
         <button key="publish" type="button" className="btn btn--soft btn--sm" onClick={onPublish}>
@@ -1225,6 +1274,7 @@ function DatasetDetail({
         <PublishDialog
           meta={meta}
           counts={dataset.counts}
+          labels={termLabels}
           onClose={() => setPublishing(false)}
           onDone={() => {
             setPublishing(false)
@@ -1341,6 +1391,7 @@ function DatasetDetail({
                 <RedesignControl
                   meta={dataset.live.meta}
                   onRedesign={onRedesign}
+                  onAddData={onAddData}
                   advisories={advisories}
                 />
               )}
@@ -1352,7 +1403,11 @@ function DatasetDetail({
               to be a tab labelled 技術情報. The way to fix a design belongs with
               the design. */}
           {advisories.length === 0 && onRedesign && dataset.live && (
-            <RedesignControl meta={dataset.live.meta} onRedesign={onRedesign} />
+            <RedesignControl
+              meta={dataset.live.meta}
+              onRedesign={onRedesign}
+              onAddData={onAddData}
+            />
           )}
         </div>
       )}
@@ -1440,6 +1495,7 @@ function DatasetDetail({
               <PromoteControl
                 meta={dataset.live.meta}
                 counts={dataset.counts}
+                labels={termLabels}
                 onChanged={onChanged}
                 focus={focusCtl === 'promote'}
               />
@@ -1550,7 +1606,11 @@ function DatasetDetail({
               re-materialize the SAME dataset (fix a wrong column/function without
               delete+recreate). Mapping-only — the user re-applies data via re-ingest. */}
           {dataset.live && onRedesign && (
-            <RedesignControl meta={dataset.live.meta} onRedesign={onRedesign} />
+            <RedesignControl
+              meta={dataset.live.meta}
+              onRedesign={onRedesign}
+              onAddData={onAddData}
+            />
           )}
           <div ref={rulesRef}>
             <RulesSection dataset={dataset} />
@@ -1570,11 +1630,6 @@ function DatasetDetail({
       </div>
     </div>
   )
-}
-
-function shortIri(iri: string): string {
-  const m = iri.split(/[#/]/).filter(Boolean)
-  return m.length ? m[m.length - 1] : iri
 }
 
 /** Reuse/new counts for `kantan:s8.words` — structural terms excluded, once. */
@@ -1597,10 +1652,14 @@ function wordCounts(alignment: AlignmentReport): { reuse: number; added: number 
 function RedesignControl({
   meta,
   onRedesign,
+  onAddData,
   advisories,
 }: {
   meta: LiveDataset['meta']
   onRedesign: (target: RedesignTarget) => void
+  /** The only way out for a dataset with no stored design — "recreate it" used
+   *  to be an instruction with no button behind it. */
+  onAddData?: () => void
   /** Carried into the review so the reviewer sees what prompted it. */
   advisories?: string[]
 }) {
@@ -1652,6 +1711,11 @@ function RedesignControl({
       >
         {busy ? t('gallery:redesign.loading') : t('gallery:redesign.open')}
       </button>
+      {(!hasProposal || note !== '') && onAddData && (
+        <button type="button" className="btn btn--soft btn--sm" onClick={onAddData}>
+          {t('gallery:redesign.recreate')}
+        </button>
+      )}
       {note && <p className="ingest-hint">{note}</p>}
       {err != null && <ErrorNote err={err} titleKey="gallery:redesign.error" />}
     </div>
@@ -2224,11 +2288,9 @@ function DocumentAppendControl({
             : t('gallery:docAppend.busy')
           : t('gallery:docAppend.submit')}
       </button>
-      {done && (
-        <p className="ingest-ok">
-          {t('gallery:docAppend.doneN', { docs: done.docs, n: done.triples })}
-        </p>
-      )}
+      {/* K12: what the reader added is documents, not triples — the fact count
+          was the only number here and meant nothing to them. */}
+      {done && <p className="ingest-ok">{t('gallery:docAppend.doneN', { docs: done.docs })}</p>}
       {err != null && <ErrorNote err={err} titleKey="gallery:docAppend.error" />}
     </div>
   )
@@ -2252,11 +2314,13 @@ function DocumentAppendControl({
 function PromoteControl({
   meta,
   counts,
+  labels,
   onChanged,
   focus,
 }: {
   meta: LiveDataset['meta']
   counts?: CatalogDataset['counts']
+  labels?: TermLabels
   onChanged: () => void
   focus?: boolean
 }) {
@@ -2325,7 +2389,6 @@ function PromoteControl({
         <div ref={rootRef}>
           <p className="promote-ok">
             {t('gallery:promote.ok', {
-              n: meta.triples_promoted ?? 0,
               version: version ? t('gallery:promote.okVersion', { version }) : '',
             })}
           </p>
@@ -2341,49 +2404,30 @@ function PromoteControl({
 
   return (
     <div className="promote-control" ref={rootRef}>
-      {isRepromote ? (
-        <p className="promote-note">
-          <Trans
-            i18nKey="gallery:promote.repromoteNote"
-            values={{ version, next: version + 1 }}
-            components={{ strong: <strong /> }}
-          />
-        </p>
-      ) : (
-        <p className="promote-note">
-          <Trans i18nKey="gallery:promote.note">
-            「検索対象として公開」すると、公開前の下書きのこのデータが <strong>公開済みデータ
-            （質問する（Ask）の引用対象）</strong> になります。公開前に、使っていることばが標準の再利用か、このデータの新しいことばかを確認できます。
-          </Trans>
-        </p>
-      )}
+      <p className="promote-note">
+        {isRepromote ? t('gallery:promote.repromoteNote') : t('gallery:promote.note')}
+      </p>
       {alignment ? (
         <div className="alignment-summary">
           {/* The same split, and the same sentence, the publish dialog and the
               wizard's S8 use — a raw reuse/new count here disagreed with S8 on
-              the very same dataset (structural terms were in this one). */}
+              the very same dataset (structural terms were in this one). The list
+              of the words themselves lives in the publish dialog, where it can
+              carry their human names instead of bare identifiers. */}
           <span>{t('kantan:s8.words', wordCounts(alignment))}</span>
-          {alignment.predicates.new.length > 0 && (
-            <p className="alignment-new">
-              {t('gallery:promote.alignmentNew', {
-                terms: alignment.predicates.new.map(shortIri).join('、'),
-              })}
-            </p>
-          )}
         </div>
       ) : (
         <p className="promote-note">{t('gallery:promote.alignmentLoading')}</p>
       )}
       {/* K10: one road to publishing, and it goes through the confirm dialog. */}
       <button type="button" className="promote-btn" onClick={() => setConfirming(true)}>
-        {isRepromote
-          ? t('gallery:promote.repromoteSubmit', { next: version + 1 })
-          : t('gallery:promote.submit')}
+        {isRepromote ? t('gallery:promote.repromoteSubmit') : t('gallery:promote.submit')}
       </button>
       {confirming && (
         <PublishDialog
           meta={meta}
           counts={counts}
+          labels={labels}
           onClose={() => setConfirming(false)}
           onDone={() => {
             setConfirming(false)
@@ -2522,26 +2566,17 @@ function ReingestControl({
   return (
     <div className={embedded ? '' : 'ingest-gate'} ref={rootRef}>
       <div className="ds-subhead">{t('gallery:reingest.head')}</div>
+      {/* What happens to the reader's answers, not what happens to the version
+          graph: the version numbers and the old-version cleanup were the whole
+          of this paragraph and none of the decision. */}
       <p className="ingest-note">
-        <Trans
-          i18nKey="gallery:reingest.notePrefix"
-          values={{ source: sourceLabel, id: shortIri(meta.id) }}
-          components={{ strong: <strong /> }}
-        />{' '}
-        {published ? (
-          <Trans
-            i18nKey="gallery:reingest.notePublished"
-            values={{ version, next: version + 1 }}
-            components={{ strong: <strong /> }}
-          />
-        ) : (
-          t('gallery:reingest.noteUnpublished')
-        )}
+        {published
+          ? t('gallery:reingest.notePublished')
+          : t('gallery:reingest.noteUnpublished')}
       </p>
       {hasSource ? (
         <p className="ingest-source">
           {t('gallery:reingest.sourceSaved', {
-            source: sourceLabel,
             files: meta.source_files?.length
               ? t('gallery:ingest.filesSuffix', { names: meta.source_files.join('、') })
               : '',
