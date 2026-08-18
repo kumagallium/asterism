@@ -103,7 +103,7 @@ function SkeletonEvidence({
   /** Kantan tier: fold the minted prefix out of class names in evidence copy
    *  (the annotation carries full CURIEs). Absent on the detail tier. */
   displayClass?: (value: string) => string
-  /** Kantan tier: plain-language copy, no template syntax, quiet maps folded. */
+  /** Kantan tier: plain-language copy, no template syntax. */
   plain?: boolean
   /** "1 row = one …" — the reading of this map in the human's words (K7). */
   reading?: string
@@ -135,11 +135,10 @@ function SkeletonEvidence({
   const showId = (iri: string) => (shortId ? shortId(iri) : iri)
   const mapName = (name: string | undefined) =>
     name ? (displayMap ? displayMap(name) : name) : ''
-  const readingLine = reading && (
-    <p className="skeleton-evidence-line">
-      <strong>{reading}</strong>
-    </p>
-  )
+  // The one sentence the human came to confirm ("1 行 = 1 つの peak"). It is the
+  // heading of the block, not a line inside it: the kind name is what the reader
+  // recognises from their own bench, and everything below is evidence FOR it.
+  const readingLine = reading && <p className="skeleton-evidence-reading">{reading}</p>
   // The kantan tier states the same thing once, at gate level, in plain words
   // (the deterministic repair usually makes it moot) — the raw prefix list is
   // detail-tier copy for a table the kantan tier does not show.
@@ -309,18 +308,6 @@ function SkeletonEvidence({
         <td>{p.value}</td>
       </tr>
     )
-  // K7: a map with nothing left to decide may fold on the kantan tier — but
-  // never its two head lines (the reading and the ✓), which are the thing the
-  // human came here to confirm. Anything amber keeps the block open.
-  const quiet =
-    plain &&
-    !collides &&
-    !caution &&
-    risks.length === 0 &&
-    !gap &&
-    (ann.class_numeric_key_caution?.length ?? 0) === 0 &&
-    (ann.collapse_kind === 'unique' || ann.collapse_kind === 'singleton')
-
   const headLines = (
     <>
       {readingLine}
@@ -704,17 +691,15 @@ function SkeletonEvidence({
     </>
   )
 
+  // The evidence stays OPEN, including for a map with nothing amber. Folding it
+  // was tried and failed on the person it was for: with the card hidden, the row
+  // above ("ファイル / ID の決まりかた / 1 行が表すもの") carries too little to
+  // judge with, so "確かめる" has nothing to confirm. K7 asks that a green map may
+  // fold; the reading line alone turned out not to be enough to act on.
   return (
     <div className="skeleton-evidence">
       {headLines}
-      {quiet ? (
-        <details className="skeleton-fold">
-          <summary>{t('skeletongate:quietMore')}</summary>
-          {body}
-        </details>
-      ) : (
-        body
-      )}
+      {body}
     </div>
   )
 }
@@ -1468,9 +1453,21 @@ export function SkeletonGate({
                         ))}
                     </td>
                     <td>
+                      {/* An empty box under "1 行が表すもの" reads as "nothing to
+                          do here", but a map with no kind produces rows with no
+                          type at all — nothing can later be counted or asked
+                          about by kind. Say it, in the cell where the answer
+                          goes. (The reading line above falls back to the map's
+                          own name, so the sentence alone cannot reveal this.) */}
+                      {plain && (m.subject.classes ?? []).length === 0 && (
+                        <p className="skeleton-evidence-line skeleton-evidence-warn">
+                          ⚠ {t('skeletongate:kindMissing')}
+                        </p>
+                      )}
                       <input
                         type="text"
                         className="skeleton-gate-input"
+                        placeholder={plain ? t('skeletongate:kindPlaceholder') : undefined}
                         value={(m.subject.classes ?? [])
                           .map((c) => (plain ? compactClass(c, nsDetected) : c))
                           .join(', ')}

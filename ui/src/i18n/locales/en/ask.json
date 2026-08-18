@@ -25,7 +25,7 @@
     },
     "aiNotReady": {
       "title": "AI isn't set up yet",
-      "body": "Once your administrator sets up AI on the server, this page just works. To set it up yourself, open Settings.",
+      "body": "Once AI is set up on the server, this page just works. To set it up yourself, open Settings.",
       "cta": "Open Settings"
     }
   },

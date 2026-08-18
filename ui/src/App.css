@@ -27,7 +27,7 @@
   background: var(--success-bg);
   border-bottom: 1px solid var(--success-border);
   color: var(--success-fg);
-  font-size: 0.84rem;
+  font-size: 0.875rem;
 }
 .update-banner-text {
   font-weight: 600;
@@ -40,7 +40,7 @@
 .update-banner-error {
   flex-basis: 100%;
   text-align: center;
-  font-size: 0.78rem;
+  font-size: 0.875rem;
   color: var(--error-fg);
 }
 
@@ -81,7 +81,7 @@
 }
 .brand-tag {
   font-family: var(--font-mono);
-  font-size: 0.66rem;
+  font-size: 0.8rem;
   color: var(--faint);
 }
 
@@ -100,6 +100,9 @@
   display: flex;
   align-items: center;
   gap: 0.65rem;
+  /* A nav label that breaks mid-word reads as damage. Keep it on one line and
+     let the mono echo be the thing that gives way when space is tight. */
+  white-space: nowrap;
   width: 100%;
   text-align: left;
   border: none;
@@ -139,7 +142,11 @@ button.side-nav-item.active:hover:not(:disabled) {
 }
 .side-nav-en {
   font-family: var(--font-mono);
-  font-size: 0.66rem;
+  /* Deliberately below the 0.8rem label floor: this is a decorative echo of the
+     Japanese label next to it, and at 0.8rem the pair no longer fits 248px —
+     the Japanese label wrapped mid-word (「共通の言 葉」). Nothing is read here
+     that is not already said in full beside it. */
+  font-size: 0.72rem;
   /* --faint に opacity を重ねると実効コントラスト約 2.2:1 まで沈む。素の --faint で。 */
   color: var(--faint);
 }
@@ -169,7 +176,7 @@ button.side-nav-item.active:hover:not(:disabled) {
   display: flex;
   align-items: center;
   gap: 0.45rem;
-  font-size: 0.72rem;
+  font-size: 0.8rem;
   color: var(--muted);
   padding: 0.35rem 0.7rem;
 }
@@ -208,7 +215,7 @@ button.side-nav-item.active:hover:not(:disabled) {
 }
 .topbar-eyebrow {
   display: block;
-  font-size: 0.7rem;
+  font-size: 0.8rem;
   font-weight: 700;
   letter-spacing: 0.09em;
   text-transform: uppercase;
@@ -250,7 +257,7 @@ button.side-nav-item.active:hover:not(:disabled) {
   border: none;
   background: transparent;
   color: var(--muted);
-  font-size: 0.72rem;
+  font-size: 0.8rem;
   font-weight: 700;
   letter-spacing: 0.01em;
   padding: 0.22rem 0.6rem;
@@ -305,9 +312,13 @@ button.lang-toggle-btn.active:hover:not(:disabled) {
   color: var(--fg);
 }
 
+/* prose floor: explanatory text was rendered well under the 16px body size
+   (as low as 0.58rem elsewhere) with --muted/--faint colors — raised sentence
+   text to >=0.875rem/--body across this file; short labels/chips/mono IDs
+   were floored at 0.8rem instead. See ui-guidelines.md §1. */
 .hint {
-  color: var(--muted);
-  font-size: 0.85rem;
+  color: var(--body);
+  font-size: 0.875rem;
   font-weight: 400;
 }
 
@@ -318,7 +329,7 @@ button.lang-toggle-btn.active:hover:not(:disabled) {
   border: 1px solid var(--error-border);
   padding: 0.75rem 0.9rem;
   border-radius: var(--radius);
-  font-size: 0.85rem;
+  font-size: 0.875rem;
 }
 
 /* ---- U3 polish: spinner, file input, responsive ---- */
@@ -391,14 +402,14 @@ button.lang-toggle-btn.active:hover:not(:disabled) {
 /* Cancel button inside the progress card head (small, ghost-style, right-aligned). */
 .job-cancel-btn {
   margin-left: auto;
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   font-weight: 500;
   padding: 0.25rem 0.7rem;
 }
 /* Liveness line: age of the last server pulse; warn-colored past 45s of silence. */
 .job-progress-pulse {
-  font-size: 0.8rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
   font-variant-numeric: tabular-nums;
 }
 .job-progress-pulse.warn {
@@ -408,12 +419,12 @@ button.lang-toggle-btn.active:hover:not(:disabled) {
 .job-cancelled-note {
   margin: 0;
   max-width: 32rem;
-  color: var(--muted);
+  color: var(--body);
   background: var(--surface);
   border: 1px solid var(--border);
   padding: 0.55rem 0.8rem;
   border-radius: var(--radius);
-  font-size: 0.85rem;
+  font-size: 0.875rem;
 }
 
 /* Self-correction loop summary (TODO ④). Green = converged; amber = best-effort with
@@ -451,12 +462,12 @@ button.lang-toggle-btn.active:hover:not(:disabled) {
 }
 .autocorrect-prefill {
   margin-top: var(--space-4, 0.4rem);
-  font-size: 0.82rem;
+  font-size: 0.875rem;
 }
 .autocorrect-caveats {
   margin-top: var(--space-4, 0.4rem);
-  font-size: 0.78rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
 }
 
 /* Custom file picker: hide the native input, use a styled label as a button. */
@@ -499,7 +510,7 @@ button.lang-toggle-btn.active:hover:not(:disabled) {
   outline-offset: 2px;
 }
 .file-names {
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   color: var(--fg);
   word-break: break-all;
 }
@@ -556,7 +567,7 @@ button.lang-toggle-btn.active:hover:not(:disabled) {
 .sparql-input {
   width: 100%;
   font-family: var(--font-mono);
-  font-size: 0.84rem;
+  font-size: 0.875rem;
   line-height: 1.5;
   resize: vertical;
   tab-size: 2;
@@ -607,8 +618,8 @@ button.lang-toggle-btn.active:hover:not(:disabled) {
 }
 .cell-copy-hint {
   flex: none;
-  font-size: 0.7rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
   opacity: 0.4; /* faintly visible so the copy affordance is discoverable */
   transition: opacity 0.1s ease;
   white-space: nowrap;
@@ -660,7 +671,7 @@ button.lang-toggle-btn.active:hover:not(:disabled) {
   white-space: nowrap;
 }
 .jobs-table th {
-  font-size: 0.7rem;
+  font-size: 0.8rem;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -682,7 +693,7 @@ button.lang-toggle-btn.active:hover:not(:disabled) {
 }
 .job-status {
   display: inline-block;
-  font-size: 0.74rem;
+  font-size: 0.8rem;
   font-weight: 700;
   border-radius: 999px;
   padding: 0.08rem 0.5rem;
@@ -710,12 +721,12 @@ button.lang-toggle-btn.active:hover:not(:disabled) {
   text-overflow: ellipsis;
   vertical-align: bottom;
   margin-left: 0.4rem;
-  font-size: 0.76rem;
+  font-size: 0.875rem;
   color: var(--error-fg);
 }
 .job-file {
   font-family: var(--font-mono);
-  font-size: 0.8rem;
+  font-size: 0.875rem;
 }
 .job-err-count {
   color: var(--warn-fg);
@@ -734,7 +745,7 @@ button.lang-toggle-btn.active:hover:not(:disabled) {
   margin: 0.2rem 0 1rem;
 }
 .wb-restore-note {
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   color: var(--info-fg);
   background: var(--info-bg);
   border: 1px solid var(--info-border);
@@ -757,7 +768,7 @@ button.lang-toggle-btn.active:hover:not(:disabled) {
   margin: 0.5rem 0 1.25rem;
 }
 .data-source-label {
-  font-size: 0.72rem;
+  font-size: 0.8rem;
   font-weight: 700;
   letter-spacing: 0.02em;
   text-transform: uppercase;
@@ -803,7 +814,7 @@ button.lang-toggle-btn.active:hover:not(:disabled) {
 }
 .source-soon {
   font-family: var(--font-mono);
-  font-size: 0.58rem;
+  font-size: 0.875rem;
   font-weight: 700;
   color: var(--accent);
   background: var(--accent-soft);
@@ -823,7 +834,7 @@ button.lang-toggle-btn.active:hover:not(:disabled) {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   font-weight: 600;
 }
 .data-source-foot {
@@ -834,7 +845,7 @@ button.lang-toggle-btn.active:hover:not(:disabled) {
   flex-wrap: wrap;
 }
 .inspect-toggle {
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   padding: 0.35rem 0.75rem;
 }
 .inspect-inline {
@@ -870,7 +881,7 @@ button.lang-toggle-btn.active:hover:not(:disabled) {
 }
 .dialect-editor-hint {
   margin: 0.4rem 0 0.6rem;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
 }
 .dialect-row {
   border-top: 1px solid var(--border);
@@ -893,7 +904,7 @@ button.lang-toggle-btn.active:hover:not(:disabled) {
   font-weight: 700;
 }
 .dialect-badge {
-  font-size: 0.68rem;
+  font-size: 0.8rem;
   font-weight: 700;
   padding: 0.1rem 0.4rem;
   border-radius: var(--radius-sm);
@@ -916,8 +927,8 @@ button.lang-toggle-btn.active:hover:not(:disabled) {
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
-  font-size: 0.74rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
 }
 .dialect-field > input[type='text'],
 .dialect-field > input[type='number'],
@@ -991,7 +1002,7 @@ button.lang-toggle-btn.active:hover:not(:disabled) {
 }
 .step-en {
   font-family: var(--font-mono);
-  font-size: 0.62rem;
+  font-size: 0.8rem;
   color: var(--faint);
 }
 .step-btn.active {
@@ -1087,8 +1098,8 @@ textarea:focus {
 }
 
 .hints legend {
-  font-size: 0.8rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
   padding: 0 0.4rem;
   font-weight: 600;
 }
@@ -1132,7 +1143,7 @@ textarea:focus {
 }
 .skeleton-gate-hint {
   margin: 0;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   color: var(--body);
 }
 .skeleton-gate-table-wrap {
@@ -1147,7 +1158,7 @@ textarea:focus {
   text-align: left;
   background: var(--surface-sink);
   color: var(--muted);
-  font-size: 0.72rem;
+  font-size: 0.8rem;
   font-weight: 700;
   padding: 0.45rem 0.6rem;
 }
@@ -1162,15 +1173,15 @@ textarea:focus {
 }
 .skeleton-gate-source {
   font-family: var(--font-mono);
-  font-size: 0.76rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
 }
 .skeleton-gate-input {
   width: 100%;
   min-width: 12rem;
   box-sizing: border-box;
   font-family: var(--font-mono);
-  font-size: 0.78rem;
+  font-size: 0.875rem;
   padding: 0.35rem 0.5rem;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
@@ -1191,7 +1202,7 @@ textarea:focus {
 }
 .skeleton-gate-note {
   margin-top: 0.25rem;
-  font-size: 0.72rem;
+  font-size: 0.875rem;
   color: var(--accent);
 }
 .skeleton-gate-actions,
@@ -1332,7 +1343,7 @@ textarea:focus {
   margin: 0.25rem 0 0.5rem;
   padding-left: 1.2rem;
   color: var(--warn-fg);
-  font-size: 0.82rem;
+  font-size: 0.875rem;
 }
 
 /* Save (materialize) outcome: explicit success + prominent incompleteness warning,
@@ -1366,24 +1377,24 @@ textarea:focus {
 }
 .materialize-incomplete-body {
   margin: 0.35rem 0 0;
-  font-size: 0.84rem;
+  font-size: 0.875rem;
   line-height: 1.55;
 }
 .materialize-incomplete-warnlabel {
   margin: 0.5rem 0 0.1rem;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   font-weight: 600;
 }
 .materialize-incomplete-warnings {
   margin: 0;
   padding-left: 1.2rem;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   line-height: 1.5;
 }
 .materialize-duplicate-note {
   margin: 0;
-  font-size: 0.8rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
 }
 
 /* One-click "ask AI to fix": shown when the materialize traps report blocking
@@ -1400,7 +1411,7 @@ textarea:focus {
 }
 .wb-fix-hint {
   margin: 0;
-  font-size: 0.84rem;
+  font-size: 0.875rem;
   line-height: 1.55;
   color: var(--warn-fg);
 }
@@ -1409,8 +1420,8 @@ textarea:focus {
 }
 .wb-fix-note {
   margin: 0;
-  font-size: 0.8rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
 }
 
 .trap-legend {
@@ -1418,8 +1429,8 @@ textarea:focus {
   flex-wrap: wrap;
   gap: 0.4rem 1rem;
   margin: 0.2rem 0 0.6rem;
-  font-size: 0.78rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
 }
 .trap-legend-item {
   display: inline-flex;
@@ -1454,7 +1465,7 @@ textarea:focus {
   padding: 0.4rem 0.6rem;
   border-radius: var(--radius);
   border: 1px solid var(--border);
-  font-size: 0.8rem;
+  font-size: 0.875rem;
 }
 
 .trap-glyph {
@@ -1519,7 +1530,7 @@ textarea:focus {
   display: inline-block;
   margin-left: 0.5rem;
   padding: 0.05rem 0.5rem;
-  font-size: 0.7rem;
+  font-size: 0.8rem;
   font-weight: 600;
   color: var(--accent);
   background: var(--accent-soft);
@@ -1583,17 +1594,17 @@ textarea:focus {
 }
 .chat-threads-empty {
   margin: var(--space-4) var(--space-2);
-  font-size: 0.8rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
   line-height: 1.6;
 }
 .chat-threads-group-h {
   margin: var(--space-3) var(--space-2) var(--space-1);
-  font-size: 0.66rem;
+  font-size: 0.875rem;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--faint);
+  color: var(--body);
 }
 .chat-threads-ul {
   list-style: none;
@@ -1647,7 +1658,7 @@ textarea:focus {
   align-items: center;
   gap: 0.35rem;
   font-family: var(--font-mono);
-  font-size: 0.68rem;
+  font-size: 0.8rem;
   color: var(--faint);
 }
 .chat-thread-meta .spinner {
@@ -1704,7 +1715,7 @@ textarea:focus {
   border-radius: var(--radius-sm);
   background: var(--surface);
   font: inherit;
-  font-size: 0.84rem;
+  font-size: 0.875rem;
   font-weight: 500;
   color: var(--fg);
 }
@@ -1719,7 +1730,7 @@ textarea:focus {
   gap: 0.35rem;
   flex-wrap: wrap;
   padding: 0.4rem 0.6rem;
-  font-size: 0.78rem;
+  font-size: 0.875rem;
   color: var(--fg);
 }
 .chat-thread-confirm-text {
@@ -1845,7 +1856,7 @@ textarea:focus {
   color: var(--error-fg);
   background: var(--error-bg);
   border: 1px solid var(--error-border);
-  font-size: 0.85rem;
+  font-size: 0.875rem;
 }
 .chat-msg-error-text {
   flex: 1 1 16rem;
@@ -1900,7 +1911,7 @@ textarea:focus {
   border-radius: 999px;
   background: var(--surface);
   color: var(--fg);
-  font-size: 0.84rem;
+  font-size: 0.875rem;
   font-weight: 500;
 }
 .chat-example:hover:not(:disabled) {
@@ -1999,8 +2010,8 @@ textarea:focus {
   flex-wrap: wrap;
 }
 .chat-composer-hint {
-  font-size: 0.72rem;
-  color: var(--faint);
+  font-size: 0.875rem;
+  color: var(--body);
 }
 .chat-composer-gate {
   flex: 1 1 24rem;
@@ -2009,7 +2020,7 @@ textarea:focus {
 .chat-composer-gate .llm-gate {
   margin: 0;
   padding: 0.3rem 0.7rem;
-  font-size: 0.76rem;
+  font-size: 0.875rem;
 }
 
 /* -- narrow screens -- */
@@ -2105,7 +2116,7 @@ textarea:focus {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
-  font-size: 0.72rem;
+  font-size: 0.8rem;
   font-weight: 700;
   color: var(--entity);
   background: var(--entity-soft);
@@ -2131,7 +2142,7 @@ textarea:focus {
 }
 .answer-warning {
   margin: 0;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   line-height: 1.55;
   color: var(--fg);
 }
@@ -2139,8 +2150,8 @@ textarea:focus {
   margin-top: 0.35rem;
 }
 .answer-head-note {
-  font-size: 0.74rem;
-  color: var(--faint);
+  font-size: 0.875rem;
+  color: var(--body);
 }
 
 .answer-text {
@@ -2188,20 +2199,20 @@ textarea:focus {
 }
 
 .section-h {
-  font-size: 0.72rem;
+  font-size: 0.875rem;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--body);
   margin: 1.1rem 0 0.5rem;
 }
 .section-h-hint {
   margin-left: 0.5rem;
-  font-size: 0.68rem;
+  font-size: 0.875rem;
   font-weight: 500;
   letter-spacing: 0;
   text-transform: none;
-  color: var(--faint);
+  color: var(--body);
   font-family: var(--font-mono);
 }
 
@@ -2263,7 +2274,7 @@ textarea:focus {
 .citation-kind {
   flex: none;
   color: #fff;
-  font-size: 0.66rem;
+  font-size: 0.8rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -2287,8 +2298,8 @@ textarea:focus {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
-  font-size: 0.72rem;
-  color: var(--faint);
+  font-size: 0.875rem;
+  color: var(--body);
 }
 
 .citation-fields {
@@ -2301,14 +2312,14 @@ textarea:focus {
   display: inline-flex;
   align-items: baseline;
   gap: 0.3rem;
-  font-size: 0.78rem;
+  font-size: 0.875rem;
   min-width: 0;
 }
 
 .citation-field-key {
   color: var(--faint);
   font-family: var(--font-mono);
-  font-size: 0.7rem;
+  font-size: 0.8rem;
   flex: none;
 }
 
@@ -2343,7 +2354,7 @@ textarea:focus {
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--primary);
-  font-size: 0.74rem;
+  font-size: 0.875rem;
   font-weight: 600;
   border-radius: 999px;
   padding: 0.3rem 0.65rem;
@@ -2370,7 +2381,7 @@ textarea:focus {
   color: var(--fg);
 }
 .vocab-focus-sub {
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   color: var(--body);
 }
 
@@ -2390,7 +2401,7 @@ textarea:focus {
 }
 .wb-redesign-badge {
   flex: none;
-  font-size: 0.74rem;
+  font-size: 0.8rem;
   font-weight: 600;
   letter-spacing: 0.02em;
   padding: 0.12rem 0.5rem;
@@ -2428,7 +2439,7 @@ textarea:focus {
   margin-left: auto;
   align-self: center;
   padding: 0.1rem 0.5rem;
-  font-size: 0.72rem;
+  font-size: 0.875rem;
 }
 
 .onto-class-chip--focus {
@@ -2457,7 +2468,7 @@ textarea:focus {
 }
 
 .notes-list li {
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   color: var(--fg);
   margin: 0.15rem 0;
 }
@@ -2480,7 +2491,7 @@ textarea:focus {
   gap: 0.5rem;
 }
 .sparql-disclosure-tag {
-  font-size: 0.68rem;
+  font-size: 0.8rem;
   font-weight: 700;
   color: var(--activity);
   background: var(--surface);
@@ -2490,8 +2501,8 @@ textarea:focus {
   font-family: var(--font-mono);
 }
 .sparql-disclosure-hint {
-  font-size: 0.8rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
   margin: 0.5rem 0;
 }
 .sparql-block {
@@ -2499,7 +2510,7 @@ textarea:focus {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 0.6rem 0.8rem;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   font-family: var(--font-mono);
   white-space: pre-wrap;
   word-break: break-word;
@@ -2552,7 +2563,7 @@ textarea:focus {
   color: var(--fg);
 }
 .trace-eyebrow {
-  font-size: 0.66rem;
+  font-size: 0.8rem;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -2567,7 +2578,7 @@ textarea:focus {
 }
 .trace-sub {
   margin: 0.3rem 0 0;
-  font-size: 0.78rem;
+  font-size: 0.875rem;
   color: var(--body);
   line-height: 1.6;
 }
@@ -2582,15 +2593,15 @@ textarea:focus {
   gap: 0.6rem;
   text-align: center;
   padding: 2.25rem 1.1rem;
-  color: var(--muted);
-  font-size: 0.85rem;
+  color: var(--body);
+  font-size: 0.875rem;
 }
 .trace-empty-icon {
   color: var(--faint);
 }
 .trace-loading {
-  color: var(--muted);
-  font-size: 0.85rem;
+  color: var(--body);
+  font-size: 0.875rem;
   padding: 1rem 1.1rem;
 }
 
@@ -2636,7 +2647,7 @@ textarea:focus {
 }
 .trace-step-badge {
   color: #fff;
-  font-size: 0.68rem;
+  font-size: 0.8rem;
   font-weight: 700;
   border-radius: 4px;
   padding: 0.1rem 0.45rem;
@@ -2646,12 +2657,12 @@ textarea:focus {
   font-size: 0.85rem;
 }
 .trace-detail {
-  font-size: 0.8rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
   margin-top: 0.2rem;
 }
 .trace-iri {
-  font-size: 0.68rem;
+  font-size: 0.8rem;
   color: var(--muted);
   margin-top: 0.15rem;
   word-break: break-all;
@@ -2688,8 +2699,8 @@ button.trace-iri-copy:hover:not(:disabled) {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
-  font-size: 0.74rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
 }
 .trace-legend-dot {
   width: 9px;
@@ -2717,38 +2728,38 @@ button.trace-iri-copy:hover:not(:disabled) {
   background: var(--surface);
 }
 .ingest-note {
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   color: var(--fg);
   margin: 0.25rem 0 0.6rem;
   line-height: 1.5;
 }
 .ingest-hint {
-  font-size: 0.8rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
   margin: 0.5rem 0 0;
 }
 .ingest-err {
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   color: var(--error-fg);
   margin: 0.5rem 0 0;
 }
 .ingest-ok {
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   color: var(--success-fg);
   font-weight: 600;
   line-height: 1.6;
 }
 .ingest-graph {
   font-family: var(--font-mono);
-  font-size: 0.74rem;
+  font-size: 0.875rem;
   font-weight: 400;
-  color: var(--muted);
+  color: var(--body);
   word-break: break-all;
 }
 /* Task E: catalog-side ingest gate (design-stage datasets). */
 .ingest-source {
-  font-size: 0.82rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
   margin: 0.4rem 0 0.7rem;
   line-height: 1.5;
 }
@@ -2785,8 +2796,8 @@ button.trace-iri-copy:hover:not(:disabled) {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  font-size: 0.82rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
   margin: 0.6rem 0 0.2rem;
 }
 .rml-preview {
@@ -2806,7 +2817,7 @@ button.trace-iri-copy:hover:not(:disabled) {
   border: 1px solid var(--border);
   border-radius: 4px;
   font-family: var(--font-mono);
-  font-size: 0.74rem;
+  font-size: 0.8rem;
   line-height: 1.5;
   white-space: pre;
 }
@@ -2824,8 +2835,8 @@ button.trace-iri-copy:hover:not(:disabled) {
   align-items: flex-start;
 }
 .promote-note {
-  font-size: 0.8rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
   margin: 0;
   line-height: 1.5;
 }
@@ -2834,8 +2845,8 @@ button.trace-iri-copy:hover:not(:disabled) {
   color: var(--fg);
 }
 .alignment-new {
-  font-size: 0.78rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
   margin: 0.3rem 0 0;
   word-break: break-word;
 }
@@ -2844,12 +2855,12 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 .promote-ok {
   margin: 0.5rem 0 1rem;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: var(--success-fg);
 }
 .promote-err {
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   color: var(--error-fg);
   margin: 0;
 }
@@ -2926,8 +2937,8 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 .ds-advisory-raw .ds-advisory-list {
   margin-top: var(--space-2);
-  font-size: 0.82rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
 }
 /* Review screen: the findings that prompted this review. Same quiet advisory
    tone as the catalog card — it explains, it does not block. */
@@ -2944,8 +2955,8 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 .kz-carried-raw .kz-stop-plainlist {
   margin-top: var(--space-2);
-  font-size: 0.82rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
 }
 
 /* ---- shared atoms & states (forest kit) ---- */
@@ -2983,8 +2994,8 @@ button.trace-iri-copy:hover:not(:disabled) {
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  color: var(--muted);
-  font-size: 0.85rem;
+  color: var(--body);
+  font-size: 0.875rem;
   padding: 0.5rem;
 }
 
@@ -3017,7 +3028,7 @@ button.trace-iri-copy:hover:not(:disabled) {
   margin: 0;
 }
 .state-sub {
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   color: var(--body);
   max-width: 24rem;
   line-height: 1.6;
@@ -3074,7 +3085,7 @@ button.trace-iri-copy:hover:not(:disabled) {
   border-color: #a9772f;
 }
 .btn--sm {
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   padding: 0.35rem 0.7rem;
 }
 .btn--danger {
@@ -3098,7 +3109,7 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 .lifecycle-ok {
   margin-top: 0.5rem;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   color: var(--entity);
 }
 
@@ -3137,7 +3148,7 @@ button.trace-iri-copy:hover:not(:disabled) {
 
 .status-pill {
   flex: none;
-  font-size: 0.7rem;
+  font-size: 0.8rem;
   font-weight: 700;
   padding: 0.15rem 0.6rem;
   border-radius: 999px;
@@ -3172,8 +3183,8 @@ button.trace-iri-copy:hover:not(:disabled) {
   padding: 1.1rem 1.35rem;
 }
 .home-band-head {
-  font-size: 0.82rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
   margin-bottom: 0.75rem;
 }
 .home-stats {
@@ -3183,8 +3194,8 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 .home-stats-note {
   margin: var(--space-2) 0 0;
-  font-size: 0.74rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
 }
 .home-stat {
   display: flex;
@@ -3205,7 +3216,7 @@ button.trace-iri-copy:hover:not(:disabled) {
   color: var(--entity);
 }
 .home-stat-label {
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   color: var(--muted);
 }
 
@@ -3259,11 +3270,14 @@ button.trace-iri-copy:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.16);
   color: #fff;
 }
+/* Keep prose clear of the absolutely-positioned arrow at the card's right edge:
+   at the larger body size the last line of the longer card ran right into it. */
 .home-action-body {
   margin-top: auto;
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
+  padding-right: 1.6rem;
 }
 .home-action-title {
   font-family: var(--font-display);
@@ -3272,7 +3286,7 @@ button.trace-iri-copy:hover:not(:disabled) {
   letter-spacing: -0.01em;
 }
 .home-action-sub {
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   color: var(--body);
 }
 .home-action--primary .home-action-sub {
@@ -3351,8 +3365,8 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 .ds-row-sub {
   font-family: var(--font-mono);
-  font-size: 0.72rem;
-  color: var(--faint);
+  font-size: 0.875rem;
+  color: var(--body);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3364,7 +3378,7 @@ button.trace-iri-copy:hover:not(:disabled) {
   flex-wrap: wrap;
 }
 .ds-row-count {
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   color: var(--muted);
 }
 .ds-row-count-val {
@@ -3434,7 +3448,7 @@ button.trace-iri-copy:hover:not(:disabled) {
   border: none;
   background: none;
   padding: 0;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   color: var(--fg);
   width: 100%;
 }
@@ -3477,6 +3491,9 @@ button.trace-iri-copy:hover:not(:disabled) {
   display: block;
   width: 100%;
   min-width: 0;
+  /* The name inside truncates, but this wrapper did not clip — so the card's
+     title column still measured the untruncated name and overflowed. */
+  overflow: hidden;
   background: none;
   border: none;
   padding: 0;
@@ -3541,8 +3558,13 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 .ds-grid-card-type {
   font-family: var(--font-mono);
-  font-size: 0.64rem;
+  font-size: 0.8rem;
   color: var(--faint);
+  /* Same truncation as the name above it: at the larger label size a long
+     source type pushed the card's title column past its own width. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .ds-grid-card-counts {
   display: flex;
@@ -3555,7 +3577,7 @@ button.trace-iri-copy:hover:not(:disabled) {
   gap: 0.9rem;
   padding-top: 0.6rem;
   border-top: 1px solid var(--border);
-  font-size: 0.74rem;
+  font-size: 0.8rem;
   color: var(--muted);
 }
 .ds-grid-card-metaitem {
@@ -3655,7 +3677,7 @@ button.trace-iri-copy:hover:not(:disabled) {
 .ds-card-err {
   flex-basis: 100%;
   margin: 0.2rem 0 0;
-  font-size: 0.78rem;
+  font-size: 0.875rem;
   color: var(--error-fg);
 }
 .ds-add-tile {
@@ -3702,7 +3724,7 @@ button.trace-iri-copy:hover:not(:disabled) {
   color: var(--fg);
 }
 .ds-add-sub {
-  font-size: 0.76rem;
+  font-size: 0.875rem;
 }
 .ds-detail-back {
   align-self: flex-start;
@@ -3739,7 +3761,7 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 .ds-rename-save,
 .ds-rename-cancel {
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   font-weight: 600;
   padding: 0.3rem 0.7rem;
   border-radius: var(--radius-sm);
@@ -3826,7 +3848,7 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 .ds-tab-en {
   font-family: var(--font-mono);
-  font-size: 0.64rem;
+  font-size: 0.8rem;
   opacity: 0.8;
 }
 
@@ -3838,7 +3860,7 @@ button.trace-iri-copy:hover:not(:disabled) {
   display: flex;
   align-items: center;
   gap: 0.35rem;
-  font-size: 0.74rem;
+  font-size: 0.8rem;
   font-weight: 700;
   color: var(--muted);
   margin-bottom: 0.5rem;
@@ -3849,7 +3871,7 @@ button.trace-iri-copy:hover:not(:disabled) {
   gap: 0.4rem;
 }
 .purpose-pill {
-  font-size: 0.76rem;
+  font-size: 0.8rem;
   font-weight: 600;
   color: var(--primary);
   background: var(--primary-soft);
@@ -3867,12 +3889,12 @@ button.trace-iri-copy:hover:not(:disabled) {
   margin-bottom: 0.7rem;
 }
 .ds-section-title {
-  font-size: 0.86rem;
+  font-size: 0.875rem;
   font-weight: 700;
 }
 .ds-section-note {
-  font-size: 0.76rem;
-  color: var(--faint);
+  font-size: 0.875rem;
+  color: var(--body);
 }
 .ds-classes {
   display: flex;
@@ -3892,7 +3914,7 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 .class-chip-en {
   font-family: var(--font-mono);
-  font-size: 0.7rem;
+  font-size: 0.8rem;
   color: var(--faint);
 }
 /* Class diagram — always shown in the 設計図 (schema) tab (no longer toggled). */
@@ -3920,7 +3942,7 @@ button.trace-iri-copy:hover:not(:disabled) {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  font-size: 0.76rem;
+  font-size: 0.8rem;
   background: var(--surface-alt);
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -3935,8 +3957,8 @@ button.trace-iri-copy:hover:not(:disabled) {
   color: var(--muted);
 }
 .ds-empty-note {
-  font-size: 0.82rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
   margin: 0.2rem 0;
 }
 
@@ -3948,7 +3970,7 @@ button.trace-iri-copy:hover:not(:disabled) {
   color: var(--activity);
 }
 .ds-grounding-kind {
-  font-size: 0.72rem;
+  font-size: 0.8rem;
   color: var(--muted);
 }
 
@@ -3986,7 +4008,7 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 .ground-banner-sub {
   margin: 0.2rem 0 0;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   color: var(--body);
   line-height: 1.6;
 }
@@ -4013,7 +4035,7 @@ button.trace-iri-copy:hover:not(:disabled) {
   border-bottom: 1px solid var(--border);
 }
 .ground-progress-label {
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   font-weight: 700;
   color: var(--entity);
   white-space: nowrap;
@@ -4034,13 +4056,13 @@ button.trace-iri-copy:hover:not(:disabled) {
   padding: 0.5rem 0.9rem;
   background: var(--surface-sink);
   border-bottom: 1px solid var(--border);
-  font-size: 0.76rem;
+  font-size: 0.875rem;
   font-weight: 700;
-  color: var(--muted);
+  color: var(--body);
 }
 .ground-group-en {
   font-family: var(--font-mono);
-  font-size: 0.64rem;
+  font-size: 0.8rem;
   color: var(--faint);
   font-weight: 500;
 }
@@ -4062,7 +4084,7 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 .ground-own-en {
   font-family: var(--font-mono);
-  font-size: 0.62rem;
+  font-size: 0.8rem;
   color: var(--faint);
   font-weight: 500;
 }
@@ -4098,21 +4120,21 @@ button.trace-iri-copy:hover:not(:disabled) {
   white-space: nowrap;
 }
 .std-token-std {
-  font-size: 0.68rem;
+  font-size: 0.8rem;
   font-weight: 500;
   color: var(--muted);
   margin-left: 0.35rem;
 }
 .std-token-tok {
   font-family: var(--font-mono);
-  font-size: 0.64rem;
+  font-size: 0.8rem;
   color: var(--link);
 }
 .ground-state {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
-  font-size: 0.74rem;
+  font-size: 0.875rem;
   font-weight: 700;
   white-space: nowrap;
 }
@@ -4137,7 +4159,7 @@ button.trace-iri-copy:hover:not(:disabled) {
   background: none;
   border: none;
   padding: 0;
-  font-size: 0.72rem;
+  font-size: 0.8rem;
   color: var(--link);
   cursor: pointer;
   text-decoration: underline;
@@ -4152,7 +4174,7 @@ button.trace-iri-copy:hover:not(:disabled) {
   flex-wrap: wrap;
 }
 .ground-none-label {
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   color: var(--faint);
 }
 .ground-aside {
@@ -4165,7 +4187,7 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 .ground-why-head {
   margin: 0 0 0.6rem;
-  font-size: 0.86rem;
+  font-size: 0.875rem;
   font-weight: 700;
 }
 .ground-why-item {
@@ -4199,7 +4221,7 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 .ground-detected-head h4 {
   margin: 0;
-  font-size: 0.86rem;
+  font-size: 0.875rem;
   font-weight: 700;
 }
 .ground-detected-badge {
@@ -4207,7 +4229,7 @@ button.trace-iri-copy:hover:not(:disabled) {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
-  font-size: 0.66rem;
+  font-size: 0.8rem;
   font-weight: 700;
   color: var(--entity);
   background: var(--entity-soft);
@@ -4216,8 +4238,8 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 .ground-detected-sub {
   margin: 0 0 0.6rem;
-  font-size: 0.74rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
   line-height: 1.5;
 }
 .ground-detected-row {
@@ -4231,14 +4253,14 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 .ground-detected-prefix {
   font-family: var(--font-mono);
-  font-size: 0.74rem;
+  font-size: 0.8rem;
   font-weight: 600;
   color: var(--link);
   flex: none;
 }
 .ground-detected-what {
-  font-size: 0.76rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4249,7 +4271,7 @@ button.trace-iri-copy:hover:not(:disabled) {
   padding: 0.7rem 0.85rem;
   border-radius: var(--radius);
   background: var(--accent-soft);
-  font-size: 0.78rem;
+  font-size: 0.875rem;
   color: var(--fg);
   line-height: 1.55;
 }
@@ -4261,7 +4283,7 @@ button.trace-iri-copy:hover:not(:disabled) {
   background: var(--accent);
   color: #fff;
   font-weight: 700;
-  font-size: 0.7rem;
+  font-size: 0.8rem;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4285,7 +4307,7 @@ button.trace-iri-copy:hover:not(:disabled) {
 .grounding-input {
   flex: 1 1 auto;
   min-width: 0;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   padding: 0.32rem 0.55rem;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -4293,7 +4315,7 @@ button.trace-iri-copy:hover:not(:disabled) {
   color: var(--fg);
 }
 .grounding-hint {
-  font-size: 0.78rem;
+  font-size: 0.875rem;
   color: var(--body);
   margin: 0.1rem 0;
 }
@@ -4337,8 +4359,8 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 .grounding-vocab {
   margin-left: auto;
-  color: var(--muted);
-  font-size: 0.72rem;
+  color: var(--body);
+  font-size: 0.875rem;
   white-space: nowrap;
 }
 
@@ -4413,7 +4435,7 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 .ds-artifact-kind {
   font-family: var(--font-mono);
-  font-size: 0.6rem;
+  font-size: 0.8rem;
   font-weight: 700;
   color: #fff;
   background: var(--activity);
@@ -4422,17 +4444,17 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 .ds-artifact-name {
   font-family: var(--font-mono);
-  font-size: 0.76rem;
+  font-size: 0.875rem;
 }
 .ds-artifact-detail {
-  font-size: 0.72rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
 }
 .ds-dedupe-note {
   display: flex;
   align-items: flex-start;
   gap: 0.5rem;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   color: var(--body);
   line-height: 1.6;
   background: var(--surface-alt);
@@ -4461,15 +4483,15 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 .ds-files-head {
   background: var(--surface-sink);
-  font-size: 0.68rem;
+  font-size: 0.875rem;
   font-weight: 700;
   letter-spacing: 0.03em;
-  color: var(--muted);
+  color: var(--body);
   text-transform: uppercase;
 }
 .ds-files-row {
   border-top: 1px solid var(--border);
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   color: var(--body);
 }
 .ds-file-name {
@@ -4480,24 +4502,24 @@ button.trace-iri-copy:hover:not(:disabled) {
   color: var(--primary);
 }
 .ds-file-name code {
-  font-size: 0.74rem;
+  font-size: 0.8rem;
   color: var(--fg);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .ds-file-when {
-  color: var(--muted);
-  font-size: 0.74rem;
+  color: var(--body);
+  font-size: 0.875rem;
 }
 .ds-file-tag {
   color: var(--faint);
-  font-size: 0.68rem;
+  font-size: 0.8rem;
 }
 .ds-file-status {
   color: var(--entity);
   font-weight: 600;
-  font-size: 0.74rem;
+  font-size: 0.8rem;
 }
 /* 設計段階のソース（保存済み・未取り込み）は達成色ではなく控えめに */
 .ds-file-status--pending {
@@ -4506,8 +4528,8 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 .ds-files-future {
   margin: 0.7rem 0 0;
-  font-size: 0.72rem;
-  color: var(--faint);
+  font-size: 0.875rem;
+  color: var(--body);
 }
 .ds-conn-list {
   display: flex;
@@ -4531,12 +4553,12 @@ button.trace-iri-copy:hover:not(:disabled) {
   flex: none;
 }
 .ds-conn-name {
-  font-size: 0.86rem;
+  font-size: 0.875rem;
   font-weight: 700;
   color: var(--fg);
 }
 .ds-conn-concept {
-  font-size: 0.76rem;
+  font-size: 0.875rem;
   color: var(--body);
 }
 .ds-conn-links {
@@ -4562,9 +4584,9 @@ button.trace-iri-copy:hover:not(:disabled) {
   border: none;
   border-radius: var(--radius-sm);
   padding: 0.2rem 0.3rem;
-  font-size: 0.84rem;
+  font-size: 0.875rem;
   font-weight: 600;
-  color: var(--muted);
+  color: var(--body);
   cursor: pointer;
 }
 .vocab-back:hover:not(:disabled),
@@ -4606,7 +4628,7 @@ button.trace-iri-copy:hover:not(:disabled) {
   color: var(--activity);
 }
 .vocab-banner-sub {
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   color: var(--body);
   line-height: 1.7;
 }
@@ -4618,8 +4640,8 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 .vocab-live-note {
   margin: 0.25rem 0 0.75rem;
-  color: var(--muted);
-  font-size: 0.85rem;
+  color: var(--body);
+  font-size: 0.875rem;
 }
 .vocab-live-list {
   display: flex;
@@ -4641,7 +4663,7 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 .vocab-live-iri {
   font-family: var(--font-mono);
-  font-size: 0.75rem;
+  font-size: 0.8rem;
   color: var(--muted);
 }
 .vocab-live-count {
@@ -4660,7 +4682,7 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 .vocab-card-meta {
   font-family: var(--font-mono);
-  font-size: 0.72rem;
+  font-size: 0.8rem;
   color: var(--faint);
 }
 
@@ -4693,13 +4715,13 @@ button.trace-iri-copy:hover:not(:disabled) {
   color: var(--primary);
 }
 .vocab-user-name {
-  font-size: 0.84rem;
+  font-size: 0.875rem;
   font-weight: 700;
 }
 .vocab-user-src {
   font-family: var(--font-mono);
-  font-size: 0.68rem;
-  color: var(--faint);
+  font-size: 0.875rem;
+  color: var(--body);
 }
 .vocab-caution {
   display: flex;
@@ -4709,7 +4731,7 @@ button.trace-iri-copy:hover:not(:disabled) {
   border: 1px solid rgba(192, 139, 62, 0.25);
   border-radius: var(--radius-sm);
   padding: 0.7rem 0.85rem;
-  font-size: 0.78rem;
+  font-size: 0.875rem;
   color: var(--fg);
   line-height: 1.6;
 }
@@ -4755,8 +4777,8 @@ button.trace-iri-copy:hover:not(:disabled) {
   margin: 0 0 0.6rem;
 }
 .app-error-note {
-  font-size: 0.82rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
   margin: 0 0 1rem;
 }
 .app-error-btn {
@@ -4777,7 +4799,7 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 .app-error-pre {
   font-family: var(--font-mono);
-  font-size: 0.74rem;
+  font-size: 0.8rem;
   color: var(--muted);
   white-space: pre-wrap;
   word-break: break-word;
@@ -4790,8 +4812,8 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 .tools-intro,
 .tools-hint {
-  font-size: 0.82rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
   line-height: 1.6;
   margin: 0 0 0.7rem;
 }
@@ -4799,7 +4821,7 @@ button.trace-iri-copy:hover:not(:disabled) {
   margin: 0.35rem 0 0.6rem;
 }
 .tools-notice {
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: var(--success-fg);
   background: var(--primary-soft);
@@ -4829,12 +4851,12 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 .tool-name {
   font-family: var(--font-mono);
-  font-size: 0.84rem;
+  font-size: 0.875rem;
   font-weight: 700;
   color: var(--primary);
 }
 .tool-title {
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   color: var(--fg);
 }
 .tool-card-actions {
@@ -4843,7 +4865,7 @@ button.trace-iri-copy:hover:not(:disabled) {
   gap: 0.4rem;
 }
 .tool-desc {
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   color: var(--body);
   line-height: 1.55;
   margin: 0.45rem 0 0;
@@ -4858,7 +4880,7 @@ button.trace-iri-copy:hover:not(:disabled) {
   display: inline-flex;
   align-items: baseline;
   gap: 0.3rem;
-  font-size: 0.74rem;
+  font-size: 0.8rem;
   background: var(--surface-alt);
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -4871,11 +4893,11 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 .param-chip-type {
   font-family: var(--font-mono);
-  font-size: 0.66rem;
+  font-size: 0.8rem;
   color: var(--activity);
 }
 .param-chip-req {
-  font-size: 0.66rem;
+  font-size: 0.8rem;
   color: var(--accent);
   font-weight: 700;
 }
@@ -4884,7 +4906,7 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 .tool-sparql-details > summary {
   cursor: pointer;
-  font-size: 0.76rem;
+  font-size: 0.8rem;
   font-weight: 600;
   color: var(--muted);
 }
@@ -4897,7 +4919,7 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 .tool-intent-input {
   width: 100%;
-  font-size: 0.86rem;
+  font-size: 0.875rem;
   padding: 0.5rem 0.7rem;
   resize: vertical;
 }
@@ -4925,11 +4947,11 @@ button.trace-iri-copy:hover:not(:disabled) {
   align-items: center;
 }
 .draft-editor-title {
-  font-size: 0.86rem;
+  font-size: 0.875rem;
   font-weight: 700;
 }
 .draft-gate {
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   border-radius: var(--radius-sm);
   padding: 0.4rem 0.65rem;
   margin: 0;
@@ -4954,19 +4976,19 @@ button.trace-iri-copy:hover:not(:disabled) {
   gap: 0.25rem;
 }
 .draft-label {
-  font-size: 0.76rem;
+  font-size: 0.8rem;
   font-weight: 700;
   color: var(--muted);
 }
 .draft-text {
   width: 100%;
-  font-size: 0.84rem;
+  font-size: 0.875rem;
   padding: 0.4rem 0.6rem;
   font-family: var(--font-ui);
 }
 .draft-query {
   font-family: var(--font-mono);
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   line-height: 1.5;
   resize: vertical;
 }
@@ -4983,9 +5005,9 @@ button.trace-iri-copy:hover:not(:disabled) {
   align-items: center;
   gap: 0.6rem;
   margin-top: 0.4rem;
-  font-size: 0.78rem;
+  font-size: 0.875rem;
   font-weight: 700;
-  color: var(--muted);
+  color: var(--body);
 }
 
 /* parameter edit rows */
@@ -5012,7 +5034,7 @@ button.trace-iri-copy:hover:not(:disabled) {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   color: var(--muted);
   white-space: nowrap;
 }
@@ -5071,8 +5093,8 @@ button.trace-iri-copy:hover:not(:disabled) {
   gap: 0.55rem;
 }
 .tool-run-hint {
-  font-size: 0.8rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
   margin: 0;
   line-height: 1.55;
 }
@@ -5091,19 +5113,19 @@ button.trace-iri-copy:hover:not(:disabled) {
   display: inline-flex;
   align-items: baseline;
   gap: 0.35rem;
-  font-size: 0.76rem;
+  font-size: 0.8rem;
   font-weight: 700;
   color: var(--muted);
   font-family: var(--font-mono);
 }
 .run-req {
-  font-size: 0.64rem;
+  font-size: 0.8rem;
   color: var(--accent);
   font-weight: 700;
   font-family: var(--font-ui);
 }
 .run-type {
-  font-size: 0.64rem;
+  font-size: 0.8rem;
   color: var(--activity);
 }
 .tool-run-result {
@@ -5144,7 +5166,7 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 .wb-mode-en {
   font-family: var(--font-mono);
-  font-size: 0.66rem;
+  font-size: 0.8rem;
   opacity: 0.75;
 }
 
@@ -5155,8 +5177,8 @@ button.trace-iri-copy:hover:not(:disabled) {
 .xw-hint-inline {
   margin-left: 0.5rem;
   font-weight: 400;
-  font-size: 0.72rem;
-  color: var(--faint);
+  font-size: 0.875rem;
+  color: var(--body);
 }
 .xw-ds-grid {
   display: grid;
@@ -5192,7 +5214,7 @@ button.trace-iri-copy:hover:not(:disabled) {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.7rem;
+  font-size: 0.875rem;
   color: var(--primary-fg);
   margin-top: 0.1rem;
 }
@@ -5207,13 +5229,13 @@ button.trace-iri-copy:hover:not(:disabled) {
   min-width: 0;
 }
 .xw-ds-name {
-  font-size: 0.84rem;
+  font-size: 0.875rem;
   font-weight: 700;
 }
 .xw-ds-sub {
   font-family: var(--font-mono);
-  font-size: 0.7rem;
-  color: var(--faint);
+  font-size: 0.875rem;
+  color: var(--body);
 }
 .xw-ai-row {
   display: flex;
@@ -5230,10 +5252,10 @@ button.trace-iri-copy:hover:not(:disabled) {
   border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--fg);
-  font-size: 0.78rem;
+  font-size: 0.8rem;
 }
 .xw-note {
-  font-size: 0.78rem;
+  font-size: 0.875rem;
   color: var(--body);
   margin: 0.2rem 0 0.5rem;
 }
@@ -5255,7 +5277,7 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 .xw-map-ds {
   font-weight: 700;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   min-width: 140px;
 }
 .xw-map-select {
@@ -5266,13 +5288,13 @@ button.trace-iri-copy:hover:not(:disabled) {
   border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--fg);
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   font-family: var(--font-mono);
 }
 .xw-map-sample {
   font-family: var(--font-mono);
-  font-size: 0.72rem;
-  color: var(--faint);
+  font-size: 0.875rem;
+  color: var(--body);
 }
 .xw-build-btn {
   align-self: flex-start;
@@ -5289,8 +5311,8 @@ button.trace-iri-copy:hover:not(:disabled) {
   min-width: 280px;
 }
 .xw-norm-hint {
-  font-size: 0.76rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
 }
 
 /* Custom normalizer recipe composer (normalizer-recipes ADR, tier 3) */
@@ -5321,13 +5343,13 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 .xw-recipe-num {
   font-family: var(--font-mono);
-  font-size: 0.72rem;
+  font-size: 0.8rem;
   color: var(--faint);
   min-width: 1.1rem;
 }
 .xw-recipe-op {
   flex: 1;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
 }
 .xw-recipe-actions {
   display: inline-flex;
@@ -5362,7 +5384,7 @@ button.trace-iri-copy:hover:not(:disabled) {
   flex-wrap: wrap;
 }
 .xw-recipe-prev-label {
-  font-size: 0.74rem;
+  font-size: 0.8rem;
   font-weight: 700;
   color: var(--muted);
 }
@@ -5375,7 +5397,7 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 .xw-recipe-out {
   font-family: var(--font-mono);
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   font-weight: 700;
   color: var(--entity);
   background: var(--surface);
@@ -5434,7 +5456,7 @@ button.trace-iri-copy:hover:not(:disabled) {
   display: inline-flex;
 }
 .xw-result-stat {
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   color: var(--fg);
   margin: 0 0 0.6rem;
 }
@@ -5445,7 +5467,7 @@ button.trace-iri-copy:hover:not(:disabled) {
   margin-bottom: 0.5rem;
 }
 .xw-link-chip {
-  font-size: 0.74rem;
+  font-size: 0.8rem;
   font-family: var(--font-mono);
   color: var(--muted);
   background: var(--surface-alt);
@@ -5454,12 +5476,12 @@ button.trace-iri-copy:hover:not(:disabled) {
   padding: 0.2rem 0.6rem;
 }
 .xw-skip {
-  font-size: 0.76rem;
+  font-size: 0.875rem;
   color: var(--warn-fg);
 }
 .xw-result-next {
-  font-size: 0.78rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
 }
 
 /* crosswalk management view */
@@ -5481,7 +5503,7 @@ button.trace-iri-copy:hover:not(:disabled) {
   gap: 0.5rem;
 }
 .ontomap-chip {
-  font-size: 0.76rem;
+  font-size: 0.8rem;
   border: 1px solid var(--border);
   border-radius: 999px;
   padding: 0.2rem 0.7rem;
@@ -5509,8 +5531,8 @@ button.trace-iri-copy:hover:not(:disabled) {
   display: inline-flex;
   align-items: center;
   gap: 0.9rem;
-  font-size: 0.74rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
 }
 .ontomap-key {
   display: inline-flex;
@@ -5540,8 +5562,8 @@ button.trace-iri-copy:hover:not(:disabled) {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  font-size: 0.76rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
   cursor: pointer;
   margin-left: auto;
 }
@@ -5581,7 +5603,7 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 .ontomap-lane-en {
   font-family: var(--font-mono);
-  font-size: 0.66rem;
+  font-size: 0.8rem;
   color: var(--faint);
 }
 .ontomap-edges {
@@ -5670,7 +5692,7 @@ button.trace-iri-copy:hover:not(:disabled) {
   color: var(--link);
 }
 .ontomap-node-name {
-  font-size: 0.86rem;
+  font-size: 0.875rem;
   font-weight: 700;
   color: var(--fg);
   white-space: nowrap;
@@ -5681,7 +5703,7 @@ button.trace-iri-copy:hover:not(:disabled) {
 .ontomap-node-badge {
   margin-left: auto;
   flex: none;
-  font-size: 0.62rem;
+  font-size: 0.8rem;
   font-weight: 700;
   color: var(--primary);
   background: var(--primary-soft);
@@ -5695,7 +5717,7 @@ button.trace-iri-copy:hover:not(:disabled) {
   flex-wrap: wrap;
 }
 .ontomap-pill {
-  font-size: 0.68rem;
+  font-size: 0.8rem;
   font-weight: 600;
   color: var(--entity);
   background: var(--entity-soft);
@@ -5710,16 +5732,16 @@ button.trace-iri-copy:hover:not(:disabled) {
   flex-wrap: wrap;
 }
 .ontomap-node-std-label {
-  font-size: 0.62rem;
+  font-size: 0.8rem;
   color: var(--faint);
 }
 .ontomap-node-std-tok {
   font-family: var(--font-mono);
-  font-size: 0.62rem;
+  font-size: 0.8rem;
   color: var(--link);
 }
 .ontomap-hub-key {
-  font-size: 0.72rem;
+  font-size: 0.8rem;
   color: var(--body);
   padding-left: 2rem;
   white-space: nowrap;
@@ -5728,14 +5750,14 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 .ontomap-ext-tok {
   font-family: var(--font-mono);
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   font-weight: 600;
   color: var(--link);
   flex: none;
 }
 .ontomap-ext-what {
-  font-size: 0.74rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -5757,14 +5779,14 @@ button.trace-iri-copy:hover:not(:disabled) {
   color: var(--entity);
 }
 .xw-summary-label {
-  font-size: 0.76rem;
+  font-size: 0.8rem;
   color: var(--muted);
 }
 .xw-summary-note {
   margin: 0.5rem 0 0;
   padding-top: 0.6rem;
   border-top: 1px solid var(--border);
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   color: var(--muted);
   line-height: 1.6;
 }
@@ -5789,13 +5811,13 @@ button.trace-iri-copy:hover:not(:disabled) {
   box-shadow: var(--shadow-soft);
 }
 .xw-part-name {
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   font-weight: 700;
 }
 .xw-part-pred {
   font-family: var(--font-mono);
-  font-size: 0.7rem;
-  color: var(--faint);
+  font-size: 0.875rem;
+  color: var(--body);
 }
 .xw-rebuild-row {
   display: flex;
@@ -5808,8 +5830,8 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 .xw-built-at {
   font-family: var(--font-mono);
-  font-size: 0.72rem;
-  color: var(--faint);
+  font-size: 0.875rem;
+  color: var(--body);
 }
 .xw-tools-head {
   margin-top: 0.4rem;
@@ -5841,12 +5863,12 @@ button.trace-iri-copy:hover:not(:disabled) {
   box-shadow: var(--shadow);
 }
 .xw-persp-name {
-  font-size: 0.86rem;
+  font-size: 0.875rem;
   font-weight: 700;
 }
 .xw-persp-meta {
   font-family: var(--font-mono);
-  font-size: 0.7rem;
+  font-size: 0.8rem;
   color: var(--faint);
 }
 
@@ -5877,7 +5899,7 @@ button.trace-iri-copy:hover:not(:disabled) {
   flex: 1;
 }
 .xw-align-side-label {
-  font-size: 0.74rem;
+  font-size: 0.8rem;
   font-weight: 700;
   color: var(--muted);
 }
@@ -5937,8 +5959,8 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 .xw-create-band-sub {
   margin: 0.15rem 0 0;
-  font-size: 0.82rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
 }
 .xw-create-band-actions {
   display: flex;
@@ -5982,8 +6004,8 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 .xw-cand-sub {
   margin: 0.3rem 0 0;
-  font-size: 0.76rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
 }
 .xw-cand-vals {
   display: flex;
@@ -5992,7 +6014,7 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 .xw-cand-val {
   font-family: var(--font-mono);
-  font-size: 0.76rem;
+  font-size: 0.875rem;
   background: var(--surface-2, var(--bg));
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -6007,25 +6029,25 @@ button.trace-iri-copy:hover:not(:disabled) {
   display: flex;
   justify-content: space-between;
   gap: var(--space-2);
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   flex-wrap: wrap;
 }
 .xw-cand-part-name {
   font-weight: 500;
 }
 .xw-cand-part-sample {
-  color: var(--muted);
+  color: var(--body);
   font-family: var(--font-mono);
-  font-size: 0.76rem;
+  font-size: 0.875rem;
 }
 .xw-cand-note {
   margin: 0.3rem 0 0;
-  font-size: 0.78rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
 }
 .xw-cand-caution {
   margin: 0;
-  font-size: 0.78rem;
+  font-size: 0.875rem;
   color: var(--accent);
 }
 .xw-cand-actions {
@@ -6072,16 +6094,16 @@ button.trace-iri-copy:hover:not(:disabled) {
   color: var(--muted);
 }
 .xw-manual-note {
-  font-size: 0.78rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
   margin: 0.3rem 0 var(--space-3);
 }
 
 .xw-align-empty-hint,
 .xw-align-none,
 .xw-align-gate {
-  font-size: 0.78rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
   margin: 0;
 }
 /* Alignments this surface cannot author (grounding to an external standard, or a
@@ -6094,7 +6116,7 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 .xw-align-others > summary {
   cursor: pointer;
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   color: var(--muted);
 }
 .xw-align-others[open] > summary {
@@ -6128,12 +6150,12 @@ button.trace-iri-copy:hover:not(:disabled) {
 }
 .xw-align-term {
   font-family: var(--font-mono);
-  font-size: 0.78rem;
+  font-size: 0.875rem;
   font-weight: 700;
   color: var(--fg);
 }
 .xw-align-relchip {
-  font-size: 0.72rem;
+  font-size: 0.8rem;
   color: var(--muted);
   background: var(--surface-alt);
   border: 1px solid var(--border);
@@ -6148,8 +6170,8 @@ button.trace-iri-copy:hover:not(:disabled) {
   text-align: right;
 }
 .xw-align-persp {
-  font-size: 0.72rem;
-  color: var(--faint);
+  font-size: 0.875rem;
+  color: var(--body);
 }
 .xw-align-remove {
   flex: none;
@@ -6171,12 +6193,12 @@ button.ds-artifact:disabled {
   background: var(--primary-softer);
 }
 .rules-open-hint {
-  font-size: 0.68rem;
+  font-size: 0.875rem;
   color: var(--primary);
   margin-left: 0.15rem;
 }
 .rules-legacy-chip {
-  font-size: 0.62rem;
+  font-size: 0.8rem;
   font-weight: 700;
   color: var(--warn-fg);
   background: var(--warn-bg);
@@ -6191,9 +6213,12 @@ button.ds-artifact:disabled {
   flex-direction: column;
   gap: 0.8rem;
 }
+/* prose floor applied throughout this rules/transparency section (see top of
+   file for rationale); table/th/chip classes below stayed at the 0.8rem
+   label floor since they hold short cell values, not sentences. */
 .rules-intro {
-  font-size: 0.76rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
   margin: 0;
 }
 .rules-map {
@@ -6218,7 +6243,7 @@ button.ds-artifact:disabled {
   align-items: baseline;
   gap: 0.3rem;
   font-family: var(--font-mono);
-  font-size: 0.74rem;
+  font-size: 0.8rem;
   font-weight: 600;
   color: var(--entity);
   background: var(--entity-soft);
@@ -6227,14 +6252,14 @@ button.ds-artifact:disabled {
 }
 .rules-term-label {
   font-family: var(--font-sans, inherit);
-  font-size: 0.68rem;
+  font-size: 0.8rem;
   font-weight: 400;
   color: var(--muted);
 }
 .rules-src-chip {
   margin-left: auto;
   font-family: var(--font-mono);
-  font-size: 0.68rem;
+  font-size: 0.8rem;
   color: var(--muted);
   background: var(--surface-alt);
   border: 1px solid var(--border);
@@ -6247,10 +6272,10 @@ button.ds-artifact:disabled {
   flex-wrap: wrap;
   gap: 0.4rem;
   margin-top: 0.5rem;
-  font-size: 0.76rem;
+  font-size: 0.875rem;
 }
 .rules-row-label {
-  font-size: 0.68rem;
+  font-size: 0.8rem;
   color: var(--faint);
 }
 .rules-table-wrap {
@@ -6260,11 +6285,11 @@ button.ds-artifact:disabled {
 .rules-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.76rem;
+  font-size: 0.8rem;
 }
 .rules-table th {
   text-align: left;
-  font-size: 0.66rem;
+  font-size: 0.8rem;
   font-weight: 600;
   color: var(--muted);
   background: var(--surface-sink);
@@ -6282,13 +6307,13 @@ button.ds-artifact:disabled {
 }
 .rules-type-cell {
   font-family: var(--font-mono);
-  font-size: 0.7rem;
+  font-size: 0.8rem;
   color: var(--muted);
   white-space: nowrap;
 }
 .rules-code-inline {
   font-family: var(--font-mono);
-  font-size: 0.72rem;
+  font-size: 0.8rem;
   background: var(--surface-alt);
   border-radius: 3px;
   padding: 0.05rem 0.25rem;
@@ -6306,10 +6331,10 @@ button.ds-artifact:disabled {
 }
 .rules-val--unknown {
   color: var(--warn-fg);
-  font-size: 0.72rem;
+  font-size: 0.875rem;
 }
 .rules-kind-chip {
-  font-size: 0.62rem;
+  font-size: 0.8rem;
   font-weight: 600;
   color: var(--muted);
   background: var(--surface-sink);
@@ -6322,14 +6347,14 @@ button.ds-artifact:disabled {
   background: var(--activity-soft);
 }
 .rules-fn-args {
-  font-size: 0.72rem;
+  font-size: 0.875rem;
 }
 .rules-join-cond {
   margin-left: 0.3rem;
 }
 .rules-warnings {
   margin-top: 0.7rem;
-  font-size: 0.74rem;
+  font-size: 0.875rem;
   color: var(--warn-fg);
   background: var(--warn-bg);
   border: 1px solid var(--warn-border);
@@ -6355,14 +6380,14 @@ button.ds-artifact:disabled {
   border-radius: var(--radius-sm);
   background: var(--surface-alt);
   padding: 0.4rem 0.7rem;
-  font-size: 0.76rem;
+  font-size: 0.8rem;
 }
 .rules-history-when {
   color: var(--body);
 }
 .rules-history-files {
-  color: var(--faint);
-  font-size: 0.7rem;
+  color: var(--body);
+  font-size: 0.875rem;
   margin-left: auto;
 }
 
@@ -6406,8 +6431,8 @@ button.ds-artifact:disabled {
 }
 .rules-modal-sub {
   margin: 0.2rem 0 0;
-  font-size: 0.72rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
 }
 .rules-modal-close {
   border: none;
@@ -6434,7 +6459,7 @@ button.ds-artifact:disabled {
 }
 .rules-code-block {
   font-family: var(--font-mono);
-  font-size: 0.72rem;
+  font-size: 0.8rem;
   line-height: 1.5;
   background: var(--surface-alt);
   border: 1px solid var(--border);
@@ -6454,7 +6479,7 @@ button.ds-artifact:disabled {
   display: flex;
   align-items: center;
   gap: 0.6rem;
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   padding: 0.25rem 0;
 }
 .rules-fulltext-btn {
@@ -6481,8 +6506,8 @@ button.ds-artifact:disabled {
   color: var(--faint);
 }
 .rules-diff-note {
-  font-size: 0.7rem;
-  color: var(--faint);
+  font-size: 0.875rem;
+  color: var(--body);
   margin: 0.4rem 0 0;
 }
 
@@ -6491,8 +6516,8 @@ button.ds-artifact:disabled {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  font-size: 0.74rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
   margin: 0.2rem 0 0.5rem;
 }
 .skeleton-gate-row td {
@@ -6510,7 +6535,19 @@ button.ds-artifact:disabled {
 }
 .skeleton-evidence-line {
   margin: 0;
-  font-size: 0.76rem;
+  /* Sentences, not labels: ui-guidelines §1 puts prose at --body and reserves
+     --muted/--faint for labels. 0.76rem (12px) measured too small to read a
+     Japanese sentence in comfortably. */
+  font-size: 0.875rem;
+  color: var(--body);
+}
+/* "1 行 = 1 つの peak" — the claim the whole screen exists to confirm. It reads
+   as the block's heading so the kind name is the first thing the eye lands on. */
+.skeleton-evidence-reading {
+  margin: 0 0 0.15rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--fg);
 }
 .skeleton-evidence-ok {
   color: var(--success-fg);
@@ -6537,7 +6574,7 @@ button.ds-artifact:disabled {
 }
 .skeleton-evidence-label {
   display: block;
-  font-size: 0.66rem;
+  font-size: 0.8rem;
   color: var(--faint);
   margin-bottom: 0.2rem;
 }
@@ -6548,7 +6585,7 @@ button.ds-artifact:disabled {
 }
 .skeleton-evidence-id {
   font-family: var(--font-mono);
-  font-size: 0.7rem;
+  font-size: 0.875rem;
   background: var(--surface-alt);
   border-radius: 3px;
   padding: 0.06rem 0.3rem;
@@ -6561,7 +6598,7 @@ button.ds-artifact:disabled {
 }
 .skeleton-candidate-chip {
   font-family: var(--font-mono);
-  font-size: 0.72rem;
+  font-size: 0.8rem;
   color: var(--primary);
   background: var(--primary-soft);
   border: 1px solid var(--border-strong);
@@ -6603,7 +6640,7 @@ button.ds-artifact:disabled {
   border-bottom: 1px solid var(--line);
 }
 .skeleton-entity-class {
-  font-size: 0.66rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: var(--primary);
   background: var(--primary-soft);
@@ -6614,7 +6651,7 @@ button.ds-artifact:disabled {
 .skeleton-entity-props {
   border-collapse: collapse;
   margin-top: 0.3rem;
-  font-size: 0.74rem;
+  font-size: 0.875rem;
 }
 .skeleton-entity-props th {
   text-align: left;
@@ -6641,7 +6678,7 @@ button.ds-artifact:disabled {
    濃度は変えず、意味色は「つながり」の青（--link）を使う。 */
 .skeleton-entity-band td {
   padding: 0.5rem 0 0.16rem;
-  font-size: 0.7rem;
+  font-size: 0.8rem;
   color: var(--link);
 }
 .skeleton-entity-borrowed th {
@@ -6659,7 +6696,7 @@ button.ds-artifact:disabled {
 /* 常時見せるのは 1 行だけ。理由と列名は畳む（ゲートに長文を置くと読まれない）。 */
 .skeleton-fold {
   margin-top: 0.5rem;
-  font-size: 0.76rem;
+  font-size: 0.875rem;
 }
 .skeleton-fold > summary {
   cursor: pointer;
@@ -6696,7 +6733,7 @@ button.ds-artifact:disabled {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
-  font-size: 0.78rem;
+  font-size: 0.875rem;
   color: var(--fg);
   cursor: pointer;
 }
@@ -6711,8 +6748,8 @@ button.ds-artifact:disabled {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  font-size: 0.76rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
 }
 .skeleton-split-key {
   font: inherit;
@@ -6728,9 +6765,9 @@ button.ds-artifact:disabled {
   margin-left: 0.5rem;
   padding: 0.1rem 0.4rem;
   font: inherit;
-  font-size: 0.7rem;
+  font-size: 0.875rem;
   font-weight: 400;
-  color: var(--muted);
+  color: var(--body);
   background: transparent;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -6766,7 +6803,7 @@ tr[data-map].skeleton-gate-row--added td {
   margin-top: 0.3rem;
   padding: 0.35rem 0.8rem;
   font: inherit;
-  font-size: 0.78rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: var(--primary-fg);
   background: var(--primary);
@@ -6780,15 +6817,15 @@ tr[data-map].skeleton-gate-row--added td {
 .skeleton-entity-conflict-note {
   display: block;
   font-weight: 600;
-  font-size: 0.7rem;
+  font-size: 0.875rem;
 }
 .skeleton-entity-conflict-value {
   font-family: var(--font-mono);
-  font-size: 0.72rem;
+  font-size: 0.8rem;
 }
 .skeleton-entity-muted {
-  color: var(--faint);
-  font-size: 0.7rem;
+  color: var(--body);
+  font-size: 0.875rem;
 }
 /* Singleton maps fold their "split per row instead?" candidates behind an
    explicit question — the normal (merging) case stays green and quiet. */
@@ -6863,7 +6900,7 @@ tr[data-map].skeleton-gate-row--added td {
   max-width: 18rem;
 }
 .skeleton-ns-preview {
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   color: var(--muted);
   overflow-wrap: anywhere;
 }
@@ -6903,8 +6940,8 @@ tr[data-map].skeleton-gate-row--added td {
 }
 .kz-note {
   margin: 0;
-  color: var(--muted);
-  font-size: 0.85rem;
+  color: var(--body);
+  font-size: 0.875rem;
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -6936,8 +6973,8 @@ tr[data-map].skeleton-gate-row--added td {
   gap: var(--space-2);
   padding: 0.2rem 0.65rem;
   border-radius: 999px;
-  color: var(--muted);
-  font-size: 0.85rem;
+  color: var(--body);
+  font-size: 0.875rem;
 }
 .kz-recipe-step.active {
   background: var(--primary-soft);
@@ -6957,7 +6994,7 @@ tr[data-map].skeleton-gate-row--added td {
   border: 1px solid var(--border-strong);
   background: var(--surface-alt);
   color: var(--muted);
-  font-size: 0.72rem;
+  font-size: 0.8rem;
   font-weight: 600;
 }
 .kz-recipe-step.active .kz-recipe-num {
@@ -6971,7 +7008,7 @@ tr[data-map].skeleton-gate-row--added td {
   color: var(--entity);
 }
 .kz-recipe-here {
-  font-size: 0.68rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: var(--accent-strong);
   background: var(--accent-soft);
@@ -7045,8 +7082,8 @@ tr[data-map].skeleton-gate-row--added td {
   font-size: 1rem;
 }
 .kz-drop-sub {
-  color: var(--muted);
-  font-size: 0.85rem;
+  color: var(--body);
+  font-size: 0.875rem;
 }
 
 /* S2/S3: first-rows preview per file. Wide tables scroll inside their wrap. */
@@ -7067,8 +7104,8 @@ tr[data-map].skeleton-gate-row--added td {
 }
 .kz-preview-caption {
   font-family: var(--font-ui);
-  font-size: 0.78rem;
-  color: var(--faint);
+  font-size: 0.875rem;
+  color: var(--body);
 }
 .kz-preview-tablewrap {
   overflow-x: auto;
@@ -7220,16 +7257,16 @@ tr[data-map].skeleton-gate-row--added td {
   font-weight: 600;
 }
 .kz-map-note {
-  color: var(--muted);
-  font-size: 0.8rem;
+  color: var(--body);
+  font-size: 0.875rem;
 }
 
 /* S6: the column-meaning table. Reuses the preview table skin; a row whose
    meaning could not be read gets the amber marker (eye guidance, not a gate). */
 .kz-cols-caption {
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   font-weight: 600;
-  color: var(--muted);
+  color: var(--body);
   margin-bottom: var(--space-1);
 }
 .kz-cols-table td {
@@ -7237,7 +7274,7 @@ tr[data-map].skeleton-gate-row--added td {
 }
 .kz-cols-name {
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 0.8rem;
+  font-size: 0.875rem;
 }
 .kz-cols-samples {
   color: var(--muted);
@@ -7255,7 +7292,7 @@ tr.kz-attn td {
 .kz-links-list {
   margin: var(--space-2) 0 0;
   padding-left: 1.2rem;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
@@ -7288,8 +7325,8 @@ tr.kz-attn td {
   margin: var(--space-2) 0;
 }
 .kz-qa-q {
-  font-size: 0.8rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
 }
 .kz-qa-a {
   font-weight: 600;
@@ -7299,7 +7336,7 @@ tr.kz-attn td {
 .kz-qa-cite {
   display: inline-block;
   margin-top: var(--space-1);
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   color: var(--primary);
   text-decoration: none;
   overflow-wrap: anywhere;
@@ -7343,7 +7380,7 @@ tr.kz-attn td {
 }
 .kz-words-group {
   margin: var(--space-2) 0 0;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
@@ -7363,8 +7400,8 @@ tr.kz-attn td {
   margin: var(--space-2) 0;
 }
 .kz-preamble-name {
-  font-size: 0.78rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
   margin-bottom: var(--space-1);
 }
 .kz-preamble-lines {
@@ -7374,7 +7411,7 @@ tr.kz-attn td {
   border-radius: 8px;
   background: var(--surface-2, var(--bg));
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   line-height: 1.5;
   max-height: 10rem;
   overflow: auto;
@@ -7388,8 +7425,8 @@ tr.kz-attn td {
 }
 .skeleton-diagram-note {
   margin: var(--space-1) 0 0;
-  font-size: 0.78rem;
-  color: var(--muted);
+  font-size: 0.875rem;
+  color: var(--body);
 }
 .skeleton-rethink {
   margin-top: var(--space-3);
@@ -7450,14 +7487,14 @@ tr.kz-attn td {
 /* 外部の標準に合わせる: the kind of a term ("データの種類" / "項目") reads as prose,
    not as the mono English identifier it replaced. */
 .ground-own-kind {
-  font-size: 0.68rem;
+  font-size: 0.8rem;
   color: var(--faint);
   font-weight: 500;
 }
 /* 自動で見つかった標準: the plain description leads, the CURIE prefix trails. */
 .ground-detected-row .ground-detected-what {
   flex: 1 1 auto;
-  font-size: 0.78rem;
+  font-size: 0.875rem;
   color: var(--body);
 }
 .ground-detected-row .ground-detected-prefix {
@@ -7472,7 +7509,7 @@ tr.kz-attn td {
 }
 .grounding-err-raw > summary {
   cursor: pointer;
-  font-size: 0.76rem;
+  font-size: 0.8rem;
   color: var(--muted);
 }
 
@@ -7515,7 +7552,7 @@ tr.kz-attn td {
   grid-template-columns: auto 1fr;
   gap: var(--space-1) var(--space-3);
   margin: 0;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
 }
 .doc-confirm-facts dt {
   color: var(--muted);
@@ -7535,7 +7572,7 @@ tr.kz-attn td {
    authoring block, and the tool card's title-first head. */
 .tools-count {
   margin: 0;
-  font-size: 0.76rem;
+  font-size: 0.8rem;
   color: var(--faint);
 }
 .tool-author-details {
@@ -7591,7 +7628,7 @@ tr.kz-attn td {
   flex-direction: column;
   gap: var(--space-1);
   margin: 0;
-  font-size: 0.78rem;
+  font-size: 0.875rem;
 }
 .tool-cite-facts div {
   display: flex;
@@ -7610,7 +7647,7 @@ tr.kz-attn td {
 /* 設計タブ: the plain "column → meaning → unit" table leads; the compiler's
    own projection and the generated files fold away behind 技術情報. */
 .rules-plain-what {
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: var(--fg);
 }

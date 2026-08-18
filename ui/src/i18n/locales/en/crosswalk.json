@@ -281,7 +281,7 @@
       "serverTitle": "The server was briefly unreachable",
       "serverBody": "Please wait a moment and try again.",
       "tokenTitle": "You don't have permission for this",
-      "tokenBody": "Enter the access code you received from your administrator in Settings.",
+      "tokenBody": "Enter this server's access code in Settings.",
       "notFoundTitle": "It could not be found",
       "notFoundBody": "The connection, or the data it connects, is not there. Load again and try once more.",
       "genericTitle": "That did not work",

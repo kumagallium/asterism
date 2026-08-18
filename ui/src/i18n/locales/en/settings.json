@@ -26,11 +26,11 @@
     "working": "Checking…",
     "advanced": "Detailed settings",
     "ask": {
-      "title": "Ask an administrator to set it up",
-      "body": "An administrator sets this up once and everyone on this server can use AI as they are. The button below copies a request you can send.",
+      "title": "Set it up once for this server",
+      "body": "Set this up once and everyone on this server can use AI as they are. If you can't set it up yourself, copy the request below and send it to whoever can.",
       "copy": "Copy the request",
       "copied": "Copied",
-      "copyFailed": "Couldn't copy. Send the text below to your administrator as it is.",
+      "copyFailed": "Couldn't copy. Send the text below, as it is, to whoever can set it up.",
       "template": "Please enable AI in Asterism. Under Settings → “This server” → “Shared AI setup”, register a key from an AI service once, and everyone using this server will be able to use AI."
     },
     "own": {
@@ -56,9 +56,9 @@
     }
   },
   "models": {
-    "intro": "Register where AI runs. If an administrator has set it up on the server, there is nothing to do here. To use your own key or an AI on your machine, add it with “+ Add” — the one you pick is used by “Add data”, “Ask” and every other AI feature.",
+    "intro": "Register where AI runs. If it's already set up on the server, there is nothing to do here. To use your own key or an AI on your machine, add it with “+ Add” — the one you pick is used by “Add data”, “Ask” and every other AI feature.",
     "empty": "No AI connection yet. To use your own key, press “+ Add”.",
-    "serverConfigured": "An administrator has already set up AI on this server ({{provider}}). You can use AI without adding anything here.",
+    "serverConfigured": "AI is already set up on this server ({{provider}}). You can use AI without adding anything here.",
     "activeBadge": "active",
     "keySet": "using your key",
     "keyServer": "using the server's setup (no key needed)",
@@ -135,15 +135,15 @@
   },
   "gate": {
     "using": "Model:",
-    "usingServerSetup": "Ready — using the administrator's setup",
+    "usingServerSetup": "Ready — using the server's setup",
     "change": "Change",
-    "notSetUp": "The AI is not connected yet. Once an administrator sets one up on the server, this screen works as it is. To use your own, connect it in one screen below.",
+    "notSetUp": "The AI is not connected yet. Once one is set up on the server, this screen works as it is. To use your own, connect it in one screen below.",
     "openSettings": "Open settings",
-    "serverKey": "using the administrator's setup"
+    "serverKey": "using the server's setup"
   },
   "serverKeys": {
-    "title": "Shared AI setup (for administrators)",
-    "intro": "Set this up and everyone using this server can use AI without bringing anything of their own. An administrator does it once. What you enter is never shown back.",
+    "title": "Shared AI setup",
+    "intro": "Set this up and everyone using this server can use AI without bringing anything of their own. It only needs to be set up once. What you enter is never shown back.",
     "set": "set",
     "unset": "not set",
     "keyPlaceholder": "Paste the key you were given",
@@ -155,22 +155,22 @@
     "error": {
       "auth": "You don't have permission to save this. Enter the access code first, then try again.",
       "disabled": "This server doesn't allow the shared AI setup to be saved.",
-      "badBase": "This server won't accept that address. Check it with your administrator.",
+      "badBase": "This server won't accept that address. Check the address.",
       "generic": "Couldn't save. Wait a moment and try again.",
       "details": "Details (technical)"
     }
   },
   "writeToken": {
-    "title": "Access code (from your administrator)",
-    "intro": "To add data or publish on this server you need the access code your administrator gave you. Paste it here and it stays valid until you close this tab.",
+    "title": "Access code (for this server)",
+    "intro": "To add data or publish on this server you need this server's access code. Paste it here and it stays valid until you close this tab.",
     "name": "Access code",
-    "placeholder": "Paste the code from your administrator",
+    "placeholder": "Paste this server's access code",
     "setAtBuild": "Already set (provided by this server)",
     "verify": "Check it again",
     "check": {
       "ok": "This code lets you add data and publish",
-      "mismatch": "That code is wrong. Check it with your administrator",
-      "open": "No access code is set up on this server (check with your administrator)",
+      "mismatch": "That code is wrong. Check it and try again",
+      "open": "No access code is set up on this server (check the server's setup)",
       "error": "Couldn't reach the server. Wait a moment and try again"
     }
   },
@@ -191,10 +191,10 @@
   },
   "instance": {
     "title": "Where your IDs are issued from",
-    "intro": "New datasets issue their IDs under this address (existing data is never rewritten). An administrator sets it on the server.",
+    "intro": "New datasets issue their IDs under this address (existing data is never rewritten). It's set once for the whole server.",
     "name": "Issuer address",
     "unset": "not set",
-    "unsetHelp": "No issuer has been chosen yet, so IDs are made under the placeholder address above. That is fine while you try things out. For IDs that stay citable after you publish, ask an administrator to set the issuer address (for example https://data.your-org.ac.jp/)."
+    "unsetHelp": "No issuer has been chosen yet, so IDs are made under the placeholder address above. That is fine while you try things out. For IDs that stay citable after you publish, set the issuer address on the server (for example https://data.your-org.ac.jp/)."
   },
   "updater": {
     "available": "Version {{version}} is available",

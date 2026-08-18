@@ -14,8 +14,8 @@
     "factsTitle": "Total number of stored facts (triples)",
     "datasets": "Datasets",
     "classes": "Kinds of data",
-    "unavailable": "The counts aren't available yet (adding data and asking still work). If reopening in a moment doesn't help, tell whoever set this server up.",
-    "unavailableTitle": "For administrators: check the write token in Settings, or the server's SPARQL exposure setting."
+    "unavailable": "The counts aren't available yet (adding data and asking still work). If reopening in a moment doesn't help, check the following.",
+    "unavailableTitle": "Check the write token in Settings, or the server's SPARQL exposure setting."
   },
   "firstRun": {
     "title": "New here?",

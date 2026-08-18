@@ -10,7 +10,6 @@
     "key": "How the ID is decided",
     "kind": "What one row is"
   },
-  "quietMore": "See the details",
   "noteSummary": "Show the AI's note",
   "diagram": {
     "summary": "See the sketch ({{count}} kinds)",
@@ -22,14 +21,14 @@
     "constant": "One ID per file",
     "none": "No ID recipe yet",
     "join": " + ",
-    "editSummary": "Edit the ID recipe directly (advanced)"
+    "editSummary": "Write the ID recipe yourself"
   },
   "ns": {
     "shape": "ID shape",
     "provisional": "(provisional)",
     "change": "Change",
     "nameInvalid": "IDs can only use letters, digits and hyphens (e.g. thermoelectric-2026). You will give the display name at the last step, “Publish”.",
-    "baseProvisional": "The web address at the front of every ID is still provisional ({{base}}). You can continue as is for trying things out or personal use. A permanent address others can cite is set by the server administrator.",
+    "baseProvisional": "The web address at the front of every ID is still provisional ({{base}}). You can continue as is for trying things out or personal use. A permanent address others can cite is set in the server's configuration.",
     "openSettings": "Open settings"
   },
   "vocab": {
@@ -57,5 +56,7 @@
     "placeholder": "The AI's ID recipe contains a part this screen cannot fix (a placeholder address). If you continue, the automatic fix will try to repair it.",
     "proceed": "Continue anyway",
     "cancel": "Cancel"
-  }
+  },
+  "kindMissing": "What one row of this table is has not been decided yet. Look at the example below and name it (e.g. sample, measurement, peak).",
+  "kindPlaceholder": "e.g. sample"
 }
