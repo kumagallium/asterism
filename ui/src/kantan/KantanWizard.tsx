@@ -194,6 +194,19 @@ function encodingChoices(detected: string): { value: string; key: string }[] {
  *  full stop (KZ-A-24). The detail tier is unchanged: it still shows the grid. */
 const DOC_ONLY_TRAPS = new Set(['T5', 'T6', 'T7', 'T10'])
 
+/** Plain-error families whose body ends in "ask your administrator to check the
+ *  AI setup". When the reader IS that person (their own key in Settings), the
+ *  sentence has to come with the way there — as a small secondary button, never
+ *  as the primary: retrying first is still the right move for a timeout or a
+ *  spent output budget, and the model choice is not this tier's question when
+ *  the server owns the key (ADR K5 / WEAK-MODEL-25). */
+const AI_SETUP_TITLES = new Set([
+  'kantan:s5.plain.llmAuthTitle',
+  'kantan:s5.plain.modelTitle',
+  'kantan:s5.plain.timeoutTitle',
+  'kantan:s5.plain.budgetTitle',
+])
+
 /** The name the auto chain registers the draft under. "dataset" made every
  *  abandoned run look identical in the catalog list (KZ-A-28); the first file's
  *  stem is what the person who dropped it will recognise. */
@@ -3047,8 +3060,10 @@ export function KantanWizard({
               (WEAK-MODEL-24). */}
           {aiFixable && fixStuck && <p className="kz-note">{t('kantan:s5.fix.stuck')}</p>}
           <div className="kz-actions">
-            {/* Primary action, one per card. design → AI fix; token/timeout →
-                open settings; 404 → start over; otherwise → retry (below). */}
+            {/* Primary action, one per card. design → AI fix; access code →
+                open settings; nothing ingested → column meanings; 404 → start
+                over; otherwise → retry (below). A timeout is deliberately NOT
+                here: it retries first (WEAK-MODEL-25). */}
             {aiFixable && (
               <button
                 type="button"
@@ -3132,20 +3147,18 @@ export function KantanWizard({
             >
               {t('kantan:s5.stop.openDetail')}
             </button>
-            {/* The two failures that ARE about the AI setup, offered only to
-                whoever can change it — with an administrator's key there is
-                nothing for the reader to do here (ADR K5). */}
-            {canOpenAiSettings &&
-              (stopPlain?.title === 'kantan:s5.plain.llmAuthTitle' ||
-                stopPlain?.title === 'kantan:s5.plain.modelTitle') && (
-                <button
-                  type="button"
-                  className="btn btn--ghost btn--sm"
-                  onClick={() => openSettings('ai')}
-                >
-                  {t('kantan:s1.openSettings')}
-                </button>
-              )}
+            {/* The failures that ARE about the AI setup, offered only to whoever
+                can change it — with an administrator's key there is nothing for
+                the reader to do here (ADR K5). */}
+            {canOpenAiSettings && stopPlain?.title && AI_SETUP_TITLES.has(stopPlain.title) && (
+              <button
+                type="button"
+                className="btn btn--ghost btn--sm"
+                onClick={() => openSettings('ai')}
+              >
+                {t('kantan:s1.openSettings')}
+              </button>
+            )}
           </div>
           {(aiFixable || stop.kind === 'refineTruncated') && !isReady && (
             <p className="kz-note">{t('kantan:s1.aiNotReady')}</p>
