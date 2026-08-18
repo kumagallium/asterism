@@ -15,6 +15,7 @@ import {
   pascalCase,
   perspectiveIdFromName,
 } from './crosswalkMint'
+import { conceptLabel } from './crosswalkLabels'
 import { type CatalogDataset, getCatalogDatasets } from './galleryApi'
 import { LinkIcon } from './icons'
 import { useLlmSettings } from './settings/context'
@@ -152,6 +153,9 @@ export function CrosswalkBuilder({ seed }: { seed?: CrosswalkSeed } = {}) {
   // A human name for THIS perspective (a distinct lens, multi-perspective ADR). Empty
   // = the default "composition" perspective (back-compat); named = a new lens.
   const [perspectiveName, setPerspectiveName] = useState(xw.perspectiveName ?? '')
+  // Opt-in (deliberately NOT persisted): with no name, build a new crosswalk unless
+  // the user says they mean to replace the standard one.
+  const [replaceDefault, setReplaceDefault] = useState(false)
   const [proposing, setProposing] = useState(false)
   const [proposeErr, setProposeErr] = useState('')
   const [proposeNote, setProposeNote] = useState('')
@@ -246,6 +250,10 @@ export function CrosswalkBuilder({ seed }: { seed?: CrosswalkSeed } = {}) {
   const chosen = (datasets ?? []).filter((d) => selected.has(datasetId(d)))
   const readyCount = chosen.filter((d) => predicate[datasetId(d)]).length
   const conceptKey = concept.trim() || 'composition'
+  // The name an unnamed crosswalk is given — derived from what it joins on, so
+  // leaving the box empty still produces something a person can tell apart in the
+  // list (and never replaces an existing crosswalk by accident).
+  const autoName = t('crosswalk:create.defaultName', { label: conceptLabel(conceptKey) })
   const classIri = classIriForConcept(conceptKey)
   const linkPred = linkPredicateForConcept(conceptKey)
   // A concept needs an ascii key so the minted hub IRI stays clean + citable.
@@ -387,13 +395,15 @@ export function CrosswalkBuilder({ seed }: { seed?: CrosswalkSeed } = {}) {
             })),
           }
       const config: CrosswalkConfig = { min_datasets: 2, concepts: [concept0] }
-      // A named perspective = a distinct lens (its own graph); empty name = the
-      // default composition perspective (back-compat).
-      const trimmed = perspectiveName.trim()
+      // A named perspective = a distinct lens (its own graph). An EMPTY name used to
+      // silently overwrite the standard composition crosswalk; now it is named
+      // automatically from the chosen field and built as a new one. Replacing the
+      // standard one is still possible — it just has to be asked for (the checkbox).
+      const trimmed = perspectiveName.trim() || autoName
       setResult(
-        trimmed
-          ? await buildPerspective(perspectiveIdFromName(trimmed), config, trimmed)
-          : await buildCrosswalk(config),
+        replaceDefault && !perspectiveName.trim()
+          ? await buildCrosswalk(config)
+          : await buildPerspective(perspectiveIdFromName(trimmed), config, trimmed),
       )
     } catch (e) {
       setBuildErr(e instanceof Error ? e.message : String(e))
@@ -489,7 +499,10 @@ export function CrosswalkBuilder({ seed }: { seed?: CrosswalkSeed } = {}) {
                 <span className="xw-hint-inline">{t('crosswalk:builder.step3Hint')}</span>
               </div>
 
-              <LlmGate />
+              {/* `plain`: once AI works there is nothing to say here — the model name
+                  and key belong in Settings, not on a shared screen (handoff-settings
+                  MISC-03 / ASK-36). */}
+              <LlmGate plain />
               <div className="xw-ai-row">
                 <button
                   type="button"
@@ -766,9 +779,21 @@ export function CrosswalkBuilder({ seed }: { seed?: CrosswalkSeed } = {}) {
                 <span className="xw-norm-hint">
                   {perspectiveName.trim()
                     ? t('crosswalk:builder.perspectiveNamed')
-                    : t('crosswalk:builder.perspectiveDefault')}
+                    : replaceDefault
+                      ? t('crosswalk:builder.perspectiveReplaceHint')
+                      : t('crosswalk:builder.perspectiveDefault', { name: autoName })}
                 </span>
               </div>
+              {!perspectiveName.trim() && (
+                <label className="xw-norm-hint">
+                  <input
+                    type="checkbox"
+                    checked={replaceDefault}
+                    onChange={(e) => setReplaceDefault(e.target.checked)}
+                  />{' '}
+                  {t('crosswalk:builder.perspectiveReplace')}
+                </label>
+              )}
 
               <button
                 type="button"

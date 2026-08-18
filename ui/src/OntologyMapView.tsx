@@ -6,6 +6,7 @@ import {
   getAlignments,
   getCrosswalks,
 } from './crosswalkApi'
+import { conceptName, perspectiveDisplayName } from './crosswalkLabels'
 import { type CatalogDataset, getCatalogDatasets } from './galleryApi'
 import { ArrowIcon, ConnectIcon, DataIcon, LayersIcon } from './icons'
 
@@ -50,6 +51,9 @@ function buildLayout(
   datasets: CatalogDataset[],
   perspectives: CrosswalkPerspective[],
   showExternal: boolean,
+  /** How to say "unnamed connection" / "the value found in both" in the reader's
+   * language — passed in so this stays a pure layout function. */
+  words: { unnamed: string; sharedValue: string },
 ): Layout {
   const dsList = datasets.filter((d) => !d.isCrosswalk)
 
@@ -70,8 +74,10 @@ function buildLayout(
   // Crosswalk bridges — center lane.
   const hubs: HubBox[] = perspectives.map((p, i) => ({
     p,
-    name: p.dataset?.name || p.perspective_id,
-    concepts: (p.config?.concepts ?? []).map((c) => c.name).join(' · '),
+    name: perspectiveDisplayName(p) ?? words.unnamed,
+    concepts: (p.config?.concepts ?? [])
+      .map((c) => conceptName(c.name, c.concept_label) ?? words.sharedValue)
+      .join(' · '),
     x: LANE_HUB.x,
     y: TOP + i * (H_HUB + GAP),
     w: LANE_HUB.w,
@@ -174,8 +180,20 @@ function LaneHead({
   )
 }
 
-export function OntologyMapView({ onBack }: { onBack?: () => void }) {
+export function OntologyMapView({
+  onBack,
+  onAddData,
+  onCreateConnection,
+}: {
+  onBack?: () => void
+  /** Where the empty states send people. Both default to the hash routes the app
+   * already owns, so this view works wherever it is mounted. */
+  onAddData?: () => void
+  onCreateConnection?: () => void
+}) {
   const { t } = useTranslation()
+  const addData = onAddData ?? (() => (window.location.hash = '#/workbench'))
+  const createConnection = onCreateConnection ?? (() => (window.location.hash = '#/crosswalk/new'))
   const [data, setData] = useState<MapData | null>(null)
   const [showExternal, setShowExternal] = useState(true)
   const [selected, setSelected] = useState<string | null>(null)
@@ -207,9 +225,14 @@ export function OntologyMapView({ onBack }: { onBack?: () => void }) {
       }
     : null
 
+  const unnamed = t('crosswalk:view.unnamed')
+  const sharedValue = t('crosswalk:create.sharedValueLabel')
   const layout = useMemo(
-    () => (data ? buildLayout(data.datasets, data.perspectives, showExternal) : null),
-    [data, showExternal],
+    () =>
+      data
+        ? buildLayout(data.datasets, data.perspectives, showExternal, { unnamed, sharedValue })
+        : null,
+    [data, showExternal, unnamed, sharedValue],
   )
 
   const empty = counts && counts.ds === 0 && counts.xw === 0
@@ -283,6 +306,25 @@ export function OntologyMapView({ onBack }: { onBack?: () => void }) {
         <div className="state-block">
           <p className="state-title">{t('map:empty.title')}</p>
           <p className="state-sub">{t('map:empty.sub')}</p>
+          <div className="kz-actions">
+            <button type="button" onClick={addData}>
+              {t('map:empty.addBtn')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Data but no connections — the state the first-time reader actually lands in.
+          The middle lane would otherwise be a headline over nothing. */}
+      {layout && !empty && layout.hubs.length === 0 && (
+        <div className="state-block">
+          <p className="state-title">{t('map:noHubs.title')}</p>
+          <p className="state-sub">{t('map:noHubs.sub')}</p>
+          <div className="kz-actions">
+            <button type="button" onClick={createConnection}>
+              {t('map:noHubs.btn')}
+            </button>
+          </div>
         </div>
       )}
 
@@ -421,7 +463,9 @@ export function OntologyMapView({ onBack }: { onBack?: () => void }) {
                   <span className="ontomap-node-chip ontomap-node-chip--hub">
                     <ConnectIcon size={14} />
                   </span>
-                  <span className="ontomap-node-name">{n.name}</span>
+                  <span className="ontomap-node-name" title={n.p.perspective_id}>
+                    {n.name}
+                  </span>
                 </span>
                 {n.concepts && (
                   <span className="ontomap-hub-key">{t('map:node.crossBy', { key: n.concepts })}</span>

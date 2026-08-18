@@ -21,6 +21,11 @@ export interface CrosswalkParticipant {
   /** Compound key: one predicate per key part, keyed by part name (the participant maps
    * each part to a predicate). Used instead of ``predicate`` (compound-keys ADR). */
   predicates?: Record<string, string>
+  /** DISPLAY ONLY, added by the server when it reads the config back: the dataset's
+   * current name and the field's human label. Never part of the stored config — the
+   * saved claim is the id + the predicate IRI. */
+  name?: string
+  predicate_label?: string
 }
 
 /** One part of a (possibly compound) join key: a name + its normalizer (named or a
@@ -33,6 +38,10 @@ export interface CrosswalkKeyPart {
 
 export interface CrosswalkConcept {
   name: string
+  /** DISPLAY ONLY (see {@link CrosswalkParticipant}): the human label for what this
+   * connects on, resolved when the config is read back. Absent → the UI falls back to
+   * the key, or to "the value found in both" when the key is a minted placeholder. */
+  concept_label?: string
   class_iri?: string
   link_predicate?: string
   normalizer?: string
@@ -241,6 +250,9 @@ export interface DiscoverSample {
 export interface DiscoverCandidate {
   id: string
   concept: string
+  /** The human label for what this connects on, when the server could resolve one
+   * from the participants' designs (K8). The ascii `concept` key stays internal. */
+  concept_label?: string
   name: string
   perspective_id: string
   /** True when building this would REPLACE an existing crosswalk of the same id. */

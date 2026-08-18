@@ -13,7 +13,13 @@ import {
 } from './crosswalkApi'
 import { CrosswalkBuilder, type CrosswalkSeed } from './CrosswalkBuilder'
 import { CrosswalkCreate } from './CrosswalkCreate'
-import { conceptLabel, sameAsKey } from './crosswalkLabels'
+import {
+  conceptName,
+  crosswalkError,
+  perspectiveDisplayName,
+  sameAsKey,
+} from './crosswalkLabels'
+import { getCatalogDatasets } from './galleryApi'
 import { ArrowIcon, ConnectIcon, LayersIcon, LinkIcon } from './icons'
 import { ToolsPanel } from './ToolsPanel'
 import { knownVocabForIri, localName } from './vocab'
@@ -54,6 +60,13 @@ export function CrosswalkView({
   const [rebuilding, setRebuilding] = useState(false)
   const [rebuildErr, setRebuildErr] = useState('')
   const [note, setNote] = useState('')
+  const [skippedNote, setSkippedNote] = useState('')
+  // Bumped by "load again": a screen whose first fetch failed must be recoverable
+  // without a browser reload.
+  const [reloads, setReloads] = useState(0)
+  // dataset_id -> the dataset's CURRENT name. The saved config keeps ids + an ascii
+  // label; the screen has to show what the dataset is called today.
+  const [dsNames, setDsNames] = useState<Record<string, string>>({})
 
   function load() {
     getCrosswalks()
@@ -66,16 +79,34 @@ export function CrosswalkView({
     getCrosswalks()
       .then((ps) => !off && setPerspectives(ps))
       .catch((e) => !off && setErr(e instanceof Error ? e.message : String(e)))
+    // Names only — a failure here degrades the chips to their stored label, so it is
+    // deliberately not an error state for the screen.
+    getCatalogDatasets()
+      .then((all) => {
+        if (off) return
+        const names: Record<string, string> = {}
+        for (const d of all) {
+          names[d.id] = d.name
+          if (d.live?.meta.id) names[d.live.meta.id] = d.name
+        }
+        setDsNames(names)
+      })
+      .catch(() => undefined)
     return () => {
       off = true
     }
-  }, [])
+  }, [reloads])
 
   const list = perspectives ?? []
   const selected = list.find((p) => p.perspective_id === selectedId) ?? list[0] ?? null
 
   function pname(p: CrosswalkPerspective): string {
-    return p.dataset?.name || p.perspective_id
+    return perspectiveDisplayName(p) ?? t('crosswalk:view.unnamed')
+  }
+
+  /** A participant's dataset name (today's), falling back to the stored label. */
+  function dsName(datasetId: string, label: string): string {
+    return dsNames[datasetId] || label || datasetId
   }
 
   async function onRebuild() {
@@ -83,6 +114,7 @@ export function CrosswalkView({
     setRebuilding(true)
     setRebuildErr('')
     setNote('')
+    setSkippedNote('')
     try {
       const r = await buildPerspective(selected.perspective_id) // no config → rebuild persisted
       setNote(
@@ -91,6 +123,17 @@ export function CrosswalkView({
           count: r.participants_used.length,
         }),
       )
+      // A count that quietly shrank is the one thing people read as breakage. Say
+      // which data dropped out, and how it comes back.
+      if (r.participants_skipped.length > 0) {
+        setSkippedNote(
+          t('crosswalk:view.rebuildSkipped', {
+            names: r.participants_skipped
+              .map((s) => dsName(s.dataset_id, s.label))
+              .join(t('crosswalk:create.confirm.join')),
+          }),
+        )
+      }
       load()
     } catch (e) {
       setRebuildErr(e instanceof Error ? e.message : String(e))
@@ -98,6 +141,15 @@ export function CrosswalkView({
       setRebuilding(false)
     }
   }
+
+  // NO "stop this connection" button yet, on purpose. `POST /api/datasets/{id}/retract`
+  // looks like the wiring for it, but for a crosswalk it retracts the WRONG graph:
+  // the registry id is `crosswalk-bridge` while the data lives in
+  // `…/canonical/crosswalk`, so the marker lands on a graph that does not exist —
+  // and `list_perspectives` does not filter on status, so the "stopped" connection
+  // would still be listed AND still answer questions. A button that promises removal
+  // and delivers neither is worse than saying what is true today, so the confirm
+  // screen now promises a rebuild instead (see audit/handoff-crosswalk.md).
 
   const concepts = selected?.config?.concepts ?? []
   const participants = concepts.flatMap((c) => c.participants)
@@ -121,7 +173,12 @@ export function CrosswalkView({
         <CrosswalkCreate
           perspectives={list}
           onCancel={() => onCreateMode?.(false)}
-          onBuilt={load}
+          onBuilt={(id) => {
+            // Select what was just made: "see this connection" must not land on
+            // whichever one happened to be open before.
+            setSelectedId(id)
+            load()
+          }}
           onOpenManual={openManual}
           onAddData={onAddData}
           onOpenAsk={onOpenAsk}
@@ -155,7 +212,30 @@ export function CrosswalkView({
         )}
       </div>
 
-      {err && <pre className="error">{err}</pre>}
+      {/* A failure on the shared screen says what happened and what to do; the raw
+          HTTP/JSON stays reachable, folded, for whoever needs it. */}
+      {err && (
+        <div className="state-block">
+          <p className="state-title">{t(crosswalkError(err).title)}</p>
+          <p className="state-sub">{t(crosswalkError(err).body)}</p>
+          <div className="kz-actions">
+            <button
+              type="button"
+              onClick={() => {
+                setErr('')
+                setPerspectives(null)
+                setReloads((n) => n + 1)
+              }}
+            >
+              {t('crosswalk:view.retryBtn')}
+            </button>
+          </div>
+          <details className="kz-stop-detail">
+            <summary>{t('crosswalk:create.details')}</summary>
+            <pre className="error">{err}</pre>
+          </details>
+        </div>
+      )}
       {!perspectives && !err && (
         <p className="loading-row">
           <span className="spinner" />
@@ -242,34 +322,62 @@ export function CrosswalkView({
               </div>
               <p className="xw-summary-note">
                 {t('crosswalk:view.summary.note', {
-                  concept: concepts[0] ? conceptLabel(concepts[0].name) : '—',
+                  concept: concepts[0]
+                    ? (conceptName(concepts[0].name, concepts[0].concept_label) ??
+                      t('crosswalk:create.sharedValueLabel'))
+                    : '—',
                 })}
               </p>
 
               {concepts.map((c) => (
                 <div className="xw-concept" key={c.name}>
-                  <div className="ds-subhead">
-                    {t('crosswalk:view.conceptHead', { name: conceptLabel(c.name) })}
-                    {/* Say what counts as the same value in a sentence — a raw
-                        normalizer id ("nfkc") means nothing outside the codebase. */}
-                    <span className="xw-hint-inline">
-                      {c.key_parts && c.key_parts.length > 0
-                        ? t('crosswalk:view.compoundKeyHint', {
-                            parts: c.key_parts.map((kp) => conceptLabel(kp.name)).join(' × '),
-                          })
-                        : t(sameAsKey(c.normalizer ?? 'identity'))}
-                    </span>
+                  <div className="ds-subhead" title={c.name}>
+                    {t('crosswalk:view.conceptHead', {
+                      name:
+                        conceptName(c.name, c.concept_label) ??
+                        t('crosswalk:create.sharedValueLabel'),
+                    })}
                   </div>
+                  {/* Say what counts as the same value in a sentence — a raw
+                      normalizer id ("nfkc") means nothing outside the codebase. This
+                      IS the point of the card, so it reads as body text, not as a
+                      caption in the faintest grey the palette has. */}
+                  <p className="kz-note">
+                    {c.key_parts && c.key_parts.length > 0
+                      ? t('crosswalk:view.compoundKeyHint', {
+                          parts: c.key_parts
+                            .map(
+                              (kp) =>
+                                conceptName(kp.name) ??
+                                t('crosswalk:create.sharedValueLabel'),
+                            )
+                            .join(' × '),
+                        })
+                      : t(sameAsKey(c.normalizer ?? 'identity'))}
+                  </p>
                   <div className="xw-participants">
                     {c.participants.map((p) => {
                       // single-part = one predicate; compound = one per key part.
                       const preds = p.predicate
                         ? [p.predicate]
                         : Object.values(p.predicates ?? {})
+                      // The chip says WHICH data and WHICH field, in the words those
+                      // things have today; the IRIs and their local names stay in the
+                      // tooltip for whoever needs them.
                       return (
-                        <span key={p.dataset_id} className="xw-part-chip" title={preds.join(', ')}>
-                          <span className="xw-part-name">{p.label}</span>
-                          <code className="xw-part-pred">{preds.map(localName).join(' · ')}</code>
+                        <span
+                          key={p.dataset_id}
+                          className="xw-part-chip"
+                          title={[...preds, ...preds.map(localName)].join(', ')}
+                        >
+                          <span className="xw-part-name">
+                            {dsName(p.dataset_id, p.name || p.label)}
+                          </span>
+                          {p.predicate_label && (
+                            /* Plain text, not the mono `xw-part-pred` slot: this is a
+                               field's NAME now, not its identifier. */
+                            <span className="xw-hint-inline">{p.predicate_label}</span>
+                          )}
                         </span>
                       )
                     })}
@@ -295,10 +403,16 @@ export function CrosswalkView({
                 )}
               </div>
               {note && <p className="lifecycle-ok">{note}</p>}
+              {skippedNote && <p className="kz-note kz-caution">{skippedNote}</p>}
               {rebuildErr && (
-                <p className="promote-err">
-                  {t('crosswalk:view.rebuildErr', { detail: rebuildErr })}
-                </p>
+                <div className="state-block">
+                  <p className="state-title">{t(crosswalkError(rebuildErr).title)}</p>
+                  <p className="state-sub">{t(crosswalkError(rebuildErr).body)}</p>
+                  <details className="kz-stop-detail">
+                    <summary>{t('crosswalk:create.details')}</summary>
+                    <pre className="error">{rebuildErr}</pre>
+                  </details>
+                </div>
               )}
               </div>
 
@@ -385,8 +499,9 @@ interface PerspTerm {
   name: string
 }
 
-function perspName(p: CrosswalkPerspective): string {
-  return p.dataset?.name || p.perspective_id
+function usePerspName(): (p: CrosswalkPerspective) => string {
+  const { t } = useTranslation()
+  return (p) => perspectiveDisplayName(p) ?? t('crosswalk:view.unnamed')
 }
 
 /** A perspective's alignable terms: each concept contributes its class + its link
@@ -415,6 +530,7 @@ function alignableIris(perspectives: CrosswalkPerspective[]): Set<string> {
 
 function PerspectiveAlignment({ perspectives }: { perspectives: CrosswalkPerspective[] }) {
   const { t } = useTranslation()
+  const perspName = usePerspName()
   const relationLabel = (rel: string): string =>
     RELATION_KEYS.has(rel) ? t(`crosswalk:relation.${rel}`) : rel
   const [data, setData] = useState<AlignmentsResult | null>(null)
