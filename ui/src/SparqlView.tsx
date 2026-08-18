@@ -135,7 +135,9 @@ export function SparqlView() {
 
       {!isAsk && results && (
         <>
-          <p className="hint">{t('sparql:rows', { n: bindings.length })}</p>
+          {/* i18next picks a plural form from `count` only — `n` keeps the
+              existing {{n}} placeholders working in both locales. */}
+          <p className="hint">{t('sparql:rows', { count: bindings.length, n: bindings.length })}</p>
           <div className="table-wrap">
             <table className="jobs-table sparql-table">
               <thead>

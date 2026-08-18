@@ -1,18 +1,34 @@
 {
-  "subtitle": "A record of ingested data. A row is added every time a CSV is ingested, so you can see \"when, what, and how much\" was ingested.",
+  "subtitle": "A record of every ingest. Adding data, appending to published data, and automatic pickup from a watched folder each add one row, so you can see when, what, and how much came in.",
   "loading": "Loading history…",
   "empty": {
     "title": "No ingest records yet",
-    "sub": "Ingest data via \"Add data\" and records will appear here."
+    "sub": "Ingest data via \"Add data\" and records will appear here.",
+    "cta": "Add data"
   },
   "col": {
     "kind": "Kind",
     "status": "Status",
     "file": "File",
-    "rows": "Rows (ok/total)",
-    "triples": "triples",
+    "rows": "Rows (loaded/total)",
+    "triples": "Facts recorded",
     "endedAt": "Ingested at"
   },
-  "errCount": " (err {{n}})",
-  "loadFailed": "Could not load the ingest history: {{message}}"
+  "kind": {
+    "ingest": "Ingest",
+    "append": "Append",
+    "papers": "Automatic (papers)",
+    "samples": "Automatic (samples)",
+    "curves": "Automatic (measurements)"
+  },
+  "status": {
+    "ok": "Done",
+    "partial": "Partly failed",
+    "error": "Failed",
+    "unknown": "Unknown"
+  },
+  "errCount": " ({{n}} failed)",
+  "loadFailed": "Couldn't load the ingest history. Wait a moment, then press \"Reload\".",
+  "reload": "Reload",
+  "detailSummary": "Details (technical)"
 }

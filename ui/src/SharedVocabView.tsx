@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import { getSchema, type SchemaSummary, type SchemaTerm } from './demoApi'
 import { type CatalogDataset, getCatalogDatasets } from './galleryApi'
@@ -17,6 +17,30 @@ function schemaReuses(schema: SchemaSummary): { prefix: string; what: string }[]
 }
 
 /**
+ * Navigate without threading a callback down from App: the hash IS the router's
+ * single source of truth (App re-reads it on `hashchange`), so assigning it is a
+ * complete navigation.
+ */
+function goTo(hash: string): void {
+  if (window.location.hash !== hash) window.location.hash = hash
+}
+
+/**
+ * "hasSeebeckCoefficient" → "Has Seebeck Coefficient". Used only when a term
+ * carries no human label: a readable phrase beats a raw identifier, and the
+ * "(no name set)" mark next to it says the gap is fixable.
+ */
+function humanizeLocalName(name: string): string {
+  const spaced = name
+    .replace(/[_-]+/g, ' ')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return spaced.replace(/(^|\s)([a-z])/g, (_m, sep: string, c: string) => sep + c.toUpperCase())
+}
+
+/**
  * Shared vocabulary board (design_handoff_asterism_ux #6). The vocabulary stays
  * first-class — it is just SHARED across datasets.
  *
@@ -32,6 +56,16 @@ export function SharedVocabView({ onBack }: { onBack?: () => void }) {
   const [schema, setSchema] = useState<SchemaSummary | null>(null)
   const [schemaTried, setSchemaTried] = useState(false)
   const [loaded, setLoaded] = useState(false)
+  // Bumped by the retry button; the fetch effect re-runs on every change.
+  const [reloadKey, setReloadKey] = useState(0)
+
+  // 「もう一度読み込む」: 表示を読み込み中に戻してから取得を再実行する
+  // （state のリセットは effect の外で行う — effect 内の同期 setState は禁止）。
+  function reload() {
+    setSchemaTried(false)
+    setLoaded(false)
+    setReloadKey((k) => k + 1)
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -41,17 +75,28 @@ export function SharedVocabView({ onBack }: { onBack?: () => void }) {
       .finally(() => !cancelled && setLoaded(true))
     getSchema()
       .then((s) => !cancelled && setSchema(s))
-      .catch(() => {})
+      .catch(() => !cancelled && setSchema(null))
       .finally(() => !cancelled && setSchemaTried(true))
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [reloadKey])
 
   // Consumers = real (materialized) datasets; the fixture-free list only has
   // entries that carry a live registry record.
   const consumers = datasets.filter((d) => d.live)
   const reuses = schema ? schemaReuses(schema) : []
+  const noTerms = !!schema && schema.classes.length === 0 && schema.predicates.length === 0
+
+  // IRI → the dataset that declares it, so an unnamed term can point at the
+  // place where its name is actually set. Exact IRI match only (no guessing).
+  const owners = useMemo(() => {
+    const m = new Map<string, CatalogDataset>()
+    for (const d of datasets) {
+      for (const iri of [...d.classIris, ...d.predicates]) if (!m.has(iri)) m.set(iri, d)
+    }
+    return m
+  }, [datasets])
 
   return (
     <div className="vocab">
@@ -68,14 +113,21 @@ export function SharedVocabView({ onBack }: { onBack?: () => void }) {
         <div>
           <div className="vocab-banner-title">
             <Trans i18nKey="vocab:banner.title">
-              「設計図（ことば）」は無くなりません — <span className="vocab-banner-hl">共有</span>されるだけ
+              データをまたいで使われている<span className="vocab-banner-hl">ことば</span>
             </Trans>
           </div>
           <div className="vocab-banner-sub">
             <Trans i18nKey="vocab:banner.sub">
-              これは<strong>実データから自動で読み取ったことば</strong>です（全データセットを横断・
-              名前は各データセットの設計図から自動で反映）。揃えるほど横断検索・比較が効きます。
+              取り込んだデータから自動で集めた<strong>データの種類と項目</strong>の一覧です。
+              名前が揃っているほど、複数のデータをまたいだ質問や比較ができます。
             </Trans>
+          </div>
+          {/* この画面は見るだけ — 名前を直す場所へ送り出す（K11: 行き止まりにしない）。 */}
+          <div className="vocab-banner-sub">
+            {t('vocab:banner.fixNote')}{' '}
+            <button type="button" className="link-btn" onClick={() => goTo('#/datasets')}>
+              {t('vocab:banner.fixLink')}
+            </button>
           </div>
         </div>
       </div>
@@ -88,7 +140,14 @@ export function SharedVocabView({ onBack }: { onBack?: () => void }) {
       )}
 
       {schemaTried && !schema && (
-        <p className="ds-empty-note">{t('vocab:schemaError')}</p>
+        <>
+          <p className="error">{t('vocab:schemaError')}</p>
+          <p>
+            <button type="button" className="btn btn--sm" onClick={reload}>
+              {t('vocab:reload')}
+            </button>
+          </p>
+        </>
       )}
 
       {schema && (
@@ -97,40 +156,60 @@ export function SharedVocabView({ onBack }: { onBack?: () => void }) {
           <div className="card vocab-classes">
             <div className="vocab-card-head">
               <h3 className="card-h">{t('vocab:classesCard.title')}</h3>
-              <span className="vocab-card-meta">
-                {t('vocab:classesCard.meta', {
-                  classes: schema.classes.length,
-                  predicates: schema.predicates.length,
-                })}
-              </span>
+              {!noTerms && (
+                <span className="vocab-card-meta">
+                  {t('vocab:classesCard.meta', {
+                    classes: schema.classes.length,
+                    predicates: schema.predicates.length,
+                  })}
+                </span>
+              )}
             </div>
-            <p className="vocab-live-note">
-              <Trans i18nKey="vocab:classesCard.note1">
-                右端の数字＝実データ中の件数。<strong>データの種類は、その型のものが何件あるか</strong>、
-                <strong>項目は、何回使われているか</strong>。
-              </Trans>
-            </p>
-            <p className="vocab-live-note">
-              <Trans i18nKey="vocab:classesCard.note2">
-                ※ 数えるのは <strong>公開済み（引用できる）データのみ</strong>。
-                公開前の下書きは含みません ── 公開すると集計に入ります。
-              </Trans>
-            </p>
-            <div className="ds-subhead">{t('vocab:classesCard.classesSubhead')}</div>
-            <LiveTermList title="" terms={schema.classes} />
-            <div className="ds-subhead">{t('vocab:classesCard.predicatesSubhead')}</div>
-            <LiveTermList title="" terms={schema.predicates} limit={15} />
-            {reuses.length > 0 && (
+            {noTerms ? (
+              // 公開済みデータが 0 件の初回: 空欄を並べず、次の一手だけを出す。
               <>
-                <div className="ds-subhead">{t('vocab:classesCard.reusesSubhead')}</div>
-                <div className="ds-reuse-list">
-                  {reuses.map((r) => (
-                    <span key={r.prefix} className="reuse-chip" title={t(r.what)}>
-                      <code>{r.prefix}</code>
-                      <span className="reuse-chip-what">{t(r.what)}</span>
-                    </span>
-                  ))}
-                </div>
+                <p className="ds-empty-note">{t('vocab:classesCard.emptyAll')}</p>
+                <p>
+                  <button
+                    type="button"
+                    className="btn btn--sm"
+                    onClick={() => goTo('#/workbench')}
+                  >
+                    {t('vocab:addData')}
+                  </button>
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="vocab-live-note">
+                  <Trans i18nKey="vocab:classesCard.note1">
+                    右端の数字＝件数。<strong>データの種類は、その種類のものが何件あるか</strong>、
+                    <strong>項目は、何回使われているか</strong>。
+                  </Trans>
+                </p>
+                <p className="vocab-live-note">
+                  <Trans i18nKey="vocab:classesCard.note2">
+                    ※ 数えるのは <strong>公開済み（引用できる）データのみ</strong>。
+                    公開前の下書きは含みません ── 公開すると集計に入ります。
+                  </Trans>
+                </p>
+                <div className="ds-subhead">{t('vocab:classesCard.classesSubhead')}</div>
+                <LiveTermList title="" terms={schema.classes} owners={owners} />
+                <div className="ds-subhead">{t('vocab:classesCard.predicatesSubhead')}</div>
+                <LiveTermList title="" terms={schema.predicates} limit={15} owners={owners} />
+                {reuses.length > 0 && (
+                  <>
+                    <div className="ds-subhead">{t('vocab:classesCard.reusesSubhead')}</div>
+                    <div className="ds-reuse-list">
+                      {reuses.map((r) => (
+                        <span key={r.prefix} className="reuse-chip" title={t(r.what)}>
+                          <code>{r.prefix}</code>
+                          <span className="reuse-chip-what">{t(r.what)}</span>
+                        </span>
+                      ))}
+                    </div>
+                  </>
+                )}
               </>
             )}
           </div>
@@ -143,7 +222,18 @@ export function SharedVocabView({ onBack }: { onBack?: () => void }) {
             </div>
             <div className="vocab-user-list">
               {loaded && consumers.length === 0 && (
-                <p className="ds-empty-note">{t('vocab:usersCard.empty')}</p>
+                <div>
+                  <p className="ds-empty-note">{t('vocab:usersCard.empty')}</p>
+                  <p>
+                    <button
+                      type="button"
+                      className="btn btn--sm"
+                      onClick={() => goTo('#/workbench')}
+                    >
+                      {t('vocab:addData')}
+                    </button>
+                  </p>
+                </div>
               )}
               {consumers.map((u) => (
                 <div key={u.id} className="vocab-user">
@@ -151,7 +241,13 @@ export function SharedVocabView({ onBack }: { onBack?: () => void }) {
                     <span className="vocab-user-icon">
                       <LayersIcon size={14} />
                     </span>
-                    <span className="vocab-user-name">{u.name}</span>
+                    <button
+                      type="button"
+                      className="link-btn vocab-user-name"
+                      onClick={() => goTo(`#/datasets/${encodeURIComponent(u.id)}`)}
+                    >
+                      {u.name}
+                    </button>
                     <span className={`status-pill status-pill--${u.statusKind}`}>
                       {t(STATUS_KEY[u.statusKind])}
                     </span>
@@ -159,6 +255,10 @@ export function SharedVocabView({ onBack }: { onBack?: () => void }) {
                       {t('vocab:usersCard.classCount', { n: u.classes.length })}
                     </span>
                   </div>
+                  {/* 下書きの語は左の集計に入らない（note2）— 壊れて見えないよう理由を書く。 */}
+                  {u.statusKind === 'draft' && (
+                    <p className="ds-empty-note">{t('vocab:usersCard.draftNote')}</p>
+                  )}
                 </div>
               ))}
 
@@ -166,13 +266,7 @@ export function SharedVocabView({ onBack }: { onBack?: () => void }) {
                 <span className="vocab-caution-icon">
                   <LinkIcon size={16} />
                 </span>
-                <div>
-                  <strong>{t('vocab:usersCard.caution.title')}</strong>{' '}
-                  <Trans i18nKey="vocab:usersCard.caution.body">
-                    共有されていることばを書き換えると、それを使うデータセットすべての検索・回答に波及します。
-                    変更は<strong>影響範囲のプレビュー</strong>を見てから確定します。
-                  </Trans>
-                </div>
+                <div>{t('vocab:usersCard.caution.body')}</div>
               </div>
             </div>
           </div>
@@ -182,22 +276,60 @@ export function SharedVocabView({ onBack }: { onBack?: () => void }) {
   )
 }
 
-/** A ranked list of live classes/predicates: human label + IRI localname + count. */
-function LiveTermList({ title, terms, limit = 50 }: { title: string; terms: SchemaTerm[]; limit?: number }) {
+/** A ranked list of live classes/predicates: human label + count. */
+function LiveTermList({
+  title,
+  terms,
+  limit = 50,
+  owners,
+}: {
+  title: string
+  terms: SchemaTerm[]
+  limit?: number
+  owners?: Map<string, CatalogDataset>
+}) {
   const { t } = useTranslation()
+  const [showAll, setShowAll] = useState(false)
+  const shown = showAll ? terms : terms.slice(0, limit)
   return (
     <div className="vocab-live-col">
       {title && <div className="ds-subhead">{title}</div>}
       {terms.length === 0 && <p className="ds-empty-note">{t('vocab:termList.none')}</p>}
       <div className="vocab-live-list">
-        {terms.slice(0, limit).map((t) => (
-          <div key={t.iri} className="vocab-live-term" title={t.iri}>
-            <span className="vocab-live-label">{t.label || localName(t.iri)}</span>
-            {t.label && <code className="vocab-live-iri">{localName(t.iri)}</code>}
-            <span className="vocab-live-count">{t.count.toLocaleString()}</span>
-          </div>
-        ))}
+        {shown.map((term) => {
+          const owner = term.label ? undefined : owners?.get(term.iri)
+          return (
+            <div key={term.iri} className="vocab-live-term" title={term.iri}>
+              <span className="vocab-live-label">
+                {term.label || humanizeLocalName(localName(term.iri))}
+              </span>
+              {!term.label && (
+                <>
+                  <span className="hint">{t('vocab:termList.unnamed')}</span>
+                  {owner && (
+                    <button
+                      type="button"
+                      className="link-btn"
+                      onClick={() => goTo(`#/datasets/${encodeURIComponent(owner.id)}/design`)}
+                    >
+                      {t('vocab:termList.owner')}
+                    </button>
+                  )}
+                </>
+              )}
+              <span className="vocab-live-count">{term.count.toLocaleString()}</span>
+            </div>
+          )
+        })}
       </div>
+      {terms.length > limit && (
+        <p className="ds-empty-note">
+          {!showAll && <>{t('vocab:termList.more', { n: terms.length - limit })} </>}
+          <button type="button" className="link-btn" onClick={() => setShowAll((v) => !v)}>
+            {showAll ? t('vocab:termList.showLess') : t('vocab:termList.showAll')}
+          </button>
+        </p>
+      )}
     </div>
   )
 }
