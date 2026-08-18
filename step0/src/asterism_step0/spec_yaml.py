@@ -65,6 +65,34 @@ def load_spec_yaml(text: str) -> Any:
     return yaml.load(text, Loader=_loader_class())
 
 
+# YAML 1.1 boolean spellings. The loader above deliberately does NOT resolve
+# these (a column named ``No`` must stay a string), so the few fields that are
+# genuinely booleans accept them here instead — see :func:`coerce_bool`.
+_TRUE_WORDS = frozenset({"true", "yes", "on", "y"})
+_FALSE_WORDS = frozenset({"false", "no", "off", "n"})
+
+
+def coerce_bool(value: Any) -> bool | None:
+    """A boolean-typed IR field's value, or None when it is not boolean at all.
+
+    Accepts the YAML 1.1 spellings (``yes/no/on/off/y/n``, any case) that
+    :func:`load_spec_yaml` intentionally leaves as strings. Without this, moving
+    to YAML 1.2 would turn ``collapse: no`` — unambiguous in the author's intent
+    and silently accepted before — into a fresh design issue, costing an LLM
+    round to fix punctuation. Column names stay strings; only fields declared
+    boolean go through here.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        word = value.strip().lower()
+        if word in _TRUE_WORDS:
+            return True
+        if word in _FALSE_WORDS:
+            return False
+    return None
+
+
 def describe_bare_scalar(value: Any) -> str:
     """How to tell a model (or a human) that a bare YAML scalar was read as a
     non-string — with the quoted form that fixes it. Empty for strings/None
