@@ -567,6 +567,69 @@ def test_iter_rows_broadcast_keyvalue_dedupes_and_links() -> None:
     assert {r[no_idx] for r in rows[1:]} == {"03-065-2664"}
 
 
+def test_broadcast_preamble_names_renames_lines_mode(tmp_path: Path) -> None:
+    # A person's chosen name replaces the machine invention preamble_1 in the
+    # broadcast header — the invented name never reaches the design/RML/public
+    # column name.
+    p = _write_cp932_xrd(tmp_path / "m.txt", data_rows=2)
+    dialect = SourceDialect(
+        encoding="cp932",
+        delimiter="\t",
+        skip_rows=1,
+        preamble="lines",
+        preamble_names={"preamble_1": "試料名"},
+    )
+    rows = list(iter_rows(p, dialect))
+    assert rows[0] == ["2θ (deg)", "強度 (cps)", "試料名"]
+    assert "preamble_1" not in rows[0]
+
+
+def test_broadcast_preamble_names_collision_suffixes_meta_only(tmp_path: Path) -> None:
+    # A human-chosen name that collides with a body column is suffixed on the
+    # META side (resolve_header) — the body column is NEVER renamed.
+    p = _write_cp932_xrd(tmp_path / "m.txt", data_rows=2)
+    dialect = SourceDialect(
+        encoding="cp932",
+        delimiter="\t",
+        skip_rows=1,
+        preamble="lines",
+        preamble_names={"preamble_1": "2θ (deg)"},
+    )
+    rows = list(iter_rows(p, dialect))
+    assert rows[0] == ["2θ (deg)", "強度 (cps)", "2θ (deg)_2"]
+
+
+def test_broadcast_preamble_names_blank_override_keeps_machine_name(tmp_path: Path) -> None:
+    # An empty/whitespace-only override is how a person says "not yet named" —
+    # it must NOT blank out the column; the machine name is kept.
+    p = _write_cp932_xrd(tmp_path / "m.txt", data_rows=2)
+    dialect = SourceDialect(
+        encoding="cp932",
+        delimiter="\t",
+        skip_rows=1,
+        preamble="lines",
+        preamble_names={"preamble_1": "   "},
+    )
+    rows = list(iter_rows(p, dialect))
+    assert rows[0] == ["2θ (deg)", "強度 (cps)", "preamble_1"]
+
+
+def test_broadcast_preamble_names_keyvalue_mode(tmp_path: Path) -> None:
+    # A file-supplied name (not just a machine invention) is equally renameable.
+    p = _write_icdd_card_full(tmp_path / "card.txt", data_rows=2)
+    dialect = SourceDialect(
+        encoding="utf-8-sig",
+        delimiter=WHITESPACE,
+        skip_rows=23,
+        preamble="keyvalue",
+        preamble_names={"No": "カード番号"},
+    )
+    rows = list(iter_rows(p, dialect))
+    header = rows[0]
+    assert "カード番号" in header
+    assert "No" not in header
+
+
 def test_iter_rows_drop_is_byte_identical_to_today(tmp_path: Path) -> None:
     # The drop path (default) must be untouched by the broadcast machinery.
     p = _write_cp932_xrd(tmp_path / "m.txt", data_rows=4)
@@ -595,6 +658,26 @@ def test_describe_and_ir_fields_carry_preamble() -> None:
     }
     # Default preamble is never emitted (byte-equivalence for a clean dialect).
     assert "preamble" not in dialect_ir_fields(SourceDialect(delimiter="\t"))
+
+
+def test_ir_fields_carry_preamble_names_only_when_non_empty() -> None:
+    # An empty preamble_names never adds a key (byte-equivalence for a clean
+    # dialect / a dialect whose person has not renamed anything yet).
+    d_empty = SourceDialect(skip_rows=23, preamble="keyvalue")
+    assert "preamble_names" not in dialect_ir_fields(d_empty)
+    assert "preamble_names" not in dialect_ir_fields(d_empty, full=True)
+
+    d_named = SourceDialect(
+        skip_rows=23, preamble="keyvalue", preamble_names={"No": "カード番号"}
+    )
+    assert dialect_ir_fields(d_named)["preamble_names"] == {"No": "カード番号"}
+    assert dialect_ir_fields(d_named, full=True)["preamble_names"] == {"No": "カード番号"}
+
+    # preamble_names on a "drop" dialect is meaningless (nothing is broadcast)
+    # and must never be emitted, matching the preamble field itself.
+    d_drop = SourceDialect(preamble_names={"No": "カード番号"})
+    assert "preamble_names" not in dialect_ir_fields(d_drop)
+    assert "preamble_names" not in dialect_ir_fields(d_drop, full=True)
 
 
 def _tmpdir() -> str:
@@ -676,6 +759,23 @@ def test_iter_rows_broadcast_keyvalue_cells_cr_mixed(tmp_path: Path) -> None:
     assert rows[0] == ["T(C)", "Rho(Ohm m)", "preamble_1", "T.C.type", "Distance"]
     assert rows[1] == ["3.6E+1", "1.2E-6", "Al3V-SPS-2", "K", "620.000000E-3"]
     assert len(rows) == 3
+
+
+def test_broadcast_preamble_names_keyvalue_cells_mode(tmp_path: Path) -> None:
+    src = tmp_path / "zem.txt"
+    src.write_bytes(
+        b"Al3V-SPS-2\tT.C.type=K\tDistance=620.000000E-3\t\r"
+        + b"T(C)\tRho(Ohm m)\r"
+        + b"3.6E+1\t1.2E-6\r\n"
+    )
+    dialect = SourceDialect(
+        delimiter="\t",
+        skip_rows=1,
+        preamble="keyvalue_cells",
+        preamble_names={"preamble_1": "試料名", "T.C.type": "熱電対タイプ"},
+    )
+    rows = list(iter_rows(src, dialect))
+    assert rows[0] == ["T(C)", "Rho(Ohm m)", "試料名", "熱電対タイプ", "Distance"]
 
 
 def test_a_large_file_whose_tail_alone_is_shift_jis_is_still_read(tmp_path) -> None:

@@ -28,7 +28,7 @@ import csv
 import io
 import re
 from collections.abc import Iterator, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -105,6 +105,16 @@ class SourceDialect:
     collapse: bool = False  # treat consecutive delimiters as one
     skip_rows: int = 0  # lines before the header row (preamble)
     preamble: str = "drop"  # one of PREAMBLE_MODES — how to treat the preamble
+    preamble_names: dict[str, str] = field(default_factory=dict)
+    """Machine-invented/file-parsed preamble column name → human-chosen name
+    (ADR source-dialect.md, "Header metadata"). Applied AFTER
+    :func:`read_preamble` (never inside it — that function's ordering/dedup
+    rules are pinned by a property test against :func:`read_preamble_origins`),
+    in :func:`_broadcast_rows`, so a renamed key still competes for collisions
+    against the body header exactly like the machine name would have
+    (:func:`resolve_header` never renames body columns). A missing key, or a
+    blank/whitespace-only override, leaves the machine name untouched — an
+    empty override is how a person says "not yet named"."""
 
 
 _DEFAULT_DIALECT = SourceDialect()
@@ -509,6 +519,24 @@ def read_preamble_origins(
     return origins
 
 
+def _apply_preamble_names(meta_names: list[str], preamble_names: Mapping[str, str]) -> list[str]:
+    """Rename ``meta_names`` (already produced by :func:`read_preamble`) through
+    the human-chosen ``preamble_names`` overrides. A missing key, or an override
+    that is empty/whitespace-only, leaves the machine name untouched — renaming
+    happens strictly AFTER ``read_preamble`` so its naming/dedup order stays the
+    single source of truth (:func:`read_preamble_origins` pins it)."""
+    if not preamble_names:
+        return meta_names
+    out = []
+    for name in meta_names:
+        override = preamble_names.get(name)
+        if override is not None and override.strip():
+            out.append(override)
+        else:
+            out.append(name)
+    return out
+
+
 def resolve_header(body_names: list[str], meta_names: list[str]) -> list[str]:
     """Resolve the broadcast META column names against the body header.
 
@@ -584,7 +612,7 @@ def _broadcast_rows(path: Path | str, dialect: SourceDialect) -> Iterator[list[s
                 break
             preamble_lines.append(line)
         meta = read_preamble(preamble_lines, dialect.preamble, delimiter=dialect.delimiter)
-        meta_names = [name for name, _ in meta]
+        meta_names = _apply_preamble_names([name for name, _ in meta], dialect.preamble_names)
         meta_values = [value for _, value in meta]
         body = _body_tokens(fh, dialect)
         header = next(body, None)
@@ -678,13 +706,16 @@ def dialect_ir_fields(dialect: SourceDialect, *, full: bool = False) -> dict[str
     compiler still emits only non-default annotations, so the extra IR fields never
     change the compiled artifact."""
     if full:
-        return {
+        out_full: dict[str, Any] = {
             "encoding": dialect.encoding,
             "delimiter": dialect.delimiter,
             "collapse": dialect.collapse,
             "skip_rows": dialect.skip_rows,
             "preamble": dialect.preamble,
         }
+        if dialect.preamble != "drop" and dialect.preamble_names:
+            out_full["preamble_names"] = dict(dialect.preamble_names)
+        return out_full
     out: dict[str, Any] = {}
     if dialect.encoding != "utf-8-sig":
         out["encoding"] = dialect.encoding
@@ -696,6 +727,8 @@ def dialect_ir_fields(dialect: SourceDialect, *, full: bool = False) -> dict[str
         out["skip_rows"] = dialect.skip_rows
     if dialect.preamble != "drop":
         out["preamble"] = dialect.preamble
+        if dialect.preamble_names:
+            out["preamble_names"] = dict(dialect.preamble_names)
     return out
 
 

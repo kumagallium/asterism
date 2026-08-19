@@ -27,6 +27,7 @@ deterministic (stable ordering, no timestamps) so golden tests can pin it.
 """
 from __future__ import annotations
 
+import json
 import re
 
 from asterism_step0.dialect import SourceDialect
@@ -131,6 +132,9 @@ def _dialect_annotations(dialect: SourceDialect) -> list[str]:
         out.append(f"ast:sourceSkipRows {dialect.skip_rows}")
     if dialect.preamble != "drop":
         out.append(f"ast:sourcePreamble {_turtle_string(dialect.preamble)}")
+        if dialect.preamble_names:
+            names_json = json.dumps(dialect.preamble_names, sort_keys=True, ensure_ascii=False)
+            out.append(f"ast:sourcePreambleNames {_turtle_string(names_json)}")
     return out
 
 

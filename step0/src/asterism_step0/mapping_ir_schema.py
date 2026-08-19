@@ -124,6 +124,10 @@ def _dialects_schema() -> dict:
                     "type": "string",
                     "enum": ["drop", "keyvalue", "lines", "keyvalue_cells"],
                 },
+                "preamble_names": {
+                    "type": "object",
+                    "additionalProperties": _string(),
+                },
             },
         },
     }

@@ -363,6 +363,61 @@ def test_dialect_rows_broadcast_lines(tmp_path: Path) -> None:
     ]
 
 
+def test_dialect_rows_broadcast_preamble_names_renames(tmp_path: Path) -> None:
+    src = tmp_path / "m.txt"
+    lines = ["Al3V_bulk", "2theta\tintensity", "20.0\t3600"]
+    src.write_bytes("\r\n".join(lines).encode("cp932") + b"\r\n")
+    rows = list(
+        dialect_rows(
+            src,
+            SourceDialect(
+                encoding="cp932",
+                delimiter="\t",
+                skip_rows=1,
+                preamble="lines",
+                preamble_names={"preamble_1": "試料名"},
+            ),
+        )
+    )
+    assert rows[0] == ["2theta", "intensity", "試料名"]
+    assert "preamble_1" not in rows[0]
+
+
+def test_dialect_rows_broadcast_preamble_names_collision_and_blank(tmp_path: Path) -> None:
+    src = tmp_path / "m.txt"
+    lines = ["Al3V_bulk", "2theta\tintensity", "20.0\t3600"]
+    src.write_bytes("\r\n".join(lines).encode("cp932") + b"\r\n")
+    # A human name colliding with a body column is suffixed on the META side
+    # only — the body column keeps its exact name.
+    collided = list(
+        dialect_rows(
+            src,
+            SourceDialect(
+                encoding="cp932",
+                delimiter="\t",
+                skip_rows=1,
+                preamble="lines",
+                preamble_names={"preamble_1": "2theta"},
+            ),
+        )
+    )
+    assert collided[0] == ["2theta", "intensity", "2theta_2"]
+    # A blank/whitespace-only override leaves the machine name untouched.
+    blank = list(
+        dialect_rows(
+            src,
+            SourceDialect(
+                encoding="cp932",
+                delimiter="\t",
+                skip_rows=1,
+                preamble="lines",
+                preamble_names={"preamble_1": "  "},
+            ),
+        )
+    )
+    assert blank[0] == ["2theta", "intensity", "preamble_1"]
+
+
 def test_normalize_broadcast_keyvalue_card(tmp_path: Path) -> None:
     """The ICDD card, broadcast: the preamble metadata is appended AFTER the body
     columns and constant across every d-I row → a wide flat CSV morph-kgc reads."""
@@ -388,6 +443,25 @@ def test_normalize_broadcast_keyvalue_card(tmp_path: Path) -> None:
     no_col = header.index("No")
     assert all(row.split(",")[no_col] == "03-065-2664" for row in out[1:])
     assert len(out) == 1 + 2
+
+
+def test_normalize_broadcast_keyvalue_card_preamble_names_renames(tmp_path: Path) -> None:
+    src = tmp_path / "card.txt"
+    body = ["2theta   d      I    (hkl)", "27.556   3.2340  100  (200)"]
+    src.write_text("\r\n".join([*_CARD_PREAMBLE, *body]) + "\r\n", encoding="utf-8")
+    dest = normalize_source(
+        src,
+        SourceDialect(
+            delimiter="whitespace",
+            skip_rows=12,
+            preamble="keyvalue",
+            preamble_names={"No": "カード番号"},
+        ),
+        tmp_path / "out.csv",
+    )
+    header = _read_rows(dest)[0].split(",")
+    assert "カード番号" in header
+    assert "No" not in header
 
 
 def test_dialect_rows_drop_is_byte_identical(tmp_path: Path) -> None:
@@ -429,6 +503,96 @@ def test_dialects_from_mapping_rejects_bad_preamble() -> None:
         dialects_from_mapping(g)
 
 
+def test_dialects_from_mapping_reads_preamble_names() -> None:
+    g = rdflib.Graph()
+    g.parse(
+        data=(
+            "@prefix rml: <http://w3id.org/rml/> .\n"
+            "@prefix ast: <https://kumagallium.github.io/asterism/vocab#> .\n"
+            '[] rml:source "m.txt" ; ast:sourceSkipRows 1 ; ast:sourcePreamble "lines" ;\n'
+            '   ast:sourcePreambleNames "{\\"preamble_1\\": \\"\\u8a66\\u6599\\u540d\\"}" .\n'
+        ),
+        format="turtle",
+    )
+    (d,) = dialects_from_mapping(g).values()
+    assert d.preamble_names == {"preamble_1": "試料名"}
+
+
+def test_dialects_from_mapping_rejects_bad_preamble_names_json() -> None:
+    g = rdflib.Graph()
+    g.parse(
+        data=(
+            "@prefix rml: <http://w3id.org/rml/> .\n"
+            "@prefix ast: <https://kumagallium.github.io/asterism/vocab#> .\n"
+            '[] rml:source "m.txt" ; ast:sourcePreamble "lines" ;\n'
+            '   ast:sourcePreambleNames "not json" .\n'
+        ),
+        format="turtle",
+    )
+    with pytest.raises(DialectAnnotationError, match="sourcePreambleNames"):
+        dialects_from_mapping(g)
+
+
+def test_dialects_from_mapping_rejects_non_object_preamble_names() -> None:
+    g = rdflib.Graph()
+    g.parse(
+        data=(
+            "@prefix rml: <http://w3id.org/rml/> .\n"
+            "@prefix ast: <https://kumagallium.github.io/asterism/vocab#> .\n"
+            '[] rml:source "m.txt" ; ast:sourcePreamble "lines" ;\n'
+            '   ast:sourcePreambleNames "[1, 2]" .\n'
+        ),
+        format="turtle",
+    )
+    with pytest.raises(DialectAnnotationError, match="sourcePreambleNames"):
+        dialects_from_mapping(g)
+
+
+def test_dialect_rml_round_trip_preserves_preamble_names(tmp_path: Path) -> None:
+    """The full design → RML → ingest round trip: a human-chosen preamble name
+    compiled by the design-side compiler is read back byte-for-byte by the
+    runtime twin's ``dialects_from_mapping`` — and the runtime broadcast path
+    then puts the human name (not the machine invention) into the header."""
+    from asterism_step0.mapping_ir import parse_mapping_ir
+    from asterism_step0.rml_compile import compile_mapping_ir
+
+    ir_yaml = """\
+version: 1
+prefixes:
+  ex: "https://example.org/ns#"
+  exr: "https://example.org/r/"
+dialects:
+  "m.txt":
+    encoding: cp932
+    delimiter: "\\t"
+    skip_rows: 1
+    preamble: lines
+    preamble_names: {"preamble_1": "試料名"}
+maps:
+  - name: point
+    source: m.txt
+    subject:
+      template: "exr:point/{angle}"
+      classes: [ex:Point]
+    properties:
+      - predicate: ex:intensity
+        column: intensity
+"""
+    ttl = compile_mapping_ir(parse_mapping_ir(ir_yaml))
+    g = rdflib.Graph()
+    g.parse(data=ttl, format="turtle")
+    dialects = dialects_from_mapping(g)
+    (d,) = dialects.values()
+    assert d.preamble_names == {"preamble_1": "試料名"}
+
+    src = tmp_path / "m.txt"
+    lines = ["サンプル名: 試料A", "2θ (deg)\t強度 (cps)", "10.02\t123"]
+    src.write_bytes("\r\n".join(lines).encode("cp932") + b"\r\n")
+    rows = list(dialect_rows(src, d))
+    assert rows[0] == ["2θ (deg)", "強度 (cps)", "試料名"]
+    assert "preamble_1" not in rows[0]
+
+
 def test_read_preamble_twin_parity_keyvalue_cells() -> None:
     # The ZEM-style meta line: TAB-separated cells, a bare sample name leading,
     # key=value cells, trailing empty cell dropped. Must match the design twin.
@@ -466,3 +630,20 @@ def test_dialect_rows_broadcast_keyvalue_cells_cr_mixed(tmp_path: Path) -> None:
     text = out.read_text(encoding="utf-8")
     assert "preamble_1" in text.splitlines()[0]
     assert text.count("Al3V-SPS-2") == 2  # broadcast onto both data rows
+
+
+def test_dialect_rows_broadcast_keyvalue_cells_preamble_names_renames(tmp_path: Path) -> None:
+    src = tmp_path / "zem.txt"
+    src.write_bytes(
+        b"Al3V-SPS-2\tT.C.type=K\tDistance=620.000000E-3\t\r"
+        + b"T(C)\tRho(Ohm m)\r"
+        + b"3.6E+1\t1.2E-6\r\n"
+    )
+    dialect = SourceDialect(
+        delimiter="\t",
+        skip_rows=1,
+        preamble="keyvalue_cells",
+        preamble_names={"preamble_1": "試料名", "T.C.type": "熱電対タイプ"},
+    )
+    rows = list(dialect_rows(src, dialect))
+    assert rows[0] == ["T(C)", "Rho(Ohm m)", "試料名", "熱電対タイプ", "Distance"]

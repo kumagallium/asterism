@@ -19,7 +19,7 @@ from __future__ import annotations
 import csv
 import re
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 # The asterism vocab namespace (same IRI as ``asterism.substrate.ASTERISM_NS``;
@@ -34,6 +34,7 @@ SOURCE_DELIMITER_PREDICATE: str = ASTERISM_NS + "sourceDelimiter"
 SOURCE_COLLAPSE_PREDICATE: str = ASTERISM_NS + "sourceCollapse"
 SOURCE_SKIP_ROWS_PREDICATE: str = ASTERISM_NS + "sourceSkipRows"
 SOURCE_PREAMBLE_PREDICATE: str = ASTERISM_NS + "sourcePreamble"
+SOURCE_PREAMBLE_NAMES_PREDICATE: str = ASTERISM_NS + "sourcePreambleNames"
 
 DIALECT_PREDICATES: tuple[str, ...] = (
     SOURCE_ENCODING_PREDICATE,
@@ -41,6 +42,7 @@ DIALECT_PREDICATES: tuple[str, ...] = (
     SOURCE_COLLAPSE_PREDICATE,
     SOURCE_SKIP_ROWS_PREDICATE,
     SOURCE_PREAMBLE_PREDICATE,
+    SOURCE_PREAMBLE_NAMES_PREDICATE,
 )
 
 # The closed set of preamble-handling modes (ADR source-dialect.md, "Header
@@ -271,6 +273,25 @@ def read_preamble_origins(
     return origins
 
 
+def _apply_preamble_names(meta_names: list[str], preamble_names: dict[str, str]) -> list[str]:
+    """Rename ``meta_names`` (already produced by :func:`read_preamble`) through
+    the human-chosen ``preamble_names`` overrides. A missing key, or an override
+    that is empty/whitespace-only, leaves the machine name untouched — renaming
+    happens strictly AFTER ``read_preamble`` so its naming/dedup order stays the
+    single source of truth (:func:`read_preamble_origins` pins it). Shared
+    verbatim with the design-side twin."""
+    if not preamble_names:
+        return meta_names
+    out = []
+    for name in meta_names:
+        override = preamble_names.get(name)
+        if override is not None and override.strip():
+            out.append(override)
+        else:
+            out.append(name)
+    return out
+
+
 def resolve_header(body_names: list[str], meta_names: list[str]) -> list[str]:
     """Resolve the broadcast META column names against the body header.
 
@@ -316,6 +337,16 @@ class SourceDialect:
     collapse: bool = False  # treat consecutive delimiters as one
     skip_rows: int = 0  # lines before the header row (preamble)
     preamble: str = "drop"  # one of PREAMBLE_MODES — how to treat the preamble
+    preamble_names: dict[str, str] = field(default_factory=dict)
+    """Machine-invented/file-parsed preamble column name → human-chosen name
+    (ADR source-dialect.md, "Header metadata"). Applied AFTER
+    :func:`read_preamble` (never inside it — that function's ordering/dedup
+    rules are pinned by a property test against :func:`read_preamble_origins`),
+    in :func:`_broadcast_rows`, so a renamed key still competes for collisions
+    against the body header exactly like the machine name would have
+    (:func:`resolve_header` never renames body columns). A missing key, or a
+    blank/whitespace-only override, leaves the machine name untouched — an
+    empty override is how a person says "not yet named"."""
 
 
 DEFAULT_DIALECT = SourceDialect()
@@ -404,7 +435,7 @@ def _broadcast_rows(src: Path | str, dialect: SourceDialect) -> Iterator[list[st
                 break
             preamble_lines.append(line)
         meta = read_preamble(preamble_lines, dialect.preamble, delimiter=dialect.delimiter)
-        meta_names = [name for name, _ in meta]
+        meta_names = _apply_preamble_names([name for name, _ in meta], dialect.preamble_names)
         meta_values = [value for _, value in meta]
         body = _body_tokens(fh, dialect)
         header = next(body, None)
@@ -547,6 +578,25 @@ def dialects_from_mapping(graph) -> dict[str, SourceDialect]:
                     f"{', '.join(sorted(PREAMBLE_MODES))} (got {mode!r})."
                 )
             values["preamble"] = mode
+        preamble_names = next(graph.objects(ls, uri(SOURCE_PREAMBLE_NAMES_PREDICATE)), None)
+        if preamble_names is not None:
+            import json
+
+            raw_text = str(preamble_names)
+            try:
+                parsed = json.loads(raw_text)
+            except json.JSONDecodeError as exc:
+                raise DialectAnnotationError(
+                    f"{where}: ast:sourcePreambleNames is not valid JSON ({raw_text!r})."
+                ) from exc
+            if not isinstance(parsed, dict) or not all(
+                isinstance(k, str) and isinstance(v, str) for k, v in parsed.items()
+            ):
+                raise DialectAnnotationError(
+                    f"{where}: ast:sourcePreambleNames must be a JSON object of "
+                    f"{{string: string}} (got {raw_text!r})."
+                )
+            values["preamble_names"] = parsed
         for name in names:
             out[name] = SourceDialect(**values)  # type: ignore[arg-type]
     return out

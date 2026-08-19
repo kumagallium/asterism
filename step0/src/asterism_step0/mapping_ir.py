@@ -404,7 +404,7 @@ _PROPERTY_KEYS = (
 )
 _MAP_KEYS = ("name", "source", "iterator", "subject", "properties")
 _TOP_KEYS = ("version", "prefixes", "maps", "dialects")
-_DIALECT_KEYS = ("encoding", "delimiter", "collapse", "skip_rows", "preamble")
+_DIALECT_KEYS = ("encoding", "delimiter", "collapse", "skip_rows", "preamble", "preamble_names")
 
 # Property fields that belong DIRECTLY under `predicate`. A weak model (observed
 # live on guided-off providers, where the JSON schema is not enforced) sometimes
@@ -849,12 +849,23 @@ def _parse_dialects(
                 f"skip_rows is 0 — there is no preamble block to read (set skip_rows to "
                 f"the number of preamble lines, or preamble to drop)."
             )
+        preamble_names_raw = fields_raw.get("preamble_names", {})
+        preamble_names: dict[str, str] = {}
+        if not isinstance(preamble_names_raw, Mapping):
+            issues.append(f"{where}.preamble_names must be a mapping of {{name: name}}.")
+        else:
+            for k, v in preamble_names_raw.items():
+                if not isinstance(k, str) or not isinstance(v, str):
+                    issues.append(f"{where}.preamble_names must map strings to strings.")
+                    continue
+                preamble_names[k] = v
         out[fname_s] = SourceDialect(
             encoding=encoding,
             delimiter=delimiter,
             collapse=collapse,
             skip_rows=skip_rows,
             preamble=preamble,
+            preamble_names=preamble_names,
         )
     return out
 

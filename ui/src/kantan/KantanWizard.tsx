@@ -64,6 +64,7 @@ import {
   fetchDatasetProposal,
   fetchSourceSamples,
   type ColumnOrigin,
+  type PreambleColumn,
   saveDisplayMeta,
   selectStagingSources,
   stageSources,
@@ -1975,6 +1976,32 @@ export function KantanWizard({
   // How many of the two S2 questions this file actually raises — the lead line
   // states this number instead of always promising two (KZ-A-11).
   const askCount = (q1Needed ? 1 : 0) + (q2Needed ? 1 : 0) + (q3Needed ? 1 : 0)
+
+  /** Preamble lines the reader would have to NAME itself, per source — the ones
+   *  with no `key:` of their own. Asked here, at the moment the column is
+   *  created and with the raw line on screen, because the name otherwise rides
+   *  all the way into the design, the IRIs and the published property name, and
+   *  by the time anyone sees it there is nothing left to recognise (K21). Only
+   *  when the person chose to keep the preamble — there is no column otherwise. */
+  const unnamedPreamble: [string, PreambleColumn[]][] =
+    q1 === 'keep'
+      ? Object.entries(inspection?.preambleColumns ?? {})
+          .map(([source, cols]): [string, PreambleColumn[]] => [
+            source,
+            cols.filter((c) => !c.named),
+          ])
+          .filter(([source, cols]) => cols.length > 0 && (dialectFor(source).skip_rows ?? 0) > 0)
+      : []
+
+  /** Record what the person called one preamble column. Blank clears it (back to
+   *  the machine name) — "I do not know" has to stay answerable. */
+  function namePreambleColumn(canonical: string, machineName: string, raw: string) {
+    const names = { ...(dialectFor(canonical).preamble_names ?? {}) }
+    const value = raw.trim()
+    if (value) names[machineName] = value
+    else delete names[machineName]
+    applyDialectFix(canonical, { preamble_names: names })
+  }
 
   function answerQ1(a: Q1Answer) {
     setQ1(a)
@@ -5089,6 +5116,43 @@ export function KantanWizard({
                   {t('kantan:s2.q1No')}
                 </button>
               </div>
+              {/* A preamble line with no `key:` of its own has no name, so the
+                  reader invents one (`preamble_1`). Ask for the real one HERE,
+                  with the line itself on screen: after this point the invented
+                  name is a column, then a predicate, then a published property
+                  name, and the person is being asked about a word that appears
+                  nowhere in their file (live 2026-08-20, K21). Optional — blank
+                  keeps the machine name, and the column-meaning screen still
+                  shows where the value came from. */}
+              {unnamedPreamble.length > 0 && (
+                <div className="kz-preamble-naming">
+                  <p className="kz-q-text">{t('kantan:s2.nameValuesTitle')}</p>
+                  <p className="kz-note">{t('kantan:s2.nameValuesNote')}</p>
+                  {unnamedPreamble.map(([source, cols]) => (
+                    <div key={source} className="kz-preamble-evi">
+                      {unnamedPreamble.length > 1 && (
+                        <div className="kz-preamble-name">{source}</div>
+                      )}
+                      {cols.map((c) => (
+                        <div key={c.name} className="kz-preamble-row">
+                          <code className="kz-preamble-value">{c.text}</code>
+                          <input
+                            type="text"
+                            className="kz-cols-input"
+                            defaultValue={dialectFor(source).preamble_names?.[c.name] ?? ''}
+                            placeholder={t('kantan:s2.nameValuesPlaceholder')}
+                            aria-label={t('kantan:s2.nameValuesAria', { line: c.line })}
+                            onBlur={(e) => namePreambleColumn(source, c.name, e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') e.currentTarget.blur()
+                            }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
           {q2Needed && (

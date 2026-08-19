@@ -1920,6 +1920,36 @@ def _column_samples(inspections: list) -> dict[str, dict[str, list[str]]]:
     return out
 
 
+def _read_source_preamble_origins(path: Path, dialect: SourceDialect, *, log_tag: str) -> list:
+    """Read ``path``'s first ``dialect.skip_rows`` lines and return their
+    :class:`~asterism_step0.dialect.PreambleOrigin` provenance (:func:`read_preamble_origins`).
+
+    The single place both :func:`_preamble_column_origins` (the post-attach
+    "which column came from where" answer) and :func:`_preamble_header_json`
+    (the pre-attach /api/inspect answer) read a file's preamble lines and hand
+    them to ``read_preamble_origins`` — so the file-open, decode-error, and
+    "no preamble to read" handling exist in exactly one place. Best-effort: an
+    unreadable file logs (tagged ``log_tag`` so the two callers' log lines stay
+    distinguishable) and answers ``[]`` rather than raising.
+    """
+    if dialect.preamble == "drop" or dialect.skip_rows <= 0:
+        return []
+    from asterism_step0.dialect import read_preamble_origins
+
+    try:
+        with path.open(encoding=dialect.encoding, newline="") as fh:
+            preamble_lines: list[str] = []
+            for _ in range(dialect.skip_rows):
+                line = fh.readline()
+                if not line:
+                    break
+                preamble_lines.append(line)
+    except OSError:
+        logger.warning("%s: %s could not be read", log_tag, path.name)
+        return []
+    return read_preamble_origins(preamble_lines, dialect.preamble, delimiter=dialect.delimiter)
+
+
 def _preamble_column_origins(
     path: Path, dialect: SourceDialect, resolved_columns: list[str]
 ) -> dict[str, dict[str, object]]:
@@ -1940,24 +1970,11 @@ def _preamble_column_origins(
     column count that does not line up with what :func:`read_preamble_origins`
     reports, answers ``{}`` rather than mislabeling a column or raising.
     """
-    if dialect.preamble == "drop" or dialect.skip_rows <= 0:
-        return {}
-    from asterism_step0.dialect import read_preamble_origins, resolve_header
-
-    try:
-        with path.open(encoding=dialect.encoding, newline="") as fh:
-            preamble_lines: list[str] = []
-            for _ in range(dialect.skip_rows):
-                line = fh.readline()
-                if not line:
-                    break
-                preamble_lines.append(line)
-    except OSError:
-        logger.warning("source origins: %s could not be read", path.name)
-        return {}
-    origins = read_preamble_origins(preamble_lines, dialect.preamble, delimiter=dialect.delimiter)
+    origins = _read_source_preamble_origins(path, dialect, log_tag="source origins")
     if not origins:
         return {}
+    from asterism_step0.dialect import resolve_header
+
     n_body = len(resolved_columns) - len(origins)
     if n_body < 0:
         # The inspection's column count does not match what read_preamble_origins
@@ -1986,6 +2003,61 @@ def _samples_header_json(inspections: list) -> str:
     own preview): a partial answer here would silently hide columns.
     """
     payload = json.dumps(_column_samples(inspections), separators=(",", ":"))
+    return payload if len(payload) <= _SAMPLES_HEADER_BUDGET else "{}"
+
+
+def _preamble_header_json(inspections: list, paths: list[Path]) -> str:
+    """Compact JSON for the ``X-Asterism-Preamble`` response header of /api/inspect.
+
+    The "read check" screen (S2) is where a preamble line first becomes visible
+    to a human — and the only moment before ``preamble_1`` gets baked into the
+    design, the IRI, and the published item name. Answering "what would each
+    dropped-preamble line become if I choose to record it" here means the
+    screen can offer that choice instead of the machine-invented name silently
+    winning.
+
+    ``{source name: [{name, line, text, named}, …]}`` — only for sources where
+    the inspector detected a still-dropped preamble (``ins.preamble_hint`` is
+    set: ADR source-dialect.md's identify-and-advise). The mode used is that
+    SAME hint — the shape the "record it" answer would actually pin — not the
+    dialect the file was just read with (which is still ``preamble: drop``).
+    ``named`` mirrors :func:`_preamble_column_origins`: True only when the file
+    itself wrote that name (a ``key:``/``key=`` label), False for an invented
+    ``preamble_N``. Reuses :func:`_read_source_preamble_origins` — the same
+    file-read + :func:`~asterism_step0.dialect.read_preamble_origins` call the
+    post-attach ``origins`` answer uses — so the rule is written once.
+
+    Best-effort per source (an unreadable file just has no key, matching
+    ``_preamble_column_origins``). Over budget → ``{}`` (mirrors
+    ``X-Asterism-Samples``): the wizard falls back to no per-line naming rather
+    than the response failing to send.
+    """
+    import dataclasses
+
+    paths_by_name = {p.name: p for p in paths}
+    out: dict[str, list[dict[str, object]]] = {}
+    for ins in inspections:
+        hint = getattr(ins, "preamble_hint", None)
+        dialect = getattr(ins, "dialect", None)
+        if hint is None or dialect is None:
+            continue
+        path = paths_by_name.get(ins.name)
+        if path is None:
+            continue
+        hinted_dialect = dataclasses.replace(dialect, preamble=hint)
+        try:
+            origins = _read_source_preamble_origins(
+                path, hinted_dialect, log_tag="inspect preamble"
+            )
+        except Exception:
+            logger.warning("inspect preamble: %s could not be attributed", path.name)
+            continue
+        if not origins:
+            continue
+        out[ins.name] = [
+            {"name": o.name, "line": o.line, "text": o.text, "named": o.named} for o in origins
+        ]
+    payload = json.dumps(out, separators=(",", ":"))
     return payload if len(payload) <= _SAMPLES_HEADER_BUDGET else "{}"
 
 
@@ -3547,6 +3619,13 @@ def build_app(
                     422, f"ソースを表として解析できませんでした: {exc}"
                 ) from exc
             markdown = render_markdown(inspections, fks)
+            # {source: [{name, line, text, named}]} for a source with a
+            # still-dropped preamble the wizard's "record it" answer would
+            # broadcast — only what a per-line rename screen (S2) needs, empty
+            # for a clean source and absent entirely when no source has one.
+            # Computed here (inside the try, before the temp dir is removed
+            # below) because it re-reads each source's own preamble lines.
+            preamble_header = _preamble_header_json(inspections, paths)
         finally:
             if owned:
                 shutil.rmtree(work, ignore_errors=True)
@@ -3559,6 +3638,7 @@ def build_app(
             # something to check for the formats the browser cannot parse
             # (.xlsx / .json) — KZ-A-08.
             "X-Asterism-Samples": _samples_header_json(inspections),
+            "X-Asterism-Preamble": preamble_header,
         }
         if sheets:
             # {derived csv: {from, sheet}} — only for workbooks that produced more

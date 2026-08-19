@@ -7399,6 +7399,33 @@ tr.kz-attn td {
 .kz-preamble-evi {
   margin: var(--space-2) 0;
 }
+
+/* Naming a preamble line that has none of its own (K21): the raw line and the
+   box for its name, side by side, so the person names what they are looking at.
+   Wraps on a narrow screen rather than squeezing the value out of sight. */
+.kz-preamble-naming {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+.kz-preamble-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.kz-preamble-value {
+  flex: 0 1 auto;
+  min-width: 0;
+  padding: 0.15rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-2, transparent);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
 .kz-preamble-name {
   font-size: 0.875rem;
   color: var(--body);

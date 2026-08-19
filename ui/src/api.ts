@@ -18,6 +18,12 @@ export interface SourceDialect {
    *  `keyvalue_cells` (broadcast the parsed preamble metadata onto every row).
    *  ADR source-dialect.md. */
   preamble: string
+  /** What the PERSON called each preamble column the reader had to name itself
+   *  (`{preamble_1: '試料名'}`). A preamble line with no key of its own gets a
+   *  machine name, and that name would otherwise ride all the way into the
+   *  design, the IRIs and the published property name (ADR K20/K21). Absent or
+   *  empty means "keep the machine name". */
+  preamble_names?: Record<string, string>
 }
 
 /** A detected dialect, plus where it came from (auto-detected vs human-specified). */
@@ -27,6 +33,18 @@ export interface DetectedDialect extends SourceDialect {
    *  identify-and-advise: what "keep the metadata" should pin as the parsing
    *  mode. Absent when the source has no preamble. */
   preamble_hint?: string
+}
+
+/** One column the reader would create from a preamble line, if the person keeps
+ *  the preamble. `named` says whether the FILE gave it its name (a `key: value`
+ *  line) or the reader had to invent one. */
+export interface PreambleColumn {
+  name: string
+  /** 1-based line in the source file. */
+  line: number
+  /** The raw preamble text this column would carry. */
+  text: string
+  named: boolean
 }
 
 /** The structured result of /api/inspect: the Markdown body plus the sidecar
@@ -46,6 +64,10 @@ export interface InspectResult {
    *  workbook that produced MORE THAN ONE table, i.e. exactly when the user has
    *  to be asked which sheets to use (K6). */
   sheets: Record<string, SheetOrigin>
+  /** `{source: [columns the preamble would create]}` — only sources that HAVE a
+   *  preamble. Lets S2 ask for a name at the moment the column is created,
+   *  instead of asking about a machine name after it has spread (K21). */
+  preambleColumns: Record<string, PreambleColumn[]>
 }
 
 /** Where a derived table came from, in the words of the workbook (K6). */
@@ -98,7 +120,12 @@ export async function inspectCsvs(
     {},
   )
   const sheets = jsonHeader<Record<string, SheetOrigin>>(res, 'X-Asterism-Sheets', {})
-  return { markdown, sourceNames, dialects, samples, sheets }
+  const preambleColumns = jsonHeader<Record<string, PreambleColumn[]>>(
+    res,
+    'X-Asterism-Preamble',
+    {},
+  )
+  return { markdown, sourceNames, dialects, samples, sheets, preambleColumns }
 }
 
 /**
