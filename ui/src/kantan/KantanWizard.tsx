@@ -72,7 +72,7 @@ import {
 } from '../api'
 import { localName } from '../vocab'
 import { plainError } from './errorMessages'
-import { RecipeCard } from './RecipeCard'
+import { RecipeCard, type RecipeStep } from './RecipeCard'
 
 // The kantan (かんたん) tier wizard — ADR kantan-mode-two-tier-ux.md, S1-S9.
 // A linear, plain-language flow over the SAME backend calls the detail tier
@@ -3260,7 +3260,7 @@ export function KantanWizard({
   // Recipe ① click (#9): the guaranteed way back to the drop zone. Confirm
   // before discarding in-flight work or any result so far (a superset of "a job
   // is running"). ②+ are inert (RecipeCard renders only ① as a button).
-  function onRecipeStep(target: 1 | 2 | 3 | 4 | 5) {
+  function onRecipeStep(target: RecipeStep) {
     if (target !== 1 || step === 1) return
     const dirty = busy || hasSource || !!proposal || !!skeleton || !!kzDatasetId
     if (dirty && !window.confirm(t('kantan:s5.stop.restartConfirm'))) return
@@ -3269,10 +3269,13 @@ export function KantanWizard({
 
   // ---- render -----------------------------------------------------------------
 
-  // Recipe position: ①②③ as before; S7 = ④ ためす, S8/S9 = ⑤ 公開する
-  // (S9 renders ⑤ as done — the run is complete).
-  const recipePos: 1 | 2 | 3 | 4 | 5 =
-    step <= 2 ? 1 : step === 3 ? 2 : step <= 6 ? 3 : step === 7 ? 4 : 5
+  // Recipe position. S4 (the row-counting gate) and S6 (the column meanings)
+  // are separate steps: they are two of the three human gates and two separate
+  // screens, so one shared name left every "…に戻る" pointing at a step that was
+  // not on the card. S5 is machine work between them and lights ④ (the screen it
+  // is on its way to). S7 = ⑤ ためす, S8/S9 = ⑥ 公開する (S9 renders it done).
+  const recipePos: RecipeStep =
+    step <= 2 ? 1 : step === 3 ? 2 : step === 4 ? 3 : step <= 6 ? 4 : step === 7 ? 5 : 6
   const resumeAvailable = !!skeleton && !hasSource && !proposal && step === 1
   const showS5 = pipeBusy || refining !== false || step === 5
 
@@ -4425,7 +4428,12 @@ export function KantanWizard({
                   {t('kantan:s6.mapCountAny', { n: draftEntityCount.toLocaleString() })}
                 </span>
               ) : (
-                <span className="kz-map-class">{t('kantan:s6.mapCountUnknown')}</span>
+                /* Nothing taken in yet is not a failure: the count simply has
+                   not happened. Only a count that was attempted and came back
+                   empty is worth the alarming phrasing. */
+                <span className="kz-map-class">
+                  {t(stats?.counted === false ? 'kantan:s6.mapCountPending' : 'kantan:s6.mapCountUnknown')}
+                </span>
               )}
               <span className="kz-map-note">{t('kantan:s6.mapDraftNote')}</span>
             </div>
@@ -4519,6 +4527,22 @@ export function KantanWizard({
                                 }}
                               />
                               {missing && ' ⚠'}
+                              {/* Blank is the worst answer here: the column is
+                                  then searchable only by its raw heading, and a
+                                  person who does not know what to write leaves
+                                  it blank rather than guess. The heading itself
+                                  is a real answer — one tap, no typing, and it
+                                  can be edited afterwards. */}
+                              {missing && (p.reference ?? '') !== '' && (
+                                <button
+                                  type="button"
+                                  className="btn btn--ghost btn--sm kz-cols-usename"
+                                  disabled={metaSaving || !kzDatasetId}
+                                  onClick={() => void commitMeta(p, 'label', p.reference ?? '')}
+                                >
+                                  {t('kantan:s6.useColumnName')}
+                                </button>
+                              )}
                               {reflectChanged?.has(p.reference ?? '') && (
                                 <span className="kz-map-note"> {t('kantan:s6.updatedBadge')}</span>
                               )}

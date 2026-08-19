@@ -7669,3 +7669,11 @@ tr.kz-attn td {
   margin-left: 0.35rem;
   color: var(--faint);
 }
+
+/* One-tap fill for a meaning the person cannot supply: it sits under the empty
+   field it fills, so it reads as an answer to that field rather than a row
+   action. */
+.kz-cols-usename {
+  display: block;
+  margin-top: 0.25rem;
+}

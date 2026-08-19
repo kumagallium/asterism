@@ -1009,6 +1009,10 @@ export interface DraftStats {
   dataset_id: string
   classes: { iri: string; curie?: string; n: number }[]
   source_rows: Record<string, number>
+  /** False when nothing has been taken in yet, so there is nothing to count —
+   *  as opposed to a count that was attempted and failed. Saying the latter for
+   *  both read as an error on a screen where nothing was wrong. */
+  counted?: boolean
 }
 
 export async function fetchDraftStats(datasetId: string): Promise<DraftStats> {

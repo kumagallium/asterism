@@ -405,6 +405,36 @@ def _label_from_column(column: str | None) -> str | None:
     return text or None
 
 
+def _unit_echoes_its_term(unit: str, column: str | None, predicate: str | None) -> bool:
+    """True when an authored ``unit:`` is just the column (or predicate) name again.
+
+    A weak model that is handed K8's optional ``label:``/``unit:`` pair reliably
+    fills BOTH with the same thing, so a text column ends up carrying
+    ``unit: Name`` — and the review screen then asks a person to confirm a unit
+    for a chemical name. The label side already drops this echo before display;
+    the unit side did not, which is the half a person notices ("単位に単位じゃ
+    ないものが入っている", 2026-08-19 review).
+
+    Deliberately narrow: only an echo is dropped, never an unrecognised unit. A
+    genuine unit is not its own column heading, so nothing real is lost — and a
+    unit a person types is kept whatever it says (they know what it means).
+    """
+    text = (unit or "").strip()
+    if not text:
+        return False
+
+    def key(value: str | None) -> str:
+        return re.sub(r"[\s_\-.]+", "", (value or "")).casefold()
+
+    target = key(text)
+    if not target:
+        return False
+    if target == key(_label_from_column(column) or column):
+        return True
+    local = (predicate or "").rsplit("#", 1)[-1].rsplit("/", 1)[-1].rsplit(":", 1)[-1]
+    return target == key(local)
+
+
 def _humanize_term_iri(iri: str) -> str | None:
     """Last resort: read a term IRI's local name as words, or None.
 
@@ -461,7 +491,7 @@ def _ir_predicate_display(mapping_ir_yaml: str) -> dict[str, dict[str, str]]:
                 derived_label = _label_from_column(prop.column)
                 if derived_label:
                     extra["column_label"] = derived_label
-            if prop.unit:
+            if prop.unit and not _unit_echoes_its_term(prop.unit, prop.column, prop.predicate):
                 extra["unit"] = prop.unit
             elif (
                 prop.column
@@ -4719,7 +4749,15 @@ def build_app(
         source_rows = await asyncio.to_thread(
             _count_source_rows, cfg.registry_root, dataset_id
         )
-        return {"dataset_id": dataset_id, "classes": classes, "source_rows": source_rows}
+        # `counted` separates "nothing has been taken in yet" from "the count
+        # failed": without it the UI said the latter for both, which reads as an
+        # error on a screen where nothing is wrong (2026-08-19 review).
+        return {
+            "dataset_id": dataset_id,
+            "classes": classes,
+            "source_rows": source_rows,
+            "counted": bool(meta.get("ingested") or meta.get("promoted")),
+        }
 
     @app.get("/api/datasets/{dataset_id}/trial-queries")
     async def dataset_trial_queries(dataset_id: str) -> dict[str, object]:

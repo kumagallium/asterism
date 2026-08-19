@@ -306,3 +306,50 @@ def test_history_endpoints_list_and_diff(tmp_path: Path, healthy_client) -> None
 
         assert client.get(f"/api/datasets/{meta['id']}/history/does-not-exist").status_code == 404
         assert client.get("/api/datasets/nope/history").status_code == 404
+
+
+def test_a_unit_that_is_just_the_column_name_again_is_not_shown_as_a_unit() -> None:
+    """A weak model fills K8's optional label:/unit: pair with the same string.
+
+    The label side already drops that echo before display; the unit side did not,
+    so a text column arrived at the review screen carrying `unit: Name` and a
+    person was asked to confirm a unit for a chemical name (2026-08-19 review).
+    Only the echo is dropped — an unrecognised unit is still someone's unit.
+    """
+    from asterism_api.main import _ir_predicate_display
+
+    ir = """\
+version: 1
+prefixes:
+  ex: "https://example.org/onto#"
+  exr: "https://example.org/resource/"
+maps:
+  - name: SampleMap
+    source: samples.csv
+    subject:
+      template: "exr:sample/{No}"
+      classes: [ex:Sample]
+    properties:
+      - predicate: ex:name
+        column: Name
+        label: "Name"
+        unit: "Name"
+      - predicate: ex:sampleId
+        column: No
+        unit: "sample_id"
+      - predicate: ex:temperature
+        column: "Measurement temp.(C)"
+        unit: "C"
+      - predicate: ex:pressure
+        column: Pressure
+        unit: "kPa"
+"""
+    meta = _ir_predicate_display(ir)
+    ex = "https://example.org/onto#"
+    # Echoes of the column heading / of the predicate's own local name: dropped.
+    assert "unit" not in meta.get(f"{ex}name", {})
+    assert "unit" not in meta.get(f"{ex}sampleId", {})
+    # Real units survive — both the authored one and the one derived from the
+    # column's own parentheses.
+    assert meta[f"{ex}temperature"]["unit"] == "C"
+    assert meta[f"{ex}pressure"]["unit"] == "kPa"

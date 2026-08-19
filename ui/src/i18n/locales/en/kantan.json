@@ -13,11 +13,12 @@
     "here": "You are here",
     "backToStart": "Back to ① Put data in (start over)",
     "backToStartShort": "Start over",
-    "step1": "Put data in",
-    "step2": "AI reads it",
-    "step3": "Check",
-    "step4": "Try it",
-    "step5": "Publish"
+    "step1": "Put it in",
+    "step2": "The AI reads it",
+    "step3": "What one row is",
+    "step4": "What the columns mean",
+    "step5": "Try it",
+    "step6": "Publish"
   },
   "s1": {
     "title": "Add data",
@@ -103,7 +104,7 @@
     "back": "Go back and retry"
   },
   "s4": {
-    "gateTitle": "Check (1/2) — how rows are counted",
+    "gateTitle": "What one row is",
     "gateHint": "First check that what the AI read as \"one row = what\" is right. Then look at whether every row gets its own ID (✓ / ⚠). If both are fine, press \"Continue with this counting\". If the reading is wrong, use \"Have the AI think again\"; if there is a ⚠, pick a candidate below.",
     "continue": "Continue with this counting",
     "continuing": "Writing down what each column means…",
@@ -242,7 +243,7 @@
     }
   },
   "s6": {
-    "title": "Check (2/2) — column meanings",
+    "title": "What the columns mean",
     "titleReview": "Review — column meanings",
     "lead": "Please check what the AI read each column to mean. The words you confirm here are used for search and citation.",
     "loading": "Loading your draft…",
@@ -290,16 +291,18 @@
     "refineWrap": "While reviewing the column meanings, the user pointed this out. Follow it and fix the affected columns' meaning (label) and unit (unit) — and the design itself if needed: {{note}}",
     "confirm": "Confirm these meanings",
     "confirmBlocked": "The column meanings could not be loaded, so there is nothing to confirm yet. Press “Reload” above.",
-    "editHint": "You can fix a column's meaning and unit right here (no AI, saved in seconds).",
+    "editHint": "You can correct the meaning and the unit right here (no AI, saved in seconds). A meaning can be a word or a short phrase, in any language. For a column you are unsure about, \"Use the column heading\" fills it in.",
     "editSaving": "Saving your corrections…",
     "editSaved": "Saved the meaning / unit of {{n}} column(s).",
     "editNoChange": "That column could not be found in the design, so the correction was not saved. Tell us in the box below instead.",
     "editFailed": "Your corrections could not be saved.",
-    "meaningPlaceholder": "what this column means",
+    "meaningPlaceholder": "What this column means (a phrase is fine)",
     "unitPlaceholder": "unit",
     "editAria": "meaning of {{column}}",
     "unitAria": "unit of {{column}}",
-    "noteLabelEditable": "Meanings and units are editable in the table above. Anything else you noticed?"
+    "noteLabelEditable": "Meanings and units are editable in the table above. Anything else you noticed?",
+    "mapCountPending": "Not counted yet (the count appears once the data is taken in)",
+    "useColumnName": "Use the column heading"
   },
   "s7": {
     "title": "Try it — we asked your data a few questions",
