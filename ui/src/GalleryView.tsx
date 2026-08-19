@@ -1131,7 +1131,7 @@ function DatasetDetail({
   }, [meta?.id])
   // The dataset's own words (model.yaml labels + the Mapping IR units), so the
   // 設計図 tab can say 「測定 Measurement」 instead of a bare English identifier
-  // (K8): the label is what the wizard's 列の意味 table and the rules tab already
+  // (K8): the label is what the wizard's 項目の意味 table and the rules tab already
   // show for the very same thing. Advisory only — an unlabelled term is printed
   // exactly as the design wrote it.
   const [rules, setRules] = useState<DatasetRules | null>(null)

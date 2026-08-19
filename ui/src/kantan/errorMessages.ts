@@ -272,7 +272,7 @@ export function plainError(raw: string, code?: string): PlainError {
     return { title: 'kantan:s5.plain.xlsxTitle', body: 'kantan:s5.plain.xlsxBody' }
   }
   // Publish refused because nothing was ingested yet: retrying the publish can
-  // never succeed, so the only exit is back to the column meanings.
+  // never succeed, so the only exit is back to the item meanings.
   if (has('dataset.not_ingested', 'not ingested', 'no staged graph')) {
     return {
       title: 'kantan:s5.plain.notIngestedTitle',

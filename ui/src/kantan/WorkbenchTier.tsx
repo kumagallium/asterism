@@ -123,7 +123,7 @@ export function WorkbenchTier({
   }, [tier])
 
   // A redesign (カタログの「見直す」) opens in the user's CURRENT tier — the
-  // kantan re-check flow (S6 column meanings onward) is the default; the full
+  // kantan re-check flow (S6 item meanings onward) is the default; the full
   // structural review stays one click away via the wizard's 構造から見直す.
   // People who built in the simple tier must not be dropped into the detail
   // workbench just to fix a column meaning.

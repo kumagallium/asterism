@@ -128,7 +128,7 @@ function unmappedCount(advisory: string): number {
  *
  * The generator names things by their ENGLISH identifier (`MaterialSample`,
  * `Sample.hasMeasurement`) because that is what the mapping calls them, while
- * every other surface — the wizard's 列の意味 table, the catalog's rules tab —
+ * every other surface — the wizard's 項目の意味 table, the catalog's rules tab —
  * shows the model.yaml label for the very same thing. One concept under two
  * names is exactly what ADR K4 forbids, so callers that already hold
  * `rules.labels` pass it in. Keys may be full term IRIs or bare local names.

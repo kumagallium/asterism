@@ -133,7 +133,7 @@
   "rules": {
     "title": "Transformation rules — how each column is recorded",
     "empty": "No design saved yet. Once the AI reads your file via \"Add data\", what each column means appears here.",
-    "emptyDocument": "Documents are loaded by a fixed procedure (sections → paragraphs → sentences), so there are no column meanings to show here.",
+    "emptyDocument": "Documents are loaded by a fixed procedure (sections → paragraphs → sentences), so there are no item meanings to show here.",
     "projectionIntro": "How each column of your file is recorded, and as which item — built mechanically from the saved rules, no AI involved. The actual rules that run (RML) are in the files below.",
     "subject": "How the ID is built",
     "iterator": "What counts as one record",
@@ -273,7 +273,7 @@
   },
   "redesign": {
     "head": "Revise the design",
-    "note": "Review the column meanings and links the AI read. Your fixes become a new version of the same dataset in the draft and take over when you publish — no need to delete and recreate.",
+    "note": "Review the item meanings and links the AI read. Your fixes become a new version of the same dataset in the draft and take over when you publish — no need to delete and recreate.",
     "noProposal": "This dataset has no stored design left to review, so it cannot be reopened.",
     "recreate": "Rebuild it from Add data",
     "open": "Revise the design",

@@ -8,7 +8,7 @@
   "col": {
     "source": "File",
     "key": "How the ID is decided",
-    "kind": "What one row is"
+    "kind": "How the data is counted"
   },
   "noteSummary": "Show the AI's note",
   "diagram": {
@@ -39,7 +39,7 @@
     "declaredOwn": "Registered where this dataset issues its IDs ({{names}}). The IDs themselves are unchanged."
   },
   "filesGone": "The files are not at hand, so re-checking, asking the AI again and adding kinds are unavailable. Use “{{back}}” below to drop the files again.",
-  "addedHint": "Added a per-row kind. You can continue with this name (column meanings are checked on the next screen).",
+  "addedHint": "Added a per-row kind. You can continue with this name (item meanings are checked on the next screen).",
   "suggestClass": "Use “{{suggested}}”",
   "missingColumns": "The columns the AI named are not in this table: {{columns}}",
   "fixColumn": "The column “{{wrong}}” the AI named is not in this table. Closest match: “{{suggestion}}” (tap to fix).",

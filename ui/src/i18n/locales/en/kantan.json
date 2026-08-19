@@ -15,8 +15,8 @@
     "backToStartShort": "Start over",
     "step1": "Put it in",
     "step2": "The AI reads it",
-    "step3": "What one row is",
-    "step4": "What the columns mean",
+    "step3": "How the data is counted",
+    "step4": "What the items mean",
     "step5": "Try it",
     "step6": "Publish"
   },
@@ -38,7 +38,7 @@
     "leftoverUse": "Carry on with this file",
     "leftoverDrop": "Add a new file",
     "detailReturnNote": "Back from detail mode. Anything you changed there is reflected on this screen.",
-    "resumeNote": "You have unfinished work. Drop the same files again to resume at the row-counting check.",
+    "resumeNote": "You have unfinished work. Drop the same files again to resume at the data-counting check.",
     "resumeLoading": "Loading where you left off…",
     "resumeReady": "Picked up where you left off — you can keep going.",
     "resumeFailedTitle": "Couldn't pick up the AI work that was interrupted",
@@ -105,7 +105,7 @@
     "back": "Go back and retry"
   },
   "s4": {
-    "gateTitle": "What one row is",
+    "gateTitle": "How the data is counted",
     "gateHint": "First check that what the AI read as \"one row = what\" is right. Then look at whether every row gets its own ID (✓ / ⚠). If both are fine, press \"Continue with this counting\". If the reading is wrong, use \"Have the AI think again\"; if there is a ⚠, pick a candidate below.",
     "continue": "Continue with this counting",
     "continuing": "Writing down what each column means…",
@@ -114,14 +114,14 @@
     "evidenceRetry": "Check again",
     "reattachTitle": "Drop your original files again",
     "reattachBody": "Drop the same files to continue this check where you left off.",
-    "continueFailed": "Writing down the column meanings failed",
+    "continueFailed": "Writing down the item meanings failed",
     "discard": "Go back and redo",
     "discardConfirm": "This goes back to the reading check. The current reading is discarded, but your files stay usable.",
     "discardConfirmNoFiles": "This goes back to the first screen. The current reading is discarded, so you will need to drop your files again.",
-    "rethinkWrap": "While checking how rows are counted, the user pointed this out. Apply it to how the table splits into kinds and how each row's ID is built: {{note}}"
+    "rethinkWrap": "While checking how the data is counted, the user pointed this out. Apply it to how the table splits into kinds and how each row's ID is built: {{note}}"
   },
   "s5": {
-    "title": "Reading the column meanings and loading your draft",
+    "title": "Reading the item meanings and loading your draft",
     "titleFixing": "The AI is fixing the design",
     "titleReflecting": "Applying what you pointed out to the design",
     "meanings": "Wrote down what each column means",
@@ -131,7 +131,7 @@
     "attaching": "Saving your files…",
     "ingesting": "Loading into your unpublished draft…",
     "ingestingCount": "Loading into your unpublished draft… {{pct}}%",
-    "closeNote": "You can close this screen — the work keeps going. If you close the whole tab, open this data later from Datasets and click \"Revise the design\" to come back at the column meanings.",
+    "closeNote": "You can close this screen — the work keeps going. If you close the whole tab, open this data later from Datasets and click \"Revise the design\" to come back at the item meanings.",
     "savingNote": "Saving the design — please keep this screen open (once it is saved, the ingest takes over).",
     "attachingNote": "Saving your files — please keep this screen open (once they are saved, the ingest takes over).",
     "draftName": "{{stem}} (draft)",
@@ -204,7 +204,7 @@
       "xlsxTitle": "This Excel file could not be opened",
       "xlsxBody": "Check that the file is not damaged and that at least one sheet has data.",
       "notIngestedTitle": "This is not in your unpublished draft yet",
-      "notIngestedBody": "Go back to the column meanings, finish loading it into the draft, and then publish.",
+      "notIngestedBody": "Go back to the item meanings, finish loading it into the draft, and then publish.",
       "uncompiledTitle": "This design could not be turned into conversion rules",
       "uncompiledBody": "Use \"Have the AI fix this\" to repair the design."
     },
@@ -244,8 +244,8 @@
     }
   },
   "s6": {
-    "title": "What the columns mean",
-    "titleReview": "Review — column meanings",
+    "title": "What the items mean",
+    "titleReview": "Review — item meanings",
     "lead": "Please check what the AI read each column to mean. The words you confirm here are used for search and citation.",
     "loading": "Loading your draft…",
     "loadFailed": "Couldn't load the contents",
@@ -268,9 +268,9 @@
     "missingMeaning": "The AI could not read a meaning for the ⚠ rows. Going on is fine — those columns stay searchable under their original column name. To change one, type into its \"Meaning as read\".",
     "droppedColumns": "Columns not taken in: {{columns}} (the AI could not read what they mean)",
     "droppedColumnsHint": "If you need them, tell us what they mean in the box below.",
-    "mapRowsNote": "When the count is far below the number of rows, several rows became one record (for example many measurements of the same sample). If that is not what you meant, you can go back to how rows are counted.",
-    "backToGate": "Back to how rows are counted",
-    "backToGateConfirm": "This goes back to the row-counting check. The current draft will be rebuilt (your files stay as they are). Continue?",
+    "mapRowsNote": "When the count is far below the number of rows, several rows became one record (for example many measurements of the same sample). If that is not what you meant, you can go back to how the data is counted.",
+    "backToGate": "Back to how the data is counted",
+    "backToGateConfirm": "This goes back to the data-counting check. The current draft will be rebuilt (your files stay as they are). Continue?",
     "noteUnappliedConfirm": "Your note has not been applied yet. Continue without applying it? (Cancel to go back — \"Have the AI apply this and rebuild\" applies it.)",
     "othersSummary": "Auto IDs and fixed values ({{n}})",
     "otherKind": {
@@ -289,9 +289,9 @@
     "reflectFailed": "Couldn't apply your note",
     "reflectFailedNext": "You can apply it again, or just confirm the meanings and continue.",
     "aiNotReadyOk": "You can still confirm the table as it stands and carry on.",
-    "refineWrap": "While reviewing the column meanings, the user pointed this out. Follow it and fix the affected columns' meaning (label) and unit (unit) — and the design itself if needed: {{note}}",
+    "refineWrap": "While reviewing the item meanings, the user pointed this out. Follow it and fix the affected columns' meaning (label) and unit (unit) — and the design itself if needed: {{note}}",
     "confirm": "Confirm these meanings",
-    "confirmBlocked": "The column meanings could not be loaded, so there is nothing to confirm yet. Press “Reload” above.",
+    "confirmBlocked": "The item meanings could not be loaded, so there is nothing to confirm yet. Press “Reload” above.",
     "editHint": "You can correct the meaning and the unit right here (no AI, saved in seconds). A meaning can be a word or a short phrase, in any language. For a column you are unsure about, \"Use the original column name\" fills it in.",
     "editSaving": "Saving your corrections…",
     "editSaved": "Saved the meaning / unit of {{n}} column(s).",
@@ -309,8 +309,8 @@
     "lead": "Your data is in the unpublished draft. To double-check, we asked it a few questions automatically.",
     "loading": "Asking your data…",
     "failed": "The trial queries could not run. Wait a moment and press \"Try again\", or continue to publish as is.",
-    "empty": "Nothing at all came through into this data. Go back to the column meanings, or to how rows are counted.",
-    "emptyRows": "Your file has {{rows}} rows, but nothing came through into this data. Go back to the column meanings, or to how rows are counted.",
+    "empty": "Nothing at all came through into this data. Go back to the item meanings, or to how the data is counted.",
+    "emptyRows": "Your file has {{rows}} rows, but nothing came through into this data. Go back to the item meanings, or to how the data is counted.",
     "okAnyway": "Publish anyway",
     "okNoTrial": "Publish without checking",
     "retry": "Try again",
@@ -333,7 +333,7 @@
     "traceNote": "Every number can be traced back to the row it came from. Once published, this ID opens as a web address.",
     "techSummary": "Details (technical)",
     "ok": "Looks right — on to publish",
-    "back": "Something is off — back to column meanings"
+    "back": "Something is off — back to item meanings"
   },
   "s8": {
     "title": "Publish",
@@ -356,8 +356,8 @@
     "publishNoteUpdate": "After the update, answers cite the new version (the switch is instant — nothing goes offline).",
     "failed": "Could not publish",
     "failedBody": "Wait a moment and press “Publish” again.",
-    "failedDesignBody": "Something in the design still needs fixing. Go “Back to Try it” → “Something is off — back to column meanings”, and the AI can apply a fix and rebuild.",
-    "backToMeanings": "Back to column meanings",
+    "failedDesignBody": "Something in the design still needs fixing. Go “Back to Try it” → “Something is off — back to item meanings”, and the AI can apply a fix and rebuild.",
+    "backToMeanings": "Back to item meanings",
     "back": "Back to Try it"
   },
   "s9": {
@@ -386,13 +386,13 @@
   "redesign": {
     "banner": "Review: {{name}}",
     "bannerNote": "Nothing runs on its own here. Check what is below and hand anything you want changed to the AI. Applying a change rebuilds the draft; Try it → Publish then publishes a new version.",
-    "structural": "Rework how the table is split and how rows are counted (detail mode)",
+    "structural": "Rework how the table is split and how the data is counted (detail mode)",
     "structuralNote": "This opens the screen with every setting. “Back to simple mode” brings you back here.",
     "cancel": "Stop reviewing",
     "cancelConfirm": "Stop reviewing and go back to the dataset page? (Changes already applied by the AI are saved.)",
     "confirmNoChange": "Looks right — finish reviewing",
     "findingsTitle": "Why you're here",
-    "findingsBody": "Asking the AI to fix this rebuilds the draft; you can check the result in “try it → publish”. If you only want to adjust column meanings, you can dismiss this.",
+    "findingsBody": "Asking the AI to fix this rebuilds the draft; you can check the result in “try it → publish”. If you only want to adjust item meanings, you can dismiss this.",
     "findingsDismiss": "Dismiss"
   },
   "job": {

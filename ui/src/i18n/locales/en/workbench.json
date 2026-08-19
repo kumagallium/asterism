@@ -18,7 +18,7 @@
     "badgeAdopted": "Saved design",
     "bannerAdopted": "This design is saved as the dataset <strong>{{name}}</strong>. Further saves (redo / re-save after an AI fix) update this same dataset — no new dataset is created.",
     "findingsTitle": "Why you're here",
-    "findingsBody": "The same points are already in the review comment box below — press “Apply comment & regenerate” to have the AI fix them. If you only want to adjust column meanings, you can dismiss this.",
+    "findingsBody": "The same points are already in the review comment box below — press “Apply comment & regenerate” to have the AI fix them. If you only want to adjust item meanings, you can dismiss this.",
     "findingsDismiss": "Dismiss"
   },
   "step": {
@@ -198,7 +198,7 @@
     "colSourcePlain": "File",
     "colKey": "How each row gets its ID",
     "colClasses": "What one row represents (class)",
-    "colClassesPlain": "What one row is (kind of data)",
+    "colClassesPlain": "How the data is counted (kind of data)",
     "evidence": {
       "unique": "All {{rows}} rows get their own ID",
       "collides": "{{colliding}} of {{total}} rows get an ID that overlaps another row (rows that overlap merge into one)",

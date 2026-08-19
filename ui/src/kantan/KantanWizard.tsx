@@ -77,7 +77,7 @@ import { RecipeCard, type RecipeStep } from './RecipeCard'
 // The kantan (かんたん) tier wizard — ADR kantan-mode-two-tier-ux.md, S1-S9.
 // A linear, plain-language flow over the SAME backend calls the detail tier
 // uses: drop files → auto inspect → two "only you know this" questions →
-// staged skeleton propose → the human row-counting gate (S4, human gate ①) →
+// staged skeleton propose → the human data-counting gate (S4, human gate ①) →
 // continue → S5 auto chain (save → source persist → DRAFT ingest, no approval
 // button by design — ADR K3) → S6 column-meaning review (human gate ②) →
 // S7 auto try-it-out queries (K9 — run, never offered as a button) →
@@ -642,7 +642,7 @@ interface KantanSnapshot {
   sourceNames?: { name: string; size: number }[]
   /** Every column S2 could read — S6 names the ones the design left out. */
   sourceColumns?: string[]
-  /** The row-counting gate the human confirmed, kept so S6/S7 can go BACK to
+  /** The data-counting gate the human confirmed, kept so S6/S7 can go BACK to
    *  it when the counts look wrong (KZ-B-03 / DETAIL-GAP-08). */
   gateSkeleton?: MappingSkeleton | null
   /** Set while the design is open in the detail tier: coming back must restore
@@ -766,7 +766,7 @@ export function KantanWizard({
   /** Opens the Ask view with the question prefilled (the S9 chips). */
   onOpenAsk?: (question: string) => void
   /** Catalog 見直す: reopen this dataset's stored design as the kantan
-   *  re-check flow (seeds the wizard at S6 — the column meanings). */
+   *  re-check flow (seeds the wizard at S6 — the item meanings). */
   redesignTarget?: RedesignTarget | null
   onRedesignConsumed?: () => void
   /** "構造から見直す": hand the (possibly refined) design to the detail tier
@@ -1250,7 +1250,7 @@ export function KantanWizard({
           }
         : {}),
     }
-    // Still at the row-counting gate: the design does not exist yet, and what
+    // Still at the data-counting gate: the design does not exist yet, and what
     // the reader is looking at IS the staged skeleton. Handing over an empty
     // snapshot made it read as "the gate I was on is gone" (DETAIL-GAP-18).
     if (!proposal) {
@@ -2131,7 +2131,7 @@ export function KantanWizard({
     }
   }
 
-  // ---- S4: the row-counting gate → continue ----------------------------------
+  // ---- S4: the data-counting gate → continue ----------------------------------
 
   /** Whether a re-drop is the SAME file set this design was written against.
    *  Compared by name, order-insensitively; with nothing remembered (an old
@@ -2215,7 +2215,7 @@ export function KantanWizard({
       setGateNeedsFiles(true)
       return
     }
-    // The human just settled the row counting: keep that gate in hand so S6/S7
+    // The human just settled the data counting: keep that gate in hand so S6/S7
     // can come back to it if the counts turn out wrong (KZ-B-03).
     setGateSkeleton(skeleton)
     setGateNeedsFiles(false)
@@ -2290,7 +2290,7 @@ export function KantanWizard({
   // safety is machine-guaranteed — unsafe or invalid RML is refused with a 422
   // hard gate BEFORE any job runs — and un-promoted data is invisible to Ask
   // (draft isolation + promoted flag). The human gates that remain are the two
-  // only a human can answer: S4 (row counting) and S6 (column meanings).
+  // only a human can answer: S4 (data counting) and S6 (item meanings).
 
   async function runPipeline(from: PipeStage, proposalMdArg?: string, filesArg?: File[]) {
     const md = proposalMdArg ?? proposal
@@ -2602,7 +2602,7 @@ export function KantanWizard({
   // Deterministic aggregates over the user's own draft, run for them (never a
   // button — first-timers don't press optional buttons). The screen is a soft
   // gate: its exits are "looks right → publish" and "something is off → back
-  // to the column meanings".
+  // to the item meanings".
 
   /** The dataset's own names for its kinds and terms. S7/S8/S9 can be entered
    *  directly (a reload, a restored snapshot) without ever passing through S6,
@@ -2661,7 +2661,7 @@ export function KantanWizard({
     if (kzDatasetId) void loadS6(kzDatasetId)
   }
 
-  /** "行の数えかたに戻る" (S6 / S7): the counts card is where a collapsed key
+  /** "データの数えかたに戻る" (S6 / S7): the counts card is where a collapsed key
    *  becomes visible (500 rows → 1 sample), and the place that decision was
    *  made is the S4 gate — so go back THERE with the same skeleton, instead of
    *  leaving "start over" as the only way out (KZ-B-03 / DETAIL-GAP-08). */
@@ -2782,7 +2782,7 @@ export function KantanWizard({
   // ---- S8: 公開する — name + counts + word summary + promote (gate ③, K10) ---
 
   /** The name to offer at S8. K13 says a person names this data ONCE: they
-   *  already did, at the row-counting gate ("データセットの名前"). Reuse it
+   *  already did, at the data-counting gate ("データセットの名前"). Reuse it
    *  rather than opening an empty box and asking the same thing again
    *  (KZ-B-12); it stays editable. */
   function derivePublishName(): string {
@@ -3275,7 +3275,7 @@ export function KantanWizard({
 
   // ---- render -----------------------------------------------------------------
 
-  // Recipe position. S4 (the row-counting gate) and S6 (the column meanings)
+  // Recipe position. S4 (the data-counting gate) and S6 (the item meanings)
   // are separate steps: they are two of the three human gates and two separate
   // screens, so one shared name left every "…に戻る" pointing at a step that was
   // not on the card. S5 is machine work between them and lights ④ (the screen it
@@ -3295,7 +3295,7 @@ export function KantanWizard({
   const publishedName = (kzDatasetName ?? pubName).trim()
   // One published record to hand to someone else (S9's "show this to people").
   const shareIri = published ? (trialQAs.find((qa) => qa.citeIri)?.citeIri ?? null) : null
-  // "Back to the row counting" is offered only when it can actually re-run:
+  // "Back to the data counting" is offered only when it can actually re-run:
   // the confirmed gate in hand, the source still readable, and not in a
   // catalog review (whose structural rework lives in the detail tier).
   const canBackToGate = !!gateSkeleton && hasSource && !redesigning && !busy
@@ -3725,7 +3725,7 @@ export function KantanWizard({
           {aiFixable && fixStuck && <p className="kz-note">{t('kantan:s5.fix.stuck')}</p>}
           <div className="kz-actions">
             {/* Primary action, one per card. design → AI fix; access code →
-                open settings; nothing ingested → column meanings; 404 → start
+                open settings; nothing ingested → item meanings; 404 → start
                 over; otherwise → retry (below). A timeout is deliberately NOT
                 here: it retries first (WEAK-MODEL-25). */}
             {aiFixable && (
@@ -3775,7 +3775,7 @@ export function KantanWizard({
               </button>
             )}
             {/* Nothing was ingested yet: retrying this step can never succeed —
-                the road back is the column meanings (BACKEND-TEXT-29). */}
+                the road back is the item meanings (BACKEND-TEXT-29). */}
             {stopHint === 'meanings' && (
               <button type="button" onClick={() => setStep(6)}>
                 {t('kantan:s8.backToMeanings')}
@@ -3856,7 +3856,7 @@ export function KantanWizard({
       ) : showS5 ? (
         <section className="kz-card">
           {/* The live line below says "AI が設計を直しています" while the heading
-              said "列の意味を調べ…": two different claims about the same moment
+              said "項目の意味を調べ…": two different claims about the same moment
               (KZ-A-18). */}
           <h3 className="kz-title">
             {t(
