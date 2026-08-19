@@ -1000,6 +1000,129 @@ def _header_cells(path: Path, dialect: SourceDialect) -> list[str]:
     return list(rows[0].keys()) if rows else []
 
 
+def _drop_language_tags_from_numbers(
+    schema_md: str, base: Path, issues: list[Issue]
+) -> str | None:
+    """Remove ``language:`` from a column whose every value is a number.
+
+    A language tag says which human language a piece of TEXT is in. A number is
+    not in a language, and RDF allows a literal to carry a datatype or a language
+    but never both — so the tag also blocks the datatype the numbers deserve, and
+    with it every range and comparison query over that column.
+
+    Live 2026-08-19: a model tagged a 3001-point sweep's angle and intensity as
+    Japanese. The deterministic datatype repair then could not apply (it would
+    have produced datatype + language), so the untyped-numeric advisory came back
+    round after round with nothing able to clear it.
+
+    Proven from the data, per column: only when every non-empty value parses as a
+    number. A column of Japanese text keeps its tag.
+    """
+    import yaml  # lazy (PyYAML is a step0 dependency)
+
+    with tempfile.TemporaryDirectory(prefix="asterism-loop-lang-") as tmp:
+        ir_yaml = materialize_schema(schema_md, tmp, "design", write=False).mapping_ir_yaml
+    if not ir_yaml or not ir_yaml.strip():
+        return None
+    try:
+        ir = parse_mapping_ir(ir_yaml)
+        spec = load_spec_yaml(ir_yaml)
+    except Exception:
+        return None
+    if not isinstance(spec, dict) or not isinstance(spec.get("maps"), list):
+        return None
+
+    numeric = _numeric_types_by_source(base, ir)
+    dropped = 0
+    for entry in spec["maps"]:
+        if not isinstance(entry, dict):
+            continue
+        types = numeric.get(str(entry.get("source") or ""))
+        if not types:
+            continue
+        for prop in entry.get("properties") or []:
+            if not isinstance(prop, dict) or not prop.get("language"):
+                continue
+            column = prop.get("column")
+            if isinstance(column, str) and types.get(column):
+                prop.pop("language")
+                dropped += 1
+    if not dropped:
+        return None
+    repaired = yaml.safe_dump(spec, allow_unicode=True, sort_keys=False).rstrip("\n")
+    try:
+        return replace_mapping_spec_block(schema_md, repaired)
+    except ValueError:
+        return None
+
+
+_RE_ONLY_PLACEHOLDER = re.compile(r"^\{([^{}]+)\}$")
+
+
+def _bind_single_placeholder_templates_to_their_column(
+    schema_md: str, base: Path, issues: list[Issue]
+) -> str | None:
+    """Rewrite ``object_template: "{col}"`` (a literal) as ``column: col``.
+
+    A template whose whole content is one placeholder, emitted as a literal, is
+    the column itself: the compiler turns the first into
+    ``rr:template "{col}"; rr:termType rr:Literal`` and the second into
+    ``rml:reference "col"``, which produce the same triples (R2RML only
+    percent-encodes template values for IRIs).
+
+    They are not the same to a READER, though, and that is the point. Every
+    screen and check that asks "which columns does this design use" looks for
+    ``column:``. Live 2026-08-19 a model wrote all nine properties the long way,
+    so the "column meanings" review — the screen whose whole job is confirming
+    what each column means — listed nothing at all, and the columns were filed
+    under "IDs and fixed values that are added automatically" instead.
+
+    Only the exact shape is rewritten, and only for literals: a template with any
+    text around the placeholder builds a value, and one without
+    ``object_type: literal`` builds an IRI from the cell, which ``column:``
+    cannot express (the compiler refuses it outright).
+    """
+    import yaml  # lazy (PyYAML is a step0 dependency)
+
+    with tempfile.TemporaryDirectory(prefix="asterism-loop-ot-") as tmp:
+        ir_yaml = materialize_schema(schema_md, tmp, "design", write=False).mapping_ir_yaml
+    if not ir_yaml or not ir_yaml.strip():
+        return None
+    try:
+        spec = load_spec_yaml(ir_yaml)
+    except Exception:
+        return None
+    if not isinstance(spec, dict) or not isinstance(spec.get("maps"), list):
+        return None
+
+    rewritten = 0
+    for entry in spec["maps"]:
+        if not isinstance(entry, dict):
+            continue
+        for prop in entry.get("properties") or []:
+            if not isinstance(prop, dict):
+                continue
+            template = prop.get("object_template")
+            if not isinstance(template, str) or prop.get("transform") or prop.get("function"):
+                continue
+            if prop.get("object_type") != "literal":
+                continue
+            m = _RE_ONLY_PLACEHOLDER.match(template.strip())
+            if not m:
+                continue
+            prop.pop("object_template")
+            prop.pop("object_type")  # a bare column is a literal by definition
+            prop["column"] = m.group(1)
+            rewritten += 1
+    if not rewritten:
+        return None
+    repaired = yaml.safe_dump(spec, allow_unicode=True, sort_keys=False).rstrip("\n")
+    try:
+        return replace_mapping_spec_block(schema_md, repaired)
+    except ValueError:
+        return None
+
+
 def _fix_a_dialect_that_reads_data_as_headers(
     schema_md: str, base: Path, issues: list[Issue]
 ) -> str | None:
@@ -1303,6 +1426,18 @@ def _evaluate(schema_md: str, base: Path) -> tuple[str, str | None, list[Issue]]
     # row makes a design that passes every check and then produces nothing. The
     # issue-gated repairs below never see it, because there is no issue — the
     # only symptom is an import that "succeeds" with zero triples.
+    with contextlib.suppress(Exception):
+        # A column bound the long way is invisible to every screen and check that
+        # asks which columns the design uses. FIRST: the passes below read
+        # `column:`, so a design that never says it looks empty to them.
+        rebound = _bind_single_placeholder_templates_to_their_column(schema_md, base, [])
+        if rebound is not None:
+            schema_md = rebound
+    with contextlib.suppress(Exception):
+        # A number is in no language, and the tag blocks the datatype it needs.
+        untagged = _drop_language_tags_from_numbers(schema_md, base, [])
+        if untagged is not None:
+            schema_md = untagged
     with contextlib.suppress(Exception):
         # Before anything reads a column name: a dialect that starts the table on
         # the wrong line makes every later stage consistent and wrong.
