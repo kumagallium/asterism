@@ -197,8 +197,8 @@
     "colSource": "ソース",
     "colSourcePlain": "ファイル",
     "colKey": "各行の ID の作り方",
-    "colClasses": "1 行が表すもの（クラス）",
-    "colClassesPlain": "1 行が表すもの（データの種類）",
+    "colClasses": "1 件が表すもの（クラス）",
+    "colClassesPlain": "1 件が表すもの（データの種類）",
     "evidence": {
       "unique": "{{rows}} 行すべてが別々の ID になります",
       "collides": "{{total}} 行のうち {{colliding}} 行の ID が、他の行と重なります（重なった行は 1 件にまとまります）",

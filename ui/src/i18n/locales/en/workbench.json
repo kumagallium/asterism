@@ -197,8 +197,8 @@
     "colSource": "Source",
     "colSourcePlain": "File",
     "colKey": "How each row gets its ID",
-    "colClasses": "What one row represents (class)",
-    "colClassesPlain": "How the data is counted (kind of data)",
+    "colClasses": "What one record is (class)",
+    "colClassesPlain": "What one record is (kind of data)",
     "evidence": {
       "unique": "All {{rows}} rows get their own ID",
       "collides": "{{colliding}} of {{total}} rows get an ID that overlaps another row (rows that overlap merge into one)",

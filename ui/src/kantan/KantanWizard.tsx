@@ -63,6 +63,7 @@ import { clearSourceFiles, loadSourceFiles, saveSourceFiles } from '../sourceFil
 import {
   fetchDatasetProposal,
   fetchSourceSamples,
+  type ColumnOrigin,
   saveDisplayMeta,
   selectStagingSources,
   stageSources,
@@ -70,6 +71,7 @@ import {
   unstageSources,
   type StagingLiveness,
 } from '../api'
+import { termColumns, templateColumns, transcribedColumn } from '../ruleColumns'
 import { localName } from '../vocab'
 import { plainError } from './errorMessages'
 import { RecipeCard, type RecipeStep } from './RecipeCard'
@@ -541,13 +543,6 @@ async function buildPreviews(
   return out
 }
 
-/** The `{column}` placeholders inside an ID template — a column that only
- *  builds an ID is still a column the design reads (DETAIL-GAP-12). */
-function templateColumns(template?: string): string[] {
-  if (!template) return []
-  return [...template.matchAll(/\{([^{}]+)\}/g)].map((m) => m[1].trim()).filter(Boolean)
-}
-
 /** Every column name the S2 preview could read, in order. Kept in the snapshot
  *  so S6 can name the columns the design left out — `columnSamples` cannot do
  *  that job (it drops columns whose first rows are empty) — DETAIL-GAP-12. */
@@ -954,6 +949,11 @@ export function KantanWizard({
   const [columnSamples, setColumnSamples] = useState<Record<string, string[]>>(
     snap.columnSamples ?? {},
   )
+  // Which columns the reader INVENTED rather than read from the file's header
+  // (an instrument preamble broadcast onto every row). Server truth — the
+  // convention that names them belongs to the dialect layer, not to a regex
+  // here.
+  const [columnOrigins, setColumnOrigins] = useState<Record<string, ColumnOrigin>>({})
   // Which files this design belongs to, and every column they showed.
   const [sourceNames, setSourceNames] = useState<{ name: string; size: number }[]>(
     snap.sourceNames ?? [],
@@ -2567,15 +2567,16 @@ export function KantanWizard({
         // resume after a reload, any .xlsx), and without them the evidence
         // column on this screen is blank — on the one screen whose job is to
         // check the design against the data (KZ-B-25).
-        fetchSourceSamples(datasetId).catch(() => ({})),
+        fetchSourceSamples(datasetId).catch(() => ({ columns: {}, origins: {} })),
       ])
       setRules(r)
       setStats(s)
       // What this tab read itself wins: it is the same file, read with the
       // corrections the human made at S2.
-      if (Object.keys(serverSamples).length > 0) {
-        setColumnSamples((cur) => ({ ...serverSamples, ...cur }))
+      if (Object.keys(serverSamples.columns).length > 0) {
+        setColumnSamples((cur) => ({ ...serverSamples.columns, ...cur }))
       }
+      setColumnOrigins(serverSamples.origins)
       // Coming back from "AI に反映して作り直す": say which columns actually
       // moved. A weak model that ignored the note used to return a table that
       // looks exactly the same, and the only way to find out was to type the
@@ -3375,8 +3376,23 @@ export function KantanWizard({
 
   const s6Maps = rules?.maps ?? []
   const multiMap = s6Maps.length > 1
+  // Which properties carry a column's VALUE (the table below) and which do not
+  // (the fold). Asking `kind === 'reference'` asked whether the value arrived
+  // untouched, not whether it came from a column — so every column a weak model
+  // wrapped in a Tier-0 cleanup vanished from the one screen that exists to
+  // give a column its meaning, and a kind whose columns were ALL wrapped
+  // rendered as no table at all (live 2026-08-20: a 3,001-row XRD file reached
+  // this screen without its angle or its intensity). `transcribedColumn` states
+  // the rule once, for every surface (`ruleColumns.ts`).
+  const valueRows = s6Maps.map((m) => ({
+    map: m,
+    rows: m.properties
+      .map((prop) => ({ prop, column: transcribedColumn(prop) }))
+      .filter((r): r is { prop: RuleProperty; column: string } => r.column !== null),
+  }))
+  const valueProps = new Set(valueRows.flatMap((g) => g.rows.map((r) => r.prop)))
   const linkRows = s6Maps.flatMap((m) =>
-    m.properties.filter((p) => p.kind !== 'reference').map((p) => ({ map: m, prop: p })),
+    m.properties.filter((p) => !valueProps.has(p)).map((p) => ({ map: m, prop: p })),
   )
   const totalSourceRows = Object.values(stats?.source_rows ?? {}).reduce((a, b) => a + b, 0)
   // A draft that declares no kinds still holds records, and S7's own count is
@@ -3400,9 +3416,9 @@ export function KantanWizard({
     }
   }
   // How many columns came back with no meaning at all (the ⚠ rows).
-  const missingMeanings = s6Maps
-    .flatMap((m) => m.properties.filter((p) => p.kind === 'reference'))
-    .filter((p) => readMeaning(p) === '').length
+  const missingMeanings = valueRows
+    .flatMap((g) => g.rows)
+    .filter((r) => readMeaning(r.prop) === '').length
   // …and the ones the design left out entirely. Only computable when S2 could
   // read the column list — with no list, nothing is said (never "nothing was
   // dropped" out of missing information).
@@ -3435,7 +3451,12 @@ export function KantanWizard({
    *  design's own §9 row and re-projects the artifacts — no AI round, no
    *  re-ingest, and the value is remembered as the HUMAN's so a later AI round
    *  cannot quietly revert it (KZ-B-05 / N6). */
-  async function commitMeta(p: RuleProperty, field: 'label' | 'unit', raw: string) {
+  async function commitMeta(
+    p: RuleProperty,
+    column: string,
+    field: 'label' | 'unit',
+    raw: string,
+  ) {
     const datasetId = kzDatasetId
     if (!datasetId || metaSaving) return
     const value = raw.trim()
@@ -3448,8 +3469,11 @@ export function KantanWizard({
       const changed = await saveDisplayMeta(datasetId, [
         {
           predicate: p.predicate_iri || p.predicate,
-          // The column pins WHICH row, when one predicate is bound twice.
-          ...(p.reference ? { column: p.reference } : {}),
+          // The column pins WHICH row, when one predicate is bound twice. It is
+          // the RESOLVED column, so a value that reaches the graph through a
+          // conversion still names the column it came from — the §9 property
+          // carries `column:` either way, so the server matches it (K8).
+          ...(column ? { column } : {}),
           [field]: value,
         },
       ])
@@ -4475,9 +4499,8 @@ export function KantanWizard({
                 : t('kantan:s6.reflectNoChange', { note: reflectedNote })}
             </p>
           )}
-          {s6Maps.map((m) => {
-            const refs = m.properties.filter((p) => p.kind === 'reference')
-            if (refs.length === 0) return null
+          {valueRows.map(({ map: m, rows }) => {
+            if (rows.length === 0) return null
             return (
               <div key={m.id} className="kz-cols">
                 {multiMap && <div className="kz-cols-caption">{mapCaption(m)}</div>}
@@ -4492,7 +4515,7 @@ export function KantanWizard({
                       </tr>
                     </thead>
                     <tbody>
-                      {refs.map((p, i) => {
+                      {rows.map(({ prop: p, column }, i) => {
                         // Meaning: IR label (K8) → model.yaml label, minus the
                         // ones that only restate the identifier. When the AI
                         // wrote neither, the cell SAYS so — the English
@@ -4501,7 +4524,14 @@ export function KantanWizard({
                         // tooltip no touch screen ever shows (KZ-B-04).
                         const meaning = readMeaning(p)
                         const missing = !meaning
-                        const samples = columnSamples[p.reference ?? ''] ?? []
+                        const samples = columnSamples[column] ?? []
+                        // A column the reader invented a NAME for is not a
+                        // heading this person ever wrote — asking them what
+                        // `preamble_1` means asks about a word that appears
+                        // nowhere in their file. Ask about the value instead,
+                        // and say where in the file it was (live 2026-08-20).
+                        const origin = columnOrigins[column]
+                        const invented = origin !== undefined && !origin.named
                         return (
                           <tr
                             key={`${m.id}-${i}`}
@@ -4512,7 +4542,22 @@ export function KantanWizard({
                                 : undefined
                             }
                           >
-                            <td className="kz-cols-name">{p.reference}</td>
+                            <td className="kz-cols-name">
+                              {invented ? (
+                                <span className="kz-cols-origin">
+                                  {t('kantan:s6.fromPreamble', { line: origin.line })}
+                                </span>
+                              ) : (
+                                <>
+                                  {column}
+                                  {origin && (
+                                    <span className="kz-cols-origin">
+                                      {t('kantan:s6.fromPreambleNamed', { line: origin.line })}
+                                    </span>
+                                  )}
+                                </>
+                              )}
+                            </td>
                             <td>
                               {/* Editable in place (KZ-B-05): a meaning and a
                                   unit are display metadata, so a correction is
@@ -4526,10 +4571,14 @@ export function KantanWizard({
                                 type="text"
                                 className="kz-cols-input"
                                 defaultValue={meaning}
-                                placeholder={t('kantan:s6.meaningPlaceholder')}
-                                aria-label={t('kantan:s6.editAria', { column: p.reference ?? '' })}
+                                placeholder={t(
+                                  invented
+                                    ? 'kantan:s6.meaningPlaceholderValue'
+                                    : 'kantan:s6.meaningPlaceholder',
+                                )}
+                                aria-label={t('kantan:s6.editAria', { column })}
                                 disabled={metaSaving || !kzDatasetId}
-                                onBlur={(e) => void commitMeta(p, 'label', e.target.value)}
+                                onBlur={(e) => void commitMeta(p, column, 'label', e.target.value)}
                                 onKeyDown={(e) => {
                                   if (e.key === 'Enter') e.currentTarget.blur()
                                 }}
@@ -4541,17 +4590,26 @@ export function KantanWizard({
                                   it blank rather than guess. The heading itself
                                   is a real answer — one tap, no typing, and it
                                   can be edited afterwards. */}
-                              {missing && (p.reference ?? '') !== '' && (
-                                <button
-                                  type="button"
-                                  className="btn btn--ghost btn--sm kz-cols-usename"
-                                  disabled={metaSaving || !kzDatasetId}
-                                  onClick={() => void commitMeta(p, 'label', p.reference ?? '')}
-                                >
-                                  {t('kantan:s6.useColumnName')}
-                                </button>
-                              )}
-                              {reflectChanged?.has(p.reference ?? '') && (
+                              {missing &&
+                                (invented ? (
+                                  /* There is no name to reuse — the one on this
+                                     row is the reader's own invention. The value
+                                     is right there in the evidence column, and
+                                     that is what the person recognises. */
+                                  <span className="kz-cols-origin">
+                                    {t('kantan:s6.askPreambleValue')}
+                                  </span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    className="btn btn--ghost btn--sm kz-cols-usename"
+                                    disabled={metaSaving || !kzDatasetId}
+                                    onClick={() => void commitMeta(p, column, 'label', column)}
+                                  >
+                                    {t('kantan:s6.useColumnName')}
+                                  </button>
+                                ))}
+                              {reflectChanged?.has(column) && (
                                 <span className="kz-map-note"> {t('kantan:s6.updatedBadge')}</span>
                               )}
                             </td>
@@ -4566,9 +4624,9 @@ export function KantanWizard({
                                 size={8}
                                 defaultValue={p.unit ?? ''}
                                 placeholder={t('kantan:s6.unitPlaceholder')}
-                                aria-label={t('kantan:s6.unitAria', { column: p.reference ?? '' })}
+                                aria-label={t('kantan:s6.unitAria', { column })}
                                 disabled={metaSaving || !kzDatasetId}
-                                onBlur={(e) => void commitMeta(p, 'unit', e.target.value)}
+                                onBlur={(e) => void commitMeta(p, column, 'unit', e.target.value)}
                                 onKeyDown={(e) => {
                                   if (e.key === 'Enter') e.currentTarget.blur()
                                 }}
@@ -4624,7 +4682,7 @@ export function KantanWizard({
                   // they recognise. Map ids, function names and IRI-shaped
                   // constants are machine notation and stay out of this tier
                   // (K4) — the same rule the table above follows (KZ-B-06).
-                  const fromColumns = templateColumns(prop.template)
+                  const fromColumns = termColumns(prop)
                   const constant = prop.constant?.trim()
                   const detail =
                     fromColumns.length > 0

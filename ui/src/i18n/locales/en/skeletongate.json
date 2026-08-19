@@ -3,12 +3,12 @@
     "unique": "1 row = one “{{label}}”",
     "singleton": "the whole table = one “{{label}}”",
     "partial": "1 row should be one “{{label}}”, but some IDs repeat",
-    "plain": "1 row of this table = “{{label}}”"
+    "plain": "Kind read: “{{label}}”"
   },
   "col": {
     "source": "File",
     "key": "How the ID is decided",
-    "kind": "How the data is counted"
+    "kind": "What one record is"
   },
   "noteSummary": "Show the AI's note",
   "diagram": {

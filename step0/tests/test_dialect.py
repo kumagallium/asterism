@@ -22,6 +22,7 @@ from asterism_step0.dialect import (
     is_default,
     iter_rows,
     read_preamble,
+    read_preamble_origins,
     resolve_header,
 )
 
@@ -700,3 +701,108 @@ def test_a_large_file_whose_tail_alone_is_shift_jis_is_still_read(tmp_path) -> N
     # The whole file now reads without raising — the point of the fix.
     with src.open("r", encoding=dialect.encoding, errors="strict") as fh:
         assert sum(1 for _ in fh) == 120_002
+
+
+# ----------------------------------------------------------------------------
+# read_preamble_origins — provenance twin of read_preamble (KZ, "preamble_1 was
+# never written by the person who made the file")
+# ----------------------------------------------------------------------------
+
+
+def test_read_preamble_origins_lines_named_false() -> None:
+    # A bare preamble line ("lines" mode) has no name written by the file — the
+    # name is asterism's invention, so named must be False.
+    origins = read_preamble_origins(["Al3V_bulk"], "lines")
+    assert len(origins) == 1
+    o = origins[0]
+    assert o.name == "preamble_1"
+    assert o.line == 1
+    assert o.text == "Al3V_bulk"
+    assert o.named is False
+
+
+def test_read_preamble_origins_lines_tracks_physical_line_number() -> None:
+    # Blank lines are skipped by read_preamble but the ORIGINAL 1-based line
+    # number must still be reported (matches the preamble_{i+1} naming rule).
+    origins = read_preamble_origins(["", "Al3V_bulk", ""], "lines")
+    assert len(origins) == 1
+    assert origins[0].line == 2
+    assert origins[0].name == "preamble_2"
+
+
+def test_read_preamble_origins_keyvalue_named_true() -> None:
+    # "試料名: Al3V_bulk" — the column name IS what the file wrote, so named=True.
+    origins = read_preamble_origins(["試料名: Al3V_bulk"], "keyvalue")
+    assert len(origins) == 1
+    o = origins[0]
+    assert o.name == "試料名"
+    assert o.named is True
+    assert o.line == 1
+    assert o.text == "試料名: Al3V_bulk"
+
+
+def test_read_preamble_origins_keyvalue_continuation_without_prior_key() -> None:
+    # A leading continuation line with no prior key falls back to preamble_{i+1}
+    # (mirrors test_read_preamble_continuation_without_prior_key) — unnamed.
+    origins = read_preamble_origins(["orphan text", "K: v"], "keyvalue")
+    assert [o.name for o in origins] == ["preamble_1", "K"]
+    assert origins[0].named is False
+    assert origins[1].named is True
+
+
+def test_read_preamble_origins_keyvalue_cells_bare_cell_named_false() -> None:
+    # A bare cell (no '=') in keyvalue_cells mode is a positional invented name.
+    origins = read_preamble_origins([_ZEM_META_LINE], "keyvalue_cells", delimiter="\t")
+    by_name = {o.name: o for o in origins}
+    assert by_name["preamble_1"].named is False
+    assert by_name["preamble_1"].text == "Al3V-SPS-2"
+    assert by_name["preamble_1"].line == 1
+    assert by_name["T.C.type"].named is True
+    assert by_name["T.C.type"].text == "T.C.type=K"
+
+
+def test_read_preamble_origins_drop_and_unknown_mode_yield_nothing() -> None:
+    assert read_preamble_origins(["K: v"], "drop") == []
+    assert read_preamble_origins(["K: v"], "bogus") == []
+
+
+def test_read_preamble_origins_matches_read_preamble_names_exactly() -> None:
+    # Property: for every mode/fixture, read_preamble_origins must produce the
+    # EXACT same name list, in the EXACT same order (including _2/_3 duplicate
+    # suffixes) as read_preamble — a display surface joins the two by name/order,
+    # so any divergence would attribute the wrong provenance to a column.
+    fixtures: list[tuple[list[str], str, str]] = [
+        (["Al3V_bulk"], "lines", ","),
+        (["", "Al3V_bulk", ""], "lines", ","),
+        (_CARD_PREAMBLE, "keyvalue", ","),
+        (["Peak: 10", "Peak: 20", "Peak: 30"], "keyvalue", ","),
+        (["orphan text", "K: v"], "keyvalue", ","),
+        (["Additional Patterns: See PDF", "03-065-5860 for more"], "keyvalue", ","),
+        (
+            [
+                "ANX: N. ... Original Remarks: Cell",
+                "for Al-filings: 4.04920(5). ... Unit",
+                "Cell Data Source: Single Crystal.",
+            ],
+            "keyvalue",
+            ",",
+        ),
+        ([_ZEM_META_LINE], "keyvalue_cells", "\t"),
+        (["K=1\tK=2\t=x\tformula=y=z"], "keyvalue_cells", "\t"),
+        (["name  a=1   b=2"], "keyvalue_cells", WHITESPACE),
+    ]
+    for lines, mode, delimiter in fixtures:
+        names_from_pairs = [name for name, _ in read_preamble(lines, mode, delimiter=delimiter)]
+        names_from_origins = [
+            o.name for o in read_preamble_origins(lines, mode, delimiter=delimiter)
+        ]
+        assert names_from_origins == names_from_pairs, (lines, mode)
+
+
+def test_read_preamble_origins_header_columns_not_included() -> None:
+    # The origin function only ever sees preamble LINES, never the body header —
+    # so a body-header column simply cannot appear here. This pins that the
+    # broadcast wiring (iter_rows/_broadcast_rows) is the only place body and
+    # meta columns are joined, and origins must stay scoped to the meta side.
+    origins = read_preamble_origins(["Al3V_bulk"], "lines")
+    assert all(o.name != "2θ (deg)" for o in origins)

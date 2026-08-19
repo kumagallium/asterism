@@ -7678,6 +7678,20 @@ tr.kz-attn td {
   margin-top: 0.25rem;
 }
 
+/* Where a column came from when it is NOT one of the file's headings — the
+   dialect layer broadcasts an instrument preamble onto every row, and a
+   preamble line with no key of its own gets a name the reader invents. The
+   name column then holds a sentence, not a heading, so it is set in the note
+   voice rather than the code voice the real headings use. */
+.kz-cols-origin {
+  display: block;
+  font-family: var(--font-sans);
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: var(--muted);
+  margin-top: 0.15rem;
+}
+
 /* A note that reports something suspicious about the READING, not an error the
    person caused: amber text on the ordinary note, no band. */
 .kz-warn-note {

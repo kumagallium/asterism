@@ -39,6 +39,7 @@ __all__ = [
     "PREAMBLE_MODES",
     "TABULAR_SUFFIXES",
     "WHITESPACE",
+    "PreambleOrigin",
     "SourceDialect",
     "apply_detected_dialects",
     "describe_dialect",
@@ -48,6 +49,7 @@ __all__ = [
     "is_default",
     "iter_rows",
     "read_preamble",
+    "read_preamble_origins",
     "resolve_header",
 ]
 
@@ -419,6 +421,92 @@ def read_preamble(lines: list[str], mode: str, *, delimiter: str = ",") -> list[
         else:
             pairs.append([f"preamble_{i + 1}", stripped])
     return [(k, v) for k, v in pairs]
+
+
+@dataclass(frozen=True)
+class PreambleOrigin:
+    """Where one broadcast preamble column's NAME and VALUE came from.
+
+    ``name`` is the resolved-side key exactly as :func:`read_preamble` emits it
+    (including any ``_2``/``_3`` duplicate suffix) — callers match this against
+    :func:`resolve_header`'s output, not the raw source text. ``named`` is True
+    only when the file itself wrote that name (a ``key:``/``key=`` label); a
+    ``preamble_N`` name is a MACHINE invention (``read_preamble``'s fallback) and
+    ``named`` is False so a display surface can say so instead of presenting the
+    invented name as if the person had written it. ``line`` is the 1-based
+    physical line number within the file (the preamble occupies the file's first
+    ``skip_rows`` lines, so this is a file line number, not just an index into the
+    preamble block). ``text`` is the raw, decoded source text the name/value pair
+    was read from — the stripped line for ``"lines"``/``"keyvalue"``, the single
+    cell for ``"keyvalue_cells"``."""
+
+    name: str
+    line: int
+    text: str
+    named: bool
+
+
+def read_preamble_origins(
+    lines: list[str], mode: str, *, delimiter: str = ","
+) -> list[PreambleOrigin]:
+    """Provenance twin of :func:`read_preamble`: same names, same order, same
+    duplicate-suffixing — plus WHERE each name/value came from and whether the
+    file wrote the name or ``read_preamble`` invented it.
+
+    Deliberately a separate function rather than a flag on ``read_preamble``:
+    the latter has many callers and its signature/return type must not change.
+    This one must stay in exact lockstep with it (same rules, walked in the same
+    order) or a column's displayed origin would point at the wrong column."""
+    if mode == "lines":
+        out: list[PreambleOrigin] = []
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped:
+                out.append(PreambleOrigin(f"preamble_{i + 1}", i + 1, stripped, False))
+        return out
+    if mode == "keyvalue_cells":
+        origins: list[PreambleOrigin] = []
+        cell_key_counts: dict[str, int] = {}
+        bare = 0
+        for i, line in enumerate(lines):
+            for cell in _preamble_cells(line, delimiter):
+                cell = cell.strip()
+                if not cell:
+                    continue
+                key, eq, _value = cell.partition("=")
+                if eq and key.strip():
+                    k = key.strip()
+                    cell_key_counts[k] = cell_key_counts.get(k, 0) + 1
+                    if cell_key_counts[k] > 1:
+                        k = f"{k}_{cell_key_counts[k]}"
+                    origins.append(PreambleOrigin(k, i + 1, cell, True))
+                else:
+                    bare += 1
+                    origins.append(PreambleOrigin(f"preamble_{bare}", i + 1, cell, False))
+        return origins
+    if mode != "keyvalue":
+        return []
+    origins = []  # type: list[PreambleOrigin]
+    key_counts: dict[str, int] = {}
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped or _PREAMBLE_SECTION.match(line):
+            continue
+        m = _PREAMBLE_KV.match(line)
+        if m:
+            key = m.group(1).strip()
+            key_counts[key] = key_counts.get(key, 0) + 1
+            if key_counts[key] > 1:
+                key = f"{key}_{key_counts[key]}"
+            origins.append(PreambleOrigin(key, i + 1, stripped, True))
+        elif origins:
+            # A continuation line extends the previous entry's VALUE (in
+            # read_preamble) but is not itself a new column — mirror that by
+            # leaving the existing origin (name/line/text) untouched.
+            continue
+        else:
+            origins.append(PreambleOrigin(f"preamble_{i + 1}", i + 1, stripped, False))
+    return origins
 
 
 def resolve_header(body_names: list[str], meta_names: list[str]) -> list[str]:

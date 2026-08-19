@@ -651,6 +651,137 @@ def test_iri_valued_reference_not_a_duplicate_fact() -> None:
     assert design_advisories(rml) == []
 
 
+def test_duplicate_column_through_single_arg_function_is_flagged(tmp_path) -> None:
+    # The live XRD shape (2026-08-20): a per-preamble Sample map AND a per-row
+    # SampleDetail map over the SAME source, BOTH transcribing "twotheta" and
+    # "intensity" through a single-column function pipeline (number_clean).
+    # rml:reference-only detection missed this entirely (0 advisories on the
+    # real 3001-row file) because a function-wrapped column never showed up as
+    # a "plain reference" — this is the regression test for that gap.
+    rml = _FNO_PREFIXES + """
+<#Sample> rml:logicalSource [ rml:source "xrd.csv" ] ;
+  rr:subjectMap [ rr:template "https://ex/sample/{preamble_1}" ; rr:class ex:Sample ] ;
+  rr:predicateObjectMap [ rr:predicate ex:twotheta ;
+    rr:objectMap [ rmlf:functionExecution [
+        rmlf:function fn:number_clean ;
+        rmlf:input [ rmlf:parameter <https://ex.example/fn/p_value> ;
+                     rmlf:inputValueMap [ rml:reference "twotheta" ] ] ] ] ] ;
+  rr:predicateObjectMap [ rr:predicate ex:intensity ;
+    rr:objectMap [ rmlf:functionExecution [
+        rmlf:function fn:number_clean ;
+        rmlf:input [ rmlf:parameter <https://ex.example/fn/p_value> ;
+                     rmlf:inputValueMap [ rml:reference "intensity" ] ] ] ] ] .
+<#SampleDetail> rml:logicalSource [ rml:source "xrd.csv" ] ;
+  rr:subjectMap [ rr:template "https://ex/sample_detail/{preamble_1}/{row_id}" ;
+    rr:class ex:SampleDetail ] ;
+  rr:predicateObjectMap [ rr:predicate ex:ofSample ;
+    rr:objectMap [ rr:template "https://ex/sample/{preamble_1}" ; rr:termType rr:IRI ] ] ;
+  rr:predicateObjectMap [ rr:predicate ex:twotheta ;
+    rr:objectMap [ rmlf:functionExecution [
+        rmlf:function fn:number_clean ;
+        rmlf:input [ rmlf:parameter <https://ex.example/fn/p_value> ;
+                     rmlf:inputValueMap [ rml:reference "twotheta" ] ] ] ] ] ;
+  rr:predicateObjectMap [ rr:predicate ex:intensity ;
+    rr:objectMap [ rmlf:functionExecution [
+        rmlf:function fn:number_clean ;
+        rmlf:input [ rmlf:parameter <https://ex.example/fn/p_value> ;
+                     rmlf:inputValueMap [ rml:reference "intensity" ] ] ] ] ] .
+"""
+    (tmp_path / "xrd.csv").write_text(
+        "preamble_1,row_id,twotheta,intensity\n"
+        "p1,1,10.0,100\np1,2,20.0,200\np1,3,30.0,300\n",
+        encoding="utf-8",
+    )
+    advisories = [
+        a for a in design_advisories(rml, tmp_path) if "plain datatype property by" in a
+    ]
+    assert len(advisories) == 2  # twotheta + intensity, both function-wrapped
+    labels = {a.split("'")[1] for a in advisories}
+    assert labels == {"twotheta", "intensity"}
+    for a in advisories:
+        # twotheta/intensity vary per row -> preamble_1 alone cannot determine
+        # them -> Sample (keyed only by preamble_1) cannot own it -> the
+        # per-row SampleDetail (keyed by preamble_1+row_id) does.
+        assert "keep it ONLY on 'SampleDetail' and DELETE it from: Sample" in a
+
+
+def test_duplicate_column_flagged_when_one_side_is_a_direct_reference(tmp_path) -> None:
+    # Same column, reached two different ways (plain reference vs. a function
+    # pipeline) — still the SAME source cell duplicated onto two entities.
+    rml = _FNO_PREFIXES + """
+<#A> rml:logicalSource [ rml:source "d.csv" ] ;
+  rr:subjectMap [ rr:constant <https://ex/a/only> ; rr:class ex:A ] ;
+  rr:predicateObjectMap [ rr:predicate ex:ofB ;
+    rr:objectMap [ rr:parentTriplesMap <#B> ] ] ;
+  rr:predicateObjectMap [ rr:predicate ex:val ; rr:objectMap [ rml:reference "val" ] ] .
+<#B> rml:logicalSource [ rml:source "d.csv" ] ;
+  rr:subjectMap [ rr:template "https://ex/b/{id}" ; rr:class ex:B ] ;
+  rr:predicateObjectMap [ rr:predicate ex:val ;
+    rr:objectMap [ rmlf:functionExecution [
+        rmlf:function fn:number_clean ;
+        rmlf:input [ rmlf:parameter <https://ex.example/fn/p_value> ;
+                     rmlf:inputValueMap [ rml:reference "val" ] ] ] ] ] .
+"""
+    (tmp_path / "d.csv").write_text("id,val\n1,10\n2,20\n3,30\n", encoding="utf-8")
+    advisories = [
+        a for a in design_advisories(rml, tmp_path) if "plain datatype property by" in a
+    ]
+    assert len(advisories) == 1
+    assert advisories[0].startswith("column 'val'")
+    assert "A + B" in advisories[0]
+
+
+def test_two_argument_function_is_not_a_transcription_of_either_column() -> None:
+    # A function combining TWO columns produces a genuinely DERIVED value that
+    # belongs to neither input alone — even if both maps run the same
+    # combination, that is not a duplicated FACT and must stay silent.
+    rml = _FNO_PREFIXES + """
+<#A> rml:logicalSource [ rml:source "d.csv" ] ;
+  rr:subjectMap [ rr:constant <https://ex/a/only> ; rr:class ex:A ] ;
+  rr:predicateObjectMap [ rr:predicate ex:ofB ;
+    rr:objectMap [ rr:parentTriplesMap <#B> ] ] ;
+  rr:predicateObjectMap [ rr:predicate ex:combined ;
+    rr:objectMap [ rmlf:functionExecution [
+        rmlf:function fn:combine ;
+        rmlf:input [ rmlf:parameter <https://ex.example/fn/p_field1> ;
+                     rmlf:inputValueMap [ rml:reference "a" ] ] ;
+        rmlf:input [ rmlf:parameter <https://ex.example/fn/p_field2> ;
+                     rmlf:inputValueMap [ rml:reference "b" ] ] ] ] ] .
+<#B> rml:logicalSource [ rml:source "d.csv" ] ;
+  rr:subjectMap [ rr:template "https://ex/b/{id}" ; rr:class ex:B ] ;
+  rr:predicateObjectMap [ rr:predicate ex:combined ;
+    rr:objectMap [ rmlf:functionExecution [
+        rmlf:function fn:combine ;
+        rmlf:input [ rmlf:parameter <https://ex.example/fn/p_field1> ;
+                     rmlf:inputValueMap [ rml:reference "a" ] ] ;
+        rmlf:input [ rmlf:parameter <https://ex.example/fn/p_field2> ;
+                     rmlf:inputValueMap [ rml:reference "b" ] ] ] ] ] .
+"""
+    assert design_advisories(rml) == []
+
+
+def test_key_carry_columns_exempt_through_function_too(tmp_path) -> None:
+    # The subject-key exemption (join declaration) must still apply when the
+    # carried key column is reached through a single-column function pipeline,
+    # not only a direct rml:reference.
+    rml = _FNO_PREFIXES + """
+<#Child> rml:logicalSource [ rml:source "c.csv" ] ;
+  rr:subjectMap [ rr:template "https://ex/c/{cid}" ; rr:class ex:Child ] ;
+  rr:predicateObjectMap [ rr:predicate ex:ofParent ;
+    rr:objectMap [ rr:template "https://ex/p/{sid}" ; rr:termType rr:IRI ] ] ;
+  rr:predicateObjectMap [ rr:predicate ex:sid ;
+    rr:objectMap [ rmlf:functionExecution [
+        rmlf:function fn:number_clean ;
+        rmlf:input [ rmlf:parameter <https://ex.example/fn/p_value> ;
+                     rmlf:inputValueMap [ rml:reference "sid" ] ] ] ] ] .
+<#Parent> rml:logicalSource [ rml:source "c.csv" ] ;
+  rr:subjectMap [ rr:template "https://ex/p/{sid}" ; rr:class ex:Parent ] ;
+  rr:predicateObjectMap [ rr:predicate ex:sidLit ; rr:objectMap [ rml:reference "sid" ] ] .
+"""
+    (tmp_path / "c.csv").write_text("cid,sid\n1,a\n2,a\n", encoding="utf-8")
+    assert design_advisories(rml, tmp_path) == []
+
+
 def test_unparseable_rml_degrades_to_no_advisories() -> None:
     assert design_advisories("@prefix broken") == []
 

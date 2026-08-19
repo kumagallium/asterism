@@ -1038,17 +1038,43 @@ export async function fetchDatasetProposal(datasetId: string): Promise<string> {
   return ((await res.json()) as { proposal_md?: string }).proposal_md ?? ''
 }
 
-/** Up to 3 real values per column, read from the dataset's OWN persisted source.
+/** Where a column that is NOT in the file's header came from. The dialect layer
+ *  broadcasts an instrument file's preamble onto every row as extra columns, and
+ *  when a preamble line carries no key of its own it has to invent the NAME
+ *  (`preamble_1`). Showing that invented name as 「元の列名」 asks the reader
+ *  about a word that appears nowhere in their file (live 2026-08-20). */
+export interface ColumnOrigin {
+  source: string
+  /** 1-based line in that file. */
+  line: number
+  /** The raw preamble text this column was read from. */
+  text: string
+  /** Did the FILE give this column its name, or did the reader invent it? */
+  named: boolean
+}
+
+export interface SourceSamples {
+  /** Up to 3 real values per column. */
+  columns: Record<string, string[]>
+  /** Only the columns the reader synthesized — a header column is absent. */
+  origins: Record<string, ColumnOrigin>
+}
+
+/** Up to 3 real values per column, read from the dataset's OWN persisted source,
+ *  plus the origin of any column the reader synthesized from a preamble.
  *  What the column-meaning screen shows as evidence when this browser never
  *  parsed the file itself — a review reopened from the catalog, a resume after a
  *  reload, or any .xlsx (KZ-B-25). */
-export async function fetchSourceSamples(datasetId: string): Promise<Record<string, string[]>> {
+export async function fetchSourceSamples(datasetId: string): Promise<SourceSamples> {
   const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/source-samples`, {
     headers: authHeaders(),
   })
   if (!res.ok) await throwApiError(res, 'source samples')
-  const body = (await res.json()) as { columns?: Record<string, string[]> }
-  return body.columns ?? {}
+  const body = (await res.json()) as {
+    columns?: Record<string, string[]>
+    origins?: Record<string, ColumnOrigin>
+  }
+  return { columns: body.columns ?? {}, origins: body.origins ?? {} }
 }
 
 /** One human correction to what a column MEANS or the unit it is in (K8). */

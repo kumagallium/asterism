@@ -30,6 +30,7 @@ import {
   getDatasetRules,
 } from './galleryApi'
 import { labelFor, tailOf } from './termLabels'
+import { termColumns } from './ruleColumns'
 
 // ---------------------------------------------------------------------------
 // small helpers
@@ -37,18 +38,12 @@ import { labelFor, tailOf } from './termLabels'
 
 /** The columns of the uploaded file a rule reads its value from. Returns null for
  *  values that are not read from a column (a constant, or a function with no
- *  column argument) — the caller says so in words instead of showing nothing. */
+ *  column argument) — the caller says so in words instead of showing nothing.
+ *  The walk itself lives in `ruleColumns.ts`, so this tier and the kantan tier
+ *  agree on what "reads a column" means. */
 function sourceColumns(term: RuleTerm): string | null {
-  if (term.kind === 'reference') return term.reference ?? null
-  if (term.kind === 'template') {
-    const refs = (term.template ?? '').match(/\{[^{}]+\}/g)
-    return refs?.length ? refs.map((r) => r.slice(1, -1)).join(' + ') : null
-  }
-  if (term.kind === 'function') {
-    const cols = (term.args ?? []).map(sourceColumns).filter(Boolean)
-    return cols.length ? cols.join(' + ') : null
-  }
-  return null
+  const cols = termColumns(term)
+  return cols.length ? cols.join(' + ') : null
 }
 
 /** What to say in the 元の列 cell when a value is not read from a column. A

@@ -3,12 +3,12 @@
     "unique": "1 行 = 1 つの「{{label}}」",
     "singleton": "この表全体で 1 つの「{{label}}」",
     "partial": "1 行 = 1 つの「{{label}}」のはずが、ID が重なっています",
-    "plain": "この表の 1 行 = 「{{label}}」"
+    "plain": "読み取った種類:「{{label}}」"
   },
   "col": {
     "source": "ファイル",
     "key": "ID の決まりかた",
-    "kind": "1 行が表すもの"
+    "kind": "1 件が表すもの"
   },
   "noteSummary": "AI の説明を見る",
   "diagram": {

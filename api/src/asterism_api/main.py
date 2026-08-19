@@ -1920,6 +1920,61 @@ def _column_samples(inspections: list) -> dict[str, dict[str, list[str]]]:
     return out
 
 
+def _preamble_column_origins(
+    path: Path, dialect: SourceDialect, resolved_columns: list[str]
+) -> dict[str, dict[str, object]]:
+    """Where each BROADCAST preamble column of ``path`` came from.
+
+    A column produced by ``preamble: lines``/``keyvalue``/``keyvalue_cells`` was
+    never written by the person who made the file — the meaning screen must not
+    present an ``asterism``-invented name (``preamble_1``) as if it were the
+    file's own column name. ``resolved_columns`` is the FULL, already-resolved
+    column name list for this one source, in the order :func:`iter_rows`
+    produces it (body columns first, then the broadcast meta columns) — the same
+    list the caller already has from the inspection, so the meta tail can be
+    sliced off and run back through :func:`resolve_header` to reproduce the
+    EXACT collision-suffixed names (``_2``/``_3``) the broadcast used, rather
+    than guessing at them.
+
+    Best-effort by contract (mirrors the endpoint): an unreadable file, or a
+    column count that does not line up with what :func:`read_preamble_origins`
+    reports, answers ``{}`` rather than mislabeling a column or raising.
+    """
+    if dialect.preamble == "drop" or dialect.skip_rows <= 0:
+        return {}
+    from asterism_step0.dialect import read_preamble_origins, resolve_header
+
+    try:
+        with path.open(encoding=dialect.encoding, newline="") as fh:
+            preamble_lines: list[str] = []
+            for _ in range(dialect.skip_rows):
+                line = fh.readline()
+                if not line:
+                    break
+                preamble_lines.append(line)
+    except OSError:
+        logger.warning("source origins: %s could not be read", path.name)
+        return {}
+    origins = read_preamble_origins(preamble_lines, dialect.preamble, delimiter=dialect.delimiter)
+    if not origins:
+        return {}
+    n_body = len(resolved_columns) - len(origins)
+    if n_body < 0:
+        # The inspection's column count does not match what read_preamble_origins
+        # would broadcast — resolve_header could not reproduce the right names,
+        # so refuse rather than risk pointing an origin at the wrong column.
+        logger.warning(
+            "source origins: %s column count does not match the preamble broadcast", path.name
+        )
+        return {}
+    body_names = resolved_columns[:n_body]
+    resolved_meta = resolve_header(body_names, [o.name for o in origins])
+    return {
+        name: {"source": path.name, "line": o.line, "text": o.text, "named": o.named}
+        for name, o in zip(resolved_meta, origins, strict=True)
+    }
+
+
 def _samples_header_json(inspections: list) -> str:
     """Compact JSON for the ``X-Asterism-Samples`` response header of /api/inspect.
 
@@ -4557,6 +4612,15 @@ def build_app(
         ``.xlsx`` was already converted to CSV at attach, so it is covered.
         Best-effort by contract — a missing/unreadable source answers ``{}``
         rather than failing the screen.
+
+        ``origins`` answers a narrower question the meaning screen must not
+        blur: for a column BROADCAST from a dropped preamble (``dialects:
+        …preamble: lines/keyvalue/keyvalue_cells``), was that column's NAME
+        written by the person who made the file, or invented by asterism
+        (``preamble_1``)? ``{resolved column name: {source, line, text,
+        named}}`` — only preamble-origin columns appear; a column that came
+        from the file's own header is not in ``origins`` at all, because its
+        name needs no provenance note.
         """
         data = registry.load_dataset(cfg.registry_root, dataset_id)
         if data is None:
@@ -4566,12 +4630,16 @@ def build_app(
 
         def run() -> dict[str, object]:
             if not paths:
-                return {"dataset_id": dataset_id, "sources": {}, "columns": {}}
+                return {"dataset_id": dataset_id, "sources": {}, "columns": {}, "origins": {}}
             try:
                 dialects = _dialected_sources(rml_ttl)
             except _DialectReadError:
                 dialects = {}
             per_source: dict[str, dict[str, list[str]]] = {}
+            # Broadcast preamble columns only (K? — "the item name your file
+            # didn't write"): {resolved column name: {source, line, text, named}}.
+            # First file wins on a name clash, matching ``flat`` below.
+            origins: dict[str, dict[str, object]] = {}
             for path in paths:
                 # One file at a time, and only files that HAVE columns: the source
                 # directory also holds the original .xlsx a design was converted
@@ -4587,6 +4655,19 @@ def build_app(
                     logger.warning("source samples: %s could not be read", path.name)
                     continue
                 per_source.update(_column_samples(inspections))
+                dialect = dialects.get(path.name)
+                if dialect is not None:
+                    for ins in inspections:
+                        cols = [c.name for c in getattr(ins, "columns", []) or []]
+                        try:
+                            found = _preamble_column_origins(path, dialect, cols)
+                        except Exception:
+                            logger.warning(
+                                "source origins: %s could not be attributed", path.name
+                            )
+                            continue
+                        for name, info in found.items():
+                            origins.setdefault(name, info)
             # Flat view for the common single-source design; first file wins on a
             # name clash, matching what the client-side preview did.
             flat: dict[str, list[str]] = {}
@@ -4594,7 +4675,12 @@ def build_app(
                 for name, values in cols.items():
                     if values and name not in flat:
                         flat[name] = values
-            return {"dataset_id": dataset_id, "sources": per_source, "columns": flat}
+            return {
+                "dataset_id": dataset_id,
+                "sources": per_source,
+                "columns": flat,
+                "origins": origins,
+            }
 
         return await asyncio.to_thread(run)
 

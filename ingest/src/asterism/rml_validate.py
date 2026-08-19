@@ -874,13 +874,50 @@ def _tm_subject_key_columns(graph, tm) -> frozenset[str] | None:
     return None
 
 
-def _tm_plain_reference_columns(graph, tm) -> set[str]:
-    """Columns this map binds as a PLAIN datatype object: an object map holding
-    a direct ``rml:reference`` and no ``rr:termType rr:IRI`` — exactly the shape
-    the IR compiler emits for ``column:``. Function pipelines, templates, joins
-    and constants are links or derived values, not plain transcriptions, and are
-    deliberately not collected (a shared function INPUT is not a duplicated
-    fact)."""
+def _fn_source_columns(graph, fe) -> set[str]:
+    """Every distinct source column feeding a ``functionExecution``'s inputs.
+
+    Recurses through nested function executions (a transform-of-a-transform),
+    so ``f(g(col))`` still counts ``col`` once. A ``rr:constant``/``fn:constant``
+    input contributes nothing — it is not a column at all. Used by
+    :func:`_tm_transcribed_columns` to tell "this function reshapes ONE column's
+    value" (still a transcription of that column) from "this function combines
+    SEVERAL columns" (a derived value, not any one column's transcription)."""
+    import rdflib
+
+    uri = rdflib.URIRef
+    cols: set[str] = set()
+    for in_pred in _INPUT_PREDS:
+        for inp in graph.objects(fe, uri(in_pred)):
+            for ivm_pred in _INPUT_VALUE_MAP_PREDS:
+                for ivm in graph.objects(inp, uri(ivm_pred)):
+                    found = False
+                    for rp in _REFERENCE_PREDS:
+                        for r in graph.objects(ivm, uri(rp)):
+                            cols.add(str(r))
+                            found = True
+                    if found:
+                        continue
+                    for fe_pred in _FUNCTION_EXECUTION_PREDS:
+                        for nested_fe in graph.objects(ivm, uri(fe_pred)):
+                            cols |= _fn_source_columns(graph, nested_fe)
+    return cols
+
+
+def _tm_transcribed_columns(graph, tm) -> set[str]:
+    """Columns this map TRANSCRIBES onto a literal object: a plain fact copied
+    from exactly one source cell, however it got there.
+
+    A object map is a transcription of column X when it holds:
+    - a direct ``rml:reference`` to X (exactly the shape the IR compiler emits
+      for ``column:``), or
+    - a function pipeline whose inputs read EXACTLY ONE distinct source column
+      (constants don't count as columns; nested transforms are followed) —
+      ``number_clean(X)`` is still X's value, just reshaped, so it is X's
+      transcription too. A function combining TWO OR MORE columns produces a
+      genuinely derived value that belongs to none of its inputs alone, so it
+      is excluded (an ``rr:termType rr:IRI`` object map is a link/ID, never a
+      transcription, and is excluded outright)."""
     import rdflib
 
     uri = rdflib.URIRef
@@ -897,6 +934,11 @@ def _tm_plain_reference_columns(graph, tm) -> set[str]:
             for rp in _REFERENCE_PREDS:
                 for r in graph.objects(om, uri(rp)):
                     out.add(str(r))
+            for fe_pred in _FUNCTION_EXECUTION_PREDS:
+                for fe in graph.objects(om, uri(fe_pred)):
+                    cols = _fn_source_columns(graph, fe)
+                    if len(cols) == 1:
+                        out |= cols
     return out
 
 
@@ -906,10 +948,13 @@ _NUMBER = re.compile(r"[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$")
 def _tm_untyped_plain_columns(graph, tm) -> set[str]:
     """Plain-literal columns this map binds with NO ``rr:datatype``.
 
-    Same shape as :func:`_tm_plain_reference_columns` (a direct reference, not an
+    Same shape as :func:`_tm_transcribed_columns` (a direct reference, not an
     IRI term), minus the ones already carrying a datatype — those made their
-    choice. A function pipeline is excluded there too: its output type is the
-    function's business.
+    choice. Unlike that function, a function pipeline is excluded here even
+    when it reads a single column: the datatype of a transformed value is the
+    FUNCTION's business (its output type need not match its input's), so
+    whether the untyped literal is numeric or not is not decidable from the
+    source column alone — no claim is better than a wrong one.
     """
     import rdflib
 
@@ -1014,7 +1059,7 @@ def _duplicate_column_advisories(graph, csv_dir: Path | str | None) -> list[str]
         if keys is None:
             continue
         per_source.setdefault(src, []).append(
-            (_tm_label(graph, tm), keys, _tm_plain_reference_columns(graph, tm))
+            (_tm_label(graph, tm), keys, _tm_transcribed_columns(graph, tm))
         )
 
     issues: list[str] = []
