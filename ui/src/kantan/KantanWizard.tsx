@@ -2547,9 +2547,14 @@ export function KantanWizard({
     const out = new Map<string, string>()
     for (const m of r?.maps ?? []) {
       for (const p of m.properties) {
-        if (p.kind !== 'reference' || !p.reference) continue
+        // Same rule as the table itself (K19): a converted column is still that
+        // column, so a meaning the AI changed on one is still a change worth
+        // reporting. Keyed by column — asking `kind === 'reference'` here made
+        // 「変わりませんでした」 the answer for every column with a conversion.
+        const column = transcribedColumn(p)
+        if (!column) continue
         const label = p.label || r?.labels?.[p.predicate_iri] || ''
-        out.set(p.reference, `${label}\u001f${p.unit ?? ''}`)
+        out.set(column, `${label}\u001f${p.unit ?? ''}`)
       }
     }
     return out
@@ -2692,11 +2697,16 @@ export function KantanWizard({
     return humanizeLocal(localName(iri))
   }
 
-  /** The source column one term was read from, per the dataset's own rules. */
+  /** The source column one term was read from, per the dataset's own rules.
+   *  Same rule as the table (K19), so a term whose value passed through a
+   *  conversion still falls back to its column name instead of to the machine
+   *  identifier read as words. */
   function columnFor(iri: string): string | null {
     for (const map of rules?.maps ?? []) {
       for (const p of map.properties) {
-        if (p.predicate_iri === iri && p.kind === 'reference' && p.reference) return p.reference
+        if (p.predicate_iri !== iri) continue
+        const column = transcribedColumn(p)
+        if (column) return column
       }
     }
     return null
