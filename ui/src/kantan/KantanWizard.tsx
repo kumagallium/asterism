@@ -4349,6 +4349,25 @@ export function KantanWizard({
               </div>
             </>
           )}
+          {/* 外の世界とつなぐ導線。つながり (crosswalk) がデータセット同士を結ぶ
+              のに対し、こちらは自分で作ったことばを既存の標準に結ぶ。どちらも
+              同じ align() が書く可逆な主張なのに、かんたん側には crosswalk の
+              入口しか無く、標準に合わせる側は詳細のカタログに埋もれていた
+              (external-standard-alignment.md §8)。件数の条件は付けない —
+              つなぐ相手が要る crosswalk と違い、1 件目から意味がある。 */}
+          {kzDatasetId && (
+            <>
+              <hr className="kz-divider" />
+              <p className="kz-note kz-grow-title">{t('kantan:s9.groundTitle')}</p>
+              <p className="kz-note">{t('kantan:s9.groundBody')}</p>
+              <div className="kz-actions">
+                <button type="button" onClick={() => openGrow('design')}>
+                  {t('kantan:s9.groundBtn')}
+                </button>
+              </div>
+              <p className="kz-note">{t('kantan:s9.groundHint')}</p>
+            </>
+          )}
           {/* The last step of "a fact you can cite": handing someone the ID.
               Published data means the landing page answers, so here it IS a
               link — unlike S7, which runs on the unpublished draft

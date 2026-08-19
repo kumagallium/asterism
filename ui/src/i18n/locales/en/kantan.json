@@ -389,7 +389,11 @@
     "startNew": "Add different new data",
     "connectTitle": "Connect it to your other data",
     "connectBody": "You now have {{count}} published datasets. Connect them on a shared value and questions can span both.",
-    "connectBtn": "Connect your data"
+    "connectBtn": "Connect your data",
+    "groundTitle": "Match it to the world's standard words",
+    "groundBody": "Right now this data is written in words minted for this dataset alone. Matching them to well-known standard words (QUDT, schema.org, …) lets outside data and tools read them as the same thing.",
+    "groundBtn": "Match to a standard",
+    "groundHint": "On the dataset page under 設計 (design), you just pick from the candidates. You can undo it later."
   },
   "redesign": {
     "banner": "Review: {{name}}",
