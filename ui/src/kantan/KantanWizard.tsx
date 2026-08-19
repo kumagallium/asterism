@@ -5436,6 +5436,23 @@ function DropZone({
 
 // The S2/S3 preview block: a first-rows table per parsed file, a plain
 // file-name card for the rest (json / xlsx / unreadable).
+/** True when every heading in a header row reads as a number.
+ *
+ * A heading is a name. When they are all numbers, the row taken for the header
+ * is a row of DATA — the table was started on the wrong line, and everything
+ * downstream is then consistent and wrong (the file's real headings disappear,
+ * the lines above become `preamble_*` columns). Nothing about it is invalid, so
+ * no check objects; the only symptom is a table whose column names are values
+ * (live 2026-08-19). Said here, where the read settings are one click away.
+ *
+ * One numeric heading is somebody's naming choice, so this asks for all of them.
+ */
+function headerLooksLikeData(header: readonly string[] | null | undefined): boolean {
+  const names = (header ?? []).map((h) => (h ?? '').trim()).filter(Boolean)
+  if (names.length === 0) return false
+  return names.every((n) => Number.isFinite(Number(n)))
+}
+
 function PreviewList({ previews }: { previews: PreviewCard[] }) {
   const { t } = useTranslation()
   if (previews.length === 0) return null
@@ -5468,6 +5485,9 @@ function PreviewList({ previews }: { previews: PreviewCard[] }) {
                 </tbody>
               </table>
             </div>
+            {headerLooksLikeData(p.header) && (
+              <p className="kz-note kz-warn-note">⚠ {t('kantan:s2.headerLooksLikeData')}</p>
+            )}
           </div>
         ) : p.samples && Object.keys(p.samples).length > 0 ? (
           // Excel / JSON: the browser cannot open it, but the server already
@@ -5497,6 +5517,9 @@ function PreviewList({ previews }: { previews: PreviewCard[] }) {
                 </tbody>
               </table>
             </div>
+            {headerLooksLikeData(Object.keys(p.samples)) && (
+              <p className="kz-note kz-warn-note">⚠ {t('kantan:s2.headerLooksLikeData')}</p>
+            )}
           </div>
         ) : (
           <div key={p.name} className="kz-preview-item">

@@ -94,7 +94,8 @@
     "samplesColumn": "Original column",
     "samplesValues": "Example values",
     "sheetsQuestion": "This Excel file holds more than one table. Choose the ones to use.",
-    "sheetsNote": "Tap to switch each one on or off (the lit ones are used). Leaving out chart and note sheets makes the later checks easier."
+    "sheetsNote": "Tap to switch each one on or off (the lit ones are used). Leaving out chart and note sheets makes the later checks easier.",
+    "headerLooksLikeData": "The header row may be in the wrong place — every heading here is a number. Those look like data values, not column names. Fix \"the rows before the table starts\" under \"Not reading the table right?\" above."
   },
   "s3": {
     "jobLabel": "The AI is reading your data",

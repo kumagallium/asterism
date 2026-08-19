@@ -7677,3 +7677,9 @@ tr.kz-attn td {
   display: block;
   margin-top: 0.25rem;
 }
+
+/* A note that reports something suspicious about the READING, not an error the
+   person caused: amber text on the ordinary note, no band. */
+.kz-warn-note {
+  color: var(--warn-fg);
+}
