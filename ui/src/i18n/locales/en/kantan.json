@@ -301,7 +301,6 @@
     "editAria": "meaning of {{column}}",
     "unitAria": "unit of {{column}}",
     "noteLabelEditable": "Meanings and units are editable in the table above. Anything else you noticed?",
-    "mapCountPending": "Not counted yet (the count appears once the data is taken in)",
     "useColumnName": "Use the column heading"
   },
   "s7": {

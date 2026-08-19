@@ -132,6 +132,27 @@ def _detect_encoding(sample: bytes) -> str:
     return "latin-1"
 
 
+def _encoding_for_whole_file(path: Path | str, preferred: str) -> str:
+    """The first candidate that decodes the ENTIRE file, starting from ``preferred``.
+
+    Only used when the detection sample was truncated (a large file): for
+    anything smaller the probe already is the whole file. ``latin-1`` closes the
+    list because it decodes any byte sequence — a mojibake reading is a worse
+    answer than a correct one, but it is a far better answer than refusing the
+    file and asking the person to convert it by hand.
+    """
+    candidates = [preferred, *(e for e in _ENCODING_ATTEMPTS if e != preferred), "latin-1"]
+    for encoding in candidates:
+        try:
+            with Path(path).open("r", encoding=encoding, errors="strict") as fh:
+                while fh.read(1 << 20):
+                    pass
+        except (UnicodeDecodeError, LookupError):
+            continue
+        return encoding
+    return "latin-1"
+
+
 def _split_line(line: str, delimiter: str, collapse: bool) -> list[str]:
     """Tokenize ONE physical line under ``delimiter`` (detection-side counting;
     reading goes through :func:`iter_rows`). Single-char delimiters are
@@ -234,6 +255,13 @@ def detect_dialect(path: Path | str) -> SourceDialect:
         if cut != -1:
             probe = probe[: cut + 1]
     encoding = _detect_encoding(probe)
+    if truncated:
+        # The probe is only the first _SAMPLE_BYTES. A file whose head is plain
+        # ASCII and whose tail carries one cp932 name decodes here as utf-8-sig
+        # and then dies on the strict full read — which reached the person as
+        # "save it again as CSV UTF-8", work the machine can do itself. Verify
+        # the choice against the whole file and step through the candidates.
+        encoding = _encoding_for_whole_file(path, encoding)
 
     lines = sample.decode(encoding, errors="replace").splitlines()
     if truncated and len(lines) > 1:

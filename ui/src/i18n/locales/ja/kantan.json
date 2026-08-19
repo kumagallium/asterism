@@ -301,7 +301,6 @@
     "editAria": "{{column}} の意味",
     "unitAria": "{{column}} の単位",
     "noteLabelEditable": "列の意味・単位は上の表で直せます。それ以外に気になる点があれば一言",
-    "mapCountPending": "件数はまだ数えていません（取り込むと出ます）",
     "useColumnName": "列名をそのまま使う"
   },
   "s7": {

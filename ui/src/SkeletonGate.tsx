@@ -687,6 +687,19 @@ function SkeletonEvidence({
           {candidateChips}
         </details>
       )}
+      {!singleton && !showCandidates && candidateChips && (
+        /* A key can be WRONG without being broken: `{2theta}` and `{(hkl)}` are
+           both unique here, so nothing goes amber and the chips used to stay
+           hidden — leaving a person who wanted the other one to edit the ID
+           template by hand. Same treatment as the singleton case: available,
+           folded, so the green path stays quiet (2026-08-19 review). */
+        <details className="skeleton-evidence-candidates skeleton-evidence-candidates--fold">
+          <summary className="skeleton-evidence-label">
+            {t('workbench:skeleton.evidence.candidatesQuietHead')}
+          </summary>
+          {candidateChips}
+        </details>
+      )}
       {prefixWarning}
     </>
   )

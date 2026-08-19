@@ -997,7 +997,13 @@ export function KantanWizard({
   // lacked; they pressed it blind, 2-5 times per import. So the wizard now
   // presses it: bounded, and only while it is still making progress. The card
   // returns the moment a decision is actually needed.
-  const AUTO_FIX_MAX = 3
+  // Raised from 3 (2026-08-19 review: "3 回では終わらないことも多そう"). The cap
+  // is not what protects a person from a model that cannot fix its own design —
+  // the no-progress check below does, and it stops after ONE round that returns
+  // the same complaints. So the cap only ever binds while the AI is genuinely
+  // still removing issues, and cutting that short just hands the rest to a human
+  // who has less to work with than the machine does.
+  const AUTO_FIX_MAX = 8
   const autoFixLeft = useRef(AUTO_FIX_MAX)
   const lastAutoFixKey = useRef<string | null>(null)
   const [autoFixing, setAutoFixing] = useState(0) // 0 = off, else the round number
@@ -4397,12 +4403,14 @@ export function KantanWizard({
               </div>
             </div>
           )}
-          {/* K12's 「元ファイル N 行 → …」 card, always on this screen. A draft
-              that declares no kinds (a legal shape) used to make it vanish, and
-              with it the only place that says what became of the reader's rows
-              — so the class-less count stands in, and an unreadable count says
-              so rather than showing nothing (KZ-B-26). */}
-          {!s6Loading && !s6Err && (rules || stats) && (
+          {/* K12's 「元ファイル N 行 → …」 card. A draft that declares no kinds (a
+              legal shape) used to make it vanish, and with it the only place
+              that says what became of the reader's rows — so the class-less
+              count stands in (KZ-B-26). Before anything is taken in there is
+              nothing to correspond TO, so the card stays away entirely rather
+              than showing a row count next to a missing one (2026-08-19 review:
+              「行数を数えていない段階では出さないで良い」). */}
+          {!s6Loading && !s6Err && (rules || stats) && stats?.counted !== false && (
             <div className="kz-map-card">
               {totalSourceRows > 0 && (
                 <>
@@ -4432,7 +4440,7 @@ export function KantanWizard({
                    not happened. Only a count that was attempted and came back
                    empty is worth the alarming phrasing. */
                 <span className="kz-map-class">
-                  {t(stats?.counted === false ? 'kantan:s6.mapCountPending' : 'kantan:s6.mapCountUnknown')}
+                  {t('kantan:s6.mapCountUnknown')}
                 </span>
               )}
               <span className="kz-map-note">{t('kantan:s6.mapDraftNote')}</span>

@@ -675,3 +675,28 @@ def test_iter_rows_broadcast_keyvalue_cells_cr_mixed(tmp_path: Path) -> None:
     assert rows[0] == ["T(C)", "Rho(Ohm m)", "preamble_1", "T.C.type", "Distance"]
     assert rows[1] == ["3.6E+1", "1.2E-6", "Al3V-SPS-2", "K", "620.000000E-3"]
     assert len(rows) == 3
+
+
+def test_a_large_file_whose_tail_alone_is_shift_jis_is_still_read(tmp_path) -> None:
+    """Detection samples the head; the read is strict over the whole file.
+
+    A long ASCII log with one cp932 name near the end decoded as utf-8-sig on
+    the sample and then raised UnicodeDecodeError on the real read — which
+    reached the person as "save it again as CSV UTF-8" (2026-08-19 review). The
+    encoding is now verified against the entire file.
+    """
+    from asterism_step0.dialect import detect_dialect
+
+    src = tmp_path / "long.csv"
+    with src.open("wb") as fh:
+        fh.write(b"name,value\n")
+        for i in range(120_000):  # push past the 1 MiB detection sample
+            fh.write(f"row-{i},{i}\n".encode("ascii"))
+        fh.write("試料A,1\n".encode("cp932"))
+    assert src.stat().st_size > (1 << 20)
+
+    dialect = detect_dialect(src)
+    assert dialect.encoding == "cp932"
+    # The whole file now reads without raising — the point of the fix.
+    with src.open("r", encoding=dialect.encoding, errors="strict") as fh:
+        assert sum(1 for _ in fh) == 120_002
