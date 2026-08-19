@@ -213,6 +213,14 @@
     "restartPending": "{{path}} will be used starting from the next launch. Restart Asterism to apply it.",
     "syncWarning": "The location you chose looks like a sync folder. The graph store (Oxigraph) is binary data that does not get along well with sync tools, and opening it from multiple devices at once can corrupt it.",
     "migrateNote": "Existing data is not moved automatically. If you want to keep it, quit Asterism first, then manually copy the contents of the old folder into the new one.",
-    "resetDefault": "Reset to default location"
+    "resetDefault": "Reset to default location",
+    "confirmIntro": "“{{path}}” will become the storage location.",
+    "migrateCheckbox": "Move the current data to the new location",
+    "migrateCheckboxHelp": "Only actually moves it if the destination folder is empty. If you pick a location that already has data, that data is used as-is.",
+    "confirmChange": "Change to this location",
+    "restartPendingMigrate": "The data will be moved on the next launch.",
+    "noticeMoved": "On the last launch, the storage location was moved to {{to}}.",
+    "noticeCopied": "On the last launch, the storage location was copied to {{to}}. The old folder ({{from}}) still has data in it — delete it if you don't need it.",
+    "noticeFailed": "On the last launch, moving the storage location failed. The change was reverted and the app is running from the previous location. Detail: {{detail}}"
   }
 }

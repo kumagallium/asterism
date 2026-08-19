@@ -197,8 +197,18 @@ the Tauri app config dir, *not* inside the data dir itself, since the data
 dir is exactly what's being redirected) and passes it to the backend as
 `--data-dir` on the next launch (`get_data_home_override` /
 `set_data_home_override` IPC, `src/settings.rs`). The change takes effect on
-restart — same as Graphium — and existing data at the old location is **not**
-moved automatically.
+restart — same as Graphium.
+
+If the user asks to bring the existing data along, that move is scheduled
+for the very start of the *next* boot — the one moment nothing has the
+Oxigraph store open — and runs before the sidecar is spawned, with a splash
+window shown for the duration (`perform_pending_move` in `src/lib.rs`). Same
+volume: an atomic rename, and the old folder is gone. Different volume: a
+recursive copy, and the old folder is deliberately left in place (nothing is
+deleted on the safe-but-slower path). If the move can't complete (e.g. the
+destination isn't empty), the app falls back to the old location and boots
+normally — nothing is lost. Either way the shell reports the outcome once via
+`get_storage_notice` / `clear_storage_notice` IPC.
 
 ## Not yet done
 

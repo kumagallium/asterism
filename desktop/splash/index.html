@@ -226,6 +226,9 @@
           'boot.sub':
             '初めての起動は 1 分ほどかかることがあります。データはあなたのパソコンの中だけにあります。',
           'boot.still': 'まだ動いています。もう少しお待ちください。',
+          'moving.title': 'データを移しています…',
+          'moving.sub':
+            '新しい保存先へコピーしています。終わるとそのまま起動します。',
           'stopping.title': '前の起動を止めています…',
           'stopping.sub': 'もう一度はじめる準備をしています。',
           'quitting.title': '終了しています…',
@@ -265,6 +268,9 @@
           'boot.sub':
             'The first launch can take about a minute. Your data stays on your own computer.',
           'boot.still': 'Still working. This is taking a little longer than usual.',
+          'moving.title': 'Moving your data…',
+          'moving.sub':
+            'Copying to the new location. Asterism will start once it finishes.',
           'stopping.title': 'Stopping the previous start…',
           'stopping.sub': 'Getting ready to try again.',
           'quitting.title': 'Shutting down…',
@@ -408,7 +414,11 @@
             'elapsed',
             typeof status.percent === 'number' ? status.percent + '%' : ''
           )
-        } else if (phase === 'quitting' || phase === 'stopping') {
+        } else if (
+          phase === 'quitting' ||
+          phase === 'stopping' ||
+          phase === 'moving'
+        ) {
           setText('title', t(phase + '.title'))
           setText('sub', t(phase + '.sub'))
           setText('hint', '')

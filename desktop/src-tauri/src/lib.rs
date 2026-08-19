@@ -40,6 +40,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
+use settings::StorageNotice;
 use tauri::ipc::CapabilityBuilder;
 use tauri::menu::{MenuBuilder, MenuItem, MenuItemBuilder, MenuItemKind, SubmenuBuilder};
 use tauri::{Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
@@ -799,6 +800,10 @@ fn boot_action(
 ///   (app-defined, see `permissions/data-home.toml`): read/save the
 ///   storage-location setting (ADR `app-data-on-disk.md` D4). Save-only —
 ///   the SPA cannot make the shell touch the filesystem beyond this file;
+///   `set` can additionally schedule a data move for the next boot, but the
+///   move itself only ever runs from `boot()`, never from the IPC handler;
+/// - `allow-get-storage-notice` / `allow-clear-storage-notice`: read (and
+///   dismiss) the outcome of the most recent boot-time move;
 /// - `dialog:allow-open`: lets the storage-location setting show a native
 ///   folder picker. Only `open` — `save`/`message`/etc. stay closed (#377's
 ///   "grant only the IPC that is needed" policy).
@@ -814,6 +819,8 @@ fn grant_spa_update_ipc(app: &tauri::AppHandle, port: u16) -> tauri::Result<()> 
         .permission("core:resources:allow-close")
         .permission("allow-get-data-home-override")
         .permission("allow-set-data-home-override")
+        .permission("allow-get-storage-notice")
+        .permission("allow-clear-storage-notice")
         .permission("dialog:allow-open");
     app.add_capability(capability)
 }
@@ -830,11 +837,219 @@ fn get_data_home_override(app: tauri::AppHandle) -> Option<String> {
 }
 
 /// Save (or, with `path: None`, clear) the storage-location override.
-/// Save-only: does not restart the backend. The new location is picked up on
-/// the next launch (same as Graphium).
+/// Save-only: does not restart the backend, and does not touch the
+/// filesystem beyond the settings file itself. The new location is picked
+/// up on the next launch (same as Graphium).
+///
+/// `move_from` (JS `moveFrom`), when given alongside `Some(path)`,
+/// additionally schedules "move the existing data at this absolute path
+/// into `path` on the next launch, before the sidecar starts" — see
+/// `perform_pending_move` in this module, invoked from `boot()`. The caller
+/// (SPA) reads the current data home from `/api/appdata/info` and passes it
+/// as `moveFrom`; this command itself never inspects or moves anything.
 #[tauri::command]
-fn set_data_home_override(app: tauri::AppHandle, path: Option<String>) {
-    settings::write_data_home_override(&app, path);
+fn set_data_home_override(app: tauri::AppHandle, path: Option<String>, move_from: Option<String>) {
+    settings::write_data_home_override(&app, path, move_from);
+}
+
+/// Outcome of the most recent boot-time data move, if any (ADR
+/// `app-data-on-disk.md` D4 follow-up). `None` once the SPA has cleared it,
+/// or if no move has ever been attempted.
+#[tauri::command]
+fn get_storage_notice(app: tauri::AppHandle) -> Option<StorageNotice> {
+    settings::read_storage_notice(&app)
+}
+
+/// Dismiss the stored move-outcome notice, once the SPA has shown it to the
+/// user.
+#[tauri::command]
+fn clear_storage_notice(app: tauri::AppHandle) {
+    settings::clear_storage_notice(&app);
+}
+
+/// Recursively copy `from` into `to` (which must not yet exist), preserving
+/// symlinks as symlinks (not following them) and file permissions. Used as
+/// the cross-volume fallback when `std::fs::rename` cannot do an atomic
+/// same-volume move (ADR `app-data-on-disk.md` D4 follow-up).
+fn copy_dir_recursive(from: &Path, to: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(to)?;
+    if let Ok(meta) = std::fs::metadata(from) {
+        let _ = std::fs::set_permissions(to, meta.permissions());
+    }
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        let dest = to.join(entry.file_name());
+        if file_type.is_symlink() {
+            copy_symlink(&entry.path(), &dest)?;
+        } else if file_type.is_dir() {
+            copy_dir_recursive(&entry.path(), &dest)?;
+        } else {
+            std::fs::copy(entry.path(), &dest)?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn copy_symlink(src: &Path, dest: &Path) -> std::io::Result<()> {
+    let target = std::fs::read_link(src)?;
+    std::os::unix::fs::symlink(target, dest)
+}
+
+#[cfg(not(unix))]
+fn copy_symlink(src: &Path, dest: &Path) -> std::io::Result<()> {
+    // Windows symlinks need elevated privileges to create; fall back to
+    // copying whatever the link points at instead of failing the move.
+    if src.is_dir() {
+        copy_dir_recursive(src, dest)
+    } else {
+        std::fs::copy(src, dest).map(|_| ())
+    }
+}
+
+/// Files the OS drops into folders by itself. A folder the user just created
+/// in the macOS picker is "empty" to them even with one of these in it, so
+/// these must not block a move.
+const OS_CRUFT: &[&str] = &[".DS_Store", ".localized", "Thumbs.db", "desktop.ini"];
+
+fn dir_has_entries(dir: &Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    entries
+        .flatten()
+        .any(|e| !OS_CRUFT.contains(&e.file_name().to_string_lossy().as_ref()))
+}
+
+/// An absolute-ish path for comparison, working even when the path does not
+/// exist yet (canonicalize the deepest existing ancestor, keep the rest).
+fn resolve_for_compare(path: &Path) -> PathBuf {
+    if let Ok(real) = path.canonicalize() {
+        return real;
+    }
+    match (path.parent(), path.file_name()) {
+        (Some(parent), Some(name)) => resolve_for_compare(parent).join(name),
+        _ => path.to_path_buf(),
+    }
+}
+
+fn move_failed(from: &str, to: &str, detail: impl Into<String>) -> StorageNotice {
+    StorageNotice {
+        kind: "failed".into(),
+        from: from.to_string(),
+        to: to.to_string(),
+        detail: detail.into(),
+    }
+}
+
+/// Move (or, cross-volume, copy) `from` into `to`. Only ever called from
+/// `boot()`, before the sidecar is spawned — the one moment nothing has the
+/// Oxigraph store open (ADR `app-data-on-disk.md` D4 follow-up). Returns
+/// `None` when there was nothing to move (source missing/empty) — that is
+/// not an error, just quietly nothing to report.
+fn attempt_data_home_move(from: &Path, to: &Path) -> Option<StorageNotice> {
+    let from_str = from.display().to_string();
+    let to_str = to.display().to_string();
+
+    // The destination must not be the source, nor sit inside it: rename() into
+    // your own subtree is invalid, and the copy fallback would recurse forever
+    // and fill the disk.
+    let from_cmp = resolve_for_compare(from);
+    let to_cmp = resolve_for_compare(to);
+    if to_cmp == from_cmp || to_cmp.starts_with(&from_cmp) {
+        return Some(move_failed(
+            &from_str,
+            &to_str,
+            "移行先が移行元と同じか、その中にあります",
+        ));
+    }
+
+    // Destination must be empty (or absent) before we touch anything.
+    if to.exists() {
+        if dir_has_entries(to) {
+            return Some(move_failed(&from_str, &to_str, "移行先が空ではありません"));
+        }
+        // Empty already: drop it so rename()/copy below can (re)create it
+        // cleanly — some platforms refuse to rename onto an existing dir.
+        if let Err(err) = std::fs::remove_dir_all(to) {
+            return Some(move_failed(
+                &from_str,
+                &to_str,
+                format!("移行先を準備できません: {err}"),
+            ));
+        }
+    }
+    if let Some(parent) = to.parent() {
+        if let Err(err) = std::fs::create_dir_all(parent) {
+            return Some(move_failed(
+                &from_str,
+                &to_str,
+                format!("移行先を作成できません: {err}"),
+            ));
+        }
+    }
+
+    // Nothing to move: quietly proceed with the (now-empty) new location.
+    if !from.is_dir() || !dir_has_entries(from) {
+        return None;
+    }
+
+    if std::fs::rename(from, to).is_ok() {
+        return Some(StorageNotice {
+            kind: "moved".into(),
+            from: from_str,
+            to: to_str,
+            detail: "同じボリューム内だったため移動しました。".into(),
+        });
+    }
+
+    // Cross-volume: rename() cannot do it atomically — copy instead, and
+    // leave the source alone so nothing is lost even on partial failure.
+    if let Err(err) = copy_dir_recursive(from, to) {
+        let _ = std::fs::remove_dir_all(to);
+        return Some(move_failed(
+            &from_str,
+            &to_str,
+            format!("コピーに失敗しました: {err}"),
+        ));
+    }
+    Some(StorageNotice {
+        kind: "copied".into(),
+        from: from_str,
+        to: to_str,
+        detail: "別ボリュームだったためコピーしました。元のフォルダはそのまま残っています。"
+            .into(),
+    })
+}
+
+/// Runs at the very start of `boot()`, before the sidecar's `Command` is
+/// built — the only safe moment to move the data home, since nothing has
+/// the Oxigraph store open yet. Shows a splash window for the duration if
+/// (and only if) a move was actually scheduled, since it can take tens of
+/// seconds for a large store. No-op, silently, if nothing was scheduled.
+fn perform_pending_move(app: &tauri::AppHandle) {
+    let Some(from) = settings::take_pending_move_from(app) else {
+        return;
+    };
+    let Some(to) = settings::read_data_home_override(app) else {
+        // Nothing sensible to move into — treat as nothing scheduled.
+        return;
+    };
+
+    // Say what is happening: copying hundreds of MB takes tens of seconds, and
+    // a silent window reads as a hang. The splash is already on screen.
+    let _ = ensure_splash(app);
+    set_status(app, Status::working("moving"));
+
+    if let Some(notice) = attempt_data_home_move(Path::new(&from), Path::new(&to)) {
+        if notice.kind == "failed" {
+            // Do not boot pointed at a destination that isn't actually
+            // usable — fall back to wherever the backend's own default is.
+            settings::clear_data_home_override(app);
+        }
+        settings::write_storage_notice(app, notice);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1010,6 +1225,11 @@ async fn halt_async(app: &tauri::AppHandle, status: Status) -> Option<String> {
 // ---------------------------------------------------------------------------
 
 fn boot(app: tauri::AppHandle) {
+    // Before anything else, including resolving the sidecar: this is the only
+    // moment nothing has the Oxigraph store open (ADR `app-data-on-disk.md`
+    // D9). Outside the retry loop — the move is consumed once, not per retry.
+    perform_pending_move(&app);
+
     loop {
         match boot_once(&app) {
             Flow::Done => return,
@@ -1377,7 +1597,9 @@ pub fn run() {
             boot_status,
             boot_action,
             get_data_home_override,
-            set_data_home_override
+            set_data_home_override,
+            get_storage_notice,
+            clear_storage_notice
         ])
         .menu(build_menu)
         .on_menu_event(|app, event| {
@@ -1471,5 +1693,296 @@ mod tests {
         assert_eq!(card.detail, "exit: 1");
         assert!(!card.detail_open);
         assert_eq!(card.actions, vec!["retry", "quit"]);
+
+    // Tests for the boot-time data-home move (ADR `app-data-on-disk.md`
+    // D9). This moves the user's actual data, so every failure path must be
+    // proven to leave `from`/`to` untouched, not just the happy path.
+    use std::fs;
+    use tempfile::tempdir;
+
+    fn write_file(path: &Path, contents: &str) {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(path, contents).unwrap();
+    }
+
+    /// A few levels of files/subdirectories, to prove recursive copy/move
+    /// actually recurses rather than just handling a flat directory.
+    fn populate_tree(root: &Path) {
+        write_file(&root.join("top.txt"), "top");
+        write_file(&root.join("a/nested.txt"), "nested");
+        write_file(&root.join("a/b/deep.txt"), "deep");
+    }
+
+    fn assert_tree_present(root: &Path) {
+        assert_eq!(fs::read_to_string(root.join("top.txt")).unwrap(), "top");
+        assert_eq!(
+            fs::read_to_string(root.join("a/nested.txt")).unwrap(),
+            "nested"
+        );
+        assert_eq!(
+            fs::read_to_string(root.join("a/b/deep.txt")).unwrap(),
+            "deep"
+        );
+    }
+
+    // ---- dir_has_entries ---------------------------------------------
+
+    #[test]
+    fn dir_has_entries_false_for_empty_dir() {
+        let dir = tempdir().unwrap();
+        assert!(!dir_has_entries(dir.path()));
+    }
+
+    #[test]
+    fn dir_has_entries_false_for_os_cruft_only() {
+        let dir = tempdir().unwrap();
+        write_file(&dir.path().join(".DS_Store"), "");
+        write_file(&dir.path().join(".localized"), "");
+        assert!(!dir_has_entries(dir.path()));
+    }
+
+    #[test]
+    fn dir_has_entries_true_for_real_file() {
+        let dir = tempdir().unwrap();
+        write_file(&dir.path().join(".DS_Store"), "");
+        write_file(&dir.path().join("real.txt"), "hi");
+        assert!(dir_has_entries(dir.path()));
+    }
+
+    #[test]
+    fn dir_has_entries_false_for_unreadable_path() {
+        let dir = tempdir().unwrap();
+        let missing = dir.path().join("does-not-exist");
+        assert!(!dir_has_entries(&missing));
+    }
+
+    // ---- resolve_for_compare -------------------------------------------
+
+    #[test]
+    fn resolve_for_compare_existing_path_is_canonicalized() {
+        let dir = tempdir().unwrap();
+        let resolved = resolve_for_compare(dir.path());
+        assert_eq!(resolved, dir.path().canonicalize().unwrap());
+    }
+
+    #[test]
+    fn resolve_for_compare_nonexistent_leaf_keeps_name_under_real_parent() {
+        let dir = tempdir().unwrap();
+        let target = dir.path().join("not-yet-created");
+        let resolved = resolve_for_compare(&target);
+        assert_eq!(
+            resolved,
+            dir.path().canonicalize().unwrap().join("not-yet-created")
+        );
+    }
+
+    #[test]
+    fn resolve_for_compare_nonexistent_middle_component_still_resolves() {
+        let dir = tempdir().unwrap();
+        let target = dir.path().join("also-missing/deeper/leaf");
+        let resolved = resolve_for_compare(&target);
+        assert_eq!(
+            resolved,
+            dir.path()
+                .canonicalize()
+                .unwrap()
+                .join("also-missing/deeper/leaf")
+        );
+    }
+
+    // ---- copy_dir_recursive / copy_symlink -----------------------------
+
+    #[test]
+    fn copy_dir_recursive_copies_nested_tree() {
+        let dir = tempdir().unwrap();
+        let from = dir.path().join("from");
+        let to = dir.path().join("to");
+        populate_tree(&from);
+
+        copy_dir_recursive(&from, &to).unwrap();
+
+        assert_tree_present(&to);
+        // Source is untouched by the copy path itself.
+        assert_tree_present(&from);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn copy_dir_recursive_preserves_symlinks_as_symlinks() {
+        let dir = tempdir().unwrap();
+        let from = dir.path().join("from");
+        let to = dir.path().join("to");
+        fs::create_dir_all(&from).unwrap();
+        write_file(&from.join("real.txt"), "hi");
+        std::os::unix::fs::symlink("real.txt", from.join("link.txt")).unwrap();
+
+        copy_dir_recursive(&from, &to).unwrap();
+
+        let copied_link = to.join("link.txt");
+        // symlink_metadata does not follow the link; if this were a regular
+        // file (i.e. the link was dereferenced during copy), this would be
+        // false.
+        assert!(fs::symlink_metadata(&copied_link)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(
+            fs::read_link(&copied_link).unwrap(),
+            Path::new("real.txt")
+        );
+    }
+
+    // ---- attempt_data_home_move -----------------------------------------
+
+    #[test]
+    fn move_ordinary_case_moves_tree_and_removes_source() {
+        let dir = tempdir().unwrap();
+        let from = dir.path().join("from");
+        let to = dir.path().join("to");
+        populate_tree(&from);
+
+        let notice = attempt_data_home_move(&from, &to).expect("expected a notice");
+
+        assert_eq!(notice.kind, "moved");
+        assert!(!from.exists());
+        assert_tree_present(&to);
+    }
+
+    #[test]
+    fn move_fails_when_destination_not_empty_and_leaves_everything_alone() {
+        let dir = tempdir().unwrap();
+        let from = dir.path().join("from");
+        let to = dir.path().join("to");
+        populate_tree(&from);
+        write_file(&to.join("already-here.txt"), "existing");
+
+        let notice = attempt_data_home_move(&from, &to).expect("expected a notice");
+
+        assert_eq!(notice.kind, "failed");
+        // Nothing was touched: source intact, destination's pre-existing
+        // content intact, no partial writes into either.
+        assert_tree_present(&from);
+        assert_eq!(
+            fs::read_to_string(to.join("already-here.txt")).unwrap(),
+            "existing"
+        );
+        assert!(!to.join("top.txt").exists());
+    }
+
+    #[test]
+    fn move_succeeds_when_destination_has_only_os_cruft() {
+        let dir = tempdir().unwrap();
+        let from = dir.path().join("from");
+        let to = dir.path().join("to");
+        populate_tree(&from);
+        write_file(&to.join(".DS_Store"), "");
+        write_file(&to.join(".localized"), "");
+
+        let notice = attempt_data_home_move(&from, &to).expect("expected a notice");
+
+        assert_eq!(notice.kind, "moved");
+        assert!(!from.exists());
+        assert_tree_present(&to);
+    }
+
+    #[test]
+    fn move_fails_when_destination_equals_source() {
+        let dir = tempdir().unwrap();
+        let from = dir.path().join("from");
+        populate_tree(&from);
+
+        let notice = attempt_data_home_move(&from, &from).expect("expected a notice");
+
+        assert_eq!(notice.kind, "failed");
+        assert_tree_present(&from);
+    }
+
+    #[test]
+    fn move_fails_when_destination_is_inside_source_existing_subdir() {
+        let dir = tempdir().unwrap();
+        let from = dir.path().join("from");
+        populate_tree(&from);
+        let to = from.join("sub");
+        fs::create_dir_all(&to).unwrap();
+
+        let notice = attempt_data_home_move(&from, &to).expect("expected a notice");
+
+        assert_eq!(notice.kind, "failed");
+        assert_tree_present(&from);
+    }
+
+    /// Same as above, but the destination path doesn't exist yet at any
+    /// level (`from/sub/deeper`) — `resolve_for_compare` must still resolve
+    /// it under `from` so this is rejected before any copying starts. A
+    /// hang or runaway recursive copy would time out this test.
+    #[test]
+    fn move_fails_when_destination_is_inside_source_nonexistent_subdir() {
+        let dir = tempdir().unwrap();
+        let from = dir.path().join("from");
+        populate_tree(&from);
+        let to = from.join("sub/deeper");
+
+        let notice = attempt_data_home_move(&from, &to).expect("expected a notice");
+
+        assert_eq!(notice.kind, "failed");
+        assert_tree_present(&from);
+    }
+
+    #[test]
+    fn move_is_none_when_source_missing() {
+        let dir = tempdir().unwrap();
+        let from = dir.path().join("does-not-exist");
+        let to = dir.path().join("to");
+
+        assert!(attempt_data_home_move(&from, &to).is_none());
+    }
+
+    #[test]
+    fn move_is_none_when_source_is_empty_dir() {
+        let dir = tempdir().unwrap();
+        let from = dir.path().join("from");
+        fs::create_dir_all(&from).unwrap();
+        let to = dir.path().join("to");
+
+        assert!(attempt_data_home_move(&from, &to).is_none());
+    }
+
+    /// `attempt_data_home_move`'s copy-fallback cleanup
+    /// (`std::fs::remove_dir_all(to)` after a failed `copy_dir_recursive`)
+    /// can't be reached from the same-volume rename path this test suite
+    /// runs under (temp dirs are on one volume, so `rename` always wins
+    /// first). Instead this exercises the same cleanup pattern directly:
+    /// force `copy_dir_recursive` to fail partway through (an unreadable
+    /// source file after the destination has already received one entry),
+    /// then confirm that following the real code's cleanup step removes
+    /// the partial destination rather than leaving debris behind.
+    #[cfg(unix)]
+    #[test]
+    fn copy_dir_recursive_failure_leaves_no_partial_destination_after_cleanup() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempdir().unwrap();
+        let from = dir.path().join("from");
+        let to = dir.path().join("to");
+        write_file(&from.join("ok.txt"), "ok");
+        write_file(&from.join("bad.txt"), "bad");
+        // Make one file unreadable so the recursive copy fails partway
+        // through, after `to` has already been created and at least one
+        // entry copied.
+        fs::set_permissions(from.join("bad.txt"), fs::Permissions::from_mode(0o000)).unwrap();
+
+        let result = copy_dir_recursive(&from, &to);
+        // Restore permissions so tempdir cleanup can remove the file.
+        fs::set_permissions(from.join("bad.txt"), fs::Permissions::from_mode(0o644)).unwrap();
+
+        assert!(result.is_err(), "copy should fail on the unreadable file");
+        assert!(to.exists(), "partial destination exists before cleanup");
+
+        // This mirrors exactly what attempt_data_home_move does on a copy
+        // failure.
+        let _ = fs::remove_dir_all(&to);
+        assert!(!to.exists(), "cleanup must remove the partial destination");
     }
 }
