@@ -149,21 +149,23 @@ def _measurement_only(inspection: SourceInspection, key: Sequence[str]) -> bool:
     measuring the same value collide — so it is never a semantically safe
     identity, even when the current file happens to pass the uniqueness check.
 
-    A swept scan axis is excluded. 2theta down a diffractogram, wavelength down
-    a spectrum, elapsed time down a log: same `xsd:double`, but the instrument
-    sets it rather than measures it, so it does not get "corrected" later and it
-    is the row's natural coordinate. Only the order in the file distinguishes
-    the two (``ColumnSummary.scan_axis``), and calling a scan position a
-    measurement made the gate warn about the one identity the data actually had
-    (live 2026-08-19: a 3001-point XRD scan whose only columns were 2theta and
-    intensity — every candidate the gate could offer carried the same warning).
+    A column that is an evenly spaced monotonic sequence is excluded
+    (``ColumnSummary.sampling_grid``): the rows were sampled ON it, so it is a
+    value someone SET rather than one that was measured, and it does not get
+    corrected afterwards. Nothing here knows what the column means — the rule is
+    the spacing in the data, which sorting a measured column does not produce.
+
+    Why it is worth excluding at all: when every column of a file is numeric,
+    every key the gate can offer is "measurement-only" under the plain rule, so
+    the warning appears on the correct answer and the person has nothing to
+    choose (live 2026-08-19, a 3001-row two-column instrument sweep).
     """
     types = {c.name: c.inferred_type for c in inspection.columns}
-    axes = {c.name for c in inspection.columns if getattr(c, "scan_axis", False)}
+    grids = {c.name for c in inspection.columns if getattr(c, "sampling_grid", False)}
     if not key:
         return False
     return all(types.get(col) in _MEASUREMENT_TYPES for col in key) and not all(
-        col in axes for col in key
+        col in grids for col in key
     )
 
 

@@ -263,12 +263,12 @@ class ColumnSummary:
     total_rows: int
     unique_count: int  # 0 if not computed (e.g. unbounded high-card column)
     sample_values: list[str]
-    # A numeric column that walks in one direction through the file: the x-axis
-    # of a scan (2theta of a diffractogram, wavelength, elapsed time), not a
-    # measured outcome. Both are `xsd:double` and only the ORDER tells them
-    # apart, which matters because an outcome is a bad identity (correcting it
-    # re-mints the ID) while a scan position is a perfectly good one.
-    scan_axis: bool = False
+    # An evenly spaced monotonic number sequence: a grid the rows were sampled
+    # on (a swept setting, a regular interval) rather than something measured.
+    # Both are `xsd:double`; only the spacing tells them apart. It matters
+    # because a measured outcome is a poor identity — correcting it re-mints the
+    # ID — while a value someone SET is a perfectly good one.
+    sampling_grid: bool = False
     # JSON-only:
     json_keys: list[str] = field(default_factory=list)  # for json-object
     json_element_kind: str | None = None  # for json-array
@@ -395,32 +395,49 @@ def _dialect_rows(path: Path, dialect: SourceDialect) -> list[dict[str, str]]:
     ]
 
 
-_SCAN_AXIS_MIN_ROWS = 8
-_SCAN_AXIS_MAX_ROWS = 5000
+_GRID_MIN_ROWS = 8
+_GRID_MAX_ROWS = 5000
+# How far a step may drift from the median step and still count as "the same
+# step". Generous enough for the rounding a written decimal carries, far tighter
+# than any gap sequence a sorted measurement produces.
+_GRID_STEP_TOLERANCE = 0.01
 
 
-def _is_scan_axis(values: Sequence[str]) -> bool:
-    """True when the column's values walk in ONE direction down the file.
+def _is_sampling_grid(values: Sequence[str]) -> bool:
+    """True when the column is an EVENLY SPACED monotonic number sequence.
 
-    The independent variable of a scan is swept, so its values are strictly
-    increasing (or decreasing) in file order; a measured outcome wanders. Both
-    are numbers, so nothing but the order distinguishes them. Deliberately
-    strict: a single reversal is enough to say "not an axis", and a column with
-    too few rows to show a trend is not called one either.
+    That is a statement about the data and nothing else: every value parses as a
+    number, each is strictly past the one before it in file order, and every step
+    is the same size (within :data:`_GRID_STEP_TOLERANCE`). A column like that is
+    a grid the rows were sampled on — an independent variable someone set —
+    rather than something that was measured.
+
+    Monotonic ALONE is not enough and was rejected as a rule: a file sorted by a
+    measured column is monotonic too, and calling that a grid would silently drop
+    a warning that is still true for it (correcting such a value re-mints the ID).
+    Even spacing is what a sorted outcome does not have — its gaps are irregular
+    — so it is the property this asks about.
+
+    Deliberately conservative in both directions: too few rows to show a pattern
+    is not a grid, one irregular step is enough to say no, and a non-numeric
+    column never qualifies. Being wrong here costs a warning, so the rule only
+    fires on evidence that is hard to produce by accident.
     """
-    if len(values) < _SCAN_AXIS_MIN_ROWS:
+    if len(values) < _GRID_MIN_ROWS:
         return False
     nums: list[float] = []
     for v in values:
         try:
             nums.append(float(str(v).strip()))
         except (TypeError, ValueError):
-            return False  # not purely numeric — not a swept axis
-    pairs = list(itertools.pairwise(nums))
-    ups = sum(1 for a, b in pairs if b > a)
-    downs = sum(1 for a, b in pairs if b < a)
-    steps = len(nums) - 1
-    return steps > 0 and (ups == steps or downs == steps)
+            return False  # not purely numeric
+    steps = [b - a for a, b in itertools.pairwise(nums)]
+    if not steps or not (all(d > 0 for d in steps) or all(d < 0 for d in steps)):
+        return False
+    reference = sorted(steps)[len(steps) // 2]  # median step
+    if reference == 0:
+        return False
+    return all(abs(d - reference) <= abs(reference) * _GRID_STEP_TOLERANCE for d in steps)
 
 
 def _summarize_rows(rows: list[dict[str, str]], columns: Sequence[str]) -> list[ColumnSummary]:
@@ -447,7 +464,7 @@ def _summarize_rows(rows: list[dict[str, str]], columns: Sequence[str]) -> list[
                     seen_values[c].add(v)
                 if len(samples[c]) < _SAMPLE_RING:
                     samples[c].append(v)
-                if len(ordered[c]) < _SCAN_AXIS_MAX_ROWS:
+                if len(ordered[c]) < _GRID_MAX_ROWS:
                     ordered[c].append(v)
 
     summaries: list[ColumnSummary] = []
@@ -476,7 +493,7 @@ def _summarize_rows(rows: list[dict[str, str]], columns: Sequence[str]) -> list[
                 sample_values=col_samples[:3],
                 json_keys=json_keys,
                 json_element_kind=element_kind,
-                scan_axis=json_kind is None and _is_scan_axis(ordered[c]),
+                sampling_grid=json_kind is None and _is_sampling_grid(ordered[c]),
             )
         )
 
