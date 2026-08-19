@@ -61,14 +61,19 @@ from __future__ import annotations
 import contextlib
 import re
 import tempfile
-from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
 from asterism import substrate
 from asterism.rml_validate import read_csv_header
-from asterism_step0.dialect import apply_detected_dialects, detect_dialect, is_default
+from asterism_step0.dialect import (
+    SourceDialect,
+    apply_detected_dialects,
+    detect_dialect,
+    is_default,
+)
 from asterism_step0.inspect import (
     _dialect_rows,
     _stream_rows,
@@ -963,6 +968,111 @@ def _stamp_utf8_sig(schema_md: str, issues: list[Issue]) -> str | None:
 _RE_TRANSFORM_NOT_FN = re.compile(r"transform function '([^']+)' \(for \{([^}]+)\}\)")
 
 
+def _looks_like_data_not_headers(names: Iterable[str]) -> bool:
+    """True when a header row's own cells read as numbers.
+
+    A column heading is a name. When every heading parses as a number, the row
+    that was taken for the header is a row of data — the table was started too
+    late (or too early). Deliberately requires ALL of them: one numeric heading
+    is a naming choice, a whole row of them is a misread.
+    """
+    values = [str(n or "").strip() for n in names]
+    values = [v for v in values if v]
+    if not values:
+        return False
+    for value in values:
+        try:
+            float(value)
+        except ValueError:
+            return False
+    return True
+
+
+def _header_cells(path: Path, dialect: SourceDialect) -> list[str]:
+    """The column names that came from the file's HEADER ROW under ``dialect``.
+
+    Broadcast preamble columns are excluded: they are machine-named
+    (``preamble_1`` …) from lines above the header, so including them would
+    hide what the header row itself says.
+    """
+    header_only = replace(dialect, preamble="drop")
+    rows = _dialect_rows(path, header_only)
+    return list(rows[0].keys()) if rows else []
+
+
+def _fix_a_dialect_that_reads_data_as_headers(
+    schema_md: str, base: Path, issues: list[Issue]
+) -> str | None:
+    """Replace a pinned read dialect whose header row is data with the detected one.
+
+    The design pins how each source is read (ADR source-dialect.md). When that
+    pin starts the table on the wrong line, every later stage is consistent and
+    wrong: the headings become values, the rows before them are broadcast as
+    ``preamble_1 … preamble_N``, and the real columns are reported as "not
+    imported" — while nothing is technically invalid, so no check objects.
+
+    Live 2026-08-19: a two-column instrument sweep pinned ``skip_rows: 12`` where
+    detection said 1. The review screen offered ``20.200000`` and ``3966.666667``
+    as column names (the file's 13th line) beside twelve ``preamble_*`` columns.
+
+    Repaired only on proof and only when there is a better answer: the pinned
+    dialect must yield an all-numeric header AND re-detection must yield one that
+    is not. Detection reads the same bytes, so this compares two readings of the
+    file rather than guessing at either.
+    """
+    import yaml  # lazy (PyYAML is a step0 dependency)
+
+    with tempfile.TemporaryDirectory(prefix="asterism-loop-dl-") as tmp:
+        ir_yaml = materialize_schema(schema_md, tmp, "design", write=False).mapping_ir_yaml
+    if not ir_yaml or not ir_yaml.strip():
+        return None
+    try:
+        spec = load_spec_yaml(ir_yaml)
+    except Exception:
+        return None
+    if not isinstance(spec, dict):
+        return None
+    pinned = spec.get("dialects")
+    if not isinstance(pinned, dict) or not pinned:
+        return None
+
+    fixed = 0
+    for name, entry in list(pinned.items()):
+        path = Path(base) / str(name)
+        if not isinstance(entry, dict) or not path.is_file():
+            continue
+        try:
+            dialect = SourceDialect(**{k: v for k, v in entry.items() if v is not None})
+            pinned_names = _header_cells(path, dialect)
+        except Exception:  # an unreadable pin is someone else's error to report
+            continue
+        if not _looks_like_data_not_headers(pinned_names):
+            continue
+        try:
+            detected = detect_dialect(path)
+            detected_names = _header_cells(path, detected)
+        except Exception:
+            continue
+        if not detected_names or _looks_like_data_not_headers(detected_names):
+            continue  # no better answer — leave the design alone
+        # Only what the evidence is about. The header row being data proves the
+        # table starts on the wrong line and nothing else: the encoding and the
+        # delimiter plainly worked, and the preamble MODE is a design decision
+        # (this design reads the lines above the header as columns and uses one
+        # of them). Replacing the whole dialect would silently drop that.
+        if int(entry.get("skip_rows") or 0) == detected.skip_rows:
+            continue
+        entry["skip_rows"] = detected.skip_rows
+        fixed += 1
+    if not fixed:
+        return None
+    repaired = yaml.safe_dump(spec, allow_unicode=True, sort_keys=False).rstrip("\n")
+    try:
+        return replace_mapping_spec_block(schema_md, repaired)
+    except ValueError:
+        return None
+
+
 def _drop_subject_transforms_that_empty_every_row(
     schema_md: str, base: Path, issues: list[Issue]
 ) -> str | None:
@@ -1193,6 +1303,12 @@ def _evaluate(schema_md: str, base: Path) -> tuple[str, str | None, list[Issue]]
     # row makes a design that passes every check and then produces nothing. The
     # issue-gated repairs below never see it, because there is no issue — the
     # only symptom is an import that "succeeds" with zero triples.
+    with contextlib.suppress(Exception):
+        # Before anything reads a column name: a dialect that starts the table on
+        # the wrong line makes every later stage consistent and wrong.
+        redialected = _fix_a_dialect_that_reads_data_as_headers(schema_md, base, [])
+        if redialected is not None:
+            schema_md = redialected
     with contextlib.suppress(Exception):
         emptied = _drop_subject_transforms_that_empty_every_row(schema_md, base, [])
         if emptied is not None:
