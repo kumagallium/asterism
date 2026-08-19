@@ -963,6 +963,97 @@ def _stamp_utf8_sig(schema_md: str, issues: list[Issue]) -> str | None:
 _RE_TRANSFORM_NOT_FN = re.compile(r"transform function '([^']+)' \(for \{([^}]+)\}\)")
 
 
+def _drop_subject_transforms_that_empty_every_row(
+    schema_md: str, base: Path, issues: list[Issue]
+) -> str | None:
+    """Remove a subject ``transform`` whose function returns "" for EVERY real row.
+
+    A subject built from an empty value is no subject at all: Morph-KGC drops the
+    row silently, so the import "succeeds" with zero triples and nothing says
+    why. Live 2026-08-19, a 3001-row XRD scan: the model wrote
+    ``subject.transform: {2θ (deg): iri_safe}``. ``iri_safe`` sanitizes a whole
+    URL and returns "" for anything without a scheme — every 2θ value, every row.
+
+    The transform is not merely harmful, it is unnecessary: R2RML engines
+    percent-encode ``rr:template`` placeholders themselves, so dropping it leaves
+    the IDs the design already describes. Proven from the data, never guessed:
+    the function runs on the real column and is removed only when it empties
+    every non-empty value it is given. A function that works on some rows is a
+    judgment about the data and stays.
+    """
+    import yaml  # lazy (PyYAML is a step0 dependency)
+
+    with tempfile.TemporaryDirectory(prefix="asterism-loop-tf0-") as tmp:
+        ir_yaml = materialize_schema(schema_md, tmp, "design", write=False).mapping_ir_yaml
+    if not ir_yaml or not ir_yaml.strip():
+        return None
+    try:
+        ir = parse_mapping_ir(ir_yaml)
+        spec = load_spec_yaml(ir_yaml)
+    except Exception:
+        return None
+    if not isinstance(spec, dict) or not isinstance(spec.get("maps"), list):
+        return None
+    # The Tier-0 callables themselves (the catalog carries only signatures).
+    try:
+        from asterism.functions import REGISTRY as _TIER0
+
+        callables = {
+            spec.name: spec.func
+            for spec in _TIER0
+            if len(getattr(spec, "params", {}) or {"value": 1}) <= 1
+        }
+    except Exception:
+        return None
+
+    rows_by_source = _rows_by_source(base, ir)
+    dropped = 0
+    for entry in spec["maps"]:
+        if not isinstance(entry, dict):
+            continue
+        subject = entry.get("subject")
+        if not isinstance(subject, dict):
+            continue
+        transform = subject.get("transform")
+        if not isinstance(transform, dict) or not transform:
+            continue
+        rows = rows_by_source.get(str(entry.get("source") or ""))
+        if not rows:
+            continue
+        keep: dict[str, Any] = {}
+        for column, fn_name in transform.items():
+            # Only single-input functions are sampled: one that also takes a
+            # constant (a lookup table, a pattern) cannot be judged from the
+            # column alone.
+            fn = callables.get(str(fn_name))
+            values = [(r.get(str(column)) or "").strip() for r in rows]
+            values = [v for v in values if v][:200]
+            if fn is None or not values:
+                keep[column] = fn_name
+                continue
+            try:
+                empties_all = all(not str(fn(v) or "").strip() for v in values)
+            except Exception:  # a function that raises is not this repair's call
+                keep[column] = fn_name
+                continue
+            if empties_all:
+                dropped += 1
+            else:
+                keep[column] = fn_name
+        if len(keep) != len(transform):
+            if keep:
+                subject["transform"] = keep
+            else:
+                subject.pop("transform", None)
+    if not dropped:
+        return None
+    repaired = yaml.safe_dump(spec, allow_unicode=True, sort_keys=False).rstrip("\n")
+    try:
+        return replace_mapping_spec_block(schema_md, repaired)
+    except ValueError:
+        return None
+
+
 def _drop_identity_transforms(schema_md: str, base: Path, issues: list[Issue]) -> str | None:
     """Deterministically remove ``transform: {X: X}`` entries whose value is NOT a
     Tier-0 function. Returns the repaired document, or None when nothing applies.
@@ -1098,6 +1189,14 @@ def _evaluate(schema_md: str, base: Path) -> tuple[str, str | None, list[Issue]]
     never reaches the routing decision (and therefore never forces the
     whole-document path — see the loop below).
     """
+    # Unconditional, BEFORE the verdict: a subject transform that empties every
+    # row makes a design that passes every check and then produces nothing. The
+    # issue-gated repairs below never see it, because there is no issue — the
+    # only symptom is an import that "succeeds" with zero triples.
+    with contextlib.suppress(Exception):
+        emptied = _drop_subject_transforms_that_empty_every_row(schema_md, base, [])
+        if emptied is not None:
+            schema_md = emptied
     ir_yaml, issues = _verdict(schema_md, base)
     for repair in _REPAIRS:
         if not issues:
