@@ -42,6 +42,9 @@ from asterism_step0.ttl2mermaid import (
     ObjectRelation,
     render_mermaid_body,
 )
+from asterism_step0.ttl2mermaid import (
+    safe_ident as _safe_ident,
+)
 
 # Characters that flip a Mermaid classDiagram member line into a *method*
 # (parens) or break brace balance / the colon rule (T5). A unit containing
@@ -57,12 +60,6 @@ def _local(term: str) -> str:
     return tail or term.strip()
 
 
-def _safe_ident(name: str) -> str:
-    """A Mermaid-safe bare identifier (letters/digits/underscore, letter start)."""
-    out = re.sub(r"[^A-Za-z0-9_]", "_", name.strip())
-    if not out or not re.match(r"[A-Za-z_]", out[0]):
-        out = "_" + out
-    return out
 
 
 def _expand(term: str, prefixes: dict[str, str] | object) -> str:
@@ -127,13 +124,19 @@ def build_graph_from_ir(ir: MappingIR) -> MermaidGraph:
         entry = entries.get(iri)
         if entry is not None:
             return entry
-        label = _safe_ident(_local(class_term))
+        raw_local = _local(class_term)
+        label = _safe_ident(raw_local)
         if label in taken:
             label = _safe_ident(class_term.replace(":", "_"))
         while label in taken:  # still colliding — numbered alias
             label = f"{label}_2" if not label[-1].isdigit() else label + "_"
         taken.add(label)
-        entry = ClassEntry(iri=iri, label=label)
+        # ``raw_local`` is the class's real name (e.g. ``試料``), untouched by
+        # `_safe_ident`'s ASCII flattening — carried through as the diagram's
+        # display label (see ClassEntry.display) so a non-ASCII class name
+        # doesn't get reduced to an unreadable run of underscores in the
+        # rendered diagram / meta.classes (see registry.extract_classes).
+        entry = ClassEntry(iri=iri, label=label, display=raw_local)
         entries[iri] = entry
         label_map[label] = iri
         return entry

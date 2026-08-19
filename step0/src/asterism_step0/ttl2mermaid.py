@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import io
+import re
 import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -65,6 +66,18 @@ class ClassEntry:
 
     subclass_of: list[str] = field(default_factory=list)
     """External class IRIs (short labels) for the ``note for`` line."""
+
+    display: str | None = None
+    """The class's human-facing name, verbatim (e.g. ``試料``), when it differs
+    from :attr:`label`. ``label`` must stay a Mermaid-safe bare identifier
+    (letters/digits/underscore); non-ASCII or otherwise unsafe class names get
+    flattened into ``label`` by the caller (``_safe_ident``), which loses the
+    original name entirely if nothing else carries it. ``display`` is that
+    carrier — rendered via Mermaid's ``class Id["display"]`` label syntax so
+    reviewers see the real name, not the flattened id (T5-safe: renderer emits
+    the label only when it is quote/newline-free; datasets whose class names
+    are already Mermaid-safe get ``display is None`` and render byte-identical
+    to before this field existed)."""
 
 
 @dataclass
@@ -144,8 +157,12 @@ def build_graph(ttl_path: Path | str) -> MermaidGraph:
     class_entries: dict[str, ClassEntry] = {}
     label_map: dict[str, str] = {}
     for iri in class_iris:
-        label = _short_label(str(iri), namespaces)
-        entry = ClassEntry(iri=str(iri), label=label)
+        name = _short_label(str(iri), namespaces)
+        # A TBox class named in Japanese used to go into the diagram as the
+        # Mermaid id itself, which is not a legal identifier. Same split as the
+        # IR path: safe id + the real name as the label.
+        label = safe_ident(name)
+        entry = ClassEntry(iri=str(iri), label=label, display=name)
         class_entries[str(iri)] = entry
         label_map[label] = str(iri)
 
@@ -219,6 +236,44 @@ def build_graph(ttl_path: Path | str) -> MermaidGraph:
 # Render Mermaid
 # ----------------------------------------------------------------------------
 
+# Characters that make a Mermaid ``class Id["display"]`` label unsafe: an
+# unescaped ``"`` closes the label early (verified against Mermaid 11.15 —
+# it hard-fails the parse), and a newline/CR would straddle the label across
+# lines, breaking both the real parser's expectations and this repo's
+# line-based T5 lint. When present we drop the label rather than risk a
+# broken diagram (id-only rendering, same as before this field existed).
+_UNSAFE_LABEL_CHARS = re.compile(r'["\r\n]')
+
+
+def safe_ident(name: str) -> str:
+    """A Mermaid-safe bare identifier (letters/digits/underscore, letter start).
+
+    The class BLOCK's id must be one of these; the human-facing name rides
+    along in ``ClassEntry.display`` and is rendered as a ``["…"]`` label. Both
+    diagram paths (the Mapping IR one and this TBox one) call it, so a class
+    named in Japanese is a readable label in either — not a row of underscores,
+    and not an invalid identifier.
+    """
+    out = re.sub(r"[^A-Za-z0-9_]", "_", name.strip())
+    if not out or not re.match(r"[A-Za-z_]", out[0]):
+        out = "_" + out
+    return out
+
+
+def _display_label(c: ClassEntry) -> str:
+    """Mermaid ``["display name"]`` suffix for ``c``, or ``""``.
+
+    Emitted only when ``display`` is set and differs from ``label`` (so a
+    dataset whose class names were already Mermaid-safe renders byte-identical
+    to before ``display`` existed) and the name is free of characters that
+    would break the label syntax.
+    """
+    if not c.display or c.display == c.label:
+        return ""
+    if _UNSAFE_LABEL_CHARS.search(c.display):
+        return ""
+    return f'["{c.display}"]'
+
 
 def render_mermaid_body(graph: MermaidGraph) -> str:
     """The bare classDiagram text (no ``` fences).
@@ -231,7 +286,7 @@ def render_mermaid_body(graph: MermaidGraph) -> str:
     buf.write("classDiagram\n")
     buf.write(f"    direction {graph.direction}\n\n")
     for c in graph.classes:
-        buf.write(f"    class {c.label} {{\n")
+        buf.write(f"    class {c.label}{_display_label(c)} {{\n")
         for prop, rng in c.datatype_properties:
             # rng may be empty (IR rows without a datatype) — keep the line
             # colon-free and trim the trailing space (T5).

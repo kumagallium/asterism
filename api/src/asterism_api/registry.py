@@ -79,7 +79,11 @@ def source_kind_of(filenames: list[str]) -> str:
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 _ID_RE = re.compile(r"[a-z0-9-]{1,128}")
-_CLASS_RE = re.compile(r"^\s*class\s+(\w+)", re.MULTILINE)
+# ``class Id`` or ``class Id["display name"]`` — the second form is emitted by
+# ir2mermaid/ttl2mermaid when a class's real name isn't a Mermaid-safe bare
+# identifier (e.g. non-ASCII); group 2 (the display name) is what a human
+# should see, group 1 (the id) is the Mermaid-safe fallback.
+_CLASS_RE = re.compile(r'^\s*class\s+(\w+)(?:\["([^"]*)"\])?', re.MULTILINE)
 _MERMAID_BLOCK_RE = re.compile(r"```mermaid\s*\n(.*?)```", re.DOTALL)
 
 
@@ -89,8 +93,15 @@ def _slug(name: str) -> str:
 
 
 def extract_classes(mermaid: str) -> list[str]:
-    """Pull class names out of a Mermaid classDiagram (cheap, regex-only)."""
-    return _CLASS_RE.findall(mermaid or "")
+    """Pull class *display* names out of a Mermaid classDiagram (cheap, regex-only).
+
+    ``meta.classes`` is a display value (Gallery cards, dataset "中身" tab) —
+    when a class carries a ``["display name"]`` label (see ir2mermaid), that
+    verbatim name is returned; otherwise the bare id is returned unchanged
+    (older/ASCII-only diagrams, byte-for-byte the same as before this label
+    syntax existed).
+    """
+    return [display or ident for ident, display in _CLASS_RE.findall(mermaid or "")]
 
 
 def mermaid_of(diagram_md: str) -> str:

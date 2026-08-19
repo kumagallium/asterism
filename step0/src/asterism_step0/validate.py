@@ -1023,9 +1023,14 @@ def _lint_class_name(token: str) -> str | None:
     validating the bare identifier — those parts may legally hold other chars.
     """
     bare = token.strip()
+    # Order matters: a class-opening line is `class Id["label"] {` — the
+    # brace trails the bracket, so it must come off FIRST or the `\[.*\]$`
+    # anchor never matches (real incident: this used to run brace-strip
+    # last, so `class ____["試料"] {` never had its bracket recognised and
+    # the T5 lint flagged the whole `____["試料"]` token as invalid).
+    bare = bare.rstrip("{").strip()  # drop a trailing block-opening brace
     bare = re.sub(r"\[.*\]$", "", bare).strip()  # drop ["display label"]
     bare = re.sub(r":::\w+$", "", bare).strip()  # drop :::cssStyle
-    bare = bare.rstrip("{").strip()  # drop a trailing block-opening brace
     if not bare:
         return None
     if not _CLASS_NAME_RE.match(bare):
