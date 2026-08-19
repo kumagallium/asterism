@@ -91,7 +91,7 @@
     "keptAnswers": "We kept your previous answers — change them only if you want to.",
     "needAnswers": "Answer the questions above to continue.",
     "samplesCaption": "the columns read from this file, with example values",
-    "samplesColumn": "Heading in your file",
+    "samplesColumn": "Original column",
     "samplesValues": "Example values",
     "sheetsQuestion": "This Excel file holds more than one table. Choose the ones to use.",
     "sheetsNote": "Tap to switch each one on or off (the lit ones are used). Leaving out chart and note sheets makes the later checks easier."
@@ -257,14 +257,14 @@
     "mapCaptionNoCount": "One row = {{label}}",
     "mapCaptionUnnamed": "One row = an unnamed group",
     "mapDraftNote": "(still an unpublished draft)",
-    "colColumn": "Heading in your file",
+    "colColumn": "Original column",
     "colMeaning": "Meaning as read",
     "colUnit": "Unit",
     "colExamples": "Real examples",
     "updatedBadge": "(updated)",
     "reflectApplied": "Your note “{{note}}” updated the meaning of {{n}} column(s).",
     "reflectNoChange": "Your note “{{note}}” changed nothing in the table below. Try wording it differently, or just continue.",
-    "missingMeaning": "The AI could not read a meaning for the ⚠ rows. Going on is fine — those columns stay searchable under the heading your file gives them. To change one, type into its \"Meaning as read\".",
+    "missingMeaning": "The AI could not read a meaning for the ⚠ rows. Going on is fine — those columns stay searchable under their original column name. To change one, type into its \"Meaning as read\".",
     "droppedColumns": "Columns not taken in: {{columns}} (the AI could not read what they mean)",
     "droppedColumnsHint": "If you need them, tell us what they mean in the box below.",
     "mapRowsNote": "When the count is far below the number of rows, several rows became one record (for example many measurements of the same sample). If that is not what you meant, you can go back to how rows are counted.",
@@ -291,7 +291,7 @@
     "refineWrap": "While reviewing the column meanings, the user pointed this out. Follow it and fix the affected columns' meaning (label) and unit (unit) — and the design itself if needed: {{note}}",
     "confirm": "Confirm these meanings",
     "confirmBlocked": "The column meanings could not be loaded, so there is nothing to confirm yet. Press “Reload” above.",
-    "editHint": "You can correct the meaning and the unit right here (no AI, saved in seconds). A meaning can be a word or a short phrase, in any language. For a column you are unsure about, \"Use the heading as it is\" fills it in.",
+    "editHint": "You can correct the meaning and the unit right here (no AI, saved in seconds). A meaning can be a word or a short phrase, in any language. For a column you are unsure about, \"Use the original column name\" fills it in.",
     "editSaving": "Saving your corrections…",
     "editSaved": "Saved the meaning / unit of {{n}} column(s).",
     "editNoChange": "That column could not be found in the design, so the correction was not saved. Tell us in the box below instead.",
@@ -301,7 +301,7 @@
     "editAria": "meaning of {{column}}",
     "unitAria": "unit of {{column}}",
     "noteLabelEditable": "Meanings and units are editable in the table above. Anything else you noticed?",
-    "useColumnName": "Use the heading as it is"
+    "useColumnName": "Use the original column name"
   },
   "s7": {
     "title": "Try it — we asked your data a few questions",

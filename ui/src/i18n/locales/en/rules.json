@@ -1,8 +1,8 @@
 {
   "plain": {
-    "intro": "What each heading in the imported file was read to mean.",
+    "intro": "What each column of the imported file was read to mean.",
     "rowIs": "one row = {{what}}",
-    "colColumn": "Heading in your file",
+    "colColumn": "Original column",
     "colMeaning": "Read as",
     "colUnit": "Unit",
     "computed": "(computed value)",
