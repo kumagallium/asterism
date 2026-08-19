@@ -710,6 +710,156 @@ def _numeric_types_by_source(base: Path, ir: Any) -> dict[str, dict[str, str]]:
     return out
 
 
+# The advisory this repair answers (asterism.rml_validate
+# ``_empty_shell_advisories``): a per-row map that mints an entity per row and
+# binds no value column of its own.
+_RE_EMPTY_SHELL = re.compile(r"map '([^']+)' mints one entity per row")
+
+
+def _placeholders(template: str) -> list[str]:
+    return re.findall(r"\{([^{}]+)\}", template or "")
+
+
+def _determined_by(rows: list[dict[str, str]], column: str, keys: frozenset[str]) -> bool:
+    """True when ``keys`` functionally determine ``column`` across the real rows.
+
+    The same adjudication the duplicate-column advisory makes (G1): if two rows
+    agreeing on the key disagree on the value, the key does not own it.
+    """
+    if not keys:
+        return False
+    seen: dict[tuple[str, ...], str] = {}
+    for row in rows:
+        k = tuple((row.get(c) or "").strip() for c in sorted(keys))
+        v = (row.get(column) or "").strip()
+        if not v:
+            continue
+        if k in seen and seen[k] != v:
+            return False
+        seen.setdefault(k, v)
+    return True
+
+
+def _place_row_values_on_their_own_map(
+    schema_md: str, base: Path, issues: list[Issue]
+) -> str | None:
+    """Move a row's own values onto the per-row map that has none of its own.
+
+    The empty-shell advisory (G14) fires when a map mints one entity per row and
+    binds only links, so the row's values are recorded nowhere queryable. It
+    already names the map and — from the real rows — the columns that belong on
+    it. Live 2026-08-19 the person then had nowhere to act: the sentence says
+    「行ごとに変わる列を『材料情報』に足すと直ります」 but no screen assigns
+    columns to a kind, and ten AI rounds did not do it either.
+
+    The edit is knowable without a model, so the machine makes it: a column that
+    varies across the file and sits on a map whose key does NOT determine it is
+    moved to the shell (it collapses into multi-values where it is, and is a
+    plain value where it belongs). Deliberately limited to MOVES — the property
+    keeps its own predicate, datatype and label, so nothing is invented. A column
+    bound nowhere at all needs a new predicate minted for it and stays with the
+    advisory.
+    """
+    if not any(_RE_EMPTY_SHELL.search(iss.message) for iss in issues):
+        return None
+    import yaml  # lazy (PyYAML is a step0 dependency)
+
+    with tempfile.TemporaryDirectory(prefix="asterism-loop-shell-") as tmp:
+        ir_yaml = materialize_schema(schema_md, tmp, "design", write=False).mapping_ir_yaml
+    if not ir_yaml or not ir_yaml.strip():
+        return None
+    try:
+        ir = parse_mapping_ir(ir_yaml)
+        spec = load_spec_yaml(ir_yaml)
+    except Exception:
+        return None
+    if not isinstance(spec, dict) or not isinstance(spec.get("maps"), list):
+        return None
+
+    rows_by_source = _rows_by_source(base, ir)
+    moved = 0
+    for source, rows in rows_by_source.items():
+        if not rows:
+            continue
+        entries = [
+            m
+            for m in spec["maps"]
+            if isinstance(m, dict) and str(m.get("source") or "") == source
+        ]
+        if len(entries) < 2:  # a shell needs somewhere its values could be parked
+            continue
+
+        def own_columns(entry: dict) -> set[str]:
+            out: set[str] = set()
+            for prop in entry.get("properties") or []:
+                if isinstance(prop, dict) and isinstance(prop.get("column"), str):
+                    out.add(prop["column"])
+            return out
+
+        def key_columns(entry: dict) -> frozenset[str]:
+            subject = entry.get("subject")
+            template = subject.get("template") if isinstance(subject, dict) else None
+            return frozenset(_placeholders(template or ""))
+
+        for shell in entries:
+            shell_keys = key_columns(shell)
+            if not shell_keys or own_columns(shell):
+                continue  # not a per-row map, or not a shell
+            for holder in entries:
+                if holder is shell:
+                    continue
+                holder_keys = key_columns(holder)
+                keep: list[Any] = []
+                took = 0
+                for prop in holder.get("properties") or []:
+                    column = prop.get("column") if isinstance(prop, dict) else None
+                    if not isinstance(column, str):
+                        keep.append(prop)
+                        continue
+                    values = {(r.get(column) or "").strip() for r in rows} - {""}
+                    if len(values) <= 1:
+                        keep.append(prop)  # file-scoped metadata — the header's, by G1
+                        continue
+                    if _determined_by(rows, column, holder_keys):
+                        keep.append(prop)  # genuinely this holder's own value
+                        continue
+                    # Including a column the shell's ID is built FROM: the ID
+                    # encoding a value is not the same as recording it, and left
+                    # here it still collapses onto one parent entity.
+                    shell.setdefault("properties", []).append(prop)
+                    took += 1
+                if took:
+                    holder["properties"] = keep
+                    moved += took
+    if not moved:
+        return None
+    repaired = yaml.safe_dump(spec, allow_unicode=True, sort_keys=False).rstrip("\n")
+    try:
+        return replace_mapping_spec_block(schema_md, repaired)
+    except ValueError:
+        return None
+
+
+def _rows_by_source(base: Path, ir: Any) -> dict[str, list[dict[str, str]]]:
+    """Every source's rows, read through the spec's own pinned dialect."""
+    dialects: Mapping[str, Any] = getattr(ir, "dialects", None) or {}
+    out: dict[str, list[dict[str, str]]] = {}
+    for name in {str(m.source) for m in ir.maps if getattr(m, "source", None)}:
+        path = Path(base) / name
+        if not path.is_file():
+            continue
+        dialect = dialects.get(name)
+        try:
+            out[name] = (
+                _dialect_rows(path, dialect)
+                if dialect is not None and not is_default(dialect)
+                else list(_stream_rows(path))
+            )
+        except Exception:  # unreadable/odd source — simply not repairable here
+            continue
+    return out
+
+
 def _stamp_numeric_datatypes(schema_md: str, base: Path, issues: list[Issue]) -> str | None:
     """Deterministically add the missing ``datatype:`` to the §9 property rows
     the untyped-numeric advisory named. Returns the repaired document, or None
@@ -930,6 +1080,7 @@ def _move_xsd_unit_to_datatype(schema_md: str, base: Path, issues: list[Issue]) 
 _REPAIRS: tuple[Callable[[str, Path, list[Issue]], str | None], ...] = (
     _drop_identity_transforms,  # parse-level: unblocks every later check
     _move_xsd_unit_to_datatype,  # a misfiled datatype, before typing is judged
+    _place_row_values_on_their_own_map,  # before typing: it relocates the rows
     _stamp_numeric_datatypes,
     lambda md, base, issues: _stamp_utf8_sig(md, issues),  # T2 lives in §8, not §9
 )
