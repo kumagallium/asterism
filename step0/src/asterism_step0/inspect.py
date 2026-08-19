@@ -263,6 +263,12 @@ class ColumnSummary:
     total_rows: int
     unique_count: int  # 0 if not computed (e.g. unbounded high-card column)
     sample_values: list[str]
+    # A numeric column that walks in one direction through the file: the x-axis
+    # of a scan (2theta of a diffractogram, wavelength, elapsed time), not a
+    # measured outcome. Both are `xsd:double` and only the ORDER tells them
+    # apart, which matters because an outcome is a bad identity (correcting it
+    # re-mints the ID) while a scan position is a perfectly good one.
+    scan_axis: bool = False
     # JSON-only:
     json_keys: list[str] = field(default_factory=list)  # for json-object
     json_element_kind: str | None = None  # for json-array
@@ -389,6 +395,34 @@ def _dialect_rows(path: Path, dialect: SourceDialect) -> list[dict[str, str]]:
     ]
 
 
+_SCAN_AXIS_MIN_ROWS = 8
+_SCAN_AXIS_MAX_ROWS = 5000
+
+
+def _is_scan_axis(values: Sequence[str]) -> bool:
+    """True when the column's values walk in ONE direction down the file.
+
+    The independent variable of a scan is swept, so its values are strictly
+    increasing (or decreasing) in file order; a measured outcome wanders. Both
+    are numbers, so nothing but the order distinguishes them. Deliberately
+    strict: a single reversal is enough to say "not an axis", and a column with
+    too few rows to show a trend is not called one either.
+    """
+    if len(values) < _SCAN_AXIS_MIN_ROWS:
+        return False
+    nums: list[float] = []
+    for v in values:
+        try:
+            nums.append(float(str(v).strip()))
+        except (TypeError, ValueError):
+            return False  # not purely numeric — not a swept axis
+    pairs = list(itertools.pairwise(nums))
+    ups = sum(1 for a, b in pairs if b > a)
+    downs = sum(1 for a, b in pairs if b < a)
+    steps = len(nums) - 1
+    return steps > 0 and (ups == steps or downs == steps)
+
+
 def _summarize_rows(rows: list[dict[str, str]], columns: Sequence[str]) -> list[ColumnSummary]:
     """Build per-column summaries from already-materialised string rows.
 
@@ -400,6 +434,9 @@ def _summarize_rows(rows: list[dict[str, str]], columns: Sequence[str]) -> list[
     seen_values: dict[str, set[str]] = {c: set() for c in columns}
     samples: dict[str, list[str]] = {c: [] for c in columns}
     non_null: dict[str, int] = {c: 0 for c in columns}
+    # Values in FILE ORDER (bounded), for the scan-axis reading: the sample ring
+    # above stops early, and a trend needs the sequence, not a set.
+    ordered: dict[str, list[str]] = {c: [] for c in columns}
 
     for row in rows:
         for c in columns:
@@ -410,6 +447,8 @@ def _summarize_rows(rows: list[dict[str, str]], columns: Sequence[str]) -> list[
                     seen_values[c].add(v)
                 if len(samples[c]) < _SAMPLE_RING:
                     samples[c].append(v)
+                if len(ordered[c]) < _SCAN_AXIS_MAX_ROWS:
+                    ordered[c].append(v)
 
     summaries: list[ColumnSummary] = []
     for c in columns:
@@ -437,6 +476,7 @@ def _summarize_rows(rows: list[dict[str, str]], columns: Sequence[str]) -> list[
                 sample_values=col_samples[:3],
                 json_keys=json_keys,
                 json_element_kind=element_kind,
+                scan_axis=json_kind is None and _is_scan_axis(ordered[c]),
             )
         )
 

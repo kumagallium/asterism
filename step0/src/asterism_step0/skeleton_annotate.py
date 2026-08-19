@@ -143,14 +143,28 @@ def _collision_examples(
 
 
 def _measurement_only(inspection: SourceInspection, key: Sequence[str]) -> bool:
-    """True when EVERY key column holds measurement values (double/float/decimal).
+    """True when EVERY key column holds a measured OUTCOME (double/float/decimal).
 
     Such a key can be unique in today's rows only by accident — two later runs
     measuring the same value collide — so it is never a semantically safe
     identity, even when the current file happens to pass the uniqueness check.
+
+    A swept scan axis is excluded. 2theta down a diffractogram, wavelength down
+    a spectrum, elapsed time down a log: same `xsd:double`, but the instrument
+    sets it rather than measures it, so it does not get "corrected" later and it
+    is the row's natural coordinate. Only the order in the file distinguishes
+    the two (``ColumnSummary.scan_axis``), and calling a scan position a
+    measurement made the gate warn about the one identity the data actually had
+    (live 2026-08-19: a 3001-point XRD scan whose only columns were 2theta and
+    intensity — every candidate the gate could offer carried the same warning).
     """
     types = {c.name: c.inferred_type for c in inspection.columns}
-    return bool(key) and all(types.get(col) in _MEASUREMENT_TYPES for col in key)
+    axes = {c.name for c in inspection.columns if getattr(c, "scan_axis", False)}
+    if not key:
+        return False
+    return all(types.get(col) in _MEASUREMENT_TYPES for col in key) and not all(
+        col in axes for col in key
+    )
 
 
 def _class_numeric_key_caution(
