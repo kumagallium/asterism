@@ -7323,6 +7323,24 @@ tr[data-map].skeleton-gate-row--added td {
   font-size: 0.875rem;
 }
 
+/* S6: whether the unit someone typed reached a real standard unit. Information, not
+   a gate — the standard genuinely lacks some everyday units (µV/K has no QUDT term),
+   so an unmatched spelling has to read as a fact about the catalog rather than as
+   the person's mistake. Sits under the input, inside the same cell. */
+.kz-unit-std {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  max-width: 22ch;
+}
+.kz-unit-std--ok {
+  color: var(--success-fg);
+}
+.kz-unit-std--warn {
+  color: var(--warn-fg);
+}
+
 /* S6: the column-meaning table. Reuses the preview table skin; a row whose
    meaning could not be read gets the amber marker (eye guidance, not a gate). */
 .kz-cols-caption {

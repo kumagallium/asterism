@@ -19,14 +19,24 @@ from asterism.grounding.catalog import (
     vocabularies,
 )
 from asterism.grounding.schema import SchemaTermGrounding, ground_model_yaml
+from asterism.grounding.units import (
+    UnitMatch,
+    UnitResolution,
+    catalog_meta,
+    resolve_unit,
+)
 
 __all__ = [
     "Candidate",
     "SchemaTermGrounding",
+    "UnitMatch",
+    "UnitResolution",
     "VocabTerm",
     "Vocabulary",
+    "catalog_meta",
     "ground_model_yaml",
     "ground_terms",
     "load_catalog",
+    "resolve_unit",
     "vocabularies",
 ]

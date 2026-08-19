@@ -6719,6 +6719,23 @@ def build_app(
             raise HTTPException(400, str(exc)) from exc
         return JSONResponse({"query": q, "candidates": [c.to_dict() for c in cands]})
 
+    @app.get("/api/units/resolve")
+    async def units_resolve(
+        q: str = Query(description="unit string as a person typed it, e.g. 'W/(m*K)'"),
+        limit: int = Query(default=6, ge=1, le=20),
+    ) -> JSONResponse:
+        """Does this unit string land on a REAL standard unit? (units.py)
+
+        A unit is not one attribute among many: "300" alone is not a citable fact, and
+        no RDF datatype carries the unit. Until now a person could type any spelling in
+        the かんたん column table and nothing said whether it reached a standard — the
+        QUDT triple just quietly did not appear. This answers it: ``resolved`` (with the
+        real IRI), ``ambiguous`` (the string means several units — a person picks), or
+        ``unknown`` plus near-miss suggestions. Closed set, deterministic, read-only.
+        """
+        res = grounding.resolve_unit(q, limit=limit)
+        return JSONResponse({**res.to_dict(), "catalog": grounding.catalog_meta()})
+
     @app.post("/api/ground/schema")
     async def grounding_for_schema(body: GroundSchemaBody) -> JSONResponse:
         """External-standard candidates for the MINTED class/predicate of a PROPOSED schema
