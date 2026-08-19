@@ -81,22 +81,48 @@ function renameHead(value: string, from: string, to: string): string {
 export function resolveUndeclaredPrefixes(
   skeleton: MappingSkeleton,
   undeclared: Iterable<string>,
-  info: Pick<DatasetNamespaceInfo, 'ontology_prefix' | 'resource_prefix'> | null,
-): { skeleton: MappingSkeleton; declared: string[]; renamed: string[] } | null {
+  info: Pick<
+    DatasetNamespaceInfo,
+    'ontology_prefix' | 'resource_prefix' | 'slug' | 'base'
+  > | null,
+): {
+  skeleton: MappingSkeleton
+  declared: string[]
+  /** The subset of `declared` that is this dataset's OWN minted pair, not a
+   *  standard vocabulary — a different sentence for the reader. */
+  declaredOwn: string[]
+  renamed: string[]
+} | null {
   const declaredAlready = skeleton.prefixes ?? {}
   const names = [...new Set(undeclared)].filter((n) => n && !(n in declaredAlready)).sort()
   if (names.length === 0) return null
 
-  const declared = names.filter((n) => n in STANDARD_VOCAB_IRIS)
-  const unknown = names.filter((n) => !(n in STANDARD_VOCAB_IRIS))
   const onto = info?.ontology_prefix ?? null
   const res = info?.resource_prefix ?? null
+  // This dataset's OWN missing half. `xrd:` declared and `xrdr:` used but not
+  // declared is the same one minted pair with one line missing — the machine
+  // derived both names from the slug, so the absent one has a known IRI and is
+  // simply written down. Folding it onto its twin instead (the unknown-word
+  // path below) would move every resource IRI into the ontology namespace,
+  // which is a different design, not a repair (live 2026-08-19: 「xrdr は AI が
+  // 勝手に作った prefix？」— it was not; it was this dataset's own).
+  const own: Record<string, string> = {}
+  if (info?.slug && info.base) {
+    const [dOnto, dRes] = derivePrefixPair(info.slug)
+    const mint: Record<string, string> = {
+      [onto ?? dOnto]: `${info.base}/datasets/${info.slug}/ontology#`,
+      [res ?? dRes]: `${info.base}/datasets/${info.slug}/resource/`,
+    }
+    for (const name of names) if (name in mint) own[name] = mint[name]
+  }
+  const declared = names.filter((n) => n in STANDARD_VOCAB_IRIS || n in own)
+  const unknown = names.filter((n) => !(n in STANDARD_VOCAB_IRIS) && !(n in own))
   // Without a minted pair there is nothing to fold unknown names onto.
   const renamed = onto || res ? unknown : []
   if (declared.length === 0 && renamed.length === 0) return null
 
   const prefixes: Record<string, string> = { ...declaredAlready }
-  for (const name of declared) prefixes[name] = STANDARD_VOCAB_IRIS[name]
+  for (const name of declared) prefixes[name] = own[name] ?? STANDARD_VOCAB_IRIS[name]
 
   const fold = (value: string, target: string | null): string => {
     if (!target || !CURIE_HEAD.test(value) || value.startsWith('http://') || value.startsWith('https://')) {
@@ -121,7 +147,7 @@ export function resolveUndeclaredPrefixes(
 
   const next = { ...skeleton, prefixes, maps }
   if (JSON.stringify(next) === JSON.stringify(skeleton)) return null
-  return { skeleton: next, declared, renamed }
+  return { skeleton: next, declared, declaredOwn: Object.keys(own).sort(), renamed }
 }
 
 /** Kebab slug for the minted-IRI dataset segment (same cleaning rule as the

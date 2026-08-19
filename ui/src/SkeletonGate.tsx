@@ -798,7 +798,11 @@ export function SkeletonGate({
   // What the deterministic vocabulary repair did, kept after the re-check that
   // makes the server warning disappear: a silent meaning change is worse than
   // the warning it replaces.
-  const [vocabFix, setVocabFix] = useState<{ declared: string[]; renamed: string[] } | null>(null)
+  const [vocabFix, setVocabFix] = useState<{
+    declared: string[]
+    declaredOwn: string[]
+    renamed: string[]
+  } | null>(null)
 
   useEffect(() => {
     if (!addedMap) return
@@ -947,7 +951,13 @@ export function SkeletonGate({
   // The dataset's minted namespace pair (ADR K13). Detected straight from the
   // skeleton so the card reflects a rename instantly; whether the BASE is
   // operator-configured is the server annotation's call (Settings knowledge).
-  const nsDetected = detectDatasetNamespace(skeleton)
+  // Detected straight from the skeleton, with the SERVER's own reading as the
+  // fallback: a skeleton whose minted pair is declared in a non-canonical shape
+  // (or not at all) detects as nothing here, and the deterministic vocabulary
+  // repair below then had no namespace to work from — so the one screen that
+  // could fix a missing prefix offered only "AI にもう一度考えさせる" (live
+  // 2026-08-19). The server annotation knows the slug and base regardless.
+  const nsDetected = detectDatasetNamespace(skeleton) ?? annotations?.dataset_namespace ?? null
   const baseUnconfigured = annotations?.dataset_namespace?.base_configured === false
 
   // The one naming judgment that persists: the dataset name inside the minted
@@ -1022,11 +1032,19 @@ export function SkeletonGate({
   const vocabFixable =
     undeclared.length > 0 &&
     (undeclared.some((p) => p in STANDARD_VOCAB_IRIS) ||
-      !!(nsDetected?.ontology_prefix || nsDetected?.resource_prefix))
+      !!(nsDetected?.ontology_prefix || nsDetected?.resource_prefix) ||
+      // Neither half declared yet, but the dataset's namespace is known: the
+      // undeclared name may BE one of the two the slug derives, in which case
+      // writing it down is the whole repair.
+      !!(nsDetected?.slug && nsDetected?.base))
   function repairVocabulary() {
     const fixed = resolveUndeclaredPrefixes(skeleton, undeclared, nsDetected)
     if (!fixed) return
-    setVocabFix({ declared: fixed.declared, renamed: fixed.renamed })
+    setVocabFix({
+      declared: fixed.declared.filter((n) => !fixed.declaredOwn.includes(n)),
+      declaredOwn: fixed.declaredOwn,
+      renamed: fixed.renamed,
+    })
     onChange(fixed.skeleton)
   }
 
@@ -1264,6 +1282,11 @@ export function SkeletonGate({
       {vocabFix && vocabFix.declared.length > 0 && (
         <p className="skeleton-evidence-line skeleton-evidence-muted">
           {t('skeletongate:vocab.declared', { names: vocabFix.declared.join(', ') })}
+        </p>
+      )}
+      {vocabFix && vocabFix.declaredOwn.length > 0 && (
+        <p className="skeleton-evidence-line skeleton-evidence-muted">
+          {t('skeletongate:vocab.declaredOwn', { names: vocabFix.declaredOwn.join(', ') })}
         </p>
       )}
       {vocabFix && vocabFix.renamed.length > 0 && (

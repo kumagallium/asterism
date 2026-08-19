@@ -35,7 +35,8 @@
     "declared": "Registered the well-known words ({{names}}) as standard words.",
     "renamed": "Registered the unfamiliar words ({{names}}) as new words for this data.",
     "unresolved": "The AI's ID recipe uses words with no agreed meaning ({{names}}). As it is, saving will fail.",
-    "fix": "Register these words and fix it"
+    "fix": "Register these words and fix it",
+    "declaredOwn": "Registered where this dataset issues its IDs ({{names}}). The IDs themselves are unchanged."
   },
   "filesGone": "The files are not at hand, so re-checking, asking the AI again and adding kinds are unavailable. Use “{{back}}” below to drop the files again.",
   "addedHint": "Added a per-row kind. You can continue with this name (column meanings are checked on the next screen).",
