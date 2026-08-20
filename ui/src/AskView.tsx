@@ -829,10 +829,16 @@ function AnswerCard({
 }) {
   const { t } = useTranslation()
   const verified = result.verifiedTools?.length ?? 0
-  // Citations first: with none, this answer cannot be traced back to any datum,
-  // so it must not wear a ✓ that says it can. A weak model that never called a
-  // tool lands exactly here (the old default branch said 「根拠つきの回答」).
-  const noSources = result.citations.length === 0
+  // An answer has no source when it touched no data at all — not merely when it
+  // cites no row. An AGGREGATE ("the 2θ range is 20.0°–80.0°") names no single
+  // record by nature, so it arrives with zero citations while being as traced as
+  // an answer gets: a read-only query, shown in full, run against the published
+  // graph. Judging by citations alone put 「出どころのない答え（AI の説明のみ）」
+  // and 「数字として使わないでください」 on a number a verified tool had just read
+  // out of the reader's own data (live 2026-08-20). A weak model that never
+  // called a tool still lands here — it executed nothing.
+  const executedQueries = result.sparql?.length ?? 0
+  const noSources = result.citations.length === 0 && verified === 0 && executedQueries === 0
   return (
     <section className="answer-card">
       <div className="answer-head">

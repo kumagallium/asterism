@@ -5,8 +5,9 @@
 // origin (:8090), distinct from the workbench API (:8080). This module only
 // speaks the two HTTP contracts below; it contains NO answer-generation logic.
 // While the demo agent is built, a front-end mock returns fixtures so the UI
-// can be developed against the contract. Flip VITE_DEMO_MODE=live to call the
-// real agent at VITE_DEMO_AGENT_URL (default http://localhost:8090).
+// can be developed against the contract. Those fixtures are OPT-IN
+// (VITE_DEMO_MODE=mock); by default this calls the real agent at
+// VITE_DEMO_AGENT_URL (default http://localhost:8090).
 //
 //   POST {AGENT}/demo/ask        { question }            -> AskResponse
 //   GET  {AGENT}/demo/provenance?iri=<iri>               -> ProvenanceChain
@@ -88,8 +89,16 @@ export interface ProvenanceChain {
 
 // ---- mode switch ----------------------------------------------------------
 
-const MODE = (import.meta.env.VITE_DEMO_MODE as string | undefined) ?? 'mock'
-const IS_MOCK = MODE !== 'live'
+// LIVE by default. The fixtures exist so the UI could be built before the demo
+// agent shipped; defaulting to them means any build that forgets the env var
+// serves a stranger's made-up numbers to someone looking at their own data —
+// and the only sign is one small badge (live 2026-08-20: a dogfooding session
+// published a real dataset, asked a question, and got Curve/Sample/Paper from
+// a starrydata fixture). Every shipping build already sets `live` explicitly;
+// this only changes what happens when nobody said. Fixtures are now opt-in:
+// VITE_DEMO_MODE=mock.
+const MODE = (import.meta.env.VITE_DEMO_MODE as string | undefined) ?? 'live'
+const IS_MOCK = MODE === 'mock'
 
 // Absolute base URL of the demo agent (:8090 by default). Trailing slash
 // trimmed so `${AGENT_BASE}/demo/ask` is well-formed. Deliberately NOT a
