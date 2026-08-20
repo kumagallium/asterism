@@ -23,6 +23,14 @@ export default defineConfig({
       // the API renders). Without this the dev server answers with the SPA
       // shell, so a citation link looks broken only in dev.
       '/describe': API_TARGET,
+      // /demo/* is the Ask agent's surface. In production caddy reverse-proxies
+      // it, and `asterism-local` relays it in-process, so a live-mode build asks
+      // its OWN origin for it (VITE_DEMO_AGENT_URL=/). Without this line the dev
+      // server answers those calls with the SPA shell — HTML where JSON is
+      // expected, so the schema comes back null and Ask looks empty, only in dev
+      // (2026-08-20: the dev stack was serving demo fixtures for exactly this
+      // reason, one layer up).
+      '/demo': API_TARGET,
     },
   },
 })
