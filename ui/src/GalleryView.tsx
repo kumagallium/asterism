@@ -61,6 +61,12 @@ export type DetailTab = 'structure' | 'tools' | 'files' | 'connect' | 'design'
 /** Which control on the files tab the state band is sending the reader to. */
 type ControlFocus = 'ingest' | 'promote' | 'append' | 'reingest' | null
 
+/** Where a caller wants this detail page to LAND. A tab alone is not enough when
+ * the thing that was clicked lives partway down a long tab — かんたん S9's
+ * 「標準のことばに合わせる」 would otherwise drop the person at the top of 設計
+ * and make them find the same button again. */
+export type DetailFocus = 'append' | 'reingest' | 'grounding'
+
 /** Scroll a control into view when the state band points at it. */
 function useFocusScroll(focus: boolean | undefined, ref: { current: HTMLDivElement | null }) {
   useEffect(() => {
@@ -250,6 +256,8 @@ export function GalleryView({
   onOpenMap,
   onAddData,
   onRedesign,
+  detailFocus = null,
+  onDetailFocusConsumed,
 }: {
   focusClass?: string | null
   /** 選択中データセット（App の hash ルートが真実源 — 一覧⇄詳細の往復や他画面
@@ -265,6 +273,10 @@ export function GalleryView({
   onAddData?: () => void
   /** Open the workbench on this dataset's stored design to revise it ("見直す"). */
   onRedesign?: (target: RedesignTarget) => void
+  /** Which control/section the caller wants scrolled to on arrival. */
+  detailFocus?: DetailFocus | null
+  /** Fired once the focus has been acted on, so a later visit does not re-scroll. */
+  onDetailFocusConsumed?: () => void
 }) {
   const { t } = useTranslation()
   const [datasets, setDatasets] = useState<CatalogDataset[] | null>(null)
@@ -389,6 +401,8 @@ export function GalleryView({
           onOpenMap={onOpenMap}
           onRedesign={onRedesign}
           onAddData={onAddData}
+          detailFocus={detailFocus}
+          onDetailFocusConsumed={onDetailFocusConsumed}
         />
       )}
 
@@ -1090,6 +1104,8 @@ function DatasetDetail({
   onOpenMap,
   onRedesign,
   onAddData,
+  detailFocus = null,
+  onDetailFocusConsumed,
 }: {
   dataset: CatalogDataset
   perspectives: CrosswalkPerspective[]
@@ -1105,6 +1121,9 @@ function DatasetDetail({
   onRedesign?: (target: RedesignTarget) => void
   /** 「データを追加」へ戻る（設計が無く、この画面では先へ進めないとき）。 */
   onAddData?: () => void
+  /** Where the caller wants this page to land (かんたん S9 の導線など)。 */
+  detailFocus?: DetailFocus | null
+  onDetailFocusConsumed?: () => void
 }) {
   const { t } = useTranslation()
   const meta = dataset.live?.meta
@@ -1216,6 +1235,40 @@ function DatasetDetail({
   const rulesRef = useRef<HTMLDivElement | null>(null)
   const groundingRef = useRef<HTMLDivElement | null>(null)
   const showGrounding = dataset.classIris.length + dataset.predicates.length > 0
+  // A caller asked to LAND on something, not just on a tab. Acting on it once —
+  // and telling the caller it was consumed — keeps a later visit to the same
+  // dataset from yanking the page around for a reason nobody remembers.
+  useEffect(() => {
+    if (!detailFocus) return
+    const ctl = detailFocus === 'grounding' ? null : detailFocus
+    // The grounding section is not on the page until the tab switch has rendered
+    // it (and it exists only once the dataset has minted terms — i.e. after
+    // publish). Staying UNCONSUMED until the ref is real is what makes this land:
+    // giving up on the first pass would leave the person at the top of a long
+    // page, hunting for the very button they just pressed.
+    const el = ctl ? null : groundingRef.current
+    if (!ctl && !el) return
+    // Next frame, so the scroll happens against the laid-out page (and so no
+    // state is set synchronously inside the effect).
+    let settle: ReturnType<typeof setTimeout> | undefined
+    const id = requestAnimationFrame(() => {
+      if (el) {
+        el.scrollIntoView({ block: 'start' })
+        // The section fills itself in asynchronously (existing alignments, then
+        // a candidate lookup per term), so the page grows underneath the scroll
+        // and the first jump is undone by the reflow. Land once more when it has
+        // settled — measured at scrollTop ≈ 1 without this.
+        settle = setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'start' }), 400)
+      } else if (ctl) goToControl(ctl)
+      onDetailFocusConsumed?.()
+    })
+    return () => {
+      cancelAnimationFrame(id)
+      if (settle) clearTimeout(settle)
+    }
+    // Re-runs when the section appears, not on every render of this page.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detailFocus, tab, showGrounding])
   // dataset rename (kept from #231) — inline edit in the detail header.
   const [editingName, setEditingName] = useState(false)
   const [draftName, setDraftName] = useState(dataset.name)

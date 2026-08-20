@@ -104,7 +104,9 @@ type KantanKind = 'tabular' | 'json' | 'document'
 /** Which of the two "grow this dataset" intents S9 was clicked with: add the
  *  new measurements, or replace everything. Passed to the catalog so the
  *  landing page can open on that control (KZ-B-02). */
-export type GrowFocus = 'append' | 'reingest'
+/** Where a S9 link wants the dataset page to LAND — a tab alone leaves the person
+ * at the top of a long page, hunting for the button they just pressed. */
+export type GrowFocus = 'append' | 'reingest' | 'grounding'
 type Q1Answer = 'keep' | 'drop'
 type Q2Answer = 'only' | 'elsewhere' | 'unknown'
 type KzStep = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
@@ -4445,7 +4447,7 @@ export function KantanWizard({
               <p className="kz-note kz-grow-title">{t('kantan:s9.groundTitle')}</p>
               <p className="kz-note">{t('kantan:s9.groundBody')}</p>
               <div className="kz-actions">
-                <button type="button" onClick={() => openGrow('design')}>
+                <button type="button" onClick={() => openGrow('design', 'grounding')}>
                   {t('kantan:s9.groundBtn')}
                 </button>
               </div>
