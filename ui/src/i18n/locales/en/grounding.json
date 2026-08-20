@@ -2,7 +2,8 @@
   "op": {
     "vocabularies": "loading standard words",
     "search": "searching standard words",
-    "schema": "loading standard candidates for the design"
+    "schema": "loading standard candidates for the design",
+    "unit": "resolving the unit"
   },
   "schema": {
     "head": "Standard ontology candidates",

@@ -307,6 +307,10 @@
     "askPreambleValue": "右の実データを見て、これが何かを書いてください（例: 試料名）",
     "meaningPlaceholderValue": "この値が何か（例: 試料名）",
     "unitPlaceholder": "単位",
+    "unitStd": "標準にあります: {{label}}",
+    "unitAmbiguous": "この書き方は複数の単位で使われています: {{list}}",
+    "unitUnknown": "この書き方は標準の単位表にありません。",
+    "unitSuggest": "近いもの: {{list}}",
     "editAria": "{{column}} の意味",
     "unitAria": "{{column}} の単位",
     "noteLabelEditable": "項目の意味・単位は上の表で直せます。それ以外に気になる点があれば一言",
@@ -389,7 +393,11 @@
     "startNew": "別の新しいデータを追加する",
     "connectTitle": "ほかのデータとつなぐ",
     "connectBody": "公開済みのデータが {{count}} 件になりました。共通の値でつなぐと、両方をまたいで質問できます。",
-    "connectBtn": "データどうしをつなぐ"
+    "connectBtn": "データどうしをつなぐ",
+    "groundTitle": "世界の標準のことばに合わせる",
+    "groundBody": "いまこのデータは、このデータセット専用のことばで書かれています。よく使われている標準のことば（QUDT・schema.org など）に合わせておくと、外のデータや道具からも同じ意味として読めます。",
+    "groundBtn": "標準のことばに合わせる",
+    "groundHint": "データセットのページの「設計」で、候補から選ぶだけです。あとから外すこともできます。"
   },
   "redesign": {
     "banner": "見直し: {{name}}",

@@ -146,3 +146,36 @@ Asterism は **有名・基盤オントロジーの curated スターターパ�
 - **(済) UI 接地導線 + 地図整合エッジ** (`feat/external-grounding-adopt-ui`): カタログのデータセット詳細に「外部標準に接地 (ground)」を新設 — DS 独自のクラス/述語を grounding 検索 (`GroundingPicker`) で実在 term に対応づけ、既存 `/api/crosswalk/align` (任意絶対 IRI を target に・promoted alignment graph＝FROM-merge・dated/reversible/citable) で `owl:equivalentClass`/`owl:equivalentProperty` を assert (新 mutation 不要)。`OntologyMapView` は target ∈ `KNOWN_VOCABS` の alignment を**整合エッジ** (DS/perspective → 外部 term ノード) で描画。**実機実証**: materials_project を `cmso:CrystalStructure`/`cmso:Material` に接地 → 地図に整合線が点灯。
 - **(済) propose 接地候補** (`feat/propose-grounding-suggestions`): AI 設計 (propose) の review に「標準オントロジーの候補」パネルを追加 — `asterism.grounding.ground_model_yaml` が rdf-config `model.yaml` の**新規 mint クラス/述語**を抜き、**決定論検索**で実在候補を提示 (`POST /api/ground/schema`・候補は LLM の記憶でなく閉集合検索＝捏造ゼロ・既知 ns の語は再利用済として除外・弱い overlap はスコアで除去)。**提示のみ・確定/採用は別** (= 上の接地 UI でカタログ取り込み後にアラインメント)。これで「AI が設計しながら標準を先出し」する体験になる。OLS/LOV/BioPortal はネット依存・後段。
 - **(個別) OBO 検出**: ChEBI 等は `obo/<ONT>_NNN` で名前空間共有＝`namespaceOf` 検出が効かない。`vocab.ts` の検出を `obo/<ONT>_` パターン対応に。
+
+---
+
+## 9. 単位は「もう一つの属性」ではない — 専用カタログを持たせる (2026-08-20)
+
+### Trigger
+かんたん S6 (列の意味の確認) で人が単位を直せるようになった (#389) が、**打った綴りが標準に届いたかどうかを誰も言わない**。`Ω·m` と打っても `Ohm m` と打っても保存は成功し、QUDT IRI が付かないときは**黙って付かない**だけ。「機械が確かめて人に見せる」というかんたんモードの原則に対して、ここだけ確かめていなかった。
+
+### Decision
+**単位は用語 (class/property) とは別の閉集合カタログを持ち、別の経路で解決する。**
+
+- **カタログ**: `ingest/src/asterism/grounding/qudt_units.yaml` — QUDT unit 語彙 (CC-BY 4.0) の **MIRROR** (2,745 単位・生成物)。生成は `scripts/build_qudt_units.py`。
+- **綴り表**: `ingest/src/asterism/grounding/unit_spellings.yaml` — 実ファイルが使うが QUDT に無い書き方 (`W*m^(-1)*K^(-1)`, `ohm*m`, `a.u.`) の**人手キュレーション**。QUDT が自力で答えられる綴りは**入れない** (テストが冗長行で落ちる)。
+- **解決**: `asterism.grounding.resolve_unit` / `GET /api/units/resolve` — `resolved` / `ambiguous` / `unknown` の 3 状態 ＋ 近い候補。
+- **UI**: S6 の単位入力の下に結果を出す。**ゲートではない** — 標準側に無い単位は実在する。
+
+### なぜ known_vocabs.yaml に入れないのか
+`known_vocabs.yaml` は「**CURATION, not mirroring**」を不変条件に持つ。その理由は「どの class/property を再利用するか」が**設計判断**で、近い語が大量にあると判断の質が落ちるから。**単位はそうではない** — `V/K` の答えは 1 つしかなく、収録漏れは黙って開く穴になるだけ。判断が増えないので、丸ごと写して構わない。よって**別ファイル・別モジュール・別エンドポイント**とし、用語カタログの不変条件は保つ。
+
+### なぜ単位を特別扱いしてよいのか (一般化との関係)
+- 「300」だけでは**引用できる事実にならない**。値と単位で 1 つの事実であり、他の属性 (名前・コメント) とは階層が違う。
+- RDF の型システムで表せない (`xsd:double` は kelvin を語らない)。だから QUDT / UCUM / OM のような**単位専用の語彙体系**が国際的に別途作られている。schema.org `QuantitativeValue`・OBOE も同じ扱い。
+- むしろ**従来のほうが一般化に反していた**: `asterism/qudt.py` は `_MAP_DATASET = "starrydata"` 固定で、単位表が 1 データセットの持ち物になっていた。今回それを core に引き上げた (starrydata マップは overlay として残置＝既存の契約を壊さない)。
+
+### 記号の衝突は SI で解く
+2,510 記号のうち **66 が複数の単位に共有**される (`K` = kelvin / kayser、`S` = siemens / solar mass)。QUDT の `qudt:applicableSystem sou:SI` を採録し、**SI が 1 つだけ該当するときはそれを採る**。SI で決まらないもの (`L` が 5 単位、`$` が 11 通貨) は `ambiguous` のまま人に返す。
+
+### 意図的に埋めない穴
+**µV/K (ゼーベック係数の日常単位) は QUDT 3.1.0 に term が無い** (`MicroV-PER-M` と `MicroVA-PER-K` はあるのに)。`V-PER-K` に寄せると値が 10⁶ 倍ずれるので、**未解決のまま報告する**。テストで固定済み — 善意の「修正」で塞がれないように。
+
+### やっていないこと (別 PR)
+- **ingest への配線**: `asterism/qudt.py` は starrydata 専用のまま。core カタログへフォールバックさせると、これまで IRI が付かなかった単位に付き始める (additive で望ましい) が、既存テストが「表が無ければ None」を保証しており契約変更になる。よって S6 のバッジは「**標準にこの単位が在るか**」の情報提供であって、「IRI が付く」とは言っていない。
+- **µV/K のような欠落を QUDT へ上流報告する経路**。

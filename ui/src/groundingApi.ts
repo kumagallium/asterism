@@ -95,3 +95,39 @@ export async function groundSchema(proposalMd: string): Promise<SchemaTermGround
   if (!res.ok) throw await asError(res, i18n.t('grounding:op.schema'))
   return ((await res.json()) as { terms?: SchemaTermGrounding[] }).terms ?? []
 }
+
+// ─── units ───────────────────────────────────────────────────────────────────
+// A unit is not one attribute among many: "300" alone is not a citable fact, and no
+// RDF datatype carries the unit. So it gets its own closed catalog (a MIRROR of the
+// QUDT unit vocabulary) and its own endpoint — the term search above answers a
+// different question ("which class/property should this column reuse?").
+
+/** One real QUDT unit a string resolved to. */
+export interface UnitMatch {
+  name: string
+  iri: string
+  curie: string
+  label: string
+  symbol: string | null
+  ucum: string[]
+  quantity_kinds: string[]
+  matched_on: 'symbol' | 'ucum' | 'name' | 'label' | 'alias'
+}
+
+/** What a unit string resolved to. `unknown` is a real answer, not an error: it means
+ *  the standard does not carry this unit, which is worth SAYING rather than hiding. */
+export interface UnitResolution {
+  query: string
+  status: 'resolved' | 'ambiguous' | 'unknown'
+  si_settled: boolean
+  exact: UnitMatch[]
+  suggestions: UnitMatch[]
+  catalog: { source?: string; version?: string; retrieved?: string; license?: string }
+}
+
+/** Resolve one unit string against the closed QUDT catalog. Read-only. */
+export async function resolveUnit(query: string): Promise<UnitResolution> {
+  const res = await fetch(`${API_BASE}/api/units/resolve?${new URLSearchParams({ q: query })}`)
+  if (!res.ok) throw await asError(res, i18n.t('grounding:op.unit'))
+  return (await res.json()) as UnitResolution
+}

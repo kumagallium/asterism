@@ -36,6 +36,7 @@ import {
 import { plainAdvisories, plainIssues } from '../advisoryPlain'
 import { TABULAR_ACCEPT } from '../datasetsApi'
 import { detectDatasetNamespace } from '../datasetNamespace'
+import { type UnitResolution, resolveUnit } from '../groundingApi'
 import { DocumentPanel } from '../DocumentPanel'
 import { PRESET_HINTS } from '../domainHints'
 import {
@@ -103,7 +104,9 @@ type KantanKind = 'tabular' | 'json' | 'document'
 /** Which of the two "grow this dataset" intents S9 was clicked with: add the
  *  new measurements, or replace everything. Passed to the catalog so the
  *  landing page can open on that control (KZ-B-02). */
-export type GrowFocus = 'append' | 'reingest'
+/** Where a S9 link wants the dataset page to LAND — a tab alone leaves the person
+ * at the top of a long page, hunting for the button they just pressed. */
+export type GrowFocus = 'append' | 'reingest' | 'grounding'
 type Q1Answer = 'keep' | 'drop'
 type Q2Answer = 'only' | 'elsewhere' | 'unknown'
 type KzStep = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
@@ -167,6 +170,57 @@ interface TrialQA {
 // Locale-aware display of a SPARQL numeric lexical ("300", "1.42e0"): Number()
 // first so canonical exponent forms render as plain figures; a non-finite
 // parse falls back to the raw lexical unchanged.
+/** Whether the unit someone typed reached a real standard unit, said out loud.
+ *
+ * A unit is not one attribute among many: "300" alone is not a citable fact, and no
+ * RDF datatype carries the unit. So the one screen that asks a person to confirm the
+ * units has to tell them whether the spelling landed — a QUDT term that quietly fails
+ * to appear looks exactly like one that was never wanted. Three states, no scolding:
+ * matched (the standard's own name for it), several units write it the same way, or
+ * the standard simply does not carry it (which is a fact about QUDT, not a mistake by
+ * the person — µV/K genuinely has no term in 3.1.0).
+ */
+function UnitBadge({ info }: { info?: UnitResolution }) {
+  const { t } = useTranslation()
+  if (!info) return null
+  if (info.status === 'resolved') {
+    const m = info.exact[0]
+    return (
+      <span className="kz-unit-std kz-unit-std--ok" title={m.iri}>
+        {t('kantan:s6.unitStd', { label: m.label })}
+      </span>
+    )
+  }
+  if (info.status === 'ambiguous') {
+    return (
+      <span className="kz-unit-std kz-unit-std--warn">
+        {t('kantan:s6.unitAmbiguous', {
+          list: info.exact
+            .slice(0, 3)
+            .map((m) => m.label)
+            .join(' / '),
+        })}
+      </span>
+    )
+  }
+  return (
+    <span className="kz-unit-std kz-unit-std--warn">
+      {t('kantan:s6.unitUnknown')}
+      {info.suggestions.length > 0 && (
+        <>
+          {' '}
+          {t('kantan:s6.unitSuggest', {
+            list: info.suggestions
+              .slice(0, 3)
+              .map((m) => m.symbol || m.label)
+              .join(' / '),
+          })}
+        </>
+      )}
+    </span>
+  )
+}
+
 function formatNum(raw: string, lng: string): string {
   const n = Number(raw)
   return Number.isFinite(n) ? n.toLocaleString(lng, { maximumFractionDigits: 6 }) : raw
@@ -3412,6 +3466,38 @@ export function KantanWizard({
     up?.phase === 'upload' && up.total ? Math.floor((100 * (up.done ?? 0)) / up.total) : null
 
   const s6Maps = rules?.maps ?? []
+  // Does each unit on this screen actually land on a standard? Until now a person
+  // could type any spelling here and nothing said whether it reached one — the QUDT
+  // triple simply did not appear. Resolution is per DISTINCT string (a table of 30
+  // columns is a handful of units) and cached for the life of the screen.
+  const [unitInfo, setUnitInfo] = useState<Record<string, UnitResolution>>({})
+  const unitSeenRef = useRef<Set<string>>(new Set())
+  const s6Units = s6Maps
+    .flatMap((m) => m.properties.map((p) => (p.unit ?? '').trim()))
+    .filter((u) => u !== '')
+  const s6UnitKey = Array.from(new Set(s6Units)).sort().join('\u001f')
+  useEffect(() => {
+    const wanted = s6UnitKey === '' ? [] : s6UnitKey.split('\u001f')
+    const missing = wanted.filter((u) => !unitSeenRef.current.has(u))
+    if (missing.length === 0) return
+    // Mark before awaiting: a re-render while the requests are in flight must not
+    // fire the same lookups again.
+    for (const u of missing) unitSeenRef.current.add(u)
+    let off = false
+    void Promise.all(
+      missing.map(async (u) => [u, await resolveUnit(u).catch(() => null)] as const),
+    ).then((pairs) => {
+      if (off) return
+      const next: Record<string, UnitResolution> = {}
+      for (const [u, r] of pairs) if (r) next[u] = r
+      // A failed lookup stays absent rather than showing a wrong verdict — the
+      // badge is information, and being silent beats being confidently wrong.
+      if (Object.keys(next).length > 0) setUnitInfo((prev) => ({ ...prev, ...next }))
+    })
+    return () => {
+      off = true
+    }
+  }, [s6UnitKey])
   const multiMap = s6Maps.length > 1
   // Which properties carry a column's VALUE (the table below) and which do not
   // (the fold). Asking `kind === 'reference'` asked whether the value arrived
@@ -4349,6 +4435,25 @@ export function KantanWizard({
               </div>
             </>
           )}
+          {/* 外の世界とつなぐ導線。つながり (crosswalk) がデータセット同士を結ぶ
+              のに対し、こちらは自分で作ったことばを既存の標準に結ぶ。どちらも
+              同じ align() が書く可逆な主張なのに、かんたん側には crosswalk の
+              入口しか無く、標準に合わせる側は詳細のカタログに埋もれていた
+              (external-standard-alignment.md §8)。件数の条件は付けない —
+              つなぐ相手が要る crosswalk と違い、1 件目から意味がある。 */}
+          {kzDatasetId && (
+            <>
+              <hr className="kz-divider" />
+              <p className="kz-note kz-grow-title">{t('kantan:s9.groundTitle')}</p>
+              <p className="kz-note">{t('kantan:s9.groundBody')}</p>
+              <div className="kz-actions">
+                <button type="button" onClick={() => openGrow('design', 'grounding')}>
+                  {t('kantan:s9.groundBtn')}
+                </button>
+              </div>
+              <p className="kz-note">{t('kantan:s9.groundHint')}</p>
+            </>
+          )}
           {/* The last step of "a fact you can cite": handing someone the ID.
               Published data means the landing page answers, so here it IS a
               link — unlike S7, which runs on the unpublished draft
@@ -4668,6 +4773,7 @@ export function KantanWizard({
                                   if (e.key === 'Enter') e.currentTarget.blur()
                                 }}
                               />
+                              <UnitBadge info={unitInfo[(p.unit ?? '').trim()]} />
                             </td>
                             <td className="kz-cols-samples">{samples.join('、')}</td>
                           </tr>

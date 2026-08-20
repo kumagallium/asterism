@@ -6,7 +6,7 @@ import { AskView } from './AskView'
 import { CrosswalkView } from './CrosswalkView'
 import { isMockMode } from './demoApi'
 import { UpdateBanner } from './desktop/UpdateBanner'
-import { type DetailTab, GalleryView } from './GalleryView'
+import { type DetailFocus, type DetailTab, GalleryView } from './GalleryView'
 import { HomeView } from './HomeView'
 import { LanguageToggle } from './i18n/LanguageToggle'
 import {
@@ -262,6 +262,7 @@ function App() {
   // Ask⇄Gallery link: a vocabulary class to focus/highlight in the Gallery when
   // the user jumps there from an Ask citation. null = no focus.
   const [galleryFocus, setGalleryFocus] = useState<string | null>(null)
+  const [detailFocus, setDetailFocus] = useState<DetailFocus | null>(null)
 
   // Gallery→Workbench redesign link: the existing dataset whose stored design the
   // workbench should reopen for a revision. Cleared once the workbench consumes it.
@@ -298,8 +299,13 @@ function App() {
   }
 
   // データセット詳細への直行導線（ホームの最近行・保存完了リンクなどから）。
-  function openDataset(id: string, detailTab?: DetailTab) {
+  function openDataset(id: string, detailTab?: DetailTab, focus?: DetailFocus) {
     setGalleryFocus(null)
+    // WHERE inside the tab, not just which tab. かんたん S9 sends people to a
+    // control that sits partway down a long page; without this they land at the
+    // top and have to hunt for the same button a second time. Kept in state
+    // rather than the hash: it is a one-shot intent, not part of the address.
+    setDetailFocus(focus ?? null)
     navigate({ tab: 'gallery', datasetId: id, detailTab })
   }
 
@@ -457,6 +463,8 @@ function App() {
                 }}
                 onAddData={() => navTo('workbench')}
                 onRedesign={redesignDataset}
+                detailFocus={detailFocus}
+                onDetailFocusConsumed={() => setDetailFocus(null)}
               />
             )}
             {tab === 'vocab' && <SharedVocabView />}

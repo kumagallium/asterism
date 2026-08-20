@@ -1,0 +1,74 @@
+# HAND-CURATED spellings that real files use but the QUDT vocabulary does not carry.
+#
+# `qudt_units.yaml` mirrors QUDT and already answers the unit's own identity ("V/K",
+# "V.K-1", "V-PER-K", "volt per kelvin"). What it cannot answer is how instruments and
+# spreadsheets actually WRITE a unit — "W*m^(-1)*K^(-1)", "ohm*m", "W/(m*K)". Those are
+# spellings, not standards, so they are curated here BY HAND (unlike the mirror) and
+# every value must be a local name that exists in qudt_units.yaml — a test enforces it.
+#
+# Keys are matched case-sensitively first, then case-insensitively: unit symbols carry
+# case (S siemens vs s second), but a spreadsheet writing "OHM*M" still means ohm metre.
+#
+# Keep it MINIMAL: a spelling QUDT already answers by symbol / UCUM / label is not
+# written here (a test fails on redundant rows), so every line is a spelling the
+# standard genuinely does not carry.
+#
+# This table was lifted out of `datasets/starrydata/qudt_map.yaml`, where the spellings
+# of one dataset were doing duty for every dataset. A unit is not one dataset's private
+# business, so the spellings live in core; the starrydata map stays as its own overlay.
+
+spellings:
+  # ── temperature ──────────────────────────────────────────────────────────────
+  "K^(-1)": PER-K
+  "1/K": PER-K
+  "deg C": DEG_C
+  "degC": DEG_C
+  "C": DEG_C                    # a bare "C" in a temperature column is celsius, not coulomb
+  "deg F": DEG_F
+  # ── thermoelectric / transport ───────────────────────────────────────────────
+  "V*K^(-1)": V-PER-K
+  # NOTE: µV/K — the everyday unit of the Seebeck coefficient — has NO term in QUDT
+  # 3.1.0 (MicroV-PER-M and MicroVA-PER-K exist; MicroV-PER-K does not). It is left
+  # UNMAPPED on purpose: pointing it at V-PER-K would silently claim a value 10^6
+  # times larger. A missing standard term is a fact to report, not one to paper over.
+  "W*m^(-1)*K^(-1)": W-PER-M-K
+  "W/(m*K)": W-PER-M-K
+  "W/m/K": W-PER-M-K
+  "W/mK": W-PER-M-K
+  "W/m-K": W-PER-M-K
+  "ohm*m": OHM-M
+  "ohm.m": OHM-M
+  "Ohm m": OHM-M
+  "ohm m": OHM-M
+  "Ohm-m": OHM-M
+  "ohm^(-1)*m^(-1)": S-PER-M
+  "S*m^(-1)": S-PER-M
+  "1/(ohm*m)": S-PER-M
+  "cm^2/(V*s)": CentiM2-PER-V-SEC
+  "cm2/Vs": CentiM2-PER-V-SEC
+  "cm^2/Vs": CentiM2-PER-V-SEC
+  # ── concentration / density ──────────────────────────────────────────────────
+  "m^(-3)": PER-M3
+  "1/m^3": PER-M3
+  "cm^(-3)": PER-CentiM3
+  "1/cm^3": PER-CentiM3
+  "g/cm^3": GM-PER-CentiM3
+  # ── magnetic ─────────────────────────────────────────────────────────────────
+  "A*m^(-1)": A-PER-M
+  # ── length / angle (diffraction) ─────────────────────────────────────────────
+  "A^o": ANGSTROM
+  "degrees": DEG
+  # ── energy ───────────────────────────────────────────────────────────────────
+  "electronvolt": EV
+  # ── dimensionless ────────────────────────────────────────────────────────────
+  "-": UNITLESS
+  "--": UNITLESS
+  "none": UNITLESS
+  "dimensionless": UNITLESS
+  "a.u.": UNITLESS               # "arbitrary units" is not a unit; it is the absence of one
+  "arb. units": UNITLESS
+  "at%": PERCENT
+  "at.%": PERCENT
+  "wt%": PERCENT
+  "wt.%": PERCENT
+  "at %": PERCENT
