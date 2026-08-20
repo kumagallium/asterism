@@ -25,11 +25,30 @@ jobs:
       - name: Install pandoc (Word converter)
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pandoc
 
-      - name: Create venv and install ingest package
+      # The `substrate` extra (morph-kgc + google-re2) is NOT optional for CI, even
+      # though it is optional for an install: every real Morph-KGC end-to-end proof
+      # in tests/test_substrate.py is gated on it, so `.[dev]` alone left 26 tests
+      # skipped and the materialize path unexercised (measured in CI itself: the
+      # ingest job went from 563 passed / 28 skipped to 589 passed / 2 skipped).
+      # Both silent data-drop bugs found on 2026-08-20 (fn:regex_extract with no
+      # engine, and fn:lookup with an unloadable table — each materialized 0 triples
+      # at exit 0) could only surface on a developer machine for exactly that reason.
+      # Both packages ship manylinux cp311 wheels, so this does not build from source.
+      # Trade-off, stated plainly: the two tests that assert the *missing*-morph-kgc
+      # contract can only run WITHOUT the extra, so they skip here instead. 26 real
+      # end-to-end proofs gained, 2 dependency-absence assertions lost.
+      - name: Create venv and install ingest package (with the substrate extra)
         working-directory: ingest
         run: |
           uv venv .venv --python 3.11
-          uv pip install -e '.[dev]'
+          uv pip install -e '.[dev,substrate]'
+
+      # A guard, not a formality: if the extra ever stops installing, the substrate
+      # tests would go back to skipping and the suite would still be green. Fail
+      # here instead, where the cause is unmistakable.
+      - name: Assert the substrate engines are importable
+        working-directory: ingest
+        run: uv run python -c "import morph_kgc, re2"
 
       - name: Ruff lint
         working-directory: ingest
