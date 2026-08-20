@@ -1693,6 +1693,7 @@ mod tests {
         assert_eq!(card.detail, "exit: 1");
         assert!(!card.detail_open);
         assert_eq!(card.actions, vec!["retry", "quit"]);
+    }
 
     // Tests for the boot-time data-home move (ADR `app-data-on-disk.md`
     // D9). This moves the user's actual data, so every failure path must be
