@@ -4217,6 +4217,14 @@ button.trace-iri-copy:hover:not(:disabled) {
   align-items: center;
   gap: 0.5rem;
 }
+/* A button that reads as a link — inside a sentence, where a framed button
+   would break the line. `.ground-link-btn` was the first of these and keeps its
+   name; new uses take the plain one. */
+/* The models a custom endpoint reported, to choose from. */
+.ai-setup-models {
+  margin-top: var(--space-2);
+}
+.linklike,
 .ground-link-btn {
   background: none;
   border: none;
@@ -4226,6 +4234,7 @@ button.trace-iri-copy:hover:not(:disabled) {
   cursor: pointer;
   text-decoration: underline;
 }
+.linklike:hover:not(:disabled),
 .ground-link-btn:hover:not(:disabled) {
   background: none;
 }

@@ -21,43 +21,9 @@
       "openaiCompatible": "https://api.openai.iniad.org/v1 (e.g. Sakura = https://api.ai.sakura.ad.jp/v1)"
     }
   },
-  "setup": {
-    "intro": "AI isn't available yet. Pick one of these.",
-    "working": "Checking…",
-    "advanced": "Detailed settings",
-    "ask": {
-      "title": "Set it up once for this server",
-      "body": "Set this up once and everyone on this server can use AI as they are. If you can't set it up yourself, copy the request below and send it to whoever can.",
-      "copy": "Copy the request",
-      "copied": "Copied",
-      "copyFailed": "Couldn't copy. Send the text below, as it is, to whoever can set it up.",
-      "template": "Please enable AI in Asterism. Under Settings → “This server” → “Shared AI setup”, register a key from an AI service once, and everyone using this server will be able to use AI."
-    },
-    "own": {
-      "title": "Paste your own key",
-      "body": "Paste the string your AI service gave you. We work out which service it belongs to.",
-      "placeholder": "Paste the key you were given",
-      "save": "Use this",
-      "which": "Which service is it from?",
-      "choice": {
-        "anthropic": "Claude",
-        "openai": "OpenAI",
-        "other": "Something else (paste its address)"
-      },
-      "basePlaceholder": "The service's address (as given to you)",
-      "noModels": "No AI was found at that address. Check the address.",
-      "failed": "That didn't work. Check what you pasted and the address."
-    },
-    "local": {
-      "title": "Use the AI on this computer",
-      "body": "If you're running an AI on this computer, you can use it as it is.",
-      "use": "Use the AI on this computer",
-      "failed": "No AI was found on this computer."
-    }
-  },
   "models": {
-    "intro": "Register where AI runs. If it's already set up on the server, there is nothing to do here. To use your own key or an AI on your machine, add it with “+ Add” — the one you pick is used by “Add data”, “Ask” and every other AI feature.",
-    "empty": "No AI connection yet. To use your own key, press “+ Add”.",
+    "intro": "Register the AIs you use. Whichever one you pick here is the one every feature uses.",
+    "empty": "None registered yet.",
     "serverConfigured": "AI is already set up on this server ({{provider}}). You can use AI without adding anything here.",
     "activeBadge": "active",
     "keySet": "using your key",
@@ -101,7 +67,10 @@
     "rateInput": "Input",
     "rateOutput": "Output",
     "cacheNote": "Cache prices are derived from the input price (Anthropic: read 0.1×, write 1.25×; the OpenAI-compatible path uses no caching).",
-    "currency": "Currency"
+    "currency": "Currency",
+    "share": "Share with everyone on this server",
+    "shareHelp": "The key is kept on this server, so people can use the AI without bringing one of their own. Its value is never shown on anyone's screen.",
+    "useLocalAi": "Use the AI running on this computer"
   },
   "usage": {
     "placeholder": "The usage dashboard ships in Phase C.",
@@ -140,25 +109,6 @@
     "notSetUp": "The AI is not connected yet. Once one is set up on the server, this screen works as it is. To use your own, connect it in one screen below.",
     "openSettings": "Open settings",
     "serverKey": "using the server's setup"
-  },
-  "serverKeys": {
-    "title": "Shared AI setup",
-    "intro": "Set this up and everyone using this server can use AI without bringing anything of their own. It only needs to be set up once. What you enter is never shown back.",
-    "set": "set",
-    "unset": "not set",
-    "keyPlaceholder": "Paste the key you were given",
-    "basePlaceholder": "The service's address (as given to you)",
-    "save": "Save",
-    "clear": "Clear",
-    "confirmClear": "Yes, clear it",
-    "clearWarning": "Clearing this stops AI for everyone using this server. Restoring it means entering the key again.",
-    "error": {
-      "auth": "You don't have permission to save this. Enter the access code first, then try again.",
-      "disabled": "This server doesn't allow the shared AI setup to be saved.",
-      "badBase": "This server won't accept that address. Check the address.",
-      "generic": "Couldn't save. Wait a moment and try again.",
-      "details": "Details (technical)"
-    }
   },
   "writeToken": {
     "title": "Access code (for this server)",
