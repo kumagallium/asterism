@@ -1018,8 +1018,7 @@ fn attempt_data_home_move(from: &Path, to: &Path) -> Option<StorageNotice> {
         kind: "copied".into(),
         from: from_str,
         to: to_str,
-        detail: "別ボリュームだったためコピーしました。元のフォルダはそのまま残っています。"
-            .into(),
+        detail: "別ボリュームだったためコピーしました。元のフォルダはそのまま残っています。".into(),
     })
 }
 
@@ -1829,10 +1828,7 @@ mod tests {
             .unwrap()
             .file_type()
             .is_symlink());
-        assert_eq!(
-            fs::read_link(&copied_link).unwrap(),
-            Path::new("real.txt")
-        );
+        assert_eq!(fs::read_link(&copied_link).unwrap(), Path::new("real.txt"));
     }
 
     // ---- attempt_data_home_move -----------------------------------------
