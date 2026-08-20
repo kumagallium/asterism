@@ -441,6 +441,7 @@ export function GalleryView({
                   if (t && t !== 'structure') onDetailTab?.(t)
                 }}
                 onChanged={reload}
+                onRedesign={onRedesign}
               />
             ))}
             {onAddData && (
@@ -463,11 +464,13 @@ function DatasetGridCard({
   connections,
   onSelect,
   onChanged,
+  onRedesign,
 }: {
   dataset: CatalogDataset
   connections: number
   onSelect: (tab?: DetailTab) => void
   onChanged: () => void
+  onRedesign?: (target: RedesignTarget) => void
 }) {
   const { t } = useTranslation()
   const meta = dataset.live?.meta
@@ -517,7 +520,13 @@ function DatasetGridCard({
         {dataset.sub && <span className="ds-grid-card-updated">{dataset.sub}</span>}
       </div>
       {meta && (
-        <CardActions meta={meta} counts={dataset.counts} onChanged={onChanged} onOpen={open} />
+        <CardActions
+          meta={meta}
+          counts={dataset.counts}
+          onChanged={onChanged}
+          onOpen={open}
+          onRedesign={onRedesign}
+        />
       )}
     </div>
   )
@@ -547,11 +556,15 @@ function CardActions({
   counts,
   onChanged,
   onOpen,
+  onRedesign,
 }: {
   meta: LiveDataset['meta']
   counts: CatalogDataset['counts']
   onChanged: () => void
   onOpen: (tab?: DetailTab) => void
+  /** 「直したい」は一覧を見ている最中に起きる。詳細を開いてタブを選んで
+   *  スクロールした先にしか無いのでは、思いついた場所から遠すぎる。 */
+  onRedesign?: (target: RedesignTarget) => void
 }) {
   const { t } = useTranslation()
   const [busy, setBusy] = useState('')
@@ -644,6 +657,44 @@ function CardActions({
             {t('gallery:card.publish')}
           </button>
         ))}
+
+      {/* 「この列の意味が違う」と気づくのは一覧を眺めている最中で、詳細を開いて
+          タブを選んでスクロールした先にしか無いのでは、思いついた場所から遠い。
+          設計が残っているならここから直接ワークベンチへ。設計が無い / 取れない
+          ときだけ詳細の中身タブに送る（そこの見直し欄が理由を説明する）。 */}
+      {onRedesign && meta.has_proposal !== false && !retracted && (
+        <button
+          type="button"
+          className="btn btn--ghost btn--sm"
+          disabled={!!busy}
+          onClick={() => {
+            // run() ではなく直書き: 成功時はワークベンチへ出ていくので、この
+            // カードの再読み込み (onChanged) を走らせる相手がもう居ない。
+            void (async () => {
+              setBusy('redesign')
+              setErr(null)
+              try {
+                const p = await fetchProposal(meta.id)
+                if (!p.has_proposal || !p.proposal_md.trim()) {
+                  onOpen('structure')
+                  return
+                }
+                onRedesign({
+                  datasetId: meta.id,
+                  datasetName: p.dataset_name || meta.name,
+                  proposalMd: p.proposal_md,
+                })
+              } catch (e) {
+                setErr(e)
+              } finally {
+                setBusy('')
+              }
+            })()
+          }}
+        >
+          {busy === 'redesign' ? t('gallery:redesign.loading') : t('gallery:redesign.open')}
+        </button>
+      )}
 
       {stage === 'promoted' && !retracted && (
         <button
