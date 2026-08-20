@@ -17,7 +17,12 @@ Safety notes:
 
 - ``lookup`` validates the table name and resolves only within the packaged
   ``tables/`` directory — a constant in human-approved RML, but path traversal is
-  rejected as defense-in-depth.
+  rejected as defense-in-depth. A table that cannot be loaded at all (unsafe /
+  unknown name, missing file, malformed YAML) *raises*
+  :class:`LookupTableUnavailableError` rather than degrading to an empty table:
+  an empty table answers every row with ``""`` and drops the whole column, which
+  is the same silent-drop the engine-missing case below describes. A key that is
+  simply not in a loaded table stays ``""`` — that one *is* a fact about the row.
 - ``regex_extract`` uses **google-re2** (a linear-time matcher with no
   catastrophic backtracking) so a ReDoS-prone pattern cannot hang on adversarial
   per-row input. It deliberately does NOT fall back to the stdlib ``re`` engine
@@ -63,48 +68,105 @@ _MAX_REGEX_INPUT = 4096
 _TEMPLATE_TOKEN = re.compile(r"\{([1-4])\}")
 
 
+# ---- "no answer for this row" vs "cannot answer any row" --------------------
+
+class PrimitiveUnavailableError(RuntimeError):
+    """A primitive cannot be evaluated *at all* in this environment / mapping.
+
+    The distinction this class exists to keep is the one the whole substrate rests
+    on: ``""`` is an answer **about a row** ("no match", "key not in the table"),
+    while a missing engine or an unloadable table is a defect **about the
+    environment or the mapping** — no row can be answered. Collapsing the second
+    into the first makes every value of the column vanish from the materialized
+    graph with no error and no advisory, which is precisely the silent drop this
+    project hardens against. So the second class of failure is loud, matching the
+    missing-``morph-kgc`` contract in :mod:`asterism.substrate` (``RuntimeError``,
+    never a partial materialization).
+    """
+
+
 # ---- lookup -----------------------------------------------------------------
+
+class LookupTableUnavailableError(PrimitiveUnavailableError):
+    """The seed table a ``fn:lookup`` names cannot be loaded, so no row can be answered.
+
+    Raised instead of returning an empty table because the two are NOT the same
+    fact: an empty table silently answers ``""`` for **every** row, so the column
+    disappears from the materialized graph while the run still reports success. A
+    table is a *constant* in the mapping, so this only ever means a mapping typo
+    (``"booleans"`` for ``"bool"``) or a packaging gap — both are defects to fix,
+    never data to ingest. A key that is missing from a table that *did* load is a
+    different thing and still returns ``""`` (see :func:`lookup`).
+    """
+
+
+def available_tables() -> list[str]:
+    """The seed table names this install actually ships, sorted.
+
+    Used for the "did you mean" half of :class:`LookupTableUnavailableError` and by
+    the design-time check in :mod:`asterism.rml_validate`, so a bad table name is
+    caught before Morph-KGC runs rather than as a materialization crash.
+    """
+    if not _TABLES_DIR.is_dir():
+        return []
+    return sorted(p.stem for p in _TABLES_DIR.glob("*.yaml"))
+
 
 @functools.cache
 def load_table(name: str) -> dict[str, str]:
-    """Load a seed lookup table by name, or an empty dict if it is unavailable.
+    """Load a seed lookup table by name; raise if it cannot be loaded.
 
     Keys are lowercased once at load time so :func:`lookup` is O(1) and
     case-insensitive without re-lowercasing the table per call. An unsafe name, a
-    missing file, malformed YAML, or a non-mapping document all yield an empty
-    dict (every lookup then returns ``""``) — the same best-effort contract as the
-    QUDT table loader, so a packaging gap disables the table rather than erroring.
+    missing file, malformed YAML, or a non-mapping document all raise
+    :class:`LookupTableUnavailableError` — see that class for why "no table" must
+    not degrade to "empty table". Only the success path is cached (``functools``
+    does not cache exceptions), so a table that appears later is still picked up.
     """
     if not _TABLE_NAME.match(name):
-        logger.warning("rejecting unsafe lookup table name: %r", name)
-        return {}
+        # Rejected before touching the filesystem: a table name is a bare
+        # identifier, so traversal / absolute paths never resolve (defense in depth).
+        raise LookupTableUnavailableError(
+            f"unsafe lookup table name {name!r}; a table name is a bare identifier "
+            f"([a-z0-9_]+). Available tables: {', '.join(available_tables()) or '(none)'}"
+        )
     path = _TABLES_DIR / f"{name}.yaml"
     if not path.is_file():
-        logger.warning("lookup table not found: %s", path)
-        return {}
+        raise LookupTableUnavailableError(
+            f"lookup table {name!r} not found at {path}. "
+            f"Available tables: {', '.join(available_tables()) or '(none)'}"
+        )
     try:
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except (OSError, yaml.YAMLError):
-        logger.warning("failed to read lookup table %s", path, exc_info=True)
-        return {}
+    except (OSError, yaml.YAMLError) as exc:
+        raise LookupTableUnavailableError(
+            f"failed to read lookup table {name!r} at {path}: {exc}"
+        ) from exc
     if not isinstance(data, dict):
-        logger.warning("lookup table %s is not a mapping; ignoring", path)
-        return {}
+        raise LookupTableUnavailableError(
+            f"lookup table {name!r} at {path} is not a mapping "
+            f"(got {type(data).__name__}); it must be a YAML key: value document"
+        )
     return {str(k).strip().lower(): str(v) for k, v in data.items()}
 
 
 def lookup(value: str, table: str) -> str:
-    """Return ``table[value]`` (case-insensitive), or ``""`` if value / table /
-    key is absent. ``table`` is a constant seed-table name (e.g. ``"bool"``,
-    ``"country_iso3166"``, ``"unit_alias"``)."""
-    if not value or not table:
-        return ""
+    """Return ``table[value]`` (case-insensitive), or ``""`` when the row has no answer.
+
+    ``table`` is a constant seed-table name (e.g. ``"bool"``, ``"country_iso3166"``,
+    ``"unit_alias"``). ``""`` covers the two *row* cases — an empty cell, and a key
+    the table does not contain. A table that cannot be loaded raises
+    :class:`LookupTableUnavailableError`, including an empty table name: that is a
+    broken mapping constant, not a row with nothing in it.
+    """
+    if not value:
+        return ""  # empty cell — nothing to look up, true of any table
     return load_table(table).get(value.strip().lower(), "")
 
 
 # ---- regex_extract ----------------------------------------------------------
 
-class RegexEngineUnavailableError(RuntimeError):
+class RegexEngineUnavailableError(PrimitiveUnavailableError):
     """google-re2 is not installed, so ``regex_extract`` cannot be evaluated.
 
     Raised instead of returning ``""`` because the two are NOT the same fact: ``""``
