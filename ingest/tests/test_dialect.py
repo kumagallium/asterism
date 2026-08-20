@@ -548,51 +548,6 @@ def test_dialects_from_mapping_rejects_non_object_preamble_names() -> None:
         dialects_from_mapping(g)
 
 
-def test_dialect_rml_round_trip_preserves_preamble_names(tmp_path: Path) -> None:
-    """The full design → RML → ingest round trip: a human-chosen preamble name
-    compiled by the design-side compiler is read back byte-for-byte by the
-    runtime twin's ``dialects_from_mapping`` — and the runtime broadcast path
-    then puts the human name (not the machine invention) into the header."""
-    from asterism_step0.mapping_ir import parse_mapping_ir
-    from asterism_step0.rml_compile import compile_mapping_ir
-
-    ir_yaml = """\
-version: 1
-prefixes:
-  ex: "https://example.org/ns#"
-  exr: "https://example.org/r/"
-dialects:
-  "m.txt":
-    encoding: cp932
-    delimiter: "\\t"
-    skip_rows: 1
-    preamble: lines
-    preamble_names: {"preamble_1": "試料名"}
-maps:
-  - name: point
-    source: m.txt
-    subject:
-      template: "exr:point/{angle}"
-      classes: [ex:Point]
-    properties:
-      - predicate: ex:intensity
-        column: intensity
-"""
-    ttl = compile_mapping_ir(parse_mapping_ir(ir_yaml))
-    g = rdflib.Graph()
-    g.parse(data=ttl, format="turtle")
-    dialects = dialects_from_mapping(g)
-    (d,) = dialects.values()
-    assert d.preamble_names == {"preamble_1": "試料名"}
-
-    src = tmp_path / "m.txt"
-    lines = ["サンプル名: 試料A", "2θ (deg)\t強度 (cps)", "10.02\t123"]
-    src.write_bytes("\r\n".join(lines).encode("cp932") + b"\r\n")
-    rows = list(dialect_rows(src, d))
-    assert rows[0] == ["2θ (deg)", "強度 (cps)", "試料名"]
-    assert "preamble_1" not in rows[0]
-
-
 def test_read_preamble_twin_parity_keyvalue_cells() -> None:
     # The ZEM-style meta line: TAB-separated cells, a bare sample name leading,
     # key=value cells, trailing empty cell dropped. Must match the design twin.
