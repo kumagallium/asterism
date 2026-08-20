@@ -4,13 +4,17 @@ import './SettingsModal.css'
 import { getAppDataInfo } from '../appdata'
 import { AboutTab } from './AboutTab'
 import { InstanceSection } from './InstanceSection'
-import { ModelAddForm } from './ModelAddForm'
 import { StorageTab } from './StorageTab'
 import { WriteTokenSection } from './WriteTokenSection'
 import { type SettingsSection, useLlmSettings } from './context'
 import { UsageTab } from './UsageTab'
 import { fetchAvailableModels, type AvailableModel } from './modelsApi'
+import { initAppData } from '../appdata'
+import { type InstanceInfo, fetchInstanceInfo } from './instanceApi'
+import { setServerKey } from './serverKeysApi'
 import {
+  LOCAL_AI_BASE,
+  LOCAL_AI_KEY,
   PROVIDERS,
   type CredentialGroupInfo,
   type LlmModelConfig,
@@ -228,13 +232,14 @@ function ModelsTab() {
   const { t } = useTranslation('settings')
   const settings = useLlmSettings()
   const [editing, setEditing] = useState<LlmModelConfig | null>(null)
-  // Nothing registered yet → the add form IS the screen. No first-run screen to
-  // be in, and no empty list staring back with a button under it.
+  // Nothing registered → the add form IS the screen. Derived, not just an
+  // initial state: deleting the last one lands in the same place a first run
+  // does, and neither shows an empty list with a lone button under it.
   const empty = settings.models.length === 0
-  const [adding, setAdding] = useState(empty)
+  const [adding, setAdding] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
 
-  const showForm = adding || editing !== null
+  const showForm = adding || editing !== null || empty
   const serverProvider = PROVIDERS.find((p) => settings.hasServerKey(p.id)) ?? null
 
   return (
@@ -250,9 +255,6 @@ function ModelsTab() {
         </p>
       )}
 
-      {settings.models.length === 0 && !showForm && !serverProvider && (
-        <p className="settings-empty">{t('models.empty')}</p>
-      )}
 
       {!showForm && (
         <ul className="model-list">
@@ -332,18 +334,17 @@ function ModelsTab() {
         </ul>
       )}
 
-      {editing !== null ? (
-        // Editing names fields that already exist, so the detailed form is the
-        // right one there — you are changing a value you can see.
+      {showForm ? (
         <ModelForm
           model={editing}
-          onCancel={() => setEditing(null)}
-          onSaved={() => setEditing(null)}
-        />
-      ) : adding ? (
-        <ModelAddForm
-          onDone={() => setAdding(false)}
-          onCancel={empty ? undefined : () => setAdding(false)}
+          onCancel={() => {
+            setAdding(false)
+            setEditing(null)
+          }}
+          onSaved={() => {
+            setAdding(false)
+            setEditing(null)
+          }}
         />
       ) : (
         <button type="button" className="btn settings-add" onClick={() => setAdding(true)}>
@@ -423,6 +424,24 @@ function ModelForm({
   // provider. getKey/isRemembered return empty/default when the group has none.
   const [apiKey, setApiKey] = useState(() => getKey(initialGroup))
   const [remember, setRemember] = useState(() => isRemembered(initialGroup))
+  // 「このサーバのみんなで使う」: the key is kept on the SERVER instead of in this
+  // browser, so everyone on it can use the AI without bringing their own. The
+  // store, the endpoint and the pinned-base rule are the ones that were already
+  // there — this only moves WHERE the setting is made, out of a tab of its own
+  // (2026-08-20). Offered only where it means something: a shared server, and
+  // someone allowed to write to it.
+  const [share, setShare] = useState(false)
+  const [shared, setShared] = useState(false)
+  const [instance, setInstance] = useState<InstanceInfo | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    initAppData().then((d) => !cancelled && setShared(!d.singleUser))
+    fetchInstanceInfo().then((d) => !cancelled && d && setInstance(d))
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  const canShare = !editing && shared && instance?.write_gate === 'authorized'
 
   // Rate (strings in the form; parsed on save). Input + output only — cache cost
   // is derived from the input price at display time (model-pricing.cacheMultipliers).
@@ -557,7 +576,13 @@ function ModelForm({
         maxTokens: buildMaxTokens(),
       })
       settings.addModel(created)
-      if (apiKey.trim()) settings.setKeyForModel(created, apiKey.trim(), remember)
+      if (canShare && share && apiKey.trim()) {
+        // Server-side: the api resolves it for anyone who brings none of their
+        // own, so the entry itself needs no browser key.
+        void setServerKey(provider, apiKey.trim(), baseNormalized)
+      } else if (apiKey.trim()) {
+        settings.setKeyForModel(created, apiKey.trim(), remember)
+      }
     }
     onSaved()
   }
@@ -638,6 +663,23 @@ function ModelForm({
               }}
               onBlur={() => onProviderOrBaseChange(provider, apiBase)}
             />
+            {/* An AI running on this machine has a fixed address nobody should
+                have to remember. Fills the two fields; the rest of the form is
+                the same as any other endpoint. */}
+            {instance?.desktop && provider === 'openai-compatible' && (
+              <button
+                type="button"
+                className="linklike"
+                onClick={() => {
+                  setApiBase(LOCAL_AI_BASE)
+                  setApiKey(LOCAL_AI_KEY)
+                  onProviderOrBaseChange(provider, LOCAL_AI_BASE)
+                  clearFetchedModels()
+                }}
+              >
+                {t('form.useLocalAi')}
+              </button>
+            )}
           </label>
 
           <label className="field">
@@ -653,6 +695,20 @@ function ModelForm({
               <p className="field-help">{t('form.apiKeyServerHint')}</p>
             )}
           </label>
+
+          {canShare && (
+            <>
+              <label className="field-check">
+                <input
+                  type="checkbox"
+                  checked={share}
+                  onChange={(e) => setShare(e.target.checked)}
+                />
+                {t('form.share')}
+              </label>
+              <p className="field-help">{t('form.shareHelp')}</p>
+            </>
+          )}
         </>
       )}
 

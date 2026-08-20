@@ -21,34 +21,6 @@
       "openaiCompatible": "https://api.openai.iniad.org/v1 (e.g. Sakura = https://api.ai.sakura.ad.jp/v1)"
     }
   },
-  "setup": {
-    "working": "Checking…",
-    "own": {
-      "title": "Add an AI",
-      "body": "Paste the key you got from the AI service. Which service it belongs to is worked out for you.",
-      "placeholder": "Paste the key you were given",
-      "save": "Use this",
-      "which": "Which service is it from?",
-      "choice": {
-        "anthropic": "Claude",
-        "openai": "OpenAI",
-        "other": "Something else (paste its address)"
-      },
-      "basePlaceholder": "The service's address (as given to you)",
-      "noModels": "No AI was found at that address. Check the address.",
-      "failed": "That didn't work. Check what you pasted and the address.",
-      "pickModel": "This endpoint offers more than one AI. Choose the one to use.",
-      "share": "Share with everyone on this server",
-      "shareHelp": "The key is kept on this server, so people can use the AI without bringing one of their own. Its value is never shown on anyone's screen."
-    },
-    "local": {
-      "title": "Use the AI on this computer",
-      "body": "If you're running an AI on this computer, you can use it as it is.",
-      "use": "Use the AI on this computer",
-      "failed": "No AI was found on this computer."
-    },
-    "cancel": "Cancel"
-  },
   "models": {
     "intro": "Register the AIs you use. Whichever one you pick here is the one every feature uses.",
     "empty": "None registered yet.",
@@ -95,7 +67,10 @@
     "rateInput": "Input",
     "rateOutput": "Output",
     "cacheNote": "Cache prices are derived from the input price (Anthropic: read 0.1×, write 1.25×; the OpenAI-compatible path uses no caching).",
-    "currency": "Currency"
+    "currency": "Currency",
+    "share": "Share with everyone on this server",
+    "shareHelp": "The key is kept on this server, so people can use the AI without bringing one of their own. Its value is never shown on anyone's screen.",
+    "useLocalAi": "Use the AI running on this computer"
   },
   "usage": {
     "placeholder": "The usage dashboard ships in Phase C.",
