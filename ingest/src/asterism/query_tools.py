@@ -346,7 +346,8 @@ def synthesize_query_tools_from_trial_queries(trial: dict[str, Any]) -> list[dic
     minted terms (the usual case) are unique to the dataset and stay narrow:
 
     * ``counts_by_kind`` — per-kind entity counts (``trial["classes"]``).
-    * ``value_range`` — min/max of the busiest numeric field (``trial["range"]``).
+    * ``value_range`` — min/max of the busiest numeric field, plus each end's
+      ``min_subject_iri`` / ``max_subject_iri`` as the citation (``trial["range"]``).
     * ``top_value`` — the record holding that field's maximum, ``subject_iri``
       included as the citation (``trial["top"]``).
 
@@ -385,23 +386,45 @@ def synthesize_query_tools_from_trial_queries(trial: dict[str, Any]) -> list[dic
     range_info = trial.get("range")
     if isinstance(range_info, dict) and (p_iri := _safe_iri(range_info.get("predicate_iri"))):
         label = str(range_info.get("label") or p_iri)
+        # A range answer ("20.0° 〜 80.0°") is an AGGREGATE — no single row is the
+        # evidence for it. But the record that carries the min value, and the one
+        # that carries the max, ARE evidence: they are the two rows that produced
+        # the numbers, and they have IRIs, so they can be cited. One SELECT (not a
+        # second tool) computes min/max AND the subject holding each, so the
+        # citation is never optional — same reasoning as ``top_value`` below, just
+        # for both ends of the range at once. Ties are broken by subject IRI
+        # (ASC) so the same record is picked every time the tool runs.
+        filt = (
+            f"<{p_iri}> ?v FILTER(isLiteral(?v)) "
+            "BIND(xsd:double(str(?v)) AS ?num) FILTER(BOUND(?num))"
+        )
         tools.append(
             {
                 "name": "value_range",
                 "title": f"{label}の範囲",
-                "description": f"Minimum and maximum observed value of {label}.",
+                "description": (
+                    f"Minimum and maximum observed value of {label}, with the "
+                    "subject IRI of the record holding each (citable evidence)."
+                ),
                 "parameters": [],
                 "query": (
                     "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#> "
-                    "SELECT (COUNT(?num) AS ?n) (MIN(?num) AS ?min) (MAX(?num) AS ?max) WHERE { "
-                    f"?s <{p_iri}> ?v FILTER(isLiteral(?v)) "
-                    "BIND(xsd:double(str(?v)) AS ?num) FILTER(BOUND(?num)) }"
+                    "SELECT ?n ?min ?max ?minSubject ?maxSubject WHERE { "
+                    "{ SELECT (COUNT(?num) AS ?n) (MIN(?num) AS ?min) (MAX(?num) AS ?max) "
+                    f"WHERE {{ ?s {filt} }} }} "
+                    "OPTIONAL { SELECT ?minSubject WHERE "
+                    f"{{ ?minSubject {filt} }} ORDER BY ASC(?num) ASC(?minSubject) LIMIT 1 }} "
+                    "OPTIONAL { SELECT ?maxSubject WHERE "
+                    f"{{ ?maxSubject {filt} }} ORDER BY DESC(?num) ASC(?maxSubject) LIMIT 1 }} "
+                    "}"
                 ),
                 "result": {
                     "item": {
                         "count": {"var": "n", "number": True},
                         "min": {"var": "min", "number": True},
                         "max": {"var": "max", "number": True},
+                        "min_subject_iri": "minSubject",
+                        "max_subject_iri": "maxSubject",
                     }
                 },
             }

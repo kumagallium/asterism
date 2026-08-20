@@ -609,6 +609,11 @@ def test_synthesize_from_trial_queries_full() -> None:
     value_range = tools[1]
     assert "<https://ex/my-dataset#seebeck>" in value_range["query"]
     assert "ゼーベック係数" in value_range["title"]
+    # The two rows that produced min/max are the evidence for the range answer —
+    # same subject_iri naming convention top_value already uses, so the answering
+    # side (which already looks for an "*_iri" key to cite) picks these up too.
+    assert value_range["result"]["item"]["min_subject_iri"] == "minSubject"
+    assert value_range["result"]["item"]["max_subject_iri"] == "maxSubject"
 
     top_value = tools[2]
     assert "<https://ex/my-dataset#seebeck>" in top_value["query"]
@@ -728,3 +733,147 @@ def test_write_registry_query_tools_empty(tmp_path) -> None:
     (reg / "ds").mkdir(parents=True)
     assert write_registry_query_tools(reg, "ds", []) is None
     assert not (reg / "ds" / "query_tools.yaml").exists()
+
+
+# ---------------------------------------------------------------------------
+# value_range's citation columns, run for real: the store the synthesizer
+# actually points at is pyoxigraph (rdflib's SPARQL engine is more forgiving
+# than the store — a broken subquery/OPTIONAL shape could pass the rdflib
+# fixtures above and still 400 in production). This section runs the
+# SYNTHESIZED query, unmodified, through a real pyoxigraph.Store.
+# ---------------------------------------------------------------------------
+
+pyoxigraph = pytest.importorskip("pyoxigraph")
+
+_RANGE_TRIAL = {
+    "available": True,
+    "range": {
+        "predicate_iri": "https://ex/xrd#twotheta",
+        "n": 3,
+        "min": "20.0",
+        "max": "80.0",
+        "label": "2theta",
+    },
+}
+
+
+def _value_range_tool() -> QueryTool:
+    tools = synthesize_query_tools_from_trial_queries(_RANGE_TRIAL)
+    parsed = {t.name: t for t in parse_query_tools({"tools": tools})}
+    return parsed["value_range"]
+
+
+def _pyoxi_client(graphs: dict[str, str]):
+    """pyoxigraph-backed client: each {graph_iri: ttl} loaded to that named graph,
+    canonical graphs flagged ``promoted`` in the control graph — same contract
+    as ``_ds_client`` above, backed by the real store engine instead of rdflib.
+    """
+    store = pyoxigraph.Store()
+    for giri, ttl in graphs.items():
+        store.load(
+            ttl.encode("utf-8"), mime_type="text/turtle", to_graph=pyoxigraph.NamedNode(giri)
+        )
+        if giri.startswith(CANONICAL_GRAPH_BASE):
+            store.add(
+                pyoxigraph.Quad(
+                    pyoxigraph.NamedNode(giri),
+                    pyoxigraph.NamedNode(STATUS_PREDICATE),
+                    pyoxigraph.Literal(STATUS_PROMOTED),
+                    pyoxigraph.NamedNode(CONTROL_GRAPH_IRI),
+                )
+            )
+
+    class _C:
+        async def sparql_select(self, query: str) -> dict:
+            result = store.query(query)
+            names = [v.value for v in result.variables]
+            bindings = []
+            for solution in result:
+                row = {}
+                for name in names:
+                    term = solution[name]
+                    if term is None:
+                        continue
+                    kind = "uri" if isinstance(term, pyoxigraph.NamedNode) else "literal"
+                    row[name] = {"type": kind, "value": term.value}
+                bindings.append(row)
+            return {"results": {"bindings": bindings}}
+
+    return _C()
+
+
+_XRD_TTL_TEMPLATE = """
+@prefix ex: <https://ex/xrd#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+{rows}
+"""
+
+
+def _xrd_ttl(rows: list[tuple[str, str]]) -> str:
+    # rows: (subject local name, twotheta literal)
+    body = "\n".join(
+        f'<https://ex/xrd/record/{s}> ex:twotheta "{v}"^^xsd:double .' for s, v in rows
+    )
+    return _XRD_TTL_TEMPLATE.format(rows=body)
+
+
+async def test_value_range_reports_min_max_subject_iris_on_real_store() -> None:
+    # 1) three-plus numeric records: n/min/max AND each end's citing record.
+    ttl = _xrd_ttl([("a", "20.0"), ("b", "50.0"), ("c", "80.0"), ("d", "65.0")])
+    client = _pyoxi_client({canonical_graph_iri("xrd"): ttl})
+    out = await run_query_tool(client, _value_range_tool(), {})
+    assert out["count"] == 1
+    item = out["items"][0]
+    assert item["count"] == 4.0
+    assert item["min"] == 20.0
+    assert item["max"] == 80.0
+    assert item["min_subject_iri"] == "https://ex/xrd/record/a"
+    assert item["max_subject_iri"] == "https://ex/xrd/record/c"
+    assert "FROM <" in out["sparql"]  # ran through the canonical FROM-merge
+
+
+async def test_value_range_tie_is_deterministic_on_real_store() -> None:
+    # 2) two records share the minimum value -> the SAME one is picked every run
+    # (tie-break: subject IRI ascending), not whichever the store happens to
+    # enumerate first.
+    ttl = _xrd_ttl([("z-record", "20.0"), ("a-record", "20.0"), ("mid", "80.0")])
+    client = _pyoxi_client({canonical_graph_iri("xrd"): ttl})
+    tool = _value_range_tool()
+    first = await run_query_tool(client, tool, {})
+    second = await run_query_tool(client, tool, {})
+    assert first["items"][0]["min_subject_iri"] == "https://ex/xrd/record/a-record"
+    assert second["items"][0]["min_subject_iri"] == "https://ex/xrd/record/a-record"
+
+
+async def test_value_range_no_data_returns_no_iris() -> None:
+    # 3) no matching triples at all -> count 0, no min/max, and crucially no
+    # fabricated citation (None, not some arbitrary subject).
+    client = _pyoxi_client({canonical_graph_iri("xrd"): "@prefix ex: <https://ex/xrd#> .\n"})
+    out = await run_query_tool(client, _value_range_tool(), {})
+    item = out["items"][0]
+    assert item["count"] == 0.0
+    assert item["min"] is None
+    assert item["max"] is None
+    assert item["min_subject_iri"] is None
+    assert item["max_subject_iri"] is None
+
+
+async def test_value_range_ignores_non_numeric_values_on_real_store() -> None:
+    # 4) a non-numeric value on the same predicate must not corrupt count/min/max
+    # or get cited as a subject — FILTER(BOUND(?num)) after the xsd:double cast
+    # keeps it out, same as the pre-existing count/min/max behaviour.
+    ttl = """
+    @prefix ex: <https://ex/xrd#> .
+    @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+    <https://ex/xrd/record/num1> ex:twotheta "20.0"^^xsd:double .
+    <https://ex/xrd/record/num2> ex:twotheta "80.0"^^xsd:double .
+    <https://ex/xrd/record/bad> ex:twotheta "not-a-number" .
+    """
+    client = _pyoxi_client({canonical_graph_iri("xrd"): ttl})
+    out = await run_query_tool(client, _value_range_tool(), {})
+    item = out["items"][0]
+    assert item["count"] == 2.0
+    assert item["min"] == 20.0
+    assert item["max"] == 80.0
+    assert item["min_subject_iri"] == "https://ex/xrd/record/num1"
+    assert item["max_subject_iri"] == "https://ex/xrd/record/num2"

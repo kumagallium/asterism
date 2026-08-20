@@ -344,6 +344,37 @@ _RUN_SPARQL_TOOL = {
     },
 }
 
+# A vetted tool names its own evidence: any result field holding a subject IRI
+# (``subject_iri``, ``min_subject_iri``, ``max_subject_iri``, …) is a record the
+# answer stands on. Deterministic, order-preserving, deduped.
+_CITE_ROWS_MAX = 3  # a result this small IS the evidence; bigger is a listing
+_CITE_IRIS_MAX = 8
+
+
+def _collect_tool_citations(into: list[dict], items: list) -> None:
+    """Append ``{"iri": …}`` for every subject IRI in a small tool result."""
+    if not items or len(items) > _CITE_ROWS_MAX:
+        return
+    seen = {c["iri"] for c in into}
+    for row in items:
+        if not isinstance(row, dict):
+            continue
+        # The ROW's own key order, not alphabetical: the tool's result mapping
+        # fixes it (so it is deterministic), and it reads the way the tool means
+        # it — a range cites its minimum before its maximum, where sorting the
+        # keys would put `max_…` first.
+        for key in row:
+            if key != "subject_iri" and not key.endswith("_subject_iri"):
+                continue
+            iri = row.get(key)
+            if not isinstance(iri, str) or not iri.startswith(("http://", "https://")):
+                continue
+            if iri in seen or len(into) >= _CITE_IRIS_MAX:
+                continue
+            seen.add(iri)
+            into.append({"iri": iri})
+
+
 _SUBMIT_ANSWER_TOOL = {
     "name": "submit_answer",
     "description": (
@@ -691,6 +722,18 @@ async def _llm_answer_via(
     # number under ORDER BY, …). Carried to the answer regardless of whether the
     # model chose to mention them — the last line of defence is not the model.
     data_warnings: list[dict] = []
+    # The records a VETTED tool actually returned, as citations — collected here
+    # rather than left to the model. `submit_answer` takes citations from the
+    # model, so an aggregate answer ("the 2θ range is 20.0°–80.0°") arrived with
+    # none, and the reader had no way to see WHICH records produced the number
+    # (live 2026-08-20). A tool that returns the min-holding and max-holding
+    # record has named its own evidence; whether it reaches the reader must not
+    # depend on what the model chose to mention — the same rule the data
+    # warnings above already follow.
+    #
+    # Only from a result small enough to BE the evidence (a handful of rows), so
+    # nothing is silently truncated: a listing tool's rows stay the model's call.
+    tool_citations: list[dict] = []
     usage: dict = {
         "input_tokens": 0,
         "output_tokens": 0,
@@ -723,6 +766,7 @@ async def _llm_answer_via(
                 if out.get("sparql"):
                     used_sparql.append(out["sparql"])
                 verified_used.append({"dataset": dataset, "name": qt.name, "title": qt.title})
+                _collect_tool_citations(tool_citations, out.get("items") or [])
                 return {
                     "count": out["count"],
                     "items": out["items"],
@@ -744,9 +788,15 @@ async def _llm_answer_via(
         # next step — and no [もう一度] button, because that only appears when
         # the turn has no result at all. A flag lets the UI say "答えられません
         # でした" and offer the way forward.
+        cited = list(data.get("citations") or [])
+        seen = {str(c.get("iri") or "") for c in cited if isinstance(c, dict)}
+        for extra in tool_citations:
+            if extra["iri"] not in seen:
+                seen.add(extra["iri"])
+                cited.append(extra)
         return {
             "answer": data.get("answer", ""),
-            "citations": data.get("citations") or [],
+            "citations": cited,
             "notes": list(data.get("notes") or []),
             "sparql": used_sparql,
             "verified_tools": verified_used,
