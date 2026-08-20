@@ -1,5 +1,18 @@
 # Changelog
 
+## [v0.17.4](https://github.com/kumagallium/asterism/compare/v0.17.3...v0.17.4) - 2026-08-20
+
+- 欠陥の停止カードは機械が押す — 人間のクリックを無くす by @kumagallium in https://github.com/kumagallium/asterism/pull/387
+- docs: appdata の検証レポートを閉じる — 配布版で最後の経路まで一周した by @kumagallium in https://github.com/kumagallium/asterism/pull/391
+- fix(ingest): regex_extract のエンジン不在を無言の空文字から例外へ — 列が丸ごと消えるのを止める by @kumagallium in https://github.com/kumagallium/asterism/pull/394
+- chore(ci): ingest のテストを substrate extra ありで回す — 実経路の e2e が一度も走っていなかった by @kumagallium in https://github.com/kumagallium/asterism/pull/396
+- fix(ingest): lookup も「読めない表」を無言の "" から例外へ — 同じ silent drop の二つ目の扉 by @kumagallium in https://github.com/kumagallium/asterism/pull/395
+- feat: 全画面を「かんたん」にする — 16 面の網羅監査と 605 件の修正 by @kumagallium in https://github.com/kumagallium/asterism/pull/389
+- 保存先を変えたらデータも移す — 起動時、サイドカーを立てる前に by @kumagallium in https://github.com/kumagallium/asterism/pull/392
+- feat(kantan): 標準のことばに合わせる入口と、単位が標準に届いたかの表示 by @kumagallium in https://github.com/kumagallium/asterism/pull/393
+- fix(settings): 初回の AI 設定から、頼む相手のいない依頼を消す by @kumagallium in https://github.com/kumagallium/asterism/pull/397
+- chore: リポジトリ直下の残骸ファイル `-volnamex` を削除 by @kumagallium in https://github.com/kumagallium/asterism/pull/390
+
 ## [v0.17.3](https://github.com/kumagallium/asterism/compare/v0.17.2...v0.17.3) - 2026-08-18
 
 - デスクトップは手元のディスクに保存する — チャットと設定をブラウザから出す by @kumagallium in https://github.com/kumagallium/asterism/pull/385
