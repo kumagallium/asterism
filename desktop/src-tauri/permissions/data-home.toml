@@ -10,6 +10,19 @@ commands.allow = ["get_data_home_override"]
 
 [[permission]]
 identifier = "allow-set-data-home-override"
-description = """Save or clear the storage-location override. Writes only —
-does not restart the backend; the new location takes effect on next launch."""
+description = """Save or clear the storage-location override, optionally
+scheduling a data move for the next launch (`moveFrom`). Writes only — does
+not touch the filesystem itself; the move (if any) runs at the start of the
+next boot, before the sidecar starts."""
 commands.allow = ["set_data_home_override"]
+
+[[permission]]
+identifier = "allow-get-storage-notice"
+description = """Read the outcome of the most recent boot-time data move, if
+any (null otherwise)."""
+commands.allow = ["get_storage_notice"]
+
+[[permission]]
+identifier = "allow-clear-storage-notice"
+description = "Clear the stored move-outcome notice once the SPA has shown it."
+commands.allow = ["clear_storage_notice"]
