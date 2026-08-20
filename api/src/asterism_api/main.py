@@ -55,6 +55,7 @@ from asterism.exposure import raw_sparql_enabled
 from asterism.ontology_projection import (
     STANDARD_PREFIXES,
     extract_prefixes,
+    project_mapping_ir,
     project_model_yaml,
 )
 from asterism.oxigraph_client import OxigraphClient, OxigraphConfig
@@ -1066,22 +1067,51 @@ async def _project_ontology_graph(
 ) -> int:
     """#20 step5: project the dataset's TBox into its ontology named graph.
 
-    Additive + best-effort: reads the bundle's ``model.yaml`` (rdf-config TBox),
-    resolves prefixes from the bundle's own RML / MIE declarations (so ``sd:`` /
-    ``sdr:`` map to THIS dataset's IRIs) unioned with standard ones, projects
-    RDFS/OWL, and replaces the ontology graph (DROP then load) so a re-promote
-    has no stale triples. Returns the triple count (0 = nothing projected). Never
-    raises — a projection failure must not block a promote (the TBox graph is
-    enrichment; Ask works from the ABox regardless).
+    Additive + best-effort: tries the bundle's ``mapping.yaml`` (Mapping IR,
+    K8) FIRST — it is the only source carrying a reviewer's human-authored
+    ``label:`` (kantan-mode's "used for search and citation" promise), so it
+    must win whenever present. Only when the IR is absent or projects nothing
+    does this fall back to the legacy ``model.yaml`` TBox (rdf-config list or
+    the plain ``classes:``/``properties:`` mapping shape — both accepted by
+    :func:`project_model_yaml`), which never carries an authored label.
+    Prefixes resolve from the bundle's own RML / MIE declarations (so ``sd:`` /
+    ``sdr:`` map to THIS dataset's IRIs) unioned with standard ones, then
+    replaces the ontology graph (DROP then load) so a re-promote has no stale
+    triples. Returns the triple count (0 = nothing projected — legitimate when
+    the bundle carries neither artifact). Never raises — a projection failure
+    must not block a promote (the TBox graph is enrichment; Ask works from the
+    ABox regardless). Logs a warning (not silence) when an artifact WAS present
+    but still produced zero triples — that is an unparsed/unexpected shape, not
+    the legitimate "nothing to project" case.
     """
+    mapping_ir_yaml = artifacts.get("mapping.yaml") or ""
     model_yaml = artifacts.get("model.yaml") or ""
-    if not model_yaml.strip():
-        return 0
     prefixes = STANDARD_PREFIXES | extract_prefixes(
         artifacts.get("mapping.rml.ttl") or "", artifacts.get("mie.yaml") or ""
     )
-    graph = project_model_yaml(model_yaml, prefixes)
-    if len(graph) == 0:
+
+    graph = None
+    if mapping_ir_yaml.strip():
+        graph = project_mapping_ir(mapping_ir_yaml, prefixes)
+        if len(graph) == 0:
+            logger.warning(
+                "dataset %s: mapping.yaml (Mapping IR) present but projected "
+                "0 ontology triples (unparsed shape?); falling back to model.yaml",
+                dataset_id,
+            )
+            graph = None
+
+    if graph is None and model_yaml.strip():
+        graph = project_model_yaml(model_yaml, prefixes)
+        if len(graph) == 0:
+            logger.warning(
+                "dataset %s: model.yaml present but projected 0 ontology "
+                "triples (unrecognized shape?)",
+                dataset_id,
+            )
+            graph = None
+
+    if graph is None or len(graph) == 0:
         return 0
     payload = graph.serialize(format="turtle")
     if isinstance(payload, str):

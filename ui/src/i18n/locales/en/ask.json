@@ -82,6 +82,11 @@
     "heading": "Sources (citations)",
     "hint": "Click to show the source"
   },
+  "sources": {
+    "heading": "Source",
+    "hint": "the published data this number was read from",
+    "via": "read by: {{tools}}"
+  },
   "notes": {
     "heading": "Data quality notes"
   },

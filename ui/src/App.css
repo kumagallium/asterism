@@ -2222,6 +2222,34 @@ textarea:focus {
   gap: 0.5rem;
 }
 
+/* The source of an AGGREGATE answer: no row to card, so the published dataset
+   it was read from, plus the vetted way it was read. Same slot as the citation
+   list, lighter weight — there is one line per dataset, not one per record. */
+.answer-sources {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.answer-source {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.answer-source-name {
+  font-weight: 600;
+}
+.answer-source-via {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
 .citation-card {
   flex: 1;
   display: flex;

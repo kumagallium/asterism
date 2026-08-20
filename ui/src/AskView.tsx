@@ -77,6 +77,9 @@ interface AskCatalog {
   vocabClasses: ReadonlySet<string>
   /** The dataset that minted an ID, when it can be told. */
   datasetFor: (iri: string) => CatalogDataset | undefined
+  /** The dataset a verified tool belongs to — an aggregate answer names no IRI,
+   *  so its source can only be found by the tool's own dataset id. */
+  datasetById: (id: string) => CatalogDataset | undefined
 }
 
 // Ask REQUIRES a configured model: the AI uses it to route the question to the
@@ -154,6 +157,7 @@ export function AskView({
     return {
       vocabClasses: catalogClassNames(list),
       datasetFor: (iri: string) => findDatasetByIri(iri, list),
+      datasetById: (id: string) => list.find((d) => d.id === id),
     }
   }, [datasets])
 
@@ -839,6 +843,22 @@ function AnswerCard({
   // called a tool still lands here — it executed nothing.
   const executedQueries = result.sparql?.length ?? 0
   const noSources = result.citations.length === 0 && verified === 0 && executedQueries === 0
+  // The published datasets this answer was read from, grouped, with the vetted
+  // ways it was read. Only from verified tools: those name their dataset, so
+  // this states what the answer knows rather than parsing it back out of a query.
+  const toolSources = Object.values(
+    (result.verifiedTools ?? []).reduce<
+      Record<string, { id: string; dataset: CatalogDataset | undefined; titles: string[] }>
+    >((acc, vt) => {
+      const entry = (acc[vt.dataset] ??= {
+        id: vt.dataset,
+        dataset: catalog.datasetById(vt.dataset),
+        titles: [],
+      })
+      if (!entry.titles.includes(vt.title)) entry.titles.push(vt.title)
+      return acc
+    }, {}),
+  )
   return (
     <section className="answer-card">
       <div className="answer-head">
@@ -904,6 +924,37 @@ function AnswerCard({
               </p>
             ),
           )}
+        </div>
+      )}
+
+      {/* An aggregate answer ("the 2θ range is 20.0°–80.0°") names no single
+          record, so the citation cards below have nothing to show — and the
+          screen then claimed 「出どころつき」 while showing no source at all
+          (live 2026-08-20). The source of such a number is the published
+          dataset it was read from, and the vetted way it was read; both are in
+          the answer already. Said in words, above the technical query. */}
+      {result.citations.length === 0 && toolSources.length > 0 && (
+        <div className="citations">
+          <h3 className="section-h">
+            {t('ask:sources.heading')}
+            <span className="section-h-hint">{t('ask:sources.hint')}</span>
+          </h3>
+          <ul className="answer-sources">
+            {toolSources.map((s) => (
+              <li key={s.id} className="answer-source">
+                {s.dataset ? (
+                  <a className="answer-source-name" href={`#/datasets/${s.id}`}>
+                    {s.dataset.name}
+                  </a>
+                ) : (
+                  <span className="answer-source-name">{s.id}</span>
+                )}
+                <span className="answer-source-via">
+                  {t('ask:sources.via', { tools: s.titles.join(' · ') })}
+                </span>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
