@@ -3,30 +3,35 @@
     "back": "Back",
     "seeMap": "View overview",
     "bannerTitle": "Connections",
-    "bannerSub": "There is more than one way to connect. Even for the same data, <0>which value you connect on</0> makes a different connection. You can keep each as <1>its own connection</1>, and questions work across all of them automatically.",
+    "bannerSub": "When two datasets hold the same value (a sample name, a composition…), you can use it to <0>ask questions across both</0>. There is more than one way to connect, and you can keep each as <1>its own connection</1>.",
     "loading": "Loading…",
     "empty": {
       "title": "No connections yet",
-      "sub": "Look for values that appear in two or more of your datasets, and build a connection from them.",
+      "sub": "Look for values that appear in two or more of your datasets, and build a connection from them. No AI involved.",
       "btn": "Look for pairs that could connect",
-      "manual": "Choose the combination myself"
+      "manual": "Choose the combination myself",
+      "needTwo": "Available once you have two or more published datasets (you have {{count}}).",
+      "addBtn": "Add data"
     },
+    "unnamed": "Unnamed connection",
+    "retryBtn": "Load again",
     "perspectiveHead": "Your connections",
-    "perspectiveHint": "{{count}} · each a different way to connect",
+    "perspectiveHint": "{{count}} connections · each a different way to connect",
     "perspMeta": "{{shared}} matched · {{count}} datasets",
     "summary": {
       "sharedValues": "Values found in both",
       "participants": "Connected data",
       "concepts": "What they connect on",
-      "note": "\"Values found in both\" is how many \"{{concept}}\" values matched across datasets (separate from the total number of facts). \"What they connect on\" is how many things this connection matches by."
+      "note": "\"Values found in both\" is how many values matched on what they connect on."
     },
+    "askLead": "You can ask questions across this connection.",
     "conceptHead": "Connects on \"{{name}}\"",
     "normalizerHint": "Treated as the same when: {{normalizer}}",
     "compoundKeyHint": "Connects when {{parts}} all match",
     "rebuild": "Rebuild with the latest data",
     "rebuilding": "Rebuilding…",
     "rebuildNote": "Rebuilt ({{shared}} matched · {{count}} datasets).",
-    "rebuildErr": "Could not rebuild: {{detail}}",
+    "rebuildSkipped": "{{names}} did not join this time (not published). Publish it again and it comes back the next time you rebuild.",
     "builtAt": "Last updated: {{at}}",
     "toolsHead": "Tools that work across data",
     "toolsHint": "How many datasets report this value? and the like, answered on the spot (no AI involved)."
@@ -38,6 +43,9 @@
     "head": "Pairs that could connect",
     "lead": "We compared what is inside your data and ranked the overlaps. Pick the one you want to build.",
     "cancel": "Cancel",
+    "details": "Technical details",
+    "settingsBtn": "Open settings",
+    "sharedValueLabel": "the value found in both",
     "scanning": "Comparing what is inside your data",
     "scanningSub": "Matching the actual values against each other. No AI involved.",
     "scanningAt": "Looking at {{name}}…",
@@ -45,18 +53,18 @@
     "tooFew": {
       "title": "Connecting needs two published datasets",
       "sub": "You have {{count}} published right now. Add and publish one more and you can connect them here.",
+      "subNone": "You have none published yet. Add and publish two and you can connect them here.",
       "addBtn": "Add data",
       "seeBtn": "See your connections"
     },
     "none": {
       "title": "No shared values found",
-      "sub": "No value appears in the same form in two or more of your datasets. You can also decide which fields to connect on yourself.",
+      "sub": "No value appears in the same form in two or more of your datasets. Adding one more dataset often turns up a pair that connects.",
       "manualBtn": "Choose the combination myself",
       "addBtn": "Add data"
     },
     "failed": {
-      "title": "The automatic search did not work",
-      "sub": "You can also choose the combination yourself.",
+      "retryBtn": "Search again",
       "manualBtn": "Choose the combination myself"
     },
     "card": {
@@ -64,6 +72,7 @@
       "examplesHead": "Values found in both (real data)",
       "partHead": "Data that connects",
       "partSample": "this field's value: {{sample}}",
+      "partField": "{{field}}: {{sample}}",
       "foldingGain": "Compared as written, {{strict}} match; with that, {{chosen}} do.",
       "pick": "Connect these",
       "adjust": "Adjust this one myself"
@@ -91,14 +100,16 @@
     },
     "confirm": {
       "title": "Connect them like this",
+      "join": " · ",
+      "partField": "{{field}} in {{name}}",
       "whatHead": "Data that connects",
       "onHead": "Connected on",
-      "matchHead": "Values that match",
+      "matchHead": "Values found in both",
       "nameLabel": "Name for this connection",
       "namePlaceholder": "e.g. connect on composition",
       "nameHint": "It will appear under \"your connections\" with this name. You can rebuild it later.",
       "idTaken": "A connection on the same thing already exists. Yours is kept as it is and this is added alongside it.",
-      "promise": "You can undo this afterwards. Your original data does not change.",
+      "promise": "You can rebuild it later. Your original data does not change.",
       "build": "Build the connection",
       "back": "Pick a different one"
     },
@@ -109,15 +120,19 @@
     "done": {
       "title": "The connection is ready",
       "stat": "<0>{{shared}}</0> values were shared across <1>{{count}}</1> datasets.",
+      "skipped": "{{names}} did not join this time (not published). Publish it again and it comes back the next time you rebuild.",
       "askLead": "Try asking something across them.",
-      "askHint": "Tapping one fills the question box. Whether to send it is up to you.",
+      "askHint": "Tapping one opens the question screen with the question filled in. Whether to send it is up to you.",
       "askQ1": "Which datasets have {{value}}?",
       "askQ2": "List the {{label}} found in both {{a}} and {{b}}.",
+      "askQ2Plain": "List the values found in both {{a}} and {{b}}.",
       "askQ3": "Which {{label}} match across two or more datasets?",
+      "askQ3Plain": "Which values match across two or more datasets?",
       "seeBtn": "See this connection",
       "againBtn": "Build another"
     },
     "defaultName": "connected on {{label}}",
+    "defaultNamePair": "{{a}} and {{b}}, connected on a shared value",
     "manual": {
       "summary": "Fine-tune it (choose the combination myself)",
       "hint": "Pick the data, the fields and what counts as the same value yourself. Matching up two connections lives here too.",
@@ -240,9 +255,11 @@
     "extraCondIncomplete": "Give each condition a unique name (distinct from the concept) and a field per dataset.",
     "step5": "5. This perspective's name",
     "step5Hint": "You can keep multiple \"perspectives (ways to connect)\" distinct",
-    "perspectivePlaceholder": "e.g. Connect by composition (leave blank to overwrite the standard \"composition\" perspective)",
+    "perspectivePlaceholder": "e.g. Connect by composition (blank = named automatically)",
     "perspectiveNamed": "Creates a new independent perspective (its own data, listed with your datasets).",
-    "perspectiveDefault": "When blank, creates/updates the standard \"composition\" perspective.",
+    "perspectiveDefault": "When blank, it is created as a new connection named \"{{name}}\".",
+    "perspectiveReplace": "Replace the standard connection instead",
+    "perspectiveReplaceHint": "When on, leaving the name blank creates/updates the standard \"composition\" perspective (replacing the existing one).",
     "build": "Build crosswalk (across {{count}} datasets)",
     "building": "Building…",
     "buildHintInvalid": "Enter the concept as an alphanumeric key (e.g. crystal_system).",
@@ -258,15 +275,27 @@
   },
   "error": {
     "failed": "{{op}} failed (HTTP {{status}}){{detail}}",
+    "plain": {
+      "timeoutTitle": "Comparing the values took too long",
+      "timeoutBody": "There may be a lot of data to go through. Wait a moment and try again.",
+      "serverTitle": "The server was briefly unreachable",
+      "serverBody": "Please wait a moment and try again.",
+      "tokenTitle": "You don't have permission for this",
+      "tokenBody": "Enter this server's access code in Settings.",
+      "notFoundTitle": "It could not be found",
+      "notFoundBody": "The connection, or the data it connects, is not there. Load again and try once more.",
+      "genericTitle": "That did not work",
+      "genericBody": "Please try again. If it persists, note the technical details below and pass them on."
+    },
     "ops": {
-      "fetch": "Fetching the crosswalk",
-      "fetchList": "Fetching the crosswalk list",
-      "build": "Building the crosswalk",
+      "fetch": "Loading the connection",
+      "fetchList": "Loading your connections",
+      "build": "Building the connection",
       "propose": "AI suggestion",
-      "fetchAlignments": "Fetching the perspective alignment list",
-      "align": "Connecting perspectives",
-      "unalign": "Withdrawing the alignment",
-      "previewNormalizer": "Normalization preview",
+      "fetchAlignments": "Loading the matches between connections",
+      "align": "Matching up two connections",
+      "unalign": "Undoing the match",
+      "previewNormalizer": "Checking what counts as the same value",
       "discover": "Looking for pairs that could connect"
     }
   }

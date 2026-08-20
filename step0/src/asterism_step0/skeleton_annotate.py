@@ -25,6 +25,7 @@ never a silent pass.
 
 from __future__ import annotations
 
+import difflib
 import re
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
@@ -55,6 +56,9 @@ _CURIE_HEAD = re.compile(r"^([A-Za-z][\w.-]*):")
 _PREVIEW_ROWS = 3
 _COLLISION_EXAMPLES = 2
 _KEY_CANDIDATES = 3
+# Near-name suggestions per wrong column — same count/threshold as the mapping-IR
+# parser's "Did you mean:" hint, so the gate and the compiler never disagree.
+_SUGGEST_N = 3
 # The entity card: how many stable property values it shows, and how many
 # fighting values per conflicting column (real accident evidence, not a dump).
 _CARD_VALUE_COLUMNS = 8
@@ -139,14 +143,30 @@ def _collision_examples(
 
 
 def _measurement_only(inspection: SourceInspection, key: Sequence[str]) -> bool:
-    """True when EVERY key column holds measurement values (double/float/decimal).
+    """True when EVERY key column holds a measured OUTCOME (double/float/decimal).
 
     Such a key can be unique in today's rows only by accident — two later runs
     measuring the same value collide — so it is never a semantically safe
     identity, even when the current file happens to pass the uniqueness check.
+
+    A column that is an evenly spaced monotonic sequence is excluded
+    (``ColumnSummary.sampling_grid``): the rows were sampled ON it, so it is a
+    value someone SET rather than one that was measured, and it does not get
+    corrected afterwards. Nothing here knows what the column means — the rule is
+    the spacing in the data, which sorting a measured column does not produce.
+
+    Why it is worth excluding at all: when every column of a file is numeric,
+    every key the gate can offer is "measurement-only" under the plain rule, so
+    the warning appears on the correct answer and the person has nothing to
+    choose (live 2026-08-19, a 3001-row two-column instrument sweep).
     """
     types = {c.name: c.inferred_type for c in inspection.columns}
-    return bool(key) and all(types.get(col) in _MEASUREMENT_TYPES for col in key)
+    grids = {c.name for c in inspection.columns if getattr(c, "sampling_grid", False)}
+    if not key:
+        return False
+    return all(types.get(col) in _MEASUREMENT_TYPES for col in key) and not all(
+        col in grids for col in key
+    )
 
 
 def _class_numeric_key_caution(
@@ -220,6 +240,25 @@ def _key_candidates(
         if len(out) >= _KEY_CANDIDATES:
             break
     return out
+
+
+def _near_column_names(missing: Sequence[str], columns: Sequence[str]) -> list[dict[str, Any]]:
+    """For each column the design names but the file lacks, the closest real ones.
+
+    Same edit-distance rule as the mapping-IR parser's "Did you mean:" hint
+    (``difflib`` at 0.6), so a fix offered at the gate and a fix suggested by
+    the compiler never disagree. Entries with no near name are still returned —
+    the UI needs to say "this one has no close match" rather than omit it.
+    """
+    return [
+        {
+            "column": str(name),
+            "suggestions": difflib.get_close_matches(
+                str(name), [str(c) for c in columns], n=_SUGGEST_N, cutoff=0.6
+            ),
+        }
+        for name in missing
+    ]
 
 
 def _collapse_kind(report: Any) -> str:
@@ -929,6 +968,17 @@ def _annotate_map(
     ann["missing_columns"] = missing
     if missing:
         ann["reason"] = "missing-columns"
+        # A weak model misspells a key column (observed live), and the gate used
+        # to answer with one line naming the bad column — leaving a domain
+        # expert to retype an English header into an ID template by hand, which
+        # is the single least kantan thing in the wizard. The machine holds the
+        # real header AND the column sets it proved unique, so it offers both:
+        # the near-name for each wrong column, and the proven keys as the same
+        # one-tap chips every other uncertain key state already shows.
+        ann["column_suggestions"] = _near_column_names(
+            missing, [c.name for c in inspection.columns]
+        )
+        ann["key_candidates"] = _key_candidates(inspection, key)
         return ann
 
     try:

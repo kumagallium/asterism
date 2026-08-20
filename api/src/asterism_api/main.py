@@ -33,7 +33,7 @@ import os
 import re
 import shutil
 import tempfile
-from collections.abc import AsyncIterator, Callable, Mapping
+from collections.abc import AsyncIterator, Callable, Collection, Mapping
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -55,6 +55,7 @@ from asterism.exposure import raw_sparql_enabled
 from asterism.ontology_projection import (
     STANDARD_PREFIXES,
     extract_prefixes,
+    project_mapping_ir,
     project_model_yaml,
 )
 from asterism.oxigraph_client import OxigraphClient, OxigraphConfig
@@ -63,6 +64,8 @@ from asterism.query_tools import (
     lint_query_tool,
     parse_query_tools,
     run_query_tool,
+    synthesize_query_tools_from_trial_queries,
+    write_registry_query_tools,
 )
 from asterism.rml_summary import summarize_rml
 from asterism.starrydata import IngestConfig
@@ -77,7 +80,11 @@ from asterism.watcher import (
 from asterism_step0.crosswalk_propose import propose_crosswalk_mapping
 from asterism_step0.inspect import inspect_source_set, render_markdown
 from asterism_step0.instance_iri import DEFAULT_IRI_BASE, normalize_iri_base
-from asterism_step0.llm import list_available_models
+from asterism_step0.llm import (
+    DEFAULT_ANTHROPIC_MODEL,
+    DEFAULT_OPENAI_MODEL,
+    list_available_models,
+)
 from asterism_step0.llm import make_llm as build_llm_client
 from asterism_step0.materialize import (
     _MODEL_HEADERS,
@@ -88,7 +95,10 @@ from asterism_step0.materialize import (
 from asterism_step0.propose import LLMClient
 from asterism_step0.refine import refine_schema
 from asterism_step0.skeleton_annotate import annotate_skeleton
-from asterism_step0.staged_propose import propose_skeleton
+from asterism_step0.staged_propose import (
+    apply_display_meta_to_document,
+    propose_skeleton,
+)
 from asterism_step0.validate import SchemaBundle, validate_schema
 from fastapi import (
     Depends,
@@ -133,13 +143,19 @@ class RefineRequest(BaseModel):
     # Absent/empty → English (legacy behaviour). Headings / identifiers stay
     # English regardless — materialize extracts artifacts by English headings.
     language: str | None = None
-    # Where the design's source lives, so the manual round gets the SAME
-    # closed-menu oracle (exact filenames, real columns, Tier-0 menu) the
-    # automatic loop appends to every refine. Without it the human's "AI に直し
-    # てもらう" rounds ran on the symptom text alone — live 2026-08-18 the model
-    # invented 17 camel-cased column names over five clicks. The dataset's own
-    # persisted source wins; the staged copy (ADR source-staging.md) covers a
-    # design not attached yet. Both optional: absent → the legacy ungrounded round.
+    # Where the design's source lives, when there is one. Two jobs, both of them
+    # backstops for the MANUAL round:
+    #   * the persisted source is what lets the refined document go through the
+    #     SAME validation + deterministic self-correction round 0 runs (a weak
+    #     model asked for one wording change can drop a `datatype:` and turn
+    #     numbers into strings);
+    #   * and it is where the closed-menu oracle (exact filenames, real columns,
+    #     Tier-0 menu) comes from — without it the human's "AI に直してもらう"
+    #     rounds ran on the symptom text alone (live 2026-08-18: the model
+    #     invented 17 camel-cased column names over five clicks).
+    # The dataset's own persisted source wins; the staged copy (ADR
+    # source-staging.md) covers a design not attached yet. Both optional: absent
+    # → refine behaves exactly as before, one LLM call, no menu and no backstop.
     dataset_id: str | None = None
     staging_id: str | None = None
 
@@ -173,6 +189,42 @@ class SparqlRequest(BaseModel):
     """Body for POST /api/sparql: a read-only SPARQL query (escape hatch)."""
 
     query: str
+
+
+class StagingSourcesBody(BaseModel):
+    """Body for POST /api/staging/{id}/sources: the tables to actually use.
+
+    One Excel workbook becomes one table per sheet (K6), and the human is the
+    only one who knows which sheets hold data and which hold a chart. Names are
+    the canonical (slugged) source names the record already holds; anything else
+    is ignored, so a stale client can never widen the selection to a file the
+    record does not have.
+    """
+
+    sources: list[str] = []
+
+
+class DisplayMetaEdit(BaseModel):
+    """One human correction to a column's MEANING or UNIT (kantan S6, K8).
+
+    Display metadata only: it changes what the reviewer reads, never a value,
+    never a triple. ``predicate`` identifies the row (expanded IRI or the CURIE
+    the design wrote); ``map`` / ``column`` narrow it when one predicate is bound
+    by more than one map. An omitted field is left alone; an empty string clears
+    it (the human saying "this was wrong and I have nothing better").
+    """
+
+    predicate: str
+    map: str | None = None
+    column: str | None = None
+    label: str | None = None
+    unit: str | None = None
+
+
+class DisplayMetaBody(BaseModel):
+    """Body for POST /api/datasets/{id}/display-meta: a batch of S6 corrections."""
+
+    edits: list[DisplayMetaEdit] = []
 
 
 class RenameRequest(BaseModel):
@@ -330,6 +382,79 @@ class ServerKeyBody(BaseModel):
     api_base: str | None = None
 
 
+# camelCase → words, for the last-resort reading of a term IRI.
+_RE_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
+# Full-width parens spelled as escapes: a Japanese column heading uses them,
+# and the literal characters read as typos next to their ASCII twins.
+_RE_TRAILING_PARENS = re.compile(r"[\uff08(][^\uff08()\uff09]*[)\uff09]\s*$")
+
+
+def _label_from_column(column: str | None) -> str | None:
+    """A source column heading, minus the unit its parentheses carried.
+
+    ``Seebeck coeff.(V/K)`` → ``Seebeck coeff.``. The unit is already shown
+    separately, and repeating it inside the name reads as a mistake.
+    """
+    if not column or not column.strip():
+        return None
+    from asterism_step0.units import extract_unit_from_label
+
+    text = column
+    if extract_unit_from_label(column):
+        text = _RE_TRAILING_PARENS.sub("", text)
+    text = text.strip().strip("_-").strip()
+    return text or None
+
+
+def _unit_echoes_its_term(unit: str, column: str | None, predicate: str | None) -> bool:
+    """True when an authored ``unit:`` is just the column (or predicate) name again.
+
+    A weak model that is handed K8's optional ``label:``/``unit:`` pair reliably
+    fills BOTH with the same thing, so a text column ends up carrying
+    ``unit: Name`` — and the review screen then asks a person to confirm a unit
+    for a chemical name. The label side already drops this echo before display;
+    the unit side did not, which is the half a person notices ("単位に単位じゃ
+    ないものが入っている", 2026-08-19 review).
+
+    Deliberately narrow: only an echo is dropped, never an unrecognised unit. A
+    genuine unit is not its own column heading, so nothing real is lost — and a
+    unit a person types is kept whatever it says (they know what it means).
+    """
+    text = (unit or "").strip()
+    if not text:
+        return False
+
+    def key(value: str | None) -> str:
+        return re.sub(r"[\s_\-.]+", "", (value or "")).casefold()
+
+    target = key(text)
+    if not target:
+        return False
+    if target == key(_label_from_column(column) or column):
+        return True
+    local = (predicate or "").rsplit("#", 1)[-1].rsplit("/", 1)[-1].rsplit(":", 1)[-1]
+    return target == key(local)
+
+
+def _humanize_term_iri(iri: str) -> str | None:
+    """Last resort: read a term IRI's local name as words, or None.
+
+    ``…#hasSeebeckCoefficient`` → ``Seebeck Coefficient``. Returns None when the
+    reading is identical to the local name (``…#Sample`` → ``Sample``): a label
+    that repeats what the caller already shows is noise, and the endpoints
+    promise not to manufacture one out of nothing. Display only — it never
+    touches stored data, and every earlier source (authored label, model.yaml
+    projection, source column) wins over it.
+    """
+    tail = iri.rsplit("#", 1)[-1].rsplit("/", 1)[-1]
+    if not tail:
+        return None
+    stripped = re.sub(r"^(has|is)(?=[A-Z])", "", tail)
+    spaced = _RE_CAMEL_BOUNDARY.sub(" ", stripped.replace("_", " ").replace("-", " "))
+    words = " ".join(spaced.split())
+    return words if words and words != tail else None
+
+
 def _ir_predicate_display(mapping_ir_yaml: str) -> dict[str, dict[str, str]]:
     """The Mapping IR's reviewer-facing display metadata per expanded predicate IRI.
 
@@ -358,7 +483,16 @@ def _ir_predicate_display(mapping_ir_yaml: str) -> dict[str, dict[str, str]]:
             extra: dict[str, str] = {}
             if prop.label:
                 extra["label"] = prop.label
-            if prop.unit:
+            elif prop.column:
+                # Deterministic third choice, below the authored label and the
+                # model.yaml projection: the source column heading the user
+                # actually typed. A weak model that skipped K8's `label:` would
+                # otherwise put `hasSeebeckCoefficient` in a question the user is
+                # asked to read — a word from their own file always beats one.
+                derived_label = _label_from_column(prop.column)
+                if derived_label:
+                    extra["column_label"] = derived_label
+            if prop.unit and not _unit_echoes_its_term(prop.unit, prop.column, prop.predicate):
                 extra["unit"] = prop.unit
             elif (
                 prop.column
@@ -392,25 +526,33 @@ def _model_yaml_labels(model_yaml: str, rml_ttl: str, mie_yaml: str) -> dict[str
     return labels
 
 
-def _merge_ir_display_metadata(mapping_ir_yaml: str, summary: dict) -> None:
+def _merge_ir_display_metadata(
+    mapping_ir_yaml: str, summary: dict
+) -> dict[str, dict[str, str]]:
     """Attach the Mapping IR's reviewer-facing ``label``/``unit`` to rule rows.
 
     Matching is by expanded predicate IRI so the compiled RML stays the single
     structural projection (see :func:`_ir_predicate_display`). Best-effort: an
     unparsable IR adds a warning instead of failing the read-only endpoint.
+    Returns the metadata it merged, so the caller can also use its fallbacks.
     """
+    meta: dict[str, dict[str, str]] = {}
     try:
         meta = _ir_predicate_display(mapping_ir_yaml)
         if not meta:
-            return
+            return meta
         for entry in summary.get("maps") or []:
             if not isinstance(entry, dict):
                 continue
             for row in entry.get("properties") or []:
                 extra = meta.get(str(row.get("predicate_iri") or ""))
                 if extra:
-                    for key, value in extra.items():
-                        row.setdefault(key, value)
+                    # ``column_label`` is a FALLBACK, resolved in
+                    # :func:`_fill_missing_labels` after model.yaml has had its
+                    # turn — it must not enter the row as the label here.
+                    for key in ("label", "unit"):
+                        if key in extra:
+                            row.setdefault(key, extra[key])
     except Exception:
         warnings = summary.setdefault("warnings", [])
         if isinstance(warnings, list):
@@ -418,6 +560,41 @@ def _merge_ir_display_metadata(mapping_ir_yaml: str, summary: dict) -> None:
                 "mapping.yaml (Mapping IR) could not be parsed; "
                 "label/unit enrichment was skipped."
             )
+        return {}
+    return meta
+
+
+def _fill_missing_labels(
+    summary: dict, labels: dict[str, str], ir_meta: dict[str, dict[str, str]]
+) -> None:
+    """Give every rule row a readable name, deterministically.
+
+    The order is fixed and never involves a model: ① the IR's authored ``label``
+    (K8), ② the ``model.yaml`` ``rdfs:label`` projection, ③ the source column
+    heading the row reads, ④ the term IRI's local name read as words. Before
+    this, a design whose weak model skipped ① and ② left the reader looking at
+    ``hasSeebeckCoefficient`` — while the server was holding the very column
+    heading that person typed. Display only; the stored data is untouched.
+    """
+    for entry in summary.get("maps") or []:
+        if not isinstance(entry, dict):
+            continue
+        for row in entry.get("properties") or []:
+            if not isinstance(row, dict) or row.get("label"):
+                continue
+            iri = str(row.get("predicate_iri") or "")
+            if not iri or iri in labels:
+                # ② is already answered: the response carries the model.yaml
+                # projection in its own ``labels`` map, so repeating it on the
+                # row would only give the reader two copies to reconcile.
+                continue
+            # ③ the source column heading the IR bound (the row already shows the
+            # raw reference in its own cell, so only the IR's cleaned form is
+            # used here) ④ the term IRI read as words, and only when that
+            # actually reads better than the local name.
+            fallback = (ir_meta.get(iri) or {}).get("column_label") or _humanize_term_iri(iri)
+            if fallback:
+                row["label"] = fallback
 
 
 def _validate_llm_api_base(api_base: str) -> None:
@@ -478,6 +655,28 @@ def _llm_coords(
     key, pinned_base = server_keys.resolve(provider, registry_root)
     api_base = pinned_base or (x_llm_api_base or None)
     return provider, (x_llm_model or None), api_base, key
+
+
+def _default_llm_models() -> dict[str, str | None]:
+    """Non-secret per-provider default model ids, advertised to the browser.
+
+    A fresh browser has an empty model registry, so without this it could not use
+    an operator-configured shared key without first being asked to pick a
+    provider and type a model id — the entry-gate the two-tier UX removes. These
+    are plain identifiers (no secret), and an operator can pin one per provider
+    with ``ASTERISM_LLM_MODEL_<PROVIDER>``. There is no built-in default for
+    ``openai-compatible`` (model ids are endpoint-specific), so it stays ``None``
+    unless the operator names one."""
+    builtin: dict[str, str | None] = {
+        "anthropic": DEFAULT_ANTHROPIC_MODEL,
+        "openai": DEFAULT_OPENAI_MODEL,
+        "openai-compatible": None,
+    }
+    resolved: dict[str, str | None] = {}
+    for provider, fallback in builtin.items():
+        env_name = f"ASTERISM_LLM_MODEL_{provider.replace('-', '_').upper()}"
+        resolved[provider] = os.environ.get(env_name, "").strip() or fallback
+    return resolved
 
 
 def _llm_max_tokens(value: str | None) -> int | None:
@@ -554,6 +753,26 @@ _SPARQL_UPDATE = re.compile(
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _coded_error(status: int, code: str, message: str) -> HTTPException:
+    """An HTTP error a client can act on WITHOUT reading English prose.
+
+    The detail is ``{"code", "message"}``: the stable ``code`` is what logic keys
+    off (the UI maps it to one plain sentence in one place — the same contract
+    ``jobs._ERROR_CODES`` gives job failures), while ``message`` stays a short
+    English technical summary for the folded technical view. The provider's /
+    library's raw exception text never reaches the screen: it goes to the log,
+    where it is useful, instead of into a stop card, where it is not.
+    """
+    return HTTPException(status, detail={"code": code, "message": message})
+
+
+def _error_text(detail: object) -> str:
+    """The human-readable half of a detail that may be coded or a bare string."""
+    if isinstance(detail, dict):
+        return str(detail.get("message") or detail.get("error") or detail)
+    return str(detail)
 
 
 # ----------------------------------------------------------------------------
@@ -722,6 +941,57 @@ def _crosswalk_label(name: str, dataset_id: str) -> str:
     return slug or dataset_id
 
 
+def _crosswalk_predicate_labels(registry_root: Path, dataset_id: str) -> dict[str, str]:
+    """``{predicate_iri: label}`` for one dataset's design (XW-01/XW-04/XW-06).
+
+    The SAME 2-step chain as the design SSOT: an authored §9 ``label`` (Mapping
+    IR), then the ``model.yaml`` projection's ``rdfs:label`` — nothing else (no
+    column-heading / term-IRI fallback here, unlike S7's fuller ``label_of``):
+    a crosswalk candidate's heading and try-it question must say a word the
+    design actually chose, or say nothing rather than guess one. Best-effort —
+    an unreadable dataset/IR/model.yaml simply contributes no labels.
+    """
+    data = registry.load_dataset(registry_root, dataset_id)
+    artifacts = (data or {}).get("artifacts") or {}
+    labels: dict[str, str] = {}
+    with contextlib.suppress(Exception):
+        labels.update(
+            _model_yaml_labels(
+                str(artifacts.get("model.yaml") or ""),
+                str(artifacts.get("mapping.rml.ttl") or ""),
+                str(artifacts.get("mie.yaml") or ""),
+            )
+        )
+    try:
+        ir_meta = _ir_predicate_display(str(artifacts.get("mapping.yaml") or ""))
+    except Exception:
+        ir_meta = {}
+    for iri, meta in ir_meta.items():
+        lbl = meta.get("label")
+        if lbl:  # the authored label wins over the model.yaml projection
+            labels[iri] = lbl
+    return labels
+
+
+def _crosswalk_predicate_label_resolver(
+    registry_root: Path,
+) -> Callable[[str, str], str | None]:
+    """A cached ``(dataset_id, predicate_iri) -> label|None`` closure for
+    :func:`asterism.crosswalk_discover.discover`'s ``predicate_label_of`` hook —
+    one registry read per dataset touched, however many predicates/candidates
+    reference it (a discovery run reads every participant's predicates)."""
+    cache: dict[str, dict[str, str]] = {}
+
+    def resolve(dataset_id: str, predicate_iri: str) -> str | None:
+        labels = cache.get(dataset_id)
+        if labels is None:
+            labels = _crosswalk_predicate_labels(registry_root, dataset_id)
+            cache[dataset_id] = labels
+        return labels.get(predicate_iri)
+
+    return resolve
+
+
 async def _literal_predicates(client: OxigraphClient, graph_iri: str) -> list[dict]:
     """Literal-valued predicates of a dataset's live graph, with a sample value and a
     usage count (most-used first). The crosswalk AI-assist offers these as candidates
@@ -797,22 +1067,51 @@ async def _project_ontology_graph(
 ) -> int:
     """#20 step5: project the dataset's TBox into its ontology named graph.
 
-    Additive + best-effort: reads the bundle's ``model.yaml`` (rdf-config TBox),
-    resolves prefixes from the bundle's own RML / MIE declarations (so ``sd:`` /
-    ``sdr:`` map to THIS dataset's IRIs) unioned with standard ones, projects
-    RDFS/OWL, and replaces the ontology graph (DROP then load) so a re-promote
-    has no stale triples. Returns the triple count (0 = nothing projected). Never
-    raises — a projection failure must not block a promote (the TBox graph is
-    enrichment; Ask works from the ABox regardless).
+    Additive + best-effort: tries the bundle's ``mapping.yaml`` (Mapping IR,
+    K8) FIRST — it is the only source carrying a reviewer's human-authored
+    ``label:`` (kantan-mode's "used for search and citation" promise), so it
+    must win whenever present. Only when the IR is absent or projects nothing
+    does this fall back to the legacy ``model.yaml`` TBox (rdf-config list or
+    the plain ``classes:``/``properties:`` mapping shape — both accepted by
+    :func:`project_model_yaml`), which never carries an authored label.
+    Prefixes resolve from the bundle's own RML / MIE declarations (so ``sd:`` /
+    ``sdr:`` map to THIS dataset's IRIs) unioned with standard ones, then
+    replaces the ontology graph (DROP then load) so a re-promote has no stale
+    triples. Returns the triple count (0 = nothing projected — legitimate when
+    the bundle carries neither artifact). Never raises — a projection failure
+    must not block a promote (the TBox graph is enrichment; Ask works from the
+    ABox regardless). Logs a warning (not silence) when an artifact WAS present
+    but still produced zero triples — that is an unparsed/unexpected shape, not
+    the legitimate "nothing to project" case.
     """
+    mapping_ir_yaml = artifacts.get("mapping.yaml") or ""
     model_yaml = artifacts.get("model.yaml") or ""
-    if not model_yaml.strip():
-        return 0
     prefixes = STANDARD_PREFIXES | extract_prefixes(
         artifacts.get("mapping.rml.ttl") or "", artifacts.get("mie.yaml") or ""
     )
-    graph = project_model_yaml(model_yaml, prefixes)
-    if len(graph) == 0:
+
+    graph = None
+    if mapping_ir_yaml.strip():
+        graph = project_mapping_ir(mapping_ir_yaml, prefixes)
+        if len(graph) == 0:
+            logger.warning(
+                "dataset %s: mapping.yaml (Mapping IR) present but projected "
+                "0 ontology triples (unparsed shape?); falling back to model.yaml",
+                dataset_id,
+            )
+            graph = None
+
+    if graph is None and model_yaml.strip():
+        graph = project_model_yaml(model_yaml, prefixes)
+        if len(graph) == 0:
+            logger.warning(
+                "dataset %s: model.yaml present but projected 0 ontology "
+                "triples (unrecognized shape?)",
+                dataset_id,
+            )
+            graph = None
+
+    if graph is None or len(graph) == 0:
         return 0
     payload = graph.serialize(format="turtle")
     if isinstance(payload, str):
@@ -1244,26 +1543,44 @@ _MAX_XLSX_BYTES: Final[int] = 64 * 1024 * 1024
 
 
 def _expand_xlsx_bytes(name: str, data: bytes) -> list[tuple[str, bytes]]:
+    """``[(csv_name, csv_bytes), …]`` — :func:`_expand_xlsx_sheets` without titles."""
+    return [(n, body) for n, _title, body in _expand_xlsx_sheets(name, data)]
+
+
+def _expand_xlsx_sheets(name: str, data: bytes) -> list[tuple[str, str, bytes]]:
     """Convert a canonicalized ``.xlsx`` upload to its derived CSV set (K6).
+
+    ``[(csv_name, worksheet_title, csv_bytes), …]`` — the title is what the person
+    called the sheet in Excel, which the derived filename may have hashed away
+    (K6's "which sheet do you mean?" has to ask in their words, not in slugs).
 
     One sheet = one CSV (``asterism.tabularize.xlsx_to_csvs`` — openpyxl,
     deterministic). Everything downstream — inspect, the design loop,
     ``rml:source`` — only ever sees the derived ``.csv`` names; ``.xlsx`` is NOT
     in the rml_safety source allow-list. An unreadable workbook (corrupt zip,
-    every sheet empty) is a readable 422, not a traceback.
+    every sheet empty) is a coded 422, not a traceback: openpyxl's own wording
+    ("File is not a zip file", "Max value is 14") means nothing to the person
+    who just dropped a spreadsheet, so it is logged and the client renders one
+    plain sentence off the code.
     """
-    from asterism.tabularize import xlsx_to_csvs
+    from asterism.tabularize import xlsx_to_csv_sheets
 
     try:
-        return xlsx_to_csvs(data, stem=Path(name).stem)
+        return xlsx_to_csv_sheets(data, stem=Path(name).stem)
     except ValueError as exc:
-        raise HTTPException(422, f"Excel ブックを CSV に変換できませんでした: {exc}") from exc
+        logger.warning("xlsx → csv conversion failed for %r: %s", name, exc)
+        raise _coded_error(
+            422, "xlsx.convert_failed", "the Excel workbook could not be converted to CSV"
+        ) from exc
     except Exception as exc:
-        raise HTTPException(422, f"Excel ブックを読み取れませんでした: {exc}") from exc
+        logger.warning("xlsx could not be read: %r: %s", name, exc, exc_info=True)
+        raise _coded_error(
+            422, "xlsx.unreadable", "the Excel workbook could not be read"
+        ) from exc
 
 
 async def _persist_converted_xlsx(
-    upload: UploadFile, sdir: Path, name: str
+    upload: UploadFile, sdir: Path, name: str, keep: Collection[str] | None = None
 ) -> tuple[list[str], dict]:
     """Convert an Excel ``.xlsx`` upload to CSV(s) and persist them as the source.
 
@@ -1277,6 +1594,14 @@ async def _persist_converted_xlsx(
 
     data = await _read_upload_bounded(upload, _MAX_XLSX_BYTES)
     derived = await asyncio.to_thread(_expand_xlsx_bytes, name, data)
+    # ``keep`` = the sheets the human chose at S2 (K6). A workbook routinely
+    # carries a chart sheet and a notes sheet; persisting those as sources makes
+    # the design answer for columns nobody meant to publish. None = keep all
+    # (every caller that never asks the question).
+    if keep is not None:
+        chosen = [(n, b) for n, b in derived if n in keep]
+        if chosen:  # an empty selection is a client bug — never drop the source
+            derived = chosen
     await asyncio.to_thread(sdir.mkdir, parents=True, exist_ok=True)
     conversion = {"tool": "openpyxl", "version": openpyxl.__version__, "from": name}
     for csv_name, csv_bytes in derived:
@@ -1290,7 +1615,9 @@ async def _persist_converted_xlsx(
     return [csv_name for csv_name, _ in derived], conversion
 
 
-async def _save_tabular_uploads(files: list[UploadFile], dest_dir: Path) -> list[Path]:
+async def _save_tabular_uploads(
+    files: list[UploadFile], dest_dir: Path, sheets_out: dict[str, dict[str, str]] | None = None
+) -> list[Path]:
     """Canonicalize + save tabular uploads for a design entrance (inspect / propose
     / skeleton / validate / continue) — the ONE convert+sanitize seam.
 
@@ -1298,6 +1625,10 @@ async def _save_tabular_uploads(files: list[UploadFile], dest_dir: Path) -> list
     expanded to its derived CSV set here, BEFORE the path list is built, so the
     returned paths (and thus ``X-Asterism-Source-Names`` / the design's
     ``rml:source``) are always the canonical CSV names.
+
+    ``sheets_out``, when given, collects ``{csv_name: {"from": xlsx, "sheet":
+    title}}`` for every workbook that expanded into MORE THAN ONE table — the
+    only case K6 asks "which sheet do you mean?" about.
     """
     paths: list[Path] = []
     for upload in files:
@@ -1306,10 +1637,13 @@ async def _save_tabular_uploads(files: list[UploadFile], dest_dir: Path) -> list
         name = _sanitize_tabular_name(upload.filename)
         if name.lower().endswith(".xlsx"):
             data = await _read_upload_bounded(upload, _MAX_XLSX_BYTES)
-            for csv_name, csv_bytes in await asyncio.to_thread(_expand_xlsx_bytes, name, data):
+            derived = await asyncio.to_thread(_expand_xlsx_sheets, name, data)
+            for csv_name, title, csv_bytes in derived:
                 dest = dest_dir / csv_name
                 await asyncio.to_thread(dest.write_bytes, csv_bytes)
                 paths.append(dest)
+                if sheets_out is not None and len(derived) > 1:
+                    sheets_out[csv_name] = {"from": name, "sheet": title}
         else:
             dest = dest_dir / name
             await _save_upload(upload, dest)
@@ -1333,6 +1667,7 @@ async def _design_sources(
     staging_id: str | None,
     *,
     prefix: str,
+    sheets_out: dict[str, dict[str, str]] | None = None,
 ) -> tuple[Path, list[Path], bool]:
     """Where a design call reads its sources from: ``(work_dir, paths, owned)``.
 
@@ -1341,21 +1676,32 @@ async def _design_sources(
     call). Otherwise the legacy shape: uploads canonicalised into a fresh temp
     dir, ``owned=True`` (delete when done). A missing/expired staging id is a
     404 the client answers by re-uploading its own copy.
+
+    ``sheets_out`` collects ``{derived csv: {"from", "sheet"}}`` for multi-sheet
+    workbooks (K6) — read off the staged record when there is one, computed from
+    the uploads otherwise.
     """
     if staging_id:
         try:
             sdir, paths = staging.load(registry_root, staging_id)
         except staging.StagingNotFound as exc:
             raise HTTPException(404, f"staging {staging_id!r} not found (expired?)") from exc
+        if sheets_out is not None:
+            known = _staging_meta(sdir).get("sheets")
+            if isinstance(known, dict):
+                sheets_out.update(known)
         return sdir, paths, False
     if not files:
         raise HTTPException(400, "no files uploaded")
     tmpdir = Path(tempfile.mkdtemp(prefix=prefix))
-    return tmpdir, await _save_tabular_uploads(files, tmpdir), True
+    return tmpdir, await _save_tabular_uploads(files, tmpdir, sheets_out), True
 
 
 async def _persist_source_uploads(
-    registry_root: Path, dataset_id: str, files: list[UploadFile]
+    registry_root: Path,
+    dataset_id: str,
+    files: list[UploadFile],
+    keep: Collection[str] | None = None,
 ) -> tuple[list[str], dict | None]:
     """Persist uploaded sources as the dataset's design-time source (Task E, #19).
 
@@ -1388,7 +1734,7 @@ async def _persist_source_uploads(
             jats_name, conversion = await _persist_converted_docx(upload, sdir, name)
             saved.append(jats_name)
         elif name.lower().endswith(".xlsx"):
-            csv_names, conversion = await _persist_converted_xlsx(upload, sdir, name)
+            csv_names, conversion = await _persist_converted_xlsx(upload, sdir, name, keep)
             saved.extend(csv_names)
         else:
             await _save_upload(upload, sdir / name)
@@ -1564,6 +1910,202 @@ def _dialects_header_json(inspections: list) -> str:
     return json.dumps(out, separators=(",", ":"))
 
 
+# How many example values per column travel to the client, and how long each
+# one may be. The wizard shows at most three per column; a 200-character cell
+# (a JSON blob, a pasted note) is not an example anyone reads, and the whole set
+# rides a response HEADER, which has to stay small.
+_SAMPLE_VALUES_PER_COLUMN = 3
+_SAMPLE_VALUE_MAX_CHARS = 60
+# Hard ceiling on the serialized samples header. Past it the header is dropped
+# entirely (the client falls back to its own client-side preview) rather than
+# truncated into something half-true.
+_SAMPLES_HEADER_BUDGET = 6000
+
+
+# Persisted source files that HAVE columns to sample. The source directory also
+# keeps the original ``.xlsx`` a design was converted from and, for a document
+# dataset, the ``.pdf`` / ``.xml`` — none of which the tabular inspector reads.
+_SAMPLEABLE_SUFFIXES = (".csv", ".tsv", ".txt", ".dat", ".asc", ".json", ".geojson")
+
+
+def _column_samples(inspections: list) -> dict[str, dict[str, list[str]]]:
+    """``{source_name: {column: [up to 3 real values]}}`` from an inspection set.
+
+    The values are the inspector's own ``sample_values`` — the first non-empty
+    cells of that column, in file order. Deliberately NOT assembled into rows:
+    each column's examples are taken independently, so presenting them as a table
+    of rows would show a record that does not exist in anyone's file.
+    """
+    out: dict[str, dict[str, list[str]]] = {}
+    for ins in inspections:
+        cols: dict[str, list[str]] = {}
+        for col in getattr(ins, "columns", []) or []:
+            values = [
+                v if len(v) <= _SAMPLE_VALUE_MAX_CHARS else v[:_SAMPLE_VALUE_MAX_CHARS] + "…"
+                for v in (getattr(col, "sample_values", []) or [])[:_SAMPLE_VALUES_PER_COLUMN]
+            ]
+            cols[col.name] = values
+        if cols:
+            out[ins.name] = cols
+    return out
+
+
+def _read_source_preamble_origins(path: Path, dialect: SourceDialect, *, log_tag: str) -> list:
+    """Read ``path``'s first ``dialect.skip_rows`` lines and return their
+    :class:`~asterism_step0.dialect.PreambleOrigin` provenance (:func:`read_preamble_origins`).
+
+    The single place both :func:`_preamble_column_origins` (the post-attach
+    "which column came from where" answer) and :func:`_preamble_header_json`
+    (the pre-attach /api/inspect answer) read a file's preamble lines and hand
+    them to ``read_preamble_origins`` — so the file-open, decode-error, and
+    "no preamble to read" handling exist in exactly one place. Best-effort: an
+    unreadable file logs (tagged ``log_tag`` so the two callers' log lines stay
+    distinguishable) and answers ``[]`` rather than raising.
+    """
+    if dialect.preamble == "drop" or dialect.skip_rows <= 0:
+        return []
+    from asterism_step0.dialect import read_preamble_origins
+
+    try:
+        with path.open(encoding=dialect.encoding, newline="") as fh:
+            preamble_lines: list[str] = []
+            for _ in range(dialect.skip_rows):
+                line = fh.readline()
+                if not line:
+                    break
+                preamble_lines.append(line)
+    except OSError:
+        logger.warning("%s: %s could not be read", log_tag, path.name)
+        return []
+    return read_preamble_origins(preamble_lines, dialect.preamble, delimiter=dialect.delimiter)
+
+
+def _preamble_column_origins(
+    path: Path, dialect: SourceDialect, resolved_columns: list[str]
+) -> dict[str, dict[str, object]]:
+    """Where each BROADCAST preamble column of ``path`` came from.
+
+    A column produced by ``preamble: lines``/``keyvalue``/``keyvalue_cells`` was
+    never written by the person who made the file — the meaning screen must not
+    present an ``asterism``-invented name (``preamble_1``) as if it were the
+    file's own column name. ``resolved_columns`` is the FULL, already-resolved
+    column name list for this one source, in the order :func:`iter_rows`
+    produces it (body columns first, then the broadcast meta columns) — the same
+    list the caller already has from the inspection, so the meta tail can be
+    sliced off and run back through :func:`resolve_header` to reproduce the
+    EXACT collision-suffixed names (``_2``/``_3``) the broadcast used, rather
+    than guessing at them.
+
+    Best-effort by contract (mirrors the endpoint): an unreadable file, or a
+    column count that does not line up with what :func:`read_preamble_origins`
+    reports, answers ``{}`` rather than mislabeling a column or raising.
+    """
+    origins = _read_source_preamble_origins(path, dialect, log_tag="source origins")
+    if not origins:
+        return {}
+    from asterism_step0.dialect import resolve_header
+
+    n_body = len(resolved_columns) - len(origins)
+    if n_body < 0:
+        # The inspection's column count does not match what read_preamble_origins
+        # would broadcast — resolve_header could not reproduce the right names,
+        # so refuse rather than risk pointing an origin at the wrong column.
+        logger.warning(
+            "source origins: %s column count does not match the preamble broadcast", path.name
+        )
+        return {}
+    body_names = resolved_columns[:n_body]
+    resolved_meta = resolve_header(body_names, [o.name for o in origins])
+    return {
+        name: {"source": path.name, "line": o.line, "text": o.text, "named": o.named}
+        for name, o in zip(resolved_meta, origins, strict=True)
+    }
+
+
+def _samples_header_json(inspections: list) -> str:
+    """Compact JSON for the ``X-Asterism-Samples`` response header of /api/inspect.
+
+    Why it exists: ``.xlsx`` and ``.json`` cannot be parsed in the browser, so the
+    "read check" screen showed a bare filename card for the persona's MAIN file
+    format — nothing to confirm, and the column examples on the meaning screen
+    stayed empty for the whole run (KZ-A-08). The server has already read those
+    files; this hands back what it saw. Over budget → ``{}`` (the client keeps its
+    own preview): a partial answer here would silently hide columns.
+    """
+    payload = json.dumps(_column_samples(inspections), separators=(",", ":"))
+    return payload if len(payload) <= _SAMPLES_HEADER_BUDGET else "{}"
+
+
+def _preamble_header_json(inspections: list, paths: list[Path]) -> str:
+    """Compact JSON for the ``X-Asterism-Preamble`` response header of /api/inspect.
+
+    The "read check" screen (S2) is where a preamble line first becomes visible
+    to a human — and the only moment before ``preamble_1`` gets baked into the
+    design, the IRI, and the published item name. Answering "what would each
+    dropped-preamble line become if I choose to record it" here means the
+    screen can offer that choice instead of the machine-invented name silently
+    winning.
+
+    ``{source name: [{name, line, text, named}, …]}`` — only for sources where
+    the inspector detected a still-dropped preamble (``ins.preamble_hint`` is
+    set: ADR source-dialect.md's identify-and-advise). The mode used is that
+    SAME hint — the shape the "record it" answer would actually pin — not the
+    dialect the file was just read with (which is still ``preamble: drop``).
+    ``named`` mirrors :func:`_preamble_column_origins`: True only when the file
+    itself wrote that name (a ``key:``/``key=`` label), False for an invented
+    ``preamble_N``. Reuses :func:`_read_source_preamble_origins` — the same
+    file-read + :func:`~asterism_step0.dialect.read_preamble_origins` call the
+    post-attach ``origins`` answer uses — so the rule is written once.
+
+    Best-effort per source (an unreadable file just has no key, matching
+    ``_preamble_column_origins``). Over budget → ``{}`` (mirrors
+    ``X-Asterism-Samples``): the wizard falls back to no per-line naming rather
+    than the response failing to send.
+    """
+    import dataclasses
+
+    paths_by_name = {p.name: p for p in paths}
+    out: dict[str, list[dict[str, object]]] = {}
+    for ins in inspections:
+        hint = getattr(ins, "preamble_hint", None)
+        dialect = getattr(ins, "dialect", None)
+        if hint is None or dialect is None:
+            continue
+        path = paths_by_name.get(ins.name)
+        if path is None:
+            continue
+        hinted_dialect = dataclasses.replace(dialect, preamble=hint)
+        try:
+            origins = _read_source_preamble_origins(
+                path, hinted_dialect, log_tag="inspect preamble"
+            )
+        except Exception:
+            logger.warning("inspect preamble: %s could not be attributed", path.name)
+            continue
+        if not origins:
+            continue
+        out[ins.name] = [
+            {"name": o.name, "line": o.line, "text": o.text, "named": o.named} for o in origins
+        ]
+    payload = json.dumps(out, separators=(",", ":"))
+    return payload if len(payload) <= _SAMPLES_HEADER_BUDGET else "{}"
+
+
+def _staging_meta(sdir: Path) -> dict:
+    """The staging record's ``meta.json`` (``{}`` when unreadable)."""
+    try:
+        data = json.loads((sdir / "meta.json").read_text("utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _write_staging_meta(sdir: Path, meta: dict) -> None:
+    (sdir / "meta.json").write_text(
+        json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
 def _parse_dialect_overrides(raw: str) -> dict:
     """Parse + boundary-check the wizard's dialect overrides (a JSON form field).
 
@@ -1681,6 +2223,57 @@ def _dialect_standin_bytes(raw: bytes, dialect: SourceDialect) -> bytes:
     return raw[: len(raw) - len(data)]
 
 
+def _batch_header_columns(content: bytes, dialect: SourceDialect | None) -> set[str]:
+    """The header row's column names for a batch's bytes, read the same way
+    materialization will (GAL-A-40's content check must see what Morph-KGC sees).
+
+    Falls back to a bare comma / ``utf-8-sig`` read when the source has no pinned
+    dialect (today's plain-CSV append path — :data:`asterism.dialect.DEFAULT_DIALECT`
+    is exactly that). Any read failure (bad encoding, empty file, …) returns an
+    empty set, which the caller treats as "every expected column is missing" — the
+    fail-closed direction for a rename decision.
+    """
+    from asterism.dialect import DEFAULT_DIALECT, dialect_rows
+
+    work = Path(tempfile.mkdtemp(prefix="asterism-append-header-"))
+    try:
+        tmp = work / "batch"
+        tmp.write_bytes(content)
+        try:
+            row = next(dialect_rows(tmp, dialect or DEFAULT_DIALECT))
+        except (StopIteration, UnicodeDecodeError, OSError, ValueError):
+            return set()
+        return {c for c in row if c}
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def _expected_columns_for_single_source(
+    mapping_ir_yaml: str, source_name: str
+) -> set[str] | None:
+    """The Mapping IR's referenced columns for the dataset's single ``rml:source``.
+
+    GAL-A-40: before a mismatched batch filename is machine-renamed to the pinned
+    source name, this proves the rename is safe by CONTENT — the design's
+    referenced columns must all be present in the batch's header — rather than
+    trusting the (arbitrary, instrument-chosen) filename alone. Returns ``None``
+    when the IR cannot be read; the caller then refuses the rename (fail-closed).
+    """
+    try:
+        from asterism_step0.mapping_ir import parse_mapping_ir, referenced_columns
+    except Exception:
+        return None
+    try:
+        ir = parse_mapping_ir(mapping_ir_yaml)
+    except Exception:
+        return None
+    matched = [tm for tm in ir.maps if Path(tm.source).name == source_name]
+    cols: set[str] = set()
+    for tm in matched or list(ir.maps):
+        cols.update(referenced_columns(tm))
+    return cols
+
+
 class AppendError(Exception):
     """An append precondition / materialization failure carrying an HTTP status.
 
@@ -1753,6 +2346,12 @@ async def _append_batch_to_dataset(
             "(再取り込み) instead",
         ) from exc
     canonical: list[tuple[str, bytes]] = []
+    # GAL-A-40: the design-source rename below changes what materialization sees,
+    # but the "取り込んだファイル" history must keep showing the file the instrument
+    # actually produced — so provenance names are tracked in parallel, one per
+    # batch entry, and used for ``mark_appended`` instead of the (possibly renamed)
+    # ``canonical`` names.
+    provenance_names: list[str] = []
     for name, content in batch:
         # Canonicalize the SAME way the design entrances do, so a batch dropped
         # under the instrument's original (non-ASCII) filename matches the
@@ -1760,7 +2359,7 @@ async def _append_batch_to_dataset(
         try:
             cname = _sanitize_tabular_name(name)
         except HTTPException as exc:
-            raise AppendError(400, str(exc.detail)) from exc
+            raise AppendError(400, _error_text(exc.detail)) from exc
         if cname.lower().endswith(".xlsx"):
             # K6: an .xlsx batch appends as its derived CSV — but only a
             # SINGLE-sheet workbook, whose derived name (<stem>.csv) matches the
@@ -1769,20 +2368,48 @@ async def _append_batch_to_dataset(
             try:
                 derived = await asyncio.to_thread(_expand_xlsx_bytes, cname, content)
             except HTTPException as exc:
-                raise AppendError(422, str(exc.detail)) from exc
+                raise AppendError(422, _error_text(exc.detail)) from exc
             if len(derived) > 1:
                 raise AppendError(
                     400,
-                    "Excel ブックに複数のシートがあります。追記はシートを 1 つにするか、"
-                    "CSV に変換してから追記してください",
+                    "この Excel ファイルには複数のシートがあります。追記するファイルは"
+                    "シートを 1 つにするか、CSV に変換してから追加してください",
                 )
             cname, content = derived[0]
+        provenance_names.append(cname)  # pre-rename: what the instrument actually named it
         if sources and cname not in sources:
-            raise AppendError(
-                400,
-                f"batch file {cname!r} does not match any rml:source in the mapping "
-                f"(expected one of {sorted(sources)})",
-            )
+            # GAL-A-40: an instrument names each export differently (dates,
+            # run numbers, …) — S9 promises "the same device's files, as-is",
+            # so a single-source design machine-resolves the name instead of
+            # rejecting it. The safety check moves from the NAME to the
+            # CONTENT: the batch's header must carry every column the design
+            # reads before it is accepted under the pinned source name. A
+            # multi-source design stays name-matched (ambiguous which source a
+            # lone file continues) — unchanged from today.
+            if len(sources) == 1:
+                target = next(iter(sources))
+                expected_cols = _expected_columns_for_single_source(
+                    str(data["artifacts"].get("mapping.yaml") or ""), target
+                )
+                if expected_cols is not None:
+                    header_cols = await asyncio.to_thread(
+                        _batch_header_columns, content, dialected.get(target)
+                    )
+                    missing = sorted(expected_cols - header_cols)
+                    if not missing:
+                        cname = target
+                    else:
+                        raise AppendError(
+                            400,
+                            "このファイルは最初のファイルと列が違います"
+                            f"(見つからない列: {'、'.join(missing)})",
+                        )
+            if cname not in sources:
+                raise AppendError(
+                    400,
+                    f"batch file {cname!r} does not match any rml:source in the mapping "
+                    f"(expected one of {sorted(sources)})",
+                )
         canonical.append((cname, content))
     batch = canonical
 
@@ -1867,7 +2494,7 @@ async def _append_batch_to_dataset(
     new_meta = registry.mark_appended(
         registry_root,
         dataset_id,
-        batch_files=[n for n, _ in batch],
+        batch_files=provenance_names,
         source_files=all_files,
         triples_in_batch=triples_in_batch,
         appended_at=datetime.now(UTC).isoformat(),
@@ -2139,6 +2766,104 @@ async def _append_watch_loop(
     await watch_tree(
         root, on_ready, settle_s=cfg.settle_s, stop_event=stop, events_source=events_source
     )
+
+
+def _design_source_files(registry_root: Path, dataset_id: str | None) -> list[Path]:
+    """The dataset's persisted design-time sources, or [] (never raises).
+
+    Anything that wants to re-check a design against the DATA needs these; a
+    missing / unreadable source must degrade to "cannot check", never to a 500.
+    """
+    if not dataset_id:
+        return []
+    try:
+        return registry.list_source_files(registry_root, dataset_id)
+    except Exception:
+        logger.exception("listing design sources for %s failed (continuing)", dataset_id)
+        return []
+
+
+# Where a dataset remembers the meanings/units a HUMAN typed (kantan S6).
+# Beside the bundle rather than inside the design: the design is regenerated by
+# every AI round, and the whole point of this file is to outlive those rounds
+# (ADR data-facts-invariant N6 — a fact a person asserted is not the model's to
+# forget).
+_DISPLAY_META_FILE = "display-meta.json"
+
+
+def _display_meta_path(registry_root: Path, dataset_id: str) -> Path | None:
+    """``<root>/<id>/display-meta.json``, or None for an unknown/unsafe id."""
+    sdir = registry.source_dir(registry_root, dataset_id)
+    return None if sdir is None else sdir.parent / _DISPLAY_META_FILE
+
+
+def _load_display_meta(registry_root: Path, dataset_id: str | None) -> list[dict]:
+    """The human's meaning/unit corrections for this dataset (``[]``, never raises)."""
+    if not dataset_id:
+        return []
+    path = _display_meta_path(registry_root, dataset_id)
+    if path is None or not path.is_file():
+        return []
+    try:
+        data = json.loads(path.read_text("utf-8"))
+    except (OSError, ValueError):
+        logger.warning("display-meta for %s is unreadable (ignoring)", dataset_id)
+        return []
+    edits = data.get("edits") if isinstance(data, dict) else None
+    return [e for e in edits or [] if isinstance(e, dict) and e.get("predicate")]
+
+
+def _remember_display_meta(registry_root: Path, dataset_id: str, edits: list[dict]) -> None:
+    """Record (upsert) the human's corrections. Best-effort — losing the memo
+    must not fail the edit the user already sees applied."""
+    path = _display_meta_path(registry_root, dataset_id)
+    if path is None:
+        return
+    kept = {_display_meta_key(e): e for e in _load_display_meta(registry_root, dataset_id)}
+    for edit in edits:
+        kept[_display_meta_key(edit)] = edit
+    try:
+        path.write_text(
+            json.dumps({"edits": list(kept.values())}, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    except OSError:
+        logger.exception("could not persist display-meta for %s (continuing)", dataset_id)
+
+
+def _display_meta_key(edit: Mapping[str, object]) -> tuple[str, str, str]:
+    return (
+        str(edit.get("predicate") or ""),
+        str(edit.get("map") or ""),
+        str(edit.get("column") or ""),
+    )
+
+
+def _artifacts_from_document(
+    document_md: str, dataset_name: str, source_dir: Path | None
+) -> tuple[dict[str, str | None], list[str]]:
+    """Re-project the stored artifacts from a design document (no LLM, no writes).
+
+    The same deterministic split ``/api/materialize`` performs; used by the
+    display-meta edit, where the §9 change is display-only and the compiled RML
+    is expected to come back byte-identical.
+    """
+    mat = materialize_schema(
+        document_md,
+        ".",
+        dataset_name,
+        write=False,
+        source_dir=source_dir if source_dir is not None and source_dir.is_dir() else None,
+    )
+    artifacts: dict[str, str | None] = {
+        "diagram.md": mat.diagram_md,
+        "model.yaml": mat.rdf_config_model,
+        "mie.yaml": mat.mie_yaml,
+        "ingester.py": mat.ingester_py,
+        "mapping.rml.ttl": mat.rml_ttl,
+        "mapping.yaml": mat.mapping_ir_yaml,
+    }
+    return artifacts, list(mat.warnings)
 
 
 def _refine_oracle(registry_root: Path, dataset_id: str | None, staging_id: str | None) -> str:
@@ -2475,13 +3200,22 @@ def build_app(
         """
         token = cfg.api_token
         if not token:
+            # The detail reaches a human verbatim (the catalog shows the raw
+            # server message), so it says what the person can do about it. The
+            # operational reason — env var name, fail-closed posture — is a log
+            # line for whoever runs the box, not a sentence for the scientist
+            # who just pressed 公開する.
+            logger.warning(
+                "write route refused: ASTERISM_API_TOKEN is unset "
+                "(fail-closed against anonymous writes / raw SPARQL)"
+            )
             raise HTTPException(
                 503,
-                "この操作は ASTERISM_API_TOKEN を設定するまで無効です "
-                "(機微ストアへの匿名の書き込み・生 SPARQL を防ぐ fail-closed)",
+                "利用許可コード (管理者が設定する API token) が未設定のため、"
+                "この操作はできません",
             )
         if not _write_credential_ok(cfg, authorization, x_asterism_token):
-            raise HTTPException(401, "API トークンがありません/一致しません")
+            raise HTTPException(401, "利用許可コードが違います")
 
     # The set of routes that mutate the store/registry or expose raw SPARQL.
     _write_auth = [Depends(require_write_auth)]
@@ -2495,26 +3229,63 @@ def build_app(
             status_code=200 if ok else 503,
         )
 
+    def _graph_display(graphs: list[str], lang: str) -> dict[str, dict[str, str]]:
+        """Resolve source graph IRIs to something a reader recognises.
+
+        ``…/graph/canonical/<dataset_id>[/v<n>]`` → the dataset's own name (so
+        the 出どころ column never shows ``dataset-9422ba7c``), and
+        ``…/graph/ontology/<id>`` → 「共通の言葉」. Unresolvable graphs are simply
+        omitted; the renderer then drops the column rather than showing an
+        internal id. Resolution lives here so ``describe.py`` stays free of any
+        registry dependency.
+        """
+        names = {
+            str(m.get("id")): str(m.get("name") or "")
+            for m in registry.list_datasets(cfg.registry_root)
+        }
+        info: dict[str, dict[str, str]] = {}
+        for graph in graphs:
+            base = re.sub(r"/v\d+$", "", graph)
+            if base.startswith(substrate.CANONICAL_GRAPH_BASE):
+                dataset_id = base[len(substrate.CANONICAL_GRAPH_BASE) :]
+                name = names.get(dataset_id)
+                if name:
+                    info[graph] = {"name": name, "dataset_id": dataset_id}
+            elif base.startswith(substrate.ONTOLOGY_GRAPH_BASE):
+                info[graph] = {"name": describe_mod.shared_terms_label(lang)}
+        return info
+
     @app.get("/describe")
     async def describe_iri(
         iri: str,
         format: str | None = None,
+        lang: str | None = None,
         accept: str | None = Header(default=None),
+        accept_language: str | None = Header(default=None),
     ) -> Response:
         """Dereference one IRI against the PUBLISHED (canonical + ontology)
         scope — ADR instance-iri-base.md phase 2. Content-negotiated: Turtle
         for machines (Accept: text/turtle / ?format=ttl), HTML for browsers.
         Tokenless by design: a bounded read of already-published data (same
         exposure class as the typed tools, narrower than the raw-SPARQL
-        escape) — see the module docstring of :mod:`asterism_api.describe`."""
+        escape) — see the module docstring of :mod:`asterism_api.describe`.
+
+        For a browser every failure answers in HTML too: this is where someone
+        who was handed a citation lands, and a raw JSON ``detail`` is a dead end
+        for them (ADR kantan-mode-two-tier-ux.md K11)."""
         iri = iri.strip()
-        if not describe_mod.valid_iri(iri):
-            raise HTTPException(400, "iri must be an absolute http(s) IRI")
+        page_lang = describe_mod.pick_language(lang, accept_language)
         wants_turtle = format in ("ttl", "turtle", "nt") or (
             format is None
             and accept is not None
             and ("text/turtle" in accept or "application/n-triples" in accept)
         )
+        if not describe_mod.valid_iri(iri):
+            if wants_turtle:
+                raise HTTPException(400, "iri must be an absolute http(s) IRI")
+            return HTMLResponse(
+                describe_mod.render_bad_request(iri, lang=page_lang), status_code=400
+            )
         client: OxigraphClient = app.state.client
         try:
             if wants_turtle:
@@ -2536,13 +3307,26 @@ def build_app(
         except Exception as exc:
             # Same posture as /api/sparql: never echo upstream details.
             logger.exception("describe error")
-            raise HTTPException(502, "upstream SPARQL error") from exc
+            if wants_turtle:
+                raise HTTPException(502, "upstream SPARQL error") from exc
+            return HTMLResponse(
+                describe_mod.render_upstream_error(lang=page_lang), status_code=502
+            )
         if data is None:
             graphs = await substrate.canonical_graphs(client)
             return HTMLResponse(
-                describe_mod.render_not_found(iri, len(graphs)), status_code=404
+                describe_mod.render_not_found(iri, len(graphs), lang=page_lang),
+                status_code=404,
             )
-        return HTMLResponse(describe_mod.render_html(iri, data))
+        return HTMLResponse(
+            describe_mod.render_html(
+                iri,
+                data,
+                lang=page_lang,
+                graph_info=_graph_display(list(data["graphs"]), page_lang),
+                iri_base=cfg.iri_base,
+            )
+        )
 
     @app.get("/api/instance")
     async def instance_info(
@@ -2651,18 +3435,27 @@ def build_app(
                     raise HTTPException(400, "missing filename")
                 await _save_upload(upload, sdir / "raw" / _sanitize_tabular_name(upload.filename))
             replay = _uploads_from_dir(sdir / "raw")
+            sheets: dict[str, dict[str, str]] = {}
             try:
-                paths = await _save_tabular_uploads(replay, sdir)
+                paths = await _save_tabular_uploads(replay, sdir, sheets)
             finally:
                 for u in replay:
                     await u.close()
             meta = staging.write_meta(sdir, [p.name for p in paths])
+            if sheets:
+                # Which derived table came from which worksheet — the record has
+                # to remember it, because everything downstream sees only the
+                # slugged CSV names (K6). Kept on the record, not recomputed:
+                # re-opening the workbook to answer would read it a second time.
+                meta["sheets"] = sheets
+                _write_staging_meta(sdir, meta)
         except Exception:
             shutil.rmtree(sdir, ignore_errors=True)
             raise
         return {
             "staging_id": sid,
             "sources": meta["sources"],
+            "sheets": meta.get("sheets") or {},
             "expires_at": staging.expires_at(sdir),
         }
 
@@ -2677,8 +3470,40 @@ def build_app(
         return {
             "staging_id": staging_id,
             "sources": [p.name for p in paths],
+            "sheets": _staging_meta(sdir).get("sheets") or {},
             "expires_at": staging.expires_at(sdir),
         }
+
+    @app.post("/api/staging/{staging_id}/sources", dependencies=_write_auth)
+    async def select_staging_sources(
+        staging_id: str, body: StagingSourcesBody
+    ) -> dict[str, object]:
+        """Narrow a staged record to the tables the human actually meant (K6).
+
+        One Excel workbook becomes one table per sheet, and a real workbook
+        routinely carries a chart sheet, a notes sheet and a legend — all of which
+        were handed to the AI as data. This is the answer to "which sheet do you
+        want to use?": the chosen names become the record's sources, so every
+        later design call (inspect / skeleton / continue) reads only those, and
+        the attach persists only those. Nothing is deleted — an unchosen table
+        stays on disk and can be chosen again until the record expires.
+        """
+        try:
+            sdir, _paths = staging.load(cfg.registry_root, staging_id)
+        except staging.StagingNotFound as exc:
+            raise HTTPException(404, "staging not found") from exc
+        meta = _staging_meta(sdir)
+        # The full set is what the record was created with; "sources" may already
+        # be a narrowed selection, so a re-pick must widen back from disk.
+        known = {p.name for p in sdir.iterdir() if p.is_file() and p.name != "meta.json"}
+        chosen = [n for n in dict.fromkeys(body.sources) if n in known]
+        if not chosen:
+            raise HTTPException(
+                422, "none of the requested sources belong to this staged record"
+            )
+        meta["sources"] = chosen
+        _write_staging_meta(sdir, meta)
+        return {"staging_id": staging_id, "sources": chosen}
 
     @app.delete("/api/staging/{staging_id}", dependencies=_write_auth)
     async def delete_staging(staging_id: str) -> dict[str, object]:
@@ -2802,8 +3627,13 @@ def build_app(
         source-dialect.md). A file the inspector cannot decode or parse is a 422 (a
         readable message, not a traceback) — dialect detection normally prevents this.
         """
+        sheets: dict[str, dict[str, str]] = {}
         work, paths, owned = await _design_sources(
-            cfg.registry_root, files, staging_id or None, prefix="asterism-inspect-"
+            cfg.registry_root,
+            files,
+            staging_id or None,
+            prefix="asterism-inspect-",
+            sheets_out=sheets,
         )
         try:
             try:
@@ -2819,19 +3649,38 @@ def build_app(
                     422, f"ソースを表として解析できませんでした: {exc}"
                 ) from exc
             markdown = render_markdown(inspections, fks)
+            # {source: [{name, line, text, named}]} for a source with a
+            # still-dropped preamble the wizard's "record it" answer would
+            # broadcast — only what a per-line rename screen (S2) needs, empty
+            # for a clean source and absent entirely when no source has one.
+            # Computed here (inside the try, before the temp dir is removed
+            # below) because it re-reads each source's own preamble lines.
+            preamble_header = _preamble_header_json(inspections, paths)
         finally:
             if owned:
                 shutil.rmtree(work, ignore_errors=True)
-        return Response(
-            content=markdown,
-            media_type="text/markdown",
-            headers={
-                "X-Asterism-Source-Names": ",".join(p.name for p in paths),
-                # Structured detected dialects for the wizard "read settings" panel
-                # (ADR source-dialect.md); non-default sources only, clean set → {}.
-                "X-Asterism-Dialects": _dialects_header_json(inspections),
-            },
-        )
+        headers = {
+            "X-Asterism-Source-Names": ",".join(p.name for p in paths),
+            # Structured detected dialects for the wizard "read settings" panel
+            # (ADR source-dialect.md); non-default sources only, clean set → {}.
+            "X-Asterism-Dialects": _dialects_header_json(inspections),
+            # Real example values per column, so the "read check" screen has
+            # something to check for the formats the browser cannot parse
+            # (.xlsx / .json) — KZ-A-08.
+            "X-Asterism-Samples": _samples_header_json(inspections),
+            "X-Asterism-Preamble": preamble_header,
+        }
+        if sheets:
+            # {derived csv: {from, sheet}} — only for workbooks that produced more
+            # than one table, i.e. exactly when K6 says to ask which one to use.
+            # Same budget as the samples header, and for the same reason: a
+            # workbook with dozens of long (escaped, so 6x) sheet titles must
+            # degrade to "no sheet chooser", never to a response the server
+            # cannot send at all.
+            encoded = json.dumps(sheets, separators=(",", ":"))
+            if len(encoded) <= _SAMPLES_HEADER_BUDGET:
+                headers["X-Asterism-Sheets"] = encoded
+        return Response(content=markdown, media_type="text/markdown", headers=headers)
 
     @app.post("/api/models/available")
     def models_available(body: ModelsAvailableBody) -> JSONResponse:
@@ -2884,9 +3733,16 @@ def build_app(
         Booleans only — never the key. Lets the UI let a user proceed (and fetch
         models / Ask / propose) without typing a key when the server already has
         one for that provider. Read-open (reveals no secret); all-false unless a
-        key was set via env or ``POST /api/llm/server-keys`` (opt-in)."""
+        key was set via env or ``POST /api/llm/server-keys`` (opt-in).
+
+        ``default_models`` rides along (non-secret): with it a browser whose model
+        registry is empty can use a shared key straight away, instead of being
+        asked to pick a provider and type a model id before anything works."""
         return JSONResponse(
-            {"providers": server_keys.configured_providers(cfg.registry_root)}
+            {
+                "providers": server_keys.configured_providers(cfg.registry_root),
+                "default_models": _default_llm_models(),
+            }
         )
 
     @app.post("/api/llm/server-keys", dependencies=_write_auth)
@@ -3366,6 +4222,18 @@ def build_app(
         Applies review comments to the current schema Markdown via the LLM and
         streams lifecycle events from ``/api/jobs/{job_id}/stream``. Like
         propose, the API key is used only for this run and never persisted (D7).
+
+        With ``dataset_id`` / ``staging_id`` set, the round is GROUNDED: the
+        closed-menu appendix the automatic loop appends to every refine (exact
+        filenames, the real columns, the Tier-0 menu) rides the last comment, so
+        the model cannot invent column names it never saw.
+
+        With ``dataset_id`` set (and a source attached to it) the refined
+        document then goes through the SAME bounded self-correction round 0
+        uses — validate, deterministic repair, at most two §9-only rounds — and
+        the response carries an ``autocorrect`` block of the same shape. Without
+        either the behaviour is byte-identical to before: one LLM call, no menu
+        and no backstop.
         """
         comments = [c for c in (body.comments or []) if c.strip()]
         if not body.schema_md.strip():
@@ -3393,16 +4261,47 @@ def build_app(
             _arm_llm_callbacks(llm, should_cancel=should_cancel)
             result = refine_schema(body.schema_md, comments, llm=llm, language=body.language)
             _record_llm_usage(cfg.registry_root, "refine", provider, llm, model)
+            effective_md = result.effective_schema_md
+            autocorrect: dict[str, object] | None = None
+            # Only a COMPLETE refine is worth repairing: a truncated one already
+            # fell back to the previous schema, which round 0 had validated.
+            if body.dataset_id and result.complete:
+                sources = _design_source_files(cfg.registry_root, body.dataset_id)
+                if sources:
+                    effective_md, autocorrect = design_loop.repair_after_refine(
+                        effective_md,
+                        list(sources),
+                        sources[0].parent,
+                        llm=llm,
+                        on_llm_call=lambda feature: _record_llm_usage(
+                            cfg.registry_root, feature, provider, llm, model
+                        ),
+                        should_cancel=should_cancel,
+                    )
+            # A meaning or a unit the HUMAN typed at S6 is not the model's to
+            # forget: re-assert it on whatever document this round produced,
+            # deterministically and last (ADR data-facts-invariant N6). Without
+            # this, "fix the wording of that one column" quietly reverted every
+            # correction the person had already made.
+            human_meta = _load_display_meta(cfg.registry_root, body.dataset_id)
+            if human_meta:
+                # ValueError = a legacy design with no §9 to re-assert onto.
+                with contextlib.suppress(ValueError):
+                    effective_md, _restored = apply_display_meta_to_document(
+                        effective_md, human_meta
+                    )
             # Surface the truncation guard: `refined_md` stays the raw output for
             # transparency; `effective_schema_md` is what's safe to materialize
-            # next (the previous complete schema when the refine was truncated).
+            # next (the previous complete schema when the refine was truncated,
+            # or the self-corrected document when the backstop ran).
             return {
                 "refined_md": result.refined_md,
-                "effective_schema_md": result.effective_schema_md,
+                "effective_schema_md": effective_md,
                 "complete": result.complete,
                 "missing_artifacts": result.missing_artifacts,
                 "warnings": result.warnings,
                 "metadata": result.metadata,
+                "autocorrect": autocorrect,
             }
 
         jobs: JobManager = app.state.jobs
@@ -3479,12 +4378,17 @@ def build_app(
                             src_dir, _paths = staging.load(cfg.registry_root, body.staging_id)
                 # Deterministic repair + data-fact re-assertion BEFORE the split.
                 # Every path reaches materialize — the loop's own chain and the
-                # wizard's manual "AI に直してもらう" click — but only the loop
-                # re-asserted what the rows proved and ran the machine-known
-                # repairs. So each manual round could silently un-type a numeric
-                # column, which then came back as an advisory and invited the
-                # next click (live 2026-08-18). Doing it here covers both paths
-                # with one call; it is a no-op without a readable source.
+                # wizard's manual "AI に直してもらう" / S6 "AI に反映して作り直す"
+                # click — but only the loop re-asserted what the rows proved and
+                # ran the machine-known repairs. So each manual round could
+                # silently un-type a numeric column, and a dropped
+                # `datatype: xsd:double` makes SPARQL compare numbers lexically:
+                # a range question then answers WRONGLY instead of failing, the
+                # one failure mode the citable-facts invariant cannot tolerate.
+                # It also came back as an advisory, which invited the next click
+                # (live 2026-08-18). Doing it here covers both paths with one
+                # call — deterministic, idempotent, zero LLM calls, and a no-op
+                # without a readable source (a brand-new design the loop covered).
                 proposal_md = body.proposal_md
                 if src_dir is not None and src_dir.is_dir():
                     # (already inside asyncio.to_thread(run) — call directly)
@@ -3592,6 +4496,13 @@ def build_app(
                     # on a brand-new design.
                     "advisories": design_advisories,
                 }
+                if proposal_md != body.proposal_md:
+                    # The deterministic repair edited the design (datatypes
+                    # re-asserted, machine-known fixes applied — no LLM).
+                    # Hand it back so the client's in-memory copy matches what
+                    # was saved — otherwise the next refine would start from the
+                    # stale document and re-introduce the same drop.
+                    result["proposal_md"] = proposal_md
                 # Persist so the bundle appears in the Gallery (authoring→catalog).
                 if body.persist:
                     if body.dataset_id:
@@ -3784,9 +4695,175 @@ def build_app(
         def run() -> dict[str, object]:
             summary = summarize_rml(rml_ttl)
             labels = _model_yaml_labels(model_yaml, rml_ttl, mie_yaml)
+            ir_meta: dict[str, dict[str, str]] = {}
             if mapping_ir_yaml.strip():
-                _merge_ir_display_metadata(mapping_ir_yaml, summary)
+                ir_meta = _merge_ir_display_metadata(mapping_ir_yaml, summary)
+            # Deterministic last resorts (source column, then the term IRI read
+            # as words) so a design that skipped K8's labels still reads.
+            _fill_missing_labels(summary, labels, ir_meta)
             return {"dataset_id": dataset_id, **summary, "labels": labels}
+
+        return await asyncio.to_thread(run)
+
+    @app.get("/api/datasets/{dataset_id}/source-samples")
+    async def get_dataset_source_samples(dataset_id: str) -> dict[str, object]:
+        """Real example values per column, read from the dataset's OWN persisted source.
+
+        The kantan tier's column-meaning screen (S6) asks "is this what this column
+        means?" and answers it with three real values from the file. Those used to
+        come from a preview the BROWSER parsed at drop time — so re-opening the
+        design from the catalog, resuming after a reload, or dropping an ``.xlsx``
+        (which no browser can parse) left the evidence column blank on the one
+        screen that exists to check the design against the data (KZ-B-25).
+
+        Deterministic and LLM-free: the same inspector the design entrance uses,
+        run over ``<id>/source/`` with the dialects the mapping pinned, so an
+        instrument export with a preamble is read the way the design reads it. An
+        ``.xlsx`` was already converted to CSV at attach, so it is covered.
+        Best-effort by contract — a missing/unreadable source answers ``{}``
+        rather than failing the screen.
+
+        ``origins`` answers a narrower question the meaning screen must not
+        blur: for a column BROADCAST from a dropped preamble (``dialects:
+        …preamble: lines/keyvalue/keyvalue_cells``), was that column's NAME
+        written by the person who made the file, or invented by asterism
+        (``preamble_1``)? ``{resolved column name: {source, line, text,
+        named}}`` — only preamble-origin columns appear; a column that came
+        from the file's own header is not in ``origins`` at all, because its
+        name needs no provenance note.
+        """
+        data = registry.load_dataset(cfg.registry_root, dataset_id)
+        if data is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        rml_ttl = str((data.get("artifacts") or {}).get("mapping.rml.ttl") or "")
+        paths = _design_source_files(cfg.registry_root, dataset_id)
+
+        def run() -> dict[str, object]:
+            if not paths:
+                return {"dataset_id": dataset_id, "sources": {}, "columns": {}, "origins": {}}
+            try:
+                dialects = _dialected_sources(rml_ttl)
+            except _DialectReadError:
+                dialects = {}
+            per_source: dict[str, dict[str, list[str]]] = {}
+            # Broadcast preamble columns only (K? — "the item name your file
+            # didn't write"): {resolved column name: {source, line, text, named}}.
+            # First file wins on a name clash, matching ``flat`` below.
+            origins: dict[str, dict[str, object]] = {}
+            for path in paths:
+                # One file at a time, and only files that HAVE columns: the source
+                # directory also holds the original .xlsx a design was converted
+                # from (kept for provenance) and, for a document dataset, a PDF.
+                # Inspecting those as tables raises — and one raise used to take
+                # the whole answer with it, which is exactly the .xlsx case this
+                # endpoint exists for.
+                if path.suffix.lower() not in _SAMPLEABLE_SUFFIXES:
+                    continue
+                try:
+                    inspections, _fks = inspect_source_set([path], dialects=dialects or None)
+                except Exception:
+                    logger.warning("source samples: %s could not be read", path.name)
+                    continue
+                per_source.update(_column_samples(inspections))
+                dialect = dialects.get(path.name)
+                if dialect is not None:
+                    for ins in inspections:
+                        cols = [c.name for c in getattr(ins, "columns", []) or []]
+                        try:
+                            found = _preamble_column_origins(path, dialect, cols)
+                        except Exception:
+                            logger.warning(
+                                "source origins: %s could not be attributed", path.name
+                            )
+                            continue
+                        for name, info in found.items():
+                            origins.setdefault(name, info)
+            # Flat view for the common single-source design; first file wins on a
+            # name clash, matching what the client-side preview did.
+            flat: dict[str, list[str]] = {}
+            for cols in per_source.values():
+                for name, values in cols.items():
+                    if values and name not in flat:
+                        flat[name] = values
+            return {
+                "dataset_id": dataset_id,
+                "sources": per_source,
+                "columns": flat,
+                "origins": origins,
+            }
+
+        return await asyncio.to_thread(run)
+
+    @app.post("/api/datasets/{dataset_id}/display-meta", dependencies=_write_auth)
+    async def set_dataset_display_meta(
+        dataset_id: str, body: DisplayMetaBody
+    ) -> dict[str, object]:
+        """Correct a column's MEANING / UNIT in place — deterministic, no LLM (K8).
+
+        The meaning of a column and the unit it is in are the two things only the
+        person who took the measurements knows, and until now the only way to fix
+        them was a free-text note → a full LLM refine → a rewrite of the whole
+        design → a re-ingest. That is minutes of waiting to fix "K", and weak
+        models were observed ignoring the note or breaking something else while
+        obeying it (KZ-B-05 / WEAK-MODEL-20).
+
+        ``label`` and ``unit`` are DISPLAY metadata on the mapping spec: no triple
+        and no value changes, so the correction is a splice of the §9 block plus a
+        re-projection of the artifacts (:func:`materialize_schema`) — the same
+        deterministic path the unit auto-fill uses. The edits are also recorded
+        beside the dataset as HUMAN-owned, so a later AI round cannot silently
+        revert them (re-asserted on /api/refine).
+
+        Returns the rows it actually changed. 409 when the dataset has no stored
+        design to splice (nothing to be the single source of truth).
+        """
+        data = registry.load_dataset(cfg.registry_root, dataset_id)
+        if data is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        edits = [e for e in body.edits if e.predicate.strip()]
+        if not edits:
+            raise HTTPException(422, "at least one edit is required")
+        proposal_md = registry.load_proposal(cfg.registry_root, dataset_id) or ""
+        if not proposal_md.strip():
+            raise HTTPException(
+                409, f"dataset {dataset_id!r} has no stored design to edit"
+            )
+        source_dir = registry.source_dir(cfg.registry_root, dataset_id)
+
+        def run() -> dict[str, object]:
+            spec = [e.model_dump() for e in edits]
+            try:
+                new_md, changed = apply_display_meta_to_document(proposal_md, spec)
+            except ValueError as exc:
+                raise HTTPException(422, str(exc)) from exc
+            if not changed:
+                return {"dataset_id": dataset_id, "changed": [], "stored": False}
+            projected, warnings = _artifacts_from_document(new_md, dataset_id, source_dir)
+            artifacts = {k: v or "" for k, v in projected.items()}
+            # A meaning is display metadata: the compiled mapping must come back
+            # unchanged. If it did not, something else is wrong with the document
+            # and overwriting a working mapping over a label edit would be the
+            # worst possible trade — refuse and leave the dataset as it was.
+            stored_rml = str((data.get("artifacts") or {}).get("mapping.rml.ttl") or "")
+            if stored_rml.strip() and not artifacts["mapping.rml.ttl"].strip():
+                raise HTTPException(
+                    409,
+                    "the stored design no longer compiles, so the meaning could not "
+                    "be saved without losing the mapping",
+                )
+            meta = registry.update_dataset_artifacts(
+                cfg.registry_root,
+                dataset_id,
+                artifacts,
+                complete=bool(data["meta"].get("complete")),
+                warnings=warnings,
+                traps=list(data["meta"].get("traps") or []),
+                exit_code=int(data["meta"].get("exit_code") or 0),
+                proposal_md=new_md,
+                advisories=list(data["meta"].get("advisories") or []),
+            )
+            _remember_display_meta(cfg.registry_root, dataset_id, spec)
+            return {"dataset_id": dataset_id, "changed": changed, "stored": meta is not None}
 
         return await asyncio.to_thread(run)
 
@@ -3815,9 +4892,18 @@ def build_app(
         artifacts = data.get("artifacts") or {}
 
         classes: list[dict[str, object]] = []
-        if meta.get("ingested"):
-            staged_iri = meta.get("graph_iri") or substrate.canonical_graph_iri(
-                dataset_id
+        # Before promote the data sits in the staged draft (``graph_iri``);
+        # promote clears ``ingested``/``graph_iri`` and records the SAME version
+        # graph as ``live_graph`` (an O(1) pointer flip — nothing moves). Reading
+        # only ``ingested`` therefore made the correspondence card vanish exactly
+        # when it matters most: 見直す on an already-published dataset, where the
+        # question is "does the published version still say what I meant?".
+        # /trial-queries already resolves it this way; this is the same rule.
+        if meta.get("ingested") or meta.get("promoted"):
+            staged_iri = (
+                meta.get("graph_iri")  # the staged draft (pre-promote)
+                or meta.get("live_graph")  # the live version graph (post-promote)
+                or substrate.canonical_graph_iri(dataset_id)  # pre-part5 records
             )
             q = (
                 f"SELECT ?class (COUNT(DISTINCT ?s) AS ?n) WHERE {{ "
@@ -3859,7 +4945,15 @@ def build_app(
         source_rows = await asyncio.to_thread(
             _count_source_rows, cfg.registry_root, dataset_id
         )
-        return {"dataset_id": dataset_id, "classes": classes, "source_rows": source_rows}
+        # `counted` separates "nothing has been taken in yet" from "the count
+        # failed": without it the UI said the latter for both, which reads as an
+        # error on a screen where nothing is wrong (2026-08-19 review).
+        return {
+            "dataset_id": dataset_id,
+            "classes": classes,
+            "source_rows": source_rows,
+            "counted": bool(meta.get("ingested") or meta.get("promoted")),
+        }
 
     @app.get("/api/datasets/{dataset_id}/trial-queries")
     async def dataset_trial_queries(dataset_id: str) -> dict[str, object]:
@@ -3924,7 +5018,18 @@ def build_app(
         labels, ir_meta = await asyncio.to_thread(display_meta)
 
         def label_of(iri: str) -> str | None:
-            return (ir_meta.get(iri) or {}).get("label") or labels.get(iri) or None
+            # ① authored label (K8) ② model.yaml projection ③ the source column
+            # heading ④ the term IRI read as words. The last two are new: the
+            # trial questions on S7 are read aloud by the person who made the
+            # file, and "hasSeebeckCoefficient の範囲は" is not their language
+            # when the server is holding the column heading they typed.
+            return (
+                (ir_meta.get(iri) or {}).get("label")
+                or labels.get(iri)
+                or (ir_meta.get(iri) or {}).get("column_label")
+                or _humanize_term_iri(iri)
+                or None
+            )
 
         def unit_of(iri: str) -> str | None:
             return (ir_meta.get(iri) or {}).get("unit") or None
@@ -4428,8 +5533,19 @@ def build_app(
         time — its RAW uploads replay through the very same converter as a fresh
         upload (an ``.xlsx`` keeps its original alongside, exactly as before),
         and the staging record is consumed.
+
+        The response also carries ``validation_issues`` / ``advisories``
+        RECOMPUTED against the source that was just attached. The kantan flow
+        runs materialize → attach → ingest, so the first materialize mints the
+        dataset and therefore has no source: "column X of your file is not used
+        by this design" — the one thing that tells a user a weak model dropped
+        17 of their 20 columns — could not be computed even once, and the value
+        stored on the dataset at that moment was the source-less (empty) one.
+        Answering it here means the caller learns it at the first moment it is
+        knowable, with no extra round-trip and no LLM call.
         """
-        if registry.load_dataset(cfg.registry_root, dataset_id) is None:
+        existing = registry.load_dataset(cfg.registry_root, dataset_id)
+        if existing is None:
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
         if staging_id:
             try:
@@ -4440,8 +5556,14 @@ def build_app(
             if not raw:
                 raise HTTPException(404, f"staging {staging_id!r} holds no sources")
             uploads = _uploads_from_dir(sdir / "raw")
+            # The raw workbook is re-converted here, so the sheet choice made at
+            # S2 has to be re-applied — otherwise the design maps three sheets
+            # and the dataset persists all seven (K6 / KZ-A-09).
+            keep = {str(n) for n in (_staging_meta(sdir).get("sources") or [])} or None
             try:
-                saved, meta = await _persist_source_uploads(cfg.registry_root, dataset_id, uploads)
+                saved, meta = await _persist_source_uploads(
+                    cfg.registry_root, dataset_id, uploads, keep
+                )
             finally:
                 for u in uploads:
                     await u.close()
@@ -4451,8 +5573,22 @@ def build_app(
             if not files:
                 raise HTTPException(400, "no source files uploaded")
             saved, meta = await _persist_source_uploads(cfg.registry_root, dataset_id, files)
+        rml_ttl = (existing.get("artifacts") or {}).get("mapping.rml.ttl")
+        try:
+            issues, advisories = await asyncio.to_thread(
+                _design_checks_at_materialize, cfg.registry_root, dataset_id, rml_ttl
+            )
+        except Exception:  # advice must never fail an otherwise-successful attach
+            logger.exception("design checks after source attach failed (continuing)")
+            issues, advisories = [], []
         return JSONResponse(
-            {"dataset_id": dataset_id, "source_files": saved, "dataset": meta}
+            {
+                "dataset_id": dataset_id,
+                "source_files": saved,
+                "dataset": meta,
+                "validation_issues": issues,
+                "advisories": advisories,
+            }
         )
 
     @app.post("/api/documents", dependencies=_write_auth)
@@ -4615,8 +5751,8 @@ def build_app(
         if not source_paths:
             raise HTTPException(
                 400,
-                "投入には CSV / JSON / XML のソースファイルが必要です。"
-                "設計時に添付するか、ここでアップロードしてください",
+                "取り込むには元のファイル (CSV / JSON / XML) が必要です。"
+                "設計時に置いたファイルをもう一度追加してください",
             )
         source_dir = source_paths[0].parent
 
@@ -5017,7 +6153,7 @@ def build_app(
         if data is None:
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
         if not data["meta"].get("ingested"):
-            raise HTTPException(400, "dataset has no staged graph (not ingested)")
+            raise HTTPException(400, "まだ公開前の下書きに取り込まれていません。")
         client: OxigraphClient = app.state.client
         # part5: align the *staged version graph* (recorded at ingest) against the
         # citable corpus — it is not promoted yet, so it is not part of that scope.
@@ -5041,7 +6177,15 @@ def build_app(
         if data is None:
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
         if not data["meta"].get("ingested"):
-            raise HTTPException(400, "dataset has no staged graph to promote (not ingested)")
+            # kantan S8 can reach this (publish pressed before the draft ingest
+            # finished). The plain sentence and the "「確かめる」に戻る" button live
+            # in the UI's error dictionary keyed by this code; the English
+            # message stays for the folded technical view.
+            raise _coded_error(
+                400,
+                "dataset.not_ingested",
+                "dataset has no staged graph to promote (not ingested)",
+            )
         client: OxigraphClient = app.state.client
         dataset_key = substrate.canonical_graph_iri(dataset_id)
         # The staged version graph (recorded at ingest) holds the new data. Aligning
@@ -5075,6 +6219,22 @@ def build_app(
         # crosswalk-hub.md ②: if this dataset participates in the crosswalk, rebuild
         # the hub now (inline best-effort) so its newly-citable values are joined.
         await _maybe_rebuild_crosswalk(client, cfg.registry_root, dataset_id)
+        # ADR ask-quality-and-generality.md: register this dataset's deterministic
+        # trial queries as typed query tools, so Ask answers "how many / what range
+        # / which is largest" from the verified path instead of asking a weak model
+        # to compose SPARQL. Best-effort: a failure here must not undo the promote.
+        try:
+            trial = await dataset_trial_queries(dataset_id)
+            tools = synthesize_query_tools_from_trial_queries(trial)
+            if tools:
+                await asyncio.to_thread(
+                    write_registry_query_tools,
+                    cfg.registry_root,
+                    dataset_id,
+                    tools,
+                )
+        except Exception:  # never block a promote on tool synthesis
+            logger.exception("query tool synthesis failed for %s (continuing)", dataset_id)
         # ADR togomcp-auto-publish.md: project the vetted MIE into the togomcp
         # catalog (best-effort, opt-in via ASTERISM_TOGOMCP_DIR). Only promoted
         # data is ever published; the projection pins the CURRENT live graph.
@@ -5120,7 +6280,12 @@ def build_app(
         if data is None:
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
         if not data["meta"].get("promoted"):
-            raise HTTPException(400, "dataset is not promoted (nothing canonical to retract)")
+            # S8 promises "間違いに気づいたら、いつでも引用対象から外せます" — the
+            # sentence that promise fails with is read by the same person, so it
+            # says what happened in their words, not the store's.
+            raise HTTPException(
+                400, "このデータはまだ公開されていないため、引用対象から外す操作はできません。"
+            )
         canonical_iri = substrate.canonical_graph_iri(dataset_id)
         client: OxigraphClient = app.state.client
         now = datetime.now(UTC).isoformat()
@@ -5257,6 +6422,42 @@ def build_app(
             raise HTTPException(400, str(exc)) from exc
         return perspective_id
 
+    def _enrich_crosswalk_config_dict(config_dict: dict | None) -> dict | None:
+        """Read-time DISPLAY enrichment for a crosswalk config response
+        (XW-01/XW-04/XW-06): each participant gets the dataset's CURRENT name
+        and a ``predicate_label``, each concept gets a ``concept_label`` —
+        resolved fresh on every read via :func:`_crosswalk_predicate_label_resolver`.
+        The persisted config (ids + predicate IRIs) is never touched, only this
+        response dict — a rename or a redesign is reflected without a migration.
+        """
+        if config_dict is None:
+            return None
+        names = {
+            str(m.get("id")): str(m.get("name") or m.get("id"))
+            for m in registry.list_datasets(cfg.registry_root)
+        }
+        label_of = _crosswalk_predicate_label_resolver(cfg.registry_root)
+        for concept in config_dict.get("concepts") or []:
+            resolved: list[str] = []
+            for p in concept.get("participants") or []:
+                ds_id = str(p.get("dataset_id") or "")
+                if ds_id in names:
+                    p["name"] = names[ds_id]
+                preds = (
+                    [p["predicate"]]
+                    if p.get("predicate")
+                    else list((p.get("predicates") or {}).values())
+                )
+                label = next(
+                    (got for pred in preds if (got := label_of(ds_id, pred))), None
+                )
+                if label:
+                    p["predicate_label"] = label
+                    if label not in resolved:
+                        resolved.append(label)
+            concept["concept_label"] = resolved[0] if len(resolved) == 1 else " / ".join(resolved)
+        return config_dict
+
     def _crosswalk_view(perspective_id: str) -> dict:
         config = crosswalk_runtime.load_config(cfg.registry_root, perspective_id)
         data = registry.load_dataset(
@@ -5265,7 +6466,9 @@ def build_app(
         return {
             "perspective_id": perspective_id,
             "exists": config is not None,
-            "config": crosswalk_runtime.config_to_dict(config) if config else None,
+            "config": _enrich_crosswalk_config_dict(
+                crosswalk_runtime.config_to_dict(config) if config else None
+            ),
             "dataset": data["meta"] if data else None,
         }
 
@@ -5333,7 +6536,9 @@ def build_app(
             out.append(
                 {
                     "perspective_id": pid,
-                    "config": crosswalk_runtime.config_to_dict(config) if config else None,
+                    "config": _enrich_crosswalk_config_dict(
+                        crosswalk_runtime.config_to_dict(config) if config else None
+                    ),
                     "dataset": meta,
                 }
             )
@@ -5391,6 +6596,7 @@ def build_app(
                 skipped_datasets=skipped,
                 progress=lambda phase, payload: emit(phase=phase, **payload),
                 should_cancel=should_cancel,
+                predicate_label_of=_crosswalk_predicate_label_resolver(cfg.registry_root),
             )
             # Building a candidate whose id already exists REPLACES that crosswalk —
             # the UI has to be able to warn before that happens.

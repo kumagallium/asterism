@@ -18,6 +18,12 @@ export interface SourceDialect {
    *  `keyvalue_cells` (broadcast the parsed preamble metadata onto every row).
    *  ADR source-dialect.md. */
   preamble: string
+  /** What the PERSON called each preamble column the reader had to name itself
+   *  (`{preamble_1: '試料名'}`). A preamble line with no key of its own gets a
+   *  machine name, and that name would otherwise ride all the way into the
+   *  design, the IRIs and the published property name (ADR K20/K21). Absent or
+   *  empty means "keep the machine name". */
+  preamble_names?: Record<string, string>
 }
 
 /** A detected dialect, plus where it came from (auto-detected vs human-specified). */
@@ -29,6 +35,18 @@ export interface DetectedDialect extends SourceDialect {
   preamble_hint?: string
 }
 
+/** One column the reader would create from a preamble line, if the person keeps
+ *  the preamble. `named` says whether the FILE gave it its name (a `key: value`
+ *  line) or the reader had to invent one. */
+export interface PreambleColumn {
+  name: string
+  /** 1-based line in the source file. */
+  line: number
+  /** The raw preamble text this column would carry. */
+  text: string
+  named: boolean
+}
+
 /** The structured result of /api/inspect: the Markdown body plus the sidecar
  *  headers (canonical source names + detected non-default dialects). */
 export interface InspectResult {
@@ -37,6 +55,36 @@ export interface InspectResult {
   sourceNames: string[]
   /** Detected NON-default dialects keyed by canonical name (clean sources absent). */
   dialects: Record<string, DetectedDialect>
+  /** `{source: {column: [up to 3 real values]}}` as the SERVER read the file.
+   *  The only preview there is for .xlsx / .json, which the browser cannot parse
+   *  (KZ-A-08). Per column, never assembled into rows: the examples are picked
+   *  per column, so a row of them would be a record nobody's file contains. */
+  samples: Record<string, Record<string, string[]>>
+  /** `{derived table: {from: workbook, sheet: worksheet title}}` — only for a
+   *  workbook that produced MORE THAN ONE table, i.e. exactly when the user has
+   *  to be asked which sheets to use (K6). */
+  sheets: Record<string, SheetOrigin>
+  /** `{source: [columns the preamble would create]}` — only sources that HAVE a
+   *  preamble. Lets S2 ask for a name at the moment the column is created,
+   *  instead of asking about a machine name after it has spread (K21). */
+  preambleColumns: Record<string, PreambleColumn[]>
+}
+
+/** Where a derived table came from, in the words of the workbook (K6). */
+export interface SheetOrigin {
+  from: string
+  sheet: string
+}
+
+/** Parse a JSON response header; an unreadable one degrades to `fallback`
+ *  rather than breaking the call it rode along with. */
+function jsonHeader<T>(res: Response, name: string, fallback: T): T {
+  try {
+    const raw = res.headers.get(name)
+    return raw ? (JSON.parse(raw) as T) : fallback
+  } catch {
+    return fallback
+  }
 }
 
 /**
@@ -60,20 +108,24 @@ export async function inspectCsvs(
   const url = query ? `/api/inspect?${query}` : '/api/inspect'
 
   const res = await fetch(url, { method: 'POST', body: form })
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new Error(`inspect failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
-  }
+  if (!res.ok) await throwApiError(res, 'inspect')
   const markdown = await res.text()
   const namesHeader = res.headers.get('X-Asterism-Source-Names') ?? ''
   const sourceNames = namesHeader ? namesHeader.split(',').filter(Boolean) : []
-  let dialects: Record<string, DetectedDialect>
-  try {
-    dialects = JSON.parse(res.headers.get('X-Asterism-Dialects') ?? '{}')
-  } catch {
-    dialects = {} // an unreadable header must not break inspect (byte-safe fallback)
-  }
-  return { markdown, sourceNames, dialects }
+  // an unreadable header must not break inspect (byte-safe fallback)
+  const dialects = jsonHeader<Record<string, DetectedDialect>>(res, 'X-Asterism-Dialects', {})
+  const samples = jsonHeader<Record<string, Record<string, string[]>>>(
+    res,
+    'X-Asterism-Samples',
+    {},
+  )
+  const sheets = jsonHeader<Record<string, SheetOrigin>>(res, 'X-Asterism-Sheets', {})
+  const preambleColumns = jsonHeader<Record<string, PreambleColumn[]>>(
+    res,
+    'X-Asterism-Preamble',
+    {},
+  )
+  return { markdown, sourceNames, dialects, samples, sheets, preambleColumns }
 }
 
 /**
@@ -183,10 +235,7 @@ export async function proposeCsvs(
     body: form,
     headers: llmHeaders(creds),
   })
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new Error(`propose failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
-  }
+  if (!res.ok) await throwApiError(res, 'propose')
   const { job_id } = (await res.json()) as { job_id: string }
   handlers.onStart?.(job_id)
   return subscribeJob(job_id, handlers)
@@ -411,10 +460,7 @@ export async function proposeSkeleton(
   const url = query ? `/api/propose/skeleton?${query}` : '/api/propose/skeleton'
 
   const res = await fetch(url, { method: 'POST', body: form, headers: llmHeaders(creds) })
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new Error(`skeleton failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
-  }
+  if (!res.ok) await throwApiError(res, 'skeleton')
   const { job_id } = (await res.json()) as { job_id: string }
   handlers.onStart?.(job_id)
   return subscribeJob(job_id, handlers)
@@ -450,10 +496,7 @@ export async function proposeContinue(
   const url = query ? `/api/propose/continue?${query}` : '/api/propose/continue'
 
   const res = await fetch(url, { method: 'POST', body: form, headers: llmHeaders(creds) })
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new Error(`continue failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
-  }
+  if (!res.ok) await throwApiError(res, 'continue')
   const { job_id } = (await res.json()) as { job_id: string }
   handlers.onStart?.(job_id)
   return subscribeJob(job_id, handlers)
@@ -475,10 +518,7 @@ export async function validateSkeleton(
   form.append('skeleton', JSON.stringify(skeleton))
   appendDialects(form, dialects)
   const res = await fetch('/api/propose/skeleton/validate', { method: 'POST', body: form })
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new Error(`skeleton validate failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
-  }
+  if (!res.ok) await throwApiError(res, 'skeleton validate')
   return ((await res.json()) as { annotations: SkeletonAnnotations }).annotations
 }
 
@@ -509,6 +549,13 @@ export async function refineSchema(
   creds: LlmCredentials | null,
   handlers: RefineHandlers,
   language?: string,
+  /** Which data this refine is about — a saved dataset, or a source still
+   *  staged on the server. Naming it buys three things the server can only do
+   *  knowing WHICH data this is: the closed-menu oracle (real filenames /
+   *  columns / Tier-0 menu) so the manual round sees the same facts the
+   *  automatic loop does, the same bounded self-correction round 0 runs, and
+   *  the meanings/units a human typed are re-asserted on the result instead of
+   *  being quietly rewritten (N6). */
   source?: { datasetId?: string | null; stagingId?: string | null },
 ): Promise<JobHandle> {
   const res = await fetch('/api/refine', {
@@ -521,17 +568,11 @@ export async function refineSchema(
       schema_md: schemaMd,
       comments,
       language: language || undefined,
-      // Lets the server append the closed-menu oracle (real filenames /
-      // columns / Tier-0 menu) — the manual round then sees the same facts the
-      // automatic loop does instead of guessing column names.
       dataset_id: source?.datasetId || undefined,
       staging_id: source?.stagingId || undefined,
     }),
   })
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new Error(`refine failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
-  }
+  if (!res.ok) await throwApiError(res, 'refine')
   const { job_id } = (await res.json()) as { job_id: string }
   handlers.onStart?.(job_id)
   return subscribeJob(job_id, handlers)
@@ -568,10 +609,7 @@ export async function cancelJob(jobId: string): Promise<void> {
     method: 'POST',
     headers: authHeaders(),
   })
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new Error(`cancel failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
-  }
+  if (!res.ok) await throwApiError(res, 'cancel')
 }
 
 /** One trap result from the 8-trap validator. */
@@ -589,14 +627,78 @@ export interface TrapResult {
   fix?: string
 }
 
-/** Error carrying the HTTP status so callers can branch (e.g. 404 → recreate). */
+/**
+ * A failed api call, as STRUCTURE rather than as a sentence.
+ *
+ * Every call in this module used to throw `new Error("ingest failed (HTTP 404):
+ * {\"detail\":…}")`, which dissolved the status and the server's detail into one
+ * English string — so the screens that must react to WHICH failure this is (the
+ * kantan stop card, the workbench's 404-recreate path) had no choice but to
+ * classify by substring, and whatever they failed to recognise reached the
+ * researcher raw. The fields below are what callers should branch on.
+ *
+ * `message` deliberately keeps the exact sentence this family always threw: it
+ * is what the folded "技術情報" view shows, and `plainError`
+ * (kantan/errorMessages.ts) still classifies on it.
+ */
 export class ApiError extends Error {
+  /** Which call failed — this module's own English verb ("ingest", "propose"). */
+  readonly op: string
+  /** HTTP status of the failed response. */
   readonly status: number
+  /** The response body verbatim (may be JSON, may be empty). */
+  readonly body: string
+  /** FastAPI's `{"detail": …}` unwrapped; the body itself when it is not that shape. */
+  readonly detail: string
+  /** Machine-readable cause when the server sends `{"detail": {"error": "…"}}`. */
+  readonly code?: string
 
-  constructor(message: string, status: number) {
-    super(message)
+  constructor(op: string, status: number, body = '') {
+    super(apiErrorMessage(op, status, body))
+    this.name = 'ApiError'
+    this.op = op
     this.status = status
+    this.body = body
+    const { detail, code } = unwrapDetail(body)
+    this.detail = detail
+    this.code = code
   }
+}
+
+/** The sentence this error family has always carried. Kept byte-for-byte —
+ *  the stop card's deterministic classifier reads it (K11). */
+function apiErrorMessage(op: string, status: number, body: string): string {
+  return `${op} failed (HTTP ${status})${body ? `: ${body}` : ''}`
+}
+
+/** Pull the server's human/machine cause out of a FastAPI error body. Parse
+ *  failure keeps the raw body — never less information than before. */
+function unwrapDetail(body: string): { detail: string; code?: string } {
+  const brace = body.indexOf('{')
+  if (brace >= 0) {
+    try {
+      const parsed = JSON.parse(body.slice(brace)) as { detail?: unknown }
+      const detail = parsed.detail
+      if (typeof detail === 'string') return { detail }
+      if (detail && typeof detail === 'object') {
+        const error = (detail as { error?: unknown }).error
+        if (typeof error === 'string') return { detail: error, code: error }
+      }
+    } catch {
+      /* not JSON — the body is already the best detail we have */
+    }
+  }
+  return { detail: body }
+}
+
+/**
+ * Read a failed response and throw the {@link ApiError} for it. Always throws;
+ * `await throwApiError(res, 'ingest')` is the one-line form every call site in
+ * this module uses, so status/detail can never be lost on the way out again.
+ */
+export async function throwApiError(res: Response, op: string): Promise<never> {
+  const body = await res.text().catch(() => '')
+  throw new ApiError(op, res.status, body)
 }
 
 /** Registry meta for a persisted dataset (subset the workbench needs). */
@@ -685,10 +787,7 @@ export async function attachSource(
     headers: authHeaders(),
     body: form,
   })
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new Error(`attach source failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
-  }
+  if (!res.ok) await throwApiError(res, 'attach source')
   return (await res.json()) as AttachSourceResult
 }
 
@@ -716,10 +815,7 @@ export async function createDocumentDataset(
   form.append('name', name)
   for (const file of files) form.append('files', file)
   const res = await fetch('/api/documents', { method: 'POST', headers: authHeaders(), body: form })
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new Error(`create document failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
-  }
+  if (!res.ok) await throwApiError(res, 'create document')
   return (await res.json()) as CreateDocumentResult
 }
 
@@ -843,7 +939,7 @@ export async function startIngestJob(
     // structured issues so the UI renders a readable bulleted list, not a raw string.
     const issues = parseIngestIssues(detail)
     if (issues) throw new IngestValidationError(issues)
-    throw new Error(`ingest failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
+    throw new ApiError('ingest', res.status, detail)
   }
   const { job_id } = (await res.json()) as { job_id: string }
   return attachIngestJob(job_id, datasetId, onProgress, onPulse)
@@ -928,13 +1024,7 @@ export async function materializeSchema(
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(body),
   })
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new ApiError(
-      `materialize failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`,
-      res.status,
-    )
-  }
+  if (!res.ok) await throwApiError(res, 'materialize')
   return (await res.json()) as MaterializeResult
 }
 
@@ -946,17 +1036,96 @@ export interface DraftStats {
   dataset_id: string
   classes: { iri: string; curie?: string; n: number }[]
   source_rows: Record<string, number>
+  /** False when nothing has been taken in yet, so there is nothing to count —
+   *  as opposed to a count that was attempted and failed. Saying the latter for
+   *  both read as an error on a screen where nothing was wrong. */
+  counted?: boolean
 }
 
 export async function fetchDraftStats(datasetId: string): Promise<DraftStats> {
   const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/draft-stats`, {
     headers: authHeaders(),
   })
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new Error(`draft stats failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
-  }
+  if (!res.ok) await throwApiError(res, 'draft stats')
   return (await res.json()) as DraftStats
+}
+
+/** The design a dataset is CURRENTLY stored with (the server's own copy).
+ *
+ *  The kantan tier keeps a copy of the design in its snapshot, and the detail
+ *  tier writes its own to the same dataset — so a round trip through the detail
+ *  tier could leave the two disagreeing, with the wizard then refining and
+ *  saving the older one over the newer (DETAIL-GAP-05). The server's copy
+ *  settles it. Empty string when the dataset has no stored design. */
+export async function fetchDatasetProposal(datasetId: string): Promise<string> {
+  const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/proposal`, {
+    headers: authHeaders(),
+  })
+  if (!res.ok) await throwApiError(res, 'proposal')
+  return ((await res.json()) as { proposal_md?: string }).proposal_md ?? ''
+}
+
+/** Where a column that is NOT in the file's header came from. The dialect layer
+ *  broadcasts an instrument file's preamble onto every row as extra columns, and
+ *  when a preamble line carries no key of its own it has to invent the NAME
+ *  (`preamble_1`). Showing that invented name as 「元の列名」 asks the reader
+ *  about a word that appears nowhere in their file (live 2026-08-20). */
+export interface ColumnOrigin {
+  source: string
+  /** 1-based line in that file. */
+  line: number
+  /** The raw preamble text this column was read from. */
+  text: string
+  /** Did the FILE give this column its name, or did the reader invent it? */
+  named: boolean
+}
+
+export interface SourceSamples {
+  /** Up to 3 real values per column. */
+  columns: Record<string, string[]>
+  /** Only the columns the reader synthesized — a header column is absent. */
+  origins: Record<string, ColumnOrigin>
+}
+
+/** Up to 3 real values per column, read from the dataset's OWN persisted source,
+ *  plus the origin of any column the reader synthesized from a preamble.
+ *  What the column-meaning screen shows as evidence when this browser never
+ *  parsed the file itself — a review reopened from the catalog, a resume after a
+ *  reload, or any .xlsx (KZ-B-25). */
+export async function fetchSourceSamples(datasetId: string): Promise<SourceSamples> {
+  const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/source-samples`, {
+    headers: authHeaders(),
+  })
+  if (!res.ok) await throwApiError(res, 'source samples')
+  const body = (await res.json()) as {
+    columns?: Record<string, string[]>
+    origins?: Record<string, ColumnOrigin>
+  }
+  return { columns: body.columns ?? {}, origins: body.origins ?? {} }
+}
+
+/** One human correction to what a column MEANS or the unit it is in (K8). */
+export interface DisplayMetaEdit {
+  predicate: string
+  map?: string
+  column?: string
+  label?: string
+  unit?: string
+}
+
+/** Save meanings/units the human typed — deterministic, no AI, no re-ingest.
+ *  Returns the rows the server actually changed. */
+export async function saveDisplayMeta(
+  datasetId: string,
+  edits: DisplayMetaEdit[],
+): Promise<string[]> {
+  const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/display-meta`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ edits }),
+  })
+  if (!res.ok) await throwApiError(res, 'display meta')
+  return ((await res.json()) as { changed?: string[] }).changed ?? []
 }
 
 /** One context literal of the trial "top" entity ("試料名: BiTe-04"). */
@@ -1012,10 +1181,7 @@ export async function fetchTrialQueries(datasetId: string): Promise<TrialQueries
   const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/trial-queries`, {
     headers: authHeaders(),
   })
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new Error(`trial queries failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
-  }
+  if (!res.ok) await throwApiError(res, 'trial queries')
   return (await res.json()) as TrialQueries
 }
 
@@ -1037,10 +1203,7 @@ export async function fetchProposal(datasetId: string): Promise<DatasetProposal>
   const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/proposal`, {
     headers: authHeaders(),
   })
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new Error(`load design failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
-  }
+  if (!res.ok) await throwApiError(res, 'load design')
   return (await res.json()) as DatasetProposal
 }
 
@@ -1064,10 +1227,7 @@ export async function validateDesign(datasetId: string): Promise<DesignCheck> {
     `/api/datasets/${encodeURIComponent(datasetId)}/validate-design`,
     { headers: authHeaders() },
   )
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new Error(`validate design failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`)
-  }
+  if (!res.ok) await throwApiError(res, 'validate design')
   const data = (await res.json()) as { validation_issues?: string[]; advisories?: string[] }
   return { issues: data.validation_issues ?? [], advisories: data.advisories ?? [] }
 }
@@ -1159,6 +1319,8 @@ export interface StagedSources {
   stagingId: string
   /** Canonical (slugged) source names — the ones the design's rml:source uses. */
   sources: string[]
+  /** Worksheet origin of every derived table, for multi-sheet workbooks (K6). */
+  sheets: Record<string, SheetOrigin>
   expiresAt: string
 }
 
@@ -1173,18 +1335,53 @@ export async function stageSources(files: File[]): Promise<StagedSources> {
   const form = new FormData()
   for (const file of files) form.append('files', file)
   const res = await fetch('/api/staging', { method: 'POST', headers: authHeaders(), body: form })
-  if (!res.ok) throw new Error(`staging failed (HTTP ${res.status})`)
-  const body = (await res.json()) as { staging_id: string; sources: string[]; expires_at: string }
-  return { stagingId: body.staging_id, sources: body.sources ?? [], expiresAt: body.expires_at }
+  if (!res.ok) await throwApiError(res, 'staging')
+  const body = (await res.json()) as {
+    staging_id: string
+    sources: string[]
+    sheets?: Record<string, SheetOrigin>
+    expires_at: string
+  }
+  return {
+    stagingId: body.staging_id,
+    sources: body.sources ?? [],
+    sheets: body.sheets ?? {},
+    expiresAt: body.expires_at,
+  }
 }
 
+/** Narrow a staged record to the tables the human chose (K6 「どのシートを使いますか？」).
+ *  Every later design call reads only these, and the attach persists only these. */
+export async function selectStagingSources(
+  stagingId: string,
+  sources: string[],
+): Promise<string[]> {
+  const res = await fetch(`/api/staging/${encodeURIComponent(stagingId)}/sources`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ sources }),
+  })
+  if (!res.ok) await throwApiError(res, 'staging sources')
+  return ((await res.json()) as { sources: string[] }).sources ?? []
+}
+
+/** Whether a remembered staging record is still there.
+ *
+ *  Three values on purpose: only the server SAYING the record is gone (404 /
+ *  410) is proof. A network blip on reload, an api still coming up, a 5xx —
+ *  those say nothing about the record, and answering "gone" to them threw away
+ *  a source the server was still holding, with no way back for a browser whose
+ *  own copy (IndexedDB) is unavailable (RESUME-20). */
+export type StagingLiveness = 'alive' | 'gone' | 'unknown'
+
 /** Is a remembered staging id still live? (asked on reload before trusting it) */
-export async function stagingAlive(stagingId: string): Promise<boolean> {
+export async function stagingAlive(stagingId: string): Promise<StagingLiveness> {
   try {
     const res = await fetch(`/api/staging/${encodeURIComponent(stagingId)}`)
-    return res.ok
+    if (res.ok) return 'alive'
+    return res.status === 404 || res.status === 410 ? 'gone' : 'unknown'
   } catch {
-    return false
+    return 'unknown'
   }
 }
 

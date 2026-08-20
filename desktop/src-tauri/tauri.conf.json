@@ -8,7 +8,18 @@
     "beforeBuildCommand": "bash scripts/bundle-backend.sh"
   },
   "app": {
-    "windows": [],
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "splash",
+        "url": "index.html",
+        "title": "Asterism",
+        "width": 480,
+        "height": 380,
+        "resizable": false,
+        "center": true
+      }
+    ],
     "security": {
       "csp": null
     }

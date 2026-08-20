@@ -290,6 +290,246 @@ def load_all_query_tools(root: Path | str | None = None) -> dict[str, list[Query
 
 
 # ----------------------------------------------------------------------------
+# Synthesizing tools from a dataset's own /trial-queries answers (ASK-34)
+# ----------------------------------------------------------------------------
+#
+# S9's example chips ("データは何件入っている?" / "{{label}}の範囲は?") ask the
+# SAME questions the kantan S7 "ためす" screen already answered deterministically
+# (``GET /api/datasets/{id}/trial-queries``). Making Ask re-derive those answers
+# via free-form LLM SPARQL means a weak model can fail a question the server
+# already knows the answer to. Per the two-persona reconciliation on ASK-34 (see
+# audit/handoff-shell-ask.md §6): the fix must NOT intercept question text in the
+# UI (that would show an AI-shaped answer card for something the AI never ran) —
+# it must make the dataset itself carry a VERIFIED tool for these, the same
+# mechanism ``datasets/<name>/query_tools.yaml`` already gives bundled examples
+# (#112/#113). This synthesizes that declaration from a promoted dataset's own
+# trial-queries payload, so a freshly kantan-published dataset gets a typed,
+# citation-bearing "how many / what range / which record is biggest" tool for
+# free — no vocabulary-specific code, same as every other query tool.
+
+# The fixed set of names this synthesizer ever emits. Reserved: on a re-promote,
+# :func:`write_registry_query_tools` replaces exactly these names (dropping one
+# that no longer applies, e.g. no ``classes`` this time round) and leaves every
+# other entry in the file — including a human-authored tool saved via
+# ``registry.save_query_tool`` — untouched.
+SYNTHESIZED_TOOL_NAMES = frozenset({"counts_by_kind", "value_range", "top_value"})
+
+
+def _safe_iri(value: Any) -> str | None:
+    """``value`` if it is a well-formed http(s) IRI safe to embed literally.
+
+    Mirrors the ``iri`` parameter check in :func:`_serialize`: defence in depth
+    even though callers only ever pass IRIs the server itself just read back
+    from the store (SPARQL bindings typed ``uri``), never user input.
+    """
+    if not isinstance(value, str) or not value:
+        return None
+    text = value.strip()
+    if not text.startswith(("http://", "https://")):
+        return None
+    if "<" in text or ">" in text or '"' in text or " " in text:
+        return None
+    return text
+
+
+def synthesize_query_tools_from_trial_queries(trial: dict[str, Any]) -> list[dict[str, Any]]:
+    """Build ``query_tools.yaml``-shaped tool declarations from a dataset's own
+    ``GET /api/datasets/{id}/trial-queries`` response (the exact JSON dict the
+    endpoint returns).
+
+    Produces up to three parameter-free, read-only tools, each narrowed to this
+    dataset by baking in the exact class/predicate IRIs trial-queries just
+    reported (never a caller-supplied value, so there is nothing to inject).
+    Like every declared tool they run over the canonical FROM-merge rather than a
+    single graph, so a term this dataset shares with another — a predicate both
+    grounded to the same external standard — is answered across both on purpose;
+    minted terms (the usual case) are unique to the dataset and stay narrow:
+
+    * ``counts_by_kind`` — per-kind entity counts (``trial["classes"]``).
+    * ``value_range`` — min/max of the busiest numeric field, plus each end's
+      ``min_subject_iri`` / ``max_subject_iri`` as the citation (``trial["range"]``).
+    * ``top_value`` — the record holding that field's maximum, ``subject_iri``
+      included as the citation (``trial["top"]``).
+
+    Returns ``[]`` when trial-queries reported nothing usable (``available``
+    false, or none of the three sources present) — callers should treat that as
+    "nothing to write", not an error. Pure and deterministic: same input, same
+    output, no store access of its own.
+    """
+    if not isinstance(trial, dict) or not trial.get("available"):
+        return []
+    tools: list[dict[str, Any]] = []
+
+    classes = trial.get("classes") or []
+    class_iris = [
+        iri for c in classes if isinstance(c, dict) and (iri := _safe_iri(c.get("iri")))
+    ]
+    if class_iris:
+        values = " ".join(f"<{iri}>" for iri in class_iris)
+        tools.append(
+            {
+                "name": "counts_by_kind",
+                "title": "種類別の件数",
+                "description": "This dataset's entities, counted by their declared kind.",
+                "parameters": [],
+                "query": (
+                    "SELECT ?class (COUNT(DISTINCT ?s) AS ?n) WHERE { "
+                    f"VALUES ?class {{ {values} }} ?s a ?class "
+                    "} GROUP BY ?class ORDER BY DESC(?n) ?class"
+                ),
+                "result": {
+                    "item": {"class_iri": "class", "count": {"var": "n", "number": True}}
+                },
+            }
+        )
+
+    range_info = trial.get("range")
+    if isinstance(range_info, dict) and (p_iri := _safe_iri(range_info.get("predicate_iri"))):
+        label = str(range_info.get("label") or p_iri)
+        # A range answer ("20.0° 〜 80.0°") is an AGGREGATE — no single row is the
+        # evidence for it. But the record that carries the min value, and the one
+        # that carries the max, ARE evidence: they are the two rows that produced
+        # the numbers, and they have IRIs, so they can be cited. One SELECT (not a
+        # second tool) computes min/max AND the subject holding each, so the
+        # citation is never optional — same reasoning as ``top_value`` below, just
+        # for both ends of the range at once. Ties are broken by subject IRI
+        # (ASC) so the same record is picked every time the tool runs.
+        filt = (
+            f"<{p_iri}> ?v FILTER(isLiteral(?v)) "
+            "BIND(xsd:double(str(?v)) AS ?num) FILTER(BOUND(?num))"
+        )
+        tools.append(
+            {
+                "name": "value_range",
+                "title": f"{label}の範囲",
+                "description": (
+                    f"Minimum and maximum observed value of {label}, with the "
+                    "subject IRI of the record holding each (citable evidence)."
+                ),
+                "parameters": [],
+                "query": (
+                    "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#> "
+                    "SELECT ?n ?min ?max ?minSubject ?maxSubject WHERE { "
+                    "{ SELECT (COUNT(?num) AS ?n) (MIN(?num) AS ?min) (MAX(?num) AS ?max) "
+                    f"WHERE {{ ?s {filt} }} }} "
+                    "OPTIONAL { SELECT ?minSubject WHERE "
+                    f"{{ ?minSubject {filt} }} ORDER BY ASC(?num) ASC(?minSubject) LIMIT 1 }} "
+                    "OPTIONAL { SELECT ?maxSubject WHERE "
+                    f"{{ ?maxSubject {filt} }} ORDER BY DESC(?num) ASC(?maxSubject) LIMIT 1 }} "
+                    "}"
+                ),
+                "result": {
+                    "item": {
+                        "count": {"var": "n", "number": True},
+                        "min": {"var": "min", "number": True},
+                        "max": {"var": "max", "number": True},
+                        "min_subject_iri": "minSubject",
+                        "max_subject_iri": "maxSubject",
+                    }
+                },
+            }
+        )
+
+    top_info = trial.get("top")
+    if isinstance(top_info, dict) and (p_iri := _safe_iri(top_info.get("predicate_iri"))):
+        label = str(top_info.get("label") or p_iri)
+        tools.append(
+            {
+                "name": "top_value",
+                "title": f"{label}が最大の記録",
+                "description": (
+                    f"The record with the maximum {label}, citable via its subject IRI."
+                ),
+                "parameters": [],
+                "query": (
+                    "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#> "
+                    "SELECT ?s ?v WHERE { "
+                    f"?s <{p_iri}> ?v FILTER(isLiteral(?v)) "
+                    "BIND(xsd:double(str(?v)) AS ?num) FILTER(BOUND(?num)) "
+                    "} ORDER BY DESC(?num) ?s LIMIT 1"
+                ),
+                "result": {"item": {"subject_iri": "s", "value": {"var": "v", "number": True}}},
+            }
+        )
+    return tools
+
+
+def write_registry_query_tools(
+    registry_root: Path | str, dataset_id: str, tools: list[dict[str, Any]]
+) -> Path | None:
+    """Persist synthesized tool declarations to ``registry/<id>/query_tools.yaml``.
+
+    Vets every declaration through the same lint gate an authored save would
+    use (this module's docstring: "Save/propose paths gate on it") — a tool
+    that fails to parse or lint is dropped rather than persisted broken; a
+    dataset that ends up with zero surviving tools leaves the file untouched
+    (never writes an empty/broken one).
+
+    MERGES by name rather than overwriting the file: ``registry.save_query_tool``
+    (``api/src/asterism_api/registry.py``) upserts human-authored tools into this
+    exact same ``query_tools.yaml`` (the ToolsPanel "save as tool" path), so a
+    blind overwrite here would silently delete a human's tool the next time the
+    dataset is (re-)promoted. Every existing entry whose name is one of
+    :data:`SYNTHESIZED_TOOL_NAMES` is dropped (whether or not this call
+    reproduces it — e.g. a dataset that no longer has classes stops carrying a
+    stale ``counts_by_kind``) and replaced with this call's fresh output; every
+    other existing entry (hand-authored, or anything not using a reserved name)
+    is carried over unchanged.
+
+    Best-effort like the rest of promote's optional post-steps: returns the
+    written path on success, or ``None`` when there is nothing new to write (no
+    ``tools`` passed in, all failed lint, or the dataset directory does not
+    exist — never mints a new registry entry out of a synthesis call). Raises
+    nothing — a malformed ``tools`` list degrades to "dropped, logged", matching
+    :func:`load_query_tools`'s lenience; an unreadable existing file is treated
+    as empty rather than aborting the write.
+    """
+    base = Path(registry_root)
+    dataset_dir = base / dataset_id
+    if not tools or not dataset_dir.is_dir():
+        return None
+    parsed, issues = parse_query_tools_lenient({"tools": tools})
+    for msg in issues:
+        _log.warning("synthesize_query_tools[%s]: dropped %s", dataset_id, msg)
+    kept_names = set()
+    for qt in parsed:
+        lint = lint_query_tool(qt)
+        if lint.errors:
+            _log.warning(
+                "synthesize_query_tools[%s]: dropped tool %r (%s)",
+                dataset_id,
+                qt.name,
+                "; ".join(lint.errors),
+            )
+            continue
+        kept_names.add(qt.name)
+    kept_raw = [t for t in tools if str(t.get("name")) in kept_names]
+    if not kept_raw:
+        return None
+    path = dataset_dir / "query_tools.yaml"
+    existing_raw: list[dict[str, Any]] = []
+    if path.is_file():
+        try:
+            data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        except (yaml.YAMLError, OSError) as exc:
+            _log.warning(
+                "synthesize_query_tools[%s]: unreadable existing file (%s)", dataset_id, exc
+            )
+        else:
+            existing = data.get("tools") if isinstance(data, dict) else None
+            if isinstance(existing, list):
+                existing_raw = [t for t in existing if isinstance(t, dict)]
+    merged = [
+        t for t in existing_raw if str(t.get("name")) not in SYNTHESIZED_TOOL_NAMES
+    ] + kept_raw
+    path.write_text(
+        yaml.safe_dump({"tools": merged}, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+    return path
+
+
+# ----------------------------------------------------------------------------
 # Safe parameter binding
 # ----------------------------------------------------------------------------
 

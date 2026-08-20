@@ -76,7 +76,7 @@ export function SparqlView() {
       <p className="subtitle">
         <Trans i18nKey="sparql:subtitle">
           取り込み済みの RDF に<strong>読み取り専用</strong>の SPARQL を直接実行します。
-          上級者向けの<strong>直接クエリ</strong>の場です（通常は「質問する」や「データセット」をご利用ください）。
+          開発者向けの<strong>直接クエリ</strong>の場です（通常は「質問する」や「データセット」をご利用ください）。
           UPDATE 系（INSERT/DELETE 等）は実行できません。
         </Trans>
       </p>
@@ -135,7 +135,9 @@ export function SparqlView() {
 
       {!isAsk && results && (
         <>
-          <p className="hint">{t('sparql:rows', { n: bindings.length })}</p>
+          {/* i18next picks a plural form from `count` only — `n` keeps the
+              existing {{n}} placeholders working in both locales. */}
+          <p className="hint">{t('sparql:rows', { count: bindings.length, n: bindings.length })}</p>
           <div className="table-wrap">
             <table className="jobs-table sparql-table">
               <thead>

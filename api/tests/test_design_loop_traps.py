@@ -120,35 +120,73 @@ def test_trap_failure_is_fixed_by_the_loop_not_the_user(tmp_path: Path) -> None:
     assert "schema_info" in refine_user
 
 
-def test_trap_forces_the_whole_document_refine(tmp_path: Path) -> None:
-    """Surgical repair regenerates ONLY §9 — it cannot reach the §7 MIE where
-    T4 lives. A spec-carrying design with a failing trap must therefore take
-    the whole-document refine path, or the round would change nothing and the
-    loop would stop one round later with the trap still open."""
-    from asterism_step0.spec_repair import SPEC_REPAIR_SYSTEM_PROMPT
+_SPEC = (
+    "## Schema proposal\n\n### 9. Declarative mapping spec\n\n"
+    "```yaml\n"
+    "version: 1\n"
+    "prefixes:\n"
+    '  ex: "https://ns.invalid/ns#"\n'
+    '  exr: "https://ns.invalid/r/"\n'
+    "maps:\n"
+    "  - name: thing\n"
+    "    source: data.csv\n"
+    "    subject:\n"
+    '      template: "exr:thing/{SID}"\n'
+    "      classes: [ex:Thing]\n"
+    "    properties:\n"
+    "      - predicate: ex:comp\n"
+    "        column: composition\n"
+    "        function: trim_collapse\n"
+    "```\n"
+)
 
-    spec = (
-        "## Schema proposal\n\n### 9. Declarative mapping spec\n\n"
-        "```yaml\n"
-        "version: 1\n"
-        "prefixes:\n"
-        '  ex: "https://ns.invalid/ns#"\n'
-        '  exr: "https://ns.invalid/r/"\n'
-        "maps:\n"
-        "  - name: thing\n"
-        "    source: data.csv\n"
-        "    subject:\n"
-        '      template: "exr:thing/{SID}"\n'
-        "      classes: [ex:Thing]\n"
-        "    properties:\n"
-        "      - predicate: ex:comp\n"
-        "        column: composition\n"
-        "        function: trim_collapse\n"
+
+def _examples(body: str) -> str:
+    """§7 whose `sparql_query_examples` is whatever ``body`` says (T10)."""
+    return (
+        "\n### 7. MIE YAML extras\n\n```yaml\n"
+        "schema_info:\n"
+        "  title: XRD reference pattern\n"
+        "  keywords: [xrd, diffraction, aluminum, vanadium, tetragonal]\n"
+        "  categories: [materials]\n"
+        f"sparql_query_examples: {body}\n"
         "```\n"
     )
-    llm = _ScriptedLLM([spec + _mie("xrd", ""), spec + _mie(
-        "xrd, diffraction, aluminum, vanadium, tetragonal", "materials"
-    )])
+
+
+def test_derivable_trap_is_stamped_instead_of_refined(tmp_path: Path) -> None:
+    """A spec-carrying design short of keywords must NOT cost a refine round.
+
+    T4's repair is fully derivable from the design's own class/map/column names,
+    so materialize stamps it (WEAK-MODEL-09 / BACKEND-TEXT-11) and the loop
+    converges on the first round with one LLM call. Before this the person was
+    shown a stop card and pressed "let the AI fix it" to paste back a block the
+    machine had already written — the loop a weak model frequently could not
+    land (2026-07-14).
+    """
+    llm = _ScriptedLLM([_SPEC + _mie("xrd", "")])
+    result, features = _run(tmp_path, llm)
+    assert result.converged is True
+    assert result.initial_issue_count == 0
+    assert len(llm.calls) == 1  # no repair round at all
+    assert features == ["propose"]
+
+
+def test_trap_forces_the_whole_document_refine(tmp_path: Path) -> None:
+    """Surgical repair regenerates ONLY §9 — it cannot reach the §7 MIE where
+    T10 lives. A spec-carrying design with a failing trap must therefore take
+    the whole-document refine path, or the round would change nothing and the
+    loop would stop one round later with the trap still open.
+
+    The trap here is a `sparql_query_examples` that is not a LIST — a shape the
+    deterministic repair deliberately leaves alone (it replaces failed entries,
+    it does not rebuild the container). T4 no longer serves as the example: its
+    repair is derivable, so it never reaches a refine round any more.
+    """
+    from asterism_step0.spec_repair import SPEC_REPAIR_SYSTEM_PROMPT
+
+    good = '\n  - title: things\n    query: "SELECT ?s WHERE { ?s ?p ?o } LIMIT 5"'
+    llm = _ScriptedLLM([_SPEC + _examples("oops-not-a-list"), _SPEC + _examples(good)])
     result, _ = _run(tmp_path, llm)
     assert result.converged is True
     repair_system, _ = llm.calls[1]
@@ -165,3 +203,60 @@ def test_unfixable_trap_stops_bounded_instead_of_looping(tmp_path: Path) -> None
     assert result.terminal_reason == "no_progress"
     assert any("T4" in m for m in result.remaining_issues)
     assert features == ["propose", "propose.autocorrect"]  # did NOT spin to max
+
+
+def _ingester(encoding: str) -> str:
+    return (
+        "\n### 8. Ingester\n\n```python\n"
+        "import csv\n\n\n"
+        "def read(path):\n"
+        f'    with open(path, encoding="{encoding}", newline="") as fh:\n'
+        "        return list(csv.DictReader(fh))\n"
+        "```\n"
+    )
+
+
+_CLEAN_MIE = _mie("xrd, diffraction, aluminum, vanadium, tetragonal", "materials")
+
+
+def test_t2_is_repaired_deterministically_without_an_llm_round(tmp_path: Path) -> None:
+    """T2's own fix recipe is a four-character substitution the machine can make
+    itself. Spending a round (and, for a weak model, risking the rest of §8
+    being rewritten) on it is the failure this closes."""
+    llm = _ScriptedLLM([_RML + _CLEAN_MIE + _ingester("utf-8")])
+    result, features = _run(tmp_path, llm)
+    assert result.converged is True
+    assert features == ["propose"]  # no autocorrect round was spent
+    assert 'encoding="utf-8-sig"' in result.proposal_md
+    assert 'encoding="utf-8"' not in result.proposal_md
+
+
+def test_t2_without_an_explicit_encoding_still_reaches_the_model(tmp_path: Path) -> None:
+    """The deterministic repair only performs the edit it can prove; an ingester
+    with no ``encoding=`` at all is a real edit, so it must not be silently
+    swallowed as 'repaired'."""
+    ingester = (
+        "\n### 8. Ingester\n\n```python\n"
+        "import csv\n\n\n"
+        "def read(path):\n"
+        "    with open(path) as fh:\n"
+        "        return list(csv.DictReader(fh))\n"
+        "```\n"
+    )
+    fixed = _RML + _CLEAN_MIE + _ingester("utf-8-sig")
+    llm = _ScriptedLLM([_RML + _CLEAN_MIE + ingester, fixed])
+    result, features = _run(tmp_path, llm)
+    assert features == ["propose", "propose.autocorrect"]
+    assert result.converged is True
+
+
+def test_spec_repairable_trap_keeps_the_surgical_path(tmp_path: Path) -> None:
+    """A trap that lives in §9 must NOT knock the round onto the whole-document
+    path — that path is the one weak models fail worst. Only traps in other
+    artifacts (T4 in the §7 MIE, T2 in §8) do."""
+    from asterism_api.design_loop import _SPEC_REPAIRABLE_TRAPS
+
+    assert "T1" in _SPEC_REPAIRABLE_TRAPS  # §9 subject.template
+    assert "T9" in _SPEC_REPAIRABLE_TRAPS  # §9 function: closed set
+    for elsewhere in ("T2", "T4", "T5", "T6", "T7", "T10"):
+        assert elsewhere not in _SPEC_REPAIRABLE_TRAPS

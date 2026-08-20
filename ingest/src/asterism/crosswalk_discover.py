@@ -641,11 +641,21 @@ async def discover(
     skipped_datasets: Sequence[dict] = (),
     progress: Callable[[str, dict], None] | None = None,
     should_cancel: Callable[[], bool] | Callable[[], Awaitable[bool]] | None = None,
+    predicate_label_of: Callable[[str, str], str | None] | None = None,
 ) -> dict:
     """Scan the promoted graphs and rank the joins that actually exist.
 
     Read-only: only ``SELECT`` runs. Returns a JSON-ready dict whose ``candidates``
     each carry a ``build_config`` that builds as-is.
+
+    ``predicate_label_of`` (XW-01, injected — this module stays free of any
+    api-layer / registry dependency): ``(dataset_id, predicate_iri) -> label``,
+    the human-readable meaning the DESIGN gave this predicate (an authored §9
+    label, or a model.yaml ``rdfs:label``) — never a local-name guess. Absent or
+    returning ``None`` falls back to :func:`local_name`, exactly today's
+    behavior. Each candidate's ``concept_label`` is the participants' resolved
+    labels when they agree (or their ``" / "``-joined disagreement); empty when
+    none resolved — the caller then falls back to the ascii concept key.
     """
     lim = limits or DiscoverLimits()
     cancelled = False
@@ -777,11 +787,27 @@ async def discover(
         name = derive_concept_name(preds, taken=taken, rank=rank)
         taken.append(name)
         class_iri, link_predicate = concept_terms(name)
+        # XW-01: the DESIGN's own word for each participant's predicate, when one
+        # is resolvable — never the raw ascii ``predicate_label`` alone (that is
+        # kept as the display fallback and the concept-key derivation input;
+        # neither is affected by this).
+        resolved: list[str] = []
+        for m in cluster.slots:
+            got = (
+                predicate_label_of(slots[m].dataset.dataset_id, slots[m].predicate)
+                if predicate_label_of is not None
+                else None
+            )
+            got = (got or "").strip()
+            if got and got not in resolved:
+                resolved.append(got)
+        concept_label = resolved[0] if len(resolved) == 1 else " / ".join(resolved)
         out.append(
             {
                 "id": f"c{rank + 1}",
                 "concept": name,
                 "name": name,
+                "concept_label": concept_label,
                 "perspective_id": perspective_id_for(name),
                 "class_iri": class_iri,
                 "link_predicate": link_predicate,
@@ -798,7 +824,12 @@ async def discover(
                         "label": slots[m].dataset.label,
                         "name": slots[m].dataset.name,
                         "predicate": slots[m].predicate,
-                        "predicate_label": local_name(slots[m].predicate),
+                        "predicate_label": (
+                            predicate_label_of(slots[m].dataset.dataset_id, slots[m].predicate)
+                            if predicate_label_of is not None
+                            else None
+                        )
+                        or local_name(slots[m].predicate),
                         "distinct_values": slots[m].distinct,
                         "matched": len(cluster.shared & slots[m].keys[cluster.normalizer]),
                         "coverage": round(

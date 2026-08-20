@@ -141,14 +141,21 @@ def test_inspect_xlsx_single_sheet_keeps_stem(tmp_path: Path) -> None:
     assert r.headers["X-Asterism-Source-Names"] == "papers.csv"
 
 
-def test_inspect_corrupt_xlsx_is_readable_422(tmp_path: Path) -> None:
+def test_inspect_corrupt_xlsx_is_coded_422(tmp_path: Path) -> None:
+    """A broken workbook answers with a CODE, not with openpyxl's own words.
+
+    The reader gets one plain sentence, picked by the client from the code; the
+    library's message ("File is not a zip file") is a log line, not a stop card.
+    """
     app = build_app(_settings(tmp_path), oxigraph_client=_healthy_client(), start_watcher=False)
     with TestClient(app, headers=_AUTH) as client:
         r = client.post(
             "/api/inspect", files={"files": ("bad.xlsx", b"this is not a zip", _XLSX_MIME)}
         )
     assert r.status_code == 422
-    assert "Excel" in r.json()["detail"]
+    detail = r.json()["detail"]
+    assert detail["code"] in {"xlsx.unreadable", "xlsx.convert_failed"}
+    assert "zip" not in detail["message"].lower()
 
 
 # ---- source attach: derived CSVs persisted + original kept + conversion -------

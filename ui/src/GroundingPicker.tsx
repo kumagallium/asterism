@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { type GroundCandidate, groundTerms } from './groundingApi'
 import { SearchIcon } from './icons'
+import { plainError } from './kantan/errorMessages'
 
 /**
  * Reusable picker for GROUNDING a class/predicate to an external standard term
@@ -73,7 +74,19 @@ export function GroundingPicker({
           {t('grounding:picker.cancel')}
         </button>
       </div>
-      {err && <p className="promote-err">{err}</p>}
+      {/* A failed lookup says what happened in plain words and what to do next;
+          the raw api string stays reachable but never leads (K11). The existing
+          「そのままにする」 button is the way out, so no new one. */}
+      {err && (
+        <div className="grounding-err">
+          <p className="promote-err">{t('grounding:picker.errHead')}</p>
+          <p className="grounding-hint">{t(plainError(err).body)}</p>
+          <details className="grounding-err-raw">
+            <summary>{t('kantan:s5.stop.detailSummary')}</summary>
+            <pre className="sparql-block">{err}</pre>
+          </details>
+        </div>
+      )}
       {loading && <p className="grounding-hint">{t('grounding:picker.searching')}</p>}
       {!loading && !err && q.trim() !== '' && results.length === 0 && (
         <p className="grounding-hint">{t('grounding:picker.none')}</p>

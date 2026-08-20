@@ -138,10 +138,17 @@ export function Mermaid({ chart }: { chart: string }) {
     )
   }
   if (failure === 'syntax') {
+    // The diagram source is mermaid code. It renders on the plain tier too (a
+    // dataset's structure diagram, the skeleton gate), where spilling it into
+    // the body reads as "the app broke" — so it folds away as technical detail,
+    // the one place K4 allows notation like this.
     return (
       <div className="mermaid-fallback">
         <p className="mermaid-fallback-note">{t('mermaid.renderFailed')}</p>
-        <pre>{chart}</pre>
+        <details className="sparql-disclosure">
+          <summary>{t('mermaid.renderFailedSource')}</summary>
+          <pre>{chart}</pre>
+        </details>
       </div>
     )
   }

@@ -1063,3 +1063,130 @@ def test_inspect_hint_keyvalue_cells_for_zem_meta_line(tmp_path: Path) -> None:
     assert dialects[canonical]["skip_rows"] == 1
     assert dialects[canonical]["preamble"] == "drop"  # identify, never auto-adopt
     assert dialects[canonical]["preamble_hint"] == "keyvalue_cells"
+
+
+# ---------------------------------------------------------------------------
+# /api/datasets/{id}/source-samples "origins" — a broadcast preamble column's
+# NAME was never written by the person who made the file; the meaning screen
+# must say so instead of presenting ``preamble_1`` as if they had written it.
+# ---------------------------------------------------------------------------
+
+
+def _materialize_and_attach(
+    client: TestClient,
+    tmp_path: Path,
+    filename: str,
+    content: bytes,
+    override_json: str,
+    reference_col: str,
+) -> str:
+    """Design (with a pinned dialect override), materialize, attach — the same
+    path a real design would take, no fakes on the read side."""
+    (tmp_path / filename).write_bytes(content)
+    override = api_main._parse_dialect_overrides(override_json)
+    llm = _ScriptedLLM([_md_with_spec(filename, reference_col)])
+    result = design_loop.run_design_loop(
+        [tmp_path / filename], "hint", tmp_path, llm=llm, max_rounds=0,
+        dialect_overrides=override,
+    )
+    r = client.post(
+        "/api/materialize", json={"proposal_md": result.proposal_md, "dataset_name": "xrd"}
+    )
+    assert r.status_code == 200, r.text
+    ds_id = r.json()["dataset"]["id"]
+    r = client.post(
+        f"/api/datasets/{ds_id}/source", files={"files": (filename, content, "text/plain")}
+    )
+    assert r.status_code == 200, r.text
+    return ds_id
+
+
+_BARE_PREAMBLE_TXT = b"Al3V_bulk\nangle,intensity\n10.0,123\n10.2,456\n10.4,789\n"
+
+
+def test_source_samples_origins_bare_preamble_line_is_unnamed(tmp_path: Path) -> None:
+    """``preamble: lines`` — the file wrote no name at all; ``named`` must be False
+    and ``text``/``line`` must point at the exact line the sample name came from."""
+    app = build_app(_settings(tmp_path), oxigraph_client=_healthy_client(), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        ds_id = _materialize_and_attach(
+            client, tmp_path, "data.txt", _BARE_PREAMBLE_TXT,
+            '{"data.txt": {"skip_rows": 1, "preamble": "lines"}}', "intensity",
+        )
+        body = client.get(f"/api/datasets/{ds_id}/source-samples").json()
+        origins = body["origins"]
+        assert origins["preamble_1"] == {
+            "source": "data.txt",
+            "line": 1,
+            "text": "Al3V_bulk",
+            "named": False,
+        }
+        # The file's own header columns carry no provenance note — they are the
+        # person's own names, not asterism's invention.
+        assert "angle" not in origins and "intensity" not in origins
+
+
+_KEYVALUE_PREAMBLE_TXT = (
+    "試料名: Al3V_bulk\nangle,intensity\n10.0,123\n10.2,456\n10.4,789\n"
+).encode()
+
+
+def test_source_samples_origins_keyvalue_line_is_named(tmp_path: Path) -> None:
+    """``preamble: keyvalue`` — ``試料名: Al3V_bulk`` — the column name IS what
+    the file wrote, so ``named`` must be True."""
+    app = build_app(_settings(tmp_path), oxigraph_client=_healthy_client(), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        ds_id = _materialize_and_attach(
+            client, tmp_path, "data.txt", _KEYVALUE_PREAMBLE_TXT,
+            '{"data.txt": {"skip_rows": 1, "preamble": "keyvalue"}}', "intensity",
+        )
+        body = client.get(f"/api/datasets/{ds_id}/source-samples").json()
+        origin = body["origins"]["試料名"]
+        assert origin["named"] is True
+        assert origin["text"] == "試料名: Al3V_bulk"
+        assert origin["line"] == 1
+        assert origin["source"] == "data.txt"
+
+
+_KEYVALUE_CELLS_TXT = (
+    b"Al3V-SPS-2\tT.C.type=K\r\nangle\tintensity\r\n10.0\t123\r\n10.2\t456\r\n10.4\t789\r\n"
+)
+
+
+def test_source_samples_origins_keyvalue_cells_bare_cell_is_unnamed(tmp_path: Path) -> None:
+    """``preamble: keyvalue_cells`` — a bare cell (no ``=``) is a positional
+    invented name (``preamble_1``); a ``key=value`` cell is named."""
+    app = build_app(_settings(tmp_path), oxigraph_client=_healthy_client(), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        ds_id = _materialize_and_attach(
+            client, tmp_path, "zem.txt", _KEYVALUE_CELLS_TXT,
+            '{"zem.txt": {"delimiter": "\\t", "skip_rows": 1, "preamble": "keyvalue_cells"}}',
+            "intensity",
+        )
+        body = client.get(f"/api/datasets/{ds_id}/source-samples").json()
+        origins = body["origins"]
+        assert origins["preamble_1"]["named"] is False
+        assert origins["preamble_1"]["text"] == "Al3V-SPS-2"
+        assert origins["T.C.type"]["named"] is True
+        assert origins["T.C.type"]["text"] == "T.C.type=K"
+
+
+def test_source_samples_origins_empty_for_dropped_preamble(tmp_path: Path) -> None:
+    """``preamble: drop`` (the default — no broadcast columns exist at all):
+    ``origins`` must be empty, matching the KZ-B-25 dataset with a clean source."""
+    app = build_app(_settings(tmp_path), oxigraph_client=_healthy_client(), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/materialize",
+            json={
+                "proposal_md": _md_with_spec("clean.csv", "composition"),
+                "dataset_name": "clean",
+            },
+        )
+        ds_id = r.json()["dataset"]["id"]
+        client.post(
+            f"/api/datasets/{ds_id}/source",
+            files={"files": ("clean.csv", b"SID,composition\n1,Bi2Te3\n", "text/csv")},
+        )
+        body = client.get(f"/api/datasets/{ds_id}/source-samples").json()
+        assert body["origins"] == {}

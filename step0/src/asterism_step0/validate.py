@@ -63,7 +63,7 @@ from __future__ import annotations
 
 import contextlib
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -435,17 +435,67 @@ def _check_t1_uniqueness(bundle: SchemaBundle) -> TrapResult:
 
 _BOM_BYTE = b"\xef\xbb\xbf"
 
+# Encodings that strip / cannot carry a leading BOM into the first column name.
+_BOM_SAFE_ENCODINGS = {"utf-8-sig", "utf_8_sig", "utf8-sig", "utf-16", "utf_16"}
+
 # Fix recipe (T2): where (§8 ingester) + the exact call shape to paste.
 _T2_FIX = (
     "In §8 (ingester), open every source file with `encoding=\"utf-8-sig\"` — e.g. "
     '`open(path, encoding="utf-8-sig", newline="")` — replacing any plain `utf-8` open. '
     "utf-8-sig strips a leading BOM so it can never leak into the first column name."
 )
+_T2_FIX_DIALECT = (
+    "In §9 (mapping spec) `dialects:`, set `encoding: utf-8-sig` for the source(s) listed "
+    "in evidence — that is the encoding the ingest actually reads with, and utf-8-sig "
+    "strips a leading BOM so it can never leak into the first column name."
+)
+
+
+def _declarative_mapping(bundle: SchemaBundle) -> bool:
+    """True when this design ingests through the compiled §9 mapping spec.
+
+    On that path the §8 ingester is an unexecuted sketch: the reader is the RML
+    substrate with the dialect §9 pins, so a §8 text check may inform but must
+    never block (a weak model forgetting a keyword in a sketch is not a defect
+    in the data). Legacy raw-RML designs keep the original severities.
+    """
+    return bundle.mapping_ir_yaml is not None and bundle.mapping_ir_yaml.exists()
+
+
+def _spec_encodings(bundle: SchemaBundle) -> dict[str, str]:
+    """Per-source read encoding declared in §9 ``dialects:`` (default utf-8-sig).
+
+    Mirrors the IR parser's own default (``mapping_ir`` reads
+    ``fields.get("encoding", "utf-8-sig")``), so "the spec says nothing" means
+    "the ingest reads BOM-safely", not "unknown".
+    """
+    if bundle.mapping_ir_yaml is None:
+        return {}
+    import yaml  # lazy
+
+    try:
+        doc = yaml.safe_load(bundle.mapping_ir_yaml.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    if not isinstance(doc, Mapping):
+        return {}
+    dialects = doc.get("dialects")
+    out: dict[str, str] = {}
+    if isinstance(dialects, Mapping):
+        for source, fields in dialects.items():
+            encoding = fields.get("encoding") if isinstance(fields, Mapping) else None
+            out[str(source)] = str(encoding) if isinstance(encoding, str) else "utf-8-sig"
+    if isinstance(doc.get("maps"), list):
+        for m in doc["maps"]:
+            if isinstance(m, Mapping) and isinstance(m.get("source"), str):
+                out.setdefault(m["source"], "utf-8-sig")
+    return out
 
 
 def _check_t2_bom(bundle: SchemaBundle) -> TrapResult:
     issues: list[str] = []
     evidence: list[str] = []
+    declarative = _declarative_mapping(bundle)
 
     if bundle.ingester_py:
         text = bundle.ingester_py.read_text(encoding="utf-8")
@@ -453,6 +503,26 @@ def _check_t2_bom(bundle: SchemaBundle) -> TrapResult:
             evidence.append(f"{bundle.ingester_py.name}: uses utf-8-sig ✓")
         else:
             issues.append(f"{bundle.ingester_py.name}: no utf-8-sig found in source")
+
+    # On the declarative path the ENCODING THAT RUNS is the §9 dialect's, so
+    # that is what decides T2. A source pinned to a non-BOM-safe encoding whose
+    # file really starts with a BOM is the only genuine failure here.
+    spec_issues: list[str] = []
+    if declarative:
+        encodings = _spec_encodings(bundle)
+        for csv_path in bundle.source_csvs:
+            encoding = encodings.get(csv_path.name)
+            if encoding is None:
+                continue
+            if encoding.lower().replace("_", "-") in _BOM_SAFE_ENCODINGS:
+                evidence.append(f"{csv_path.name}: §9 reads it as {encoding} ✓")
+            else:
+                with contextlib.suppress(OSError), csv_path.open("rb") as fh:
+                    if fh.read(3) == _BOM_BYTE:
+                        spec_issues.append(
+                            f"{csv_path.name}: §9 dialect encoding {encoding!r} keeps the "
+                            "file's BOM in the first column name"
+                        )
 
     for csv_path in bundle.source_csvs:
         with csv_path.open("rb") as fh:
@@ -465,7 +535,27 @@ def _check_t2_bom(bundle: SchemaBundle) -> TrapResult:
         if head == _BOM_BYTE:
             evidence.append(f"{csv_path.name}: has BOM (utf-8-sig will strip it)")
 
+    if spec_issues:
+        return TrapResult(
+            "T2",
+            "BOM (utf-8-sig in ingester)",
+            "fail",
+            "A source is read with an encoding that leaves its BOM in the column names.",
+            evidence=spec_issues + issues + evidence,
+            fix=_T2_FIX_DIALECT,
+        )
     if issues:
+        if declarative:
+            # §8 is documentation on this path — report it, never stop on it.
+            return TrapResult(
+                "T2",
+                "BOM (utf-8-sig in ingester)",
+                "warn",
+                "The §8 ingester sketch does not mention utf-8-sig; the ingest itself reads "
+                "through the §9 mapping spec, whose dialect is BOM-safe.",
+                evidence=issues + evidence,
+                fix=_T2_FIX,
+            )
         return TrapResult(
             "T2",
             "BOM (utf-8-sig in ingester)",
@@ -508,6 +598,8 @@ def _check_t3_bnode_free(bundle: SchemaBundle) -> TrapResult:
     issues: list[str] = []
     evidence: list[str] = []
 
+    sketch_issues: list[str] = []
+
     if bundle.tbox_ttl:
         import rdflib  # lazy; optional dep used only by validator
 
@@ -527,7 +619,11 @@ def _check_t3_bnode_free(bundle: SchemaBundle) -> TrapResult:
         text = bundle.ingester_py.read_text(encoding="utf-8")
         # Match rdflib.BNode( or `from rdflib import ... BNode` followed by a call.
         if re.search(r"\bBNode\s*\(", text):
-            issues.append(
+            # On the declarative path this sketch is never executed — every
+            # subject comes from a §9 template — so the mention is a
+            # documentation defect, not a shape defect in the data.
+            target = sketch_issues if _declarative_mapping(bundle) else issues
+            target.append(
                 f"{bundle.ingester_py.name}: ingester source calls BNode() — emits bnodes at ingest"
             )
         else:
@@ -539,7 +635,17 @@ def _check_t3_bnode_free(bundle: SchemaBundle) -> TrapResult:
             "bnode-free",
             "fail",
             "Blank nodes break re-ingest idempotency (Phase 1 design-rationale §2).",
-            evidence=issues + evidence,
+            evidence=issues + sketch_issues + evidence,
+            fix=_T3_FIX,
+        )
+    if sketch_issues:
+        return TrapResult(
+            "T3",
+            "bnode-free",
+            "warn",
+            "The §8 ingester sketch mentions BNode(); the ingest itself runs the §9 mapping "
+            "spec, where every subject is minted from a template.",
+            evidence=sketch_issues + evidence,
             fix=_T3_FIX,
         )
     return TrapResult(
@@ -694,6 +800,50 @@ def _t4_candidate_terms(bundle: SchemaBundle, schema_info: Mapping) -> list[str]
     return terms
 
 
+def repair_schema_info(
+    schema_info: object,
+    candidate_terms: Sequence[str],
+    *,
+    min_keywords: int = _MIN_KEYWORDS,
+    title_fallback: str = "dataset",
+) -> dict:
+    """The T4-complete ``schema_info``, built from an existing one + candidates.
+
+    Pure and deterministic — the SAME repair the paste-ready recipe shows a
+    human is what the deterministic stamp writes (``materialize``) and what the
+    §7 synthesizer starts from (:mod:`asterism_step0.doc_synth`). One function
+    so those three can never drift apart.
+
+    Every existing field survives verbatim (a repair must be lossless), the
+    author's keywords keep their order and are only appended to, and
+    ``categories`` falls back to the generic placeholder ``dataset`` — a
+    placeholder is allowed here, an invented domain word never is.
+    """
+    info: dict = dict(schema_info) if isinstance(schema_info, Mapping) else {}
+    existing_keywords = list(info["keywords"]) if isinstance(info.get("keywords"), list) else []
+    categories = list(info["categories"]) if isinstance(info.get("categories"), list) else []
+    keywords = list(existing_keywords)  # the author's entries survive verbatim
+    seen = {str(k).strip().lower() for k in keywords}
+
+    if len(keywords) < min_keywords:
+        for term in candidate_terms:
+            if len(keywords) >= _T4_MAX_KEYWORDS:
+                break
+            t = str(term).strip().strip("_-")
+            if len(t) < 2 or not any(ch.isalpha() for ch in t) or t.lower() in seen:
+                continue
+            seen.add(t.lower())
+            keywords.append(t)
+
+    title = info.get("title")
+    if not (isinstance(title, str) and title.strip()):
+        title = title_fallback or "dataset"
+    info["title"] = title
+    info["keywords"] = keywords
+    info["categories"] = categories if categories else ["dataset"]
+    return info
+
+
 def _t4_fix_recipe(bundle: SchemaBundle, schema_info: object, *, min_keywords: int) -> str:
     """Build the paste-ready §7 ``schema_info`` repair recipe.
 
@@ -705,29 +855,18 @@ def _t4_fix_recipe(bundle: SchemaBundle, schema_info: object, *, min_keywords: i
     """
     import yaml  # lazy
 
-    info: dict = dict(schema_info) if isinstance(schema_info, Mapping) else {}
-    existing_keywords = list(info["keywords"]) if isinstance(info.get("keywords"), list) else []
-    categories = list(info["categories"]) if isinstance(info.get("categories"), list) else []
-    keywords = list(existing_keywords)  # the author's entries survive verbatim
-    seen = {str(k).strip().lower() for k in keywords}
-
-    if len(keywords) < min_keywords:
-        for term in _t4_candidate_terms(bundle, info):
-            if len(keywords) >= _T4_MAX_KEYWORDS:
-                break
-            t = term.strip().strip("_-")
-            if len(t) < 2 or not any(ch.isalpha() for ch in t) or t.lower() in seen:
-                continue
-            seen.add(t.lower())
-            keywords.append(t)
-
-    title = info.get("title")
-    if not (isinstance(title, str) and title.strip()):
-        stem = bundle.mie_yaml.stem if bundle.mie_yaml else "dataset"
-        title = re.sub(r"[-._]mie$", "", stem, flags=re.IGNORECASE) or stem
-    info["title"] = title
-    info["keywords"] = keywords
-    info["categories"] = categories if categories else ["dataset"]
+    existing = schema_info if isinstance(schema_info, Mapping) else {}
+    existing_keywords = (
+        list(existing["keywords"]) if isinstance(existing.get("keywords"), list) else []
+    )
+    stem = bundle.mie_yaml.stem if bundle.mie_yaml else "dataset"
+    info = repair_schema_info(
+        existing,
+        _t4_candidate_terms(bundle, existing),
+        min_keywords=min_keywords,
+        title_fallback=re.sub(r"[-._]mie$", "", stem, flags=re.IGNORECASE) or stem,
+    )
+    keywords = list(info["keywords"])
 
     block = yaml.safe_dump({"schema_info": info}, allow_unicode=True, sort_keys=False).rstrip()
 
@@ -884,9 +1023,14 @@ def _lint_class_name(token: str) -> str | None:
     validating the bare identifier — those parts may legally hold other chars.
     """
     bare = token.strip()
+    # Order matters: a class-opening line is `class Id["label"] {` — the
+    # brace trails the bracket, so it must come off FIRST or the `\[.*\]$`
+    # anchor never matches (real incident: this used to run brace-strip
+    # last, so `class ____["試料"] {` never had its bracket recognised and
+    # the T5 lint flagged the whole `____["試料"]` token as invalid).
+    bare = bare.rstrip("{").strip()  # drop a trailing block-opening brace
     bare = re.sub(r"\[.*\]$", "", bare).strip()  # drop ["display label"]
     bare = re.sub(r":::\w+$", "", bare).strip()  # drop :::cssStyle
-    bare = bare.rstrip("{").strip()  # drop a trailing block-opening brace
     if not bare:
         return None
     if not _CLASS_NAME_RE.match(bare):

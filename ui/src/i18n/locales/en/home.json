@@ -1,26 +1,38 @@
 {
   "status": {
     "pub": "Published",
+    "pubStaged": "Published · update ready",
+    "retracted": "Unpublished (retracted)",
     "draft": "Draft",
-    "design": "Designing"
+    "design": "Not ingested"
   },
   "band": {
     "head": "Your connected data so far"
   },
   "stat": {
-    "facts": "Facts / triples",
+    "facts": "Facts",
+    "factsTitle": "Total number of stored facts (triples)",
     "datasets": "Datasets",
     "classes": "Kinds of data",
-    "unavailable": "Could not fetch fact/kind counts. Check the write token in Settings, or the server's query exposure setting."
+    "unavailable": "The counts aren't available yet (adding data and asking still work). If reopening in a moment doesn't help, check the following.",
+    "unavailableTitle": "Check the write token in Settings, or the server's SPARQL exposure setting."
+  },
+  "firstRun": {
+    "title": "New here?",
+    "lead": "Just drop in an Excel, CSV or instrument file.",
+    "steps": "You go: {{flow}}.",
+    "privacy": "Nobody else can see it until you publish.",
+    "cta": "Add data"
   },
   "action": {
     "add": {
       "title": "Add data",
-      "sub": "Connect a CSV and the AI drafts the design for you"
+      "sub": "Drop in your measurement files and the AI drafts the design for you"
     },
     "ask": {
       "title": "Ask a question",
-      "sub": "Get grounded answers from your ingested data"
+      "sub": "Get grounded answers from your published data",
+      "subNone": "Nothing is published yet. Once you publish a dataset, ask here."
     },
     "connect": {
       "title": "Connect your data",
@@ -32,6 +44,11 @@
     "seeAll": "See all datasets",
     "loading": "Loading…",
     "empty": "No datasets yet. Start from \"Add data\".",
-    "loadFailed": "Could not load the dataset list. Check the server connection and reload."
+    "loadFailed": "Couldn't load your datasets. Wait a moment and try again.",
+    "retry": "Load again"
+  },
+  "rowHint": {
+    "draft": "Publish to ask about it →",
+    "design": "Not ingested yet — open to ingest →"
   }
 }

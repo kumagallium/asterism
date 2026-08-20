@@ -1,19 +1,40 @@
 {
   "phase": {
     "creating": "Registering document…",
-    "ingesting": "Structuring and ingesting…",
-    "promoting": "Publishing…"
+    "ingesting": "Splitting it into sentences…"
   },
-  "intro": "Upload a document such as a paper or contract (<0>Word</0> <1>.docx</1> / PDF / structured XML <2>.xml</2>) and, with <3>no AI design needed</3>, it is structured down to <4>section → paragraph → sentence</4>, so you can <5>full-text search and cite</5> it from the dataset's \"Tools\" tab.",
+  "intro": "A document such as a paper or a contract can be taken in as it is. Once in, you can search the sentences inside it and cite them with their source. (Supported: Word .docx / PDF .pdf / XML .xml)",
+  "introPlain": "Word / PDF files can be taken in as they are. Once in, you can search and cite the sentences inside.",
+  "pickAnother": "Use a different file",
   "pickFile": "Choose a document (Word / PDF / XML)",
   "noFile": "No file selected",
   "nFiles": "{{n}} documents",
   "nameLabel": "Document name (optional)",
   "namePlaceholder": "e.g. Half-Heusler thermoelectrics / Service agreement",
-  "convertHint": "Word (.docx) and PDF (.pdf) are automatically converted to structured XML on the server (the conversion tool and version are recorded in the provenance). PDF takes a little longer for layout-aware conversion.",
-  "submit": "Add and publish document",
+  "convertHint": "Word (.docx) and PDF (.pdf) are read for you on the server — nothing to do. A PDF can take a few minutes because the layout is read too. What tool read it, and its version, are kept in this data's history.",
+  "convertHintPlain": "Word and PDF can be dropped in as they are. A PDF can take a few minutes to read.",
+  "submit": "Take in the document",
   "retrySubmit": "Resume ingestion",
   "retryResumes": "The dataset was already created. Retrying resumes ingesting the same document \"{{name}}\" — it does not create a duplicate.",
-  "result": "✓ Published <0>{{name}}</0>. Open it in Datasets and use <1>search_text</1> /<2>quote_with_citation</2> on the \"Tools\" tab to full-text search and cite it.",
+  "confirm": {
+    "head": "Reading finished. Publish it?",
+    "nameLabel": "Name",
+    "filesLabel": "Files taken in",
+    "files": "{{n}}",
+    "body": "Once published, sentences from this document are cited, with their source, in answers to questions.",
+    "promise": "If you spot a mistake you can take it out of citation at any time (the data and its IDs stay, so links that were already cited never break).",
+    "publish": "Publish",
+    "publishing": "Publishing…"
+  },
+  "result": "✓ Published \"{{name}}\". You can search it sentence by sentence and cite it with its source.",
+  "resultPlain": "✓ \"{{name}}\" is published. You can search and cite its sentences from Ask.",
+  "tryAsk": "Try it in Ask",
+  "tryAskQuestion": "Find sentences in \"{{name}}\" that talk about ...",
+  "openDataset": "Open the dataset page",
+  "errHead": "The document could not be taken in.",
+  "publishErrHead": "It could not be published.",
+  "errScanned": "A PDF that is a scanned image (text stored as a picture) cannot be read.",
+  "errRetry": "Try again",
+  "techSummary": "Technical details",
   "cancelled": "Ingest cancelled. Run again to resume from ingest on the same dataset."
 }

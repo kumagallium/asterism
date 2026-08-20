@@ -38,6 +38,53 @@ export const KIND_TO_CLASS: Record<string, string> = {
   ingestion: 'IngestionActivity',
 }
 
+/**
+ * The vocabulary class an Ask citation (or provenance step) links to, or
+ * undefined when nothing known matches.
+ *
+ * The seeded starrydata kinds keep their mapping; ANY other kind links too as
+ * soon as it names a class that actually exists in a catalogued dataset. Without
+ * that second branch the Ask⇄ことば link appeared only for starrydata data, and
+ * vanished silently for the datasets a person designed themselves.
+ */
+export function vocabClassFor(kind: string, known?: ReadonlySet<string>): string | undefined {
+  const seeded = KIND_TO_CLASS[kind]
+  if (seeded) return seeded
+  return kind && known?.has(kind) ? kind : undefined
+}
+
+/** Class names present in the catalogued datasets — the `known` set above. */
+export function catalogClassNames(datasets: readonly CatalogDataset[]): Set<string> {
+  const out = new Set<string>()
+  for (const d of datasets) for (const c of d.classes) out.add(c)
+  return out
+}
+
+/** The dataset slug of a minted IRI (`…/datasets/<slug>/…`, ADR K13), or null
+ *  when this IRI carries no dataset segment. Pure reading — nothing is minted. */
+export function datasetSlugFromIri(iri: string): string | null {
+  const m = /\/datasets\/([^/#?]+)\//.exec(iri)
+  return m ? m[1] : null
+}
+
+/**
+ * Which catalogued dataset minted `iri` — or undefined when it cannot be told.
+ *
+ * Matched on the slug that appears in the dataset's OWN term IRIs (from its
+ * alignment report), never guessed from its display name: a renamed dataset
+ * still resolves, and a wrong dataset is never offered as "the source".
+ */
+export function findDatasetByIri(
+  iri: string,
+  datasets: readonly CatalogDataset[],
+): CatalogDataset | undefined {
+  const slug = datasetSlugFromIri(iri)
+  if (!slug) return undefined
+  return datasets.find((d) =>
+    [...d.classIris, ...d.predicates].some((term) => datasetSlugFromIri(term) === slug),
+  )
+}
+
 // ---- ontology layer -------------------------------------------------------
 
 export interface OntologyEntry {
@@ -298,9 +345,35 @@ export async function promoteDataset(
   return (await res.json()) as { triples_promoted: number; alignment: AlignmentReport }
 }
 
+/**
+ * The message a failed catalog call throws.
+ *
+ * The api now answers these with a finished human sentence
+ * (`{"detail":"このデータはまだ公開されていないため…"}`), and the screens show
+ * the thrown message as-is — so wrapping it in `retract failed (HTTP 400): {…}`
+ * buried the one readable part inside an English/JSON shell. When the body
+ * carries a string `detail`, that sentence IS the message; anything else keeps
+ * the old shape so an unexpected failure still names its operation and status.
+ *
+ * (The promote path builds its own message inline and is deliberately left
+ * alone: the kantan stop card classifies it by the "(HTTP …)" prefix.)
+ */
 async function _errText(res: Response, op: string): Promise<string> {
-  const detail = await res.text().catch(() => '')
-  return `${op} failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`
+  const body = await res.text().catch(() => '')
+  const detail = _detailSentence(body)
+  if (detail) return detail
+  return `${op} failed (HTTP ${res.status})${body ? `: ${body}` : ''}`
+}
+
+/** The `detail` string of a FastAPI error body, or '' when there isn't one. */
+function _detailSentence(body: string): string {
+  if (!body.trimStart().startsWith('{')) return ''
+  try {
+    const parsed = JSON.parse(body) as { detail?: unknown }
+    return typeof parsed.detail === 'string' ? parsed.detail.trim() : ''
+  } catch {
+    return ''
+  }
 }
 
 /** #20 P3: withdraw a promoted dataset from the citable corpus (tombstone, not
@@ -586,13 +659,34 @@ function extractMermaid(diagramMd: string): string {
 
 export type CatalogStatusKind = 'pub' | 'draft' | 'design'
 
+/** The REGISTRY id of a catalogued dataset. `CatalogDataset.id` is a synthetic
+ *  catalog id (`live-<id>`) that distinguishes the catalog's own rows; every API
+ *  call, route and tool result speaks the registry id. Stated once here — the
+ *  same strip was being written inline wherever the two had to be matched up,
+ *  and a lookup that forgot it silently found nothing (live 2026-08-20: an
+ *  answer's source dataset came out as a raw id with no name and no link). */
+export function registryIdOf(dataset: Pick<CatalogDataset, 'id'> & { live?: { meta: { id: string } } }): string {
+  return dataset.live?.meta.id ?? dataset.id.replace(/^live-/, '')
+}
+
 export interface CatalogDataset {
   id: string
   name: string
   sub: string
   statusKind: CatalogStatusKind
-  /** `key` is a locale-independent id ('fact' | 'class') for data matching; `label` is display-only. */
+  /** `key` is a locale-independent id ('class' | 'file') for data matching; `label` is display-only.
+   *  K12: the raw triple count is NOT in here — it does not correspond to rows, so
+   *  calling it "facts" on a card hides a collapsed primary key. See `factCount`. */
   counts: { key?: string; value: string; label: string }[]
+  /** The stored triple count, formatted — for the few screens that legitimately
+   *  want the raw size (SPARQL/detail tooling). Never rendered on a kantan card. */
+  factCount?: string
+  /** `status === 'retracted'`: still `promoted` in the registry (the flag is not
+   *  cleared) but withdrawn from citation, so the "published" pill alone would lie. */
+  retracted: boolean
+  /** Re-ingested after a publish (version ≥ 1, staged but not promoted again): the
+   *  PUBLISHED version is still live and citable, so this is not a plain draft. */
+  updatePending: boolean
   purposes: { tag: string; detail: string }[]
   classes: string[]
   reuses: { prefix: string; what: string }[]
@@ -633,8 +727,11 @@ function liveToCatalog(l: LiveDataset): CatalogDataset {
   const counts = [
     { key: 'class', value: String(l.ontology.classes.length), label: i18n.t('gallery:api.count.class') },
   ]
-  if (n != null)
-    counts.unshift({ key: 'fact', value: n.toLocaleString(), label: i18n.t('gallery:api.count.fact') })
+  // K12: kinds and files, not triples. "1,234 事実" does not correspond to the
+  // rows the reader put in, so a collapsed primary key stays invisible behind it.
+  const fileCount = l.meta.source_files?.length ?? 0
+  if (fileCount > 0)
+    counts.push({ key: 'file', value: String(fileCount), label: i18n.t('shared:count.file') })
   // 直近のライフサイクルイベントを表す（常に「設計を保存」だと公開済みでも
   // 設計日しか見えず誤解を招く）。日時はイベントに対応するものへ。
   const sub =
@@ -653,6 +750,9 @@ function liveToCatalog(l: LiveDataset): CatalogDataset {
     sub,
     statusKind,
     counts,
+    factCount: n != null ? n.toLocaleString() : undefined,
+    retracted: l.meta.status === 'retracted',
+    updatePending: stage === 'ingested' && (l.meta.version ?? 0) >= 1,
     purposes: [],
     classes: l.ontology.classes,
     reuses: l.ontology.reuses,
@@ -668,6 +768,17 @@ function liveToCatalog(l: LiveDataset): CatalogDataset {
     live: l,
     isCrosswalk: l.meta.is_crosswalk === true,
   }
+}
+
+/**
+ * Whether Ask can cite this dataset: a published version is live in the canonical
+ * graph. A retracted dataset is NOT (its `promoted` flag is still set, so the raw
+ * stage would say yes); a published dataset with a re-ingested draft staged on top
+ * still IS, because the published version keeps answering until it is re-promoted.
+ */
+export function isAskable(d: CatalogDataset): boolean {
+  if (d.isCrosswalk || d.retracted) return false
+  return d.statusKind === 'pub' || d.updatePending
 }
 
 /** All catalogued datasets: the workbench-materialized drafts. Real, live-only. */

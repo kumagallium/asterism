@@ -143,6 +143,66 @@ def test_build_with_config_then_get(tmp_path: Path) -> None:
         assert gb["dataset"]["crosswalk_shared_compositions"] == 1
 
 
+def test_get_crosswalk_enriches_participant_and_concept_labels(tmp_path: Path) -> None:
+    """XW-01/XW-04/XW-06: GET enriches the READ, never the persisted config —
+    the participant's CURRENT dataset name, a design-authored predicate_label,
+    and a concept_label derived from agreement across participants."""
+    ds = rdflib.Dataset()
+    _seed_promoted(ds, tmp_path / "registry", "ds-a", [("urn:a1", "Bi₂Te₃")])
+    _seed_promoted(ds, tmp_path / "registry", "ds-b", [("urn:b1", "Bi2Te3")])
+    # ds-a's design authored a label for PRED (Mapping IR §9); ds-b has none —
+    # concept_label still resolves from the ONE participant that has a label.
+    registry_root = tmp_path / "registry"
+    (registry_root / "ds-a" / "meta.json").write_text(
+        json.dumps(
+            {
+                "id": "ds-a",
+                "name": "アルファ測定",  # renamed since the crosswalk was built
+                "created_at": "2026-06-11T00:00:00+00:00",
+                "promoted": True,
+                "status": "active",
+                "canonical_graph": substrate.canonical_graph_iri("ds-a"),
+            }
+        ),
+        encoding="utf-8",
+    )
+    (registry_root / "ds-a" / "mapping.yaml").write_text(
+        "version: 1\n"
+        "prefixes:\n"
+        '  x: "https://kumagallium.github.io/asterism/x/ontology#"\n'
+        "maps:\n"
+        "  - name: sample\n"
+        "    source: samples.csv\n"
+        "    subject:\n"
+        '      template: "x:sample/{SID}"\n'
+        "    properties:\n"
+        "      - predicate: x:comp\n"
+        "        column: comp\n"
+        '        label: "組成"\n',
+        encoding="utf-8",
+    )
+    app = build_app(_settings(tmp_path), oxigraph_client=_DatasetClient(ds), start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post("/api/crosswalk/build", json=_config_body(["ds-a", "ds-b"]))
+        assert r.status_code == 200, r.text
+
+        g = client.get("/api/crosswalk")
+        concept = g.json()["config"]["concepts"][0]
+        assert concept["concept_label"] == "組成"
+        by_id = {p["dataset_id"]: p for p in concept["participants"]}
+        assert by_id["ds-a"]["name"] == "アルファ測定"
+        assert by_id["ds-a"]["predicate_label"] == "組成"
+        # ds-b's design has no authored label -> no predicate_label key added
+        # (the UI falls back to the stored ascii label), but its CURRENT name
+        # (unchanged) still comes through.
+        assert by_id["ds-b"].get("predicate_label") is None
+        assert by_id["ds-b"]["name"] == "ds-b"
+
+        listed = client.get("/api/crosswalks").json()["perspectives"]
+        default = next(p for p in listed if p["perspective_id"] == "composition")
+        assert default["config"]["concepts"][0]["concept_label"] == "組成"
+
+
 def test_build_without_config_uses_persisted(tmp_path: Path) -> None:
     ds = rdflib.Dataset()
     _seed_promoted(ds, tmp_path / "registry", "ds-a", [("urn:a1", "Bi2Te3")])

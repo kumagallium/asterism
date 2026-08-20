@@ -224,3 +224,100 @@ def test_dataset_doc_contains_fenced_block_then_table() -> None:
     assert doc.index("## Properties") > fence
     # the fenced block closes before the table (UI extracts only the fence)
     assert doc.index("```\n", fence + 1) < doc.index("## Properties")
+
+
+# ----------------------------------------------------------------------------
+# Non-ASCII class names — real registry incident (dataset ``xrd-21db86e4``):
+# ``xrd:試料`` / ``xrd:ピーク値`` classes were legitimate (kantan mode invites
+# Japanese type names), but the diagram's ``_safe_ident`` flattening turned
+# EVERY character into ``_`` (``試料`` -> ``__``), and ``extract_classes`` read
+# that flattened id straight into ``meta.classes`` — the value the Gallery
+# card / dataset "中身" tab display. These pin the fix: the id stays
+# Mermaid-safe (unchanged), but the class's real name survives as a Mermaid
+# display label the reviewer (and meta.classes, see
+# ``test_registry_extract_classes.py`` in api/tests) can actually read.
+# ----------------------------------------------------------------------------
+
+JAPANESE_CLASSES = """\
+version: 1
+prefixes:
+  xrd: "https://example.org/xrd/"
+maps:
+  - name: sample
+    source: xrd.csv
+    subject:
+      template: "xrd:s/{id}"
+      classes: [xrd:試料]
+    properties:
+      - {predicate: xrd:peak, column: peak, datatype: xsd:double}
+  - name: peak
+    source: xrd.csv
+    subject:
+      template: "xrd:p/{id}"
+      classes: [xrd:ピーク値]
+    properties:
+      - {predicate: xrd:sample, object_template: "xrd:s/{id}"}
+"""
+
+
+def test_non_ascii_class_name_renders_as_a_display_label_not_flattened() -> None:
+    body = render_mermaid_body(build_graph_from_ir(parse_mapping_ir(JAPANESE_CLASSES)))
+    # the real name is readable in the diagram source …
+    assert 'class __["試料"]' in body
+    assert 'class ____["ピーク値"]' in body
+    # … and the flattened run-of-underscores id is never shown bare (no
+    # class box opens with just underscores and no label).
+    assert "class __ {" not in body
+    assert "class ____ {" not in body
+
+
+def test_non_ascii_class_diagram_passes_the_t5_lint() -> None:
+    body = render_mermaid_body(build_graph_from_ir(parse_mapping_ir(JAPANESE_CLASSES)))
+    assert _lint_classdiagram(body) == []
+
+
+def test_umlaut_class_name_also_gets_a_display_label() -> None:
+    """Non-ASCII handling is general — not a Japanese-only special case."""
+    ir = parse_mapping_ir(
+        """\
+version: 1
+prefixes:
+  v: "https://example.org/v/"
+maps:
+  - name: m
+    source: m.csv
+    subject: {template: "v:m/{id}", classes: [v:Größe]}
+    properties: [{predicate: v:name, column: n}]
+"""
+    )
+    body = render_mermaid_body(build_graph_from_ir(ir))
+    assert 'class Gr__e["Größe"]' in body
+    assert _lint_classdiagram(body) == []
+
+
+def test_ascii_class_name_gets_no_label_diagram_byte_identical() -> None:
+    """The common case (ASCII class names) is untouched by this field."""
+    body = render_mermaid_body(build_graph_from_ir(parse_mapping_ir(ZEM_LIKE)))
+    assert "class Measurement {" in body
+    assert "[" not in body.split("class Measurement")[1].split("\n")[0]
+
+
+def test_quote_in_class_name_omits_the_label_rather_than_breaking_the_diagram() -> None:
+    """A ``"`` in the class's real name would break the label syntax outright
+    (verified against Mermaid 11.15's real parser) — dropping the label is
+    safer than emitting a diagram Mermaid cannot parse."""
+    ir = parse_mapping_ir(
+        """\
+version: 1
+prefixes:
+  v: "https://example.org/v/"
+maps:
+  - name: m
+    source: m.csv
+    subject: {template: 'v:m/{id}', classes: ['v:A"B']}
+    properties: [{predicate: v:name, column: n}]
+"""
+    )
+    body = render_mermaid_body(build_graph_from_ir(ir))
+    assert '["' not in body  # no label emitted at all
+    assert _lint_classdiagram(body) == []

@@ -27,6 +27,7 @@ deterministic (stable ordering, no timestamps) so golden tests can pin it.
 """
 from __future__ import annotations
 
+import json
 import re
 
 from asterism_step0.dialect import SourceDialect
@@ -89,6 +90,20 @@ def default_catalog() -> FunctionCatalog:
 # ---------------------------------------------------------------------------
 
 
+# A template with no ``{column}`` in it names ONE fixed value. RML engines
+# reject that as a template: Morph-KGC raises "Invalid template … No pairs of
+# unescaped curly braces were found" and the whole import stops. A model writes
+# it whenever the value happens to be constant for the file (live 2026-08-19:
+# `object_template: "xrdr:sample/sample1"` on a single-sample scan), and asking
+# it again produces the same reasonable-looking line — so the compiler settles
+# it instead: no placeholder means a constant, which is what it already is.
+_HAS_PLACEHOLDER = re.compile(r"\{[^{}]+\}")
+
+
+def _is_placeholderless(template: str) -> bool:
+    return _HAS_PLACEHOLDER.search(template or "") is None
+
+
 def _turtle_string(value: str) -> str:
     """A Turtle double-quoted string literal for ``value`` (escaped)."""
     out = (
@@ -117,6 +132,9 @@ def _dialect_annotations(dialect: SourceDialect) -> list[str]:
         out.append(f"ast:sourceSkipRows {dialect.skip_rows}")
     if dialect.preamble != "drop":
         out.append(f"ast:sourcePreamble {_turtle_string(dialect.preamble)}")
+        if dialect.preamble_names:
+            names_json = json.dumps(dialect.preamble_names, sort_keys=True, ensure_ascii=False)
+            out.append(f"ast:sourcePreambleNames {_turtle_string(names_json)}")
     return out
 
 
@@ -309,7 +327,12 @@ class _Compiler:
                 parts.append("rr:termType rr:IRI")
             else:
                 expanded = self.expand_template(s.template, f"{where}.subject.template")
-                parts.append(f"rr:template {_turtle_string(expanded)}")
+                if _is_placeholderless(expanded):
+                    if _IRI_ILLEGAL.search(expanded):
+                        self._fail(f"{where}.subject.template is not a valid IRI.")
+                    parts.append(f"rr:constant <{expanded}>")
+                else:
+                    parts.append(f"rr:template {_turtle_string(expanded)}")
         else:
             self._fail(f"{where}.subject needs 'template' or 'constant'.")
         if s.classes:
@@ -342,8 +365,11 @@ class _Compiler:
 
         if p.object_template is not None:
             if p.object_type == "literal":
-                body = [f"rr:template {_turtle_string(p.object_template)}"]
-                body.append("rr:termType rr:Literal")
+                if _is_placeholderless(p.object_template):
+                    body = [f"rr:constant {_turtle_string(p.object_template)}"]
+                else:
+                    body = [f"rr:template {_turtle_string(p.object_template)}"]
+                    body.append("rr:termType rr:Literal")
                 body.extend(annotations)
                 return "[ " + " ;\n      ".join(body) + " ]"
             if p.transform:
@@ -352,6 +378,10 @@ class _Compiler:
                 )
                 return f"[ rmlf:functionExecution {fe} ;\n      rr:termType rr:IRI ]"
             expanded = self.expand_template(p.object_template, f"{where}.object_template")
+            if _is_placeholderless(expanded):
+                if _IRI_ILLEGAL.search(expanded):
+                    self._fail(f"{where}.object_template is not a valid IRI.")
+                return f"[ rr:constant <{expanded}> ]"
             return (
                 f"[ rr:template {_turtle_string(expanded)} ;\n      rr:termType rr:IRI ]"
             )

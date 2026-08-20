@@ -23,6 +23,7 @@ from asterism.tabularize import (
     sanitize_csv_columns,
     tabularize_json_to_csv,
     tabularize_records,
+    xlsx_to_csv_sheets,
     xlsx_to_csvs,
 )
 
@@ -441,3 +442,18 @@ def test_e2e_substrate_sanitizes_direct_csv_reserved_column(tmp_path: Path) -> N
     triples = _materialize(rml, tmp_path)
     assert ("https://ex/b/b1", "https://ex/subject", "Math") in triples
     assert ("https://ex/b/b1", "https://ex/subject", "Physics") in triples
+
+
+def test_xlsx_sheets_carry_their_worksheet_titles() -> None:
+    """The derived name may be a hash slug; the human still gets the real title.
+
+    K6 asks "which sheet do you want to use?" — a question nobody can answer
+    when the choices are called ``book__sheet-3f2a91c4.csv``.
+    """
+    data = _xlsx_bytes({"測定結果": [["a"], [1]], "Notes": [["b"], [2]]})
+    sheets = xlsx_to_csv_sheets(data, stem="book")
+    assert [title for _name, title, _body in sheets] == ["測定結果", "Notes"]
+    # Same names + bytes as the title-less entry point (no behaviour change).
+    assert [(n, b) for n, _t, b in sheets] == xlsx_to_csvs(data, stem="book")
+    slugs = [n for n, _t, _b in sheets]
+    assert any("sheet-" in n for n in slugs)  # the Japanese title hashed

@@ -48,6 +48,10 @@ export function WriteTokenSection() {
     setIsSet(getApiToken().length > 0)
     setCheck('')
     invalidateInstanceInfo() // 次に開いたときは新しいトークンで判定する
+    // Saving a wrong code used to look exactly like saving the right one
+    // ("set"), so people went back and hit the same refusal on the next
+    // ingest. Check it here, while they can still fix it.
+    if (!clear) void verify()
   }
 
   // 保存済みトークンで書き込みゲートを 1 回だけ叩いて即フィードバックする。

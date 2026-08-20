@@ -581,6 +581,47 @@ def test_dialects_preamble_without_skip_rows_is_flagged() -> None:
     assert any("skip_rows is 0" in i for i in issues)
 
 
+def test_dialects_preamble_names_parses_onto_ir() -> None:
+    text = TXT_MINIMAL + (
+        "dialects:\n"
+        '  "data.txt":\n'
+        "    skip_rows: 1\n"
+        "    preamble: lines\n"
+        "    preamble_names:\n"
+        '      preamble_1: "試料名"\n'
+    )
+    ir = parse_mapping_ir(text)
+    assert ir.dialects["data.txt"].preamble_names == {"preamble_1": "試料名"}
+    # An absent preamble_names defaults to {} (byte-identical to today).
+    text2 = TXT_MINIMAL + 'dialects:\n  "data.txt": { skip_rows: 1, preamble: lines }\n'
+    assert parse_mapping_ir(text2).dialects["data.txt"].preamble_names == {}
+
+
+def test_dialects_preamble_names_bad_shape_is_error() -> None:
+    text = TXT_MINIMAL + (
+        "dialects:\n"
+        '  "data.txt":\n'
+        "    skip_rows: 1\n"
+        "    preamble: lines\n"
+        "    preamble_names: not-a-mapping\n"
+    )
+    issues = parse_issues(text)
+    assert any("preamble_names must be a mapping" in i for i in issues)
+
+
+def test_dialects_preamble_names_non_string_value_is_error() -> None:
+    text = TXT_MINIMAL + (
+        "dialects:\n"
+        '  "data.txt":\n'
+        "    skip_rows: 1\n"
+        "    preamble: lines\n"
+        "    preamble_names:\n"
+        "      preamble_1: 5\n"
+    )
+    issues = parse_issues(text)
+    assert any("preamble_names must map strings to strings" in i for i in issues)
+
+
 def test_dialects_whitespace_sentinel_ok() -> None:
     text = TXT_MINIMAL + 'dialects:\n  "data.txt": { delimiter: whitespace, skip_rows: 23 }\n'
     ir = parse_mapping_ir(text)

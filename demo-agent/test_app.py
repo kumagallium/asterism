@@ -841,3 +841,96 @@ def test_prior_messages_keeps_only_a_recent_window_and_clips_long_turns() -> Non
     assert out[0]["content"] == f"q{20 - demo._HISTORY_MAX_TURNS // 2}"  # oldest kept
     assert len(out[-1]["content"]) <= demo._HISTORY_MAX_CHARS + 2  # clipped + " …"
     assert out[-1]["content"].endswith("…")
+
+
+# ---- a vetted tool's own evidence becomes a citation --------------------------
+# `submit_answer` takes citations from the MODEL, so an aggregate answer arrived
+# with none and the reader could not see which records produced the number. A
+# tool that returns the min-holding and max-holding record has named its own
+# evidence; that must reach the reader whatever the model chose to say.
+
+
+def test_a_ranges_min_and_max_records_are_cited() -> None:
+    out: list[dict] = []
+    demo._collect_tool_citations(
+        out,
+        [
+            {
+                "count": 3001,
+                "min": 20.0,
+                "max": 80.0,
+                "min_subject_iri": "https://ex/peak/20",
+                "max_subject_iri": "https://ex/peak/80",
+            }
+        ],
+    )
+    assert out == [{"iri": "https://ex/peak/20"}, {"iri": "https://ex/peak/80"}]
+
+
+def test_the_top_value_shape_is_cited_too() -> None:
+    out: list[dict] = []
+    demo._collect_tool_citations(out, [{"subject_iri": "https://ex/peak/9", "value": 4233.0}])
+    assert out == [{"iri": "https://ex/peak/9"}]
+
+
+def test_a_listing_is_left_to_the_model() -> None:
+    """A result too big to BE the evidence is not harvested — so nothing is
+    silently truncated into a handful of arbitrary citations."""
+    rows = [{"subject_iri": f"https://ex/peak/{i}"} for i in range(demo._CITE_ROWS_MAX + 1)]
+    out: list[dict] = []
+    demo._collect_tool_citations(out, rows)
+    assert out == []
+
+
+def test_values_that_are_not_iris_are_ignored() -> None:
+    out: list[dict] = []
+    demo._collect_tool_citations(
+        out,
+        [{"subject_iri": "not-an-iri", "min_subject_iri": None, "max_subject_iri": 42}],
+    )
+    assert out == []
+
+
+def test_the_same_record_is_cited_once() -> None:
+    out: list[dict] = []
+    row = [{"min_subject_iri": "https://ex/peak/1", "max_subject_iri": "https://ex/peak/1"}]
+    demo._collect_tool_citations(out, row)
+    demo._collect_tool_citations(out, row)  # a second tool returning the same record
+    assert out == [{"iri": "https://ex/peak/1"}]
+
+
+def test_an_empty_result_cites_nothing() -> None:
+    out: list[dict] = []
+    demo._collect_tool_citations(out, [])
+    demo._collect_tool_citations(out, [{"count": 0, "min": None, "max": None}])
+    assert out == []
+
+
+# ---- a payload written as text is not printed as text ------------------------
+# A model that cannot call the tool often writes `submit_answer`'s JSON as
+# ordinary content. Printed verbatim, the reader sees `{ "answer": … }` where a
+# sentence belongs (live 2026-08-20, an OpenAI-compatible model).
+
+
+def test_a_json_payload_written_as_text_is_read_as_the_answer() -> None:
+    out = demo._answer_payload('{"answer": "2θ角度の範囲は 20.0° から 80.0° です。", "citations": []}')
+    assert out == {"answer": "2θ角度の範囲は 20.0° から 80.0° です。", "citations": []}
+
+
+def test_a_fenced_payload_is_read_too() -> None:
+    out = demo._answer_payload('```json\n{"answer": "42 件です。"}\n```')
+    assert out == {"answer": "42 件です。"}
+
+
+def test_citations_in_a_text_payload_survive() -> None:
+    out = demo._answer_payload(
+        '{"answer": "a", "citations": [{"iri": "https://ex/1"}, {"label": "no iri"}]}'
+    )
+    assert out is not None and out["citations"] == [{"iri": "https://ex/1"}]
+
+
+def test_an_ordinary_answer_is_left_alone() -> None:
+    assert demo._answer_payload("2θ角度の範囲は 20.0° から 80.0° です。") is None
+    assert demo._answer_payload('{"foo": 1}') is None  # an object, but no answer
+    assert demo._answer_payload("{not json") is None
+    assert demo._answer_payload("") is None

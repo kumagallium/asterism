@@ -22,6 +22,7 @@ from asterism_step0.dialect import (
     is_default,
     iter_rows,
     read_preamble,
+    read_preamble_origins,
     resolve_header,
 )
 
@@ -566,6 +567,69 @@ def test_iter_rows_broadcast_keyvalue_dedupes_and_links() -> None:
     assert {r[no_idx] for r in rows[1:]} == {"03-065-2664"}
 
 
+def test_broadcast_preamble_names_renames_lines_mode(tmp_path: Path) -> None:
+    # A person's chosen name replaces the machine invention preamble_1 in the
+    # broadcast header — the invented name never reaches the design/RML/public
+    # column name.
+    p = _write_cp932_xrd(tmp_path / "m.txt", data_rows=2)
+    dialect = SourceDialect(
+        encoding="cp932",
+        delimiter="\t",
+        skip_rows=1,
+        preamble="lines",
+        preamble_names={"preamble_1": "試料名"},
+    )
+    rows = list(iter_rows(p, dialect))
+    assert rows[0] == ["2θ (deg)", "強度 (cps)", "試料名"]
+    assert "preamble_1" not in rows[0]
+
+
+def test_broadcast_preamble_names_collision_suffixes_meta_only(tmp_path: Path) -> None:
+    # A human-chosen name that collides with a body column is suffixed on the
+    # META side (resolve_header) — the body column is NEVER renamed.
+    p = _write_cp932_xrd(tmp_path / "m.txt", data_rows=2)
+    dialect = SourceDialect(
+        encoding="cp932",
+        delimiter="\t",
+        skip_rows=1,
+        preamble="lines",
+        preamble_names={"preamble_1": "2θ (deg)"},
+    )
+    rows = list(iter_rows(p, dialect))
+    assert rows[0] == ["2θ (deg)", "強度 (cps)", "2θ (deg)_2"]
+
+
+def test_broadcast_preamble_names_blank_override_keeps_machine_name(tmp_path: Path) -> None:
+    # An empty/whitespace-only override is how a person says "not yet named" —
+    # it must NOT blank out the column; the machine name is kept.
+    p = _write_cp932_xrd(tmp_path / "m.txt", data_rows=2)
+    dialect = SourceDialect(
+        encoding="cp932",
+        delimiter="\t",
+        skip_rows=1,
+        preamble="lines",
+        preamble_names={"preamble_1": "   "},
+    )
+    rows = list(iter_rows(p, dialect))
+    assert rows[0] == ["2θ (deg)", "強度 (cps)", "preamble_1"]
+
+
+def test_broadcast_preamble_names_keyvalue_mode(tmp_path: Path) -> None:
+    # A file-supplied name (not just a machine invention) is equally renameable.
+    p = _write_icdd_card_full(tmp_path / "card.txt", data_rows=2)
+    dialect = SourceDialect(
+        encoding="utf-8-sig",
+        delimiter=WHITESPACE,
+        skip_rows=23,
+        preamble="keyvalue",
+        preamble_names={"No": "カード番号"},
+    )
+    rows = list(iter_rows(p, dialect))
+    header = rows[0]
+    assert "カード番号" in header
+    assert "No" not in header
+
+
 def test_iter_rows_drop_is_byte_identical_to_today(tmp_path: Path) -> None:
     # The drop path (default) must be untouched by the broadcast machinery.
     p = _write_cp932_xrd(tmp_path / "m.txt", data_rows=4)
@@ -594,6 +658,26 @@ def test_describe_and_ir_fields_carry_preamble() -> None:
     }
     # Default preamble is never emitted (byte-equivalence for a clean dialect).
     assert "preamble" not in dialect_ir_fields(SourceDialect(delimiter="\t"))
+
+
+def test_ir_fields_carry_preamble_names_only_when_non_empty() -> None:
+    # An empty preamble_names never adds a key (byte-equivalence for a clean
+    # dialect / a dialect whose person has not renamed anything yet).
+    d_empty = SourceDialect(skip_rows=23, preamble="keyvalue")
+    assert "preamble_names" not in dialect_ir_fields(d_empty)
+    assert "preamble_names" not in dialect_ir_fields(d_empty, full=True)
+
+    d_named = SourceDialect(
+        skip_rows=23, preamble="keyvalue", preamble_names={"No": "カード番号"}
+    )
+    assert dialect_ir_fields(d_named)["preamble_names"] == {"No": "カード番号"}
+    assert dialect_ir_fields(d_named, full=True)["preamble_names"] == {"No": "カード番号"}
+
+    # preamble_names on a "drop" dialect is meaningless (nothing is broadcast)
+    # and must never be emitted, matching the preamble field itself.
+    d_drop = SourceDialect(preamble_names={"No": "カード番号"})
+    assert "preamble_names" not in dialect_ir_fields(d_drop)
+    assert "preamble_names" not in dialect_ir_fields(d_drop, full=True)
 
 
 def _tmpdir() -> str:
@@ -675,3 +759,150 @@ def test_iter_rows_broadcast_keyvalue_cells_cr_mixed(tmp_path: Path) -> None:
     assert rows[0] == ["T(C)", "Rho(Ohm m)", "preamble_1", "T.C.type", "Distance"]
     assert rows[1] == ["3.6E+1", "1.2E-6", "Al3V-SPS-2", "K", "620.000000E-3"]
     assert len(rows) == 3
+
+
+def test_broadcast_preamble_names_keyvalue_cells_mode(tmp_path: Path) -> None:
+    src = tmp_path / "zem.txt"
+    src.write_bytes(
+        b"Al3V-SPS-2\tT.C.type=K\tDistance=620.000000E-3\t\r"
+        + b"T(C)\tRho(Ohm m)\r"
+        + b"3.6E+1\t1.2E-6\r\n"
+    )
+    dialect = SourceDialect(
+        delimiter="\t",
+        skip_rows=1,
+        preamble="keyvalue_cells",
+        preamble_names={"preamble_1": "試料名", "T.C.type": "熱電対タイプ"},
+    )
+    rows = list(iter_rows(src, dialect))
+    assert rows[0] == ["T(C)", "Rho(Ohm m)", "試料名", "熱電対タイプ", "Distance"]
+
+
+def test_a_large_file_whose_tail_alone_is_shift_jis_is_still_read(tmp_path) -> None:
+    """Detection samples the head; the read is strict over the whole file.
+
+    A long ASCII log with one cp932 name near the end decoded as utf-8-sig on
+    the sample and then raised UnicodeDecodeError on the real read — which
+    reached the person as "save it again as CSV UTF-8" (2026-08-19 review). The
+    encoding is now verified against the entire file.
+    """
+    from asterism_step0.dialect import detect_dialect
+
+    src = tmp_path / "long.csv"
+    with src.open("wb") as fh:
+        fh.write(b"name,value\n")
+        for i in range(120_000):  # push past the 1 MiB detection sample
+            fh.write(f"row-{i},{i}\n".encode("ascii"))
+        fh.write("試料A,1\n".encode("cp932"))
+    assert src.stat().st_size > (1 << 20)
+
+    dialect = detect_dialect(src)
+    assert dialect.encoding == "cp932"
+    # The whole file now reads without raising — the point of the fix.
+    with src.open("r", encoding=dialect.encoding, errors="strict") as fh:
+        assert sum(1 for _ in fh) == 120_002
+
+
+# ----------------------------------------------------------------------------
+# read_preamble_origins — provenance twin of read_preamble (KZ, "preamble_1 was
+# never written by the person who made the file")
+# ----------------------------------------------------------------------------
+
+
+def test_read_preamble_origins_lines_named_false() -> None:
+    # A bare preamble line ("lines" mode) has no name written by the file — the
+    # name is asterism's invention, so named must be False.
+    origins = read_preamble_origins(["Al3V_bulk"], "lines")
+    assert len(origins) == 1
+    o = origins[0]
+    assert o.name == "preamble_1"
+    assert o.line == 1
+    assert o.text == "Al3V_bulk"
+    assert o.named is False
+
+
+def test_read_preamble_origins_lines_tracks_physical_line_number() -> None:
+    # Blank lines are skipped by read_preamble but the ORIGINAL 1-based line
+    # number must still be reported (matches the preamble_{i+1} naming rule).
+    origins = read_preamble_origins(["", "Al3V_bulk", ""], "lines")
+    assert len(origins) == 1
+    assert origins[0].line == 2
+    assert origins[0].name == "preamble_2"
+
+
+def test_read_preamble_origins_keyvalue_named_true() -> None:
+    # "試料名: Al3V_bulk" — the column name IS what the file wrote, so named=True.
+    origins = read_preamble_origins(["試料名: Al3V_bulk"], "keyvalue")
+    assert len(origins) == 1
+    o = origins[0]
+    assert o.name == "試料名"
+    assert o.named is True
+    assert o.line == 1
+    assert o.text == "試料名: Al3V_bulk"
+
+
+def test_read_preamble_origins_keyvalue_continuation_without_prior_key() -> None:
+    # A leading continuation line with no prior key falls back to preamble_{i+1}
+    # (mirrors test_read_preamble_continuation_without_prior_key) — unnamed.
+    origins = read_preamble_origins(["orphan text", "K: v"], "keyvalue")
+    assert [o.name for o in origins] == ["preamble_1", "K"]
+    assert origins[0].named is False
+    assert origins[1].named is True
+
+
+def test_read_preamble_origins_keyvalue_cells_bare_cell_named_false() -> None:
+    # A bare cell (no '=') in keyvalue_cells mode is a positional invented name.
+    origins = read_preamble_origins([_ZEM_META_LINE], "keyvalue_cells", delimiter="\t")
+    by_name = {o.name: o for o in origins}
+    assert by_name["preamble_1"].named is False
+    assert by_name["preamble_1"].text == "Al3V-SPS-2"
+    assert by_name["preamble_1"].line == 1
+    assert by_name["T.C.type"].named is True
+    assert by_name["T.C.type"].text == "T.C.type=K"
+
+
+def test_read_preamble_origins_drop_and_unknown_mode_yield_nothing() -> None:
+    assert read_preamble_origins(["K: v"], "drop") == []
+    assert read_preamble_origins(["K: v"], "bogus") == []
+
+
+def test_read_preamble_origins_matches_read_preamble_names_exactly() -> None:
+    # Property: for every mode/fixture, read_preamble_origins must produce the
+    # EXACT same name list, in the EXACT same order (including _2/_3 duplicate
+    # suffixes) as read_preamble — a display surface joins the two by name/order,
+    # so any divergence would attribute the wrong provenance to a column.
+    fixtures: list[tuple[list[str], str, str]] = [
+        (["Al3V_bulk"], "lines", ","),
+        (["", "Al3V_bulk", ""], "lines", ","),
+        (_CARD_PREAMBLE, "keyvalue", ","),
+        (["Peak: 10", "Peak: 20", "Peak: 30"], "keyvalue", ","),
+        (["orphan text", "K: v"], "keyvalue", ","),
+        (["Additional Patterns: See PDF", "03-065-5860 for more"], "keyvalue", ","),
+        (
+            [
+                "ANX: N. ... Original Remarks: Cell",
+                "for Al-filings: 4.04920(5). ... Unit",
+                "Cell Data Source: Single Crystal.",
+            ],
+            "keyvalue",
+            ",",
+        ),
+        ([_ZEM_META_LINE], "keyvalue_cells", "\t"),
+        (["K=1\tK=2\t=x\tformula=y=z"], "keyvalue_cells", "\t"),
+        (["name  a=1   b=2"], "keyvalue_cells", WHITESPACE),
+    ]
+    for lines, mode, delimiter in fixtures:
+        names_from_pairs = [name for name, _ in read_preamble(lines, mode, delimiter=delimiter)]
+        names_from_origins = [
+            o.name for o in read_preamble_origins(lines, mode, delimiter=delimiter)
+        ]
+        assert names_from_origins == names_from_pairs, (lines, mode)
+
+
+def test_read_preamble_origins_header_columns_not_included() -> None:
+    # The origin function only ever sees preamble LINES, never the body header —
+    # so a body-header column simply cannot appear here. This pins that the
+    # broadcast wiring (iter_rows/_broadcast_rows) is the only place body and
+    # meta columns are joined, and origins must stay scoped to the meta side.
+    origins = read_preamble_origins(["Al3V_bulk"], "lines")
+    assert all(o.name != "2θ (deg)" for o in origins)

@@ -61,14 +61,19 @@ from __future__ import annotations
 import contextlib
 import re
 import tempfile
-from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
 from asterism import substrate
 from asterism.rml_validate import read_csv_header
-from asterism_step0.dialect import apply_detected_dialects, detect_dialect, is_default
+from asterism_step0.dialect import (
+    SourceDialect,
+    apply_detected_dialects,
+    detect_dialect,
+    is_default,
+)
 from asterism_step0.inspect import (
     _dialect_rows,
     _stream_rows,
@@ -643,6 +648,15 @@ def trap_issues(mat: Any) -> list[Issue]:
     return out
 
 
+#: Traps whose fix recipe edits the §9 mapping spec ONLY — exactly the block a
+#: surgical repair round regenerates and splices. Everything else fires in
+#: another artifact (T2 §8 ingester, T4/T6/T7/T10 §7 MIE, T5 diagram doc) or
+#: spans several (T3), so it still needs the whole-document path. Keep this set
+#: conservative: a trap listed here wrongly costs a wasted round, not a wrong
+#: design — the round checks re-run either way.
+_SPEC_REPAIRABLE_TRAPS = frozenset({"T1", "T9"})
+
+
 def _verdict(schema_md: str, base: Path) -> tuple[str | None, list[Issue]]:
     """One round's complete deterministic verdict, from ONE materialize call:
     the extracted §9 design plus every issue BOTH gates report — the IR/RML
@@ -698,6 +712,156 @@ def _numeric_types_by_source(base: Path, ir: Any) -> dict[str, dict[str, str]]:
         if not rows:
             continue
         out[name] = numeric_column_types(rows, list(rows[0].keys()))
+    return out
+
+
+# The advisory this repair answers (asterism.rml_validate
+# ``_empty_shell_advisories``): a per-row map that mints an entity per row and
+# binds no value column of its own.
+_RE_EMPTY_SHELL = re.compile(r"map '([^']+)' mints one entity per row")
+
+
+def _placeholders(template: str) -> list[str]:
+    return re.findall(r"\{([^{}]+)\}", template or "")
+
+
+def _determined_by(rows: list[dict[str, str]], column: str, keys: frozenset[str]) -> bool:
+    """True when ``keys`` functionally determine ``column`` across the real rows.
+
+    The same adjudication the duplicate-column advisory makes (G1): if two rows
+    agreeing on the key disagree on the value, the key does not own it.
+    """
+    if not keys:
+        return False
+    seen: dict[tuple[str, ...], str] = {}
+    for row in rows:
+        k = tuple((row.get(c) or "").strip() for c in sorted(keys))
+        v = (row.get(column) or "").strip()
+        if not v:
+            continue
+        if k in seen and seen[k] != v:
+            return False
+        seen.setdefault(k, v)
+    return True
+
+
+def _place_row_values_on_their_own_map(
+    schema_md: str, base: Path, issues: list[Issue]
+) -> str | None:
+    """Move a row's own values onto the per-row map that has none of its own.
+
+    The empty-shell advisory (G14) fires when a map mints one entity per row and
+    binds only links, so the row's values are recorded nowhere queryable. It
+    already names the map and — from the real rows — the columns that belong on
+    it. Live 2026-08-19 the person then had nowhere to act: the sentence says
+    「行ごとに変わる列を『材料情報』に足すと直ります」 but no screen assigns
+    columns to a kind, and ten AI rounds did not do it either.
+
+    The edit is knowable without a model, so the machine makes it: a column that
+    varies across the file and sits on a map whose key does NOT determine it is
+    moved to the shell (it collapses into multi-values where it is, and is a
+    plain value where it belongs). Deliberately limited to MOVES — the property
+    keeps its own predicate, datatype and label, so nothing is invented. A column
+    bound nowhere at all needs a new predicate minted for it and stays with the
+    advisory.
+    """
+    if not any(_RE_EMPTY_SHELL.search(iss.message) for iss in issues):
+        return None
+    import yaml  # lazy (PyYAML is a step0 dependency)
+
+    with tempfile.TemporaryDirectory(prefix="asterism-loop-shell-") as tmp:
+        ir_yaml = materialize_schema(schema_md, tmp, "design", write=False).mapping_ir_yaml
+    if not ir_yaml or not ir_yaml.strip():
+        return None
+    try:
+        ir = parse_mapping_ir(ir_yaml)
+        spec = load_spec_yaml(ir_yaml)
+    except Exception:
+        return None
+    if not isinstance(spec, dict) or not isinstance(spec.get("maps"), list):
+        return None
+
+    rows_by_source = _rows_by_source(base, ir)
+    moved = 0
+    for source, rows in rows_by_source.items():
+        if not rows:
+            continue
+        entries = [
+            m
+            for m in spec["maps"]
+            if isinstance(m, dict) and str(m.get("source") or "") == source
+        ]
+        if len(entries) < 2:  # a shell needs somewhere its values could be parked
+            continue
+
+        def own_columns(entry: dict) -> set[str]:
+            out: set[str] = set()
+            for prop in entry.get("properties") or []:
+                if isinstance(prop, dict) and isinstance(prop.get("column"), str):
+                    out.add(prop["column"])
+            return out
+
+        def key_columns(entry: dict) -> frozenset[str]:
+            subject = entry.get("subject")
+            template = subject.get("template") if isinstance(subject, dict) else None
+            return frozenset(_placeholders(template or ""))
+
+        for shell in entries:
+            shell_keys = key_columns(shell)
+            if not shell_keys or own_columns(shell):
+                continue  # not a per-row map, or not a shell
+            for holder in entries:
+                if holder is shell:
+                    continue
+                holder_keys = key_columns(holder)
+                keep: list[Any] = []
+                took = 0
+                for prop in holder.get("properties") or []:
+                    column = prop.get("column") if isinstance(prop, dict) else None
+                    if not isinstance(column, str):
+                        keep.append(prop)
+                        continue
+                    values = {(r.get(column) or "").strip() for r in rows} - {""}
+                    if len(values) <= 1:
+                        keep.append(prop)  # file-scoped metadata — the header's, by G1
+                        continue
+                    if _determined_by(rows, column, holder_keys):
+                        keep.append(prop)  # genuinely this holder's own value
+                        continue
+                    # Including a column the shell's ID is built FROM: the ID
+                    # encoding a value is not the same as recording it, and left
+                    # here it still collapses onto one parent entity.
+                    shell.setdefault("properties", []).append(prop)
+                    took += 1
+                if took:
+                    holder["properties"] = keep
+                    moved += took
+    if not moved:
+        return None
+    repaired = yaml.safe_dump(spec, allow_unicode=True, sort_keys=False).rstrip("\n")
+    try:
+        return replace_mapping_spec_block(schema_md, repaired)
+    except ValueError:
+        return None
+
+
+def _rows_by_source(base: Path, ir: Any) -> dict[str, list[dict[str, str]]]:
+    """Every source's rows, read through the spec's own pinned dialect."""
+    dialects: Mapping[str, Any] = getattr(ir, "dialects", None) or {}
+    out: dict[str, list[dict[str, str]]] = {}
+    for name in {str(m.source) for m in ir.maps if getattr(m, "source", None)}:
+        path = Path(base) / name
+        if not path.is_file():
+            continue
+        dialect = dialects.get(name)
+        try:
+            out[name] = (
+                _dialect_rows(path, dialect)
+                if dialect is not None and not is_default(dialect)
+                else list(_stream_rows(path))
+            )
+        except Exception:  # unreadable/odd source — simply not repairable here
+            continue
     return out
 
 
@@ -769,8 +933,358 @@ def _stamp_numeric_datatypes(schema_md: str, base: Path, issues: list[Issue]) ->
         return None
 
 
+# Plain ``utf-8`` opens in the §8 ingester — the exact thing T2 fails on. The
+# BOM-stripping variant differs by four characters and the intent is identical,
+# so this is a mechanical edit, not a design decision.
+_RE_PLAIN_UTF8 = re.compile(r"""(encoding\s*=\s*)(["'])utf[-_]?8\2""")
+
+
+def _stamp_utf8_sig(schema_md: str, issues: list[Issue]) -> str | None:
+    """Deterministically switch the §8 ingester's ``encoding="utf-8"`` opens to
+    ``utf-8-sig`` when T2 failed. Returns the repaired document, or None.
+
+    Why not the LLM's job: T2's own fix recipe already spells out the whole
+    edit ("replace any plain `utf-8` open with `utf-8-sig`"). Sending a weak
+    model to perform a four-character substitution costs a round and — live —
+    often comes back with the rest of §8 subtly rewritten.
+    """
+    if not any(iss.category == "trap" and iss.subject == "T2" for iss in issues):
+        return None
+    with tempfile.TemporaryDirectory(prefix="asterism-loop-t2-") as tmp:
+        ingester = materialize_schema(schema_md, tmp, "design", write=False).ingester_py
+    if not ingester or "utf-8-sig" in ingester or "utf_8_sig" in ingester:
+        return None
+    repaired, n = _RE_PLAIN_UTF8.subn(r"\1\g<2>utf-8-sig\2", ingester)
+    if not n:
+        # No explicit encoding= to fix: the recipe needs a real edit by the model.
+        return None
+    doc = schema_md if ingester in schema_md else schema_md.replace("\r\n", "\n")
+    if ingester not in doc:
+        return None
+    return doc.replace(ingester, repaired, 1)
+
+
 # The transform message the identity repair keys on (mapping_ir._check_transform).
 _RE_TRANSFORM_NOT_FN = re.compile(r"transform function '([^']+)' \(for \{([^}]+)\}\)")
+
+
+def _looks_like_data_not_headers(names: Iterable[str]) -> bool:
+    """True when a header row's own cells read as numbers.
+
+    A column heading is a name. When every heading parses as a number, the row
+    that was taken for the header is a row of data — the table was started too
+    late (or too early). Deliberately requires ALL of them: one numeric heading
+    is a naming choice, a whole row of them is a misread.
+    """
+    values = [str(n or "").strip() for n in names]
+    values = [v for v in values if v]
+    if not values:
+        return False
+    for value in values:
+        try:
+            float(value)
+        except ValueError:
+            return False
+    return True
+
+
+def _header_cells(path: Path, dialect: SourceDialect) -> list[str]:
+    """The column names that came from the file's HEADER ROW under ``dialect``.
+
+    Broadcast preamble columns are excluded: they are machine-named
+    (``preamble_1`` …) from lines above the header, so including them would
+    hide what the header row itself says.
+    """
+    header_only = replace(dialect, preamble="drop")
+    rows = _dialect_rows(path, header_only)
+    return list(rows[0].keys()) if rows else []
+
+
+def _drop_language_tags_from_numbers(
+    schema_md: str, base: Path, issues: list[Issue]
+) -> str | None:
+    """Remove ``language:`` from a column whose every value is a number.
+
+    A language tag says which human language a piece of TEXT is in. A number is
+    not in a language, and RDF allows a literal to carry a datatype or a language
+    but never both — so the tag also blocks the datatype the numbers deserve, and
+    with it every range and comparison query over that column.
+
+    Live 2026-08-19: a model tagged a 3001-point sweep's angle and intensity as
+    Japanese. The deterministic datatype repair then could not apply (it would
+    have produced datatype + language), so the untyped-numeric advisory came back
+    round after round with nothing able to clear it.
+
+    Proven from the data, per column: only when every non-empty value parses as a
+    number. A column of Japanese text keeps its tag.
+    """
+    import yaml  # lazy (PyYAML is a step0 dependency)
+
+    with tempfile.TemporaryDirectory(prefix="asterism-loop-lang-") as tmp:
+        ir_yaml = materialize_schema(schema_md, tmp, "design", write=False).mapping_ir_yaml
+    if not ir_yaml or not ir_yaml.strip():
+        return None
+    try:
+        ir = parse_mapping_ir(ir_yaml)
+        spec = load_spec_yaml(ir_yaml)
+    except Exception:
+        return None
+    if not isinstance(spec, dict) or not isinstance(spec.get("maps"), list):
+        return None
+
+    numeric = _numeric_types_by_source(base, ir)
+    dropped = 0
+    for entry in spec["maps"]:
+        if not isinstance(entry, dict):
+            continue
+        types = numeric.get(str(entry.get("source") or ""))
+        if not types:
+            continue
+        for prop in entry.get("properties") or []:
+            if not isinstance(prop, dict) or not prop.get("language"):
+                continue
+            column = prop.get("column")
+            if isinstance(column, str) and types.get(column):
+                prop.pop("language")
+                dropped += 1
+    if not dropped:
+        return None
+    repaired = yaml.safe_dump(spec, allow_unicode=True, sort_keys=False).rstrip("\n")
+    try:
+        return replace_mapping_spec_block(schema_md, repaired)
+    except ValueError:
+        return None
+
+
+_RE_ONLY_PLACEHOLDER = re.compile(r"^\{([^{}]+)\}$")
+
+
+def _bind_single_placeholder_templates_to_their_column(
+    schema_md: str, base: Path, issues: list[Issue]
+) -> str | None:
+    """Rewrite ``object_template: "{col}"`` (a literal) as ``column: col``.
+
+    A template whose whole content is one placeholder, emitted as a literal, is
+    the column itself: the compiler turns the first into
+    ``rr:template "{col}"; rr:termType rr:Literal`` and the second into
+    ``rml:reference "col"``, which produce the same triples (R2RML only
+    percent-encodes template values for IRIs).
+
+    They are not the same to a READER, though, and that is the point. Every
+    screen and check that asks "which columns does this design use" looks for
+    ``column:``. Live 2026-08-19 a model wrote all nine properties the long way,
+    so the "column meanings" review — the screen whose whole job is confirming
+    what each column means — listed nothing at all, and the columns were filed
+    under "IDs and fixed values that are added automatically" instead.
+
+    Only the exact shape is rewritten, and only for literals: a template with any
+    text around the placeholder builds a value, and one without
+    ``object_type: literal`` builds an IRI from the cell, which ``column:``
+    cannot express (the compiler refuses it outright).
+    """
+    import yaml  # lazy (PyYAML is a step0 dependency)
+
+    with tempfile.TemporaryDirectory(prefix="asterism-loop-ot-") as tmp:
+        ir_yaml = materialize_schema(schema_md, tmp, "design", write=False).mapping_ir_yaml
+    if not ir_yaml or not ir_yaml.strip():
+        return None
+    try:
+        spec = load_spec_yaml(ir_yaml)
+    except Exception:
+        return None
+    if not isinstance(spec, dict) or not isinstance(spec.get("maps"), list):
+        return None
+
+    rewritten = 0
+    for entry in spec["maps"]:
+        if not isinstance(entry, dict):
+            continue
+        for prop in entry.get("properties") or []:
+            if not isinstance(prop, dict):
+                continue
+            template = prop.get("object_template")
+            if not isinstance(template, str) or prop.get("transform") or prop.get("function"):
+                continue
+            if prop.get("object_type") != "literal":
+                continue
+            m = _RE_ONLY_PLACEHOLDER.match(template.strip())
+            if not m:
+                continue
+            prop.pop("object_template")
+            prop.pop("object_type")  # a bare column is a literal by definition
+            prop["column"] = m.group(1)
+            rewritten += 1
+    if not rewritten:
+        return None
+    repaired = yaml.safe_dump(spec, allow_unicode=True, sort_keys=False).rstrip("\n")
+    try:
+        return replace_mapping_spec_block(schema_md, repaired)
+    except ValueError:
+        return None
+
+
+def _fix_a_dialect_that_reads_data_as_headers(
+    schema_md: str, base: Path, issues: list[Issue]
+) -> str | None:
+    """Replace a pinned read dialect whose header row is data with the detected one.
+
+    The design pins how each source is read (ADR source-dialect.md). When that
+    pin starts the table on the wrong line, every later stage is consistent and
+    wrong: the headings become values, the rows before them are broadcast as
+    ``preamble_1 … preamble_N``, and the real columns are reported as "not
+    imported" — while nothing is technically invalid, so no check objects.
+
+    Live 2026-08-19: a two-column instrument sweep pinned ``skip_rows: 12`` where
+    detection said 1. The review screen offered ``20.200000`` and ``3966.666667``
+    as column names (the file's 13th line) beside twelve ``preamble_*`` columns.
+
+    Repaired only on proof and only when there is a better answer: the pinned
+    dialect must yield an all-numeric header AND re-detection must yield one that
+    is not. Detection reads the same bytes, so this compares two readings of the
+    file rather than guessing at either.
+    """
+    import yaml  # lazy (PyYAML is a step0 dependency)
+
+    with tempfile.TemporaryDirectory(prefix="asterism-loop-dl-") as tmp:
+        ir_yaml = materialize_schema(schema_md, tmp, "design", write=False).mapping_ir_yaml
+    if not ir_yaml or not ir_yaml.strip():
+        return None
+    try:
+        spec = load_spec_yaml(ir_yaml)
+    except Exception:
+        return None
+    if not isinstance(spec, dict):
+        return None
+    pinned = spec.get("dialects")
+    if not isinstance(pinned, dict) or not pinned:
+        return None
+
+    fixed = 0
+    for name, entry in list(pinned.items()):
+        path = Path(base) / str(name)
+        if not isinstance(entry, dict) or not path.is_file():
+            continue
+        try:
+            dialect = SourceDialect(**{k: v for k, v in entry.items() if v is not None})
+            pinned_names = _header_cells(path, dialect)
+        except Exception:  # an unreadable pin is someone else's error to report
+            continue
+        if not _looks_like_data_not_headers(pinned_names):
+            continue
+        try:
+            detected = detect_dialect(path)
+            detected_names = _header_cells(path, detected)
+        except Exception:
+            continue
+        if not detected_names or _looks_like_data_not_headers(detected_names):
+            continue  # no better answer — leave the design alone
+        # Only what the evidence is about. The header row being data proves the
+        # table starts on the wrong line and nothing else: the encoding and the
+        # delimiter plainly worked, and the preamble MODE is a design decision
+        # (this design reads the lines above the header as columns and uses one
+        # of them). Replacing the whole dialect would silently drop that.
+        if int(entry.get("skip_rows") or 0) == detected.skip_rows:
+            continue
+        entry["skip_rows"] = detected.skip_rows
+        fixed += 1
+    if not fixed:
+        return None
+    repaired = yaml.safe_dump(spec, allow_unicode=True, sort_keys=False).rstrip("\n")
+    try:
+        return replace_mapping_spec_block(schema_md, repaired)
+    except ValueError:
+        return None
+
+
+def _drop_subject_transforms_that_empty_every_row(
+    schema_md: str, base: Path, issues: list[Issue]
+) -> str | None:
+    """Remove a subject ``transform`` whose function returns "" for EVERY real row.
+
+    A subject built from an empty value is no subject at all: Morph-KGC drops the
+    row silently, so the import "succeeds" with zero triples and nothing says
+    why. Live 2026-08-19, a 3001-row XRD scan: the model wrote
+    ``subject.transform: {2θ (deg): iri_safe}``. ``iri_safe`` sanitizes a whole
+    URL and returns "" for anything without a scheme — every 2θ value, every row.
+
+    The transform is not merely harmful, it is unnecessary: R2RML engines
+    percent-encode ``rr:template`` placeholders themselves, so dropping it leaves
+    the IDs the design already describes. Proven from the data, never guessed:
+    the function runs on the real column and is removed only when it empties
+    every non-empty value it is given. A function that works on some rows is a
+    judgment about the data and stays.
+    """
+    import yaml  # lazy (PyYAML is a step0 dependency)
+
+    with tempfile.TemporaryDirectory(prefix="asterism-loop-tf0-") as tmp:
+        ir_yaml = materialize_schema(schema_md, tmp, "design", write=False).mapping_ir_yaml
+    if not ir_yaml or not ir_yaml.strip():
+        return None
+    try:
+        ir = parse_mapping_ir(ir_yaml)
+        spec = load_spec_yaml(ir_yaml)
+    except Exception:
+        return None
+    if not isinstance(spec, dict) or not isinstance(spec.get("maps"), list):
+        return None
+    # The Tier-0 callables themselves (the catalog carries only signatures).
+    try:
+        from asterism.functions import REGISTRY as _TIER0
+
+        callables = {
+            spec.name: spec.func
+            for spec in _TIER0
+            if len(getattr(spec, "params", {}) or {"value": 1}) <= 1
+        }
+    except Exception:
+        return None
+
+    rows_by_source = _rows_by_source(base, ir)
+    dropped = 0
+    for entry in spec["maps"]:
+        if not isinstance(entry, dict):
+            continue
+        subject = entry.get("subject")
+        if not isinstance(subject, dict):
+            continue
+        transform = subject.get("transform")
+        if not isinstance(transform, dict) or not transform:
+            continue
+        rows = rows_by_source.get(str(entry.get("source") or ""))
+        if not rows:
+            continue
+        keep: dict[str, Any] = {}
+        for column, fn_name in transform.items():
+            # Only single-input functions are sampled: one that also takes a
+            # constant (a lookup table, a pattern) cannot be judged from the
+            # column alone.
+            fn = callables.get(str(fn_name))
+            values = [(r.get(str(column)) or "").strip() for r in rows]
+            values = [v for v in values if v][:200]
+            if fn is None or not values:
+                keep[column] = fn_name
+                continue
+            try:
+                empties_all = all(not str(fn(v) or "").strip() for v in values)
+            except Exception:  # a function that raises is not this repair's call
+                keep[column] = fn_name
+                continue
+            if empties_all:
+                dropped += 1
+            else:
+                keep[column] = fn_name
+        if len(keep) != len(transform):
+            if keep:
+                subject["transform"] = keep
+            else:
+                subject.pop("transform", None)
+    if not dropped:
+        return None
+    repaired = yaml.safe_dump(spec, allow_unicode=True, sort_keys=False).rstrip("\n")
+    try:
+        return replace_mapping_spec_block(schema_md, repaired)
+    except ValueError:
+        return None
 
 
 def _drop_identity_transforms(schema_md: str, base: Path, issues: list[Issue]) -> str | None:
@@ -890,7 +1404,9 @@ def _move_xsd_unit_to_datatype(schema_md: str, base: Path, issues: list[Issue]) 
 _REPAIRS: tuple[Callable[[str, Path, list[Issue]], str | None], ...] = (
     _drop_identity_transforms,  # parse-level: unblocks every later check
     _move_xsd_unit_to_datatype,  # a misfiled datatype, before typing is judged
+    _place_row_values_on_their_own_map,  # before typing: it relocates the rows
     _stamp_numeric_datatypes,
+    lambda md, base, issues: _stamp_utf8_sig(md, issues),  # T2 lives in §8, not §9
 )
 
 
@@ -901,8 +1417,37 @@ def _evaluate(schema_md: str, base: Path) -> tuple[str, str | None, list[Issue]]
     deterministically-repaired document, and the issues are those of THAT
     document. Each repair in :data:`_REPAIRS` is applied in turn and kept only
     if it STRICTLY reduces the issue count, so a bad rule can never make a
-    round worse than doing nothing.
+    round worse than doing nothing. Repairs compose: each runs against the
+    issues of the document the previous one produced, so a trap cleared here
+    never reaches the routing decision (and therefore never forces the
+    whole-document path — see the loop below).
     """
+    # Unconditional, BEFORE the verdict: a subject transform that empties every
+    # row makes a design that passes every check and then produces nothing. The
+    # issue-gated repairs below never see it, because there is no issue — the
+    # only symptom is an import that "succeeds" with zero triples.
+    with contextlib.suppress(Exception):
+        # A column bound the long way is invisible to every screen and check that
+        # asks which columns the design uses. FIRST: the passes below read
+        # `column:`, so a design that never says it looks empty to them.
+        rebound = _bind_single_placeholder_templates_to_their_column(schema_md, base, [])
+        if rebound is not None:
+            schema_md = rebound
+    with contextlib.suppress(Exception):
+        # A number is in no language, and the tag blocks the datatype it needs.
+        untagged = _drop_language_tags_from_numbers(schema_md, base, [])
+        if untagged is not None:
+            schema_md = untagged
+    with contextlib.suppress(Exception):
+        # Before anything reads a column name: a dialect that starts the table on
+        # the wrong line makes every later stage consistent and wrong.
+        redialected = _fix_a_dialect_that_reads_data_as_headers(schema_md, base, [])
+        if redialected is not None:
+            schema_md = redialected
+    with contextlib.suppress(Exception):
+        emptied = _drop_subject_transforms_that_empty_every_row(schema_md, base, [])
+        if emptied is not None:
+            schema_md = emptied
     ir_yaml, issues = _verdict(schema_md, base)
     for repair in _REPAIRS:
         if not issues:
@@ -915,7 +1460,7 @@ def _evaluate(schema_md: str, base: Path) -> tuple[str, str | None, list[Issue]]
         except _LoopEnvError:
             continue
         if len(repaired_issues) >= len(issues):
-            continue
+            continue  # a repair that does not help is discarded, never applied
         schema_md, ir_yaml, issues = repaired_md, repaired_ir, repaired_issues
     return schema_md, ir_yaml, issues
 
@@ -1237,16 +1782,30 @@ def run_design_loop(
         # risk, and unrelated sections are byte-untouched. The legacy raw-RML
         # path keeps the whole-document refine.
         #
-        # Trap issues force the whole-document path: surgical repair regenerates
-        # ONLY the §9 spec, and the traps that actually fire live in the OTHER
-        # artifacts (T4/T7 in the §7 MIE, T5 in the diagram doc). Splicing §9
-        # cannot touch them, so a surgical round would burn a call and change
-        # nothing — the no-progress detector would then stop the loop one round
+        # Which traps force the whole-document path: surgical repair regenerates
+        # ONLY the §9 spec, so a trap that fires in ANOTHER artifact (T4/T7/T10
+        # in the §7 MIE, T5 in the diagram doc, T2 in the §8 ingester) cannot be
+        # cleared by splicing §9 — a surgical round would burn a call and change
+        # nothing, and the no-progress detector would stop the loop one round
         # later with the trap still open.
+        #
+        # But the converse used to be true too: ONE such trap sent the round down
+        # the whole-document path even when every OTHER issue was a §9 issue —
+        # and whole-document refine is the path weak models fail worst (mid-
+        # document truncation, unrelated sections degraded). Since the machine
+        # now clears what it can before this point (``_evaluate``), the traps
+        # still standing here are only the ones that genuinely need a model; the
+        # routing looks at WHERE they live rather than at their mere existence.
+        # Whole-document refine remains the fallback, never the first resort.
+        blocking_traps = {
+            i.subject
+            for i in prev_issues
+            if i.category == "trap" and i.subject not in _SPEC_REPAIRABLE_TRAPS
+        }
         surgical = (
             bool(ir_yaml and ir_yaml.strip())
             and not escalated
-            and not any(i.category == "trap" for i in prev_issues)
+            and not blocking_traps
         )
         mode = "surgical" if surgical else "document"
         if keyset in seen_by_mode[mode]:  # cycle / no-progress in THIS mode
@@ -1374,7 +1933,6 @@ def _overlay_data_facts(
         return schema_md
 
 
-
 def repair_design(schema_md: str, source_dir: Path | str) -> str:
     """Deterministic repair + data-fact re-assertion for a design that did NOT
     come from :func:`run_design_loop`.
@@ -1428,6 +1986,7 @@ def repair_design(schema_md: str, source_dir: Path | str) -> str:
         return md
     return md
 
+
 def _extract_design(schema_md: str) -> tuple[str | None, str | None]:
     """Pull the §9 design out of a schema Markdown via the SAME deterministic
     extractor the materialize endpoint uses (no LLM): ``(mapping_ir_yaml,
@@ -1440,3 +1999,141 @@ def _extract_design(schema_md: str) -> tuple[str | None, str | None]:
     if mat.mapping_ir_yaml is not None:
         return mat.mapping_ir_yaml, None
     return None, mat.rml_ttl
+
+
+# ---------------------------------------------------------------------------
+# The same backstop, for the "ask the AI to change it" path
+# ---------------------------------------------------------------------------
+
+
+def repair_after_refine(
+    schema_md: str,
+    csv_paths: list[Path | str],
+    source_dir: Path | str,
+    *,
+    llm: Any = None,
+    max_rounds: int = 2,
+    on_llm_call: Callable[[str], None] | None = None,
+    should_cancel: Callable[[], bool] | None = None,
+) -> tuple[str, dict[str, Any]]:
+    """Validate + self-correct a REFINED design, with the round-0 discipline.
+
+    Round 0 of :func:`run_design_loop` re-pins the source dialects, re-asserts
+    the data-derived facts, validates, and lets the machine repair what it can
+    before any model is asked. The human-initiated path — "AI に直してもらう" /
+    "AI に反映して作り直す" — did none of that: whatever the model returned went
+    straight to materialize. That is the most fragile document in the system
+    (a weak model rewriting §9 from memory drops ``datatype: xsd:double`` and
+    the numbers become strings — range questions then answer wrongly rather
+    than fail, the exact invariant #372 was built to hold), so it is the
+    document that most needs the backstop.
+
+    Returns ``(schema_md, autocorrect)`` — the possibly-repaired document plus a
+    summary shaped like the propose response's ``autocorrect`` block, so the UI
+    treats both paths identically. Only ``_surgical_spec_repair`` (the §9-only
+    round) is used here: the user asked for one change, and silently spending
+    whole-document refines on top of it would undo prose they just approved.
+    Never raises for a bad design; a cancel propagates like everywhere else.
+    """
+    paths = [Path(p) for p in csv_paths]
+    base = Path(source_dir)
+    rounds: list[RoundRecord] = []
+
+    def _summary(
+        *, converged: bool, reason: str, initial: int, remaining: list[Issue]
+    ) -> dict[str, Any]:
+        return {
+            "enabled": max_rounds > 0,
+            "converged": converged,
+            "terminal_reason": reason,
+            "initial_issue_count": initial,
+            "final_issue_count": len(remaining),
+            "rounds": [
+                {"n": r.n, "issue_count": r.issue_count, "categories": r.categories}
+                for r in rounds
+            ],
+            "remaining_issues": [i.message for i in remaining],
+        }
+
+    effective = _detect_source_dialects(paths)
+    schema_md = _overlay_detected_dialects(schema_md, effective, frozenset())
+    try:
+        schema_md, ir_yaml, issues = _evaluate(schema_md, base)
+    except _LoopEnvError as exc:
+        rounds.append(RoundRecord(0, 0, {}, env_error=str(exc)))
+        return schema_md, _summary(
+            converged=False, reason="env_error", initial=0, remaining=[]
+        )
+    initial = len(issues)
+    rounds.append(RoundRecord(0, initial, _cats(issues)))
+    if not issues:
+        return schema_md, _summary(
+            converged=True, reason="converged", initial=initial, remaining=[]
+        )
+    if max_rounds <= 0 or not (ir_yaml and ir_yaml.strip()) or llm is None:
+        # Legacy raw-RML designs carry no §9 spec to splice; report honestly
+        # rather than fall back to a whole-document rewrite behind the user.
+        return schema_md, _summary(
+            converged=False, reason="no_autocorrect", initial=initial, remaining=issues
+        )
+
+    oracle = build_oracle(base, paths, dialects=effective)
+    best_schema, best_issues = schema_md, issues
+    seen_keysets: set[frozenset[tuple[str, str]]] = set()
+    prev_issues = issues
+    for n in range(1, max_rounds + 1):
+        if should_cancel is not None and should_cancel():
+            raise LLMCancelledError("cancelled")
+        keyset = frozenset(i.key for i in prev_issues)
+        if keyset in seen_keysets:  # same issues as last round: stop, do not spin
+            return best_schema, _summary(
+                converged=False, reason="no_progress", initial=initial,
+                remaining=best_issues,
+            )
+        seen_keysets.add(keyset)
+        if any(i.subject not in _SPEC_REPAIRABLE_TRAPS
+               for i in prev_issues if i.category == "trap"):
+            # A trap outside §9 cannot be spliced away; the wizard's stop card
+            # (with its own fix recipe) is the honest next step.
+            return best_schema, _summary(
+                converged=False, reason="needs_whole_document", initial=initial,
+                remaining=best_issues,
+            )
+        try:
+            schema_md = _surgical_spec_repair(
+                llm, best_schema, ir_yaml or "", prev_issues, oracle
+            )
+        except LLMCancelledError:
+            raise
+        except Exception as exc:  # provider failure / unspliceable output
+            rounds.append(
+                RoundRecord(n, len(prev_issues), _cats(prev_issues), env_error=str(exc))
+            )
+            return best_schema, _summary(
+                converged=False, reason="env_error", initial=initial,
+                remaining=best_issues,
+            )
+        if on_llm_call is not None:
+            on_llm_call("refine.autocorrect")
+        schema_md = _overlay_detected_dialects(schema_md, effective, frozenset())
+        try:
+            schema_md, ir_yaml, issues = _evaluate(schema_md, base)
+        except _LoopEnvError as exc:
+            rounds.append(
+                RoundRecord(n, len(prev_issues), _cats(prev_issues), env_error=str(exc))
+            )
+            return best_schema, _summary(
+                converged=False, reason="env_error", initial=initial,
+                remaining=best_issues,
+            )
+        rounds.append(RoundRecord(n, len(issues), _cats(issues)))
+        if len(issues) < len(best_issues):
+            best_schema, best_issues = schema_md, issues
+        if not issues:
+            return schema_md, _summary(
+                converged=True, reason="converged", initial=initial, remaining=[]
+            )
+        prev_issues = issues
+    return best_schema, _summary(
+        converged=False, reason="max_rounds", initial=initial, remaining=best_issues
+    )

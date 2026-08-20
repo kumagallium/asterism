@@ -3,15 +3,15 @@ import { useTranslation } from 'react-i18next'
 import './SettingsModal.css'
 import { getAppDataInfo } from '../appdata'
 import { AboutTab } from './AboutTab'
+import { AiSetup } from './AiSetup'
 import { InstanceSection } from './InstanceSection'
 import { ServerKeysSection } from './ServerKeysSection'
 import { StorageTab } from './StorageTab'
 import { WriteTokenSection } from './WriteTokenSection'
-import { useLlmSettings } from './context'
+import { type SettingsSection, useLlmSettings } from './context'
 import { UsageTab } from './UsageTab'
 import { fetchAvailableModels, type AvailableModel } from './modelsApi'
 import {
-  API_BASE_HINTS,
   PROVIDERS,
   type CredentialGroupInfo,
   type LlmModelConfig,
@@ -25,13 +25,65 @@ import {
   makeModel,
 } from './store'
 
-type Tab = 'models' | 'usage' | 'storage' | 'about'
+// Tabs named after what the user came to do: "AI" (what answers), "this server"
+// (things an administrator hands you — the access code, where IDs are issued
+// from, the shared AI setup), usage, where things are saved, and the app itself.
+// Most of those used to live under "Models", so guidance like "enter it in
+// settings" landed on a page whose tab names said nothing about the field being
+// described. 'storage' only exists on a single-user server (see below).
+type Tab = 'ai' | 'server' | 'usage' | 'storage' | 'about'
 
-export function SettingsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+/** DOM id of the block a section name scrolls to. */
+const SECTION_ANCHOR: Record<SettingsSection, string> = {
+  ai: 'settings-ai',
+  'server-token': 'settings-server-token',
+  'server-instance': 'settings-server-instance',
+  usage: 'settings-usage',
+}
+
+const SECTION_TAB: Record<SettingsSection, Tab> = {
+  ai: 'ai',
+  'server-token': 'server',
+  'server-instance': 'server',
+  usage: 'usage',
+}
+
+export function SettingsModal({
+  open,
+  section = null,
+  onClose,
+}: {
+  open: boolean
+  /** Where the user was told to go ("enter the access code in settings"). */
+  section?: SettingsSection | null
+  onClose: () => void
+}) {
   const { t } = useTranslation('settings')
-  const [tab, setTab] = useState<Tab>('models')
+  const [tab, setTab] = useState<Tab>('ai')
+
   // 共有ブラウザ版（複数ユーザーが同じ api を見ている）ではストレージタブ自体を出さない。
   const showStorageTab = getAppDataInfo()?.singleUser === true
+
+  // Land on the section the user was sent to. Chosen during render (rather than
+  // after paint) so the modal never flashes the wrong tab, and remembered so a
+  // tab the user picks afterwards is not yanked back.
+  const [routedTo, setRoutedTo] = useState<SettingsSection | null>(null)
+  if (open && section && section !== routedTo) {
+    setRoutedTo(section)
+    setTab(SECTION_TAB[section])
+  }
+  if (!open && routedTo !== null) setRoutedTo(null)
+
+  // ...and bring it into view: the field the user was told about is often below
+  // the fold of its tab.
+  useEffect(() => {
+    if (!open || !section) return
+    const id = SECTION_ANCHOR[section]
+    const timer = window.setTimeout(() => {
+      document.getElementById(id)?.scrollIntoView({ block: 'start' })
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [open, section])
 
   // Close on Escape.
   useEffect(() => {
@@ -94,43 +146,76 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
           </button>
         </header>
         <nav className="settings-tabs">
-          <button
-            type="button"
-            className={`settings-tab${tab === 'models' ? ' active' : ''}`}
-            onClick={() => setTab('models')}
-          >
-            {t('tabs.models')}
-          </button>
-          <button
-            type="button"
-            className={`settings-tab${tab === 'usage' ? ' active' : ''}`}
-            onClick={() => setTab('usage')}
-          >
-            {t('tabs.usage')}
-          </button>
-          {showStorageTab && (
+          {(
+            [
+              'ai',
+              'server',
+              'usage',
+              // 共有ブラウザ版では保存先を出さない（サーバの申告で決める）。
+              ...(showStorageTab ? (['storage'] as const) : []),
+              'about',
+            ] as Tab[]
+          ).map((id) => (
             <button
+              key={id}
               type="button"
-              className={`settings-tab${tab === 'storage' ? ' active' : ''}`}
-              onClick={() => setTab('storage')}
+              className={`settings-tab${tab === id ? ' active' : ''}`}
+              onClick={() => setTab(id)}
             >
-              {t('tabs.storage')}
+              {t(`tabs.${id}`)}
             </button>
-          )}
-          <button
-            type="button"
-            className={`settings-tab${tab === 'about' ? ' active' : ''}`}
-            onClick={() => setTab('about')}
-          >
-            {t('tabs.about')}
-          </button>
+          ))}
         </nav>
         <div className="settings-body">
-          {tab === 'models' && <ModelsTab />}
-          {tab === 'usage' && <UsageTab />}
+          {tab === 'ai' && <AiTab />}
+          {tab === 'server' && <ServerTab />}
+          {tab === 'usage' && (
+            <div id={SECTION_ANCHOR.usage}>
+              <UsageTab />
+            </div>
+          )}
           {tab === 'storage' && showStorageTab && <StorageTab />}
           {tab === 'about' && <AboutTab />}
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// AI tab: the first-run screen until something is configured, then the registry
+// ---------------------------------------------------------------------------
+
+function AiTab() {
+  const settings = useLlmSettings()
+  const [advanced, setAdvanced] = useState(false)
+  const configured =
+    settings.models.length > 0 || PROVIDERS.some((p) => settings.hasServerKey(p.id))
+
+  return (
+    <div id={SECTION_ANCHOR.ai}>
+      {configured || advanced ? <ModelsTab /> : <AiSetup onAdvanced={() => setAdvanced(true)} />}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// This-server tab: the things an administrator sets, not the person reading
+// ---------------------------------------------------------------------------
+
+// Each section decides for itself whether it applies to this deployment, and at
+// least one of them always does (a current api answers /api/instance, so "where
+// IDs are issued from" shows; an older one has no write gate to report, so the
+// access code shows), which is why there is no empty-tab case to hide.
+function ServerTab() {
+  return (
+    <div className="server-tab">
+      <ServerKeysSection />
+      <div id={SECTION_ANCHOR['server-token']}>
+        <WriteTokenSection />
+      </div>
+      <div id={SECTION_ANCHOR['server-instance']}>
+        <InstanceSection />
       </div>
     </div>
   )
@@ -148,12 +233,22 @@ function ModelsTab() {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
 
   const showForm = adding || editing !== null
+  const serverProvider = PROVIDERS.find((p) => settings.hasServerKey(p.id)) ?? null
 
   return (
     <div className="models-tab">
       <p className="settings-intro">{t('models.intro')}</p>
 
-      {settings.models.length === 0 && !showForm && (
+      {/* An administrator's setup is the normal case; saying "no models yet —
+          add one" on a server that already has AI sends people looking for a
+          key they never needed. */}
+      {serverProvider && !showForm && (
+        <p className="field-help field-ok">
+          {t('models.serverConfigured', { provider: t(serverProvider.nameKey) })}
+        </p>
+      )}
+
+      {settings.models.length === 0 && !showForm && !serverProvider && (
         <p className="settings-empty">{t('models.empty')}</p>
       )}
 
@@ -162,6 +257,7 @@ function ModelsTab() {
           {settings.models.map((m) => {
             const active = m.id === settings.activeModelId
             const keySet = settings.hasKeyForModel(m)
+            const viaServer = !keySet && settings.hasServerKey(m.provider)
             return (
               <li key={m.id} className={`model-row${active ? ' active' : ''}`}>
                 <label className="model-pick">
@@ -178,12 +274,20 @@ function ModelsTab() {
                     {active && <span className="model-badge">{t('models.activeBadge')}</span>}
                   </div>
                   <div className="model-sub">
-                    <span className="model-provider">{providerName(m.provider)}</span>
-                    <span className="model-id">{m.modelId}</span>
+                    <span className="model-provider">{providerName(m.provider, t)}</span>
+                    {/* An entry registered without an id runs on whatever the
+                        server picks; a blank cell here just looks broken. */}
+                    <span className="model-id">{m.modelId || t('models.modelIdDefault')}</span>
                     {m.apiBase && <span className="model-base">{m.apiBase}</span>}
                   </div>
-                  <div className={`model-key ${keySet ? 'ok' : 'missing'}`}>
-                    {keySet ? t('models.keySet') : t('models.keyMissing')}
+                  {/* A model the server holds a key for works as it is; marking
+                      it "missing" reads as broken and sends people hunting. */}
+                  <div className={`model-key ${keySet || viaServer ? 'ok' : 'missing'}`}>
+                    {keySet
+                      ? t('models.keySet')
+                      : viaServer
+                        ? t('models.keyServer')
+                        : t('models.keyMissing')}
                   </div>
                 </div>
                 <div className="model-actions">
@@ -243,15 +347,13 @@ function ModelsTab() {
           + {t('models.add')}
         </button>
       )}
-      {!showForm && <ServerKeysSection />}
-      {!showForm && <WriteTokenSection />}
-      {!showForm && <InstanceSection />}
     </div>
   )
 }
 
-function providerName(id: string): string {
-  return PROVIDERS.find((p) => p.id === id)?.name ?? id
+function providerName(id: string, t: (key: string) => string): string {
+  const meta = PROVIDERS.find((p) => p.id === id)
+  return meta ? t(meta.nameKey) : id
 }
 
 /** Add-model form modes: reuse a registered provider+endpoint, or enter a new one. */
@@ -262,7 +364,7 @@ function groupLabel(
   g: CredentialGroupInfo,
   t: (key: string, opts?: Record<string, unknown>) => string,
 ): string {
-  const parts = [providerName(g.provider)]
+  const parts = [providerName(g.provider, t)]
   if (g.apiBase) parts.push(g.apiBase)
   parts.push(t('form.endpointModelCount', { count: g.modelCount }))
   return parts.join(' — ')
@@ -512,7 +614,7 @@ function ModelForm({
             >
               {PROVIDERS.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.name}
+                  {t(p.nameKey)}
                 </option>
               ))}
             </select>
@@ -526,7 +628,7 @@ function ModelForm({
             <input
               type="text"
               value={apiBase}
-              placeholder={API_BASE_HINTS[provider] ?? ''}
+              placeholder={providerMeta ? t(providerMeta.baseHintKey) : ''}
               onChange={(e) => {
                 setApiBase(e.target.value)
                 clearFetchedModels()

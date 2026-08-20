@@ -28,7 +28,7 @@ import csv
 import io
 import re
 from collections.abc import Iterator, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +39,7 @@ __all__ = [
     "PREAMBLE_MODES",
     "TABULAR_SUFFIXES",
     "WHITESPACE",
+    "PreambleOrigin",
     "SourceDialect",
     "apply_detected_dialects",
     "describe_dialect",
@@ -48,6 +49,7 @@ __all__ = [
     "is_default",
     "iter_rows",
     "read_preamble",
+    "read_preamble_origins",
     "resolve_header",
 ]
 
@@ -103,6 +105,16 @@ class SourceDialect:
     collapse: bool = False  # treat consecutive delimiters as one
     skip_rows: int = 0  # lines before the header row (preamble)
     preamble: str = "drop"  # one of PREAMBLE_MODES — how to treat the preamble
+    preamble_names: dict[str, str] = field(default_factory=dict)
+    """Machine-invented/file-parsed preamble column name → human-chosen name
+    (ADR source-dialect.md, "Header metadata"). Applied AFTER
+    :func:`read_preamble` (never inside it — that function's ordering/dedup
+    rules are pinned by a property test against :func:`read_preamble_origins`),
+    in :func:`_broadcast_rows`, so a renamed key still competes for collisions
+    against the body header exactly like the machine name would have
+    (:func:`resolve_header` never renames body columns). A missing key, or a
+    blank/whitespace-only override, leaves the machine name untouched — an
+    empty override is how a person says "not yet named"."""
 
 
 _DEFAULT_DIALECT = SourceDialect()
@@ -127,6 +139,27 @@ def _detect_encoding(sample: bytes) -> str:
         try:
             sample.decode(encoding)
         except UnicodeDecodeError:
+            continue
+        return encoding
+    return "latin-1"
+
+
+def _encoding_for_whole_file(path: Path | str, preferred: str) -> str:
+    """The first candidate that decodes the ENTIRE file, starting from ``preferred``.
+
+    Only used when the detection sample was truncated (a large file): for
+    anything smaller the probe already is the whole file. ``latin-1`` closes the
+    list because it decodes any byte sequence — a mojibake reading is a worse
+    answer than a correct one, but it is a far better answer than refusing the
+    file and asking the person to convert it by hand.
+    """
+    candidates = [preferred, *(e for e in _ENCODING_ATTEMPTS if e != preferred), "latin-1"]
+    for encoding in candidates:
+        try:
+            with Path(path).open("r", encoding=encoding, errors="strict") as fh:
+                while fh.read(1 << 20):
+                    pass
+        except (UnicodeDecodeError, LookupError):
             continue
         return encoding
     return "latin-1"
@@ -234,6 +267,13 @@ def detect_dialect(path: Path | str) -> SourceDialect:
         if cut != -1:
             probe = probe[: cut + 1]
     encoding = _detect_encoding(probe)
+    if truncated:
+        # The probe is only the first _SAMPLE_BYTES. A file whose head is plain
+        # ASCII and whose tail carries one cp932 name decodes here as utf-8-sig
+        # and then dies on the strict full read — which reached the person as
+        # "save it again as CSV UTF-8", work the machine can do itself. Verify
+        # the choice against the whole file and step through the candidates.
+        encoding = _encoding_for_whole_file(path, encoding)
 
     lines = sample.decode(encoding, errors="replace").splitlines()
     if truncated and len(lines) > 1:
@@ -393,6 +433,110 @@ def read_preamble(lines: list[str], mode: str, *, delimiter: str = ",") -> list[
     return [(k, v) for k, v in pairs]
 
 
+@dataclass(frozen=True)
+class PreambleOrigin:
+    """Where one broadcast preamble column's NAME and VALUE came from.
+
+    ``name`` is the resolved-side key exactly as :func:`read_preamble` emits it
+    (including any ``_2``/``_3`` duplicate suffix) — callers match this against
+    :func:`resolve_header`'s output, not the raw source text. ``named`` is True
+    only when the file itself wrote that name (a ``key:``/``key=`` label); a
+    ``preamble_N`` name is a MACHINE invention (``read_preamble``'s fallback) and
+    ``named`` is False so a display surface can say so instead of presenting the
+    invented name as if the person had written it. ``line`` is the 1-based
+    physical line number within the file (the preamble occupies the file's first
+    ``skip_rows`` lines, so this is a file line number, not just an index into the
+    preamble block). ``text`` is the raw, decoded source text the name/value pair
+    was read from — the stripped line for ``"lines"``/``"keyvalue"``, the single
+    cell for ``"keyvalue_cells"``."""
+
+    name: str
+    line: int
+    text: str
+    named: bool
+
+
+def read_preamble_origins(
+    lines: list[str], mode: str, *, delimiter: str = ","
+) -> list[PreambleOrigin]:
+    """Provenance twin of :func:`read_preamble`: same names, same order, same
+    duplicate-suffixing — plus WHERE each name/value came from and whether the
+    file wrote the name or ``read_preamble`` invented it.
+
+    Deliberately a separate function rather than a flag on ``read_preamble``:
+    the latter has many callers and its signature/return type must not change.
+    This one must stay in exact lockstep with it (same rules, walked in the same
+    order) or a column's displayed origin would point at the wrong column."""
+    if mode == "lines":
+        out: list[PreambleOrigin] = []
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped:
+                out.append(PreambleOrigin(f"preamble_{i + 1}", i + 1, stripped, False))
+        return out
+    if mode == "keyvalue_cells":
+        origins: list[PreambleOrigin] = []
+        cell_key_counts: dict[str, int] = {}
+        bare = 0
+        for i, line in enumerate(lines):
+            for cell in _preamble_cells(line, delimiter):
+                cell = cell.strip()
+                if not cell:
+                    continue
+                key, eq, _value = cell.partition("=")
+                if eq and key.strip():
+                    k = key.strip()
+                    cell_key_counts[k] = cell_key_counts.get(k, 0) + 1
+                    if cell_key_counts[k] > 1:
+                        k = f"{k}_{cell_key_counts[k]}"
+                    origins.append(PreambleOrigin(k, i + 1, cell, True))
+                else:
+                    bare += 1
+                    origins.append(PreambleOrigin(f"preamble_{bare}", i + 1, cell, False))
+        return origins
+    if mode != "keyvalue":
+        return []
+    origins = []  # type: list[PreambleOrigin]
+    key_counts: dict[str, int] = {}
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped or _PREAMBLE_SECTION.match(line):
+            continue
+        m = _PREAMBLE_KV.match(line)
+        if m:
+            key = m.group(1).strip()
+            key_counts[key] = key_counts.get(key, 0) + 1
+            if key_counts[key] > 1:
+                key = f"{key}_{key_counts[key]}"
+            origins.append(PreambleOrigin(key, i + 1, stripped, True))
+        elif origins:
+            # A continuation line extends the previous entry's VALUE (in
+            # read_preamble) but is not itself a new column — mirror that by
+            # leaving the existing origin (name/line/text) untouched.
+            continue
+        else:
+            origins.append(PreambleOrigin(f"preamble_{i + 1}", i + 1, stripped, False))
+    return origins
+
+
+def _apply_preamble_names(meta_names: list[str], preamble_names: Mapping[str, str]) -> list[str]:
+    """Rename ``meta_names`` (already produced by :func:`read_preamble`) through
+    the human-chosen ``preamble_names`` overrides. A missing key, or an override
+    that is empty/whitespace-only, leaves the machine name untouched — renaming
+    happens strictly AFTER ``read_preamble`` so its naming/dedup order stays the
+    single source of truth (:func:`read_preamble_origins` pins it)."""
+    if not preamble_names:
+        return meta_names
+    out = []
+    for name in meta_names:
+        override = preamble_names.get(name)
+        if override is not None and override.strip():
+            out.append(override)
+        else:
+            out.append(name)
+    return out
+
+
 def resolve_header(body_names: list[str], meta_names: list[str]) -> list[str]:
     """Resolve the broadcast META column names against the body header.
 
@@ -468,7 +612,7 @@ def _broadcast_rows(path: Path | str, dialect: SourceDialect) -> Iterator[list[s
                 break
             preamble_lines.append(line)
         meta = read_preamble(preamble_lines, dialect.preamble, delimiter=dialect.delimiter)
-        meta_names = [name for name, _ in meta]
+        meta_names = _apply_preamble_names([name for name, _ in meta], dialect.preamble_names)
         meta_values = [value for _, value in meta]
         body = _body_tokens(fh, dialect)
         header = next(body, None)
@@ -562,13 +706,16 @@ def dialect_ir_fields(dialect: SourceDialect, *, full: bool = False) -> dict[str
     compiler still emits only non-default annotations, so the extra IR fields never
     change the compiled artifact."""
     if full:
-        return {
+        out_full: dict[str, Any] = {
             "encoding": dialect.encoding,
             "delimiter": dialect.delimiter,
             "collapse": dialect.collapse,
             "skip_rows": dialect.skip_rows,
             "preamble": dialect.preamble,
         }
+        if dialect.preamble != "drop" and dialect.preamble_names:
+            out_full["preamble_names"] = dict(dialect.preamble_names)
+        return out_full
     out: dict[str, Any] = {}
     if dialect.encoding != "utf-8-sig":
         out["encoding"] = dialect.encoding
@@ -580,6 +727,8 @@ def dialect_ir_fields(dialect: SourceDialect, *, full: bool = False) -> dict[str
         out["skip_rows"] = dialect.skip_rows
     if dialect.preamble != "drop":
         out["preamble"] = dialect.preamble
+        if dialect.preamble_names:
+            out["preamble_names"] = dict(dialect.preamble_names)
     return out
 
 

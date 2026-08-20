@@ -5,8 +5,44 @@ Native desktop app (Tauri v2) for the local-first distribution
 
 The shell owns one contract: spawn the `asterism-local` launcher (which itself
 supervises Oxigraph and the demo-agent as children), wait for HTTP readiness on
-a free loopback port, then open the native window at that URL. On quit it sends
-SIGTERM so the launcher's own cleanup terminates the grandchildren.
+the fixed loopback port 8765, then open the native window at that URL. On quit it
+sends SIGTERM so the launcher's own cleanup terminates the grandchildren.
+
+## 起動中の画面と、うまくいかなかったときの出口
+
+アイコンをダブルクリックした瞬間から `desktop/splash/index.html` の小窓が出る
+（窓は `tauri.conf.json` の `app.windows` に定義されているので、バックエンドの
+準備を待たない）。この窓は 3 つの役をひとりで担う:
+
+- **準備中**: 「Asterism を準備しています…」＋「初めての起動は 1 分ほどかかること
+  があります。データはあなたのパソコンの中だけにあります。」＋不確定プログレス。
+  20 秒を超えると「まだ動いています。」に変わり、経過秒を出す。
+- **停止カード**（ADR `kantan-mode-two-tier-ux.md` K11）: 起動の失敗は
+  ネイティブダイアログ（OK 一つ＝即終了）ではなく、この窓に平易な 1 行＋
+  ［もう一度試す］［ログを開く］［内容をコピー］［やめる］＋
+  `詳しい内容（技術情報）` の折りたたみとして描く。ユーザーが選ぶまで終了しない。
+  ［もう一度試す］は残っている子プロセスを terminate してからポートを取り直す。
+- **更新のダウンロード中／終了処理中**: 進捗と「データを安全に閉じています」。
+
+シェル側（Rust）は**どのメッセージを出すか**だけを決め、ja/en の文面は splash の
+`TEXT` テーブルに 1 か所でまとまっている（`lang` はシェルが OS 設定から判定して
+渡すので、ネイティブメニューと言語がずれない）。窓すら作れなかったときだけ、
+最後の手段としてネイティブダイアログが出る。
+
+splash はローカルページなので、シェル自身の `boot_status` / `boot_action` コマンド
+だけで会話する（プラグイン権限は不要・`main` からの呼び出しは Tauri の ACL と
+ラベル検査の二重で拒否される）。
+
+起動時の枝分かれ 2 つ:
+
+- 8765 が塞がっていて、その相手が **Asterism 自身**（`/health` が `"oxigraph"` を
+  返す）なら、2 つ目のバックエンドを起動せずその URL を開くだけにする。
+- 相手が別のプログラムなら、別ポートで動かす前に「設定が保存されません」と伝えて
+  ［このまま使う］［やめる］を出し、続ける場合は窓の URL に `?port_fallback=1` を
+  付ける（SPA 側でその旨の帯を出すためのしるし。UI 側は未実装）。
+- `grant_spa_update_ipc` に失敗した場合はバックエンドに `ASTERISM_UPDATER_IPC=0`
+  を渡す（設定→このアプリ でメニューバー経由の更新を案内するためのしるし。
+  api / UI 側は未実装）。
 
 ## Run from a repo checkout (v1)
 
@@ -82,7 +118,19 @@ endpoints and the minisign pubkey are fixed in `tauri.conf.json`, so the page
 can install nothing but a signed release.
 
 The app menu item **アップデートを確認…** remains as the native fallback (dialog
-→ download → relaunch) for when the page cannot help.
+→ download → relaunch) for when the page cannot help. Its dialog uses the same
+wording as the banner (**再起動して更新** / **後で**), says that data and settings
+are kept, and asks the user to let a running ingest finish first. While the
+download runs the menu item is greyed out (no second download) and the splash
+window comes back with the percentage; a failure lands in a stop card with
+［もう一度試す］［ダウンロードページを開く］ instead of a raw error string.
+
+Every platform now also gets a **ヘルプ** menu — **ログを開く（不具合の相談用）**
+(reveals `backend.log` in Finder/Explorer), **はじめかた**, **アップデートを確認…**
+— because when the page is blank the menu bar is the only surface left.
+
+Menu labels and native dialogs follow the OS language (ja/en; `ASTERISM_LANG`
+overrides), so an English install no longer quotes Japanese menu names.
 
 Do NOT press "再起動して更新" in a `tauri dev` binary: the updater's macOS
 install target is derived from the executable path, and for an unbundled
@@ -104,6 +152,17 @@ present — also produces the signed updater artifacts (`Asterism_aarch64.app.ta
 app polls is the GitHub Pages copy (`docs/updater/latest.json`, written by the
 workflow's last step only after a successful build — ADR §6.1); the release
 asset URL is kept as the second endpoint for already-shipped builds.
+
+> **未署名ビルドを配る間は、この 1 文をダウンロード導線に必ず添える。**
+> 「初回だけ、アプリを右クリック →「開く」を選んでください（Apple の確認画面が
+> 出ます）。」/ "The first time only, right-click the app and choose Open (macOS
+> will ask you to confirm)."
+> Apple の署名 secrets が無いまま配られた `.dmg` は、初回起動で「開発元を検証
+> できないため開けません」（新しめの macOS では「壊れているため開けません」）に
+> なり、選べるのは「ゴミ箱に入れる」だけ＝スプラッシュにも停止カードにも到達
+> できない。**本筋の解は署名/公証 secrets の登録（下記）**で、この一文はそれまで
+> の暫定。リリース本文への自動挿入は `.github/workflows/desktop-release.yml`
+> 側の作業（この PR では workflow を触らない）。
 
 ### One-time signing setup (required for auto-update to work)
 

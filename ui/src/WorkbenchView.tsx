@@ -3,6 +3,7 @@ import { Trans, useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { plainAdvisories } from './advisoryPlain'
 import {
   ApiError,
   attachSource,
@@ -212,6 +213,8 @@ export function WorkbenchView({
   redesignTarget,
   onRedesignConsumed,
   onOpenDataset,
+  kantanDatasetId,
+  onBackToKantan,
 }: {
   /** When set, the workbench opens on an EXISTING dataset's design to revise it. */
   redesignTarget?: RedesignTarget | null
@@ -220,6 +223,14 @@ export function WorkbenchView({
   onRedesignConsumed?: () => void
   /** 保存完了からカタログの当該データセット詳細へ直行する導線（導線切れ対策）。 */
   onOpenDataset?: (id: string) => void
+  /** The dataset the simple tier is mid-way through, if any. The return path
+   *  below only appears for THAT dataset — a design that never came from the
+   *  wizard has no wizard run to go back to. */
+  kantanDatasetId?: string | null
+  /** Hand this saved design back to the simple tier so the wizard resumes its
+   *  chain (draft ingest → try it → publish) instead of dead-ending the user in
+   *  the catalog's expert approval screen (ADR K11 / DETAIL-GAP-06). */
+  onBackToKantan?: (datasetId: string, proposalMd: string, sourceAttached: boolean) => void
 } = {}) {
   const { t, i18n } = useTranslation()
   // Restore generated artifacts saved before a tab switch / reload (once).
@@ -299,6 +310,12 @@ export function WorkbenchView({
 
   // Refine
   const [comment, setComment] = useState('')
+  // The weaknesses that sent the user here (catalog 見直す). Without them the
+  // reviewer lands on a column table with the finding gone — "I got told these
+  // aren't linked, and now I'm looking at a list of columns" (user feedback,
+  // 2026-07-24). The kantan tier already carries them; this is the detail tier's
+  // half. Transient: they describe THIS arrival, not the saved design.
+  const [carriedAdvisories, setCarriedAdvisories] = useState<string[]>([])
   const [refining, setRefining] = useState(false)
   const refineJobRef = useRef<JobHandle | null>(null)
 
@@ -315,6 +332,10 @@ export function WorkbenchView({
     snap.materialized ?? null,
   )
   const [materializing, setMaterializing] = useState(false)
+  // Whether the design-time files were persisted alongside the saved dataset. The
+  // simple tier's chain resumes straight into the draft ingest when they were, and
+  // asks for the files back when they weren't — so the return path must say which.
+  const [sourcePersisted, setSourcePersisted] = useState(false)
 
   // Persist artifacts whenever they change (cheap; sessionStorage only).
   useEffect(() => {
@@ -362,8 +383,14 @@ export function WorkbenchView({
     setProposal(redesignTarget.proposalMd)
     setMarkdown('')
     setProposeErr('')
-    setComment('')
+    // Carry the findings AND pre-fill the review box with them, so "regenerate
+    // with this comment" is one click away and the raw wording the AI needs is
+    // already there (same composition as the kantan tier's carried fix).
+    const carried = redesignTarget.advisories ?? []
+    setCarriedAdvisories(carried)
+    setComment(carriedFixComment(carried, t))
     setMaterialized(null)
+    setSourcePersisted(false)
     setStatus('')
     setStep(2)
     resetDialectContext() // FIX3: a redesign is a different dataset — drop the prior source's dialects
@@ -784,6 +811,7 @@ export function WorkbenchView({
             setAutocorrect(null) // a manual refine replaced the design — clear the loop summary
             setMaterialized(null)
             setComment('')
+            setCarriedAdvisories([]) // handed to the AI — the arrival note is spent
             setStatus('refined')
             setRefining(false)
             clearJob()
@@ -845,6 +873,7 @@ export function WorkbenchView({
     // clears `materialized` first, so an intentional redo is still possible.
     if (!proposal || materializing || materialized) return
     setProposeErr('')
+    setSourcePersisted(false) // recomputed by this save's attach below
     setMaterializing(true)
     try {
       // With a target id the server re-materializes that SAME dataset in place
@@ -883,6 +912,7 @@ export function WorkbenchView({
         try {
           await attachSource(datasetId, files, stagingId)
           setStagingId(null) // consumed into the dataset's source/
+          setSourcePersisted(true)
           // Now that the source is persisted, re-run the advisory design check so a
           // BRAND-NEW design gets the same pre-ingest advice a redesign gets inline
           // (at materialize a fresh design has no source yet, so `validation_issues`
@@ -939,7 +969,9 @@ export function WorkbenchView({
     setProposeErr('')
     setJobNotice('')
     setComment('')
+    setCarriedAdvisories([])
     setMaterialized(null)
+    setSourcePersisted(false)
     setStatus('')
     setRedesignId(undefined)
     setRedesignName(undefined)
@@ -1303,6 +1335,44 @@ export function WorkbenchView({
             <>
               <p className="step-hint">{t('workbench:review.hint')}</p>
               <AutocorrectBanner summary={autocorrect} />
+              {/* Why this design came back: the catalog's findings, in plain
+                  sentences, with the raw text (what the AI actually needs) in the
+                  fold and already copied into the comment box below. */}
+              {carriedAdvisories.length > 0 && (
+                <section className="materialize-advisories" role="note">
+                  <p className="materialize-advisories-head">
+                    {t('workbench:redesign.findingsTitle')}
+                  </p>
+                  <ul>
+                    {plainAdvisories(carriedAdvisories).map((a, i) => (
+                      <li key={i}>{a.text}</li>
+                    ))}
+                  </ul>
+                  <p className="step-hint">{t('workbench:redesign.findingsBody')}</p>
+                  <details className="inspect-details">
+                    <summary>{t('gallery:advisory.rawSummary')}</summary>
+                    <ul>
+                      {carriedAdvisories.map((a, i) => (
+                        <li key={i}>{a}</li>
+                      ))}
+                    </ul>
+                  </details>
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--sm"
+                    onClick={() => {
+                      // Dismiss = the whole arrival, including the text we typed
+                      // into the comment box on the user's behalf. Anything they
+                      // edited or wrote themselves stays.
+                      const prefilled = carriedFixComment(carriedAdvisories, t)
+                      setComment((c) => (c === prefilled ? '' : c))
+                      setCarriedAdvisories([])
+                    }}
+                  >
+                    {t('workbench:redesign.findingsDismiss')}
+                  </button>
+                </section>
+              )}
               <section className="refine-box">
                 <label className="domain-label">
                   {t('workbench:review.commentLabel')}
@@ -1367,6 +1437,18 @@ export function WorkbenchView({
                     {(lastSaveKind ?? (redesignId ? 'updated' : 'created')) === 'updated'
                       ? t('workbench:save.addedRedesign')
                       : t('workbench:save.added')}
+                    {/* Came from the simple tier: give the wizard's chain back
+                        (draft ingest → try it → publish) instead of handing the
+                        user the catalog's expert approval screen. */}
+                    {onBackToKantan && redesignId && redesignId === kantanDatasetId && (
+                      <button
+                        type="button"
+                        className="btn btn--ghost btn--sm materialize-open-btn"
+                        onClick={() => onBackToKantan(redesignId, proposal, sourcePersisted)}
+                      >
+                        {t('workbench:save.backToKantan')}
+                      </button>
+                    )}
                     {/* 次工程（取り込み→公開）が住むカタログの当該データセットへ直行 */}
                     {onOpenDataset && redesignId && (
                       <button
@@ -1547,6 +1629,18 @@ function composeFixComment(result: MaterializeResult | null, t: TFunction): stri
   if (lines.length === 0) return ''
   const bullets = lines.map((l) => `- ${l}`).join('\n')
   return `${t('workbench:fix.commentIntro')}\n${bullets}`
+}
+
+/**
+ * The review comment pre-filled on the user's behalf when a redesign arrives with
+ * findings from the catalog. Same composition as the simple tier's carried fix
+ * (KantanWizard.fixCarriedAdvisories), so both tiers hand the AI identical text.
+ * Also used to recognise that pre-fill later: dismissing the arrival note drops
+ * the text WE wrote, never a sentence the user typed.
+ */
+function carriedFixComment(advisories: string[], t: TFunction): string {
+  if (advisories.length === 0) return ''
+  return `${t('workbench:fix.commentIntro')}\n${advisories.map((l) => `- ${l}`).join('\n')}`
 }
 
 /**

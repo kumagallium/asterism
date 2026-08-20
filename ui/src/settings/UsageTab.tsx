@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { getServerSetting, isAppSettingsServerMode, putAppSetting } from '../appSettings'
 import { useLlmSettings } from './context'
@@ -31,9 +31,20 @@ export function UsageTab() {
     return Number.isFinite(raw) && raw > 0 ? raw : 150
   })
 
+  // Reloading is the whole recovery here (the usual cause is a server that was
+  // busy), so the failure state offers it instead of ending the road: the
+  // button bumps this counter and the fetch effect runs again.
+  const [attempt, setAttempt] = useState(0)
+  const reload = useCallback(() => {
+    setLoading(true)
+    setError('')
+    setAttempt((n) => n + 1)
+  }, [])
+
   useEffect(() => {
     let cancelled = false
-    // `loading` starts true; this effect runs once and flips it in finally.
+    // `loading` starts true; this effect runs once per attempt and flips it in
+    // finally.
     fetchUsage()
       .then((r) => !cancelled && (setEvents(r.events), setError('')))
       .catch((e) => !cancelled && setError(e instanceof Error ? e.message : String(e)))
@@ -41,7 +52,7 @@ export function UsageTab() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [attempt])
 
   function onUsdJpy(v: string) {
     const n = Number.parseFloat(v)
@@ -121,7 +132,14 @@ export function UsageTab() {
     return (
       <div>
         <p className="settings-intro">{t('usage.intro')}</p>
-        <p className="usage-empty">{t('usage.error')}</p>
+        {/* The raw cause goes in the tooltip: it helps whoever is debugging and
+            means nothing to everyone else. */}
+        <p className="usage-empty" title={error}>
+          {t('usage.error')}
+        </p>
+        <button type="button" className="btn btn--sm" onClick={reload}>
+          {t('usage.reload')}
+        </button>
       </div>
     )
   }
@@ -244,10 +262,18 @@ export function UsageTab() {
 
 // ---- helpers ----
 
-function featureLabel(t: (k: string) => string, feature: string): string {
-  const label = t(`usage.features.${feature}`)
-  // i18next returns the key path when missing; fall back to the raw feature.
-  return label.startsWith('usage.features.') ? feature : label
+function featureLabel(
+  t: (k: string, opts?: Record<string, unknown>) => string,
+  feature: string,
+): string {
+  // i18next splits key paths on '.', so a feature id like `tool.propose` cannot
+  // be a JSON key of its own — it reads as a nested path and misses. The
+  // translations use '_' in its place.
+  const label = t(`usage.features.${feature.replace(/\./g, '_')}`)
+  // i18next returns the key path when missing. Wrap the raw id rather than
+  // printing it bare, so a feature added later shows up as "something else"
+  // instead of an English identifier in the middle of a table of plain names.
+  return label.startsWith('usage.features.') ? t('usage.otherFeature', { id: feature }) : label
 }
 
 function convertCost(amount: number, from: RateCurrency, to: RateCurrency, usdJpy: number): number {

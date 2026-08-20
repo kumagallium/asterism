@@ -451,6 +451,27 @@ def test_dialect_whitespace_collapse_annotations() -> None:
     assert list(g.objects(ls, AST.sourceEncoding)) == []
 
 
+def test_dialect_preamble_names_annotation_emitted() -> None:
+    import json
+
+    ir = DIALECT_IR.replace(
+        "skip_rows: 1",
+        'skip_rows: 1\n    preamble: lines\n    preamble_names: {"preamble_1": "試料名"}',
+    )
+    g = as_graph(compile_text(ir))
+    (ls,) = list(g.objects(None, RML.logicalSource))
+    names_json = next(g.objects(ls, AST.sourcePreambleNames)).toPython()
+    assert json.loads(names_json) == {"preamble_1": "試料名"}
+
+
+def test_dialect_preamble_names_empty_not_emitted() -> None:
+    # No preamble_names key ⇒ nothing to rename ⇒ no annotation (byte-equivalence).
+    ir = DIALECT_IR.replace("skip_rows: 1", "skip_rows: 1\n    preamble: lines")
+    g = as_graph(compile_text(ir))
+    (ls,) = list(g.objects(None, RML.logicalSource))
+    assert list(g.objects(ls, AST.sourcePreambleNames)) == []
+
+
 def test_default_dialect_entry_compiles_byte_identically() -> None:
     """The is_default gate: an all-default dialects entry emits NOTHING — the
     output is byte-identical to a spec without the section."""

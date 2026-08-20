@@ -11,6 +11,7 @@ import json
 
 import pytest
 import rdflib
+import yaml
 
 from asterism.query_tools import (
     QueryTool,
@@ -20,6 +21,8 @@ from asterism.query_tools import (
     parse_query_tools,
     render_query,
     run_query_tool,
+    synthesize_query_tools_from_trial_queries,
+    write_registry_query_tools,
 )
 from asterism.substrate import (
     CANONICAL_GRAPH_BASE,
@@ -564,3 +567,313 @@ def test_bundled_tools_enabled_env_parsing(monkeypatch) -> None:
     for falsy in ("", "0", "false", "off", "nope"):
         monkeypatch.setenv("ASTERISM_BUNDLED_TOOLS", falsy)
         assert bundled_tools_enabled() is False, falsy
+
+
+# ---------------------------------------------------------------------------
+# ASK-34: synthesizing verified tools from a dataset's own /trial-queries reply
+# ---------------------------------------------------------------------------
+
+_TRIAL_FULL = {
+    "dataset_id": "my-dataset-abc12345",
+    "available": True,
+    "classes": [
+        {"iri": "https://ex/my-dataset#Sample", "n": 42, "label": "試料"},
+        {"iri": "https://ex/my-dataset#Measurement", "n": 7},
+    ],
+    "range": {
+        "predicate_iri": "https://ex/my-dataset#seebeck",
+        "n": 30,
+        "min": "1.0",
+        "max": "9.0",
+        "label": "ゼーベック係数",
+    },
+    "top": {
+        "predicate_iri": "https://ex/my-dataset#seebeck",
+        "value": "9.0",
+        "subject_iri": "https://ex/my-dataset/sample/1",
+        "label": "ゼーベック係数",
+    },
+}
+
+
+def test_synthesize_from_trial_queries_full() -> None:
+    tools = synthesize_query_tools_from_trial_queries(_TRIAL_FULL)
+    names = [t["name"] for t in tools]
+    assert names == ["counts_by_kind", "value_range", "top_value"]
+
+    counts = tools[0]
+    assert "<https://ex/my-dataset#Sample>" in counts["query"]
+    assert "<https://ex/my-dataset#Measurement>" in counts["query"]
+    assert counts["parameters"] == []
+
+    value_range = tools[1]
+    assert "<https://ex/my-dataset#seebeck>" in value_range["query"]
+    assert "ゼーベック係数" in value_range["title"]
+    # The two rows that produced min/max are the evidence for the range answer —
+    # same subject_iri naming convention top_value already uses, so the answering
+    # side (which already looks for an "*_iri" key to cite) picks these up too.
+    assert value_range["result"]["item"]["min_subject_iri"] == "minSubject"
+    assert value_range["result"]["item"]["max_subject_iri"] == "maxSubject"
+
+    top_value = tools[2]
+    assert "<https://ex/my-dataset#seebeck>" in top_value["query"]
+    assert top_value["result"]["item"]["subject_iri"] == "s"
+
+    # Every synthesized tool must itself parse+lint clean (round-trips as an
+    # ordinary declared tool — no special-casing at load/run time).
+    parsed = parse_query_tools({"tools": tools})
+    assert len(parsed) == 3
+    for tool in parsed:
+        lint = lint_query_tool(tool)
+        assert lint.ok, (tool.name, lint.errors)
+
+
+def test_synthesize_from_trial_queries_unavailable() -> None:
+    assert synthesize_query_tools_from_trial_queries({"available": False}) == []
+    assert synthesize_query_tools_from_trial_queries({}) == []
+
+
+def test_synthesize_from_trial_queries_partial() -> None:
+    # Only a range, no classes / top (e.g. no rr:class declared, or a single
+    # numeric field so top == range's field with nothing left over).
+    tools = synthesize_query_tools_from_trial_queries(
+        {
+            "available": True,
+            "classes": [],
+            "range": {"predicate_iri": "https://ex/x#v", "label": "値"},
+        }
+    )
+    assert [t["name"] for t in tools] == ["value_range"]
+
+
+def test_synthesize_from_trial_queries_rejects_non_iri() -> None:
+    # A non-http(s) or otherwise malformed "IRI" (should never happen — the
+    # source is the server's own SPARQL bindings — but the synthesizer must not
+    # trust it blindly) is skipped rather than embedded raw into a query.
+    tools = synthesize_query_tools_from_trial_queries(
+        {
+            "available": True,
+            "classes": [{"iri": "not-an-iri"}, {"iri": '"; DROP GRAPH <x>'}],
+            "range": {"predicate_iri": "ftp://ex/x#v"},
+            "top": {"predicate_iri": None},
+        }
+    )
+    assert tools == []
+
+
+def test_write_registry_query_tools_round_trip(tmp_path) -> None:
+    reg = tmp_path / "registry"
+    (reg / "my-dataset-abc12345").mkdir(parents=True)
+    tools = synthesize_query_tools_from_trial_queries(_TRIAL_FULL)
+
+    path = write_registry_query_tools(reg, "my-dataset-abc12345", tools)
+    assert path == reg / "my-dataset-abc12345" / "query_tools.yaml"
+    assert path.is_file()
+
+    loaded = {t.name: t for t in load_query_tools("my-dataset-abc12345", reg)}
+    assert set(loaded) == {"counts_by_kind", "value_range", "top_value"}
+
+    # Re-promote re-derives the file from fresh data (overwrite, not append).
+    fewer = synthesize_query_tools_from_trial_queries(
+        {"available": True, "classes": [], "range": _TRIAL_FULL["range"]}
+    )
+    write_registry_query_tools(reg, "my-dataset-abc12345", fewer)
+    reloaded = {t.name for t in load_query_tools("my-dataset-abc12345", reg)}
+    assert reloaded == {"value_range"}
+
+
+def test_write_registry_query_tools_preserves_hand_authored_tool(tmp_path) -> None:
+    # registry.save_query_tool (api/src/asterism_api/registry.py) upserts
+    # human-authored tools into this exact same query_tools.yaml — a re-promote
+    # must not wipe one out just because it wasn't in this call's synthesized
+    # batch.
+    reg = tmp_path / "registry"
+    ds = reg / "my-dataset-abc12345"
+    ds.mkdir(parents=True)
+    hand_authored = {
+        "name": "custom_lookup",
+        "title": "手作業で保存したツール",
+        "description": "A human saved this via the ToolsPanel.",
+        "parameters": [],
+        "query": "SELECT ?s WHERE { ?s a <https://ex/my-dataset#Sample> } LIMIT 5",
+        "result": {"item": {"subject_iri": "s"}},
+    }
+    (ds / "query_tools.yaml").write_text(
+        yaml.safe_dump({"tools": [hand_authored]}, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+
+    tools = synthesize_query_tools_from_trial_queries(_TRIAL_FULL)
+    write_registry_query_tools(reg, "my-dataset-abc12345", tools)
+
+    loaded = {t.name for t in load_query_tools("my-dataset-abc12345", reg)}
+    assert loaded == {"custom_lookup", "counts_by_kind", "value_range", "top_value"}
+
+    # A later re-promote whose trial-queries no longer has classes must drop the
+    # now-stale counts_by_kind while still leaving the hand-authored tool alone.
+    fewer = synthesize_query_tools_from_trial_queries(
+        {"available": True, "classes": [], "range": _TRIAL_FULL["range"]}
+    )
+    write_registry_query_tools(reg, "my-dataset-abc12345", fewer)
+    reloaded = {t.name for t in load_query_tools("my-dataset-abc12345", reg)}
+    assert reloaded == {"custom_lookup", "value_range"}
+
+
+def test_write_registry_query_tools_no_dataset_dir(tmp_path) -> None:
+    # Never mints a new registry entry out of a synthesis call.
+    reg = tmp_path / "registry"
+    reg.mkdir()
+    tools = synthesize_query_tools_from_trial_queries(_TRIAL_FULL)
+    assert write_registry_query_tools(reg, "does-not-exist", tools) is None
+    assert not (reg / "does-not-exist").exists()
+
+
+def test_write_registry_query_tools_empty(tmp_path) -> None:
+    reg = tmp_path / "registry"
+    (reg / "ds").mkdir(parents=True)
+    assert write_registry_query_tools(reg, "ds", []) is None
+    assert not (reg / "ds" / "query_tools.yaml").exists()
+
+
+# ---------------------------------------------------------------------------
+# value_range's citation columns, run for real: the store the synthesizer
+# actually points at is pyoxigraph (rdflib's SPARQL engine is more forgiving
+# than the store — a broken subquery/OPTIONAL shape could pass the rdflib
+# fixtures above and still 400 in production). This section runs the
+# SYNTHESIZED query, unmodified, through a real pyoxigraph.Store.
+# ---------------------------------------------------------------------------
+
+pyoxigraph = pytest.importorskip("pyoxigraph")
+
+_RANGE_TRIAL = {
+    "available": True,
+    "range": {
+        "predicate_iri": "https://ex/xrd#twotheta",
+        "n": 3,
+        "min": "20.0",
+        "max": "80.0",
+        "label": "2theta",
+    },
+}
+
+
+def _value_range_tool() -> QueryTool:
+    tools = synthesize_query_tools_from_trial_queries(_RANGE_TRIAL)
+    parsed = {t.name: t for t in parse_query_tools({"tools": tools})}
+    return parsed["value_range"]
+
+
+def _pyoxi_client(graphs: dict[str, str]):
+    """pyoxigraph-backed client: each {graph_iri: ttl} loaded to that named graph,
+    canonical graphs flagged ``promoted`` in the control graph — same contract
+    as ``_ds_client`` above, backed by the real store engine instead of rdflib.
+    """
+    store = pyoxigraph.Store()
+    for giri, ttl in graphs.items():
+        store.load(
+            ttl.encode("utf-8"), mime_type="text/turtle", to_graph=pyoxigraph.NamedNode(giri)
+        )
+        if giri.startswith(CANONICAL_GRAPH_BASE):
+            store.add(
+                pyoxigraph.Quad(
+                    pyoxigraph.NamedNode(giri),
+                    pyoxigraph.NamedNode(STATUS_PREDICATE),
+                    pyoxigraph.Literal(STATUS_PROMOTED),
+                    pyoxigraph.NamedNode(CONTROL_GRAPH_IRI),
+                )
+            )
+
+    class _C:
+        async def sparql_select(self, query: str) -> dict:
+            result = store.query(query)
+            names = [v.value for v in result.variables]
+            bindings = []
+            for solution in result:
+                row = {}
+                for name in names:
+                    term = solution[name]
+                    if term is None:
+                        continue
+                    kind = "uri" if isinstance(term, pyoxigraph.NamedNode) else "literal"
+                    row[name] = {"type": kind, "value": term.value}
+                bindings.append(row)
+            return {"results": {"bindings": bindings}}
+
+    return _C()
+
+
+_XRD_TTL_TEMPLATE = """
+@prefix ex: <https://ex/xrd#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+{rows}
+"""
+
+
+def _xrd_ttl(rows: list[tuple[str, str]]) -> str:
+    # rows: (subject local name, twotheta literal)
+    body = "\n".join(
+        f'<https://ex/xrd/record/{s}> ex:twotheta "{v}"^^xsd:double .' for s, v in rows
+    )
+    return _XRD_TTL_TEMPLATE.format(rows=body)
+
+
+async def test_value_range_reports_min_max_subject_iris_on_real_store() -> None:
+    # 1) three-plus numeric records: n/min/max AND each end's citing record.
+    ttl = _xrd_ttl([("a", "20.0"), ("b", "50.0"), ("c", "80.0"), ("d", "65.0")])
+    client = _pyoxi_client({canonical_graph_iri("xrd"): ttl})
+    out = await run_query_tool(client, _value_range_tool(), {})
+    assert out["count"] == 1
+    item = out["items"][0]
+    assert item["count"] == 4.0
+    assert item["min"] == 20.0
+    assert item["max"] == 80.0
+    assert item["min_subject_iri"] == "https://ex/xrd/record/a"
+    assert item["max_subject_iri"] == "https://ex/xrd/record/c"
+    assert "FROM <" in out["sparql"]  # ran through the canonical FROM-merge
+
+
+async def test_value_range_tie_is_deterministic_on_real_store() -> None:
+    # 2) two records share the minimum value -> the SAME one is picked every run
+    # (tie-break: subject IRI ascending), not whichever the store happens to
+    # enumerate first.
+    ttl = _xrd_ttl([("z-record", "20.0"), ("a-record", "20.0"), ("mid", "80.0")])
+    client = _pyoxi_client({canonical_graph_iri("xrd"): ttl})
+    tool = _value_range_tool()
+    first = await run_query_tool(client, tool, {})
+    second = await run_query_tool(client, tool, {})
+    assert first["items"][0]["min_subject_iri"] == "https://ex/xrd/record/a-record"
+    assert second["items"][0]["min_subject_iri"] == "https://ex/xrd/record/a-record"
+
+
+async def test_value_range_no_data_returns_no_iris() -> None:
+    # 3) no matching triples at all -> count 0, no min/max, and crucially no
+    # fabricated citation (None, not some arbitrary subject).
+    client = _pyoxi_client({canonical_graph_iri("xrd"): "@prefix ex: <https://ex/xrd#> .\n"})
+    out = await run_query_tool(client, _value_range_tool(), {})
+    item = out["items"][0]
+    assert item["count"] == 0.0
+    assert item["min"] is None
+    assert item["max"] is None
+    assert item["min_subject_iri"] is None
+    assert item["max_subject_iri"] is None
+
+
+async def test_value_range_ignores_non_numeric_values_on_real_store() -> None:
+    # 4) a non-numeric value on the same predicate must not corrupt count/min/max
+    # or get cited as a subject — FILTER(BOUND(?num)) after the xsd:double cast
+    # keeps it out, same as the pre-existing count/min/max behaviour.
+    ttl = """
+    @prefix ex: <https://ex/xrd#> .
+    @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+    <https://ex/xrd/record/num1> ex:twotheta "20.0"^^xsd:double .
+    <https://ex/xrd/record/num2> ex:twotheta "80.0"^^xsd:double .
+    <https://ex/xrd/record/bad> ex:twotheta "not-a-number" .
+    """
+    client = _pyoxi_client({canonical_graph_iri("xrd"): ttl})
+    out = await run_query_tool(client, _value_range_tool(), {})
+    item = out["items"][0]
+    assert item["count"] == 2.0
+    assert item["min"] == 20.0
+    assert item["max"] == 80.0
+    assert item["min_subject_iri"] == "https://ex/xrd/record/num1"
+    assert item["max_subject_iri"] == "https://ex/xrd/record/num2"

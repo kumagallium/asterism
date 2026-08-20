@@ -344,6 +344,70 @@ _RUN_SPARQL_TOOL = {
     },
 }
 
+# A vetted tool names its own evidence: any result field holding a subject IRI
+# (``subject_iri``, ``min_subject_iri``, ``max_subject_iri``, …) is a record the
+# answer stands on. Deterministic, order-preserving, deduped.
+_CITE_ROWS_MAX = 3  # a result this small IS the evidence; bigger is a listing
+_CITE_IRIS_MAX = 8
+
+
+def _collect_tool_citations(into: list[dict], items: list) -> None:
+    """Append ``{"iri": …}`` for every subject IRI in a small tool result."""
+    if not items or len(items) > _CITE_ROWS_MAX:
+        return
+    seen = {c["iri"] for c in into}
+    for row in items:
+        if not isinstance(row, dict):
+            continue
+        # The ROW's own key order, not alphabetical: the tool's result mapping
+        # fixes it (so it is deterministic), and it reads the way the tool means
+        # it — a range cites its minimum before its maximum, where sorting the
+        # keys would put `max_…` first.
+        for key in row:
+            if key != "subject_iri" and not key.endswith("_subject_iri"):
+                continue
+            iri = row.get(key)
+            if not isinstance(iri, str) or not iri.startswith(("http://", "https://")):
+                continue
+            if iri in seen or len(into) >= _CITE_IRIS_MAX:
+                continue
+            seen.add(iri)
+            into.append({"iri": iri})
+
+
+_JSON_FENCE = re.compile(r"^```(?:json)?\s*(.+?)\s*```$", re.DOTALL)
+
+
+def _answer_payload(text: str) -> dict | None:
+    """The `submit_answer` payload a model wrote as TEXT, or None.
+
+    Only a JSON object carrying a STRING ``answer`` counts — an ordinary answer
+    that merely happens to start with a brace is left alone. Citations that come
+    along are kept (they are the model's, same as via the tool call); anything
+    else in the object is ignored.
+    """
+    if not text:
+        return None
+    body = text
+    fenced = _JSON_FENCE.match(body)
+    if fenced:
+        body = fenced.group(1).strip()
+    if not body.startswith("{"):
+        return None
+    try:
+        data = json.loads(body)
+    except ValueError:
+        return None
+    if not isinstance(data, dict) or not isinstance(data.get("answer"), str):
+        return None
+    out: dict = {"answer": data["answer"]}
+    if isinstance(data.get("citations"), list):
+        out["citations"] = [c for c in data["citations"] if isinstance(c, dict) and c.get("iri")]
+    if isinstance(data.get("notes"), list):
+        out["notes"] = [n for n in data["notes"] if isinstance(n, str)]
+    return out
+
+
 _SUBMIT_ANSWER_TOOL = {
     "name": "submit_answer",
     "description": (
@@ -691,6 +755,18 @@ async def _llm_answer_via(
     # number under ORDER BY, …). Carried to the answer regardless of whether the
     # model chose to mention them — the last line of defence is not the model.
     data_warnings: list[dict] = []
+    # The records a VETTED tool actually returned, as citations — collected here
+    # rather than left to the model. `submit_answer` takes citations from the
+    # model, so an aggregate answer ("the 2θ range is 20.0°–80.0°") arrived with
+    # none, and the reader had no way to see WHICH records produced the number
+    # (live 2026-08-20). A tool that returns the min-holding and max-holding
+    # record has named its own evidence; whether it reaches the reader must not
+    # depend on what the model chose to mention — the same rule the data
+    # warnings above already follow.
+    #
+    # Only from a result small enough to BE the evidence (a handful of rows), so
+    # nothing is silently truncated: a listing tool's rows stay the model's call.
+    tool_citations: list[dict] = []
     usage: dict = {
         "input_tokens": 0,
         "output_tokens": 0,
@@ -723,6 +799,7 @@ async def _llm_answer_via(
                 if out.get("sparql"):
                     used_sparql.append(out["sparql"])
                 verified_used.append({"dataset": dataset, "name": qt.name, "title": qt.title})
+                _collect_tool_citations(tool_citations, out.get("items") or [])
                 return {
                     "count": out["count"],
                     "items": out["items"],
@@ -734,20 +811,49 @@ async def _llm_answer_via(
                 used_sparql.append(inp.get("query", ""))
             return {"error": str(exc)}
 
-    def finalize(data: dict) -> dict:
+    def finalize(data: dict, *, answered: bool = True) -> dict:
         # Queries are disclosed via the dedicated ``sparql`` field (UI panel).
+        #
+        # ``answered`` separates "here is the answer" from "this turn produced
+        # no answer" (the model ran out of attempts, or replied without using a
+        # single tool). Both used to come back as an ordinary answer card, so a
+        # person who waited a minute got a flat sentence with no reason and no
+        # next step — and no [もう一度] button, because that only appears when
+        # the turn has no result at all. A flag lets the UI say "答えられません
+        # でした" and offer the way forward.
+        cited = list(data.get("citations") or [])
+        seen = {str(c.get("iri") or "") for c in cited if isinstance(c, dict)}
+        for extra in tool_citations:
+            if extra["iri"] not in seen:
+                seen.add(extra["iri"])
+                cited.append(extra)
         return {
             "answer": data.get("answer", ""),
-            "citations": data.get("citations") or [],
+            "citations": cited,
             "notes": list(data.get("notes") or []),
             "sparql": used_sparql,
             "verified_tools": verified_used,
             "unverified_sparql": state["unverified"],
             "warnings": data_warnings,
+            "answered": answered,
         }
 
+    # What the reader sees when the turn produced nothing. Says what happened
+    # from THEIR side and what to try — never "試行回数の上限" (our bookkeeping).
+    no_answer = "うまく答えられませんでした。聞き方を変えると答えられることがあります。"
+
     def finalize_text(text: str) -> dict:
-        return finalize({"answer": text or "回答を生成できませんでした。"})
+        clean = (text or "").strip()
+        # A model that could not (or would not) call `submit_answer` often writes
+        # the tool's payload as ordinary text instead — the whole JSON object,
+        # sometimes in a ``` fence. Printing that verbatim shows the reader
+        # `{ "answer": "…", "citations": [] }` where a sentence belongs (live
+        # 2026-08-20, an OpenAI-compatible model). If the text IS that payload,
+        # read it as one; otherwise it is the answer, exactly as before.
+        payload = _answer_payload(clean)
+        if payload is not None:
+            return finalize(payload)
+        return finalize({"answer": clean or no_answer}, answered=bool(clean))
 
     # Chat: the earlier turns of this thread go in front of the question (same
     # {role, content} shape for both providers). Tool calls/results of EARLIER
@@ -832,7 +938,9 @@ async def _anthropic_agent_loop(
             )
         messages.append({"role": "user", "content": tool_results})
 
-    return finalize_text("回答を生成できませんでした（試行回数の上限に達しました）。")
+    # Attempts exhausted: no answer was produced, and saying so is the honest
+    # (and actionable) result — see ``finalize``.
+    return finalize_text("")
 
 
 async def _openai_agent_loop(
@@ -903,7 +1011,9 @@ async def _openai_agent_loop(
                 }
             )
 
-    return finalize_text("回答を生成できませんでした（試行回数の上限に達しました）。")
+    # Attempts exhausted: no answer was produced, and saying so is the honest
+    # (and actionable) result — see ``finalize``.
+    return finalize_text("")
 
 
 # ---------------------------------------------------------------------------

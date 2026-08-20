@@ -173,6 +173,16 @@ class MaterializeResult:
     mapping-spec block or it compiled cleanly."""
     written_paths: dict[str, str] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+    """Informational, NON-blocking record of what materialize filled in itself
+    (a section the model did not write, a deterministic repair it applied).
+
+    Deliberately not :attr:`warnings`: the UI reads a warning as "this design
+    cannot be ingested" (``materializeUsable``) and feeds it verbatim to the
+    one-click AI fix, so announcing a successful auto-repair there would block
+    the save and send the model chasing a non-issue — the exact loop these
+    repairs exist to end. Notes are for the rules view: "who wrote this".
+    """
 
     @property
     def complete(self) -> bool:
@@ -277,6 +287,141 @@ def _diagram_from_ir(result: MaterializeResult, ir: object) -> None:
         result.diagram_property_table = property_table_md(ir) or None  # type: ignore[arg-type]
     except Exception:
         return
+
+
+# ----------------------------------------------------------------------------
+# Deterministic completion of the prose sections (§6/§7/§8) from a parsed §9
+# ----------------------------------------------------------------------------
+#
+# The four "core" artifacts are what makes a design ingestable, and three of
+# them are LLM prose that a weak model routinely runs out of tokens on. But the
+# machine already holds everything they state — §9 IS the design — so when a
+# section is missing (or, for §7, unparseable) it is synthesized here rather
+# than bounced back to the model as the S5 stop card "the AI's design output was
+# cut off", whose only exit was another full-document round (which truncates
+# again). ``complete`` keeps its meaning (all 4 artifacts present); the artifacts
+# simply exist now. Every synthesis is announced in ``notes``.
+
+
+def _mie_document(mie_yaml: str | None) -> dict | None:
+    """Parse §7 into a mapping, or None when it is absent / not parseable YAML."""
+    if mie_yaml is None:
+        return None
+    import yaml
+
+    try:
+        doc = yaml.safe_load(mie_yaml)
+    except yaml.YAMLError:
+        return None
+    return doc if isinstance(doc, dict) else None
+
+
+def _repair_query_examples(document: dict, replacement: str) -> list[str]:
+    """Replace §7 example queries that do not PARSE; keep the ones that do.
+
+    T10 exists because an agent imitating a broken example fabricates answers —
+    but the fix is mechanical (a broad probe over something the design provably
+    emits), so a human should never be asked to press "let the AI fix it" for
+    it. Only the failed entries are touched; a query that parses is the
+    author's and stays byte-identical. Returns the replaced titles.
+
+    Two deliberate limits: no pyoxigraph (the engine the store runs) means no
+    verdict, so §7 is left alone rather than judged by a different parser; and a
+    ``sparql_query_examples`` that is not a LIST is left to the trap, because
+    rebuilding the container is not "repair the entry that failed".
+    """
+    examples = document.get("sparql_query_examples")
+    if not isinstance(examples, list) or not examples:
+        return []
+    try:
+        import pyoxigraph
+    except ImportError:
+        return []
+    probe = pyoxigraph.Store()
+    replaced: list[str] = []
+    for item in examples:
+        if not isinstance(item, dict):
+            continue
+        key = next((k for k in ("query", "sparql") if isinstance(item.get(k), str)), None)
+        if key is None:
+            continue
+        try:
+            probe.query(item[key])
+            continue
+        except Exception:
+            pass
+        item[key] = replacement
+        replaced.append(str(item.get("title") or "(untitled)"))
+    return replaced
+
+
+def _complete_sections(result: MaterializeResult, ir: object, dataset_name: str) -> None:
+    """Fill §6/§7/§8 from the parsed IR and repair §7 in place. Never raises.
+
+    Ordering matters: this runs BEFORE the missing-artifact warnings, so a
+    section the machine could write never becomes a blocking warning.
+    """
+    import yaml
+
+    from asterism_step0 import doc_synth
+    from asterism_step0.validate import _MIN_CATEGORIES, _MIN_KEYWORDS, repair_schema_info
+
+    if result.rdf_config_model is None:
+        result.rdf_config_model = doc_synth.synthesize_model_yaml(ir)
+        result.notes.append(
+            "Section 6 (rdf-config model.yaml) was generated from the mapping spec."
+        )
+    if result.ingester_py is None:
+        result.ingester_py = doc_synth.synthesize_ingester_py(ir, dataset_name=dataset_name)
+        result.notes.append("Section 8 (ingester sketch) was generated from the mapping spec.")
+
+    document = _mie_document(result.mie_yaml)
+    if document is None:
+        # Absent, or one stray quote away from parseable — either way three
+        # traps (T4/T6/T10) fail on the SAME cause with unrelated wording.
+        # Rebuilding §7 from the design removes the cause instead of asking a
+        # human to relay it to an AI.
+        was_broken = result.mie_yaml is not None
+        result.mie_yaml = doc_synth.synthesize_mie_yaml(ir, dataset_name=dataset_name)
+        result.notes.append(
+            "Section 7 (MIE YAML) was "
+            + ("rebuilt (the written one was not valid YAML)" if was_broken else "generated")
+            + " from the mapping spec."
+        )
+        return
+
+    changed = False
+    schema_info = document.get("schema_info")
+    info = schema_info if isinstance(schema_info, dict) else {}
+    keywords = info.get("keywords") if isinstance(info.get("keywords"), list) else []
+    categories = info.get("categories") if isinstance(info.get("categories"), list) else []
+    if len(keywords) < _MIN_KEYWORDS or len(categories) < _MIN_CATEGORIES:
+        # T4's repair is 100% derivable from the design (title / class / map /
+        # column names), so it is stamped here rather than sent to the model —
+        # the recipe the human would have pasted, pasted by the machine.
+        document["schema_info"] = repair_schema_info(
+            info,
+            doc_synth.keyword_candidates(ir, dataset_name=dataset_name),
+            title_fallback=dataset_name,
+        )
+        changed = True
+        result.notes.append(
+            "Section 7 search keywords were completed from the design's own class "
+            "and column names."
+        )
+    # The replacement probe is built from what THIS mapping emits (a class it
+    # actually writes), so the example an agent imitates is proven, not generic.
+    replaced = _repair_query_examples(document, doc_synth.query_probe(ir))
+    if replaced:
+        changed = True
+        result.notes.append(
+            f"{len(replaced)} example search(es) in section 7 did not run and were replaced "
+            "with a working one."
+        )
+    if changed:
+        result.mie_yaml = yaml.safe_dump(
+            document, sort_keys=False, allow_unicode=True
+        ).rstrip()
 
 
 def apply_source_dialects(mapping_ir_yaml: str, source_dir: Path | str) -> str:
@@ -441,6 +586,17 @@ def materialize_schema(
             # boxes WITH their properties/units, edges from IRI links — instead
             # of trusting the LLM's §1 sketch (observed live: empty boxes).
             _diagram_from_ir(result, mapping_ir)
+            # …and, for the same reason, so does any prose section the model
+            # failed to write. Best-effort by design: a synthesis bug must never
+            # take down a materialize that would otherwise have succeeded — but
+            # it says so, because a silently skipped repair is how a stop card
+            # comes back with nobody able to explain it.
+            try:
+                _complete_sections(result, mapping_ir, dataset_name)
+            except Exception as exc:  # never fail the materialize over the write-up
+                result.notes.append(
+                    f"Could not complete the written sections from the mapping spec: {exc}"
+                )
     else:
         # Legacy raw-RML artifact. Turtle is unambiguous in a proposal (only
         # the RML block uses it), so a lone turtle block routes by language.
@@ -570,6 +726,9 @@ def _main(argv: list[str] | None = None) -> int:
         sys.stdout.write("Wrote:\n")
         for kind, path in result.written_paths.items():
             sys.stdout.write(f"  {kind}: {path}\n")
+
+    for n in result.notes:
+        sys.stderr.write(f"note: {n}\n")
 
     for w in result.warnings:
         sys.stderr.write(f"warning: {w}\n")
