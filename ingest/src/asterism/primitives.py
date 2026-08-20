@@ -21,7 +21,11 @@ Safety notes:
 - ``regex_extract`` uses **google-re2** (a linear-time matcher with no
   catastrophic backtracking) so a ReDoS-prone pattern cannot hang on adversarial
   per-row input. It deliberately does NOT fall back to the stdlib ``re`` engine
-  (whose backtracking is ReDoS-prone); if re2 is unavailable it returns ``""``.
+  (whose backtracking is ReDoS-prone); if re2 is unavailable it *raises*
+  :class:`RegexEngineUnavailableError` rather than returning ``""``. Refusing the
+  fallback keeps the ReDoS invariant either way, but returning ``""`` would make a
+  packaging gap indistinguishable from "no match" and silently drop every value of
+  the column — so the engine-missing case is loud.
 - ``template`` interpolates by a single-pass literal token substitution — never
   ``str.format``/``eval`` — so a template string cannot reach into object
   attributes or re-interpret field values.
@@ -100,20 +104,48 @@ def lookup(value: str, table: str) -> str:
 
 # ---- regex_extract ----------------------------------------------------------
 
-@functools.lru_cache(maxsize=256)
-def _compile(pattern: str) -> Any:  # re2 has no type stubs; returns a compiled re2 pattern | None
-    """Compile ``pattern`` with google-re2 (linear-time, ReDoS-immune), cached.
+class RegexEngineUnavailableError(RuntimeError):
+    """google-re2 is not installed, so ``regex_extract`` cannot be evaluated.
 
-    Returns ``None`` when re2 is unavailable or the pattern does not compile (e.g.
-    an re-only construct like a backreference, which re2 rejects). The caller then
-    returns ``""``. We never fall back to the stdlib ``re`` engine: its
-    backtracking is ReDoS-prone, and degrading to ``""`` keeps the safety
-    invariant intact (phase5 §5.1, "regex は ReDoS を一度ガード").
+    Raised instead of returning ``""`` because the two are NOT the same fact: ``""``
+    means "this row has no match" (a real answer about the data), while a missing
+    engine means "no row can be answered at all". Collapsing the latter into ``""``
+    made every value of the column vanish from the materialized graph with no error
+    and no advisory — the silent-drop failure mode the substrate exists to prevent.
+    Failing loudly matches the missing-``morph-kgc`` contract in
+    :mod:`asterism.substrate` (``RuntimeError``, never a partial materialization).
+    """
+
+
+@functools.cache
+def _re2_module() -> Any:  # the google-re2 module, or None when it is not installed
+    """Import google-re2 once and cache the verdict.
+
+    Cached separately from :func:`_compile` so "engine missing" is decided without
+    re-running a failing import per row — Python does not negatively cache a failed
+    import, so the retry would be a filesystem walk on every cell.
     """
     try:
         import re2  # type: ignore[import-untyped]  # google-re2
     except ImportError:
-        logger.warning("google-re2 not installed; regex_extract disabled (returns '')")
+        return None
+    return re2
+
+
+@functools.lru_cache(maxsize=256)
+def _compile(pattern: str) -> Any:  # re2 has no type stubs; returns a compiled re2 pattern | None
+    """Compile ``pattern`` with google-re2 (linear-time, ReDoS-immune), cached.
+
+    Returns ``None`` when the pattern does not compile (e.g. an re-only construct
+    like a backreference, which re2 rejects); the caller then returns ``""``. We
+    never fall back to the stdlib ``re`` engine: its backtracking is ReDoS-prone,
+    and degrading to ``""`` keeps the safety invariant intact (phase5 §5.1,
+    "regex は ReDoS を一度ガード"). The *engine missing* case is deliberately not
+    handled here — :func:`regex_extract` raises for it, so a packaging gap can
+    never masquerade as "no match".
+    """
+    re2 = _re2_module()
+    if re2 is None:
         return None
     try:
         return re2.compile(pattern)
@@ -127,12 +159,21 @@ def regex_extract(value: str, pattern: str) -> str:
 
     Returns, in order of preference: a named group ``(?P<v>…)`` if the pattern
     defines one, else capture group 1, else the whole match. ``""`` on no match,
-    an empty / bad / re2-unsupported pattern, or input longer than the cap. The
-    matcher is google-re2, so a ReDoS-prone pattern stays linear-time on hostile
-    input.
+    an empty / bad / re2-unsupported pattern, or input longer than the cap — every
+    one of those is a statement *about this row*. The matcher is google-re2, so a
+    ReDoS-prone pattern stays linear-time on hostile input.
+
+    Raises :class:`RegexEngineUnavailableError` when google-re2 is not installed:
+    that is a statement about the *environment*, not about a row, so it must not
+    degrade to ``""`` (which would silently drop the whole column).
     """
     if not value or not pattern:
-        return ""
+        return ""  # nothing to extract from / with — true regardless of the engine
+    if _re2_module() is None:
+        raise RegexEngineUnavailableError(
+            "google-re2 is required for the fn:regex_extract primitive; "
+            "install with: pip install 'asterism-ingest[substrate]'"
+        )
     if len(value) > _MAX_REGEX_INPUT:
         return ""
     rx = _compile(pattern)
