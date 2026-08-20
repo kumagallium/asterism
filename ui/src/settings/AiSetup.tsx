@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { initAppData } from '../appdata'
 import { useLlmSettings } from './context'
 import { type InstanceInfo, fetchInstanceInfo } from './instanceApi'
 import { fetchAvailableModels } from './modelsApi'
@@ -12,10 +13,15 @@ import {
 } from './store'
 
 // First run: what a person who has never set up an AI service sees instead of
-// the model registry. Three ways out, each one thing to do — ask an
-// administrator, paste a key, or use the AI already on this computer — and the
-// full form one link away for anyone who wants it. Reached only when nothing is
+// the model registry. One thing to do — paste a key, or use the AI already on
+// this computer — with the full form one link away. Reached only when nothing is
 // configured at all: a server-side shared key makes this screen unnecessary.
+//
+// Asking someone else to set it up is offered only where there IS someone else:
+// on a SHARED server. On a single-user one (the desktop app, a local server) the
+// person reading this is the one who would do it, so the block was an errand to
+// nobody — the wording had dropped the word 「管理者」 while keeping the premise
+// (2026-08-20).
 
 type Choice = 'anthropic' | 'openai' | 'other'
 
@@ -23,6 +29,9 @@ export function AiSetup({ onAdvanced }: { onAdvanced: () => void }) {
   const { t } = useTranslation('settings')
   const settings = useLlmSettings()
   const [info, setInfo] = useState<InstanceInfo | null>(null)
+  // Null until the check resolves; treated as "not shared" so the block never
+  // flashes in on a desktop app before disappearing.
+  const [shared, setShared] = useState(false)
 
   const [copied, setCopied] = useState(false)
   // A page served over plain http (a lab machine on the LAN) has no clipboard
@@ -35,11 +44,18 @@ export function AiSetup({ onAdvanced }: { onAdvanced: () => void }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [localFailed, setLocalFailed] = useState(false)
+  // The models a custom endpoint reported. Taking `[0]` silently picked one of
+  // several on the person's behalf, at the one moment the choice had become
+  // answerable — the endpoint had just told us what it runs (2026-08-20).
+  const [choices, setChoices] = useState<{ id: string; label: string }[] | null>(null)
 
   useEffect(() => {
     let cancelled = false
     fetchInstanceInfo().then((data) => {
       if (!cancelled && data) setInfo(data)
+    })
+    initAppData().then((data) => {
+      if (!cancelled) setShared(!data.singleUser)
     })
     return () => {
       cancelled = true
@@ -76,14 +92,25 @@ export function AiSetup({ onAdvanced }: { onAdvanced: () => void }) {
       // two public services the id comes from the server (never hardcoded
       // here); an empty one is fine and means "whatever the server runs by
       // default", which is what the call then uses.
-      const modelId = needsBase
-        ? ((await fetchAvailableModels(provider, trimmed, base.trim()))[0]?.id ?? '')
-        : (settings.serverDefaultModels[provider] ?? '')
-      if (needsBase && !modelId) {
-        setError(t('setup.own.noModels'))
-        return
+      if (needsBase) {
+        const found = await fetchAvailableModels(provider, trimmed, base.trim())
+        if (found.length === 0) {
+          setError(t('setup.own.noModels'))
+          return
+        }
+        if (found.length > 1) {
+          // Ask now: the endpoint has answered, so the question is one the
+          // person can actually answer. The key stays in the box until they do.
+          setChoices(found.map((m) => ({ id: m.id, label: m.id })))
+          return
+        }
+        register(provider, found[0].id, base.trim(), trimmed)
+      } else {
+        // The two public services: the id comes from the server (never
+        // hardcoded here); an empty one means "whatever the server runs by
+        // default", which is what the call then uses.
+        register(provider, settings.serverDefaultModels[provider] ?? '', null, trimmed)
       }
-      register(provider, modelId, needsBase ? base.trim() : null, trimmed)
       setKey('')
     } catch {
       setError(t('setup.own.failed'))
@@ -110,6 +137,13 @@ export function AiSetup({ onAdvanced }: { onAdvanced: () => void }) {
     }
   }
 
+  function pickModel(modelId: string) {
+    if (!provider) return
+    register(provider, modelId, base.trim(), trimmed)
+    setChoices(null)
+    setKey('')
+  }
+
   function copyRequest() {
     const done = navigator.clipboard?.writeText(t('setup.ask.template'))
     if (!done) {
@@ -129,6 +163,7 @@ export function AiSetup({ onAdvanced }: { onAdvanced: () => void }) {
     <div className="ai-setup">
       <p className="settings-intro">{t('setup.intro')}</p>
 
+      {shared && (
       <section className="serverkeys">
         <h4 className="serverkeys-title">{t('setup.ask.title')}</h4>
         <p className="field-help">{t('setup.ask.body')}</p>
@@ -142,6 +177,7 @@ export function AiSetup({ onAdvanced }: { onAdvanced: () => void }) {
           </>
         )}
       </section>
+      )}
 
       <section className="serverkeys">
         <h4 className="serverkeys-title">{t('setup.own.title')}</h4>
@@ -190,7 +226,34 @@ export function AiSetup({ onAdvanced }: { onAdvanced: () => void }) {
             </button>
           </div>
           {error && <p className="field-help field-error">{error}</p>}
+          {choices && (
+            <div className="ai-setup-models">
+              <p className="field-help">{t('setup.own.pickModel')}</p>
+              <div
+                className="settings-seg settings-seg--block"
+                role="group"
+                aria-label={t('setup.own.pickModel')}
+              >
+                {choices.map((m) => (
+                  <button key={m.id} type="button" onClick={() => pickModel(m.id)}>
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
+        {/* Not a door to something harder — the list behind it is empty on a
+            first run, and what it adds is naming a connection by hand. Said in
+            one line here rather than parked at the bottom as a bare button
+            (2026-08-20 review: 「詳しい設定の中身がそんなに難しくないので、
+            表に出して良い」). */}
+        <p className="field-help">
+          {t('setup.advancedHint')}{' '}
+          <button type="button" className="linklike" onClick={onAdvanced}>
+            {t('setup.advanced')}
+          </button>
+        </p>
       </section>
 
       {info?.desktop && (
@@ -204,11 +267,6 @@ export function AiSetup({ onAdvanced }: { onAdvanced: () => void }) {
         </section>
       )}
 
-      <section className="serverkeys">
-        <button type="button" className="btn btn--ghost btn--sm" onClick={onAdvanced}>
-          {t('setup.advanced')}
-        </button>
-      </section>
     </div>
   )
 }

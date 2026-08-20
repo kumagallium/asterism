@@ -46,14 +46,16 @@
       },
       "basePlaceholder": "The service's address (as given to you)",
       "noModels": "No AI was found at that address. Check the address.",
-      "failed": "That didn't work. Check what you pasted and the address."
+      "failed": "That didn't work. Check what you pasted and the address.",
+      "pickModel": "This endpoint offers more than one AI. Choose the one to use."
     },
     "local": {
       "title": "Use the AI on this computer",
       "body": "If you're running an AI on this computer, you can use it as it is.",
       "use": "Use the AI on this computer",
       "failed": "No AI was found on this computer."
-    }
+    },
+    "advancedHint": "To register a connection and name it yourself,"
   },
   "models": {
     "intro": "Register where AI runs. If it's already set up on the server, there is nothing to do here. To use your own key or an AI on your machine, add it with “+ Add” — the one you pick is used by “Add data”, “Ask” and every other AI feature.",
