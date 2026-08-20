@@ -18,6 +18,7 @@ import pytest
 import rdflib
 
 from asterism import substrate
+from asterism.rml_validate import RmlValidationError
 from asterism.substrate import (
     CANONICAL_GRAPH_BASE,
     GRAPH_BASE,
@@ -287,6 +288,43 @@ def test_materialize_with_parameterized_primitives(tmp_path: Path) -> None:
     # template: constant template + two reference fields
     assert ("https://ex/r/1", "https://ex/joined", "foo::bar") in triples
     assert ("https://ex/r/2", "https://ex/joined", "baz::qux") in triples
+
+
+def test_materialize_rejects_unknown_lookup_table(tmp_path: Path) -> None:
+    """An unshipped seed table must ABORT, never materialize a column-less graph.
+
+    Sibling of the ``regex_extract`` engine-missing case: a lookup table name is a
+    *constant*, so if it cannot be loaded every row loses its value. The old
+    best-effort loader answered ``""`` for all of them, and Morph-KGC dropped the
+    empty objectMaps — a run that reported success while the column was simply
+    gone. The design validator now stops it before Morph-KGC with a message that
+    names the tables that DO exist; :class:`LookupTableUnavailableError` in
+    ``asterism.primitives`` is the runtime backstop. Gated on morph-kgc so this
+    exercises the real materialize entry point, not just the validator.
+    """
+    if not _morph_kgc_installed():
+        pytest.skip("morph-kgc not installed; this exercises the real materialize")
+    (tmp_path / "d.csv").write_text("id,flag\n1,Yes\n2,No\n", encoding="utf-8")
+    rml = """
+@prefix rr:   <http://www.w3.org/ns/r2rml#> .
+@prefix rml:  <http://semweb.mmlab.be/ns/rml#> .
+@prefix ql:   <http://semweb.mmlab.be/ns/ql#> .
+@prefix rmlf: <http://w3id.org/rml/> .
+@prefix fn:   <https://kumagallium.github.io/asterism/fn/> .
+@prefix ex:   <https://ex/> .
+<#M> a rr:TriplesMap ;
+  rml:logicalSource [ rml:source "d.csv" ; rml:referenceFormulation ql:CSV ] ;
+  rr:subjectMap [ rr:template "https://ex/r/{id}" ] ;
+  rr:predicateObjectMap [ rr:predicate ex:flag ; rr:objectMap [
+    rmlf:functionExecution [ rmlf:function fn:lookup ;
+      rmlf:input [ rmlf:parameter fn:p_value ;
+        rmlf:inputValueMap [ rml:reference "flag" ] ] ;
+      rmlf:input [ rmlf:parameter fn:p_table ;
+        rmlf:inputValueMap [ rmlf:constant "booleans" ] ] ] ] ] .
+"""
+    with pytest.raises(RmlValidationError) as exc:
+        materialize_to_graph(rml, tmp_path)
+    assert any("booleans" in m and "bool" in m for m in exc.value.issues)
 
 
 def test_materialize_with_core_functions(tmp_path: Path) -> None:

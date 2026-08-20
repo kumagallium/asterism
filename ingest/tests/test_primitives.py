@@ -15,6 +15,7 @@ import pytest
 from asterism import primitives
 from asterism.primitives import (
     _MAX_REGEX_INPUT,
+    LookupTableUnavailableError,
     RegexEngineUnavailableError,
     array_at,
     json_pluck,
@@ -47,22 +48,60 @@ def test_lookup_seed_tables_hit() -> None:
 
 
 def test_lookup_miss_returns_empty() -> None:
+    """A key the table does not contain is a fact ABOUT THE ROW, so it stays ""."""
     assert lookup("maybe", "bool") == ""
     assert lookup("atlantis", "country_iso3166") == ""
-    # empty value / empty table name → ""
+    # an empty cell has nothing to look up, whatever the table says
     assert lookup("", "bool") == ""
-    assert lookup("Yes", "") == ""
 
 
-def test_lookup_unknown_table_returns_empty() -> None:
-    assert lookup("Yes", "no_such_table") == ""
+def test_lookup_unknown_table_raises() -> None:
+    """A table this install does not have must be LOUD, never an empty string.
+
+    The table name is a constant in the mapping, so a wrong one means every row
+    loses its value. Degrading to "" made the whole column vanish from a
+    materialized graph that still reported success — the silent drop the substrate
+    exists to prevent. The message names the tables that DO exist so the mapping
+    can be corrected without reading the source.
+    """
+    with pytest.raises(LookupTableUnavailableError, match="no_such_table"):
+        lookup("Yes", "no_such_table")
+    with pytest.raises(LookupTableUnavailableError, match="bool"):
+        load_table("no_such_table")
+
+
+def test_lookup_empty_table_name_raises() -> None:
+    """An empty table constant is a broken mapping, not a row with no value."""
+    with pytest.raises(LookupTableUnavailableError):
+        lookup("Yes", "")
 
 
 def test_lookup_rejects_unsafe_table_name() -> None:
-    """A table name is a bare identifier; traversal / absolute paths never resolve."""
+    """A table name is a bare identifier; traversal / absolute paths never resolve.
+
+    Rejected before the filesystem is touched (fail closed) AND loudly (fail
+    visibly) — the two are not in tension.
+    """
     for bad in ("../etc/passwd", "a/b", "..", "bool.yaml", "BOOL", "a b", "/abs"):
-        assert load_table(bad) == {}
-        assert lookup("Yes", bad) == ""
+        with pytest.raises(LookupTableUnavailableError, match="unsafe"):
+            load_table(bad)
+        with pytest.raises(LookupTableUnavailableError, match="unsafe"):
+            lookup("Yes", bad)
+
+
+def test_lookup_malformed_table_raises(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    """A table file that is not a YAML mapping is a packaging/content defect.
+
+    Same reasoning as a missing file: an empty table answers "" for every row.
+    """
+    (tmp_path / "broken.yaml").write_text("- just\n- a\n- list\n", encoding="utf-8")
+    monkeypatch.setattr(primitives, "_TABLES_DIR", tmp_path)
+    primitives.load_table.cache_clear()
+    try:
+        with pytest.raises(LookupTableUnavailableError, match="not a mapping"):
+            primitives.load_table("broken")
+    finally:
+        primitives.load_table.cache_clear()
 
 
 def test_lookup_is_case_insensitive_on_key() -> None:

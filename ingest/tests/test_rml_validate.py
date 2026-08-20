@@ -145,6 +145,50 @@ def test_missing_required_function_parameter_is_flagged(tmp_path: Path) -> None:
     assert any("missing required parameter 'p_field'" in m for m in exc.value.issues)
 
 
+# ---- lookup seed-table check -------------------------------------------------
+
+
+def _lookup_rml(table: str) -> str:
+    return _PREFIXES + (
+        '<#M> a rr:TriplesMap ;\n'
+        '  rml:logicalSource [ rml:source "d.csv" ; rml:referenceFormulation ql:CSV ] ;\n'
+        '  rr:subjectMap [ rr:template "http://x/{SID}" ] ;\n'
+        '  rr:predicateObjectMap [ rr:predicate <http://x/p> ; rr:objectMap [\n'
+        '    rmlf:functionExecution [ rmlf:function fn:lookup ;\n'
+        '      rmlf:input [ rmlf:parameter fn:p_value ;\n'
+        '        rmlf:inputValueMap [ rml:reference "flag" ] ] ;\n'
+        '      rmlf:input [ rmlf:parameter fn:p_table ;\n'
+        f'        rmlf:inputValueMap [ rmlf:constant "{table}" ] ] ] ] ] .\n'
+    )
+
+
+def test_unknown_lookup_table_is_flagged_with_suggestion(tmp_path: Path) -> None:
+    """A table name is a CONSTANT, so a typo costs every row its value.
+
+    Before this check the mapping validated, Morph-KGC ran, and the column simply
+    was not in the output — a successful run that quietly dropped the data.
+    """
+    _write_csv(tmp_path, "d.csv", "SID,flag")
+    with pytest.raises(RmlValidationError) as exc:
+        validate_rml_design(_lookup_rml("booleans"), tmp_path)
+    issues = exc.value.issues
+    assert any("booleans" in m and "Did you mean: bool" in m for m in issues)
+
+
+def test_unknown_lookup_table_message_lists_tables_when_no_close_match(
+    tmp_path: Path,
+) -> None:
+    _write_csv(tmp_path, "d.csv", "SID,flag")
+    with pytest.raises(RmlValidationError) as exc:
+        validate_rml_design(_lookup_rml("zzzzzz"), tmp_path)
+    assert any("Available tables:" in m and "unit_alias" in m for m in exc.value.issues)
+
+
+def test_shipped_lookup_table_passes(tmp_path: Path) -> None:
+    _write_csv(tmp_path, "d.csv", "SID,flag")
+    validate_rml_design(_lookup_rml("bool"), tmp_path)  # no raise
+
+
 def test_optional_function_parameter_omission_is_ok(tmp_path: Path) -> None:
     # `template` requires only `p_template`; field1..field4 are optional, so a call
     # that supplies just the template (a constant) must NOT be flagged.

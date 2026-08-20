@@ -440,6 +440,82 @@ def _check_function_params(graph) -> list[str]:
     return issues
 
 
+# fn:lookup's table constant — a seed table name under asterism/tables/.
+_P_TABLE_SUFFIX = "/p_table"
+
+
+def _lookup_fn_iri() -> str | None:
+    """The registered IRI of the ``lookup`` Tier 0 function, or None if absent."""
+    for fun_iri, meta in _required_param_iris().items():
+        if meta["name"] == "lookup":
+            return fun_iri
+    return None
+
+
+def _check_lookup_tables(graph) -> list[str]:
+    """Flag a ``fn:lookup`` whose ``p_table`` constant names a table we do not ship.
+
+    A table name is a *constant* in the mapping, so a wrong one is never data — it
+    is a typo (``"booleans"`` for ``"bool"``) or a packaging gap. Caught here it is
+    a design issue with a "did you mean"; caught at runtime it is a
+    :class:`~asterism.primitives.LookupTableUnavailableError` that aborts the
+    materialization. Both beat the old behaviour, where an unloadable table
+    answered ``""`` for every row and the column vanished from a "successful" run.
+    """
+    import rdflib
+
+    fun_iri = _lookup_fn_iri()
+    if fun_iri is None:  # pragma: no cover - lookup is a permanent Tier 0 entry
+        return []
+    from asterism.primitives import available_tables
+
+    available = available_tables()
+    uri = rdflib.URIRef
+    issues: list[str] = []
+    seen: set[str] = set()
+
+    for fe in _function_executions(graph):
+        if not any(
+            str(f) == fun_iri for f_pred in _FUNCTION_PREDS for f in graph.objects(fe, uri(f_pred))
+        ):
+            continue
+        for in_pred in _INPUT_PREDS:
+            for inp in graph.objects(fe, uri(in_pred)):
+                if not any(
+                    str(prm).endswith(_P_TABLE_SUFFIX)
+                    for p_pred in _PARAMETER_PREDS
+                    for prm in graph.objects(inp, uri(p_pred))
+                ):
+                    continue
+                # The constant sits on the inputValueMap (IR-compiler shape); older
+                # hand-written RML puts it straight on the input node.
+                holders = [inp]
+                for ivm_pred in _INPUT_VALUE_MAP_PREDS:
+                    holders.extend(graph.objects(inp, uri(ivm_pred)))
+                for holder in holders:
+                    for c_pred in _CONSTANT_PREDS:
+                        for const in graph.objects(holder, uri(c_pred)):
+                            name = str(const)
+                            if name in available or name in seen:
+                                continue
+                            seen.add(name)
+                            suggestion = difflib.get_close_matches(
+                                name, available, n=_SUGGEST_N, cutoff=0.6
+                            )
+                            if suggestion:
+                                hint = f" Did you mean: {', '.join(suggestion)}?"
+                            elif available:
+                                hint = f" Available tables: {', '.join(available)}."
+                            else:  # pragma: no cover - tables ship as package data
+                                hint = ""
+                            issues.append(
+                                f"lookup references seed table {name!r}, which this install "
+                                f"does not have; the table name is a constant, so every row "
+                                f"would lose its value.{hint}"
+                            )
+    return issues
+
+
 # --- graph traversal --------------------------------------------------------
 
 
@@ -555,6 +631,7 @@ def validate_rml_design(rml_ttl: str, csv_dir: Path | str) -> None:
         + _check_sources(graph, base)
         + _check_columns(graph, base)
         + _check_function_params(graph)
+        + _check_lookup_tables(graph)
         + _check_constant_placeholders(graph)
     )
     if issues:
