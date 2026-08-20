@@ -85,7 +85,16 @@
   "sources": {
     "heading": "Source",
     "hint": "the published data this number was read from",
-    "via": "read by: {{tools}}"
+    "via": "read by: {{tools}}",
+    "unknown": "Not found (deleted, or published again)"
+  },
+  "sourcePanel": {
+    "ariaLabel": "Source",
+    "sub": "The published data this answer read. Look inside from here.",
+    "howHeading": "How it was read",
+    "howNote": "A fixed, human-vetted way of reading it — the same question always gives the same result.",
+    "open": "Open this dataset",
+    "gone": "This dataset could not be found. It may have been deleted, or published again."
   },
   "notes": {
     "heading": "Data quality notes"

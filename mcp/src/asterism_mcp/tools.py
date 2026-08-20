@@ -754,9 +754,15 @@ async def _ontology_labels(client: OxigraphClient) -> dict[str, str]:
     NOT in the canonical scope — TBox is separate from citable ABox). Empty dict
     when no ontology graph exists, so callers degrade to label-free output.
     """
+    # ORDER BY ?l makes the pick deterministic when the same term has multiple
+    # labels across datasets (e.g. two designs both project a label for the same
+    # shared predicate IRI): rows come back sorted by label text, and we keep the
+    # first one seen per term below — i.e. lexicographically smallest label wins,
+    # regardless of the store's internal (unordered) result iteration order.
     q = (
         "SELECT ?t ?l WHERE { GRAPH ?g { ?t <" + _RDFS_LABEL + "> ?l } "
         f'FILTER(STRSTARTS(STR(?g), "{ONTOLOGY_GRAPH_BASE}")) }}'
+        " ORDER BY ?t ?l"
     )
     out: dict[str, str] = {}
     for r in _bindings(await client.sparql_select(q)):

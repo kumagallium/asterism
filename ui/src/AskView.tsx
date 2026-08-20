@@ -30,6 +30,7 @@ import {
   findDatasetByIri,
   getCatalogDatasets,
   isAskable,
+  registryIdOf,
   type CatalogDataset,
 } from './galleryApi'
 import {
@@ -45,6 +46,7 @@ import {
   TrashIcon,
 } from './icons'
 import { ProvenanceTrace } from './ProvenanceTrace'
+import { SourcePanel } from './SourcePanel'
 import { useLlmSettings } from './settings/context'
 import { LlmGate } from './settings/LlmGate'
 
@@ -157,7 +159,7 @@ export function AskView({
     return {
       vocabClasses: catalogClassNames(list),
       datasetFor: (iri: string) => findDatasetByIri(iri, list),
-      datasetById: (id: string) => list.find((d) => d.id === id),
+      datasetById: (id: string) => list.find((d) => registryIdOf(d) === id),
     }
   }, [datasets])
 
@@ -174,17 +176,28 @@ export function AskView({
   // forward change the route without going through our click handlers).
   const [picked, setPicked] = useState<{ threadId: string | null; citation: Citation } | null>(null)
   const selected = picked && picked.threadId === (threadId ?? null) ? picked.citation : null
+  // The same slot, for an answer whose source is a whole dataset rather than one
+  // record (an aggregate). Only ever one panel at a time — picking either clears
+  // the other, so the reader never has two "where this came from" open at once.
+  const [pickedSource, setPickedSource] = useState<{
+    threadId: string | null
+    datasetId: string
+    titles: string[]
+  } | null>(null)
+  const selectedSource =
+    pickedSource && pickedSource.threadId === (threadId ?? null) ? pickedSource : null
 
   // Narrow screens: the thread list becomes an overlay toggled from the topline.
   const [threadsOpen, setThreadsOpen] = useState(false)
 
   // Esc closes whichever panel is open (the provenance pane / the thread overlay).
-  const panelOpen = !!selected || threadsOpen
+  const panelOpen = !!selected || !!selectedSource || threadsOpen
   useEffect(() => {
     if (!panelOpen) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
       setPicked(null)
+      setPickedSource(null)
       setThreadsOpen(false)
     }
     window.addEventListener('keydown', onKey)
@@ -301,7 +314,15 @@ export function AskView({
           key={`conversation:${thread?.id ?? 'new'}`}
           thread={thread}
           selectedIri={selected?.iri ?? null}
-          onSelectCitation={(c) => setPicked({ threadId: threadId ?? null, citation: c })}
+          onSelectCitation={(c) => {
+            setPickedSource(null)
+            setPicked({ threadId: threadId ?? null, citation: c })
+          }}
+          selectedSourceId={selectedSource?.datasetId ?? null}
+          onSelectSource={(datasetId, titles) => {
+            setPicked(null)
+            setPickedSource({ threadId: threadId ?? null, datasetId, titles })
+          }}
           onShowVocab={onShowVocab}
           onRetry={retry}
           onExample={pickExample}
@@ -323,6 +344,23 @@ export function AskView({
           hideGate={conversationEmpty}
         />
       </section>
+
+      {!selected && selectedSource && (
+        <SourcePanel
+          datasetId={selectedSource.datasetId}
+          dataset={catalog.datasetById(selectedSource.datasetId)}
+          toolTitles={selectedSource.titles}
+          onClose={() => setPickedSource(null)}
+          onOpenDataset={
+            onOpenDataset && catalog.datasetById(selectedSource.datasetId)
+              ? () => {
+                  const ds = catalog.datasetById(selectedSource.datasetId)
+                  if (ds) onOpenDataset(ds.id)
+                }
+              : undefined
+          }
+        />
+      )}
 
       {selected && (
         <ProvenanceTrace
@@ -599,6 +637,8 @@ function Conversation({
   thread,
   selectedIri,
   onSelectCitation,
+  selectedSourceId,
+  onSelectSource,
   onShowVocab,
   onRetry,
   onExample,
@@ -611,6 +651,8 @@ function Conversation({
   thread: AskThread | undefined
   selectedIri: string | null
   onSelectCitation: (c: Citation) => void
+  selectedSourceId: string | null
+  onSelectSource: (datasetId: string, titles: string[]) => void
   onShowVocab?: (className: string) => void
   onRetry: (assistantTurnId: string) => void
   onExample: (question: string) => void
@@ -703,6 +745,8 @@ function Conversation({
               turn={turn}
               selectedIri={selectedIri}
               onSelectCitation={onSelectCitation}
+              selectedSourceId={selectedSourceId}
+              onSelectSource={onSelectSource}
               onShowVocab={onShowVocab}
               onRetry={() => onRetry(turn.id)}
               retryable={!busy}
@@ -722,6 +766,8 @@ function AnswerMessage({
   turn,
   selectedIri,
   onSelectCitation,
+  selectedSourceId,
+  onSelectSource,
   onShowVocab,
   onRetry,
   retryable,
@@ -732,6 +778,8 @@ function AnswerMessage({
   turn: AskAssistantTurn
   selectedIri: string | null
   onSelectCitation: (c: Citation) => void
+  selectedSourceId: string | null
+  onSelectSource: (datasetId: string, titles: string[]) => void
   onShowVocab?: (className: string) => void
   onRetry: () => void
   retryable: boolean
@@ -807,6 +855,8 @@ function AnswerMessage({
             result={turn.result}
             selectedIri={selectedIri}
             onSelectCitation={onSelectCitation}
+            selectedSourceId={selectedSourceId}
+            onSelectSource={onSelectSource}
             onShowVocab={onShowVocab}
             catalog={catalog}
           />
@@ -822,12 +872,16 @@ function AnswerCard({
   result,
   selectedIri,
   onSelectCitation,
+  selectedSourceId,
+  onSelectSource,
   onShowVocab,
   catalog,
 }: {
   result: AskResponse
   selectedIri: string | null
   onSelectCitation: (c: Citation) => void
+  selectedSourceId: string | null
+  onSelectSource: (datasetId: string, titles: string[]) => void
   onShowVocab?: (className: string) => void
   catalog: AskCatalog
 }) {
@@ -941,17 +995,24 @@ function AnswerCard({
           </h3>
           <ul className="answer-sources">
             {toolSources.map((s) => (
-              <li key={s.id} className="answer-source">
-                {s.dataset ? (
-                  <a className="answer-source-name" href={`#/datasets/${s.id}`}>
-                    {s.dataset.name}
-                  </a>
-                ) : (
-                  <span className="answer-source-name">{s.id}</span>
-                )}
-                <span className="answer-source-via">
-                  {t('ask:sources.via', { tools: s.titles.join(' · ') })}
-                </span>
+              <li key={s.id}>
+                {/* Opens the panel on the RIGHT, like a citation does — checking
+                    where a number came from must not cost the reader their
+                    conversation. Opening the dataset itself is a second,
+                    deliberate click inside that panel. */}
+                <button
+                  type="button"
+                  className={`answer-source${selectedSourceId === s.id ? ' selected' : ''}`}
+                  aria-pressed={selectedSourceId === s.id}
+                  onClick={() => onSelectSource(s.id, s.titles)}
+                >
+                  <span className="answer-source-name">
+                    {s.dataset ? s.dataset.name : t('ask:sources.unknown')}
+                  </span>
+                  <span className="answer-source-via">
+                    {t('ask:sources.via', { tools: s.titles.join(' · ') })}
+                  </span>
+                </button>
               </li>
             ))}
           </ul>

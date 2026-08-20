@@ -554,6 +554,104 @@ async def test_schema_summary_scopes_to_canonical_named_graph() -> None:
 
 
 # ----------------------------------------------------------------------------
+# schema_summary — ontology-projected rdfs:label enrichment (#20 step5 readback)
+# ----------------------------------------------------------------------------
+
+
+def _label_handler(label_rows: list[dict], cls_a: str, cls_a_count: str = "3"):
+    """Dispatch classes/predicates/shape/label queries for a single class ``cls_a``.
+
+    Honours ``ORDER BY ?t ?l`` on the label query the way a real SPARQL engine
+    would, so the test exercises schema_summary's own dedup logic (first row per
+    term wins) against a properly ordered result set — the query text itself is
+    what pins determinism, not this test double.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = request.content.decode()
+        if "rdf-schema#label" in body:
+            assert "ORDER BY ?t ?l" in body
+            ordered = sorted(label_rows, key=lambda r: (r["t"]["value"], r["l"]["value"]))
+            return _rows(ordered, ["t", "l"])
+        if f"<{cls_a}> ; ?p ?o" in body:
+            return _rows([], ["p", "n"])
+        if "?s a ?cls" in body:
+            return _rows([{"cls": _u(cls_a), "n": _l(cls_a_count)}], ["cls", "n"])
+        return _rows([], ["p", "n"])
+
+    return handler
+
+
+async def test_schema_summary_attaches_ontology_labels_to_classes_and_predicates() -> None:
+    cls_a = "https://example.org/Widget"
+    pred_a = "https://example.org/name"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = request.content.decode()
+        if "rdf-schema#label" in body:
+            return _rows(
+                [
+                    {"t": _u(cls_a), "l": _l("ウィジェット")},
+                    {"t": _u(pred_a), "l": _l("名前")},
+                ],
+                ["t", "l"],
+            )
+        if f"<{cls_a}> ; ?p ?o" in body:
+            return _rows([{"p": _u(pred_a), "n": _l("3")}], ["p", "n"])
+        if "?s a ?cls" in body:
+            return _rows([{"cls": _u(cls_a), "n": _l("3")}], ["cls", "n"])
+        return _rows([{"p": _u(pred_a), "n": _l("3")}], ["p", "n"])
+
+    async with _make_client(handler) as client:
+        out = await schema_summary(client)
+
+    assert out["classes"][0]["label"] == "ウィジェット"
+    assert out["predicates"][0]["label"] == "名前"
+
+
+async def test_schema_summary_omits_label_key_when_no_label() -> None:
+    cls_a = "https://example.org/Widget"
+
+    async with _make_client(_label_handler([], cls_a)) as client:
+        out = await schema_summary(client)
+
+    assert out["classes"] == [{"iri": cls_a, "count": 3}]
+    assert "label" not in out["classes"][0]
+
+
+async def test_schema_summary_picks_deterministic_label_when_multiple_exist() -> None:
+    # Two designs both project a label for the same shared class IRI. The store's
+    # own result order is not guaranteed, so schema_summary's ORDER BY ?t ?l pins
+    # the pick to the lexicographically-smallest label ("Alpha" before "Zeta"),
+    # regardless of the order the rows come back in.
+    cls_a = "https://example.org/Widget"
+    label_rows = [
+        {"t": _u(cls_a), "l": _l("Zeta")},
+        {"t": _u(cls_a), "l": _l("Alpha")},
+    ]
+
+    async with _make_client(_label_handler(label_rows, cls_a)) as client:
+        out1 = await schema_summary(client)
+    async with _make_client(_label_handler(label_rows, cls_a)) as client:
+        out2 = await schema_summary(client)
+
+    assert out1["classes"][0]["label"] == "Alpha"
+    assert out2["classes"][0]["label"] == "Alpha"
+
+
+async def test_schema_summary_no_ontology_graph_is_no_regression() -> None:
+    # No ontology graph exists at all -> label-free output, unchanged from the
+    # pre-label behaviour (graph=None still reads a wholly empty label map).
+    cls_a = "https://example.org/Widget"
+
+    async with _make_client(_label_handler([], cls_a)) as client:
+        out = await schema_summary(client)
+
+    assert out["classes"] == [{"iri": cls_a, "count": 3}]
+    assert out["class_shapes"] == [{"class": cls_a, "predicates": []}]
+
+
+# ----------------------------------------------------------------------------
 # #18 sparql_query — read-only generic SELECT/ASK
 # ----------------------------------------------------------------------------
 

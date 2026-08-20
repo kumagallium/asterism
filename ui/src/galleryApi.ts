@@ -659,6 +659,16 @@ function extractMermaid(diagramMd: string): string {
 
 export type CatalogStatusKind = 'pub' | 'draft' | 'design'
 
+/** The REGISTRY id of a catalogued dataset. `CatalogDataset.id` is a synthetic
+ *  catalog id (`live-<id>`) that distinguishes the catalog's own rows; every API
+ *  call, route and tool result speaks the registry id. Stated once here — the
+ *  same strip was being written inline wherever the two had to be matched up,
+ *  and a lookup that forgot it silently found nothing (live 2026-08-20: an
+ *  answer's source dataset came out as a raw id with no name and no link). */
+export function registryIdOf(dataset: Pick<CatalogDataset, 'id'> & { live?: { meta: { id: string } } }): string {
+  return dataset.live?.meta.id ?? dataset.id.replace(/^live-/, '')
+}
+
 export interface CatalogDataset {
   id: string
   name: string
