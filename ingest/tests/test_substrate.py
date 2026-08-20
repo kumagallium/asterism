@@ -159,6 +159,22 @@ def _morph_kgc_installed() -> bool:
         return False
 
 
+def _re2_installed() -> bool:
+    """google-re2 backs the fn:regex_extract primitive (mirrors test_primitives.py).
+
+    It ships in the SAME ``substrate`` extra as morph-kgc, but the two can drift
+    apart in a hand-assembled venv — so a test that exercises fn:regex_extract has
+    to gate on both. Gating on morph-kgc alone turned a partial install into a
+    baffling assertion failure (lookup and template emitted, regex_extract emitted
+    nothing) instead of an honest skip.
+    """
+    try:
+        import re2  # noqa: F401  # google-re2
+        return True
+    except ImportError:
+        return False
+
+
 def test_materialize_to_graph_requires_morph_kgc(tmp_path: Path) -> None:
     if _morph_kgc_installed():
         pytest.skip("morph-kgc installed; cannot exercise the missing-dependency path")
@@ -218,6 +234,8 @@ def test_materialize_with_parameterized_primitives(tmp_path: Path) -> None:
     """
     if not _morph_kgc_installed():
         pytest.skip("morph-kgc not installed; this exercises the real materialize")
+    if not _re2_installed():
+        pytest.skip("google-re2 not installed; fn:regex_extract cannot be exercised")
     (tmp_path / "d.csv").write_text(
         "id,flag,raw,a,b\n1,Yes,sample-300,foo,bar\n2,No,none,baz,qux\n",
         encoding="utf-8",

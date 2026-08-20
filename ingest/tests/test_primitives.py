@@ -12,8 +12,10 @@ import importlib
 
 import pytest
 
+from asterism import primitives
 from asterism.primitives import (
     _MAX_REGEX_INPUT,
+    RegexEngineUnavailableError,
     array_at,
     json_pluck,
     load_table,
@@ -96,6 +98,30 @@ def test_regex_extract_bad_pattern_returns_empty() -> None:
 
 def test_regex_extract_empty_inputs_return_empty() -> None:
     # contract holds even without re2: empty value / pattern short-circuit to ""
+    assert regex_extract("", r"\d+") == ""
+    assert regex_extract("abc", "") == ""
+
+
+def test_regex_extract_raises_when_engine_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A missing engine must be LOUD, never an empty string.
+
+    "" is a claim about the row ("no match"); a missing google-re2 is a claim about
+    the environment ("no row can be answered"). Returning "" for the second made
+    every value of the column disappear from the materialized graph with no error —
+    the silent-drop failure the substrate exists to prevent. Simulated by stubbing
+    the cached module lookup, so the test runs whether or not re2 is installed.
+    """
+    monkeypatch.setattr(primitives, "_re2_module", lambda: None)
+    with pytest.raises(RegexEngineUnavailableError, match="google-re2"):
+        regex_extract("sample-300", r"(?P<v>[0-9]+)")
+
+
+def test_regex_extract_engine_missing_still_short_circuits_empty_inputs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No engine needed to know an empty cell / empty pattern has nothing to extract,
+    so those stay "" rather than raising a spurious environment error."""
+    monkeypatch.setattr(primitives, "_re2_module", lambda: None)
     assert regex_extract("", r"\d+") == ""
     assert regex_extract("abc", "") == ""
 
