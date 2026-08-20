@@ -16,6 +16,27 @@ function schemaReuses(schema: SchemaSummary): { prefix: string; what: string }[]
   return deriveReuses([...schema.classes, ...schema.predicates].map((t) => t.iri))
 }
 
+/** RDF's own plumbing, dropped from this screen. `rdf:type` is not a 項目 anyone
+ *  named or shares — it is HOW a class is declared, and the class list above
+ *  already says that. Listed, it showed up as 「Type （名前が未設定）」, inviting
+ *  the reader to go and name something they neither wrote nor can change
+ *  (live 2026-08-20). Prefix match, so the whole RDF/RDFS/OWL layer goes with it. */
+const PLUMBING_NS = [
+  'http://www.w3.org/1999/02/22-rdf-syntax-ns#',
+  'http://www.w3.org/2000/01/rdf-schema#',
+  'http://www.w3.org/2002/07/owl#',
+]
+
+function withoutPlumbing(schema: SchemaSummary | null): SchemaSummary | null {
+  if (!schema) return schema
+  const keep = (term: SchemaTerm) => !PLUMBING_NS.some((ns) => term.iri.startsWith(ns))
+  return {
+    ...schema,
+    classes: schema.classes.filter(keep),
+    predicates: schema.predicates.filter(keep),
+  }
+}
+
 /**
  * Navigate without threading a callback down from App: the hash IS the router's
  * single source of truth (App re-reads it on `hashchange`), so assigning it is a
@@ -74,7 +95,7 @@ export function SharedVocabView({ onBack }: { onBack?: () => void }) {
       .catch(() => {})
       .finally(() => !cancelled && setLoaded(true))
     getSchema()
-      .then((s) => !cancelled && setSchema(s))
+      .then((s) => !cancelled && setSchema(withoutPlumbing(s)))
       .catch(() => !cancelled && setSchema(null))
       .finally(() => !cancelled && setSchemaTried(true))
     return () => {

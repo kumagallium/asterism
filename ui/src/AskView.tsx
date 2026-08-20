@@ -271,7 +271,11 @@ export function AskView({
   const title = thread ? thread.title : t('ask:threads.newTitle')
 
   return (
-    <div className={`chat${selected ? ' chat--trace' : ''}${threadsOpen ? ' chat--threads-open' : ''}`}>
+    <div
+      className={`chat${selected || selectedSource ? ' chat--trace' : ''}${
+        threadsOpen ? ' chat--threads-open' : ''
+      }`}
+    >
       <ThreadList
         threads={threads}
         loaded={threadsLoaded}
