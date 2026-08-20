@@ -904,3 +904,33 @@ def test_an_empty_result_cites_nothing() -> None:
     demo._collect_tool_citations(out, [])
     demo._collect_tool_citations(out, [{"count": 0, "min": None, "max": None}])
     assert out == []
+
+
+# ---- a payload written as text is not printed as text ------------------------
+# A model that cannot call the tool often writes `submit_answer`'s JSON as
+# ordinary content. Printed verbatim, the reader sees `{ "answer": … }` where a
+# sentence belongs (live 2026-08-20, an OpenAI-compatible model).
+
+
+def test_a_json_payload_written_as_text_is_read_as_the_answer() -> None:
+    out = demo._answer_payload('{"answer": "2θ角度の範囲は 20.0° から 80.0° です。", "citations": []}')
+    assert out == {"answer": "2θ角度の範囲は 20.0° から 80.0° です。", "citations": []}
+
+
+def test_a_fenced_payload_is_read_too() -> None:
+    out = demo._answer_payload('```json\n{"answer": "42 件です。"}\n```')
+    assert out == {"answer": "42 件です。"}
+
+
+def test_citations_in_a_text_payload_survive() -> None:
+    out = demo._answer_payload(
+        '{"answer": "a", "citations": [{"iri": "https://ex/1"}, {"label": "no iri"}]}'
+    )
+    assert out is not None and out["citations"] == [{"iri": "https://ex/1"}]
+
+
+def test_an_ordinary_answer_is_left_alone() -> None:
+    assert demo._answer_payload("2θ角度の範囲は 20.0° から 80.0° です。") is None
+    assert demo._answer_payload('{"foo": 1}') is None  # an object, but no answer
+    assert demo._answer_payload("{not json") is None
+    assert demo._answer_payload("") is None

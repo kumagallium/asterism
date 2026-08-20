@@ -375,6 +375,39 @@ def _collect_tool_citations(into: list[dict], items: list) -> None:
             into.append({"iri": iri})
 
 
+_JSON_FENCE = re.compile(r"^```(?:json)?\s*(.+?)\s*```$", re.DOTALL)
+
+
+def _answer_payload(text: str) -> dict | None:
+    """The `submit_answer` payload a model wrote as TEXT, or None.
+
+    Only a JSON object carrying a STRING ``answer`` counts — an ordinary answer
+    that merely happens to start with a brace is left alone. Citations that come
+    along are kept (they are the model's, same as via the tool call); anything
+    else in the object is ignored.
+    """
+    if not text:
+        return None
+    body = text
+    fenced = _JSON_FENCE.match(body)
+    if fenced:
+        body = fenced.group(1).strip()
+    if not body.startswith("{"):
+        return None
+    try:
+        data = json.loads(body)
+    except ValueError:
+        return None
+    if not isinstance(data, dict) or not isinstance(data.get("answer"), str):
+        return None
+    out: dict = {"answer": data["answer"]}
+    if isinstance(data.get("citations"), list):
+        out["citations"] = [c for c in data["citations"] if isinstance(c, dict) and c.get("iri")]
+    if isinstance(data.get("notes"), list):
+        out["notes"] = [n for n in data["notes"] if isinstance(n, str)]
+    return out
+
+
 _SUBMIT_ANSWER_TOOL = {
     "name": "submit_answer",
     "description": (
@@ -811,6 +844,15 @@ async def _llm_answer_via(
 
     def finalize_text(text: str) -> dict:
         clean = (text or "").strip()
+        # A model that could not (or would not) call `submit_answer` often writes
+        # the tool's payload as ordinary text instead — the whole JSON object,
+        # sometimes in a ``` fence. Printing that verbatim shows the reader
+        # `{ "answer": "…", "citations": [] }` where a sentence belongs (live
+        # 2026-08-20, an OpenAI-compatible model). If the text IS that payload,
+        # read it as one; otherwise it is the answer, exactly as before.
+        payload = _answer_payload(clean)
+        if payload is not None:
+            return finalize(payload)
         return finalize({"answer": clean or no_answer}, answered=bool(clean))
 
     # Chat: the earlier turns of this thread go in front of the question (same
