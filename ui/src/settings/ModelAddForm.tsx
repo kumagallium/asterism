@@ -4,6 +4,7 @@ import { initAppData } from '../appdata'
 import { useLlmSettings } from './context'
 import { type InstanceInfo, fetchInstanceInfo } from './instanceApi'
 import { fetchAvailableModels } from './modelsApi'
+import { ServerKeyError, setServerKey } from './serverKeysApi'
 import {
   LOCAL_AI_BASE,
   LOCAL_AI_KEY,
@@ -12,20 +13,32 @@ import {
   providerOfPastedKey,
 } from './store'
 
-// First run: what a person who has never set up an AI service sees instead of
-// the model registry. One thing to do — paste a key, or use the AI already on
-// this computer — with the full form one link away. Reached only when nothing is
-// configured at all: a server-side shared key makes this screen unnecessary.
+// Adding an AI — the ONE registration form, used both for the very first one
+// (the list is empty, so this is open) and for every later one.
 //
-// Asking someone else to set it up is offered only where there IS someone else:
-// on a SHARED server. On a single-user one (the desktop app, a local server) the
-// person reading this is the one who would do it, so the block was an errand to
-// nobody — the wording had dropped the word 「管理者」 while keeping the premise
-// (2026-08-20).
+// It used to be two forms with a door between them: a first-run screen offering
+// "paste a key" and, behind 「くわしい設定」, an older form asking provider, name,
+// model id and address up front. They were the same operation with different
+// amounts of typing, and a third shape of it lived in the 「このサーバ」 tab.
+// Someone reading the first screen could reasonably ask 「キーを貼るってなんで
+// したっけ？」 — the name described a gesture, not what it did (2026-08-20).
+//
+// One form, and it asks only what it could not work out: the key names its own
+// provider, so a public service needs nothing else; a custom endpoint still
+// needs its address; an endpoint running several models is asked about only
+// once it has said what it runs.
 
 type Choice = 'anthropic' | 'openai' | 'other'
 
-export function AiSetup({ onAdvanced }: { onAdvanced: () => void }) {
+export function ModelAddForm({
+  onDone,
+  onCancel,
+}: {
+  /** A registration landed. */
+  onDone: () => void
+  /** Given only when there is something to go back TO (the list is not empty). */
+  onCancel?: () => void
+}) {
   const { t } = useTranslation('settings')
   const settings = useLlmSettings()
   const [info, setInfo] = useState<InstanceInfo | null>(null)
@@ -33,11 +46,6 @@ export function AiSetup({ onAdvanced }: { onAdvanced: () => void }) {
   // flashes in on a desktop app before disappearing.
   const [shared, setShared] = useState(false)
 
-  const [copied, setCopied] = useState(false)
-  // A page served over plain http (a lab machine on the LAN) has no clipboard
-  // API, and a copy can be refused. Showing the text is the fallback — the
-  // point is that the person can hand the request to their administrator.
-  const [showTemplate, setShowTemplate] = useState(false)
   const [key, setKey] = useState('')
   const [choice, setChoice] = useState<Choice | null>(null)
   const [base, setBase] = useState('')
@@ -48,6 +56,14 @@ export function AiSetup({ onAdvanced }: { onAdvanced: () => void }) {
   // several on the person's behalf, at the one moment the choice had become
   // answerable — the endpoint had just told us what it runs (2026-08-20).
   const [choices, setChoices] = useState<{ id: string; label: string }[] | null>(null)
+  // 「みんなで使う」: the key goes to the SERVER instead of this browser, so
+  // everyone on it can use the AI without bringing their own. Offered only where
+  // it means something — a shared server — and only to someone allowed to write
+  // there; the value never comes back to any browser. The store, the endpoint
+  // and the pinned-base rule are the ones that were already there: this moves
+  // WHERE the setting is made, not how it is kept.
+  const [share, setShare] = useState(false)
+  const canShare = shared && info?.write_gate === 'authorized'
 
   useEffect(() => {
     let cancelled = false
@@ -71,15 +87,23 @@ export function AiSetup({ onAdvanced }: { onAdvanced: () => void }) {
   const canSave =
     !busy && trimmed.length > 0 && provider !== null && (!needsBase || base.trim().length > 0)
 
-  function register(p: Provider, modelId: string, apiBase: string | null, apiKey: string) {
+  async function register(p: Provider, modelId: string, apiBase: string | null, apiKey: string) {
     const created = makeModel({
       provider: p,
       name: modelId || t(`provider.${p === 'openai-compatible' ? 'openaiCompatible' : p}`),
       modelId,
       apiBase,
     })
-    settings.addModel(created)
-    if (apiKey) settings.setKeyForModel(created, apiKey, true)
+    if (canShare && share && apiKey) {
+      // Server-side: the api resolves it for anyone who brings none of their
+      // own, so the model entry needs no key at all.
+      await setServerKey(p, apiKey, apiBase)
+      settings.addModel(created)
+    } else {
+      settings.addModel(created)
+      if (apiKey) settings.setKeyForModel(created, apiKey, true)
+    }
+    onDone()
   }
 
   async function saveKey() {
@@ -104,16 +128,16 @@ export function AiSetup({ onAdvanced }: { onAdvanced: () => void }) {
           setChoices(found.map((m) => ({ id: m.id, label: m.id })))
           return
         }
-        register(provider, found[0].id, base.trim(), trimmed)
+        await register(provider, found[0].id, base.trim(), trimmed)
       } else {
         // The two public services: the id comes from the server (never
         // hardcoded here); an empty one means "whatever the server runs by
         // default", which is what the call then uses.
-        register(provider, settings.serverDefaultModels[provider] ?? '', null, trimmed)
+        await register(provider, settings.serverDefaultModels[provider] ?? '', null, trimmed)
       }
       setKey('')
-    } catch {
-      setError(t('setup.own.failed'))
+    } catch (e) {
+      setError(e instanceof ServerKeyError ? e.message : t('setup.own.failed'))
     } finally {
       setBusy(false)
     }
@@ -129,7 +153,7 @@ export function AiSetup({ onAdvanced }: { onAdvanced: () => void }) {
         setLocalFailed(true)
         return
       }
-      register('openai-compatible', first, LOCAL_AI_BASE, LOCAL_AI_KEY)
+      await register('openai-compatible', first, LOCAL_AI_BASE, LOCAL_AI_KEY)
     } catch {
       setLocalFailed(true)
     } finally {
@@ -137,47 +161,22 @@ export function AiSetup({ onAdvanced }: { onAdvanced: () => void }) {
     }
   }
 
-  function pickModel(modelId: string) {
+  async function pickModel(modelId: string) {
     if (!provider) return
-    register(provider, modelId, base.trim(), trimmed)
-    setChoices(null)
-    setKey('')
-  }
-
-  function copyRequest() {
-    const done = navigator.clipboard?.writeText(t('setup.ask.template'))
-    if (!done) {
-      setShowTemplate(true)
-      return
+    setBusy(true)
+    try {
+      await register(provider, modelId, base.trim(), trimmed)
+      setChoices(null)
+      setKey('')
+    } catch (e) {
+      setError(e instanceof ServerKeyError ? e.message : t('setup.own.failed'))
+    } finally {
+      setBusy(false)
     }
-    done.then(
-      () => {
-        setCopied(true)
-        window.setTimeout(() => setCopied(false), 2000)
-      },
-      () => setShowTemplate(true),
-    )
   }
 
   return (
     <div className="ai-setup">
-      <p className="settings-intro">{t('setup.intro')}</p>
-
-      {shared && (
-      <section className="serverkeys">
-        <h4 className="serverkeys-title">{t('setup.ask.title')}</h4>
-        <p className="field-help">{t('setup.ask.body')}</p>
-        <button type="button" className="btn btn--ghost btn--sm" onClick={copyRequest}>
-          {copied ? t('setup.ask.copied') : t('setup.ask.copy')}
-        </button>
-        {showTemplate && (
-          <>
-            <p className="field-help field-error">{t('setup.ask.copyFailed')}</p>
-            <p className="field-help">{t('setup.ask.template')}</p>
-          </>
-        )}
-      </section>
-      )}
 
       <section className="serverkeys">
         <h4 className="serverkeys-title">{t('setup.own.title')}</h4>
@@ -225,6 +224,19 @@ export function AiSetup({ onAdvanced }: { onAdvanced: () => void }) {
               {busy ? t('setup.working') : t('setup.own.save')}
             </button>
           </div>
+          {canShare && (
+            <>
+              <label className="field-check">
+                <input
+                  type="checkbox"
+                  checked={share}
+                  onChange={(e) => setShare(e.target.checked)}
+                />
+                {t('setup.own.share')}
+              </label>
+              <p className="field-help">{t('setup.own.shareHelp')}</p>
+            </>
+          )}
           {error && <p className="field-help field-error">{error}</p>}
           {choices && (
             <div className="ai-setup-models">
@@ -243,17 +255,13 @@ export function AiSetup({ onAdvanced }: { onAdvanced: () => void }) {
             </div>
           )}
         </div>
-        {/* Not a door to something harder — the list behind it is empty on a
-            first run, and what it adds is naming a connection by hand. Said in
-            one line here rather than parked at the bottom as a bare button
-            (2026-08-20 review: 「詳しい設定の中身がそんなに難しくないので、
-            表に出して良い」). */}
-        <p className="field-help">
-          {t('setup.advancedHint')}{' '}
-          <button type="button" className="linklike" onClick={onAdvanced}>
-            {t('setup.advanced')}
-          </button>
-        </p>
+        {onCancel && (
+          <p className="field-help">
+            <button type="button" className="linklike" onClick={onCancel}>
+              {t('setup.cancel')}
+            </button>
+          </p>
+        )}
       </section>
 
       {info?.desktop && (

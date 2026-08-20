@@ -3,9 +3,8 @@ import { useTranslation } from 'react-i18next'
 import './SettingsModal.css'
 import { getAppDataInfo } from '../appdata'
 import { AboutTab } from './AboutTab'
-import { AiSetup } from './AiSetup'
 import { InstanceSection } from './InstanceSection'
-import { ServerKeysSection } from './ServerKeysSection'
+import { ModelAddForm } from './ModelAddForm'
 import { StorageTab } from './StorageTab'
 import { WriteTokenSection } from './WriteTokenSection'
 import { type SettingsSection, useLlmSettings } from './context'
@@ -186,15 +185,13 @@ export function SettingsModal({
 // AI tab: the first-run screen until something is configured, then the registry
 // ---------------------------------------------------------------------------
 
+// One screen: the registered AIs, and the form to add one. With none registered
+// the form is simply open — there is no separate first-run screen to be in, and
+// no door labelled 「くわしい設定」 leading to a second way to do the same thing.
 function AiTab() {
-  const settings = useLlmSettings()
-  const [advanced, setAdvanced] = useState(false)
-  const configured =
-    settings.models.length > 0 || PROVIDERS.some((p) => settings.hasServerKey(p.id))
-
   return (
     <div id={SECTION_ANCHOR.ai}>
-      {configured || advanced ? <ModelsTab /> : <AiSetup onAdvanced={() => setAdvanced(true)} />}
+      <ModelsTab />
     </div>
   )
 }
@@ -210,7 +207,9 @@ function AiTab() {
 function ServerTab() {
   return (
     <div className="server-tab">
-      <ServerKeysSection />
+      {/* The shared key is set where an AI is registered (「みんなで使う」 on the
+          add form), not in a tab of its own — it was the same operation in a
+          third shape (2026-08-20). */}
       <div id={SECTION_ANCHOR['server-token']}>
         <WriteTokenSection />
       </div>
@@ -229,7 +228,10 @@ function ModelsTab() {
   const { t } = useTranslation('settings')
   const settings = useLlmSettings()
   const [editing, setEditing] = useState<LlmModelConfig | null>(null)
-  const [adding, setAdding] = useState(false)
+  // Nothing registered yet → the add form IS the screen. No first-run screen to
+  // be in, and no empty list staring back with a button under it.
+  const empty = settings.models.length === 0
+  const [adding, setAdding] = useState(empty)
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
 
   const showForm = adding || editing !== null
@@ -330,17 +332,18 @@ function ModelsTab() {
         </ul>
       )}
 
-      {showForm ? (
+      {editing !== null ? (
+        // Editing names fields that already exist, so the detailed form is the
+        // right one there — you are changing a value you can see.
         <ModelForm
           model={editing}
-          onCancel={() => {
-            setAdding(false)
-            setEditing(null)
-          }}
-          onSaved={() => {
-            setAdding(false)
-            setEditing(null)
-          }}
+          onCancel={() => setEditing(null)}
+          onSaved={() => setEditing(null)}
+        />
+      ) : adding ? (
+        <ModelAddForm
+          onDone={() => setAdding(false)}
+          onCancel={empty ? undefined : () => setAdding(false)}
         />
       ) : (
         <button type="button" className="btn settings-add" onClick={() => setAdding(true)}>
