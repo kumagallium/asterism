@@ -4447,7 +4447,7 @@ export function KantanWizard({
               <p className="kz-note kz-grow-title">{t('kantan:s9.groundTitle')}</p>
               <p className="kz-note">{t('kantan:s9.groundBody')}</p>
               <div className="kz-actions">
-                <button type="button" onClick={() => openGrow('design', 'grounding')}>
+                <button type="button" onClick={() => openGrow('structure', 'grounding')}>
                   {t('kantan:s9.groundBtn')}
                 </button>
               </div>

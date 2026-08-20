@@ -937,14 +937,11 @@ function StateBand({
   onGo,
   onPublish,
   onChanged,
-  onConnect,
 }: {
   meta: LiveDataset['meta']
   onGo: (ctl: Exclude<ControlFocus, null>) => void
   onPublish: () => void
   onChanged: () => void
-  /** つながりを作る flow — the other half of S9's exits. */
-  onConnect?: () => void
 }) {
   const { t } = useTranslation()
   const stage = datasetStage(meta)
@@ -954,12 +951,13 @@ function StateBand({
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<unknown>(null)
 
+  // 公開済みは名前の横の「公開済み」バッジが既に言っている。二度言わない。
   const line = retracted
     ? t('gallery:band.retractedLine')
     : stage === 'design'
       ? t('gallery:band.designLine')
       : stage === 'promoted'
-        ? t('gallery:band.publishedLine')
+        ? ''
         : version >= 1
           ? t('gallery:band.stagedLine')
           : t('gallery:band.draftLine')
@@ -1022,9 +1020,33 @@ function StateBand({
     // grow it. Publishing from the detail skipped S9 entirely, so the first two
     // were missing here — and the question arrives pre-filled the same way the
     // wizard's chips do (deterministic trial queries; nothing is auto-sent).
-    actions.push(
+    // 公開後の band は「公開済み」バッジと同じことを二度言い、その下に並ぶ 4 つは
+    // どれも本籍のタブに実体がある（つなぐ=つながり、足す/差し替える=取り込み・公開）。
+    // 毎タブの一番上に居座る理由がないので出さない。カタログから直接聞ける価値のある
+    // 「質問してみる」だけ、中身タブの末尾に本籍を移した（AskAboutDataset）。
+  }
+
+  // 言うことも、する操作も無い状態（＝公開済み）では帯そのものを出さない。
+  if (!line && actions.length === 0 && err == null) return null
+  return (
+    <div className="promote-control">
+      {line && <p className="ingest-note">{line}</p>}
+      {actions.length > 0 && <div className="rules-viewer-actions">{actions}</div>}
+      {err != null && <ErrorNote err={err} titleKey="gallery:lifecycle.error" />}
+    </div>
+  )
+}
+
+/**
+ * 「このデータに質問してみる」— 中身を見たあとに聞く、が自然な順。公開後の帯に
+ * 他の 3 つと並んでいたが、あれらは本籍のタブに実体があるのに対し、これはカタログ
+ * から Ask へ質問を持って直行する固有の導線なので、中身タブの末尾に移した。
+ */
+function AskAboutDataset({ meta }: { meta: LiveDataset['meta'] }) {
+  const { t } = useTranslation()
+  return (
+    <div className="rules-viewer-actions">
       <button
-        key="ask"
         type="button"
         className="btn btn--soft btn--sm"
         onClick={() => {
@@ -1050,43 +1072,7 @@ function StateBand({
         }}
       >
         {t('gallery:band.ask')}
-      </button>,
-    )
-    if (onConnect)
-      actions.push(
-        <button key="connect" type="button" className="btn btn--ghost btn--sm" onClick={onConnect}>
-          {t('kantan:s9.connectTitle')}
-        </button>,
-      )
-    if (isDoc || meta.has_rml)
-      actions.push(
-        <button
-          key="append"
-          type="button"
-          className="btn btn--ghost btn--sm"
-          onClick={() => onGo('append')}
-        >
-          {t('gallery:band.append')}
-        </button>,
-      )
-    if (meta.has_rml)
-      actions.push(
-        <button
-          key="replace"
-          type="button"
-          className="btn btn--ghost btn--sm"
-          onClick={() => onGo('reingest')}
-        >
-          {t('gallery:band.replace')}
-        </button>,
-      )
-  }
-
-  return (
-    <div className="promote-control">
-      <p className="ingest-note">{line}</p>
-      {actions.length > 0 && <div className="rules-viewer-actions">{actions}</div>}
-      {err != null && <ErrorNote err={err} titleKey="gallery:lifecycle.error" />}
+      </button>
     </div>
   )
 }
@@ -1385,7 +1371,6 @@ function DatasetDetail({
           onGo={goToControl}
           onPublish={() => setPublishing(true)}
           onChanged={onChanged}
-          onConnect={onCreateCrosswalk}
         />
       )}
 
@@ -1517,6 +1502,16 @@ function DatasetDetail({
             </div>
           )}
 
+          {/* 「rho は電気抵抗率、単位は ohm*m、それは QUDT の ohm metre のこと」は
+              ひと続きの話。途中でタブをまたぐ理由がないので、項目と単位のすぐ下に
+              置く。以前は 変換ルール（技術情報）の一番下にあり、意味の判断が技術
+              情報の見出しの下に隠れていた。 */}
+          {showGrounding && (
+            <div ref={groundingRef}>
+              <DatasetGrounding dataset={dataset} />
+            </div>
+          )}
+
           {/* "The column means something else" is realised long after publishing,
               and on a dataset with nothing worth flagging the only way back used
               to be a tab labelled 技術情報. The way to fix a design belongs with
@@ -1528,6 +1523,13 @@ function DatasetDetail({
               onAddData={onAddData}
             />
           )}
+
+          {/* 中身を見たあとに聞く、が自然な順。公開済みのときだけ（下書きに質問して
+              も答えは出ない）。 */}
+          {dataset.live && datasetStage(dataset.live.meta) === 'promoted' &&
+            dataset.live.meta.status !== 'retracted' && (
+              <AskAboutDataset meta={dataset.live.meta} />
+            )}
         </div>
       )}
 
@@ -1695,56 +1697,18 @@ function DatasetDetail({
       )}
 
       {/* 設計 (design): the ingest rules, reused vocabularies, and grounding. */}
+      {/* 元のファイルとの対応 — WHERE THE DATA CAME FROM, and nothing else.
+          This tab used to hold three unrelated things: the column mapping (source),
+          the RML (source), 「標準のことばに合わせる」 (meaning), and a second copy of
+          「設計を見直す」. Grounding a term to QUDT/FOAF is a judgement about MEANING,
+          not a technical detail, so it moved to 中身 next to the columns and units it
+          talks about — and the two in-page jump links that existed only to reach it
+          from here went with it. What is left answers one question. */}
       {tab === 'design' && (
         <div className="ds-tab-body">
-          {/* 「標準のことばに合わせる」 sat at the very bottom of this tab, under the
-              rules — reachable only by scrolling past them, and named nowhere. Two
-              links at the top say what this tab holds and jump to it. */}
-          {showGrounding && (
-            <div className="rules-viewer-actions">
-              <button
-                type="button"
-                className="btn btn--ghost btn--sm"
-                onClick={() =>
-                  rulesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                }
-              >
-                {t('gallery:design.navRules')}
-              </button>
-              <button
-                type="button"
-                className="btn btn--ghost btn--sm"
-                onClick={() =>
-                  groundingRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                }
-              >
-                {t('gallery:design.navGrounding')}
-              </button>
-            </div>
-          )}
-          {/* Reopen this dataset's design in the workbench to refine/edit it and
-              re-materialize the SAME dataset (fix a wrong column/function without
-              delete+recreate). Mapping-only — the user re-applies data via re-ingest. */}
-          {dataset.live && onRedesign && (
-            <RedesignControl
-              meta={dataset.live.meta}
-              onRedesign={onRedesign}
-              onAddData={onAddData}
-            />
-          )}
           <div ref={rulesRef}>
             <RulesSection dataset={dataset} />
           </div>
-
-          {/* The reuse chip row that used to sit here showed the same
-              `dataset.reuses` as DatasetGrounding's 「すでに使われている標準のことば」
-              card, twice on one tab under two different names (GAL-B-58). */}
-
-          {showGrounding && (
-            <div ref={groundingRef}>
-              <DatasetGrounding dataset={dataset} />
-            </div>
-          )}
         </div>
       )}
       </div>
