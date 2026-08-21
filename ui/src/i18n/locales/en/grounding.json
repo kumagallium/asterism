@@ -3,7 +3,8 @@
     "vocabularies": "loading standard words",
     "search": "searching standard words",
     "schema": "loading standard candidates for the design",
-    "unit": "resolving the unit"
+    "unit": "resolving the unit",
+    "quantityKind": "resolving the quantity"
   },
   "schema": {
     "head": "Standard ontology candidates",
@@ -37,7 +38,8 @@
   "progress": "{{done}} / {{total}} aligned (optional)",
   "group": {
     "classes": "Kinds of data",
-    "fields": "Fields"
+    "fields": "Fields",
+    "quantities": "What each column measures"
   },
   "state": {
     "done": "Aligned",
@@ -58,5 +60,10 @@
     "badge": "detected",
     "sub": "Well-known standard words already used inside the data."
   },
-  "caution": "Candidates are matched mechanically from the standards list — no AI is involved. Similar words can still mean different things, so read them and only what you align stays aligned."
+  "caution": "Candidates are matched mechanically from the standards list — no AI is involved. Similar words can still mean different things, so read them and only what you align stays aligned.",
+  "quantity": {
+    "note": "A different question from the field name. The unit is a strong hint, so even an abbreviated name can be found. Matching this lets people search across datasets for \"who measured thermal conductivity\".",
+    "unitFits": "the unit fits ({{unit}})",
+    "done": "Recorded that “{{source}}” measures {{target}}."
+  }
 }

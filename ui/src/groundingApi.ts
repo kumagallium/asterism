@@ -131,3 +131,44 @@ export async function resolveUnit(query: string): Promise<UnitResolution> {
   if (!res.ok) throw await asError(res, i18n.t('grounding:op.unit'))
   return (await res.json()) as UnitResolution
 }
+
+// ─── quantity kinds ──────────────────────────────────────────────────────────
+// The other half of the unit lookup: units say "in what", this says "of what". A
+// dataset whose units reach the standard but whose properties do not is half
+// connected — the quantity is what other people search on ("who else measured thermal
+// conductivity?"), while the unit only says how it was written down.
+
+/** One real QUDT QuantityKind a column could be measuring. */
+export interface QuantityKindCandidate {
+  name: string
+  iri: string
+  curie: string
+  label: string
+  gloss: string
+  symbol: string | null
+  units: string[]
+  score: number
+  /** How it matched: `exact` / `tokens_subset` / … / `unit` (found by unit alone). */
+  match: string
+  /** The column's unit is one this quantity may be measured in. */
+  unit_fits: boolean
+}
+
+/**
+ * Candidate quantity kinds for one column, best first. Pass the QUDT unit LOCAL NAME
+ * already resolved for it (e.g. `V-PER-K`): it ranks name matches higher and, on its
+ * own, offers the quantities that unit can express — which is how a column called `S`
+ * still reaches Seebeck coefficient. Closed-set + deterministic (no LLM); a human
+ * confirms before anything is asserted.
+ */
+export async function resolveQuantityKind(
+  query: string,
+  opts: { unit?: string; limit?: number } = {},
+): Promise<QuantityKindCandidate[]> {
+  const params = new URLSearchParams({ q: query })
+  if (opts.unit) params.set('unit', opts.unit)
+  if (opts.limit) params.set('limit', String(opts.limit))
+  const res = await fetch(`${API_BASE}/api/quantitykinds/resolve?${params.toString()}`)
+  if (!res.ok) throw await asError(res, i18n.t('grounding:op.quantityKind'))
+  return ((await res.json()) as { candidates?: QuantityKindCandidate[] }).candidates ?? []
+}

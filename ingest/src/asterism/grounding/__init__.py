@@ -18,6 +18,11 @@ from asterism.grounding.catalog import (
     load_catalog,
     vocabularies,
 )
+from asterism.grounding.quantity_kinds import (
+    QuantityKindCandidate,
+    resolve_quantity_kind,
+)
+from asterism.grounding.quantity_kinds import catalog_meta as quantity_kind_catalog_meta
 from asterism.grounding.schema import SchemaTermGrounding, ground_model_yaml
 from asterism.grounding.units import (
     UnitMatch,
@@ -28,6 +33,7 @@ from asterism.grounding.units import (
 
 __all__ = [
     "Candidate",
+    "QuantityKindCandidate",
     "SchemaTermGrounding",
     "UnitMatch",
     "UnitResolution",
@@ -37,6 +43,8 @@ __all__ = [
     "ground_model_yaml",
     "ground_terms",
     "load_catalog",
+    "quantity_kind_catalog_meta",
+    "resolve_quantity_kind",
     "resolve_unit",
     "vocabularies",
 ]

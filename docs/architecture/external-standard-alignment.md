@@ -179,3 +179,70 @@ Asterism は **有名・基盤オントロジーの curated スターターパ�
 ### やっていないこと (別 PR)
 - **ingest への配線**: `asterism/qudt.py` は starrydata 専用のまま。core カタログへフォールバックさせると、これまで IRI が付かなかった単位に付き始める (additive で望ましい) が、既存テストが「表が無ければ None」を保証しており契約変更になる。よって S6 のバッジは「**標準にこの単位が在るか**」の情報提供であって、「IRI が付く」とは言っていない。
 - **µV/K のような欠落を QUDT へ上流報告する経路**。
+
+---
+
+## 10. 単位だけでは半分 — 「何の量か」を接地する (2026-08-21)
+
+### Trigger
+§9 で単位が標準に届くようになった直後、実データで叩いて分かった: **物性名は 1 つも接地できなかった**。
+
+```
+temperature           0 候補
+thermal conductivity  0 候補
+resistivity           0 候補
+seebeck coefficient   0 候補
+```
+
+原因は `known_vocabs.yaml` の qudt が **11 term しかなく、それが全部スキーマ語彙**（`Quantity` `QuantityKind` `Unit` `hasUnit` …）だったこと。QUDT には `quantitykind:ThermalConductivity` が実在するのに、カタログに無いだけだった。**単位が届いて物性名が届かないのは片肺** — 人が横断で探すのは「熱伝導率を測った人」であって、「W/(m·K) と書いた人」ではない。
+
+### Decision
+**量種別も専用の閉集合カタログを持たせ、単位と同じ mirror 方式で扱う。**
+
+- **カタログ**: `ingest/src/asterism/grounding/qudt_quantitykinds.yaml` — QUDT quantitykind 語彙 (CC-BY 4.0) の **MIRROR** (1,164 件・生成物)。生成は `scripts/build_qudt_quantitykinds.py`（単位側と共通の土台は `scripts/_qudt_mirror.py`）。
+- **解決**: `asterism.grounding.resolve_quantity_kind` / `GET /api/quantitykinds/resolve`
+- **UI**: 中身タブの接地欄に「この列は何を測っているか」の節を追加（項目名の接地とは**別の問い**なので同じ行に同居させない）。
+
+`known_vocabs.yaml` の「CURATION, not mirroring」不変条件は §9 と同じ理由で保たれる — QuantityKind は class でも property でもないので、そもそも用語カタログの対象外。
+
+### ⭐ 述語の選択 — なぜ `qudt:hasQuantityKind` か
+`quantitykind:Temperature` は QUDT では **individual** (`a qudt:QuantityKind`) で、class でも property でもない。一方 Asterism の `te:temperature` は property。既存の alignment 述語 4 つ（`equivalentClass` / `subClassOf` / `equivalentProperty` / `subPropertyOf`）は**どれも型が合わず**、`owl:equivalentProperty` で結ぶのは端的に誤り。
+
+検討した案:
+
+| 案 | 判断 |
+|---|---|
+| **`qudt:hasQuantityKind` を述語に付ける** | **採用**。QUDT 自身の述語がちょうどこの意味を言う。新しい語彙を発明しない |
+| `ast:` の述語を自前 mint | 型の誤用はないが独自語彙が増える（既存再利用が方針） |
+| 中間ノード `qudt:QuantityValue` | 最も正確だが §9 の additive 決定を覆し、既存データの構造が変わる |
+
+**厳密には punning** である（QUDT 自身は `hasQuantityKind` を値の側に付ける）。読みは「この述語が運ぶ値はこの量種別である」。値ごとに QuantityValue ノードを作らない代わりに述語側へ付ける、という意図的な取引。
+
+### 単位が最大の手がかり
+列名が `S` や `rho` の 1〜3 文字では何も分からないが、**`V/K` で測る量は QUDT が数えるほどしかない**（`qudt:applicableUnit`）。そこで解決器は列の単位を受け取り、
+
+- 名前と単位が**両方**合えば最高スコア（`+unit`）
+- 名前が読めなくても**単位だけ**で候補を出す（`match: "unit"`）— ただし名前マッチより必ず下
+- 単位が分かっているとき、その単位で測れない量は**落とす**（ohm·m の列に thermal resistivity は出さない）。ただし**名前が exact なら残す** — 名前と単位が食い違う設計は隠さず見せる
+
+実測: `S` + `V-PER-K` → Seebeck / Thomson の 2 件、`rho` + `OHM-M` → Resistivity / ResidualResistivity の 2 件。
+
+### 曖昧さは曖昧なまま返す
+ケルビンで測る量は **23 種類**あり、QUDT に順位を決める材料は無い（`applicableUnit` 数も 9 で同数、`symbol` は 573/1164 しか無く LaTeX 記法で 57 件が衝突）。**1 つに見せかけず全部返して人に選ばせる**。逆に名前が exact に当たったときは**その 1 件だけ**返す — 「Thermal Conductivity」の隣に「Conductivity」と「Thermal Resistivity」を並べるのは、決着済みの判断をクイズに変える行為。
+
+### 短い名前は曖昧マッチを信じない
+`rho` は "wate**rho**rsepower" の部分文字列で、`S` の 1 トークンは "Henry**'s** Law" がアポストロフィの後に残す `s` と一致する。**どちらも実際に 1 位を取っていた**。4 文字未満のクエリは exact 以外を無効にし、単位（実証拠）だけを信じる。
+
+### gloss の LaTeX
+QUDT の説明文には数式が埋まっている（`$k$ (also denoted as $\lambda$)`）。切り取ると足場が残り（`conductivity, (also denoted as ), is`）、括弧掃除では英文は直らない。**数式を含む記述は採らない**（次の候補を試し、無ければ gloss なし）。791/1164 に gloss が付く。
+
+### 実証
+熱電データ 4 列で全列が 1 対 1 に解決。`thermalConductivity` を接地したうえで、**述語名を一切使わない** SPARQL が値を返した:
+
+```sparql
+GRAPH ?ag { ?pred qudt:hasQuantityKind qk:ThermalConductivity }
+GRAPH ?dg { ?m ?pred ?value ; te:sampleName ?sample }
+→ Bi2Te3-A = 1.28 / 1.42, Bi2Te3-B = 1.35 / 1.51
+```
+
+これが接地の目的そのもの。データセットが増えれば、列名が `kappa` でも `thermal_cond` でも同じクエリが拾う。
