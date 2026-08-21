@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.17.5](https://github.com/kumagallium/asterism/compare/v0.17.4...v0.17.5) - 2026-08-21
+
+- refactor(gallery): タブを「答える問い」で切り直し、直す入口をカードに出す by @kumagallium in https://github.com/kumagallium/asterism/pull/398
+- feat(grounding): 「この列は何を測っているか」を標準に接地する by @kumagallium in https://github.com/kumagallium/asterism/pull/400
+
 ## [v0.17.4](https://github.com/kumagallium/asterism/compare/v0.17.3...v0.17.4) - 2026-08-20
 
 - 欠陥の停止カードは機械が押す — 人間のクリックを無くす by @kumagallium in https://github.com/kumagallium/asterism/pull/387
