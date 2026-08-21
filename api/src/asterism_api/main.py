@@ -6736,6 +6736,36 @@ def build_app(
         res = grounding.resolve_unit(q, limit=limit)
         return JSONResponse({**res.to_dict(), "catalog": grounding.catalog_meta()})
 
+    @app.get("/api/quantitykinds/resolve")
+    async def quantity_kinds_resolve(
+        q: str = Query(default="", description="the column's name or label"),
+        unit: str = Query(default="", description="QUDT unit local name, e.g. 'V-PER-K'"),
+        limit: int = Query(default=8, ge=1, le=50),
+    ) -> JSONResponse:
+        """What quantity is this column measuring? (quantity_kinds.py)
+
+        The other half of `/api/units/resolve`: that answers "in what", this answers
+        "of what". A dataset whose units reach the standard but whose PROPERTIES do not
+        is half-connected — the quantity is what other people search on ("who else
+        measured thermal conductivity?").
+
+        Pass the unit already resolved for the column: it ranks name matches higher and,
+        on its own, offers the quantities that unit can express — which is how a column
+        called `S` still reaches Seebeck coefficient. Closed set (every candidate is a
+        real QUDT IRI, never fabricated), deterministic, read-only; a human confirms.
+        """
+        if not q.strip() and not unit.strip():
+            raise HTTPException(400, "q or unit is required")
+        cands = grounding.resolve_quantity_kind(q, unit=unit or None, limit=limit)
+        return JSONResponse(
+            {
+                "query": q,
+                "unit": unit,
+                "candidates": [c.to_dict() for c in cands],
+                "catalog": grounding.quantity_kind_catalog_meta(),
+            }
+        )
+
     @app.post("/api/ground/schema")
     async def grounding_for_schema(body: GroundSchemaBody) -> JSONResponse:
         """External-standard candidates for the MINTED class/predicate of a PROPOSED schema

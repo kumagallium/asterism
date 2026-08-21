@@ -629,11 +629,24 @@ _PROV = "http://www.w3.org/ns/prov#"
 _XSD = "http://www.w3.org/2001/XMLSchema#"
 
 # Closed set of schema-level relations a human may assert between perspective terms.
+#
+# `hasQuantityKind` is the odd one out and deliberately so. A QUDT QuantityKind
+# (quantitykind:Temperature) is an INDIVIDUAL, not a class or a property, so none of the
+# owl:/rdfs: relations above can carry "this column measures temperature" — asserting
+# `owl:equivalentProperty` between a property and an individual would be plainly wrong.
+# QUDT's own predicate says exactly the intended thing, and putting it on the property
+# (rather than on each value, which is where QUDT itself uses it) is a deliberate trade:
+# the alternative is a qudt:QuantityValue node per measurement, which the additive
+# unit decision (external-standard-alignment.md §9) already ruled out. The reading is
+# "the values this predicate carries are of this quantity kind" — enough for a tool to
+# ask "who else measured thermal conductivity?" across datasets, which is the question
+# the grounding exists to answer.
 ALIGN_RELATIONS: dict[str, str] = {
     "equivalentClass": "http://www.w3.org/2002/07/owl#equivalentClass",
     "subClassOf": "http://www.w3.org/2000/01/rdf-schema#subClassOf",
     "equivalentProperty": "http://www.w3.org/2002/07/owl#equivalentProperty",
     "subPropertyOf": "http://www.w3.org/2000/01/rdf-schema#subPropertyOf",
+    "hasQuantityKind": "http://qudt.org/schema/qudt/hasQuantityKind",
 }
 
 # An absolute IRI safe to inject into a SPARQL ``<...>`` (scheme + no delimiters).

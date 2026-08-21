@@ -3,7 +3,13 @@ import { useTranslation } from 'react-i18next'
 import { type Alignment, align, getAlignments, unalign } from './crosswalkApi'
 import { type CatalogDataset, getDatasetRules } from './galleryApi'
 import { GroundingPicker } from './GroundingPicker'
-import { type GroundCandidate, groundTerms } from './groundingApi'
+import {
+  type GroundCandidate,
+  type QuantityKindCandidate,
+  groundTerms,
+  resolveQuantityKind,
+  resolveUnit,
+} from './groundingApi'
 import { CheckIcon, ConnectIcon, GlobeIcon, LinkIcon, SearchIcon } from './icons'
 import { plainError } from './kantan/errorMessages'
 import { labelFor } from './termLabels'
@@ -25,6 +31,14 @@ const RELATION_FOR: Record<'class' | 'property', string> = {
   class: 'equivalentClass',
   property: 'equivalentProperty',
 }
+
+/** 「この列は何の量か」を書く述語。QUDT の QuantityKind は class でも property でも
+ *  なく individual なので、上の owl:/rdfs: のどれでも運べない（property と individual
+ *  を equivalent にするのは端的に誤り）。QUDT 自身の述語がちょうどその意味を言う。
+ *  値ごとの QuantityValue ノードを作らない代わりに述語側に付ける — その判断は
+ *  external-standard-alignment.md §10。 */
+const QUANTITY_KIND_RELATION = 'hasQuantityKind'
+const QK_NS = 'http://qudt.org/vocab/quantitykind/'
 
 /** Minimum closed-set score a top candidate needs before it is offered as "the"
  *  suggestion with a one-click confirm. Mirrors the propose-side gate in
@@ -73,6 +87,11 @@ export function DatasetGrounding({ dataset }: { dataset: CatalogDataset }) {
   const [alignments, setAlignments] = useState<Alignment[] | null>(null)
   // Top closed-set candidate per term (undefined = not fetched, null = none found).
   const [cands, setCands] = useState<Record<string, GroundCandidate | null>>({})
+  //: 項目 IRI → その列が測っていそうな量の候補（best first・人が選ぶ）。
+  const [qkCands, setQkCands] = useState<Record<string, QuantityKindCandidate[]>>({})
+  //: 項目 IRI → その列に人が書いた単位。「単位が合います」で見せるのは QUDT の
+  //: 内部名 (OHM-M) ではなく、その人が表で見ている綴り (ohm*m)。
+  const [qkUnitRaw, setQkUnitRaw] = useState<Record<string, string>>({})
   const [activeIri, setActiveIri] = useState('')
   const [busy, setBusy] = useState(false)
   const [removing, setRemoving] = useState('')
@@ -143,12 +162,57 @@ export function DatasetGrounding({ dataset }: { dataset: CatalogDataset }) {
     }
   }, [datasetId])
 
+  // 「この列は何の量か」の候補。項目にしか意味がないので項目だけ引く。
+  //
+  // 列の単位が最大の手がかりになる: 名前が `S` や `rho` の 1〜3 文字では何も分から
+  // ないが、`V/K` で測る量は QUDT が数えるほどしかない。ただし単位は生の綴り
+  // (`ohm*m`) なので、まず QUDT の単位に解いてからでないと使えない — 2 段引き。
+  // 解けない単位 (`uV/K` は QUDT 3.1.0 に無い) は名前だけで探す。
+  useEffect(() => {
+    if (!datasetId) return
+    let off = false
+    void (async () => {
+      let units: Record<string, string> = {}
+      try {
+        const rules = await getDatasetRules(datasetId)
+        const pairs = await Promise.all(
+          (rules.maps ?? []).flatMap((m) =>
+            (m.properties ?? []).map(async (pr) => {
+              const raw = (pr.unit ?? '').trim()
+              const iri = pr.predicate_iri || pr.predicate
+              if (!raw || !iri) return null
+              const r = await resolveUnit(raw).catch(() => null)
+              const one = r && r.exact.length === 1 ? r.exact[0] : null
+              return one ? ([iri, one.name, raw] as const) : null
+            }),
+          ),
+        )
+        const found = pairs.filter((x): x is readonly [string, string, string] => !!x)
+        units = Object.fromEntries(found.map(([iri, name]) => [iri, name]))
+        if (!off) setQkUnitRaw(Object.fromEntries(found.map(([iri, , raw]) => [iri, raw])))
+      } catch {
+        /* units are enrichment — the name alone still finds the common cases */
+      }
+      if (off) return
+      for (const tm of fields) {
+        resolveQuantityKind(tm.name, { unit: units[tm.iri], limit: 4 })
+          .then((c) => !off && setQkCands((prev) => ({ ...prev, [tm.iri]: c })))
+          .catch(() => !off && setQkCands((prev) => ({ ...prev, [tm.iri]: [] })))
+      }
+    })()
+    return () => {
+      off = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [datasetId, dataset.id])
+
   // This dataset's EXTERNAL groundings: alignments whose source is one of its terms and
   // whose target is a recognized standard term. Keyed by source IRI (one shown per term).
   const groundedBy = new Map<string, Alignment>()
   for (const a of alignments ?? []) {
     if (termIris.has(a.source) && knownVocabForIri(a.target)) groundedBy.set(a.source, a)
   }
+  const quantityRows = fields.map(quantityRow).filter(Boolean)
   const doneCount = allTerms.filter((tm) => groundedBy.has(tm.iri)).length
   const pct = allTerms.length ? Math.round((doneCount / allTerms.length) * 100) : 0
 
@@ -174,6 +238,23 @@ export function DatasetGrounding({ dataset }: { dataset: CatalogDataset }) {
     }
   }
 
+  /** 「この列は Temperature を測っている」と表明する。用語の接地と同じく可逆で、
+   *  別グラフに日付つきで積まれ、いつでも撤回できる。 */
+  async function confirmQuantityKind(term: SourceTerm, c: QuantityKindCandidate) {
+    setBusy(true)
+    setErr('')
+    setNote('')
+    try {
+      await align(term.iri, c.iri, QUANTITY_KIND_RELATION, dataset.name, 'QUDT')
+      setNote(t('grounding:quantity.done', { source: shownName(term), target: c.label }))
+      load()
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function onWithdraw(a: Alignment) {
     setRemoving(a.alignment_iri)
     setErr('')
@@ -186,6 +267,78 @@ export function DatasetGrounding({ dataset }: { dataset: CatalogDataset }) {
     } finally {
       setRemoving('')
     }
+  }
+
+  /** 「この列は何の量か」の 1 行。用語の接地（この項目名は標準では何と呼ぶか）とは
+   *  別の問いなので、同じ行に同居させず独立した節にしてある。多くの物性列では前者は
+   *  当たらず後者だけが当たる — 実データの 6 語中 5 語がそうだった。 */
+  function quantityRow(term: SourceTerm) {
+    const done = (alignments ?? []).find(
+      (a) => a.source === term.iri && a.target.startsWith(QK_NS),
+    )
+    const cands = qkCands[term.iri] ?? []
+    if (!done && cands.length === 0) return null
+    return (
+      <div className="ground-row" key={`qk-${term.iri}`}>
+        <div className="ground-own">
+          <div className="ground-own-name" title={term.name}>
+            {shownName(term)}
+          </div>
+        </div>
+        <span className="ground-arrow">→</span>
+        <div className="ground-target">
+          {done ? (
+            <>
+              <StdToken
+                gloss={localName(done.target)}
+                std="QUDT"
+                token={`quantitykind:${localName(done.target)}`}
+              />
+              <span className="ground-state ground-state--done">
+                <CheckIcon size={13} /> {t('grounding:state.done')}
+              </span>
+              <button
+                type="button"
+                className="btn btn--ghost btn--sm"
+                disabled={removing === done.alignment_iri}
+                onClick={() => onWithdraw(done)}
+              >
+                {removing === done.alignment_iri
+                  ? t('grounding:adopt.withdrawing')
+                  : t('grounding:adopt.withdraw')}
+              </button>
+            </>
+          ) : (
+            <div className="ground-qk-cands">
+              {/* 単位だけが手がかりのときは候補が複数残る（ケルビンで測る量は 23 ある）。
+                  QUDT に順位を決める材料が無い以上、1 つに見せかけず全部出して人に
+                  選ばせるのが正直。 */}
+              {cands.map((c) => (
+                <div className="ground-qk-cand" key={c.iri}>
+                  <StdToken gloss={c.label} std="QUDT" token={c.curie} dashed />
+                  {c.gloss && <p className="ground-qk-gloss">{c.gloss}</p>}
+                  <span className="ground-suggest-actions">
+                    {c.unit_fits && qkUnitRaw[term.iri] && (
+                      <span className="ground-qk-unitfit">
+                        {t('grounding:quantity.unitFits', { unit: qkUnitRaw[term.iri] })}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      className="btn btn--accent btn--sm"
+                      disabled={busy}
+                      onClick={() => confirmQuantityKind(term, c)}
+                    >
+                      <CheckIcon size={13} /> {t('grounding:confirm')}
+                    </button>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    )
   }
 
   function row(term: SourceTerm) {
@@ -330,6 +483,13 @@ export function DatasetGrounding({ dataset }: { dataset: CatalogDataset }) {
               <>
                 <div className="ground-group-head">{t('grounding:group.fields')}</div>
                 {fields.map(row)}
+              </>
+            )}
+            {quantityRows.length > 0 && (
+              <>
+                <div className="ground-group-head">{t('grounding:group.quantities')}</div>
+                <p className="ground-group-note">{t('grounding:quantity.note')}</p>
+                {quantityRows}
               </>
             )}
           </div>

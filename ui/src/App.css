@@ -4336,6 +4336,36 @@ button.trace-iri-copy:hover:not(:disabled) {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* 「この列は何を測っているか」— 単位だけが手がかりのときは候補が複数残るので、
+   1 行に 1 候補ずつ縦に積む（用語の接地は 1 行 1 候補で足りる）。 */
+.ground-group-note {
+  color: var(--muted);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  margin: 0 0 var(--space-2);
+}
+.ground-qk-cands {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+}
+.ground-qk-cand {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.ground-qk-gloss {
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.45;
+  margin: 0;
+}
+.ground-qk-unitfit {
+  color: var(--success-fg);
+  font-size: 0.75rem;
+}
+
 .ground-caution {
   display: flex;
   gap: 0.6rem;
