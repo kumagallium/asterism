@@ -49,7 +49,7 @@
     "files": "Load & publish",
     "connect": "Connections",
     "tools": "Tools (developer)",
-    "design": "Transformation rules (technical)"
+    "design": "Where it came from (technical)"
   },
   "grid": {
     "search": "Search by dataset name",
@@ -109,7 +109,6 @@
   "band": {
     "designLine": "No data has been loaded yet.",
     "draftLine": "An unpublished draft (visible to no one until you publish).",
-    "publishedLine": "Published. Answers cite this data with its source.",
     "retractedLine": "Unpublished (not used in answers; the data and IDs are still here).",
     "stagedLine": "A draft of the new data is ready.",
     "ask": "Ask a question",
@@ -120,8 +119,6 @@
   },
   "design": {
     "title": "Contents (kinds of data and fields)",
-    "navRules": "What each column means",
-    "navGrounding": "Match standard words",
     "classCount": "{{n}} kinds",
     "noClasses": "No kind-of-data information.",
     "classesHead": "Kinds of data",
