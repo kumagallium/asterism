@@ -1,11 +1,11 @@
 {
-  "version": "0.17.4",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at ffe34e709b472f85c8f64a8f97ee9fe424b2ae5b -->\n\n## What's Changed\n* 欠陥の停止カードは機械が押す — 人間のクリックを無くす by @kumagallium in https://github.com/kumagallium/asterism/pull/387\n* docs: appdata の検証レポートを閉じる — 配布版で最後の経路まで一周した by @kumagallium in https://github.com/kumagallium/asterism/pull/391\n* fix(ingest): regex_extract のエンジン不在を無言の空文字から例外へ — 列が丸ごと消えるのを止める by @kumagallium in https://github.com/kumagallium/asterism/pull/394\n* chore(ci): ingest のテストを substrate extra ありで回す — 実経路の e2e が一度も走っていなかった by @kumagallium in https://github.com/kumagallium/asterism/pull/396\n* fix(ingest): lookup も「読めない表」を無言の \"\" から例外へ — 同じ silent drop の二つ目の扉 by @kumagallium in https://github.com/kumagallium/asterism/pull/395\n* feat: 全画面を「かんたん」にする — 16 面の網羅監査と 605 件の修正 by @kumagallium in https://github.com/kumagallium/asterism/pull/389\n* 保存先を変えたらデータも移す — 起動時、サイドカーを立てる前に by @kumagallium in https://github.com/kumagallium/asterism/pull/392\n* feat(kantan): 標準のことばに合わせる入口と、単位が標準に届いたかの表示 by @kumagallium in https://github.com/kumagallium/asterism/pull/393\n* fix(settings): 初回の AI 設定から、頼む相手のいない依頼を消す by @kumagallium in https://github.com/kumagallium/asterism/pull/397\n* chore: リポジトリ直下の残骸ファイル `-volnamex` を削除 by @kumagallium in https://github.com/kumagallium/asterism/pull/390\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.17.3...v0.17.4",
-  "pub_date": "2026-08-20T22:05:34Z",
+  "version": "0.17.5",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 7d8960d25c94d71342c2f95e4d53473af522bd7b -->\n\n## What's Changed\n* refactor(gallery): タブを「答える問い」で切り直し、直す入口をカードに出す by @kumagallium in https://github.com/kumagallium/asterism/pull/398\n* feat(grounding): 「この列は何を測っているか」を標準に接地する by @kumagallium in https://github.com/kumagallium/asterism/pull/400\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.17.4...v0.17.5",
+  "pub_date": "2026-08-21T01:30:16Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVRWOE4xbG5ZaSthTjY3NzY0endPVm5aUWF2Y0lybFJKK2VJSmw2eW01Q29DL1BwODNwbmEzRjJ2cVVkUllwM1BhN2VPd3pGMDJUMlJ5dm5NT2xhU3dNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3MjYzNTM0CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CnIwWFhaamQxb0ErbUh1UVBRL1hWbElzcGJxSExHVlJmZmhXQ2s0VDhESmlrd1VDOW1KY3lvU3YrOGd4N1dsOTJnYUVaYU5lbE9HZmwyWm1HNWNmckFnPT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.17.4/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcWVpOVRyYXpnak4wNjEwakM4aVkxREJ0OC9UK280d2F2enF3MFB3cHU4emJobDh4KzBwaXFMbVZsYW1wd2J3aGU5ZFR1VTQ5dnNCZENTVEF6K1VIeXdrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3Mjc1ODE2CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6Ck82bjk0ckRpZUtybkU5cVpNRVkzS2dOVFhKVUZXeThQVFVndDE3Qkxva0lnT3ZsQm1BVVdDZWdjdUtVUEhXaGpnOVd5M0had0RWN3lXR241dEZnVkNBPT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.17.5/Asterism_aarch64.app.tar.gz"
     }
   }
 }
