@@ -299,7 +299,7 @@
     "editHint": "You can correct the meaning and the unit right here (no AI, saved in seconds). A meaning can be a word or a short phrase, in any language. For a column you are unsure about, \"Use the original column name\" fills it in.",
     "editSaving": "Saving your corrections…",
     "editSaved": "Saved the meaning / unit of {{n}} column(s).",
-    "editNoChange": "That column could not be found in the design, so the correction was not saved. Tell us in the box below instead.",
+    "editNoChangeNamed": "{{list}} did not line up with the stored design, so those fields were put back. Add a note below instead.",
     "editFailed": "Your corrections could not be saved.",
     "meaningPlaceholder": "What this column means (a phrase is fine)",
     "fromPreamble": "A value on line {{line}}, before the table",

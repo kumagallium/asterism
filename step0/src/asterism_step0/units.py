@@ -14,7 +14,10 @@ model call and WITHOUT a materials-specific unit dictionary:
   a wrong unit — over-completion is worse than a blank the reviewer can fill.
 * :func:`enrich_units` — overlays the extracted units onto a Mapping IR YAML
   document, filling only single-column properties whose ``unit`` is still empty
-  (an AI/human-authored unit always wins). Byte-identical when nothing is added.
+  (an AI/human-authored unit always wins — with one exception: a unit that is
+  actually a DATATYPE word, "文字列" / "string" / "xsd:double", is swept, because
+  it is categorically not a unit and each one costs the reviewer a hand-deletion).
+  Byte-identical when nothing is added or swept.
 
 IMPORTANT — this is **display metadata only**. It never touches emitted values
 and is never compiled into RML; value/unit conversion stays in the vetted Tier-0
@@ -28,7 +31,7 @@ from collections.abc import Mapping, MutableMapping
 
 from asterism_step0.spec_yaml import load_spec_yaml
 
-__all__ = ["enrich_units", "extract_unit_from_label"]
+__all__ = ["enrich_units", "extract_unit_from_label", "is_datatype_word"]
 
 # The longest string we accept as a unit. A trailing parenthetical longer than
 # this is almost always a descriptive note ("(measured at room temperature)"),
@@ -77,6 +80,40 @@ def _is_unit_char(ch: str) -> bool:
     if ch.isascii() and ch.isalnum():
         return True
     return ch in _UNIT_SYMBOLS
+
+
+# Words that name a DATATYPE, not a unit. Weak models routinely write the value
+# type into the unit field ("文字列", "xsd:string") — observed live 16 times on one
+# XRD file, each one a hand-deletion for the reviewer. A datatype word is never a
+# unit, categorically, so the sweep is deterministic and unconditional. Matched
+# case-insensitively after stripping; any `xsd:`-prefixed token is a datatype by
+# construction. Kept to unambiguous type words — "ISO 8601" (a format note) and
+# element symbols ("Na") must survive.
+_DATATYPE_WORDS = frozenset(
+    {
+        "string", "str", "text", "char", "varchar", "literal",
+        "number", "numeric", "int", "integer", "long", "float", "double", "decimal",
+        "boolean", "bool",
+        "date", "datetime", "timestamp",
+        "null", "none",
+        # Japanese — the propose prose follows the UI language, so a weak model
+        # writes the same mistake in Japanese.
+        "文字列", "文字", "テキスト",
+        "数値", "整数", "実数", "小数",
+        "真偽値", "論理値",
+        "日付", "日時", "時刻",
+    }
+)
+
+
+def is_datatype_word(unit: str | None) -> bool:
+    """True when a unit field holds a datatype name instead of a unit."""
+    if not unit:
+        return False
+    v = unit.strip()
+    if v.lower().startswith("xsd:"):
+        return True
+    return v.lower() in _DATATYPE_WORDS
 
 
 def extract_unit_from_label(column_name: str | None) -> str | None:
@@ -144,8 +181,10 @@ def enrich_units(mapping_ir_yaml: str) -> str:
     onto): for every property that references a single ``column`` and has no
     ``unit`` yet, set ``unit`` to :func:`extract_unit_from_label` of that column
     name when it yields one. An AI- or human-authored ``unit`` is never
-    overwritten, and ``columns`` (multi-input), ``object_template`` and
-    ``constant`` rows are skipped (no single source column to read a unit from).
+    overwritten — except a unit that is actually a DATATYPE word ("文字列",
+    "xsd:string"), which is swept (see :func:`is_datatype_word`) and may then be
+    refilled from the column label. ``columns`` (multi-input), ``object_template``
+    and ``constant`` rows are skipped (no single source column to read a unit from).
 
     Units are display metadata and never compile into RML, so this cannot change
     the compiled mapping — it only enriches the spec the review screen reads.
@@ -174,7 +213,12 @@ def enrich_units(mapping_ir_yaml: str) -> str:
                 continue
             existing = prop.get("unit")
             if isinstance(existing, str) and existing.strip():
-                continue  # an authored unit wins
+                if not is_datatype_word(existing):
+                    continue  # an authored unit wins
+                # A datatype word is not a unit — sweep it, then fall through so
+                # the column label can still supply a real one.
+                del prop["unit"]
+                changed = True
             column = prop.get("column")
             if not isinstance(column, str):
                 continue
