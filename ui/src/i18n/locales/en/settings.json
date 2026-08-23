@@ -110,6 +110,12 @@
     "openSettings": "Open settings",
     "serverKey": "using the server's setup"
   },
+  "serverKeys": {
+    "set": "set",
+    "unset": "not set",
+    "save": "Save",
+    "clear": "Clear"
+  },
   "writeToken": {
     "title": "Access code (for this server)",
     "intro": "To add data or publish on this server you need this server's access code. Paste it here and it stays valid until you close this tab.",
