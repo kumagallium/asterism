@@ -147,7 +147,8 @@ def test_enrich_never_overwrites_authored_unit() -> None:
 
 @pytest.mark.parametrize(
     "word",
-    ["文字列", "string", "String", "  xsd:string  ", "xsd:double", "数値", "整数", "テキスト", "boolean"],
+    ["文字列", "string", "String", "  xsd:string  ", "xsd:double",
+     "数値", "整数", "テキスト", "boolean"],
 )
 def test_a_datatype_word_is_not_a_unit(word: str) -> None:
     assert is_datatype_word(word)
