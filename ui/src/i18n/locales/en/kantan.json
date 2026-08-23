@@ -296,7 +296,7 @@
     "refineWrap": "While reviewing the item meanings, the user pointed this out. Follow it and fix the affected columns' meaning (label) and unit (unit) — and the design itself if needed: {{note}}",
     "confirm": "Confirm these meanings",
     "confirmBlocked": "The item meanings could not be loaded, so there is nothing to confirm yet. Press “Reload” above.",
-    "editHint": "You can correct the meaning and the unit right here (no AI, saved in seconds). A meaning can be a word or a short phrase, in any language. For a column you are unsure about, \"Use the original column name\" fills it in.",
+    "editHint": "You can correct the meaning and the unit right here (no AI, saved in seconds). A meaning can be a word or a short phrase, in any language. For a column you are unsure about, \"Use the original column name\" fills it in. Enter moves down to the next row in the same column.",
     "editSaving": "Saving your corrections…",
     "editSaved": "Saved the meaning / unit of {{n}} column(s).",
     "editNoChangeNamed": "{{list}} did not line up with the stored design, so those fields were put back. Add a note below instead.",

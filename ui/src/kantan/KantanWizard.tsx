@@ -3706,16 +3706,27 @@ export function KantanWizard({
     }
   }
 
-  /** Enter = confirm this field and move on to the next one, spreadsheet-style.
-   *  The focus move fires the blur commit on the way, so rapid serial fixing is
-   *  type → Enter → type → Enter with no waiting between fields. */
+  /** Enter = confirm this field and move DOWN the same column, spreadsheet-style
+   *  (dogfood: jumping right into the unit field surprised — nobody edits
+   *  meaning→unit→meaning; they fix all the meanings, then the units. Tab still
+   *  moves right natively). The focus move fires the blur commit on the way, so
+   *  rapid serial fixing is type → Enter → type → Enter with no waiting. */
   function focusNextMetaInput(current: HTMLInputElement) {
+    const isUnit = current.classList.contains('kz-cols-input--unit')
     const inputs = Array.from(
       document.querySelectorAll<HTMLInputElement>('input.kz-cols-input:not([disabled])'),
-    )
+    ).filter((el) => el.classList.contains('kz-cols-input--unit') === isUnit)
     const next = inputs[inputs.indexOf(current) + 1]
     if (next) next.focus()
     else current.blur()
+  }
+
+  /** The Enter that CONFIRMS a Japanese IME conversion is not a "done" Enter.
+   *  Without this guard, typing 結晶構造 and confirming the conversion yanked the
+   *  focus away mid-composition and the text landed in the NEXT field (dogfood,
+   *  live). keyCode 229 is the Safari/legacy spelling of isComposing. */
+  function isImeConfirm(e: { nativeEvent: KeyboardEvent }): boolean {
+    return e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229
   }
 
   // The name of one KIND of thing. Same deterministic ladder as termLabel,
@@ -4826,7 +4837,8 @@ export function KantanWizard({
                                 disabled={!kzDatasetId}
                                 onBlur={(e) => commitMeta(p, column, 'label', e.target.value)}
                                 onKeyDown={(e) => {
-                                  if (e.key === 'Enter') focusNextMetaInput(e.currentTarget)
+                                  if (e.key === 'Enter' && !isImeConfirm(e))
+                                    focusNextMetaInput(e.currentTarget)
                                 }}
                               />
                               {missing && ' ⚠'}
@@ -4874,7 +4886,8 @@ export function KantanWizard({
                                 disabled={!kzDatasetId}
                                 onBlur={(e) => commitMeta(p, column, 'unit', e.target.value)}
                                 onKeyDown={(e) => {
-                                  if (e.key === 'Enter') focusNextMetaInput(e.currentTarget)
+                                  if (e.key === 'Enter' && !isImeConfirm(e))
+                                    focusNextMetaInput(e.currentTarget)
                                 }}
                               />
                               <UnitBadge info={unitInfo[(p.unit ?? '').trim()]} />
