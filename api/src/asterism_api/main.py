@@ -94,7 +94,7 @@ from asterism_step0.materialize import (
 )
 from asterism_step0.propose import LLMClient
 from asterism_step0.refine import refine_schema
-from asterism_step0.skeleton_annotate import annotate_skeleton
+from asterism_step0.skeleton_annotate import annotate_skeleton, apply_key_safety_fix
 from asterism_step0.staged_propose import (
     apply_display_meta_to_document,
     propose_skeleton,
@@ -4013,22 +4013,52 @@ def build_app(
                 # uniqueness / collisions / real ID previews / fix candidates,
                 # computed against the SAME dialect-read sources. Best-effort —
                 # a failure here must never cost the (paid) skeleton itself.
+                skeleton = result.skeleton
                 try:
                     annotations = await asyncio.to_thread(
                         annotate_skeleton,
-                        result.skeleton,
+                        skeleton,
                         list(paths),
                         dialects=dialect_overrides,
                         iri_base=cfg.iri_base,
                     )
+                    # Before the human ever sees a "measurement-only key"
+                    # caution: the same evidence that would raise it already
+                    # proves a safe alternative when one exists — swap it in
+                    # deterministically and re-annotate so uniqueness / ID
+                    # previews / candidates all reflect the NEW key. Never
+                    # applied to a human-edited skeleton (that only happens on
+                    # /api/propose/skeleton/validate, which never calls this).
+                    skeleton, key_fixes = await asyncio.to_thread(
+                        apply_key_safety_fix, skeleton, annotations
+                    )
+                    if key_fixes:
+                        annotations = await asyncio.to_thread(
+                            annotate_skeleton,
+                            skeleton,
+                            list(paths),
+                            dialects=dialect_overrides,
+                            iri_base=cfg.iri_base,
+                        )
+                        for name, record in key_fixes.items():
+                            map_ann = annotations.get("maps", {}).get(name)
+                            if isinstance(map_ann, dict):
+                                map_ann["applied_key_fix"] = record
                 except Exception as exc:  # pragma: no cover — defensive
                     logger.warning("skeleton annotation failed: %s", exc)
+                    # A key swap with no evidence to show for it is worse than
+                    # no swap: if re-annotation (pass 2) failed, `skeleton` may
+                    # already hold the SWAPPED key while `annotations` (and the
+                    # `applied_key_fix` record inside it) is about to be
+                    # dropped below. Never ship an unexplained key change —
+                    # fall back to the AI's original skeleton.
+                    skeleton = result.skeleton
                     annotations = None
             finally:
                 if owned:
                     shutil.rmtree(tmpdir, ignore_errors=True)
             return {
-                "skeleton": result.skeleton,
+                "skeleton": skeleton,
                 "inspection_md": result.csv_inspection_md,
                 "metadata": result.metadata,
                 "source_files": [p.name for p in paths],

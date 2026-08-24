@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from asterism_step0.dialect import SourceDialect
-from asterism_step0.skeleton_annotate import annotate_skeleton
+from asterism_step0.skeleton_annotate import annotate_skeleton, apply_key_safety_fix
 
 _PREFIXES = {
     "xr": "https://example.org/xrd/resource/",
@@ -675,3 +675,166 @@ def test_missing_row_kind_survives_a_split(tmp_path: Path) -> None:
     out = annotate_skeleton(sk, [p])["maps"]
     assert out["sample"]["missing_row_kind"]["suggested_key"] == ["No", "(hkl)"]
     assert "missing_row_kind" not in out["substance"]
+
+
+# ---------------------------------------------------------------------------
+# apply_key_safety_fix — a machine rewrite of the caution key BEFORE the human
+# ever sees it (the "safe key before the gate" follow-up to K7).
+# ---------------------------------------------------------------------------
+
+
+def _write_xrd_unique(tmp_path: Path) -> Path:
+    """Same shape as ``_write_xrd`` but with a key that IS unique today — the
+    K7 caution state (unique now, measurement-valued, unsafe long-term)."""
+    p = tmp_path / "xrd.csv"
+    p.write_text(
+        "2θ (deg),intensity,scan_id\n10.00,120,S1\n10.02,135,S1\n10.04,98,S2\n",
+        encoding="utf-8",
+    )
+    return p
+
+
+def test_measurement_key_is_replaced_by_the_top_safe_candidate(tmp_path: Path) -> None:
+    p = _write_xrd_unique(tmp_path)
+    skeleton = _skeleton("xr:point/{2θ (deg)}")
+    out = annotate_skeleton(skeleton, [p])
+    ann = out["maps"]["point"]
+    assert ann["key_measurement_caution"] is True
+    top_safe = next(c for c in ann["key_candidates"] if c["measurement_only"] is False)
+
+    fixed, fixes = apply_key_safety_fix(skeleton, out)
+
+    assert fixes.keys() == {"point"}
+    record = fixes["point"]
+    assert record["from"] == ["2θ (deg)"]
+    assert record["to"] == top_safe["columns"]
+    assert record["reason"] == "measurement-id"
+    assert record["template_from"] == "xr:point/{2θ (deg)}"
+    # The head up to the first `{` is preserved verbatim (same rule as the
+    # UI's one-click "apply candidate").
+    assert record["template_to"].startswith("xr:point/")
+    assert record["template_to"] == record["template_from"].split("{")[0] + "/".join(
+        f"{{{c}}}" for c in top_safe["columns"]
+    )
+    new_template = fixed["maps"][0]["subject"]["template"]
+    assert new_template == record["template_to"]
+    # Re-annotating with the new key proves it out — no more caution.
+    reann = annotate_skeleton(fixed, [p])["maps"]["point"]
+    assert reann["key_measurement_caution"] is False
+
+
+def test_empty_candidate_columns_are_refused_even_if_offered(tmp_path: Path) -> None:
+    """Defensive: today's candidate generator never proves an empty key unique,
+    but if a hand-built (or future) annotation ever offered one, the function
+    must refuse it rather than collapse every row onto one constant ID."""
+    p = _write_xrd_unique(tmp_path)
+    skeleton = _skeleton("xr:point/{2θ (deg)}")
+    out = annotate_skeleton(skeleton, [p])
+    # Poison the real candidates with an empty-key one ranked first.
+    out["maps"]["point"]["key_candidates"] = [
+        {"columns": [], "rows_considered": 3, "measurement_only": False},
+        *out["maps"]["point"]["key_candidates"],
+    ]
+
+    fixed, fixes = apply_key_safety_fix(skeleton, out)
+
+    assert fixes == {}
+    assert fixed["maps"][0]["subject"]["template"] == "xr:point/{2θ (deg)}"
+
+
+def test_no_safe_candidate_leaves_the_key_untouched(tmp_path: Path) -> None:
+    """A pure numeric instrument sweep (every column measured): no candidate can
+    be safe, so the caution stays and nothing is rewritten."""
+    p = tmp_path / "sweep.csv"
+    p.write_text(
+        "field(T),voltage(V)\n0.10,1.234E-3\n0.20,2.468E-3\n0.30,3.702E-3\n",
+        encoding="utf-8",
+    )
+    skeleton = _skeleton("xr:pt/{field(T)}", source="sweep.csv")
+    out = annotate_skeleton(skeleton, [p])
+    ann = out["maps"]["point"]
+    assert ann["key_measurement_caution"] is True
+    assert all(c["measurement_only"] for c in ann["key_candidates"])
+
+    fixed, fixes = apply_key_safety_fix(skeleton, out)
+
+    assert fixes == {}
+    assert fixed["maps"][0]["subject"]["template"] == "xr:pt/{field(T)}"
+
+
+def test_non_measurement_key_is_never_touched_even_with_scope_missing(tmp_path: Path) -> None:
+    """A text key is never rewritten — including when the ONLY risk showing is
+    scope-missing, which is a human call about how the dataset grows, not one
+    the machine gets to make for them."""
+    p = _write_reference_card(tmp_path)
+    skeleton = _card_skeleton()
+    skeleton["maps"][1]["subject"]["template"] = "xr:peak/{(hkl)}"  # text-ish key column
+    out = annotate_skeleton(skeleton, [p])
+    peak = out["maps"]["peak"]
+    assert peak["key_measurement_caution"] is False
+    risk_kinds = {r["kind"] for r in peak["reference_risks"]}
+    assert risk_kinds == {"scope-missing"}
+
+    fixed, fixes = apply_key_safety_fix(skeleton, out)
+
+    assert fixes == {}
+    assert fixed["maps"][1]["subject"]["template"] == "xr:peak/{(hkl)}"
+
+
+def test_apply_key_safety_fix_is_idempotent(tmp_path: Path) -> None:
+    p = _write_xrd_unique(tmp_path)
+    skeleton = _skeleton("xr:point/{2θ (deg)}")
+    out = annotate_skeleton(skeleton, [p])
+    fixed, fixes = apply_key_safety_fix(skeleton, out)
+    assert fixes  # sanity: the first pass did change something
+
+    reann = annotate_skeleton(fixed, [p])
+    fixed_again, fixes_again = apply_key_safety_fix(fixed, reann)
+
+    assert fixes_again == {}
+    assert fixed_again["maps"][0]["subject"]["template"] == fixed["maps"][0]["subject"]["template"]
+
+
+def test_apply_key_safety_fix_does_not_mutate_the_original_skeleton(tmp_path: Path) -> None:
+    p = _write_xrd_unique(tmp_path)
+    skeleton = _skeleton("xr:point/{2θ (deg)}")
+    out = annotate_skeleton(skeleton, [p])
+
+    fixed, fixes = apply_key_safety_fix(skeleton, out)
+
+    assert fixes  # sanity
+    assert skeleton["maps"][0]["subject"]["template"] == "xr:point/{2θ (deg)}"
+    assert fixed is not skeleton
+    assert fixed["maps"][0]["subject"]["template"] != skeleton["maps"][0]["subject"]["template"]
+
+
+def test_apply_key_safety_fix_only_touches_the_offending_map(tmp_path: Path) -> None:
+    xrd = _write_xrd_unique(tmp_path)
+    samples = tmp_path / "samples.csv"
+    samples.write_text("sample_id,alloy\nS-1,WC\nS-2,TiN\n", encoding="utf-8")
+    skeleton = {
+        "version": 1,
+        "prefixes": dict(_PREFIXES),
+        "maps": [
+            {
+                "name": "point",
+                "source": "xrd.csv",
+                "subject": {"template": "xr:point/{2θ (deg)}", "classes": ["xo:DataPoint"]},
+            },
+            {
+                "name": "sample",
+                "source": "samples.csv",
+                "subject": {"template": "xr:sample/{sample_id}", "classes": ["xo:Sample"]},
+            },
+        ],
+    }
+    out = annotate_skeleton(skeleton, [xrd, samples])
+
+    fixed, fixes = apply_key_safety_fix(skeleton, out)
+
+    assert fixes.keys() == {"point"}
+    assert fixed["maps"][0]["subject"]["template"] != "xr:point/{2θ (deg)}"
+    assert fixed["maps"][1]["subject"]["template"] == "xr:sample/{sample_id}"
+    # The untouched map's entry is shared (not deep-copied) — a light-weight
+    # non-mutation guarantee is enough since it is never written to.
+    assert fixed["maps"][1] is skeleton["maps"][1]

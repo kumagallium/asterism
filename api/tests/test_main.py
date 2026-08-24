@@ -612,6 +612,157 @@ def test_skeleton_validate_recomputes_evidence_for_edits(
         assert r3.status_code == 400
 
 
+# ----------------------------------------------------------------------------
+# Safe key before the gate: a measurement-only AI key is swapped for the
+# machine's own proven-safe candidate before the human ever sees it.
+# ----------------------------------------------------------------------------
+
+# Every row's 2θ is unique today (the K7 caution shape: unique now, built only
+# from a measured value), but `scan_id` (text) is a proven-unique alternative.
+_UNSAFE_KEY_CSV = b"2theta,scan_id\n10.00,S1\n10.02,S2\n10.04,S3\n"
+_UNSAFE_KEY_SKELETON = {
+    "version": 1,
+    "prefixes": {"ex": "https://ns.invalid/ns#", "exr": "https://ns.invalid/r/"},
+    "maps": [
+        {
+            "name": "point",
+            "source": "scan.csv",
+            "subject": {
+                "template": "exr:point/{2theta}",
+                "classes": ["ex:DataPoint"],
+            },
+            "note": "keyed by the measured angle",
+        }
+    ],
+}
+
+
+class _UnsafeKeyMock:
+    """Scripts the skeleton reply to a measurement-only key (round-0 shape)."""
+
+    def __init__(self, key: str | None) -> None:
+        self.key = key
+
+    def complete(self, system_prompt: str, user_message: str) -> str:
+        from asterism_step0.staged_propose import SKELETON_SYSTEM_PROMPT
+
+        if system_prompt == SKELETON_SYSTEM_PROMPT:
+            return json.dumps(_UNSAFE_KEY_SKELETON)
+        return "UNEXPECTED PROMPT"
+
+
+def test_propose_skeleton_applies_key_safety_fix(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    """The skeleton job swaps a measurement-only key for the machine's own
+    proven-safe candidate BEFORE the response ever reaches the human, and
+    stamps the swap onto the annotations so the gate can say so."""
+    app = build_app(
+        _settings(tmp_path),
+        oxigraph_client=healthy_client,
+        start_watcher=False,
+        llm_factory=lambda key: _UnsafeKeyMock(key),
+    )
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/propose/skeleton",
+            data={"domain": "xrd scans"},
+            files={"files": ("scan.csv", _UNSAFE_KEY_CSV, "text/csv")},
+        )
+        job_id = r.json()["job_id"]
+        events = _parse_sse(client.get(f"/api/jobs/{job_id}/stream").text)
+        done = next(d for n, d in events if n == "done")["result"]
+
+        # The returned skeleton carries the SWAPPED key, not the AI's original.
+        template = done["skeleton"]["maps"][0]["subject"]["template"]
+        assert template == "exr:point/{scan_id}"
+
+        ann = done["annotations"]["maps"]["point"]
+        # Re-annotated against the new key: no more measurement caution.
+        assert ann["key_measurement_caution"] is False
+        assert ann["key_columns"] == ["scan_id"]
+        fix = ann["applied_key_fix"]
+        assert fix["from"] == ["2theta"]
+        assert fix["to"] == ["scan_id"]
+        assert fix["reason"] == "measurement-id"
+        assert fix["template_from"] == "exr:point/{2theta}"
+        assert fix["template_to"] == "exr:point/{scan_id}"
+        # NOTE (reported, not "fixed" here): the new key is unique with no
+        # caution, so `_annotate_map` suppresses `key_candidates` entirely
+        # (same rule as the plain-unique-text-key case) — the AI's original
+        # key does NOT reappear as a one-click-revert chip. See the worker's
+        # final report.
+        assert ann["key_candidates"] == []
+
+
+def test_skeleton_validate_never_applies_key_safety_fix(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    """A human-edited skeleton is re-checked as-is — the safety swap belongs
+    ONLY to the fresh-from-the-AI response; /skeleton/validate must never
+    silently rewrite what a human just typed."""
+    app = build_app(
+        _settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False
+    )
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/propose/skeleton/validate",
+            data={"skeleton": json.dumps(_UNSAFE_KEY_SKELETON)},
+            files={"files": ("scan.csv", _UNSAFE_KEY_CSV, "text/csv")},
+        )
+        assert r.status_code == 200, r.text
+        ann = r.json()["annotations"]["maps"]["point"]
+        # The caution is shown as-is — the key is untouched.
+        assert ann["key_measurement_caution"] is True
+        assert ann["key_columns"] == ["2theta"]
+        assert "applied_key_fix" not in ann
+
+
+def test_propose_skeleton_falls_back_to_the_ai_key_when_re_annotate_fails(
+    tmp_path: Path, healthy_client: OxigraphClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If pass 2 (re-annotating the SWAPPED skeleton) blows up, the response
+    must never carry the swapped key without its evidence — an unexplained key
+    change is worse than the caution it was trying to fix. Falls all the way
+    back to the AI's original skeleton, with annotations=None (existing
+    best-effort contract)."""
+    from asterism_step0.skeleton_annotate import annotate_skeleton as real_annotate_skeleton
+
+    import asterism_api.main as main_mod
+
+    calls = {"n": 0}
+
+    def flaky_annotate_skeleton(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] >= 2:
+            raise RuntimeError("boom on re-annotate")
+        return real_annotate_skeleton(*args, **kwargs)
+
+    monkeypatch.setattr(main_mod, "annotate_skeleton", flaky_annotate_skeleton)
+
+    app = build_app(
+        _settings(tmp_path),
+        oxigraph_client=healthy_client,
+        start_watcher=False,
+        llm_factory=lambda key: _UnsafeKeyMock(key),
+    )
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/propose/skeleton",
+            data={"domain": "xrd scans"},
+            files={"files": ("scan.csv", _UNSAFE_KEY_CSV, "text/csv")},
+        )
+        job_id = r.json()["job_id"]
+        events = _parse_sse(client.get(f"/api/jobs/{job_id}/stream").text)
+        done = next(d for n, d in events if n == "done")["result"]
+
+        assert calls["n"] >= 2  # pass 1 succeeded, pass 2 was the one that failed
+        # The AI's ORIGINAL template ships — not the swapped-but-unexplained one.
+        template = done["skeleton"]["maps"][0]["subject"]["template"]
+        assert template == "exr:point/{2theta}"
+        assert done["annotations"] is None
+
+
 def test_propose_continue_assembles_and_converges(
     tmp_path: Path, healthy_client: OxigraphClient
 ) -> None:

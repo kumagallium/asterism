@@ -391,6 +391,17 @@ export interface SkeletonMapAnnotation {
     measurement_only: boolean
     scoped?: boolean
   }[]
+  /** Set when the server already swapped a measurement-only key (K7) for its
+   *  own proven-safe candidate before this response was ever sent — the "safe
+   *  key before the gate" follow-up. Never present on a human-edited skeleton
+   *  (never computed by /api/propose/skeleton/validate). */
+  applied_key_fix?: {
+    from: string[]
+    to: string[]
+    reason: string
+    template_from?: string
+    template_to?: string
+  }
 }
 
 /** The skeleton's minted namespace pair as the server recognizes it (kantan
