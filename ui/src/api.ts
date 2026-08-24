@@ -1081,6 +1081,8 @@ export interface ColumnOrigin {
 }
 
 export interface SourceSamples {
+  /** Per persisted source, preserving duplicate column names across files. */
+  sources: Record<string, Record<string, string[]>>
   /** Up to 3 real values per column. */
   columns: Record<string, string[]>
   /** Only the columns the reader synthesized — a header column is absent. */
@@ -1098,16 +1100,22 @@ export async function fetchSourceSamples(datasetId: string): Promise<SourceSampl
   })
   if (!res.ok) await throwApiError(res, 'source samples')
   const body = (await res.json()) as {
+    sources?: Record<string, Record<string, string[]>>
     columns?: Record<string, string[]>
     origins?: Record<string, ColumnOrigin>
   }
-  return { columns: body.columns ?? {}, origins: body.origins ?? {} }
+  return {
+    sources: body.sources ?? {},
+    columns: body.columns ?? {},
+    origins: body.origins ?? {},
+  }
 }
 
 /** One human correction to what a column MEANS or the unit it is in (K8). */
 export interface DisplayMetaEdit {
   predicate: string
   map?: string
+  source?: string
   column?: string
   label?: string
   unit?: string
@@ -1126,6 +1134,47 @@ export async function saveDisplayMeta(
   })
   if (!res.ok) await throwApiError(res, 'display meta')
   return ((await res.json()) as { changed?: string[] }).changed ?? []
+}
+
+export type ColumnDecisionAction = 'include' | 'exclude'
+
+/** A human decision about a source column the generated mapping left unused. */
+export interface ColumnDecision {
+  source: string
+  column: string
+  action: ColumnDecisionAction
+  map?: string
+  label?: string
+  unit?: string
+}
+
+export interface ColumnDecisionResult {
+  changed: string[]
+  proposal_md: string
+  requires_reingest: boolean
+}
+
+export async function fetchColumnDecisions(datasetId: string): Promise<ColumnDecision[]> {
+  const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/column-decisions`, {
+    headers: authHeaders(),
+  })
+  if (!res.ok) await throwApiError(res, 'column decisions')
+  return ((await res.json()) as { decisions?: ColumnDecision[] }).decisions ?? []
+}
+
+/** Save all unresolved-column choices. Includes change the mapping deterministically;
+ * exclusions only record the human's decision. No LLM is called. */
+export async function saveColumnDecisions(
+  datasetId: string,
+  decisions: ColumnDecision[],
+): Promise<ColumnDecisionResult> {
+  const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/column-decisions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ decisions }),
+  })
+  if (!res.ok) await throwApiError(res, 'column decisions')
+  return (await res.json()) as ColumnDecisionResult
 }
 
 /** One context literal of the trial "top" entity ("試料名: BiTe-04"). */

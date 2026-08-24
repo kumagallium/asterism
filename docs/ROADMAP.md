@@ -4,7 +4,7 @@
 >
 > **このリポジトリで作業するセッション（Claude Code / Cowork / 人）は、開始時に本書を読み、作業後に状態を更新すること。** 手順は [`CLAUDE.md`](../CLAUDE.md) 参照。
 
-最終更新: 2026-08-17
+最終更新: 2026-08-23
 
 ## 北極星
 
@@ -69,6 +69,8 @@
 - 線形・限定の作業（例: Asterism 改名 change-set）は通常実行で十分。
 
 ## 更新 log
+
+- 2026-08-21: **「項目の意味」を AI 再試行から人間判断へ分離（ADR K22・branch `fix/item-meaning-ui`）**。未使用列 advisory だけでは S5 の AI 修正カードを出さず、S6 に実例付きの「取り込む／取り込まない」表を表示。取り込む列は意味・単位・所属するまとまりを人が指定し、`POST /api/datasets/{id}/column-decisions` が Mapping IR に決定論的な raw passthrough property を追加して通常の検証後に再取り込みする。取り込まない判断も dataset に保存し、確認済み advisory だけを fail-closed で抑制。判断は `source + column` 単位で同名列を混同せず、AI refine 後も再主張する。自由記述 AI 修正は「項目の分け方・つながり」の折りたたみに限定。数値型は bounded sample で決めず全セル走査の既存規則を再利用し、装置ファイルは Mapping IR に固定した dialect で検査する。レビュー 3 指摘（refine 後の datatype 復元＝判断に `map_class`/`datatype` をサーバ確定で永続化・map 改名時の再主張＝class→exact name→source 唯一の fallback 解決・predicate 衝突回避の全 map 横断化）も解消。検証（08-23 引き継ぎで完了）＝step0 642 / api 519・UI build / i18n parity / lint（既存 warning 1 件のみ）緑・自動再主張のみを検証する中間アサートと map_class なし fallback 経路のテストを追加・実 api＋実ブラウザで compiled ID（`ReadingMap`）による include 保存 200→canonical 正規化→判断永続化→Mapping IR に `fallback: true` property→構造図に `hasOperatorNote xsd_string` 表示まで一周。残＝UI 実物スクショのユーザー OK（マージ前提条件）。
 
 - 2026-08-17: **設計中のソースをサーバに置く — ドロップした瞬間から（ADR 新設 `source-staging.md`・branch `feat/source-staging`）**。ユーザーの問い「そもそもデータソースが消える構造だったのか？永続化されるべきでは？」への答え。事実＝**S5 保存以降は `registry/<dataset>/source/` に永続、S1〜S4 だけブラウザ 1 タブが唯一の持ち主**（ジョブごとに一時 dir へ上げて削除・同じファイルを 4〜5 回再アップロード）。プラットフォームの制約ではなくコードの書き方（デスクトップは「サーバ＝自分のディスク」・web にもディスクはある）。決定＝**P1** `POST /api/staging`（write-gated）が `registry_root/_staging/<uuid4>/` に **1 回だけ**書く（`raw/`＝受け取ったまま／ルート＝設計用の正規形／`meta.json`）**P2** inspect/propose/skeleton/validate/continue が `staging_id` を `files` の代わりに受理（`_design_sources()` → `(work_dir, paths, owned)`・staging は削除しない）**P3** attach が `staging_id` を受け `raw/` を UploadFile に包み直して **同じ変換器**へ→`source/` が正本になり staging は消費**P4** DELETE／消費／TTL 7 日 sweep・id は uuid4 厳密検証（path になり得ない capability）**P5** クライアントは drop 直後に stage（失敗は無視＝従来経路）・以降 `stagingId` を渡し **files を送らない**・`hasSource` が全ゲートの基準・snapshot に id・mount で alive 確認・やり直しで unstage**P6** #369 の IndexedDB 複製は受け皿として残す（両方あれば staging 優先・再ステージしない）。検証＝api 389 緑（+6）・UI build/lint 緑・**実 api＋実ブラウザで一周**（実 XRD カード drop→`POST /api/staging` 200 正規名 `xrd-17961dd6.txt`→骨格を置き **IndexedDB を削除して**リロード→**S4 直行**・再検査が `staging_id` だけで走り証拠/行の置き場/AI 相談が全部出る→「戻ってやり直す」S2（保持）→「選び直す」で staging 404）。**罠**: `asterism_api.local` のデータ dir は `ASTERISM_LOCAL_HOME`（`ASTERISM_HOME` ではない）＝検証中に一度だけ実データ dir へ書いてしまい即消去。
 - 2026-08-17: **デスクトップ更新を Graphium 型のバナーに（ADR `local-first-distribution.md` §6.2・branch `feat/desktop-update-banner`）**。ユーザー報告「Graphium は UI 上部にボタンが出る。asterism はメニューの中から選ぶので手間」。真因＝窓がリモートループバック URL で、Tauri はリモートオリジンに capability が名指ししない限り IPC を許さない → **シェルが起動時にその 1 オリジン（ポート込み）へ runtime capability を登録**（`grant_spa_update_ipc`: `updater:default`・`process:allow-restart`・`core:resources:allow-close` のみ。endpoints/公開鍵は conf 固定＝ページは正規署名リリースの導入と再起動しかできない）。SPA＝`ui/src/desktop/updater.ts`+`UpdateBanner.tsx`（Graphium の `lib/updater.ts`+`UpdateBanner.tsx` と同形: 起動 5 秒後＋24h ごと `check()`→最上部全幅バナー［今すぐ確認］［再起動して更新］→`downloadAndInstall`（進捗 %）→`relaunch`・Tauri JS は dynamic import で web 版は未読込）。設定→このアプリの「今すぐ確認」も IPC 経由（ブラウザ閲覧時だけ api の報告のみに fallback）。起動時ネイティブ modal は撤去、メニュー項目は fallback で温存。検証＝cargo check/clippy/fmt・tsc/eslint/vite build 緑・**実機一周**（版数 0.1.0 の debug .app＝乱数ポート 57245 でバナー→28%→100%→差し替え→再起動後 `app_version 0.15.0`/`update_available false`）。**罠＝`tauri dev` 生バイナリで更新を押すと `target/debug/` ごと差し替えに行く**（検証は .app で）。

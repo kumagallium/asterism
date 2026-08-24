@@ -23,7 +23,7 @@ import yaml
 from fastapi.testclient import TestClient
 
 from asterism_api import staging
-from asterism_api.main import build_app
+from asterism_api.main import _without_confirmed_exclusion_advisories, build_app
 from tests.test_main import (  # noqa: F401  (healthy_client is a fixture)
     _AUTH,
     _FIX_RECIPE_MD,
@@ -244,7 +244,20 @@ def test_display_meta_edits_the_design_and_shows_up_in_the_rules(
     tmp_path: Path, healthy_client
 ) -> None:
     with _client(tmp_path, healthy_client) as client:
-        ds_id = _dataset_with_source(client)
+        ds_id = client.post(
+            "/api/materialize", json={"proposal_md": _FIX_RECIPE_MD, "dataset_name": "sensor"}
+        ).json()["dataset"]["id"]
+        attached = client.post(
+            f"/api/datasets/{ds_id}/source",
+            files={
+                "files": (
+                    "readings.csv",
+                    b"reading_id,channel,amplitude,unused\nr1,A,1.5,x\n",
+                    "text/csv",
+                )
+            },
+        )
+        assert attached.status_code == 200, attached.text
         before = client.get(f"/api/datasets/{ds_id}").json()["artifacts"]["mapping.rml.ttl"]
         r = client.post(
             f"/api/datasets/{ds_id}/display-meta",
@@ -292,12 +305,52 @@ def test_display_meta_is_remembered_as_the_humans_and_is_write_gated(
     (ADR data-facts-invariant N6); the edit itself is a registry write."""
     with _client(tmp_path, healthy_client) as client:
         ds_id = _dataset_with_source(client)
-        client.post(
+        label = client.post(
             f"/api/datasets/{ds_id}/display-meta",
-            json={"edits": [{"predicate": "sn:channel", "label": "測定チャンネル"}]},
+            json={
+                "edits": [
+                    {
+                        "predicate": "sn:channel",
+                        "source": "readings.csv",
+                        "column": "channel",
+                        "label": "測定チャンネル",
+                    }
+                ]
+            },
         )
+        assert label.status_code == 200, label.text
+        unit = client.post(
+            f"/api/datasets/{ds_id}/display-meta",
+            json={
+                "edits": [
+                    {
+                        "predicate": "sn:channel",
+                        "source": "readings.csv",
+                        "column": "channel",
+                        "unit": "code",
+                    }
+                ]
+            },
+        )
+        assert unit.status_code == 200, unit.text
         memo = json.loads((tmp_path / "registry" / ds_id / "display-meta.json").read_text())
         assert memo["edits"][0]["label"] == "測定チャンネル"
+        assert memo["edits"][0]["unit"] == "code"
+        restored = client.post(
+            "/api/materialize",
+            json={
+                "proposal_md": _FIX_RECIPE_MD,
+                "dataset_name": "sensor",
+                "dataset_id": ds_id,
+            },
+        )
+        assert restored.status_code == 200, restored.text
+        ir = yaml.safe_load(
+            client.get(f"/api/datasets/{ds_id}").json()["artifacts"]["mapping.yaml"]
+        )
+        channel = next(p for p in ir["maps"][0]["properties"] if p.get("column") == "channel")
+        assert channel["label"] == "測定チャンネル"
+        assert channel["unit"] == "code"
 
     app = build_app(_settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False)
     with TestClient(app) as no_token:  # deliberately no token
@@ -322,6 +375,547 @@ def test_display_meta_refuses_an_empty_batch_and_an_unknown_dataset(
             json={"edits": [{"predicate": "sn:channel", "label": "x"}]},
         )
         assert r.status_code == 404
+
+
+def test_column_decision_include_persists_reprojects_and_is_readable(
+    tmp_path: Path, healthy_client
+) -> None:
+    with _client(tmp_path, healthy_client) as client:
+        ds_id = _dataset_with_source(client)
+        before = client.get(f"/api/datasets/{ds_id}").json()["artifacts"]["mapping.rml.ttl"]
+        r = client.post(
+            f"/api/datasets/{ds_id}/column-decisions",
+            json={
+                "decisions": [
+                    {
+                        "source": "readings.csv",
+                        # This is the id exposed by /rules; the API stores the
+                        # canonical §9 map name ("reading").
+                        "map": "ReadingMap",
+                        "column": "reading_id",
+                        "action": "include",
+                        "label": "Reading identifier",
+                    }
+                ]
+            },
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["changed"] == ["reading_id"]
+        assert r.json()["requires_reingest"] is True
+        artifacts = client.get(f"/api/datasets/{ds_id}").json()["artifacts"]
+        assert artifacts["mapping.rml.ttl"] != before
+        ir = yaml.safe_load(artifacts["mapping.yaml"])
+        row = next(p for p in ir["maps"][0]["properties"] if p.get("column") == "reading_id")
+        assert row["fallback"] is True and row["label"] == "Reading identifier"
+        decisions = client.get(f"/api/datasets/{ds_id}/column-decisions").json()["decisions"]
+        assert decisions == [
+            {
+                "source": "readings.csv",
+                "map": "reading",
+                "map_class": "https://example.com/sn#Reading",
+                "column": "reading_id",
+                "action": "include",
+                "label": "Reading identifier",
+                "datatype": "xsd:string",
+            }
+        ]
+
+
+def test_column_decision_does_not_type_from_the_bounded_sample(
+    tmp_path: Path, healthy_client
+) -> None:
+    rows = [
+        "reading_id,channel,amplitude,mixed",
+        *(f"r{i},A,1.5,{i}" for i in range(200)),
+        "last,A,1.5,not-a-number",
+    ]
+    with _client(tmp_path, healthy_client) as client:
+        ds_id = client.post(
+            "/api/materialize", json={"proposal_md": _FIX_RECIPE_MD, "dataset_name": "sensor"}
+        ).json()["dataset"]["id"]
+        attached = client.post(
+            f"/api/datasets/{ds_id}/source",
+            files={"files": ("readings.csv", "\n".join(rows).encode(), "text/csv")},
+        )
+        assert attached.status_code == 200, attached.text
+
+        response = client.post(
+            f"/api/datasets/{ds_id}/column-decisions",
+            json={
+                "decisions": [
+                    {
+                        "source": "readings.csv",
+                        "map": "reading",
+                        "column": "mixed",
+                        "action": "include",
+                        "label": "Mixed value",
+                    }
+                ]
+            },
+        )
+        assert response.status_code == 200, response.text
+        artifacts = client.get(f"/api/datasets/{ds_id}").json()["artifacts"]
+        ir = yaml.safe_load(artifacts["mapping.yaml"])
+        row = next(p for p in ir["maps"][0]["properties"] if p.get("column") == "mixed")
+        assert row["datatype"] == "xsd:string"
+
+
+def test_column_decision_uses_the_mapping_pinned_source_dialect(
+    tmp_path: Path, healthy_client
+) -> None:
+    design = """## Schema proposal
+
+### 9. Declarative mapping spec
+```yaml
+version: 1
+prefixes:
+  ex: "https://example.com/datasets/instrument/ontology#"
+  exr: "https://example.com/datasets/instrument/resource/"
+dialects:
+  data.txt:
+    encoding: utf-8
+    delimiter: "\\t"
+    skip_rows: 1
+    preamble: lines
+maps:
+  - name: point
+    source: data.txt
+    subject:
+      template: "exr:point/{angle}"
+      classes: [ex:Point]
+    properties:
+      - predicate: ex:angle
+        column: angle
+```
+"""
+    source = b"sample-1\nangle\tintensity\n1\t10\n2\t20\n"
+    with _client(tmp_path, healthy_client) as client:
+        ds_id = client.post(
+            "/api/materialize", json={"proposal_md": design, "dataset_name": "instrument"}
+        ).json()["dataset"]["id"]
+        attached = client.post(
+            f"/api/datasets/{ds_id}/source",
+            files={"files": ("data.txt", source, "text/plain")},
+        )
+        assert attached.status_code == 200, attached.text
+
+        response = client.post(
+            f"/api/datasets/{ds_id}/column-decisions",
+            json={
+                "decisions": [
+                    {
+                        "source": "data.txt",
+                        "map": "point",
+                        "column": "preamble_1",
+                        "action": "include",
+                        "label": "Sample name",
+                    }
+                ]
+            },
+        )
+        assert response.status_code == 200, response.text
+        artifacts = client.get(f"/api/datasets/{ds_id}").json()["artifacts"]
+        ir = yaml.safe_load(artifacts["mapping.yaml"])
+        assert any(
+            p.get("column") == "preamble_1" and p.get("label") == "Sample name"
+            for p in ir["maps"][0]["properties"]
+        )
+
+
+def test_column_decision_exclude_only_does_not_change_the_mapping(
+    tmp_path: Path, healthy_client
+) -> None:
+    with _client(tmp_path, healthy_client) as client:
+        ds_id = client.post(
+            "/api/materialize", json={"proposal_md": _FIX_RECIPE_MD, "dataset_name": "sensor"}
+        ).json()["dataset"]["id"]
+        attached = client.post(
+            f"/api/datasets/{ds_id}/source",
+            files={
+                "files": (
+                    "readings.csv",
+                    b"reading_id,channel,amplitude,unused\nr1,A,1.5,x\n",
+                    "text/csv",
+                )
+            },
+        )
+        assert attached.status_code == 200, attached.text
+        before = client.get(f"/api/datasets/{ds_id}").json()["artifacts"]["mapping.rml.ttl"]
+        r = client.post(
+            f"/api/datasets/{ds_id}/column-decisions",
+            json={
+                "decisions": [
+                    {
+                        "source": "readings.csv",
+                        "map": "reading",
+                        "column": "unused",
+                        "action": "exclude",
+                    }
+                ]
+            },
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["changed"] == []
+        assert r.json()["requires_reingest"] is False
+        dataset = client.get(f"/api/datasets/{ds_id}").json()
+        assert dataset["artifacts"]["mapping.rml.ttl"] == before
+        assert all("unused" not in advisory for advisory in dataset["meta"]["advisories"])
+
+
+def test_column_decision_can_exclude_a_column_from_an_unmapped_source(
+    tmp_path: Path, healthy_client
+) -> None:
+    with _client(tmp_path, healthy_client) as client:
+        ds_id = client.post(
+            "/api/materialize", json={"proposal_md": _FIX_RECIPE_MD, "dataset_name": "sensor"}
+        ).json()["dataset"]["id"]
+        attached = client.post(
+            f"/api/datasets/{ds_id}/source",
+            files=[
+                ("files", ("readings.csv", _READINGS, "text/csv")),
+                ("files", ("notes.csv", b"memo\nignore me\n", "text/csv")),
+            ],
+        )
+        assert attached.status_code == 200, attached.text
+        response = client.post(
+            f"/api/datasets/{ds_id}/column-decisions",
+            json={
+                "decisions": [
+                    {
+                        "source": "notes.csv",
+                        "column": "memo",
+                        "action": "exclude",
+                    }
+                ]
+            },
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["changed"] == []
+        assert client.get(f"/api/datasets/{ds_id}/column-decisions").json()["decisions"] == [
+            {"source": "notes.csv", "column": "memo", "action": "exclude"}
+        ]
+
+
+def test_excluded_column_stays_out_after_a_later_redesign(
+    tmp_path: Path, healthy_client
+) -> None:
+    source = b"reading_id,channel,amplitude,secret\nr1,A,1.5,x\nr2,B,2.5,y\n"
+    with _client(tmp_path, healthy_client) as client:
+        ds_id = client.post(
+            "/api/materialize", json={"proposal_md": _FIX_RECIPE_MD, "dataset_name": "sensor"}
+        ).json()["dataset"]["id"]
+        assert (
+            client.post(
+                f"/api/datasets/{ds_id}/source",
+                files={"files": ("readings.csv", source, "text/csv")},
+            ).status_code
+            == 200
+        )
+        excluded = client.post(
+            f"/api/datasets/{ds_id}/column-decisions",
+            json={
+                "decisions": [
+                    {"source": "readings.csv", "column": "secret", "action": "exclude"}
+                ]
+            },
+        )
+        assert excluded.status_code == 200, excluded.text
+        rewritten = _FIX_RECIPE_MD.replace(
+            "      - predicate: sn:amplitude\n        column: amplitude",
+            "      - predicate: sn:amplitude\n"
+            "        column: amplitude\n"
+            "      - predicate: sn:secret\n"
+            "        column: secret",
+        )
+        redesigned = client.post(
+            "/api/materialize",
+            json={
+                "proposal_md": rewritten,
+                "dataset_name": "sensor",
+                "dataset_id": ds_id,
+            },
+        )
+        assert redesigned.status_code == 200, redesigned.text
+        ir = yaml.safe_load(
+            client.get(f"/api/datasets/{ds_id}").json()["artifacts"]["mapping.yaml"]
+        )
+        assert all(p.get("column") != "secret" for p in ir["maps"][0]["properties"])
+
+
+def test_materialize_reports_an_unsafe_exclusion_as_422(
+    tmp_path: Path, healthy_client
+) -> None:
+    source = b"reading_id,secret\nr1,x\nr2,y\n"
+    with _client(tmp_path, healthy_client) as client:
+        ds_id = client.post(
+            "/api/materialize", json={"proposal_md": _FIX_RECIPE_MD, "dataset_name": "sensor"}
+        ).json()["dataset"]["id"]
+        assert (
+            client.post(
+                f"/api/datasets/{ds_id}/source",
+                files={"files": ("readings.csv", source, "text/csv")},
+            ).status_code
+            == 200
+        )
+        excluded = client.post(
+            f"/api/datasets/{ds_id}/column-decisions",
+            json={
+                "decisions": [
+                    {"source": "readings.csv", "column": "secret", "action": "exclude"}
+                ]
+            },
+        )
+        assert excluded.status_code == 200, excluded.text
+        rewritten = _FIX_RECIPE_MD.replace(
+            "      - predicate: sn:channel\n"
+            "        column: channel\n"
+            "      - predicate: sn:amplitude\n"
+            "        column: amplitude",
+            "      - predicate: sn:secret\n        column: secret",
+        )
+        response = client.post(
+            "/api/materialize",
+            json={
+                "proposal_md": rewritten,
+                "dataset_name": "sensor",
+                "dataset_id": ds_id,
+            },
+        )
+        assert response.status_code == 422, response.text
+        assert "cannot be removed safely" in response.text
+
+
+def test_latest_display_meta_wins_when_an_included_map_is_renamed(
+    tmp_path: Path, healthy_client
+) -> None:
+    with _client(tmp_path, healthy_client) as client:
+        ds_id = _dataset_with_source(client)
+        original_decision = {
+            "source": "readings.csv",
+            "map": "reading",
+            "column": "reading_id",
+            "action": "include",
+            "label": "Old meaning",
+            "unit": "m",
+        }
+        included = client.post(
+            f"/api/datasets/{ds_id}/column-decisions",
+            json={"decisions": [original_decision]},
+        )
+        assert included.status_code == 200, included.text
+        edited = client.post(
+            f"/api/datasets/{ds_id}/display-meta",
+            json={
+                "edits": [
+                    {
+                        "predicate": "sn:hasReadingId",
+                        "source": "readings.csv",
+                        "column": "reading_id",
+                        "label": "New meaning",
+                        "unit": "cm",
+                    }
+                ]
+            },
+        )
+        assert edited.status_code == 200, edited.text
+
+        renamed_design = _FIX_RECIPE_MD.replace("- name: reading", "- name: reading_v2")
+        redesigned = client.post(
+            "/api/materialize",
+            json={
+                "proposal_md": renamed_design,
+                "dataset_name": "sensor",
+                "dataset_id": ds_id,
+            },
+        )
+        assert redesigned.status_code == 200, redesigned.text
+        # The rename itself must trigger the automatic re-assertion inside
+        # /api/materialize (human_decisions replayed via
+        # apply_column_decisions_to_document, BEFORE any second POST to
+        # /column-decisions below patches things up). Assert on the artifacts
+        # this materialize call alone produced.
+        reasserted_ir = yaml.safe_load(
+            client.get(f"/api/datasets/{ds_id}").json()["artifacts"]["mapping.yaml"]
+        )
+        assert reasserted_ir["maps"][0]["name"] == "reading_v2"
+        reasserted_row = next(
+            p
+            for p in reasserted_ir["maps"][0]["properties"]
+            if p.get("column") == "reading_id"
+        )
+        assert reasserted_row["fallback"] is True
+        assert reasserted_row["datatype"] == "xsd:string"
+        retried = client.post(
+            f"/api/datasets/{ds_id}/column-decisions",
+            json={"decisions": [original_decision]},
+        )
+        assert retried.status_code == 200, retried.text
+        artifacts = client.get(f"/api/datasets/{ds_id}").json()["artifacts"]
+        ir = yaml.safe_load(artifacts["mapping.yaml"])
+        assert ir["maps"][0]["name"] == "reading_v2"
+        row = next(p for p in ir["maps"][0]["properties"] if p.get("column") == "reading_id")
+        assert row["label"] == "New meaning"
+        assert row["unit"] == "cm"
+
+
+def test_exclusion_advisory_handles_a_column_name_containing_a_comma() -> None:
+    advisory = (
+        "source people.csv has 1 column(s) the mapping never uses: Last, First. "
+        "If a column carries meaning, map it."
+    )
+    assert _without_confirmed_exclusion_advisories(
+        [advisory],
+        [{"source": "people.csv", "column": "Last, First", "action": "exclude"}],
+    ) == []
+
+
+def test_replaced_source_prunes_decisions_for_columns_that_no_longer_exist(
+    tmp_path: Path, healthy_client
+) -> None:
+    with _client(tmp_path, healthy_client) as client:
+        ds_id = client.post(
+            "/api/materialize", json={"proposal_md": _FIX_RECIPE_MD, "dataset_name": "sensor"}
+        ).json()["dataset"]["id"]
+        attached = client.post(
+            f"/api/datasets/{ds_id}/source",
+            files={
+                "files": (
+                    "readings.csv",
+                    b"reading_id,channel,amplitude,old_note\nr1,A,1.5,x\n",
+                    "text/csv",
+                )
+            },
+        )
+        assert attached.status_code == 200, attached.text
+        old = client.post(
+            f"/api/datasets/{ds_id}/column-decisions",
+            json={
+                "decisions": [
+                    {"source": "readings.csv", "column": "old_note", "action": "exclude"}
+                ]
+            },
+        )
+        assert old.status_code == 200, old.text
+        replaced = client.post(
+            f"/api/datasets/{ds_id}/source",
+            files={
+                "files": (
+                    "readings.csv",
+                    b"channel,amplitude,new_note\nA,1.5,x\nB,2.5,y\n",
+                    "text/csv",
+                )
+            },
+        )
+        assert replaced.status_code == 200, replaced.text
+        assert client.get(f"/api/datasets/{ds_id}/column-decisions").json()["decisions"] == []
+        new = client.post(
+            f"/api/datasets/{ds_id}/column-decisions",
+            json={
+                "decisions": [
+                    {"source": "readings.csv", "column": "new_note", "action": "exclude"}
+                ]
+            },
+        )
+        assert new.status_code == 200, new.text
+        assert client.get(f"/api/datasets/{ds_id}/column-decisions").json()["decisions"] == [
+            {"source": "readings.csv", "column": "new_note", "action": "exclude"}
+        ]
+
+
+def test_replaced_source_removes_a_stale_human_added_property(
+    tmp_path: Path, healthy_client
+) -> None:
+    with _client(tmp_path, healthy_client) as client:
+        ds_id = client.post(
+            "/api/materialize", json={"proposal_md": _FIX_RECIPE_MD, "dataset_name": "sensor"}
+        ).json()["dataset"]["id"]
+        first = client.post(
+            f"/api/datasets/{ds_id}/source",
+            files={
+                "files": (
+                    "readings.csv",
+                    b"reading_id,channel,amplitude,old_note\nr1,A,1.5,x\n",
+                    "text/csv",
+                )
+            },
+        )
+        assert first.status_code == 200, first.text
+        included = client.post(
+            f"/api/datasets/{ds_id}/column-decisions",
+            json={
+                "decisions": [
+                    {
+                        "source": "readings.csv",
+                        "map": "reading",
+                        "column": "old_note",
+                        "action": "include",
+                        "label": "Old note",
+                    }
+                ]
+            },
+        )
+        assert included.status_code == 200, included.text
+        replaced = client.post(
+            f"/api/datasets/{ds_id}/source",
+            files={
+                "files": (
+                    "readings.csv",
+                    b"reading_id,channel,amplitude\nr1,A,1.5\n",
+                    "text/csv",
+                )
+            },
+        )
+        assert replaced.status_code == 200, replaced.text
+        assert client.get(f"/api/datasets/{ds_id}/column-decisions").json()["decisions"] == []
+        ir = yaml.safe_load(
+            client.get(f"/api/datasets/{ds_id}").json()["artifacts"]["mapping.yaml"]
+        )
+        assert all(p.get("column") != "old_note" for p in ir["maps"][0]["properties"])
+
+
+def test_column_decisions_are_write_gated_and_reject_unknown_map_or_column(
+    tmp_path: Path, healthy_client
+) -> None:
+    with _client(tmp_path, healthy_client) as client:
+        ds_id = _dataset_with_source(client)
+        for decision in (
+            {
+                "source": "readings.csv",
+                "map": "reading",
+                "column": "not_a_column",
+                "action": "exclude",
+            },
+            {
+                "source": "readings.csv",
+                "map": "nope",
+                "column": "reading_id",
+                "action": "include",
+                "label": "Reading identifier",
+            },
+        ):
+            assert (
+                client.post(
+                    f"/api/datasets/{ds_id}/column-decisions", json={"decisions": [decision]}
+                ).status_code
+                == 422
+            )
+
+    app = build_app(_settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False)
+    with TestClient(app) as no_token:
+        r = no_token.post(
+            f"/api/datasets/{ds_id}/column-decisions",
+            json={
+                "decisions": [
+                    {
+                        "source": "readings.csv",
+                        "map": "reading",
+                        "column": "reading_id",
+                        "action": "exclude",
+                    }
+                ]
+            },
+        )
+        assert r.status_code == 401
 
 
 def test_staging_sheet_selection_is_write_gated(tmp_path: Path, healthy_client) -> None:

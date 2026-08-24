@@ -33,7 +33,7 @@ import {
   type TrialDetail,
   type TrialQueries,
 } from '../api'
-import { plainAdvisories, plainIssues } from '../advisoryPlain'
+import { isMeaningReviewAdvisory, plainAdvisories, plainIssues } from '../advisoryPlain'
 import { TABULAR_ACCEPT } from '../datasetsApi'
 import { detectDatasetNamespace } from '../datasetNamespace'
 import { type UnitResolution, resolveUnit } from '../groundingApi'
@@ -63,7 +63,10 @@ import { SkeletonGate } from '../SkeletonGate'
 import { clearSourceFiles, loadSourceFiles, saveSourceFiles } from '../sourceFileStore'
 import {
   fetchDatasetProposal,
+  fetchColumnDecisions,
   fetchSourceSamples,
+  saveColumnDecisions,
+  type ColumnDecision,
   type ColumnOrigin,
   type PreambleColumn,
   saveDisplayMeta,
@@ -110,6 +113,21 @@ export type GrowFocus = 'append' | 'reingest' | 'grounding'
 type Q1Answer = 'keep' | 'drop'
 type Q2Answer = 'only' | 'elsewhere' | 'unknown'
 type KzStep = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
+
+type ColumnDecisionDraft = {
+  action: '' | ColumnDecision['action']
+  map: string
+  label: string
+  unit: string
+}
+
+function columnDecisionKey(source: string, column: string): string {
+  return `${source}\u001f${column}`
+}
+
+function sourceTail(source: string): string {
+  return source.split(/[\\/]/).pop() ?? source
+}
 
 /** Where the S5 auto chain (save → source persist → draft ingest) restarts. */
 type PipeStage = 'materialize' | 'attach' | 'ingest'
@@ -1004,6 +1022,7 @@ export function KantanWizard({
   const [columnSamples, setColumnSamples] = useState<Record<string, string[]>>(
     snap.columnSamples ?? {},
   )
+  const [sourceSamples, setSourceSamples] = useState<Record<string, Record<string, string[]>>>({})
   // Which columns the reader INVENTED rather than read from the file's header
   // (an instrument preamble broadcast onto every row). Server truth — the
   // convention that names them belongs to the dialect layer, not to a regex
@@ -1025,6 +1044,11 @@ export function KantanWizard({
   /** The save went through but matched no row — a silent revert otherwise. */
   const [metaNoop, setMetaNoop] = useState(false)
   const [metaErr, setMetaErr] = useState('')
+  const [columnDecisionDrafts, setColumnDecisionDrafts] = useState<
+    Record<string, ColumnDecisionDraft>
+  >({})
+  const [columnDecisionSaving, setColumnDecisionSaving] = useState(false)
+  const [columnDecisionErr, setColumnDecisionErr] = useState('')
   const [s6Err, setS6Err] = useState('')
   const [note, setNote] = useState('')
   // What the last "AI に反映して作り直す" was asked to change, and which rows it
@@ -1106,7 +1130,7 @@ export function KantanWizard({
   // and hand it to the AI in one click. Cleared once a fix round starts (the
   // next materialize re-derives them from the design as it then stands).
   const [carriedAdvisories, setCarriedAdvisories] = useState<string[]>(
-    snap.carriedAdvisories ?? [],
+    (snap.carriedAdvisories ?? []).filter((advisory) => !isMeaningReviewAdvisory(advisory)),
   )
   const [seededRedesign, setSeededRedesign] = useState<string | null>(null)
   if (redesignTarget && redesignTarget.datasetId !== seededRedesign) {
@@ -1129,13 +1153,18 @@ export function KantanWizard({
     setPubName(redesignTarget.datasetName) // republish keeps the current name
     setRedesigning(true)
     setReingested(false)
-    setCarriedAdvisories(redesignTarget.advisories ?? [])
+    setCarriedAdvisories(
+      (redesignTarget.advisories ?? []).filter((advisory) => !isMeaningReviewAdvisory(advisory)),
+    )
     setStep(6)
     onRedesignConsumed?.()
   }
 
   const busy =
     inspecting || skeletonBusy || continuing || pipeBusy || refining !== false || publishing
+  const structuralCarriedAdvisories = carriedAdvisories.filter(
+    (advisory) => !isMeaningReviewAdvisory(advisory),
+  )
   useEffect(() => {
     onBusyChange(busy)
   }, [busy, onBusyChange])
@@ -2496,20 +2525,26 @@ export function KantanWizard({
         // legitimately single-purpose. So: show it, and let the human choose —
         // "AI に直してもらう" or "このまま進む" (which resumes at attach).
         const advisories = result.advisories ?? []
+        // An unused column is not an AI repair task: whether it carries meaning
+        // worth publishing is knowledge only the person who owns the file has.
+        // Let ingest finish and ask that question in S6. Other weaknesses (for
+        // example disconnected entities) still stop here because they change the
+        // structure rather than a column's human meaning.
+        const aiAdvisories = advisories.filter((a) => !isMeaningReviewAdvisory(a))
         const docLines = docFails.map((tr) => {
           const head = `${tr.id} ${tr.name}: ${tr.detail}`
           return tr.fix ? `${head}\n  ↳ ${tr.fix.split('\n').join('\n    ')}` : head
         })
-        if (advisories.length > 0 || docLines.length > 0) {
+        if (aiAdvisories.length > 0 || docLines.length > 0) {
           setDesignStop({
             kind: 'weakness',
-            detail: [...advisories, ...docLines].join('\n'),
-            fixLines: [...advisories, ...docLines],
+            detail: [...aiAdvisories, ...docLines].join('\n'),
+            fixLines: [...aiAdvisories, ...docLines],
             // Same plain sentences the catalog shows — one vocabulary for the
             // same finding, wherever the user meets it. Labels come from the
             // dataset's own terms so the names match the S6 table (K4).
             plainLines: [
-              ...plainAdvisories(advisories, rules?.labels).map((a) => a.text),
+              ...plainAdvisories(aiAdvisories, rules?.labels).map((a) => a.text),
               ...designPlainLines(
                 docFails.map((tr) => tr.id),
                 0,
@@ -2645,7 +2680,7 @@ export function KantanWizard({
     setS6Loading(true)
     setS6Err('')
     try {
-      const [r, s, serverSamples] = await Promise.all([
+      const [r, s, serverSamples, savedDecisions] = await Promise.all([
         getDatasetRules(datasetId),
         fetchDraftStats(datasetId).catch(() => null), // the count card is enrichment
         // Real values from the dataset's OWN persisted source. This browser may
@@ -2653,7 +2688,8 @@ export function KantanWizard({
         // resume after a reload, any .xlsx), and without them the evidence
         // column on this screen is blank — on the one screen whose job is to
         // check the design against the data (KZ-B-25).
-        fetchSourceSamples(datasetId).catch(() => ({ columns: {}, origins: {} })),
+        fetchSourceSamples(datasetId),
+        fetchColumnDecisions(datasetId),
       ])
       setRules(r)
       setStats(s)
@@ -2662,7 +2698,21 @@ export function KantanWizard({
       if (Object.keys(serverSamples.columns).length > 0) {
         setColumnSamples((cur) => ({ ...serverSamples.columns, ...cur }))
       }
+      setSourceSamples(serverSamples.sources)
       setColumnOrigins(serverSamples.origins)
+      setColumnDecisionDrafts(
+        Object.fromEntries(
+          savedDecisions.map((decision) => [
+            columnDecisionKey(decision.source, decision.column),
+            {
+              action: decision.action,
+              map: decision.map ?? '',
+              label: decision.label ?? '',
+              unit: decision.unit ?? '',
+            },
+          ]),
+        ),
+      )
       // Coming back from "AI に反映して作り直す": say which columns actually
       // moved. A weak model that ignored the note used to return a table that
       // looks exactly the same, and the only way to find out was to type the
@@ -2729,11 +2779,62 @@ export function KantanWizard({
     if (kzDatasetId) void loadS7(kzDatasetId)
   }
 
-  /** The S6 primary button. A typed-but-unsent note is a correction only the
-   *  human could make — walking past it publishes the wrong meaning and nobody
-   *  is ever told (KZ-B-33). */
-  function onConfirmMeanings() {
+  function updateColumnDecision(
+    source: string,
+    column: string,
+    fallbackMap: string,
+    patch: Partial<ColumnDecisionDraft>,
+  ) {
+    const key = columnDecisionKey(source, column)
+    setColumnDecisionDrafts((current) => {
+      const existing = current[key]
+      return {
+        ...current,
+        [key]: existing
+          ? { ...existing, ...patch }
+          : { action: '', map: fallbackMap, label: '', unit: '', ...patch },
+      }
+    })
+    setColumnDecisionErr('')
+  }
+
+  /** The S6 primary button. Mapped meanings are already saved on blur. Columns
+   *  omitted by the generated design are different: the human must explicitly
+   *  include or exclude each one. Includes update §9 deterministically and then
+   *  re-ingest once; no AI refine is involved. */
+  async function onConfirmMeanings() {
     if (note.trim() !== '' && !window.confirm(t('kantan:s6.noteUnappliedConfirm'))) return
+    if (droppedColumns.length > 0) {
+      if (!kzDatasetId || columnDecisionsIncomplete) return
+      const decisions: ColumnDecision[] = droppedColumns.map(({ source, column, maps }) => {
+        const draft = columnDecisionDrafts[columnDecisionKey(source, column)]!
+        const map = draft.map || maps[0]?.id || ''
+        return {
+          source,
+          column,
+          action: draft.action as ColumnDecision['action'],
+          ...(map ? { map } : {}),
+          ...(draft.action === 'include'
+            ? { label: draft.label.trim(), ...(draft.unit.trim() ? { unit: draft.unit.trim() } : {}) }
+            : {}),
+        }
+      })
+      setColumnDecisionSaving(true)
+      setColumnDecisionErr('')
+      try {
+        const result = await saveColumnDecisions(kzDatasetId, decisions)
+        setProposal(result.proposal_md)
+        if (result.requires_reingest) {
+          await runPipeline('ingest', result.proposal_md)
+          return
+        }
+      } catch (e) {
+        setColumnDecisionErr(errText(e))
+        return
+      } finally {
+        setColumnDecisionSaving(false)
+      }
+    }
     if (redesigning && !reingested) {
       exitRedesign()
       return
@@ -3166,8 +3267,8 @@ export function KantanWizard({
    *  join keys and which side must declare the link); the screen shows the
    *  plain sentences. No stop card to restore: a failure surfaces as fixErr. */
   function fixCarriedAdvisories() {
-    if (carriedAdvisories.length === 0 || !proposal || pipeBusy || refining) return
-    const comment = `${t('workbench:fix.commentIntro')}\n${carriedAdvisories
+    if (structuralCarriedAdvisories.length === 0 || !proposal || pipeBusy || refining) return
+    const comment = `${t('workbench:fix.commentIntro')}\n${structuralCarriedAdvisories
       .map((l) => `- ${l}`)
       .join('\n')}`
     setAiFixCount((c) => c + 1)
@@ -3527,8 +3628,11 @@ export function KantanWizard({
   // (`{Sample name}` inside a template), feed a conversion, or be a join key —
   // counting only the plain ones would accuse the design of dropping columns
   // it does use (DETAIL-GAP-12).
-  const mappedColumns = new Set<string>()
+  const mappedColumnsBySource = new Map<string, Set<string>>()
   for (const m of s6Maps) {
+    const source = sourceTail(m.source ?? '')
+    const mappedColumns = mappedColumnsBySource.get(source) ?? new Set<string>()
+    mappedColumnsBySource.set(source, mappedColumns)
     const terms: RuleTerm[] = [m.subject, ...m.properties]
     while (terms.length > 0) {
       const term = terms.pop()!
@@ -3542,17 +3646,43 @@ export function KantanWizard({
   const missingMeanings = valueRows
     .flatMap((g) => g.rows)
     .filter((r) => readMeaning(r.prop) === '').length
-  // …and the ones the design left out entirely. Only computable when S2 could
-  // read the column list — with no list, nothing is said (never "nothing was
-  // dropped" out of missing information).
-  const droppedColumns =
-    rules && sourceColumns.length > 0
-      ? sourceColumns.filter((col) => !mappedColumns.has(col))
-      : []
+  // …and the ones the design left out entirely. Keep their SOURCE: two files may
+  // both contain "name", and assigning one must never silently assign the other.
+  // The persisted-source response is authoritative; the old flat S2 snapshot is
+  // only a fallback for a temporarily unavailable samples endpoint.
+  const sourceSampleEntries =
+    Object.keys(sourceSamples).length > 0
+      ? Object.entries(sourceSamples)
+      : sourceColumns.length > 0
+        ? [
+            [
+              sourceTail(s6Maps[0]?.source ?? sourceNames[0]?.name ?? ''),
+              Object.fromEntries(sourceColumns.map((column) => [column, columnSamples[column] ?? []])),
+            ] as const,
+          ]
+        : []
+  const droppedColumns = rules
+    ? sourceSampleEntries.flatMap(([source, samples]) =>
+        Object.keys(samples)
+          .filter((column) => !mappedColumnsBySource.get(source)?.has(column))
+          .map((column) => ({
+            source,
+            column,
+            samples: samples[column] ?? [],
+            maps: s6Maps.filter((m) => sourceTail(m.source ?? '') === source),
+          })),
+      )
+    : []
+  const columnDecisionsIncomplete = droppedColumns.some(({ source, column, maps }) => {
+    const draft = columnDecisionDrafts[columnDecisionKey(source, column)]
+    if (!draft?.action) return true
+    return draft.action === 'include' && (!draft.label.trim() || !(draft.map || maps[0]?.id))
+  })
   // Gate ② has nothing to gate while the column table failed to load. The
   // review's no-change exit is not a confirmation, so it keeps working
   // (KZ-B-28).
-  const confirmBlocked = !!s6Err && !rules && !(redesigning && !reingested)
+  const meaningLoadBlocked = !!s6Err && !(redesigning && !reingested)
+  const confirmBlocked = meaningLoadBlocked || columnDecisionSaving || columnDecisionsIncomplete
   // Plain faces of the two S6 failures (load / reflect) — same table as S5.
   const s6Plain = s6Err ? plainError(s6Err) : null
   const refinePlain = refineErr ? plainError(refineErr) : null
@@ -3576,6 +3706,7 @@ export function KantanWizard({
    *  cannot quietly revert it (KZ-B-05 / N6). */
   async function commitMeta(
     p: RuleProperty,
+    source: string,
     column: string,
     field: 'label' | 'unit',
     raw: string,
@@ -3592,6 +3723,7 @@ export function KantanWizard({
       const changed = await saveDisplayMeta(datasetId, [
         {
           predicate: p.predicate_iri || p.predicate,
+          ...(source ? { source: sourceTail(source) } : {}),
           // The column pins WHICH row, when one predicate is bound twice. It is
           // the RESOLVED column, so a value that reaches the graph through a
           // conversion still names the column it came from — the §9 property
@@ -3619,6 +3751,12 @@ export function KantanWizard({
   // identifier is made readable rather than shown raw (KZ-B-06).
   function classLabel(iri: string): string {
     return rules?.labels?.[iri] ?? humanizeLocal(localName(iri))
+  }
+
+  function mapLabel(m: RuleMap): string {
+    const iri = m.subject.class_iris?.[0]
+    const shorthand = m.subject.classes?.[0]
+    return iri ? classLabel(iri) : shorthand ? humanizeLocal(localName(shorthand)) : m.id
   }
 
   /** The heading over one table: the reading sentence K7 asks for («1 行 = 測定»)
@@ -3732,51 +3870,55 @@ export function KantanWizard({
           to guess what to type into the free-text box (user feedback,
           2026-07-24). Plain sentences + one button that hands the AI the raw,
           already-actionable advisory text. */}
-      {redesigning && !stop && !showS5 && refining === false && carriedAdvisories.length > 0 && (
-        <section className="kz-card kz-carried" role="note">
-          <h3 className="kz-title">{t('kantan:redesign.findingsTitle')}</h3>
-          <ul className="kz-stop-plainlist">
-            {/* Names under the same labels the S6 table uses (K4). */}
-            {plainAdvisories(carriedAdvisories, rules?.labels).map((a, i) => (
-              <li key={i}>{a.text}</li>
-            ))}
-          </ul>
-          <p className="kz-note">{t('kantan:redesign.findingsBody')}</p>
-          <div className="kz-actions">
-            <button
-              type="button"
-              onClick={fixCarriedAdvisories}
-              disabled={!isReady || !proposal || busy}
-            >
-              {t('kantan:s5.fix.button')}
-            </button>
-            <button
-              type="button"
-              className="btn btn--ghost btn--sm"
-              onClick={() => setCarriedAdvisories([])}
-              disabled={busy}
-            >
-              {t('kantan:redesign.findingsDismiss')}
-            </button>
-          </div>
-          {!isReady && <AiNotReadyNote onConnect={() => openSettings('ai')} />}
-          {fixErr && (
-            <FixFailure
-              raw={fixErr}
-              plainBody={plainBody(fixErr)}
-              onOpenAiSettings={canOpenAiSettings ? () => openSettings('ai') : undefined}
-            />
-          )}
-          <details className="kz-carried-raw">
-            <summary>{t('gallery:advisory.rawSummary')}</summary>
+      {redesigning &&
+        !stop &&
+        !showS5 &&
+        refining === false &&
+        structuralCarriedAdvisories.length > 0 && (
+          <section className="kz-card kz-carried" role="note">
+            <h3 className="kz-title">{t('kantan:redesign.findingsTitle')}</h3>
             <ul className="kz-stop-plainlist">
-              {carriedAdvisories.map((a, i) => (
-                <li key={i}>{a}</li>
+              {/* Names under the same labels the S6 table uses (K4). */}
+              {plainAdvisories(structuralCarriedAdvisories, rules?.labels).map((a, i) => (
+                <li key={i}>{a.text}</li>
               ))}
             </ul>
-          </details>
-        </section>
-      )}
+            <p className="kz-note">{t('kantan:redesign.findingsBody')}</p>
+            <div className="kz-actions">
+              <button
+                type="button"
+                onClick={fixCarriedAdvisories}
+                disabled={!isReady || !proposal || busy}
+              >
+                {t('kantan:s5.fix.button')}
+              </button>
+              <button
+                type="button"
+                className="btn btn--ghost btn--sm"
+                onClick={() => setCarriedAdvisories([])}
+                disabled={busy}
+              >
+                {t('kantan:redesign.findingsDismiss')}
+              </button>
+            </div>
+            {!isReady && <AiNotReadyNote onConnect={() => openSettings('ai')} />}
+            {fixErr && (
+              <FixFailure
+                raw={fixErr}
+                plainBody={plainBody(fixErr)}
+                onOpenAiSettings={canOpenAiSettings ? () => openSettings('ai') : undefined}
+              />
+            )}
+            <details className="kz-carried-raw">
+              <summary>{t('gallery:advisory.rawSummary')}</summary>
+              <ul className="kz-stop-plainlist">
+                {structuralCarriedAdvisories.map((a, i) => (
+                  <li key={i}>{a}</li>
+                ))}
+              </ul>
+            </details>
+          </section>
+        )}
 
       {stop ? (
         <section className="kz-card kz-stop" role="alert">
@@ -4720,7 +4862,9 @@ export function KantanWizard({
                                 )}
                                 aria-label={t('kantan:s6.editAria', { column })}
                                 disabled={metaSaving || !kzDatasetId}
-                                onBlur={(e) => void commitMeta(p, column, 'label', e.target.value)}
+                                onBlur={(e) =>
+                                  void commitMeta(p, m.source ?? '', column, 'label', e.target.value)
+                                }
                                 onKeyDown={(e) => {
                                   if (e.key === 'Enter') e.currentTarget.blur()
                                 }}
@@ -4746,7 +4890,9 @@ export function KantanWizard({
                                     type="button"
                                     className="btn btn--ghost btn--sm kz-cols-usename"
                                     disabled={metaSaving || !kzDatasetId}
-                                    onClick={() => void commitMeta(p, column, 'label', column)}
+                                    onClick={() =>
+                                      void commitMeta(p, m.source ?? '', column, 'label', column)
+                                    }
                                   >
                                     {t('kantan:s6.useColumnName')}
                                   </button>
@@ -4768,7 +4914,9 @@ export function KantanWizard({
                                 placeholder={t('kantan:s6.unitPlaceholder')}
                                 aria-label={t('kantan:s6.unitAria', { column })}
                                 disabled={metaSaving || !kzDatasetId}
-                                onBlur={(e) => void commitMeta(p, column, 'unit', e.target.value)}
+                                onBlur={(e) =>
+                                  void commitMeta(p, m.source ?? '', column, 'unit', e.target.value)
+                                }
                                 onKeyDown={(e) => {
                                   if (e.key === 'Enter') e.currentTarget.blur()
                                 }}
@@ -4802,17 +4950,174 @@ export function KantanWizard({
           {/* Standing text, not a tooltip: whoever sees a ⚠ must be told what
               it means and that they may continue (KZ-B-04). */}
           {missingMeanings > 0 && <p className="kz-note">{t('kantan:s6.missingMeaning')}</p>}
-          {/* Columns the AI mapped nowhere. A weak model drops them silently,
-              and this table only ever showed what it DID map (DETAIL-GAP-12).
-              Only said when the column list is actually known — never claim
-              "nothing was dropped" from missing information. */}
+          {/* Columns the generated mapping left unused are a HUMAN decision, not
+              an invitation to run the same model again. Every physical
+              source+column gets an explicit include/exclude choice. An include
+              also asks which entity owns the value when more than one map reads
+              that source, then the server adds a raw property deterministically. */}
           {droppedColumns.length > 0 && (
-            <>
-              <p className="kz-note">
-                {t('kantan:s6.droppedColumns', { columns: droppedColumns.join('、') })}
-              </p>
-              <p className="kz-note">{t('kantan:s6.droppedColumnsHint')}</p>
-            </>
+            <div className="kz-unmapped">
+              <h4>{t('kantan:s6.unmappedTitle', { count: droppedColumns.length })}</h4>
+              <p className="kz-note">{t('kantan:s6.unmappedLead')}</p>
+              <div className="kz-preview-tablewrap">
+               <table className="kz-preview-table kz-cols-table">
+                 <thead>
+                   <tr>
+                     <th>{t('kantan:s6.colDecision')}</th>
+                     <th>{t('kantan:s6.colColumn')}</th>
+                     <th>{t('kantan:s6.colMeaning')}</th>
+                     <th>{t('kantan:s6.colUnit')}</th>
+                     <th>{t('kantan:s6.colExamples')}</th>
+                     {multiMap && <th>{t('kantan:s6.colOwner')}</th>}
+                   </tr>
+                 </thead>
+                 <tbody>
+                   {droppedColumns.map(({ source, column, samples, maps }) => {
+                     const key = columnDecisionKey(source, column)
+                     const saved = columnDecisionDrafts[key]
+                     const draft: ColumnDecisionDraft = saved ?? {
+                       action: '',
+                       map: maps[0]?.id ?? '',
+                       label: '',
+                       unit: '',
+                     }
+                     const origin = columnOrigins[column]
+                     const invented = origin !== undefined && !origin.named
+                     return (
+                       <tr key={key} className="kz-attn">
+                         <td>
+                           <select
+                             value={draft.action}
+                             aria-label={t('kantan:s6.decisionAria', { column })}
+                             disabled={columnDecisionSaving}
+                             onChange={(e) =>
+                               updateColumnDecision(source, column, maps[0]?.id ?? '', {
+                                 action: e.target.value as ColumnDecisionDraft['action'],
+                               })
+                             }
+                           >
+                             <option value="">{t('kantan:s6.decisionPending')}</option>
+                             <option value="include" disabled={maps.length === 0}>
+                               {t('kantan:s6.decisionInclude')}
+                             </option>
+                             <option value="exclude">{t('kantan:s6.decisionExclude')}</option>
+                           </select>
+                         </td>
+                         <td className="kz-cols-name">
+                           {invented ? (
+                             <span className="kz-cols-origin">
+                               {t('kantan:s6.fromPreamble', { line: origin.line })}
+                             </span>
+                           ) : (
+                             <>
+                               {column}
+                               {Object.keys(sourceSamples).length > 1 && (
+                                 <span className="kz-cols-origin">{source}</span>
+                               )}
+                             </>
+                           )}
+                         </td>
+                         <td>
+                           <input
+                             type="text"
+                             className="kz-cols-input"
+                             value={draft.label}
+                             placeholder={t(
+                               invented
+                                 ? 'kantan:s6.meaningPlaceholderValue'
+                                 : 'kantan:s6.meaningPlaceholder',
+                             )}
+                             aria-label={t('kantan:s6.editAria', { column })}
+                             disabled={columnDecisionSaving || draft.action !== 'include'}
+                             onChange={(e) =>
+                               updateColumnDecision(source, column, maps[0]?.id ?? '', {
+                                 label: e.target.value,
+                               })
+                             }
+                           />
+                           {draft.action === 'include' && !draft.label.trim() && ' ⚠'}
+                           {draft.action === 'include' && !draft.label.trim() && !invented && (
+                             <button
+                               type="button"
+                               className="btn btn--ghost btn--sm kz-cols-usename"
+                               disabled={columnDecisionSaving}
+                               onClick={() =>
+                                 updateColumnDecision(source, column, maps[0]?.id ?? '', {
+                                   label: column,
+                                 })
+                               }
+                             >
+                               {t('kantan:s6.useColumnName')}
+                             </button>
+                           )}
+                         </td>
+                         <td>
+                           <input
+                             type="text"
+                             className="kz-cols-input kz-cols-input--unit"
+                             size={8}
+                             value={draft.unit}
+                             placeholder={t('kantan:s6.unitPlaceholder')}
+                             aria-label={t('kantan:s6.unitAria', { column })}
+                             disabled={columnDecisionSaving || draft.action !== 'include'}
+                             onChange={(e) =>
+                               updateColumnDecision(source, column, maps[0]?.id ?? '', {
+                                 unit: e.target.value,
+                               })
+                             }
+                           />
+                         </td>
+                         <td className="kz-cols-samples">{samples.join('、')}</td>
+                         {multiMap && (
+                           <td>
+                             {maps.length > 1 ? (
+                               <select
+                                 value={draft.map}
+                                 aria-label={t('kantan:s6.ownerAria', { column })}
+                                 disabled={columnDecisionSaving || draft.action !== 'include'}
+                                 onChange={(e) =>
+                                   updateColumnDecision(source, column, maps[0]?.id ?? '', {
+                                     map: e.target.value,
+                                   })
+                                 }
+                               >
+                                 {maps.map((m) => (
+                                   <option key={m.id} value={m.id}>
+                                     {mapLabel(m)}
+                                   </option>
+                                 ))}
+                               </select>
+                             ) : (
+                               maps[0] ? mapLabel(maps[0]) : t('kantan:s6.ownerUnknown')
+                             )}
+                           </td>
+                         )}
+                       </tr>
+                     )
+                   })}
+                 </tbody>
+               </table>
+              </div>
+              {droppedColumns.some((column) => column.maps.length === 0) && (
+               <p className="kz-note" role="alert">
+                 {t('kantan:s6.unmappedNoOwner')}
+               </p>
+              )}
+              {columnDecisionsIncomplete && (
+               <p className="kz-note">{t('kantan:s6.unmappedIncomplete')}</p>
+              )}
+              {columnDecisionSaving && (
+               <p className="kz-note" role="status">
+                 {t('kantan:s6.unmappedSaving')}
+               </p>
+              )}
+              {columnDecisionErr && (
+               <div role="alert">
+                 <p className="kz-note">{t('kantan:s6.unmappedFailed')}</p>
+                 <p className="kz-note">{plainBody(columnDecisionErr)}</p>
+               </div>
+              )}
+            </div>
           )}
           {linkRows.length > 0 && (
             <details className="kz-links">
@@ -4845,83 +5150,80 @@ export function KantanWizard({
               </ul>
             </details>
           )}
-          <div className="kz-q">
-            <label className="kz-q-text" htmlFor="kz-s6-note">
-              {/* The free-text box is no longer the way to fix a meaning — say
-                  what it IS for, or people keep paying an AI round for a unit
-                  (KZ-B-05). */}
-              {t(s6Maps.length > 0 ? 'kantan:s6.noteLabelEditable' : 'kantan:s6.noteLabel')}
-            </label>
-            <textarea
-              id="kz-s6-note"
-              className="kz-s6-note"
-              rows={2}
-              placeholder={t('kantan:s6.notePlaceholder')}
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-            />
-            <div className="kz-actions">
-              <button
-                type="button"
-                className="btn btn--ghost"
-                onClick={() => void runRefine()}
-                disabled={!note.trim() || refining !== false || !isReady}
-              >
-                {t('kantan:s6.reflect')}
-              </button>
-            </div>
-            {/* "作り直す" reads as "my data gets wiped" the first time through.
-                In a review the banner already says a new version is published,
-                so the reassurance would only add noise (KZ-B-30). */}
-            {!redesigning && <p className="kz-note">{t('kantan:s6.reflectNote')}</p>}
-            {/* Typing a note is the one thing on this screen that needs the AI.
-                Saying so without the way to fix it — and without saying that
-                the table itself can still be confirmed — leaves the reader
-                stuck on a sentence (KZ-B-31 / KZ-A-15). */}
-            {!isReady && note.trim() !== '' && (
-              <>
-                <AiNotReadyNote onConnect={() => openSettings('ai')} />
-                <p className="kz-note">{t('kantan:s6.aiNotReadyOk')}</p>
-              </>
-            )}
-            {/* Plain headline + plain reason + folded raw text, and a line
-                saying the run is not stuck on this (KZ-B-10). */}
-            {refineErr && (
-              <div role="alert">
-                <p className="kz-note">{t('kantan:s6.reflectFailed')}</p>
-                <p className="kz-note">{plainBody(refineErr)}</p>
-                <details className="kz-stop-detail">
-                  <summary>{t('kantan:s5.stop.detailSummary')}</summary>
-                  <pre className="error">{refineErr}</pre>
-                </details>
-                <p className="kz-note">{t('kantan:s6.reflectFailedNext')}</p>
-                {refinePlain?.hint === 'settings' && (
-                  <div className="kz-actions">
-                    <button
-                      type="button"
-                      className="btn btn--ghost btn--sm"
-                      onClick={() => openSettings('server-token')}
-                    >
-                      {t('kantan:s1.openSettings')}
-                    </button>
-                  </div>
-                )}
-                {canOpenAiSettings &&
-                  refinePlain?.title &&
-                  AI_SETUP_TITLES.has(refinePlain.title) && (
+          <details className="kz-links kz-structure-fix">
+            <summary>{t('kantan:s6.structureSummary')}</summary>
+            <div className="kz-q">
+              <label className="kz-q-text" htmlFor="kz-s6-note">
+                {t('kantan:s6.noteLabelEditable')}
+              </label>
+              <textarea
+                id="kz-s6-note"
+                className="kz-s6-note"
+                rows={2}
+                placeholder={t('kantan:s6.notePlaceholder')}
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+              />
+              <div className="kz-actions">
+                <button
+                  type="button"
+                  className="btn btn--ghost"
+                  onClick={() => void runRefine()}
+                  disabled={!note.trim() || refining !== false || !isReady}
+                >
+                  {t('kantan:s6.reflect')}
+                </button>
+              </div>
+              {/* "作り直す" reads as "my data gets wiped" the first time through.
+                  In a review the banner already says a new version is published,
+                  so the reassurance would only add noise (KZ-B-30). */}
+              {!redesigning && <p className="kz-note">{t('kantan:s6.reflectNote')}</p>}
+              {/* Typing a structural note is the one thing on this screen that
+                  needs the AI. Meaning/unit edits and unused-column decisions do
+                  not pass through this path. */}
+              {!isReady && note.trim() !== '' && (
+                <>
+                  <AiNotReadyNote onConnect={() => openSettings('ai')} />
+                  <p className="kz-note">{t('kantan:s6.aiNotReadyOk')}</p>
+                </>
+              )}
+              {refineErr && (
+                <div role="alert">
+                  <p className="kz-note">{t('kantan:s6.reflectFailed')}</p>
+                  <p className="kz-note">{plainBody(refineErr)}</p>
+                  <details className="kz-stop-detail">
+                    <summary>{t('kantan:s5.stop.detailSummary')}</summary>
+                    <pre className="error">{refineErr}</pre>
+                  </details>
+                  <p className="kz-note">{t('kantan:s6.reflectFailedNext')}</p>
+                  {refinePlain?.hint === 'settings' && (
                     <div className="kz-actions">
                       <button
                         type="button"
                         className="btn btn--ghost btn--sm"
-                        onClick={() => openSettings('ai')}
+                        onClick={() => openSettings('server-token')}
                       >
                         {t('kantan:s1.openSettings')}
                       </button>
                     </div>
                   )}
-              </div>
-            )}
-          </div>
+                  {canOpenAiSettings &&
+                    refinePlain?.title &&
+                    AI_SETUP_TITLES.has(refinePlain.title) && (
+                      <div className="kz-actions">
+                        <button
+                          type="button"
+                          className="btn btn--ghost btn--sm"
+                          onClick={() => openSettings('ai')}
+                        >
+                          {t('kantan:s1.openSettings')}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+              )}
+            </div>
+          </details>
           <div className="kz-actions">
             {/* A review session that changed nothing has no staged draft to
                 republish — its confirm exits to the catalog. Once a refine
@@ -4940,7 +5242,7 @@ export function KantanWizard({
               is nothing to confirm, and pressing on would wave through a
               meaning nobody ever saw (KZ-B-28). The review's "nothing changed"
               exit is not a confirmation and stays available. */}
-          {confirmBlocked && <p className="kz-note">{t('kantan:s6.confirmBlocked')}</p>}
+          {meaningLoadBlocked && <p className="kz-note">{t('kantan:s6.confirmBlocked')}</p>}
         </section>
       ) : step === 1 ? (
         <>
