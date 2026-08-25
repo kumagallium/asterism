@@ -37,7 +37,7 @@ from collections.abc import AsyncIterator, Callable, Collection, Mapping
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, Literal
 
 import httpx
 import yaml
@@ -96,8 +96,10 @@ from asterism_step0.propose import LLMClient
 from asterism_step0.refine import refine_schema
 from asterism_step0.skeleton_annotate import annotate_skeleton, apply_key_safety_fix
 from asterism_step0.staged_propose import (
+    apply_column_decisions_to_document,
     apply_display_meta_to_document,
     propose_skeleton,
+    remove_stale_column_includes_from_document,
 )
 from asterism_step0.validate import SchemaBundle, validate_schema
 from fastapi import (
@@ -216,6 +218,7 @@ class DisplayMetaEdit(BaseModel):
 
     predicate: str
     map: str | None = None
+    source: str | None = None
     column: str | None = None
     label: str | None = None
     unit: str | None = None
@@ -225,6 +228,25 @@ class DisplayMetaBody(BaseModel):
     """Body for POST /api/datasets/{id}/display-meta: a batch of S6 corrections."""
 
     edits: list[DisplayMetaEdit] = []
+
+
+class ColumnDecision(BaseModel):
+    """A human decision about one source column left out of the AI proposal."""
+
+    source: str
+    column: str
+    action: Literal["include", "exclude"]
+    map: str | None = None
+    map_class: str | None = None
+    label: str | None = None
+    unit: str | None = None
+    datatype: str | None = None
+
+
+class ColumnDecisionsBody(BaseModel):
+    """Body for POST /api/datasets/{id}/column-decisions."""
+
+    decisions: list[ColumnDecision] = []
 
 
 class RenameRequest(BaseModel):
@@ -2789,12 +2811,41 @@ def _design_source_files(registry_root: Path, dataset_id: str | None) -> list[Pa
 # (ADR data-facts-invariant N6 — a fact a person asserted is not the model's to
 # forget).
 _DISPLAY_META_FILE = "display-meta.json"
+_COLUMN_DECISIONS_FILE = "column-decisions.json"
 
 
 def _display_meta_path(registry_root: Path, dataset_id: str) -> Path | None:
     """``<root>/<id>/display-meta.json``, or None for an unknown/unsafe id."""
     sdir = registry.source_dir(registry_root, dataset_id)
     return None if sdir is None else sdir.parent / _DISPLAY_META_FILE
+
+
+def _source_column_names(
+    paths: list[Path], rml_ttl: str | None
+) -> dict[str, set[str]]:
+    """Read exact current headers for decision reconciliation.
+
+    A source absent from the result was not inspectable and must not cause a
+    persisted decision to be discarded.
+    """
+    try:
+        dialects = _dialected_sources(str(rml_ttl or ""))
+    except _DialectReadError:
+        dialects = {}
+    columns: dict[str, set[str]] = {}
+    for path in paths:
+        if path.suffix.lower() not in _SAMPLEABLE_SUFFIXES:
+            continue
+        try:
+            inspections, _ = inspect_source_set([path], dialects=dialects or None)
+        except Exception:
+            logger.warning("decision reconciliation: %s could not be read", path.name)
+            continue
+        for inspection in inspections:
+            columns[inspection.name] = {
+                column.name for column in getattr(inspection, "columns", []) or []
+            }
+    return columns
 
 
 def _load_display_meta(registry_root: Path, dataset_id: str | None) -> list[dict]:
@@ -2821,7 +2872,17 @@ def _remember_display_meta(registry_root: Path, dataset_id: str, edits: list[dic
         return
     kept = {_display_meta_key(e): e for e in _load_display_meta(registry_root, dataset_id)}
     for edit in edits:
-        kept[_display_meta_key(edit)] = edit
+        key = _display_meta_key(edit)
+        previous = kept.get(key, {})
+        if key[2]:
+            # Upgrade a pre-source memo to the now source-scoped identity so it
+            # cannot keep matching the same predicate+column in every file.
+            legacy_key = (key[0], key[1], "", key[3])
+            previous = {**kept.pop(legacy_key, {}), **previous}
+        kept[key] = {
+            **previous,
+            **{field: value for field, value in edit.items() if value is not None},
+        }
     try:
         path.write_text(
             json.dumps({"edits": list(kept.values())}, ensure_ascii=False, indent=2),
@@ -2831,12 +2892,128 @@ def _remember_display_meta(registry_root: Path, dataset_id: str, edits: list[dic
         logger.exception("could not persist display-meta for %s (continuing)", dataset_id)
 
 
-def _display_meta_key(edit: Mapping[str, object]) -> tuple[str, str, str]:
+def _display_meta_key(edit: Mapping[str, object]) -> tuple[str, str, str, str]:
     return (
         str(edit.get("predicate") or ""),
         str(edit.get("map") or ""),
+        str(edit.get("source") or ""),
         str(edit.get("column") or ""),
     )
+
+
+def _column_decisions_path(registry_root: Path, dataset_id: str) -> Path | None:
+    """``<root>/<id>/column-decisions.json``, or None for an unknown dataset."""
+    sdir = registry.source_dir(registry_root, dataset_id)
+    return None if sdir is None else sdir.parent / _COLUMN_DECISIONS_FILE
+
+
+def _load_column_decisions(registry_root: Path, dataset_id: str | None) -> list[dict]:
+    """The durable human include/exclude decisions for a dataset."""
+    if not dataset_id:
+        return []
+    path = _column_decisions_path(registry_root, dataset_id)
+    if path is None or not path.is_file():
+        return []
+    try:
+        data = json.loads(path.read_text("utf-8"))
+    except (OSError, ValueError):
+        logger.warning("column decisions for %s are unreadable (ignoring)", dataset_id)
+        return []
+    decisions = data.get("decisions") if isinstance(data, dict) else None
+    return [
+        d
+        for d in decisions or []
+        if isinstance(d, dict)
+        and d.get("source")
+        and d.get("column")
+        and d.get("action") in {"include", "exclude"}
+    ]
+
+
+def _column_decision_key(decision: Mapping[str, object]) -> tuple[str, str]:
+    return str(decision.get("source") or ""), str(decision.get("column") or "")
+
+
+def _merge_column_decisions(
+    existing: list[dict], incoming: list[dict]
+) -> list[dict]:
+    """Upsert by physical source column; the latest human statement wins."""
+    merged = {_column_decision_key(d): d for d in existing}
+    for decision in incoming:
+        merged[_column_decision_key(decision)] = decision
+    return list(merged.values())
+
+
+def _remember_column_decisions(
+    registry_root: Path, dataset_id: str, decisions: list[dict]
+) -> None:
+    """Persist the complete upserted decision set after a successful edit."""
+    path = _column_decisions_path(registry_root, dataset_id)
+    if path is None:
+        raise ValueError(f"dataset {dataset_id!r} not found")
+    path.write_text(
+        json.dumps({"decisions": decisions}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+_UNMAPPED_ADVISORY = re.compile(
+    r"^source (?P<source>\S+) has (?P<count>\d+) column\(s\) the mapping never uses: "
+    r"(?P<columns>.+?)\. If a column carries meaning"
+)
+
+
+def _columns_are_confirmed_excluded(
+    shown: str, count: int, candidates: set[str]
+) -> bool:
+    """Parse a comma-joined advisory against exact headers, including commas."""
+
+    def match(offset: int, remaining: int, used: frozenset[str]) -> bool:
+        if remaining == 0:
+            return offset == len(shown)
+        for column in candidates - used:
+            token = column if remaining == 1 else f"{column}, "
+            if shown.startswith(token, offset) and match(
+                offset + len(token), remaining - 1, used | {column}
+            ):
+                return True
+        return False
+
+    return match(0, count, frozenset())
+
+
+def _without_confirmed_exclusion_advisories(
+    advisories: list[str], decisions: list[dict]
+) -> list[str]:
+    """Drop only fully identified, fully excluded unmapped-column notices.
+
+    The source validator deliberately reports at most ten column names.  Do not
+    hide a notice with an ellipsis, a count mismatch, or an unfamiliar shape:
+    any of those might contain a newly unreviewed column.
+    """
+    excluded = {
+        (str(d.get("source")), str(d.get("column")))
+        for d in decisions
+        if d.get("action") == "exclude"
+    }
+    kept: list[str] = []
+    for advisory in advisories:
+        match = _UNMAPPED_ADVISORY.match(advisory)
+        if match is None:
+            kept.append(advisory)
+            continue
+        shown = match.group("columns")
+        source = match.group("source")
+        count = int(match.group("count"))
+        candidates = {
+            column for candidate_source, column in excluded if candidate_source == source
+        }
+        if (
+            "…" in shown
+            or not _columns_are_confirmed_excluded(shown, count, candidates)
+        ):
+            kept.append(advisory)
+    return kept
 
 
 def _artifacts_from_document(
@@ -2895,6 +3072,7 @@ def _design_checks_at_materialize(
     rml_ttl: str | None,
     *,
     source_dir: Path | None = None,
+    column_decisions: list[dict] | None = None,
 ) -> tuple[list[str], list[str]]:
     """Design checks for the materialize response (NEVER raises).
 
@@ -2949,6 +3127,12 @@ def _design_checks_at_materialize(
     except Exception:  # advisory only
         logger.exception("design advisories at materialize failed (continuing)")
         advisories = []
+    decisions = (
+        column_decisions
+        if column_decisions is not None
+        else _load_column_decisions(registry_root, dataset_id)
+    )
+    advisories = _without_confirmed_exclusion_advisories(advisories, decisions)
     if source_dir is None:
         return [], advisories
     try:
@@ -4313,6 +4497,16 @@ def build_app(
             # deterministically and last (ADR data-facts-invariant N6). Without
             # this, "fix the wording of that one column" quietly reverted every
             # correction the person had already made.
+            # Mapping decisions are durable across AI rewrites: restore omitted
+            # includes and remove any newly introduced use of excluded columns.
+            human_decisions = _load_column_decisions(cfg.registry_root, body.dataset_id)
+            if human_decisions:
+                effective_md, _restored = apply_column_decisions_to_document(
+                    effective_md, human_decisions
+                )
+            # Apply the latest meaning/unit after restoring an included row. Its
+            # original column decision carries the first label the person entered;
+            # a later display-meta edit is the newer human statement and must win.
             human_meta = _load_display_meta(cfg.registry_root, body.dataset_id)
             if human_meta:
                 # ValueError = a legacy design with no §9 to re-assert onto.
@@ -4423,6 +4617,16 @@ def build_app(
                 if src_dir is not None and src_dir.is_dir():
                     # (already inside asyncio.to_thread(run) — call directly)
                     proposal_md = design_loop.repair_design(proposal_md, src_dir)
+                human_decisions = _load_column_decisions(cfg.registry_root, body.dataset_id)
+                if human_decisions:
+                    proposal_md, _restored = apply_column_decisions_to_document(
+                        proposal_md, human_decisions
+                    )
+                human_meta = _load_display_meta(cfg.registry_root, body.dataset_id)
+                if human_meta:
+                    proposal_md, _restored = apply_display_meta_to_document(
+                        proposal_md, human_meta
+                    )
                 mat = materialize_schema(
                     proposal_md,
                     tmpdir,
@@ -4570,7 +4774,10 @@ def build_app(
             finally:
                 shutil.rmtree(tmpdir, ignore_errors=True)
 
-        result = await asyncio.to_thread(run)
+        try:
+            result = await asyncio.to_thread(run)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
         return JSONResponse(result)
 
     @app.get("/api/datasets")
@@ -4894,6 +5101,291 @@ def build_app(
             )
             _remember_display_meta(cfg.registry_root, dataset_id, spec)
             return {"dataset_id": dataset_id, "changed": changed, "stored": meta is not None}
+
+        return await asyncio.to_thread(run)
+
+    @app.get("/api/datasets/{dataset_id}/column-decisions")
+    async def get_dataset_column_decisions(dataset_id: str) -> dict[str, object]:
+        """Return the human's durable include/exclude calls for source columns."""
+        if registry.load_dataset(cfg.registry_root, dataset_id) is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        return {
+            "dataset_id": dataset_id,
+            "decisions": _load_column_decisions(cfg.registry_root, dataset_id),
+        }
+
+    @app.post("/api/datasets/{dataset_id}/column-decisions", dependencies=_write_auth)
+    async def set_dataset_column_decisions(
+        dataset_id: str, body: ColumnDecisionsBody
+    ) -> dict[str, object]:
+        """Apply human source-column decisions without an AI or generated code.
+
+        An include adds one raw-passthrough direct property to §9, compiles it
+        through the normal materialize gate, and saves the reprojected artifacts
+        in place. An exclude leaves an already-unused column alone, and removes a
+        later rewrite's attempt to map it.
+        """
+        data = registry.load_dataset(cfg.registry_root, dataset_id)
+        if data is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        incoming = [decision.model_dump(exclude_none=True) for decision in body.decisions]
+        if not incoming:
+            raise HTTPException(422, "at least one column decision is required")
+        for decision in incoming:
+            if not str(decision.get("source") or "").strip():
+                raise HTTPException(422, "a column decision requires a source")
+            if not str(decision.get("column") or "").strip():
+                raise HTTPException(422, "a column decision requires a column")
+            if decision["action"] == "include" and not str(
+                decision.get("map") or ""
+            ).strip():
+                raise HTTPException(422, "a column decision requires a map")
+            if decision["action"] == "include" and not str(decision.get("label") or "").strip():
+                raise HTTPException(422, "an include decision requires a label")
+        proposal_md = registry.load_proposal(cfg.registry_root, dataset_id) or ""
+        if not proposal_md.strip():
+            raise HTTPException(409, f"dataset {dataset_id!r} has no stored design to edit")
+        source_dir = registry.source_dir(cfg.registry_root, dataset_id)
+        if source_dir is None or not source_dir.is_dir():
+            raise HTTPException(409, f"dataset {dataset_id!r} has no persisted source to inspect")
+        mapping_ir_yaml = str((data.get("artifacts") or {}).get("mapping.yaml") or "")
+        try:
+            from asterism_step0.mapping_ir import MappingIRParseError, parse_mapping_ir
+            from asterism_step0.rml_compile import _map_node_name
+
+            mapping_ir = parse_mapping_ir(mapping_ir_yaml)
+        except MappingIRParseError as exc:
+            raise HTTPException(409, "the stored mapping spec could not be read") from exc
+        existing_decisions = _load_column_decisions(cfg.registry_root, dataset_id)
+        existing_by_key = {
+            _column_decision_key(decision): decision for decision in existing_decisions
+        }
+        # /rules exposes the compiled TriplesMap id (``ReadingMap``), while §9
+        # stores the authored map name (``reading``). Accept either at this API
+        # boundary and persist only the §9 name used by the deterministic patch.
+        canonical_maps = {mapping.name: mapping.name for mapping in mapping_ir.maps}
+        canonical_maps.update(
+            {_map_node_name(mapping.name): mapping.name for mapping in mapping_ir.maps}
+        )
+        mappings_by_name = {mapping.name: mapping for mapping in mapping_ir.maps}
+        prefixes = dict(mapping_ir.prefixes)
+
+        def expanded_class(term: str) -> str:
+            head, separator, tail = term.partition(":")
+            namespace = prefixes.get(head) if separator else None
+            return f"{namespace}{tail}" if namespace is not None else term
+
+        for decision in incoming:
+            if decision["action"] == "exclude":
+                # Exclusion belongs to the physical source column, not an RDF
+                # entity. It remains valid even when no map reads the source or a
+                # later structural rewrite renames every map.
+                decision.pop("map", None)
+                decision.pop("map_class", None)
+                decision.pop("datatype", None)
+                continue
+            requested_map = str(decision["map"])
+            previous = existing_by_key.get(_column_decision_key(decision))
+            previous_class = (
+                str(previous.get("map_class") or "").strip()
+                if previous and previous.get("action") == "include"
+                else ""
+            )
+            previous_map = str(previous.get("map") or "") if previous else ""
+            source_maps = [
+                mapping
+                for mapping in mapping_ir.maps
+                if mapping.source == str(decision["source"])
+            ]
+            class_maps = []
+            if previous_class and requested_map == previous_map:
+                wanted_class = expanded_class(previous_class)
+                class_maps = [
+                    mapping
+                    for mapping in source_maps
+                    if wanted_class
+                    in {expanded_class(value) for value in mapping.subject.classes}
+                ]
+            restoring_owner = bool(previous_class and requested_map == previous_map)
+            if restoring_owner and len(class_maps) == 1:
+                canonical_map = class_maps[0].name
+            elif restoring_owner and len(source_maps) == 1:
+                canonical_map = source_maps[0].name
+            elif restoring_owner:
+                canonical_map = None
+            else:
+                canonical_map = canonical_maps.get(requested_map)
+            if canonical_map is None:
+                raise HTTPException(422, f"column decision names unknown map {requested_map!r}")
+            decision["map"] = canonical_map
+            selected_map = mappings_by_name[canonical_map]
+            if selected_map.source != str(decision["source"]):
+                raise HTTPException(
+                    422,
+                    f"column decision source {decision['source']!r} does not match "
+                    f"map {canonical_map!r}",
+                )
+            if selected_map.subject.classes:
+                decision["map_class"] = expanded_class(selected_map.subject.classes[0])
+            else:
+                decision.pop("map_class", None)
+            # Datatypes are established from the persisted source below, never
+            # accepted as a browser assertion.
+            decision.pop("datatype", None)
+
+        def run() -> dict[str, object]:
+            merged_decisions = _merge_column_decisions(existing_decisions, incoming)
+            source_paths = {
+                path.name: path
+                for path in registry.list_source_files(cfg.registry_root, dataset_id)
+            }
+            incoming_sources = {str(d["source"]) for d in incoming}
+            missing_sources = sorted(incoming_sources - set(source_paths))
+            if missing_sources:
+                raise HTTPException(
+                    422, f"dataset source does not contain {missing_sources[0]!r}"
+                )
+            current_decisions = [
+                decision
+                for decision in merged_decisions
+                if str(decision["source"]) in source_paths
+            ]
+            requested_sources = {str(d["source"]) for d in current_decisions}
+            try:
+                inspections, _ = inspect_source_set(
+                    [source_paths[name] for name in sorted(requested_sources)],
+                    dialects=mapping_ir.dialects or None,
+                )
+            except (OSError, UnicodeError, ValueError) as exc:
+                raise HTTPException(422, f"could not inspect dataset source: {exc}") from exc
+            # ColumnSummary.inferred_type is intentionally sample-based and is
+            # unsafe for emitting datatypes. Reuse the full-column scan that the
+            # normal design repair path uses; every other value remains a string.
+            strict_types = design_loop._numeric_types_by_source(source_dir, mapping_ir)
+            source_columns = {
+                inspection.name: {
+                    column.name: strict_types.get(inspection.name, {}).get(
+                        column.name, "xsd:string"
+                    )
+                    for column in inspection.columns
+                }
+                for inspection in inspections
+            }
+            incoming_keys = {_column_decision_key(decision) for decision in incoming}
+            for decision in current_decisions:
+                source = str(decision["source"])
+                column = str(decision["column"])
+                if (
+                    _column_decision_key(decision) in incoming_keys
+                    and column not in source_columns.get(source, {})
+                ):
+                    raise HTTPException(422, f"source {source!r} has no column {column!r}")
+            decisions = [
+                decision
+                for decision in current_decisions
+                if str(decision["column"])
+                in source_columns.get(str(decision["source"]), {})
+            ]
+            for decision in decisions:
+                if decision.get("action") != "include":
+                    decision.pop("datatype", None)
+                    continue
+                source_types = source_columns.get(str(decision["source"]), {})
+                datatype = source_types.get(str(decision["column"]))
+                if datatype:
+                    decision["datatype"] = datatype
+            try:
+                new_md, changed = apply_column_decisions_to_document(
+                    proposal_md, decisions, source_columns=source_columns
+                )
+                human_meta = _load_display_meta(cfg.registry_root, dataset_id)
+                if human_meta:
+                    new_md, _restored = apply_display_meta_to_document(new_md, human_meta)
+            except ValueError as exc:
+                raise HTTPException(422, str(exc)) from exc
+            requires_reingest = False
+            if changed:
+                mat = materialize_schema(
+                    new_md, ".", dataset_id, write=False, source_dir=source_dir
+                )
+                if mat.mapping_ir_issues:
+                    raise HTTPException(422, {"mapping_ir_issues": mat.mapping_ir_issues})
+                if not (mat.rml_ttl or "").strip():
+                    raise HTTPException(409, "the edited mapping spec could not generate RML")
+                try:
+                    substrate.validate_rml_design(
+                        substrate.substitute_run_id(mat.rml_ttl), source_dir
+                    )
+                except substrate.RmlValidationError as exc:
+                    raise HTTPException(422, {"validation_issues": list(exc.issues)}) from exc
+                artifacts = {
+                    "diagram.md": mat.diagram_md or "",
+                    "model.yaml": mat.rdf_config_model or "",
+                    "mie.yaml": mat.mie_yaml or "",
+                    "ingester.py": mat.ingester_py or "",
+                    "mapping.rml.ttl": mat.rml_ttl or "",
+                    "mapping.yaml": mat.mapping_ir_yaml or "",
+                }
+                _issues, advisories = _design_checks_at_materialize(
+                    cfg.registry_root,
+                    dataset_id,
+                    artifacts["mapping.rml.ttl"],
+                    source_dir=source_dir,
+                    column_decisions=decisions,
+                )
+                meta = registry.update_dataset_artifacts(
+                    cfg.registry_root,
+                    dataset_id,
+                    artifacts,
+                    complete=mat.complete,
+                    warnings=mat.warnings,
+                    traps=list(data["meta"].get("traps") or []),
+                    exit_code=int(data["meta"].get("exit_code") or 0),
+                    proposal_md=new_md,
+                    advisories=advisories,
+                )
+                if meta is None:
+                    raise HTTPException(404, f"dataset {dataset_id!r} not found")
+                requires_reingest = (
+                    artifacts["mapping.rml.ttl"]
+                    != str((data.get("artifacts") or {}).get("mapping.rml.ttl") or "")
+                )
+            else:
+                # A decision that changes no mapping artifact can still resolve a
+                # human-review advisory. Re-save the unchanged bundle so the
+                # dataset's persisted meta stops repeating only that confirmed
+                # notice (the filter is fail-closed for any unlisted column).
+                artifacts = {
+                    key: str(value or "")
+                    for key, value in (data.get("artifacts") or {}).items()
+                }
+                _issues, advisories = _design_checks_at_materialize(
+                    cfg.registry_root,
+                    dataset_id,
+                    artifacts.get("mapping.rml.ttl", ""),
+                    source_dir=source_dir,
+                    column_decisions=decisions,
+                )
+                meta = registry.update_dataset_artifacts(
+                    cfg.registry_root,
+                    dataset_id,
+                    artifacts,
+                    complete=bool(data["meta"].get("complete")),
+                    warnings=list(data["meta"].get("warnings") or []),
+                    traps=list(data["meta"].get("traps") or []),
+                    exit_code=int(data["meta"].get("exit_code") or 0),
+                    proposal_md=proposal_md,
+                    advisories=advisories,
+                )
+                if meta is None:
+                    raise HTTPException(404, f"dataset {dataset_id!r} not found")
+            _remember_column_decisions(cfg.registry_root, dataset_id, decisions)
+            return {
+                "dataset_id": dataset_id,
+                "changed": changed,
+                "proposal_md": new_md,
+                "requires_reingest": requires_reingest,
+            }
 
         return await asyncio.to_thread(run)
 
@@ -5603,7 +6095,66 @@ def build_app(
             if not files:
                 raise HTTPException(400, "no source files uploaded")
             saved, meta = await _persist_source_uploads(cfg.registry_root, dataset_id, files)
-        rml_ttl = (existing.get("artifacts") or {}).get("mapping.rml.ttl")
+        current = registry.load_dataset(cfg.registry_root, dataset_id) or existing
+        rml_ttl = str((current.get("artifacts") or {}).get("mapping.rml.ttl") or "")
+        decisions = _load_column_decisions(cfg.registry_root, dataset_id)
+        if decisions:
+            paths = registry.list_source_files(cfg.registry_root, dataset_id)
+            source_names = {path.name for path in paths}
+            source_columns = await asyncio.to_thread(_source_column_names, paths, rml_ttl)
+            kept_decisions = [
+                decision
+                for decision in decisions
+                if str(decision["source"]) in source_names
+                and (
+                    str(decision["source"]) not in source_columns
+                    or str(decision["column"])
+                    in source_columns[str(decision["source"])]
+                )
+            ]
+            stale_decisions = [
+                decision for decision in decisions if decision not in kept_decisions
+            ]
+            stale_includes = [
+                decision
+                for decision in stale_decisions
+                if decision.get("action") == "include"
+            ]
+            if stale_includes:
+                proposal_md = registry.load_proposal(cfg.registry_root, dataset_id) or ""
+                try:
+                    new_md, changed = remove_stale_column_includes_from_document(
+                        proposal_md, stale_includes
+                    )
+                except ValueError as exc:
+                    raise HTTPException(422, str(exc)) from exc
+                if changed:
+                    artifacts_raw, warnings = await asyncio.to_thread(
+                        _artifacts_from_document,
+                        new_md,
+                        dataset_id,
+                        registry.source_dir(cfg.registry_root, dataset_id),
+                    )
+                    artifacts = {key: value or "" for key, value in artifacts_raw.items()}
+                    updated = registry.update_dataset_artifacts(
+                        cfg.registry_root,
+                        dataset_id,
+                        artifacts,
+                        complete=bool(current["meta"].get("complete")),
+                        warnings=warnings,
+                        traps=list(current["meta"].get("traps") or []),
+                        exit_code=int(current["meta"].get("exit_code") or 0),
+                        proposal_md=new_md,
+                        advisories=list(current["meta"].get("advisories") or []),
+                    )
+                    if updated is None:
+                        raise HTTPException(404, f"dataset {dataset_id!r} not found")
+                    meta = updated
+                    rml_ttl = artifacts["mapping.rml.ttl"]
+            if stale_decisions:
+                _remember_column_decisions(
+                    cfg.registry_root, dataset_id, kept_decisions
+                )
         try:
             issues, advisories = await asyncio.to_thread(
                 _design_checks_at_materialize, cfg.registry_root, dataset_id, rml_ttl
