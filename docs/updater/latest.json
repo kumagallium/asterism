@@ -1,11 +1,11 @@
 {
-  "version": "0.21.0",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at cfe94ecc60aabd02d12e22b53fd11afcb87209fd -->\n\n## What's Changed\n* feat(ui/api): 相談 AI に「いま画面に見えている列」を自動添付する by @kumagallium in https://github.com/kumagallium/asterism/pull/413\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.20.0...v0.21.0",
-  "pub_date": "2026-08-25T09:01:12Z",
+  "version": "0.21.1",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at a4ee5f108f3a9f1f3c4c3f081500efeb9de83f7c -->\n\n## What's Changed\n* fix(step0/api/ui): 「No」列を持つ設計で意味の保存が消える — YAML bool 化を根絶 by @kumagallium in https://github.com/kumagallium/asterism/pull/415\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.21.0...v0.21.1",
+  "pub_date": "2026-08-25T10:23:54Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcWFmdGg0Sy91ZW03VVBTOVRHUGFPdXVVZ29OTHVlZERCSHZLNmRVWDY3Z2NOTjFDN0pzdWtUaURBODVWMlc4bTZ4U2RxalB2OWoxVjZGMU5lTmFQUlFZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3NjQ4NDcyCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CnVhUDZ1ZXRnZWxkdzBwUnNEV0lrcmRYczVCMDdrSThCYkxUZFR0czJHOWpReUdIVlUwRUpUQkcxdExhU2RnSUM0SVpQQWtoZ3h6bUJmMGpmcHZZU0JBPT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.21.0/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcWZISXNNMzNDTUg1c2pMT2ZUVGRXdEdqdElaRytlcHU2VHhaMzEraFZ5Qlo0UGpoNWtWbFJQN3Y5QzFxU3VheTJqZFUzY1hzQkt2cHlRazBXT3orcHcwPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3NjUzNDM0CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CnplSTlYM0pFVHRUUVVtUnUvdjdJamFQeEtRM1FOQ2drWjZjVXlnbzYxSEFEOGk1all6cW1LbktUMnNpcityRVluLzBlcEFoUG11ZWdTWnk4SUJiMUN3PT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.21.1/Asterism_aarch64.app.tar.gz"
     }
   }
 }
