@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.19.1](https://github.com/kumagallium/asterism/compare/v0.19.0...v0.19.1) - 2026-08-25
+
+- feat(ui/api): 設計中に相談できる AI チャットドロワーを付ける by @kumagallium in https://github.com/kumagallium/asterism/pull/409
+
 ## [v0.19.0](https://github.com/kumagallium/asterism/compare/v0.18.0...v0.19.0) - 2026-08-25
 
 - feat(kantan): 「まだ取り込んでいない項目」に一括操作を付ける by @kumagallium in https://github.com/kumagallium/asterism/pull/408
