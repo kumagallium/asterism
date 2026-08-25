@@ -1,6 +1,6 @@
 # Changelog
 
-## [v0.19.1](https://github.com/kumagallium/asterism/compare/v0.19.0...v0.19.1) - 2026-08-25
+## [v0.20.0](https://github.com/kumagallium/asterism/compare/v0.19.0...v0.20.0) - 2026-08-25
 
 - feat(ui/api): 設計中に相談できる AI チャットドロワーを付ける by @kumagallium in https://github.com/kumagallium/asterism/pull/409
 
