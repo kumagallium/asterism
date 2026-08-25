@@ -54,7 +54,7 @@ from asterism_step0.mapping_ir_schema import (
     permap_json_schema,
     skeleton_json_schema,
 )
-from asterism_step0.spec_yaml import load_spec_yaml
+from asterism_step0.spec_yaml import dump_spec_yaml, load_spec_yaml
 
 __all__ = [
     "SkeletonProposal",
@@ -298,10 +298,10 @@ def skeleton_from_full_ir(ir: Mapping[str, Any]) -> tuple[dict, dict[str, dict]]
 
 def mapping_ir_to_yaml(ir: Mapping[str, Any]) -> str:
     """Serialize an IR dict to the readable YAML that becomes the §9 block (same
-    serializer as ``spec_repair.parse_spec_json`` — insertion order preserved)."""
-    import yaml
-
-    return yaml.safe_dump(
+    serializer as ``spec_repair.parse_spec_json`` — insertion order preserved).
+    Goes through :func:`dump_spec_yaml` (Norway-problem-safe: a column named
+    ``No`` never comes out unquoted) — see ``spec_yaml.py``."""
+    return dump_spec_yaml(
         dict(ir), sort_keys=False, allow_unicode=True, default_flow_style=False
     )
 
@@ -914,8 +914,12 @@ def apply_display_meta_to_document(
     # A §9 a weak model left unparseable is a routine outcome, not a crash: the
     # caller (the refine tail, the S6 edit) has to keep going and let the normal
     # validation report it, so every unreadable spec leaves here as ValueError.
+    # load_spec_yaml, NEVER yaml.safe_load, on §9 text (#379 / real-user incident
+    # 2026-08-25): a bare loader reads an unquoted column header like `No` as the
+    # YAML 1.1 boolean False, and the re-serialized `false: slug` no longer
+    # compiles — the meaning the person just typed vanishes on save.
     try:
-        doc = yaml.safe_load(ir_yaml)
+        doc = load_spec_yaml(ir_yaml)
     except yaml.YAMLError as exc:
         raise ValueError(f"the design's mapping spec is not readable: {exc}") from exc
     if not isinstance(doc, dict):
@@ -923,7 +927,7 @@ def apply_display_meta_to_document(
     new_doc, changed = apply_display_meta(doc, edits)
     if not changed:
         return document_md, []
-    new_yaml = yaml.safe_dump(new_doc, sort_keys=False, allow_unicode=True)
+    new_yaml = dump_spec_yaml(new_doc, sort_keys=False, allow_unicode=True)
     return replace_mapping_spec_block(document_md, new_yaml), changed
 
 
@@ -1266,8 +1270,11 @@ def remove_stale_column_includes_from_document(
     ir_yaml = materialize_schema(document_md, ".", "column-decisions", write=False).mapping_ir_yaml
     if ir_yaml is None:
         raise ValueError("this design has no mapping spec to edit")
+    # load_spec_yaml, not yaml.safe_load — see apply_display_meta_to_document's
+    # comment (#379 / 2026-08-25): the same §9 text can carry a `No`/`Yes`-named
+    # column here too.
     try:
-        doc = yaml.safe_load(ir_yaml)
+        doc = load_spec_yaml(ir_yaml)
     except yaml.YAMLError as exc:
         raise ValueError(f"the design's mapping spec is not readable: {exc}") from exc
     if not isinstance(doc, dict) or not isinstance(doc.get("maps"), list):
@@ -1328,8 +1335,9 @@ def apply_column_decisions_to_document(
     ir_yaml = materialize_schema(document_md, ".", "column-decisions", write=False).mapping_ir_yaml
     if ir_yaml is None:
         raise ValueError("this design has no mapping spec to edit")
+    # load_spec_yaml, not yaml.safe_load — same reason as the two siblings above.
     try:
-        doc = yaml.safe_load(ir_yaml)
+        doc = load_spec_yaml(ir_yaml)
     except yaml.YAMLError as exc:
         raise ValueError(f"the design's mapping spec is not readable: {exc}") from exc
     if not isinstance(doc, dict):

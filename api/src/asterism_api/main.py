@@ -5530,9 +5530,34 @@ def build_app(
                 409, f"dataset {dataset_id!r} has no stored design to edit"
             )
         source_dir = registry.source_dir(cfg.registry_root, dataset_id)
+        # /rules exposes the compiled TriplesMap id (e.g. ``PatternMap``), while
+        # §9 stores the authored map name (``pattern``) that `_display_meta_matches`
+        # compares against. Same boundary the column-decisions endpoint already
+        # normalizes (see its own ``canonical_maps`` comment) — without this, a
+        # client-sent ``map`` built from /rules either never matches (silent no-op)
+        # or, when omitted, matches every map sharing the predicate (a single edit
+        # bleeding into an unrelated map's row — real-user incident 2026-08-25).
+        # Best-effort: an unparseable/legacy IR just means edits go through
+        # unnormalized (today's behavior), never a hard failure on this path.
+        canonical_maps: dict[str, str] = {}
+        mapping_ir_yaml = str((data.get("artifacts") or {}).get("mapping.yaml") or "")
+        if mapping_ir_yaml.strip():
+            try:
+                from asterism_step0.mapping_ir import parse_mapping_ir
+                from asterism_step0.rml_compile import _map_node_name
+
+                for m in parse_mapping_ir(mapping_ir_yaml).maps:
+                    canonical_maps[m.name] = m.name
+                    canonical_maps[_map_node_name(m.name)] = m.name
+            except Exception:
+                canonical_maps = {}
 
         def run() -> dict[str, object]:
             spec = [e.model_dump() for e in edits]
+            for edit in spec:
+                requested_map = str(edit.get("map") or "")
+                if requested_map and requested_map in canonical_maps:
+                    edit["map"] = canonical_maps[requested_map]
             try:
                 new_md, changed = apply_display_meta_to_document(proposal_md, spec)
             except ValueError as exc:

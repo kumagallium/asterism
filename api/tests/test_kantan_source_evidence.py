@@ -298,6 +298,56 @@ def test_display_meta_edits_the_design_and_shows_up_in_the_rules(
         assert amplitude["label"] == "振幅" and amplitude["unit"] == "mV"
 
 
+def test_display_meta_map_accepts_the_compiled_rules_id(
+    tmp_path: Path, healthy_client
+) -> None:
+    """/rules exposes the compiled TriplesMap id (``ReadingMap``); §9 stores
+    the authored name (``reading``) that the deterministic patch matches
+    against. KantanWizard's commitMeta now sends the /rules id as ``map`` (to
+    disambiguate a predicate bound by more than one map — real-user incident
+    2026-08-25) — this endpoint must canonicalize it the same way
+    /column-decisions already does, or every edit with a map would silently
+    match nothing."""
+    with _client(tmp_path, healthy_client) as client:
+        ds_id = client.post(
+            "/api/materialize", json={"proposal_md": _FIX_RECIPE_MD, "dataset_name": "sensor"}
+        ).json()["dataset"]["id"]
+        client.post(
+            f"/api/datasets/{ds_id}/source",
+            files={
+                "files": (
+                    "readings.csv",
+                    b"reading_id,channel,amplitude,unused\nr1,A,1.5,x\n",
+                    "text/csv",
+                )
+            },
+        )
+        # Sanity: /rules really does expose the PascalCase compiled id, not
+        # the raw §9 name, so this test is exercising the real client shape.
+        rules = client.get(f"/api/datasets/{ds_id}/rules").json()
+        assert rules["maps"][0]["id"] == "ReadingMap"
+
+        r = client.post(
+            f"/api/datasets/{ds_id}/display-meta",
+            json={
+                "edits": [
+                    {
+                        "predicate": "https://example.com/sn#amplitude",
+                        "map": "ReadingMap",
+                        "column": "amplitude",
+                        "label": "振幅",
+                    }
+                ]
+            },
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["changed"] == ["amplitude"]
+        artifacts = client.get(f"/api/datasets/{ds_id}").json()["artifacts"]
+        ir = yaml.safe_load(artifacts["mapping.yaml"])
+        row = next(p for p in ir["maps"][0]["properties"] if p.get("column") == "amplitude")
+        assert row["label"] == "振幅"
+
+
 def test_display_meta_is_remembered_as_the_humans_and_is_write_gated(
     tmp_path: Path, healthy_client
 ) -> None:
