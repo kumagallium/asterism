@@ -1,0 +1,27 @@
+{
+  "open": "相談する",
+  "close": "閉じる",
+  "history": "チャット履歴",
+  "send": "送る",
+  "stop": "止める",
+  "hint": "Cmd+Enter で送信。AI は説明と参考情報を出すだけです。取り込む・除外するの判断はあなたが行います。",
+  "empty": "「この列って何？」「この画面はどう使う？」など、気になることを聞いてください。",
+  "inputPlaceholder": "質問を入力…",
+  "thinking": "考え中…",
+  "stoppedNote": "回答を止めました。もう一度送るとやり直せます。",
+  "interruptedNote": "画面が閉じられたため、回答が届きませんでした。",
+  "editMessage": "編集する",
+  "cancelEdit": "キャンセル",
+  "editAndResend": "編集して再送信",
+  "editDiscardNote": "それ以降のやり取りは消えます",
+  "regenerate": "この回答を作り直す",
+  "list": {
+    "newChat": "+ 新しいチャット",
+    "empty": "まだ相談していません。",
+    "emptyChat": "(空のチャット)",
+    "messageCount": "{{count}} メッセージ",
+    "delete": "このチャットを削除",
+    "searchPlaceholder": "チャットを検索…",
+    "noMatch": "一致するチャットはありません。"
+  }
+}

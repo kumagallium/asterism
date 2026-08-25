@@ -1,0 +1,28 @@
+{
+  "open": "Consult",
+  "close": "Close",
+  "history": "Chat history",
+  "send": "Send",
+  "stop": "Stop",
+  "hint": "Cmd+Enter to send. The AI only explains and points at reference material — whether to include or exclude something is always your call.",
+  "empty": "Ask anything — \"what does this column mean\", \"how do I use this screen\", and so on.",
+  "inputPlaceholder": "Ask a question…",
+  "thinking": "Thinking…",
+  "stoppedNote": "Stopped waiting for the reply. Send again to retry.",
+  "interruptedNote": "The screen closed before a reply arrived.",
+  "editMessage": "Edit",
+  "cancelEdit": "Cancel",
+  "editAndResend": "Edit & resend",
+  "editDiscardNote": "Everything after this will be discarded",
+  "regenerate": "Regenerate this answer",
+  "list": {
+    "newChat": "+ New chat",
+    "empty": "No conversations yet.",
+    "emptyChat": "(empty chat)",
+    "messageCount_one": "{{count}} message",
+    "messageCount_other": "{{count}} messages",
+    "delete": "Delete this chat",
+    "searchPlaceholder": "Search chats…",
+    "noMatch": "No matching chats."
+  }
+}

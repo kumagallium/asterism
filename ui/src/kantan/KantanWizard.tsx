@@ -34,6 +34,7 @@ import {
   type TrialQueries,
 } from '../api'
 import { isMeaningReviewAdvisory, plainAdvisories, plainIssues } from '../advisoryPlain'
+import { setConsultContext } from '../consult/consultContext'
 import { TABULAR_ACCEPT } from '../datasetsApi'
 import { detectDatasetNamespace } from '../datasetNamespace'
 import { type UnitResolution, resolveUnit } from '../groundingApi'
@@ -1193,6 +1194,24 @@ export function KantanWizard({
   useEffect(() => {
     onBusyChange(busy)
   }, [busy, onBusyChange])
+
+  // design-consult-chat.md D4: keep the drawer's "what screen is the user
+  // looking at" store in sync with the wizard's own state. A one-way push —
+  // nothing here reads the store back, so this cannot affect the wizard's own
+  // state machine, only what the consult drawer sees when the user opens it.
+  useEffect(() => {
+    const stepTitleKey =
+      step === 3 ? 'kantan:s3.jobLabel' : step === 4 ? 'kantan:s4.gateTitle' : `kantan:s${step}.title`
+    setConsultContext({
+      step: t(stepTitleKey),
+      dataset: kzDatasetName ?? undefined,
+      skeletonSummary: skeleton
+        ? skeleton.maps
+            .map((m) => `${m.name}(${(m.subject.classes ?? []).join('/')})`)
+            .join('; ')
+        : undefined,
+    })
+  }, [step, kzDatasetName, skeleton, t])
 
   // Ask the write gate at the door, not after two AI rounds (KZ-A-42). An old
   // api (no write_gate field) answers nothing and the flow is unchanged.
@@ -5090,6 +5109,14 @@ export function KantanWizard({
                                 )}
                                 aria-label={t('kantan:s6.editAria', { column })}
                                 disabled={!kzDatasetId}
+                                // design-consult-chat.md D4: this is the column the
+                                // consult drawer answers "what does this mean" about
+                                // when the user has their cursor here.
+                                onFocus={() =>
+                                  setConsultContext({
+                                    focusColumn: { name: column, samples: samples.slice(0, 3) },
+                                  })
+                                }
                                 onBlur={(e) => commitMeta(p, m.source ?? '', column, 'label', e.target.value)}
                                 onKeyDown={(e) => {
                                   if (e.key === 'Enter' && !isImeConfirm(e))

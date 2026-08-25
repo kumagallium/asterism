@@ -1,0 +1,564 @@
+/* Design-consult drawer (ADR design-consult-chat.md). Fixed floating button +
+   right-side slide-in panel, available on every screen. Structure follows
+   Graphium's AI chat panel (2026-08-25 review); colors/spacing/radius are
+   Asterism's own design tokens (`index.css` :root), not Graphium's Tailwind
+   classes. z-index sits above ordinary page content, below any true modal. */
+
+.consult-fab {
+  position: fixed;
+  right: var(--space-5);
+  bottom: var(--space-5);
+  z-index: 40;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0.6em 1.1em;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: var(--shadow);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.consult-fab:hover {
+  background: var(--surface-alt);
+}
+
+.consult-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  background: rgba(22, 36, 26, 0.12);
+}
+
+.consult-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 46;
+  width: 380px;
+  max-width: 100vw;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+
+@media (max-width: 480px) {
+  .consult-drawer {
+    width: 100vw;
+  }
+}
+
+.consult-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+
+.consult-head-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--fg);
+}
+
+.consult-head-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.consult-icon-btn {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0.3em;
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+}
+
+.consult-icon-btn:hover {
+  background: var(--surface-alt);
+  color: var(--fg);
+}
+
+.consult-icon-btn.active {
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.consult-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.consult-empty {
+  margin: auto 0;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.consult-msg {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-1);
+}
+
+.consult-msg--user {
+  justify-content: flex-end;
+}
+
+.consult-msg--assistant {
+  justify-content: flex-start;
+}
+
+/* 編集（user）／再生成（assistant）ボタン: 普段は隠れ、行に hover したときだけ
+   出す（Graphium ChatBubble のホバー操作に準拠）。タップ主体の環境では常に
+   薄く見える程度の opacity にして、押せない罠にはしない。 */
+.consult-turn-action {
+  flex: none;
+  border: none;
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+  padding: 0.3em;
+  border-radius: var(--radius-sm);
+  opacity: 0.35;
+}
+
+.consult-msg:hover .consult-turn-action {
+  opacity: 1;
+}
+
+.consult-turn-action:hover:not(:disabled) {
+  background: var(--surface-alt);
+  color: var(--fg);
+}
+
+.consult-turn-action:disabled {
+  opacity: 0.15;
+  cursor: default;
+}
+
+/* ---- user message edit-and-resend (Graphium ChatBubble onEditResend) ---- */
+
+.consult-edit {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.consult-edit-input {
+  width: 100%;
+  resize: none;
+  border: 1px solid var(--primary);
+  border-radius: var(--radius-sm);
+  padding: 0.5em 0.6em;
+  font-size: 0.84rem;
+  font-family: inherit;
+  line-height: 1.5;
+  background: var(--surface);
+  color: var(--fg);
+}
+
+.consult-edit-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.consult-edit-note {
+  margin-right: auto;
+  font-size: 0.7rem;
+  color: var(--faint);
+}
+
+.consult-edit-cancel,
+.consult-edit-confirm {
+  padding: 0.3em 0.6em;
+  font-size: 0.74rem;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.consult-edit-cancel {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+}
+
+.consult-edit-cancel:hover {
+  background: var(--surface-alt);
+  color: var(--fg);
+}
+
+.consult-edit-confirm {
+  border: none;
+  background: var(--primary);
+  color: var(--primary-fg);
+}
+
+.consult-edit-confirm:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.consult-bubble {
+  max-width: 88%;
+  padding: 0.5em 0.75em;
+  border-radius: var(--radius-sm);
+  font-size: 0.84rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.consult-bubble--markdown {
+  white-space: normal;
+}
+
+.consult-msg--user .consult-bubble {
+  background: var(--primary);
+  color: var(--primary-fg);
+  border-bottom-right-radius: 4px;
+}
+
+.consult-msg--assistant .consult-bubble {
+  background: var(--surface-alt);
+  color: var(--fg);
+  border-bottom-left-radius: 4px;
+}
+
+.consult-bubble--pending {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--muted);
+}
+
+.consult-bubble--error {
+  background: var(--error-bg);
+  color: var(--error-fg);
+  border: 1px solid var(--error-border);
+}
+
+.consult-spinner {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--primary);
+  animation: consult-spin 0.7s linear infinite;
+  flex: none;
+}
+
+@keyframes consult-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.consult-foot {
+  border-top: 1px solid var(--border);
+  padding: var(--space-3);
+}
+
+.consult-gate {
+  font-size: 0.82rem;
+}
+
+.consult-composer {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+
+.consult-input {
+  flex: 1;
+  resize: none;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 0.5em 0.6em;
+  font-size: 0.84rem;
+  font-family: inherit;
+  line-height: 1.5;
+  background: var(--surface);
+  color: var(--fg);
+}
+
+.consult-input:focus {
+  outline: 2px solid var(--primary-soft);
+  outline-offset: 1px;
+  border-color: var(--primary);
+}
+
+/* The circular send/stop button. The global `button` rule (index.css) sets a
+   text-button padding (`0.5em 1.1em`) and default line-height that, on a
+   fixed 36×36 circle, squeezed the 16px lucide icon's content box down to
+   nothing — the icon never actually failed to render, it just had no room to
+   be laid out in, so the button showed as a plain filled circle with no
+   visible glyph (2026-08-25 bug report). Reset both explicitly instead of
+   relying on the (correct, but insufficient on their own) width/height. */
+.consult-send {
+  flex: none;
+  border: none;
+  border-radius: 999px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  margin: 0;
+  line-height: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary);
+  color: var(--primary-fg);
+  cursor: pointer;
+}
+
+.consult-send:hover:not(:disabled) {
+  background: var(--accent-strong);
+}
+
+.consult-send:disabled {
+  /* Faded but the paper-plane shape must stay readable (2026-08-25 review) —
+     0.45 read as invisible once combined with the already-thin 2px stroke at
+     small sizes; 0.6 plus the bigger 16px icon keeps the silhouette clear. */
+  opacity: 0.6;
+  cursor: default;
+}
+
+.consult-send--stop {
+  background: var(--error-fg);
+}
+
+.consult-send-icon-fill {
+  fill: currentColor;
+}
+
+.consult-hint {
+  margin: var(--space-2) 0 0;
+  font-size: 0.72rem;
+  color: var(--faint);
+}
+
+/* ---- chat history list (ThreadsIcon toggle in the header) --------------- */
+
+.consult-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-2) var(--space-3) var(--space-3);
+}
+
+.consult-list-new {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.55em 0.7em;
+  margin-bottom: var(--space-2);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.consult-list-new:hover {
+  color: var(--fg);
+  border-color: var(--primary);
+}
+
+.consult-list-search {
+  display: block;
+  width: 100%;
+  margin-bottom: var(--space-2);
+  padding: 0.4em 0.6em;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  font-size: 0.78rem;
+  font-family: inherit;
+  background: var(--surface);
+  color: var(--fg);
+}
+
+.consult-list-search:focus {
+  outline: 2px solid var(--primary-soft);
+  outline-offset: 1px;
+  border-color: var(--primary);
+}
+
+.consult-list-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.consult-list-item {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-1);
+  border-radius: var(--radius-sm);
+}
+
+.consult-list-item:hover {
+  background: var(--surface-alt);
+}
+
+.consult-list-item-main {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 0.5em 0.6em;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.consult-list-item-title {
+  font-size: 0.82rem;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.consult-list-item-meta {
+  font-size: 0.7rem;
+  color: var(--faint);
+}
+
+.consult-list-item-delete {
+  flex: none;
+  align-self: center;
+  border: none;
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+  padding: 0.4em;
+  border-radius: var(--radius-sm);
+}
+
+.consult-list-item-delete:hover {
+  color: var(--error-fg);
+  background: var(--error-bg);
+}
+
+/* ---- assistant Markdown (ConsultMarkdown.tsx) ---------------------------- */
+
+.consult-md-h1,
+.consult-md-h2,
+.consult-md-h3 {
+  font-weight: 700;
+  margin: 0.4em 0 0.2em;
+}
+
+.consult-md-h1 {
+  font-size: 1rem;
+}
+
+.consult-md-h2 {
+  font-size: 0.92rem;
+}
+
+.consult-md-h3 {
+  font-size: 0.86rem;
+}
+
+.consult-md-p {
+  margin: 0.35em 0;
+}
+
+.consult-md-p:first-child {
+  margin-top: 0;
+}
+
+.consult-md-p:last-child {
+  margin-bottom: 0;
+}
+
+.consult-md-ul,
+.consult-md-ol {
+  margin: 0.35em 0;
+  padding-left: 1.2em;
+}
+
+.consult-md-hr {
+  margin: 0.5em 0;
+  border: none;
+  border-top: 1px solid var(--border);
+}
+
+.consult-md-quote {
+  margin: 0.35em 0;
+  padding-left: 0.6em;
+  border-left: 2px solid var(--border-strong);
+  color: var(--muted);
+}
+
+.consult-md-code {
+  padding: 0.1em 0.3em;
+  border-radius: 4px;
+  background: var(--surface-sink);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+}
+
+.consult-md-pre {
+  margin: 0.35em 0;
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sink);
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  overflow-x: auto;
+}
+
+.consult-md-link {
+  color: var(--activity);
+  text-decoration: underline;
+}
+
+.consult-md-tablewrap {
+  margin: 0.35em 0;
+  overflow-x: auto;
+}
+
+.consult-md-table {
+  font-size: 0.76rem;
+  border-collapse: collapse;
+}
+
+.consult-md-th,
+.consult-md-td {
+  border: 1px solid var(--border);
+  padding: 0.25em 0.5em;
+  text-align: left;
+}
+
+.consult-md-th {
+  font-weight: 600;
+}
