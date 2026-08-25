@@ -1,11 +1,11 @@
 {
-  "version": "0.19.0",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at e2674833bc685531fdc62160f5ab1783b4f9fdf1 -->\n\n## What's Changed\n* feat(kantan): 「まだ取り込んでいない項目」に一括操作を付ける by @kumagallium in https://github.com/kumagallium/asterism/pull/408\n* fix(kantan): 単位欄の型語は機械が掃き、直しの連打を待たせない by @kumagallium in https://github.com/kumagallium/asterism/pull/402\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.18.0...v0.19.0",
-  "pub_date": "2026-08-25T02:32:04Z",
+  "version": "0.20.0",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 2ade216a2de90fcbb21b0b985bfa127021068b44 -->\n\n## What's Changed\n* feat(ui/api): 設計中に相談できる AI チャットドロワーを付ける by @kumagallium in https://github.com/kumagallium/asterism/pull/409\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.19.0...v0.20.0",
+  "pub_date": "2026-08-25T05:46:29Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVltalNQSWpyUlNMejhEQ0lXbVRBUFVDbXFQdjlqOFNSaXgxYnVQODRlcmNsZ0syYXJZNjRtalA1UGRtckQ0ZUtJcFdjbDgrZDQzcFZZdjNxOUpDekFVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3NjI1MTI0CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6Ci9OS2FaSThGdXBGTkNGQkxvK3BTaVdLbFQrRC9wbHU0STJrYzZCRU5yb0UwMDQzT2ZXUUVsNXVUU2NCY29YckgwVm4vdy95STUzMnlYZUdFdkZGbkFBPT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.19.0/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcWJqY1NrejVYbG9oWlYrTy83R01Wb0hMLzh6MHB2Zk12RHZLc1J4NTB1MUFIdC84QVVEQm8vaitiV0FxRWo4V2dCeEFzS0QxZC9lR2NHVE1NVnAyeUFFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3NjM2Nzg4CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CktURXFyUXIzS05hQnhVSnl6ZGd1UUM2VVJlZ0c0bFF3NUhremxQSXFBOVN6Q01QbjNVMUk3VGJJNDVydDBpQ212WFNHL1R2aVZmbXVKTWFzRCsxRkFRPT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.20.0/Asterism_aarch64.app.tar.gz"
     }
   }
 }
