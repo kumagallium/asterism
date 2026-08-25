@@ -3791,15 +3791,21 @@ export function KantanWizard({
       if (!prev) return prev
       return {
         ...prev,
-        maps: (prev.maps ?? []).map((m) => ({
-          ...m,
-          properties: (m.properties ?? []).map((row) =>
-            (row.predicate_iri || row.predicate) === pred &&
-            (row.reference ?? '') === column
-              ? { ...row, [field]: value || undefined }
-              : row,
-          ),
-        })),
+        maps: (prev.maps ?? []).map((m) =>
+          // Same predicate+column can exist on two sources; the source pins
+          // WHICH map's row this edit belongs to (K8, #406).
+          source && (m.source ?? '') !== source
+            ? m
+            : {
+                ...m,
+                properties: (m.properties ?? []).map((row) =>
+                  (row.predicate_iri || row.predicate) === pred &&
+                  (row.reference ?? '') === column
+                    ? { ...row, [field]: value || undefined }
+                    : row,
+                ),
+              },
+        ),
       }
     })
   }
@@ -3824,7 +3830,7 @@ export function KantanWizard({
     const value = raw.trim()
     const before = (field === 'label' ? readMeaning(p) : (p.unit ?? '')).trim()
     if (value === before) return
-    patchRuleMeta(p, column, field, value)
+    patchRuleMeta(p, source, column, field, value)
     metaQueueRef.current.push({ p, source, column, field, value, before })
     setMetaPending(metaQueueRef.current.length)
     void pumpMetaQueue()
@@ -3866,7 +3872,7 @@ export function KantanWizard({
           const missed = batch.filter(
             (it) => !hit.has(it.column) && !hit.has(it.p.predicate_iri || it.p.predicate),
           )
-          for (const it of missed) patchRuleMeta(it.p, it.column, it.field, it.before)
+          for (const it of missed) patchRuleMeta(it.p, it.source, it.column, it.field, it.before)
           if (missed.length > 0) {
             setMetaNoopNames((prev) => [
               ...new Set([...prev, ...missed.map((it) => it.column || it.p.predicate)]),
@@ -3877,9 +3883,9 @@ export function KantanWizard({
           // Nothing from this batch landed: revert it all, and drop whatever
           // queued up meanwhile — pumping on against a failing server would
           // just repeat the error while the person keeps typing into it.
-          for (const it of batch) patchRuleMeta(it.p, it.column, it.field, it.before)
+          for (const it of batch) patchRuleMeta(it.p, it.source, it.column, it.field, it.before)
           for (const it of metaQueueRef.current.splice(0))
-            patchRuleMeta(it.p, it.column, it.field, it.before)
+            patchRuleMeta(it.p, it.source, it.column, it.field, it.before)
           setMetaErr(errText(e))
         }
       }
