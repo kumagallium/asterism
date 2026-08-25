@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.19.0](https://github.com/kumagallium/asterism/compare/v0.18.0...v0.19.0) - 2026-08-25
+
+- feat(kantan): 「まだ取り込んでいない項目」に一括操作を付ける by @kumagallium in https://github.com/kumagallium/asterism/pull/408
+- fix(kantan): 単位欄の型語は機械が掃き、直しの連打を待たせない by @kumagallium in https://github.com/kumagallium/asterism/pull/402
+
 ## [v0.18.0](https://github.com/kumagallium/asterism/compare/v0.17.5...v0.18.0) - 2026-08-25
 
 - fix(settings): 「このサーバ」タブの生キー表示を解消 — 消えた serverKeys ラベルを復元 by @kumagallium in https://github.com/kumagallium/asterism/pull/403
