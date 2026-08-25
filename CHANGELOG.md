@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.21.1](https://github.com/kumagallium/asterism/compare/v0.21.0...v0.21.1) - 2026-08-25
+
+- fix(step0/api/ui): 「No」列を持つ設計で意味の保存が消える — YAML bool 化を根絶 by @kumagallium in https://github.com/kumagallium/asterism/pull/415
+
 ## [v0.21.0](https://github.com/kumagallium/asterism/compare/v0.20.0...v0.21.0) - 2026-08-25
 
 - feat(ui/api): 相談 AI に「いま画面に見えている列」を自動添付する by @kumagallium in https://github.com/kumagallium/asterism/pull/413
