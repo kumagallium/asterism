@@ -7,7 +7,7 @@ from __future__ import annotations
 import pytest
 
 from asterism_step0.mapping_ir import MappingIRParseError, parse_mapping_ir
-from asterism_step0.spec_yaml import describe_bare_scalar, load_spec_yaml
+from asterism_step0.spec_yaml import describe_bare_scalar, dump_spec_yaml, load_spec_yaml
 
 yaml = pytest.importorskip("yaml")
 
@@ -78,6 +78,26 @@ def test_boolean_typed_fields_still_accept_the_yaml_11_spellings() -> None:
     assert coerce_bool("maybe") is None
     assert coerce_bool(1) is None
     assert coerce_bool(None) is None
+
+
+def test_dump_spec_yaml_quotes_yaml_11_bool_lookalikes_key_and_value() -> None:
+    """The dump side of the Norway problem (2026-08-25 real-user incident):
+    dump -> load must round-trip a ``No``/``Yes``/``On``/``Off`` column name
+    unharmed, whether it is a mapping KEY (``transform: {No: slug}``) or a
+    plain VALUE (a human-typed label that happens to read as ``No``) — and it
+    must survive even a bare ``yaml.safe_load`` elsewhere in the stack, not
+    just this file's own :func:`load_spec_yaml`."""
+    data = {
+        "transform": {"No": "slug", "Yes": "slug"},
+        "label_no": "No",
+        "label_on": "On",
+        "label_off": "off",
+        "label_y": "y",
+        "plain": "a normal value",
+    }
+    out = dump_spec_yaml(data, sort_keys=False, allow_unicode=True)
+    assert load_spec_yaml(out) == data
+    assert yaml.safe_load(out) == data  # even the UNPATCHED 1.1 loader survives
 
 
 def test_collapse_written_as_no_is_not_a_new_design_issue() -> None:

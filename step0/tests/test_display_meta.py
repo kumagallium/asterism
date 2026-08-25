@@ -13,6 +13,7 @@ from __future__ import annotations
 import pytest
 import yaml
 
+from asterism_step0.spec_yaml import load_spec_yaml
 from asterism_step0.staged_propose import (
     apply_column_decisions,
     apply_display_meta,
@@ -39,6 +40,14 @@ _IR = {
 
 def _doc(ir: dict) -> str:
     body = yaml.safe_dump(ir, sort_keys=False, allow_unicode=True)
+    return _doc_from_yaml(body)
+
+
+def _doc_from_yaml(body: str) -> str:
+    """Same shell as :func:`_doc`, but for LITERAL YAML text — used when the
+    test needs control over exactly what bytes land in §9 (e.g. an unquoted
+    ``No:`` a model actually wrote, which ``yaml.safe_dump`` would auto-quote
+    and so could never reproduce)."""
     return (
         "# Title\n\nprose\n\n### 9. Declarative mapping spec\n\n"
         f"```yaml\n{body}```\n\n### tail\nkeep me\n"
@@ -149,6 +158,90 @@ def test_document_splice_is_idempotent() -> None:
     twice, changed = apply_display_meta_to_document(once, edits)
     assert changed == []
     assert twice == once
+
+
+# A §9 block written the way a model actually writes it — an unquoted `No`
+# column header, exactly the shape the real-user incident (2026-08-25) hit.
+# NOT run through yaml.safe_dump (which would auto-quote 'No' and hide the
+# bug this pins): this is the literal text a bare `yaml.safe_load` misreads
+# as `{False: slug}`.
+_NORWAY_SECTION_NINE = (
+    "version: 1\n"
+    "prefixes:\n  ex: https://ns.invalid/ns#\n"
+    "maps:\n"
+    "  - name: pattern\n"
+    "    source: xrd.txt\n"
+    "    subject:\n"
+    "      template: ex:pattern/{No}\n"
+    "      transform:\n"
+    "        No: slug\n"
+    "    properties:\n"
+    "      - predicate: ex:hasName\n"
+    "        constant: placeholder-name\n"
+    "        datatype: xsd:string\n"
+)
+
+
+def test_display_meta_survives_a_no_named_column_norway_problem() -> None:
+    """Real-user incident (2026-08-25, desktop v0.21.0): editing a column's
+    meaning spliced §9 through a bare ``yaml.safe_load``, turning the `No`
+    key into the YAML 1.1 boolean False. The re-serialized `false: slug` no
+    longer compiled (empty RML -> 409 "no longer compiles" -> the client
+    reverted the just-typed meaning). This must not happen — the `No` key must
+    survive the round trip, and the edit must still land."""
+    doc = _doc_from_yaml(_NORWAY_SECTION_NINE)
+    out, changed = apply_display_meta_to_document(
+        doc, [{"predicate": "ex:hasName", "label": "パターン名"}]
+    )
+    assert changed == ["ex:hasName"]
+    block = out.split("```yaml\n", 1)[1].split("```", 1)[0]
+    assert "false: slug" not in block.lower()  # the exact corruption, absent
+    ir = load_spec_yaml(block)
+    assert ir["maps"][0]["subject"]["transform"] == {"No": "slug"}
+    assert ir["maps"][0]["properties"][0]["label"] == "パターン名"
+
+
+_TWO_MAPS_SHARED_PREDICATE = {
+    "version": 1,
+    "prefixes": {"ex": "https://ns.invalid/ns#"},
+    "maps": [
+        {
+            "name": "pattern",
+            "source": "xrd.txt",
+            "subject": {"template": "ex:pattern/{No}"},
+            "properties": [{"predicate": "ex:hasName", "constant": "a"}],
+        },
+        {
+            "name": "peak",
+            "source": "xrd.txt",
+            "subject": {"template": "ex:peak/{No}/{2theta}"},
+            "properties": [{"predicate": "ex:hasName", "constant": "b"}],
+        },
+    ],
+}
+
+
+def test_map_narrows_an_edit_to_one_of_two_maps_sharing_a_predicate() -> None:
+    """Real-user incident, second half: predicate+source alone matched BOTH
+    ``pattern`` and ``peak``'s ``ex:hasName`` row (``changed`` came back with
+    the same predicate twice). ``map`` is what disambiguates — the client is
+    now expected to send it (KantanWizard.tsx commitMeta)."""
+    edits = [{"predicate": "ex:hasName", "map": "peak", "label": "ピーク名"}]
+    out, changed = apply_display_meta(_TWO_MAPS_SHARED_PREDICATE, edits)
+    assert changed == ["ex:hasName"]
+    assert "label" not in out["maps"][0]["properties"][0]  # pattern: untouched
+    assert out["maps"][1]["properties"][0]["label"] == "ピーク名"  # peak: set
+
+
+def test_without_map_a_shared_predicate_bleeds_into_every_matching_map() -> None:
+    """Documents the bleed itself (same fixture, no ``map``) — the exact shape
+    observed live: ``changed == ['ex:hasName', 'ex:hasName']``, one edit
+    landing on two unrelated maps."""
+    edits = [{"predicate": "ex:hasName", "label": "名前"}]
+    out, changed = apply_display_meta(_TWO_MAPS_SHARED_PREDICATE, edits)
+    assert changed == ["ex:hasName", "ex:hasName"]
+    assert out["maps"][0]["properties"][0]["label"] == "名前"
+    assert out["maps"][1]["properties"][0]["label"] == "名前"
 
 
 def test_legacy_design_without_a_mapping_spec_says_so() -> None:

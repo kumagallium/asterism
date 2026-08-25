@@ -1063,6 +1063,12 @@ export function KantanWizard({
   const metaQueueRef = useRef<
     {
       p: RuleProperty
+      // The owning map's /rules id (e.g. "PatternMap") — disambiguates a
+      // predicate bound by more than one map, same as `source`/`column`
+      // (real-user incident 2026-08-25: one edit with no map bled into every
+      // map sharing the predicate). The server canonicalizes this compiled
+      // id back to the §9 authored name before matching.
+      map: string
       source: string
       column: string
       field: 'label' | 'unit'
@@ -3985,6 +3991,7 @@ export function KantanWizard({
    *  and says so — a correction must never vanish without a word (KZ-B-05). */
   function commitMeta(
     p: RuleProperty,
+    map: string,
     source: string,
     column: string,
     field: 'label' | 'unit',
@@ -3995,7 +4002,7 @@ export function KantanWizard({
     const before = (field === 'label' ? readMeaning(p) : (p.unit ?? '')).trim()
     if (value === before) return
     patchRuleMeta(p, source, column, field, value)
-    metaQueueRef.current.push({ p, source, column, field, value, before })
+    metaQueueRef.current.push({ p, map, source, column, field, value, before })
     setMetaPending(metaQueueRef.current.length)
     void pumpMetaQueue()
   }
@@ -4011,19 +4018,28 @@ export function KantanWizard({
         // merge into one edit object, and the server splices the document once.
         const batch = metaQueueRef.current.splice(0)
         setMetaPending(0)
-        const byRow = new Map<string, { predicate: string; column?: string } & Record<string, string>>()
+        const byRow = new Map<
+          string,
+          { predicate: string; map?: string; column?: string } & Record<string, string>
+        >()
         for (const it of batch) {
-          const key = `${it.p.predicate_iri || it.p.predicate}\u001f${it.source}\u001f${it.column}`
+          const key = `${it.p.predicate_iri || it.p.predicate}\u001f${it.map}\u001f${it.source}\u001f${it.column}`
           const row =
             byRow.get(key) ??
             ({
               predicate: it.p.predicate_iri || it.p.predicate,
+              // The map pins WHICH map's row, when one predicate is bound by
+              // more than one map (real-user incident 2026-08-25: one edit
+              // with no map bled into every map sharing the predicate). The
+              // server accepts either the §9 authored name or this /rules
+              // compiled id and canonicalizes it.
+              ...(it.map ? { map: it.map } : {}),
               ...(it.source ? { source: sourceTail(it.source) } : {}),
               // The column pins WHICH row, when one predicate is bound twice. It
               // is the RESOLVED column, so a value that reaches the graph through
               // a conversion still names the column it came from (K8).
               ...(it.column ? { column: it.column } : {}),
-            } as { predicate: string; column?: string } & Record<string, string>)
+            } as { predicate: string; map?: string; column?: string } & Record<string, string>)
           row[it.field] = it.value
           byRow.set(key, row)
         }
@@ -4113,11 +4129,11 @@ export function KantanWizard({
             if (column !== name) continue
             matched = true
             if (meaning && !readMeaning(p)) {
-              commitMeta(p, m.source ?? '', column, 'label', meaning)
+              commitMeta(p, m.id, m.source ?? '', column, 'label', meaning)
               touched = true
             }
             if (unit && !(p.unit ?? '').trim()) {
-              commitMeta(p, m.source ?? '', column, 'unit', unit)
+              commitMeta(p, m.id, m.source ?? '', column, 'unit', unit)
               touched = true
             }
           }
@@ -5307,7 +5323,7 @@ export function KantanWizard({
                                     focusColumn: { name: column, samples: samples.slice(0, 3) },
                                   })
                                 }
-                                onBlur={(e) => commitMeta(p, m.source ?? '', column, 'label', e.target.value)}
+                                onBlur={(e) => commitMeta(p, m.id, m.source ?? '', column, 'label', e.target.value)}
                                 onKeyDown={(e) => {
                                   if (e.key === 'Enter' && !isImeConfirm(e))
                                     focusNextMetaInput(e.currentTarget)
@@ -5334,7 +5350,7 @@ export function KantanWizard({
                                     type="button"
                                     className="btn btn--ghost btn--sm kz-cols-usename"
                                     disabled={!kzDatasetId}
-                                    onClick={() => commitMeta(p, m.source ?? '', column, 'label', column)}
+                                    onClick={() => commitMeta(p, m.id, m.source ?? '', column, 'label', column)}
                                   >
                                     {t('kantan:s6.useColumnName')}
                                   </button>
@@ -5356,7 +5372,7 @@ export function KantanWizard({
                                 placeholder={t('kantan:s6.unitPlaceholder')}
                                 aria-label={t('kantan:s6.unitAria', { column })}
                                 disabled={!kzDatasetId}
-                                onBlur={(e) => commitMeta(p, m.source ?? '', column, 'unit', e.target.value)}
+                                onBlur={(e) => commitMeta(p, m.id, m.source ?? '', column, 'unit', e.target.value)}
                                 onKeyDown={(e) => {
                                   if (e.key === 'Enter' && !isImeConfirm(e))
                                     focusNextMetaInput(e.currentTarget)
