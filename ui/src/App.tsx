@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import './App.css'
 import { prefillAskQuestion } from './askPrefill'
 import { AskView } from './AskView'
+import { ConsultDrawer } from './consult/ConsultDrawer'
 import { CrosswalkView } from './CrosswalkView'
 import { isMockMode } from './demoApi'
 import { UpdateBanner } from './desktop/UpdateBanner'
@@ -486,6 +487,10 @@ function App() {
           </main>
         </div>
       </div>
+      {/* Global right-drawer AI consult (ADR design-consult-chat.md D1): available
+          on every screen, not just the かんたん wizard — a domain expert can also
+          ask "what does this column mean" from the Gallery or Ask. */}
+      <ConsultDrawer />
     </div>
   )
 }

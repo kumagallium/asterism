@@ -59,32 +59,61 @@ export function getAppDataInfo(): AppDataInfo | null {
   return info
 }
 
-// ---- Ask threads (single-user server storage) ------------------------------
+// ---- threads (single-user server storage) -----------------------------------
+//
+// `namespace` picks the server-side dir (`ask` or `consult`, ADR
+// design-consult-chat.md D2 — the same on-disk mechanism, shared by namespace).
+// The Ask-specific wrappers below keep their original signatures/behavior byte
+// -for-byte; `consultThreads.ts` calls the namespaced functions directly.
 
-export async function fetchAppDataThreads(): Promise<AskThread[]> {
-  const res = await fetch('/api/appdata/ask/threads', { headers: authHeaders() })
-  if (!res.ok) throw new Error(`GET /api/appdata/ask/threads: ${res.status}`)
+export type ThreadNamespace = 'ask' | 'consult'
+
+export async function fetchAppDataThreadsNS<T>(namespace: ThreadNamespace): Promise<T[]> {
+  const res = await fetch(`/api/appdata/${namespace}/threads`, { headers: authHeaders() })
+  if (!res.ok) throw new Error(`GET /api/appdata/${namespace}/threads: ${res.status}`)
   const data = (await res.json()) as { threads?: unknown }
-  return Array.isArray(data.threads) ? (data.threads as AskThread[]) : []
+  return Array.isArray(data.threads) ? (data.threads as T[]) : []
 }
 
-export async function putAppDataThread(thread: AskThread): Promise<void> {
-  const res = await fetch(`/api/appdata/ask/threads/${encodeURIComponent(thread.id)}`, {
+export async function putAppDataThreadNS(
+  namespace: ThreadNamespace,
+  thread: { id: string },
+): Promise<void> {
+  const res = await fetch(`/api/appdata/${namespace}/threads/${encodeURIComponent(thread.id)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(thread),
   })
-  if (!res.ok) throw new Error(`PUT /api/appdata/ask/threads/${thread.id}: ${res.status}`)
+  if (!res.ok) {
+    throw new Error(`PUT /api/appdata/${namespace}/threads/${thread.id}: ${res.status}`)
+  }
 }
 
-export async function deleteAppDataThread(id: string): Promise<void> {
-  const res = await fetch(`/api/appdata/ask/threads/${encodeURIComponent(id)}`, {
+export async function deleteAppDataThreadNS(
+  namespace: ThreadNamespace,
+  id: string,
+): Promise<void> {
+  const res = await fetch(`/api/appdata/${namespace}/threads/${encodeURIComponent(id)}`, {
     method: 'DELETE',
     headers: authHeaders(),
   })
   if (!res.ok && res.status !== 404) {
-    throw new Error(`DELETE /api/appdata/ask/threads/${id}: ${res.status}`)
+    throw new Error(`DELETE /api/appdata/${namespace}/threads/${id}: ${res.status}`)
   }
+}
+
+// ---- Ask threads (unchanged behavior — thin wrappers over the namespaced fns) --
+
+export async function fetchAppDataThreads(): Promise<AskThread[]> {
+  return fetchAppDataThreadsNS<AskThread>('ask')
+}
+
+export async function putAppDataThread(thread: AskThread): Promise<void> {
+  return putAppDataThreadNS('ask', thread)
+}
+
+export async function deleteAppDataThread(id: string): Promise<void> {
+  return deleteAppDataThreadNS('ask', id)
 }
 
 // ---- settings (single-user server storage) ----------------------------------

@@ -1,0 +1,16 @@
+{
+  "open": "Consult",
+  "close": "Close",
+  "send": "Send",
+  "stop": "Stop",
+  "hint": "The AI only explains and points at reference material. Whether to include or exclude something is always your call.",
+  "empty": "Ask anything — \"what does this column mean\", \"how do I use this screen\", and so on.",
+  "inputPlaceholder": "Ask a question…",
+  "thinking": "Thinking…",
+  "stoppedNote": "Stopped waiting for the reply. Send again to retry.",
+  "interruptedNote": "The screen closed before a reply arrived.",
+  "tabs": {
+    "draft": "About this design",
+    "general": "How to use Asterism"
+  }
+}

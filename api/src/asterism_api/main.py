@@ -83,6 +83,7 @@ from asterism_step0.instance_iri import DEFAULT_IRI_BASE, normalize_iri_base
 from asterism_step0.llm import (
     DEFAULT_ANTHROPIC_MODEL,
     DEFAULT_OPENAI_MODEL,
+    as_completion,
     list_available_models,
 )
 from asterism_step0.llm import make_llm as build_llm_client
@@ -313,6 +314,39 @@ class CrosswalkProposeBody(BaseModel):
     dataset_ids: list[str] = []
     concept: str = "composition"
     language: str | None = None
+
+
+class ConsultFocusColumn(BaseModel):
+    """The column the user's cursor is on right now (D4), if any."""
+
+    name: str = ""
+    samples: list[str] = []
+
+
+class ConsultContext(BaseModel):
+    """What the drawer is standing in front of (D4) — attached automatically by
+    the UI, never typed by the user. Every field optional: the drawer also
+    works from a screen with no design context (D2's ``general`` thread)."""
+
+    step: str | None = None
+    dataset: str | None = None
+    skeleton_summary: str | None = None
+    focus_column: ConsultFocusColumn | None = None
+
+
+class ConsultMessage(BaseModel):
+    role: str
+    content: str
+
+
+class ConsultBody(BaseModel):
+    """Body for POST /api/design/consult: a stateless one-shot chat turn (D3).
+    ``messages`` is the transcript the CLIENT holds (this endpoint has no
+    memory of its own); ``context`` is what the drawer is standing in front of
+    (D4)."""
+
+    messages: list[ConsultMessage] = []
+    context: ConsultContext | None = None
 
 
 class CrosswalkDiscoverBody(BaseModel):
@@ -717,6 +751,83 @@ def _llm_max_tokens(value: str | None) -> int | None:
     if parsed < 1:
         raise HTTPException(400, "X-LLM-Max-Tokens must be a positive integer")
     return parsed
+
+
+# ---------------------------------------------------------------------------
+# design-consult-chat.md: POST /api/design/consult
+# ---------------------------------------------------------------------------
+
+CONSULT_MAX_MESSAGES = 20
+CONSULT_MAX_CONTENT_CHARS = 8000
+
+# D5 (判断は代行しない): the model explains and points at reference material;
+# the person still clicks 含める/除外する. Written in Japanese — the audience is
+# a domain expert consulting mid-design, not a developer reading source.
+CONSULT_SYSTEM_PROMPT = """あなたは Asterism の設計相談役です。研究者がデータを Asterism に取り込む
+とき、隣に座って質問に答える専門家として振る舞ってください。
+
+Asterism の「かんたんモード」は次の6ステップで進みます。ユーザーがどのステップにいるかは
+「## いま見ている画面」に書かれています。それぞれ一言で言うと:
+
+1. 入れる - 元データ(CSV・Excel・装置ファイルなど)をアップロードする
+2. AI が読む - AI がファイルを読み、種類(サンプル・測定条件・測定値など)を推定する
+3. データの数えかた - 1行が何を表すか(例: 1サンプルにつき1行、1測定点につき1行)を決める
+4. 項目の意味 - 各列が何を意味するか(例: 「Ic」は臨界電流、単位はA)を確認・修正する
+5. ためす - 実際にデータを取り込んでみて、想定どおりの結果になるか試す
+6. 公開する - 問題がなければ、他の人が引用できる形で公開する
+
+守るべきこと:
+- 取り込む/取り込まないの裁定、列の意味や単位の最終判断は常にユーザーが行います。あなたは
+  説明と参考情報を提示するだけで、判断を代行したり、フォームへの記入を指示したりしません。
+- 「## いま見ている画面」に文脈(ステップ・データセット名・骨格の要約・注目している列など)
+  が添付されていれば、それに即して具体的かつ簡潔に答えてください。
+- 一般的な使い方の質問(文脈がない、または一般的な内容)には、上記6ステップの説明を踏まえて
+  答えてください。
+- ドメイン略語(例: XRD カードの Quality・RIR(I/Ic)・Subfile)を聞かれたら、一般的な意味を
+  説明したうえで、実データの値(添付されていれば)と整合するか一緒に考えてください。
+- 知らないこと・確信が持てないことは、知らないとはっきり言ってください。憶測を断定調で語らない
+  でください。
+- 回答は簡潔に。長い前置きや繰り返しは避け、要点から述べてください。
+"""
+
+
+def _render_consult_context(ctx: ConsultContext | None) -> str:
+    """Render the auto-attached design context (D4) as a Markdown block the
+    system prompt tells the model to answer "in front of". Absent/empty
+    fields are omitted — a general-thread question carries no block at all."""
+    if ctx is None:
+        return ""
+    lines: list[str] = []
+    if ctx.step:
+        lines.append(f"- ステップ: {ctx.step}")
+    if ctx.dataset:
+        lines.append(f"- データセット名: {ctx.dataset}")
+    if ctx.skeleton_summary:
+        lines.append(f"- 骨格の要約: {ctx.skeleton_summary}")
+    if ctx.focus_column and ctx.focus_column.name:
+        samples = "、".join(s for s in ctx.focus_column.samples if s)
+        col_line = f"- 注目している列: {ctx.focus_column.name}"
+        if samples:
+            col_line += f"(実データ例: {samples})"
+        lines.append(col_line)
+    if not lines:
+        return ""
+    return "## いま見ている画面\n" + "\n".join(lines)
+
+
+def _render_consult_prompt(messages: list[ConsultMessage], context: ConsultContext | None) -> str:
+    """Render the transcript + context block into the single user_message the
+    LLMClient protocol's ``complete()`` takes (system_prompt, user_message)."""
+    parts: list[str] = []
+    ctx_block = _render_consult_context(context)
+    if ctx_block:
+        parts.append(ctx_block)
+    turns = []
+    for m in messages:
+        speaker = "ユーザー" if m.role == "user" else "アシスタント"
+        turns.append(f"{speaker}: {m.content}")
+    parts.append("\n\n".join(turns))
+    return "\n\n".join(parts)
 
 
 def _arm_llm_callbacks(
@@ -3763,6 +3874,41 @@ def build_app(
             raise HTTPException(400, str(exc)) from exc
         return {"deleted": deleted}
 
+    # design-consult-chat.md D2: the same mechanism as the Ask threads above,
+    # under the `consult` namespace, so a design-consult conversation persists
+    # to disk in single-user mode exactly like an Ask thread does.
+    @app.get("/api/appdata/consult/threads")
+    async def appdata_list_consult_threads() -> dict[str, object]:
+        root = _appdata_root_or_404()
+        return {"threads": appdata.read_threads(root, namespace=appdata.CONSULT_DIRNAME)}
+
+    @app.put("/api/appdata/consult/threads/{thread_id}", dependencies=_write_auth)
+    async def appdata_put_consult_thread(thread_id: str, request: Request) -> dict[str, object]:
+        root = _appdata_root_or_404()
+        _reject_if_content_length_exceeds(request, appdata.MAX_THREAD_BYTES)
+        try:
+            payload = await request.json()
+        except ValueError as exc:
+            raise HTTPException(400, "body must be JSON") from exc
+        if not isinstance(payload, dict):
+            raise HTTPException(400, "thread body must be a JSON object")
+        try:
+            appdata.write_thread(root, thread_id, payload, namespace=appdata.CONSULT_DIRNAME)
+        except appdata.InvalidThreadId as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except (appdata.ThreadTooLarge, appdata.TooManyThreads) as exc:
+            raise HTTPException(413, str(exc)) from exc
+        return {"saved": True}
+
+    @app.delete("/api/appdata/consult/threads/{thread_id}", dependencies=_write_auth)
+    async def appdata_delete_consult_thread(thread_id: str) -> dict[str, object]:
+        root = _appdata_root_or_404()
+        try:
+            deleted = appdata.delete_thread(root, thread_id, namespace=appdata.CONSULT_DIRNAME)
+        except appdata.InvalidThreadId as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return {"deleted": deleted}
+
     @app.get("/api/appdata/settings")
     async def appdata_get_settings() -> dict[str, object]:
         root = _appdata_root_or_404()
@@ -4531,6 +4677,59 @@ def build_app(
         jobs: JobManager = app.state.jobs
         job_id = jobs.start(work)
         return JSONResponse({"job_id": job_id}, status_code=202)
+
+    @app.post("/api/design/consult")
+    async def design_consult(
+        body: ConsultBody,
+        x_api_key: str | None = Header(default=None),
+        x_llm_provider: str | None = Header(default=None),
+        x_llm_model: str | None = Header(default=None),
+        x_llm_api_base: str | None = Header(default=None),
+        x_llm_max_tokens: str | None = Header(
+            default=None,
+            description="Output-token cap override (positive integer); absent → provider default",
+        ),
+    ) -> dict[str, str]:
+        """Design-consult chat (ADR design-consult-chat.md): a stateless, tool-free,
+        non-streaming LLM turn for "what does this column mean" / "how do I use this
+        screen" questions asked mid-design. Like ``/api/propose`` and ``/api/refine``,
+        this is a plain generation call — no dataset is read or written, so it carries
+        no write-auth gate. The API key is used only for this call and never
+        persisted (D7, same as every other propose-family route).
+        """
+        messages = [m for m in body.messages if m.content.strip()]
+        if not messages:
+            raise HTTPException(400, "messages must contain at least one non-empty turn")
+        for m in messages:
+            if len(m.content) > CONSULT_MAX_CONTENT_CHARS:
+                raise HTTPException(
+                    400, f"message content exceeds {CONSULT_MAX_CONTENT_CHARS} characters"
+                )
+        # Only the most recent CONSULT_MAX_MESSAGES turns ride the call — older
+        # history is dropped (oldest first), not rejected: a long-running
+        # relationship with the drawer should degrade gracefully, not error.
+        if len(messages) > CONSULT_MAX_MESSAGES:
+            messages = messages[-CONSULT_MAX_MESSAGES:]
+
+        provider, model, api_base, key = _llm_coords(
+            x_api_key, x_llm_provider, x_llm_model, x_llm_api_base, cfg.registry_root
+        )
+        llm = _resolve_llm(
+            provider, model, api_base, key, max_tokens=_llm_max_tokens(x_llm_max_tokens)
+        )
+        user_message = _render_consult_prompt(messages, body.context)
+
+        def run() -> str:
+            return as_completion(llm.complete(CONSULT_SYSTEM_PROMPT, user_message)).text
+
+        try:
+            reply = await asyncio.to_thread(run)
+        except Exception as exc:  # LLM unreachable / provider error -> 502
+            raise HTTPException(502, f"AI consult failed: {exc}") from exc
+        await asyncio.to_thread(
+            _record_llm_usage, cfg.registry_root, "design.consult", provider, llm, model
+        )
+        return {"reply": reply}
 
     @app.get("/api/usage")
     async def usage_get(

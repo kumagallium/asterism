@@ -23,8 +23,12 @@ Layout
 ::
 
     appdata/
-        ask/<uuid4>.json     one chat thread per file
-        settings.json        app settings (secrets stripped before write)
+        ask/<uuid4>.json      one Ask chat thread per file
+        consult/<uuid4>.json  one design-consult chat thread per file (ADR
+                               design-consult-chat.md D2) — same mechanism,
+                               different namespace dir; see the ``namespace``
+                               parameter on the thread functions below
+        settings.json         app settings (secrets stripped before write)
 
 Threads are addressed by a uuid4 the client mints — validated as strictly as
 :mod:`asterism_api.staging`'s staging id, for the same reason: it is the ONLY
@@ -50,6 +54,7 @@ from typing import Any
 logger = logging.getLogger("asterism.appdata")
 
 ASK_DIRNAME = "ask"
+CONSULT_DIRNAME = "consult"
 SETTINGS_FILENAME = "settings.json"
 
 MAX_THREAD_BYTES = 1 * 1024 * 1024
@@ -108,17 +113,17 @@ def valid_thread_id(thread_id: str | None) -> bool:
     return bool(thread_id) and _ID.match(thread_id) is not None
 
 
-def _ask_dir(root: Path) -> Path:
-    return root / ASK_DIRNAME
+def _thread_dir(root: Path, namespace: str) -> Path:
+    return root / namespace
 
 
-def _thread_path(root: Path, thread_id: str) -> Path:
+def _thread_path(root: Path, thread_id: str, namespace: str = ASK_DIRNAME) -> Path:
     """The thread's file. Rejects anything that is not a uuid4 — same
     rationale as ``staging.dir_for``: the id is a client-controlled path
     component and must never traverse."""
     if not valid_thread_id(thread_id):
         raise InvalidThreadId(f"invalid thread id {thread_id!r}")
-    return _ask_dir(root) / f"{thread_id}.json"
+    return _thread_dir(root, namespace) / f"{thread_id}.json"
 
 
 def _atomic_write(path: Path, data: bytes) -> None:
@@ -137,16 +142,18 @@ def _atomic_write(path: Path, data: bytes) -> None:
         tmp.unlink(missing_ok=True)
 
 
-def read_threads(root: Path) -> list[dict[str, Any]]:
-    """Every readable thread under ``ask/``. A single corrupted/unreadable file
-    is skipped (logged, not raised) so it never takes the rest of the history
-    down with it."""
-    ask_dir = _ask_dir(root)
-    if not ask_dir.is_dir():
+def read_threads(root: Path, namespace: str = ASK_DIRNAME) -> list[dict[str, Any]]:
+    """Every readable thread under ``<namespace>/`` (default ``ask``). A single
+    corrupted/unreadable file is skipped (logged, not raised) so it never takes
+    the rest of the history down with it. ``namespace`` is what lets the design
+    consult chat (ADR design-consult-chat.md D2) share this exact mechanism
+    under ``consult/`` without touching Ask's own ``ask/`` files."""
+    thread_dir = _thread_dir(root, namespace)
+    if not thread_dir.is_dir():
         return []
     threads: list[dict[str, Any]] = []
     skipped = 0
-    for path in sorted(ask_dir.glob("*.json")):
+    for path in sorted(thread_dir.glob("*.json")):
         try:
             payload = json.loads(path.read_text("utf-8"))
         except (OSError, ValueError):
@@ -161,20 +168,22 @@ def read_threads(root: Path) -> list[dict[str, Any]]:
     return threads
 
 
-def write_thread(root: Path, thread_id: str, payload: dict[str, Any]) -> None:
+def write_thread(
+    root: Path, thread_id: str, payload: dict[str, Any], namespace: str = ASK_DIRNAME
+) -> None:
     """Persist one thread, atomically. Raises :class:`InvalidThreadId`,
     :class:`ThreadTooLarge`, or :class:`TooManyThreads`."""
-    path = _thread_path(root, thread_id)
+    path = _thread_path(root, thread_id, namespace)
     data = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
     if len(data) > MAX_THREAD_BYTES:
         raise ThreadTooLarge(
             f"thread payload is {len(data)} bytes, over the {MAX_THREAD_BYTES} limit"
         )
     if not path.is_file():
-        ask_dir = _ask_dir(root)
+        thread_dir = _thread_dir(root, namespace)
         existing = (
-            sum(1 for p in ask_dir.glob("*.json") if valid_thread_id(p.stem))
-            if ask_dir.is_dir()
+            sum(1 for p in thread_dir.glob("*.json") if valid_thread_id(p.stem))
+            if thread_dir.is_dir()
             else 0
         )
         if existing >= MAX_THREADS:
@@ -182,11 +191,11 @@ def write_thread(root: Path, thread_id: str, payload: dict[str, Any]) -> None:
     _atomic_write(path, data)
 
 
-def delete_thread(root: Path, thread_id: str) -> bool:
+def delete_thread(root: Path, thread_id: str, namespace: str = ASK_DIRNAME) -> bool:
     """Forget a thread. True when a file was actually removed; False when
     there was nothing there. Raises :class:`InvalidThreadId` for a malformed
     id (never silently a no-op — the caller should 400/404, not pretend)."""
-    path = _thread_path(root, thread_id)
+    path = _thread_path(root, thread_id, namespace)
     if not path.is_file():
         return False
     path.unlink()
