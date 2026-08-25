@@ -34,6 +34,12 @@ export async function consult(
             focus_column: context.focusColumn
               ? { name: context.focusColumn.name, samples: context.focusColumn.samples }
               : undefined,
+            pending_columns: context.pendingColumns?.length
+              ? context.pendingColumns.map((c) => ({ name: c.name, samples: c.samples }))
+              : undefined,
+            columns: context.columns?.length
+              ? context.columns.map((c) => ({ name: c.name, meaning: c.meaning, unit: c.unit }))
+              : undefined,
           }
         : undefined,
     }),

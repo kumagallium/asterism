@@ -118,6 +118,46 @@ def test_consult_weaves_context_into_prompt(tmp_path: Path) -> None:
         assert "この列はどういう意味" in user_message
 
 
+def test_consult_weaves_pending_and_confirmed_columns_into_prompt(tmp_path: Path) -> None:
+    """2026-08-25 real-LLM dogfood: asked about "the 17 columns not yet
+    imported", the AI replied "which columns?" because the S6 table on screen
+    never rode along in the context. Pins that the pending/confirmed column
+    tables reach the prompt with real column names and sample values."""
+    captured: dict[str, object] = {}
+    app = _app(tmp_path, captured)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/design/consult",
+            json={
+                "messages": [
+                    {"role": "user", "content": "まだ取り込んでいない項目の意味を答えられますか?"}
+                ],
+                "context": {
+                    "step": "項目の意味",
+                    "pending_columns": [
+                        {"name": "CSD", "samples": ["N AL1935 (NIST)"]},
+                        {"name": "Name", "samples": ["Aluminum Vanadium"]},
+                    ],
+                    "columns": [
+                        {"name": "d", "meaning": "面間隔 d", "unit": "Å"},
+                        {"name": "2theta", "meaning": "回折角 2θ", "unit": "deg"},
+                    ],
+                },
+            },
+            headers={"X-API-Key": "sk-user-test"},
+        )
+        assert r.status_code == 200
+        user_message = captured["user"]
+        assert "まだ取り込んでいない項目" in user_message
+        assert "CSD" in user_message
+        assert "N AL1935 (NIST)" in user_message
+        assert "Name" in user_message
+        assert "Aluminum Vanadium" in user_message
+        assert "意味が確定している項目" in user_message
+        assert "d = 面間隔 d" in user_message
+        assert "2theta = 回折角 2θ" in user_message
+
+
 def _manual_ui_phrases() -> list[tuple[str, str]]:
     """Every UI-name claim the manual makes — (phrase, source filename) —
     per the getting-started.md/screens.md header-comment convention: buttons

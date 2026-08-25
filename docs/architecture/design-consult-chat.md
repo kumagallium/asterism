@@ -25,7 +25,7 @@ K22（列の意味・単位・取り込む/除外するの最終判断は常に�
 | D1 | 置き場所 | 全画面共通の右ドロワー。右下「相談する」ボタン→スライドイン | かんたんウィザードの中に限定すると、Gallery や Ask で列名を思い出せない場面を拾えない |
 | D2 | スレッド | ~~設計セッション単位（データセット名の slug/`draft`）+ `general` の 2 スロット自動束縛~~ → **スレッドはユーザーが自由に作るフラットなリスト。自動の区分けはしない**（2026-08-25 ユーザー裁定で旧案を破棄）。Graphium と同じ「単なるスレッドの一覧」: 開いたときは最後に触ったスレッド（無ければ新規）、一覧から選ぶ・「+ 新しいチャット」で作る、それだけ。保存は既存 Ask スレッドと同じ機構を **namespace 違いで共有**（`ask` / `consult`）のまま | 「今のデータについて」と「使い方について」の区分けを機械が決め打ちすると、実際にはその境界を跨ぐ相談（例: この列の意味を聞きながら Asterism の別機能も聞く）が起きた瞬間に会話が分裂する。区分けが要るかどうかも含めてユーザーの裁量に委ねる方が単純で壊れない |
 | D3 | API | `POST /api/design/consult`: 無状態（history はクライアント持参）・ツールなし・LLM 1 コール・非ストリーミング。`/api/propose` `/api/refine` と同じ流儀で provider/model/api_base/key をヘッダで受け、`_resolve_llm` で組み立てる（サーバにキーを保存しない、D7 と同じ） | 判断を軽くする相談窓口に、証跡の要らないジョブ管理・SSE は過剰。propose 系と同じ認証の流儀に揃えることで、意思決定を増やさない |
-| D4 | 文脈の自動添付 | `{step, dataset, skeleton_summary, focus_column: {name, samples}}` を送信時に同梱。KantanWizard がモジュールスコープの小さなストア（`consultContext.ts`）に随時 `setConsultContext(patch)` で書き、ドロワーが読む。**D2 改訂後もこれは維持** — どのスレッドで送っても、いま見ている画面の文脈は変わらず付く（文脈の添付とスレッドの選び方は独立の軸） | React Context の大配線をせずに済む。patch はマージなので、ステップ変化の更新と列フォーカスの更新が互いを消さない |
+| D4 | 文脈の自動添付 | `{step, dataset, skeleton_summary, focus_column: {name, samples}}` を送信時に同梱。KantanWizard がモジュールスコープの小さなストア（`consultContext.ts`）に随時 `setConsultContext(patch)` で書き、ドロワーが読む。**D2 改訂後もこれは維持** — どのスレッドで送っても、いま見ている画面の文脈は変わらず付く（文脈の添付とスレッドの選び方は独立の軸）。**拡張（2026-08-25 ユーザー裁定）**: S6「項目の意味」の 2 つの表——`pendingColumns`（まだ取り込んでいない項目、列名+実データ例）と `columns`（意味が確定している項目、列名+意味+単位）——も、**画面が表示しているのと同じデータ**（`droppedColumns`/`valueRows`+`readMeaning`）から S6 の間だけ自動で付く。S6 を離れたら両方 null で消える | 実 LLM dogfood で「まだ取り込んでいない項目（17 件）の意味を答えられますか」と聞いたら AI が「列名を教えてください」と聞き返した——判断表に見えている情報が文脈に入っていなかった。人間がスクロールして見えているものは、AI にも自動で見えているべき（読み上げさせる手間を人間に負わせない） |
 | D5 | 判断は代行しない | system prompt にガードレール（取り込む/取り込まないの裁定はユーザーがする、AI は説明と参考情報のみ）。回答をフォームへ自動書き込みしない | K22 の一貫適用。会話に判断力があるように見えても、実際に列の意味欄に書くのは常に人間の指 |
 | D6 | UI の作法 | Graphium の AI チャットパネル（`~/Graphium/src/features/ai-assistant/panel.tsx`）に**構造だけ**準拠: 送信ボタンは送信可アイコン⇄送信中は停止アイコンに切替、ヘッダにチャット履歴一覧（新しいチャット・更新日時降順・タイトル＝先頭発言・メッセージ数・削除）、Cmd/Ctrl+Enter で送信（素の Enter は改行）、assistant 応答は ReactMarkdown+remarkGfm、ローディングはスピナー＋「考え中…」、エラーは destructive トーン。**色/間隔/角丸は Asterism 自身のデザイントークン（`index.css` の `:root`）を使う — Graphium の Tailwind クラスは持ち込まない** | 2026-08-25 ユーザーレビュー「まだまだ」判定（送信ボタンにアイコンが無い／チャット一覧が見えない／会話が続いていなそう／Graphium を参考に）への直接対応。実績のある会話 UI のパターンを流用し、UX をゼロから再発明しない |
 | D7 | メッセージの編集・再生成 | Graphium ChatBubble（714-1040 行）に準拠: ①user バブルに hover で出る編集ボタン→インライン textarea→確定でその発言を書き換え、**それ以降の履歴を切り捨てて再送信** ②assistant バブルに再生成ボタン→**直前の user までの履歴**で再送信し、その応答を置き換え。送信中（`busy`）は両アクションとも不可。分岐（fork = 編集後の元スレッドを別スレッドとして残す動作）はしない — 書き換えたら元の続きは失われる、Graphium より一段シンプルな挙動 | 「聞き方を間違えた」「もう一度別の言い回しで」に画面外の操作（新しいチャットを作り直す等）を要求しない。分岐は履歴 UI がもう一段複雑になる上、この相談窓口の役割（軽い相談）を超える |
@@ -194,6 +194,30 @@ K22（列の意味・単位・取り込む/除外するの最終判断は常に�
   旧 `test_consult_system_prompt_names_real_navigation`（3.1 で追加したハードコード
   カタログ向けテスト）はこの 2 本に置き換えて削除。
 
+### 3.5 D4 拡張: S6 の列テーブルを自動で見せる（2026-08-25 ユーザー裁定・別 worktree）
+
+- **ui** `consultContext.ts`: `ConsultContextState` に `pendingColumns?:
+  {name, samples}[] | null` と `columns?: {name, meaning?, unit?}[] | null`
+  を追加（`focusColumn` と同じ null=明示クリア/undefined=変更なしの規約）。
+- **ui** `KantanWizard.tsx`: S6 の `droppedColumns`（まだ取り込んでいない項目の
+  行）と `valueRows` + `readMeaning`（意味の表そのもの）から**別経路で作り直さず**
+  組み立てる新しい `useEffect` を追加（既存の D4 ステップ effect とは別。
+  `droppedColumns`/`valueRows` は毎レンダー新しい配列になる非メモ化の派生値
+  なので、それ自体ではなく元になる state（`rules`/`sourceSamples`/
+  `columnSamples`）を deps にして、実際にデータが変わった時だけ発火するように
+  している——`react-hooks/exhaustive-deps` はこの codebase の既存の流儀どおり
+  `eslint-disable-next-line` で明示）。`step !== 6` では両方 `null` にして
+  クリア。ウィザードの状態機械・保存処理は無変更。
+- **ui** `consultApi.ts`: `pending_columns`/`columns` をリクエスト body に追加
+  （空配列は省略）。
+- **api** `main.py`: `ConsultPendingColumn`/`ConsultColumn` を `ConsultContext`
+  に追加。`_render_pending_columns`/`_render_confirmed_columns`/
+  `_render_consult_columns` が「## いま見ている画面」に
+  「まだ取り込んでいない項目 (N 件): …」「意味が確定している項目: …」の2行を
+  追加で描画。入力ガード＝列は最大 40 件・samples 各最大 3 件・文字列は 80 字
+  （単位は 20 字）で `…` 切り。合計およそ 2,000 文字を超えたら各行を
+  按分して `、`区切りの境界でしか切らず「(ほか N 列)」を付す。
+
 ## 4. 検証
 
 - api: モック LLM で `/api/design/consult` を叩き、(a) 200 + reply、(b) messages 空
@@ -224,3 +248,9 @@ K22（列の意味・単位・取り込む/除外するの最終判断は常に�
   丸ごと消え、ガードレール文だけ残る）も確認。api `uv run pytest -q`（527 passed）+
   `uv run ruff check .`（clean）。ui は無変更のため `check-i18n-parity.mjs` +
   `check-i18n-refs.mjs` のみ再実行し緑を確認。`git diff --check` 緑。
+- S6 列テーブルの自動添付（3.5・別 worktree `feat/consult-screen-columns`）:
+  api `uv run pytest -q`（528 passed、新規 1 テスト含む）+ `uv run ruff check .`
+  （clean）。ui `npm run build`（成功）/ `npm run lint`（既存 warning のみ）/
+  `npm run lint:i18n`（parity/refs 緑、i18n 追加なし）。`git diff --check` 緑。
+  `_render_consult_context` の実出力を手元で確認（列名・実データ例・意味・単位が
+  正しく整形されることと、40 列超/長文字列での按分切り＋「(ほか N 列)」の挙動）。

@@ -20,6 +20,21 @@ export interface ConsultFocusColumn {
   samples: string[]
 }
 
+/** One row of S6's "まだ取り込んでいない項目" (droppedColumns) table. */
+export interface ConsultPendingColumn {
+  name: string
+  /** Up to a few real values, same as ConsultFocusColumn. */
+  samples: string[]
+}
+
+/** One row of S6's "項目の意味" table — a column whose meaning/unit is
+ *  already decided (blank when the AI/human hasn't filled it in yet). */
+export interface ConsultColumn {
+  name: string
+  meaning?: string
+  unit?: string
+}
+
 export interface ConsultContextState {
   /** Human-readable label of the step/screen the user is on. */
   step?: string
@@ -30,6 +45,13 @@ export interface ConsultContextState {
   /** The column the user's cursor is on right now, if any. null clears it
    *  explicitly (e.g. the field lost focus) — undefined leaves it untouched. */
   focusColumn?: ConsultFocusColumn | null
+  /** S6's "まだ取り込んでいない項目" rows, verbatim from the same data the
+   *  table renders. null clears it explicitly (left S6) — undefined leaves
+   *  it untouched. */
+  pendingColumns?: ConsultPendingColumn[] | null
+  /** S6's "項目の意味" rows, verbatim from the same data the table renders.
+   *  null clears it explicitly (left S6) — undefined leaves it untouched. */
+  columns?: ConsultColumn[] | null
 }
 
 let current: ConsultContextState = {}

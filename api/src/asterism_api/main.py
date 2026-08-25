@@ -323,15 +323,41 @@ class ConsultFocusColumn(BaseModel):
     samples: list[str] = []
 
 
+class ConsultPendingColumn(BaseModel):
+    """One row of S6's "まだ取り込んでいない項目" (droppedColumns) table."""
+
+    name: str = ""
+    samples: list[str] = []
+
+
+class ConsultColumn(BaseModel):
+    """One row of S6's "項目の意味" table — a column with a decided meaning/unit
+    (blank when not yet filled in)."""
+
+    name: str = ""
+    meaning: str | None = None
+    unit: str | None = None
+
+
 class ConsultContext(BaseModel):
     """What the drawer is standing in front of (D4) — attached automatically by
     the UI, never typed by the user. Every field optional: the drawer also
-    works from a screen with no design context (D2's ``general`` thread)."""
+    works from a screen with no design context (D2's ``general`` thread).
+
+    ``pending_columns``/``columns`` (2026-08-25 extension) are S6's two column
+    tables, verbatim from the same data the screen renders — a real-LLM
+    dogfood found the model asking "which columns?" when the person had just
+    asked about the ones visibly listed on screen. Input-guarded (not just
+    trusted client state) since this rides every consult call: at most 40
+    columns, 3 samples each, and every string capped so a pathological client
+    payload can't blow up the prompt."""
 
     step: str | None = None
     dataset: str | None = None
     skeleton_summary: str | None = None
     focus_column: ConsultFocusColumn | None = None
+    pending_columns: list[ConsultPendingColumn] = []
+    columns: list[ConsultColumn] = []
 
 
 class ConsultMessage(BaseModel):
@@ -868,6 +894,85 @@ Asterism の「かんたんモード」は次の6ステップで進みます。�
 CONSULT_SYSTEM_PROMPT = _build_consult_system_prompt(CONSULT_MANUAL_TEXT)
 
 
+# S6 column-table context (2026-08-25 extension): bounds so a pathological
+# client payload can't blow up the prompt — these are enforced here (not just
+# trusted client-side truncation), same posture as CONSULT_MAX_CONTENT_CHARS.
+_CONSULT_MAX_COLUMNS = 40
+_CONSULT_MAX_SAMPLES_PER_COLUMN = 3
+_CONSULT_MAX_FIELD_CHARS = 80
+_CONSULT_COLUMNS_CHAR_BUDGET = 2000
+
+
+def _clip(s: str, limit: int = _CONSULT_MAX_FIELD_CHARS) -> str:
+    s = s.strip()
+    return s if len(s) <= limit else s[: limit - 1].rstrip() + "…"
+
+
+def _render_pending_columns(columns: list[ConsultPendingColumn]) -> str:
+    """"まだ取り込んでいない項目" — S6's droppedColumns table, verbatim."""
+    entries = []
+    for c in columns[:_CONSULT_MAX_COLUMNS]:
+        if not c.name:
+            continue
+        samples = [
+            _clip(s) for s in c.samples[:_CONSULT_MAX_SAMPLES_PER_COLUMN] if s and s.strip()
+        ]
+        entry = _clip(c.name)
+        if samples:
+            entry += f" (例: {'、'.join(samples)})"
+        entries.append(entry)
+    if not entries:
+        return ""
+    return f"まだ取り込んでいない項目 ({len(entries)} 件): " + ", ".join(entries)
+
+
+def _render_confirmed_columns(columns: list[ConsultColumn]) -> str:
+    """"意味が確定している項目" — S6's meaning table, only the rows that
+    already have a meaning (a blank one is not "確定")."""
+    entries = []
+    for c in columns[:_CONSULT_MAX_COLUMNS]:
+        if not c.name or not (c.meaning and c.meaning.strip()):
+            continue
+        entry = f"{_clip(c.name)} = {_clip(c.meaning)}"
+        if c.unit and c.unit.strip():
+            entry += f" [{_clip(c.unit, 20)}]"
+        entries.append(entry)
+    if not entries:
+        return ""
+    return "意味が確定している項目: " + ", ".join(entries)
+
+
+def _render_consult_columns(ctx: ConsultContext) -> list[str]:
+    """Both S6 column-table lines, capped to a combined character budget
+    (long schemas would otherwise dominate the prompt) — truncation is
+    disclosed as "(ほか N 列)" rather than silently dropping columns."""
+    pending = _render_pending_columns(ctx.pending_columns)
+    confirmed = _render_confirmed_columns(ctx.columns)
+    lines = [f"- {line}" for line in (pending, confirmed) if line]
+    total = sum(len(line) for line in lines)
+    if total <= _CONSULT_COLUMNS_CHAR_BUDGET or not lines:
+        return lines
+    # Over budget: clip each line's rendered text to its share of the budget
+    # (proportional to its own length) and say how much was cut, rather than
+    # silently truncating mid-entry.
+    budget = _CONSULT_COLUMNS_CHAR_BUDGET
+    clipped: list[str] = []
+    for line in lines:
+        share = max(200, int(budget * (len(line) / total)))
+        if len(line) <= share:
+            clipped.append(line)
+            continue
+        cut = line[:share].rstrip()
+        # Back off to the last complete entry (", " boundary) so we never cut
+        # a column name/example in half.
+        boundary = cut.rfind(", ")
+        if boundary > 0:
+            cut = cut[:boundary]
+        remaining = line.count(", ") + 1 - (cut.count(", ") + 1)
+        clipped.append(f"{cut} (ほか {remaining} 列)" if remaining > 0 else cut)
+    return clipped
+
+
 def _render_consult_context(ctx: ConsultContext | None) -> str:
     """Render the auto-attached design context (D4) as a Markdown block the
     system prompt tells the model to answer "in front of". Absent/empty
@@ -887,6 +992,7 @@ def _render_consult_context(ctx: ConsultContext | None) -> str:
         if samples:
             col_line += f"(実データ例: {samples})"
         lines.append(col_line)
+    lines.extend(_render_consult_columns(ctx))
     if not lines:
         return ""
     return "## いま見ている画面\n" + "\n".join(lines)

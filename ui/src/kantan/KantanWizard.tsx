@@ -3829,6 +3829,36 @@ export function KantanWizard({
     return isEchoOfTerm(label, p.predicate_iri || p.predicate) ? '' : label
   }
 
+  // design-consult-chat.md D4 extension (2026-08-25 ユーザー裁定): 「まだ取り込ん
+  // でいない項目」(droppedColumns) と「意味が確定している項目」(valueRows +
+  // readMeaning、S6 の表そのもの) を、画面に出しているのと同じデータから consult
+  // ドロワーへ渡す — 相談チャットが「まだ取り込んでいない列」を聞かれて「列名を
+  // 教えてください」と聞き返した実 dogfood の欠落を埋める。別経路で作り直さない。
+  // S6 以外に移ったら両方 null にして消す(その画面の情報を持ち越さない)。
+  // droppedColumns/valueRows は毎レンダー新しい配列として計算される(メモ化なし)
+  // ため、それ自体を deps に置くと無関係な再レンダーでも発火する。表示の元になる
+  // state (rules/sourceSamples/columnSamples) を deps にして、実際にデータが変わ
+  // ったときだけ setConsultContext するようにしている。
+  useEffect(() => {
+    if (step !== 6) {
+      setConsultContext({ pendingColumns: null, columns: null })
+      return
+    }
+    setConsultContext({
+      pendingColumns: droppedColumns.map(({ column, samples }) => ({
+        name: column,
+        samples: samples.slice(0, 3),
+      })),
+      columns: valueRows.flatMap(({ rows }) =>
+        rows.map(({ prop, column }) => {
+          const meaning = readMeaning(prop)
+          return { name: column, meaning: meaning || undefined, unit: prop.unit || undefined }
+        }),
+      ),
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, rules, sourceSamples, columnSamples])
+
   /** Patch one property's display meta in the local rules state, so the table,
    *  the unit badge and the next edit's "before" all tell the truth without a
    *  full reload. Rows are matched the same way the server matches them:
