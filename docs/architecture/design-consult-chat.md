@@ -31,6 +31,7 @@ K22（列の意味・単位・取り込む/除外するの最終判断は常に�
 | D7 | メッセージの編集・再生成 | Graphium ChatBubble（714-1040 行）に準拠: ①user バブルに hover で出る編集ボタン→インライン textarea→確定でその発言を書き換え、**それ以降の履歴を切り捨てて再送信** ②assistant バブルに再生成ボタン→**直前の user までの履歴**で再送信し、その応答を置き換え。送信中（`busy`）は両アクションとも不可。分岐（fork = 編集後の元スレッドを別スレッドとして残す動作）はしない — 書き換えたら元の続きは失われる、Graphium より一段シンプルな挙動 | 「聞き方を間違えた」「もう一度別の言い回しで」に画面外の操作（新しいチャットを作り直す等）を要求しない。分岐は履歴 UI がもう一段複雑になる上、この相談窓口の役割（軽い相談）を超える |
 | D8 | 導線の知識＝`manual/` を単一の真実源に | ~~`CONSULT_SYSTEM_PROMPT` にハードコードした導線カタログ~~ → **人間向けヘルプと AI の知識を同一ファイルにする**（2026-08-25 ユーザー裁定・Graphium の `manual/` に倣う）。リポジトリルート直下 `manual/ja/`（`getting-started.md`=6 ステップの使い方、`screens.md`=画面別の導線リファレンス）を人間もマニュアルとして読める形で書き、`_load_consult_manual()` がプロセス起動時に 1 回連結して `CONSULT_SYSTEM_PROMPT` に注入する。マニュアルの表記規約（ボタンは「文言」ボタン、タブは「文言」タブ、サイドバー項目はメニューの「文言」の形で書く）を UI 文言との**照合テスト**（`api/tests/test_design_consult.py::test_manual_ui_names_exist_in_ui_locales`）が正規表現で機械チェックし、UI 変更にマニュアルが追従していない箇所を CI で検出する。ここにも「## いま見ている画面」にも無いボタン・メニュー・画面名を AI に発明させない — 該当が無ければ「いまの画面に見えているボタンの名前を教えてください」と聞き返させるガードレールは維持 | ハードコードのカタログは UI が変わるたびに人力で追随しなければ陳腐化する（実 LLM dogfood 2026-08-25 で「左側メニューの『データ設計』」「プロジェクト一覧の『設定をリセット』」という**存在しない UI**を案内する事故が発生）。マニュアルを真実源にすれば、①人間向けヘルプと AI の知識が同じ文章になり二重管理が要らない ②表記規約を機械可読にすることで陳腐化そのものを CI が検出できる（人力レビュー頼みにしない） |
 | D9 | チャット検索 | 一覧ビュー先頭に検索ボックス。タイトル＋全メッセージ本文の小文字化のみの部分一致でスレッドをフィルタ（fuzzy 検索はしない） | スレッドが増えると「+新しいチャット」で埋もれる（D2 のフラット化とセットで必要になった導線） |
+| D10 | 相談→表への反映導線 | assistant 応答は、列の意味/単位の候補を出すとき応答末尾に ` ```asterism-suggestions ``` ` コードブロック（`{"suggestions": [{"column", "meaning", "unit"}]}`）を添えてよい（`column` は画面の実列名を一字一句）。UI はこのブロックを検出・パースして**非表示**にし、いま画面にある列（`ConsultContext.pendingColumns`/`columns` の名前）と一致した件数だけを数えて「この候補を表に反映 (N 件)」ボタン（`skeleton-evidence-revert` と同じ content-width の控えめボタン）を出す。反映は `consultApply.ts`（`consultContext.ts` と同じモジュールスコープの橋、React では結合しない）経由で、いま登録されている画面（S6 のみ）の applier を呼ぶ。**適用は空欄だけ**——判断表(droppedColumns)は「取り扱い」を変えず label/unit だけ埋める、意味の表(valueRows)は既存の `commitMeta` と同じ保存経路。反映結果は「N 件を反映しました (M 件は入力済みのためスキップ)」の 1 行、S6 以外(applier 未登録)では「この画面では反映できません」 | 実 LLM dogfood で相談チャットが良い候補を言葉で説明しても、それを表に書き写すのは人間の手作業のままだった。D5(採用と確定は人間)は変えず、**転記**だけを機械に任せる——空欄しか触らないので、既に書かれた判断を上書きする事故は原理的に起きない |
 
 **非目標**: ツール実行・公開データへの質問（既存 Ask の領分）・ストリーミング・
 回答からフォームへの自動転記・@ メンション・grounding scope・メッセージ分岐
@@ -218,6 +219,39 @@ K22（列の意味・単位・取り込む/除外するの最終判断は常に�
   （単位は 20 字）で `…` 切り。合計およそ 2,000 文字を超えたら各行を
   按分して `、`区切りの境界でしか切らず「(ほか N 列)」を付す。
 
+### 3.6 D10: 相談→表への反映導線（2026-08-25 ユーザー要望）
+
+- **api** `main.py`: `CONSULT_SUGGESTIONS_FENCE = "asterism-suggestions"` を
+  定数化し、`CONSULT_SYSTEM_PROMPT` に提案ブロックの書式（`column` は画面の
+  実列名を一字一句・確信が持てない列は含めない・具体的な提案が無い応答には
+  付けない）と D5 の一文（「採用と確定は必ずユーザーが行う」）を追記。
+- **ui** `consult/consultApply.ts`（新規、`consultContext.ts` と同じモジュール
+  スコープの橋）: `parseSuggestionsBlock(text)`（fenced block を検出・JSON
+  パース。パース失敗/ブロック無しは通常応答として `displayText` をそのまま
+  返す——**エラーにしない**）、`registerSuggestionApplier(fn)`/
+  `applySuggestions(suggestions)`（画面側が登録した applier を呼ぶだけ。ドロワー
+  は `kantan/` を一切 import しない）。
+- **ui** `ConsultDrawer.tsx`: 各 assistant バブルでブロックを検出・非表示化し、
+  `useConsultContext()` の `pendingColumns`/`columns` の名前と一致した件数
+  だけを数えて（画面に無い列は捨てる）「この候補を表に反映 (N 件)」ボタンを表示
+  （マッチが 0 なら——S6 以外にいれば自動的にそう——ボタン自体を出さない）。
+  クリックで `applySuggestions()` を呼び、返った `{applied, skipped}` を
+  「N 件を反映しました (M 件は入力済みのためスキップ)」の1行で表示。
+  `applySuggestions()` が `null`（applier 未登録）なら「この画面では反映できません」。
+  ボタンは `.consult-msg-col`（flex column, `align-items: flex-start`）で
+  バブルの下に積み、ボタン自身も `align-self: flex-start` — `.skeleton-evidence-revert`
+  と同じ「flex column の裸のボタンは全幅化する」罠を踏まないための対処。
+- **ui** `KantanWizard.tsx`: S6 の間だけ applier を登録する新しい `useEffect`。
+  意味の表（`valueRows`）は列名が一致し `readMeaning(p)`/`p.unit` が空のときだけ
+  既存の `commitMeta`（手入力の onBlur と同じ保存経路）を呼ぶ。判断表
+  （`droppedColumns`）は「取り扱い」(`action`) を一切変更せず、`label`/`unit`
+  が空のときだけ既存の `updateColumnDecision` を呼ぶ（ローカル下書き state —
+  手入力と同じ、確定は既存の「確定」操作で送信されるまで別）。反映した列名は
+  `consultAppliedColumns`（新 state、`reflectChanged` と同じ「（更新）」バッジ
+  ＝`kz-map-note`+`updatedBadge` を両方の表で表示、AI reflect の集計とは独立）。
+- **i18n**: `consult:suggestions.{apply,applied,appliedWithSkipped,noApplier}`
+  を ja/en 追加。
+
 ## 4. 検証
 
 - api: モック LLM で `/api/design/consult` を叩き、(a) 200 + reply、(b) messages 空
@@ -254,3 +288,10 @@ K22（列の意味・単位・取り込む/除外するの最終判断は常に�
   `npm run lint:i18n`（parity/refs 緑、i18n 追加なし）。`git diff --check` 緑。
   `_render_consult_context` の実出力を手元で確認（列名・実データ例・意味・単位が
   正しく整形されることと、40 列超/長文字列での按分切り＋「(ほか N 列)」の挙動）。
+- D10 相談→表への反映（3.6・branch `feat/consult-screen-columns`、PR #413）:
+  api 新規テストを含め `uv run pytest -q`（529 passed）+ `uv run ruff check .`
+  （clean）。ui `npm run build`（成功）/ `npm run lint`（既存の1件のみ——新しい
+  applier 登録 effect が出した2件目の exhaustive-deps warning は
+  `eslint-disable-next-line` で既存の流儀どおり明示済み）/ `npm run lint:i18n`
+  （parity/refs 緑）。`git diff --check` 緑。D9（チャット検索）と番号が衝突する
+  ため、今回の提案→反映決定は D10 として追加。

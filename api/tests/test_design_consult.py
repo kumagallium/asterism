@@ -232,3 +232,19 @@ def test_consult_system_prompt_includes_manual() -> None:
     assert CONSULT_MANUAL_TEXT in CONSULT_SYSTEM_PROMPT
     assert "発明しては" in CONSULT_SYSTEM_PROMPT
     assert "聞き返して" in CONSULT_SYSTEM_PROMPT
+
+
+def test_consult_system_prompt_instructs_suggestion_blocks() -> None:
+    """D9: the model is told how to offer meaning/unit candidates the UI can
+    parse — the exact fence tag, the JSON shape, that ``column`` must be the
+    on-screen name verbatim, and that the block is a candidate (a human still
+    confirms it) rather than the model editing anything itself."""
+    from asterism_api.main import CONSULT_SUGGESTIONS_FENCE
+
+    assert CONSULT_SUGGESTIONS_FENCE in CONSULT_SYSTEM_PROMPT
+    assert f"```{CONSULT_SUGGESTIONS_FENCE}" in CONSULT_SYSTEM_PROMPT
+    assert '"suggestions"' in CONSULT_SYSTEM_PROMPT
+    assert '"column"' in CONSULT_SYSTEM_PROMPT
+    assert '"meaning"' in CONSULT_SYSTEM_PROMPT
+    assert '"unit"' in CONSULT_SYSTEM_PROMPT
+    assert "採用と確定は必ず" in CONSULT_SYSTEM_PROMPT

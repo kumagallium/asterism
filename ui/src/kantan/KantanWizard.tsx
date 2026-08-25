@@ -34,6 +34,7 @@ import {
   type TrialQueries,
 } from '../api'
 import { isMeaningReviewAdvisory, plainAdvisories, plainIssues } from '../advisoryPlain'
+import { registerSuggestionApplier } from '../consult/consultApply'
 import { setConsultContext } from '../consult/consultContext'
 import { TABULAR_ACCEPT } from '../datasetsApi'
 import { detectDatasetNamespace } from '../datasetNamespace'
@@ -1083,6 +1084,11 @@ export function KantanWizard({
   // same sentence gets typed again, round after round (KZ-B-29).
   const [reflectedNote, setReflectedNote] = useState('')
   const [reflectChanged, setReflectChanged] = useState<Set<string> | null>(null)
+  // design-consult-chat.md D9: which columns the consult drawer's "候補を表に
+  // 反映" just filled in — same「（更新）」badge as reflectChanged, kept as its
+  // own set so a suggestion-apply and an AI-reflect round never get credited
+  // to each other.
+  const [consultAppliedColumns, setConsultAppliedColumns] = useState<Set<string> | null>(null)
   const rulesBeforeReflect = useRef<DatasetRules | null>(null)
   // 'note' = the S6 free-text reflect; 'fix' = the S5 design-stop AI fix. Both
   // ride the SAME refine → re-materialize chain; the flag only picks the
@@ -4000,6 +4006,83 @@ export function KantanWizard({
     }
   }
 
+  // design-consult-chat.md D9: register how S6 applies the consult drawer's
+  // suggestion blocks, for exactly as long as S6 is on screen. Fills ONLY
+  // blank meaning/unit fields — never an include/exclude decision, never
+  // something the human already typed (D5: the human still decides what
+  // stays). The confirmed-columns table (valueRows) uses the SAME commitMeta
+  // path a manual edit's onBlur uses, so an applied suggestion is saved the
+  // same way and reconciled the same way. The not-yet-included table
+  // (droppedColumns) uses the SAME updateColumnDecision a manual edit uses,
+  // leaving the 取り扱い pulldown untouched. Re-registers on every render
+  // where the underlying data could have changed, so the closure never acts
+  // on stale rows; unregisters (via the cleanup) the moment S6 is left.
+  useEffect(() => {
+    if (step !== 6) return
+    const unregister = registerSuggestionApplier((suggestions) => {
+      let applied = 0
+      let skipped = 0
+      const touchedColumns = new Set<string>()
+      for (const s of suggestions) {
+        const name = s.column?.trim()
+        if (!name) continue
+        const meaning = s.meaning?.trim() || ''
+        const unit = s.unit?.trim() || ''
+
+        let matched = false
+        let touched = false
+        for (const { map: m, rows } of valueRows) {
+          for (const { prop: p, column } of rows) {
+            if (column !== name) continue
+            matched = true
+            if (meaning && !readMeaning(p)) {
+              commitMeta(p, m.source ?? '', column, 'label', meaning)
+              touched = true
+            }
+            if (unit && !(p.unit ?? '').trim()) {
+              commitMeta(p, m.source ?? '', column, 'unit', unit)
+              touched = true
+            }
+          }
+        }
+        if (!matched) {
+          const pending = droppedColumns.find((c) => c.column === name)
+          if (pending) {
+            matched = true
+            const draft = columnDecisionDrafts[columnDecisionKey(pending.source, pending.column)]
+            if (meaning && !draft?.label.trim()) {
+              updateColumnDecision(pending.source, pending.column, pending.maps[0]?.id ?? '', {
+                label: meaning,
+              })
+              touched = true
+            }
+            if (unit && !draft?.unit.trim()) {
+              updateColumnDecision(pending.source, pending.column, pending.maps[0]?.id ?? '', {
+                unit,
+              })
+              touched = true
+            }
+          }
+        }
+        if (!matched) continue // not a column on this screen — silently ignored
+        if (touched) {
+          applied += 1
+          touchedColumns.add(name)
+        } else {
+          skipped += 1
+        }
+      }
+      if (touchedColumns.size > 0) setConsultAppliedColumns(touchedColumns)
+      return { applied, skipped }
+    })
+    return unregister
+    // commitMeta/readMeaning are plain functions redefined every render (not
+    // memoized) that close over the SAME state already listed below — adding
+    // them would just make this re-register every render for no behavioral
+    // difference (same posture as the S6 context-push effect above).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, valueRows, droppedColumns, columnDecisionDrafts, kzDatasetId])
+
   /** Enter = confirm this field and move DOWN the same column, spreadsheet-style
    *  (dogfood: jumping right into the unit field surprised — nobody edits
    *  meaning→unit→meaning; they fix all the meanings, then the units. Tab still
@@ -5179,7 +5262,7 @@ export function KantanWizard({
                                     {t('kantan:s6.useColumnName')}
                                   </button>
                                 ))}
-                              {reflectChanged?.has(column) && (
+                              {(reflectChanged?.has(column) || consultAppliedColumns?.has(column)) && (
                                 <span className="kz-map-note"> {t('kantan:s6.updatedBadge')}</span>
                               )}
                             </td>
@@ -5368,6 +5451,9 @@ export function KantanWizard({
                              >
                                {t('kantan:s6.useColumnName')}
                              </button>
+                           )}
+                           {consultAppliedColumns?.has(column) && (
+                             <span className="kz-map-note"> {t('kantan:s6.updatedBadge')}</span>
                            )}
                          </td>
                          <td>

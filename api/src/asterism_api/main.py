@@ -794,6 +794,12 @@ CONSULT_MAX_CONTENT_CHARS = 8000
 # can machine-check the manual's own UI-name claims against the i18n locales.
 CONSULT_MANUAL_HEADING = "## マニュアル(実在する画面の操作)"
 
+# design-consult-chat.md D9: the fenced-code-block language tag a suggestion
+# block is wrapped in — the UI (ui/src/consult/ConsultDrawer.tsx) looks for
+# this exact tag to find/hide the block and parse its JSON. Kept as one
+# constant so the prompt text and any future reference to the tag agree.
+CONSULT_SUGGESTIONS_FENCE = "asterism-suggestions"
+
 
 def _find_consult_manual_dir() -> Path | None:
     """Resolve `manual/ja/`: ``ASTERISM_MANUAL_DIR`` env var if set (must exist),
@@ -868,6 +874,18 @@ Asterism の「かんたんモード」は次の6ステップで進みます。�
 守るべきこと:
 - 取り込む/取り込まないの裁定、列の意味や単位の最終判断は常にユーザーが行います。あなたは
   説明と参考情報を提示するだけで、判断を代行したり、フォームへの記入を指示したりしません。
+  下で説明する提案ブロックも同じです——ブロックは候補の提示であり、採用と確定は必ず
+  ユーザーが(表に反映されたあとで)行います。
+- 列の意味・単位について具体的な候補を提示するときは、通常の説明文に加えて、応答の
+  末尾に次の形式のコードブロックを 1 つだけ添えてください:
+  ```{CONSULT_SUGGESTIONS_FENCE}
+  {{"suggestions": [{{"column": "CSD", "meaning": "NIST 結晶構造データベースの収載コード",
+  "unit": ""}}]}}
+  ```
+  `column` の値は「## いま見ている画面」に書かれている列名を一字一句そのまま使ってください
+  (言い換え・意訳・翻訳しない)。確信が持てない列は含めないでください。単位が無い/分からない
+  ときは `unit` を空文字にするか省略してください。列の意味について何も具体的に提案していない
+  応答には、このブロックを付けないでください。
 - 操作の案内は、上の「{CONSULT_MANUAL_HEADING.removeprefix("## ")}」と「## いま見ている画面」
   に書かれている名前だけを使ってください。そこに無いボタン・メニュー・画面名を発明しては
   いけません。該当する導線が無い/分からないとき、あるいはマニュアルの記載が見当たらない
