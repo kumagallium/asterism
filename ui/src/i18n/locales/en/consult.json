@@ -21,6 +21,8 @@
     "emptyChat": "(empty chat)",
     "messageCount_one": "{{count}} message",
     "messageCount_other": "{{count}} messages",
-    "delete": "Delete this chat"
+    "delete": "Delete this chat",
+    "searchPlaceholder": "Search chats…",
+    "noMatch": "No matching chats."
   }
 }

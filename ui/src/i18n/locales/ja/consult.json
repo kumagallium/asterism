@@ -20,6 +20,8 @@
     "empty": "まだ相談していません。",
     "emptyChat": "(空のチャット)",
     "messageCount": "{{count}} メッセージ",
-    "delete": "このチャットを削除"
+    "delete": "このチャットを削除",
+    "searchPlaceholder": "チャットを検索…",
+    "noMatch": "一致するチャットはありません。"
   }
 }

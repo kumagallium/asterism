@@ -386,6 +386,25 @@
   border-color: var(--primary);
 }
 
+.consult-list-search {
+  display: block;
+  width: 100%;
+  margin-bottom: var(--space-2);
+  padding: 0.4em 0.6em;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  font-size: 0.78rem;
+  font-family: inherit;
+  background: var(--surface);
+  color: var(--fg);
+}
+
+.consult-list-search:focus {
+  outline: 2px solid var(--primary-soft);
+  outline-offset: 1px;
+  border-color: var(--primary);
+}
+
 .consult-list-items {
   list-style: none;
   margin: 0;

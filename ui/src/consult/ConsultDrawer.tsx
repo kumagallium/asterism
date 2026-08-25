@@ -322,6 +322,19 @@ export function ConsultDrawer() {
   )
 }
 
+/** Title (deterministic, first-question-derived) or any message body — a
+ *  simple lowercased substring match, no fuzziness (spec: "小文字化のみの
+ *  素朴一致で可"). */
+function matchesQuery(thread: ConsultThread, query: string): boolean {
+  if (!query) return true
+  const q = query.toLowerCase()
+  if (thread.title.toLowerCase().includes(q)) return true
+  return thread.turns.some((tn) => {
+    const text = tn.role === 'user' ? tn.text : (tn.result ?? '')
+    return text.toLowerCase().includes(q)
+  })
+}
+
 function ConsultChatList({
   threads,
   lang,
@@ -337,14 +350,28 @@ function ConsultChatList({
 }) {
   const { t } = useTranslation('consult')
   const locale = lang.startsWith('en') ? 'en-US' : 'ja-JP'
-  const sorted = [...threads].sort((a, b) => b.updatedAt - a.updatedAt)
+  const [query, setQuery] = useState('')
+  const sorted = [...threads]
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .filter((th) => matchesQuery(th, query))
+  const hasThreads = threads.length > 0
   return (
     <div className="consult-list">
       <button type="button" className="consult-list-new" onClick={onNewChat}>
         {t('list.newChat')}
       </button>
+      {hasThreads && (
+        <input
+          type="search"
+          className="consult-list-search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={t('list.searchPlaceholder')}
+          aria-label={t('list.searchPlaceholder')}
+        />
+      )}
       {sorted.length === 0 ? (
-        <p className="consult-empty">{t('list.empty')}</p>
+        <p className="consult-empty">{hasThreads ? t('list.noMatch') : t('list.empty')}</p>
       ) : (
         <ul className="consult-list-items">
           {sorted.map((th) => {
