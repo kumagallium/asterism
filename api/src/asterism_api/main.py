@@ -332,11 +332,25 @@ class ConsultPendingColumn(BaseModel):
 
 class ConsultColumn(BaseModel):
     """One row of S6's "項目の意味" table — a column with a decided meaning/unit
-    (blank when not yet filled in)."""
+    (blank when not yet filled in). ``samples`` (2026-08-25 extension): real
+    values, so a "意味が未入力の項目" question can be answered from the actual
+    data, not just the bare column name."""
 
     name: str = ""
     meaning: str | None = None
     unit: str | None = None
+    samples: list[str] = []
+
+
+class ConsultKind(BaseModel):
+    """One row of S4's「データの数えかた」ゲート — a map's key columns and its
+    current "1 件が表すもの" (class/kind) name, verbatim from the same data
+    SkeletonGate renders."""
+
+    map: str = ""
+    source: str = ""
+    key_columns: list[str] = []
+    kind_name: str | None = None
 
 
 class ConsultContext(BaseModel):
@@ -358,6 +372,8 @@ class ConsultContext(BaseModel):
     focus_column: ConsultFocusColumn | None = None
     pending_columns: list[ConsultPendingColumn] = []
     columns: list[ConsultColumn] = []
+    # 2026-08-25 D10 extension (B): S4 gate's per-map key columns + kind name.
+    kinds: list[ConsultKind] = []
 
 
 class ConsultMessage(BaseModel):
@@ -880,12 +896,18 @@ Asterism の「かんたんモード」は次の6ステップで進みます。�
   末尾に次の形式のコードブロックを 1 つだけ添えてください:
   ```{CONSULT_SUGGESTIONS_FENCE}
   {{"suggestions": [{{"column": "CSD", "meaning": "NIST 結晶構造データベースの収載コード",
-  "unit": ""}}]}}
+  "unit": ""}}], "kinds": [{{"map": "peak", "name": "ピーク"}}]}}
   ```
-  `column` の値は「## いま見ている画面」に書かれている列名を一字一句そのまま使ってください
-  (言い換え・意訳・翻訳しない)。確信が持てない列は含めないでください。単位が無い/分からない
-  ときは `unit` を空文字にするか省略してください。列の意味について何も具体的に提案していない
-  応答には、このブロックを付けないでください。
+  `suggestions` の `column` の値は「## いま見ている画面」に書かれている列名を一字一句
+  そのまま使ってください(言い換え・意訳・翻訳しない)。「意味が未入力の項目」として挙げ
+  られている列についても、同じ形式で候補を出せます。確信が持てない列は含めないでください。
+  単位が無い/分からないときは `unit` を空文字にするか省略してください。
+  `kinds` は「データの種類」(1 件が表すもの/種類名)について尋ねられたときだけ使います。
+  `map` は「## いま見ている画面」の「データの種類」に書かれているマップ名を一字一句その
+  まま、`name` はその内容を表す日本語の短い種類名(例: ピーク、試料)です。ID の作り方
+  (どの列で数えるか)や、取り込む/取り込まないの裁定はここでは提案しません——種類名だけ
+  です。`suggestions`・`kinds` はどちらも省略可能で、何も具体的に提案していない応答には
+  このブロック自体を付けないでください。
 - 操作の案内は、上の「{CONSULT_MANUAL_HEADING.removeprefix("## ")}」と「## いま見ている画面」
   に書かれている名前だけを使ってください。そこに無いボタン・メニュー・画面名を発明しては
   いけません。該当する導線が無い/分からないとき、あるいはマニュアルの記載が見当たらない
@@ -926,19 +948,27 @@ def _clip(s: str, limit: int = _CONSULT_MAX_FIELD_CHARS) -> str:
     return s if len(s) <= limit else s[: limit - 1].rstrip() + "…"
 
 
+def _render_name_and_samples(name: str, samples: list[str]) -> str:
+    """One "name (例: a、b、c)" entry — the shape both droppedColumns
+    ("まだ取り込んでいない項目") and meaning-blank confirmed columns ("意味が
+    未入力の項目") render with, so they read identically to the person
+    (they're the same kind of gap: a column with no meaning attached yet)."""
+    clipped_samples = [
+        _clip(s) for s in samples[:_CONSULT_MAX_SAMPLES_PER_COLUMN] if s and s.strip()
+    ]
+    entry = _clip(name)
+    if clipped_samples:
+        entry += f" (例: {'、'.join(clipped_samples)})"
+    return entry
+
+
 def _render_pending_columns(columns: list[ConsultPendingColumn]) -> str:
     """"まだ取り込んでいない項目" — S6's droppedColumns table, verbatim."""
-    entries = []
-    for c in columns[:_CONSULT_MAX_COLUMNS]:
-        if not c.name:
-            continue
-        samples = [
-            _clip(s) for s in c.samples[:_CONSULT_MAX_SAMPLES_PER_COLUMN] if s and s.strip()
-        ]
-        entry = _clip(c.name)
-        if samples:
-            entry += f" (例: {'、'.join(samples)})"
-        entries.append(entry)
+    entries = [
+        _render_name_and_samples(c.name, c.samples)
+        for c in columns[:_CONSULT_MAX_COLUMNS]
+        if c.name
+    ]
     if not entries:
         return ""
     return f"まだ取り込んでいない項目 ({len(entries)} 件): " + ", ".join(entries)
@@ -960,13 +990,47 @@ def _render_confirmed_columns(columns: list[ConsultColumn]) -> str:
     return "意味が確定している項目: " + ", ".join(entries)
 
 
+def _render_missing_meaning_columns(columns: list[ConsultColumn]) -> str:
+    """"意味が未入力の項目" — the SAME S6 meaning table as
+    `_render_confirmed_columns`, but the complementary rows: already-mapped
+    columns whose meaning cell is still blank. Without this line the model
+    only ever saw columns that already had a meaning, so "propose meanings
+    for the blank ones" had nothing to answer from (real-LLM dogfood
+    2026-08-25: the model asked the person to type out the column names)."""
+    entries = [
+        _render_name_and_samples(c.name, c.samples)
+        for c in columns[:_CONSULT_MAX_COLUMNS]
+        if c.name and not (c.meaning and c.meaning.strip())
+    ]
+    if not entries:
+        return ""
+    return f"意味が未入力の項目 ({len(entries)} 件): " + ", ".join(entries)
+
+
+def _render_kinds(kinds: list[ConsultKind]) -> str:
+    """"データの種類" — S4 gate's per-map key columns + kind name, verbatim
+    from the same data SkeletonGate renders (D10 extension B)."""
+    entries = []
+    for k in kinds[:_CONSULT_MAX_COLUMNS]:
+        if not k.map:
+            continue
+        id_desc = "+".join(_clip(c, 30) for c in k.key_columns) or "なし"
+        kind_desc = _clip(k.kind_name, 30) if k.kind_name and k.kind_name.strip() else "未入力"
+        entries.append(f"{_clip(k.map, 30)} (ID: {id_desc}, 種類名: {kind_desc})")
+    if not entries:
+        return ""
+    return "データの種類: " + ", ".join(entries)
+
+
 def _render_consult_columns(ctx: ConsultContext) -> list[str]:
-    """Both S6 column-table lines, capped to a combined character budget
-    (long schemas would otherwise dominate the prompt) — truncation is
-    disclosed as "(ほか N 列)" rather than silently dropping columns."""
+    """Render every S4/S6 column-or-kind line under one shared character
+    budget (a long design must not fill the whole prompt) — over-budget lines
+    are clipped with "(ほか N 列)" disclosed, never silently dropped."""
     pending = _render_pending_columns(ctx.pending_columns)
     confirmed = _render_confirmed_columns(ctx.columns)
-    lines = [f"- {line}" for line in (pending, confirmed) if line]
+    missing = _render_missing_meaning_columns(ctx.columns)
+    kinds = _render_kinds(ctx.kinds)
+    lines = [f"- {line}" for line in (pending, confirmed, missing, kinds) if line]
     total = sum(len(line) for line in lines)
     if total <= _CONSULT_COLUMNS_CHAR_BUDGET or not lines:
         return lines

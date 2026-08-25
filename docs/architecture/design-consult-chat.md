@@ -31,7 +31,7 @@ K22（列の意味・単位・取り込む/除外するの最終判断は常に�
 | D7 | メッセージの編集・再生成 | Graphium ChatBubble（714-1040 行）に準拠: ①user バブルに hover で出る編集ボタン→インライン textarea→確定でその発言を書き換え、**それ以降の履歴を切り捨てて再送信** ②assistant バブルに再生成ボタン→**直前の user までの履歴**で再送信し、その応答を置き換え。送信中（`busy`）は両アクションとも不可。分岐（fork = 編集後の元スレッドを別スレッドとして残す動作）はしない — 書き換えたら元の続きは失われる、Graphium より一段シンプルな挙動 | 「聞き方を間違えた」「もう一度別の言い回しで」に画面外の操作（新しいチャットを作り直す等）を要求しない。分岐は履歴 UI がもう一段複雑になる上、この相談窓口の役割（軽い相談）を超える |
 | D8 | 導線の知識＝`manual/` を単一の真実源に | ~~`CONSULT_SYSTEM_PROMPT` にハードコードした導線カタログ~~ → **人間向けヘルプと AI の知識を同一ファイルにする**（2026-08-25 ユーザー裁定・Graphium の `manual/` に倣う）。リポジトリルート直下 `manual/ja/`（`getting-started.md`=6 ステップの使い方、`screens.md`=画面別の導線リファレンス）を人間もマニュアルとして読める形で書き、`_load_consult_manual()` がプロセス起動時に 1 回連結して `CONSULT_SYSTEM_PROMPT` に注入する。マニュアルの表記規約（ボタンは「文言」ボタン、タブは「文言」タブ、サイドバー項目はメニューの「文言」の形で書く）を UI 文言との**照合テスト**（`api/tests/test_design_consult.py::test_manual_ui_names_exist_in_ui_locales`）が正規表現で機械チェックし、UI 変更にマニュアルが追従していない箇所を CI で検出する。ここにも「## いま見ている画面」にも無いボタン・メニュー・画面名を AI に発明させない — 該当が無ければ「いまの画面に見えているボタンの名前を教えてください」と聞き返させるガードレールは維持 | ハードコードのカタログは UI が変わるたびに人力で追随しなければ陳腐化する（実 LLM dogfood 2026-08-25 で「左側メニューの『データ設計』」「プロジェクト一覧の『設定をリセット』」という**存在しない UI**を案内する事故が発生）。マニュアルを真実源にすれば、①人間向けヘルプと AI の知識が同じ文章になり二重管理が要らない ②表記規約を機械可読にすることで陳腐化そのものを CI が検出できる（人力レビュー頼みにしない） |
 | D9 | チャット検索 | 一覧ビュー先頭に検索ボックス。タイトル＋全メッセージ本文の小文字化のみの部分一致でスレッドをフィルタ（fuzzy 検索はしない） | スレッドが増えると「+新しいチャット」で埋もれる（D2 のフラット化とセットで必要になった導線） |
-| D10 | 相談→表への反映導線 | assistant 応答は、列の意味/単位の候補を出すとき応答末尾に ` ```asterism-suggestions ``` ` コードブロック（`{"suggestions": [{"column", "meaning", "unit"}]}`）を添えてよい（`column` は画面の実列名を一字一句）。UI はこのブロックを検出・パースして**非表示**にし、いま画面にある列（`ConsultContext.pendingColumns`/`columns` の名前）と一致した件数だけを数えて「この候補を表に反映 (N 件)」ボタン（`skeleton-evidence-revert` と同じ content-width の控えめボタン）を出す。反映は `consultApply.ts`（`consultContext.ts` と同じモジュールスコープの橋、React では結合しない）経由で、いま登録されている画面（S6 のみ）の applier を呼ぶ。**適用は空欄だけ**——判断表(droppedColumns)は「取り扱い」を変えず label/unit だけ埋める、意味の表(valueRows)は既存の `commitMeta` と同じ保存経路。反映結果は「N 件を反映しました (M 件は入力済みのためスキップ)」の 1 行、S6 以外(applier 未登録)では「この画面では反映できません」 | 実 LLM dogfood で相談チャットが良い候補を言葉で説明しても、それを表に書き写すのは人間の手作業のままだった。D5(採用と確定は人間)は変えず、**転記**だけを機械に任せる——空欄しか触らないので、既に書かれた判断を上書きする事故は原理的に起きない |
+| D10 | 相談→表への反映導線 | assistant 応答は、列の意味/単位の候補を出すとき応答末尾に ` ```asterism-suggestions ``` ` コードブロック（`{"suggestions": [{"column", "meaning", "unit"}], "kinds": [{"map", "name"}]}`、両フィールドとも任意）を添えてよい（`column`/`map` は画面の実名を一字一句）。UI はこのブロックを検出・パースして**非表示**にし、いま画面にある列/マップ（S6: `ConsultContext.pendingColumns`/`columns` の名前、S4: `kinds` のうち種類名が空のマップ）と一致した件数だけを数えて「この候補を表に反映 (N 件)」ボタン（`skeleton-evidence-revert` と同じ content-width の控えめボタン）を出す。反映は `consultApply.ts`（`consultContext.ts` と同じモジュールスコープの橋、React では結合しない）経由で、いま登録されている画面（S6 または S4）の applier を呼ぶ。**適用は空欄だけ**——S6 の判断表(droppedColumns)は「取り扱い」を変えず label/unit だけ埋める(既存 `updateColumnDecision`)、意味の表(valueRows)は既存の `commitMeta` と同じ保存経路、S4 は「1 件が表すもの」セルが空のマップだけ既存の `onSkeletonEdited` 経路(手入力と同じ再検査つき)で埋める。反映結果は「N 件を反映しました (M 件は入力済みのためスキップ)」の 1 行、applier 未登録の画面では「この画面では反映できません」。**拡張 A（2026-08-25・実 LLM dogfood）**: S6 の「意味の表」は元々 meaning が空の行を `_render_confirmed_columns` が黙って除外していたため、「意味が空欄の列の候補を」という相談に AI が列名を聞き返す穴があった → 同じ `columns` データから「意味が未入力の項目 (N 件): 列名 (例: 実データ)」を追加で描画（`ConsultColumn.samples` を新設）。**拡張 B**: S4「データの数えかた」ゲートの「1 件が表すもの」欄にも同じ導線を拡張——`ConsultContext.kinds`（SkeletonGate と同じ計算=テンプレートの `{列名}` → keyColumns、`subject.classes` → 種類名）を「データの種類: map (ID: 列+列, 種類名: 未入力/名前)」として描画し、S4 の applier は ID の作り方や取り込み裁定には手を出さず種類名だけを埋める | 実 LLM dogfood で相談チャットが良い候補を言葉で説明しても、それを表に書き写すのは人間の手作業のままだった。D5(採用と確定は人間)は変えず、**転記**だけを機械に任せる——空欄しか触らないので、既に書かれた判断を上書きする事故は原理的に起きない。「意味が確定している項目」しか見せていなければ「空欄の列」という質問自体に答えようがない、③のクラス名も同じ穴を持つ構造だったため、両方を同じ設計で塞いだ |
 
 **非目標**: ツール実行・公開データへの質問（既存 Ask の領分）・ストリーミング・
 回答からフォームへの自動転記・@ メンション・grounding scope・メッセージ分岐
@@ -252,6 +252,52 @@ K22（列の意味・単位・取り込む/除外するの最終判断は常に�
 - **i18n**: `consult:suggestions.{apply,applied,appliedWithSkipped,noApplier}`
   を ja/en 追加。
 
+### 3.7 D10 拡張 A/B: 意味未入力列の可視化 + S4 の種類名（2026-08-25 実 LLM dogfood 対応）
+
+- **api** `main.py`: `ConsultColumn` に `samples: list[str] = []` を追加。
+  `_render_name_and_samples()` を共通ヘルパーに切り出し（droppedColumns も
+  meaning-blank confirmed columns も「name (例: a、b、c)」という同じ形で
+  読めるべきという判断）、`_render_missing_meaning_columns()`（meaning が
+  空の `columns` 行だけを対象）を追加。新規 `ConsultKind` モデル
+  （`map`/`source`/`key_columns`/`kind_name`）+ `ConsultContext.kinds`
+  （既定 `[]`、旧クライアントとの後方互換）+ `_render_kinds()`
+  （`"データの種類: peak (ID: No+(hkl), 種類名: 未入力), …"`）。
+  `_render_consult_columns()` が pending/confirmed/missing/kinds の 4 行を
+  まとめて同じ文字数予算で描画。プロンプトの提案ブロック指示に「意味が未入力
+  の項目」候補の許可と、`kinds` フィールド（ID の作り方・取り込み裁定は提案
+  しない、種類名だけ）を追記。
+- **ui** `consultContext.ts`: `ConsultColumn.samples?` 追加、新規
+  `ConsultKind`（`map`/`source`/`keyColumns`/`kindName`）+
+  `ConsultContextState.kinds?`（`focusColumn` と同じ null=明示クリア規約）。
+- **ui** `KantanWizard.tsx`: 既存の S6 供給 effect に `columnSamples[column]`
+  由来の `samples` を追加。新規 effect が S4 の間だけ、SkeletonGate と同じ
+  計算（`m.subject.template`/`constant` の `{列名}` 抽出 → keyColumns、
+  `annotations.maps[m.name].key_columns` へのフォールバック、
+  `compactClass(c, nsDetected)` → 種類名）から `kinds` を組み立てて
+  `setConsultContext` する。S4 以外に移ったら null でクリア。
+- **ui** `consultApply.ts`: `Applier` のシグネチャを
+  `(payload: {suggestions, kinds}) => {applied, skipped}` に変更（S6/S4 が
+  同じ登録スロットを共有しつつ、それぞれ自分の関心（suggestions / kinds）
+  だけを見て相手のフィールドは無視する）。`parseSuggestionsBlock` が
+  `kinds: ConsultKindSuggestion[]`（`map`/`name`）も返すよう拡張。
+- **ui** `KantanWizard.tsx`: 新規 S4 の applier 登録 effect。`kinds` の各候補に
+  ついて、対応する map の `subject.classes` が空のときだけ
+  `expandClass(name, nsDetected)` した 1 要素配列を `subject.classes` にセット
+  し、`onSkeletonEdited({...skeleton, maps: nextMaps})` を呼ぶ——手入力の
+  「1 件が表すもの」欄と全く同じ経路（デバウンス付き再検査つき）。ID
+  テンプレート・取り扱いには一切触れない。
+- **ui** `ConsultDrawer.tsx`: `emptyKindMaps`（`ctx.kinds` のうち kindName が
+  空のマップ名集合）を `screenColumnNames` と並べて計算し `ConsultBubble` へ
+  渡す。`parseSuggestionsBlock` の返り値から `matchedSuggestions`（列名一致）
+  と `matchedKinds`（空マップ一致）を両方求め、件数の合計をボタンに表示、
+  クリックで両方まとめて `applySuggestions({suggestions, kinds})` する
+  （S6/S4 は排他的にしか文脈を持たないため、実際には常にどちらか一方だけが
+  非空）。
+- **api テスト**: 意味未入力列のレンダー・kinds のレンダー（ID 表示・種類名
+  未入力/入力済み双方）・`kinds` キー無しでも従来どおり動く後方互換・
+  プロンプトが kinds のガードレール文言（ID の作り方/取り込み裁定は対象外）
+  を含むこと、の 4 本を追加。
+
 ## 4. 検証
 
 - api: モック LLM で `/api/design/consult` を叩き、(a) 200 + reply、(b) messages 空
@@ -295,3 +341,11 @@ K22（列の意味・単位・取り込む/除外するの最終判断は常に�
   `eslint-disable-next-line` で既存の流儀どおり明示済み）/ `npm run lint:i18n`
   （parity/refs 緑）。`git diff --check` 緑。D9（チャット検索）と番号が衝突する
   ため、今回の提案→反映決定は D10 として追加。
+- D10 拡張 A/B（3.7・branch `feat/consult-screen-columns`）: api 新規4テスト
+  含め `uv run pytest -q`（533 passed）+ `uv run ruff check .`（clean）。
+  `_render_consult_context` の実出力を手元で確認（「意味が未入力の項目 (N 件):
+  …」「データの種類: peak (ID: No+(hkl), 種類名: 未入力), sample (ID: No,
+  種類名: 試料)」の両方が仕様どおりの書式）。ui `npm run build`（成功）/
+  `npm run lint`（既存の1件のみ、新設 S4 applier effect も
+  `eslint-disable-next-line` で明示済み）/ `npm run lint:i18n`
+  （parity/refs 緑、i18n 追加なし）。`git diff --check` 緑。

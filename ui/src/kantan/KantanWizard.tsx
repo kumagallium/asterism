@@ -37,7 +37,7 @@ import { isMeaningReviewAdvisory, plainAdvisories, plainIssues } from '../adviso
 import { registerSuggestionApplier } from '../consult/consultApply'
 import { setConsultContext } from '../consult/consultContext'
 import { TABULAR_ACCEPT } from '../datasetsApi'
-import { detectDatasetNamespace } from '../datasetNamespace'
+import { compactClass, detectDatasetNamespace, expandClass } from '../datasetNamespace'
 import { type UnitResolution, resolveUnit } from '../groundingApi'
 import { DocumentPanel } from '../DocumentPanel'
 import { PRESET_HINTS } from '../domainHints'
@@ -1218,6 +1218,72 @@ export function KantanWizard({
         : undefined,
     })
   }, [step, kzDatasetName, skeleton, t])
+
+  // design-consult-chat.md D10 extension (B): S4「データの数えかた」ゲートの
+  // 「1 件が表すもの」欄を、SkeletonGate が表示しているのと同じ計算（テンプレート
+  // の {列名} → keyColumns、subject.classes → 種類名）から consult ドロワーへ渡す。
+  // S4 以外に移ったら null にして消す。
+  useEffect(() => {
+    if (step !== 4 || !skeleton) {
+      setConsultContext({ kinds: null })
+      return
+    }
+    const nsDetected = detectDatasetNamespace(skeleton) ?? annotations?.dataset_namespace ?? null
+    const kinds = skeleton.maps.map((m) => {
+      const keyValue = m.subject.template ?? m.subject.constant ?? ''
+      const templateColumns = [...keyValue.matchAll(/\{([^{}]+)\}/g)].map((x) => x[1])
+      const ann = annotations?.maps?.[m.name]
+      const keyColumns = templateColumns.length > 0 ? templateColumns : (ann?.key_columns ?? [])
+      const classes = (m.subject.classes ?? []).map((c) => compactClass(c, nsDetected))
+      return {
+        map: m.name,
+        source: basename(m.source ?? ''),
+        keyColumns,
+        kindName: classes.length > 0 ? classes.join('、') : undefined,
+      }
+    })
+    setConsultContext({ kinds })
+  }, [step, skeleton, annotations])
+
+  // design-consult-chat.md D10 extension (B): register how S4 applies the
+  // consult drawer's `kinds` candidates, for exactly as long as S4 is on
+  // screen. Fills ONLY a map whose "1 件が表すもの" (subject.classes) cell is
+  // currently EMPTY — never overwrites an existing kind name, never touches
+  // the key/ID template, never decides include/exclude (there is no such
+  // decision at S4). Goes through the SAME `onSkeletonEdited` path a manual
+  // edit of the kind-name cell uses, so the gate's own re-check (debounced
+  // evidence recompute) runs exactly as it would for a human edit — this
+  // function only ever registers the SUGGESTIONS applier, it never calls
+  // SkeletonGate's own internal `updateSubject`. `payload.suggestions`
+  // (S6's own shape) is ignored here for the same reason S6 ignores `kinds`.
+  useEffect(() => {
+    if (step !== 4 || !skeleton) return
+    const unregister = registerSuggestionApplier(({ kinds }) => {
+      let applied = 0
+      let skipped = 0
+      if (kinds.length === 0) return { applied, skipped }
+      const nsDetected = detectDatasetNamespace(skeleton) ?? annotations?.dataset_namespace ?? null
+      let changed = false
+      const nextMaps = skeleton.maps.map((m) => {
+        const suggestion = kinds.find((k) => k.map === m.name)
+        if (!suggestion || !suggestion.name) return m
+        if ((m.subject.classes ?? []).length > 0) {
+          skipped += 1
+          return m
+        }
+        applied += 1
+        changed = true
+        return {
+          ...m,
+          subject: { ...m.subject, classes: [expandClass(suggestion.name, nsDetected)] },
+        }
+      })
+      if (changed) onSkeletonEdited({ ...skeleton, maps: nextMaps })
+      return { applied, skipped }
+    })
+    return unregister
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, skeleton, annotations])
 
   // Ask the write gate at the door, not after two AI rounds (KZ-A-42). An old
   // api (no write_gate field) answers nothing and the flow is unchanged.
@@ -3858,7 +3924,15 @@ export function KantanWizard({
       columns: valueRows.flatMap(({ rows }) =>
         rows.map(({ prop, column }) => {
           const meaning = readMeaning(prop)
-          return { name: column, meaning: meaning || undefined, unit: prop.unit || undefined }
+          return {
+            name: column,
+            meaning: meaning || undefined,
+            unit: prop.unit || undefined,
+            // 2026-08-25 拡張: 「意味が未入力の項目」を実データ例つきで見せられる
+            // よう、確定済み・未入力の両方に samples を添える(droppedColumns と
+            // 同じ columnSamples ソース)。
+            samples: (columnSamples[column] ?? []).slice(0, 3),
+          }
         }),
       ),
     })
@@ -4006,7 +4080,7 @@ export function KantanWizard({
     }
   }
 
-  // design-consult-chat.md D9: register how S6 applies the consult drawer's
+  // design-consult-chat.md D10: register how S6 applies the consult drawer's
   // suggestion blocks, for exactly as long as S6 is on screen. Fills ONLY
   // blank meaning/unit fields — never an include/exclude decision, never
   // something the human already typed (D5: the human still decides what
@@ -4017,9 +4091,12 @@ export function KantanWizard({
   // leaving the 取り扱い pulldown untouched. Re-registers on every render
   // where the underlying data could have changed, so the closure never acts
   // on stale rows; unregisters (via the cleanup) the moment S6 is left.
+  // S6 only ever ACTS on `payload.suggestions` — `kinds` (S4's own candidate
+  // shape) is ignored here, and the drawer never sends any while S6's own
+  // context (pendingColumns/columns) is what's on screen anyway.
   useEffect(() => {
     if (step !== 6) return
-    const unregister = registerSuggestionApplier((suggestions) => {
+    const unregister = registerSuggestionApplier(({ suggestions }) => {
       let applied = 0
       let skipped = 0
       const touchedColumns = new Set<string>()

@@ -80,6 +80,12 @@ export function ConsultDrawer() {
     ...(ctx.pendingColumns?.map((c) => c.name) ?? []),
     ...(ctx.columns?.map((c) => c.name) ?? []),
   ])
+  // D10 extension (B): S4's maps whose "1 件が表すもの" cell is currently
+  // empty — a kind-name candidate only counts/applies for one of these
+  // (never overwrites an existing kind name).
+  const emptyKindMaps = new Set<string>(
+    (ctx.kinds ?? []).filter((k) => !k.kindName).map((k) => k.map),
+  )
 
   const threads = useConsultThreads()
   // Which thread is open — the user's own choice (D2 revised): whatever was
@@ -260,6 +266,7 @@ export function ConsultDrawer() {
                         busy={busy}
                         editing={editingTurnId === tn.id}
                         screenColumnNames={screenColumnNames}
+                        emptyKindMaps={emptyKindMaps}
                         onStartEdit={() => setEditingTurnId(tn.id)}
                         onCancelEdit={() => setEditingTurnId(null)}
                         onEditResend={(text) => editResend(tn.id, text)}
@@ -428,6 +435,7 @@ function ConsultBubble({
   busy,
   editing,
   screenColumnNames,
+  emptyKindMaps,
   onStartEdit,
   onCancelEdit,
   onEditResend,
@@ -437,9 +445,12 @@ function ConsultBubble({
   /** An answer is pending somewhere in this thread — edit/regenerate disabled. */
   busy: boolean
   editing: boolean
-  /** D9: column names actually on screen right now — a suggestion for any
-   *  other name is dropped before it ever reaches the applier. */
+  /** D10: column names actually on screen right now (S6) — a suggestion for
+   *  any other name is dropped before it ever reaches the applier. */
   screenColumnNames: Set<string>
+  /** D10 extension (B): S4 map names whose kind-name cell is empty right
+   *  now — a kind candidate for any other map is dropped the same way. */
+  emptyKindMaps: Set<string>
   onStartEdit: () => void
   onCancelEdit: () => void
   onEditResend: (text: string) => void
@@ -531,16 +542,23 @@ function ConsultBubble({
       </div>
     )
   }
-  // D9: an assistant reply may end in an `asterism-suggestions` block — the
-  // block itself is never shown, only the prose in front of it. `matched`
-  // narrows to suggestions whose column name is actually on screen right
-  // now; a suggestion for anything else is dropped before the button's own
-  // count (and before it ever reaches applySuggestions).
-  const { displayText, suggestions } = parseSuggestionsBlock(turn.result ?? '')
-  const matched = suggestions.filter((s) => screenColumnNames.has(s.column))
+  // D10: an assistant reply may end in an `asterism-suggestions` block — the
+  // block itself is never shown, only the prose in front of it. `matched*`
+  // narrows to candidates that actually apply to what's on screen right now
+  // (S6 column names / S4 maps with an empty kind cell); anything else is
+  // dropped before the button's own count (and before it ever reaches
+  // applySuggestions). The two never both match on the same screen — S6 and
+  // S4 populate mutually exclusive parts of the context.
+  const { displayText, suggestions, kinds } = parseSuggestionsBlock(turn.result ?? '')
+  const matchedSuggestions = suggestions.filter((s) => screenColumnNames.has(s.column))
+  const matchedKinds = kinds.filter((k) => emptyKindMaps.has(k.map))
+  const matchedCount = matchedSuggestions.length + matchedKinds.length
 
   function applyMatched() {
-    const result: ApplySuggestionsResult | null = applySuggestions(matched)
+    const result: ApplySuggestionsResult | null = applySuggestions({
+      suggestions: matchedSuggestions,
+      kinds: matchedKinds,
+    })
     setApplyResult(
       result === null
         ? t('suggestions.noApplier')
@@ -556,13 +574,13 @@ function ConsultBubble({
         <div className="consult-bubble consult-bubble--markdown">
           <ConsultMarkdown text={displayText} />
         </div>
-        {matched.length > 0 && (
+        {matchedCount > 0 && (
           <button
             type="button"
             className="btn btn--ghost btn--sm consult-apply-suggestions"
             onClick={applyMatched}
           >
-            {t('suggestions.apply', { count: matched.length })}
+            {t('suggestions.apply', { count: matchedCount })}
           </button>
         )}
         {applyResult && <p className="consult-apply-result">{applyResult}</p>}

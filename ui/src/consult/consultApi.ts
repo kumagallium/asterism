@@ -38,7 +38,20 @@ export async function consult(
               ? context.pendingColumns.map((c) => ({ name: c.name, samples: c.samples }))
               : undefined,
             columns: context.columns?.length
-              ? context.columns.map((c) => ({ name: c.name, meaning: c.meaning, unit: c.unit }))
+              ? context.columns.map((c) => ({
+                  name: c.name,
+                  meaning: c.meaning,
+                  unit: c.unit,
+                  samples: c.samples,
+                }))
+              : undefined,
+            kinds: context.kinds?.length
+              ? context.kinds.map((k) => ({
+                  map: k.map,
+                  source: k.source,
+                  key_columns: k.keyColumns,
+                  kind_name: k.kindName,
+                }))
               : undefined,
           }
         : undefined,
