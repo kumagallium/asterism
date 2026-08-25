@@ -27,9 +27,12 @@ K22（列の意味・単位・取り込む/除外するの最終判断は常に�
 | D3 | API | `POST /api/design/consult`: 無状態（history はクライアント持参）・ツールなし・LLM 1 コール・非ストリーミング。`/api/propose` `/api/refine` と同じ流儀で provider/model/api_base/key をヘッダで受け、`_resolve_llm` で組み立てる（サーバにキーを保存しない、D7 と同じ） | 判断を軽くする相談窓口に、証跡の要らないジョブ管理・SSE は過剰。propose 系と同じ認証の流儀に揃えることで、意思決定を増やさない |
 | D4 | 文脈の自動添付 | `{step, dataset, skeleton_summary, focus_column: {name, samples}}` を送信時に同梱。KantanWizard がモジュールスコープの小さなストア（`consultContext.ts`）に随時 `setConsultContext(patch)` で書き、ドロワーが読む | React Context の大配線をせずに済む。patch はマージなので、ステップ変化の更新と列フォーカスの更新が互いを消さない |
 | D5 | 判断は代行しない | system prompt にガードレール（取り込む/取り込まないの裁定はユーザーがする、AI は説明と参考情報のみ）。回答をフォームへ自動書き込みしない | K22 の一貫適用。会話に判断力があるように見えても、実際に列の意味欄に書くのは常に人間の指 |
+| D6 | UI の作法 | Graphium の AI チャットパネル（`~/Graphium/src/features/ai-assistant/panel.tsx`）に**構造だけ**準拠: 送信ボタンは送信可アイコン⇄送信中は停止アイコンに切替、ヘッダにチャット履歴一覧（新しいチャット・更新日時降順・タイトル＝先頭発言・メッセージ数・削除）、Cmd/Ctrl+Enter で送信（素の Enter は改行）、assistant 応答は ReactMarkdown+remarkGfm、ローディングはスピナー＋「考え中…」、エラーは destructive トーン。**色/間隔/角丸は Asterism 自身のデザイントークン（`index.css` の `:root`）を使う — Graphium の Tailwind クラスは持ち込まない** | 2026-08-25 ユーザーレビュー「まだまだ」判定（送信ボタンにアイコンが無い／チャット一覧が見えない／会話が続いていなそう／Graphium を参考に）への直接対応。実績のある会話 UI のパターンを流用し、UX をゼロから再発明しない |
 
 **非目標**: ツール実行・公開データへの質問（既存 Ask の領分）・ストリーミング・
-回答からフォームへの自動転記。
+回答からフォームへの自動転記・@ メンション・grounding scope・メッセージ編集／
+再生成／分岐・ノート反映系アクション・ナレッジ化・Composer（いずれも Graphium
+の対応機能だが、この相談窓口の役割＝判断材料の提示を超える）。
 
 ## 2. Ask との領分の違い
 
@@ -68,13 +71,48 @@ K22（列の意味・単位・取り込む/除外するの最終判断は常に�
   状態機械そのものは変更していない。
 - **i18n**: 新 namespace `consult`（ja/en）。
 
+### 3.1 D6 追補（2026-08-25 レビュー対応）
+
+- **依存追加**: `lucide-react@^0.577.0`（Graphium と同一メジャー系列）。送信 (`Send`)
+  ／送信中の停止 (`Square`, fill) の 2 アイコンのみに使用 — 一覧トグル・削除・
+  閉じるは既存の Asterism 自前アイコン（`ThreadsIcon`/`TrashIcon`/`CloseIcon`）を
+  流用し、依存範囲を最小化。`react-markdown`/`remark-gfm` は既に依存済みだったため
+  追加なし。
+- **チャット一覧**: `consultThreads.ts` の複数スレッド対応（`useConsultThreads()`
+  が既にストア内の全スレッドを返す）をそのまま使い、`ConsultChatList`
+  （`ConsultDrawer.tsx`）で更新日時降順・タイトル＝最初のユーザー発言の先頭
+  40 字・日時・メッセージ数・削除ボタンを表示。選択すると
+  `appendConsultMessage` 経由で**その具体的なスレッド id**へ直接追記できるよう、
+  スロット間接（`sendToSlot`）に加えて「既知のスレッド id へ直接送る」経路
+  （`appendConsultMessage`）を追加。「新しいチャット」は `startNewInSlot` が
+  現在のスロットの束縛を新しいスレッドへ**差し替え**る（古いスレッドは一覧
+  から引き続き開ける）。
+- **会話継続バグの修正**: 送信時に**そのスレッドの完全な履歴**を
+  `/api/design/consult` へ渡す処理自体は元から正しかった（`historyOf(thread)`
+  が完了済みターンを全部積んで送信）。実際の欠陥は別にあった —
+  データセット名が `draft`（無名）から実名へ変わる瞬間、セッションスロットの
+  キーが `slotOf(ctx.dataset)` で `'draft'` → `'my-dataset'` のように変わり、
+  スロット→スレッド id の索引には新しいキーの束縛が無いため、**それまでの
+  会話が黙って迷子になり、S6 到達後の相談が空の新規スレッドから始まって
+  いた**（「会話が続いていなそう」の実体）。`consultThreads.rebindSlot()` を
+  追加し、スラグが変わった瞬間に古いスロットの束縛を新しいスロットへ
+  移し替える（新スロットに既に会話があれば上書きしない）ことで解消。
+- **Cmd/Ctrl+Enter 送信**に変更（素の Enter は改行）。IME 変換確定の Enter は
+  従来どおり無視。
+- **Markdown**: 新規 `consult/ConsultMarkdown.tsx`。Graphium の
+  `buildMarkdownComponents` と同じ余白方針を Asterism の CSS クラス
+  （`ConsultDrawer.css` の `.consult-md-*`）に移植。ユーザー発言は引き続き
+  plain text（判断を促す短文が多く、装飾で読みにくくする理由がないため）。
+
 ## 4. 検証
 
 - api: モック LLM で `/api/design/consult` を叩き、(a) 200 + reply、(b) messages 空
   400、(c) context（step/dataset/skeleton_summary/focus_column）がプロンプトに
   実際に織り込まれることをモックに渡った `user_message` で確認 — 3 テスト
-  （`api/tests/test_design_consult.py`）。
+  （`api/tests/test_design_consult.py`）。D6 追補では api を変更していないため
+  再実行は行っていない（変更差分に api の変更なしを確認済み）。
 - ui: `tsc -b && vite build` / `eslint .` / `check-i18n-parity.mjs` +
   `check-i18n-refs.mjs` を実行し、Ask 側の挙動・保存データ形状が変わっていないこと
   を型検査（`AskThread` 等の公開型が unchanged）で確認。ブラウザでの実 dogfood は
-  今回未実施 — 次のセッションの持ち越し。
+  今回も未実施 — ユーザー本人によるレビューが前提のため、次のレビューサイクルへ
+  持ち越し。

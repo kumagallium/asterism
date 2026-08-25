@@ -44,6 +44,10 @@ export const unregisterConsultInflight = store.unregisterInflight
 export const stopConsultAnswer = store.stopAnswer
 export const retryConsultAnswer = store.retryAnswer
 export const renameConsultThread = store.renameThread
+/** Append a message to an ALREADY-KNOWN thread id (the caller picked this
+ *  thread explicitly — e.g. from the full history list — rather than via a
+ *  slot). Same continuation guarantee as `sendToSlot`'s append path. */
+export const appendConsultMessage = store.appendMessage
 export const deleteConsultThread = store.deleteThread
 
 export type ConsultAttempt = Attempt
@@ -105,11 +109,47 @@ export function sendToSlot(slot: string, message: string): SentMessage | null {
   return { threadId: started.thread.id, assistantTurnId: started.assistantTurnId }
 }
 
-/** Forget a slot's binding (NOT the thread itself — deleteConsultThread does
- *  that). Used when a design session is abandoned/renamed away from. */
-export function unbindSlot(slot: string): void {
+/** Start a brand-new thread and (re)bind `slot` to it, REPLACING whatever the
+ *  slot pointed at before. The old thread is untouched — it stays reachable
+ *  from the full thread list (D2's "全スレッド" view) — this only changes
+ *  which thread new messages sent to this slot land in going forward. This is
+ *  the "新しいチャット" action. */
+export function startNewInSlot(slot: string, message: string): SentMessage {
+  const started = store.startThread(message)
   const idx = loadIndex()
-  if (!(slot in idx)) return
-  delete idx[slot]
+  idx[slot] = started.thread.id
   saveIndex(idx)
+  return { threadId: started.thread.id, assistantTurnId: started.assistantTurnId }
+}
+
+/** Move a slot's binding to a new slot name, but ONLY if the new slot has no
+ *  conversation of its own yet — never silently overwrites one. This is what
+ *  keeps a design-session conversation attached to the same thread when the
+ *  session's slug changes mid-wizard (`draft` -> the dataset's real name once
+ *  it gets one): without this, naming the dataset silently orphaned whatever
+ *  had already been asked under `draft`, which read as "the conversation
+ *  doesn't continue" even though the thread itself was never lost. */
+export function rebindSlot(fromSlot: string, toSlot: string): void {
+  if (fromSlot === toSlot) return
+  const idx = loadIndex()
+  const id = idx[fromSlot]
+  if (!id || idx[toSlot]) return
+  delete idx[fromSlot]
+  idx[toSlot] = id
+  saveIndex(idx)
+}
+
+/** Remove every slot binding that points at `threadId` (a thread the user just
+ *  deleted from the full list — its slot(s), if any, must not keep pointing
+ *  at a thread that no longer exists). */
+export function unbindThreadEverywhere(threadId: string): void {
+  const idx = loadIndex()
+  let changed = false
+  for (const [slot, id] of Object.entries(idx)) {
+    if (id === threadId) {
+      delete idx[slot]
+      changed = true
+    }
+  }
+  if (changed) saveIndex(idx)
 }

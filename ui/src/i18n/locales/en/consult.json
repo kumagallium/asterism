@@ -1,9 +1,10 @@
 {
   "open": "Consult",
   "close": "Close",
+  "history": "Chat history",
   "send": "Send",
   "stop": "Stop",
-  "hint": "The AI only explains and points at reference material. Whether to include or exclude something is always your call.",
+  "hint": "Cmd+Enter to send. The AI only explains and points at reference material — whether to include or exclude something is always your call.",
   "empty": "Ask anything — \"what does this column mean\", \"how do I use this screen\", and so on.",
   "inputPlaceholder": "Ask a question…",
   "thinking": "Thinking…",
@@ -12,5 +13,13 @@
   "tabs": {
     "draft": "About this design",
     "general": "How to use Asterism"
+  },
+  "list": {
+    "newChat": "+ New chat",
+    "empty": "No conversations yet.",
+    "emptyChat": "(empty chat)",
+    "messageCount_one": "{{count}} message",
+    "messageCount_other": "{{count}} messages",
+    "delete": "Delete this chat"
   }
 }
