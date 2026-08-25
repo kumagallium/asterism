@@ -2857,6 +2857,41 @@ export function KantanWizard({
     setColumnDecisionErr('')
   }
 
+  /** Header bulk actions for the "not yet included" table (#406): choosing
+   *  include/exclude one row at a time was the ask (2026-08-25), but a
+   *  checkbox toggle was explicitly rejected — it collapses "not yet
+   *  decided" into an unchecked box, which reads as "decided: no" and
+   *  quietly undoes K22 (inclusion is a human call, never a default). The
+   *  3-state pulldown stays; these just PRE-FILL every row's state through
+   *  the SAME `updateColumnDecision` a manual edit uses, so a later
+   *  individual change (any row, any field) simply overwrites it — no new
+   *  state machine, no bulk-vs-manual distinction to keep in sync. */
+  function bulkSetAllColumnDecisions(action: 'include' | 'exclude') {
+    for (const { source, column, maps } of droppedColumns) {
+      // A row with no owning map can't actually BE included (the per-row
+      // pulldown disables that option for exactly this reason) — bulk
+      // include must not silently create a state no manual click could.
+      if (action === 'include' && maps.length === 0) continue
+      updateColumnDecision(source, column, maps[0]?.id ?? '', { action })
+    }
+  }
+
+  /** "Use the original column name" for every row whose meaning is still
+   *  empty — the same value a lone row's own button already writes
+   *  (`label: column`), just looped. Skips invented column names (no
+   *  per-row button there either — a machine-made placeholder like
+   *  `preamble_3` is not "the column's name" in any sense worth reusing) and
+   *  rows that already have a meaning (never overwrites a human's words). */
+  function bulkUseColumnNameForEmptyMeanings() {
+    for (const { source, column, maps } of droppedColumns) {
+      const draft = columnDecisionDrafts[columnDecisionKey(source, column)]
+      if (draft?.label.trim()) continue
+      const origin = columnOrigins[column]
+      if (origin !== undefined && !origin.named) continue
+      updateColumnDecision(source, column, maps[0]?.id ?? '', { label: column })
+    }
+  }
+
   /** The S6 primary button. Mapped meanings are already saved on blur. Columns
    *  omitted by the generated design are different: the human must explicitly
    *  include or exclude each one. Includes update §9 deterministically and then
@@ -5018,6 +5053,40 @@ export function KantanWizard({
             <div className="kz-unmapped">
               <h4>{t('kantan:s6.unmappedTitle', { count: droppedColumns.length })}</h4>
               <p className="kz-note">{t('kantan:s6.unmappedLead')}</p>
+              {/* Bulk pre-fill, not a 2-state toggle: a checkbox would erase
+                  "not yet decided" the moment it renders unchecked (K22).
+                  These three buttons write through the SAME per-row state
+                  (`updateColumnDecision`) a manual edit does, so any row can
+                  still be corrected by hand afterwards — one row is not
+                  worth the extra header, hence the count gate. */}
+              {droppedColumns.length > 1 && (
+                <div className="kz-actions kz-cols-bulk">
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--sm"
+                    disabled={columnDecisionSaving}
+                    onClick={() => bulkSetAllColumnDecisions('include')}
+                  >
+                    {t('kantan:s6.bulkIncludeAll')}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--sm"
+                    disabled={columnDecisionSaving}
+                    onClick={() => bulkSetAllColumnDecisions('exclude')}
+                  >
+                    {t('kantan:s6.bulkExcludeAll')}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--sm"
+                    disabled={columnDecisionSaving}
+                    onClick={bulkUseColumnNameForEmptyMeanings}
+                  >
+                    {t('kantan:s6.bulkUseColumnNames')}
+                  </button>
+                </div>
+              )}
               <div className="kz-preview-tablewrap">
                <table className="kz-preview-table kz-cols-table">
                  <thead>
