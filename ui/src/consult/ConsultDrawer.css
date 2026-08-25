@@ -96,33 +96,6 @@
   color: var(--primary);
 }
 
-.consult-tabs {
-  display: flex;
-  gap: var(--space-1);
-  min-width: 0;
-  padding: var(--space-2) var(--space-3) 0;
-}
-
-.consult-tab {
-  border: none;
-  background: transparent;
-  padding: 0.35em 0.7em;
-  border-radius: var(--radius-sm);
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: var(--muted);
-  cursor: pointer;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 160px;
-}
-
-.consult-tab.active {
-  background: var(--primary-soft);
-  color: var(--primary);
-}
-
 .consult-scroll {
   flex: 1;
   overflow-y: auto;
@@ -141,6 +114,8 @@
 
 .consult-msg {
   display: flex;
+  align-items: flex-end;
+  gap: var(--space-1);
 }
 
 .consult-msg--user {
@@ -149,6 +124,99 @@
 
 .consult-msg--assistant {
   justify-content: flex-start;
+}
+
+/* 編集（user）／再生成（assistant）ボタン: 普段は隠れ、行に hover したときだけ
+   出す（Graphium ChatBubble のホバー操作に準拠）。タップ主体の環境では常に
+   薄く見える程度の opacity にして、押せない罠にはしない。 */
+.consult-turn-action {
+  flex: none;
+  border: none;
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+  padding: 0.3em;
+  border-radius: var(--radius-sm);
+  opacity: 0.35;
+}
+
+.consult-msg:hover .consult-turn-action {
+  opacity: 1;
+}
+
+.consult-turn-action:hover:not(:disabled) {
+  background: var(--surface-alt);
+  color: var(--fg);
+}
+
+.consult-turn-action:disabled {
+  opacity: 0.15;
+  cursor: default;
+}
+
+/* ---- user message edit-and-resend (Graphium ChatBubble onEditResend) ---- */
+
+.consult-edit {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.consult-edit-input {
+  width: 100%;
+  resize: none;
+  border: 1px solid var(--primary);
+  border-radius: var(--radius-sm);
+  padding: 0.5em 0.6em;
+  font-size: 0.84rem;
+  font-family: inherit;
+  line-height: 1.5;
+  background: var(--surface);
+  color: var(--fg);
+}
+
+.consult-edit-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.consult-edit-note {
+  margin-right: auto;
+  font-size: 0.7rem;
+  color: var(--faint);
+}
+
+.consult-edit-cancel,
+.consult-edit-confirm {
+  padding: 0.3em 0.6em;
+  font-size: 0.74rem;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.consult-edit-cancel {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+}
+
+.consult-edit-cancel:hover {
+  background: var(--surface-alt);
+  color: var(--fg);
+}
+
+.consult-edit-confirm {
+  border: none;
+  background: var(--primary);
+  color: var(--primary-fg);
+}
+
+.consult-edit-confirm:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .consult-bubble {
@@ -240,12 +308,22 @@
   border-color: var(--primary);
 }
 
+/* The circular send/stop button. The global `button` rule (index.css) sets a
+   text-button padding (`0.5em 1.1em`) and default line-height that, on a
+   fixed 36×36 circle, squeezed the 16px lucide icon's content box down to
+   nothing — the icon never actually failed to render, it just had no room to
+   be laid out in, so the button showed as a plain filled circle with no
+   visible glyph (2026-08-25 bug report). Reset both explicitly instead of
+   relying on the (correct, but insufficient on their own) width/height. */
 .consult-send {
   flex: none;
   border: none;
   border-radius: 999px;
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  margin: 0;
+  line-height: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -259,7 +337,10 @@
 }
 
 .consult-send:disabled {
-  opacity: 0.45;
+  /* Faded but the paper-plane shape must stay readable (2026-08-25 review) —
+     0.45 read as invisible once combined with the already-thin 2px stroke at
+     small sizes; 0.6 plus the bigger 16px icon keeps the silhouette clear. */
+  opacity: 0.6;
   cursor: default;
 }
 

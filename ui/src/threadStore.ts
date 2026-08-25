@@ -78,6 +78,14 @@ export interface Attempt {
   attempt: number
 }
 
+/** Result of editUserTurn / regenerateFrom — no fresh userTurnId (the user
+ *  turn already existed; edit rewrote it in place, regenerate reused it
+ *  unchanged), just the new pending assistant slot to settle. */
+export interface RegenAttempt {
+  assistantTurnId: string
+  attempt: number
+}
+
 export interface ThreadStoreOptions<TResult> {
   namespace: ThreadNamespace
   /** localStorage key (browser-mode persistence). */
@@ -97,6 +105,9 @@ export interface ThreadStore<TResult> {
   useThreads: () => Thread<TResult>[]
   useThreadsLoaded: () => boolean
   getThread: (id: string | null | undefined) => Thread<TResult> | undefined
+  /** Every thread, unordered, without subscribing (plain read — for a
+   *  one-shot "what's the latest one" computation outside render). */
+  getAllThreads: () => Thread<TResult>[]
   titleFrom: (turns: Turn<TResult>[]) => string
   startThread: (message: string) => Attempt & { thread: Thread<TResult> }
   appendMessage: (threadId: string, message: string) => Attempt | null
@@ -119,6 +130,15 @@ export interface ThreadStore<TResult> {
     threadId: string,
     assistantTurnId: string,
   ) => { message: string; attempt: number } | null
+  /** Rewrite a user turn's text and DROP every turn after it (the edit
+   *  discards whatever the conversation became from that point on), then
+   *  append a fresh pending assistant slot for the re-send. Null if
+   *  `userTurnId` doesn't name a user turn in this thread. */
+  editUserTurn: (threadId: string, userTurnId: string, newText: string) => RegenAttempt | null
+  /** Drop an assistant turn (and anything after it) and append a fresh
+   *  pending slot in its place, so the SAME preceding question can be
+   *  re-asked. Null if `assistantTurnId` doesn't name an assistant turn. */
+  regenerateFrom: (threadId: string, assistantTurnId: string) => RegenAttempt | null
   renameThread: (threadId: string, title: string) => void
   deleteThread: (threadId: string) => void
   isThreadBusy: (thread: Thread<TResult> | undefined) => boolean
@@ -178,6 +198,10 @@ export function createThreadStore<TResult>(opts: ThreadStoreOptions<TResult>): T
 
   function getThread(id: string | null | undefined): Thread<TResult> | undefined {
     return id ? threads.find((t) => t.id === id) : undefined
+  }
+
+  function getAllThreads(): Thread<TResult>[] {
+    return threads
   }
 
   if (typeof window !== 'undefined') {
@@ -569,6 +593,46 @@ export function createThreadStore<TResult>(opts: ThreadStoreOptions<TResult>): T
     return { message: message.text, attempt }
   }
 
+  function editUserTurn(threadId: string, userTurnId: string, newText: string): RegenAttempt | null {
+    const thread = getThread(threadId)
+    if (!thread) return null
+    const idx = thread.turns.findIndex((t) => t.id === userTurnId)
+    const turn = thread.turns[idx]
+    if (idx < 0 || !turn || turn.role !== 'user') return null
+    const now = Date.now()
+    const editedUser: UserTurn = { id: turn.id, role: 'user', text: newText, at: now }
+    const assistant = pendingSlot()
+    updateThread(threadId, (t) => ({
+      ...t,
+      updatedAt: now,
+      // Everything up to (excluding) the edited turn, the edit itself, then a
+      // fresh pending slot — whatever the conversation became after the
+      // ORIGINAL wording of this turn is discarded, same as Graphium's
+      // edit-and-resend (onEditResend rewindIndex).
+      turns: [...t.turns.slice(0, idx), editedUser, assistant],
+    }))
+    return { assistantTurnId: assistant.id, attempt: assistant.attempt! }
+  }
+
+  function regenerateFrom(threadId: string, assistantTurnId: string): RegenAttempt | null {
+    const thread = getThread(threadId)
+    if (!thread) return null
+    const idx = thread.turns.findIndex((t) => t.id === assistantTurnId)
+    const turn = thread.turns[idx]
+    if (idx < 0 || !turn || turn.role !== 'assistant') return null
+    const now = Date.now()
+    const assistant = pendingSlot()
+    updateThread(threadId, (t) => ({
+      ...t,
+      updatedAt: now,
+      // Drop this answer (and anything after it) and reuse the SAME
+      // preceding question — the caller re-sends with that question as the
+      // new last message.
+      turns: [...t.turns.slice(0, idx), assistant],
+    }))
+    return { assistantTurnId: assistant.id, attempt: assistant.attempt! }
+  }
+
   function renameThread(threadId: string, title: string) {
     updateThread(threadId, (t) => ({
       ...t,
@@ -598,6 +662,7 @@ export function createThreadStore<TResult>(opts: ThreadStoreOptions<TResult>): T
     useThreads,
     useThreadsLoaded,
     getThread,
+    getAllThreads,
     titleFrom,
     startThread,
     appendMessage,
@@ -607,6 +672,8 @@ export function createThreadStore<TResult>(opts: ThreadStoreOptions<TResult>): T
     unregisterInflight,
     stopAnswer,
     retryAnswer,
+    editUserTurn,
+    regenerateFrom,
     renameThread,
     deleteThread,
     isThreadBusy,

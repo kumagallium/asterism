@@ -10,10 +10,11 @@
   "thinking": "考え中…",
   "stoppedNote": "回答を止めました。もう一度送るとやり直せます。",
   "interruptedNote": "画面が閉じられたため、回答が届きませんでした。",
-  "tabs": {
-    "draft": "この設計について",
-    "general": "使い方について"
-  },
+  "editMessage": "編集する",
+  "cancelEdit": "キャンセル",
+  "editAndResend": "編集して再送信",
+  "editDiscardNote": "それ以降のやり取りは消えます",
+  "regenerate": "この回答を作り直す",
   "list": {
     "newChat": "+ 新しいチャット",
     "empty": "まだ相談していません。",

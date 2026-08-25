@@ -10,10 +10,11 @@
   "thinking": "Thinking…",
   "stoppedNote": "Stopped waiting for the reply. Send again to retry.",
   "interruptedNote": "The screen closed before a reply arrived.",
-  "tabs": {
-    "draft": "About this design",
-    "general": "How to use Asterism"
-  },
+  "editMessage": "Edit",
+  "cancelEdit": "Cancel",
+  "editAndResend": "Edit & resend",
+  "editDiscardNote": "Everything after this will be discarded",
+  "regenerate": "Regenerate this answer",
   "list": {
     "newChat": "+ New chat",
     "empty": "No conversations yet.",

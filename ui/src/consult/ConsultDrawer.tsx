@@ -1,9 +1,9 @@
 import { Send, Square } from 'lucide-react'
-import { useEffect, useReducer, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import './ConsultDrawer.css'
 import { isAbortError } from '../demoApi'
-import { CloseIcon, ThreadsIcon, TrashIcon } from '../icons'
+import { CloseIcon, PencilIcon, RetryIcon, ThreadsIcon, TrashIcon } from '../icons'
 import { useLlmSettings } from '../settings/context'
 import { LlmGate } from '../settings/LlmGate'
 import { consult, type ConsultMessage } from './consultApi'
@@ -12,15 +12,13 @@ import { ConsultMarkdown } from './ConsultMarkdown'
 import {
   appendConsultMessage,
   deleteConsultThread,
+  editConsultUserTurn,
   failConsultAnswer,
-  GENERAL_SLOT,
-  rebindSlot,
+  latestConsultThreadId,
+  regenerateConsultAnswer,
   resolveConsultAnswer,
-  sendToSlot,
-  startNewInSlot,
+  startConsultThread,
   stopConsultAnswer,
-  threadForSlot,
-  unbindThreadEverywhere,
   useConsultThreads,
   type ConsultThread,
   type ConsultTurn,
@@ -30,31 +28,33 @@ import {
 // writes to the wizard's forms — the reply is text in a bubble, the user
 // decides what (if anything) to do with it.
 //
-// UI conforms to Graphium's AI chat panel (2026-08-25 review):
-// `~/Graphium/src/features/ai-assistant/panel.tsx` — send/stop icon toggle,
-// a chat-history list (title + date + message count, newest first), Cmd+Enter
-// to send, spinner "thinking" state, destructive-toned errors. Ported as
-// STRUCTURE only — styling uses Asterism's own CSS (this file), not Tailwind.
+// UI conforms to Graphium's AI chat panel (2026-08-25 review, revised same
+// day per user ruling on thread scoping — ADR D2/D6/D7):
+// `~/Graphium/src/features/ai-assistant/panel.tsx` — send/stop icon toggle, a
+// FLAT chat-history list (no automatic topic binding — the user decides what
+// a thread is about), Cmd+Enter to send, spinner "thinking" state,
+// destructive-toned errors, user-message edit-and-resend + assistant-answer
+// regenerate. Ported as STRUCTURE only — styling uses Asterism's own CSS
+// (this file), not Tailwind.
 
 const MAX_HISTORY_TURNS = 20
 
-function slotOf(dataset: string | undefined): string {
-  return dataset && dataset.trim() ? dataset.trim() : 'draft'
-}
-
 /** Completed user/assistant turn pairs, oldest first, as the wire shape the
  *  consult endpoint takes (mirrors askThreads.historyFor, minus citations —
- *  the consult reply is plain text). This is what guarantees a follow-up
- *  question is answered WITH the earlier turns, not from a blank slate. */
-function historyOf(thread: ConsultThread | undefined): ConsultMessage[] {
+ *  the consult reply is plain text). `beforeTurnId`, when given, stops before
+ *  that turn — the cutoff an edit/regenerate re-sends from. This is what
+ *  guarantees a follow-up question is answered WITH the earlier turns, not
+ *  from a blank slate. */
+function historyOf(thread: ConsultThread | undefined, beforeTurnId?: string): ConsultMessage[] {
   if (!thread) return []
   const out: ConsultMessage[] = []
   const turns = thread.turns
   for (let i = 0; i < turns.length; i++) {
     const t = turns[i]
+    if (t.id === beforeTurnId) break
     if (t.role !== 'user') continue
     const a = turns[i + 1]
-    if (!a || a.role !== 'assistant' || !a.result) continue
+    if (!a || a.role !== 'assistant' || a.id === beforeTurnId || !a.result) continue
     out.push({ role: 'user', content: t.text })
     out.push({ role: 'assistant', content: a.result })
   }
@@ -67,37 +67,17 @@ export function ConsultDrawer() {
   const [view, setView] = useState<'chat' | 'list'>('chat')
   const { isReady, getActiveCredentials } = useLlmSettings()
   const ctx = useConsultContext()
-  const [tab, setTab] = useState<'session' | 'general'>('session')
-  const sessionSlot = slotOf(ctx.dataset)
-  const slot = tab === 'general' ? GENERAL_SLOT : sessionSlot
-
-  // A thread the user picked explicitly (list selection, or "新しいチャット")
-  // pins the conversation regardless of what the tab's slot binding says.
-  // null = follow the current tab's slot binding (the normal, default mode).
-  const [pinnedThreadId, setPinnedThreadId] = useState<string | null>(null)
-  const [forcingNew, setForcingNew] = useState(false)
 
   const threads = useConsultThreads()
-
-  // Keep a design session's conversation attached to the same thread when its
-  // slug changes mid-wizard (`draft` -> the dataset's real name). Reacting to
-  // an external system (the slot index) with a state bump, per the effect
-  // rules — see rebindSlot's own doc for why this exists.
-  const prevSessionSlot = useRef(sessionSlot)
-  const [, bumpAfterRebind] = useReducer((n: number) => n + 1, 0)
-  useEffect(() => {
-    if (prevSessionSlot.current !== sessionSlot) {
-      rebindSlot(prevSessionSlot.current, sessionSlot)
-      prevSessionSlot.current = sessionSlot
-      bumpAfterRebind()
-    }
-  }, [sessionSlot])
-
-  const boundThreadId = forcingNew ? undefined : threadForSlot(slot)?.id
-  const activeThreadId = pinnedThreadId ?? boundThreadId ?? null
+  // Which thread is open — the user's own choice (D2 revised): whatever was
+  // last touched when the drawer first mounted, thereafter only changed by
+  // explicit selection ("+新しいチャット" / picking one from the list / a
+  // send that creates the first-ever thread).
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(() => latestConsultThreadId())
   const thread = threads.find((th) => th.id === activeThreadId)
 
   const [draft, setDraft] = useState('')
+  const [editingTurnId, setEditingTurnId] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const inflightRef = useRef<{ controller: AbortController; assistantTurnId: string } | null>(
     null,
@@ -140,18 +120,19 @@ export function ConsultDrawer() {
     // computed BEFORE the new turn is appended, from the thread as it stands
     // right now, so the server always sees the whole conversation so far.
     const before = historyOf(thread)
-    let sent: ReturnType<typeof sendToSlot>
-    if (activeThreadId) {
-      const appended = appendConsultMessage(activeThreadId, text)
-      sent = appended ? { threadId: activeThreadId, assistantTurnId: appended.assistantTurnId } : null
-    } else if (forcingNew) {
-      sent = startNewInSlot(slot, text)
-    } else {
-      sent = sendToSlot(slot, text)
-    }
+    const sent = activeThreadId
+      ? (() => {
+          const appended = appendConsultMessage(activeThreadId, text)
+          return appended
+            ? { threadId: activeThreadId, assistantTurnId: appended.assistantTurnId }
+            : null
+        })()
+      : (() => {
+          const started = startConsultThread(text)
+          return { threadId: started.thread.id, assistantTurnId: started.assistantTurnId }
+        })()
     if (!sent) return
-    setForcingNew(false)
-    setPinnedThreadId(sent.threadId)
+    setActiveThreadId(sent.threadId)
     void runTurn(sent.threadId, sent.assistantTurnId, [...before, { role: 'user', content: text }])
   }
 
@@ -162,29 +143,45 @@ export function ConsultDrawer() {
     stopConsultAnswer(thread.id, inflight.assistantTurnId)
   }
 
-  function selectTab(next: 'session' | 'general') {
-    setTab(next)
-    setPinnedThreadId(null)
-    setForcingNew(false)
-    setView('chat')
-  }
-
   function selectThreadFromList(id: string) {
-    setPinnedThreadId(id)
-    setForcingNew(false)
+    setActiveThreadId(id)
+    setEditingTurnId(null)
     setView('chat')
   }
 
   function startNewChat() {
-    setPinnedThreadId(null)
-    setForcingNew(true)
+    setActiveThreadId(null)
+    setEditingTurnId(null)
     setView('chat')
   }
 
   function removeThread(id: string) {
     deleteConsultThread(id)
-    unbindThreadEverywhere(id)
-    if (pinnedThreadId === id) setPinnedThreadId(null)
+    if (activeThreadId === id) setActiveThreadId(null)
+  }
+
+  function editResend(userTurnId: string, newText: string) {
+    const text = newText.trim()
+    if (!text || busy || !thread) return
+    const before = historyOf(thread, userTurnId)
+    const attempt = editConsultUserTurn(thread.id, userTurnId, text)
+    if (!attempt) return
+    setEditingTurnId(null)
+    void runTurn(thread.id, attempt.assistantTurnId, [...before, { role: 'user', content: text }])
+  }
+
+  function regenerate(assistantTurnId: string) {
+    if (busy || !thread) return
+    const idx = thread.turns.findIndex((tn) => tn.id === assistantTurnId)
+    const precedingUser = thread.turns[idx - 1]
+    if (!precedingUser || precedingUser.role !== 'user') return
+    const before = historyOf(thread, precedingUser.id)
+    const attempt = regenerateConsultAnswer(thread.id, assistantTurnId)
+    if (!attempt) return
+    void runTurn(thread.id, attempt.assistantTurnId, [
+      ...before,
+      { role: 'user', content: precedingUser.text },
+    ])
   }
 
   const canSend = !busy && isReady && draft.trim().length > 0
@@ -229,25 +226,6 @@ export function ConsultDrawer() {
               </div>
             </div>
 
-            {view === 'chat' && (
-              <div className="consult-tabs">
-                <button
-                  type="button"
-                  className={`consult-tab${tab === 'session' ? ' active' : ''}`}
-                  onClick={() => selectTab('session')}
-                >
-                  {ctx.dataset ? ctx.dataset : t('tabs.draft')}
-                </button>
-                <button
-                  type="button"
-                  className={`consult-tab${tab === 'general' ? ' active' : ''}`}
-                  onClick={() => selectTab('general')}
-                >
-                  {t('tabs.general')}
-                </button>
-              </div>
-            )}
-
             {view === 'list' ? (
               <ConsultChatList
                 threads={threads}
@@ -262,7 +240,18 @@ export function ConsultDrawer() {
                   {!thread || thread.turns.length === 0 ? (
                     <p className="consult-empty">{t('empty')}</p>
                   ) : (
-                    thread.turns.map((tn) => <ConsultBubble key={tn.id} turn={tn} />)
+                    thread.turns.map((tn) => (
+                      <ConsultBubble
+                        key={tn.id}
+                        turn={tn}
+                        busy={busy}
+                        editing={editingTurnId === tn.id}
+                        onStartEdit={() => setEditingTurnId(tn.id)}
+                        onCancelEdit={() => setEditingTurnId(null)}
+                        onEditResend={(text) => editResend(tn.id, text)}
+                        onRegenerate={() => regenerate(tn.id)}
+                      />
+                    ))
                   )}
                 </div>
 
@@ -307,7 +296,7 @@ export function ConsultDrawer() {
                           aria-label={t('stop')}
                           title={t('stop')}
                         >
-                          <Square size={12} className="consult-send-icon-fill" />
+                          <Square size={16} className="consult-send-icon-fill" />
                         </button>
                       ) : (
                         <button
@@ -317,7 +306,7 @@ export function ConsultDrawer() {
                           aria-label={t('send')}
                           title={t('send')}
                         >
-                          <Send size={12} />
+                          <Send size={16} />
                         </button>
                       )}
                     </form>
@@ -393,12 +382,80 @@ function ConsultChatList({
   )
 }
 
-function ConsultBubble({ turn }: { turn: ConsultTurn }) {
+function ConsultBubble({
+  turn,
+  busy,
+  editing,
+  onStartEdit,
+  onCancelEdit,
+  onEditResend,
+  onRegenerate,
+}: {
+  turn: ConsultTurn
+  /** An answer is pending somewhere in this thread — edit/regenerate disabled. */
+  busy: boolean
+  editing: boolean
+  onStartEdit: () => void
+  onCancelEdit: () => void
+  onEditResend: (text: string) => void
+  onRegenerate: () => void
+}) {
   const { t } = useTranslation('consult')
+  const [draft, setDraft] = useState('')
+
   if (turn.role === 'user') {
+    if (editing) {
+      return (
+        <div className="consult-msg consult-msg--user">
+          <div className="consult-edit">
+            <textarea
+              className="consult-edit-input"
+              rows={3}
+              autoFocus
+              defaultValue={turn.text}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing) {
+                  e.preventDefault()
+                  onEditResend(draft || turn.text)
+                }
+                if (e.key === 'Escape') {
+                  e.preventDefault()
+                  onCancelEdit()
+                }
+              }}
+            />
+            <div className="consult-edit-actions">
+              <span className="consult-edit-note">{t('editDiscardNote')}</span>
+              <button type="button" className="consult-edit-cancel" onClick={onCancelEdit}>
+                {t('cancelEdit')}
+              </button>
+              <button
+                type="button"
+                className="consult-edit-confirm"
+                disabled={!(draft || turn.text).trim()}
+                onClick={() => onEditResend(draft || turn.text)}
+              >
+                {t('editAndResend')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )
+    }
     return (
       <div className="consult-msg consult-msg--user">
         <div className="consult-bubble">{turn.text}</div>
+        <button
+          type="button"
+          className="consult-turn-action consult-turn-action--user"
+          onClick={onStartEdit}
+          disabled={busy}
+          aria-label={t('editMessage')}
+          title={t('editMessage')}
+        >
+          <PencilIcon size={11} />
+        </button>
       </div>
     )
   }
@@ -433,6 +490,16 @@ function ConsultBubble({ turn }: { turn: ConsultTurn }) {
       <div className="consult-bubble consult-bubble--markdown">
         <ConsultMarkdown text={turn.result ?? ''} />
       </div>
+      <button
+        type="button"
+        className="consult-turn-action consult-turn-action--assistant"
+        onClick={onRegenerate}
+        disabled={busy}
+        aria-label={t('regenerate')}
+        title={t('regenerate')}
+      >
+        <RetryIcon size={11} />
+      </button>
     </div>
   )
 }
