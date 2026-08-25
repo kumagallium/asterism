@@ -7437,6 +7437,12 @@ tr.kz-attn td {
   border-radius: var(--radius);
   background: var(--warn-bg);
 }
+/* Every row settled: the warning tint would now be shouting at a finished
+   table, so the panel calms down to the settled-state green. */
+.kz-unmapped--done {
+  border-color: var(--success-border);
+  background: var(--success-bg);
+}
 .kz-unmapped h4 {
   margin: 0;
 }

@@ -318,6 +318,7 @@
     "structureSummary": "Also change how items are grouped or connected",
     "unmappedTitle": "Items not yet included ({{count}})",
     "unmappedLead": "The AI could not determine these items. Choose whether each one should be included or left out. If you include one, enter its meaning. This decision does not use AI.",
+    "unmappedDone": "Every item has a decision. Continuing applies the table as it stands.",
     "bulkIncludeAll": "Include all",
     "bulkExcludeAll": "Leave all out",
     "bulkUseColumnNames": "Use the original column name for empty meanings",
@@ -418,8 +419,8 @@
     "groundHint": "On the dataset page under 中身 (contents), you just pick from the candidates. You can undo it later."
   },
   "redesign": {
-    "banner": "Review: {{name}}",
-    "bannerNote": "Nothing runs on its own here. Check what is below and hand anything you want changed to the AI. Applying a change rebuilds the draft; Try it → Publish then publishes a new version.",
+    "banner": "Now open: {{name}}",
+    "bannerNote": "Nothing runs on its own here, and nothing has to be changed — if it all looks right, you can leave it as it is. Hand the AI only what you want changed; applying a change rebuilds the draft, and Try it → Publish then publishes a new version.",
     "structural": "Rework how the table is split and how the data is counted (detail mode)",
     "structuralNote": "This opens the screen with every setting. “Back to simple mode” brings you back here.",
     "cancel": "Stop reviewing",

@@ -1003,9 +1003,25 @@ export function KantanWizard({
   const reattachInputRef = useRef<HTMLInputElement | null>(null)
 
   // S5: the automatic save → source persist → draft ingest chain (ADR K3).
-  const [kzDatasetId, setKzDatasetId] = useState<string | null>(snap.datasetId ?? null)
+  // The adopted id and the attach flag also live in refs: the auto-fix loop
+  // (materialize → stop card → refine → materialize) runs entirely inside
+  // closures captured before the first mint, so the state variable read there
+  // is the pre-mint null — every automatic round then minted a brand-new
+  // dataset (one run left 4 empty drafts in the catalog, 2026-08-25). The
+  // chain reads the refs; renders read the state.
+  const [kzDatasetId, setKzDatasetIdState] = useState<string | null>(snap.datasetId ?? null)
+  const kzDatasetIdRef = useRef<string | null>(snap.datasetId ?? null)
+  const setKzDatasetId = (id: string | null) => {
+    kzDatasetIdRef.current = id
+    setKzDatasetIdState(id)
+  }
   const [kzDatasetName, setKzDatasetName] = useState<string | null>(snap.datasetName ?? null)
-  const [sourceAttached, setSourceAttached] = useState<boolean>(snap.sourceAttached ?? false)
+  const [sourceAttached, setSourceAttachedState] = useState<boolean>(snap.sourceAttached ?? false)
+  const sourceAttachedRef = useRef<boolean>(snap.sourceAttached ?? false)
+  const setSourceAttached = (attached: boolean) => {
+    sourceAttachedRef.current = attached
+    setSourceAttachedState(attached)
+  }
   const [autoFixed, setAutoFixed] = useState<boolean>(snap.autoFixed ?? false)
   const [pipeBusy, setPipeBusy] = useState(false)
   const [pipePhase, setPipePhase] = useState<'save' | 'attach' | 'ingest' | null>(null)
@@ -2585,8 +2601,13 @@ export function KantanWizard({
     setJobNotice('')
     setPipeBusy(true)
     setStep(5)
-    let datasetId = kzDatasetId
-    let attached = sourceAttached
+    // Refs, not state: when this call is a later round of the auto-fix loop it
+    // runs inside closures from the render BEFORE the first materialize, and
+    // the state variables still hold that render's values (null / false). The
+    // refs always carry the adopted record, so a retry round updates it in
+    // place instead of minting a duplicate dataset per round.
+    let datasetId = kzDatasetIdRef.current
+    let attached = sourceAttachedRef.current
     try {
       // 1) Save the design: split the reviewed Markdown into the artifact
       //    bundle + run the trap validator (no LLM — seconds). A retry targets
@@ -3443,7 +3464,11 @@ export function KantanWizard({
         // real files/columns/Tier-0 menu (the closed-menu oracle the automatic
         // loop sees) and put back the meanings/units this person typed
         // (KZ-B-05 / N6).
-        { datasetId: kzDatasetId, stagingId },
+        // Ref, not state: an auto-fix round fires from stale closures (see the
+        // ref declarations) — the state here would be the pre-mint null, and
+        // the server-side repair round would then run without the dataset's
+        // real files/columns.
+        { datasetId: kzDatasetIdRef.current, stagingId },
       )
     } catch (e) {
       clearKantanJob()
@@ -3880,11 +3905,21 @@ export function KantanWizard({
           })),
       )
     : []
-  const columnDecisionsIncomplete = droppedColumns.some(({ source, column, maps }) => {
-    const draft = columnDecisionDrafts[columnDecisionKey(source, column)]
-    if (!draft?.action) return true
-    return draft.action === 'include' && (!draft.label.trim() || !(draft.map || maps[0]?.id))
-  })
+  // One predicate for "this row is settled", shared by the gate below and the
+  // row's warning tint — the yellow must go out exactly when the gate opens,
+  // or a fully filled-in table still looks like an unresolved warning.
+  const columnDecisionResolved = (
+    draft: ColumnDecisionDraft | undefined,
+    maps: { id: string }[],
+  ): boolean => {
+    if (!draft?.action) return false
+    if (draft.action !== 'include') return true
+    return !!draft.label.trim() && !!(draft.map || maps[0]?.id)
+  }
+  const columnDecisionsIncomplete = droppedColumns.some(
+    ({ source, column, maps }) =>
+      !columnDecisionResolved(columnDecisionDrafts[columnDecisionKey(source, column)], maps),
+  )
   // Gate ② has nothing to gate while the column table failed to load. The
   // review's no-change exit is not a confirmation, so it keeps working
   // (KZ-B-28).
@@ -5417,9 +5452,16 @@ export function KantanWizard({
               also asks which entity owns the value when more than one map reads
               that source, then the server adds a raw property deterministically. */}
           {droppedColumns.length > 0 && (
-            <div className="kz-unmapped">
+            // The warning tint means "decisions are still missing" — once every
+            // row is settled it turns neutral, so a finished table stops
+            // shouting at the person who just finished it.
+            <div className={columnDecisionsIncomplete ? 'kz-unmapped' : 'kz-unmapped kz-unmapped--done'}>
               <h4>{t('kantan:s6.unmappedTitle', { count: droppedColumns.length })}</h4>
-              <p className="kz-note">{t('kantan:s6.unmappedLead')}</p>
+              <p className="kz-note">
+                {columnDecisionsIncomplete
+                  ? t('kantan:s6.unmappedLead')
+                  : t('kantan:s6.unmappedDone')}
+              </p>
               {/* Bulk pre-fill, not a 2-state toggle: a checkbox would erase
                   "not yet decided" the moment it renders unchecked (K22).
                   These three buttons write through the SAME per-row state
@@ -5479,7 +5521,10 @@ export function KantanWizard({
                      const origin = columnOrigins[column]
                      const invented = origin !== undefined && !origin.named
                      return (
-                       <tr key={key} className="kz-attn">
+                       <tr
+                         key={key}
+                         className={columnDecisionResolved(draft, maps) ? undefined : 'kz-attn'}
+                       >
                          <td>
                            <select
                              value={draft.action}
