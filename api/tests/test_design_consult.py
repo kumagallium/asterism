@@ -3,14 +3,30 @@ design-consult chat turn. Mock LLM, no oxigraph client needed (this route never
 touches the store)."""
 from __future__ import annotations
 
+import json
+import re
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from asterism_api.main import CONSULT_SYSTEM_PROMPT, Settings, build_app
+from asterism_api.main import CONSULT_MANUAL_TEXT, CONSULT_SYSTEM_PROMPT, Settings, build_app
 
 _TEST_TOKEN = "test-token"
 _AUTH = {"X-Asterism-Token": _TEST_TOKEN}
+
+# api/tests -> api -> repo root. The manual (D8: single source of truth for
+# both the human help text and the AI's navigation knowledge) and the ja UI
+# locales it must stay consistent with both live under the repo root.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_MANUAL_DIR = _REPO_ROOT / "manual" / "ja"
+_UI_JA_LOCALES_DIR = _REPO_ROOT / "ui" / "src" / "i18n" / "locales" / "ja"
+
+_HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
+# The manual's own naming convention (documented in its own header comment,
+# stripped above before matching so the convention's example text — which
+# itself contains a literal 「文言」ボタン — is never mistaken for a real claim).
+_QUOTED_BUTTON_OR_TAB = re.compile(r"「([^」]+)」(?:ボタン|タブ)")
+_QUOTED_MENU = re.compile(r"メニューの「([^」]+)」")
 
 
 def _settings(tmp: Path) -> Settings:
@@ -102,24 +118,77 @@ def test_consult_weaves_context_into_prompt(tmp_path: Path) -> None:
         assert "この列はどういう意味" in user_message
 
 
-def test_consult_system_prompt_names_real_navigation() -> None:
-    """The AI must guide with buttons that actually exist on screen (real-LLM
-    dogfood 2026-08-25: the model invented "左側メニューの「データ設計」" and
-    "プロジェクト一覧の「設定をリセット」" — neither exists). This pins the
-    catalog's real UI copy (grounded against the ja i18n locales / GalleryView)
-    and the guardrail against inventing names, so a future prompt edit cannot
-    silently drop either."""
-    catalog_phrases = [
-        "設計を見直す",  # ui/src/i18n/locales/ja/gallery.json:272,276 (redesign.head/open)
-        "最初から",  # ui/src/i18n/locales/ja/kantan.json:15 (recipe.backToStartShort)
-        "戻ってやり直す",  # ui/src/i18n/locales/ja/kantan.json:109,122 (s3.back / s4.discard)
-        "データの数えかたに戻る",  # ui/src/i18n/locales/ja/kantan.json:276 (s6.backToGate)
-        "データを追加",  # ui/src/i18n/locales/ja/common.json:19 (nav.workbench)
-        "公開する",  # ui/src/i18n/locales/ja/kantan.json:366,379 (s8.title/publish)
-        "質問する",  # ui/src/i18n/locales/ja/common.json:16 (nav.ask)
-        "利用許可コード",  # ui/src/i18n/locales/ja/settings.json:119,121 (write-token section)
+def _manual_ui_phrases() -> list[tuple[str, str]]:
+    """Every UI-name claim the manual makes — (phrase, source filename) —
+    per the getting-started.md/screens.md header-comment convention: buttons
+    as 「文言」ボタン, tabs as 「文言」タブ, sidebar entries as メニューの「文言」.
+    HTML comments are stripped first so the convention's own explanatory
+    example (which necessarily contains a literal 「文言」ボタン) is never
+    mistaken for a real navigation claim."""
+    out: list[tuple[str, str]] = []
+    for path in sorted(_MANUAL_DIR.glob("*.md")):
+        text = _HTML_COMMENT.sub("", path.read_text(encoding="utf-8"))
+        for m in _QUOTED_BUTTON_OR_TAB.finditer(text):
+            out.append((m.group(1), path.name))
+        for m in _QUOTED_MENU.finditer(text):
+            out.append((m.group(1), path.name))
+    return out
+
+
+def _all_ja_ui_strings() -> list[str]:
+    """Every string VALUE (any nesting depth) across ui/src/i18n/locales/ja/*.json."""
+    out: list[str] = []
+
+    def walk(node: object) -> None:
+        if isinstance(node, dict):
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v)
+        elif isinstance(node, str):
+            out.append(node)
+
+    for path in sorted(_UI_JA_LOCALES_DIR.glob("*.json")):
+        walk(json.loads(path.read_text(encoding="utf-8")))
+    return out
+
+
+def test_manual_ui_names_exist_in_ui_locales() -> None:
+    """Machine detection of manual staleness (ADR D8 / real-LLM dogfood
+    2026-08-25: the AI invented "左側メニューの「データ設計」" and "プロジェクト
+    一覧の「設定をリセット」" — neither exists — because the old hardcoded
+    catalog had drifted from the real UI). Every button/tab/menu name the
+    manual claims must be a real substring somewhere in the ja UI locales;
+    a UI rename that forgets to update the manual fails HERE instead of in a
+    user's session."""
+    phrases = _manual_ui_phrases()
+    assert phrases, (
+        "manual/ja/*.md named no UI buttons/tabs/menus at all "
+        "— check _QUOTED_BUTTON_OR_TAB / _QUOTED_MENU against the manual's own convention"
+    )
+    ja_strings = _all_ja_ui_strings()
+    missing = [
+        (phrase, source) for phrase, source in phrases if not any(phrase in s for s in ja_strings)
     ]
-    for phrase in catalog_phrases:
-        assert phrase in CONSULT_SYSTEM_PROMPT, f"catalog missing real UI phrase: {phrase!r}"
-    assert "発明してはいけません" in CONSULT_SYSTEM_PROMPT
+    assert not missing, (
+        "manual の UI 名が UI に見当たらない — UI 変更にマニュアルが追従していません:\n"
+        + "\n".join(f"  {source}: 「{phrase}」" for phrase, source in missing)
+    )
+
+
+def test_consult_system_prompt_includes_manual() -> None:
+    """CONSULT_SYSTEM_PROMPT gets its navigation knowledge from manual/ja/*.md
+    (D8), not a hardcoded catalog — this is what makes
+    test_manual_ui_names_exist_in_ui_locales's guarantee actually reach the
+    LLM call. `_load_consult_manual` degrades silently when the manual dir is
+    missing (main.py), but running from a real repo checkout (this test's
+    environment) it MUST be found."""
+    assert CONSULT_MANUAL_TEXT, (
+        "manual/ja/*.md was not loaded into CONSULT_MANUAL_TEXT — "
+        "check _find_consult_manual_dir()/ASTERISM_MANUAL_DIR and the repo layout"
+    )
+    assert "設計を見直す" in CONSULT_MANUAL_TEXT  # sanity: a screens.md phrase actually made it in
+    assert CONSULT_MANUAL_TEXT in CONSULT_SYSTEM_PROMPT
+    assert "発明しては" in CONSULT_SYSTEM_PROMPT
     assert "聞き返して" in CONSULT_SYSTEM_PROMPT

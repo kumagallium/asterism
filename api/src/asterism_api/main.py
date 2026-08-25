@@ -760,10 +760,73 @@ def _llm_max_tokens(value: str | None) -> int | None:
 CONSULT_MAX_MESSAGES = 20
 CONSULT_MAX_CONTENT_CHARS = 8000
 
-# D5 (判断は代行しない): the model explains and points at reference material;
-# the person still clicks 含める/除外する. Written in Japanese — the audience is
-# a domain expert consulting mid-design, not a developer reading source.
-CONSULT_SYSTEM_PROMPT = """あなたは Asterism の設計相談役です。研究者がデータを Asterism に取り込む
+# design-consult-chat.md D8: the manual (repo-root manual/ja/*.md) is the
+# single source of truth for both the human-facing help text and the AI's
+# knowledge of real navigation — a screen rename only needs the manual
+# edited, never the prompt. A hardcoded catalog would rot the moment the UI
+# changes; concatenating the manual instead means api/tests/test_design_consult.py
+# can machine-check the manual's own UI-name claims against the i18n locales.
+CONSULT_MANUAL_HEADING = "## マニュアル(実在する画面の操作)"
+
+
+def _find_consult_manual_dir() -> Path | None:
+    """Resolve `manual/ja/`: ``ASTERISM_MANUAL_DIR`` env var if set (must exist),
+    else search upward from this file's directory for a `manual/ja` dir (finds
+    the repo-root `manual/ja/` in every deployment layout this codebase runs
+    from — hosted image, asterism-local, dev checkout). None if neither is
+    found — callers degrade silently rather than erroring: a missing manual
+    should never take the consult endpoint down, it just loses the catalog
+    (the "don't invent names" guardrail in the prompt still holds on its own)."""
+    override = os.environ.get("ASTERISM_MANUAL_DIR", "").strip()
+    if override:
+        candidate = Path(override)
+        return candidate if candidate.is_dir() else None
+    for parent in Path(__file__).resolve().parents:
+        candidate = parent / "manual" / "ja"
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
+def _load_consult_manual() -> str:
+    """Concatenate every `manual/ja/*.md` file (sorted, deterministic order)
+    into the block the system prompt injects. Read once at import time (see
+    the module-level ``CONSULT_MANUAL_TEXT`` below) — not per request, so a
+    consult call never does file I/O beyond the one LLM call. "" when the
+    manual dir is missing or holds no files."""
+    manual_dir = _find_consult_manual_dir()
+    if manual_dir is None:
+        return ""
+    parts: list[str] = []
+    for path in sorted(manual_dir.glob("*.md")):
+        try:
+            parts.append(path.read_text(encoding="utf-8").strip())
+        except OSError:
+            # The module logger (`logger = logging.getLogger(__name__)`)
+            # isn't defined yet at this point in module load order (this
+            # runs at import time, before that assignment) — a fresh
+            # getLogger() call for the same name returns the identical
+            # logger instance either way.
+            logging.getLogger(__name__).warning(
+                "consult manual: could not read %s (skipping)", path
+            )
+    return "\n\n".join(parts)
+
+
+# Read once at process start (module import), matching every other
+# module-level constant here — a request handler never re-reads the manual.
+CONSULT_MANUAL_TEXT = _load_consult_manual()
+
+
+def _build_consult_system_prompt(manual_text: str) -> str:
+    """Assemble CONSULT_SYSTEM_PROMPT: role + the 6-step overview (kept here,
+    not in the manual, since it doubles as this prompt's own outline) + the
+    manual's real-navigation text (D8, absent when no manual dir was found)
+    + the guardrails (D5 判断は代行しない)."""
+    manual_block = (
+        f"\n\n{CONSULT_MANUAL_HEADING}\n\n{manual_text}\n" if manual_text else ""
+    )
+    return f"""あなたは Asterism の設計相談役です。研究者がデータを Asterism に取り込む
 とき、隣に座って質問に答える専門家として振る舞ってください。
 
 Asterism の「かんたんモード」は次の6ステップで進みます。ユーザーがどのステップにいるかは
@@ -775,46 +838,34 @@ Asterism の「かんたんモード」は次の6ステップで進みます。�
 4. 項目の意味 - 各列が何を意味するか(例: 「Ic」は臨界電流、単位はA)を確認・修正する
 5. ためす - 実際にデータを取り込んでみて、想定どおりの結果になるか試す
 6. 公開する - 問題がなければ、他の人が引用できる形で公開する
-
-実在する画面の導線カタログ(操作の案内はこれだけを使ってください):
-- 設計をやり直す・見直す: データセットの詳細画面にある「設計を見直す」ボタン
-- ウィザードの入力からやり直す: 画面上部の手順バーにある「最初から」(① 入れる に戻る)
-- ③でAIの読み取りに失敗した/④の下書きをやめて読み取り確認からやり直す: 「戻ってやり直す」
-- ④「項目の意味」の内容をやめて③「データの数えかた」の確認に戻る: 「データの数えかたに戻る」
-- 新しいデータを取り込む: 左メニューの「データを追加」(ホームやデータセット一覧にも同じボタンあり)
-- 公開する: ⑥の画面、またはデータセットの詳細画面にある「公開する」ボタン
-- 使う AI(プロバイダ)を設定・変更する: 左下の「設定」を開き「AI」タブ
-- このサーバへの書き込みに必要な利用許可コードを設定する: 左下の「設定」を開き「このサーバ」タブの
-  「利用許可コード」
-- 公開済みデータに質問する(この相談チャットとは別物。データを公開したあとに使える): 左メニューの
-  「質問する」
-- 公開済みデータセットの一覧を見る: 左メニューの「データセット」
-- データセット同士のつながりを作る・見る: 左メニューの「つながり」
-- 使われている用語(共通の語彙)を見る: 左メニューの「共通の言葉」
-- ウィザードの簡易表示とすべての項目を表示する詳細表示を切り替える: 「詳細モードへ」/
-  「かんたんモードへ戻る」
-
+{manual_block}
 守るべきこと:
 - 取り込む/取り込まないの裁定、列の意味や単位の最終判断は常にユーザーが行います。あなたは
   説明と参考情報を提示するだけで、判断を代行したり、フォームへの記入を指示したりしません。
-- 操作の案内は、直前の「実在する画面の導線カタログ」と「## いま見ている画面」に書かれている
-  名前だけを使ってください。カタログにも「## いま見ている画面」にも無いボタン・メニュー・
-  画面名を発明してはいけません。該当する導線が無い/分からないときは、存在しない名前を
-  でっち上げず「いまの画面に見えているボタンの名前を教えてください」のように聞き返して
-  ください。
+- 操作の案内は、上の「{CONSULT_MANUAL_HEADING.removeprefix("## ")}」と「## いま見ている画面」
+  に書かれている名前だけを使ってください。そこに無いボタン・メニュー・画面名を発明しては
+  いけません。該当する導線が無い/分からないとき、あるいはマニュアルの記載が見当たらない
+  ときは、存在しない名前をでっち上げず「いまの画面に見えているボタンの名前を教えてください」
+  のように聞き返してください。
 - 「## いま見ている画面」に文脈(ステップ・データセット名・骨格の要約・注目している列など)
   が添付されていれば、それに即して具体的かつ簡潔に答えてください。
-- 一般的な使い方の質問(文脈がない、または一般的な内容)には、上記6ステップの説明と導線
-  カタログを踏まえて答えてください。
+- 一般的な使い方の質問(文脈がない、または一般的な内容)には、上記6ステップの説明とマニュアルを
+  踏まえて答えてください。
 - ドメイン略語(例: XRD カードの Quality・RIR(I/Ic)・Subfile)を聞かれたら、一般的な意味を
   説明したうえで、実データの値(添付されていれば)と整合するか一緒に考えてください。
 - 知らないこと・確信が持てないことは、知らないとはっきり言ってください。憶測を断定調で語らない
   でください。
 - 回答は簡潔に。長い前置きや繰り返しは避け、要点から述べてください。
-- 導線カタログは日本語の実際の画面表示に合わせています。英語で答えるときも、ボタン名・
+- マニュアルは日本語の実際の画面表示に合わせています。英語で答えるときも、ボタン名・
   メニュー名は日本語の表記のまま書き、そのあとに簡単な英訳を添えてください
   (例: 「データを追加」(Add data))。
 """
+
+
+# D5 (判断は代行しない): the model explains and points at reference material;
+# the person still clicks 含める/除外する. Written in Japanese — the audience is
+# a domain expert consulting mid-design, not a developer reading source.
+CONSULT_SYSTEM_PROMPT = _build_consult_system_prompt(CONSULT_MANUAL_TEXT)
 
 
 def _render_consult_context(ctx: ConsultContext | None) -> str:
