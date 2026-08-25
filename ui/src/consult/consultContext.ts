@@ -20,6 +20,36 @@ export interface ConsultFocusColumn {
   samples: string[]
 }
 
+/** One row of S6's "まだ取り込んでいない項目" (droppedColumns) table. */
+export interface ConsultPendingColumn {
+  name: string
+  /** Up to a few real values, same as ConsultFocusColumn. */
+  samples: string[]
+}
+
+/** One row of S6's "項目の意味" table — a column whose meaning/unit is
+ *  already decided (blank when the AI/human hasn't filled it in yet).
+ *  `samples` (2026-08-25 extension): up to a few real values, so a "意味が
+ *  未入力の項目" question can be answered with the actual data, not just the
+ *  bare column name (mirrors ConsultPendingColumn/ConsultFocusColumn). */
+export interface ConsultColumn {
+  name: string
+  meaning?: string
+  unit?: string
+  samples?: string[]
+}
+
+/** One row of S4's「データの数えかた」ゲート — a map's key columns and its
+ *  current「1 件が表すもの」(class/kind name), verbatim from the same data
+ *  SkeletonGate renders. */
+export interface ConsultKind {
+  map: string
+  source: string
+  keyColumns: string[]
+  /** Absent/undefined when the kind-name cell is empty. */
+  kindName?: string
+}
+
 export interface ConsultContextState {
   /** Human-readable label of the step/screen the user is on. */
   step?: string
@@ -30,6 +60,16 @@ export interface ConsultContextState {
   /** The column the user's cursor is on right now, if any. null clears it
    *  explicitly (e.g. the field lost focus) — undefined leaves it untouched. */
   focusColumn?: ConsultFocusColumn | null
+  /** S6's "まだ取り込んでいない項目" rows, verbatim from the same data the
+   *  table renders. null clears it explicitly (left S6) — undefined leaves
+   *  it untouched. */
+  pendingColumns?: ConsultPendingColumn[] | null
+  /** S6's "項目の意味" rows, verbatim from the same data the table renders.
+   *  null clears it explicitly (left S6) — undefined leaves it untouched. */
+  columns?: ConsultColumn[] | null
+  /** S4 gate's per-map key columns + kind name. null clears it explicitly
+   *  (left S4) — undefined leaves it untouched. */
+  kinds?: ConsultKind[] | null
 }
 
 let current: ConsultContextState = {}

@@ -118,6 +118,151 @@ def test_consult_weaves_context_into_prompt(tmp_path: Path) -> None:
         assert "この列はどういう意味" in user_message
 
 
+def test_consult_weaves_pending_and_confirmed_columns_into_prompt(tmp_path: Path) -> None:
+    """2026-08-25 real-LLM dogfood: asked about "the 17 columns not yet
+    imported", the AI replied "which columns?" because the S6 table on screen
+    never rode along in the context. Pins that the pending/confirmed column
+    tables reach the prompt with real column names and sample values."""
+    captured: dict[str, object] = {}
+    app = _app(tmp_path, captured)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/design/consult",
+            json={
+                "messages": [
+                    {"role": "user", "content": "まだ取り込んでいない項目の意味を答えられますか?"}
+                ],
+                "context": {
+                    "step": "項目の意味",
+                    "pending_columns": [
+                        {"name": "CSD", "samples": ["N AL1935 (NIST)"]},
+                        {"name": "Name", "samples": ["Aluminum Vanadium"]},
+                    ],
+                    "columns": [
+                        {"name": "d", "meaning": "面間隔 d", "unit": "Å"},
+                        {"name": "2theta", "meaning": "回折角 2θ", "unit": "deg"},
+                    ],
+                },
+            },
+            headers={"X-API-Key": "sk-user-test"},
+        )
+        assert r.status_code == 200
+        user_message = captured["user"]
+        assert "まだ取り込んでいない項目" in user_message
+        assert "CSD" in user_message
+        assert "N AL1935 (NIST)" in user_message
+        assert "Name" in user_message
+        assert "Aluminum Vanadium" in user_message
+        assert "意味が確定している項目" in user_message
+        assert "d = 面間隔 d" in user_message
+        assert "2theta = 回折角 2θ" in user_message
+
+
+def test_consult_weaves_missing_meaning_columns_into_prompt(tmp_path: Path) -> None:
+    """2026-08-25 real-LLM dogfood (A): asked "意味が空欄の列の候補を出して",
+    the AI asked back for column names — `_render_confirmed_columns` skipped
+    every column whose meaning was still blank, so an already-mapped-but-
+    unlabeled column never reached the prompt at all. Pins that the new
+    "意味が未入力の項目" line carries the blank columns' names AND real sample
+    values, and that it sits alongside (not instead of) the confirmed line."""
+    captured: dict[str, object] = {}
+    app = _app(tmp_path, captured)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/design/consult",
+            json={
+                "messages": [
+                    {"role": "user", "content": "意味が空欄の列の候補を出してください"}
+                ],
+                "context": {
+                    "step": "項目の意味",
+                    "columns": [
+                        {"name": "d", "meaning": "面間隔 d", "unit": "Å"},
+                        {
+                            "name": "Additional Patterns",
+                            "samples": ["See PDF 03-065-5860", "and 03-065-5861"],
+                        },
+                        {"name": "CSD", "samples": ["N AL1935 (NIST)"]},
+                    ],
+                },
+            },
+            headers={"X-API-Key": "sk-user-test"},
+        )
+        assert r.status_code == 200
+        user_message = captured["user"]
+        assert "意味が確定している項目" in user_message
+        assert "d = 面間隔 d" in user_message
+        assert "意味が未入力の項目 (2 件)" in user_message
+        assert "Additional Patterns" in user_message
+        assert "See PDF 03-065-5860" in user_message
+        assert "CSD" in user_message
+        assert "N AL1935 (NIST)" in user_message
+
+
+def test_consult_weaves_kinds_into_prompt(tmp_path: Path) -> None:
+    """2026-08-25 (B): S4 の「1 件が表すもの」欄も同じ導線で埋めたい、という要望。
+    Pins that `context.kinds` renders as "データの種類: <map> (ID: ..., 種類名:
+    ...)" — with the ID recipe from key_columns and 未入力 for a blank kind."""
+    captured: dict[str, object] = {}
+    app = _app(tmp_path, captured)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/design/consult",
+            json={
+                "messages": [{"role": "user", "content": "peak の種類名を提案して"}],
+                "context": {
+                    "step": "データの数えかた",
+                    "kinds": [
+                        {"map": "peak", "source": "xrd.txt", "key_columns": ["No", "(hkl)"]},
+                        {
+                            "map": "sample",
+                            "source": "xrd.txt",
+                            "key_columns": ["No"],
+                            "kind_name": "試料",
+                        },
+                    ],
+                },
+            },
+            headers={"X-API-Key": "sk-user-test"},
+        )
+        assert r.status_code == 200
+        user_message = captured["user"]
+        assert "データの種類" in user_message
+        assert "peak (ID: No+(hkl), 種類名: 未入力)" in user_message
+        assert "sample (ID: No, 種類名: 試料)" in user_message
+
+
+def test_consult_context_without_kinds_is_backward_compatible(tmp_path: Path) -> None:
+    """A context payload with no ``kinds`` key at all (every pre-D10-extension-B
+    client) must keep working exactly as before — ``kinds`` defaults to ``[]``
+    and renders nothing."""
+    captured: dict[str, object] = {}
+    app = _app(tmp_path, captured)
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/design/consult",
+            json={
+                "messages": [{"role": "user", "content": "この列はどういう意味?"}],
+                "context": {"step": "項目の意味", "dataset": "XRDサンプル"},
+            },
+            headers={"X-API-Key": "sk-user-test"},
+        )
+        assert r.status_code == 200
+        user_message = captured["user"]
+        assert "データの種類" not in user_message
+
+
+def test_consult_system_prompt_instructs_kinds_suggestions() -> None:
+    """D10 extension (B): the model is told it MAY offer a kind-name candidate
+    via ``kinds`` in the suggestions block, that ``map`` must be the on-screen
+    map name verbatim, and that it must not propose an ID recipe or an
+    include/exclude decision — only the kind name."""
+    assert '"kinds"' in CONSULT_SYSTEM_PROMPT
+    assert '"map"' in CONSULT_SYSTEM_PROMPT
+    assert "ID の作り方" in CONSULT_SYSTEM_PROMPT
+    assert "取り込む/取り込まないの裁定" in CONSULT_SYSTEM_PROMPT
+
+
 def _manual_ui_phrases() -> list[tuple[str, str]]:
     """Every UI-name claim the manual makes — (phrase, source filename) —
     per the getting-started.md/screens.md header-comment convention: buttons
@@ -192,3 +337,19 @@ def test_consult_system_prompt_includes_manual() -> None:
     assert CONSULT_MANUAL_TEXT in CONSULT_SYSTEM_PROMPT
     assert "発明しては" in CONSULT_SYSTEM_PROMPT
     assert "聞き返して" in CONSULT_SYSTEM_PROMPT
+
+
+def test_consult_system_prompt_instructs_suggestion_blocks() -> None:
+    """D9: the model is told how to offer meaning/unit candidates the UI can
+    parse — the exact fence tag, the JSON shape, that ``column`` must be the
+    on-screen name verbatim, and that the block is a candidate (a human still
+    confirms it) rather than the model editing anything itself."""
+    from asterism_api.main import CONSULT_SUGGESTIONS_FENCE
+
+    assert CONSULT_SUGGESTIONS_FENCE in CONSULT_SYSTEM_PROMPT
+    assert f"```{CONSULT_SUGGESTIONS_FENCE}" in CONSULT_SYSTEM_PROMPT
+    assert '"suggestions"' in CONSULT_SYSTEM_PROMPT
+    assert '"column"' in CONSULT_SYSTEM_PROMPT
+    assert '"meaning"' in CONSULT_SYSTEM_PROMPT
+    assert '"unit"' in CONSULT_SYSTEM_PROMPT
+    assert "採用と確定は必ず" in CONSULT_SYSTEM_PROMPT

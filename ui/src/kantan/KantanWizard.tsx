@@ -34,9 +34,10 @@ import {
   type TrialQueries,
 } from '../api'
 import { isMeaningReviewAdvisory, plainAdvisories, plainIssues } from '../advisoryPlain'
+import { registerSuggestionApplier } from '../consult/consultApply'
 import { setConsultContext } from '../consult/consultContext'
 import { TABULAR_ACCEPT } from '../datasetsApi'
-import { detectDatasetNamespace } from '../datasetNamespace'
+import { compactClass, detectDatasetNamespace, expandClass } from '../datasetNamespace'
 import { type UnitResolution, resolveUnit } from '../groundingApi'
 import { DocumentPanel } from '../DocumentPanel'
 import { PRESET_HINTS } from '../domainHints'
@@ -1083,6 +1084,11 @@ export function KantanWizard({
   // same sentence gets typed again, round after round (KZ-B-29).
   const [reflectedNote, setReflectedNote] = useState('')
   const [reflectChanged, setReflectChanged] = useState<Set<string> | null>(null)
+  // design-consult-chat.md D9: which columns the consult drawer's "候補を表に
+  // 反映" just filled in — same「（更新）」badge as reflectChanged, kept as its
+  // own set so a suggestion-apply and an AI-reflect round never get credited
+  // to each other.
+  const [consultAppliedColumns, setConsultAppliedColumns] = useState<Set<string> | null>(null)
   const rulesBeforeReflect = useRef<DatasetRules | null>(null)
   // 'note' = the S6 free-text reflect; 'fix' = the S5 design-stop AI fix. Both
   // ride the SAME refine → re-materialize chain; the flag only picks the
@@ -1212,6 +1218,72 @@ export function KantanWizard({
         : undefined,
     })
   }, [step, kzDatasetName, skeleton, t])
+
+  // design-consult-chat.md D10 extension (B): S4「データの数えかた」ゲートの
+  // 「1 件が表すもの」欄を、SkeletonGate が表示しているのと同じ計算（テンプレート
+  // の {列名} → keyColumns、subject.classes → 種類名）から consult ドロワーへ渡す。
+  // S4 以外に移ったら null にして消す。
+  useEffect(() => {
+    if (step !== 4 || !skeleton) {
+      setConsultContext({ kinds: null })
+      return
+    }
+    const nsDetected = detectDatasetNamespace(skeleton) ?? annotations?.dataset_namespace ?? null
+    const kinds = skeleton.maps.map((m) => {
+      const keyValue = m.subject.template ?? m.subject.constant ?? ''
+      const templateColumns = [...keyValue.matchAll(/\{([^{}]+)\}/g)].map((x) => x[1])
+      const ann = annotations?.maps?.[m.name]
+      const keyColumns = templateColumns.length > 0 ? templateColumns : (ann?.key_columns ?? [])
+      const classes = (m.subject.classes ?? []).map((c) => compactClass(c, nsDetected))
+      return {
+        map: m.name,
+        source: basename(m.source ?? ''),
+        keyColumns,
+        kindName: classes.length > 0 ? classes.join('、') : undefined,
+      }
+    })
+    setConsultContext({ kinds })
+  }, [step, skeleton, annotations])
+
+  // design-consult-chat.md D10 extension (B): register how S4 applies the
+  // consult drawer's `kinds` candidates, for exactly as long as S4 is on
+  // screen. Fills ONLY a map whose "1 件が表すもの" (subject.classes) cell is
+  // currently EMPTY — never overwrites an existing kind name, never touches
+  // the key/ID template, never decides include/exclude (there is no such
+  // decision at S4). Goes through the SAME `onSkeletonEdited` path a manual
+  // edit of the kind-name cell uses, so the gate's own re-check (debounced
+  // evidence recompute) runs exactly as it would for a human edit — this
+  // function only ever registers the SUGGESTIONS applier, it never calls
+  // SkeletonGate's own internal `updateSubject`. `payload.suggestions`
+  // (S6's own shape) is ignored here for the same reason S6 ignores `kinds`.
+  useEffect(() => {
+    if (step !== 4 || !skeleton) return
+    const unregister = registerSuggestionApplier(({ kinds }) => {
+      let applied = 0
+      let skipped = 0
+      if (kinds.length === 0) return { applied, skipped }
+      const nsDetected = detectDatasetNamespace(skeleton) ?? annotations?.dataset_namespace ?? null
+      let changed = false
+      const nextMaps = skeleton.maps.map((m) => {
+        const suggestion = kinds.find((k) => k.map === m.name)
+        if (!suggestion || !suggestion.name) return m
+        if ((m.subject.classes ?? []).length > 0) {
+          skipped += 1
+          return m
+        }
+        applied += 1
+        changed = true
+        return {
+          ...m,
+          subject: { ...m.subject, classes: [expandClass(suggestion.name, nsDetected)] },
+        }
+      })
+      if (changed) onSkeletonEdited({ ...skeleton, maps: nextMaps })
+      return { applied, skipped }
+    })
+    return unregister
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, skeleton, annotations])
 
   // Ask the write gate at the door, not after two AI rounds (KZ-A-42). An old
   // api (no write_gate field) answers nothing and the flow is unchanged.
@@ -3829,6 +3901,44 @@ export function KantanWizard({
     return isEchoOfTerm(label, p.predicate_iri || p.predicate) ? '' : label
   }
 
+  // design-consult-chat.md D4 extension (2026-08-25 ユーザー裁定): 「まだ取り込ん
+  // でいない項目」(droppedColumns) と「意味が確定している項目」(valueRows +
+  // readMeaning、S6 の表そのもの) を、画面に出しているのと同じデータから consult
+  // ドロワーへ渡す — 相談チャットが「まだ取り込んでいない列」を聞かれて「列名を
+  // 教えてください」と聞き返した実 dogfood の欠落を埋める。別経路で作り直さない。
+  // S6 以外に移ったら両方 null にして消す(その画面の情報を持ち越さない)。
+  // droppedColumns/valueRows は毎レンダー新しい配列として計算される(メモ化なし)
+  // ため、それ自体を deps に置くと無関係な再レンダーでも発火する。表示の元になる
+  // state (rules/sourceSamples/columnSamples) を deps にして、実際にデータが変わ
+  // ったときだけ setConsultContext するようにしている。
+  useEffect(() => {
+    if (step !== 6) {
+      setConsultContext({ pendingColumns: null, columns: null })
+      return
+    }
+    setConsultContext({
+      pendingColumns: droppedColumns.map(({ column, samples }) => ({
+        name: column,
+        samples: samples.slice(0, 3),
+      })),
+      columns: valueRows.flatMap(({ rows }) =>
+        rows.map(({ prop, column }) => {
+          const meaning = readMeaning(prop)
+          return {
+            name: column,
+            meaning: meaning || undefined,
+            unit: prop.unit || undefined,
+            // 2026-08-25 拡張: 「意味が未入力の項目」を実データ例つきで見せられる
+            // よう、確定済み・未入力の両方に samples を添える(droppedColumns と
+            // 同じ columnSamples ソース)。
+            samples: (columnSamples[column] ?? []).slice(0, 3),
+          }
+        }),
+      ),
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, rules, sourceSamples, columnSamples])
+
   /** Patch one property's display meta in the local rules state, so the table,
    *  the unit badge and the next edit's "before" all tell the truth without a
    *  full reload. Rows are matched the same way the server matches them:
@@ -3969,6 +4079,86 @@ export function KantanWizard({
       /* reconcile is enrichment — the optimistic state stands until the next load */
     }
   }
+
+  // design-consult-chat.md D10: register how S6 applies the consult drawer's
+  // suggestion blocks, for exactly as long as S6 is on screen. Fills ONLY
+  // blank meaning/unit fields — never an include/exclude decision, never
+  // something the human already typed (D5: the human still decides what
+  // stays). The confirmed-columns table (valueRows) uses the SAME commitMeta
+  // path a manual edit's onBlur uses, so an applied suggestion is saved the
+  // same way and reconciled the same way. The not-yet-included table
+  // (droppedColumns) uses the SAME updateColumnDecision a manual edit uses,
+  // leaving the 取り扱い pulldown untouched. Re-registers on every render
+  // where the underlying data could have changed, so the closure never acts
+  // on stale rows; unregisters (via the cleanup) the moment S6 is left.
+  // S6 only ever ACTS on `payload.suggestions` — `kinds` (S4's own candidate
+  // shape) is ignored here, and the drawer never sends any while S6's own
+  // context (pendingColumns/columns) is what's on screen anyway.
+  useEffect(() => {
+    if (step !== 6) return
+    const unregister = registerSuggestionApplier(({ suggestions }) => {
+      let applied = 0
+      let skipped = 0
+      const touchedColumns = new Set<string>()
+      for (const s of suggestions) {
+        const name = s.column?.trim()
+        if (!name) continue
+        const meaning = s.meaning?.trim() || ''
+        const unit = s.unit?.trim() || ''
+
+        let matched = false
+        let touched = false
+        for (const { map: m, rows } of valueRows) {
+          for (const { prop: p, column } of rows) {
+            if (column !== name) continue
+            matched = true
+            if (meaning && !readMeaning(p)) {
+              commitMeta(p, m.source ?? '', column, 'label', meaning)
+              touched = true
+            }
+            if (unit && !(p.unit ?? '').trim()) {
+              commitMeta(p, m.source ?? '', column, 'unit', unit)
+              touched = true
+            }
+          }
+        }
+        if (!matched) {
+          const pending = droppedColumns.find((c) => c.column === name)
+          if (pending) {
+            matched = true
+            const draft = columnDecisionDrafts[columnDecisionKey(pending.source, pending.column)]
+            if (meaning && !draft?.label.trim()) {
+              updateColumnDecision(pending.source, pending.column, pending.maps[0]?.id ?? '', {
+                label: meaning,
+              })
+              touched = true
+            }
+            if (unit && !draft?.unit.trim()) {
+              updateColumnDecision(pending.source, pending.column, pending.maps[0]?.id ?? '', {
+                unit,
+              })
+              touched = true
+            }
+          }
+        }
+        if (!matched) continue // not a column on this screen — silently ignored
+        if (touched) {
+          applied += 1
+          touchedColumns.add(name)
+        } else {
+          skipped += 1
+        }
+      }
+      if (touchedColumns.size > 0) setConsultAppliedColumns(touchedColumns)
+      return { applied, skipped }
+    })
+    return unregister
+    // commitMeta/readMeaning are plain functions redefined every render (not
+    // memoized) that close over the SAME state already listed below — adding
+    // them would just make this re-register every render for no behavioral
+    // difference (same posture as the S6 context-push effect above).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, valueRows, droppedColumns, columnDecisionDrafts, kzDatasetId])
 
   /** Enter = confirm this field and move DOWN the same column, spreadsheet-style
    *  (dogfood: jumping right into the unit field surprised — nobody edits
@@ -5149,7 +5339,7 @@ export function KantanWizard({
                                     {t('kantan:s6.useColumnName')}
                                   </button>
                                 ))}
-                              {reflectChanged?.has(column) && (
+                              {(reflectChanged?.has(column) || consultAppliedColumns?.has(column)) && (
                                 <span className="kz-map-note"> {t('kantan:s6.updatedBadge')}</span>
                               )}
                             </td>
@@ -5338,6 +5528,9 @@ export function KantanWizard({
                              >
                                {t('kantan:s6.useColumnName')}
                              </button>
+                           )}
+                           {consultAppliedColumns?.has(column) && (
+                             <span className="kz-map-note"> {t('kantan:s6.updatedBadge')}</span>
                            )}
                          </td>
                          <td>

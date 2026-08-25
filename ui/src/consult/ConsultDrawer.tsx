@@ -7,6 +7,11 @@ import { CloseIcon, PencilIcon, RetryIcon, ThreadsIcon, TrashIcon } from '../ico
 import { useLlmSettings } from '../settings/context'
 import { LlmGate } from '../settings/LlmGate'
 import { consult, type ConsultMessage } from './consultApi'
+import {
+  applySuggestions,
+  parseSuggestionsBlock,
+  type ApplySuggestionsResult,
+} from './consultApply'
 import { useConsultContext } from './consultContext'
 import { ConsultMarkdown } from './ConsultMarkdown'
 import {
@@ -67,6 +72,20 @@ export function ConsultDrawer() {
   const [view, setView] = useState<'chat' | 'list'>('chat')
   const { isReady, getActiveCredentials } = useLlmSettings()
   const ctx = useConsultContext()
+  // D9: which column names are actually on screen right now (S6's two
+  // tables) — the reactive gate for "この候補を表に反映" (a suggestion for a
+  // column not here is dropped, and off S6 both lists are null so the count
+  // is always 0 and the button never shows).
+  const screenColumnNames = new Set<string>([
+    ...(ctx.pendingColumns?.map((c) => c.name) ?? []),
+    ...(ctx.columns?.map((c) => c.name) ?? []),
+  ])
+  // D10 extension (B): S4's maps whose "1 件が表すもの" cell is currently
+  // empty — a kind-name candidate only counts/applies for one of these
+  // (never overwrites an existing kind name).
+  const emptyKindMaps = new Set<string>(
+    (ctx.kinds ?? []).filter((k) => !k.kindName).map((k) => k.map),
+  )
 
   const threads = useConsultThreads()
   // Which thread is open — the user's own choice (D2 revised): whatever was
@@ -246,6 +265,8 @@ export function ConsultDrawer() {
                         turn={tn}
                         busy={busy}
                         editing={editingTurnId === tn.id}
+                        screenColumnNames={screenColumnNames}
+                        emptyKindMaps={emptyKindMaps}
                         onStartEdit={() => setEditingTurnId(tn.id)}
                         onCancelEdit={() => setEditingTurnId(null)}
                         onEditResend={(text) => editResend(tn.id, text)}
@@ -413,6 +434,8 @@ function ConsultBubble({
   turn,
   busy,
   editing,
+  screenColumnNames,
+  emptyKindMaps,
   onStartEdit,
   onCancelEdit,
   onEditResend,
@@ -422,6 +445,12 @@ function ConsultBubble({
   /** An answer is pending somewhere in this thread — edit/regenerate disabled. */
   busy: boolean
   editing: boolean
+  /** D10: column names actually on screen right now (S6) — a suggestion for
+   *  any other name is dropped before it ever reaches the applier. */
+  screenColumnNames: Set<string>
+  /** D10 extension (B): S4 map names whose kind-name cell is empty right
+   *  now — a kind candidate for any other map is dropped the same way. */
+  emptyKindMaps: Set<string>
   onStartEdit: () => void
   onCancelEdit: () => void
   onEditResend: (text: string) => void
@@ -429,6 +458,7 @@ function ConsultBubble({
 }) {
   const { t } = useTranslation('consult')
   const [draft, setDraft] = useState('')
+  const [applyResult, setApplyResult] = useState<string | null>(null)
 
   if (turn.role === 'user') {
     if (editing) {
@@ -512,10 +542,48 @@ function ConsultBubble({
       </div>
     )
   }
+  // D10: an assistant reply may end in an `asterism-suggestions` block — the
+  // block itself is never shown, only the prose in front of it. `matched*`
+  // narrows to candidates that actually apply to what's on screen right now
+  // (S6 column names / S4 maps with an empty kind cell); anything else is
+  // dropped before the button's own count (and before it ever reaches
+  // applySuggestions). The two never both match on the same screen — S6 and
+  // S4 populate mutually exclusive parts of the context.
+  const { displayText, suggestions, kinds } = parseSuggestionsBlock(turn.result ?? '')
+  const matchedSuggestions = suggestions.filter((s) => screenColumnNames.has(s.column))
+  const matchedKinds = kinds.filter((k) => emptyKindMaps.has(k.map))
+  const matchedCount = matchedSuggestions.length + matchedKinds.length
+
+  function applyMatched() {
+    const result: ApplySuggestionsResult | null = applySuggestions({
+      suggestions: matchedSuggestions,
+      kinds: matchedKinds,
+    })
+    setApplyResult(
+      result === null
+        ? t('suggestions.noApplier')
+        : result.skipped > 0
+          ? t('suggestions.appliedWithSkipped', { applied: result.applied, skipped: result.skipped })
+          : t('suggestions.applied', { count: result.applied }),
+    )
+  }
+
   return (
     <div className="consult-msg consult-msg--assistant">
-      <div className="consult-bubble consult-bubble--markdown">
-        <ConsultMarkdown text={turn.result ?? ''} />
+      <div className="consult-msg-col">
+        <div className="consult-bubble consult-bubble--markdown">
+          <ConsultMarkdown text={displayText} />
+        </div>
+        {matchedCount > 0 && (
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm consult-apply-suggestions"
+            onClick={applyMatched}
+          >
+            {t('suggestions.apply', { count: matchedCount })}
+          </button>
+        )}
+        {applyResult && <p className="consult-apply-result">{applyResult}</p>}
       </div>
       <button
         type="button"

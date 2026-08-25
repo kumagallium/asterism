@@ -233,6 +233,31 @@
   white-space: normal;
 }
 
+/* D9 (design-consult-chat.md): the assistant bubble + its "候補を表に反映"
+   button + the apply-result line, stacked. A bare button here would stretch
+   to the FULL row width by default flex align-items:stretch (same trap
+   App.css documents for .skeleton-evidence-revert) and read as the bubble's
+   main action instead of a secondary one — align-items: flex-start on the
+   column, mirrored by align-self: flex-start on the button itself, keeps it
+   content-width. */
+.consult-msg-col {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.consult-apply-suggestions {
+  align-self: flex-start;
+}
+
+.consult-apply-result {
+  margin: 0;
+  font-size: 0.74rem;
+  color: var(--muted);
+}
+
 .consult-msg--user .consult-bubble {
   background: var(--primary);
   color: var(--primary-fg);

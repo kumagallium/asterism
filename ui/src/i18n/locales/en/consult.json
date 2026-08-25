@@ -15,6 +15,14 @@
   "editAndResend": "Edit & resend",
   "editDiscardNote": "Everything after this will be discarded",
   "regenerate": "Regenerate this answer",
+  "suggestions": {
+    "apply_one": "Apply this suggestion to the table ({{count}})",
+    "apply_other": "Apply these suggestions to the table ({{count}})",
+    "applied_one": "Applied {{count}} suggestion.",
+    "applied_other": "Applied {{count}} suggestions.",
+    "appliedWithSkipped": "Applied {{applied}} (skipped {{skipped}} — already filled in).",
+    "noApplier": "Can't apply suggestions from this screen."
+  },
   "list": {
     "newChat": "+ New chat",
     "empty": "No conversations yet.",

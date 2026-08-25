@@ -15,6 +15,12 @@
   "editAndResend": "編集して再送信",
   "editDiscardNote": "それ以降のやり取りは消えます",
   "regenerate": "この回答を作り直す",
+  "suggestions": {
+    "apply": "この候補を表に反映 ({{count}} 件)",
+    "applied": "{{count}} 件を反映しました。",
+    "appliedWithSkipped": "{{applied}} 件を反映しました ({{skipped}} 件は入力済みのためスキップ)。",
+    "noApplier": "この画面では反映できません。"
+  },
   "list": {
     "newChat": "+ 新しいチャット",
     "empty": "まだ相談していません。",
