@@ -42,7 +42,7 @@ from .inspect import (
 )
 from .instance_iri import dataset_namespace_info, placeholder_prefix_issue
 
-__all__ = ["annotate_skeleton"]
+__all__ = ["annotate_skeleton", "apply_key_safety_fix"]
 
 # A {column} placeholder inside a subject template (same shape the IR compiler
 # expands; an escaped \{ is a literal brace, not a placeholder).
@@ -1129,3 +1129,107 @@ def annotate_skeleton(
         "placeholder_prefixes": placeholder,
         "dataset_namespace": dataset_namespace_info(prefixes, iri_base),
     }
+
+
+def _rewrite_key_template(template: str, columns: Sequence[str]) -> str:
+    """Rebuild a subject template's key segment from a new column list.
+
+    Same rule the gate's own one-click "apply candidate" button uses
+    (``ui/src/SkeletonGate.tsx``, ``applyCandidate``): keep everything before the
+    first ``{`` as the head (a template with no placeholder at all gets a
+    trailing ``/`` instead, so the new key segment never fuses onto the head),
+    then append one ``{column}`` per new key column. Both places must agree —
+    a machine rewrite and a human one-click fix are the same operation.
+    """
+    idx = template.find("{")
+    head = template[:idx] if idx >= 0 else template + "/"
+    return head + "/".join(f"{{{c}}}" for c in columns)
+
+
+def apply_key_safety_fix(
+    skeleton: Mapping[str, Any], annotations: Mapping[str, Any]
+) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+    """Swap an AI-chosen measurement-only key for the machine's own safe pick.
+
+    ``annotate_skeleton`` already proves, per map, whether the adopted key is
+    measurement-only (K7) AND whether a non-measurement-only alternative is
+    among the SAME proven-unique candidates the gate would offer as one-click
+    chips. When both are true there is no judgment left to make — the AI's own
+    evidence already picked the safer ID, so a human should never have to see
+    the caution before the machine has tried the fix it can already prove.
+
+    Deliberately does nothing when:
+    - no safe candidate exists (e.g. a numeric instrument sweep where every
+      column is a measurement) — the caution is shown as-is, unresolved;
+    - the key is not measurement-only — a ``scope-missing``-only risk is never
+      auto-fixed here: whether to prepend the parent key is a call about how
+      the dataset is expected to grow, which is the human's to make, not the
+      machine's to guess (unlike K7, where the "no candidate has a choice"
+      case does not exist — a measurement-only key is never a safe identity);
+    - the candidate's ``columns`` is empty — defensive only (today's candidate
+      generator never proves an empty key unique), but an empty key rewrites
+      the template to a CONSTANT subject, collapsing every row onto one ID —
+      the single worst outcome this function could cause, so it is refused
+      outright rather than trusted to "never happen".
+
+    Pure and non-mutating: returns a NEW skeleton (unaffected maps are shared,
+    never mutated, so the caller's original object stays intact) and a
+    ``{map_name: record}`` dict of what changed, for the caller to re-stamp
+    onto the annotations after a required re-annotate pass (the evidence —
+    uniqueness, id previews, candidates — must reflect the NEW key, and
+    ``annotate_skeleton`` has no way to know a swap happened).
+
+    Idempotent by construction: once the key is the safe candidate, it is no
+    longer measurement-only (the candidate was proven non-measurement-only),
+    so a second pass finds nothing to fix — proven by re-annotating and
+    re-applying in the tests, not assumed.
+    """
+    maps_ann = annotations.get("maps") if isinstance(annotations, Mapping) else None
+    new_skeleton = dict(skeleton)
+    fixes: dict[str, dict[str, Any]] = {}
+    if not isinstance(maps_ann, Mapping):
+        return new_skeleton, fixes
+
+    new_maps: list[Any] = []
+    for map_entry in skeleton.get("maps") or []:
+        if not isinstance(map_entry, Mapping):
+            new_maps.append(map_entry)
+            continue
+        name = str(map_entry.get("name") or "")
+        ann = maps_ann.get(name)
+        subject = map_entry.get("subject")
+        fixed_entry = None
+        if (
+            isinstance(ann, Mapping)
+            and ann.get("key_measurement_caution") is True
+            and isinstance(subject, Mapping)
+            and subject.get("template")
+        ):
+            safe = next(
+                (
+                    c
+                    for c in ann.get("key_candidates") or []
+                    if isinstance(c, Mapping) and c.get("measurement_only") is False
+                ),
+                None,
+            )
+            new_key = [str(c) for c in safe.get("columns") or []] if safe is not None else []
+            if safe is not None and new_key:
+                old_key = list(ann.get("key_columns") or [])
+                old_template = str(subject["template"])
+                new_template = _rewrite_key_template(old_template, new_key)
+                new_subject = dict(subject)
+                new_subject["template"] = new_template
+                fixed_entry = dict(map_entry)
+                fixed_entry["subject"] = new_subject
+                fixes[name] = {
+                    "from": old_key,
+                    "to": new_key,
+                    "reason": "measurement-id",
+                    "template_from": old_template,
+                    "template_to": new_template,
+                }
+        new_maps.append(fixed_entry if fixed_entry is not None else map_entry)
+
+    new_skeleton["maps"] = new_maps
+    return new_skeleton, fixes

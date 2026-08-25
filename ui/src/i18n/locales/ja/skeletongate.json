@@ -21,7 +21,10 @@
     "constant": "ID はファイルごとに 1 つです",
     "none": "ID の作り方がまだ決まっていません",
     "join": " と ",
-    "editSummary": "ID の作り方を自分で書く"
+    "editSummary": "ID の作り方を自分で書く",
+    "containedIn": "{{parents}} の中で数えます（ID に {{columns}} を含むため）",
+    "containedInUnknown": "どの種類の ID にも含まれていません（紐づけの確認はファイルを置き直してから）",
+    "listSeparator": "、"
   },
   "ns": {
     "shape": "ID の形",
@@ -39,6 +42,7 @@
     "declaredOwn": "このデータの ID の置き場所（{{names}}）を登録しました。ID はそのままです。"
   },
   "filesGone": "ファイルが手元にないため、再検査・AI にもう一度・種類の追加はいまは使えません。下の「{{back}}」からファイルを置き直すと使えるようになります。",
+  "filesGoneReattach": "ファイルが手元にないため、再検査・AI にもう一度・種類の追加はいまは使えません。「{{reattach}}」からファイルを置き直すと使えるようになります。",
   "addedHint": "行ごとの種類を追加しました。名前はそのままで進めます（項目の意味は次の画面で確かめます）。",
   "suggestClass": "「{{suggested}}」にする",
   "missingColumns": "AI が指定した列がこの表にありません: {{columns}}",

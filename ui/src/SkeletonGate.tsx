@@ -18,7 +18,12 @@ import {
   STANDARD_VOCAB_IRIS,
 } from './datasetNamespace'
 import { Mermaid } from './Mermaid'
-import { skeletonMermaid } from './skeletonDiagram'
+import {
+  basename,
+  containmentParents,
+  containmentParentsForColumns,
+  skeletonMermaid,
+} from './skeletonDiagram'
 
 // (Moved verbatim from WorkbenchView.tsx so the kantan wizard shares the gate.
 //  Only addition: the title/hint/continue labels are overridable via *Key props
@@ -89,6 +94,12 @@ function SkeletonEvidence({
   suggestedClass,
   onUseSuggestedClass,
   onFixColumn,
+  ownMapLabel,
+  containedInAfterFix,
+  onReattach,
+  sourceName,
+  presentFileNames,
+  onAdoptRename,
 }: {
   ann: SkeletonMapAnnotation
   onApplyCandidate: (columns: string[]) => void
@@ -119,6 +130,37 @@ function SkeletonEvidence({
   onUseSuggestedClass?: () => void
   /** Replace a column name the AI invented with the closest real one. */
   onFixColumn?: (wrong: string, right: string) => void
+  /** This map's OWN display name — only needed to name the child in the
+   *  applied_key_fix "this now counts within…" consequence sentence. */
+  ownMapLabel?: string
+  /** Parents `applied_key_fix.to` gains that `applied_key_fix.from` did NOT
+   *  have (display names, already resolved) — the swap's containment
+   *  consequence, shown only when it is a genuinely NEW parent, not just "a
+   *  parent exists" (computed by the caller via `containmentParentsForColumns`,
+   *  the same rule the diagram edge uses). Empty/absent → no sentence. */
+  containedInAfterFix?: string[]
+  /** When set, offered right under the "source not found" warning as the
+   *  in-place way back (the caller returns the human to the file-drop step
+   *  with the draft skeleton kept). Absent → no button (older callers /
+   *  contexts with no recovery path keep the warning text-only). */
+  onReattach?: () => void
+  /** This map's OWN source basename (`m.source`, path stripped) — named in
+   *  the "source not found" warning so the human knows WHICH file to put
+   *  back, not just that something is missing (live 2026-08-24: a re-drop of
+   *  the wrong-named file kept failing silently-confusingly). */
+  sourceName?: string
+  /** Basenames of the files the human currently holds (drag-dropped this
+   *  session), regardless of which map they belong to — so a name MISMATCH
+   *  can be stated as a fact ("you put X, the design wants Y") instead of
+   *  the human re-reading the same "not found" line after every retry. */
+  presentFileNames?: string[]
+  /** One-tap rescue: re-read the (single) held file AS `sourceName`, when a
+   *  name mismatch is the only thing standing between the human and a check
+   *  that would otherwise run today. The caller re-wraps the File under the
+   *  expected name and feeds it through the SAME path a normal reattach
+   *  uses — content is NOT trusted here (missing-columns downstream still
+   *  catches an honestly different file). */
+  onAdoptRename?: (expectedName: string) => void
 }) {
   const { t } = useTranslation()
   // The split control (G15): which described columns name one shared thing,
@@ -184,17 +226,95 @@ function SkeletonEvidence({
     const columnSuggestions =
       (ann as { column_suggestions?: { column: string; suggestions: string[] }[] })
         .column_suggestions ?? []
+    // Everything else this block would normally show — the entity card, the
+    // collision/measurement risks, the safe-key auto-fix — is a PRODUCT of
+    // the check that could not run here. "Could not check" read as a muted,
+    // background-noise line let a genuinely unverified ID (2theta alone, no
+    // warning, no card) sit next to a verified-safe one with the same visual
+    // weight — silence was misread as "nothing wrong" (live 2026-08-24).
+    // `source-not-found` (this map's own file is missing) and the
+    // `notChecked` fallback (older/incomplete annotation payload) both mean
+    // exactly that: promote both to the same warning tone the other risk
+    // lines use (`riskMeasurementId` / `riskScopeMissing`), never muted.
+    const reasonKey = evidenceReasonKey(ann.reason)
+    const unverified =
+      ann.reason === 'source-not-found' || reasonKey === 'workbench:skeleton.evidence.notChecked'
+    // "Could not check" told the human WHAT was wrong but never WHICH file —
+    // a real drop of the WRONG-named device file (`xrd-17961dd6.txt` for a
+    // design reading `xrd_card.csv`) kept failing with no way to tell why
+    // (live 2026-08-24). Name the file the design actually reads whenever the
+    // caller can supply it (it always can for `source-not-found`; older
+    // annotation payloads falling into `notChecked` still let the caller name
+    // its OWN map's source, so the same swap applies there too).
+    const namedReasonKey = !sourceName
+      ? undefined
+      : ann.reason === 'source-not-found'
+        ? 'workbench:skeleton.evidence.sourceNotFoundNamed'
+        : reasonKey === 'workbench:skeleton.evidence.notChecked'
+          ? 'workbench:skeleton.evidence.notCheckedNamed'
+          : undefined
+    // The concrete mismatch: not just "missing", but "you put THIS, the
+    // design wants THAT" — the fact that would have caught the mis-drop on
+    // the first try. Only stated when it is actually true (a present file
+    // that already matches would mean this warning is stale, not a mismatch).
+    const mismatch =
+      ann.reason === 'source-not-found' &&
+      !!sourceName &&
+      (presentFileNames?.length ?? 0) > 0 &&
+      !presentFileNames!.includes(sourceName)
     return (
       <div className="skeleton-evidence">
         {readingLine}
-        <p className="skeleton-evidence-line skeleton-evidence-muted">
+        <p
+          className={
+            unverified
+              ? 'skeleton-evidence-line skeleton-evidence-caution'
+              : 'skeleton-evidence-line skeleton-evidence-muted'
+          }
+        >
+          {unverified && '⚠ '}
           {t(
             plain && ann.reason === 'missing-columns'
               ? 'skeletongate:missingColumns'
-              : evidenceReasonKey(ann.reason),
-            { columns: (ann.missing_columns ?? []).join(', ') },
+              : (namedReasonKey ?? reasonKey),
+            { columns: (ann.missing_columns ?? []).join(', '), name: sourceName },
           )}
         </p>
+        {mismatch && (
+          <p className="skeleton-evidence-line skeleton-evidence-muted">
+            {t('workbench:skeleton.evidence.sourceMismatch', {
+              present: presentFileNames!.join(t('skeletongate:key.listSeparator')),
+              name: sourceName,
+            })}
+          </p>
+        )}
+        {/* The in-place way back — right under the warning it explains, not
+            only at the bottom of the whole gate (GATE-26 covers the "every
+            map is unchecked" case; this is the one-map case: a source that
+            went missing while its siblings are still fine). */}
+        {ann.reason === 'source-not-found' && onReattach && (
+          /* Same flex-column stretch trap as the revert button: content width,
+             or this recovery aid reads as the card's main action. */
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm skeleton-evidence-revert"
+            onClick={onReattach}
+          >
+            {t('workbench:skeleton.evidence.reattachAction')}
+          </button>
+        )}
+        {/* One-tap rescue: exactly one held file, wrong name, nothing else it
+            could sensibly be — re-read it AS the expected name and let the
+            normal checks (missing-columns) veto an honestly different file. */}
+        {mismatch && presentFileNames!.length === 1 && onAdoptRename && (
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm skeleton-evidence-revert"
+            onClick={() => onAdoptRename(sourceName!)}
+          >
+            {t('workbench:skeleton.evidence.adoptRename', { name: sourceName })}
+          </button>
+        )}
         {ann.reason === 'constant' && ann.expanded_template && (
           <p className="skeleton-evidence-line skeleton-evidence-muted">
             <code className="skeleton-evidence-id" title={ann.expanded_template}>
@@ -365,6 +485,49 @@ function SkeletonEvidence({
             columns: (scopeRisk.parent_columns ?? []).join(', '),
           })}
         </p>
+      )}
+      {/* The machine already swapped a measurement-only key for its own proven
+          candidate before this response ever reached the screen — say so
+          instead of doing it silently. Once the new key is unique with no
+          caution, `key_candidates` goes empty (same rule as any plain-unique
+          text key), so the AI's original choice does NOT come back as a
+          candidate chip — a dedicated revert button is the only way back,
+          reusing the exact same apply path a candidate chip would. */}
+      {ann.applied_key_fix && (
+        <>
+          <p className="skeleton-evidence-line skeleton-evidence-muted">
+            {t('workbench:skeleton.evidence.appliedKeyFix', {
+              from: ann.applied_key_fix.from.join(', '),
+              to: ann.applied_key_fix.to.join(', '),
+            })}
+          </p>
+          {/* Quiet on purpose: the swapped key is the safe default, so going
+              BACK to the AI's measurement-only one must not read as the
+              screen's call to action (a full primary button did — live
+              2026-08-24). Secondary treatment, same as every other escape. */}
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm skeleton-evidence-revert"
+            disabled={!canRevalidate}
+            onClick={() => onApplyCandidate(ann.applied_key_fix!.from)}
+          >
+            {t('workbench:skeleton.evidence.appliedKeyFixRevert')}
+          </button>
+          {/* The swap's own point made explicit: not just "safer", but a
+              parent this ID did not count within before. Only when the swap
+              genuinely GAINED a parent (`containedInAfterFix` is the caller's
+              from/to diff over the same containment rule the diagram uses) —
+              a fix with no gained parent (e.g. the safe candidate is still a
+              lone row-level key) keeps the plain appliedKeyFix line as-is. */}
+          {(containedInAfterFix?.length ?? 0) > 0 && (
+            <p className="skeleton-evidence-line skeleton-evidence-muted">
+              {t('workbench:skeleton.evidence.appliedKeyFixContained', {
+                child: ownMapLabel ?? '',
+                parents: containedInAfterFix!.join(t('skeletongate:key.listSeparator')),
+              })}
+            </p>
+          )}
+        </>
       )}
       {/* ZEM naming trap: the row class named after a measured key column
           ("Temperature" over key {Measurement temp.(C)}) — the row identity
@@ -735,6 +898,9 @@ export function SkeletonGate({
   onDiscard,
   onRethink,
   onOpenSettings,
+  onReattach,
+  presentFileNames,
+  onAdoptRename,
   titleKey = 'workbench:skeleton.gateTitle',
   hintKey = 'workbench:skeleton.gateHint',
   continueKey = 'workbench:skeleton.continue',
@@ -765,6 +931,21 @@ export function SkeletonGate({
    *  installs can open the setting themselves; on a shared server the note
    *  already says to ask the administrator. */
   onOpenSettings?: () => void
+  /** When set, offered as the in-place way back wherever the gate says a
+   *  source could not be checked — the caller returns to the file-drop step
+   *  WITHOUT discarding the draft skeleton (unlike `onDiscard`, which starts
+   *  over). Absent → those spots stay text-only, as before. */
+  onReattach?: () => void
+  /** Basenames of the files the human currently holds this session (any map's
+   *  reattach may have brought them in) — used to state a source-not-found
+   *  mismatch as a fact ("you put X, this map wants Y") instead of leaving
+   *  the human to guess why a re-drop kept not working (live 2026-08-24). */
+  presentFileNames?: string[]
+  /** One-tap rescue for a name mismatch: re-read the (single) held file AS
+   *  the map's expected source name and re-run the check through the same
+   *  path a normal reattach uses. Absent → the mismatch is stated but not
+   *  offered a one-click fix. */
+  onAdoptRename?: (expectedName: string) => void
   /** i18n key overrides so the kantan tier can swap in plain-language copy.
    *  Defaults are the existing workbench strings (behavior unchanged). */
   titleKey?: string
@@ -872,6 +1053,24 @@ export function SkeletonGate({
         : ''
     const curie = `${prefix}${pascal}`
     return current.includes(curie) ? null : curie
+  }
+
+  /** Parents this map counts within ONLY because of the safe-key-fix swap
+   *  (`applied_key_fix`) — evaluated on the fix's `from` and `to` column
+   *  lists via `containmentParentsForColumns` (the SAME containment rule as
+   *  the diagram edge and the persistent "counted within" sentence), keeping
+   *  only parents `to` gains that `from` did not have. A fix that merely
+   *  swapped one lone key for another (no parent either way) returns []. */
+  function containedInAfterFixFor(idx: number): string[] {
+    const m = skeleton.maps[idx]
+    const fix = m && annotations?.maps?.[m.name]?.applied_key_fix
+    if (!m || !fix) return []
+    const before = new Set(
+      containmentParentsForColumns(skeleton, fix.from, m.name).map((p) => p.parent),
+    )
+    return containmentParentsForColumns(skeleton, fix.to, m.name)
+      .filter((p) => !before.has(p.parent))
+      .map((p) => displayMapName(p.parent))
   }
 
   /** Add the row-level map the source is missing, right after its parent. The
@@ -1018,7 +1217,16 @@ export function SkeletonGate({
 
   // One sentence for every dead end the missing sources cause, naming the way
   // back — the three detail-tier sentences each described their own control.
-  const filesGoneText = plain ? t(filesGoneKey, { back: t(discardKey) }) : undefined
+  // When the caller offers an in-place reattach, name THAT (the button that
+  // actually fixes it, no discard) instead of pointing at "the button below"
+  // (the discard control, a different operation the old copy conflated).
+  const filesGoneText = plain
+    ? onReattach
+      ? t('skeletongate:filesGoneReattach', {
+          reattach: t('workbench:skeleton.evidence.reattachAction'),
+        })
+      : t(filesGoneKey, { back: t(discardKey) })
+    : undefined
 
   // A prefix the design USES but never DECLARES is what a weak model reliably
   // produces (`schema:Dataset`, no declaration) — and the server says plainly
@@ -1318,6 +1526,18 @@ export function SkeletonGate({
       {!canRevalidate && (
         <p className="skeleton-gate-revalidating">
           {filesGoneText ?? t('workbench:skeleton.evidence.reattach')}
+          {/* Two separate operations kept as two separate buttons: putting
+              the files back (keeps the draft) vs. starting over (discards
+              it). Reattach first — it is the recovery that costs nothing. */}
+          {onReattach && (
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm"
+              onClick={onReattach}
+            >
+              {t('workbench:skeleton.evidence.reattachAction')}
+            </button>
+          )}
           {plain && (
             <button
               type="button"
@@ -1382,6 +1602,44 @@ export function SkeletonGate({
                           : 'skeletongate:key.fromN',
                         { columns: keyColumns.join(t('skeletongate:key.join')) },
                       )
+              // "Data の数えかた" ③: the ID's own consequence — which parent
+              // kind's scope this record is counted inside — stated as a
+              // positive fact, not just visible as a diagram edge or a
+              // scope-missing WARNING (which only fires when the containment
+              // is MISSING). Same containment rule as the diagram edge
+              // (`skeletonMermaid`'s edges), read from the LIVE skeleton (not
+              // `ann`, which lags a key edit by one re-check and would go
+              // dark exactly when files are gone — the one moment structure
+              // should still be visible). No parent (a lone map, or one whose
+              // key nothing else's embeds) → no line: scope-missing already
+              // owns the "something might be wrong" side of this question.
+              const containment = containmentParents(skeleton, m.name)
+              const containedInSentence =
+                containment.length > 0
+                  ? t('skeletongate:key.containedIn', {
+                      parents: [...new Set(containment.map((c) => displayMapName(c.parent)))].join(
+                        t('skeletongate:key.listSeparator'),
+                      ),
+                      columns: [...new Set(containment.flatMap((c) => c.columns))].join(
+                        t('skeletongate:key.listSeparator'),
+                      ),
+                    })
+                  : undefined
+              // Degraded (files gone / this map's own source not found): every
+              // OTHER signal that would normally say something here — the
+              // entity card, the collision/measurement warnings, the safe-key
+              // auto-fix — is a product of the check that just could not run,
+              // so they all go silent together. `containedInSentence` above
+              // still fires (it is skeleton-only), but when it does NOT (no
+              // containment proven), the row would otherwise say nothing at
+              // all — reading as "nothing to worry about" when in fact
+              // nothing was confirmed. Only worth saying with more than one
+              // map (a single map has no containment question to begin with).
+              const degraded = !canRevalidate || ann?.reason === 'source-not-found'
+              const containmentUnknownSentence =
+                !containedInSentence && degraded && skeleton.maps.length > 1
+                  ? t('skeletongate:key.containedInUnknown')
+                  : undefined
               const removeControl = skeleton.maps.length > 1 &&
                 (confirmRemove === m.name ? (
                   <span className="skeleton-remove-confirm">
@@ -1436,6 +1694,16 @@ export function SkeletonGate({
                       {plain ? (
                         <>
                           <p className="skeleton-evidence-line">{keySentence}</p>
+                          {containedInSentence && (
+                            <p className="skeleton-evidence-line skeleton-evidence-muted">
+                              {containedInSentence}
+                            </p>
+                          )}
+                          {containmentUnknownSentence && (
+                            <p className="skeleton-evidence-line skeleton-evidence-muted">
+                              {containmentUnknownSentence}
+                            </p>
+                          )}
                           <details className="skeleton-fold">
                             <summary>{t('skeletongate:key.editSummary')}</summary>
                             <textarea
@@ -1556,6 +1824,12 @@ export function SkeletonGate({
                             if (cls) updateSubject(idx, { classes: [cls] })
                           }}
                           onFixColumn={(wrong, right) => fixColumnName(idx, wrong, right)}
+                          ownMapLabel={displayMapName(m.name)}
+                          containedInAfterFix={containedInAfterFixFor(idx)}
+                          onReattach={onReattach}
+                          sourceName={basename(m.source)}
+                          presentFileNames={presentFileNames}
+                          onAdoptRename={onAdoptRename}
                         />
                       </td>
                     </tr>

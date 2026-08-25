@@ -60,6 +60,7 @@ import { JobProgress } from '../JobProgress'
 import { useLlmSettings } from '../settings/context'
 import { fetchInstanceInfo, type WriteGate } from '../settings/instanceApi'
 import { SkeletonGate } from '../SkeletonGate'
+import { basename } from '../skeletonDiagram'
 import { clearSourceFiles, loadSourceFiles, saveSourceFiles } from '../sourceFileStore'
 import {
   fetchDatasetProposal,
@@ -990,6 +991,14 @@ export function KantanWizard({
   )
   const jobRef = useRef<JobHandle | null>(null)
   const revalidateTimer = useRef<number | null>(null)
+  // The gate's in-place "reattach" buttons (SkeletonGate `onReattach`): a
+  // hidden native picker, so the SAME draft-preserving path the visible S4
+  // resume DropZone already uses (`onGateFilesDropped`) can also be reached
+  // from a button — no new state transition, just a second doorway into an
+  // existing one (RESUME-07's DropZone only appears when `!hasSource`; a
+  // single missing source among several still-attached ones needs a way in
+  // too, and the gate itself is where that gap is visible).
+  const reattachInputRef = useRef<HTMLInputElement | null>(null)
 
   // S5: the automatic save → source persist → draft ingest chain (ADR K3).
   const [kzDatasetId, setKzDatasetId] = useState<string | null>(snap.datasetId ?? null)
@@ -2280,9 +2289,33 @@ export function KantanWizard({
    *  machine checks as the S5 stop card (right kind, same names) — then the
    *  evidence band is recomputed so ✓/⚠ and 「AI にもう一度考えさせる」 come back
    *  to life without leaving the gate (RESUME-07 / KZ-A-41). */
-  function onGateFilesDropped(list: FileList | null) {
-    const arr = Array.from(list ?? [])
+  function onGateFilesDropped(list: FileList | File[] | null) {
+    let arr = Array.from(list ?? [])
     if (arr.length === 0) return
+    // Single-source design + a single dropped file: the NAME carries no
+    // information here — there is exactly one place this file could go — so
+    // a mismatch is not a signal of the wrong file, it is noise (a browser's
+    // download-collision suffix, e.g. `xrd_card (1).csv` for the exact CSV a
+    // user was handed, blocked a correct re-drop and read as "I just put it
+    // in and this makes no sense", live 2026-08-24). Silently adopt the
+    // design's own source name and let the CONTENT check (missing-columns)
+    // be the judge — never the filename. Runs BEFORE the kind/mismatch
+    // checks below (both the wrong-kind guard and the "files changed?"
+    // confirm compare `arr`'s names, so renaming first is what makes them
+    // never fire for this exact, correct, single-file case).
+    // Multi-source designs are unaffected: there `basename(m.source)` is not
+    // a singleton, so the named warning + one-tap `onAdoptRename` (which the
+    // human can trigger deliberately) keep doing the job — THERE the name is
+    // the only thing that says which file goes where.
+    if (arr.length === 1 && skeleton) {
+      const sources = new Set(skeleton.maps.map((m) => basename(m.source)))
+      if (sources.size === 1) {
+        const expected = [...sources][0]
+        if (arr[0].name !== expected) {
+          arr = [new File([arr[0]], expected, { type: arr[0].type })]
+        }
+      }
+    }
     const kinds = new Set(arr.map((f) => kindOf(f.name)))
     if (kinds.has(null)) {
       setPickError(t('kantan:s1.unsupported'))
@@ -2317,6 +2350,32 @@ export function KantanWizard({
       .catch(() => setStagingId(null))
     if (!skeleton) return
     recheckEvidence(arr, skeleton)
+  }
+
+  /** `SkeletonGate`'s `onReattach`: opens the native file picker and hands
+   *  the result to `onGateFilesDropped` — the exact same draft-preserving
+   *  path the S4 resume DropZone already uses, just reached with a click
+   *  instead of a drag. Deliberately does NOT touch `step`, `skeleton`,
+   *  `q1`/`q2`, or any other wizard state: the whole point is that nothing
+   *  about the draft moves while the files come back. */
+  function onReattach() {
+    reattachInputRef.current?.click()
+  }
+
+  /** `SkeletonGate`'s `onAdoptRename`: a real re-drop of a WRONG-NAMED file
+   *  (the actual incident — `xrd-17961dd6.txt` for a design reading
+   *  `xrd_card.csv`) kept failing with no visible reason, because the check
+   *  is purely by name. When exactly one held file's content might just be
+   *  the same source under the wrong name, this re-wraps it AS the expected
+   *  name and feeds it through `onGateFilesDropped` — the same path, so an
+   *  honestly different file still gets caught by missing-columns downstream
+   *  (content is never trusted here, only the name is patched). No-op if
+   *  more than one file is held: the SAME safety `onGateFilesDropped` already
+   *  has for a genuine ambiguity, kept rather than guessed at here too. */
+  function onAdoptRename(expectedName: string) {
+    if (files.length !== 1) return
+    const renamed = new File([files[0]], expectedName, { type: files[0].type })
+    onGateFilesDropped([renamed])
   }
 
   async function runContinue() {
@@ -5756,19 +5815,42 @@ export function KantanWizard({
             </div>
           )}
           {skeleton && (
-            <SkeletonGate
-              skeleton={skeleton}
-              annotations={annotations}
-              annotationsBusy={annotationsBusy}
-              canRevalidate={hasSource}
-              busy={continuing}
-              plain
-              // The provisional-issuer note is otherwise a dead end here: this
-              // tier has no settings tab of its own to point at (GATE-13).
-              onOpenSettings={() => openSettings('server-instance')}
-              onChange={onSkeletonEdited}
-              onContinue={runContinue}
-              onDiscard={() => {
+            <>
+              {/* Hidden native picker behind the gate's in-place "reattach"
+                  buttons (`onReattach`) — clicking one of them opens this and
+                  routes the result through `onGateFilesDropped`, the SAME
+                  path the visible S4 resume DropZone above already uses. */}
+              <input
+                ref={reattachInputRef}
+                type="file"
+                multiple
+                accept={acceptFor(kind)}
+                style={{ display: 'none' }}
+                onChange={(e) => {
+                  onGateFilesDropped(e.target.files)
+                  e.target.value = '' // allow re-picking the same file
+                }}
+              />
+              <SkeletonGate
+                skeleton={skeleton}
+                annotations={annotations}
+                annotationsBusy={annotationsBusy}
+                canRevalidate={hasSource}
+                busy={continuing}
+                plain
+                // The provisional-issuer note is otherwise a dead end here: this
+                // tier has no settings tab of its own to point at (GATE-13).
+                onOpenSettings={() => openSettings('server-instance')}
+                onChange={onSkeletonEdited}
+                onContinue={runContinue}
+                onReattach={onReattach}
+                presentFileNames={
+                  files.length > 0 ? files.map((f) => f.name) : sourceNames.map((s) => s.name)
+                }
+                // 充て直せる実体（このタブの File）が 1 件あるときだけ出す — 名前一覧しか
+                // 無い縮退でボタンを出すと、押しても何も起きない死にボタンになる。
+                onAdoptRename={files.length === 1 ? onAdoptRename : undefined}
+                onDiscard={() => {
                 setSkeleton(null)
                 setAnnotations(null)
                 setGateNeedsFiles(false)
@@ -5797,7 +5879,8 @@ export function KantanWizard({
               discardConfirmKey={
                 hasSource ? 'kantan:s4.discardConfirm' : 'kantan:s4.discardConfirmNoFiles'
               }
-            />
+              />
+            </>
           )}
           {continuing && (
             <>

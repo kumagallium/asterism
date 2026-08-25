@@ -6673,6 +6673,13 @@ button.ds-artifact:disabled {
 .skeleton-evidence-muted {
   color: var(--muted);
 }
+/* The escape back to the AI's key after a machine swap. `.skeleton-evidence`
+   is a flex COLUMN, so a bare button child stretches edge to edge and reads as
+   the card's call to action — which inverts the point (the swapped key is the
+   safe default). Content-width keeps it the secondary action it is. */
+.skeleton-evidence-revert {
+  align-self: flex-start;
+}
 .skeleton-evidence-label {
   display: block;
   font-size: 0.8rem;
