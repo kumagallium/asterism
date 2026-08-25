@@ -1,11 +1,11 @@
 {
-  "version": "0.17.5",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 7d8960d25c94d71342c2f95e4d53473af522bd7b -->\n\n## What's Changed\n* refactor(gallery): タブを「答える問い」で切り直し、直す入口をカードに出す by @kumagallium in https://github.com/kumagallium/asterism/pull/398\n* feat(grounding): 「この列は何を測っているか」を標準に接地する by @kumagallium in https://github.com/kumagallium/asterism/pull/400\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.17.4...v0.17.5",
-  "pub_date": "2026-08-21T01:30:16Z",
+  "version": "0.18.0",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at b75e1f56fda43bf37666040a33cae17f7f8739ea -->\n\n## What's Changed\n* fix(settings): 「このサーバ」タブの生キー表示を解消 — 消えた serverKeys ラベルを復元 by @kumagallium in https://github.com/kumagallium/asterism/pull/403\n* chore(ui): i18n キーの「参照はあるが定義が無い」を lint と CI で検出する by @kumagallium in https://github.com/kumagallium/asterism/pull/405\n* feat(kantan): 「項目の意味」を AI 再試行から人間の判断へ分離する by @kumagallium in https://github.com/kumagallium/asterism/pull/406\n* feat(step0/ui): 危険な ID は人に見せる前に機械が置き換える — 骨格ゲートの安全キー差し替え by @kumagallium in https://github.com/kumagallium/asterism/pull/407\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.17.5...v0.18.0",
+  "pub_date": "2026-08-25T00:29:28Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcWVpOVRyYXpnak4wNjEwakM4aVkxREJ0OC9UK280d2F2enF3MFB3cHU4emJobDh4KzBwaXFMbVZsYW1wd2J3aGU5ZFR1VTQ5dnNCZENTVEF6K1VIeXdrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3Mjc1ODE2CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6Ck82bjk0ckRpZUtybkU5cVpNRVkzS2dOVFhKVUZXeThQVFVndDE3Qkxva0lnT3ZsQm1BVVdDZWdjdUtVUEhXaGpnOVd5M0had0RWN3lXR241dEZnVkNBPT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.17.5/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcWQ0VjJDejFXdVZRcUlxMDVRa0dQUGlnWVNQcFhrQitNcndPV3pZbVl3ZTRpblpvdW5BRlY1R05qbWRGTlhidXFEQThQMTVMUEFCekV6aUVXZEtyZGdBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3NjE3NzY3CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CnlZS2lSMkRGbG5naGtwTHRmeHJsamxhUU5rZlVDUENyR2RyQ09CWnBOWk4vVzk0cUdmcUNac2xkMS95N1dsSGpidWNKZnpJc0hVNUZZc0UrYzlJNUFRPT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.18.0/Asterism_aarch64.app.tar.gz"
     }
   }
 }
