@@ -276,6 +276,8 @@ RULES (a reviewer approves *column→predicate + which vetted function*, not cod
 - Give EVERY measurement-like property a `label:` (human-readable meaning, in
   the output language requested for prose) and, when the column carries a
   physical quantity, a `unit:` (human-readable notation like `µV/K`, `S/cm`).
+  `unit:` is ONLY for physical units — never a datatype word (`string`,
+  `文字列`, `xsd:…` belong in `datatype:`); omit it when there is no unit.
   These are DISPLAY METADATA for the review screen only — they never change
   the emitted values and are NOT a substitute for unit-conversion functions
   (`qudt_unit` / `value_of` / `unit_of` still handle values).

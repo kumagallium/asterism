@@ -1048,11 +1048,27 @@ export function KantanWizard({
   /** S6's in-place meaning/unit correction (K8): a person is the only one who
    *  knows what a column means, and the only route used to be a free-text note
    *  → an LLM rewrite of the whole design → a re-ingest (KZ-B-05). */
-  const [metaSaving, setMetaSaving] = useState(false)
+  const [metaPending, setMetaPending] = useState(0)
   const [metaSaved, setMetaSaved] = useState(0)
-  /** The save went through but matched no row — a silent revert otherwise. */
-  const [metaNoop, setMetaNoop] = useState(false)
+  /** Saves that went through but matched no row — a silent revert otherwise. */
+  const [metaNoopNames, setMetaNoopNames] = useState<string[]>([])
   const [metaErr, setMetaErr] = useState('')
+  /** Corrections waiting to reach the server. Saving used to lock every input
+   *  and reload the whole screen per field, so fixing 16 columns meant 16 waits
+   *  (dogfood, 2026-08-21). Edits now queue here; a pump drains the WHOLE queue
+   *  into one display-meta call, so ten quick edits cost about one round trip
+   *  and the person types on without ever being locked out. */
+  const metaQueueRef = useRef<
+    {
+      p: RuleProperty
+      source: string
+      column: string
+      field: 'label' | 'unit'
+      value: string
+      before: string
+    }[]
+  >([])
+  const metaPumpingRef = useRef(false)
   const [columnDecisionDrafts, setColumnDecisionDrafts] = useState<
     Record<string, ColumnDecisionDraft>
   >({})
@@ -3794,50 +3810,168 @@ export function KantanWizard({
     return isEchoOfTerm(label, p.predicate_iri || p.predicate) ? '' : label
   }
 
-  /** Save one corrected meaning / unit. Deterministic: the server splices the
-   *  design's own §9 row and re-projects the artifacts — no AI round, no
-   *  re-ingest, and the value is remembered as the HUMAN's so a later AI round
-   *  cannot quietly revert it (KZ-B-05 / N6). */
-  async function commitMeta(
+  /** Patch one property's display meta in the local rules state, so the table,
+   *  the unit badge and the next edit's "before" all tell the truth without a
+   *  full reload. Rows are matched the same way the server matches them:
+   *  predicate + column. */
+  function patchRuleMeta(
+    p: RuleProperty,
+    source: string,
+    column: string,
+    field: 'label' | 'unit',
+    value: string,
+  ) {
+    const pred = p.predicate_iri || p.predicate
+    setRules((prev) => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        maps: (prev.maps ?? []).map((m) =>
+          // Same predicate+column can exist on two sources; the source pins
+          // WHICH map's row this edit belongs to (K8, #406).
+          source && (m.source ?? '') !== source
+            ? m
+            : {
+                ...m,
+                properties: (m.properties ?? []).map((row) =>
+                  (row.predicate_iri || row.predicate) === pred &&
+                  (row.reference ?? '') === column
+                    ? { ...row, [field]: value || undefined }
+                    : row,
+                ),
+              },
+        ),
+      }
+    })
+  }
+
+  /** Queue one corrected meaning / unit and pump the queue. Deterministic: the
+   *  server splices the design's own §9 row and re-projects the artifacts — no
+   *  AI round, no re-ingest, and the value is remembered as the HUMAN's so a
+   *  later AI round cannot quietly revert it (KZ-B-05 / N6).
+   *
+   *  The screen updates optimistically and the inputs are NEVER locked: fixing
+   *  a 16-column file used to be 16 disable-save-reload waits (dogfood,
+   *  2026-08-21). A save that matches no row, or fails, reverts its own field
+   *  and says so — a correction must never vanish without a word (KZ-B-05). */
+  function commitMeta(
     p: RuleProperty,
     source: string,
     column: string,
     field: 'label' | 'unit',
     raw: string,
   ) {
-    const datasetId = kzDatasetId
-    if (!datasetId || metaSaving) return
+    if (!kzDatasetId) return
     const value = raw.trim()
     const before = (field === 'label' ? readMeaning(p) : (p.unit ?? '')).trim()
     if (value === before) return
-    setMetaSaving(true)
-    setMetaErr('')
-    setMetaNoop(false)
+    patchRuleMeta(p, source, column, field, value)
+    metaQueueRef.current.push({ p, source, column, field, value, before })
+    setMetaPending(metaQueueRef.current.length)
+    void pumpMetaQueue()
+  }
+
+  async function pumpMetaQueue() {
+    if (metaPumpingRef.current) return
+    const datasetId = kzDatasetId
+    if (!datasetId) return
+    metaPumpingRef.current = true
     try {
-      const changed = await saveDisplayMeta(datasetId, [
-        {
-          predicate: p.predicate_iri || p.predicate,
-          ...(source ? { source: sourceTail(source) } : {}),
-          // The column pins WHICH row, when one predicate is bound twice. It is
-          // the RESOLVED column, so a value that reaches the graph through a
-          // conversion still names the column it came from — the §9 property
-          // carries `column:` either way, so the server matches it (K8).
-          ...(column ? { column } : {}),
-          [field]: value,
-        },
-      ])
-      setMetaSaved(changed.length)
-      // Nothing matched: the row the table shows and the row the design holds
-      // did not line up. Say so — the reload below is about to put the old
-      // wording back in the box, and a correction that vanishes without a word
-      // is how someone concludes the screen is lying to them (KZ-B-05).
-      setMetaNoop(changed.length === 0)
-      await loadS6(datasetId)
-    } catch (e) {
-      setMetaErr(errText(e))
+      while (metaQueueRef.current.length > 0) {
+        // Drain everything queued so far into ONE call: edits on the same row
+        // merge into one edit object, and the server splices the document once.
+        const batch = metaQueueRef.current.splice(0)
+        setMetaPending(0)
+        const byRow = new Map<string, { predicate: string; column?: string } & Record<string, string>>()
+        for (const it of batch) {
+          const key = `${it.p.predicate_iri || it.p.predicate}\u001f${it.source}\u001f${it.column}`
+          const row =
+            byRow.get(key) ??
+            ({
+              predicate: it.p.predicate_iri || it.p.predicate,
+              ...(it.source ? { source: sourceTail(it.source) } : {}),
+              // The column pins WHICH row, when one predicate is bound twice. It
+              // is the RESOLVED column, so a value that reaches the graph through
+              // a conversion still names the column it came from (K8).
+              ...(it.column ? { column: it.column } : {}),
+            } as { predicate: string; column?: string } & Record<string, string>)
+          row[it.field] = it.value
+          byRow.set(key, row)
+        }
+        try {
+          const changed = await saveDisplayMeta(datasetId, [...byRow.values()])
+          // The server names the rows it changed by column (or predicate). A
+          // queued edit whose row is NOT named did not line up with the stored
+          // design: put the old wording back and say which one (KZ-B-05).
+          const hit = new Set(changed)
+          const missed = batch.filter(
+            (it) => !hit.has(it.column) && !hit.has(it.p.predicate_iri || it.p.predicate),
+          )
+          for (const it of missed) patchRuleMeta(it.p, it.source, it.column, it.field, it.before)
+          if (missed.length > 0) {
+            setMetaNoopNames((prev) => [
+              ...new Set([...prev, ...missed.map((it) => it.column || it.p.predicate)]),
+            ])
+          }
+          if (changed.length > 0) setMetaSaved((n) => n + changed.length)
+        } catch (e) {
+          // Nothing from this batch landed: revert it all, and drop whatever
+          // queued up meanwhile — pumping on against a failing server would
+          // just repeat the error while the person keeps typing into it.
+          for (const it of batch) patchRuleMeta(it.p, it.source, it.column, it.field, it.before)
+          for (const it of metaQueueRef.current.splice(0))
+            patchRuleMeta(it.p, it.source, it.column, it.field, it.before)
+          setMetaErr(errText(e))
+        }
+      }
     } finally {
-      setMetaSaving(false)
+      metaPumpingRef.current = false
+      setMetaPending(metaQueueRef.current.length)
     }
+    // The splice re-projects the whole document server-side, and the projection
+    // can differ from our optimistic patches — e.g. the datatype-word sweep in
+    // enrich_units clears "文字列" from EVERY unit field on the first save. Pull
+    // the server's truth back quietly (rules only, no loading flag, so the table
+    // never flashes) — but never while the person is typing in this table, and
+    // never while more edits are queued: a remount mid-keystroke would eat their
+    // text, which is worse than a briefly stale unit column.
+    void reconcileRules(datasetId)
+  }
+
+  /** See pumpMetaQueue — the quiet after-save reconcile. */
+  async function reconcileRules(datasetId: string) {
+    try {
+      const r = await getDatasetRules(datasetId)
+      const active = document.activeElement
+      if (active instanceof HTMLInputElement && active.classList.contains('kz-cols-input')) return
+      if (metaQueueRef.current.length > 0) return
+      setRules(r)
+    } catch {
+      /* reconcile is enrichment — the optimistic state stands until the next load */
+    }
+  }
+
+  /** Enter = confirm this field and move DOWN the same column, spreadsheet-style
+   *  (dogfood: jumping right into the unit field surprised — nobody edits
+   *  meaning→unit→meaning; they fix all the meanings, then the units. Tab still
+   *  moves right natively). The focus move fires the blur commit on the way, so
+   *  rapid serial fixing is type → Enter → type → Enter with no waiting. */
+  function focusNextMetaInput(current: HTMLInputElement) {
+    const isUnit = current.classList.contains('kz-cols-input--unit')
+    const inputs = Array.from(
+      document.querySelectorAll<HTMLInputElement>('input.kz-cols-input:not([disabled])'),
+    ).filter((el) => el.classList.contains('kz-cols-input--unit') === isUnit)
+    const next = inputs[inputs.indexOf(current) + 1]
+    if (next) next.focus()
+    else current.blur()
+  }
+
+  /** The Enter that CONFIRMS a Japanese IME conversion is not a "done" Enter.
+   *  Without this guard, typing 結晶構造 and confirming the conversion yanked the
+   *  focus away mid-composition and the text landed in the NEXT field (dogfood,
+   *  live). keyCode 229 is the Safari/legacy spelling of isComposing. */
+  function isImeConfirm(e: { nativeEvent: KeyboardEvent }): boolean {
+    return e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229
   }
 
   // The name of one KIND of thing. Same deterministic ladder as termLabel,
@@ -4955,12 +5089,11 @@ export function KantanWizard({
                                     : 'kantan:s6.meaningPlaceholder',
                                 )}
                                 aria-label={t('kantan:s6.editAria', { column })}
-                                disabled={metaSaving || !kzDatasetId}
-                                onBlur={(e) =>
-                                  void commitMeta(p, m.source ?? '', column, 'label', e.target.value)
-                                }
+                                disabled={!kzDatasetId}
+                                onBlur={(e) => commitMeta(p, m.source ?? '', column, 'label', e.target.value)}
                                 onKeyDown={(e) => {
-                                  if (e.key === 'Enter') e.currentTarget.blur()
+                                  if (e.key === 'Enter' && !isImeConfirm(e))
+                                    focusNextMetaInput(e.currentTarget)
                                 }}
                               />
                               {missing && ' ⚠'}
@@ -4983,10 +5116,8 @@ export function KantanWizard({
                                   <button
                                     type="button"
                                     className="btn btn--ghost btn--sm kz-cols-usename"
-                                    disabled={metaSaving || !kzDatasetId}
-                                    onClick={() =>
-                                      void commitMeta(p, m.source ?? '', column, 'label', column)
-                                    }
+                                    disabled={!kzDatasetId}
+                                    onClick={() => commitMeta(p, m.source ?? '', column, 'label', column)}
                                   >
                                     {t('kantan:s6.useColumnName')}
                                   </button>
@@ -5007,12 +5138,11 @@ export function KantanWizard({
                                 defaultValue={p.unit ?? ''}
                                 placeholder={t('kantan:s6.unitPlaceholder')}
                                 aria-label={t('kantan:s6.unitAria', { column })}
-                                disabled={metaSaving || !kzDatasetId}
-                                onBlur={(e) =>
-                                  void commitMeta(p, m.source ?? '', column, 'unit', e.target.value)
-                                }
+                                disabled={!kzDatasetId}
+                                onBlur={(e) => commitMeta(p, m.source ?? '', column, 'unit', e.target.value)}
                                 onKeyDown={(e) => {
-                                  if (e.key === 'Enter') e.currentTarget.blur()
+                                  if (e.key === 'Enter' && !isImeConfirm(e))
+                                    focusNextMetaInput(e.currentTarget)
                                 }}
                               />
                               <UnitBadge info={unitInfo[(p.unit ?? '').trim()]} />
@@ -5030,11 +5160,15 @@ export function KantanWizard({
           {/* Say the table is editable, then what happened when it was edited.
               A save is seconds, so the states are: saving / saved / failed. */}
           {s6Maps.length > 0 && <p className="kz-note">{t('kantan:s6.editHint')}</p>}
-          {metaSaving && <p className="kz-note">{t('kantan:s6.editSaving')}</p>}
-          {!metaSaving && metaSaved > 0 && (
+          {metaPending > 0 && <p className="kz-note">{t('kantan:s6.editSaving')}</p>}
+          {metaPending === 0 && metaSaved > 0 && (
             <p className="kz-note">{t('kantan:s6.editSaved', { n: metaSaved })}</p>
           )}
-          {!metaSaving && metaNoop && <p className="kz-note">{t('kantan:s6.editNoChange')}</p>}
+          {metaNoopNames.length > 0 && (
+            <p className="kz-note">
+              {t('kantan:s6.editNoChangeNamed', { list: metaNoopNames.join('、') })}
+            </p>
+          )}
           {metaErr && (
             <>
               <p className="kz-note">{t('kantan:s6.editFailed')}</p>

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from asterism_step0.units import enrich_units, extract_unit_from_label
+from asterism_step0.units import enrich_units, extract_unit_from_label, is_datatype_word
 
 # ---------------------------------------------------------------------------
 # extract_unit_from_label — accepted units
@@ -143,6 +143,44 @@ def test_enrich_never_overwrites_authored_unit() -> None:
     )
     props = _props(_load(enrich_units(ir)))
     assert props["ex:resistivity"]["unit"] == "mΩ cm"  # authored value wins
+
+
+@pytest.mark.parametrize(
+    "word",
+    ["文字列", "string", "String", "  xsd:string  ", "xsd:double",
+     "数値", "整数", "テキスト", "boolean"],
+)
+def test_a_datatype_word_is_not_a_unit(word: str) -> None:
+    assert is_datatype_word(word)
+
+
+@pytest.mark.parametrize("real", ["V/K", "Ohm m", "ISO 8601", "Na", "K", "%", "a.u."])
+def test_real_units_and_format_notes_are_not_datatype_words(real: str) -> None:
+    """"ISO 8601" is a format note and "Na" is sodium — neither may be swept."""
+    assert not is_datatype_word(real)
+
+
+def test_enrich_sweeps_datatype_words_out_of_unit_fields() -> None:
+    """Weak models write the value TYPE into the unit field — observed live 16
+    times on one XRD file, each one a hand-deletion for the reviewer. A datatype
+    word is categorically not a unit, so the machine sweeps it."""
+    ir = _IR_BRACKETED.replace(
+        '        column: sample_id\n',
+        '        column: sample_id\n        unit: "文字列"\n',
+    )
+    props = _props(_load(enrich_units(ir)))
+    assert "unit" not in props["ex:sampleId"]
+
+
+def test_a_swept_unit_can_be_refilled_from_the_column_label() -> None:
+    """The sweep happens BEFORE bracket extraction, so a column whose label
+    carries the real unit ends the round with that unit, not with nothing."""
+    ir = _IR_BRACKETED.replace(
+        '        column: "Resistivity(Ohm m)"\n',
+        '        column: "Resistivity(Ohm m)"\n        unit: "xsd:double"\n',
+    )
+    props = _props(_load(enrich_units(ir)))
+    assert props["ex:resistivity"]["unit"] == "Ohm m"
 
 
 def test_enrich_skips_non_single_column_rows() -> None:
