@@ -21,7 +21,10 @@
     "constant": "One ID per file",
     "none": "No ID recipe yet",
     "join": " + ",
-    "editSummary": "Write the ID recipe yourself"
+    "editSummary": "Write the ID recipe yourself",
+    "containedIn": "Counted within {{parents}} (its ID includes {{columns}})",
+    "containedInUnknown": "Not confirmed to belong to any kind (re-attach the files to check the link)",
+    "listSeparator": ", "
   },
   "ns": {
     "shape": "ID shape",
@@ -39,6 +42,7 @@
     "declaredOwn": "Registered where this dataset issues its IDs ({{names}}). The IDs themselves are unchanged."
   },
   "filesGone": "The files are not at hand, so re-checking, asking the AI again and adding kinds are unavailable. Use “{{back}}” below to drop the files again.",
+  "filesGoneReattach": "The files are not at hand, so re-checking, asking the AI again and adding kinds are unavailable. Use “{{reattach}}” to drop the files again.",
   "addedHint": "Added a per-row kind. You can continue with this name (item meanings are checked on the next screen).",
   "suggestClass": "Use “{{suggested}}”",
   "missingColumns": "The columns the AI named are not in this table: {{columns}}",

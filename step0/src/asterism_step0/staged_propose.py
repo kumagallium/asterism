@@ -26,6 +26,7 @@ they never replace validation.
 """
 from __future__ import annotations
 
+import hashlib
 import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -57,6 +58,8 @@ from asterism_step0.spec_yaml import load_spec_yaml
 
 __all__ = [
     "SkeletonProposal",
+    "apply_column_decisions",
+    "apply_column_decisions_to_document",
     "apply_data_facts",
     "apply_display_meta",
     "apply_display_meta_to_document",
@@ -786,7 +789,7 @@ def apply_data_facts(
 
 
 def _display_meta_matches(
-    prop: Mapping[str, Any], map_name: str, edit: Mapping[str, Any]
+    prop: Mapping[str, Any], map_name: str, map_source: str, edit: Mapping[str, Any]
 ) -> bool:
     """Is this property row the one the human corrected?
 
@@ -799,12 +802,26 @@ def _display_meta_matches(
     want = str(edit.get("predicate") or "")
     if not want:
         return False
-    if _term_tail(str(prop.get("predicate") or "")) != _term_tail(want):
+    wanted_source = str(edit.get("source") or "")
+    if wanted_source and wanted_source != map_source:
+        return False
+    predicate_matches = _term_tail(str(prop.get("predicate") or "")) == _term_tail(want)
+    wanted_col = str(edit.get("column") or "")
+    # A human-added fallback predicate may acquire a deterministic suffix when an
+    # AI rewrite introduces a colliding term. Source+column+fallback is its stable
+    # identity; the original predicate spelling is not.
+    fallback_identity_matches = bool(
+        prop.get("fallback")
+        and wanted_source
+        and wanted_source == map_source
+        and wanted_col
+        and wanted_col == str(prop.get("column") or "")
+    )
+    if not predicate_matches and not fallback_identity_matches:
         return False
     wanted_map = str(edit.get("map") or "")
     if wanted_map and wanted_map != map_name:
         return False
-    wanted_col = str(edit.get("column") or "")
     return not (wanted_col and wanted_col != str(prop.get("column") or ""))
 
 
@@ -841,6 +858,7 @@ def apply_display_meta(
             out_maps.append(m)
             continue
         name = str(m.get("name") or "")
+        source = str(m.get("source") or "")
         props: list[Any] = []
         for prop in m["properties"]:
             if not isinstance(prop, Mapping):
@@ -849,7 +867,7 @@ def apply_display_meta(
             row = dict(prop)
             touched = False
             for edit in edits:
-                if not _display_meta_matches(prop, name, edit):
+                if not _display_meta_matches(prop, name, source, edit):
                     continue
                 for field_name in ("label", "unit"):
                     if field_name not in edit:
@@ -907,6 +925,419 @@ def apply_display_meta_to_document(
         return document_md, []
     new_yaml = yaml.safe_dump(new_doc, sort_keys=False, allow_unicode=True)
     return replace_mapping_spec_block(document_md, new_yaml), changed
+
+
+_SAFE_COLUMN_DATATYPES = frozenset(
+    {"xsd:integer", "xsd:double", "xsd:date", "xsd:dateTime", "xsd:string"}
+)
+
+
+def _expanded_mapping_term(term: str, prefixes: Mapping[str, Any]) -> str:
+    """Expand a CURIE for identity checks; absolute/unknown terms pass through."""
+    head, separator, tail = term.partition(":")
+    namespace = prefixes.get(head) if separator else None
+    return f"{namespace}{tail}" if isinstance(namespace, str) else term
+
+
+def _decision_map(
+    ir: Mapping[str, Any], decision: Mapping[str, Any]
+) -> tuple[Mapping[str, Any], str, str, str]:
+    """Resolve a human column decision to its current map.
+
+    The authored map name is the first choice. A later AI structural rewrite may
+    rename it, so a persisted include also carries the target class and can
+    recover by ``source + class`` (or by a source that now has exactly one map).
+    """
+    map_name = str(decision.get("map") or "").strip()
+    source = str(decision.get("source") or "").strip()
+    column = str(decision.get("column") or "").strip()
+    if not source or not column:
+        raise ValueError("a column decision requires non-empty source and column")
+    maps = ir.get("maps")
+    if not isinstance(maps, list):
+        raise ValueError("mapping spec has no maps")
+    source_maps = [
+        m
+        for m in maps
+        if isinstance(m, Mapping) and str(m.get("source") or "") == source
+    ]
+    map_class = str(decision.get("map_class") or "").strip()
+    if map_class:
+        prefixes = ir.get("prefixes")
+        prefix_map = prefixes if isinstance(prefixes, Mapping) else {}
+        wanted_class = _expanded_mapping_term(map_class, prefix_map)
+        exact_class = [
+            m
+            for m in source_maps
+            if wanted_class
+            in {
+                _expanded_mapping_term(str(cls), prefix_map)
+                for cls in (
+                    ((m.get("subject") or {}).get("classes") or [])
+                    if isinstance(m.get("subject"), Mapping)
+                    else []
+                )
+            }
+        ]
+        if len(exact_class) == 1:
+            found = exact_class[0]
+            return found, str(found.get("name") or ""), source, column
+    exact = next(
+        (m for m in maps if isinstance(m, Mapping) and str(m.get("name") or "") == map_name),
+        None,
+    )
+    # With a persisted class, a same-named map is not enough when several maps
+    # read this source: an AI rewrite may rename the original and reuse its old
+    # name for a different entity. The class match above owns that decision.
+    if (
+        exact is not None
+        and str(exact.get("source") or "") == source
+        and (not map_class or len(source_maps) == 1)
+    ):
+        return exact, map_name, source, column
+    if len(source_maps) == 1:
+        found = source_maps[0]
+        return found, str(found.get("name") or ""), source, column
+    if exact is not None:
+        raise ValueError(
+            f"column decision source {source!r} does not match map {map_name!r}"
+        )
+    raise ValueError(
+        f"column decision map {map_name!r} no longer exists and its owner is ambiguous"
+    )
+
+
+def _column_decision_prefix(ir: Mapping[str, Any], map_obj: Mapping[str, Any]) -> str:
+    """Pick this dataset's ontology prefix, not a borrowed vocabulary prefix."""
+    prefixes = ir.get("prefixes")
+    if not isinstance(prefixes, Mapping):
+        raise ValueError("mapping spec has no prefixes for a human-added property")
+    own = next(
+        (
+            str(name)
+            for name, iri in prefixes.items()
+            if isinstance(iri, str) and "/ontology#" in iri
+        ),
+        None,
+    )
+    if own:
+        return own
+    subject = map_obj.get("subject")
+    classes = (subject or {}).get("classes") if isinstance(subject, Mapping) else []
+    if isinstance(classes, list):
+        for cls in classes:
+            prefix = str(cls).split(":", 1)[0]
+            if prefix in prefixes:
+                return prefix
+    if prefixes:
+        return str(next(iter(prefixes)))
+    raise ValueError("mapping spec has no prefixes for a human-added property")
+
+
+def _column_predicate(
+    ir: Mapping[str, Any], map_obj: Mapping[str, Any], column: str
+) -> str:
+    """A deterministic term that does not collide anywhere in this ontology."""
+    prefix = _column_decision_prefix(ir, map_obj)
+    words = [part for part in re.split(r"[^A-Za-z0-9]+", column) if part]
+    # A Unicode-only header is a valid CSV header but not a portable CURIE local
+    # name. Hash its original UTF-8 spelling rather than dropping its identity.
+    local = "has" + "".join(word[:1].upper() + word[1:] for word in words)
+    digest = hashlib.sha256(column.encode("utf-8")).hexdigest()[:10]
+    if not words or local == "has":
+        local = f"column_{digest}"
+    candidate = f"{prefix}:{local}"
+    prefixes = ir.get("prefixes") if isinstance(ir.get("prefixes"), Mapping) else {}
+
+    predicates = {
+        _expanded_mapping_term(str(prop.get("predicate") or ""), prefixes)
+        for mapping in (ir.get("maps") or [])
+        if isinstance(mapping, Mapping)
+        for prop in (mapping.get("properties") or [])
+        if isinstance(prop, Mapping)
+    }
+    if _expanded_mapping_term(candidate, prefixes) in predicates:
+        candidate = f"{prefix}:{local}_{digest}"
+    suffix = 2
+    while _expanded_mapping_term(candidate, prefixes) in predicates:
+        candidate = f"{prefix}:{local}_{digest}_{suffix}"
+        suffix += 1
+    return candidate
+
+
+_COLUMN_PLACEHOLDER = re.compile(r"\{([^{}]+)\}")
+
+
+def _template_uses_column(template: object, column: str) -> bool:
+    return isinstance(template, str) and column in _COLUMN_PLACEHOLDER.findall(template)
+
+
+def _property_uses_column(prop: Mapping[str, Any], column: str) -> bool:
+    return (
+        str(prop.get("column") or "") == column
+        or column in (prop.get("columns") or [])
+        or _template_uses_column(prop.get("object_template"), column)
+    )
+
+
+def apply_column_decisions(
+    ir: Mapping[str, Any],
+    decisions: Sequence[Mapping[str, Any]],
+    *,
+    source_columns: Mapping[str, Mapping[str, str] | Sequence[str]] | None = None,
+) -> tuple[dict, list[str]]:
+    """Apply human include/exclude decisions to a Mapping IR.
+
+    Includes add a deliberately plain, raw-passthrough direct property. Excludes
+    leave an already-unmapped IR untouched, but remove a later AI rewrite's use of
+    that column. The helper is idempotent so it can reassert both decisions.
+    ``source_columns`` is an optional closed-set oracle (source -> columns, or
+    source -> inferred datatype) used by the API before anything is persisted.
+    """
+    if not decisions:
+        return dict(ir), []
+    maps = ir.get("maps")
+    if not isinstance(maps, list):
+        raise ValueError("mapping spec has no maps")
+    out_maps: list[Any] = [dict(m) if isinstance(m, Mapping) else m for m in maps]
+    changed: list[str] = []
+    for decision in decisions:
+        action = str(decision.get("action") or "").strip()
+        if action not in {"include", "exclude"}:
+            raise ValueError("column decision action must be 'include' or 'exclude'")
+        source = str(decision.get("source") or "").strip()
+        column = str(decision.get("column") or "").strip()
+        if not source or not column:
+            raise ValueError("a column decision requires non-empty source and column")
+        if source_columns is not None:
+            known = source_columns.get(source)
+            if known is None or column not in known:
+                raise ValueError(f"source {source!r} has no column {column!r}")
+        if action == "exclude":
+            for target_i, current in enumerate(out_maps):
+                if not isinstance(current, Mapping) or str(current.get("source") or "") != source:
+                    continue
+                subject = current.get("subject")
+                subject_template = (
+                    subject.get("template") if isinstance(subject, Mapping) else None
+                )
+                if _template_uses_column(subject_template, column):
+                    raise ValueError(
+                        f"excluded column {column!r} is an identifier for map "
+                        f"{str(current.get('name') or '')!r} and cannot be removed safely"
+                    )
+                properties = current.get("properties")
+                if not isinstance(properties, list):
+                    continue
+                kept = [
+                    prop
+                    for prop in properties
+                    if not (isinstance(prop, Mapping) and _property_uses_column(prop, column))
+                ]
+                if len(kept) != len(properties):
+                    if not kept:
+                        raise ValueError(
+                            f"excluded column {column!r} is the only property of map "
+                            f"{str(current.get('name') or '')!r} and cannot be removed safely"
+                        )
+                    out_maps[target_i] = {**current, "properties": kept}
+                    if column not in changed:
+                        changed.append(column)
+            continue
+        _map_obj, map_name, source, column = _decision_map(ir, decision)
+        for other_i, current in enumerate(out_maps):
+            if (
+                not isinstance(current, Mapping)
+                or str(current.get("source") or "") != source
+                or str(current.get("name") or "") == map_name
+            ):
+                continue
+            properties = current.get("properties")
+            if not isinstance(properties, list):
+                continue
+            kept = [
+                prop
+                for prop in properties
+                if not (
+                    isinstance(prop, Mapping)
+                    and prop.get("fallback") is True
+                    and str(prop.get("column") or "") == column
+                )
+            ]
+            if len(kept) != len(properties):
+                if not kept:
+                    raise ValueError(
+                        f"column {column!r} cannot move from map "
+                        f"{str(current.get('name') or '')!r} safely"
+                    )
+                out_maps[other_i] = {**current, "properties": kept}
+                if column not in changed:
+                    changed.append(column)
+        label = str(decision.get("label") or "").strip()
+        if not label:
+            raise ValueError("an include decision requires a non-empty label")
+        target_i = next(
+            i
+            for i, m in enumerate(out_maps)
+            if isinstance(m, Mapping) and str(m.get("name") or "") == map_name
+        )
+        target = dict(out_maps[target_i])
+        props = list(target.get("properties") or [])
+        row_i = next(
+            (
+                i
+                for i, prop in enumerate(props)
+                if isinstance(prop, Mapping) and str(prop.get("column") or "") == column
+            ),
+            None,
+        )
+        if row_i is None:
+            target["properties"] = props
+            row: dict[str, Any] = {
+                "predicate": _column_predicate({**ir, "maps": out_maps}, target, column),
+                "column": column,
+                "fallback": True,
+                "label": label,
+            }
+            known_types = source_columns.get(source) if source_columns is not None else None
+            inferred = (
+                known_types.get(column)
+                if isinstance(known_types, Mapping)
+                else decision.get("datatype")
+            )
+            if inferred in _SAFE_COLUMN_DATATYPES:
+                row["datatype"] = inferred
+            unit = decision.get("unit")
+            if unit is not None and str(unit).strip():
+                row["unit"] = str(unit).strip()
+            props.append(row)
+            if column not in changed:
+                changed.append(column)
+        else:
+            row = dict(props[row_i])
+            touched = False
+            if row.get("label") != label:
+                row["label"] = label
+                touched = True
+            if "unit" in decision and decision.get("unit") is not None:
+                unit = str(decision.get("unit") or "").strip()
+                if unit and row.get("unit") != unit:
+                    row["unit"] = unit
+                    touched = True
+                elif not unit and "unit" in row:
+                    row.pop("unit")
+                    touched = True
+            known_types = source_columns.get(source) if source_columns is not None else None
+            datatype = (
+                known_types.get(column)
+                if isinstance(known_types, Mapping)
+                else decision.get("datatype")
+            )
+            if datatype in _SAFE_COLUMN_DATATYPES and row.get("datatype") != datatype:
+                row["datatype"] = datatype
+                touched = True
+            if touched:
+                props[row_i] = row
+                if column not in changed:
+                    changed.append(column)
+        target["properties"] = props
+        out_maps[target_i] = target
+    if not changed:
+        return dict(ir), []
+    return {**ir, "maps": out_maps}, changed
+
+
+def remove_stale_column_includes_from_document(
+    document_md: str, decisions: Sequence[Mapping[str, Any]]
+) -> tuple[str, list[str]]:
+    """Remove fallback rows created by include decisions whose source column vanished."""
+    import yaml
+
+    from asterism_step0.materialize import materialize_schema
+    from asterism_step0.spec_repair import replace_mapping_spec_block
+
+    stale = {
+        (str(decision.get("source") or ""), str(decision.get("column") or ""))
+        for decision in decisions
+        if decision.get("action") == "include"
+    }
+    if not stale:
+        return document_md, []
+    ir_yaml = materialize_schema(document_md, ".", "column-decisions", write=False).mapping_ir_yaml
+    if ir_yaml is None:
+        raise ValueError("this design has no mapping spec to edit")
+    try:
+        doc = yaml.safe_load(ir_yaml)
+    except yaml.YAMLError as exc:
+        raise ValueError(f"the design's mapping spec is not readable: {exc}") from exc
+    if not isinstance(doc, dict) or not isinstance(doc.get("maps"), list):
+        raise ValueError("the design's mapping spec has no maps")
+    changed: list[str] = []
+    out_maps: list[Any] = []
+    for current in doc["maps"]:
+        if not isinstance(current, Mapping) or not isinstance(current.get("properties"), list):
+            out_maps.append(current)
+            continue
+        source = str(current.get("source") or "")
+        properties = current["properties"]
+        kept = [
+            prop
+            for prop in properties
+            if not (
+                isinstance(prop, Mapping)
+                and prop.get("fallback") is True
+                and (source, str(prop.get("column") or "")) in stale
+            )
+        ]
+        if len(kept) == len(properties):
+            out_maps.append(current)
+            continue
+        if not kept:
+            raise ValueError(
+                f"stale human-added columns are the only properties of map "
+                f"{str(current.get('name') or '')!r} and cannot be removed safely"
+            )
+        changed.extend(
+            str(prop.get("column") or "")
+            for prop in properties
+            if isinstance(prop, Mapping)
+            and prop.get("fallback") is True
+            and (source, str(prop.get("column") or "")) in stale
+        )
+        out_maps.append({**current, "properties": kept})
+    if not changed:
+        return document_md, []
+    new_doc = {**doc, "maps": out_maps}
+    return replace_mapping_spec_block(document_md, mapping_ir_to_yaml(new_doc)), list(
+        dict.fromkeys(changed)
+    )
+
+
+def apply_column_decisions_to_document(
+    document_md: str,
+    decisions: Sequence[Mapping[str, Any]],
+    *,
+    source_columns: Mapping[str, Mapping[str, str] | Sequence[str]] | None = None,
+) -> tuple[str, list[str]]:
+    """Apply :func:`apply_column_decisions` and splice the resulting §9 block."""
+    import yaml
+
+    from asterism_step0.materialize import materialize_schema
+    from asterism_step0.spec_repair import replace_mapping_spec_block
+
+    ir_yaml = materialize_schema(document_md, ".", "column-decisions", write=False).mapping_ir_yaml
+    if ir_yaml is None:
+        raise ValueError("this design has no mapping spec to edit")
+    try:
+        doc = yaml.safe_load(ir_yaml)
+    except yaml.YAMLError as exc:
+        raise ValueError(f"the design's mapping spec is not readable: {exc}") from exc
+    if not isinstance(doc, dict):
+        raise ValueError("the design's mapping spec is not a mapping")
+    new_doc, changed = apply_column_decisions(doc, decisions, source_columns=source_columns)
+    if not changed:
+        return document_md, []
+    return replace_mapping_spec_block(document_md, mapping_ir_to_yaml(new_doc)), changed
 
 
 def generate_map_properties(

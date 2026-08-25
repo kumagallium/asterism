@@ -291,6 +291,10 @@ jobs:
         working-directory: ui
         run: npm run lint
 
+      - name: i18n checks (ja/en parity + refs resolve)
+        working-directory: ui
+        run: npm run lint:i18n
+
       - name: Build (incl. tsc typecheck)
         working-directory: ui
         run: npm run build

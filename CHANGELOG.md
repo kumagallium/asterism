@@ -1,5 +1,17 @@
 # Changelog
 
+## [v0.18.0](https://github.com/kumagallium/asterism/compare/v0.17.5...v0.18.0) - 2026-08-25
+
+- fix(settings): 「このサーバ」タブの生キー表示を解消 — 消えた serverKeys ラベルを復元 by @kumagallium in https://github.com/kumagallium/asterism/pull/403
+- chore(ui): i18n キーの「参照はあるが定義が無い」を lint と CI で検出する by @kumagallium in https://github.com/kumagallium/asterism/pull/405
+- feat(kantan): 「項目の意味」を AI 再試行から人間の判断へ分離する by @kumagallium in https://github.com/kumagallium/asterism/pull/406
+- feat(step0/ui): 危険な ID は人に見せる前に機械が置き換える — 骨格ゲートの安全キー差し替え by @kumagallium in https://github.com/kumagallium/asterism/pull/407
+
+## [v0.17.5](https://github.com/kumagallium/asterism/compare/v0.17.4...v0.17.5) - 2026-08-21
+
+- refactor(gallery): タブを「答える問い」で切り直し、直す入口をカードに出す by @kumagallium in https://github.com/kumagallium/asterism/pull/398
+- feat(grounding): 「この列は何を測っているか」を標準に接地する by @kumagallium in https://github.com/kumagallium/asterism/pull/400
+
 ## [v0.17.4](https://github.com/kumagallium/asterism/compare/v0.17.3...v0.17.4) - 2026-08-20
 
 - 欠陥の停止カードは機械が押す — 人間のクリックを無くす by @kumagallium in https://github.com/kumagallium/asterism/pull/387
