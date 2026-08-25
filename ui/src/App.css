@@ -7398,8 +7398,45 @@ tr[data-map].skeleton-gate-row--added td {
 .kz-cols-samples {
   color: var(--muted);
 }
+.kz-cols-input,
+.kz-cols-table select {
+  min-width: 10rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.35rem 0.5rem;
+  font: inherit;
+  background: var(--surface);
+  color: var(--body);
+}
+.kz-cols-input--unit {
+  min-width: 6rem;
+}
+.kz-cols-input:disabled,
+.kz-cols-table select:disabled {
+  opacity: 0.65;
+}
 tr.kz-attn td {
   background: var(--warn-bg);
+}
+
+/* Meaning decisions that only the data owner can make stay visually separate
+   from the optional AI-assisted structural edit below them. */
+.kz-unmapped {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: 1px solid var(--warn-border);
+  border-radius: var(--radius);
+  background: var(--warn-bg);
+}
+.kz-unmapped h4 {
+  margin: 0;
+}
+.kz-structure-fix {
+  margin-top: var(--space-2);
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-3);
 }
 
 /* S6: links & fixed values fold (noise reduction for first-timers). */

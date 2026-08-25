@@ -51,6 +51,11 @@ const SHAPE_DATATYPE = 'datatype MISMATCH'
  *  anonymous "other": it is the one advisory that makes an ANSWER wrong. */
 const UNTYPED_NUMERIC = 'holds numbers but is mapped as an untyped literal'
 
+/** A finding whose resolution is a human column decision, not another AI round. */
+export function isMeaningReviewAdvisory(advisory: string): boolean {
+  return advisory.includes(UNMAPPED_COLUMN)
+}
+
 /** `… groups: MaterialSample  |  Measurement.` → ["MaterialSample", "Measurement"] */
 function disconnectedGroups(advisory: string): string[] {
   const m = /DISCONNECTED groups:\s*(.+?)\.(?:\s|$)/.exec(advisory)
