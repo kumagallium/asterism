@@ -4730,7 +4730,10 @@ export function KantanWizard({
               {/* Only the INGEST runs on the server; the save before it is this
                   tab's own call. Say which of the two is true right now — and,
                   for the safe one, where to come back to (RESUME-05). */}
-              <p className="kz-note">
+              {/* K23: 「閉じてよい」と「閉じてしまったときの戻り方」は別の話。
+                  1 文に同居していたので、待つあいだに読む必要のない後半まで
+                  同じ強さで常時出ていた。戻り方は畳む。 */}
+              <p className="kz-lead">
                 {t(
                   pipePhase === 'ingest'
                     ? 'kantan:s5.closeNote'
@@ -4739,6 +4742,12 @@ export function KantanWizard({
                       : 'kantan:s5.savingNote',
                 )}
               </p>
+              {pipePhase === 'ingest' && (
+                <details className="kz-fold">
+                  <summary>{t('kantan:s5.reopenSummary')}</summary>
+                  <p className="kz-note kz-prose">{t('kantan:s5.reopenBody')}</p>
+                </details>
+              )}
             </>
           )}
           {jobNotice && (
@@ -4964,7 +4973,13 @@ export function KantanWizard({
               </span>
             </div>
           )}
-          <p className="kz-note kz-promise">{t('kantan:s8.promise')}</p>
+          {/* K23: 「中身」「ことば」「あとから」は同じ問い — 公開すると何がどう
+              なるか — への 3 つの答えなので、1 つの表として読ませる。撤回の約束
+              だけ見出し語が無く、他の 2 行と揃っていなかった。 */}
+          <div className="kz-kv kz-s8-later">
+            <span className="kz-kv-key">{t('kantan:s8.laterLabel')}</span>
+            <span>{t('kantan:s8.promise')}</span>
+          </div>
           {pubErr && (
             <div role="alert">
               <p className="kz-note kz-pub-err">
@@ -5068,11 +5083,17 @@ export function KantanWizard({
               <p className="kz-note">{t('kantan:s9.askHint')}</p>
             </>
           )}
+          {/* K23: ここから先は「次に何ができるか」の並列な選択肢で、順番のある
+              手順ではない。<hr> で縦に積むと、下にあるものほど弱く見え、実際
+              スクロールの外に出ていた。並べて、どれも同じ強さで見せる。
+              モックは 3 枚だが「つながりを作る」を落とすと、2 件目以降を公開した
+              人から crosswalk の入口が消えるので 4 枚目として残す（条件つきなので
+              初回公開では 3 枚に見える）。 */}
+          <div className="kz-next">
           {onCreateCrosswalk && publishedCount !== null && publishedCount >= 2 && (
-            <>
-              <hr className="kz-divider" />
-              <p className="kz-note kz-grow-title">{t('kantan:s9.connectTitle')}</p>
-              <p className="kz-note">
+            <div className="kz-next-card">
+              <h4 className="kz-next-title">{t('kantan:s9.connectTitle')}</h4>
+              <p className="kz-note kz-prose">
                 {t('kantan:s9.connectBody', { count: publishedCount })}
               </p>
               <div className="kz-actions">
@@ -5080,7 +5101,7 @@ export function KantanWizard({
                   {t('kantan:s9.connectBtn')}
                 </button>
               </div>
-            </>
+            </div>
           )}
           {/* 外の世界とつなぐ導線。つながり (crosswalk) がデータセット同士を結ぶ
               のに対し、こちらは自分で作ったことばを既存の標準に結ぶ。どちらも
@@ -5089,27 +5110,25 @@ export function KantanWizard({
               (external-standard-alignment.md §8)。件数の条件は付けない —
               つなぐ相手が要る crosswalk と違い、1 件目から意味がある。 */}
           {kzDatasetId && (
-            <>
-              <hr className="kz-divider" />
-              <p className="kz-note kz-grow-title">{t('kantan:s9.groundTitle')}</p>
-              <p className="kz-note">{t('kantan:s9.groundBody')}</p>
+            <div className="kz-next-card">
+              <h4 className="kz-next-title">{t('kantan:s9.groundTitle')}</h4>
+              <p className="kz-note kz-prose">{t('kantan:s9.groundBody')}</p>
               <div className="kz-actions">
                 <button type="button" onClick={() => openGrow('structure', 'grounding')}>
                   {t('kantan:s9.groundBtn')}
                 </button>
               </div>
-              <p className="kz-note">{t('kantan:s9.groundHint')}</p>
-            </>
+              <p className="kz-note kz-prose">{t('kantan:s9.groundHint')}</p>
+            </div>
           )}
           {/* The last step of "a fact you can cite": handing someone the ID.
               Published data means the landing page answers, so here it IS a
               link — unlike S7, which runs on the unpublished draft
               (DEREF-LANDING-29). */}
           {shareIri && (
-            <>
-              <hr className="kz-divider" />
-              <p className="kz-note kz-grow-title">{t('kantan:s9.shareTitle')}</p>
-              <p className="kz-note">{t('kantan:s9.shareBody')}</p>
+            <div className="kz-next-card">
+              <h4 className="kz-next-title">{t('kantan:s9.shareTitle')}</h4>
+              <p className="kz-note kz-prose">{t('kantan:s9.shareBody')}</p>
               <div className="kz-actions">
                 {/* A button rather than an anchor: the page has no link style
                     of its own, and this belongs with the other actions. */}
@@ -5124,10 +5143,10 @@ export function KantanWizard({
                 </button>
                 <CopyIdButton iri={describeUrl(shareIri, true)} labelKey="kantan:s9.shareCopy" />
               </div>
-            </>
+            </div>
           )}
-          <hr className="kz-divider" />
-          <p className="kz-note kz-grow-title">{t('kantan:s9.growTitle')}</p>
+          <div className="kz-next-card">
+          <h4 className="kz-next-title">{t('kantan:s9.growTitle')}</h4>
           <div className="kz-actions">
             {/* Two different intents, two different landing spots: which one
                 was chosen travels with the click (KZ-B-02). */}
@@ -5146,7 +5165,10 @@ export function KantanWizard({
               {t('kantan:s9.replace')}
             </button>
           </div>
-          <p className="kz-note">{t('kantan:s9.growHint')}</p>
+          <p className="kz-note kz-prose">{t('kantan:s9.growHint')}</p>
+          </div>
+          </div>
+          {/* カードの外。これは「次にできること」ではなく、この画面から出る道。 */}
           <div className="kz-actions">
             <button type="button" className="btn btn--ghost btn--sm" onClick={() => openGrow()}>
               {t('kantan:s9.openDataset')}
@@ -6272,7 +6294,11 @@ export function KantanWizard({
         </section>
       ) : step === 3 ? (
         <section className="kz-card">
-          <PreviewList previews={previews} />
+          {/* K23: 待っている画面で最初に読ませるのは「いま何が起きているか」と
+              「待たなくてよい」の 2 つ。読み取ったファイルの中身は、待つあいだの
+              参考であって、この画面の主題ではないので畳む。 */}
+          <h3 className="kz-title">{t('kantan:s3.title')}</h3>
+          <p className="kz-lead">{t('kantan:s3.closeNote')}</p>
           {skeletonBusy && (
             <JobProgress
               label={t('kantan:s3.jobLabel')}
@@ -6281,7 +6307,12 @@ export function KantanWizard({
               onCancel={() => jobRef.current?.cancel() ?? Promise.resolve()}
             />
           )}
-          <p className="kz-note">{t('kantan:s3.closeNote')}</p>
+          {previews.length > 0 && (
+            <details className="kz-fold">
+              <summary>{t('kantan:s3.previewSummary')}</summary>
+              <PreviewList previews={previews} />
+            </details>
+          )}
           {jobNotice && (
             <p className="job-cancelled-note" role="status">
               {jobNotice}
