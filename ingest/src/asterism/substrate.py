@@ -26,20 +26,24 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 import re
 import subprocess
 import sys
 import tempfile
 from collections.abc import Callable, Iterable
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
 
 from asterism.dialect import (
     DEFAULT_DIALECT,
+    ENCODING_ATTEMPTS,
     LEGACY_SUFFIXES,
     DialectAnnotationError,
     dialects_from_mapping,
+    encoding_that_decodes,
     is_default,
     normalize_source,
     strip_dialect_annotations,
@@ -56,6 +60,8 @@ from asterism.rml_validate import design_advisories as design_advisories
 from asterism.rml_validate import design_review_notes as design_review_notes
 from asterism.rml_validate import validate_rml_design as validate_rml_design
 from asterism.tabularize import sanitize_csv_columns, tabularize_json_to_csv
+
+logger = logging.getLogger(__name__)
 
 
 class IngestCancelledError(RuntimeError):
@@ -266,15 +272,42 @@ def normalize_dialect_sources(rml_ttl: str, csv_dir: Path | str, work_dir: Path 
         try:
             normalized[name] = normalize_source(src, dialect, dest)
         except UnicodeDecodeError as exc:
-            # Strict by design (ADR): the pinned encoding no longer decodes the
-            # file — a real error, surfaced as a structured 422 (not a 500).
-            raise RmlValidationError(
-                [
-                    f"source file {name!r} cannot be decoded with its pinned "
-                    f"dialect encoding {dialect.encoding!r}: {exc}. The file changed "
-                    "since design time — re-run design/inspect to re-pin the dialect."
-                ]
-            ) from exc
+            # The pinned encoding does not decode the file. Which encoding reads a
+            # file is a question the machine can answer, so it answers it instead of
+            # sending the person away to convert the file by hand: try the pinned
+            # codecs in order and re-run the normalization with the one that works.
+            # Only the ENCODING is repaired — the delimiter, the header offset and the
+            # preamble mode are design decisions, and they plainly worked (live
+            # 2026-08-26: an XRD export detected as cp932 at every design stage, pinned
+            # as utf-8-sig, refused here).
+            repaired = encoding_that_decodes(src, dialect.encoding)
+            if repaired is None or repaired == dialect.encoding:
+                raise RmlValidationError(
+                    [
+                        f"source file {name!r} cannot be decoded with its pinned "
+                        f"dialect encoding {dialect.encoding!r}: {exc}. No known text "
+                        f"encoding reads it either (tried "
+                        f"{', '.join(ENCODING_ATTEMPTS)}) — the file may be binary, "
+                        "truncated, or saved in an encoding this reader does not carry."
+                    ]
+                ) from exc
+            logger.warning(
+                "source %r does not decode as its pinned %r; reading it as %r instead "
+                "(the design's pin is stale — re-designing re-pins it)",
+                name,
+                dialect.encoding,
+                repaired,
+            )
+            dialect = replace(dialect, encoding=repaired)
+            try:
+                normalized[name] = normalize_source(src, dialect, dest)
+            except UnicodeDecodeError as exc2:  # pragma: no cover — defensive
+                raise RmlValidationError(
+                    [
+                        f"source file {name!r} cannot be decoded with its pinned "
+                        f"dialect encoding {dialect.encoding!r}: {exc2}."
+                    ]
+                ) from exc2
     for pred in ("http://w3id.org/rml/source", "http://semweb.mmlab.be/ns/rml#source"):
         for s, o in list(graph.subject_objects(rdflib.URIRef(pred))):
             dest = normalized.get(Path(str(o)).name)

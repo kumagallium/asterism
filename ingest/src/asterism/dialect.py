@@ -351,11 +351,46 @@ class SourceDialect:
 
 DEFAULT_DIALECT = SourceDialect()
 
+# The strict-decode attempt list for the ingest-side repair below: the design-side
+# twin's candidates (``asterism_step0.dialect._ENCODING_ATTEMPTS``), deterministic and
+# auditable, never chardet. Deliberately WITHOUT the twin's terminal ``latin-1``: that
+# codec decodes any byte sequence, so including it here would turn every unreadable
+# file into a silently mojibake'd ingest that nobody is watching. Detection may still
+# PIN latin-1 (a person saw the preview and went ahead) and that pin is honored — it
+# is only unusable as a fallback guess.
+ENCODING_ATTEMPTS: tuple[str, ...] = ("utf-8-sig", "cp932")
+
 
 def is_default(dialect: SourceDialect) -> bool:
     """True when every field is the default — the gate for all downstream
     emission/normalization (a default dialect must change nothing anywhere)."""
     return dialect == DEFAULT_DIALECT
+
+
+def encoding_that_decodes(src: Path | str, preferred: str) -> str | None:
+    """The first codec that decodes the ENTIRE file, starting from ``preferred``;
+    ``None`` when the file cannot be read (unreadable on disk).
+
+    The ingest-side repair for a pin that does not match the bytes. The design pins
+    how to read each source and ingest obeys it — but a pin can be wrong (a field the
+    person never edited used to be reset to its class default on the way in), and then
+    ingest refused a file every earlier stage had read correctly. Reading a file is
+    something the machine can settle by itself, so it does, and says so in the log.
+
+    Strict throughout, and over the WHOLE file: an export whose only non-ASCII bytes
+    are two header cells decodes as utf-8 for its first megabyte and dies on the tail.
+    """
+    for encoding in (preferred, *(e for e in ENCODING_ATTEMPTS if e != preferred)):
+        try:
+            with Path(src).open("r", encoding=encoding, errors="strict") as fh:
+                while fh.read(1 << 20):
+                    pass
+        except (UnicodeDecodeError, LookupError):
+            continue
+        except OSError:
+            return None
+        return encoding
+    return None
 
 
 def dialect_rows(src: Path | str, dialect: SourceDialect) -> Iterator[list[str]]:
