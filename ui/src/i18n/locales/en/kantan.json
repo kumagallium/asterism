@@ -181,7 +181,7 @@
       "tooLargeBody": "One file can be up to {{mb}} MB. Split it by rows or columns and drop the smaller files.",
       "tooLargeBodyNoSize": "This file is over the size limit. Split it by rows or columns and drop the smaller files.",
       "decodeTitle": "The characters in this file could not be read",
-      "decodeBody": "The way the text is stored does not match. If it came from Excel, save it again as \"CSV UTF-8\" and drop it here. If some rows did come through, you can also fix it under \"The table doesn't look right?\" on the reading check.",
+      "decodeBody": "None of the usual text encodings (UTF-8, Shift-JIS) could read this file. Check that it is not damaged. If it came from Excel, saving it again as \"CSV UTF-8\" often helps. If some rows did come through, you can also pick the encoding under \"The table doesn't look right?\" on the reading check.",
       "unreadableTitle": "This file could not be read",
       "unreadableBody": "Check that the file is not damaged and not empty. If it came from Excel, saving it again as \"CSV UTF-8\" often helps.",
       "timeoutTitle": "The step didn't finish in time",

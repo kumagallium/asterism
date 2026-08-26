@@ -188,10 +188,17 @@ def test_parse_dialect_overrides_valid_and_empty() -> None:
     parsed = api_main._parse_dialect_overrides(
         '{"xrd.txt": {"encoding": "cp932", "delimiter": "\\t", "skip_rows": 1}}'
     )
-    # _parse_dialects returns the step0 SourceDialect twin — compare by fields, not
-    # cross-class dataclass equality.
-    d = parsed["xrd.txt"]
-    assert (d.encoding, d.delimiter, d.collapse, d.skip_rows) == ("cp932", "\t", False, 1)
+    # Only the fields the request carried, with the linter's (coerced) values.
+    assert parsed["xrd.txt"] == {"encoding": "cp932", "delimiter": "\t", "skip_rows": 1}
+
+
+def test_parse_dialect_overrides_keeps_only_written_fields() -> None:
+    """An override says what the person CHANGED, not what the dialect is. A whole
+    SourceDialect cannot express "not specified": every absent field reads back as its
+    class default, and merging that over detection reset a detected cp932 to utf-8-sig
+    — the design then pinned a reading the file cannot be opened with."""
+    parsed = api_main._parse_dialect_overrides('{"xrd.txt": {"skip_rows": 1}}')
+    assert parsed == {"xrd.txt": {"skip_rows": 1}}  # no encoding, no delimiter
 
 
 def test_parse_dialect_overrides_rejects_bad_values() -> None:
@@ -251,7 +258,7 @@ def test_parse_dialect_overrides_accepts_preamble() -> None:
     parsed = api_main._parse_dialect_overrides(
         '{"card.txt": {"delimiter": "whitespace", "skip_rows": 23, "preamble": "keyvalue"}}'
     )
-    assert parsed["card.txt"].preamble == "keyvalue"
+    assert parsed["card.txt"]["preamble"] == "keyvalue"
     # A bad preamble mode is a readable 422 (never a bad §9 annotation).
     with pytest.raises(HTTPException) as exc:
         api_main._parse_dialect_overrides('{"c.txt": {"skip_rows": 1, "preamble": "sometimes"}}')
@@ -554,9 +561,10 @@ def _fake_overlay_fns(calls: dict):
         calls.setdefault("detected", []).append(Path(path).name)
         return SourceDialect(encoding="cp932")
 
-    def fake_apply(ir_yaml: str, detected, full_fields=None) -> str:
+    def fake_apply(ir_yaml: str, detected, full_fields=None, *, authoritative=False) -> str:
         calls["applied"] = calls.get("applied", 0) + 1
         calls.setdefault("full_fields", []).append(frozenset(full_fields or ()))
+        calls.setdefault("authoritative", []).append(authoritative)
         if "dialects:" in ir_yaml:
             return ir_yaml
         return ir_yaml.rstrip("\n") + "\n" + _DIALECT_MARKER
@@ -1190,3 +1198,48 @@ def test_source_samples_origins_empty_for_dropped_preamble(tmp_path: Path) -> No
         )
         body = client.get(f"/api/datasets/{ds_id}/source-samples").json()
         assert body["origins"] == {}
+
+
+# ---- the pin must survive both the human's partial edit and the LLM's rounds -------
+
+
+def test_partial_override_keeps_the_detected_encoding(tmp_path: Path) -> None:
+    """Live 2026-08-26: an XRD export whose only non-ASCII bytes are its two header
+    cells detected as cp932 at every design stage, and ingest still refused it —
+    the wizard had sent an override for the header offset alone, and merging that
+    source-by-source reset every field it did not mention. The reading a person did
+    not touch must come from detection, not from a dataclass default."""
+    (tmp_path / "data.txt").write_bytes(_CP932_PREAMBLE_TAB)
+    override = api_main._parse_dialect_overrides('{"data.txt": {"skip_rows": 1}}')
+    assert "encoding" not in override["data.txt"]
+
+    llm = _ScriptedLLM([_md_with_spec("data.txt", "composition")])
+    result = design_loop.run_design_loop(
+        [tmp_path / "data.txt"], "hint", tmp_path, llm=llm, max_rounds=0,
+        dialect_overrides=override,
+    )
+    pinned = _pinned_dialect(result.proposal_md, "data.txt")
+    assert pinned["encoding"] == "cp932"  # detection kept — NOT reset to utf-8-sig
+    assert pinned["skip_rows"] == 1  # the human's field applied
+    assert pinned["delimiter"] == "\t"
+
+
+def test_llm_authored_encoding_loses_to_detection(tmp_path: Path) -> None:
+    """How to READ a file is evidence, not a design decision: a round that rewrites
+    the pinned encoding produces a design ingest cannot open. The effective map
+    (detection + the human's corrections) overwrites what the model wrote."""
+    (tmp_path / "data.txt").write_bytes(_CP932_PREAMBLE_TAB)
+    md = _md_with_spec("data.txt", "composition").replace(
+        "```\n",
+        "dialects:\n"
+        "  data.txt:\n"
+        "    encoding: utf-8-sig\n"  # the model "corrected" the detected cp932
+        "    delimiter: \"\\t\"\n"
+        "    skip_rows: 1\n"
+        "```\n",
+    )
+    llm = _ScriptedLLM([md])
+    result = design_loop.run_design_loop(
+        [tmp_path / "data.txt"], "hint", tmp_path, llm=llm, max_rounds=0
+    )
+    assert _pinned_dialect(result.proposal_md, "data.txt")["encoding"] == "cp932"

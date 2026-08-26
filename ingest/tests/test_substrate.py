@@ -1755,16 +1755,21 @@ def test_normalize_dialect_sources_rewrites_and_strips(tmp_path: Path) -> None:
     ]
 
 
-def test_normalize_dialect_sources_decode_error_is_structured(tmp_path: Path) -> None:
-    # A pinned encoding that no longer decodes the file (the file changed since
-    # design) surfaces as the structured RmlValidationError, not a raw 500.
-    from asterism.substrate import RmlValidationError, normalize_dialect_sources
+def test_normalize_dialect_sources_repairs_a_pin_that_cannot_read_the_file(
+    tmp_path: Path,
+) -> None:
+    # A pinned encoding that does not decode the file is repaired here rather than
+    # stopping the ingest: the candidates are tried in order and the one that reads
+    # the whole file wins. (A file NO candidate reads is still a structured
+    # RmlValidationError — see the "no encoding can read" test below.)
+    from asterism.substrate import normalize_dialect_sources
 
-    (tmp_path / "xrd_measurement.txt").write_bytes(b"a\tb\n\xff\xff\t1\n")
+    _write_cp932_xrd(tmp_path)
     bad = _DIALECT_RML.replace('"cp932"', '"ascii"')
-    with pytest.raises(RmlValidationError) as exc:
-        normalize_dialect_sources(bad, tmp_path, tmp_path / "work")
-    assert any("ascii" in m and "xrd_measurement.txt" in m for m in exc.value.issues)
+    out = normalize_dialect_sources(bad, tmp_path, tmp_path / "work")
+    normalized = tmp_path / "work" / "xrd_measurement.txt.csv"
+    assert normalized.is_file() and "試料A" in normalized.read_text(encoding="utf-8")
+    assert str(normalized) in out
 
 
 def test_materialize_to_graph_dialected_source(tmp_path: Path) -> None:
@@ -2122,3 +2127,52 @@ def test_scope_query_to_graph_pins_graph_patterns_via_from_named() -> None:
     )
     # GRAPH ?g now ranges over exactly the injected FROM NAMED graph.
     assert "FROM NAMED <https://ex/live>" in out
+
+
+# ---- a pin that does not match the bytes is repaired here, not sent back --------
+
+
+def test_normalize_repairs_a_stale_pinned_encoding(tmp_path: Path, caplog) -> None:
+    """Live 2026-08-26: a cp932 XRD export reached ingest pinned as utf-8-sig (a
+    legacy suffix with no annotation gets the DEFAULT dialect) and the whole ingest
+    stopped with "save it again as CSV UTF-8" — work the machine can do itself.
+    Which encoding opens a file is decided by trying them, so ingest tries."""
+    _write_cp932_xrd(tmp_path)
+    rml = (
+        "@prefix rml: <http://semweb.mmlab.be/ns/rml#> .\n"
+        "@prefix ql: <http://semweb.mmlab.be/ns/ql#> .\n"
+        "@prefix rr: <http://www.w3.org/ns/r2rml#> .\n"
+        '<#M> a rr:TriplesMap ; rml:logicalSource [ rml:source "xrd_measurement.txt" ;\n'
+        "  rml:referenceFormulation ql:CSV ] .\n"
+    )
+    work = tmp_path / "work"
+    with caplog.at_level("WARNING"):
+        out = normalize_dialect_sources(rml, tmp_path, work)
+
+    normalized = work / "xrd_measurement.txt.csv"
+    assert normalized.is_file()
+    # Read with the encoding that actually works → the Japanese cells survive intact.
+    assert "試料A" in normalized.read_text(encoding="utf-8")
+    assert str(normalized) in out  # the mapping now points at the normalized copy
+    assert "cp932" in caplog.text  # and it says which reading it fell back to
+
+
+def test_normalize_still_refuses_bytes_no_encoding_can_read(tmp_path: Path) -> None:
+    """The repair tries a closed list, not every codec: a file none of them decodes
+    is still a structured 422 — and the message no longer blames the person for
+    changing a file they never touched."""
+    src = tmp_path / "broken.txt"
+    # A lead byte with no continuation: invalid as utf-8 AND as cp932.
+    src.write_bytes(b"angle\tsample\r\n10.5\t\x83\r\n")
+    rml = (
+        "@prefix rml: <http://semweb.mmlab.be/ns/rml#> .\n"
+        "@prefix ql: <http://semweb.mmlab.be/ns/ql#> .\n"
+        "@prefix rr: <http://www.w3.org/ns/r2rml#> .\n"
+        "@prefix ast: <https://kumagallium.github.io/asterism/vocab#> .\n"
+        '<#M> a rr:TriplesMap ; rml:logicalSource [ rml:source "broken.txt" ;\n'
+        '  rml:referenceFormulation ql:CSV ; ast:sourceEncoding "utf-8" ] .\n'
+    )
+    with pytest.raises(RmlValidationError) as exc:
+        normalize_dialect_sources(rml, tmp_path, tmp_path / "work")
+    assert "No known text encoding" in str(exc.value.issues[0])
+    assert "changed since design time" not in str(exc.value.issues[0])

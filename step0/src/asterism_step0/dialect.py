@@ -745,6 +745,7 @@ def _overlay(
     ir_dict: Mapping[str, Any],
     detected: Mapping[str, SourceDialect],
     full_fields: frozenset[str] = frozenset(),
+    authoritative: bool = False,
 ) -> dict[str, Any]:
     sources = _declared_sources(ir_dict)
     existing = ir_dict.get("dialects")
@@ -762,7 +763,15 @@ def _overlay(
         # detection-only sources stay minimal (byte-equivalence).
         entry = dialect_ir_fields(dialect, full=name in full_fields)
         if isinstance(prior, Mapping):
-            entry.update(prior)  # explicit IR values win (the human gate)
+            if authoritative:
+                # The caller's map already IS the settled answer (detection with the
+                # human's corrections merged in), so anything the LLM wrote in
+                # `dialects:` loses field by field. How to READ a file is not a design
+                # decision an LLM round gets to revise — an "improved" encoding is a
+                # file ingest can no longer open.
+                entry = {**prior, **entry}
+            else:
+                entry.update(prior)  # explicit IR values win (the human gate)
         merged[name] = entry
     out = dict(ir_dict)
     if merged:
@@ -774,14 +783,15 @@ def apply_detected_dialects(
     ir: Mapping[str, Any] | str,
     detected: Mapping[str, SourceDialect],
     full_fields: frozenset[str] | set[str] | None = None,
+    *,
+    authoritative: bool = False,
 ) -> dict[str, Any] | str:
     """Overlay detected dialects onto a Mapping IR (dict or YAML text).
 
     The deterministic design-pipeline step (the LLM never authors
     ``dialects:``): every non-default detected dialect of a file some map
     declares as its source is written into the ``dialects:`` section, field by
-    field, with explicit IR values WINNING over detected ones so the human
-    gate can override. Default dialects and files no map reads are skipped.
+    field. Default dialects and files no map reads are skipped.
 
     ``full_fields`` names the sources whose entry must carry ALL four fields
     (defaults included) rather than only the non-default ones — the human-override
@@ -790,6 +800,17 @@ def apply_detected_dialects(
     corrected 1→0) is pinned verbatim and survives the materialize re-pin (FIX2).
     The default (empty set) is byte-identical to the pre-FIX behavior: detection-only
     sources keep their minimal entries.
+
+    ``authoritative`` decides who wins a field both sides carry:
+
+    * ``False`` (the re-pin from a bare artifact, e.g. ``materialize --source-dir``):
+      explicit IR values win. The section it finds was written by THIS function
+      upstream — the settled answer — and re-detection must not walk over a human's
+      correction it has no way to see.
+    * ``True`` (the design loop, which passes detection already merged with the
+      human's corrections): the caller's map wins. What the LLM wrote in ``dialects:``
+      is not evidence about the file — and an encoding an autocorrect round "improved"
+      to ``utf-8-sig`` is a source ingest can no longer open (live 2026-08-26).
 
     A dict input returns a new dict (the input is not mutated). A YAML-text
     input returns YAML text, byte-identical when there is nothing to add — a
@@ -810,8 +831,8 @@ def apply_detected_dialects(
             return ir  # a spec too broken to parse flows on; lint reports it
         if not isinstance(doc, Mapping):
             return ir
-        overlaid = _overlay(doc, detected, ff)
+        overlaid = _overlay(doc, detected, ff, authoritative)
         if overlaid.get("dialects") == doc.get("dialects"):
             return ir
         return yaml.safe_dump(overlaid, sort_keys=False, allow_unicode=True)
-    return _overlay(ir, detected, ff)
+    return _overlay(ir, detected, ff, authoritative)

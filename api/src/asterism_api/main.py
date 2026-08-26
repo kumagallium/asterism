@@ -37,7 +37,7 @@ from collections.abc import AsyncIterator, Callable, Collection, Mapping
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, Literal
+from typing import TYPE_CHECKING, Any, Final, Literal
 
 import httpx
 import yaml
@@ -2516,7 +2516,7 @@ def _write_staging_meta(sdir: Path, meta: dict) -> None:
     )
 
 
-def _parse_dialect_overrides(raw: str) -> dict:
+def _parse_dialect_overrides(raw: str) -> dict[str, dict[str, Any]]:
     """Parse + boundary-check the wizard's dialect overrides (a JSON form field).
 
     ``{source_name: {encoding?, delimiter?, collapse?, skip_rows?}}``. Empty / blank
@@ -2525,9 +2525,17 @@ def _parse_dialect_overrides(raw: str) -> dict:
     the field-level rules run — the same contract the compiled RML annotations enforce:
     a text codec (not a bytes↔bytes codec), a single-char delimiter or ``whitespace``,
     a boolean ``collapse``, a non-negative ``skip_rows``, no unknown keys. An invalid
-    value is a readable 422 (never a 500 / a silently bad §9 annotation). Returns
-    ``{source_name: SourceDialect}`` (step0 dialects, ready to merge over the detected
-    ones in the design loop).
+    value is a readable 422 (never a 500 / a silently bad §9 annotation).
+
+    Returns ``{source_name: {field: lint-checked value}}`` carrying ONLY the fields the
+    person actually wrote — never a whole ``SourceDialect``. A ``SourceDialect`` cannot
+    say "not specified": every absent field silently reads back as its class default,
+    and the caller merges the override OVER detection, so an override that corrected
+    only the delimiter used to reset a detected ``cp932`` to ``utf-8-sig`` and the
+    design pinned a reading the file cannot be read with (live 2026-08-26: an XRD
+    export whose only non-ASCII bytes are the two header cells 2θ / 強度 — detection
+    got it right at every stage and the pin threw it away). Field-level merging is
+    :func:`design_loop.merge_dialect_overrides`.
     """
     raw = (raw or "").strip()
     if not raw:
@@ -2538,13 +2546,34 @@ def _parse_dialect_overrides(raw: str) -> dict:
         raise HTTPException(422, f"dialects is not valid JSON: {exc}") from exc
     if not isinstance(parsed, dict):
         raise HTTPException(422, "dialects must be a JSON object {source: {fields}}")
-    from asterism_step0.mapping_ir import _parse_dialects
+    from asterism_step0.mapping_ir import _DIALECT_KEYS, _parse_dialects
 
     issues: list[str] = []
     dialects = _parse_dialects(parsed, [], issues)  # no maps → field-only lint
     if issues:
         raise HTTPException(422, "; ".join(issues))
-    return dialects
+    # Keep the linted VALUE (coerced / normalized by the linter) but only for the keys
+    # the request actually carried — the rest stays "not specified" for the merge.
+    out: dict[str, dict[str, Any]] = {}
+    for name, fields in parsed.items():
+        linted = dialects.get(str(name))
+        if linted is None or not isinstance(fields, dict):
+            continue
+        out[str(name)] = {k: getattr(linted, k) for k in _DIALECT_KEYS if k in fields}
+    return out
+
+
+def _effective_dialects(
+    paths: list[Path], overrides: Mapping[str, Mapping[str, Any]] | None
+) -> dict[str, Any]:
+    """The read rules in force for these uploads: detection with the human's
+    corrections laid over it field by field — the same map
+    :func:`design_loop.run_design_loop` builds, so the skeleton stage reads every
+    source exactly the way the generation stage will. Blocking I/O (it reads each
+    file): call it off the event loop."""
+    return design_loop.merge_dialect_overrides(
+        design_loop._detect_source_dialects(list(paths)), overrides
+    )
 
 
 async def _pending_drop_sweeper(
@@ -4603,6 +4632,12 @@ def build_app(
             _arm_llm_callbacks(
                 llm, should_cancel=should_cancel, on_generation=on_generation, on_note=on_note
             )
+            # Detection + the human's corrections, field by field. The overrides alone
+            # are NOT the read rules: they carry only what the person edited, so
+            # passing them raw made this stage read a cp932 source as utf-8-sig.
+            effective = await asyncio.to_thread(
+                _effective_dialects, list(paths), dialect_overrides
+            )
             emit(phase="skeleton", message="骨格を生成中")
             try:
                 result = await asyncio.to_thread(
@@ -4612,7 +4647,7 @@ def build_app(
                     llm=llm,
                     language=language or None,
                     fk_hint_columns=fk_cols,
-                    dialects=dialect_overrides,
+                    dialects=effective,
                     iri_base=cfg.iri_base,
                 )
                 _record_llm_usage(cfg.registry_root, "propose", provider, llm, model)
@@ -4626,7 +4661,7 @@ def build_app(
                         annotate_skeleton,
                         skeleton,
                         list(paths),
-                        dialects=dialect_overrides,
+                        dialects=effective,
                         iri_base=cfg.iri_base,
                     )
                     # Before the human ever sees a "measurement-only key"
@@ -4644,7 +4679,7 @@ def build_app(
                             annotate_skeleton,
                             skeleton,
                             list(paths),
-                            dialects=dialect_overrides,
+                            dialects=effective,
                             iri_base=cfg.iri_base,
                         )
                         for name, record in key_fixes.items():
@@ -4710,11 +4745,14 @@ def build_app(
             cfg.registry_root, files, staging_id or None, prefix="asterism-skelcheck-"
         )
         try:
+            effective = await asyncio.to_thread(
+                _effective_dialects, list(paths), dialect_overrides
+            )
             annotations = await asyncio.to_thread(
                 annotate_skeleton,
                 skeleton_obj,
                 paths,
-                dialects=dialect_overrides,
+                dialects=effective,
                 iri_base=cfg.iri_base,
             )
         finally:
