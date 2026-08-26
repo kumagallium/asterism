@@ -69,6 +69,19 @@ issues: []                                          ← 警告も出ない
 （`api/tests/test_source_dialect.py::test_partial_override_keeps_the_detected_encoding`、
 `::test_llm_authored_encoding_loses_to_detection`）。
 
+**実機で起きたのは (b) である**（使用ログ `registry/_usage/events-2026-08.jsonl` のタイムライン、
+すべて UTC）:
+
+```
+01:12:57 〜 01:14:45   propose.autocorrect  × 5   ← 自動修正が §9 を 5 回書き直した
+01:15:14 / 01:15:39    refine               × 2   ← 「AI に直してもらう」
+01:15:40               ingest → error  pinned dialect encoding 'utf-8-sig'
+```
+
+`_overlay_detected_dialects` は各ラウンド後に走るが、旧実装では「明示値が検出に勝つ」ため、
+ラウンドが書いた `utf-8-sig` を上書きできなかった。取り込み直前の 5 + 2 ラウンドが
+`dialects:` に触れる機会そのものだった。
+
 ### 3. ingest 段は、答えを出せる問いを人間に投げていた
 
 `.txt`（legacy suffix）でアノテーションが無いソースには `DEFAULT_DIALECT`（= `utf-8-sig`）が
@@ -122,10 +135,12 @@ LOG source 'xrd-664287b2.txt' does not decode as its pinned 'utf-8-sig';
   pin されている場合は救済しない（decode 失敗はそれらについて何の証拠でもないため）。
 - 候補は `utf-8-sig` / `cp932` の 2 つ。UTF-16 や EUC-JP のファイルは、検出器が pin して
   いれば読めるが、pin が失われた場合の救済対象外。
-- 実機で「ウィザードのどの操作が部分 override を送ったか」までは特定していない。UI は
-  検出値から全項目を組み立てて送るコードになっており、(a) の経路は API 境界の仕様として
-  再現・修正した。(b) の経路は実機のどのラウンドで起きたかを断定していない。
-  いずれにせよ両方とも塞いだ。
+- 実機の事故は (b) と特定したが、LLM がどのラウンドで `dialects:` をどう書いたかまでは
+  復元していない（失敗した設計は ingest の rollback で消えており、`proposal.md` が残って
+  いない）。特定は使用ログのタイムラインと、旧実装が LLM の明示値を尊重する仕様である
+  ことの組み合わせによる。
+- (a) は実機で発火した証拠はない（UI は検出値から全項目を組み立てて送るコードになっている）。
+  API 境界の仕様として実在する穴なので、同じ事故の別入口として塞いだ。
 
 ## Reproduce
 
