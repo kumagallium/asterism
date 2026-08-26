@@ -657,6 +657,15 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=args.log_level.upper(), format="%(asctime)s %(message)s")
+    if args.log_level.upper() != "DEBUG":
+        # httpx logs one INFO line per request, and the Oxigraph readiness
+        # probe (wait_oxigraph_ready) polls it every ~10s for as long as the
+        # process runs. In a real backend.log this was 180,621 of 183,451
+        # lines (98.5%) — pure liveness-check noise that buried the handful
+        # of lines an actual investigation needed (see PR #430/#431). Leave
+        # it alone under --log-level debug, where seeing every request is
+        # the point.
+        logging.getLogger("httpx").setLevel(logging.WARNING)
     # Private-by-default at-rest, same rationale as asterism-api (_main).
     os.umask(0o077)
 

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import shutil
 import signal
@@ -451,6 +452,53 @@ def test_missing_oxigraph_binary_is_a_clear_exit(
     finally:
         os.umask(prev_umask)
     assert rc == 2
+
+
+def test_default_log_level_quiets_httpx(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """httpx's per-request INFO line (the Oxigraph liveness probe, every
+    ~10s) was 98.5% of a real backend.log (180,621 of 183,451 lines) and
+    buried the handful of lines an actual investigation needed. Default
+    runs must drop it to WARNING; ``--log-level debug`` must not touch it.
+    """
+    monkeypatch.delenv("CSV2RDF_OXIGRAPH_URL", raising=False)
+    monkeypatch.delenv("ASTERISM_OXIGRAPH_BIN", raising=False)
+    monkeypatch.setattr("asterism_api.local.shutil.which", lambda _name: None)
+    httpx_logger = logging.getLogger("httpx")
+    prev_level = httpx_logger.level
+    try:
+        httpx_logger.setLevel(logging.NOTSET)
+        rc = main(["--data-dir", str(tmp_path / "home"), "--no-browser"])
+        assert rc == 2
+        assert httpx_logger.level == logging.WARNING
+    finally:
+        httpx_logger.setLevel(prev_level)
+
+
+def test_debug_log_level_leaves_httpx_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("CSV2RDF_OXIGRAPH_URL", raising=False)
+    monkeypatch.delenv("ASTERISM_OXIGRAPH_BIN", raising=False)
+    monkeypatch.setattr("asterism_api.local.shutil.which", lambda _name: None)
+    httpx_logger = logging.getLogger("httpx")
+    prev_level = httpx_logger.level
+    try:
+        httpx_logger.setLevel(logging.NOTSET)
+        rc = main(
+            [
+                "--data-dir",
+                str(tmp_path / "home"),
+                "--no-browser",
+                "--log-level",
+                "debug",
+            ]
+        )
+        assert rc == 2
+        assert httpx_logger.level == logging.NOTSET
+    finally:
+        httpx_logger.setLevel(prev_level)
 
 
 def test_oxigraph_binary_env_override(
