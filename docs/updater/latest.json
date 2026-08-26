@@ -1,11 +1,11 @@
 {
-  "version": "0.21.1",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at a4ee5f108f3a9f1f3c4c3f081500efeb9de83f7c -->\n\n## What's Changed\n* fix(step0/api/ui): 「No」列を持つ設計で意味の保存が消える — YAML bool 化を根絶 by @kumagallium in https://github.com/kumagallium/asterism/pull/415\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.21.0...v0.21.1",
-  "pub_date": "2026-08-25T10:23:54Z",
+  "version": "0.21.2",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 4c92551074b47f4c585ef6ec5a3146221d9d7553 -->\n\n## What's Changed\n* fix(ui/kantan): 自動修正のたびに下書きが増殖するのを止める — ④の判断済み表示と見直しバナーも改善 by @kumagallium in https://github.com/kumagallium/asterism/pull/417\n* fix(ui/kantan): 見直しの判断反映後に④を再表示せず⑤ためすへ直行する by @kumagallium in https://github.com/kumagallium/asterism/pull/419\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.21.1...v0.21.2",
+  "pub_date": "2026-08-26T00:32:20Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcWZISXNNMzNDTUg1c2pMT2ZUVGRXdEdqdElaRytlcHU2VHhaMzEraFZ5Qlo0UGpoNWtWbFJQN3Y5QzFxU3VheTJqZFUzY1hzQkt2cHlRazBXT3orcHcwPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3NjUzNDM0CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CnplSTlYM0pFVHRUUVVtUnUvdjdJamFQeEtRM1FOQ2drWjZjVXlnbzYxSEFEOGk1all6cW1LbktUMnNpcityRVluLzBlcEFoUG11ZWdTWnk4SUJiMUN3PT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.21.1/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVhwOTVGS2c4c1IrUS9tTklScTRaUEFUWUpPQjcyYlhwVVdDRy9XRlFtdWZnN2JSVUhJK1ZPWm4yTVMvUUlQOTRaTTdtb1hLeVd4eS9kckZqL2l1ZndnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3NzA0MzM5CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CnlSZjlBTm5pSlYzcHRLbW1Lc0xXRTJRQzFzK2tSb1BBVkdQMCtjOGw5K3g0VVpjYUdiaGo2RUFZWHVBa0tnbWc3Q09oVmpqcnowSC9iL2NqOXZDY0N3PT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.21.2/Asterism_aarch64.app.tar.gz"
     }
   }
 }
