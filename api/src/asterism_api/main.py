@@ -836,17 +836,29 @@ def _find_consult_manual_dir() -> Path | None:
     return None
 
 
+# The manual grew from 2 files to a full user manual (2026-08-25, ADR
+# design-consult-chat.md §3.8): injecting every chapter would blow the system
+# prompt past ~30k chars per consult call. Only this core set — the 6-step
+# walkthrough plus the screen-by-screen navigation reference — is injected;
+# screens.md keeps a 1-2 line pointer for every feature, so the AI still knows
+# where everything lives. The staleness test (test_manual_ui_names_exist_in_
+# ui_locales) still checks EVERY manual/ja/*.md, injected or not.
+_CONSULT_MANUAL_CORE = ("getting-started.md", "screens.md")
+
+
 def _load_consult_manual() -> str:
-    """Concatenate every `manual/ja/*.md` file (sorted, deterministic order)
-    into the block the system prompt injects. Read once at import time (see
-    the module-level ``CONSULT_MANUAL_TEXT`` below) — not per request, so a
-    consult call never does file I/O beyond the one LLM call. "" when the
-    manual dir is missing or holds no files."""
+    """Concatenate the core `manual/ja/` files (`_CONSULT_MANUAL_CORE`, sorted,
+    deterministic order) into the block the system prompt injects. Read once at
+    import time (see the module-level ``CONSULT_MANUAL_TEXT`` below) — not per
+    request, so a consult call never does file I/O beyond the one LLM call.
+    "" when the manual dir is missing or holds none of the core files."""
     manual_dir = _find_consult_manual_dir()
     if manual_dir is None:
         return ""
     parts: list[str] = []
     for path in sorted(manual_dir.glob("*.md")):
+        if path.name not in _CONSULT_MANUAL_CORE:
+            continue
         try:
             parts.append(path.read_text(encoding="utf-8").strip())
         except OSError:
