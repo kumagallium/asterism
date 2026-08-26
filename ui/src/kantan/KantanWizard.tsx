@@ -1022,6 +1022,13 @@ export function KantanWizard({
     sourceAttachedRef.current = attached
     setSourceAttachedState(attached)
   }
+  // An ingest started by ④'s own confirm button (column decisions applied):
+  // its completion lands on ⑤ためす, not back on ④ — the person has ALREADY
+  // judged everything on ④, and showing them the same screen again reads as
+  // "did my click work? must I review once more?" (live 2026-08-26). A ref,
+  // not state: trackIngest runs in the same async chain as the pipeline (see
+  // the stale-closure note above).
+  const confirmedMeaningsIngestRef = useRef(false)
   const [autoFixed, setAutoFixed] = useState<boolean>(snap.autoFixed ?? false)
   const [pipeBusy, setPipeBusy] = useState(false)
   const [pipePhase, setPipePhase] = useState<'save' | 'attach' | 'ingest' | null>(null)
@@ -2821,9 +2828,18 @@ export function KantanWizard({
       autoFixLeft.current = AUTO_FIX_MAX
       lastAutoFixKey.current = null
       setReingested(true) // a staged draft now exists → 確定 leads to publish
-      setStep(6)
-      void loadS6(datasetId)
+      if (confirmedMeaningsIngestRef.current) {
+        // ④'s confirm started this ingest: every judgment is already made, so
+        // land where the RESULT is visible (⑤ shows the data with the newly
+        // included columns) instead of re-showing the same review.
+        confirmedMeaningsIngestRef.current = false
+        confirmMeanings()
+      } else {
+        setStep(6)
+        void loadS6(datasetId)
+      }
     } catch (e) {
+      confirmedMeaningsIngestRef.current = false
       if (e instanceof IngestCancelledError || e instanceof StaleIngestJobError) {
         // Clean stop (user cancel) or a job id re-minted by an api restart —
         // nothing was committed; offer a clean resume of the same stage.
@@ -3053,6 +3069,7 @@ export function KantanWizard({
         const result = await saveColumnDecisions(kzDatasetId, decisions)
         setProposal(result.proposal_md)
         if (result.requires_reingest) {
+          confirmedMeaningsIngestRef.current = true
           await runPipeline('ingest', result.proposal_md)
           return
         }
@@ -5777,7 +5794,12 @@ export function KantanWizard({
               disabled={s6Loading || refining !== false || confirmBlocked}
             >
               {redesigning && !reingested
-                ? t('kantan:redesign.confirmNoChange')
+                ? droppedColumns.length > 0
+                  ? // Judgments waiting in the table: pressing SAVES them (and
+                    // usually re-ingests) — calling that "見直しを終了" made the
+                    // return of the flow read as a failed exit.
+                    t('kantan:redesign.confirmApply')
+                  : t('kantan:redesign.confirmNoChange')
                 : t('kantan:s6.confirm')}
             </button>
           </div>
