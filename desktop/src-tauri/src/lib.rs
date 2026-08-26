@@ -723,6 +723,52 @@ fn log_tail(app: &tauri::AppHandle, lines: usize) -> String {
     kept[kept.len().saturating_sub(lines)..].join("\n")
 }
 
+/// Rotate `backend.log` before `boot_once` starts a fresh backend process:
+/// keep the last 3 generations (`.1`/`.2`/`.3`, oldest dropped). Without this
+/// the file only ever grows — every launch of every instance (dev checkout,
+/// a stray second copy, the real distributed app) appends to the same file
+/// forever, so a real investigation (see PR #430/#431) has to wade through
+/// unrelated history to find the run that actually mattered.
+///
+/// Pure path-in function — no `AppHandle` — so it is exercised directly by
+/// the tests below rather than through a live boot. A rotation failure is
+/// reported (`eprintln!`) but never blocks the boot: losing old log history
+/// is not fatal, failing to start over a renamed file would be.
+fn rotate_backend_log(path: &Path) {
+    match std::fs::metadata(path) {
+        Ok(meta) if meta.len() > 0 => {}
+        _ => return, // no log yet, or an empty one — nothing to rotate
+    }
+    let generation = |n: u32| {
+        let mut os = path.as_os_str().to_os_string();
+        os.push(format!(".{n}"));
+        PathBuf::from(os)
+    };
+    // Oldest-first (.2 -> .3, .1 -> .2, current -> .1) so nothing is
+    // overwritten before it has been moved out of the way. `rename` fails on
+    // Windows if the destination already exists, so remove it first — the
+    // 4th generation (an old `.3`) is meant to be dropped anyway.
+    for n in [2, 1, 0] {
+        let from = if n == 0 {
+            path.to_path_buf()
+        } else {
+            generation(n)
+        };
+        if n != 0 && !from.exists() {
+            continue;
+        }
+        let to = generation(n + 1);
+        let _ = std::fs::remove_file(&to);
+        if let Err(err) = std::fs::rename(&from, &to) {
+            eprintln!(
+                "asterism-desktop: could not rotate {} -> {}: {err}",
+                from.display(),
+                to.display()
+            );
+        }
+    }
+}
+
 fn append_log(app: &tauri::AppHandle, line: &str) {
     let Some(path) = log_file(app) else { return };
     if let Ok(mut file) = std::fs::OpenOptions::new()
@@ -1695,8 +1741,15 @@ fn boot_once(app: &tauri::AppHandle) -> Flow {
     *app.state::<Shell>().log_path.lock().unwrap() = log_path.clone();
 
     // `attach` means an Asterism is already serving that port: open its window
-    // rather than starting a second backend on the same data.
+    // rather than starting a second backend on the same data. Only THIS path
+    // spawns a fresh backend process, so only this path rotates the log —
+    // `restart_backend` deliberately keeps appending to the same file (one
+    // app launch = one file; a restart within it is an event in that file,
+    // not a new one).
     if !attach {
+        if let Some(path) = log_path.as_deref() {
+            rotate_backend_log(path);
+        }
         if let Err(flow) = spawn_backend(app, &backend, port, ipc_granted, log_path.as_deref()) {
             return flow;
         }
@@ -1737,6 +1790,21 @@ fn spawn_backend_quiet(
     ipc_granted: bool,
     log_path: Option<&Path>,
 ) -> Result<(), String> {
+    // A boundary line every time a backend process is about to start, on
+    // both the `boot_once` path (fresh file, thanks to `rotate_backend_log`)
+    // and `restart_backend` (same file, new section): with several instances
+    // able to append to the same OS-level log path, this is what lets a
+    // person tell "which lines came from THIS run" apart after the fact.
+    let data_home_override = settings::resolve_data_home_override(app);
+    let data_home_display = data_home_override.as_deref().unwrap_or("(default)");
+    append_log(
+        app,
+        &format!(
+            "=== asterism-local starting: port {port}, data {data_home_display}, app {} ===",
+            app.package_info().version
+        ),
+    );
+
     let (stdout, stderr) = match log_path {
         Some(path) => match std::fs::OpenOptions::new()
             .create(true)
@@ -1770,8 +1838,8 @@ fn spawn_backend_quiet(
     // Absent an override, behavior is unchanged — the backend's own default
     // applies. A path that cannot be created falls back to that default too,
     // rather than risk the app failing to boot over a bad setting.
-    if let Some(dir) = settings::resolve_data_home_override(app) {
-        command.args(["--data-dir", &dir]);
+    if let Some(dir) = &data_home_override {
+        command.args(["--data-dir", dir]);
     }
     // Tell the backend which build it belongs to: `/api/instance` relays it, so
     // the SPA shows the version (settings → About) and knows it is running
@@ -2536,5 +2604,80 @@ mod tests {
         // failure.
         let _ = fs::remove_dir_all(&to);
         assert!(!to.exists(), "cleanup must remove the partial destination");
+    }
+
+    // ---- rotate_backend_log ---------------------------------------------
+
+    #[test]
+    fn rotate_backend_log_shifts_three_generations() {
+        let dir = tempdir().unwrap();
+        let log = dir.path().join("backend.log");
+        write_file(&log, "current");
+        write_file(&dir.path().join("backend.log.1"), "gen1");
+        write_file(&dir.path().join("backend.log.2"), "gen2");
+
+        rotate_backend_log(&log);
+
+        assert!(
+            !log.exists(),
+            "current log is renamed away, not left in place"
+        );
+        assert_eq!(
+            fs::read_to_string(dir.path().join("backend.log.1")).unwrap(),
+            "current"
+        );
+        assert_eq!(
+            fs::read_to_string(dir.path().join("backend.log.2")).unwrap(),
+            "gen1"
+        );
+        assert_eq!(
+            fs::read_to_string(dir.path().join("backend.log.3")).unwrap(),
+            "gen2"
+        );
+    }
+
+    #[test]
+    fn rotate_backend_log_drops_the_fourth_generation() {
+        let dir = tempdir().unwrap();
+        let log = dir.path().join("backend.log");
+        write_file(&log, "current");
+        write_file(&dir.path().join("backend.log.1"), "gen1");
+        write_file(&dir.path().join("backend.log.2"), "gen2");
+        write_file(&dir.path().join("backend.log.3"), "gen3-should-be-dropped");
+
+        rotate_backend_log(&log);
+
+        assert_eq!(
+            fs::read_to_string(dir.path().join("backend.log.3")).unwrap(),
+            "gen2",
+            "the old .3 (4th generation) must be gone, replaced by the old .2"
+        );
+    }
+
+    #[test]
+    fn rotate_backend_log_does_nothing_when_missing() {
+        let dir = tempdir().unwrap();
+        let log = dir.path().join("backend.log");
+
+        rotate_backend_log(&log); // must not panic or create anything
+
+        assert!(!log.exists());
+        assert!(!dir.path().join("backend.log.1").exists());
+    }
+
+    #[test]
+    fn rotate_backend_log_does_nothing_when_empty() {
+        let dir = tempdir().unwrap();
+        let log = dir.path().join("backend.log");
+        write_file(&log, "");
+
+        rotate_backend_log(&log);
+
+        // Left in place, not renamed to .1 — an empty file has nothing worth
+        // keeping a generation of, and rotating it away would just make the
+        // NEXT boot look like it is starting from an empty file too.
+        assert!(log.exists());
+        assert_eq!(fs::read_to_string(&log).unwrap(), "");
+        assert!(!dir.path().join("backend.log.1").exists());
     }
 }
