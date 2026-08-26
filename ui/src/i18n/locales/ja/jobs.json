@@ -30,5 +30,9 @@
   "errCount": "（失敗 {{n}} 行）",
   "loadFailed": "取り込み記録を読み込めませんでした。少し待ってから「もう一度読み込む」を押してください。",
   "reload": "もう一度読み込む",
-  "detailSummary": "詳しい内容（技術情報）"
+  "detailSummary": "詳しい内容（技術情報）",
+  "card": {
+    "rowsAndFacts": "{{total}} 行のうち {{ok}} 行を読み、{{facts}} 件の事実になりました",
+    "factsOnly": "{{facts}} 件の事実になりました"
+  }
 }

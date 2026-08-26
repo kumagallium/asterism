@@ -24,6 +24,7 @@ import { getCatalogDatasets } from './galleryApi'
 import { ArrowIcon, ConnectIcon, LayersIcon, LinkIcon } from './icons'
 import { ToolsPanel } from './ToolsPanel'
 import { knownVocabForIri, localName } from './vocab'
+import { XwLinkDiagram } from './XwLinkDiagram'
 
 /** The connection the address bar names, when it names one. The overview links to a
  * single connection as `#/crosswalk/<perspective_id>`; the app's router keeps only the
@@ -318,6 +319,19 @@ export function CrosswalkView({
                   : t('crosswalk:create.bandSub')}
             </p>
           </div>
+          {/* K23: 作る前の人にとって「つながり」はまだ像を結んでいない。1 枚の絵で
+              「データ—共通の値—データ」を言う。実在のデータ名はまだ無いので、
+              ここだけは総称で描く（在るように見せない）。 */}
+          {list.length === 0 && (
+            <XwLinkDiagram
+              headline={t('crosswalk:view.diagram.head')}
+              note={t('crosswalk:view.diagram.note')}
+              sides={[
+                { key: 'a', name: t('crosswalk:view.diagram.a') },
+                { key: 'b', name: t('crosswalk:view.diagram.b') },
+              ]}
+            />
+          )}
           <div className="xw-create-band-actions">
             {/* With fewer than two published datasets the scan can only end in a
                 refusal, so the offer becomes the step that actually helps. Only when
@@ -400,50 +414,45 @@ export function CrosswalkView({
                         t('crosswalk:create.sharedValueLabel'),
                     })}
                   </div>
-                  {/* Say what counts as the same value in a sentence — a raw
-                      normalizer id ("nfkc") means nothing outside the codebase. This
-                      IS the point of the card, so it reads as body text, not as a
-                      caption in the faintest grey the palette has. */}
-                  <p className="kz-note">
-                    {c.key_parts && c.key_parts.length > 0
-                      ? t('crosswalk:view.compoundKeyHint', {
-                          parts: c.key_parts
-                            .map(
-                              (kp) =>
-                                conceptName(kp.name) ??
-                                t('crosswalk:create.sharedValueLabel'),
-                            )
-                            .join(' × '),
-                        })
-                      : t(sameAsKey(c.normalizer ?? 'identity'))}
-                  </p>
-                  <div className="xw-participants">
-                    {c.participants.map((p) => {
+
+                  {/* K23: 同じ 3 つの事実（どのデータ同士が／どの値で／何を同じと
+                      みなして）を 1 枚の絵にまとめる。チップの行と件数バッジと
+                      同一視の 1 文が画面の別々の場所に散っていた。
+                      The node says WHICH data and WHICH field, in the words those
+                      things have today; the IRIs and their local names stay in the
+                      tooltip for whoever needs them. */}
+                  <XwLinkDiagram
+                    headline={t('crosswalk:view.diagram.head')}
+                    /* Say what counts as the same value in a sentence — a raw
+                       normalizer id ("nfkc") means nothing outside the codebase.
+                       It belongs ON the link, not as a separate note above it:
+                       that IS what the link does. */
+                    note={
+                      c.key_parts && c.key_parts.length > 0
+                        ? t('crosswalk:view.compoundKeyHint', {
+                            parts: c.key_parts
+                              .map(
+                                (kp) =>
+                                  conceptName(kp.name) ??
+                                  t('crosswalk:create.sharedValueLabel'),
+                              )
+                              .join(' × '),
+                          })
+                        : t(sameAsKey(c.normalizer ?? 'identity'))
+                    }
+                    sides={c.participants.map((p) => {
                       // single-part = one predicate; compound = one per key part.
                       const preds = p.predicate
                         ? [p.predicate]
                         : Object.values(p.predicates ?? {})
-                      // The chip says WHICH data and WHICH field, in the words those
-                      // things have today; the IRIs and their local names stay in the
-                      // tooltip for whoever needs them.
-                      return (
-                        <span
-                          key={p.dataset_id}
-                          className="xw-part-chip"
-                          title={[...preds, ...preds.map(localName)].join(', ')}
-                        >
-                          <span className="xw-part-name">
-                            {dsName(p.dataset_id, p.name || p.label)}
-                          </span>
-                          {p.predicate_label && (
-                            /* Plain text, not the mono `xw-part-pred` slot: this is a
-                               field's NAME now, not its identifier. */
-                            <span className="xw-hint-inline">{p.predicate_label}</span>
-                          )}
-                        </span>
-                      )
+                      return {
+                        key: p.dataset_id,
+                        name: dsName(p.dataset_id, p.name || p.label),
+                        field: p.predicate_label ?? undefined,
+                        title: [...preds, ...preds.map(localName)].join(', '),
+                      }
                     })}
-                  </div>
+                  />
                 </div>
               ))}
 

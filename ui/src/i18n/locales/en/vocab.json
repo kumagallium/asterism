@@ -18,7 +18,8 @@
     "classesSubhead": "Kinds of data (count)",
     "predicatesSubhead": "Main fields (usage count)",
     "reusesSubhead": "Reused standard words",
-    "emptyAll": "There is no published data yet, so there are no words yet. Publish data via \"Add data\" and it will appear here."
+    "emptyAll": "There is no published data yet, so there are no words yet. Publish data via \"Add data\" and it will appear here.",
+    "notesSummary": "How to read these numbers"
   },
   "usersCard": {
     "title": "Datasets using these words",
@@ -40,7 +41,9 @@
     "owner": "Revise this dataset",
     "more": "…and {{n}} more",
     "showAll": "Show all",
-    "showLess": "Show fewer"
+    "showLess": "Show fewer",
+    "standard": "Standard word",
+    "own": "This server only"
   },
   "known": {
     "schema": "schema.org (metadata for people, publications, etc.)",

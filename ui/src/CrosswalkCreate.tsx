@@ -20,6 +20,7 @@ import {
 } from './crosswalkLabels'
 import { uniqueCrosswalkId } from './crosswalkMint'
 import { useLlmSettings } from './settings/context'
+import { XwLinkDiagram } from './XwLinkDiagram'
 
 /**
  * Making a connection, reduced to one decision (kantan-mode ADR K2/K13).
@@ -530,51 +531,56 @@ function CandidateCard({
         </span>
       </div>
 
-      {examples.length > 0 && (
-        <>
-          <p className="xw-cand-sub">{t('crosswalk:create.card.examplesHead')}</p>
-          <div className="xw-cand-vals">
-            {examples.map((s) => (
-              <code className="xw-cand-val" key={s.key}>
-                {Object.values(s.raw)[0] ?? s.key}
-              </code>
-            ))}
-          </div>
-        </>
-      )}
-
-      <p className="xw-cand-sub">{t('crosswalk:create.card.partHead')}</p>
-      <div className="xw-cand-parts">
-        {candidate.participants.map((p) => (
-          <div className="xw-cand-part" key={p.dataset_id}>
-            <span className="xw-cand-part-name">{p.name}</span>
-            {/* WHICH field, and the same value as each side actually spells it — the
-                moment the candidate becomes obvious (Bi₂Te₃ here, Bi2Te3 there), and
-                the only way to notice the wrong column was picked. */}
-            {examples[0]?.raw[p.dataset_id] && (
-              <span className="xw-cand-part-sample" title={p.predicate}>
-                {p.predicate_label
-                  ? t('crosswalk:create.card.partField', {
-                      field: p.predicate_label,
-                      sample: examples[0].raw[p.dataset_id],
-                    })
-                  : t('crosswalk:create.card.partSample', {
-                      sample: examples[0].raw[p.dataset_id],
-                    })}
-              </span>
-            )}
-          </div>
-        ))}
-      </div>
-
-      {/* Two sentences, never one nested in the other: the "what counts as the same"
-          line is a full sentence, so interpolating it mid-clause reads as a run-on. */}
-      <p className="xw-cand-note">{t(sameAsKey(candidate.normalizer))}</p>
-      {gain && (
-        <p className="xw-cand-note">
-          {t('crosswalk:create.card.foldingGain', { strict: gain.strict, chosen: gain.chosen })}
-        </p>
-      )}
+      {/* K23: つながりは 3 つの事実の組（どのデータ同士が／どの値で／何を同じと
+          みなして）。散らして置くと読み手が組み立て直すことになるので、同じ順で
+          3 行に並べる。1 行目は関係図そのもの。 */}
+      <dl className="xw-cand-rows">
+        <dt>{t('crosswalk:create.card.rowLinks')}</dt>
+        <dd>
+          <XwLinkDiagram
+            /* 件数はカードの見出しが既に言っている — 図で二重に言わない。 */
+            headline={t('crosswalk:view.diagram.head')}
+            sides={candidate.participants.map((p) => ({
+              key: p.dataset_id,
+              name: p.name,
+              // WHICH field, and the same value as each side actually spells it — the
+              // moment the candidate becomes obvious (Bi₂Te₃ here, Bi2Te3 there), and
+              // the only way to notice the wrong column was picked.
+              field: p.predicate_label ?? undefined,
+              title: p.predicate,
+            }))}
+          />
+        </dd>
+        {examples.length > 0 && (
+          <>
+            <dt>{t('crosswalk:create.card.rowValues')}</dt>
+            <dd>
+              <div className="xw-cand-vals">
+                {examples.map((s) => (
+                  <code className="xw-cand-val" key={s.key}>
+                    {Object.values(s.raw)[0] ?? s.key}
+                  </code>
+                ))}
+              </div>
+            </dd>
+          </>
+        )}
+        <dt>{t('crosswalk:create.card.sameAsHead')}</dt>
+        <dd>
+          {/* Two sentences, never one nested in the other: the "what counts as the
+              same" line is a full sentence, so interpolating it mid-clause reads as
+              a run-on. */}
+          <p className="xw-cand-note">{t(sameAsKey(candidate.normalizer))}</p>
+          {gain && (
+            <p className="xw-cand-note">
+              {t('crosswalk:create.card.foldingGain', {
+                strict: gain.strict,
+                chosen: gain.chosen,
+              })}
+            </p>
+          )}
+        </dd>
+      </dl>
 
       {candidate.flags.map(flagKey).map(
         (key) =>

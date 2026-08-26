@@ -30,5 +30,9 @@
   "errCount": " ({{n}} failed)",
   "loadFailed": "Couldn't load the ingest history. Wait a moment, then press \"Reload\".",
   "reload": "Reload",
-  "detailSummary": "Details (technical)"
+  "detailSummary": "Details (technical)",
+  "card": {
+    "rowsAndFacts": "Read {{ok}} of {{total}} rows — {{facts}} facts recorded",
+    "factsOnly": "{{facts}} facts recorded"
+  }
 }

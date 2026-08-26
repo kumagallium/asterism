@@ -293,6 +293,8 @@ button.lang-toggle-btn.active:hover:not(:disabled) {
   margin-top: 0;
   margin-bottom: 0.5rem;
   font-size: 0.95rem;
+  /* K23: 画面の 1 文にも読み幅を効かせる。ページ幅いっぱいに伸びていた。 */
+  max-width: 62ch;
 }
 
 .controls {
@@ -2380,7 +2382,8 @@ textarea:focus {
 
 .citation-field-key {
   color: var(--faint);
-  font-family: var(--font-mono);
+  /* 語であって識別子ではない — mono は数値・ID・コードのためのもの
+     （ui-guidelines §5）。TSX 側のインライン指定はこれに伴って外した。 */
   font-size: 0.8rem;
   flex: none;
 }
@@ -5895,26 +5898,6 @@ button.trace-iri-copy:hover:not(:disabled) {
   display: flex;
   flex-direction: column;
 }
-.xw-participants {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-.xw-part-chip {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 0.4rem;
-  border: 1px solid var(--border);
-  border-top: 3px solid var(--entity);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  padding: 0.35rem 0.65rem;
-  box-shadow: var(--shadow-soft);
-}
-.xw-part-name {
-  font-size: 0.875rem;
-  font-weight: 700;
-}
 .xw-part-pred {
   font-family: var(--font-mono);
   font-size: 0.875rem;
@@ -6069,9 +6052,11 @@ button.trace-iri-copy:hover:not(:disabled) {
   flex-wrap: wrap;
   justify-content: center;
 }
+/* 候補カードは関係図を 1 枚抱えるようになったので、横並びに耐える下限を上げる
+   （320px だとノード 2 つとリンクが縦に折り返してしまう）。 */
 .xw-cand-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(30rem, 100%), 1fr));
   gap: var(--space-3);
 }
 .xw-cand-card {
@@ -6103,11 +6088,6 @@ button.trace-iri-copy:hover:not(:disabled) {
   font-weight: 600;
   white-space: nowrap;
 }
-.xw-cand-sub {
-  margin: 0.3rem 0 0;
-  font-size: 0.875rem;
-  color: var(--body);
-}
 .xw-cand-vals {
   display: flex;
   flex-wrap: wrap;
@@ -6120,26 +6100,6 @@ button.trace-iri-copy:hover:not(:disabled) {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 0.1rem 0.4rem;
-}
-.xw-cand-parts {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-}
-.xw-cand-part {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--space-2);
-  font-size: 0.875rem;
-  flex-wrap: wrap;
-}
-.xw-cand-part-name {
-  font-weight: 500;
-}
-.xw-cand-part-sample {
-  color: var(--body);
-  font-family: var(--font-mono);
-  font-size: 0.875rem;
 }
 .xw-cand-note {
   margin: 0.3rem 0 0;
@@ -8224,4 +8184,201 @@ tr.kz-attn td {
   max-width: 100%;
   white-space: normal;
   text-align: left;
+}
+
+/* --------------------------------------------------------------------------
+   つながりの関係図（K23）— XwLinkDiagram.tsx
+
+   「つながり」は 3 つの事実の組（どのデータ同士が／どの値で／何を同じとみなして）
+   なのに、参加チップの行・件数バッジ・同一視の 1 文が画面の別々の場所に散って
+   いた。1 枚の絵に集める。
+   -------------------------------------------------------------------------- */
+.xw-diagram {
+  display: flex;
+  align-items: stretch;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-alt);
+}
+.xw-diagram-node {
+  flex: 1 1 9rem;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  text-align: center;
+}
+.xw-diagram-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+/* 項目名はファイル側の見出し＝人が書いた文字列なので、名前とは別の声で。 */
+.xw-diagram-field {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+/* 中央。線は飾りではなく「つながっている」ことそのものなので、色はつながりの
+   意味色（--link）を使う（ui-guidelines §1: 処理・つながり＝青）。 */
+.xw-diagram-link {
+  flex: 1 1 11rem;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.xw-diagram-line {
+  flex: 1 1 0.75rem;
+  height: 1px;
+  min-width: 0.75rem;
+  background: var(--link);
+}
+.xw-diagram-link-text {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1rem;
+  min-width: 0;
+  text-align: center;
+}
+.xw-diagram-head {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--link);
+}
+.xw-diagram-note {
+  font-size: 0.8rem;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+/* 3 つ以上つながる設計では横一列が崩れるので、ラベルを上に出してノードを並べる。 */
+.xw-diagram--stack {
+  flex-direction: column;
+  align-items: center;
+}
+.xw-diagram--stack .xw-diagram-nodes {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
+  width: 100%;
+}
+
+/* つなぎ方の候補カード: 「つながるデータ / 両方にある値 / 同じとみなす」の 3 行。
+   同じ 3 つを毎回同じ順で言う（どのカードを見ても同じ場所に同じ種類の事実）。 */
+.xw-cand-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+}
+/* 見出しは値の上。カードは grid のトラックの中に居るので、ビューポートの幅からは
+   カード自身の幅が読めない（container query が要る形）。2 段組にすると、狭い
+   トラックで値の側が潰れて関係図がデータ名の途中で折り返す。 */
+.xw-cand-rows > dt {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+.xw-cand-rows > dd {
+  margin: 0 0 var(--space-2);
+  min-width: 0;
+}
+.xw-cand-rows > dd:last-child {
+  margin-bottom: 0;
+}
+
+/* 共通の言葉: その語が外の世界と共有されているかどうか。「まとめて質問しやすいか」
+   を決めるのはここなので、一覧の下の再利用表と読み合わせずに済むよう語に付ける。 */
+.vocab-origin {
+  flex: none;
+  font-size: 0.75rem;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 0.05rem 0.5rem;
+  color: var(--muted);
+  background: var(--surface-alt);
+}
+.vocab-origin--std {
+  color: var(--success-fg);
+  background: var(--success-bg);
+}
+
+/* 引用カード: 見出しは人間の言葉、ID は副情報（引くときに要る文字列）。 */
+.citation-id {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --------------------------------------------------------------------------
+   アクティビティ: 1 行 1 事実のカード（K23）
+
+   6 列の表は「どれが失敗したか」を横に読ませ、状態は 2 列目の色付き文字でしか
+   言っていなかった。状態を先頭のピルにして、1 件の顛末を 3 行で言い切る。
+   -------------------------------------------------------------------------- */
+.job-cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.job-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.job-card--warn {
+  border-color: var(--warn-border);
+  background: var(--warn-bg);
+}
+.job-card--bad {
+  border-color: var(--error-border);
+  background: var(--error-bg);
+}
+.job-card-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.job-card-head .job-file {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+.job-card-head .job-kind {
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: var(--muted);
+}
+.job-card-fact {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--body);
+  font-variant-numeric: tabular-nums;
+}
+.job-card-meta {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
