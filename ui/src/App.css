@@ -7040,10 +7040,21 @@ tr[data-map].skeleton-gate-row--added td {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
+  /* K23: 読み幅。`.app-content` に max-width が無いため、この列だけが画面幅いっぱいに
+     伸びて 1 行 100 字超になっていた。散文は `.kz-prose` が 62ch で止めるが、
+     カードそのものも紙面の幅に閉じないと「読む面」に見えない。広い表は
+     `.kz-preview-tablewrap` が内側で横スクロールする（従来どおり）。 */
+  max-width: 880px;
+  margin-inline: auto;
+  width: 100%;
 }
 .kz-title {
   margin: 0;
-  font-size: 1.05rem;
+  /* K23: 見出し＝判断。0.875rem の注記が縦に並ぶ紙面では 1.05rem は「少し太い注記」
+     にしか見えず、目が優先順位を付けられなかった。 */
+  font-size: 1.25rem;
+  line-height: 1.5;
+  letter-spacing: -0.01em;
   color: var(--fg);
 }
 .kz-note {
@@ -7144,15 +7155,17 @@ tr[data-map].skeleton-gate-row--added td {
   background: var(--surface-alt);
 }
 
-/* Generic kantan card (one per wizard screen). */
+/* Generic kantan card (one per wizard screen). K23: 詳細モードの `.card`
+   (--space-5 / ui-guidelines §4) とは別系統として、かんたん層だけ一段広い。
+   1 画面 1 判断の紙面では、行間より「かたまりの間」が優先順位を伝える。 */
 .kz-card {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: var(--space-5);
+  padding: var(--space-6);
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  gap: var(--space-4);
   box-shadow: var(--shadow-soft);
 }
 .kz-warn {
@@ -7223,14 +7236,21 @@ tr[data-map].skeleton-gate-row--added td {
 .kz-preview-table {
   border-collapse: collapse;
   width: 100%;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
 }
 .kz-preview-table th,
 .kz-preview-table td {
-  padding: 0.3rem 0.6rem;
+  padding: 0.5rem 0.75rem;
   border-bottom: 1px solid var(--border);
   text-align: left;
   white-space: nowrap;
+}
+/* 数値のセル/見出しは右寄せ + 桁揃え。どの列が数値かは CSS では分からないので
+   TSX 側（`isNumericColumn`）が列単位で判定してこのクラスを付ける。 */
+.kz-preview-table th.kz-num,
+.kz-preview-table td.kz-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 .kz-preview-table th {
   background: var(--surface-sink);
@@ -7892,4 +7912,266 @@ tr.kz-attn td {
    person caused: amber text on the ordinary note, no band. */
 .kz-warn-note {
   color: var(--warn-fg);
+}
+
+/* ==========================================================================
+   K23 — 読みやすさの強弱（ADR kantan-mode-two-tier-ux.md）
+
+   これまでかんたん層のほぼ全部の文が `.kz-note`（0.875rem / --body）という
+   ひとつの強さで縦に並んでいた。判断も、操作の説明も、補足も、警告も同じ強さ
+   なので、目が優先順位を付けられない（G9「常時見せるのは判断 1 行だけ」が
+   S5/S6 以外に効いていなかった）。ここで強さを 4 段に分ける:
+
+     判断 = 見出し（.kz-title）
+     その画面が何をする場か = 1 文（.kz-lead）
+     画面の中の区切り = ゾーン見出し（.kz-zone-label）
+     二次情報 = 従来どおり .kz-note（1 行まで。それ以上は details）
+
+   `.kz-note` のクラス名とスタイルは変えない（依存箇所が多い）。格上げしたい文
+   だけを上のクラスに置き換える。
+   ========================================================================== */
+
+/* カード冒頭の 1 文。見出しの直後に置き、「この画面は何をする場か」だけを言う。
+   色は --muted ではなく --body（ui-guidelines §1「本文は薄いグレーにしない」）。
+   注記より一段大きいのは、見出しとの間を埋めて視線をここへ落とすため。 */
+.kz-lead {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.75;
+  color: var(--body);
+  max-width: 62ch;
+}
+
+/* 画面の中のゾーン見出し（「① 数の確認」など）。見出し(--fg)でも本文(--body)でも
+   ない第三の声＝「ここから別の話」。小さい文字なので --accent ではなく
+   --accent-strong（小文字用の濃いアクセント）を使う。 */
+.kz-zone-label {
+  margin: var(--space-2) 0 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--accent-strong);
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.kz-zone-label:first-child {
+  margin-top: 0;
+}
+/* いちばん強い境界（読み取り結果＝見るだけ／ここから先はあなたの判断）だけ、
+   ゾーン見出しを面ごと立てる。カードの padding を食い破って全幅に敷く。 */
+.kz-zone-label--band {
+  margin-inline: calc(var(--space-6) * -1);
+  padding: var(--space-2) var(--space-6);
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+/* 帯の中に添える一言（ゾーン見出しほど強くない、ただの説明）。 */
+.kz-zone-label .kz-zone-why {
+  font-size: 0.9rem;
+  font-weight: 400;
+  letter-spacing: normal;
+  color: var(--body);
+}
+
+/* 帰結を併記した選択肢。`.kz-pill` は短い二択のピルとして残し、こちらは
+   「答えるとどうなるか」を 1 行添える幅いっぱいのカード型。選択は枠と面で示し、
+   文字色は変えない（選択で色が動くと、読んでいる途中の行が飛ぶ）。
+   1px→2px の付け替えでレイアウトがずれないよう、太らせるのは inset shadow。 */
+.kz-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: var(--fg);
+}
+.kz-choice:hover:not(:disabled) {
+  border-color: var(--primary);
+  background: var(--primary-softer);
+}
+.kz-choice.selected {
+  border-color: var(--primary);
+  box-shadow: inset 0 0 0 1px var(--primary);
+  background: var(--primary-soft);
+}
+.kz-choice:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.kz-choice-label {
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1.5;
+}
+/* 「答えるとどうなるか」。注記と同じ大きさ＝二次情報の声で、選択肢そのものより
+   一段弱い。 */
+.kz-choice-why {
+  font-size: 0.875rem;
+  font-weight: 400;
+  line-height: 1.7;
+  color: var(--body);
+}
+.kz-choice-why::before {
+  content: '→ ';
+}
+/* 帰結つきの選択肢は横並びにしない（2 行あるので、折り返すと読み順が壊れる）。 */
+.kz-q-options--stack {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: stretch;
+}
+
+/* 散文の行長。日本語では 62ch ≒ 35 文字/行（`ch` は "0" の字幅＝およそ 0.55em）。
+   `.kz-note` に併記して使う。表・ボタン列・コードには付けない。 */
+.kz-prose {
+  max-width: 62ch;
+}
+
+/* 二次情報の落とし先（G9「理由・列名の羅列は details に畳む」）の共通の見た目。
+   これまで畳む場所ごとに summary を個別に書いていた（.kz-stop-detail / .kz-links /
+   .kz-words …）ので、K23 で畳む量が増えるぶんは 1 つに寄せる。 */
+.kz-fold > summary {
+  cursor: pointer;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.kz-fold > summary:hover {
+  color: var(--body);
+}
+.kz-fold[open] > summary {
+  margin-bottom: var(--space-2);
+}
+.kz-fold > *:not(summary) {
+  margin-top: var(--space-2);
+}
+
+/* --------------------------------------------------------------------------
+   S6 ③「取り込むかどうかの判断」— 1 判断 = 1 カード（K23）
+
+   表だったころは、その行が未判断かどうかも、取り込むと何を書くことになるのかも、
+   6 列を横に読まないと分からなかった。ここは S6 で唯一「人が決める」場所なので、
+   1 行 = 1 枚のカードにして、決めた後にだけ次の入力が現れる。
+
+   3 状態（未判断／取り込む／取り込まない）は K22 のまま保つ。どちらの radio も
+   checked でないことが「まだ決めていない」で、機械は既定を持たない。
+   -------------------------------------------------------------------------- */
+.kz-unmapped-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.kz-unmapped-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+/* まだ決まっていない 1 枚。パネル全体の色ではなく行の側で言う — パネルだけが
+   黄色いと、10 件のうちどれが残っているのかが分からない。 */
+.kz-unmapped-row.kz-attn {
+  border-color: var(--warn-border);
+  box-shadow: inset 3px 0 0 var(--warn-fg);
+}
+.kz-unmapped-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.kz-unmapped-name {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+/* 実データ。判断の根拠なので消さないが、判断そのものより弱い声で、
+   カードを縦に伸ばさないよう 1 行に収める。 */
+.kz-unmapped-samples {
+  flex: 1 1 8rem;
+  min-width: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 2 つの選択肢。native の radio なので、矢印キーでの移動も「どちらも選ばれて
+   いない」の読み上げも素のまま効く。見た目だけをボタンに寄せる。 */
+.kz-decide {
+  display: flex;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+.kz-decide-opt {
+  display: inline-flex;
+  cursor: pointer;
+}
+.kz-decide-opt input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+.kz-decide-opt span {
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  padding: 0.3rem 0.85rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--body);
+  background: var(--surface);
+}
+.kz-decide-opt:hover span {
+  border-color: var(--primary);
+  background: var(--primary-softer);
+}
+.kz-decide-opt input:checked + span {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+/* キーボードだけで操作している人に、いまどちらに居るかを見せる（input は
+   視覚的に隠してあるので、フォーカスリングは span が代わりに描く）。 */
+.kz-decide-opt input:focus-visible + span {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.kz-decide-opt input:disabled + span {
+  opacity: 0.5;
+  cursor: default;
+}
+/* 「取り込む」を選んだときだけ現れる欄。選ぶ前から disabled の空欄が並んでいると、
+   何を求められているのかが読めない。 */
+.kz-unmapped-form {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+}
+.kz-unmapped-form select {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.35rem 0.5rem;
+  font: inherit;
+  background: var(--surface);
+  color: var(--body);
 }

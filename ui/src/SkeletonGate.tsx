@@ -341,13 +341,20 @@ function SkeletonEvidence({
               ))}
           </div>
         )}
-        {ann.reason === 'missing-columns' && candidateChips && (
+        {(ann.reason === 'missing-columns' || ann.reason === 'no-template') && candidateChips && (
           <div className="skeleton-evidence-candidates">
             <span className="skeleton-evidence-label">
               {t('workbench:skeleton.evidence.candidatesHead')}
             </span>
             {candidateChips}
           </div>
+        )}
+        {/* ID の作り方がまだ無いのに候補も出せない（ソースが手元にない）とき、
+            この画面には押すものが 1 つも無くなる。理由ごと出す（G11）。 */}
+        {ann.reason === 'no-template' && !candidateChips && (
+          <p className="skeleton-evidence-line skeleton-evidence-muted">
+            {t('skeletongate:key.noCandidates')}
+          </p>
         )}
         {prefixWarning}
       </div>
@@ -1303,6 +1310,12 @@ export function SkeletonGate({
     gapping.length +
     missingCols.length +
     (plain ? undeclared.length : 0)
+  // K7 のソフトゲート（重なったまま進む＝知った上での判断）とは別物。ID の作り方
+  // が空の設計は「危ういが人が引き受けられる形」ではなく、まだ形になっていない。
+  // 全行が 1 件に合流すること自体は正常系（K14 の singleton）なので、潰れ方では
+  // なく「作り方が無い」ことだけを見る。`blockers` には混ぜない — 混ぜると
+  // continueAnyway が迂回路になり、締めた意味が消える。
+  const noRecipe = skeleton.maps.filter((m) => annotations?.maps?.[m.name]?.reason === 'no-template')
 
   /** Does this map's evidence actually carry a one-tap fix? A button that
    *  promises "pick another candidate" must not land on a row that has none. */
@@ -1858,14 +1871,20 @@ export function SkeletonGate({
           </p>
         </div>
       )}
-      {onRethink && (
-        <div className="skeleton-rethink">
-          <label className="skeleton-gate-hint" htmlFor="skeleton-rethink-note">
+      {/* K23: 自由記述で AI に投げ直すのは、この画面の主導線ではない（K22 と同じ
+          理由 — 同じ根拠しか持たないモデルへの再試行を誘わない）。畳んで、表と
+          候補チップを主導線として残す。詳細モードは onRethink を渡していないので
+          今は plain にしか出ないが、将来渡されたときに詳細モードまで畳まれない
+          よう、ガードを明示しておく。 */}
+      {plain && onRethink && (
+        <details className="skeleton-rethink kz-fold">
+          <summary id="skeleton-rethink-label">
             {t('workbench:skeleton.rethink.label')}
-          </label>
+          </summary>
           <textarea
             id="skeleton-rethink-note"
             className="skeleton-rethink-note"
+            aria-labelledby="skeleton-rethink-label"
             rows={2}
             placeholder={t('workbench:skeleton.rethink.placeholder')}
             value={rethinkNote}
@@ -1882,7 +1901,7 @@ export function SkeletonGate({
               {t('workbench:skeleton.rethink.button')}
             </button>
           </div>
-        </div>
+        </details>
       )}
       {/* "Are you sure?" where the answer can be "no, fix it": every item names
           what continuing costs and carries the repair as its own button. The
@@ -2030,8 +2049,17 @@ export function SkeletonGate({
           </div>
         </div>
       )}
+      {/* 締めたなら、締めた理由と次の一手をボタンの隣に置く（G11）。 */}
+      {noRecipe.length > 0 && (
+        <p className="skeleton-evidence-line skeleton-evidence-bad" role="alert">
+          ⚠ {t('skeletongate:key.noneBlocks', { count: noRecipe.length })}
+        </p>
+      )}
       <div className="skeleton-gate-actions">
-        <button onClick={onContinueGuarded} disabled={busy || (confirming && blockers > 0)}>
+        <button
+          onClick={onContinueGuarded}
+          disabled={busy || noRecipe.length > 0 || (confirming && blockers > 0)}
+        >
           {busy ? (
             <>
               <span className="spinner" />

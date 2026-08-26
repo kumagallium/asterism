@@ -838,3 +838,29 @@ def test_apply_key_safety_fix_only_touches_the_offending_map(tmp_path: Path) -> 
     # The untouched map's entry is shared (not deep-copied) — a light-weight
     # non-mutation guarantee is enough since it is never written to.
     assert fixed["maps"][1] is skeleton["maps"][1]
+
+
+def test_no_template_still_offers_the_proven_candidates(tmp_path: Path) -> None:
+    """ID の作り方が空でも、候補は出す — そこが行き止まりになっていた。"""
+    p = tmp_path / "samples.csv"
+    p.write_text("sample_id,alloy\nS-1,WC\nS-2,TiN\n", encoding="utf-8")
+    skeleton = _skeleton("xr:sample/{sample_id}", source="samples.csv")
+    skeleton["maps"][0]["subject"].pop("template")
+    ann = annotate_skeleton(skeleton, [p])["maps"]["point"]
+    assert ann["reason"] == "no-template"
+    assert ann["checkable"] is False
+    # 実データで一意と証明された組み合わせが、そのままワンタップの候補になる。
+    # 小さい鍵が先（1 列 → 複数列）で、件数も添う。
+    columns = [c["columns"] for c in ann["key_candidates"]]
+    assert ["sample_id"] in columns
+    assert all(len(c) == 1 for c in columns[:2])
+    assert ann["key_candidates"][0]["rows_considered"] == 2
+
+
+def test_no_template_without_the_file_is_still_answered(tmp_path: Path) -> None:
+    """ファイルが手元に無ければ候補は出せない — キーごと出さない（空配列でもない）。"""
+    skeleton = _skeleton("xr:sample/{sample_id}", source="gone.csv")
+    skeleton["maps"][0]["subject"].pop("template")
+    ann = annotate_skeleton(skeleton, [])["maps"]["point"]
+    assert ann["reason"] == "no-template"
+    assert "key_candidates" not in ann

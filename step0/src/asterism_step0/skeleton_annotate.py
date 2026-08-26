@@ -947,7 +947,13 @@ def _annotate_map(
         return ann
 
     if not template:
+        # 「ID の作り方が決まっていない」— 潰れでも衝突でもなく、まだ何も決まって
+        # いない。ここまで候補は空で返していたので、画面は「決められませんでした」
+        # とだけ言って、行き止まりになっていた（K11「行き止まりを作らない」）。
+        # 候補は inspection がすでに証明済みなので、同じ one-tap チップを出す。
         ann["reason"] = "no-template"
+        if inspection is not None:
+            ann["key_candidates"] = _key_candidates(inspection, ())
         return ann
 
     ann["expanded_template"] = _expand_curie(str(template), prefixes)

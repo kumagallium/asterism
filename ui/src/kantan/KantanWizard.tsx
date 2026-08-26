@@ -5163,7 +5163,7 @@ export function KantanWizard({
           <h3 className="kz-title">
             {t(redesigning ? 'kantan:s6.titleReview' : 'kantan:s6.title')}
           </h3>
-          <p className="kz-note">{t('kantan:s6.lead')}</p>
+          <p className="kz-lead">{t('kantan:s6.lead')}</p>
           {/* The self-correction may have dropped mappings on its way to a
               clean design — say so where the columns are listed (DETAIL-GAP-22). */}
           {coverageDropped && <p className="kz-note">{t('kantan:s5.coverageDropped')}</p>}
@@ -5223,6 +5223,12 @@ export function KantanWizard({
               nothing to correspond TO, so the card stays away entirely rather
               than showing a row count next to a missing one (2026-08-19 review:
               「行数を数えていない段階では出さないで良い」). */}
+          {/* K23 zone ①. K12 の対応カードは「行がいくつの記録になったか」を
+              言う場所で、②の表とは別の話。区画の名前が無いと、同じカードの中で
+              話題が変わったことが分からない。 */}
+          {!s6Loading && !s6Err && (rules || stats) && stats?.counted !== false && (
+            <p className="kz-zone-label">{t('kantan:s6.zoneCount')}</p>
+          )}
           {!s6Loading && !s6Err && (rules || stats) && stats?.counted !== false && (
             <div className="kz-map-card">
               {totalSourceRows > 0 && (
@@ -5265,7 +5271,13 @@ export function KantanWizard({
               back to where that was decided (KZ-B-03 / DETAIL-GAP-08). */}
           {stats && stats.classes.length > 0 && totalSourceRows > 0 && (
             <>
-              <p className="kz-note">{t('kantan:s6.mapRowsNote')}</p>
+              {/* K23: 説明は畳み、戻り先は畳まない（G9「行動はボタンにする」）。
+                  「なぜ件数が行数より少ないのか」は読まなくても進めるが、
+                  意図と違ったときの戻り口は探させてはいけない。 */}
+              <details className="kz-fold">
+                <summary>{t('kantan:s6.mapRowsSummary')}</summary>
+                <p className="kz-note kz-prose">{t('kantan:s6.mapRowsNote')}</p>
+              </details>
               {canBackToGate && (
                 <div className="kz-actions">
                   <button type="button" className="btn btn--ghost btn--sm" onClick={backToGate}>
@@ -5286,6 +5298,13 @@ export function KantanWizard({
                     n: reflectChanged.size,
                   })
                 : t('kantan:s6.reflectNoChange', { note: reflectedNote })}
+            </p>
+          )}
+          {/* K23 zone ②. ここから「ことばを与える」区画。①の件数の話とは別。 */}
+          {valueRows.some(({ rows }) => rows.length > 0) && (
+            <p className="kz-zone-label">
+              {t('kantan:s6.zoneMeaning')}
+              <span className="kz-zone-why">{t('kantan:s6.zoneMeaningWhy')}</span>
             </p>
           )}
           {valueRows.map(({ map: m, rows }) => {
@@ -5443,8 +5462,15 @@ export function KantanWizard({
             )
           })}
           {/* Say the table is editable, then what happened when it was edited.
-              A save is seconds, so the states are: saving / saved / failed. */}
-          {s6Maps.length > 0 && <p className="kz-note">{t('kantan:s6.editHint')}</p>}
+              A save is seconds, so the states are: saving / saved / failed.
+              K23: 「直せます」は帯の一言に出し、Enter の挙動や空欄の埋め方といった
+              操作の細目は畳む。編集の結果（保存中/保存した/失敗）は畳まない。 */}
+          {s6Maps.length > 0 && (
+            <details className="kz-fold">
+              <summary>{t('kantan:s6.editHintSummary')}</summary>
+              <p className="kz-note kz-prose">{t('kantan:s6.editHint')}</p>
+            </details>
+          )}
           {metaPending > 0 && <p className="kz-note">{t('kantan:s6.editSaving')}</p>}
           {metaPending === 0 && metaSaved > 0 && (
             <p className="kz-note">{t('kantan:s6.editSaved', { n: metaSaved })}</p>
@@ -5473,8 +5499,15 @@ export function KantanWizard({
             // row is settled it turns neutral, so a finished table stops
             // shouting at the person who just finished it.
             <div className={columnDecisionsIncomplete ? 'kz-unmapped' : 'kz-unmapped kz-unmapped--done'}>
-              <h4>{t('kantan:s6.unmappedTitle', { count: droppedColumns.length })}</h4>
-              <p className="kz-note">
+              {/* K23 zone ③. これが S6 で唯一「人が決める」場所なので、②の表とは
+                  別の区画として名前を持たせる。 */}
+              <p className="kz-zone-label">
+                {t('kantan:s6.zoneDecide')}
+                <span className="kz-zone-why">
+                  {t('kantan:s6.unmappedTitle', { count: droppedColumns.length })}
+                </span>
+              </p>
+              <p className="kz-note kz-prose">
                 {columnDecisionsIncomplete
                   ? t('kantan:s6.unmappedLead')
                   : t('kantan:s6.unmappedDone')}
@@ -5513,150 +5546,139 @@ export function KantanWizard({
                   </button>
                 </div>
               )}
-              <div className="kz-preview-tablewrap">
-               <table className="kz-preview-table kz-cols-table">
-                 <thead>
-                   <tr>
-                     <th>{t('kantan:s6.colDecision')}</th>
-                     <th>{t('kantan:s6.colColumn')}</th>
-                     <th>{t('kantan:s6.colMeaning')}</th>
-                     <th>{t('kantan:s6.colUnit')}</th>
-                     <th>{t('kantan:s6.colExamples')}</th>
-                     {multiMap && <th>{t('kantan:s6.colOwner')}</th>}
-                   </tr>
-                 </thead>
-                 <tbody>
-                   {droppedColumns.map(({ source, column, samples, maps }) => {
-                     const key = columnDecisionKey(source, column)
-                     const saved = columnDecisionDrafts[key]
-                     const draft: ColumnDecisionDraft = saved ?? {
-                       action: '',
-                       map: maps[0]?.id ?? '',
-                       label: '',
-                       unit: '',
-                     }
-                     const origin = columnOrigins[column]
-                     const invented = origin !== undefined && !origin.named
-                     return (
-                       <tr
-                         key={key}
-                         className={columnDecisionResolved(draft, maps) ? undefined : 'kz-attn'}
-                       >
-                         <td>
-                           <select
-                             value={draft.action}
-                             aria-label={t('kantan:s6.decisionAria', { column })}
-                             disabled={columnDecisionSaving}
-                             onChange={(e) =>
-                               updateColumnDecision(source, column, maps[0]?.id ?? '', {
-                                 action: e.target.value as ColumnDecisionDraft['action'],
-                               })
-                             }
-                           >
-                             <option value="">{t('kantan:s6.decisionPending')}</option>
-                             <option value="include" disabled={maps.length === 0}>
-                               {t('kantan:s6.decisionInclude')}
-                             </option>
-                             <option value="exclude">{t('kantan:s6.decisionExclude')}</option>
-                           </select>
-                         </td>
-                         <td className="kz-cols-name">
-                           {invented ? (
-                             <span className="kz-cols-origin">
-                               {t('kantan:s6.fromPreamble', { line: origin.line })}
-                             </span>
-                           ) : (
-                             <>
-                               {column}
-                               {Object.keys(sourceSamples).length > 1 && (
-                                 <span className="kz-cols-origin">{source}</span>
-                               )}
-                             </>
-                           )}
-                         </td>
-                         <td>
-                           <input
-                             type="text"
-                             className="kz-cols-input"
-                             value={draft.label}
-                             placeholder={t(
-                               invented
-                                 ? 'kantan:s6.meaningPlaceholderValue'
-                                 : 'kantan:s6.meaningPlaceholder',
-                             )}
-                             aria-label={t('kantan:s6.editAria', { column })}
-                             disabled={columnDecisionSaving || draft.action !== 'include'}
-                             onChange={(e) =>
-                               updateColumnDecision(source, column, maps[0]?.id ?? '', {
-                                 label: e.target.value,
-                               })
-                             }
-                           />
-                           {draft.action === 'include' && !draft.label.trim() && ' ⚠'}
-                           {draft.action === 'include' && !draft.label.trim() && !invented && (
-                             <button
-                               type="button"
-                               className="btn btn--ghost btn--sm kz-cols-usename"
-                               disabled={columnDecisionSaving}
-                               onClick={() =>
-                                 updateColumnDecision(source, column, maps[0]?.id ?? '', {
-                                   label: column,
-                                 })
-                               }
-                             >
-                               {t('kantan:s6.useColumnName')}
-                             </button>
-                           )}
-                           {consultAppliedColumns?.has(column) && (
-                             <span className="kz-map-note"> {t('kantan:s6.updatedBadge')}</span>
-                           )}
-                         </td>
-                         <td>
-                           <input
-                             type="text"
-                             className="kz-cols-input kz-cols-input--unit"
-                             size={8}
-                             value={draft.unit}
-                             placeholder={t('kantan:s6.unitPlaceholder')}
-                             aria-label={t('kantan:s6.unitAria', { column })}
-                             disabled={columnDecisionSaving || draft.action !== 'include'}
-                             onChange={(e) =>
-                               updateColumnDecision(source, column, maps[0]?.id ?? '', {
-                                 unit: e.target.value,
-                               })
-                             }
-                           />
-                         </td>
-                         <td className="kz-cols-samples">{samples.join('、')}</td>
-                         {multiMap && (
-                           <td>
-                             {maps.length > 1 ? (
-                               <select
-                                 value={draft.map}
-                                 aria-label={t('kantan:s6.ownerAria', { column })}
-                                 disabled={columnDecisionSaving || draft.action !== 'include'}
-                                 onChange={(e) =>
-                                   updateColumnDecision(source, column, maps[0]?.id ?? '', {
-                                     map: e.target.value,
-                                   })
-                                 }
-                               >
-                                 {maps.map((m) => (
-                                   <option key={m.id} value={m.id}>
-                                     {mapLabel(m)}
-                                   </option>
-                                 ))}
-                               </select>
-                             ) : (
-                               maps[0] ? mapLabel(maps[0]) : t('kantan:s6.ownerUnknown')
-                             )}
-                           </td>
-                         )}
-                       </tr>
-                     )
-                   })}
-                 </tbody>
-               </table>
+              {/* K23: 1 判断 = 1 カード。表のままだと、その行が「未判断か」も、
+                  「取り込むと何を書くことになるか」も、6 列を横に読まないと分から
+                  なかった。意味・単位は取り込むを選んだときだけ現れる（それまでは
+                  disabled の空欄が並ぶだけで、何を求められているか読めない）。 */}
+              <div className="kz-unmapped-rows">
+                {droppedColumns.map(({ source, column, samples, maps }) => {
+                  const key = columnDecisionKey(source, column)
+                  const saved = columnDecisionDrafts[key]
+                  const draft: ColumnDecisionDraft = saved ?? {
+                    action: '',
+                    map: maps[0]?.id ?? '',
+                    label: '',
+                    unit: '',
+                  }
+                  const origin = columnOrigins[column]
+                  const invented = origin !== undefined && !origin.named
+                  const resolved = columnDecisionResolved(draft, maps)
+                  const set = (patch: Partial<ColumnDecisionDraft>) =>
+                    updateColumnDecision(source, column, maps[0]?.id ?? '', patch)
+                  return (
+                    <div key={key} className={`kz-unmapped-row${resolved ? '' : ' kz-attn'}`}>
+                      <div className="kz-unmapped-head">
+                        <span className="kz-unmapped-name">
+                          {invented ? (
+                            <span className="kz-cols-origin">
+                              {t('kantan:s6.fromPreamble', { line: origin.line })}
+                            </span>
+                          ) : (
+                            <>
+                              {column}
+                              {Object.keys(sourceSamples).length > 1 && (
+                                <span className="kz-cols-origin">{source}</span>
+                              )}
+                            </>
+                          )}
+                        </span>
+                        <span className="kz-unmapped-samples">{samples.join('、')}</span>
+                        {/* K22 は保つ: 3 つ目の状態（まだ決めていない）は、どちらの
+                            radio も checked でないことで表す。checked を既定に持つ
+                            部品（checkbox・既定選択つき select）にはしない。
+                            native radio なので矢印キー移動と読み上げは素のまま。 */}
+                        <div
+                          className="kz-decide"
+                          role="radiogroup"
+                          aria-label={t('kantan:s6.decisionAria', { column })}
+                        >
+                          <label className="kz-decide-opt">
+                            <input
+                              type="radio"
+                              name={`kz-decide-${key}`}
+                              checked={draft.action === 'include'}
+                              disabled={columnDecisionSaving || maps.length === 0}
+                              onChange={() => set({ action: 'include' })}
+                            />
+                            <span>{t('kantan:s6.decisionInclude')}</span>
+                          </label>
+                          <label className="kz-decide-opt">
+                            <input
+                              type="radio"
+                              name={`kz-decide-${key}`}
+                              checked={draft.action === 'exclude'}
+                              disabled={columnDecisionSaving}
+                              onChange={() => set({ action: 'exclude' })}
+                            />
+                            <span>{t('kantan:s6.decisionExclude')}</span>
+                          </label>
+                        </div>
+                      </div>
+                      {draft.action === 'include' && (
+                        <div className="kz-unmapped-form">
+                          <input
+                            type="text"
+                            className="kz-cols-input"
+                            value={draft.label}
+                            placeholder={t(
+                              invented
+                                ? 'kantan:s6.meaningPlaceholderValue'
+                                : 'kantan:s6.meaningPlaceholder',
+                            )}
+                            aria-label={t('kantan:s6.editAria', { column })}
+                            disabled={columnDecisionSaving}
+                            onChange={(e) => set({ label: e.target.value })}
+                          />
+                          <input
+                            type="text"
+                            className="kz-cols-input kz-cols-input--unit"
+                            size={8}
+                            value={draft.unit}
+                            placeholder={t('kantan:s6.unitPlaceholder')}
+                            aria-label={t('kantan:s6.unitAria', { column })}
+                            disabled={columnDecisionSaving}
+                            onChange={(e) => set({ unit: e.target.value })}
+                          />
+                          {multiMap && maps.length > 1 && (
+                            <select
+                              value={draft.map}
+                              aria-label={t('kantan:s6.ownerAria', { column })}
+                              disabled={columnDecisionSaving}
+                              onChange={(e) => set({ map: e.target.value })}
+                            >
+                              {maps.map((m) => (
+                                <option key={m.id} value={m.id}>
+                                  {mapLabel(m)}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                          {/* 意味が空のままでは確定できないので、⚠ と同時に埋め方を
+                              出す。「AI の候補」は無い — この一覧は AI が使わなかった
+                              列そのものなので、機械が出せるのは元の列名だけ。 */}
+                          {!draft.label.trim() && !invented && (
+                            <button
+                              type="button"
+                              className="btn btn--ghost btn--sm kz-cols-usename"
+                              disabled={columnDecisionSaving}
+                              onClick={() => set({ label: column })}
+                            >
+                              {t('kantan:s6.useColumnName')}
+                            </button>
+                          )}
+                          {!draft.label.trim() && (
+                            <span className="kz-note kz-warn-note">
+                              ⚠ {t('kantan:s6.needMeaning')}
+                            </span>
+                          )}
+                          {consultAppliedColumns?.has(column) && (
+                            <span className="kz-map-note">{t('kantan:s6.updatedBadge')}</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
               {droppedColumns.some((column) => column.maps.length === 0) && (
                <p className="kz-note" role="alert">
@@ -5846,24 +5868,22 @@ export function KantanWizard({
           )}
           <section className="kz-card">
             <h3 className="kz-title">{t('kantan:s1.title')}</h3>
+            {/* K23: 見出しの直後は 1 文だけ。ここで言うのは「置いても大丈夫か」への
+                答えだけで、途中で聞かれることも消し方も、読まなくても進める。 */}
+            <p className="kz-lead">{t('kantan:s1.privacy')}</p>
             <DropZone onFiles={onFilesChosen} />
-            <p className="kz-note">{t('kantan:s1.privacy')}</p>
             {/* Nobody can be walked through a flow they cannot start. Without a
                 file of their own, the first screen used to be a dead end
                 (KZ-A-39). */}
             {!inspecting && !restoring && (
-              <>
-                <div className="kz-actions">
-                  <button
-                    type="button"
-                    className="btn btn--ghost btn--sm"
-                    onClick={useSampleData}
-                  >
-                    {t('kantan:s1.trySample')}
-                  </button>
-                </div>
-                <p className="kz-note">{t('kantan:s1.trySampleNote')}</p>
-              </>
+              /* K23: 説明はボタンの隣に置く。行を分けると、読む物が 1 本増えるだけ
+                 で、その説明が何のボタンの話なのかは近さでしか伝わらない。 */
+              <div className="kz-actions">
+                <button type="button" className="btn btn--ghost btn--sm" onClick={useSampleData}>
+                  {t('kantan:s1.trySample')}
+                </button>
+                <span className="kz-note kz-prose">{t('kantan:s1.trySampleNote')}</span>
+              </div>
             )}
             {/* Not while the restore is still running — that would invite a
                 re-drop of files the machine is about to hand back (RESUME-01). */}
@@ -5930,6 +5950,11 @@ export function KantanWizard({
                 {jobNotice}
               </p>
             )}
+            {/* 二次情報の落とし先（G9）。開かなくても最後まで進める内容だけを入れる。 */}
+            <details className="kz-fold">
+              <summary>{t('kantan:s1.privacyMore')}</summary>
+              <p className="kz-note kz-prose">{t('kantan:s1.privacyMoreBody')}</p>
+            </details>
           </section>
           {kind === 'document' && (
             <section className="kz-card">
@@ -5950,11 +5975,13 @@ export function KantanWizard({
       ) : step === 2 ? (
         <section className="kz-card">
           <h3 className="kz-title">{t('kantan:s2.title')}</h3>
-          <p className="kz-note">
-            {/* Say how many questions there actually are: promising "two" when
-                only one is on screen sends people hunting for a second (KZ-A-11).
-                The count picks the key by hand — Japanese has no plural form,
-                so i18next's own _one/_other split cannot carry it. */}
+          {/* K23: 見出しが「読み取り結果です」を言い、リードは残りの問い数だけを言う。
+              以前は 1 文に同居していたので、どちらも注記の強さに沈んでいた。
+              Say how many questions there actually are: promising "two" when
+              only one is on screen sends people hunting for a second (KZ-A-11).
+              The count picks the key by hand — Japanese has no plural form, so
+              i18next's own _one/_other split cannot carry it. */}
+          <p className="kz-lead">
             {askCount === 0
               ? t('kantan:s2.leadNoQuestions')
               : askCount === 1
@@ -6051,6 +6078,15 @@ export function KantanWizard({
               <p className="kz-note">{t('kantan:s2.fixNote')}</p>
             </details>
           )}
+          {/* K23: いちばん強い境界 — ここまでが機械の読み取り結果（見るだけ）、
+              ここから先が人の判断。ユーザー評価「どこが判断でどこが補足か区別
+              できない」への直接の答えなので、面ごと立てる。 */}
+          {askCount > 0 && (
+            <p className="kz-zone-label kz-zone-label--band">
+              {t('kantan:s2.zoneAsk')}
+              <span className="kz-zone-why">{t('kantan:s2.zoneAskWhy')}</span>
+            </p>
+          )}
           {q1Needed && (
             <div className="kz-q">
               <p className="kz-q-text">{t('kantan:s2.q1', { count: preambleRowCount })}</p>
@@ -6073,21 +6109,22 @@ export function KantanWizard({
                     </pre>
                   </div>
                 ))}
-              <div className="kz-q-options">
-                <button
-                  type="button"
-                  className={`kz-pill${q1 === 'keep' ? ' selected' : ''}`}
+              {/* K23: 選択肢に「答えるとどうなるか」を添える。用語を平易にしても、
+                  帰結が見えない選択は当てずっぽうにしかならない（G5「聞かずに
+                  見せる」の、聞かざるを得ない側での言い換え）。 */}
+              <div className="kz-q-options kz-q-options--stack">
+                <Choice
+                  selected={q1 === 'keep'}
+                  label={t('kantan:s2.q1Yes')}
+                  why={t('kantan:s2.q1YesWhy')}
                   onClick={() => answerQ1('keep')}
-                >
-                  {t('kantan:s2.q1Yes')}
-                </button>
-                <button
-                  type="button"
-                  className={`kz-pill${q1 === 'drop' ? ' selected' : ''}`}
+                />
+                <Choice
+                  selected={q1 === 'drop'}
+                  label={t('kantan:s2.q1No')}
+                  why={t('kantan:s2.q1NoWhy')}
                   onClick={() => answerQ1('drop')}
-                >
-                  {t('kantan:s2.q1No')}
-                </button>
+                />
               </div>
               {/* A preamble line with no `key:` of its own has no name, so the
                   reader invents one (`preamble_1`). Ask for the real one HERE,
@@ -6139,28 +6176,25 @@ export function KantanWizard({
                   {t('kantan:s2.q2Evidence', { values: q2Samples.join(t('kantan:s7.join')) })}
                 </div>
               )}
-              <div className="kz-q-options">
-                <button
-                  type="button"
-                  className={`kz-pill${q2 === 'only' ? ' selected' : ''}`}
+              <div className="kz-q-options kz-q-options--stack">
+                <Choice
+                  selected={q2 === 'only'}
+                  label={t('kantan:s2.q2Only')}
+                  why={t('kantan:s2.q2OnlyWhy')}
                   onClick={() => setQ2('only')}
-                >
-                  {t('kantan:s2.q2Only')}
-                </button>
-                <button
-                  type="button"
-                  className={`kz-pill${q2 === 'elsewhere' ? ' selected' : ''}`}
+                />
+                <Choice
+                  selected={q2 === 'elsewhere'}
+                  label={t('kantan:s2.q2Elsewhere')}
+                  why={t('kantan:s2.q2ElsewhereWhy')}
                   onClick={() => setQ2('elsewhere')}
-                >
-                  {t('kantan:s2.q2Elsewhere')}
-                </button>
-                <button
-                  type="button"
-                  className={`kz-pill${q2 === 'unknown' ? ' selected' : ''}`}
+                />
+                <Choice
+                  selected={q2 === 'unknown'}
+                  label={t('kantan:s2.q2Unknown')}
+                  why={t('kantan:s2.q2UnknownWhy')}
                   onClick={() => setQ2('unknown')}
-                >
-                  {t('kantan:s2.q2Unknown')}
-                </button>
+                />
               </div>
             </div>
           )}
@@ -6171,54 +6205,54 @@ export function KantanWizard({
                   ? t('kantan:s2.q3One', { column: sharedColumns[0] })
                   : t('kantan:s2.q3Many')}
               </p>
-              <div className="kz-q-options">
+              <div className="kz-q-options kz-q-options--stack">
                 {sharedColumns.length === 1 ? (
-                  <button
-                    type="button"
-                    className={`kz-pill${sharedKey === sharedColumns[0] ? ' selected' : ''}`}
+                  <Choice
+                    selected={sharedKey === sharedColumns[0]}
+                    label={t('kantan:s2.q3Yes')}
+                    why={t('kantan:s2.q3YesWhy')}
                     onClick={() => setSharedKey(sharedColumns[0])}
-                  >
-                    {t('kantan:s2.q3Yes')}
-                  </button>
+                  />
                 ) : (
+                  /* 選択肢そのものが利用者の列名なので、帰結も列名を差し込む。 */
                   sharedColumns.map((c) => (
-                    <button
+                    <Choice
                       key={c}
-                      type="button"
-                      className={`kz-pill${sharedKey === c ? ' selected' : ''}`}
+                      selected={sharedKey === c}
+                      label={c}
+                      why={t('kantan:s2.q3ColumnWhy', { column: c })}
                       onClick={() => setSharedKey(c)}
-                    >
-                      {c}
-                    </button>
+                    />
                   ))
                 )}
-                <button
-                  type="button"
-                  className={`kz-pill${sharedKey === '' ? ' selected' : ''}`}
+                <Choice
+                  selected={sharedKey === ''}
+                  label={t(sharedColumns.length === 1 ? 'kantan:s2.q3No' : 'kantan:s2.q3None')}
+                  why={t(sharedColumns.length === 1 ? 'kantan:s2.q3NoWhy' : 'kantan:s2.q3NoneWhy')}
                   onClick={() => setSharedKey('')}
-                >
-                  {t(sharedColumns.length === 1 ? 'kantan:s2.q3No' : 'kantan:s2.q3None')}
-                </button>
+                />
               </div>
             </div>
           )}
           {/* The abbreviations, units and intents only the person who made the
               measurements knows. Said here it shapes the FIRST design; said at
-              S6 it costs another AI round (DETAIL-GAP-11). Never a gate. */}
-          <div className="kz-q">
-            <label className="kz-q-text" htmlFor="kz-s2-hint">
-              {t('kantan:s2.hintLabel')}
-            </label>
+              S6 it costs another AI round (DETAIL-GAP-11). Never a gate.
+              K23: 任意の自由記述が、必須の問いと同じ強さで常時開いていたので畳む。
+              ただし畳むと入力率が落ちて AI ラウンドが増えうるので、summary 自身に
+              「書くと最初の設計が良くなる」という理由を持たせた（見出しが誘因）。 */}
+          <details className="kz-fold">
+            <summary id="kz-s2-hint-label">{t('kantan:s2.hintLabel')}</summary>
             <textarea
               id="kz-s2-hint"
               className="kz-s6-note"
               rows={2}
+              aria-labelledby="kz-s2-hint-label"
               placeholder={t('kantan:s6.notePlaceholder')}
               value={preHint}
               onChange={(e) => setPreHint(e.target.value)}
             />
-            <p className="kz-note">{t('kantan:s2.hintNote')}</p>
-          </div>
+            <p className="kz-note kz-prose">{t('kantan:s2.hintNote')}</p>
+          </details>
           <div className="kz-actions">
             <button
               type="button"
@@ -6469,6 +6503,43 @@ function CopyIdButton({ iri, labelKey }: { iri: string; labelKey?: string }) {
   )
 }
 
+/** One answer, with its consequence written under it (K23).
+ *
+ *  `.kz-pill` stays for short either/or answers whose meaning is obvious from
+ *  the label alone. This is the other kind: the label names the answer, the
+ *  second line says what answering it does. Without the second line the person
+ *  is choosing between two phrasings, not between two outcomes — the plain
+ *  wording was already there and people still could not tell them apart.
+ *
+ *  The consequence is NOT a title/tooltip: it has to be readable without a
+ *  pointer, and it has to be read BEFORE the click, not after. */
+function Choice({
+  selected,
+  label,
+  why,
+  onClick,
+  disabled,
+}: {
+  selected: boolean
+  label: string
+  why: string
+  onClick: () => void
+  disabled?: boolean
+}) {
+  return (
+    <button
+      type="button"
+      className={`kz-choice${selected ? ' selected' : ''}`}
+      aria-pressed={selected}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      <span className="kz-choice-label">{label}</span>
+      <span className="kz-choice-why">{why}</span>
+    </button>
+  )
+}
+
 /** "No AI is connected" wherever a primary button depends on one: the sentence
  *  AND the one screen that fixes it. The sentence on its own left the card with
  *  a disabled primary and nowhere to go (KZ-A-46). */
@@ -6582,6 +6653,26 @@ function headerLooksLikeData(header: readonly string[] | null | undefined): bool
   return names.every((n) => Number.isFinite(Number(n)))
 }
 
+/** Is this column of the preview a column of numbers? (K23)
+ *
+ *  Numbers that are not right-aligned are read digit by digit — the reader has
+ *  to line up 300 / 350 / 400 by eye. The server hands the preview back as
+ *  `string[][]` with no type per cell, so the judgement is made here, over the
+ *  five rows actually on screen, and only when EVERY non-empty cell parses. A
+ *  column of ID-looking strings (`S-01`) or of mixed values stays left, which
+ *  is the safe direction: a mis-aligned number is ugly, a right-aligned name is
+ *  wrong. */
+function isNumericColumn(rows: string[][], ci: number): boolean {
+  let seen = 0
+  for (const row of rows) {
+    const cell = (row[ci] ?? '').trim()
+    if (cell === '') continue
+    if (!Number.isFinite(Number(cell))) return false
+    seen++
+  }
+  return seen > 0
+}
+
 function PreviewList({ previews }: { previews: PreviewCard[] }) {
   const { t } = useTranslation()
   if (previews.length === 0) return null
@@ -6599,7 +6690,9 @@ function PreviewList({ previews }: { previews: PreviewCard[] }) {
                 <thead>
                   <tr>
                     {p.header.map((h, i) => (
-                      <th key={i}>{h}</th>
+                      <th key={i} className={isNumericColumn(p.rows, i) ? 'kz-num' : undefined}>
+                        {h}
+                      </th>
                     ))}
                   </tr>
                 </thead>
@@ -6607,7 +6700,9 @@ function PreviewList({ previews }: { previews: PreviewCard[] }) {
                   {p.rows.map((row, ri) => (
                     <tr key={ri}>
                       {p.header!.map((_, ci) => (
-                        <td key={ci}>{row[ci] ?? ''}</td>
+                        <td key={ci} className={isNumericColumn(p.rows, ci) ? 'kz-num' : undefined}>
+                          {row[ci] ?? ''}
+                        </td>
                       ))}
                     </tr>
                   ))}

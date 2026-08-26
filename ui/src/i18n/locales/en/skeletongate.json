@@ -20,6 +20,8 @@
     "fromN": "The ID is decided by the combination of {{columns}}",
     "constant": "One ID per file",
     "none": "No ID recipe yet",
+    "noCandidates": "The original file is not at hand, so no candidates can be offered. Put the file back, or have the AI think again.",
+    "noneBlocks": "{{count}} kind(s) still have no way to build an ID. Pick one of the candidates above to continue.",
     "join": " + ",
     "editSummary": "Write the ID recipe yourself",
     "containedIn": "Counted within {{parents}} (its ID includes {{columns}})",

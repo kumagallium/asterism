@@ -20,6 +20,8 @@
     "fromN": "ID は {{columns}} の組み合わせで決まります",
     "constant": "ID はファイルごとに 1 つです",
     "none": "ID の作り方がまだ決まっていません",
+    "noCandidates": "元のファイルが手元にないため、候補を出せません。ファイルを置き直すか、AI にもう一度考えさせてください。",
+    "noneBlocks": "ID の作り方が決まっていない種類が {{count}} つあります。上の候補から選ぶと進めます。",
     "join": " と ",
     "editSummary": "ID の作り方を自分で書く",
     "containedIn": "{{parents}} の中で数えます（ID に {{columns}} を含むため）",
