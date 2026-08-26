@@ -25,17 +25,21 @@ module import time.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import importlib.util
 import ipaddress
 import logging
 import os
 import secrets
 import shutil
+import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 import webbrowser
+from collections.abc import Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -520,10 +524,73 @@ async def _open_when_ready(server: Any, url: str) -> None:
 def _serve(app: FastAPI, *, port: int, log_level: str, open_url: str | None) -> None:
     import uvicorn
 
+    # _Server is defined here, not at module scope, because it subclasses
+    # uvicorn.Server and uvicorn is only imported lazily inside this function
+    # — the rest of this module (CLI arg parsing, env setup) must stay
+    # importable without pulling in uvicorn.
+    class _Server(uvicorn.Server):
+        """``uvicorn.Server`` without the terminal signal re-raise.
+
+        Upstream's ``capture_signals`` (``uvicorn/server.py`` — private, no
+        public hook exists for this) installs ``self.handle_exit`` for the
+        duration of ``serve()``, then on the way out restores the *original*
+        handlers (for SIGTERM that is the default, i.e. terminate-immediately)
+        and re-raises the captured signal at itself with ``signal.raise_signal``.
+        That re-raise exists so a process killed by SIGTERM also *reports*
+        SIGTERM in its exit status — reasonable in isolation, but it kills the
+        process before control ever returns to the ``await server.serve()``
+        caller, which for local mode is ``main()``'s ``finally`` — the place
+        that ``_terminate()``s the Oxigraph / demo-agent children. With the
+        re-raise, that ``finally`` never runs and the children are orphaned
+        (confirmed in production: v0.22.1, twice, both Oxigraph and
+        demo-agent). This process's job is to not leave children behind, not
+        to report an accurate signal-based exit status, so the re-raise is
+        dropped. Handler installation/removal and ``handle_exit``'s graceful-
+        shutdown semantics are copied from upstream unchanged; only a log
+        line is added so a future incident shows *why* the process is going
+        down instead of only uvicorn's own "Shutting down".
+        """
+
+        @contextlib.contextmanager
+        def capture_signals(self) -> Iterator[None]:
+            # Mirrors uvicorn.Server.capture_signals: signals can only be
+            # listened to from the main thread.
+            if threading.current_thread() is not threading.main_thread():
+                yield
+                return
+
+            def _handle_and_log(sig: int, frame: Any) -> None:
+                logger.warning(
+                    "received %s (signal %d) — shutting down and stopping "
+                    "children (pid %d, ppid %d)",
+                    signal.Signals(sig).name,
+                    sig,
+                    os.getpid(),
+                    os.getppid(),
+                )
+                self.handle_exit(sig, frame)
+
+            # uvicorn.server.HANDLED_SIGNALS, not a local copy: this stays in
+            # step with whatever signal set upstream decides to handle
+            # (SIGINT/SIGTERM today, plus SIGBREAK on Windows).
+            original_handlers = {
+                sig: signal.signal(sig, _handle_and_log)
+                for sig in uvicorn.server.HANDLED_SIGNALS
+            }
+            try:
+                yield
+            finally:
+                for sig, handler in original_handlers.items():
+                    signal.signal(sig, handler)
+            # Deliberately no ``signal.raise_signal`` here — see the class
+            # docstring above.
+
     # timeout_graceful_shutdown: SIGTERM must reach main()'s finally (which
     # terminates the oxigraph / demo-agent children) BEFORE a supervising shell
     # (the desktop app) escalates to SIGKILL — unbounded graceful shutdown can
-    # linger on keep-alive connections and orphan the grandchildren.
+    # linger on keep-alive connections and orphan the grandchildren. _Server
+    # above is what makes that true: without it, uvicorn's own signal handling
+    # re-kills the process on the way out and main()'s finally never runs.
     config = uvicorn.Config(
         app,
         host="127.0.0.1",
@@ -531,7 +598,7 @@ def _serve(app: FastAPI, *, port: int, log_level: str, open_url: str | None) -> 
         log_level=log_level,
         timeout_graceful_shutdown=5,
     )
-    server = uvicorn.Server(config)
+    server = _Server(config)
 
     async def _run() -> None:
         opener = (
