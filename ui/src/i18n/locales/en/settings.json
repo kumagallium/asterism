@@ -135,14 +135,13 @@
     "appName": "App",
     "version": "Version",
     "updates": "Updates",
-    "autoCheckNote": "Checked automatically at startup and every 24 hours; when an update is out, a notice appears at the top of the window. You can also check manually here.",
+    "autoCheckNote": "Checked automatically at startup and every 24 hours; when an update is out, a notice appears at the top of the window. You can also check — and install — from here.",
     "webNote": "Update checks are for the desktop app (in the browser, whatever the server serves is already current).",
     "checkNow": "Check now",
     "checking": "Checking…",
     "upToDate": "Asterism is up to date.",
     "available": "Version {{version}} is available.",
-    "availableBanner": "Version {{version}} is available — update from the notice at the top of the window.",
-    "installHint": "Updates are installed by the desktop app itself (the notice at the top of the app window, or Asterism → “アップデートを確認…” (Check for Updates…) in the menu bar; the app downloads and installs it, verifying the signature).",
+    "installHint": "Updates are installed by the desktop app itself (the notice at the top of the app window, or Settings → This app; the app downloads and installs it, verifying the signature).",
     "checkFailed": "Update check failed. Check your network and try again."
   },
   "instance": {
