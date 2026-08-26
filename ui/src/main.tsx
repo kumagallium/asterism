@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import './i18n'
 import App from './App.tsx'
+import { startBackendWatch } from './desktop/backend.ts'
 import { initUpdater } from './desktop/updater.ts'
 import { ErrorBoundary } from './ErrorBoundary.tsx'
 import { SettingsProvider } from './settings/SettingsContext.tsx'
@@ -39,6 +40,10 @@ window.addEventListener('vite:preloadError', (event) => {
 // デスクトップ版（Tauri の窓）だけ: 起動 5 秒後と 24 時間ごとに更新を確認し、
 // 見つかれば画面上部の UpdateBanner に出す。ブラウザ/web 配備では no-op。
 initUpdater()
+
+// デスクトップ版だけ: バックエンド（SPA 自身を配信しているローカルサーバ）の死活を
+// 見張り、止まっていれば画面上部の BackendDownBanner に出す。ブラウザ/web 配備では no-op。
+startBackendWatch()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
