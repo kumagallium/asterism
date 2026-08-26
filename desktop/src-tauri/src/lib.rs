@@ -143,6 +143,39 @@ struct Shell {
     updating: AtomicBool,
     shutting_down: AtomicBool,
     terminated: AtomicBool,
+    /// The port `boot_once` actually settled on. `restart_backend` rebinds
+    /// this exact port rather than picking a fresh one: the origin the SPA
+    /// runs at is `http://127.0.0.1:<port>`, and browser localStorage
+    /// (registered models, remembered keys — see `PREFERRED_PORT`'s comment)
+    /// is keyed by origin, so hopping ports on restart would silently wipe it.
+    port: Mutex<Option<u16>>,
+    /// pgid of the most recently spawned backend (= its own pid, since it is
+    /// started as a process-group leader — see `terminate`). Kept even after
+    /// the `Child` itself has been reaped, because a backend that died on its
+    /// own (e.g. an external SIGTERM, as happened in production) leaves this
+    /// as the only handle left to the orphaned Oxigraph / demo-agent
+    /// grandchildren — `restart_backend` needs it to clean the group up
+    /// before starting a new one on the same port.
+    last_pgid: Mutex<Option<i32>>,
+    /// Guards `restart_backend` against a second click landing mid-restart.
+    restarting: AtomicBool,
+    /// Set once `open_main` has actually opened the MAIN window (`Flow::Done`),
+    /// cleared again whenever `boot()` re-enters `boot_once` on `Flow::Retry`.
+    /// `restart_backend` has nothing to restart — and nowhere to reload —
+    /// before this is true: the backend `boot_once` is waiting on lives in the
+    /// SAME `Shell.backend` slot `restart_backend` would `take()` and kill, so
+    /// a restart that lands mid-boot steals the very process boot is polling
+    /// for readiness. The native menu item is also disabled/enabled in step
+    /// with this flag (see `set_restart_menu_enabled`), so the guard below is
+    /// a backstop, not the only line of defense.
+    booted: AtomicBool,
+    /// Whether `grant_spa_update_ipc` succeeded for the origin this launch is
+    /// serving. The backend is told (`ASTERISM_UPDATER_IPC`) so the SPA knows
+    /// whether it can offer an in-window update at all. A restart keeps the
+    /// same origin, so it must pass the SAME answer on — claiming a grant that
+    /// never happened would put an update banner in front of the user that
+    /// could not work.
+    ipc_granted: AtomicBool,
 }
 
 /// Where a stop card can send the boot sequence next.
@@ -161,7 +194,7 @@ enum Flow {
 /// overrides both.
 fn ui_lang() -> &'static str {
     static LANG: OnceLock<&'static str> = OnceLock::new();
-    *LANG.get_or_init(|| {
+    LANG.get_or_init(|| {
         if detect_lang().starts_with("ja") {
             "ja"
         } else {
@@ -214,6 +247,35 @@ fn t(key: &str) -> &'static str {
                 "はじめかた"
             } else {
                 "Getting Started"
+            }
+        }
+        "menu.restartBackend" => {
+            if ja {
+                "バックエンドを再起動"
+            } else {
+                "Restart Backend"
+            }
+        }
+        // Shown as a native dialog: the page is presumed dead when this
+        // fires, so there is no banner or card to draw it into instead.
+        "menu.restartBackendFailed" => {
+            if ja {
+                "バックエンドを再起動できませんでした。ログを確認してください。"
+            } else {
+                "Couldn't restart the backend. Check the log for details."
+            }
+        }
+        // Shown instead of `menu.restartBackendFailed` specifically when the
+        // new backend simply has not answered yet within the timeout — it is
+        // still running and may finish starting on its own (see the comment
+        // in `restart_backend_blocking`'s timeout branch).
+        "menu.restartBackendSlow" => {
+            if ja {
+                "バックエンドがまだ応答していません。起動処理が続いている可能性があります。\
+                 しばらく待っても直らない場合は、ログを確認してください。"
+            } else {
+                "The backend hasn't answered yet — it may still be starting up. \
+                 If this doesn't clear up after a while, check the log for details."
             }
         }
         "menu.edit" => {
@@ -508,6 +570,27 @@ fn terminate(child: &mut Child) {
     }
     let _ = child.kill();
     let _ = child.wait();
+}
+
+/// SIGTERM a whole process GROUP by pgid, escalating to SIGKILL after 10s if
+/// anything is still alive under it. Shared by `restart_backend_blocking` and
+/// `spawn_watchdog`'s unexpected-exit cleanup — both are cleaning up a launcher
+/// that already exited (so there is no `Child` left to `terminate()`), only
+/// the pgid it left behind in `Shell::last_pgid`.
+#[cfg(unix)]
+fn kill_process_group(pgid: i32) {
+    unsafe {
+        libc::kill(-pgid, libc::SIGTERM);
+    }
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < deadline && unsafe { libc::kill(-pgid, 0) } == 0 {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    if unsafe { libc::kill(-pgid, 0) } == 0 {
+        unsafe {
+            libc::kill(-pgid, libc::SIGKILL);
+        }
+    }
 }
 
 fn stop_backend(app: &tauri::AppHandle) {
@@ -806,7 +889,10 @@ fn boot_action(
 ///   dismiss) the outcome of the most recent boot-time move;
 /// - `dialog:allow-open`: lets the storage-location setting show a native
 ///   folder picker. Only `open` — `save`/`message`/etc. stay closed (#377's
-///   "grant only the IPC that is needed" policy).
+///   "grant only the IPC that is needed" policy);
+/// - `allow-restart-backend` (app-defined, see `permissions/backend.toml`):
+///   stop and start the backend again on this same port, for when it has
+///   died silently underneath the page.
 ///
 /// Nothing else — no shell, fs, or window control reaches the page.
 fn grant_spa_update_ipc(app: &tauri::AppHandle, port: u16) -> tauri::Result<()> {
@@ -821,7 +907,8 @@ fn grant_spa_update_ipc(app: &tauri::AppHandle, port: u16) -> tauri::Result<()> 
         .permission("allow-set-data-home-override")
         .permission("allow-get-storage-notice")
         .permission("allow-clear-storage-notice")
-        .permission("dialog:allow-open");
+        .permission("dialog:allow-open")
+        .permission("allow-restart-backend");
     app.add_capability(capability)
 }
 
@@ -865,6 +952,193 @@ fn get_storage_notice(app: tauri::AppHandle) -> Option<StorageNotice> {
 #[tauri::command]
 fn clear_storage_notice(app: tauri::AppHandle) {
     settings::clear_storage_notice(&app);
+}
+
+/// Stop the backend and start it again on the same loopback port — the
+/// command behind both the "restart" menu item and, via
+/// `allow-restart-backend`, the page itself when it detects the backend is
+/// gone. On success, returns the port so the caller knows where to reload
+/// (in practice always the same port it was already on: see below).
+///
+/// Deliberately narrow, mirroring Graphium's own restart command: this never
+/// tries a different port if the original one will not come free. The
+/// update-IPC capability granted in `grant_spa_update_ipc` is scoped to one
+/// exact origin (`http://127.0.0.1:<port>`) and is not re-granted here, so a
+/// restart that lands on a different port would leave the page without that
+/// grant — silently breaking the update banner — which makes "moved to
+/// another port" worse than "failed, try again", not better.
+#[tauri::command]
+async fn restart_backend(app: tauri::AppHandle) -> Result<u16, String> {
+    // The SPA only ever shows the reason as text, so the typed distinction
+    // (`RestartError`) is flattened here; the native menu path keeps the type
+    // because it picks a different sentence for each case.
+    restart_backend_typed(app)
+        .await
+        .map_err(|err| err.detail().to_string())
+}
+
+async fn restart_backend_typed(app: tauri::AppHandle) -> Result<u16, RestartError> {
+    match tauri::async_runtime::spawn_blocking(move || restart_backend_blocking(&app)).await {
+        Ok(result) => result,
+        Err(err) => Err(RestartError::Failed(err.to_string())),
+    }
+}
+
+/// The double-click guard, pulled out from `restart_backend_blocking` so it
+/// can be tested against a bare `AtomicBool` without a `Shell`/`AppHandle` in
+/// the loop. `true` means the caller now owns the flag and must eventually
+/// release it (see `ClearOnDrop` at the call site); `false` means someone
+/// else already does and this call must not proceed.
+fn try_acquire_restart_guard(flag: &AtomicBool) -> bool {
+    !flag.swap(true, Ordering::SeqCst)
+}
+
+/// Whether `restart_backend_blocking` may proceed at all — pulled out from it
+/// so this can be tested against a bare `AtomicBool` the same way
+/// `try_acquire_restart_guard` is. `false` before `open_main` has opened the
+/// MAIN window (see `Shell::booted`): `boot_once` is still spawning/waiting
+/// on the very `Shell.backend` a restart would `take()` and kill.
+fn restart_allowed(booted: &AtomicBool) -> bool {
+    booted.load(Ordering::SeqCst)
+}
+
+fn restart_backend_blocking(app: &tauri::AppHandle) -> Result<u16, RestartError> {
+    let shell = app.state::<Shell>();
+    if !try_acquire_restart_guard(&shell.restarting) {
+        return Err(RestartError::Failed(
+            "a restart is already in progress".to_string(),
+        ));
+    }
+    // A `Drop` guard, rather than resetting the flag before every `return`
+    // below, so the flag comes back down no matter which path exits.
+    struct ClearOnDrop<'a>(&'a AtomicBool);
+    impl Drop for ClearOnDrop<'_> {
+        fn drop(&mut self) {
+            self.0.store(false, Ordering::SeqCst);
+        }
+    }
+    let _guard = ClearOnDrop(&shell.restarting);
+
+    if shell.updating.load(Ordering::SeqCst) {
+        return Err(RestartError::Failed("an update is in progress".to_string()));
+    }
+    if shell.shutting_down.load(Ordering::SeqCst) {
+        return Err(RestartError::Failed("the app is shutting down".to_string()));
+    }
+    // `boot_once` has not opened the MAIN window yet: it is still spawning (or
+    // waiting on) the very `Shell.backend` this function would `take()` and
+    // kill. The native menu item is disabled for the same window (see
+    // `set_restart_menu_enabled`), but the menu item and this command are not
+    // the same lock, so this check is the actual guard.
+    if !restart_allowed(&shell.booted) {
+        return Err(RestartError::Failed(
+            "the app has not finished starting yet".to_string(),
+        ));
+    }
+
+    append_log(app, "restart_backend: requested");
+
+    // Reap whatever this process is still tracking…
+    stop_backend(app);
+
+    // …and separately signal the whole process GROUP by pgid. This matters
+    // when the child died on its own (the production incident this exists
+    // for: an external SIGTERM left the launcher's Oxigraph and demo-agent
+    // children orphaned but alive) — `stop_backend` above found nothing to
+    // reap, but the group is still holding the port. Kept here as a backstop
+    // even though the watchdog (`spawn_watchdog`) now does the same cleanup
+    // on an unexpected exit within ~2s: this covers the window before the
+    // watchdog notices, e.g. a user clicking restart within that window.
+    #[cfg(unix)]
+    if let Some(pgid) = shell.last_pgid.lock().unwrap().take() {
+        kill_process_group(pgid);
+    }
+
+    let Some(port) = *shell.port.lock().unwrap() else {
+        let err = "no backend port on record".to_string();
+        append_log(app, &format!("restart_backend: failed: {err}"));
+        return Err(RestartError::Failed(err));
+    };
+
+    // The OS can hold a just-closed socket in TIME_WAIT for a moment, so the
+    // port freeing up is not instant even once the group above is gone.
+    let bind_deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        match TcpListener::bind(("127.0.0.1", port)) {
+            Ok(listener) => {
+                drop(listener);
+                break;
+            }
+            Err(_) if Instant::now() > bind_deadline => {
+                if asterism_at(port) {
+                    // Another Asterism is already serving this port — most
+                    // likely a second launch raced this one. Nothing to
+                    // restart; the caller just needs to reload against it.
+                    append_log(
+                        app,
+                        "restart_backend: another Asterism already holds the port",
+                    );
+                    return Ok(port);
+                }
+                let err = format!("port {port} is held by another program");
+                append_log(app, &format!("restart_backend: failed: {err}"));
+                return Err(RestartError::Failed(err));
+            }
+            Err(_) => std::thread::sleep(Duration::from_millis(200)),
+        }
+    }
+
+    let Some(backend) = bundled_backend(app).or_else(checkout_backend) else {
+        let err = "no backend runtime found".to_string();
+        append_log(app, &format!("restart_backend: failed: {err}"));
+        return Err(RestartError::Failed(err));
+    };
+
+    let log_path = log_file(app);
+    // The port is unchanged, so the capability `grant_spa_update_ipc`
+    // registered for this origin at boot still covers the new child — there is
+    // nothing to re-grant. Pass on whatever that grant actually returned at
+    // boot, rather than assuming it succeeded.
+    let ipc_granted = shell.ipc_granted.load(Ordering::SeqCst);
+    if let Err(err) = spawn_backend_quiet(app, &backend, port, ipc_granted, log_path.as_deref()) {
+        append_log(app, &format!("restart_backend: failed to spawn: {err}"));
+        return Err(RestartError::Failed(err));
+    }
+
+    match wait_ready_quiet(app, port, Duration::from_secs(60)) {
+        Ok(()) => {
+            append_log(
+                app,
+                &format!("restart_backend: succeeded, backend answering on {port}"),
+            );
+            Ok(port)
+        }
+        Err(not_ready) => {
+            // A child that is merely SLOW is deliberately NOT torn down here:
+            // `Shell.backend` still holds it, it may only need a little longer
+            // (the same Gatekeeper-scan slowness `READY_TIMEOUT`'s doc talks
+            // about applies here too, not just on first launch), the SPA polls
+            // `/health` every few seconds and will drop its own banner the
+            // moment the child answers, and the NEXT `restart_backend` call
+            // will find it in `Shell.backend` and `stop_backend` it properly
+            // before starting a fresh one. That case is "let it keep trying,
+            // tell the user it is not ready yet" — not "give up".
+            //
+            // A child that EXITED is a different answer: nothing is coming, so
+            // it is reported as a plain failure.
+            let slow = matches!(not_ready, NotReady::Slow(_));
+            let detail = not_ready.detail();
+            append_log(
+                app,
+                &format!("restart_backend: backend did not become ready: {detail}"),
+            );
+            Err(if slow {
+                RestartError::Slow(detail)
+            } else {
+                RestartError::Failed(detail)
+            })
+        }
+    }
 }
 
 /// Recursively copy `from` into `to` (which must not yet exist), preserving
@@ -1090,6 +1364,22 @@ fn set_update_menu_enabled(app: &tauri::AppHandle, enabled: bool) {
     }
 }
 
+/// Grey out "バックエンドを再起動" until `boot()` has actually opened the MAIN
+/// window (`Shell::booted`), and again while a retry re-enters `boot_once`.
+/// The item is built disabled to begin with (see `build_menu`) so there is no
+/// window at startup where it is clickable but `restart_backend` would still
+/// refuse. Must NOT run on the main thread — same reason as
+/// `set_update_menu_enabled`.
+fn set_restart_menu_enabled(app: &tauri::AppHandle, enabled: bool) {
+    let Some(menu) = app.menu() else { return };
+    let Ok(items) = menu.items() else { return };
+    let mut found = Vec::new();
+    collect_menu_items(items, &["restart_backend"], &mut found);
+    for item in found {
+        let _ = item.set_enabled(enabled);
+    }
+}
+
 enum UpdateFlow {
     Done,
     Retry,
@@ -1231,12 +1521,21 @@ fn boot(app: tauri::AppHandle) {
 
     loop {
         match boot_once(&app) {
-            Flow::Done => return,
+            Flow::Done => {
+                spawn_watchdog(app.clone());
+                return;
+            }
             Flow::Retry => {
                 // A retry after a timeout can leave a live child holding the
                 // port: stop it (and take a fresh port) before going again.
                 set_status(&app, Status::working("stopping"));
                 stop_backend(&app);
+                // Back to "not booted yet": another `boot_once` pass is about
+                // to spawn/wait on `Shell.backend` again, so `restart_backend`
+                // must refuse (and the menu item go grey) until it opens the
+                // MAIN window again — see `Shell::booted`.
+                app.state::<Shell>().booted.store(false, Ordering::SeqCst);
+                set_restart_menu_enabled(&app, false);
             }
             Flow::Quit => {
                 app.exit(1);
@@ -1244,6 +1543,78 @@ fn boot(app: tauri::AppHandle) {
             }
         }
     }
+}
+
+/// Nothing polls the backend once the window is up — `wait_ready` only looks
+/// during boot. A backend that then dies (observed once in production: an
+/// external SIGTERM) is left `defunct` forever, and the SPA is stuck on
+/// whatever screen it happened to be showing when the socket went away. This
+/// thread's job is narrowly to reap that child so the process table stays
+/// clean; it deliberately does NOT restart the backend on its own. Automatic
+/// restart was considered and rejected (mirroring Graphium): a backend
+/// crash-looping for a reason nobody can see would just crash-loop silently
+/// instead of stopping where someone can notice, and would keep appending to
+/// the log the whole time. `restart_backend` — reachable from the Help menu —
+/// is the human-in-the-loop fix; this thread only keeps the plumbing clean
+/// until someone uses it.
+///
+/// On an UNEXPECTED exit it also cleans up the process GROUP the dead
+/// launcher left behind (the same production incident: Oxigraph / demo-agent
+/// grandchildren survive their parent and go on holding the Oxigraph store
+/// locked). This is also why `Shell::last_pgid` only needs to be kept around
+/// for a couple of seconds at a time rather than for the life of the whole
+/// app: the moment this loop notices the exit (within its 2s poll interval)
+/// it `take()`s the pgid and signals it, so the window in which a pid the OS
+/// could have already recycled for an unrelated process would be SIGKILLed
+/// under a stale pgid stays this short — not "however long until someone
+/// clicks restart".
+fn spawn_watchdog(app: tauri::AppHandle) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(Duration::from_secs(2));
+        let shell = app.state::<Shell>();
+        if shell.shutting_down.load(Ordering::SeqCst) {
+            return;
+        }
+        let exited = {
+            let mut guard = shell.backend.lock().unwrap();
+            let status = match guard.as_mut() {
+                Some(child) => child.try_wait().ok().flatten(),
+                None => None,
+            };
+            if status.is_some() {
+                guard.take();
+            }
+            status
+        };
+        let Some(status) = exited else { continue };
+        // Any of these three flags mean this exit was expected — the app is
+        // stopping, updating (which restarts the whole process), or already
+        // mid-`restart_backend` (which reaps the child itself, but that
+        // reap and this one can race harmlessly: whichever gets there first
+        // takes the `Option`, the other finds `None`). Each of those paths
+        // does its own process-group cleanup, so this thread does not repeat
+        // it for an expected exit — only for the exits nobody else is
+        // watching for.
+        let expected = shell.shutting_down.load(Ordering::SeqCst)
+            || shell.updating.load(Ordering::SeqCst)
+            || shell.restarting.load(Ordering::SeqCst);
+        if expected {
+            append_log(&app, &format!("backend exited (expected): {status}"));
+            continue;
+        }
+        append_log(&app, &format!("backend exited: {status}"));
+        #[cfg(unix)]
+        {
+            let pgid = shell.last_pgid.lock().unwrap().take();
+            if let Some(pgid) = pgid {
+                kill_process_group(pgid);
+                append_log(
+                    &app,
+                    &format!("watchdog: cleaned up orphaned process group {pgid}"),
+                );
+            }
+        }
+    });
 }
 
 fn boot_once(app: &tauri::AppHandle) -> Flow {
@@ -1298,6 +1669,9 @@ fn boot_once(app: &tauri::AppHandle) -> Flow {
             }
         }
     };
+    // Recorded for `restart_backend`, which reuses this exact port rather
+    // than resolving a fresh one (see `Shell::port`).
+    *app.state::<Shell>().port.lock().unwrap() = Some(port);
 
     // Before the window exists: the grant is keyed by the origin the window
     // will load. Failure is not fatal — the menu item still updates the app —
@@ -1310,6 +1684,9 @@ fn boot_once(app: &tauri::AppHandle) -> Flow {
             false
         }
     };
+    app.state::<Shell>()
+        .ipc_granted
+        .store(ipc_granted, Ordering::SeqCst);
 
     let log_path = app.path().app_log_dir().ok().map(|dir| {
         let _ = std::fs::create_dir_all(&dir);
@@ -1332,6 +1709,8 @@ fn boot_once(app: &tauri::AppHandle) -> Flow {
 }
 
 /// Start the backend as a process-group leader, output appended to backend.log.
+/// Thin wrapper over `spawn_backend_quiet` that turns a failure into a stop
+/// card — see that function for what actually happens.
 fn spawn_backend(
     app: &tauri::AppHandle,
     backend: &BackendCmd,
@@ -1339,6 +1718,25 @@ fn spawn_backend(
     ipc_granted: bool,
     log_path: Option<&Path>,
 ) -> Result<(), Flow> {
+    spawn_backend_quiet(app, backend, port, ipc_granted, log_path).map_err(|err| {
+        decide(
+            app,
+            Status::card("card.startFailed", err, &["retry", "log", "quit"]),
+        )
+    })
+}
+
+/// Build the `Command`, spawn it as a process-group leader, and record the
+/// `Child` (and its pgid) in `Shell`. No splash/card side effects — used both
+/// by `spawn_backend` (boot path, wraps failures in a stop card) and
+/// `restart_backend` (background path, which has no card to show).
+fn spawn_backend_quiet(
+    app: &tauri::AppHandle,
+    backend: &BackendCmd,
+    port: u16,
+    ipc_granted: bool,
+    log_path: Option<&Path>,
+) -> Result<(), String> {
     let (stdout, stderr) = match log_path {
         Some(path) => match std::fs::OpenOptions::new()
             .create(true)
@@ -1395,27 +1793,61 @@ fn spawn_backend(
     }
     match command.spawn() {
         Ok(child) => {
-            *app.state::<Shell>().backend.lock().unwrap() = Some(child);
+            let pgid = child.id() as i32;
+            let state = app.state::<Shell>();
+            *state.backend.lock().unwrap() = Some(child);
+            *state.last_pgid.lock().unwrap() = Some(pgid);
             Ok(())
         }
-        Err(err) => Err(decide(
-            app,
-            Status::card(
-                "card.startFailed",
-                format!("{err}\n{}", backend.program.display()),
-                &["retry", "log", "quit"],
-            ),
-        )),
+        Err(err) => Err(format!("{err}\n{}", backend.program.display())),
     }
 }
 
-/// Wait for the backend to answer. Two things interrupt the wait: the child
-/// dying (the log can often name why) and the wait growing long — which is a
-/// question for the user, not a reason to quit on their behalf. A first launch
-/// unpacks a ~370 MB bundle and gets scanned by Gatekeeper, so "slow" is not
-/// the same as "broken".
-fn wait_ready(app: &tauri::AppHandle, port: u16, bundled: bool) -> Result<(), Flow> {
-    let mut deadline = Instant::now() + READY_TIMEOUT;
+/// Poll until the backend answers on `port`, the tracked child exits, or
+/// `timeout` elapses — no splash/card side effects (used both by `wait_ready`,
+/// which wraps the outcome in a card, and `restart_backend`, which has no
+/// card to show). The two failure shapes are told apart by the caller, not by
+/// this function: after an `Err`, `Shell::backend` is `None` iff the child
+/// exited (this loop reaps it, same as the boot path always has) — still
+/// `Some` means the deadline simply ran out while the process was alive.
+/// Why the backend is not answering. The two cases need opposite handling —
+/// a dead child is a failure to report, a slow one is a wait to keep — and
+/// callers used to tell them apart by peeking at `Shell.backend` (or, worse,
+/// by the shape of an error string). Naming them removes that guesswork.
+enum NotReady {
+    /// The child exited. Carries the status plus the log tail that often says why.
+    Exited(String),
+    /// Still alive, just not answering yet. Carries what was waited for.
+    Slow(String),
+}
+
+impl NotReady {
+    fn detail(self) -> String {
+        match self {
+            NotReady::Exited(detail) | NotReady::Slow(detail) => detail,
+        }
+    }
+}
+
+/// Why a restart did not end with a live backend. `Slow` means a child IS
+/// running and may still come up; every other case means nothing is coming.
+/// The two get different wording, and the difference is carried in the type
+/// rather than recovered from the shape of an error string.
+enum RestartError {
+    Slow(String),
+    Failed(String),
+}
+
+impl RestartError {
+    fn detail(&self) -> &str {
+        match self {
+            RestartError::Slow(detail) | RestartError::Failed(detail) => detail,
+        }
+    }
+}
+
+fn wait_ready_quiet(app: &tauri::AppHandle, port: u16, timeout: Duration) -> Result<(), NotReady> {
+    let deadline = Instant::now() + timeout;
     loop {
         if http_ready(port) {
             return Ok(());
@@ -1433,38 +1865,53 @@ fn wait_ready(app: &tauri::AppHandle, port: u16, bundled: bool) -> Result<(), Fl
             status.map(|status| status.to_string())
         };
         if let Some(status) = exited {
-            let mut card = Status::card(
-                "card.stopped",
-                format!("exit: {status}\n\n{}", log_tail(app, 50)),
-                &["retry", "log", "copy", "quit"],
-            )
-            .with_hint(plain_hint(&log_tail(app, 5)));
-            if !bundled {
-                // A repo checkout is read by a developer: leave the technical
-                // text in front, where it is the fastest answer.
-                card = card.open_detail();
-            }
-            return Err(decide(app, card));
+            return Err(NotReady::Exited(format!(
+                "exit: {status}\n\n{}",
+                log_tail(app, 50)
+            )));
         }
         if Instant::now() > deadline {
-            let card = Status::card(
-                "card.slow",
-                format!(
-                    "no answer from 127.0.0.1:{port} after {}s",
-                    READY_TIMEOUT.as_secs()
-                ),
-                &["wait", "log", "quit"],
-            );
-            match halt(app, card).as_str() {
-                "wait" => {
-                    set_status(app, Status::working("starting"));
-                    deadline = Instant::now() + READY_TIMEOUT;
-                }
-                "retry" => return Err(Flow::Retry),
-                _ => return Err(Flow::Quit),
-            }
+            return Err(NotReady::Slow(format!(
+                "no answer from 127.0.0.1:{port} after {}s",
+                timeout.as_secs()
+            )));
         }
         std::thread::sleep(Duration::from_millis(200));
+    }
+}
+
+/// Wait for the backend to answer. Two things interrupt the wait: the child
+/// dying (the log can often name why) and the wait growing long — which is a
+/// question for the user, not a reason to quit on their behalf. A first launch
+/// unpacks a ~370 MB bundle and gets scanned by Gatekeeper, so "slow" is not
+/// the same as "broken".
+fn wait_ready(app: &tauri::AppHandle, port: u16, bundled: bool) -> Result<(), Flow> {
+    let mut timeout = READY_TIMEOUT;
+    loop {
+        let detail = match wait_ready_quiet(app, port, timeout) {
+            Ok(()) => return Ok(()),
+            Err(NotReady::Exited(detail)) => {
+                let mut card =
+                    Status::card("card.stopped", detail, &["retry", "log", "copy", "quit"])
+                        .with_hint(plain_hint(&log_tail(app, 5)));
+                if !bundled {
+                    // A repo checkout is read by a developer: leave the technical
+                    // text in front, where it is the fastest answer.
+                    card = card.open_detail();
+                }
+                return Err(decide(app, card));
+            }
+            Err(NotReady::Slow(detail)) => detail,
+        };
+        let card = Status::card("card.slow", detail, &["wait", "log", "quit"]);
+        match halt(app, card).as_str() {
+            "wait" => {
+                set_status(app, Status::working("starting"));
+                timeout = READY_TIMEOUT;
+            }
+            "retry" => return Err(Flow::Retry),
+            _ => return Err(Flow::Quit),
+        }
     }
 }
 
@@ -1481,6 +1928,11 @@ fn open_main(app: &tauri::AppHandle, port: u16, fallback: bool) -> Flow {
             // Only now: while the main window is not up, the splash is the
             // only thing the user has.
             close_splash(app);
+            // The MAIN window is open and `Shell.backend` now holds the
+            // backend that window is actually pointed at: `restart_backend`
+            // may act on it from here on (see `Shell::booted`).
+            app.state::<Shell>().booted.store(true, Ordering::SeqCst);
+            set_restart_menu_enabled(app, true);
             Flow::Done
         }
         Err(err) => {
@@ -1532,6 +1984,15 @@ fn build_menu(handle: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<taur
     let check = MenuItemBuilder::with_id("check_update", t("menu.checkUpdate")).build(handle)?;
     let open_log = MenuItemBuilder::with_id("open_log", t("menu.openLog")).build(handle)?;
     let guide = MenuItemBuilder::with_id("open_guide", t("menu.guide")).build(handle)?;
+    // The last-resort recovery when the backend has died and the page cannot
+    // help itself — see the death-watch thread in `boot()`. Built disabled:
+    // `boot()` has not opened the MAIN window yet at this point, so there is
+    // nothing for `restart_backend` to act on (see `Shell::booted`).
+    // `open_main` flips it on once the window is actually up.
+    let restart_backend_item =
+        MenuItemBuilder::with_id("restart_backend", t("menu.restartBackend"))
+            .enabled(false)
+            .build(handle)?;
     #[cfg(target_os = "macos")]
     {
         // A second item with its own id: one MenuItem cannot sit in two menus.
@@ -1564,6 +2025,7 @@ fn build_menu(handle: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<taur
             .close_window()
             .build()?;
         let help_menu = SubmenuBuilder::new(handle, t("menu.help"))
+            .item(&restart_backend_item)
             .item(&open_log)
             .item(&guide)
             .separator()
@@ -1576,6 +2038,7 @@ fn build_menu(handle: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<taur
     #[cfg(not(target_os = "macos"))]
     {
         let help_menu = SubmenuBuilder::new(handle, t("menu.help"))
+            .item(&restart_backend_item)
             .item(&open_log)
             .item(&guide)
             .separator()
@@ -1598,7 +2061,8 @@ pub fn run() {
             get_data_home_override,
             set_data_home_override,
             get_storage_notice,
-            clear_storage_notice
+            clear_storage_notice,
+            restart_backend
         ])
         .menu(build_menu)
         .on_menu_event(|app, event| {
@@ -1609,6 +2073,44 @@ pub fn run() {
                 reveal_log(app);
             } else if id == "open_guide" {
                 open_url(GUIDE_URL);
+            } else if id == "restart_backend" {
+                let handle = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    match restart_backend_typed(handle.clone()).await {
+                        Ok(_) => {
+                            // The window is on an external origin
+                            // (`http://127.0.0.1:<port>`), so there is no
+                            // Tauri-level "reload" — ask the page itself to
+                            // navigate again, now that a live backend is
+                            // behind it.
+                            if let Some(window) = handle.get_webview_window(MAIN) {
+                                let _ = window.eval("location.reload()");
+                            }
+                            // No window open: nothing to reload, and opening
+                            // one is out of scope for this command.
+                        }
+                        Err(err) => {
+                            eprintln!("asterism-desktop: restart_backend failed: {}", err.detail());
+                            // A child that is still starting is not a failure
+                            // the user has to act on, so it gets its own,
+                            // gentler sentence. The two cases are told apart
+                            // by the type, not by the shape of the message.
+                            let headline = match err {
+                                RestartError::Slow(_) => t("menu.restartBackendSlow"),
+                                RestartError::Failed(_) => t("menu.restartBackendFailed"),
+                            };
+                            // The plain sentence alone leaves the user with
+                            // nothing to act on; the reason (port taken, no
+                            // runtime, never became ready) is the part that
+                            // decides what they do next, so it rides along.
+                            notify(
+                                &handle,
+                                &format!("{headline}\n\n{}", err.detail()),
+                                MessageDialogKind::Error,
+                            );
+                        }
+                    }
+                });
             }
         })
         .setup(|app| {
@@ -1692,6 +2194,59 @@ mod tests {
         assert_eq!(card.detail, "exit: 1");
         assert!(!card.detail_open);
         assert_eq!(card.actions, vec!["retry", "quit"]);
+    }
+
+    #[test]
+    fn restart_guard_refuses_a_second_call_while_the_first_holds_it() {
+        let flag = AtomicBool::new(false);
+        assert!(
+            try_acquire_restart_guard(&flag),
+            "first caller should acquire the guard"
+        );
+        assert!(
+            !try_acquire_restart_guard(&flag),
+            "a second caller must not acquire it while the first still holds it"
+        );
+        // Release (what the `ClearOnDrop` guard does in
+        // `restart_backend_blocking`), then it is acquirable again.
+        flag.store(false, Ordering::SeqCst);
+        assert!(
+            try_acquire_restart_guard(&flag),
+            "the guard must be acquirable again once released"
+        );
+    }
+
+    // `ui_lang()` latches its answer in a process-wide `OnceLock` on first
+    // call, so a single test binary can only ever observe one of ja/en for
+    // `t()` — there is no existing precedent in this file for forcing the
+    // other branch mid-process. This asserts against whichever language the
+    // test process resolves to (both arms of the match are non-empty
+    // string literals either way, so this still catches an accidentally
+    // empty/missing key).
+    #[test]
+    fn menu_restart_backend_label_is_never_empty() {
+        assert!(!t("menu.restartBackend").is_empty());
+        assert!(!t("menu.restartBackendFailed").is_empty());
+        assert!(!t("menu.restartBackendSlow").is_empty());
+    }
+
+    #[test]
+    fn restart_is_refused_until_boot_has_opened_the_main_window() {
+        let booted = AtomicBool::new(false);
+        assert!(
+            !restart_allowed(&booted),
+            "a restart mid-boot would steal the child boot_once is waiting on"
+        );
+        // What `open_main` does on `Flow::Done`.
+        booted.store(true, Ordering::SeqCst);
+        assert!(
+            restart_allowed(&booted),
+            "once the MAIN window is open, restart_backend has something to act on"
+        );
+        // What `boot()` does on `Flow::Retry` — back to "not booted yet"
+        // because another `boot_once` pass is about to run.
+        booted.store(false, Ordering::SeqCst);
+        assert!(!restart_allowed(&booted));
     }
 
     // Tests for the boot-time data-home move (ADR `app-data-on-disk.md`
