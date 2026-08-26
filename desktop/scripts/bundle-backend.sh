@@ -67,10 +67,15 @@ fi
 "$DEST/oxigraph" --version >/dev/null
 
 # --- repo payloads ---------------------------------------------------------
-rm -rf "$DEST/demo-agent" "$DEST/datasets" "$DEST/ui-dist"
+rm -rf "$DEST/demo-agent" "$DEST/datasets" "$DEST/ui-dist" "$DEST/manual"
 mkdir -p "$DEST/demo-agent"
 cp "$REPO/demo-agent/app.py" "$DEST/demo-agent/app.py"
 cp -R "$REPO/datasets" "$DEST/datasets"
+# The user manual is ALSO the consult chat's knowledge source: the api's
+# upward search reaches $DEST/manual/ja from site-packages. Without it the
+# shipped .app ran consult without the manual (dev checkouts masked this).
+cp -R "$REPO/manual" "$DEST/manual"
+[ -d "$DEST/manual/ja" ] || { echo "manual/ja missing from bundle" >&2; exit 1; }
 
 if [ ! -f "$REPO/ui/dist/index.html" ]; then
   echo "ui/dist not built. Run:" >&2
