@@ -425,6 +425,7 @@
     "structuralNote": "This opens the screen with every setting. “Back to simple mode” brings you back here.",
     "cancel": "Stop reviewing",
     "cancelConfirm": "Stop reviewing and go back to the dataset page? (Changes already applied by the AI are saved.)",
+    "confirmApply": "Apply these decisions",
     "confirmNoChange": "Looks right — finish reviewing",
     "findingsTitle": "Why you're here",
     "findingsBody": "Asking the AI to fix this rebuilds the draft; you can check the result in “try it → publish”. If you only want to adjust item meanings, you can dismiss this.",
