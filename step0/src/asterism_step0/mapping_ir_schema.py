@@ -282,3 +282,31 @@ def permap_json_schema(function_names: Sequence[str] | None = None) -> dict:
             "prefixes": _prefixes_schema(),
         },
     }
+
+
+def labelfill_json_schema() -> dict:
+    """The targeted label-fill re-ask: ONLY the missing labels come back, keyed
+    by the predicate they belong to. ``label`` stays optional in the property
+    row schema (a required label makes weak models fail the WHOLE row), so this
+    tiny schema is where a dropped label gets a second, focused chance — the
+    rows themselves are never re-emitted, so the retry cannot break a binding.
+    """
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["labels"],
+        "properties": {
+            "labels": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["predicate", "label"],
+                    "properties": {
+                        "predicate": {"type": "string"},
+                        "label": {"type": "string"},
+                    },
+                },
+            },
+        },
+    }

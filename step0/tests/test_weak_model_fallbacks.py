@@ -28,6 +28,7 @@ from asterism_step0.llm import (
 )
 from asterism_step0.staged_propose import (
     DOCUMENT_SYSTEM_PROMPT,
+    PERMAP_LABELFILL_SYSTEM_PROMPT,
     PERMAP_SYSTEM_PROMPT,
     default_property_table,
     default_skeleton,
@@ -378,6 +379,8 @@ def test_provider_failure_during_a_map_is_not_a_default_table() -> None:
     def handler(system: str, user: str) -> str:
         if system == PERMAP_SYSTEM_PROMPT:
             raise APIConnectionError("connection reset")
+        if system == PERMAP_LABELFILL_SYSTEM_PROMPT:
+            return json.dumps({"labels": []})  # 空振り (挙動中立)
         raise AssertionError(system)
 
     with pytest.raises(APIConnectionError):
@@ -403,6 +406,8 @@ def test_truncated_map_keeps_the_run_and_the_other_maps() -> None:
             if "This map: 'thing'" in user:
                 raise LLMTruncatedError("output was still truncated")
             return json.dumps({"properties": [{"predicate": "ex:label", "column": "label"}]})
+        if system == PERMAP_LABELFILL_SYSTEM_PROMPT:
+            return json.dumps({"labels": []})  # 空振り (挙動中立)
         if system == DOCUMENT_SYSTEM_PROMPT:
             return "### 1. Class hierarchy\n\n(the design)\n"
         raise AssertionError(system)
@@ -433,6 +438,8 @@ def test_empty_answer_for_a_map_also_falls_back() -> None:
             raise LLMEmptyOutputError("only reasoning")
         if system == DOCUMENT_SYSTEM_PROMPT:
             return "### 1. Class hierarchy\n\n(the design)\n"
+        if system == PERMAP_LABELFILL_SYSTEM_PROMPT:
+            return json.dumps({"labels": []})  # 空振り (挙動中立)
         raise AssertionError(system)
 
     md = propose_from_skeleton(_SKELETON, "# insp", "demo", llm=_Mock(handler), menu=_MENU)
@@ -448,6 +455,8 @@ def test_document_truncation_is_written_from_the_spec() -> None:
             return json.dumps({"properties": [{"predicate": "ex:name", "column": "name"}]})
         if system == DOCUMENT_SYSTEM_PROMPT:
             raise LLMTruncatedError("output was still truncated")
+        if system == PERMAP_LABELFILL_SYSTEM_PROMPT:
+            return json.dumps({"labels": []})  # 空振り (挙動中立)
         raise AssertionError(system)
 
     fallbacks: list[str] = []

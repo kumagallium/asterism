@@ -51,6 +51,7 @@ from asterism_step0.llm import (
 )
 from asterism_step0.mapping_ir import structural_property_issues
 from asterism_step0.mapping_ir_schema import (
+    labelfill_json_schema,
     permap_json_schema,
     skeleton_json_schema,
 )
@@ -69,6 +70,7 @@ __all__ = [
     "default_skeleton",
     "fill_mapping_spec_block",
     "generate_document",
+    "generate_label_fill",
     "generate_map_properties",
     "generate_skeleton",
     "mapping_ir_to_yaml",
@@ -182,6 +184,26 @@ Rules:
   functions.
 - Declare in `prefixes` any vocabulary your predicates/datatypes use that the
   skeleton did not already declare (xsd: is builtin — never declare it).
+"""
+
+PERMAP_LABELFILL_SYSTEM_PROMPT = """\
+You add ONLY the missing display labels to rows of an RDF mapping's property
+table. The rows and their data bindings are ALREADY fixed and are NOT yours to
+change: do not rename predicates, do not touch columns, do not add or remove
+rows.
+
+Return a SINGLE JSON object, no fence, no prose:
+{ "labels": [
+    { "predicate": "<CURIE copied EXACTLY as given>", "label": "<short human meaning>" } ] }
+
+Rules:
+- One entry per requested row, `predicate` copied EXACTLY as given.
+- `label` is the human-readable meaning of the VALUE (what a scientist would
+  call this quantity or attribute), short, in the output language requested
+  for prose — NEVER a restatement of the predicate name or the raw column
+  header.
+- Use the sample values shown to infer the meaning.
+- Skip a row only when its meaning genuinely cannot be inferred.
 """
 
 DOCUMENT_SYSTEM_PROMPT = """\
@@ -1374,6 +1396,126 @@ def generate_map_properties(
     return _load_json_object(_complete_guided(llm, PERMAP_SYSTEM_PROMPT, user, schema))
 
 
+def _binding_of(prop: Mapping[str, Any]) -> str:
+    """One line naming a row's data source — context for the label-fill ask."""
+    if prop.get("column"):
+        return f"column: {prop['column']}"
+    if prop.get("columns"):
+        return "columns: " + ", ".join(str(c) for c in prop["columns"])
+    if prop.get("object_template"):
+        return f"object_template: {prop['object_template']}"
+    if prop.get("constant") is not None:
+        return f"constant: {prop['constant']}"
+    return "(no binding)"
+
+
+def missing_label_rows(properties: Any) -> list[dict]:
+    """The rows a label-fill round asks about: a real binding, no usable label."""
+    rows: list[dict] = []
+    for prop in properties or []:
+        if not isinstance(prop, Mapping):
+            continue
+        if str(prop.get("label") or "").strip():
+            continue
+        if not str(prop.get("predicate") or "").strip():
+            continue
+        rows.append(dict(prop))
+    return rows
+
+
+def build_labelfill_user(
+    map_name: str,
+    missing: Sequence[Mapping[str, Any]],
+    skeleton_context: str,
+    *,
+    language: str | None = None,
+) -> str:
+    parts = [
+        f"# Map: '{map_name}'",
+        "",
+        "# Context (skeleton + sample values)",
+        skeleton_context.strip(),
+        "",
+        "# Rows missing a label (label EXACTLY these, nothing else)",
+        *[f"- predicate: {prop['predicate']}  ({_binding_of(prop)})" for prop in missing],
+        "",
+        "Return the labels as a single JSON object.",
+    ]
+    lang = language_instruction(language)
+    if lang:
+        parts += ["", lang]
+    return "\n".join(parts)
+
+
+def generate_label_fill(
+    map_name: str,
+    missing: Sequence[Mapping[str, Any]],
+    skeleton_context: str,
+    *,
+    llm: LLMClient,
+    language: str | None = None,
+) -> dict:
+    """One guided call -> ``{"labels": [{predicate, label}]}`` for missing labels."""
+    user = build_labelfill_user(map_name, missing, skeleton_context, language=language)
+    return _load_json_object(
+        _complete_guided(llm, PERMAP_LABELFILL_SYSTEM_PROMPT, user, labelfill_json_schema())
+    )
+
+
+def _norm_ident(text: str) -> str:
+    """Case/separator-insensitive identifier form ('Chemical Formula' == 'chemicalFormula').
+
+    Keeps non-ASCII word characters: an ASCII-only strip turned the perfectly
+    good label 「CSD 収載コード」 into "csd" == column "CSD" and rejected it as
+    a restatement (live e2e, 2026-08-26) — a Japanese label that CONTAINS the
+    column's acronym is an answer, not an echo.
+    """
+    return re.sub(r"[\W_]+", "", text.lower())
+
+
+def merge_label_fill(
+    table: Mapping[str, Any], fill: Mapping[str, Any]
+) -> tuple[dict, list[str]]:
+    """Fill EMPTY labels from a label-fill answer; bindings are untouched.
+
+    Returns the merged table and the predicates actually filled. An entry is
+    ignored when its predicate matches no empty-label row, or when the offered
+    label merely restates the identifier (predicate local name or column
+    header) — a machine-written restatement would HIDE the blank instead of
+    resolving it, and 'use the column name as the meaning' is a choice S6
+    reserves for the human (K22).
+    """
+    offered: dict[str, str] = {}
+    for entry in fill.get("labels") or []:
+        if not isinstance(entry, Mapping):
+            continue
+        pred = str(entry.get("predicate") or "").strip()
+        text = str(entry.get("label") or "").strip()
+        if pred and text and pred not in offered:
+            offered[pred] = text
+    if not offered:
+        return dict(table), []
+    filled: list[str] = []
+    props_out: list[Any] = []
+    for prop in table.get("properties") or []:
+        if not isinstance(prop, Mapping):
+            props_out.append(prop)
+            continue
+        pred = str(prop.get("predicate") or "").strip()
+        text = offered.get(pred)
+        if text is None or str(prop.get("label") or "").strip():
+            props_out.append(prop)
+            continue
+        local = pred.split(":", 1)[-1]
+        idents = {_norm_ident(local), _norm_ident(str(prop.get("column") or ""))} - {""}
+        if _norm_ident(text) in idents:
+            props_out.append(prop)  # a restatement is not a meaning
+            continue
+        props_out.append({**prop, "label": text})
+        filled.append(pred)
+    return {**table, "properties": props_out}, filled
+
+
 def generate_document(
     assembled_ir_yaml: str,
     inspection_md: str,
@@ -1672,6 +1814,32 @@ def _generate_map_properties_gated(
             f"map '{map_name}': 数値列に型を付けました - 文字列比較の防止: "
             + ", ".join(sorted(set(typed)))
         )
+    # Weak models keep every structural rule above yet drop the OPTIONAL
+    # `label:` — the review then shows blank meanings on perfectly mapped
+    # columns, and WHICH rows go blank varies run to run (live 2026-08-25,
+    # gpt-oss-120b). One targeted re-ask fills ONLY the missing labels; the
+    # rows are never re-emitted, so this round cannot break a binding. A
+    # failed fill degrades to exactly the old behaviour: S6 shows the blank
+    # and the human fills it (the safety net stays the gate, K22).
+    missing = missing_label_rows(result.get("properties"))
+    if missing:
+        _emit(f"map '{map_name}': 意味が空の {len(missing)} 項目を書き足しています")
+        try:
+            fill = generate_label_fill(
+                map_name, missing, skeleton_context, llm=llm, language=language
+            )
+        except LLMCancelledError:
+            raise
+        except _UNUSABLE_ANSWER:
+            record()  # the call happened; the blanks stay for the human
+        else:
+            record()
+            result, filled = merge_label_fill(result, fill)
+            if filled:
+                _emit(
+                    f"map '{map_name}': {len(filled)} 項目の意味を書き足しました: "
+                    + ", ".join(filled[:8])
+                )
     return result
 
 
