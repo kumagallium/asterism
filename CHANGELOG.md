@@ -1,5 +1,11 @@
 # Changelog
 
+## [v0.22.0](https://github.com/kumagallium/asterism/compare/v0.21.2...v0.22.0) - 2026-08-26
+
+- docs(manual): ユーザー向けマニュアルを全機能に拡充する — 9 章 + 実画面スクリーンショット by @kumagallium in https://github.com/kumagallium/asterism/pull/412
+- feat(ui/settings): 設定「このアプリ」から更新を入れられるようにする — 「あとで」が案内する先にボタンが無かった by @kumagallium in https://github.com/kumagallium/asterism/pull/421
+- feat(step0): label 取りこぼし行だけを 1 回聞き直す — 「読み取った意味」のブレ対策 by @kumagallium in https://github.com/kumagallium/asterism/pull/422
+
 ## [v0.21.2](https://github.com/kumagallium/asterism/compare/v0.21.1...v0.21.2) - 2026-08-26
 
 - fix(ui/kantan): 自動修正のたびに下書きが増殖するのを止める — ④の判断済み表示と見直しバナーも改善 by @kumagallium in https://github.com/kumagallium/asterism/pull/417
