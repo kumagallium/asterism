@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.21.2](https://github.com/kumagallium/asterism/compare/v0.21.1...v0.21.2) - 2026-08-26
+
+- fix(ui/kantan): 自動修正のたびに下書きが増殖するのを止める — ④の判断済み表示と見直しバナーも改善 by @kumagallium in https://github.com/kumagallium/asterism/pull/417
+- fix(ui/kantan): 見直しの判断反映後に④を再表示せず⑤ためすへ直行する by @kumagallium in https://github.com/kumagallium/asterism/pull/419
+
 ## [v0.21.1](https://github.com/kumagallium/asterism/compare/v0.21.0...v0.21.1) - 2026-08-25
 
 - fix(step0/api/ui): 「No」列を持つ設計で意味の保存が消える — YAML bool 化を根絶 by @kumagallium in https://github.com/kumagallium/asterism/pull/415
