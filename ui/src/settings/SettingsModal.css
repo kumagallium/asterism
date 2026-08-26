@@ -314,6 +314,18 @@
 .about-tab .btn {
   margin-bottom: 8px;
 }
+/* About タブ: 見つかった更新をこの場で入れる（画面上部のバナーと同じ実行）。
+   「新しいバージョン … があります」→ ボタン、の順に縦へ積む。 */
+.about-update {
+  margin-top: 4px;
+}
+/* 確認 2 段めの ［やめる］［再起動して更新する］は横に並べる。 */
+.about-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
 
 .field-check {
   display: flex;
