@@ -28,6 +28,7 @@ from asterism_step0.llm import (
 )
 from asterism_step0.staged_propose import (
     DOCUMENT_SYSTEM_PROMPT,
+    PERMAP_LABELFILL_SYSTEM_PROMPT,
     PERMAP_SYSTEM_PROMPT,
     default_property_table,
     default_skeleton,
@@ -403,6 +404,8 @@ def test_truncated_map_keeps_the_run_and_the_other_maps() -> None:
             if "This map: 'thing'" in user:
                 raise LLMTruncatedError("output was still truncated")
             return json.dumps({"properties": [{"predicate": "ex:label", "column": "label"}]})
+        if system == PERMAP_LABELFILL_SYSTEM_PROMPT:
+            return json.dumps({"labels": []})  # 空振り (挙動中立)
         if system == DOCUMENT_SYSTEM_PROMPT:
             return "### 1. Class hierarchy\n\n(the design)\n"
         raise AssertionError(system)

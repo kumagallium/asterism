@@ -19,6 +19,7 @@ from asterism_step0.mapping_ir import parse_mapping_ir  # noqa: E402
 from asterism_step0.mapping_ir_schema import permap_json_schema, skeleton_json_schema  # noqa: E402
 from asterism_step0.staged_propose import (  # noqa: E402
     DOCUMENT_SYSTEM_PROMPT,
+    PERMAP_LABELFILL_SYSTEM_PROMPT,
     PERMAP_SYSTEM_PROMPT,
     SKELETON_SYSTEM_PROMPT,
     apply_data_facts,
@@ -30,6 +31,8 @@ from asterism_step0.staged_propose import (  # noqa: E402
     generate_map_properties,
     generate_skeleton,
     mapping_ir_to_yaml,
+    merge_label_fill,
+    missing_label_rows,
     propose_from_skeleton,
     propose_skeleton,
     skeleton_from_full_ir,
@@ -336,6 +339,8 @@ def _router(skeleton_obj, permaps):
             raise AssertionError("per-map call for an unknown map")
         if system == DOCUMENT_SYSTEM_PROMPT:
             return "### 1. Class hierarchy\n\n(the design)\n"
+        if system == PERMAP_LABELFILL_SYSTEM_PROMPT:
+            return json.dumps({"labels": []})  # 空振り (挙動中立)
         raise AssertionError("unexpected system prompt")
 
     return handler
@@ -376,8 +381,9 @@ def test_propose_from_skeleton_equivalence_and_progress() -> None:
         function_names=FN_NAMES,
         on_progress=lambda **d: seen.append(d["phase"]),
     )
-    # per-map + document phases were emitted in order
-    assert seen == ["map:thing", "map:part", "document"]
+    # per-map + document phases were emitted in order (the label-fill round
+    # may emit extra events under the same per-map phase — order is the contract)
+    assert list(dict.fromkeys(seen)) == ["map:thing", "map:part", "document"]
     # the produced §9 is exactly the reassembled IR == the original single-shot IR
     spec = parse_mapping_ir(_extract_spec(md))
     original = parse_mapping_ir(mapping_ir_to_yaml(FULL_IR))
@@ -430,6 +436,8 @@ def test_propose_from_skeleton_repairs_structural_permap() -> None:
             )
         if system == DOCUMENT_SYSTEM_PROMPT:
             return "### 1. Class hierarchy\n\n(design)\n"
+        if system == PERMAP_LABELFILL_SYSTEM_PROMPT:
+            return json.dumps({"labels": []})  # 空振り (挙動中立)
         raise AssertionError("unexpected system prompt")
 
     llm = GuidedMock(handler)
@@ -454,8 +462,10 @@ def test_propose_from_skeleton_repairs_structural_permap() -> None:
     spec = parse_mapping_ir(_extract_spec(md))
     thing = next(m for m in spec.maps if m.name == "thing")
     assert thing.properties[0].column == "name"
-    # every LLM call was recorded: thing initial + thing repair + part + document
-    assert records == ["propose", "propose", "propose", "propose"]
+    # every LLM call was recorded: thing initial + thing repair + thing
+    # label-fill + part + part label-fill + document (both final tables lack
+    # labels, so each map gets its one targeted fill round)
+    assert records == ["propose"] * 6
 
 
 def test_propose_from_skeleton_permap_repair_stops_on_no_progress() -> None:
@@ -482,6 +492,8 @@ def test_propose_from_skeleton_permap_repair_stops_on_no_progress() -> None:
             return json.dumps({"properties": [{"predicate": "ex:ofThing", "column": "id"}]})
         if system == DOCUMENT_SYSTEM_PROMPT:
             return "### 1. Class hierarchy\n\n(design)\n"
+        if system == PERMAP_LABELFILL_SYSTEM_PROMPT:
+            return json.dumps({"labels": []})  # 空振り (挙動中立)
         raise AssertionError("unexpected system prompt")
 
     llm = GuidedMock(handler)
@@ -524,6 +536,8 @@ def test_propose_from_skeleton_permap_repair_is_bounded_when_improving() -> None
             return json.dumps({"properties": [{"predicate": "ex:ofThing", "column": "id"}]})
         if system == DOCUMENT_SYSTEM_PROMPT:
             return "### 1. Class hierarchy\n\n(design)\n"
+        if system == PERMAP_LABELFILL_SYSTEM_PROMPT:
+            return json.dumps({"labels": []})  # 空振り (挙動中立)
         raise AssertionError("unexpected system prompt")
 
     llm = GuidedMock(handler)
@@ -549,6 +563,8 @@ def test_propose_from_skeleton_degrades_on_unparseable_permap() -> None:
             return json.dumps(permaps["thing"])
         if system == DOCUMENT_SYSTEM_PROMPT:
             return "### 1. Class hierarchy\n\n(design)\n"
+        if system == PERMAP_LABELFILL_SYSTEM_PROMPT:
+            return json.dumps({"labels": []})  # 空振り (挙動中立)
         raise AssertionError("unexpected system prompt")
 
     llm = GuidedMock(handler)
@@ -671,6 +687,8 @@ def test_owned_columns_reach_generation_and_are_enforced() -> None:
             return json.dumps({"properties": [{"predicate": "schema:name", "column": "name"}]})
         if system == DOCUMENT_SYSTEM_PROMPT:
             return "### 1. Class hierarchy\n\n(design)\n"
+        if system == PERMAP_LABELFILL_SYSTEM_PROMPT:
+            return json.dumps({"labels": []})  # 空振り (挙動中立)
         raise AssertionError("unexpected system prompt")
 
     llm = GuidedMock(handler)
@@ -738,6 +756,8 @@ def test_numeric_datatypes_reach_generation() -> None:
             return json.dumps({"properties": [{"predicate": "schema:name", "column": "name"}]})
         if system == DOCUMENT_SYSTEM_PROMPT:
             return "### 1. Class hierarchy\n\n(design)\n"
+        if system == PERMAP_LABELFILL_SYSTEM_PROMPT:
+            return json.dumps({"labels": []})  # 空振り (挙動中立)
         raise AssertionError("unexpected system prompt")
 
     md = propose_from_skeleton(
@@ -812,3 +832,176 @@ def test_apply_data_facts_reasserts_ownership_and_types_on_a_whole_ir() -> None:
     assert again == (out, {})
     # No verdicts → untouched.
     assert apply_data_facts(ir) == (ir, {})
+
+
+# ---------------------------------------------------------------------------
+# Label-fill round (④「読み取った意味」が出たり出なかったりするブレの対策):
+# 構造は完璧でも label を落とす弱いモデルに、欠けた label だけを 1 回だけ
+# 狙い撃ちで聞き直す。行そのものは再生成しないので binding は壊れない。
+# ---------------------------------------------------------------------------
+
+
+def test_missing_labels_get_one_targeted_fill_round() -> None:
+    """Rows that came back without a label get ONE focused re-ask, and the
+    returned labels land in the final §9. The fill user message names the row's
+    binding so the model can infer the meaning from the data, not the name."""
+    skeleton_obj, permaps = skeleton_from_full_ir(FULL_IR)
+    fill_calls: list[str] = []
+
+    def handler(system: str, user: str) -> str:
+        if system == SKELETON_SYSTEM_PROMPT:
+            return json.dumps(skeleton_obj)
+        if system == PERMAP_SYSTEM_PROMPT:
+            for name, pm in permaps.items():
+                if f"This map: '{name}'" in user:
+                    return json.dumps(pm)
+            raise AssertionError("per-map call for an unknown map")
+        if system == PERMAP_LABELFILL_SYSTEM_PROMPT:
+            fill_calls.append(user)
+            if "# Map: 'thing'" in user:
+                return json.dumps(
+                    {
+                        "labels": [
+                            {"predicate": "schema:name", "label": "試料の名前"},
+                            {"predicate": "ex:when", "label": "測定日"},
+                        ]
+                    }
+                )
+            return json.dumps(
+                {"labels": [{"predicate": "ex:ofThing", "label": "この部品が属するもの"}]}
+            )
+        if system == DOCUMENT_SYSTEM_PROMPT:
+            return "### 1. Class hierarchy\n\n(the design)\n"
+        raise AssertionError("unexpected system prompt")
+
+    md = propose_from_skeleton(
+        skeleton_obj, "# insp", "# dom", llm=GuidedMock(handler),
+        menu="menu", function_names=FN_NAMES,
+    )
+    # one fill round per map with missing labels — no more
+    assert len(fill_calls) == 2
+    # the ask names the binding (meaning inferred from data, not the name alone)
+    thing_ask = next(u for u in fill_calls if "# Map: 'thing'" in u)
+    assert "predicate: schema:name  (column: name)" in thing_ask
+    assert "predicate: ex:when  (column: date)" in thing_ask
+    # the filled labels are in the final spec; bindings are untouched
+    spec = parse_mapping_ir(_extract_spec(md))
+    thing = next(m for m in spec.maps if m.name == "thing")
+    by_pred = {p.predicate: p for p in thing.properties}
+    assert by_pred["schema:name"].label == "試料の名前"
+    assert by_pred["schema:name"].column == "name"
+    assert by_pred["ex:when"].label == "測定日"
+    part = next(m for m in spec.maps if m.name == "part")
+    assert part.properties[0].label == "この部品が属するもの"
+
+
+def test_label_fill_skips_when_labels_complete() -> None:
+    """A table whose rows all carry labels asks NOTHING extra — the fill round
+    costs a call only when a label is actually missing."""
+    skeleton_obj, permaps = skeleton_from_full_ir(FULL_IR)
+    labeled = {
+        name: {
+            "properties": [
+                {**prop, "label": f"意味 {i}"} for i, prop in enumerate(pm["properties"])
+            ]
+        }
+        for name, pm in permaps.items()
+    }
+    fill_calls = 0
+
+    def handler(system: str, user: str) -> str:
+        nonlocal fill_calls
+        if system == SKELETON_SYSTEM_PROMPT:
+            return json.dumps(skeleton_obj)
+        if system == PERMAP_SYSTEM_PROMPT:
+            for name, pm in labeled.items():
+                if f"This map: '{name}'" in user:
+                    return json.dumps(pm)
+            raise AssertionError("per-map call for an unknown map")
+        if system == PERMAP_LABELFILL_SYSTEM_PROMPT:
+            fill_calls += 1
+            return json.dumps({"labels": []})
+        if system == DOCUMENT_SYSTEM_PROMPT:
+            return "### 1. Class hierarchy\n\n(the design)\n"
+        raise AssertionError("unexpected system prompt")
+
+    propose_from_skeleton(
+        skeleton_obj, "# insp", "# dom", llm=GuidedMock(handler),
+        menu="menu", function_names=FN_NAMES,
+    )
+    assert fill_calls == 0
+
+
+def test_label_fill_failure_keeps_blanks_and_run_continues() -> None:
+    """An unusable fill answer (unreadable JSON) never kills the run: the rows
+    keep their blank labels — S6's human gate stays the safety net — and the
+    document stage still happens."""
+    skeleton_obj, permaps = skeleton_from_full_ir(FULL_IR)
+
+    def handler(system: str, user: str) -> str:
+        if system == SKELETON_SYSTEM_PROMPT:
+            return json.dumps(skeleton_obj)
+        if system == PERMAP_SYSTEM_PROMPT:
+            for name, pm in permaps.items():
+                if f"This map: '{name}'" in user:
+                    return json.dumps(pm)
+            raise AssertionError("per-map call for an unknown map")
+        if system == PERMAP_LABELFILL_SYSTEM_PROMPT:
+            return "sorry, not json ["
+        if system == DOCUMENT_SYSTEM_PROMPT:
+            return "### 1. Class hierarchy\n\n(the design)\n"
+        raise AssertionError("unexpected system prompt")
+
+    md = propose_from_skeleton(
+        skeleton_obj, "# insp", "# dom", llm=GuidedMock(handler),
+        menu="menu", function_names=FN_NAMES,
+    )
+    spec = parse_mapping_ir(_extract_spec(md))
+    thing = next(m for m in spec.maps if m.name == "thing")
+    assert all(not p.label for p in thing.properties)  # blanks stay, run completed
+
+
+def test_merge_label_fill_rules() -> None:
+    """The merge fills EMPTY labels only, ignores unknown predicates, and rejects
+    a label that merely restates the identifier (predicate local name or column
+    header) — a machine-written restatement would hide the blank instead of
+    resolving it (that choice is S6's human button)."""
+    table = {
+        "properties": [
+            {"predicate": "ex:kept", "column": "temp", "label": "既にある意味"},
+            {"predicate": "ex:blank", "column": "Chemical Formula"},
+            {"predicate": "ex:acronym", "column": "CSD"},
+            {"predicate": "ex:restate", "column": "Space Group"},
+            {"predicate": "ex:localEcho", "column": "z"},
+        ]
+    }
+    merged, filled = merge_label_fill(
+        table,
+        {
+            "labels": [
+                {"predicate": "ex:kept", "label": "上書きしようとする意味"},
+                {"predicate": "ex:blank", "label": "化学式"},
+                {"predicate": "ex:acronym", "label": "CSD 収載コード"},
+                {"predicate": "ex:restate", "label": "space group"},  # 列名の言い直し
+                {"predicate": "ex:localEcho", "label": "Local echo"},  # 述語の言い直し
+                {"predicate": "ex:unknown", "label": "どこにも無い行"},
+            ]
+        },
+    )
+    props = {p["predicate"]: p for p in merged["properties"]}
+    assert props["ex:kept"]["label"] == "既にある意味"  # no overwrite
+    assert props["ex:blank"]["label"] == "化学式"
+    # 列の頭字語を含む日本語 label は言い直しではない(ASCII だけ残す正規化だと
+    # "CSD 収載コード"→"csd" となり棄却された — 実 e2e 2026-08-26 の退行固定)
+    assert props["ex:acronym"]["label"] == "CSD 収載コード"
+    assert "label" not in props["ex:restate"]  # 列名の言い直しは意味ではない
+    assert "label" not in props["ex:localEcho"]  # 述語 localEcho の言い直し
+    assert filled == ["ex:blank", "ex:acronym"]
+    # missing_label_rows: label の無い実 binding 行だけを拾う
+    rows = missing_label_rows(table["properties"])
+    assert [r["predicate"] for r in rows] == [
+        "ex:blank",
+        "ex:acronym",
+        "ex:restate",
+        "ex:localEcho",
+    ]
