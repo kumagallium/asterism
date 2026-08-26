@@ -1,5 +1,11 @@
 # Changelog
 
+## [v0.22.1](https://github.com/kumagallium/asterism/compare/v0.22.0...v0.22.1) - 2026-08-26
+
+- fix(infra/desktop): 配布物に manual/ を同梱 — 相談チャットの知識源の欠落 by @kumagallium in https://github.com/kumagallium/asterism/pull/423
+- fix(infra): 本番 api の manual を ASTERISM_MANUAL_DIR で明示指定 by @kumagallium in https://github.com/kumagallium/asterism/pull/425
+- fix: 検出できていた文字コードが、設計に記録されるまでに消えていた by @kumagallium in https://github.com/kumagallium/asterism/pull/426
+
 ## [v0.22.0](https://github.com/kumagallium/asterism/compare/v0.21.2...v0.22.0) - 2026-08-26
 
 - docs(manual): ユーザー向けマニュアルを全機能に拡充する — 9 章 + 実画面スクリーンショット by @kumagallium in https://github.com/kumagallium/asterism/pull/412
