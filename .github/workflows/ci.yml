@@ -268,7 +268,7 @@ jobs:
         run: docker stop oxigraph && docker rm oxigraph
 
   ui:
-    name: ui (lint + build)
+    name: ui (lint + test + build)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -294,6 +294,10 @@ jobs:
       - name: i18n checks (ja/en parity + refs resolve)
         working-directory: ui
         run: npm run lint:i18n
+
+      - name: Unit tests
+        working-directory: ui
+        run: npm test
 
       - name: Build (incl. tsc typecheck)
         working-directory: ui
