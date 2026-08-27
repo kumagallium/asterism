@@ -117,6 +117,15 @@ services:
       - oxigraph
     environment:
       CSV2RDF_OXIGRAPH_URL: http://oxigraph:7878
+      # The typed surface IS the registry: a workbench-onboarded dataset declares
+      # its tools at registry/<id>/query_tools.yaml, and find_datasets reads the
+      # same tree to say which datasets exist. Without this the MCP front serves
+      # only the hardcoded starrydata tools — every dataset the user actually
+      # onboarded is invisible here while the catalog UI shows it.
+      CSV2RDF_REGISTRY_ROOT: /data/sources/registry
+    volumes:
+      # Read-only: this front never writes. upload-api owns the tree.
+      - ./data/sources:/data/sources:ro
     ports:
       # Loopback-only by default (typed-tool MCP front). To register this front
       # with a platform on another host, publish it through an authenticating

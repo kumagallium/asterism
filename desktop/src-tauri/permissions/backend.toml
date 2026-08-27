@@ -1,0 +1,12 @@
+# App-defined command permissions for restarting the backend process from the
+# page. This is the app's own command, not a plugin's, so it is namespaced by
+# identifier only (no `<plugin>:` prefix) — see
+# https://tauri.app/security/permissions/#permission-identifier.
+
+[[permission]]
+identifier = "allow-restart-backend"
+description = """Stop and start the backend process again on the same
+loopback port. Used when the backend has died silently underneath the page
+(e.g. killed by something outside the app) and the SPA has no other way to
+recover than reloading against a fresh process."""
+commands.allow = ["restart_backend"]

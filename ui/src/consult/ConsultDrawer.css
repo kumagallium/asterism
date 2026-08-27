@@ -27,6 +27,14 @@
   background: var(--surface-alt);
 }
 
+/* The sparkle marks the counterpart as an AI, so the button answers "consult
+   whom?" before it is pressed (2026-08-26 review). Same mark in the drawer
+   header, so the open panel keeps saying who is answering. */
+.consult-fab-icon {
+  color: var(--accent);
+  flex: none;
+}
+
 .consult-backdrop {
   position: fixed;
   inset: 0;
@@ -64,6 +72,9 @@
 }
 
 .consult-head-title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
   font-size: 0.82rem;
   font-weight: 700;
   color: var(--fg);

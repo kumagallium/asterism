@@ -152,11 +152,18 @@ form field on `/api/propose`, `/api/propose/skeleton` and `/api/propose/continue
 (the delimiter is a translated label but always sent as the canonical token —
 the two-layer contract). The API boundary-checks each override with the IR's
 dialect linter (`mapping_ir._parse_dialects`, field-only) → a readable 422, never
-a bad §9 annotation. The design loop merges the overrides OVER detection
-(`effective = {**detected, **overrides}`) and drives **every** source read — the
-Tier-0 oracle columns, the inline/skeleton inspection, and the §9 pin — from that
-one effective map, so a `skip_rows` edit that moves the header stays consistent
-everywhere. The override lands in §9 as an explicit `dialects:` entry — and because
+a bad §9 annotation, and keeps **only the fields the request actually carried**
+(`{source: {field: value}}` — never a whole `SourceDialect`, which cannot express
+"not specified": every absent field reads back as its class default). The design loop
+merges those over detection **field by field** (`design_loop.merge_dialect_overrides`)
+and drives **every** source read — the Tier-0 oracle columns, the inline/skeleton
+inspection, and the §9 pin — from that one effective map, so a `skip_rows` edit that
+moves the header stays consistent everywhere while a field nobody touched keeps what
+detection found. Merging whole entries instead — the shape this had until 2026-08-26 —
+made a correction to one field reset all the others: an XRD export whose only non-ASCII
+bytes are its two header cells (`2θ (deg)` / `強度 (cps)`) was detected as cp932 at every
+design stage, the wizard sent an override for the header offset alone, §9 pinned
+`utf-8-sig`, and ingest refused the file the whole wizard had just read correctly. The override lands in §9 as an explicit `dialects:` entry — and because
 it is the source's *complete intended* dialect, an override entry is pinned with **all
 four fields, defaults included** (`apply_detected_dialects(..., full_fields=<override
 names>)`). This is what makes an *explicit default* survive the materialize re-pin:
@@ -168,7 +175,21 @@ re-pin silently refilled it from re-detection (fixed 2026-07-12; regression: an 
 that keeps cp932/tab but resets `skip_rows` 1→0 survives a `source_dir` re-pin).
 Detection-only sources keep their **minimal** entries (only non-default fields) — the RML
 compiler emits only non-default annotations either way, so the extra IR fields never
-change the compiled artifact and a clean design stays byte-identical. An empty override
+change the compiled artifact and a clean design stays byte-identical.
+
+Who wins a field both sides carry depends on **who is asking**, which is the
+`authoritative` flag on `apply_detected_dialects`:
+
+* The **design loop** passes the effective map (detection + the human's corrections) and
+  is authoritative: it overwrites whatever the LLM wrote in `dialects:`. How a file is
+  READ is evidence, not a design decision, and a round that "improves" a detected
+  `cp932` to `utf-8-sig` does not produce a worse design — it produces one ingest
+  cannot open. This is the same rule as the other data-derived facts re-asserted after
+  every round (column ownership, numeric datatypes).
+* The **materialize re-pin** from a bare artifact (`--source-dir`, which has no way to
+  see who wrote what) is not: explicit IR values win, because the section it finds was
+  written by the design loop upstream and is already the settled answer. This is what
+  FIX2 above depends on. An empty override
 leaves `effective == detected` — byte-identical to today. (Open question: a *force-default*
 override — resetting a mis-detected source to clean CSV, i.e. *every* field default — is
 honored at design time but does not survive the materialize re-pin: the `is_default` gate
@@ -249,6 +270,20 @@ A new preprocessing step, **first** in the existing work_dir chain (before
   the extension, not the annotation, decides. `.csv`/`.tsv` sources are
   normalized only under a non-default annotation (byte-identical default
   path preserved).
+- **A pin that cannot read the file is repaired here, not sent back.** Decoding stays
+  strict, but a `UnicodeDecodeError` no longer stops the ingest: `encoding_that_decodes`
+  re-tries the detector's own candidates (`utf-8-sig`, `cp932`) over the WHOLE file and
+  the normalization re-runs with the one that works, with a `logger.warning` naming the
+  substitution. Only the ENCODING is repaired — the delimiter, the header offset and the
+  preamble mode are design decisions, and a decode failure is no evidence about them.
+  The candidate list deliberately omits the design side's terminal `latin-1`: it decodes
+  any byte sequence, so as a *guess* it would turn every unreadable file into a silently
+  mojibake'd ingest nobody is watching (a `latin-1` someone actually PINNED, having seen
+  the preview, is still honored). A file no candidate reads is still a structured
+  `RmlValidationError` → 422, now naming what was tried instead of blaming the person
+  for a file change that never happened. Rationale: which encoding opens a file is a
+  question the machine can settle by trying, and the failure it used to produce was a
+  dead end mid-wizard ("save it again as CSV UTF-8") for work no human should be doing.
 - Substrate rewrites `rml:source` to the normalized `.csv` work file and
   **strips the annotations** before handing the mapping to morph-kgc, which
   therefore sees exactly what it sees today.

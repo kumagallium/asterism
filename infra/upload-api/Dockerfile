@@ -67,6 +67,17 @@ RUN pip install "/app/ingest[substrate]" \
 COPY datasets /app/datasets
 ENV ASTERISM_DATASETS_ROOT=/app/datasets
 
+# The user manual doubles as the consult chat's knowledge source
+# (design-consult-chat.md D8): _find_consult_manual_dir searches upward from
+# the installed package and finds /app/manual/ja here. Without this COPY the
+# hosted image silently ran consult WITHOUT the manual — the anti-hallucination
+# layer existed only in dev checkouts.
+COPY manual /app/manual
+# pip install relocates the package to /usr/local/lib/.../site-packages, so the
+# upward search never passes /app — point at the manual explicitly (same idiom
+# as ASTERISM_DATASETS_ROOT above; found live on asterism-prod, 2026-08-26).
+ENV ASTERISM_MANUAL_DIR=/app/manual/ja
+
 # /data/sources is provided by a compose bind mount; the watcher auto-creates
 # per-kind subdirs on startup. On macOS / Linux the bind mount is typically
 # root-owned, so we run the container as root for MVP. The closed-server

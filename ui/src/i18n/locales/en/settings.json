@@ -158,6 +158,12 @@
     "downloading": "Downloading… {{pct}}%",
     "installFailed": "Update failed"
   },
+  "backendDown": {
+    "message": "The backend has stopped. What you see on screen is from before it stopped. Restarting will fix it.",
+    "restart": "Restart Backend",
+    "restarting": "Restarting…",
+    "restartFailed": "Could not restart. Open Help → \"Open the Log (for reporting problems)\" for details."
+  },
   "storage": {
     "title": "Local storage location",
     "intro": "The folder where datasets, graphs, chats, and settings are stored.",

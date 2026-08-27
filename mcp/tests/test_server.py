@@ -241,3 +241,46 @@ async def test_declared_bundled_tools_hidden_by_default(monkeypatch, tmp_path) -
     assert "t1" in names  # the user's registry tool serves
     assert "property_ranking" not in names and "sample_search" not in names
     assert "schema_summary" in names  # the generic hardcoded surface is intact
+
+
+async def test_find_datasets_is_always_registered() -> None:
+    # Discovery carries no store access, so it serves in BOTH exposure profiles —
+    # topology B (typed tools only) needs it most: with no raw escape, an agent
+    # that cannot see which datasets exist has nothing to fall back on.
+    mcp = build_server(
+        Settings({"ASTERISM_EXPOSE_RAW_SPARQL": "0"}),
+        oxigraph_client=_mock_client(lambda r: _sparql_select_response([])),
+    )
+    names = {t.name for t in await mcp.list_tools()}
+    assert "find_datasets" in names
+    assert "sparql_query" not in names
+
+
+async def test_find_datasets_names_the_tool_the_caller_must_send(
+    monkeypatch, tmp_path
+) -> None:
+    # The registration path prefixes a colliding tool; discovery must report that
+    # SAME served name, or it hands the agent a name that does not exist.
+    monkeypatch.delenv("ASTERISM_BUNDLED_TOOLS", raising=False)
+    reg = tmp_path / "registry"
+    body = "tools:\n  - name: dup\n    query: 'SELECT ?s WHERE { ?s ?p ?o }'\n"
+    for ds_id, name in (("alpha-11111111", "Alpha"), ("beta-22222222", "Beta")):
+        d = reg / ds_id
+        d.mkdir(parents=True)
+        (d / "query_tools.yaml").write_text(body, encoding="utf-8")
+        (d / "meta.json").write_text(
+            json.dumps({"id": ds_id, "name": name, "promoted": True}), encoding="utf-8"
+        )
+    monkeypatch.setenv("CSV2RDF_REGISTRY_ROOT", str(reg))
+
+    mcp = build_server(
+        Settings({}), oxigraph_client=_mock_client(lambda r: _sparql_select_response([]))
+    )
+    registered = {t.name for t in await mcp.list_tools()}
+    body_out = (await mcp.call_tool("find_datasets", {})).structured_content
+    assert body_out is not None
+    reported = {
+        t["name"] for d in body_out["datasets"] for t in d["tools"]
+    }
+    assert reported == {"dup", "beta-22222222_dup"}
+    assert reported <= registered  # every reported name is actually callable

@@ -632,6 +632,7 @@ def mark_promoted(
     promoted_at: str,
     canonical_graph: str | None = None,
     live_graph: str | None = None,
+    published_subjects: list[dict] | None = None,
 ) -> dict | None:
     """Record that ``dataset_id``'s staged canonical graph was promoted (made citable).
 
@@ -659,6 +660,12 @@ def mark_promoted(
     meta["triples_promoted"] = triples_promoted
     meta["alignment"] = alignment
     meta["promoted_at"] = promoted_at
+    # ADR id-move-after-publish.md: the "how ids are made" of the design being
+    # published, recorded AT the moment of publication. A later re-design compares
+    # against this to decide whether any already-cited address moves — reading the
+    # stored design instead would answer about the design that REPLACED it.
+    if published_subjects is not None:
+        meta["published_subjects"] = published_subjects
     # #20 P3: dataset versioning. IRIs stay immutable (ADR §3 確定②); each
     # (re-)promotion bumps a monotonic version and appends to an append-only log
     # so the catalog can show promotion history and a re-promote is traceable.
@@ -675,6 +682,42 @@ def mark_promoted(
     )
     meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     return meta
+
+
+def backfill_published_subjects(
+    root: Path, dataset_id: str, subjects: list[dict]
+) -> dict | None:
+    """Record "how ids are made" for a dataset promoted BEFORE this was tracked.
+
+    Called just once, immediately before a re-design overwrites the artifacts of an
+    already-published dataset: at that instant the stored design is still the
+    published one, so it is a truthful source. Never overwrites an existing record
+    — a value written by :func:`mark_promoted` is the authoritative one and a later
+    re-design must not be able to launder its own subjects into it.
+    """
+    if not _ID_RE.fullmatch(dataset_id):
+        return None
+    meta_path = root / dataset_id / _META_FILE
+    if not meta_path.is_file():
+        return None
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    if meta.get("published_subjects") is not None or not meta.get("promoted"):
+        return meta
+    meta["published_subjects"] = subjects
+    meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    return meta
+
+
+def record_id_move(root: Path, dataset_id: str, record: dict | None) -> dict | None:
+    """Persist (or clear) what the last re-ingest did to this dataset's addresses.
+
+    Cleared on an ingest that moved nothing, for the same reason shape findings are
+    (:func:`record_shape_findings`): a stale "1,204 ids will move" shown next to a
+    re-design that moved none is worse than saying nothing.
+    """
+    if record is None:
+        return _update_meta(root, dataset_id, {"id_move": None})
+    return _update_meta(root, dataset_id, {"id_move": record})
 
 
 def _update_meta(root: Path, dataset_id: str, changes: dict) -> dict | None:

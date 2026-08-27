@@ -266,6 +266,33 @@ def _detect_source_dialects(paths: list[Path]) -> dict[str, Any]:
     return detected
 
 
+def merge_dialect_overrides(
+    detected: Mapping[str, Any],
+    overrides: Mapping[str, Mapping[str, Any]] | None,
+) -> dict[str, Any]:
+    """The read rules actually in force: the human's corrections laid over detection
+    FIELD BY FIELD (never source by source).
+
+    An override carries only the fields the person wrote (:func:`main._parse_dialect_
+    overrides`), so everything they did not touch keeps the detected value. Replacing
+    the whole source entry instead — the shape this used to have — silently reset every
+    untouched field to its class default: a correction to the delimiter alone threw away
+    a detected ``cp932``, the design pinned ``utf-8-sig``, and ingest then refused the
+    file it had read correctly all the way through the wizard (live 2026-08-26).
+
+    A source detection said nothing about (a clean CSV) starts from the plain defaults,
+    so an override on it still applies exactly as written.
+    """
+    out: dict[str, Any] = {str(k): v for k, v in detected.items()}
+    for name, fields in (overrides or {}).items():
+        if not fields:
+            continue
+        key = str(name)
+        base = out.get(key) or SourceDialect()
+        out[key] = replace(base, **dict(fields))
+    return out
+
+
 def _column_datatypes(
     skeleton: Mapping[str, Any], paths: list[Path], dialects: Mapping[str, Any]
 ) -> dict[str, dict[str, str]]:
@@ -347,20 +374,25 @@ def _overlay_detected_dialects(
     Deterministic and idempotent — applied after round-0 and after every refine
     round (a repair could drop the section), BEFORE validation/compile, so the
     closed-set checks and the compiled RML annotations always see the pinned
-    dialects. ``apply_detected_dialects`` keeps explicit IR values over detected
-    ones (the human gate can override). ``override_names`` are the human's per-source
-    "read settings" overrides — those entries are pinned with ALL four fields
-    (defaults included) so an explicit default (``skip_rows`` corrected 1→0) survives
-    the materialize re-pin (FIX2); detection-only sources stay minimal. No-op when
-    nothing non-default was detected, the schema has no §9 spec (legacy raw-RML
-    proposals), or the block cannot be spliced — the design is then byte-untouched.
+    dialects. ``detected`` here is the EFFECTIVE map (detection with the human's
+    "read settings" merged in field by field), which makes it authoritative: it
+    overwrites whatever the LLM wrote in ``dialects:`` rather than deferring to it.
+    A round that revises how a file is READ is a round rewriting evidence — and the
+    cost is not a worse design but an unopenable one (a detected ``cp932`` rewritten
+    to ``utf-8-sig`` reaches the person as "save it again as CSV UTF-8", live
+    2026-08-26). ``override_names`` are the human's per-source "read settings"
+    overrides — those entries are pinned with ALL four fields (defaults included) so
+    an explicit default (``skip_rows`` corrected 1→0) survives the materialize re-pin
+    (FIX2); detection-only sources stay minimal. No-op when nothing non-default was
+    detected, the schema has no §9 spec (legacy raw-RML proposals), or the block
+    cannot be spliced — the design is then byte-untouched.
     """
     if not detected:
         return schema_md
     ir_yaml, _ = _extract_design(schema_md)
     if not ir_yaml or not ir_yaml.strip():
         return schema_md
-    new_yaml = apply_detected_dialects(ir_yaml, detected, override_names)
+    new_yaml = apply_detected_dialects(ir_yaml, detected, override_names, authoritative=True)
     if new_yaml == ir_yaml:
         return schema_md
     try:
@@ -1605,12 +1637,13 @@ def run_design_loop(
     after each LLM call so the caller can record usage (``last_usage`` is overwritten per
     call): feature is ``"propose"`` for round 0 and ``"propose.autocorrect"`` for refines.
     ``dialect_overrides`` (ADR source-dialect.md — the wizard's "read settings")
-    are the human's per-source dialect edits confirmed BEFORE generation; they are
-    merged OVER the detected dialects (``effective = {**detected, **overrides}``)
-    and that effective map drives every source read (oracle columns, inline/skeleton
-    inspection, §9 pin), so a ``skip_rows`` edit that moves the header row stays
-    consistent across the whole design. An empty override leaves ``effective ==
-    detected`` — byte-identical to today.
+    are the human's per-source dialect edits confirmed BEFORE generation, as
+    ``{source: {field: value}}`` carrying ONLY the fields they wrote; they are merged
+    over the detected dialects FIELD BY FIELD (:func:`merge_dialect_overrides`) and that
+    effective map drives every source read (oracle columns, inline/skeleton inspection,
+    §9 pin), so a ``skip_rows`` edit that moves the header row stays consistent across
+    the whole design while the detected encoding it never mentioned stays put. An empty
+    override leaves ``effective == detected`` — byte-identical to today.
 
     ``iri_base`` (ADR instance-iri-base.md) pins where the single-shot round-0
     mints this dataset's new namespaces; the staged path gets it at skeleton
@@ -1633,12 +1666,13 @@ def run_design_loop(
         raise LLMCancelledError("cancelled")
     # Detect ONCE at design time (ADR source-dialect.md); pinned into every §9
     # candidate below so the artifacts carry the dialect, ingest never re-detects.
-    # A human "read settings" override wins over detection (the wizard confirms the
-    # dialect BEFORE generation); the effective map drives every source read below
-    # so a skip_rows edit that moves the header stays consistent everywhere. An
-    # empty override leaves effective == detected (byte-identical to today).
+    # A human "read settings" override wins over detection FIELD BY FIELD (the wizard
+    # confirms the dialect BEFORE generation); the effective map drives every source
+    # read below so a skip_rows edit that moves the header stays consistent everywhere,
+    # while a field the person never touched keeps what detection found. An empty
+    # override leaves effective == detected (byte-identical to today).
     detected = _detect_source_dialects(paths)
-    effective = {**detected, **(dialect_overrides or {})}
+    effective = merge_dialect_overrides(detected, dialect_overrides)
     # Human-override source names: pinned into §9 with ALL four fields so an explicit
     # default (e.g. skip_rows corrected 1→0) survives the materialize re-pin (FIX2).
     override_names = frozenset(dialect_overrides or {})

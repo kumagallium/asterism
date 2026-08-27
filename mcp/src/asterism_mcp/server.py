@@ -16,20 +16,18 @@ local users who spawn the server as a subprocess.
 
 from __future__ import annotations
 
-import contextlib
 import inspect
 import logging
 import os
 from typing import Annotated, Final, Literal
 
+from asterism.catalog import find_datasets, resolve_tool_names, tool_sources
 from asterism.exposure import raw_sparql_enabled
 from asterism.oxigraph_client import OxigraphClient, OxigraphConfig
 from asterism.query_tools import (
     QueryTool,
     QueryToolError,
     ToolParam,
-    bundled_tools_enabled,
-    load_all_query_tools,
     run_query_tool,
 )
 from fastmcp import FastMCP
@@ -61,7 +59,9 @@ class Settings:
         self.oxigraph_url = e.get("CSV2RDF_OXIGRAPH_URL", "http://oxigraph:7878")
         # Exposure profile (ADR store-mcp-split): when False, the arbitrary
         # read-only SPARQL escape (`sparql_query`) is NOT registered, so this
-        # deployment exposes only the vetted typed tools. Default open.
+        # deployment exposes only the vetted typed tools. Default CLOSED — a
+        # fresh deployment must not publish a graph-wide root-extraction escape
+        # merely by omission (see asterism.exposure).
         self.expose_raw_sparql = raw_sparql_enabled(e)
 
 
@@ -177,6 +177,48 @@ def build_server(
             predicates_per_class=predicates_per_class,
         )
 
+    @mcp.tool(
+        name="find_datasets",
+        description=(
+            "Discover WHICH datasets this server holds and what may be called on "
+            "each — the entry point when you do not already know the dataset. "
+            "Returns per dataset: id, name, description, the classes its design "
+            "declares, its citable graph, and its typed tools (name + params) "
+            "under the EXACT names you must send. Narrow with keywords "
+            "(case-insensitive substring; ALL must match). Call this FIRST, then "
+            "the typed tool it names, and only then fall back to schema_summary + "
+            "sparql_query for something no typed tool covers. Reads the registry "
+            "live, so a dataset promoted after this server started is listed."
+        ),
+    )
+    async def _find_datasets(
+        keywords: Annotated[
+            list[str] | None,
+            Field(
+                description=(
+                    "Narrowing terms matched as case-insensitive substrings over "
+                    "id, name, description, declared classes, and tool "
+                    "names/descriptions. ALL terms must match. Omit to list "
+                    "everything."
+                )
+            ),
+        ] = None,
+        include_drafts: Annotated[
+            bool,
+            Field(
+                description=(
+                    "Also list datasets that are not citable yet (design drafts, "
+                    "retracted). Their tools answer from no promoted graph — only "
+                    "useful when inspecting the workbench, not when answering."
+                )
+            ),
+        ] = False,
+        limit: Annotated[
+            int, Field(description="Maximum datasets to return.", ge=1, le=500)
+        ] = 50,
+    ) -> dict[str, object]:
+        return find_datasets(keywords, include_drafts=include_drafts, limit=limit)
+
     # The arbitrary-SPARQL escape hatch is gated by the deployment exposure
     # profile: a sensitive store (topology B) sets ASTERISM_EXPOSE_RAW_SPARQL=0
     # so consumers get ONLY the vetted typed tools (and schema_summary). Typed
@@ -272,20 +314,18 @@ def _register_declared_query_tools(mcp: FastMCP, get_client) -> None:
     later one is prefixed with ``{dataset}_`` to avoid a collision. Names already
     taken by a hardcoded tool are likewise prefixed (defensive).
     """
-    taken = {"template_curve_fetch", "provenance_of", "schema_summary", "sparql_query"}
     # Tools come from the workbench registry (registry/<id>/query_tools.yaml) —
     # what the user's catalog shows. The repo-bundled examples (datasets/<name>/)
     # are dev/demo content, served only with ASTERISM_BUNDLED_TOOLS=1, so this
-    # surface never lists datasets that exist nowhere in the UI.
-    sources = dict(load_all_query_tools()) if bundled_tools_enabled() else {}
-    reg_root = os.environ.get("CSV2RDF_REGISTRY_ROOT")
-    if reg_root:
-        with contextlib.suppress(Exception):
-            sources.update(load_all_query_tools(reg_root))
+    # surface never lists datasets that exist nowhere in the UI. Source order and
+    # the collision rule live in asterism.catalog so find_datasets reports the
+    # SAME served name a caller must send (a discovery answer naming a tool that
+    # is not registered is worse than no discovery at all).
+    sources = tool_sources()
+    served = resolve_tool_names(sources)
     for dataset, tools in sources.items():
         for tool in tools:
-            name = tool.name if tool.name not in taken else f"{dataset}_{tool.name}"
-            taken.add(name)
+            name = served[dataset][tool.name]
             mcp.add_tool(
                 Tool.from_function(
                     _make_query_tool_handler(tool, get_client),
