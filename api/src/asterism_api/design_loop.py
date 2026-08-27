@@ -1944,7 +1944,7 @@ def _overlay_data_facts(
     left byte-untouched. No-op when there is nothing to assert.
     """
     # 所有権も型も無いときでも素通ししない: 二重記録の除去は入力を要らない
-    # （同じ列を同じ読み方で二度書いた、という設計だけで分かる事実）。
+    # (同じ列を同じ読み方で二度書いた、という設計だけで分かる事実)。
     ir_yaml, _ = _extract_design(schema_md)
     if not ir_yaml or not ir_yaml.strip():
         return schema_md

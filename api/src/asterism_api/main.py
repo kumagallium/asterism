@@ -36,6 +36,7 @@ import tempfile
 from collections.abc import AsyncIterator, Callable, Collection, Mapping
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, Literal
 
@@ -99,6 +100,7 @@ from asterism_step0.skeleton_annotate import annotate_skeleton, apply_key_safety
 from asterism_step0.staged_propose import (
     apply_column_decisions_to_document,
     apply_display_meta_to_document,
+    human_pinned_edits,
     propose_skeleton,
     remove_stale_column_includes_from_document,
 )
@@ -2516,6 +2518,27 @@ def _write_staging_meta(sdir: Path, meta: dict) -> None:
     )
 
 
+def _optional_json_object(raw: str, field: str) -> dict[str, Any] | None:
+    """A JSON-object form field that may be absent — ``None`` when it is.
+
+    Absent and empty must stay distinguishable here: an empty ``skeleton`` means
+    "write me a design", a present one means "repair THIS design". Collapsing
+    the two the way :func:`_parse_dialect_overrides` does (blank → ``{}``) would
+    turn a lost form field into a silent rebuild — exactly the loss this field
+    exists to stop. Malformed input is a readable 400, never a 500.
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(400, f"{field} is not valid JSON: {exc}") from exc
+    if not isinstance(parsed, dict):
+        raise HTTPException(400, f"{field} must be a JSON object")
+    return parsed
+
+
 def _parse_dialect_overrides(raw: str) -> dict[str, dict[str, Any]]:
     """Parse + boundary-check the wizard's dialect overrides (a JSON form field).
 
@@ -4589,6 +4612,20 @@ def build_app(
             default="",
             description="Per-source read-dialect overrides as JSON (ADR source-dialect.md).",
         ),
+        skeleton: str = Form(
+            default="",
+            description="Rethink: the design now on the gate screen, as a JSON object. "
+            "Given, this call REPAIRS that design instead of writing a new one.",
+        ),
+        baseline_skeleton: str = Form(
+            default="",
+            description="Rethink: what the AI last returned, as a JSON object. The "
+            "difference from `skeleton` is what a person typed, and is pinned.",
+        ),
+        rethink: str = Form(
+            default="",
+            description="Rethink: the change the person asked for, in their own words.",
+        ),
         fk: list[str] = Query(default=[], description="FK hint column (repeatable)"),
         x_api_key: str | None = Header(default=None),
         x_llm_provider: str | None = Header(default=None),
@@ -4604,6 +4641,11 @@ def build_app(
         The API key is used only for this run and never persisted (D7)."""
         max_tokens = _llm_max_tokens(x_llm_max_tokens)
         dialect_overrides = _parse_dialect_overrides(dialects)
+        # 「AI にもう一度考えさせる」(S4)。骨格が来ていれば、これは作り直しでは
+        # なく修理の依頼 — いま画面にある設計を出発点に、注文の箇所だけ直させる。
+        current_skeleton = _optional_json_object(skeleton, "skeleton")
+        baseline = _optional_json_object(baseline_skeleton, "baseline_skeleton")
+        pinned = human_pinned_edits(baseline, current_skeleton)
 
         work, paths, owned = await _design_sources(
             cfg.registry_root, files, staging_id or None, prefix="asterism-skeleton-"
@@ -4649,6 +4691,9 @@ def build_app(
                     fk_hint_columns=fk_cols,
                     dialects=effective,
                     iri_base=cfg.iri_base,
+                    current_skeleton=current_skeleton,
+                    baseline_skeleton=baseline,
+                    request=rethink or None,
                 )
                 _record_llm_usage(cfg.registry_root, "propose", provider, llm, model)
                 # Deterministic evidence for the human gate (LLM-free): key
@@ -4671,8 +4716,12 @@ def build_app(
                     # previews / candidates all reflect the NEW key. Never
                     # applied to a human-edited skeleton (that only happens on
                     # /api/propose/skeleton/validate, which never calls this).
+                    # 人が自分で書いた ID には触らない — 「判断は残っていない」
+                    # という前提が、その map だけ成り立たない(N6)。
                     skeleton, key_fixes = await asyncio.to_thread(
-                        apply_key_safety_fix, skeleton, annotations
+                        partial(apply_key_safety_fix, keep=set(pinned)),
+                        skeleton,
+                        annotations,
                     )
                     if key_fixes:
                         annotations = await asyncio.to_thread(

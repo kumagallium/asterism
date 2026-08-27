@@ -850,7 +850,7 @@ def test_no_template_still_offers_the_proven_candidates(tmp_path: Path) -> None:
     assert ann["reason"] == "no-template"
     assert ann["checkable"] is False
     # 実データで一意と証明された組み合わせが、そのままワンタップの候補になる。
-    # 小さい鍵が先（1 列 → 複数列）で、件数も添う。
+    # 小さい鍵が先(1 列 → 複数列)で、件数も添う。
     columns = [c["columns"] for c in ann["key_candidates"]]
     assert ["sample_id"] in columns
     assert all(len(c) == 1 for c in columns[:2])
@@ -858,9 +858,29 @@ def test_no_template_still_offers_the_proven_candidates(tmp_path: Path) -> None:
 
 
 def test_no_template_without_the_file_is_still_answered(tmp_path: Path) -> None:
-    """ファイルが手元に無ければ候補は出せない — キーごと出さない（空配列でもない）。"""
+    """ファイルが手元に無ければ候補は出せない — キーごと出さない(空配列でもない)。"""
     skeleton = _skeleton("xr:sample/{sample_id}", source="gone.csv")
     skeleton["maps"][0]["subject"].pop("template")
     ann = annotate_skeleton(skeleton, [])["maps"]["point"]
     assert ann["reason"] == "no-template"
     assert "key_candidates" not in ann
+
+
+def test_key_safety_fix_leaves_a_key_the_person_wrote(tmp_path: Path) -> None:
+    """人が自分で書いた ID は機械が差し替えない (S4「AI にもう一度考えさせる」)。
+
+    「判断は残っていない」という前提は、誰も判断していない間だけ成り立つ。
+    一度人が打ったあとは、機械の証拠のほうが弱い主張になる (N6)。
+    """
+    p = _write_xrd_unique(tmp_path)
+    skeleton = _skeleton("xr:point/{2θ (deg)}")
+    out = annotate_skeleton(skeleton, [p])
+    assert out["maps"]["point"]["key_measurement_caution"] is True
+
+    fixed, fixes = apply_key_safety_fix(skeleton, out, keep={"point"})
+
+    assert fixes == {}
+    assert fixed["maps"][0]["subject"]["template"] == "xr:point/{2θ (deg)}"
+    # keep に無い map は従来どおり差し替わる
+    _, fixes_open = apply_key_safety_fix(skeleton, out, keep={"somethingelse"})
+    assert fixes_open.keys() == {"point"}

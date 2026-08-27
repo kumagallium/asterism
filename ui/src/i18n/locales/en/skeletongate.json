@@ -77,6 +77,6 @@
   "kindUnnamed": "Unnamed",
   "gateHowSummary": "How to proceed (when you see ⚠)",
   "gateHow": "⚠ means rows share an ID. Pick one of the candidates below, or fix it under “Write the ID recipe yourself”. If the reading itself is wrong, use “Have the AI think again”. When neither shows a problem, press “Continue with this counting”.",
-  "rethinkResets": "Thinking again rebuilds the design from scratch. Edits made on this screen (kind names, ID recipes, deletions, splits) are not kept.",
+  "rethinkKeeps": "The design you see now is handed over as-is, and only what you ask for is changed. Edits made on this screen (kind names, ID recipes, deletions, splits) are kept.",
   "twinKinds": "{{names}} build the same record from the same columns — one row type written twice. Delete the one you do not need (which to keep, or whether to split them by different columns, is yours to decide)."
 }
