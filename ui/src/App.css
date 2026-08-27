@@ -8680,3 +8680,20 @@ tr.kz-attn td {
   text-align: right;
   white-space: nowrap;
 }
+
+/* ゾーンの補足行と、🗑 確認の帰結警告（K35） */
+.skeleton-zone-note {
+  margin-top: var(--space-2);
+}
+.skeleton-remove-confirm {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+.skeleton-remove-warn {
+  flex-basis: 100%;
+  font-size: 0.8rem;
+  color: var(--warn-fg);
+  text-align: right;
+  max-width: 30rem;
+}

@@ -77,15 +77,17 @@
   },
   "kindUnnamed": "Unnamed",
   "gateHowSummary": "How to proceed (when you see ⚠)",
-  "gateHow": "⚠ marks something to check — usually IDs that overlap. Pick one of the candidates below, or fix it under “Write the ID recipe yourself”. If the reading itself is wrong, use “Make the AI think again”. When everything looks right, press “Continue with this division”.",
+  "gateHow": "⚠ marks something to check — usually IDs that overlap. Pick one of the candidates below, or fix it under “Write the ID recipe yourself”. If the reading itself is wrong, use “Make the AI think again”. When everything looks right, press “Continue with these IDs”.",
   "rethinkResets": "Thinking again rebuilds the design from scratch. Edits made on this screen (kind names, ID recipes, deletions, splits) are not kept.",
   "twinKinds": "{{names}} build the same record from the same columns — one row type written twice. Delete the one you do not need (which to keep, or whether to split them by different columns, is yours to decide).",
   "zone": {
-    "head": "Choose the columns that become kinds",
-    "lead": "A checked column becomes a kind of its own. The pre-set checks are the AI’s recommendation — change them freely. Checking names, numbers and codes whose values also appear in other files or outside data lets them merge into one record later. Measured numbers can’t be checked — they make poor IDs.",
+    "head": "Choose the values that will connect later",
+    "lead": "A checked value becomes a record with its own ID. When the same value appears in another file or in outside data, this record is where they join. The pre-set checks are the AI’s recommendation. Measured numbers can’t be checked — they don’t identify anything.",
     "isCardId": "this table’s ID ({{name}})",
     "isKind": "ID of the kind “{{name}}”",
-    "cardMoved": "This table’s values — and the kind checkboxes — are listed once above.",
-    "variesWith": "{{values}} … (varies per row)"
-  }
+    "cardMoved": "This table’s values — and the connect checkboxes — are listed once above, under “Choose the values that will connect later”.",
+    "variesWith": "{{values}} … (varies per row)",
+    "keyNote": "A column marked “this table’s ID” is already in use as that kind’s ID. To use a different column, open “Write the ID recipe yourself” in the tabs below."
+  },
+  "removeZoneHost": "This kind holds the table-wide values. Deleting it also removes the “choose the values” list. If you only want a different ID column, use “Write the ID recipe yourself”."
 }

@@ -15,7 +15,7 @@
     "backToStartShort": "Start over",
     "step1": "Put it in",
     "step2": "The AI reads it",
-    "step3": "How the data is divided",
+    "step3": "How IDs are given",
     "step4": "What the items mean",
     "step5": "Try it",
     "step6": "Publish"
@@ -40,7 +40,7 @@
     "leftoverUse": "Carry on with this file",
     "leftoverDrop": "Add a new file",
     "detailReturnNote": "Back from detail mode. Anything you changed there is reflected on this screen.",
-    "resumeNote": "You have unfinished work. Drop the same files again to resume at the division check.",
+    "resumeNote": "You have unfinished work. Drop the same files again to resume at the ID check.",
     "resumeLoading": "Loading where you left off…",
     "resumeReady": "Picked up where you left off — you can keep going.",
     "resumeFailedTitle": "Couldn't pick up the AI work that was interrupted",
@@ -124,9 +124,9 @@
     "back": "Go back and retry"
   },
   "s4": {
-    "gateTitle": "How the data is divided",
-    "gateHint": "This screen decides how the file is divided into kinds of records. The AI drafted the division. Check each kind’s name and the ID that tells its records apart, and fix anything that’s off.",
-    "continue": "Continue with this division",
+    "gateTitle": "How IDs are given",
+    "gateHint": "This screen decides which values get an ID. A value with an ID can later join the same record in other files and outside data, and can be cited. The AI drafted it — check it and fix anything that’s off.",
+    "continue": "Continue with these IDs",
     "continuing": "Writing down what each column means…",
     "needFiles": "The files are missing. Drop the same files in the box below to continue where you left off.",
     "evidenceFailed": "The per-row ID check could not run. You can keep editing the table.",
@@ -137,7 +137,7 @@
     "discard": "Go back and redo",
     "discardConfirm": "This goes back to the reading check. The current reading is discarded, but your files stay usable.",
     "discardConfirmNoFiles": "This goes back to the first screen. The current reading is discarded, so you will need to drop your files again.",
-    "rethinkWrap": "While checking how the data is divided, the user pointed this out. Apply it to how the table splits into kinds and how each row's ID is built: {{note}}"
+    "rethinkWrap": "While checking how IDs are given, the user pointed this out. Apply it to how the table splits into kinds and how each row's ID is built: {{note}}"
   },
   "s5": {
     "title": "Reading the item meanings and loading your draft",
@@ -291,13 +291,13 @@
     "missingMeaning": "The AI could not read a meaning for the ⚠ rows. Going on is fine — those columns stay searchable under their original column name. To change one, type into its \"Meaning as read\".",
     "droppedColumns": "Columns not taken in: {{columns}} (the AI could not read what they mean)",
     "droppedColumnsHint": "If you need them, tell us what they mean in the box below.",
-    "mapRowsNote": "When the count is far below the number of rows, several rows became one record (for example many measurements of the same sample). If that is not what you meant, you can go back to how the data is divided.",
+    "mapRowsNote": "When the count is far below the number of rows, several rows became one record (for example many measurements of the same sample). If that is not what you meant, you can go back to how IDs are given.",
     "mapRowsSummary": "Why are there fewer records than rows?",
     "zoneMeaning": "2 · Meaning and unit",
     "zoneMeaningWhy": "You can type straight into the table (no AI involved)",
     "zoneDecide": "3 · Take it in, or leave it out",
-    "backToGate": "Back to how the data is divided",
-    "backToGateConfirm": "This goes back to the division check. The current draft will be rebuilt (your files stay as they are). Continue?",
+    "backToGate": "Back to how IDs are given",
+    "backToGateConfirm": "This goes back to the ID check. The current draft will be rebuilt (your files stay as they are). Continue?",
     "noteUnappliedConfirm": "Your structural change request has not been applied yet. Continue without it? (Cancel to go back — \"Have the AI change the structure\" applies it.)",
     "othersSummary": "Automatic IDs, fixed values and computed values ({{n}})",
     "otherKind": {
@@ -365,8 +365,8 @@
     "lead": "Your data is in the unpublished draft. To double-check, we asked it a few questions automatically.",
     "loading": "Asking your data…",
     "failed": "The trial queries could not run. Wait a moment and press \"Try again\", or continue to publish as is.",
-    "empty": "Nothing at all came through into this data. Go back to the item meanings, or to how the data is divided.",
-    "emptyRows": "Your file has {{rows}} rows, but nothing came through into this data. Go back to the item meanings, or to how the data is divided.",
+    "empty": "Nothing at all came through into this data. Go back to the item meanings, or to how IDs are given.",
+    "emptyRows": "Your file has {{rows}} rows, but nothing came through into this data. Go back to the item meanings, or to how IDs are given.",
     "okAnyway": "Publish anyway",
     "okNoTrial": "Publish without checking",
     "retry": "Try again",
@@ -447,7 +447,7 @@
   "redesign": {
     "banner": "Now open: {{name}}",
     "bannerNote": "Nothing runs on its own here, and nothing has to be changed — if it all looks right, you can leave it as it is. Hand the AI only what you want changed; applying a change rebuilds the draft, and Try it → Publish then publishes a new version.",
-    "structural": "Rework the division — kinds and IDs (detail mode)",
+    "structural": "Rework kinds and IDs (detail mode)",
     "structuralNote": "This opens the screen with every setting. “Back to simple mode” brings you back here.",
     "cancel": "Stop reviewing",
     "cancelConfirm": "Stop reviewing and go back to the dataset page? (Changes already applied by the AI are saved.)",

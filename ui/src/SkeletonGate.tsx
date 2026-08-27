@@ -1746,6 +1746,12 @@ export function SkeletonGate({
     const removeControl = skeleton.maps.length > 1 &&
       (confirmRemove === m.name ? (
         <span className="skeleton-remove-confirm">
+          {/* この種類がゾーン（値の一覧）の台。消すと一覧ごと消えるのに、押した
+              人は「ID の列を空けたいだけ」かもしれない（実誤操作 2026-08-28）。
+              押す前に、帰結と本当にやりたいことへの道を言う。 */}
+          {zone && zone.host.name === m.name && (
+            <span className="skeleton-remove-warn">{t('skeletongate:removeZoneHost')}</span>
+          )}
           <button
             type="button"
             className="skeleton-remove skeleton-remove--yes"
@@ -2150,18 +2156,23 @@ export function SkeletonGate({
                 const kindName = locked ? undefined : zone.kindOf.get(col)
                 return (
                   <tr key={col}>
+                    {/* ID に使われている列は「無効なチェックボックス」を出さない。
+                        灰色のチェックは「選べない、なぜ？」だけを残す（利用者評価
+                        2026-08-28）。印は右のタグ、外し方は表の下の一文が言う。 */}
                     <td className="skeleton-entity-pick">
-                      <input
-                        type="checkbox"
-                        aria-label={t('workbench:skeleton.evidence.splitPick', { column: col })}
-                        checked={locked || !!kindName}
-                        disabled={locked || !canRevalidate}
-                        onChange={(e) =>
-                          e.target.checked
-                            ? promoteColumn(zone.idx, col)
-                            : demoteColumn(col, kindName!)
-                        }
-                      />
+                      {!locked && (
+                        <input
+                          type="checkbox"
+                          aria-label={t('workbench:skeleton.evidence.splitPick', { column: col })}
+                          checked={!!kindName}
+                          disabled={!canRevalidate}
+                          onChange={(e) =>
+                            e.target.checked
+                              ? promoteColumn(zone.idx, col)
+                              : demoteColumn(col, kindName!)
+                          }
+                        />
+                      )}
                     </td>
                     <th scope="row">{col}</th>
                     <td>{value}</td>
@@ -2239,6 +2250,9 @@ export function SkeletonGate({
               )}
             </tbody>
           </table>
+          <p className="skeleton-evidence-line skeleton-evidence-muted skeleton-zone-note">
+            {t('skeletongate:zone.keyNote')}
+          </p>
         </div>
       )}
       {plain ? (
