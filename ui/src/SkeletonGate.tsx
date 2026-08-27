@@ -1895,6 +1895,15 @@ export function SkeletonGate({
     <section className="skeleton-gate">
       <h4>{t(titleKey)}</h4>
       <p className="skeleton-gate-hint">{t(hintKey)}</p>
+      {/* 手順（⚠ の直し方・進み方）は、この画面で人が決めることではない。決める
+          のは「何を種類にするか」なので、常時見せるのは上の 1 文だけにして、
+          操作の細目は畳む（G9）。 */}
+      {plain && (
+        <details className="kz-fold">
+          <summary>{t('skeletongate:gateHowSummary')}</summary>
+          <p className="skeleton-gate-hint">{t('skeletongate:gateHow')}</p>
+        </details>
+      )}
       {/* What the deterministic vocabulary repair did — never silent. */}
       {vocabFix && vocabFix.declared.length > 0 && (
         <p className="skeleton-evidence-line skeleton-evidence-muted">
@@ -2086,6 +2095,13 @@ export function SkeletonGate({
           <summary id="skeleton-rethink-label">
             {t('workbench:skeleton.rethink.label')}
           </summary>
+          {/* 作り直しは骨格を丸ごと作り直す。この画面でやった編集（種類の名前・
+              ID の作り方・削除・切り出し）は残らない。押す前に言う。 */}
+          {plain && (
+            <p className="skeleton-evidence-line skeleton-evidence-warn">
+              ⚠ {t('skeletongate:rethinkResets')}
+            </p>
+          )}
           <textarea
             id="skeleton-rethink-note"
             className="skeleton-rethink-note"

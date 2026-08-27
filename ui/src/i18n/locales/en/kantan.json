@@ -125,7 +125,7 @@
   },
   "s4": {
     "gateTitle": "How the data is counted",
-    "gateHint": "First check that what the AI read as \"one row = what\" is right. Then look at whether every row gets its own ID (✓ / ⚠). If both are fine, press \"Continue with this counting\". If the reading is wrong, use \"Have the AI think again\"; if there is a ⚠, pick a candidate below.",
+    "gateHint": "This screen decides what ONE row stands for, and what those rows share. A value the outside world also names (a composition, a substance name, a catalogue number) is worth its own kind: later files with the same value fold into one record, and it gets an address you can cite. A value that only means something inside this table (a free-text note) stays an item.",
     "continue": "Continue with this counting",
     "continuing": "Writing down what each column means…",
     "needFiles": "The files are missing. Drop the same files in the box below to continue where you left off.",
