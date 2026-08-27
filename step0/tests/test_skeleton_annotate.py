@@ -762,10 +762,12 @@ def test_no_safe_candidate_leaves_the_key_untouched(tmp_path: Path) -> None:
     assert fixed["maps"][0]["subject"]["template"] == "xr:pt/{field(T)}"
 
 
-def test_non_measurement_key_is_never_touched_even_with_scope_missing(tmp_path: Path) -> None:
-    """A text key is never rewritten — including when the ONLY risk showing is
-    scope-missing, which is a human call about how the dataset grows, not one
-    the machine gets to make for them."""
+def test_scope_missing_alone_is_now_fixed_by_the_machine(tmp_path: Path) -> None:
+    """C7-C11 revised (2026-08-27): a key that does not embed the file-scoped
+    parent's key is unique in THIS file only, so the next file can mint the
+    same IRI for a different parent's row. Prepending a proven parent key never
+    breaks a unique key, so there is no judgment left — the machine applies it
+    before the human sees the screen, and `applied_key_fix` offers the revert."""
     p = _write_reference_card(tmp_path)
     skeleton = _card_skeleton()
     skeleton["maps"][1]["subject"]["template"] = "xr:peak/{(hkl)}"  # text-ish key column
@@ -777,8 +779,15 @@ def test_non_measurement_key_is_never_touched_even_with_scope_missing(tmp_path: 
 
     fixed, fixes = apply_key_safety_fix(skeleton, out)
 
-    assert fixes == {}
-    assert fixed["maps"][1]["subject"]["template"] == "xr:peak/{(hkl)}"
+    assert fixes["peak"]["reason"] == "scope-missing"
+    assert fixes["peak"]["from"] == ["(hkl)"]
+    assert "No" in fixes["peak"]["to"]  # the parent's key is now inside the ID
+    assert fixed["maps"][1]["subject"]["template"].startswith("xr:peak/{No}")
+
+    # Second pass finds nothing: the key now embeds the parent's.
+    reann = annotate_skeleton(fixed, [p])
+    _again, fixes_again = apply_key_safety_fix(fixed, reann)
+    assert fixes_again == {}
 
 
 def test_apply_key_safety_fix_is_idempotent(tmp_path: Path) -> None:

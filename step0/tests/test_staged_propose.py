@@ -27,6 +27,7 @@ from asterism_step0.staged_propose import (  # noqa: E402
     assemble_mapping_ir,
     build_permap_user,
     drop_borrowed_properties,
+    ensure_same_source_links,
     fill_mapping_spec_block,
     generate_map_properties,
     generate_skeleton,
@@ -1224,3 +1225,93 @@ def test_normalize_key_separators_puts_a_slash_between_key_columns() -> None:
         "xr:sample/{id}/measurement/{t}",
         "xr:one/{id}",
     ]
+
+
+# --- ensure_same_source_links: 1 ファイルの種類は 1 つにつながる（2026-08-27） ---
+
+def _xrd_islands() -> dict:
+    """The XRD reference card as a weak model leaves it: a row kind, the card
+    it came from, and the registry code — none of them linked."""
+    return {
+        "version": 1,
+        "prefixes": {"xrd": "https://ex.invalid/o#", "xrdr": "https://ex.invalid/r/"},
+        "maps": [
+            {
+                "name": "pattern",
+                "source": "card.txt",
+                "subject": {"template": "xrdr:pattern/{No}", "classes": ["xrd:Pattern"]},
+                "properties": [{"predicate": "xrd:csdId", "column": "CSD"}],
+            },
+            {
+                "name": "peak",
+                "source": "card.txt",
+                "subject": {"template": "xrdr:peak/{No}/{2theta}", "classes": ["xrd:Peak"]},
+                "properties": [{"predicate": "xrd:twoTheta", "column": "2theta"}],
+            },
+            {
+                "name": "csd",
+                "source": "card.txt",
+                "subject": {"template": "xrdr:csd/{CSD}", "classes": ["xrd:Csd"]},
+                "properties": [],
+            },
+        ],
+    }
+
+
+def test_links_are_added_in_both_provable_ways() -> None:
+    out, added = ensure_same_source_links(_xrd_islands(), ontology_prefix="xrd")
+    assert added == ["peak → pattern", "pattern → csd"]
+    by_name = {m["name"]: m for m in out["maps"]}
+    # (1) containment: the child carries the link, never the parent.
+    assert {
+        "predicate": "dcterms:isPartOf",
+        "object_template": "xrdr:pattern/{No}",
+    } in by_name["peak"]["properties"]
+    # (2) a key column carried as a value: the literal row STAYS, the link is
+    # added next to it — nothing the human confirmed disappears.
+    assert {"predicate": "xrd:csdId", "column": "CSD"} in by_name["pattern"]["properties"]
+    assert {
+        "predicate": "xrd:csd",
+        "object_template": "xrdr:csd/{CSD}",
+    } in by_name["pattern"]["properties"]
+    # A predicate under an undeclared prefix would not compile.
+    assert out["prefixes"]["dcterms"] == "http://purl.org/dc/terms/"
+
+
+def test_links_are_idempotent_and_quiet_when_already_connected() -> None:
+    once, _ = ensure_same_source_links(_xrd_islands(), ontology_prefix="xrd")
+    twice, added_again = ensure_same_source_links(once, ontology_prefix="xrd")
+    assert added_again == []
+    assert twice["maps"] == once["maps"]
+
+
+def test_links_stay_silent_without_evidence() -> None:
+    """Two file-scoped kinds sharing no key and no column: a relationship here
+    would be invented, and the ingest-side connectivity advisory is the right
+    place for a design the machine cannot repair."""
+    ir = {
+        "version": 1,
+        "prefixes": {"o": "https://ex.invalid/o#"},
+        "maps": [
+            {"name": "a", "source": "c", "subject": {"template": "r:a/{k}"}, "properties": []},
+            {"name": "b", "source": "c", "subject": {"template": "r:b/{j}"}, "properties": []},
+        ],
+    }
+    out, added = ensure_same_source_links(ir, ontology_prefix="o")
+    assert added == []
+    assert out["maps"] == ir["maps"]
+
+
+def test_links_never_cross_sources() -> None:
+    """Two unrelated files are allowed to stay two pieces (propose.py's own
+    rule: one connected component 'unless the sources are truly unrelated')."""
+    ir = {
+        "version": 1,
+        "prefixes": {"o": "https://ex.invalid/o#"},
+        "maps": [
+            {"name": "a", "source": "one.csv", "subject": {"template": "r:a/{k}"}, "properties": []},
+            {"name": "b", "source": "two.csv", "subject": {"template": "r:b/{k}/{j}"}, "properties": []},
+        ],
+    }
+    _out, added = ensure_same_source_links(ir, ontology_prefix="o")
+    assert added == []

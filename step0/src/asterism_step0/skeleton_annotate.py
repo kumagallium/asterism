@@ -1180,14 +1180,29 @@ def apply_key_safety_fix(
     evidence already picked the safer ID, so a human should never have to see
     the caution before the machine has tried the fix it can already prove.
 
+    Fires on TWO risks (2026-08-27):
+
+    - ``key_measurement_caution`` (K7) — the AI keyed rows on a measured value;
+    - ``scope-missing`` (K14 C6) — the key does not embed the file-scoped
+      parent's key, so the ID is unique in THIS file only and the next file
+      can mint the same IRI for a different parent's row.
+
+    C7-C11 originally left ``scope-missing`` for the human ("whether to prepend
+    the parent key is a call about how the dataset is expected to grow"). Live
+    use showed that framing is wrong: the growth question is what the SCREEN
+    asks about (this dataset gets more files — that is what "add data" means),
+    and the fix is not a guess. Prepending a proven parent key never breaks a
+    unique key (a superset of a unique key stays unique) and it is the only way
+    the row can stay addressable once a second file arrives. Leaving it on a
+    button meant the risk survived every run where nobody pressed it, and the
+    reader could not tell the button apart from the ones that are real choices.
+    The escape stays: ``applied_key_fix`` renders the swap and a revert.
+
     Deliberately does nothing when:
     - no safe candidate exists (e.g. a numeric instrument sweep where every
       column is a measurement) — the caution is shown as-is, unresolved;
-    - the key is not measurement-only — a ``scope-missing``-only risk is never
-      auto-fixed here: whether to prepend the parent key is a call about how
-      the dataset is expected to grow, which is the human's to make, not the
-      machine's to guess (unlike K7, where the "no candidate has a choice"
-      case does not exist — a measurement-only key is never a safe identity);
+    - the pick would not change the key — idempotence, and a no-op record
+      would claim a fix that did not happen;
     - the candidate's ``columns`` is empty — defensive only (today's candidate
       generator never proves an empty key unique), but an empty key rewrites
       the template to a CONSTANT subject, collapsing every row onto one ID —
@@ -1221,9 +1236,14 @@ def apply_key_safety_fix(
         ann = maps_ann.get(name)
         subject = map_entry.get("subject")
         fixed_entry = None
+        measurement_risk = isinstance(ann, Mapping) and ann.get("key_measurement_caution") is True
+        scope_risk = isinstance(ann, Mapping) and any(
+            isinstance(r, Mapping) and r.get("kind") == "scope-missing"
+            for r in (ann.get("reference_risks") or [])
+        )
         if (
             isinstance(ann, Mapping)
-            and ann.get("key_measurement_caution") is True
+            and (measurement_risk or scope_risk)
             and isinstance(subject, Mapping)
             and subject.get("template")
         ):
@@ -1231,11 +1251,18 @@ def apply_key_safety_fix(
                 (
                     c
                     for c in ann.get("key_candidates") or []
-                    if isinstance(c, Mapping) and c.get("measurement_only") is False
+                    if isinstance(c, Mapping)
+                    and c.get("measurement_only") is False
+                    # A scope-only fix must actually gain the parent's columns;
+                    # an unscoped candidate would rewrite the key for nothing.
+                    and (measurement_risk or c.get("scoped") is True)
                 ),
                 None,
             )
             new_key = [str(c) for c in safe.get("columns") or []] if safe is not None else []
+            old_key_now = list(ann.get("key_columns") or [])
+            if new_key == old_key_now:
+                safe, new_key = None, []
             if safe is not None and new_key:
                 old_key = list(ann.get("key_columns") or [])
                 old_template = str(subject["template"])
@@ -1247,7 +1274,7 @@ def apply_key_safety_fix(
                 fixes[name] = {
                     "from": old_key,
                     "to": new_key,
-                    "reason": "measurement-id",
+                    "reason": "measurement-id" if measurement_risk else "scope-missing",
                     "template_from": old_template,
                     "template_to": new_template,
                 }

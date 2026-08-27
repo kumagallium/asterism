@@ -311,6 +311,171 @@ def assemble_mapping_ir(
     return {"version": 1, "prefixes": prefixes, "maps": maps_out}
 
 
+def _template_placeholders(template: Any) -> set[str]:
+    if not isinstance(template, str):
+        return set()
+    return set(re.findall(r"\{([^{}]+)\}", template))
+
+
+def _lower_camel(name: str) -> str:
+    parts = [w for w in re.split(r"[^0-9A-Za-z]+", str(name)) if w]
+    if not parts:
+        return ""
+    head, *rest = parts
+    return head[:1].lower() + head[1:] + "".join(w[:1].upper() + w[1:] for w in rest)
+
+
+def ensure_same_source_links(
+    ir: Mapping[str, Any], *, ontology_prefix: str = ""
+) -> tuple[dict, list[str]]:
+    """Guarantee the kinds from ONE file end up in ONE connected piece.
+
+    The per-map step is ASKED to link entities (ENTITY LINKING in its prompt),
+    and a weak model quietly skips it — the design then compiles, validates and
+    publishes as islands: "which pattern is this peak from" is structurally
+    unanswerable. The ingest-side ``_connectivity_advisories`` catches it, but
+    only after the human has already passed every gate.
+
+    Key containment is NOT a link. The skeleton gate's diagram draws an edge
+    when one ID embeds another's key, but RDF has no triple until a property
+    says so — the picture can look connected while the graph is not.
+
+    Two deterministic ways to add the missing edge, in order:
+
+    1. **containment** — map A's subject placeholders strictly contain map B's,
+       so every A is inside one B: ``dcterms:isPartOf`` from A to B's subject.
+    2. **a key column carried as a value** — B is keyed by ONE column and some
+       map A already records that column as a plain property, so A's row names
+       exactly one B: ``{ontology}:{bName}`` from A to B's subject. The literal
+       row is LEFT in place — the link is added, never a rewrite, so no value
+       the human confirmed disappears.
+
+    Silent when neither holds (two file-scoped kinds sharing no column and no
+    key): inventing a relationship is not the machine's call — the advisory
+    stays for the human. Idempotent: a link that already exists is found by the
+    same component walk that decides whether to add one.
+    """
+    maps = [m for m in (ir.get("maps") or []) if isinstance(m, Mapping)]
+    by_name = {str(m.get("name")): m for m in maps}
+    subject_of = {
+        str(m.get("name")): str((m.get("subject") or {}).get("template") or "") for m in maps
+    }
+    props: dict[str, list[dict]] = {
+        str(m.get("name")): [dict(p) for p in (m.get("properties") or []) if isinstance(p, Mapping)]
+        for m in maps
+    }
+    added: list[str] = []
+
+    by_source: dict[str, list[str]] = {}
+    for m in maps:
+        by_source.setdefault(str(m.get("source") or ""), []).append(str(m.get("name")))
+
+    def components(names: list[str]) -> list[list[str]]:
+        parent = {n: n for n in names}
+
+        def find(x: str) -> str:
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        template_owner = {subject_of[n]: n for n in names if subject_of[n]}
+        for n in names:
+            for prop in props[n]:
+                target = template_owner.get(str(prop.get("object_template") or ""))
+                if target and target != n:
+                    parent[find(n)] = find(target)
+        groups: dict[str, list[str]] = {}
+        for n in names:
+            groups.setdefault(find(n), []).append(n)
+        return list(groups.values())
+
+    for _src, names in by_source.items():
+        if len(names) < 2:
+            continue
+        for _round in range(len(names)):
+            groups = components(names)
+            if len(groups) < 2:
+                break
+            linked = False
+            # The maps already joined to the biggest piece; everything else is
+            # what has to be reached.
+            groups.sort(key=len, reverse=True)
+            reached = set(groups[0])
+            for group in groups[1:]:
+                for b_name in group:
+                    b_vars = _template_placeholders(subject_of[b_name])
+                    # (1) containment, in whichever direction it holds: the map
+                    # whose ID EMBEDS the other's key is the child, and the
+                    # child is the side that carries the link (a parent's table
+                    # does not hold its children's keys).
+                    pair = next(
+                        (
+                            (b_name, a) if _template_placeholders(subject_of[a]) < b_vars
+                            else (a, b_name)
+                            for a in reached
+                            if (b_vars and _template_placeholders(subject_of[a]) < b_vars)
+                            or (
+                                _template_placeholders(subject_of[a])
+                                and b_vars < _template_placeholders(subject_of[a])
+                            )
+                        ),
+                        None,
+                    )
+                    if pair is not None:
+                        child, parent = pair
+                        props[child].append(
+                            {"predicate": "dcterms:isPartOf", "object_template": subject_of[parent]}
+                        )
+                        added.append(f"{child} → {parent}")
+                        linked = True
+                        break
+                    # (2) B's single key column is already a value on some map.
+                    if len(b_vars) != 1 or not ontology_prefix:
+                        continue
+                    key_col = next(iter(b_vars))
+                    holder = next(
+                        (
+                            a
+                            for a in reached
+                            if any(p.get("column") == key_col for p in props[a])
+                        ),
+                        None,
+                    )
+                    if holder is not None:
+                        local = _lower_camel(b_name) or "linkedEntity"
+                        props[holder].append(
+                            {
+                                "predicate": f"{ontology_prefix}:{local}",
+                                "object_template": subject_of[b_name],
+                            }
+                        )
+                        added.append(f"{holder} → {b_name}")
+                        linked = True
+                        break
+                if linked:
+                    break
+            if not linked:
+                break  # nothing provable left — leave it to the advisory
+
+    if not added:
+        return dict(ir), []
+    out = dict(ir)
+    # A predicate under an undeclared prefix is a fact with no home — and the
+    # compile rejects it. `dcterms` is only ever added by this function, so
+    # declaring it here (never overwriting an existing binding) is the whole
+    # obligation.
+    if any(p.get("predicate") == "dcterms:isPartOf" for rows in props.values() for p in rows):
+        prefixes = dict(out.get("prefixes") or {})
+        prefixes.setdefault("dcterms", "http://purl.org/dc/terms/")
+        out["prefixes"] = prefixes
+    out["maps"] = [
+        {**m, "properties": props[str(m.get("name"))]} if isinstance(m, Mapping) else m
+        for m in (ir.get("maps") or [])
+    ]
+    return out, added
+
+
 def skeleton_from_full_ir(ir: Mapping[str, Any]) -> tuple[dict, dict[str, dict]]:
     """Inverse of :func:`assemble_mapping_ir`: split a full IR dict into
     ``(skeleton, permaps)``. Lets a single-shot proposal be re-expressed in the
@@ -2269,6 +2434,17 @@ def propose_from_skeleton(
         )
 
     assembled = assemble_mapping_ir(skeleton, permaps)
+    # 同じファイルから出た種類が 1 つにつながっていること。per-map 段への「つなげ」は
+    # お願いで、これが保証。キーの入れ子は線であってリンクではない（RDF の辺は
+    # プロパティが書かれて初めて生まれる）ので、ここで足りない辺だけを決定論で足す。
+    assembled, links_added = ensure_same_source_links(
+        assembled, ontology_prefix=ontology_prefix
+    )
+    if links_added:
+        emit(
+            phase="link",
+            message="種類どうしのつながりを足しました: " + ", ".join(links_added),
+        )
     ir_yaml = mapping_ir_to_yaml(assembled)
 
     emit(phase="document", message="設計文書を生成中")

@@ -1405,21 +1405,14 @@ export function SkeletonGate({
       )}
     </div>
   )
-  const diagramBlock = !plain ? (
-    diagram
-  ) : skeleton.maps.length > 1 ? (
-    /* 畳まない（利用者評価 2026-08-27）。「何種類あって、どうつながっているか」は
-       この画面で最初に掴む形そのもので、開く手間を挟むものではない。畳みの
-       ▶ が付いていたころは、カードの中の他のものより 1 段左から始まっていて
-       同じ面の一部に見えなかった。 */
-    <div className="skeleton-diagram-block">
-      <p className="skeleton-section-head">
-        {t('skeletongate:diagram.head', { count: skeleton.maps.length })}
-        {diagramLinked && t('skeletongate:diagram.linked')}
-      </p>
-      {diagram}
-    </div>
-  ) : null
+  /* かんたん層には図を出さない（利用者評価 2026-08-27）。畳んでいたのを常時表示に
+     した結果、線の有無が「この設計で良いのか」という答えようのない問いになった
+     ——「つながっていない」ではなく「この段では分からない」なのに、絵は分からない
+     ことを描けない。入れ子は機械が確定させ（C7-C11 改訂）、リンクは機械が保証する
+     （ensure_same_source_links）ので、ここで人が判断することはもう無い。事実の側は
+     件数バンド（何行が何件になるか）と、各カードの `key.containedIn`（この ID は
+     〈親〉の中で数えます）が言葉で言う。設計者向けの詳細モードには図を残す。 */
+  const diagramBlock = !plain ? diagram : null
 
   // The ID-shape card. Once the issuer is configured this is one settled line
   // ("this is what your IDs look like"), not a form to fill in.
