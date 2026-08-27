@@ -1165,3 +1165,40 @@ def test_twin_maps_is_quiet_on_a_healthy_skeleton() -> None:
         {"name": "sample", "source": "a.csv", "subject": {"template": "r:sample/{id}"}},
         {"name": "meas", "source": "a.csv", "subject": {"template": "r:meas/{id}/{t}"}},
     ]}) == []
+
+
+def test_skeleton_retry_never_loses_kinds(tmp_path: Path) -> None:
+    """差し戻しは「抜けを足して」と頼むもの。減らして返ってきたら前の答えを採る。
+
+    実測 2026-08-27: 重複を「keep one」と伝えたら、モデルは重複した 3 つの
+    まとまりを全部落として map を 1 つにし、前置きの 14 列が 47 行すべてに写った。
+    """
+    from asterism_step0.staged_propose import propose_skeleton
+
+    csv = tmp_path / "a.csv"
+    csv.write_text("id,name\n1,x\n2,y\n", encoding="utf-8")
+
+    full = {
+        "version": 1,
+        "prefixes": {"ao": "https://ns.invalid/o#", "ar": "https://ns.invalid/r/"},
+        "maps": [
+            # 名前が無い = 差し戻しの対象
+            {"name": "row", "source": "a.csv", "subject": {"template": "ar:row/{id}"}},
+            {"name": "thing", "source": "a.csv",
+             "subject": {"template": "ar:thing/{name}", "classes": ["ao:Thing"]}},
+        ],
+    }
+    shrunk = {**full, "maps": [dict(full["maps"][0], subject={
+        "template": "ar:row/{id}", "classes": ["ao:Row"]})]}
+
+    answers = [json.dumps(full), json.dumps(shrunk), json.dumps(shrunk)]
+
+    class _LLM:
+        model = "mock"
+        response_schema = None
+
+        def complete(self, system: str, user: str) -> str:
+            return answers.pop(0) if answers else json.dumps(shrunk)
+
+    out = propose_skeleton([csv], "", llm=_LLM())
+    assert len(out.skeleton["maps"]) == 2, out.skeleton["maps"]

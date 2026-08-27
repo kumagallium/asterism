@@ -1519,6 +1519,26 @@ export function SkeletonGate({
     </details>
   )
 
+  // 同じソースを同じ鍵で数える種類は、1 つの種類を二度書いたもの（実測
+  // 2026-08-27: `Dataset` と `Sample` がどちらも `{No}` を鍵に、表全体を 1 件に
+  // 潰していた）。**機械は統合しない** — どちらを残すか、そもそも「両方、ただし
+  // 列を分けて」が正解かは設計の判断で、K2 は数えかたを人の側に置いている。
+  // 見えるようにして、要らない方を人が消す。
+  const twinNames = new Set<string>()
+  {
+    const groups = new Map<string, string[]>()
+    for (const m of skeleton.maps) {
+      const template = m.subject.template
+      const key = template
+        ? [...template.matchAll(/\{([^{}]+)\}/g)].map((x) => x[1]).sort().join('\u0000')
+        : ''
+      const sig = [m.source, m.iterator ?? '', key, template === undefined].join('\u0001')
+      groups.set(sig, [...(groups.get(sig) ?? []), m.name])
+    }
+    for (const names of groups.values()) {
+      if (names.length > 1) names.forEach((n) => twinNames.add(n))
+    }
+  }
   // どの種類を開いているか。既定は「まだ答えを待っている最初の種類」— 開いた
   // 瞬間に、やることのある場所に居る。設計が入れ替わっても消えた種類に留まら
   // ないよう、実在する名前だけを採る。
@@ -1667,6 +1687,7 @@ export function SkeletonGate({
       (ann.collapse_kind ? ann.collapse_kind === 'partial' : ann.is_unique === false) ||
       ann.key_measurement_caution === true ||
       (ann.undeclared_prefixes?.length ?? 0) > 0 ||
+      twinNames.has(m.name) ||
       addedMap === m.name
     const keyCell = (
       <>
@@ -1970,6 +1991,17 @@ export function SkeletonGate({
         </p>
       )}
       {!plain && nsCard}
+      {plain && twinNames.size > 0 && (
+        <p className="skeleton-evidence-line skeleton-evidence-warn">
+          ⚠{' '}
+          {t('skeletongate:twinKinds', {
+            names: skeleton.maps
+              .filter((m) => twinNames.has(m.name))
+              .map((m) => compactClass(m.subject.classes?.[0] ?? '', nsDetected) || m.name)
+              .join(t('skeletongate:key.listSeparator')),
+          })}
+        </p>
+      )}
       {plain && kindCounts.length > 0 && (
         <div className="kz-map-card">
           {sourceRows > 0 && (

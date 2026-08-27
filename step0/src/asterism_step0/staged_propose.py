@@ -1779,6 +1779,7 @@ def _generate_skeleton_gated(
     — or whose AI never ran — must not be handed a design instead.
     """
     issues: list[str] | None = None
+    previous: dict | None = None
     for attempt in range(_SKELETON_PARSE_ROUNDS + 1):
         try:
             skeleton = generate_skeleton(
@@ -1797,26 +1798,33 @@ def _generate_skeleton_gated(
             if attempt >= _SKELETON_PARSE_ROUNDS:
                 break
             continue
+        # 差し戻しは「抜けを足して」と頼むもの。返ってきた答えが前より種類を
+        # 減らしていたら、頼んだこと以上をやっている — 前の答えを採る。
+        if (
+            previous is not None
+            and isinstance(skeleton.get("maps"), list)
+            and len(skeleton["maps"]) < len(previous.get("maps") or [])
+        ):
+            skeleton = previous
         if isinstance(skeleton.get("maps"), list) and skeleton["maps"]:
             # 「1 件が表すもの」が空のまま返ることがある（guided decoding が届かない
             # provider では schema の minItems が効かない）。人が答える前に、抜けを
             # 名指しでもう一度頼む — 名前を付けるのに一番良い位置に居るのはモデル。
-            problems: list[str] = []
+            # 名前の抜けだけを差し戻す。**同じ鍵の重複は差し戻さない** — 実測
+            # （2026-08-27）で「keep one」と伝えたら、モデルは重複した 3 つの
+            # まとまりを全部落として map を 1 つにし、前置きの 14 列が 47 行
+            # すべてに写った。どちらを残すか（そもそも「両方、ただし列を分けて」
+            # が正解か）は設計の判断で、K2 は数えかたを人の側に置いている。
+            # 重複は画面に出して、人が消す。
             blank = _unnamed_kinds(skeleton)
-            if blank:
-                problems.append(
-                    "every map's subject needs a non-empty `classes` (what ONE record of"
-                    " that map is, e.g. `xo:Peak`); missing on: " + ", ".join(blank)
-                )
-            for twins in twin_maps(skeleton):
-                problems.append(
-                    "maps " + ", ".join(twins) + " read the same source with the SAME key"
-                    " columns, so they are one row type described twice — keep one, or"
-                    " give them different keys if they really are different grains"
-                )
-            if not problems or attempt >= _SKELETON_PARSE_ROUNDS:
+            if not blank or attempt >= _SKELETON_PARSE_ROUNDS:
                 return skeleton, False
-            issues = problems
+            issues = [
+                "every map's subject needs a non-empty `classes` (what ONE record of"
+                " that map is, e.g. `xo:Peak`); missing on: " + ", ".join(blank)
+                + ". Keep every map you already have — only add the missing names."
+            ]
+            previous = skeleton
             continue
         # Parsed, but says nothing — same dead end as a parse failure.
         issues = ["the JSON object had no `maps` entries; every source needs one map"]
