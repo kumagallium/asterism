@@ -864,3 +864,55 @@ def test_no_template_without_the_file_is_still_answered(tmp_path: Path) -> None:
     ann = annotate_skeleton(skeleton, [])["maps"]["point"]
     assert ann["reason"] == "no-template"
     assert "key_candidates" not in ann
+
+
+def _three_singleton_skeleton() -> dict:
+    """One file, THREE file-scoped kinds + one row kind — what the skeleton
+    stage produces once it promotes the things the outside world also names
+    (K26): the card itself, its registry code, and its citation."""
+    skeleton = _card_skeleton()
+    skeleton["maps"] += [
+        {
+            "name": "code",
+            "source": "card.csv",
+            "subject": {"template": "xr:code/{Name}", "classes": ["xo:Code"]},
+        },
+        {
+            "name": "citation",
+            "source": "card.csv",
+            "subject": {"template": "xr:citation/{d}", "classes": ["xo:Citation"]},
+        },
+    ]
+    return skeleton
+
+
+def test_several_singletons_do_not_silence_the_growth_offer(tmp_path: Path) -> None:
+    """G7 revised (2026-08-27): two-or-more singletons used to mean "ambiguous
+    parent — stay silent". K26 made three singletons on one file the ordinary
+    case, and the silence took the ONLY deterministic path to promoting a
+    column to its own kind (G15) down with it. Real data (XRD reference card):
+    `Chemical Formula` had no way to become a kind at all."""
+    p = _write_reference_card(tmp_path)
+    out = annotate_skeleton(_three_singleton_skeleton(), [p])["maps"]
+    growth = out["sample"]["growth_preview"]
+    # The offer hangs on the FIRST singleton in skeleton order, and still lists
+    # the columns that file-scoped entity describes.
+    assert "Name" in growth["described_columns"]
+    # Picking a namespace is not guessing a relationship: the others stay quiet.
+    assert "growth_preview" not in out["code"]
+    assert "growth_preview" not in out["citation"]
+
+
+def test_several_singletons_still_scope_a_row_key(tmp_path: Path) -> None:
+    """The same silence hid a real ID collision: `peak/{2theta}` is unique in
+    THIS file only, so the next card can mint the same peak IRI for a different
+    pattern. With a parent chosen, the risk is stated and every proposed key
+    carries the parent's column."""
+    p = _write_reference_card(tmp_path)
+    out = annotate_skeleton(_three_singleton_skeleton(), [p])["maps"]
+    kinds = [r["kind"] for r in out["peak"].get("reference_risks") or []]
+    assert "scope-missing" in kinds
+    scoped = next(r for r in out["peak"]["reference_risks"] if r["kind"] == "scope-missing")
+    assert scoped["parent_map"] == "sample"
+    assert scoped["parent_columns"] == ["No"]
+    assert all("No" in c["columns"] for c in out["peak"]["key_candidates"])

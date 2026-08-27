@@ -427,7 +427,21 @@ def _parent_singleton(
     if len(singletons) == 1:
         return singletons[0]
     originals = [n for n in singletons if n not in human_owns]
-    return originals[0] if len(originals) == 1 else None
+    if len(originals) == 1:
+        return originals[0]
+    # G7 の沈黙は「2 つ以上＝どれが親か推測になる」から来ていた。ところが K26
+    # (骨格が「外の世界も名前を持つもの」を種類に昇格する) で、1 ファイルから
+    # singleton が 3 つ出るのが普通になった。そこで黙ると、成長プレビューも
+    # 「別の種類に分ける」(G15) も、行マップの scope risk (K14 C6) も丸ごと
+    # 消える — 実データ(XRD 参考カード)で、化学組成を種類に昇格する唯一の
+    # 決定論的な導線と、`peak/{2theta}` が次のファイルで衝突する警告が、
+    # どちらも同時に沈黙した。
+    #
+    # ここで選んでいるのは「関係」ではなく「このファイルの名前空間はどれか」で、
+    # 同一ソースの singleton はどれも等しくファイル全体を指す = どれを選んでも
+    # 主張は真になる。関係の推測は依然しない。並びは骨格の順(設計は主役を先に
+    # 書く)。0 個のときだけ黙る。
+    return originals[0] if originals else None
 
 
 def _functional_dependencies(
@@ -881,8 +895,10 @@ def _inject_scope_risks(
     that file's namespace. A row-level map on the same source whose key does
     not include them is unique only within THIS file: appending the next file
     can mint the same ID for a different parent's row. Flag it as a reference
-    risk and prepend the parent key to every proven candidate. Two singletons
-    would make the parent ambiguous — stay silent rather than guess.
+    risk and prepend the parent key to every proven candidate. Several
+    singletons on one source are all equally that file's namespace, so
+    ``_parent_singleton`` picks one by skeleton order rather than going silent
+    (staying silent hid a real cross-file ID collision — see its comment).
     """
     by_source: dict[str, list[str]] = defaultdict(list)
     for name, src in map_sources.items():

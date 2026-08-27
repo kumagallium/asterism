@@ -5535,7 +5535,7 @@ export function KantanWizard({
                   className="btn btn--ghost btn--sm"
                   onClick={() => requestConsult(t('kantan:s6.askConsultPrefill'))}
                 >
-                  {t('kantan:s6.askConsult')}
+                  {t('kantan:s6.askConsultMeaning')}
                 </button>
               </div>
             </>
@@ -5745,7 +5745,7 @@ export function KantanWizard({
                      className="btn btn--ghost btn--sm"
                      onClick={() => requestConsult(t('kantan:s6.askConsultUnmappedPrefill'))}
                    >
-                     {t('kantan:s6.askConsult')}
+                     {t('kantan:s6.askConsultUnmapped')}
                    </button>
                  </div>
                </>

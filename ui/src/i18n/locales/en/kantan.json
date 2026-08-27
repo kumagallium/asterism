@@ -355,9 +355,10 @@
     "unmappedIncomplete": "Choose Include or Leave out for every item. Included items also need a meaning.",
     "unmappedSaving": "Saving your item decisions…",
     "unmappedFailed": "Couldn't save your item decisions.",
-    "askConsult": "Ask the AI to fill these in",
     "askConsultPrefill": "Please fill in the meanings that are still blank",
-    "askConsultUnmappedPrefill": "Please suggest meanings for the items not taken in yet"
+    "askConsultUnmappedPrefill": "Please suggest meanings for the items not taken in yet",
+    "askConsultMeaning": "Ask the AI to fill the blank meanings",
+    "askConsultUnmapped": "Ask the AI about what to include"
   },
   "s7": {
     "title": "Try it — we asked your data a few questions",

@@ -16,7 +16,8 @@
   "diagram": {
     "summary": "See the sketch ({{count}} kinds)",
     "linked": " · the IDs link to each other",
-    "head": "The picture ({{count}} kinds)"
+    "head": "The picture ({{count}} kinds)",
+    "notLinkedYet": "At this stage the edges are only what the ID shapes imply. The real links between kinds are decided on the next screen (item meanings)."
   },
   "key": {
     "from1": "The ID is decided by {{columns}}",

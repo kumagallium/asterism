@@ -355,9 +355,10 @@
     "unmappedIncomplete": "すべての項目で「取り込む／取り込まない」を選んでください。取り込む項目には意味も入力してください。",
     "unmappedSaving": "項目の判断を保存しています…",
     "unmappedFailed": "項目の判断を保存できませんでした。",
-    "askConsult": "AI に相談して埋める",
     "askConsultPrefill": "読み取った意味が空欄の所を埋めてください",
-    "askConsultUnmappedPrefill": "まだ取り込んでいない項目の意味を埋めてください"
+    "askConsultUnmappedPrefill": "まだ取り込んでいない項目の意味を埋めてください",
+    "askConsultMeaning": "空欄の意味を AI に相談して埋める",
+    "askConsultUnmapped": "取り込むかどうかを AI に相談する"
   },
   "s7": {
     "title": "ためす — あなたのデータに聞いてみました",

@@ -1396,6 +1396,13 @@ export function SkeletonGate({
     <div className="skeleton-diagram">
       <Mermaid chart={skeletonMermaid(skeleton, t('workbench:skeleton.diagram.edge'))} />
       <p className="skeleton-diagram-note">{t('workbench:skeleton.diagram.note')}</p>
+      {/* 線が 1 本も引けないとき、黙っていると「つながっていない設計だ」と読める。
+          この段では骨格 = ID の形しか無く、種類どうしの本当のつながり
+          (object_template) は次の段で決まる。「まだ分からない」と「無い」は
+          別のことなので、そう書く（利用者評価 2026-08-27）。 */}
+      {!diagramLinked && skeleton.maps.length > 1 && (
+        <p className="skeleton-diagram-note">{t('skeletongate:diagram.notLinkedYet')}</p>
+      )}
     </div>
   )
   const diagramBlock = !plain ? (

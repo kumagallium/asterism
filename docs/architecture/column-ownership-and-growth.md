@@ -123,3 +123,29 @@ Related: [`skeleton-gate-consequence-preview.md`](skeleton-gate-consequence-prev
 - **クラス名の実態照合**（`sample` という名前が中身＝参照カードと合っているか）— 語彙側の
   仕事で、`external-standard-alignment.md` の領分。
 - **JSON / XML ソース** — 骨格 evidence 全体が tabular 限定（既存の `checkable: false` 規約）。
+
+## G7 改訂 — singleton が 2 つ以上でも黙らない（2026-08-27）
+
+G7 は「同一ソースに singleton がちょうど 1 つのときだけ話す。2 つ以上は推測に
+なるので黙る」だった。K26（骨格が「外の世界も名前を持つもの」を種類に昇格する）
+以降、**1 ファイルから singleton が 3 つ出るのが普通**になり、この沈黙が常態化した。
+
+実データ（XRD 参考カード・利用者の 2026-08-27 の実行）で失われていたもの:
+
+| 沈黙していたもの | 失われた結果 |
+|---|---|
+| 成長プレビュー（G3/G4） | `described_columns` が出ない → **G15「別の種類に分ける」が消える**＝ある列を種類に昇格する唯一の決定論的な導線が無くなる（利用者「化学組成がまた出てこない」） |
+| scope risk（K14 C6） | `peak/{2theta}` が **このファイルの中でしか一意でない**ことを誰も言わない。次のカードを足すと、別のパターンのピークが同じ IRI を名乗る |
+
+**改訂**: singleton が複数あるとき、`_parent_singleton` は**骨格の並びで最初の
+singleton**を親に選ぶ（0 個のときだけ黙る）。ここで選んでいるのは**関係**ではなく
+**「このファイルの名前空間はどれか」**で、同一ソースの singleton はどれも等しく
+ファイル全体を指す＝どれを選んでも主張は真になる。関係の推測は依然しない。
+
+実測（利用者の実ファイル、4 マップ＝pattern/peak/csd/reference）:
+
+```
+旧: growth_preview 無し / peak の risk = measurement-id のみ / key 候補 = (hkl), (hkl)+2theta …
+新: growth_preview.described_columns に Chemical Formula / peak に scope-missing(parent=pattern, No)
+    / key 候補が全部 No 付き（scoped）
+```
