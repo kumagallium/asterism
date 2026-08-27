@@ -261,7 +261,8 @@
       "splitKey": "その「もの」を見分ける列",
       "splitAdd": "選んだ {{count}} 列を別の種類に分ける",
       "candidatesQuietHead": "ほかの列の組み合わせで ID を作りますか？（列の組をクリックで適用）",
-      "splitPick": "この列を種類にする: {{column}}"
+      "splitPick": "この列を種類にする: {{column}}",
+      "catalogMerges": "同じ値の行はひとつにまとまります: {{rows}} 行 → {{count}} 件（値の種類なので意図どおりです）"
     },
     "ns": {
       "title": "名前空間（この設計が発行する ID の置き場所）",

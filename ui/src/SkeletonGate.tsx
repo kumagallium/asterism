@@ -461,6 +461,15 @@ function SkeletonEvidence({
         <p className="skeleton-evidence-line skeleton-evidence-ok">
           ✓ {t('workbench:skeleton.evidence.unique', { rows: ann.total_rows })}
         </p>
+      ) : ann.value_catalog ? (
+        /* K33 値のカタログ: 同じ値の行がまとまるのは意図 — 事故の ⚠ でなく
+           「N 種類の値 → N 件」という肯定文で言う。 */
+        <p className="skeleton-evidence-line skeleton-evidence-ok">
+          ✓ {t('workbench:skeleton.evidence.catalogMerges', {
+            rows: ann.total_rows,
+            count: ann.distinct_ids ?? 0,
+          })}
+        </p>
       ) : (
         <p className="skeleton-evidence-line skeleton-evidence-bad">
           ⚠ {t('workbench:skeleton.evidence.collides', {
@@ -1265,6 +1274,12 @@ export function SkeletonGate({
     }
     const kind = ann?.collapse_kind
     if (kind === 'singleton') return t('skeletongate:reading.singleton', { label })
+    // K33 値のカタログ: 同じ値の行が 1 件にまとまるのは意図。partial の
+    // 「ID が重なっています」という事故の読みに落とさない。
+    // （singleton は上で return 済みなので、ここに来るのは unique/partial だけ）
+    if (ann?.value_catalog) {
+      return t('skeletongate:reading.catalog', { label, count: ann?.distinct_ids ?? 0 })
+    }
     if (kind === 'partial') return t('skeletongate:reading.partial', { label })
     if (kind === 'unique') return t('skeletongate:reading.unique', { label })
     return t('skeletongate:reading.plain', { label })
@@ -1604,7 +1619,11 @@ export function SkeletonGate({
       const vars = [...(mm.subject.template ?? '').matchAll(/\{([^{}]+)\}/g)].map((x) => x[1])
       if (vars.length === 1) kindOf.set(vars[0], mm.name)
     }
-    const rowMap = (a.growth_preview?.row_maps ?? [])[0]
+    // ゴースト帯の帰属名。値のカタログ（K33）は行の置き場ではないので飛ばす —
+    // (hkl) を昇格した直後に 2theta の帯が「xr:Hkl の領分」と誤記された。
+    const rowMap = (a.growth_preview?.row_maps ?? []).find(
+      (n) => !annotations?.maps?.[n]?.value_catalog,
+    )
     return { idx, host, ann: a, values, keyCols, kindOf, rowMap }
   })()
 
@@ -1769,7 +1788,11 @@ export function SkeletonGate({
       ann.reason === 'missing-columns' ||
       ann.reason === 'source-not-found' ||
       !!ann.missing_row_kind ||
-      (ann.collapse_kind ? ann.collapse_kind === 'partial' : ann.is_unique === false) ||
+      (ann.value_catalog
+        ? false // K33: 値のカタログの合流は意図 — 事故の ⚠ を付けない
+        : ann.collapse_kind
+          ? ann.collapse_kind === 'partial'
+          : ann.is_unique === false) ||
       ann.key_measurement_caution === true ||
       (ann.undeclared_prefixes?.length ?? 0) > 0 ||
       twinNames.has(m.name) ||
@@ -2166,15 +2189,52 @@ export function SkeletonGate({
                         : t('workbench:skeleton.evidence.cardDelegatedBandPlain')}
                     </td>
                   </tr>
-                  {zone.ann.entity_preview!.varying_columns.slice(0, 6).map((col) => (
-                    <tr key={col} className="skeleton-entity-delegated">
-                      <td className="skeleton-entity-pick" />
-                      <th scope="row">{col}</th>
-                      <td className="skeleton-entity-ghost-value" colSpan={2}>
-                        {t('workbench:skeleton.evidence.cardVaries')}
-                      </td>
-                    </tr>
-                  ))}
+                  {/* K33: 境界は列の位置でなく値の性質。行ごとに変わる列でも、
+                      識別子型（(hkl) のような名前・コード）は「値の種類」に
+                      昇格できる — 同じ値＝同じ 1 件として、ファイルを跨いで
+                      まとまる。測定値の列（2theta 等）は K7 の罠なので不可。 */}
+                  {zone.ann.entity_preview!.varying_columns.slice(0, 6).map((col) => {
+                    const identity =
+                      zone.ann.entity_preview!.varying_identity_columns?.includes(col) ?? false
+                    const kindName = zone.kindOf.get(col)
+                    const samples = zone.ann.entity_preview!.varying_samples?.find(
+                      (v) => v.column === col,
+                    )?.values
+                    return (
+                      <tr key={col} className="skeleton-entity-delegated">
+                        <td className="skeleton-entity-pick">
+                          {identity && (
+                            <input
+                              type="checkbox"
+                              aria-label={t('workbench:skeleton.evidence.splitPick', {
+                                column: col,
+                              })}
+                              checked={!!kindName}
+                              disabled={!canRevalidate}
+                              onChange={(e) =>
+                                e.target.checked
+                                  ? promoteColumn(zone.idx, col)
+                                  : demoteColumn(col, kindName!)
+                              }
+                            />
+                          )}
+                        </td>
+                        <th scope="row">{col}</th>
+                        <td className="skeleton-entity-ghost-value">
+                          {identity && samples && samples.length > 0
+                            ? t('skeletongate:zone.variesWith', {
+                                values: samples.join(t('skeletongate:key.listSeparator')),
+                              })
+                            : t('workbench:skeleton.evidence.cardVaries')}
+                        </td>
+                        <td className="skeleton-zone-tag">
+                          {kindName
+                            ? t('skeletongate:zone.isKind', { name: displayMapName(kindName) })
+                            : null}
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </>
               )}
             </tbody>

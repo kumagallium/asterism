@@ -5,7 +5,8 @@
     "partial": "1 row should be one “{{label}}”, but some IDs repeat",
     "plain": "Kind read: “{{label}}”",
     "unnamed": "What one row stands for is not decided yet",
-    "singletonUnnamed": "The whole table becomes one record (what it stands for is not decided yet)"
+    "singletonUnnamed": "The whole table becomes one record (what it stands for is not decided yet)",
+    "catalog": "A value kind — equal values become one record ({{count}} distinct values)"
   },
   "col": {
     "source": "File",
@@ -81,9 +82,10 @@
   "twinKinds": "{{names}} build the same record from the same columns — one row type written twice. Delete the one you do not need (which to keep, or whether to split them by different columns, is yours to decide).",
   "zone": {
     "head": "Everything this table says (1 record per table)",
-    "lead": "A checked column is counted as its own kind. The pre-checked ones are the AI’s recommendation — change them freely here. Kinds made from names, numbers and codes that also appear in other files or outside data connect later.",
+    "lead": "A checked column is counted as its own kind. The pre-checked ones are the AI’s recommendation — change them freely. Good candidates are names, numbers and codes whose values also appear in other files or outside data (per-row columns qualify too; measured numbers can’t, they make poor IDs).",
     "isCardId": "this table’s ID ({{name}})",
     "isKind": "ID of the kind “{{name}}”",
-    "cardMoved": "This table’s values — and the kind checkboxes — are listed once above, under “Everything this table says”."
+    "cardMoved": "This table’s values — and the kind checkboxes — are listed once above, under “Everything this table says”.",
+    "variesWith": "{{values}} … (varies per row)"
   }
 }

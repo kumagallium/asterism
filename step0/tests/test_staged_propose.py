@@ -1315,3 +1315,87 @@ def test_links_never_cross_sources() -> None:
     }
     _out, added = ensure_same_source_links(ir, ontology_prefix="o")
     assert added == []
+
+
+def test_owned_single_var_column_gets_its_link_deterministically() -> None:
+    """K33: when a column's owner is a value catalog (its subject IS that
+    column), dropping the plain property must not sever the edge — the link is
+    appended deterministically, next to nothing the human confirmed."""
+    from asterism_step0.staged_propose import _generate_map_properties_gated
+
+    calls: list[str] = []
+
+    class OneShot:
+        def complete(self, *a, **k):
+            raise AssertionError("not used")
+
+    def fake_generate(*a, **k):
+        return {
+            "properties": [
+                {"predicate": "xr:twoTheta", "column": "2theta", "label": "2θ"},
+                # plain copy → dropped (G6); the label keeps the label-fill
+                # round from firing (this test has no LLM to answer it)
+                {"predicate": "xr:hkl", "column": "(hkl)", "label": "ミラー指数"},
+            ],
+            "prefixes": {},
+        }
+
+    import asterism_step0.staged_propose as sp
+
+    original = sp.generate_map_properties
+    sp.generate_map_properties = fake_generate  # type: ignore[assignment]
+    try:
+        result = _generate_map_properties_gated(
+            "peak",
+            {"name": "peak", "source": "c.txt", "subject": {"template": "xr:peak/{No}/{2theta}"}},
+            "ctx",
+            "menu",
+            llm=OneShot(),  # type: ignore[arg-type]
+            function_names=None,
+            language=None,
+            index=0,
+            total=1,
+            emit=lambda **k: calls.append(str(k.get("message"))),
+            record=lambda: None,
+            owned_elsewhere={"(hkl)": "hkl"},
+            owner_subjects={"hkl": "xr:hkl/{(hkl)}", "peak": "xr:peak/{No}/{2theta}"},
+            ontology_prefix="xr",
+        )
+    finally:
+        sp.generate_map_properties = original  # type: ignore[assignment]
+
+    props = result["properties"]
+    assert {"predicate": "xr:twoTheta", "column": "2theta", "label": "2θ"} in props
+    assert all(p.get("column") != "(hkl)" for p in props)  # plain copy dropped (G6)
+    assert {"predicate": "xr:hkl", "object_template": "xr:hkl/{(hkl)}", "label": "hkl"} in props
+    # Idempotence: a model that DID link gets no duplicate edge.
+    def fake_generate_linked(*a, **k):
+        return {
+            "properties": [
+                {"predicate": "xr:hkl", "object_template": "xr:hkl/{(hkl)}", "label": "ミラー指数"},
+            ],
+            "prefixes": {},
+        }
+
+    sp.generate_map_properties = fake_generate_linked  # type: ignore[assignment]
+    try:
+        again = _generate_map_properties_gated(
+            "peak",
+            {"name": "peak", "source": "c.txt", "subject": {"template": "xr:peak/{No}/{2theta}"}},
+            "ctx",
+            "menu",
+            llm=OneShot(),  # type: ignore[arg-type]
+            function_names=None,
+            language=None,
+            index=0,
+            total=1,
+            emit=lambda **k: None,
+            record=lambda: None,
+            owned_elsewhere={"(hkl)": "hkl"},
+            owner_subjects={"hkl": "xr:hkl/{(hkl)}"},
+            ontology_prefix="xr",
+        )
+    finally:
+        sp.generate_map_properties = original  # type: ignore[assignment]
+    targets = [p.get("object_template") for p in again["properties"]]
+    assert targets.count("xr:hkl/{(hkl)}") == 1

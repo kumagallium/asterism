@@ -2149,6 +2149,7 @@ def _generate_map_properties_gated(
     emit: Callable[..., None],
     record: Callable[[], None],
     owned_elsewhere: Mapping[str, str] | None = None,
+    owner_subjects: Mapping[str, str] | None = None,
     column_types: Mapping[str, str] | None = None,
     source_columns: Sequence[str] | None = None,
     ontology_prefix: str | None = None,
@@ -2255,6 +2256,36 @@ def _generate_map_properties_gated(
             f"map '{map_name}': 他のマップが持つ列を外しました - 重複記録の防止: "
             + ", ".join(sorted(set(dropped)))
         )
+    # 所有者の subject がその列 1 つで立っている（＝値の種類・K33）とき、平文の
+    # 列を落とすだけでは辺が消える。「リンクとして使え」は指示（お願い）で、弱い
+    # モデルは黙って飛ばす — ここで決定論で足す。書き換えではなく追加。
+    if owned_elsewhere and owner_subjects:
+        rows = list(result.get("properties") or [])
+        existing_targets = {
+            str(prop.get("object_template"))
+            for prop in rows
+            if isinstance(prop, Mapping) and prop.get("object_template")
+        }
+        added_links: list[str] = []
+        for col, owner in owned_elsewhere.items():
+            subject = owner_subjects.get(str(owner))
+            if not subject or subject in existing_targets:
+                continue
+            if set(re.findall(r"\{([^{}]+)\}", subject)) != {str(col)}:
+                continue  # 所有者の ID がこの列そのもののときだけ、辺は自明
+            local = _lower_camel(str(owner)) or "linkedEntity"
+            predicate = f"{ontology_prefix}:{local}" if ontology_prefix else "dcterms:relation"
+            # label はゲートで人が見た種類の名前。決定論で付けておかないと、
+            # この機械の辺 1 本のために label-fill の LLM ラウンドが走る。
+            rows.append({"predicate": predicate, "object_template": subject, "label": str(owner)})
+            existing_targets.add(subject)
+            added_links.append(f"{col} → {owner}")
+        if added_links:
+            result = {**result, "properties": rows}
+            _emit(
+                f"map '{map_name}': 値の種類へのリンクを確定しました: "
+                + ", ".join(added_links)
+            )
     # 同じ列を、同じ読み方で、この 1 つのマップの中に二度書いた行を外す。上の G6 が
     # 「他のマップが持つ列」を見るのに対し、こちらは同じマップの中の二重記録。
     result, twins = drop_duplicate_properties(result)
@@ -2424,6 +2455,11 @@ def propose_from_skeleton(
             # Which of this map's columns another map owns (ADR
             # column-ownership G6) — the gate's verdict, carried into generation.
             owned_elsewhere=(column_owners or {}).get(str(name)),
+            owner_subjects={
+                str(mo.get("name")): str((mo.get("subject") or {}).get("template") or "")
+                for mo in maps
+                if isinstance(mo, Mapping)
+            },
             column_types=(column_types or {}).get(str(name)),
             source_columns=(
                 (map_columns or {}).get(str(name))

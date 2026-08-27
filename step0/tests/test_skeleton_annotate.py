@@ -927,3 +927,61 @@ def test_several_singletons_still_scope_a_row_key(tmp_path: Path) -> None:
     assert scoped["parent_map"] == "sample"
     assert scoped["parent_columns"] == ["No"]
     assert all("No" in c["columns"] for c in out["peak"]["key_candidates"])
+
+
+# --- 値のカタログ（K33）: 同じ値の行が 1 件にまとまるのは意図 ---
+
+def _catalog_skeleton() -> dict:
+    """The reference card + peaks + a human-declared value catalog: the human
+    checked `(hkl)` in the gate zone, so the map owns exactly its key column."""
+    skeleton = _card_skeleton()
+    skeleton["maps"][1]["subject"]["template"] = "xr:peak/{No}/{2theta}"
+    skeleton["maps"].append(
+        {
+            "name": "hkl",
+            "source": "card.csv",
+            "subject": {"template": "xr:hkl/{(hkl)}", "classes": ["xo:Hkl"]},
+            "owns": ["(hkl)"],
+        }
+    )
+    return skeleton
+
+
+def test_value_catalog_is_stamped_and_not_scoped(tmp_path: Path) -> None:
+    """A kind whose ID IS its value must not get the parent key prepended —
+    `hkl/{No}/{(hkl)}` could never merge across files, which is the whole
+    point of the catalog. The scope machinery therefore skips it."""
+    p = _write_reference_card(tmp_path)
+    out = annotate_skeleton(_catalog_skeleton(), [p])["maps"]
+    hkl = out["hkl"]
+    assert hkl["value_catalog"] is True
+    kinds = [r["kind"] for r in hkl.get("reference_risks") or []]
+    assert "scope-missing" not in kinds
+    fixed, fixes = apply_key_safety_fix(_catalog_skeleton(), {"maps": out})
+    assert "hkl" not in fixes
+    assert fixed["maps"][2]["subject"]["template"] == "xr:hkl/{(hkl)}"
+    # The row kind itself is NOT a catalog and still gets its scope treatment.
+    assert "value_catalog" not in out["peak"]
+
+
+def test_value_catalog_does_not_count_as_the_row_home(tmp_path: Path) -> None:
+    """A catalog holds only its own value — deleting the row kind must still
+    surface `missing_row_kind` even though the catalog map remains."""
+    p = _write_reference_card(tmp_path)
+    skeleton = _catalog_skeleton()
+    del skeleton["maps"][1]  # remove peak: the measurements are now homeless
+    out = annotate_skeleton(skeleton, [p])["maps"]
+    assert out["sample"].get("missing_row_kind") is not None
+
+
+def test_card_names_identity_varying_columns_with_samples(tmp_path: Path) -> None:
+    """The zone's boundary is the VALUE's nature, not the column's position:
+    identity-like varying columns (promotable) are listed with real sample
+    values; measurement columns are not promotable."""
+    p = _write_reference_card(tmp_path)
+    out = annotate_skeleton(_card_skeleton(), [p])["maps"]
+    card = out["sample"]["entity_preview"]
+    assert "(hkl)" in card["varying_identity_columns"]
+    assert "2theta" not in card["varying_identity_columns"]
+    samples = {x["column"]: x["values"] for x in card["varying_samples"]}
+    assert samples["(hkl)"][0] == "(0,0,2)"

@@ -367,12 +367,29 @@ def _entity_preview(
         if distinct_ids <= 1
         else max(0, _CARD_VALUE_COLUMNS - len(key_props) - len(conflicts))
     )
+    # 行ごとに変わる列のうち、識別子型（測定値でない）のものは「値の種類」に
+    # 昇格できる候補。判断材料は列名でなく値なので、実際の値を数個添える
+    # （2026-08-27 K33: 種類にできる/できないの境界は列の位置でなく値の性質）。
+    types = {c.name: c.inferred_type for c in inspection.columns}
+    varying_identity = [c for c in varying if types.get(c) not in _MEASUREMENT_TYPES]
+    varying_samples: list[dict[str, Any]] = []
+    for col in varying_identity:
+        seen: list[str] = []
+        for row in rows:
+            v = (row.get(col) or "").strip()
+            if v and v not in seen:
+                seen.append(v)
+            if len(seen) >= 3:
+                break
+        varying_samples.append({"column": col, "values": seen})
     return {
         "id": _render_template(template, rows[rep[0]], prefixes),
         "row_count": len(rep),
         "entity_count": distinct_ids,
         "properties": key_props + conflicts + rest[:room],
         "varying_columns": varying,
+        "varying_identity_columns": varying_identity,
+        "varying_samples": varying_samples,
         "omitted_columns": max(0, len(rest) - room),
     }
 
@@ -649,10 +666,12 @@ def _missing_row_kind(
         if parent is None:
             continue
         # A row-level map already exists for this source: nothing is homeless.
+        # 値のカタログ（K33）は数えない: その map は自分の値 1 列しか持たず、
+        # 行の測定値の置き場にはならない。
         if any(
             annotations[n].get("collapse_kind") in ("unique", "partial")
             for n in names
-            if n != parent
+            if n != parent and not annotations[n].get("value_catalog")
         ):
             continue
         ann = annotations[parent]
@@ -958,6 +977,10 @@ def _inject_scope_risks(
             ann = annotations[name]
             if not ann.get("checkable") or ann.get("collapse_kind") != "unique":
                 continue
+            # 値のカタログ（K33）は除外: その ID は値そのもので、ファイルを跨いで
+            # 同じ値＝同じ 1 件になるのが目的。親キーを入れたら合流できなくなる。
+            if ann.get("value_catalog"):
+                continue
             key_cols = list(ann.get("key_columns") or [])
             if not key_cols or set(parent_cols) <= set(key_cols):
                 continue
@@ -1166,6 +1189,16 @@ def annotate_skeleton(
     # Second pass — needs every map's collapse verdict: the singleton map's
     # key is the file's namespace, and row-level keys missing it are unique
     # only until the next file is appended (see _inject_scope_risks).
+    # 値のカタログ（K33）: 人が「この列そのものを種類にする」と宣言した map は
+    # owns == キー列 ちょうどになる。その ID は値そのもの＝**同じ値の行が 1 件に
+    # まとまるのは意図**なので、①ID 重複を事故として言わない ②親キーの入れ子
+    # （scope）を要求しない ③「行の置き場」としては数えない、の 3 点で扱いが変わる。
+    # 押印は scope 検査より先（scope の除外がこの旗を見る）。
+    for name, ann in annotations.items():
+        owns_cols = set(human_owns.get(name) or [])
+        key_cols = set(ann.get("key_columns") or [])
+        if owns_cols and owns_cols == key_cols:
+            ann["value_catalog"] = True
     _inject_scope_risks(annotations, map_sources, by_name, human_owns)
     # Third pass (ADR column-ownership-and-growth): who owns each column, and
     # what the next file does to this design. Both need every map's key and

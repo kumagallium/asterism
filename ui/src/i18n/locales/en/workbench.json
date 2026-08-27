@@ -261,7 +261,8 @@
       "splitKey": "The column that identifies it",
       "splitAdd": "Split the {{count}} checked column(s) into their own kind",
       "candidatesQuietHead": "Build the ID from a different set of columns? (click a column set to apply)",
-      "splitPick": "Make this column its own kind: {{column}}"
+      "splitPick": "Make this column its own kind: {{column}}",
+      "catalogMerges": "Rows with the same value merge: {{rows}} rows → {{count}} records (intended — this is a value kind)"
     },
     "ns": {
       "title": "Namespaces (where this design mints its IDs)",

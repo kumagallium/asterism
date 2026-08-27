@@ -311,6 +311,9 @@ export interface SkeletonMapAnnotation {
    *  metadata-block pattern — merging is the point, not the accident);
    *  `partial` = some rows merge, some don't (the overwrite accident). */
   collapse_kind?: 'singleton' | 'unique' | 'partial'
+  /** K33: この種類の ID は値そのもの（owns == キー列）。同じ値の行が 1 件に
+   *  まとまるのは意図なので、ID 重複は事故として扱わない。 */
+  value_catalog?: boolean
   /** Citation-consequence risks of this ID recipe (machine-readable kinds,
    *  copy lives in the UI): `measurement-id` — a corrected value mints a new
    *  ID and strands citations of the old one; `scope-missing` — unique in
@@ -342,6 +345,10 @@ export interface SkeletonMapAnnotation {
       owner_map?: string
     }[]
     varying_columns: string[]
+    /** `varying_columns` のうち識別子型（測定値でない）＝「値の種類」に昇格
+     *  できる候補（K33）。判断材料は値なので、実サンプルが並走する。 */
+    varying_identity_columns?: string[]
+    varying_samples?: { column: string; values: string[] }[]
     omitted_columns: number
   } | null
   /** Columns this map would carry that another map OWNS (its key determines
