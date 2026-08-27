@@ -780,12 +780,29 @@ def _growth_preview(
             signatures[src] = frozenset(c.name for c in ins.columns)
 
     for src, names in by_source.items():
-        parent = _parent_singleton(names, annotations, human_owns or {})
-        if parent is None:
-            continue  # G7: no parent, or ambiguous — stay silent
-        ann = annotations[parent]
+        # EVERY file-scoped map on this source, not just "the" parent
+        # (2026-08-27). The offer to split a column into its own kind (G15) is
+        # the only deterministic path a human has to promote one, and hanging
+        # it on ONE map put it on a different tab from the card the column is
+        # visible on — live: the reader was looking at `CrystalStructure`
+        # (whose card shows `Chemical Formula: Al3 V`) while the offer sat
+        # under `Sample`. Every singleton here is "one entity per file" and its
+        # key determines the same file-level columns, so the statement is true
+        # of each; the gate's tabs mean only one is ever on screen at a time.
+        # (`_parent_singleton` still picks ONE for the scope risk and the
+        # missing-row-kind repair — those DO name a specific other map.)
+        singletons = [
+            n
+            for n in names
+            if annotations[n].get("collapse_kind") == "singleton"
+            and annotations[n].get("key_columns")
+            # A map the human already split out (G15) is the RESULT of a split,
+            # not a card to split from — offering to break it up again reads as
+            # the machine second-guessing a decision that was just made.
+            and n not in (human_owns or {})
+        ]
         entry = inspections.get(src)
-        if entry is None or not ann.get("key_columns"):
+        if not singletons or entry is None:
             continue
         path, inspection = entry
         if inspection.source_kind != "csv":
@@ -794,51 +811,59 @@ def _growth_preview(
             rows = _read_rows(path, inspection.dialect)
         except OSError:
             continue
-        # Everything this file-scoped entity DESCRIBES: the non-key columns its
-        # key determines and that actually hold a value. Not the card's list —
-        # the card caps at _CARD_VALUE_COLUMNS, the forecast is about the whole
-        # entity (the real card has 18 such columns, the drawing shows 8).
         columns = [c.name for c in inspection.columns]
-        determined = _functional_dependencies(rows, list(ann["key_columns"]), columns)
-        # Columns another map already owns (a human split, or the machine's
-        # verdict) have LEFT this entity — the forecast is about what is still
-        # recorded per file here.
-        elsewhere = {b["column"] for b in ann.get("borrowed_columns") or []}
-        described = [
-            col
-            for col in columns
-            if col in determined
-            and col not in elsewhere
-            and any((r.get(col) or "").strip() for r in rows)
-        ]
         siblings = [
             other
             for other in signatures
             if other != src and signatures.get(other) == signatures.get(src)
         ]
-        preview: dict[str, Any] = {
-            "per_source_entities": 1,
-            "source_count": 1 + len(siblings),
-            "row_maps": [n for n in names if n != parent],
-            "described_columns": described,
-        }
-        shared: list[dict[str, Any]] = []
-        if siblings:
-            shared = _shared_column_values(src, siblings, described, inspections)
-            preview["shared_values"] = shared
-        # The one-click "split these into their own kind" (ADR G15): the human
-        # decides WHICH columns name one shared thing (world knowledge), the
-        # machine pre-fills what the files already agree on and picks the
-        # identity-like column as the key (a name/formula over a measured
-        # number). One file → no measured overlap → nothing pre-checked, only
-        # the offer.
         types = {c.name: c.inferred_type for c in inspection.columns}
-        shared_cols = [x["column"] for x in shared]
-        key = next((c for c in shared_cols if types.get(c) not in _MEASUREMENT_TYPES), None)
-        if key is None and shared_cols:
-            key = shared_cols[0]
-        preview["split_default"] = {"columns": shared_cols, "key": key}
-        ann["growth_preview"] = preview
+        row_maps = [
+            n for n in names if annotations[n].get("collapse_kind") != "singleton"
+        ]
+        for parent in singletons:
+            ann = annotations[parent]
+            # Everything this file-scoped entity DESCRIBES: the non-key columns
+            # its key determines and that actually hold a value. Not the card's
+            # list — the card caps at _CARD_VALUE_COLUMNS, the forecast is about
+            # the whole entity (the real card has 18 such columns, the drawing
+            # shows 8).
+            determined = _functional_dependencies(rows, list(ann["key_columns"]), columns)
+            # Columns another map already owns (a human split, or the machine's
+            # verdict) have LEFT this entity — the forecast is about what is
+            # still recorded per file here.
+            elsewhere = {b["column"] for b in ann.get("borrowed_columns") or []}
+            described = [
+                col
+                for col in columns
+                if col in determined
+                and col not in elsewhere
+                and any((r.get(col) or "").strip() for r in rows)
+            ]
+            preview: dict[str, Any] = {
+                "per_source_entities": 1,
+                "source_count": 1 + len(siblings),
+                "row_maps": row_maps,
+                "described_columns": described,
+            }
+            shared: list[dict[str, Any]] = []
+            if siblings:
+                shared = _shared_column_values(src, siblings, described, inspections)
+                preview["shared_values"] = shared
+            # The one-click "split these into their own kind" (ADR G15): the
+            # human decides WHICH columns name one shared thing (world
+            # knowledge), the machine pre-fills what the files already agree on
+            # and picks the identity-like column as the key (a name/formula over
+            # a measured number). One file → no measured overlap → nothing
+            # pre-checked, only the offer.
+            shared_cols = [x["column"] for x in shared]
+            key = next(
+                (c for c in shared_cols if types.get(c) not in _MEASUREMENT_TYPES), None
+            )
+            if key is None and shared_cols:
+                key = shared_cols[0]
+            preview["split_default"] = {"columns": shared_cols, "key": key}
+            ann["growth_preview"] = preview
 
 
 def _shared_column_values(

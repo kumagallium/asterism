@@ -903,13 +903,15 @@ def test_several_singletons_do_not_silence_the_growth_offer(tmp_path: Path) -> N
     `Chemical Formula` had no way to become a kind at all."""
     p = _write_reference_card(tmp_path)
     out = annotate_skeleton(_three_singleton_skeleton(), [p])["maps"]
-    growth = out["sample"]["growth_preview"]
-    # The offer hangs on the FIRST singleton in skeleton order, and still lists
-    # the columns that file-scoped entity describes.
-    assert "Name" in growth["described_columns"]
-    # Picking a namespace is not guessing a relationship: the others stay quiet.
-    assert "growth_preview" not in out["code"]
-    assert "growth_preview" not in out["citation"]
+    # The offer is on EVERY file-scoped card, so whichever tab the reader has
+    # open, the column in front of them can be promoted (2026-08-27: hanging it
+    # on one map put it on a different tab from the card showing the column).
+    assert "Name" in out["sample"]["growth_preview"]["described_columns"]
+    # `code` is keyed BY Name, so Name is its identity, not something to split
+    # off — but it still gets an offer, over the columns it describes.
+    assert out["code"]["growth_preview"]["described_columns"] == ["No"]
+    # A row-level map is not one-per-file and never claims to be.
+    assert "growth_preview" not in out["peak"]
 
 
 def test_several_singletons_still_scope_a_row_key(tmp_path: Path) -> None:

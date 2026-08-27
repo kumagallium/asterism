@@ -26,6 +26,36 @@ import {
   skeletonMermaid,
 } from './skeletonDiagram'
 
+/** 畳むか、見出しを付けて開いたまま出すか。かんたん層は開いたまま — 探しに来た人に
+ *  しか見つからない導線は、無いのとほとんど同じ（K27 と同じ理由）。詳細モードは
+ *  設計者向けなので畳んで縦を稼ぐ。中身は 1 つで、器だけが変わる。 */
+function Fold({
+  className,
+  head,
+  plain,
+  children,
+}: {
+  className: string
+  head: React.ReactNode
+  plain: boolean
+  children: React.ReactNode
+}) {
+  if (!plain) {
+    return (
+      <details className={className}>
+        <summary>{head}</summary>
+        {children}
+      </details>
+    )
+  }
+  return (
+    <div className={className}>
+      <p className="skeleton-section-head">{head}</p>
+      {children}
+    </div>
+  )
+}
+
 /** 1 種類ぶんの組み立て済みの中身と、器（タブ / 表の行）が要る目印だけ。 */
 interface KindBlock {
   name: string
@@ -762,9 +792,15 @@ function SkeletonEvidence({
           overlap (a sibling file already repeats a value) is the only part that
           earns the amber line — a forecast alone does not. */}
       {growth && growth.described_columns.length > 0 && (
-        <details className="skeleton-fold skeleton-growth">
-          <summary>
-            {(growth.shared_values?.length ?? 0) > 0 ? (
+        /* かんたん層では畳まない（利用者評価 2026-08-27）。ある列を「種類」に
+           昇格させる導線はここ 1 か所しかなく、AI が昇格し忘れたものを人が足せる
+           唯一の道でもある。畳んであると、探しに来た人にしか見つからない。
+           詳細モードは設計者向けなので従来どおり畳む。 */
+        <Fold
+          className="skeleton-fold skeleton-growth"
+          plain={plain}
+          head={
+            (growth.shared_values?.length ?? 0) > 0 ? (
               <span className="skeleton-evidence-warn">
                 {t('workbench:skeleton.evidence.growthSharedHead', {
                   count: growth.shared_values!.length,
@@ -772,8 +808,9 @@ function SkeletonEvidence({
               </span>
             ) : (
               t('workbench:skeleton.evidence.growthHead')
-            )}
-          </summary>
+            )
+          }
+        >
           <p className="skeleton-evidence-line skeleton-evidence-muted">
             {t('workbench:skeleton.evidence.growthPerFile', { count: growth.source_count })}
           </p>
@@ -852,7 +889,7 @@ function SkeletonEvidence({
               </div>
             </div>
           )}
-        </details>
+        </Fold>
       )}
       {showCandidates && (
         <div className="skeleton-evidence-candidates">
