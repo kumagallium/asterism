@@ -294,7 +294,11 @@ RULES (a reviewer approves *column→predicate + which vetted function*, not cod
   one-element array → `json_array_single`; fixed position → `array_at`; flat
   delimited list → `split`; JSON array of scalars as a string → `json_array`;
   JSON array of objects as a string → `json_pluck` (per sub-field — covers
-  JSON-source arrays too, since ingest tabularizes them to string cells).
+  JSON-source arrays too, since ingest tabularizes them to string cells);
+  a single JSON *object* in a cell → `json_get` with a dotted path.
+  All of these readers also accept a **Python literal repr** (single-quoted —
+  what `pandas.to_csv()` writes for a dict / list column), so treat such a cell
+  exactly like JSON.
   Reserve the `…Raw` fallback (`fallback: true` on a bare column, predicate
   named `…Raw`) only for deeply irregular structures none of these reach.
   DO NOT invent a function. One unmapped column must never block the ingest.
@@ -336,6 +340,11 @@ Vetted **Tier 0** functions (the complete closed set — choose only from here):
 - `json_pluck` (1 column, `args: {field: "family"}` → MULTIPLE values) — a cell
   holding a JSON **array of objects as a string** → that field of each object,
   one triple each (e.g. starrydata `author` → each family name)
+- `json_get` (1 column, `args: {path: "lattice.a"}` → string) — a cell holding a
+  single JSON **object as a string** → the scalar at a dotted path
+  (`{"lattice":{"a":3.34}}` → `3.34`). Numeric segments index into arrays
+  (`"matrix.0.1"`; negatives count from the end). The single-object counterpart
+  of `json_pluck`; a list / dict at the path returns "".
 - `lookup` (1 column, `args: {table: …}` → string) — map a value via a vetted
   seed table: `bool` (Yes/No/1/0/… → `true`/`false`), `country_iso3166`
   (country name → ISO alpha-2), `unit_alias` (unit spelling → symbol, e.g.

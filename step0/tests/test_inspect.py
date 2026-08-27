@@ -181,6 +181,83 @@ def test_json_object_detected_with_keys(tmp_path: Path) -> None:
     assert set(info.json_keys) == {"given", "family"}
 
 
+def test_python_literal_object_detected_with_dotted_keys(tmp_path: Path) -> None:
+    """A pandas dict column round-tripped through ``to_csv()`` is a Python literal
+    repr, not JSON. It must still be recognized as an object AND advertise its
+    nested keys as dotted paths — that is exactly what ``fn:json_get`` needs as
+    its ``path`` argument (ADR tier0-object-path-and-python-literals.md)."""
+    csv_path = _write_csv(
+        tmp_path / "pyrepr.csv",
+        """
+        id,structure
+        1,"{'lattice': {'a': 3.33, 'volume': 27.5}, 'sites': [{'label': 'In'}]}"
+        2,"{'lattice': {'a': 4.05, 'volume': 66.4}, 'sites': [{'label': 'Al'}]}"
+        """,
+    )
+    ins = inspect_csv(csv_path)
+    info = ins.column("structure")
+    assert info is not None
+    assert info.inferred_type == "json-object"
+    # Nested object keys surface as dotted paths; the array stops at its own key.
+    assert "lattice.a" in info.json_keys
+    assert "lattice.volume" in info.json_keys
+    assert "sites" in info.json_keys
+    assert not any(k.startswith("sites.") for k in info.json_keys)
+
+
+def test_python_literal_array_detected(tmp_path: Path) -> None:
+    csv_path = _write_csv(
+        tmp_path / "pyarr.csv",
+        """
+        id,tags
+        1,"['a', 'b']"
+        2,"['c']"
+        """,
+    )
+    ins = inspect_csv(csv_path)
+    info = ins.column("tags")
+    assert info is not None
+    assert info.inferred_type == "json-array"
+
+
+def test_nested_keys_stop_at_max_depth(tmp_path: Path) -> None:
+    """Key collection descends two levels, no further — a deeper path is left to
+    a nested TriplesMap rather than exploding the inspection."""
+    csv_path = _write_csv(
+        tmp_path / "deep.csv",
+        """
+        id,d
+        1,"{""a"": {""b"": {""c"": 1}}}"
+        2,"{""a"": {""b"": {""c"": 2}}}"
+        """,
+    )
+    ins = inspect_csv(csv_path)
+    info = ins.column("d")
+    assert info is not None
+    assert "a" in info.json_keys
+    assert "a.b" in info.json_keys
+    assert "a.b.c" not in info.json_keys
+
+
+def test_relaxed_parse_refuses_oversized_and_over_nested() -> None:
+    """The inspection-side reader carries the same DoS bounds as the ingest-side
+    ``asterism._jsonio`` — and returns None instead of raising."""
+    from asterism_step0.inspect import _MAX_LITERAL_BYTES, _loads_relaxed
+
+    assert _loads_relaxed('{"a": 1}') == {"a": 1}
+    assert _loads_relaxed("{'a': 1}") == {"a": 1}
+    assert _loads_relaxed('["x" ' + "," * _MAX_LITERAL_BYTES + "]") is None
+    assert _loads_relaxed("[" * 100 + "]" * 100) is None
+    # Balanced punctuation inside a string does not accumulate depth...
+    assert _loads_relaxed("{'cif': '(x, y, z)'}") == {"cif": "(x, y, z)"}
+    # ...and real nesting cannot hide behind a quote the scanner mis-reads.
+    attack = "{'c': '''it's fine''', 'm': " + "[" * 150 + "]" * 150 + "}"
+    assert _loads_relaxed(attack) is None
+    # Nothing executable survives the literal-only walk.
+    assert _loads_relaxed("__import__('os').system('echo pwned')") is None
+    assert _loads_relaxed("[].__class__") is None
+
+
 def test_json_mixed_falls_back_to_string(tmp_path: Path) -> None:
     """A column where some cells are JSON and others are plain strings should
     NOT be classified as json-* — leave it to the LLM."""

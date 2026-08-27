@@ -18,6 +18,7 @@ from asterism.primitives import (
     LookupTableUnavailableError,
     RegexEngineUnavailableError,
     array_at,
+    json_get,
     json_pluck,
     load_table,
     lookup,
@@ -267,3 +268,66 @@ def test_json_pluck() -> None:
     assert json_pluck("", "family") is None
     assert json_pluck('[{"f": "x"}]', "") is None
     assert json_pluck('[{"given": "Y"}]', "family") is None  # no object has the field
+
+
+# ---- json_get (dotted-path scalar out of a single JSON object) --------------
+
+
+def test_json_get_basic() -> None:
+    assert json_get('{"lattice": {"a": 3.33}}', "lattice.a") == "3.33"
+
+
+def test_json_get_python_literal_repr() -> None:
+    assert json_get("{'lattice': {'a': 3.33}}", "lattice.a") == "3.33"
+
+
+def test_json_get_list_index() -> None:
+    assert json_get('{"m": [[1,2],[3,4]]}', "m.1.0") == "3"
+    assert json_get('{"m": [[1,2],[3,4]]}', "m.-1.0") == "3"  # negative index
+
+
+def test_json_get_missing_or_mismatched() -> None:
+    assert json_get('{"a": 1}', "b") == ""  # missing key
+    assert json_get('{"a": [1, 2]}', "a.5") == ""  # out of range
+    assert json_get('{"a": {"b": 1}}', "a.b.c") == ""  # descend into a scalar
+    assert json_get('{"a": "x"}', "a.b") == ""  # type mismatch (str, not dict/list)
+
+
+def test_json_get_scalar_only() -> None:
+    assert json_get('{"a": {"b": 1}}', "a") == ""  # final value is a dict
+    assert json_get('{"a": [1, 2]}', "a") == ""  # final value is a list
+    assert json_get('{"a": null}', "a") == ""  # final value is None
+
+
+def test_json_get_empty_input() -> None:
+    assert json_get("", "a") == ""
+    assert json_get('{"a": 1}', "") == ""
+
+
+def test_json_get_no_attribute_access() -> None:
+    """A path segment naming a Python attribute is just an absent dict key."""
+    assert json_get('{"a": 1}', "__class__") == ""
+    assert json_get('{"a": 1}', "a.__class__") == ""
+
+
+def test_json_get_real_data_shape() -> None:
+    text = (
+        "{'@module': 'pymatgen.core.structure', "
+        "'lattice': {'a': 3.33, 'volume': 37.0, 'matrix': [[1,0,0],[0,1,0],[0,0,1]]}, "
+        "'sites': [{'label': 'In'}]}"
+    )
+    assert json_get(text, "lattice.a") == "3.33"
+    assert json_get(text, "lattice.volume") == "37.0"
+    assert json_get(text, "lattice.matrix.0.0") == "1"
+
+
+def test_json_get_index_segment_is_a_plain_integer() -> None:
+    """``int()`` also accepts " 1", "+1" and Python's "1_0" digit grouping —
+    surprising readings of what is meant to be a plain index in a constant.
+    Only an optional "-" followed by digits indexes into a list."""
+    data = '{"m": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]}'
+    assert json_get(data, "m.10") == "10"
+    assert json_get(data, "m.-1") == "10"
+    assert json_get(data, "m.1_0") == ""
+    assert json_get(data, "m. 1") == ""
+    assert json_get(data, "m.+1") == ""
