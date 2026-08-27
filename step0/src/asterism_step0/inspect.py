@@ -653,7 +653,16 @@ def _id_candidate_columns(
         # counts hit the cap they're not informative — fall back to "is this
         # column probably an ID by name" heuristic.
         capped = min(s.non_null_count, _SAMPLE_RING) * threshold
-        by_unique = s.unique_count >= capped
+        # A continuous quantity is never an identifier, however distinct its
+        # values happen to be. Without this guard a wide table of measurements
+        # nominates nearly every float column: `density`, `volume`,
+        # `total_magnetization_normalized_vol` are all ~100% distinct across a
+        # few thousand rows. The composite search below is cubic in the number of
+        # candidates, so those columns are what turn a normal inspection into a
+        # 16,000-row uniqueness table (measured: 46 candidates -> 45,540 triples
+        # to test; dropping doubles leaves 14 -> 1,092). The name heuristic below
+        # already excluded doubles for the same reason; this closes the other door.
+        by_unique = s.unique_count >= capped and s.inferred_type != "xsd:double"
         by_name = _looks_like_id_by_name(s.name) and s.inferred_type in {
             "xsd:integer",
             "xsd:string",
