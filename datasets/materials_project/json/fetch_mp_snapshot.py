@@ -60,33 +60,31 @@ SPIKE = REPO / "experiments" / "mp-linking-poc" / "link_mp.py"
 MP_API_BASE = "https://api.materialsproject.org"
 MP_PAGE = "https://next-gen.materialsproject.org/materials/"
 
-# Fields requested from /materials/summary/. Deliberately explicit rather than
-# "everything": the full document embeds the complete structure (lattice + every
-# site), which is megabytes per material and — as the mp_all.csv exercise showed —
-# not what a knowledge graph is for. Coordinates belong in a structure file, not
-# in triples. Run --probe to see the full field list the API offers and revise
-# this tuple; anything absent from a response is simply skipped per record.
-SUMMARY_FIELDS: tuple[str, ...] = (
-    # identity
-    "material_id", "formula_pretty", "chemsys", "elements", "nelements", "nsites",
-    # symmetry — the reason this dataset exists
-    "symmetry",
-    # stability / energetics
-    "energy_above_hull", "formation_energy_per_atom", "energy_per_atom",
-    "is_stable", "theoretical", "decomposes_to",
-    # electronic
-    "band_gap", "is_gap_direct", "is_metal", "efermi",
-    # magnetic
-    "total_magnetization", "ordering", "is_magnetic", "num_magnetic_sites",
-    # mechanical
-    "bulk_modulus", "shear_modulus", "universal_anisotropy",
-    # dielectric / optical
-    "e_total", "e_ionic", "e_electronic", "n",
-    # bulk descriptors
-    "density", "density_atomic", "volume",
-    # provenance
-    "deprecated", "last_updated",
-)
+# We request ``_all_fields=true`` and drop from the response, rather than listing
+# the fields we want. The summary endpoint returns 69 fields today; an allow-list
+# would silently miss whatever MP adds next, and the point of this snapshot is to
+# carry as much of the material's characterization as is useful. What gets dropped
+# is only what does not belong in a knowledge graph:
+EXCLUDE_FIELDS = frozenset({
+    # Every atomic coordinate. Kilobytes per material, and — as the mp_all.csv
+    # exercise showed — not something anyone queries with SPARQL. Coordinates
+    # belong in a structure file. (Note this is MP's own "structure" field; the
+    # snapshot's own nested "structure" object below is the symmetry block, kept
+    # under that name so the existing mp.rml.ttl reads it unchanged.)
+    "structure",
+    # Pointers into other endpoints or bulk objects, not values.
+    "bandstructure", "dos", "dos_energy_up", "dos_energy_down", "xas",
+    "phonon_IDs", "grain_boundaries", "has_reconstructed",
+    # Builder bookkeeping — facts about MP's pipeline, not about the material.
+    # (database_IDs is NOT here: it carries ICSD identifiers, which are a link to
+    # an external standard rather than pipeline noise.)
+    "builder_meta", "origins", "task_ids", "has_props",
+    "warnings", "property_name", "deprecation_reasons",
+    # Redundant with formula_pretty + composition_reduced.
+    "composition",
+    # Handled explicitly in to_record().
+    "material_id", "formula_pretty", "symmetry",
+})
 
 # A run of capital letters with no lowercase is an acronym, not a formula:
 # Starrydata's battery rows carry "LMB" / "RMB" / "SIB" / "ASSLSB" in the
@@ -256,32 +254,37 @@ def mp_get(path: str, params: dict[str, str], api_key: str, *, retries: int = 4)
 def probe(api_key: str) -> None:
     """Fetch one material with no field filter and print what the API offers."""
     payload = mp_get(
-        "/materials/summary/", {"formula": "Bi2Te3", "_limit": "1"}, api_key
+        "/materials/summary/",
+        {"formula": "Bi2Te3", "_limit": "1", "_all_fields": "true"},
+        api_key,
     )
     data = payload.get("data") or []
     if not data:
         raise SystemExit("probe: データが返りませんでした")
     doc = data[0]
+    kept = dropped = 0
     print(f"\n/materials/summary/ が返すフィールド ({len(doc)} 個):\n")
     for key in sorted(doc):
         value = doc[key]
-        kind = type(value).__name__
         preview = json.dumps(value, ensure_ascii=False, default=str)
-        if len(preview) > 90:
-            preview = preview[:87] + "…"
-        mark = "  " if key in SUMMARY_FIELDS else "・"  # ・ = 未取得
-        print(f"{mark}{key:<32} {kind:<6} {preview}")
-    missing = [f for f in SUMMARY_FIELDS if f not in doc]
-    if missing:
-        print(f"\nSUMMARY_FIELDS にあるが応答に無い: {', '.join(missing)}")
-    print("\n行頭が空白 = SUMMARY_FIELDS で取得中 / ・ = 未取得")
+        if len(preview) > 84:
+            preview = preview[:81] + "…"
+        excluded = key in EXCLUDE_FIELDS and key not in (
+            "material_id", "formula_pretty", "symmetry")
+        if excluded:
+            dropped += 1
+        else:
+            kept += 1
+        mark = "・" if excluded else "  "
+        print(f"{mark}{key:<38} {type(value).__name__:<9} {preview}")
+    print(f"\n取り込む {kept} / 除外する {dropped}   [・ = EXCLUDE_FIELDS で除外]")
 
 
 def best_match(formula: str, api_key: str) -> dict[str, Any] | None:
     """The most stable MP entry for ``formula`` (lowest energy_above_hull)."""
     payload = mp_get("/materials/summary/", {
         "formula": formula,
-        "_fields": ",".join(SUMMARY_FIELDS),
+        "_all_fields": "true",
         "_limit": "50",
     }, api_key)
     data = payload.get("data") or []
@@ -291,7 +294,33 @@ def best_match(formula: str, api_key: str) -> dict[str, Any] | None:
                                     d.get("energy_above_hull") or 0.0))
 
 
-def to_record(doc: dict[str, Any], host_formula: str, samples: int) -> dict[str, Any]:
+def load_legacy_ids() -> dict[str, str]:
+    """``host formula -> legacy mp-id`` from the committed seed CSV.
+
+    MP renumbered its materials (``mp-34202`` -> ``mp-aaaabypm``) with the r2SCAN
+    recalculation, and the new API never echoes the old id back. The eleven
+    materials this dataset already published carry their old ids in the seed CSV,
+    so that file is the only place the mapping survives.
+
+    Why the snapshot has to carry it: the id-move ledger
+    (``id-move-after-publish.md``) builds "old IRI -> new IRI" by running ONE
+    source through two subject templates. Putting ``mp_id_legacy`` next to
+    ``mp_id`` in the same record is what makes that possible here — otherwise the
+    two ids live in different files and the ledger cannot be compiled.
+    """
+    path = HERE.parent / "seed" / "csv" / "materials_project.csv"
+    if not path.is_file():
+        return {}
+    with path.open(newline="", encoding="utf-8") as fh:
+        return {
+            row["formula"]: row["mp_id"]
+            for row in csv.DictReader(fh)
+            if row.get("formula") and row.get("mp_id")
+        }
+
+
+def to_record(doc: dict[str, Any], host_formula: str, samples: int,
+              legacy: dict[str, str]) -> dict[str, Any]:
     """Shape one API document into the snapshot record.
 
     The top-level keys and the nested ``structure`` object match what
@@ -308,6 +337,9 @@ def to_record(doc: dict[str, Any], host_formula: str, samples: int) -> dict[str,
         # what this snapshot was resolved FROM (provenance of the join key)
         "host_formula": host_formula,
         "starrydata_samples": samples,
+        # only the already-published materials have one; absent elsewhere so the
+        # id-move ledger simply has no row for them (Morph-KGC drops null refs)
+        "mp_id_legacy": legacy.get(host_formula),
         "structure": {
             "space_group_symbol": sym.get("symbol"),
             "space_group_number": sym.get("number"),
@@ -316,30 +348,39 @@ def to_record(doc: dict[str, Any], host_formula: str, samples: int) -> dict[str,
         },
     }
 
-    def put(key: str, value: Any) -> None:
-        if value is not None:
+    # Everything else the API returned, minus EXCLUDE_FIELDS. Shapes are flattened
+    # to what the ingest path can actually read:
+    #   dict  -> one key per sub-field ("bulk_modulus" {voigt,reuss,vrh} becomes
+    #            bulk_modulus_voigt / _reuss / _vrh), because a nested object under
+    #            a *sibling* of "structure" has no place in the existing RML.
+    #   list  -> a JSON string, which fn:json_array (scalars, e.g. elements) or
+    #            fn:json_pluck (objects, e.g. decomposes_to) explodes into one
+    #            triple per element.
+    #   null / empty -> omitted entirely. Morph-KGC drops a whole row when a
+    #            referenced field is null, so an absent key is the safer shape.
+    for key in sorted(doc):
+        if key in EXCLUDE_FIELDS:
+            continue
+        value = doc[key]
+        if value is None:
+            continue
+        if isinstance(value, dict):
+            for sub, sub_value in sorted(value.items()):
+                if sub_value is None or isinstance(sub_value, dict):
+                    continue
+                if isinstance(sub_value, list):
+                    if sub_value:  # e.g. database_IDs.icsd -> fn:json_array
+                        record[f"{key}_{sub}"] = json.dumps(
+                            sub_value, ensure_ascii=False, sort_keys=True)
+                else:
+                    record[f"{key}_{sub}"] = sub_value
+        elif isinstance(value, list):
+            if value:
+                record[key] = json.dumps(value, ensure_ascii=False, sort_keys=True)
+        else:
             record[key] = value
 
-    for key in ("chemsys", "nelements", "nsites", "energy_above_hull",
-                "formation_energy_per_atom", "energy_per_atom", "is_stable",
-                "theoretical", "band_gap", "is_gap_direct", "is_metal", "efermi",
-                "total_magnetization", "ordering", "is_magnetic",
-                "num_magnetic_sites", "universal_anisotropy", "density",
-                "density_atomic", "volume", "deprecated", "n",
-                "e_total", "e_ionic", "e_electronic"):
-        put(key, doc.get(key))
-    if isinstance(doc.get("elements"), list):
-        # a scalar cell the CSV path can explode with fn:json_array
-        record["elements"] = json.dumps(doc["elements"], ensure_ascii=False)
-    for key, prefix in (("bulk_modulus", "bulk_modulus"),
-                        ("shear_modulus", "shear_modulus")):
-        block = doc.get(key)
-        if isinstance(block, dict):  # {voigt, reuss, vrh}
-            for sub, val in block.items():
-                put(f"{prefix}_{sub}", val)
-        else:
-            put(prefix, block)
-    # drop empty nested structure keys so a symmetry-less entry stays clean
+    # drop empty nested keys so a symmetry-less entry stays clean
     record["structure"] = {k: v for k, v in record["structure"].items() if v is not None}
     return {k: v for k, v in record.items() if v is not None}
 
@@ -401,8 +442,9 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         cache_path.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
 
+    legacy = load_legacy_ids()
     records = [
-        to_record(entry["doc"], host, entry["samples"])
+        to_record(entry["doc"], host, entry["samples"], legacy)
         for host, entry in cache.items()
         if entry.get("doc")
     ]
