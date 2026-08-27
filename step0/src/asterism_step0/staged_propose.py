@@ -37,6 +37,7 @@ from typing import Any
 from asterism_step0.inspect import SourceInspection, inspect_source_set, render_markdown
 from asterism_step0.instance_iri import (
     dataset_namespace_block,
+    dataset_namespace_info,
     derive_prefix_pair,
     normalize_dataset_namespace,
     normalize_iri_base,
@@ -78,6 +79,7 @@ __all__ = [
     "human_pinned_edits",
     "mapping_ir_to_yaml",
     "menu_columns",
+    "pin_dataset_namespace",
     "propose_from_skeleton",
     "propose_skeleton",
     "reassert_human_edits",
@@ -1849,6 +1851,37 @@ def name_unnamed_kinds(
     return {**skeleton, "maps": out}, named
 
 
+def pin_dataset_namespace(
+    answer: Mapping[str, Any], current: Mapping[str, Any], iri_base: str | None
+) -> dict:
+    """Keep a rethink inside the dataset namespace the person already has.
+
+    The mint prefix is machine-derived from the dataset name (K13) and nobody
+    picks it — so a rethink has no reason to land in a different one. It matters
+    because the slug is IN every IRI: change it and every ID the person just
+    checked on the gate becomes a different ID.
+
+    Rewrites the IRI the answer's own mint prefix points at, rather than adding
+    the current skeleton's prefixes alongside it. Merging the two was the first
+    attempt and it was wrong: both spellings then look canonical to
+    :func:`normalize_dataset_namespace`, it repairs the first and leaves the
+    second, and the gate ends up showing raw `xr:Sample` next to `Sample` (live,
+    2026-08-27). Prefix NAMES and the CURIEs that reference them are that
+    function's job; this only decides which namespace they end up in.
+    """
+    cur = dataset_namespace_info(current.get("prefixes") or {}, iri_base)
+    ans = dataset_namespace_info(answer.get("prefixes") or {}, iri_base)
+    if cur is None or ans is None or ans["slug"] == cur["slug"]:
+        return dict(answer)
+    prefixes = {str(k): str(v) for k, v in (answer.get("prefixes") or {}).items()}
+    stem = f"{cur['base']}/datasets/{cur['slug']}"
+    if ans["ontology_prefix"]:
+        prefixes[ans["ontology_prefix"]] = f"{stem}/ontology#"
+    if ans["resource_prefix"]:
+        prefixes[ans["resource_prefix"]] = f"{stem}/resource/"
+    return {**answer, "prefixes": prefixes}
+
+
 def _subject_id_form(subject: Any) -> tuple[str, str] | None:
     """``(kind, value)`` for whichever ID form a subject uses, or None.
 
@@ -1920,6 +1953,12 @@ def human_pinned_edits(
     return pinned
 
 
+def _restored_record(name: str, subject: Any) -> dict[str, str]:
+    """One restore, named the way the screen names it: by KIND, not by map id."""
+    classes = _subject_classes(subject)
+    return {"map": name, "kind": classes[0]} if classes else {"map": name}
+
+
 def reassert_human_edits(
     answer: Mapping[str, Any],
     current: Mapping[str, Any] | None,
@@ -1940,12 +1979,14 @@ def reassert_human_edits(
     5 maps folded into 1). Maps the person never touched are left to the model —
     that is the restructuring they asked for.
 
-    Returns the repaired skeleton and one human-readable line per restore, so
-    the caller can say what it did. Never a silent edit.
+    Returns the repaired skeleton and one ``{map, kind}`` record per restore, so
+    the caller can say what it did. Structured rather than pre-formatted: the
+    kantan tier does not show raw identifiers (K4), and only the browser knows
+    the minted prefix to strip from the CURIE.  Never a silent edit.
     """
     if not pinned or not isinstance(answer.get("maps"), list):
         return dict(answer), []
-    restored: list[str] = []
+    restored: list[dict[str, str]] = []
     out: list[Any] = []
     seen: set[str] = set()
     for m in answer["maps"]:
@@ -1959,17 +2000,20 @@ def reassert_human_edits(
             out.append(m)
             continue
         subject = dict(m.get("subject") or {}) if isinstance(m.get("subject"), Mapping) else {}
+        touched = False
         classes = edit.get("classes")
         if classes and _subject_classes(subject) != classes:
             subject["classes"] = list(classes)
-            restored.append(f"{name}: {', '.join(classes)}")
+            touched = True
         subject_id = edit.get("subject_id")
         if subject_id and _subject_id_form(subject) != tuple(subject_id):
-            kind, value = subject_id
+            form, value = subject_id
             subject.pop("template", None)
             subject.pop("constant", None)
-            subject[kind] = value
-            restored.append(f"{name}: {value}")
+            subject[form] = value
+            touched = True
+        if touched:
+            restored.append(_restored_record(name, subject))
         out.append({**m, "subject": subject})
     for m in (current or {}).get("maps") or []:
         if not isinstance(m, Mapping):
@@ -1977,7 +2021,7 @@ def reassert_human_edits(
         name = str(m.get("name") or "")
         if name in pinned and name not in seen:
             out.append(dict(m))
-            restored.append(name)
+            restored.append(_restored_record(name, m.get("subject")))
     if not restored:
         return dict(answer), []
     return {**answer, "maps": out}, restored
@@ -2154,15 +2198,8 @@ def propose_skeleton(
         request=request,
         pinned=pinned,
     )
-    # 名前空間は rethink で変わる理由が無い(K13: mint prefix は機械導出で、
-    # AI にも人にも選ばせない)。slug が変われば全 IRI が変わる=人が確かめた
-    # ID がまるごと別物になるので、いま画面にある値を先に置いて勝たせる。
-    # AI が新しく足した標準語彙の prefix だけが残る。
-    if current_skeleton and isinstance(skeleton.get("prefixes"), dict):
-        merged = {str(k): str(v) for k, v in (current_skeleton.get("prefixes") or {}).items()}
-        for name, iri in skeleton["prefixes"].items():
-            merged.setdefault(str(name), str(iri))
-        skeleton = {**skeleton, "prefixes": merged}
+    if current_skeleton:
+        skeleton = pin_dataset_namespace(skeleton, current_skeleton, iri_base)
     # Canonical namespace shape is a machine requirement, not a model skill
     # (kantan ADR K13): repair base/shape drift and derive the prefix pair
     # deterministically from the minted slug, so the gate never asks a human

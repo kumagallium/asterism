@@ -1278,7 +1278,8 @@ def test_reassert_puts_the_persons_own_words_back() -> None:
     assert peak["subject"]["template"] == "r:peak/{No}/{(hkl)}"
     # 注文で増えた種類はそのまま残る
     assert {m["name"] for m in out["maps"]} == {"peak", "phase"}
-    assert restored  # 黙って直さない
+    # 黙って直さない。報せは種類の名前で言う (map id は生の識別子・K4)
+    assert restored == [{"map": "peak", "kind": "o:XrdPeak"}]
 
 
 def test_reassert_brings_back_a_pinned_kind_the_model_dropped() -> None:
@@ -1294,7 +1295,7 @@ def test_reassert_brings_back_a_pinned_kind_the_model_dropped() -> None:
                                                     "classes": ["o:Peak"]}}]}
     out, restored = reassert_human_edits(answer, screen, pinned)
     assert {m["name"] for m in out["maps"]} == {"peak", "phase"}
-    assert "phase" in restored
+    assert restored == [{"map": "phase", "kind": "o:Phase"}]
 
 
 def test_reassert_leaves_untouched_maps_to_the_model() -> None:
@@ -1424,6 +1425,13 @@ def test_rethink_keeps_the_dataset_namespace(tmp_path: Path) -> None:
     out = propose_skeleton(
         [csv], "", llm=_rethink_llm(answer), current_skeleton=screen, request="直して"
     )
-    assert any("xrd-reference" in v for v in out.skeleton["prefixes"].values()), (
-        out.skeleton["prefixes"]
-    )
+    values = list(out.skeleton["prefixes"].values())
+    assert all("something-else" not in v for v in values), out.skeleton["prefixes"]
+    assert any("xrd-reference" in v for v in values), out.skeleton["prefixes"]
+    # 名前空間が二重にならない - 実測 2026-08-27: 画面の prefixes を足す形にしたら
+    # 両方が canonical に見えて片方だけ直り、ゲートに生の `xr:Sample` が出た。
+    minted = [v for v in values if "/datasets/xrd-reference/" in v]
+    assert len(minted) == 2, out.skeleton["prefixes"]
+    # CURIE も正規形の prefix を指している(かんたん層は縮約して表示する)
+    onto = next(k for k, v in out.skeleton["prefixes"].items() if v.endswith("ontology#"))
+    assert out.skeleton["maps"][0]["subject"]["classes"][0].startswith(f"{onto}:")

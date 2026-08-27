@@ -961,7 +961,7 @@ export function KantanWizard({
     snap.aiSkeleton ?? null,
   )
   // 機械が人の値を書き戻したときの報せ（黙って直さない）。
-  const [keptEdits, setKeptEdits] = useState<string[]>([])
+  const [keptEdits, setKeptEdits] = useState<KeptEdit[]>([])
   const [annotations, setAnnotations] = useState<SkeletonAnnotations | null>(
     snap.annotations ?? null,
   )
@@ -2376,7 +2376,7 @@ export function KantanWizard({
             // ここに入り、人がこの先で打ち直した分だけが「人の値」になる。
             setAiSkeleton(result.skeleton)
             const kept = result.metadata?.kept_human_edits
-            setKeptEdits(Array.isArray(kept) ? kept.map(String) : [])
+            setKeptEdits(Array.isArray(kept) ? (kept as KeptEdit[]) : [])
             setAnnotations(result.annotations ?? null)
             setInspectionMd(result.inspection_md)
             setStatus('')
@@ -6430,7 +6430,7 @@ export function KantanWizard({
             <p className="kz-note" role="status">
               {t('kantan:s4.keptEdits', {
                 count: keptEdits.length,
-                list: keptEdits.join(' / '),
+                list: keptEdits.map((e) => keptEditLabel(e, skeleton)).join(' / '),
               })}
             </p>
           )}
@@ -6719,6 +6719,17 @@ function DropZone({
       <span className="kz-drop-sub">{t('kantan:s1.dropFormats')}</span>
     </label>
   )
+}
+
+/** One value the machine put back after a rethink (`kept_human_edits`). */
+type KeptEdit = { map: string; kind?: string }
+
+/** Name a restore the way the screen names it: by the KIND the person sees,
+ *  with the minted prefix stripped (K4 — no raw identifiers in this tier). The
+ *  map id is the last resort, for a kind that carries no class at all. */
+function keptEditLabel(edit: KeptEdit, skeleton: MappingSkeleton | null): string {
+  if (!edit.kind) return edit.map
+  return compactClass(edit.kind, skeleton ? detectDatasetNamespace(skeleton) : null)
 }
 
 // The S2/S3 preview block: a first-rows table per parsed file, a plain
