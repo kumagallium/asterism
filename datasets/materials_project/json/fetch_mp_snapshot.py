@@ -98,6 +98,15 @@ _ELEMENTS = frozenset(
     "Po At Rn Fr Ra Ac Th Pa U Np Pu Am Cm Bk Cf Es Fm Md No Lr Rf Db Sg Bh Hs Mt Ds "
     "Rg Cn Nh Fl Mc Lv Ts Og".split()
 )
+# Which nested objects get flattened into one column per sub-key. Only those whose
+# sub-keys are FIXED across materials belong here: bulk_modulus/shear_modulus are
+# always {voigt, reuss, vrh}, database_IDs always {icsd, pauling}. A dict whose keys
+# vary per material — composition_reduced is {"Bi": 2.0, "Te": 3.0} for one material
+# and {"Zn": 4.0, "Sb": 3.0} for the next — would otherwise sprout one sparse column
+# per element (84 of them, nearly all empty). Those stay a single JSON-string column
+# instead, which fn:json_get reads by path.
+FLATTEN_DICTS = frozenset({"bulk_modulus", "shear_modulus", "database_IDs"})
+
 _TOKEN = re.compile(r"([A-Z][a-z]?)(\d*\.?\d*)")
 
 
@@ -364,7 +373,10 @@ def to_record(doc: dict[str, Any], host_formula: str, samples: int,
         value = doc[key]
         if value is None:
             continue
-        if isinstance(value, dict):
+        if isinstance(value, dict) and key not in FLATTEN_DICTS:
+            # keys vary per material -> keep as one JSON-string column
+            record[key] = json.dumps(value, ensure_ascii=False, sort_keys=True)
+        elif isinstance(value, dict):
             for sub, sub_value in sorted(value.items()):
                 if sub_value is None or isinstance(sub_value, dict):
                     continue
