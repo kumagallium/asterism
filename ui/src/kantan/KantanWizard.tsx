@@ -5,7 +5,9 @@ import {
   ApiError,
   attachSource,
   fetchDraftStats,
+  fetchIdMove,
   fetchTrialQueries,
+  recountDataset,
   IngestCancelledError,
   IngestValidationError,
   inspectCsvs,
@@ -19,6 +21,7 @@ import {
   startIngestJob,
   validateSkeleton,
   type DraftStats,
+  type IdMove,
   type IngestJobHandle,
   type IngestProgress,
   type InspectResult,
@@ -965,6 +968,9 @@ export function KantanWizard({
   const [lastPulseAt, setLastPulseAt] = useState<number | null>(null)
   const [jobNotice, setJobNotice] = useState('')
   const [errMsg, setErrMsg] = useState('')
+  // 「データの数えかたに戻る」を押したあと、サーバから骨格と元ファイルを
+  // 取り直している最中（見直しから来たときだけ起きる往復）。
+  const [recounting, setRecounting] = useState(false)
   // An AI run that was still going when the tab was reloaded, and that the
   // server no longer knows about (it restarted). The wizard drops back to S1,
   // where the reason has to be readable — otherwise the work looks vanished
@@ -1175,6 +1181,10 @@ export function KantanWizard({
   // reached, so it costs nothing during the wizard. null = unknown → the connect
   // offer stays hidden (fail closed: never point at a dead end).
   const [publishedCount, setPublishedCount] = useState<number | null>(null)
+  // 公開済みの ID がこの更新で動くか（ADR id-move-after-publish.md）。null =
+  // まだ読んでいない／読めなかった。読めなかったときは黙る: 公開を止める材料
+  // ではないし、無い断定を作るよりは何も言わない方が正しい。
+  const [idMove, setIdMove] = useState<IdMove | null>(null)
 
   // かんたん見直し (catalog 見直す): the wizard reopens an existing dataset at
   // S6. `reingested` = whether THIS session ran the refine → re-ingest chain;
@@ -1346,6 +1356,19 @@ export function KantanWizard({
       window.clearInterval(id)
     }
   }, [writeBlocked])
+
+  // 公開画面に来たら「この更新で ID がいくつ動くか」を読む。ingest のときに
+  // 実測して meta に残してあるので、リロードして戻ってきても同じ答えが出る。
+  useEffect(() => {
+    if (step !== 8 || !kzDatasetId) return
+    let off = false
+    fetchIdMove(kzDatasetId)
+      .then((m) => !off && setIdMove(m))
+      .catch(() => !off && setIdMove(null))
+    return () => {
+      off = true
+    }
+  }, [step, kzDatasetId])
 
   // Count published datasets when S9 is reached, to decide whether connecting is
   // even possible yet. A failure leaves it null and the offer simply does not
@@ -3098,15 +3121,48 @@ export function KantanWizard({
    *  becomes visible (500 rows → 1 sample), and the place that decision was
    *  made is the S4 gate — so go back THERE with the same skeleton, instead of
    *  leaving "start over" as the only way out (KZ-B-03 / DETAIL-GAP-08). */
-  function backToGate() {
-    if (!gateSkeleton || !hasSource) return
-    if (!window.confirm(t('kantan:s6.backToGateConfirm'))) return
+  async function backToGate() {
+    if (!canBackToGate) return
+    // Re-counting a PUBLISHED dataset can change ids that are already out in
+    // the world. Say so here, and again with real numbers at S8 (K10).
+    const key =
+      redesigning || published
+        ? 'kantan:s6.backToGateConfirmPublished'
+        : 'kantan:s6.backToGateConfirm'
+    if (!window.confirm(t(key))) return
+    let target = gateSkeleton
+    let sid = stagingId
+    let sources = files
+    if (!target || !hasSource) {
+      // A catalog review starts at S6 with the browser's copy of the source
+      // deliberately dropped, and never passed through the gate — so neither
+      // the skeleton nor the files are in hand. The server holds both; fetch
+      // them rather than making the user find the file again.
+      if (!kzDatasetId) return
+      setRecounting(true)
+      setErrMsg('')
+      try {
+        const got = await recountDataset(kzDatasetId)
+        target = got.skeleton
+        sid = got.staging_id
+        sources = []
+        setGateSkeleton(got.skeleton)
+        setStagingId(got.staging_id)
+        setSourceNames(got.sources)
+      } catch (e) {
+        setErrMsg(errText(e))
+        return
+      } finally {
+        setRecounting(false)
+      }
+    }
+    if (!target) return
     setStop(null)
     setConfirmed(false)
-    setSkeleton(gateSkeleton)
+    setSkeleton(target)
     setAnnotations(null)
     setStep(4)
-    recheckEvidence(files, gateSkeleton, stagingId)
+    recheckEvidence(sources, target, sid)
   }
 
   /** The name of one item, in this order: the reviewed IR label (K8) → the
@@ -3737,10 +3793,15 @@ export function KantanWizard({
   const publishedName = (kzDatasetName ?? pubName).trim()
   // One published record to hand to someone else (S9's "show this to people").
   const shareIri = published ? (trialQAs.find((qa) => qa.citeIri)?.citeIri ?? null) : null
-  // "Back to the data counting" is offered only when it can actually re-run:
-  // the confirmed gate in hand, the source still readable, and not in a
-  // catalog review (whose structural rework lives in the detail tier).
-  const canBackToGate = !!gateSkeleton && hasSource && !redesigning && !busy
+  // "Back to the data counting" is offered whenever it can actually re-run: the
+  // confirmed gate in hand, the source still readable, nothing in flight.
+  // It used to be closed during a catalog review, because re-doing the counting
+  // changes HOW ids are made and published ids are the addresses of citable
+  // facts (K21). That is now handled where it belongs — the addresses are
+  // forwarded, and S8 shows what moves before anything is published (ADR
+  // id-move-after-publish.md) — so the door is open here too.
+  const canBackToGate =
+    !busy && !recounting && ((!!gateSkeleton && hasSource) || (redesigning && !!kzDatasetId))
   // S8: word summary (structural terms are plumbing, not words) + plain error.
   const words = alignment ? alignmentWordSplit(alignment) : null
   const pubPlain = pubErr ? plainError(pubErr) : null
@@ -4866,7 +4927,7 @@ export function KantanWizard({
             {/* The counts card is where a collapsed key shows itself; the place
                 that was decided is the S4 gate (KZ-B-03 / DETAIL-GAP-08). */}
             {canBackToGate && (
-              <button type="button" className="btn btn--ghost btn--sm" onClick={backToGate}>
+              <button type="button" className="btn btn--ghost btn--sm" onClick={() => void backToGate()}>
                 {t('kantan:s6.backToGate')}
               </button>
             )}
@@ -4962,6 +5023,42 @@ export function KantanWizard({
                   )}
                 </details>
               </span>
+            </div>
+          )}
+          {/* K10: this screen must show the consequence before the button is
+              pressed. An update that re-counts the data moves addresses other
+              people may already have cited — the one thing on this screen that
+              reaches outside it (ADR id-move-after-publish.md). */}
+          {idMove?.changes_ids && (
+            <div
+              className={`kz-idmove${idMove.fully_movable === false ? ' kz-idmove--warn' : ''}`}
+            >
+              <p className="kz-idmove-head">{t('kantan:s8.idMoveTitle')}</p>
+              {(idMove.forwarded ?? 0) > 0 && (
+                <p>
+                  {t('kantan:s8.idMoveForwarded', {
+                    n: (idMove.forwarded ?? 0).toLocaleString(),
+                  })}
+                </p>
+              )}
+              {idMove.fully_movable === false && (
+                <>
+                  <p>{t('kantan:s8.idMoveBroken')}</p>
+                  <ul className="kz-idmove-list">
+                    {(idMove.blocked ?? []).map((b) => (
+                      <li key={`${b.source}:${b.name}`}>
+                        {b.reason === 'missing_columns'
+                          ? t('kantan:s8.idMoveBrokenColumns', {
+                              source: b.source,
+                              columns: b.missing_columns.join('、') || '—',
+                            })
+                          : t('kantan:s8.idMoveBrokenKind', { source: b.source })}
+                      </li>
+                    ))}
+                  </ul>
+                  <p>{t('kantan:s8.idMoveBrokenExit')}</p>
+                </>
+              )}
             </div>
           )}
           <p className="kz-note kz-promise">{t('kantan:s8.promise')}</p>
@@ -5268,7 +5365,7 @@ export function KantanWizard({
               <p className="kz-note">{t('kantan:s6.mapRowsNote')}</p>
               {canBackToGate && (
                 <div className="kz-actions">
-                  <button type="button" className="btn btn--ghost btn--sm" onClick={backToGate}>
+                  <button type="button" className="btn btn--ghost btn--sm" onClick={() => void backToGate()}>
                     {t('kantan:s6.backToGate')}
                   </button>
                 </div>

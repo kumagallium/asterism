@@ -40,12 +40,15 @@ from asterism import substrate
 from asterism.oxigraph_client import OxigraphClient
 
 __all__ = [
+    "ID_MOVED_PREDICATE",
     "INBOUND_LIMIT",
     "OUTBOUND_LIMIT",
     "fetch_description",
+    "moved_turtle",
     "pick_language",
     "render_bad_request",
     "render_html",
+    "render_moved",
     "render_not_found",
     "render_upstream_error",
     "shared_terms_label",
@@ -68,6 +71,8 @@ _LABEL_PREDICATES = (
     "http://schema.org/name",
 )
 _TYPE_PREDICATE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+# Re-exported from the substrate so the page and the ledger cannot drift apart.
+ID_MOVED_PREDICATE = substrate.ID_MOVED_PREDICATE
 
 # Predicates in these namespaces are *how the data was recorded*, not the values
 # the reader came for (rdf:type, rdfs:label, prov:wasGeneratedBy … are attached
@@ -131,6 +136,22 @@ _TEXT: dict[str, dict[str, str]] = {
             "まだ公開されていないか、別の場所で作られたデータかもしれません。"
         ),
         "nf_hint": "このリンクを送ってくれた人が公開すると、ここに内容が表示されます。",
+        "moved_banner": "この ID は引っ越しました。表示しているのは引き継ぎ先の内容です。",
+        "moved_from": "たどってきた前の ID",
+        "moved_title": "引っ越した ID",
+        "moved_heading_one": "この ID は引っ越しました",
+        "moved_heading_many": "この ID は、いくつかの ID に分かれました",
+        "moved_body": (
+            "データの数えかたが見直されたため、この ID の中身は次の ID に"
+            "引き継がれています。リンクはそのまま使えます。"
+        ),
+        "moved_targets": "引き継ぎ先",
+        "moved_truncated": "ほかにもあります（先頭の分だけ表示しています）。",
+        "gone_heading": "この ID は引っ越しましたが、引き継ぎ先が公開されていません",
+        "gone_body": (
+            "引っ越し先の ID は、このサイトの公開済みデータにまだ入っていません。"
+            "公開されると、ここから開けるようになります。"
+        ),
         "bad_title": "開けないリンク",
         "bad_heading": "リンクが正しくないようです",
         "bad_body": (
@@ -174,6 +195,22 @@ _TEXT: dict[str, dict[str, str]] = {
         ),
         "nf_hint": "Once the person who sent you this link publishes it, "
         "the content will appear here.",
+        "moved_banner": "This ID has moved. You are seeing the content that took it over.",
+        "moved_from": "The earlier ID you followed",
+        "moved_title": "ID has moved",
+        "moved_heading_one": "This ID has moved",
+        "moved_heading_many": "This ID was split into several IDs",
+        "moved_body": (
+            "The way this data is counted was revised, so this ID's content was "
+            "taken over by the IDs below. Your link keeps working."
+        ),
+        "moved_targets": "Now at",
+        "moved_truncated": "There are more; only the first ones are shown.",
+        "gone_heading": "This ID has moved, but its destination is not published",
+        "gone_body": (
+            "The ID it moved to is not part of the published data on this site yet. "
+            "Once it is published, you will be able to open it from here."
+        ),
         "bad_title": "Link cannot be opened",
         "bad_heading": "This link does not look right",
         "bad_body": (
@@ -530,6 +567,10 @@ _PAGE_STYLE = """
     font-size: 0.82rem; }
   .muted { color: var(--muted); font-size: 0.9em; }
   .meta { color: var(--muted); font-size: 0.92rem; margin: 0 0 12px; }
+  .moved { background: var(--surface-alt); border: 1px solid var(--border);
+    border-left: 4px solid var(--primary); border-radius: var(--radius-sm);
+    padding: 12px 16px; margin: 0 0 16px; font-size: 0.94rem; }
+  .moved code { background: transparent; padding: 0; word-break: break-all; }
   .type-chip { display: inline-block; background: var(--primary-soft);
     border: 1px solid var(--primary); color: var(--fg); border-radius: 999px;
     padding: 2px 12px; font-size: 0.82rem; margin-right: 6px; }
@@ -616,11 +657,17 @@ def render_html(
     lang: str = "ja",
     graph_info: dict[str, dict[str, str]] | None = None,
     iri_base: str | None = None,
+    moved_from: str | None = None,
 ) -> str:
     """The human view: what is known about this ID, in the かんたん vocabulary.
 
     ``graph_info`` maps a source graph IRI to ``{"name", "dataset_id"}`` — the
     caller resolves it (this module stays free of registry dependencies).
+
+    ``moved_from`` is the OLD id the reader actually clicked, when they got here
+    by forwarding (ADR id-move-after-publish.md). It is stated, not hidden: the
+    address in their citation and the address on this page differ, and a reader
+    who cannot see that has been quietly redirected.
     """
     t = _t(lang)
     ctx = _Ctx(
@@ -773,9 +820,17 @@ def render_html(
         '<pre><code>curl -H "Accept: text/turtle" &lt;this URL&gt;</code></pre>'
         "</details>"
     )
+    moved_note = (
+        f'<div class="moved">{html.escape(t["moved_banner"])}<br>'
+        f'<span class="muted">{html.escape(t["moved_from"])}: </span>'
+        f"<code>{html.escape(moved_from)}</code></div>"
+        if moved_from
+        else ""
+    )
     body = (
         f"{_topbar(lang, dataset)}"
         f'<div class="card">'
+        f"{moved_note}"
         f"<h1>{html.escape(title)}</h1>{meta_line}{chips_html}"
         f"{_iri_box(iri, lang)}"
         f'<p class="muted">{html.escape(t["intro"])}</p>'
@@ -829,6 +884,74 @@ def render_not_found(
         body_text=t["nf_body"],
         iri=iri,
         hint=t["nf_hint"],
+    )
+
+
+def moved_turtle(iri: str, targets: list[str]) -> str:
+    """The machine answer for an id that moved: one ``dcterms:isReplacedBy`` per
+    destination that is actually published.
+
+    Same resolution the HTML view shows — a client and a reader following the same
+    stale citation must not be told two different stories. Dead intermediate hops
+    of a v1→v2→v3 chain are not echoed: they name graphs that no longer exist, so
+    forwarding a client to them would just move the dead end.
+    """
+    return "".join(
+        f"<{iri}> <{ID_MOVED_PREDICATE}> <{target}> .\n" for target in targets
+    )
+
+
+def render_moved(
+    iri: str,
+    targets: list[str],
+    *,
+    lang: str = "ja",
+    truncated: bool = False,
+) -> str:
+    """The page an old id lands on when forwarding cannot end in ONE place.
+
+    Two cases, both honest rather than a 404:
+
+    * several destinations — re-counting rows split one record into many, so the
+      reader is handed every id that took over instead of an arbitrary first one;
+    * none published — the ledger knows where it went, but that destination is
+      not (or not yet) published here.
+    """
+    t = _t(lang)
+    if not targets:
+        return _message_page(
+            lang=lang,
+            page_title=t["moved_title"],
+            heading=t["gone_heading"],
+            body_text=t["gone_body"],
+            iri=iri,
+        )
+    heading = t["moved_heading_one"] if len(targets) == 1 else t["moved_heading_many"]
+    items = "".join(
+        f'<li><a href="/describe?iri={html.escape(target, quote=True)}'
+        f'&amp;lang={html.escape(lang, quote=True)}">'
+        f"<code>{html.escape(target)}</code></a></li>"
+        for target in targets
+    )
+    parts = [
+        f"<h1>{html.escape(heading)}</h1>",
+        _iri_box(iri, lang),
+        f"<p>{html.escape(t['moved_body'])}</p>",
+        f"<h2>{html.escape(t['moved_targets'])}</h2>",
+        f"<ul>{items}</ul>",
+    ]
+    if truncated:
+        parts.append(f'<p class="muted">{html.escape(t["moved_truncated"])}</p>')
+    body = (
+        f"{_topbar(lang)}"
+        f'<div class="card">{"".join(parts)}</div>'
+        f"{_exits(lang)}"
+    )
+    return _shell(
+        lang=lang,
+        title=f"{html.escape(t['moved_title'])} — {t['brand']}",
+        body=body,
+        script=_copy_script(lang),
     )
 
 

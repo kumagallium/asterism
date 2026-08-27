@@ -1472,6 +1472,217 @@ def _curie_of(iri: str, prefixes: Mapping[str, str]) -> str | None:
     return f"{best[0]}:{local}"
 
 
+# ---------------------------------------------------------------------------
+# ID の引っ越し (ADR id-move-after-publish.md)
+# ---------------------------------------------------------------------------
+# A published IRI is the address of a citable fact. Re-doing「データの数えかた」
+# changes how ids are made, so the same row yields a different IRI — and promote
+# drops the superseded version graph, taking the old address down with it. These
+# helpers keep the old address answerable: they record HOW ids were made at the
+# moment of publication, and (at re-ingest) build the deterministic old→new
+# forwarding ledger from the two designs the machine already holds.
+
+
+def _subjects_of_design(artifacts: dict[str, str] | None) -> list[dict] | None:
+    """"How ids are made" of a STORED design, as the JSON kept on the dataset's meta.
+
+    ``None`` when the design has no Mapping IR (legacy raw-Turtle designs) or it
+    no longer parses — an unreadable record must degrade to "cannot plan a move",
+    never to a wrong one.
+    """
+    text = ((artifacts or {}).get("mapping.yaml") or "").strip()
+    if not text:
+        return None
+    try:
+        from asterism_step0.id_move import published_subjects
+        from asterism_step0.mapping_ir import parse_mapping_ir
+
+        return [s.to_json() for s in published_subjects(parse_mapping_ir(text))]
+    except Exception:
+        logger.exception("could not read subjects from the stored design")
+        return None
+
+
+def _remember_published_subjects_before_redesign(root: Path, dataset_id: str) -> None:
+    """Last chance to record the PUBLISHED "how ids are made", for a dataset that
+    was promoted before this was tracked.
+
+    Called immediately before a re-design overwrites the artifacts: at that instant
+    what is stored still IS what is published. One line, best-effort — a dataset
+    that cannot be read here simply reports "the previous ids cannot be worked out"
+    later, which is the honest answer.
+    """
+    try:
+        data = registry.load_dataset(root, dataset_id)
+        if data is None or not data["meta"].get("promoted"):
+            return
+        if data["meta"].get("published_subjects") is not None:
+            return
+        subjects = _subjects_of_design(data.get("artifacts"))
+        if subjects is not None:
+            registry.backfill_published_subjects(root, dataset_id, subjects)
+    except Exception:  # never block a re-design on the bookkeeping
+        logger.exception("could not record the published subjects of %s", dataset_id)
+
+
+def _plan_id_move(
+    meta: dict, artifacts: dict[str, str], available_columns: dict[str, set[str]] | None
+):
+    """The address change a re-ingest of this dataset would cause, or ``None``.
+
+    ``None`` means the question does not apply: the dataset was never published,
+    nothing recorded how its ids were made, or the new design has no Mapping IR.
+    A plan whose ``changes_ids`` is False means the re-design left every published
+    address exactly where it was (a meaning / label / type-only edit).
+    """
+    if not meta.get("promoted"):
+        return None
+    raw = meta.get("published_subjects")
+    if not isinstance(raw, list) or not raw:
+        return None
+    text = ((artifacts or {}).get("mapping.yaml") or "").strip()
+    if not text:
+        return None
+    try:
+        from asterism_step0.id_move import PublishedSubject, plan_id_move
+        from asterism_step0.mapping_ir import parse_mapping_ir
+
+        old = [x for x in (PublishedSubject.from_json(r) for r in raw) if x is not None]
+        if not old:
+            return None
+        return plan_id_move(
+            old, parse_mapping_ir(text), available_columns=available_columns
+        )
+    except Exception:
+        logger.exception("could not plan the id move")
+        return None
+
+
+async def _resolve_id_move(
+    client: OxigraphClient, iri: str
+) -> substrate.IdMoveResolution:
+    """Where an old id leads today, over the published scope.
+
+    The single resolution both views use: a reader and a machine following the
+    same stale citation must not be told two different stories.
+    """
+    return await substrate.follow_id_move(
+        client,
+        iri,
+        ledger_graphs=await substrate.moved_graphs(client),
+        scope_graphs=await substrate.canonical_graphs(client),
+    )
+
+
+def _id_move_rml(plan, artifacts: dict[str, str]) -> str | None:
+    """The RML that writes this plan's forwarding ledger, or ``None``."""
+    text = ((artifacts or {}).get("mapping.yaml") or "").strip()
+    if not text:
+        return None
+    from asterism_step0.id_move import compile_id_move_rml
+    from asterism_step0.mapping_ir import parse_mapping_ir
+
+    return compile_id_move_rml(plan, parse_mapping_ir(text))
+
+
+async def _write_id_move_ledger(
+    client: OxigraphClient,
+    registry_root: Path,
+    dataset_id: str,
+    meta: dict,
+    artifacts: dict[str, str],
+    source_dir: Path,
+    source_paths: list[Path],
+    work: Path,
+    *,
+    emit: Callable[..., None] | None = None,
+    should_cancel: Callable[[], bool] | None = None,
+) -> dict | None:
+    """Build + store the old→new forwarding ledger for this ingest (ADR
+    id-move-after-publish.md). ``None`` when the question does not apply.
+
+    The ledger is written to the dataset's own ``…/graph/moved/{id}`` — never into
+    the version graph, which the next promote drops. Writing it at INGEST (not at
+    promote) is safe in both directions: while the old ids are still live the
+    dereference finds them directly and never consults the ledger, and if this
+    ingest is abandoned its rows simply name a destination that was never
+    published — which the chase filters out by checking the published scope.
+
+    Best-effort: a dataset must still publish when the ledger cannot be built. The
+    failure is not swallowed, though — it lands in the record as "not fully
+    movable", which is what the publish screen shows the human.
+    """
+    plan = _plan_id_move(meta, artifacts, _source_columns(source_paths, artifacts))
+    if plan is None or not plan.changes_ids:
+        return None
+    record: dict = plan.to_json()
+    record["forwarded"] = 0
+    if plan.moved:
+        if emit is not None:
+            emit(phase="idmove", message="前の ID からの引き継ぎを記録中")
+        try:
+            rml = _id_move_rml(plan, artifacts)
+            if not rml:
+                raise ValueError("the stored design has no mapping spec to move from")
+            nt = await asyncio.to_thread(
+                substrate.materialize_to_nt_file,
+                rml,
+                source_dir,
+                work_dir=work / "idmove",
+                should_cancel=should_cancel,
+            )
+            record["forwarded"] = await substrate.stream_nt_file_to_oxigraph(
+                nt, client, substrate.moved_graph_iri(dataset_id)
+            )
+        except Exception:
+            logger.exception("could not write the id-move ledger for %s", dataset_id)
+            # No forwarding was recorded, so the old addresses really are about to
+            # stop resolving. Say so rather than letting the plan claim otherwise.
+            record["fully_movable"] = False
+            record["ledger_error"] = True
+    registry.record_id_move(registry_root, dataset_id, record)
+    return record
+
+
+def _source_columns(
+    source_paths: list[Path], artifacts: dict[str, str] | None = None
+) -> dict[str, set[str]] | None:
+    """Column names per source file — "can the OLD id still be spelled from the
+    data we have now?".
+
+    Reads through :func:`asterism.rml_validate.read_csv_header`, the SAME header
+    read the ingest gate uses, and with the design's own pinned dialects: a
+    verdict shown to a human before publishing must not be able to disagree with
+    the one the engine reaches a moment later. Header-only, so it stays cheap
+    next to the materialization it precedes.
+
+    ``None`` when nothing could be read — the planner then skips the column check
+    rather than inventing a verdict.
+    """
+    try:
+        from asterism.rml_validate import read_csv_header
+    except Exception:
+        return None
+    dialects: dict = {}
+    text = ((artifacts or {}).get("mapping.yaml") or "").strip()
+    if text:
+        try:
+            from asterism_step0.mapping_ir import parse_mapping_ir
+
+            dialects = dict(parse_mapping_ir(text).dialects)
+        except Exception:
+            dialects = {}
+    out: dict[str, set[str]] = {}
+    for path in source_paths:
+        try:
+            header = read_csv_header(path, dialects.get(path.name))
+        except Exception:
+            continue
+        if header:
+            out[path.name] = set(header)
+    return out or None
+
+
 async def _project_ontology_graph(
     client: OxigraphClient, dataset_id: str, artifacts: dict[str, str]
 ) -> int:
@@ -3901,6 +4112,17 @@ def build_app(
                 inbound = await client.sparql_construct(q_in)
                 if inbound.strip():
                     turtle = f"{turtle}\n{inbound}"
+                if not turtle.strip():
+                    # Nothing published under this id — but it may have MOVED
+                    # (ADR id-move-after-publish.md). Answering with the
+                    # forwarding is what lets a machine follow a stale citation
+                    # instead of recording a dead link.
+                    moved = await _resolve_id_move(client, iri)
+                    if moved.targets:
+                        return Response(
+                            describe_mod.moved_turtle(iri, list(moved.targets)),
+                            media_type="text/turtle",
+                        )
                 return Response(turtle, media_type="text/turtle")
             data = await describe_mod.fetch_description(client, iri)
         except HTTPException:
@@ -3913,12 +4135,34 @@ def build_app(
             return HTMLResponse(
                 describe_mod.render_upstream_error(lang=page_lang), status_code=502
             )
+        moved_from: str | None = None
         if data is None:
-            graphs = await substrate.canonical_graphs(client)
-            return HTMLResponse(
-                describe_mod.render_not_found(iri, len(graphs), lang=page_lang),
-                status_code=404,
-            )
+            # The id is not published under this spelling. Before answering "not
+            # found", ask the forwarding ledger where it went: this is the whole
+            # point of letting a published design be re-counted (ADR
+            # id-move-after-publish.md).
+            moved = await _resolve_id_move(client, iri)
+            if len(moved.targets) == 1:
+                # One destination: show the data itself, saying which older id
+                # the reader followed to get here.
+                data = await describe_mod.fetch_description(client, moved.targets[0])
+                if data is not None:
+                    moved_from, iri = iri, moved.targets[0]
+            if data is None:
+                if moved.forwarded:
+                    return HTMLResponse(
+                        describe_mod.render_moved(
+                            iri,
+                            list(moved.targets),
+                            lang=page_lang,
+                            truncated=moved.truncated,
+                        )
+                    )
+                graphs = await substrate.canonical_graphs(client)
+                return HTMLResponse(
+                    describe_mod.render_not_found(iri, len(graphs), lang=page_lang),
+                    status_code=404,
+                )
         return HTMLResponse(
             describe_mod.render_html(
                 iri,
@@ -3926,6 +4170,7 @@ def build_app(
                 lang=page_lang,
                 graph_info=_graph_display(list(data["graphs"]), page_lang),
                 iri_base=cfg.iri_base,
+                moved_from=moved_from,
             )
         )
 
@@ -5257,6 +5502,13 @@ def build_app(
                         # Redesign: re-materialize the SAME dataset in place (keep its
                         # id / graphs / lifecycle / source). Re-design changes only the
                         # mapping; the user re-applies data via the re-ingest controls.
+                        # Last moment at which the STORED design is still the PUBLISHED
+                        # one — record how its ids are made before overwriting, or a
+                        # dataset published before this existed could never be moved
+                        # (ADR id-move-after-publish.md).
+                        _remember_published_subjects_before_redesign(
+                            cfg.registry_root, body.dataset_id
+                        )
                         meta = registry.update_dataset_artifacts(
                             cfg.registry_root,
                             body.dataset_id,
@@ -6015,6 +6267,107 @@ def build_app(
             "source_rows": source_rows,
             "counted": bool(meta.get("ingested") or meta.get("promoted")),
         }
+
+    @app.post("/api/datasets/{dataset_id}/recount", dependencies=_write_auth)
+    async def recount_dataset(dataset_id: str) -> JSONResponse:
+        """Hand back everything needed to re-open「データの数えかた」on an
+        ALREADY-SAVED design (ADR id-move-after-publish.md §9).
+
+        A catalog review starts at S6 and deliberately drops the browser's copy of
+        the source ("it is persisted server-side"). That is fine for reviewing
+        meanings, but the counting gate needs two things the review does not
+        carry: the SKELETON (subject-only view of the stored design) and a source
+        the design endpoints can read. Both exist on the server already —
+
+        * skeleton: ``skeleton_from_full_ir`` over the stored Mapping IR;
+        * source: the persisted design-time files, re-staged (ADR
+          source-staging.md) so every later design call takes a ``staging_id``
+          exactly as it would for a freshly dropped file.
+
+        Nothing is designed, changed or re-ingested here; this only re-opens a
+        door with the materials the server was already holding.
+        """
+        data = registry.load_dataset(cfg.registry_root, dataset_id)
+        if data is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        text = ((data.get("artifacts") or {}).get("mapping.yaml") or "").strip()
+        if not text:
+            # A legacy raw-Turtle design has no spec to take a skeleton from; the
+            # structural rework for those stays in the detail tier.
+            raise _coded_error(
+                422,
+                "dataset.no_mapping_spec",
+                "this dataset has no mapping spec to re-open the counting gate from",
+            )
+        try:
+            from asterism_step0.spec_yaml import load_spec_yaml
+            from asterism_step0.staged_propose import skeleton_from_full_ir
+
+            skeleton, _ = skeleton_from_full_ir(load_spec_yaml(text) or {})
+        except Exception as exc:
+            raise _coded_error(
+                422,
+                "dataset.no_mapping_spec",
+                "the stored mapping spec could not be read",
+            ) from exc
+
+        source_paths = registry.list_source_files(cfg.registry_root, dataset_id)
+        if not source_paths:
+            raise _coded_error(
+                422,
+                "dataset.no_source",
+                "this dataset has no persisted source to re-check the counting against",
+            )
+        staging.sweep(cfg.registry_root)
+        sid = staging.new_id()
+        sdir = staging.dir_for(cfg.registry_root, sid, create=True)
+        try:
+            # The persisted files are ALREADY canonical (slugged, workbooks
+            # expanded at attach), so they are copied to both places verbatim —
+            # re-running the upload conversion would rename them a second time
+            # and the design's own ``source:`` values would stop matching.
+            (sdir / "raw").mkdir(parents=True, exist_ok=True)
+            for path in source_paths:
+                await asyncio.to_thread(shutil.copy2, path, sdir / "raw" / path.name)
+                await asyncio.to_thread(shutil.copy2, path, sdir / path.name)
+            staging.write_meta(sdir, [p.name for p in source_paths])
+        except Exception:
+            shutil.rmtree(sdir, ignore_errors=True)
+            raise
+        return JSONResponse(
+            {
+                "dataset_id": dataset_id,
+                "skeleton": skeleton,
+                "staging_id": sid,
+                # name + size, the shape the wizard already keeps for a dropped
+                # file — so "is this the same source?" compares like with like.
+                "sources": [
+                    {"name": p.name, "size": p.stat().st_size} for p in source_paths
+                ],
+                "expires_at": staging.expires_at(sdir),
+            }
+        )
+
+    @app.get("/api/datasets/{dataset_id}/id-move")
+    async def dataset_id_move(dataset_id: str) -> JSONResponse:
+        """What the pending re-ingest does to this dataset's PUBLISHED addresses.
+
+        Read by the publish screen before the human presses 公開 (ADR
+        id-move-after-publish.md; K10's "see the consequence first"). Recorded at
+        ingest, so it survives a reload — the answer must not live only in the
+        job result the wizard happened to receive.
+
+        ``changes_ids: false`` is the answer for everything that does not move an
+        address: a first publication, a meaning-only edit, a dataset that was
+        never published.
+        """
+        data = registry.load_dataset(cfg.registry_root, dataset_id)
+        if data is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        record = data["meta"].get("id_move")
+        if not isinstance(record, dict):
+            return JSONResponse({"dataset_id": dataset_id, "changes_ids": False})
+        return JSONResponse({"dataset_id": dataset_id, **record})
 
     @app.get("/api/datasets/{dataset_id}/trial-queries")
     async def dataset_trial_queries(dataset_id: str) -> dict[str, object]:
@@ -7017,6 +7370,9 @@ def build_app(
                 )
 
             async def run_pipeline() -> dict[str, object]:
+                # None = the addresses question does not apply (never published /
+                # nothing recorded / a document dataset, which mints no row ids).
+                id_move: dict | None = None
                 work = Path(tempfile.mkdtemp(prefix="asterism-ingest-"))
                 try:
                     # ``dataset_id`` rides on the first frame so a resumed
@@ -7127,6 +7483,22 @@ def build_app(
                         # a timed-out upload is reclaimed NOW, not at the next restart.
                         await substrate.chunked_drop_graph(client, staged_iri)
                         raise
+                    # ADR id-move-after-publish.md: if this re-design changed HOW ids
+                    # are made, the addresses already handed out are about to stop
+                    # being the ones the data carries. Record where each one went,
+                    # from the same rows, before the old version graph is superseded.
+                    id_move = await _write_id_move_ledger(
+                        client,
+                        cfg.registry_root,
+                        dataset_id,
+                        data.get("meta") or {},
+                        data.get("artifacts") or {},
+                        source_dir,
+                        source_paths,
+                        work,
+                        emit=emit,
+                        should_cancel=should_cancel,
+                    )
                 finally:
                     shutil.rmtree(work, ignore_errors=True)  # the .nt can be GBs
 
@@ -7152,7 +7524,7 @@ def build_app(
                     await _record_shape_findings(
                         cfg.registry_root, client, dataset_id, staged_iri, rml_ttl
                     )
-                return {
+                out: dict[str, object] = {
                     "dataset_id": dataset_id,
                     "graph_iri": staged_iri,
                     # Staged in a version graph but not yet citable (awaits promote).
@@ -7160,6 +7532,11 @@ def build_app(
                     "triple_count": triple_count,
                     "dataset": meta,
                 }
+                # Present only when published addresses move — the publish screen
+                # shows it before the human presses 公開 (K10's "see it first").
+                if id_move is not None:
+                    out["id_move"] = id_move
+                return out
 
             try:
                 result = await run_pipeline()
@@ -7335,6 +7712,10 @@ def build_app(
             promoted_at=datetime.now(UTC).isoformat(),
             canonical_graph=dataset_key,
             live_graph=staged_iri,
+            # What "how ids are made" this publication put on the street. The next
+            # re-design compares against THIS, not against whatever is stored by
+            # then (ADR id-move-after-publish.md).
+            published_subjects=_subjects_of_design(data.get("artifacts", {})),
         )
         # crosswalk-hub.md ②: if this dataset participates in the crosswalk, rebuild
         # the hub now (inline best-effort) so its newly-citable values are joined.
