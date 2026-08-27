@@ -8697,3 +8697,9 @@ tr.kz-attn td {
   text-align: right;
   max-width: 30rem;
 }
+
+/* 名前の書き方の直し（K38）: 警告文のすぐ後ろに置く。 */
+.skeleton-name-fix {
+  margin-left: 0.5rem;
+  vertical-align: baseline;
+}

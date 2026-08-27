@@ -716,7 +716,7 @@ function SkeletonEvidence({
           {/* The boundary line inside the table already states WHAT; this holds
               only the WHY, folded — a wall of prose at the gate does not get
               read (real feedback). The column list is gone: the rows are it. */}
-          {borrowed.length > 0 && (
+          {borrowed.length > 0 && !plain && (
             <details className="skeleton-fold">
               <summary>
                 {t('workbench:skeleton.evidence.cardBorrowedWhyHead', {
@@ -1032,6 +1032,19 @@ export function SkeletonGate({
   const [rethinkNote, setRethinkNote] = useState('')
   // Two-step removal, and the just-added map (scroll target + brief highlight).
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null)
+  /* 種類の名前は公開されるオントロジーの語になる（`{prefix}:名前`）。スペースは
+     IR の検証で弾かれるが、それが分かるのは materialize まで進んだ後で、この欄は
+     何も言わずに受け取っていた。ここで言う。日本語は動く（IRI/Turtle 的に有効）
+     が図のノード ID が `____` に潰れて読めないので、勧めない。 */
+  const CLASS_NAME_OK = /^[A-Za-z][0-9A-Za-z_-]*$/
+  const sanitizeClassName = (raw: string) => {
+    const ascii = raw
+      .split(/[^0-9A-Za-z]+/)
+      .filter(Boolean)
+      .map((w) => w[0].toUpperCase() + w.slice(1))
+      .join('')
+    return /^[A-Za-z]/.test(ascii) ? ascii : ''
+  }
   // K32: ゾーンのチェックを外して消した種類の控え。もう一度チェックしたとき、
   // AI が付けた名前・クラスごと元通りに戻す（作り直しでは名前が変わってしまう）。
   const [kindStash, setKindStash] = useState<Record<string, SkeletonMap>>({})
@@ -1939,9 +1952,33 @@ export function SkeletonGate({
             わけですが、これは項目の意味の定義とは別なのですか？」— 別で、しかも
             こちらは ID の中に入る＝公開後は動かせない。非対称を欄の下で言う。 */}
         {plain && (m.subject.classes ?? []).length > 0 && (
-          <p className="skeleton-evidence-line skeleton-evidence-muted">
-            {t('skeletongate:kindNameNote')}
-          </p>
+          <>
+            <p className="skeleton-evidence-line skeleton-evidence-muted">
+              {t('skeletongate:kindNameNote')}
+            </p>
+            {(() => {
+              const shown = compactClass(m.subject.classes?.[0] ?? '', nsDetected)
+              if (!shown || CLASS_NAME_OK.test(shown)) return null
+              const fixed = sanitizeClassName(shown)
+              return (
+                <p className="skeleton-evidence-line skeleton-evidence-warn">
+                  ⚠ {t('skeletongate:kindNameRule')}
+                  {fixed && (
+                    <button
+                      type="button"
+                      className="btn btn--ghost btn--sm skeleton-name-fix"
+                      disabled={busy}
+                      onClick={() =>
+                        updateSubject(idx, { classes: [expandClass(fixed, nsDetected)] })
+                      }
+                    >
+                      {t('skeletongate:kindNameFix', { name: fixed })}
+                    </button>
+                  )}
+                </p>
+              )
+            })()}
+          </>
         )}
       </>
     )
@@ -2153,10 +2190,12 @@ export function SkeletonGate({
         </p>
       )}
       {zone && (
-        <div className="skeleton-header-zone">
+        <>
           {/* この画面には仕事が 2 つある（値をえらぶ / ID を確かめる）。番号を
               振らないと「なぜ 2 つに分かれているか」が読めない — S6 の ①②③ と
-              同じ流儀に揃える（利用者評価 2026-08-28）。 */}
+              同じ流儀に揃える。見出しとリードは②と同じくカードの外に置く：
+              中に入れると「この面の一部」に見え、②との対称が崩れる（利用者評価
+              2026-08-28）。 */}
           <p className="kz-zone-label">① {t('skeletongate:zone.head')}</p>
           {multiSource && (
             <p className="skeleton-evidence-line skeleton-evidence-muted">
@@ -2164,6 +2203,7 @@ export function SkeletonGate({
             </p>
           )}
           <p className="kz-note kz-prose">{t('skeletongate:zone.lead')}</p>
+          <div className="skeleton-header-zone">
           <table className="skeleton-entity-props">
             <tbody>
               {[...zone.values.entries()].map(([col, value]) => {
@@ -2268,7 +2308,8 @@ export function SkeletonGate({
           <p className="skeleton-evidence-line skeleton-evidence-muted skeleton-zone-note">
             {t('skeletongate:zone.keyNote')}
           </p>
-        </div>
+          </div>
+        </>
       )}
       {plain ? (
         <div className="skeleton-kinds">
