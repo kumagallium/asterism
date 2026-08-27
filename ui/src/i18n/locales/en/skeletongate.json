@@ -3,7 +3,9 @@
     "unique": "1 row = one “{{label}}”",
     "singleton": "the whole table = one “{{label}}”",
     "partial": "1 row should be one “{{label}}”, but some IDs repeat",
-    "plain": "Kind read: “{{label}}”"
+    "plain": "Kind read: “{{label}}”",
+    "unnamed": "What one row stands for is not decided yet",
+    "singletonUnnamed": "The whole table becomes one record (what it stands for is not decided yet)"
   },
   "col": {
     "source": "File",
@@ -49,7 +51,7 @@
   "suggestClass": "Use “{{suggested}}”",
   "missingColumns": "The columns the AI named are not in this table: {{columns}}",
   "fixColumn": "The column “{{wrong}}” the AI named is not in this table. Closest match: “{{suggestion}}” (tap to fix).",
-  "remove": "I don't need this kind",
+  "remove": "Delete",
   "confirm": {
     "head": "Please check these before continuing.",
     "collides": "“{{map}}” still gives several rows the same ID. If you continue, those rows are merged into one.",
@@ -65,5 +67,6 @@
     "cancel": "Cancel"
   },
   "kindMissing": "What one row of this table is has not been decided yet. Look at the example below and name it (e.g. sample, measurement, peak).",
-  "kindPlaceholder": "e.g. sample"
+  "kindPlaceholder": "e.g. sample",
+  "removeTitle": "Delete this kind from the design"
 }

@@ -1100,3 +1100,15 @@ def test_apply_data_facts_removes_duplicates_after_a_rewriting_round() -> None:
     again, changed2 = apply_data_facts(out)
     assert changed2 == {}
     assert again["maps"][0]["properties"] == out["maps"][0]["properties"]
+
+
+def test_skeleton_schema_requires_a_kind_name() -> None:
+    """骨格の contract は「1 件が表すもの」を必ず持たせる — 名前を付けるのが
+    いちばん安いのは、列がまだ目の前にある骨格の段だから。"""
+    from asterism_step0.mapping_ir_schema import mapping_ir_json_schema, skeleton_json_schema
+
+    subject = skeleton_json_schema()["properties"]["maps"]["items"]["properties"]["subject"]
+    assert subject["properties"]["classes"]["minItems"] == 1
+    # 完成した IR 側は据え置き（あとから足した規則で、保存済みの設計を読めなくしない）
+    full = mapping_ir_json_schema()["properties"]["maps"]["items"]["properties"]["subject"]
+    assert "minItems" not in full["properties"]["classes"]

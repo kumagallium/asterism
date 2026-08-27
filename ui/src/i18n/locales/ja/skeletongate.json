@@ -3,7 +3,9 @@
     "unique": "1 行 = 1 つの「{{label}}」",
     "singleton": "この表全体で 1 つの「{{label}}」",
     "partial": "1 行 = 1 つの「{{label}}」のはずが、ID が重なっています",
-    "plain": "読み取った種類:「{{label}}」"
+    "plain": "読み取った種類:「{{label}}」",
+    "unnamed": "1 行が何を表すのか、まだ決まっていません",
+    "singletonUnnamed": "この表全体で 1 件になります（何を表すのかは、まだ決まっていません）"
   },
   "col": {
     "source": "ファイル",
@@ -49,7 +51,7 @@
   "suggestClass": "「{{suggested}}」にする",
   "missingColumns": "AI が指定した列がこの表にありません: {{columns}}",
   "fixColumn": "AI が指定した列「{{wrong}}」はこの表にありません。近い名前の列:「{{suggestion}}」（押すと直します）",
-  "remove": "この種類は要らない",
+  "remove": "削除",
   "confirm": {
     "head": "進む前に、確かめてください。",
     "collides": "「{{map}}」は複数の行が同じ ID になったままです。このまま進むと、同じ ID の行は 1 件にまとまります。",
@@ -65,5 +67,6 @@
     "cancel": "やめる"
   },
   "kindMissing": "この表の 1 行が何なのか、まだ決まっていません。下の例を見て、名前を入れてください（例: 試料 / 測定 / ピーク）。",
-  "kindPlaceholder": "例: 試料"
+  "kindPlaceholder": "例: 試料",
+  "removeTitle": "この種類を設計から削除する"
 }

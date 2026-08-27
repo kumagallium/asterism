@@ -351,9 +351,10 @@ button.lang-toggle-btn.active:hover:not(:disabled) {
 }
 
 /* Progress card for long LLM jobs (propose / refine). */
+/* 幅は置かれた場所が決める。32rem で止めていたころは、880px の列の中でこのカード
+   だけが 512px になり、右に説明のつかない空きが出ていた（K23 の行長は列で決める）。 */
 .job-progress {
   width: 100%;
-  max-width: 32rem;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -418,7 +419,6 @@ button.lang-toggle-btn.active:hover:not(:disabled) {
 /* Informational job outcome (e.g. user-cancelled) — neutral, not error-styled. */
 .job-cancelled-note {
   margin: 0;
-  max-width: 32rem;
   color: var(--body);
   background: var(--surface);
   border: 1px solid var(--border);
@@ -6689,12 +6689,12 @@ button.ds-artifact:disabled {
 .skeleton-entity-card {
   margin-top: 0.15rem;
 }
+/* 同上。2 枚並びのときは grid のトラックが幅を決める。 */
 .skeleton-entity-card-box {
   border: 1px solid var(--border-strong);
   border-radius: 8px;
   background: var(--surface);
   padding: 0.45rem 0.6rem;
-  max-width: 34rem;
 }
 .skeleton-entity-card-head {
   display: flex;
@@ -8381,4 +8381,92 @@ tr.kz-attn td {
   font-size: 0.85rem;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+}
+
+/* --------------------------------------------------------------------------
+   S4「データの数えかた」— 1 種類 = 1 枚（K23 / 採用デザイン 改善案A）
+
+   表の 3 列を横に読ませていたころは、1 つの種類について知りたい 3 つのこと
+   （これは何か / ID はどう決まるか / その証拠）が横 → 次の行の下、と折れて
+   並んでいた。カードにして上から下へ 1 本にする。詳細モードの表は不変。
+   -------------------------------------------------------------------------- */
+.skeleton-kinds {
+  display: grid;
+  /* 2 種類なら横に 2 枚（モックの形）。3 つ以上、または狭い幅では折り返す。
+     min() は、トラックがコンテナより広がらない保証（狭幅の横スクロール防止）。 */
+  grid-template-columns: repeat(auto-fit, minmax(min(23rem, 100%), 1fr));
+  gap: var(--space-3);
+  align-items: start;
+}
+.skeleton-kind-card {
+  /* 中の実物カードは「カードの幅」で組み替える。カードの幅を決めるのは grid の
+     トラックであってビューポートではないので、media query では届かない
+     （2 枚並びのとき 1 枚は 410px ほどになり、2 列の表では値の側が潰れる）。 */
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+/* 直前に足された種類。どれが増えたのかが分からないと、押した結果が読めない。 */
+.skeleton-kind-card--added {
+  border-color: var(--primary);
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+/* 見出し行 = 「1 件が表すもの」の入力と、削除。名前がこのカードの題名なので、
+   入力は幅いっぱいに置く（表のセルだったころの 1 行分の幅ではない）。 */
+.skeleton-kind-head {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-2);
+}
+.skeleton-kind-head .skeleton-gate-input {
+  width: 100%;
+  font-size: 1rem;
+  font-weight: 600;
+}
+/* 削除は破壊的なので、名前の下・右端に小さく置く（先頭に置くと最初に目が行く）。 */
+.skeleton-kind-head .skeleton-remove,
+.skeleton-kind-head .skeleton-remove-confirm {
+  align-self: flex-end;
+}
+/* 2 つ以上のファイルを読んでいるときだけ出る出所。 */
+.skeleton-kind-source {
+  margin: 0;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.8rem;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.skeleton-kind-key {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+/* 狭いカードの中では、実物カードの「項目名 / 値」を縦に積む。横 2 列のままだと
+   値の側が 250px ほどになり、⚠ の 1 文が 4 行に折れて読めなくなる。 */
+@container (max-width: 30rem) {
+  .skeleton-entity-props,
+  .skeleton-entity-props tbody,
+  .skeleton-entity-props tr {
+    display: block;
+  }
+  .skeleton-entity-props th,
+  .skeleton-entity-props td {
+    display: block;
+    padding-right: 0;
+  }
+  .skeleton-entity-props td {
+    padding: 0 0 0.3rem 0.4rem;
+  }
+  .skeleton-entity-props tr:last-child td {
+    padding-bottom: 0;
+  }
 }

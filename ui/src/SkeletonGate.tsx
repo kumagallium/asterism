@@ -1213,8 +1213,16 @@ export function SkeletonGate({
   // same last resort displayMapName uses. K7 wants this line ALWAYS.
   function readingFor(m: SkeletonMap, ann: SkeletonMapAnnotation | undefined): string | undefined {
     if (!plain) return undefined
-    const label = compactClass(m.subject.classes?.[0] ?? '', nsDetected) || m.name
-    if (!label) return undefined
+    // 名前がまだ無いときに `m.name`（機械の内部名。この場合 `dataset`）へ落ちて
+    // いた。同じ画面が「1 件が表すもの」を空欄で聞きながら「1 つの『dataset』」と
+    // 断言する形になり、人が書いていない語を答えとして見せてしまう（K20）。
+    // 名前が無いなら、無いと言う。
+    const label = compactClass(m.subject.classes?.[0] ?? '', nsDetected)
+    if (!label) {
+      return ann?.collapse_kind === 'singleton'
+        ? t('skeletongate:reading.singletonUnnamed')
+        : t('skeletongate:reading.unnamed')
+    }
     const kind = ann?.collapse_kind
     if (kind === 'singleton') return t('skeletongate:reading.singleton', { label })
     if (kind === 'partial') return t('skeletongate:reading.partial', { label })
@@ -1495,6 +1503,312 @@ export function SkeletonGate({
     </details>
   )
 
+  // ファイル名は、2 つ以上のファイルを読んでいるときだけ出す。1 ファイルなら
+  // どのカードにも同じ名前が並ぶだけで、種類どうしの違いを何も言わない。
+  const multiSource = new Set(skeleton.maps.map((m) => m.source)).size > 1
+  // 1 種類ぶんの中身を 1 度だけ組み立て、器だけを分ける。かんたん層はカード、
+  // 詳細モードはこれまでどおりの表の行 — 中身は同じ式なので、片方を直すと
+  // 両方に効く（同じものを 2 か所に書かない）。
+  const kindBlocks = skeleton.maps.map((m, idx) => {
+    const usesConstant =
+      m.subject.template === undefined && m.subject.constant !== undefined
+    const keyValue = m.subject.template ?? m.subject.constant ?? ''
+    // Kantan tier (K4/K13): the minted shorthand folds away at the
+    // DISPLAY boundary only — `zemr:measurement/{…}` shows (and is
+    // edited) as `measurement/{…}`, bare class names get the minted
+    // prefix back on the way in. The skeleton state keeps full
+    // CURIEs, so evidence/continue see detail-tier values.
+    const displayKey = plain ? compactTemplate(keyValue, nsDetected) : keyValue
+    const ann = annotations?.maps?.[m.name]
+    // K14 in the cell itself: the ID recipe as its CONSEQUENCE (which
+    // columns decide the ID), never as template syntax. The raw
+    // template stays one fold away for whoever wants it. Read from
+    // the LIVE template, not the annotation: the annotation lags a
+    // candidate chip by one re-check, and a sentence that describes
+    // the previous key is worse than no sentence.
+    const templateColumns = [...keyValue.matchAll(/\{([^{}]+)\}/g)].map((x) => x[1])
+    const keyColumns =
+      templateColumns.length > 0 ? templateColumns : (ann?.key_columns ?? [])
+    // A template with no {column} in it mints ONE id for the whole
+    // file — the same reading as a constant, not "no recipe yet"
+    // (which is only true of an empty cell).
+    const keySentence =
+      usesConstant || (keyColumns.length === 0 && keyValue.trim() !== '')
+        ? t('skeletongate:key.constant')
+        : keyColumns.length === 0
+          ? t('skeletongate:key.none')
+          : t(
+              keyColumns.length === 1
+                ? 'skeletongate:key.from1'
+                : 'skeletongate:key.fromN',
+              { columns: keyColumns.join(t('skeletongate:key.join')) },
+            )
+    // "Data の数えかた" ③: the ID's own consequence — which parent
+    // kind's scope this record is counted inside — stated as a
+    // positive fact, not just visible as a diagram edge or a
+    // scope-missing WARNING (which only fires when the containment
+    // is MISSING). Same containment rule as the diagram edge
+    // (`skeletonMermaid`'s edges), read from the LIVE skeleton (not
+    // `ann`, which lags a key edit by one re-check and would go
+    // dark exactly when files are gone — the one moment structure
+    // should still be visible). No parent (a lone map, or one whose
+    // key nothing else's embeds) → no line: scope-missing already
+    // owns the "something might be wrong" side of this question.
+    const containment = containmentParents(skeleton, m.name)
+    const containedInSentence =
+      containment.length > 0
+        ? t('skeletongate:key.containedIn', {
+            parents: [...new Set(containment.map((c) => displayMapName(c.parent)))].join(
+              t('skeletongate:key.listSeparator'),
+            ),
+            columns: [...new Set(containment.flatMap((c) => c.columns))].join(
+              t('skeletongate:key.listSeparator'),
+            ),
+          })
+        : undefined
+    // Degraded (files gone / this map's own source not found): every
+    // OTHER signal that would normally say something here — the
+    // entity card, the collision/measurement warnings, the safe-key
+    // auto-fix — is a product of the check that just could not run,
+    // so they all go silent together. `containedInSentence` above
+    // still fires (it is skeleton-only), but when it does NOT (no
+    // containment proven), the row would otherwise say nothing at
+    // all — reading as "nothing to worry about" when in fact
+    // nothing was confirmed. Only worth saying with more than one
+    // map (a single map has no containment question to begin with).
+    const degraded = !canRevalidate || ann?.reason === 'source-not-found'
+    const containmentUnknownSentence =
+      !containedInSentence && degraded && skeleton.maps.length > 1
+        ? t('skeletongate:key.containedInUnknown')
+        : undefined
+    const removeControl = skeleton.maps.length > 1 &&
+      (confirmRemove === m.name ? (
+        <span className="skeleton-remove-confirm">
+          <button
+            type="button"
+            className="skeleton-remove skeleton-remove--yes"
+            disabled={busy}
+            onClick={() => removeMap(idx)}
+          >
+            {t('workbench:skeleton.removeConfirm')}
+          </button>
+          <button
+            type="button"
+            className="skeleton-remove"
+            onClick={() => setConfirmRemove(null)}
+          >
+            {t('workbench:skeleton.removeCancel')}
+          </button>
+        </span>
+      ) : (
+        <button
+          type="button"
+          className="skeleton-remove"
+          disabled={busy}
+          title={
+            plain ? t('skeletongate:removeTitle') : t('workbench:skeleton.remove')
+          }
+          onClick={() => setConfirmRemove(m.name)}
+        >
+          {plain ? t('skeletongate:remove') : t('workbench:skeleton.remove')}
+        </button>
+      ))
+    const keyCell = (
+      <>
+        {plain ? (
+          <>
+            <p className="skeleton-evidence-line">{keySentence}</p>
+            {containedInSentence && (
+              <p className="skeleton-evidence-line skeleton-evidence-muted">
+                {containedInSentence}
+              </p>
+            )}
+            {containmentUnknownSentence && (
+              <p className="skeleton-evidence-line skeleton-evidence-muted">
+                {containmentUnknownSentence}
+              </p>
+            )}
+            <details className="skeleton-fold">
+              <summary>{t('skeletongate:key.editSummary')}</summary>
+              <textarea
+                className="skeleton-gate-input skeleton-gate-key"
+                value={displayKey}
+                rows={Math.max(1, Math.ceil(displayKey.length / 48))}
+                disabled={busy}
+                onChange={(e) => {
+                  const raw = e.target.value.replace(/\n/g, '')
+                  updateSubject(
+                    idx,
+                    usesConstant
+                      ? { constant: expandTemplate(raw, nsDetected) }
+                      : { template: expandTemplate(raw, nsDetected) },
+                  )
+                }}
+              />
+            </details>
+          </>
+        ) : (
+          /* A full IRI template rarely fits one line — wrap it
+             (rows grow with content) so the tail is never cut off. */
+          <textarea
+            className="skeleton-gate-input skeleton-gate-key"
+            value={displayKey}
+            rows={Math.max(1, Math.ceil(displayKey.length / 48))}
+            disabled={busy}
+            title={m.note ?? undefined}
+            onChange={(e) => {
+              const raw = e.target.value.replace(/\n/g, '')
+              updateSubject(
+                idx,
+                usesConstant ? { constant: raw } : { template: raw },
+              )
+            }}
+          />
+        )}
+        {/* The AI's own note is raw model output (English, jargon
+            on a weak model) — information for whoever asks, not
+            the kantan tier's default reading. */}
+        {m.note &&
+          (plain ? (
+            <details className="skeleton-fold">
+              <summary>{t('skeletongate:noteSummary')}</summary>
+              <p className="skeleton-evidence-line skeleton-evidence-muted">
+                {m.note}
+              </p>
+            </details>
+          ) : (
+            <div className="skeleton-gate-note">{m.note}</div>
+          ))}
+      </>
+    )
+    const kindCell = (
+      <>
+        {/* An empty box under "1 行が表すもの" reads as "nothing to
+            do here", but a map with no kind produces rows with no
+            type at all — nothing can later be counted or asked
+            about by kind. Say it, in the cell where the answer
+            goes. (The reading line above falls back to the map's
+            own name, so the sentence alone cannot reveal this.) */}
+        {plain && (m.subject.classes ?? []).length === 0 && (
+          <p className="skeleton-evidence-line skeleton-evidence-warn">
+            ⚠ {t('skeletongate:kindMissing')}
+          </p>
+        )}
+        <input
+          type="text"
+          className="skeleton-gate-input"
+          placeholder={plain ? t('skeletongate:kindPlaceholder') : undefined}
+          value={(m.subject.classes ?? [])
+            .map((c) => (plain ? compactClass(c, nsDetected) : c))
+            .join(', ')}
+          disabled={busy}
+          onChange={(e) =>
+            updateSubject(idx, {
+              classes: e.target.value
+                .split(',')
+                .map((s) => s.trim())
+                .filter(Boolean)
+                .map((c) => (plain ? expandClass(c, nsDetected) : c)),
+            })
+          }
+        />
+        {/* A destructive control at the START of the row is the
+            first thing the eye lands on; at the end it reads as
+            what it is (after the row has been described). */}
+        {plain && removeControl}
+        {plain && addedMap === m.name && (
+          <p className="skeleton-evidence-line skeleton-evidence-muted">
+            {t('skeletongate:addedHint')}
+          </p>
+        )}
+      </>
+    )
+    const evidenceBlock = ann ? (
+        <SkeletonEvidence
+          ann={ann}
+          onApplyCandidate={(cols) => applyCandidate(idx, cols)}
+          onAddRowKind={() => addRowKind(idx)}
+          onSplit={(cols, key) => splitConcept(idx, cols, key)}
+          canRevalidate={canRevalidate}
+          displayClass={
+            plain ? (c) => compactClass(c, nsDetected) : undefined
+          }
+          plain={plain}
+          reading={readingFor(m, ann)}
+          displayMap={displayMapName}
+          shortId={shortId}
+          filesGoneText={filesGoneText}
+          suggestedClass={
+            (ann.class_numeric_key_caution?.length ?? 0) > 0
+              ? (compactClass(suggestedClassFor(idx) ?? '', nsDetected) || undefined)
+              : undefined
+          }
+          onUseSuggestedClass={() => {
+            const cls = suggestedClassFor(idx)
+            if (cls) updateSubject(idx, { classes: [cls] })
+          }}
+          onFixColumn={(wrong, right) => fixColumnName(idx, wrong, right)}
+          ownMapLabel={displayMapName(m.name)}
+          containedInAfterFix={containedInAfterFixFor(idx)}
+          onReattach={onReattach}
+          sourceName={basename(m.source)}
+          presentFileNames={presentFileNames}
+          onAdoptRename={onAdoptRename}
+        />
+    ) : null
+    if (plain) {
+      // 採用デザイン（改善案A）の S4: 1 種類 = 1 枚。表の 3 列を横に読ませるのを
+      // やめ、「これは何か」「ID はどう決まるか」「その証拠」を上から下へ 1 本で
+      // 読ませる。2 種類なら横に 2 枚、3 種類以上は折り返す（grid が決める）。
+      return (
+        <div
+          key={m.name}
+          data-map={m.name}
+          className={
+            addedMap === m.name
+              ? 'skeleton-kind-card skeleton-kind-card--added'
+              : 'skeleton-kind-card'
+          }
+        >
+          <div className="skeleton-kind-head">{kindCell}</div>
+          {multiSource && <p className="skeleton-kind-source">{m.source}</p>}
+          <div className="skeleton-kind-key">{keyCell}</div>
+          {evidenceBlock}
+        </div>
+      )
+    }
+    return (
+      <Fragment key={m.name}>
+        <tr
+          data-map={m.name}
+          className={
+            [
+              ann ? 'skeleton-gate-row' : '',
+              addedMap === m.name ? 'skeleton-gate-row--added' : '',
+            ]
+              .filter(Boolean)
+              .join(' ') || undefined
+          }
+        >
+          {/* Removal is the other half of "add": without it the gate is a
+              one-way door. Two-step, and never the last map. */}
+          <td className="skeleton-gate-name">
+            {m.name}
+            {removeControl}
+          </td>
+          <td className="skeleton-gate-source">{m.source}</td>
+          <td>{keyCell}</td>
+          <td>{kindCell}</td>
+        </tr>
+        {evidenceBlock && (
+          <tr className="skeleton-evidence-row">
+            <td colSpan={4}>{evidenceBlock}</td>
+          </tr>
+        )}
+      </Fragment>
+    )
+  })
+
   return (
     <section className="skeleton-gate">
       <h4>{t(titleKey)}</h4>
@@ -1565,294 +1879,26 @@ export function SkeletonGate({
         </p>
       )}
       {!plain && nsCard}
-      <div className="skeleton-gate-table-wrap">
-        <table className="skeleton-gate-table">
-          <thead>
-            <tr>
-              {/* K4: one kind, one name. The internal map name is machine
-                  bookkeeping — showing it beside the kind put two English
-                  identifiers on every row and named the same thing twice. */}
-              {!plain && <th>{t('workbench:skeleton.colClass')}</th>}
-              <th>{plain ? t('skeletongate:col.source') : t('workbench:skeleton.colSource')}</th>
-              <th>{plain ? t('skeletongate:col.key') : t('workbench:skeleton.colKey')}</th>
-              {/* K4: "クラス" is a fatal-tier word — the kantan header asks the
-                  question the column answers instead. */}
-              <th>{plain ? t('skeletongate:col.kind') : t('workbench:skeleton.colClasses')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {skeleton.maps.map((m, idx) => {
-              const usesConstant =
-                m.subject.template === undefined && m.subject.constant !== undefined
-              const keyValue = m.subject.template ?? m.subject.constant ?? ''
-              // Kantan tier (K4/K13): the minted shorthand folds away at the
-              // DISPLAY boundary only — `zemr:measurement/{…}` shows (and is
-              // edited) as `measurement/{…}`, bare class names get the minted
-              // prefix back on the way in. The skeleton state keeps full
-              // CURIEs, so evidence/continue see detail-tier values.
-              const displayKey = plain ? compactTemplate(keyValue, nsDetected) : keyValue
-              const ann = annotations?.maps?.[m.name]
-              // K14 in the cell itself: the ID recipe as its CONSEQUENCE (which
-              // columns decide the ID), never as template syntax. The raw
-              // template stays one fold away for whoever wants it. Read from
-              // the LIVE template, not the annotation: the annotation lags a
-              // candidate chip by one re-check, and a sentence that describes
-              // the previous key is worse than no sentence.
-              const templateColumns = [...keyValue.matchAll(/\{([^{}]+)\}/g)].map((x) => x[1])
-              const keyColumns =
-                templateColumns.length > 0 ? templateColumns : (ann?.key_columns ?? [])
-              // A template with no {column} in it mints ONE id for the whole
-              // file — the same reading as a constant, not "no recipe yet"
-              // (which is only true of an empty cell).
-              const keySentence =
-                usesConstant || (keyColumns.length === 0 && keyValue.trim() !== '')
-                  ? t('skeletongate:key.constant')
-                  : keyColumns.length === 0
-                    ? t('skeletongate:key.none')
-                    : t(
-                        keyColumns.length === 1
-                          ? 'skeletongate:key.from1'
-                          : 'skeletongate:key.fromN',
-                        { columns: keyColumns.join(t('skeletongate:key.join')) },
-                      )
-              // "Data の数えかた" ③: the ID's own consequence — which parent
-              // kind's scope this record is counted inside — stated as a
-              // positive fact, not just visible as a diagram edge or a
-              // scope-missing WARNING (which only fires when the containment
-              // is MISSING). Same containment rule as the diagram edge
-              // (`skeletonMermaid`'s edges), read from the LIVE skeleton (not
-              // `ann`, which lags a key edit by one re-check and would go
-              // dark exactly when files are gone — the one moment structure
-              // should still be visible). No parent (a lone map, or one whose
-              // key nothing else's embeds) → no line: scope-missing already
-              // owns the "something might be wrong" side of this question.
-              const containment = containmentParents(skeleton, m.name)
-              const containedInSentence =
-                containment.length > 0
-                  ? t('skeletongate:key.containedIn', {
-                      parents: [...new Set(containment.map((c) => displayMapName(c.parent)))].join(
-                        t('skeletongate:key.listSeparator'),
-                      ),
-                      columns: [...new Set(containment.flatMap((c) => c.columns))].join(
-                        t('skeletongate:key.listSeparator'),
-                      ),
-                    })
-                  : undefined
-              // Degraded (files gone / this map's own source not found): every
-              // OTHER signal that would normally say something here — the
-              // entity card, the collision/measurement warnings, the safe-key
-              // auto-fix — is a product of the check that just could not run,
-              // so they all go silent together. `containedInSentence` above
-              // still fires (it is skeleton-only), but when it does NOT (no
-              // containment proven), the row would otherwise say nothing at
-              // all — reading as "nothing to worry about" when in fact
-              // nothing was confirmed. Only worth saying with more than one
-              // map (a single map has no containment question to begin with).
-              const degraded = !canRevalidate || ann?.reason === 'source-not-found'
-              const containmentUnknownSentence =
-                !containedInSentence && degraded && skeleton.maps.length > 1
-                  ? t('skeletongate:key.containedInUnknown')
-                  : undefined
-              const removeControl = skeleton.maps.length > 1 &&
-                (confirmRemove === m.name ? (
-                  <span className="skeleton-remove-confirm">
-                    <button
-                      type="button"
-                      className="skeleton-remove skeleton-remove--yes"
-                      disabled={busy}
-                      onClick={() => removeMap(idx)}
-                    >
-                      {t('workbench:skeleton.removeConfirm')}
-                    </button>
-                    <button
-                      type="button"
-                      className="skeleton-remove"
-                      onClick={() => setConfirmRemove(null)}
-                    >
-                      {t('workbench:skeleton.removeCancel')}
-                    </button>
-                  </span>
-                ) : (
-                  <button
-                    type="button"
-                    className="skeleton-remove"
-                    disabled={busy}
-                    title={plain ? t('skeletongate:remove') : t('workbench:skeleton.remove')}
-                    onClick={() => setConfirmRemove(m.name)}
-                  >
-                    {plain ? t('skeletongate:remove') : t('workbench:skeleton.remove')}
-                  </button>
-                ))
-              return (
-                <Fragment key={m.name}>
-                  <tr
-                    data-map={m.name}
-                    className={[
-                      ann ? 'skeleton-gate-row' : '',
-                      addedMap === m.name ? 'skeleton-gate-row--added' : '',
-                    ]
-                      .filter(Boolean)
-                      .join(' ') || undefined}
-                  >
-                    {/* Removal is the other half of "add": without it the gate
-                        is a one-way door. Two-step, and never the last map. */}
-                    {!plain && (
-                      <td className="skeleton-gate-name">
-                        {m.name}
-                        {removeControl}
-                      </td>
-                    )}
-                    <td className="skeleton-gate-source">{m.source}</td>
-                    <td>
-                      {plain ? (
-                        <>
-                          <p className="skeleton-evidence-line">{keySentence}</p>
-                          {containedInSentence && (
-                            <p className="skeleton-evidence-line skeleton-evidence-muted">
-                              {containedInSentence}
-                            </p>
-                          )}
-                          {containmentUnknownSentence && (
-                            <p className="skeleton-evidence-line skeleton-evidence-muted">
-                              {containmentUnknownSentence}
-                            </p>
-                          )}
-                          <details className="skeleton-fold">
-                            <summary>{t('skeletongate:key.editSummary')}</summary>
-                            <textarea
-                              className="skeleton-gate-input skeleton-gate-key"
-                              value={displayKey}
-                              rows={Math.max(1, Math.ceil(displayKey.length / 48))}
-                              disabled={busy}
-                              onChange={(e) => {
-                                const raw = e.target.value.replace(/\n/g, '')
-                                updateSubject(
-                                  idx,
-                                  usesConstant
-                                    ? { constant: expandTemplate(raw, nsDetected) }
-                                    : { template: expandTemplate(raw, nsDetected) },
-                                )
-                              }}
-                            />
-                          </details>
-                        </>
-                      ) : (
-                        /* A full IRI template rarely fits one line — wrap it
-                           (rows grow with content) so the tail is never cut off. */
-                        <textarea
-                          className="skeleton-gate-input skeleton-gate-key"
-                          value={displayKey}
-                          rows={Math.max(1, Math.ceil(displayKey.length / 48))}
-                          disabled={busy}
-                          title={m.note ?? undefined}
-                          onChange={(e) => {
-                            const raw = e.target.value.replace(/\n/g, '')
-                            updateSubject(
-                              idx,
-                              usesConstant ? { constant: raw } : { template: raw },
-                            )
-                          }}
-                        />
-                      )}
-                      {/* The AI's own note is raw model output (English, jargon
-                          on a weak model) — information for whoever asks, not
-                          the kantan tier's default reading. */}
-                      {m.note &&
-                        (plain ? (
-                          <details className="skeleton-fold">
-                            <summary>{t('skeletongate:noteSummary')}</summary>
-                            <p className="skeleton-evidence-line skeleton-evidence-muted">
-                              {m.note}
-                            </p>
-                          </details>
-                        ) : (
-                          <div className="skeleton-gate-note">{m.note}</div>
-                        ))}
-                    </td>
-                    <td>
-                      {/* An empty box under "1 行が表すもの" reads as "nothing to
-                          do here", but a map with no kind produces rows with no
-                          type at all — nothing can later be counted or asked
-                          about by kind. Say it, in the cell where the answer
-                          goes. (The reading line above falls back to the map's
-                          own name, so the sentence alone cannot reveal this.) */}
-                      {plain && (m.subject.classes ?? []).length === 0 && (
-                        <p className="skeleton-evidence-line skeleton-evidence-warn">
-                          ⚠ {t('skeletongate:kindMissing')}
-                        </p>
-                      )}
-                      <input
-                        type="text"
-                        className="skeleton-gate-input"
-                        placeholder={plain ? t('skeletongate:kindPlaceholder') : undefined}
-                        value={(m.subject.classes ?? [])
-                          .map((c) => (plain ? compactClass(c, nsDetected) : c))
-                          .join(', ')}
-                        disabled={busy}
-                        onChange={(e) =>
-                          updateSubject(idx, {
-                            classes: e.target.value
-                              .split(',')
-                              .map((s) => s.trim())
-                              .filter(Boolean)
-                              .map((c) => (plain ? expandClass(c, nsDetected) : c)),
-                          })
-                        }
-                      />
-                      {/* A destructive control at the START of the row is the
-                          first thing the eye lands on; at the end it reads as
-                          what it is (after the row has been described). */}
-                      {plain && removeControl}
-                      {plain && addedMap === m.name && (
-                        <p className="skeleton-evidence-line skeleton-evidence-muted">
-                          {t('skeletongate:addedHint')}
-                        </p>
-                      )}
-                    </td>
-                  </tr>
-                  {ann && (
-                    <tr className="skeleton-evidence-row">
-                      <td colSpan={plain ? 3 : 4}>
-                        <SkeletonEvidence
-                          ann={ann}
-                          onApplyCandidate={(cols) => applyCandidate(idx, cols)}
-                          onAddRowKind={() => addRowKind(idx)}
-                          onSplit={(cols, key) => splitConcept(idx, cols, key)}
-                          canRevalidate={canRevalidate}
-                          displayClass={
-                            plain ? (c) => compactClass(c, nsDetected) : undefined
-                          }
-                          plain={plain}
-                          reading={readingFor(m, ann)}
-                          displayMap={displayMapName}
-                          shortId={shortId}
-                          filesGoneText={filesGoneText}
-                          suggestedClass={
-                            (ann.class_numeric_key_caution?.length ?? 0) > 0
-                              ? (compactClass(suggestedClassFor(idx) ?? '', nsDetected) || undefined)
-                              : undefined
-                          }
-                          onUseSuggestedClass={() => {
-                            const cls = suggestedClassFor(idx)
-                            if (cls) updateSubject(idx, { classes: [cls] })
-                          }}
-                          onFixColumn={(wrong, right) => fixColumnName(idx, wrong, right)}
-                          ownMapLabel={displayMapName(m.name)}
-                          containedInAfterFix={containedInAfterFixFor(idx)}
-                          onReattach={onReattach}
-                          sourceName={basename(m.source)}
-                          presentFileNames={presentFileNames}
-                          onAdoptRename={onAdoptRename}
-                        />
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
+      {plain ? (
+        <div className="skeleton-kinds">{kindBlocks}</div>
+      ) : (
+        <div className="skeleton-gate-table-wrap">
+          <table className="skeleton-gate-table">
+            <thead>
+              <tr>
+                {/* K4: one kind, one name. The internal map name is machine
+                    bookkeeping — showing it beside the kind put two English
+                    identifiers on every row and named the same thing twice. */}
+                <th>{t('workbench:skeleton.colClass')}</th>
+                <th>{t('workbench:skeleton.colSource')}</th>
+                <th>{t('workbench:skeleton.colKey')}</th>
+                <th>{t('workbench:skeleton.colClasses')}</th>
+              </tr>
+            </thead>
+            <tbody>{kindBlocks}</tbody>
+          </table>
+        </div>
+      )}
       {/* The kantan tier reads the table FIRST (that is the one question this
           screen asks) and meets the naming card after — settled, one line, on
           the way out. The detail tier keeps the card above the table. */}
