@@ -34,17 +34,25 @@ Safety notes:
 - ``template`` interpolates by a single-pass literal token substitution — never
   ``str.format``/``eval`` — so a template string cannot reach into object
   attributes or re-interpret field values.
+- ``json_get`` resolves its constant ``path`` by ``dict.get`` and list indexing
+  only — it never calls ``getattr``, so a path segment that happens to name a
+  Python attribute (``"__class__"``) is just a literal, absent dict key. Parsing
+  itself (JSON *or* a Python literal repr) is delegated to :mod:`asterism._jsonio`,
+  the single place in this library that reaches for ``ast.literal_eval`` — see
+  that module's docstring for why it cannot execute code and how its DoS surface
+  is bounded.
 """
 from __future__ import annotations
 
 import functools
-import json
 import logging
 import re
 from pathlib import Path
 from typing import Any
 
 import yaml  # type: ignore[import-untyped]
+
+from asterism._jsonio import loads_relaxed
 
 logger = logging.getLogger(__name__)
 
@@ -288,13 +296,12 @@ def array_at(value: str, index: str) -> str:
     index ``"1"`` -> ``"20"``). Negative indices count from the end (``"-1"`` ->
     last). ``""`` for a non-array, an out-of-range / non-integer index, or a null
     element. Use it to pull a fixed-position scalar out of a structured array (e.g.
-    ``[lon, lat, depth]``)."""
+    ``[lon, lat, depth]``). Also accepts a Python literal repr (e.g. a pandas
+    ``list``-valued column serialized with single quotes), not just strict JSON.
+    """
     if not value or not index:
         return ""
-    try:
-        data = json.loads(value)
-    except (json.JSONDecodeError, ValueError):
-        return ""
+    data = loads_relaxed(value)
     if not isinstance(data, list):
         return ""
     try:
@@ -343,13 +350,11 @@ def json_pluck(value: str, field: str) -> list[str] | None:
     instead. Objects missing the field (or with a null / non-scalar value) are
     skipped; a non-array / non-JSON / empty input, or no matching fields, returns
     ``None`` (dropped pre-explode — an empty list would NaN-crash serialization).
+    Also accepts a Python literal repr, not just strict JSON.
     """
     if not value or not field:
         return None
-    try:
-        data = json.loads(value)
-    except (json.JSONDecodeError, ValueError):
-        return None
+    data = loads_relaxed(value)
     if not isinstance(data, list):
         return None
     out: list[str] = []
@@ -359,3 +364,60 @@ def json_pluck(value: str, field: str) -> list[str] | None:
             if element is not None and not isinstance(element, list | dict):
                 out.append(str(element))
     return out or None
+
+
+# ---- json_get (dotted-path scalar out of a single JSON OBJECT) --------------
+
+
+# A path segment that indexes into a list. Deliberately stricter than ``int()``,
+# which also accepts surrounding whitespace, a leading "+", and Python's
+# underscore digit grouping ("1_0" -> 10) — surprising readings of what is meant
+# to be a plain index in a human/AI-authored constant.
+_INDEX_SEGMENT = re.compile(r"-?[0-9]+")
+
+
+def json_get(value: str, path: str) -> str:
+    """From a single JSON-string OBJECT (or array), the scalar at a dotted
+    ``path`` (``'{"lattice": {"a": 3.33}}'``, path ``"lattice.a"`` -> ``"3.33"``).
+
+    This is the single-object counterpart to :func:`json_pluck` (which plucks a
+    field across an array of objects): use ``json_get`` when the cell holds one
+    nested structure and you need one scalar out of it by a fixed path, e.g.
+    ``"sites.0.label"`` to reach into a list nested inside the object. Also
+    accepts a Python literal repr (single-quoted keys), not just strict JSON.
+
+    ``path`` segments are resolved one at a time, in order: against a ``dict``
+    with ``.get(segment)``; against a ``list`` by reading the segment as a plain
+    integer index — optional leading ``-`` and digits only, so whitespace, ``+``
+    and Python's ``1_0`` digit grouping are *not* indices (negative indices count
+    from the end; a non-index segment or an out-of-range index yields ``""``);
+    descending into anything else yields ``""``. Attribute access is never used
+    to resolve a segment (``getattr`` is not called), so a segment that happens
+    to name a Python attribute
+    (``"__class__"``) is just an absent dict key, not a way to reach into the
+    parsed object's internals.
+
+    Returns ``""`` when: ``value`` or ``path`` is empty, the path does not
+    resolve, the final value is ``None``, or the final value is itself a
+    ``list``/``dict`` (this function only ever returns a scalar). A key name that
+    itself contains a literal ``.`` is not supported — the ``.`` is always a path
+    separator.
+    """
+    if not value or not path:
+        return ""
+    current: Any = loads_relaxed(value)
+    for segment in path.split("."):
+        if isinstance(current, dict):
+            current = current.get(segment)
+        elif isinstance(current, list):
+            if _INDEX_SEGMENT.fullmatch(segment) is None:
+                return ""
+            try:
+                current = current[int(segment)]
+            except IndexError:
+                return ""
+        else:
+            return ""
+    if current is None or isinstance(current, list | dict):
+        return ""
+    return str(current)

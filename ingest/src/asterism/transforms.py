@@ -16,11 +16,12 @@ these are vetted, closed-set transforms.
 """
 from __future__ import annotations
 
-import json
 import re
 import unicodedata
 from datetime import UTC, datetime
 from urllib.parse import urlsplit, urlunsplit
+
+from asterism._jsonio import loads_relaxed
 
 # ---------------------------------------------------------------------------
 # Numbers
@@ -310,14 +311,11 @@ def json_array_single(value: str) -> str:
     element. The strict single-element rule means this never silently drops data:
     a genuinely multi-valued cell (several authors / tags) is left untouched, to be
     handled by ``split`` (explode) or a nested TriplesMap, not collapsed to its
-    first element.
+    first element. Also accepts a Python literal repr, not just strict JSON.
     """
     if not value:
         return ""
-    try:
-        data = json.loads(value)
-    except (json.JSONDecodeError, ValueError):
-        return ""
+    data = loads_relaxed(value)
     if isinstance(data, list) and len(data) == 1 and data[0] is not None:
         return str(data[0])
     return ""
@@ -334,14 +332,12 @@ def json_array(value: str) -> list[str] | None:
     empty input, or an array with no scalar elements, returns ``None`` (dropped
     pre-explode — an empty list would NaN-crash Morph-KGC serialization). For an
     array of OBJECTS use :func:`asterism.primitives.json_pluck`; a one-element
-    wrapper uses :func:`json_array_single`.
+    wrapper uses :func:`json_array_single`. Also accepts a Python literal repr,
+    not just strict JSON.
     """
     if not value:
         return None
-    try:
-        data = json.loads(value)
-    except (json.JSONDecodeError, ValueError):
-        return None
+    data = loads_relaxed(value)
     if not isinstance(data, list):
         return None
     out = [str(el) for el in data if el is not None and not isinstance(el, list | dict)]

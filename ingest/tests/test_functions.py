@@ -9,11 +9,14 @@ from __future__ import annotations
 import inspect
 
 from asterism.functions import (
+    CONSTANT_PARAM_IRIS,
     FN,
+    MULTIVALUED_FUNCTIONS,
     P_FIELD1,
     P_FIELD2,
     P_FIELD3,
     P_FIELD4,
+    P_PATH,
     P_PATTERN,
     P_TABLE,
     P_TEMPLATE,
@@ -222,3 +225,13 @@ def test_register_binds_every_function() -> None:
         for arg_name, iri in spec.params.items():
             assert kwargs[arg_name] == iri
         assert callable(fn)
+
+
+def test_json_get_registered() -> None:
+    """json_get は REGISTRY に在り、path は定数引数(CONSTANT_PARAM_IRIS)、
+    スカラを返すため多値関数集合には含まれない。"""
+    by_name = {s.name: s for s in REGISTRY}
+    assert "json_get" in by_name
+    assert by_name["json_get"].params == {"value": P_VALUE, "path": P_PATH}
+    assert P_PATH in CONSTANT_PARAM_IRIS
+    assert "json_get" not in MULTIVALUED_FUNCTIONS

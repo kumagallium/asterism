@@ -27,7 +27,15 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from asterism.primitives import array_at, json_pluck, lookup, regex_extract, split, template
+from asterism.primitives import (
+    array_at,
+    json_get,
+    json_pluck,
+    lookup,
+    regex_extract,
+    split,
+    template,
+)
 from asterism.qudt import quantity_kind_iri, unit_iri
 from asterism.text import (
     parse_float_array,
@@ -75,13 +83,14 @@ P_FIELD4 = FN + "p_field4"
 P_INDEX = FN + "p_index"
 P_DELIMITER = FN + "p_delimiter"
 P_FIELD = FN + "p_field"
+P_PATH = FN + "p_path"
 
 # 「定数(固定値)引数」を指すパラメータ IRI の閉じた集合。RML ではこれらを
 # rmlf:inputValueMap [ rmlf:constant "…" ] で渡す(列参照 rml:reference は不可)。
 # ここに無いパラメータ IRI(p_value 系・p_field1..4)は列参照で渡す。Mapping IR
 # コンパイラ(step0)が args=定数 / column(s)=列 の束縛を決める単一の真実源。
 CONSTANT_PARAM_IRIS: frozenset[str] = frozenset(
-    {P_TABLE, P_PATTERN, P_TEMPLATE, P_INDEX, P_DELIMITER, P_FIELD}
+    {P_TABLE, P_PATTERN, P_TEMPLATE, P_INDEX, P_DELIMITER, P_FIELD, P_PATH}
 )
 
 # list[str] を返し Morph-KGC が要素毎に 1 トリプルへ explode する多値関数の集合。
@@ -242,6 +251,9 @@ REGISTRY: list[FunctionSpec] = [
     FunctionSpec(
         name="json_pluck", func=json_pluck, params={"value": P_VALUE, "field": P_FIELD}
     ),
+    # json_pluck が「object 配列」側なのに対し、json_get は単一 object 側:
+    # ドットパスで 1 スカラを取る(ネストした JSON object から任意深さの値を抽出)。
+    FunctionSpec(name="json_get", func=json_get, params={"value": P_VALUE, "path": P_PATH}),
 ]
 
 
