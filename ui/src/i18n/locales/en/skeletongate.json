@@ -77,15 +77,15 @@
   },
   "kindUnnamed": "Unnamed",
   "gateHowSummary": "How to proceed (when you see ⚠)",
-  "gateHow": "⚠ means rows share an ID. Pick one of the candidates below, or fix it under “Write the ID recipe yourself”. If the reading itself is wrong, use “Have the AI think again”. When neither shows a problem, press “Continue with this counting”.",
+  "gateHow": "⚠ marks something to check — usually IDs that overlap. Pick one of the candidates below, or fix it under “Write the ID recipe yourself”. If the reading itself is wrong, use “Make the AI think again”. When everything looks right, press “Continue with this division”.",
   "rethinkResets": "Thinking again rebuilds the design from scratch. Edits made on this screen (kind names, ID recipes, deletions, splits) are not kept.",
   "twinKinds": "{{names}} build the same record from the same columns — one row type written twice. Delete the one you do not need (which to keep, or whether to split them by different columns, is yours to decide).",
   "zone": {
-    "head": "Everything this table says (1 record per table)",
-    "lead": "A checked column is counted as its own kind. The pre-checked ones are the AI’s recommendation — change them freely. Good candidates are names, numbers and codes whose values also appear in other files or outside data (per-row columns qualify too; measured numbers can’t, they make poor IDs).",
+    "head": "Choose the columns that become kinds",
+    "lead": "A checked column becomes a kind of its own. The pre-set checks are the AI’s recommendation — change them freely. Checking names, numbers and codes whose values also appear in other files or outside data lets them merge into one record later. Measured numbers can’t be checked — they make poor IDs.",
     "isCardId": "this table’s ID ({{name}})",
     "isKind": "ID of the kind “{{name}}”",
-    "cardMoved": "This table’s values — and the kind checkboxes — are listed once above, under “Everything this table says”.",
+    "cardMoved": "This table’s values — and the kind checkboxes — are listed once above.",
     "variesWith": "{{values}} … (varies per row)"
   }
 }
