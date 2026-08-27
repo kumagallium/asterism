@@ -5253,10 +5253,16 @@ export function KantanWizard({
           )}
           {!s6Loading && !s6Err && (rules || stats) && stats?.counted !== false && (
             <div className="kz-map-card">
+              {/* K23 / 採用デザイン: この区画で人が見るのは「行の数」と「件の数」が
+                  合っているかの 1 点なので、数だけを大きく置く。1 文に埋めていた
+                  ころは、比べたい 2 つの数が周りの文字と同じ大きさで、目で拾えな
+                  かった。ラベルと単位は数を読むための添え物なので小さいまま。 */}
               {totalSourceRows > 0 && (
                 <>
-                  <span className="kz-map-part">
-                    {t('kantan:s6.mapRows', { rows: totalSourceRows.toLocaleString() })}
+                  <span className="kz-stat">
+                    <span className="kz-stat-label">{t('kantan:s6.statSource')}</span>
+                    <span className="kz-stat-num">{totalSourceRows.toLocaleString()}</span>
+                    <span className="kz-stat-unit">{t('kantan:s6.statRowUnit')}</span>
                   </span>
                   <span className="kz-map-arrow" aria-hidden="true">
                     →
@@ -5265,24 +5271,22 @@ export function KantanWizard({
               )}
               {stats && stats.classes.length > 0 ? (
                 stats.classes.map((c) => (
-                  <span key={c.iri} className="kz-map-class">
-                    {t('kantan:s6.classCount', {
-                      label: classLabel(c.iri),
-                      n: c.n.toLocaleString(),
-                    })}
+                  <span key={c.iri} className="kz-stat kz-stat--kind">
+                    <span className="kz-stat-label">{classLabel(c.iri)}</span>
+                    <span className="kz-stat-num">{c.n.toLocaleString()}</span>
+                    <span className="kz-stat-unit">{t('kantan:s6.statKindUnit')}</span>
                   </span>
                 ))
               ) : draftEntityCount !== null ? (
-                <span className="kz-map-class">
-                  {t('kantan:s6.mapCountAny', { n: draftEntityCount.toLocaleString() })}
+                <span className="kz-stat kz-stat--kind">
+                  <span className="kz-stat-num">{draftEntityCount.toLocaleString()}</span>
+                  <span className="kz-stat-unit">{t('kantan:s6.statKindUnit')}</span>
                 </span>
               ) : (
                 /* Nothing taken in yet is not a failure: the count simply has
                    not happened. Only a count that was attempted and came back
                    empty is worth the alarming phrasing. */
-                <span className="kz-map-class">
-                  {t('kantan:s6.mapCountUnknown')}
-                </span>
+                <span className="kz-map-note">{t('kantan:s6.mapCountUnknown')}</span>
               )}
               <span className="kz-map-note">{t('kantan:s6.mapDraftNote')}</span>
             </div>

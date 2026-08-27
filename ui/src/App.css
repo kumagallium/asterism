@@ -7332,18 +7332,39 @@ tr[data-map].skeleton-gate-row--added td {
   padding: var(--space-3) var(--space-4);
   font-size: 0.88rem;
 }
-.kz-map-part {
-  font-weight: 600;
-}
 .kz-map-arrow {
   color: var(--muted);
+  font-size: 1.1rem;
 }
-.kz-map-class {
-  background: var(--primary-soft);
-  color: var(--primary);
-  border-radius: 999px;
-  padding: 0.15rem 0.7rem;
-  font-weight: 600;
+/* K23 / 採用デザイン: 「行の数」と「件の数」が合っているかを目で拾える形。
+   1 文（「元ファイル 20 行」）に埋めていたころは、比べたい 2 つの数が周りの
+   文字と同じ大きさで、読むのではなく数えないと見つからなかった。 */
+.kz-stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+}
+.kz-stat-label {
+  font-size: 0.85rem;
+  color: var(--body);
+}
+.kz-stat-num {
+  font-size: 1.3rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+.kz-stat-unit {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--fg);
+}
+/* 取り込んだあとの件数は、元の行数と区別が付く色で（同じ濃さだと 2 つの数が
+   同じ種類の数に見え、突き合わせる気にならない）。 */
+.kz-stat--kind .kz-stat-num,
+.kz-stat--kind .kz-stat-unit {
+  color: var(--success-fg);
 }
 .kz-map-note {
   color: var(--body);
