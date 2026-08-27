@@ -8411,14 +8411,6 @@ tr.kz-attn td {
    （これは何か / ID はどう決まるか / その証拠）が横 → 次の行の下、と折れて
    並んでいた。カードにして上から下へ 1 本にする。詳細モードの表は不変。
    -------------------------------------------------------------------------- */
-.skeleton-kinds {
-  display: grid;
-  /* 2 種類なら横に 2 枚（モックの形）。3 つ以上、または狭い幅では折り返す。
-     min() は、トラックがコンテナより広がらない保証（狭幅の横スクロール防止）。 */
-  grid-template-columns: repeat(auto-fit, minmax(min(23rem, 100%), 1fr));
-  gap: var(--space-3);
-  align-items: start;
-}
 .skeleton-kind-card {
   /* 中の実物カードは「カードの幅」で組み替える。カードの幅を決めるのは grid の
      トラックであってビューポートではないので、media query では届かない
@@ -8516,46 +8508,65 @@ tr.kz-attn td {
   }
 }
 
-/* 済んだ種類は畳む。種類が増えるほど、まだ答えていない種類が下へ押し出されて
-   見えなくなる — 一覧性が落ちるのは「開いている枚数」であって「並べ方」では
-   ないので、タブで隠すのではなく、答えの要らないものを 1 行に縮める。
-   K7 のとおり、畳んだ状態でも「1 行 = ◯◯」は必ず見えている。 */
-.skeleton-kind-card--settled {
-  padding: 0;
-}
-.skeleton-kind-card--settled > .skeleton-kind-summary {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  padding: var(--space-3) var(--space-4);
-  cursor: pointer;
-  list-style-position: inside;
-}
-.skeleton-kind-card--settled[open] > .skeleton-kind-summary {
-  border-bottom: 1px solid var(--border);
-  margin-bottom: var(--space-2);
-}
-.skeleton-kind-summary-ok {
-  color: var(--entity);
-  font-weight: 700;
-}
-.skeleton-kind-summary-reading {
-  font-size: 0.95rem;
-  font-weight: 600;
-  color: var(--fg);
-}
-.skeleton-kind-card--settled > *:not(.skeleton-kind-summary) {
-  padding-inline: var(--space-4);
-}
-.skeleton-kind-card--settled > *:last-child {
-  padding-bottom: var(--space-3);
-}
 
 /* 食い違いの見出し（1 回だけ）。列ごとの繰り返しをやめた分、ここが本文になる。 */
 .skeleton-entity-conflict-head {
   margin: 0 0 0.3rem;
   font-size: 0.875rem;
   font-weight: 600;
+  color: var(--warn-fg);
+}
+
+/* S4: 種類ごとのタブ（利用者の選択 2026-08-27）。カードを縦に積むと、種類が
+   増えるほど「まだ答えていない種類」が下へ押し出されて見えなくなる。
+   ⚠ / ✓ はタブ自身が持つので、警告がタブの裏に隠れることはない。見比べたい数
+   （元の行数 ↔ 種類ごとの件数）はタブの上の帯が常に出している。 */
+.skeleton-kinds {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.skeleton-kind-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: var(--space-2);
+}
+.skeleton-kind-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.85rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--body);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.skeleton-kind-tab:hover {
+  border-color: var(--primary);
+  background: var(--primary-softer);
+}
+.skeleton-kind-tab--on {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+.skeleton-kind-tab:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+/* 印は色で意味を持つ（⚠ = まだ答えが要る / ✓ = もう待っていない）。選択中の
+   タブでも印の色は変えない — 「どこを見ているか」と「どこに用があるか」は
+   別の情報で、混ぜると残りの仕事が数えられなくなる。 */
+.skeleton-kind-tab-mark {
+  font-weight: 700;
+  line-height: 1;
+  color: var(--entity);
+}
+.skeleton-kind-tab-mark--todo {
   color: var(--warn-fg);
 }

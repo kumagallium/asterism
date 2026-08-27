@@ -26,6 +26,15 @@ import {
   skeletonMermaid,
 } from './skeletonDiagram'
 
+/** 1 種類ぶんの組み立て済みの中身と、器（タブ / 表の行）が要る目印だけ。 */
+interface KindBlock {
+  name: string
+  label: string
+  attention: boolean
+  reading: string | undefined
+  node: React.ReactNode
+}
+
 // (Moved verbatim from WorkbenchView.tsx so the kantan wizard shares the gate.
 //  Only addition: the title/hint/continue labels are overridable via *Key props
 //  so the kantan tier can show plain-language copy — defaults keep the exact
@@ -1510,6 +1519,10 @@ export function SkeletonGate({
     </details>
   )
 
+  // どの種類を開いているか。既定は「まだ答えを待っている最初の種類」— 開いた
+  // 瞬間に、やることのある場所に居る。設計が入れ替わっても消えた種類に留まら
+  // ないよう、実在する名前だけを採る。
+  const [openKind, setOpenKind] = useState<string | null>(null)
   // ファイル名は、2 つ以上のファイルを読んでいるときだけ出す。1 ファイルなら
   // どのカードにも同じ名前が並ぶだけで、種類どうしの違いを何も言わない。
   const multiSource = new Set(skeleton.maps.map((m) => m.source)).size > 1
@@ -1534,7 +1547,7 @@ export function SkeletonGate({
   // 1 種類ぶんの中身を 1 度だけ組み立て、器だけを分ける。かんたん層はカード、
   // 詳細モードはこれまでどおりの表の行 — 中身は同じ式なので、片方を直すと
   // 両方に効く（同じものを 2 か所に書かない）。
-  const kindBlocks = skeleton.maps.map((m, idx) => {
+  const kindBlocks = skeleton.maps.map((m, idx): KindBlock => {
     const usesConstant =
       m.subject.template === undefined && m.subject.constant !== undefined
     const keyValue = m.subject.template ?? m.subject.constant ?? ''
@@ -1818,31 +1831,24 @@ export function SkeletonGate({
       const cls = addedMap === m.name
         ? 'skeleton-kind-card skeleton-kind-card--added'
         : 'skeleton-kind-card'
-      if (needsAttention) {
-        return (
+      return {
+        name: m.name,
+        label: compactClass(m.subject.classes?.[0] ?? '', nsDetected),
+        attention: needsAttention,
+        reading: readingFor(m, ann),
+        node: (
           <div key={m.name} data-map={m.name} className={cls}>
             {body}
           </div>
-        )
+        ),
       }
-      // 済んだ種類は畳む。K7 は「畳んだ map にも『1 行=◯◯』の読み取り文を必ず
-      // 表示」と定めているので、要約がその 1 文を持つ。開いたままだと、種類が
-      // 増えるほど「まだ答えていない種類」が下へ押し出されて見えなくなる。
-      return (
-        <details key={m.name} data-map={m.name} className={`${cls} skeleton-kind-card--settled`}>
-          <summary className="skeleton-kind-summary">
-            {/* 名前は読み取り文が「」で持っているので、ここで二度言わない。
-                ✓ は「この種類はもう答えを待っていない」の印。 */}
-            <span className="skeleton-kind-summary-ok" aria-hidden="true">
-              ✓
-            </span>
-            <span className="skeleton-kind-summary-reading">{readingFor(m, ann)}</span>
-          </summary>
-          {body}
-        </details>
-      )
     }
-    return (
+    return {
+      name: m.name,
+      label: compactClass(m.subject.classes?.[0] ?? '', nsDetected),
+      attention: needsAttention,
+      reading: readingFor(m, ann),
+      node: (
       <Fragment key={m.name}>
         <tr
           data-map={m.name}
@@ -1871,8 +1877,19 @@ export function SkeletonGate({
           </tr>
         )}
       </Fragment>
-    )
+      ),
+    }
   })
+
+  // 開くのは、指定があればそれ。無ければ「まだ答えを待っている最初の種類」。
+  // 設計が入れ替わって消えた種類に留まらないよう、実在するものだけを採る。
+  const activeKind =
+    (openKind && kindBlocks.some((b) => b.name === openKind) && openKind) ||
+    kindBlocks.find((b) => b.attention)?.name ||
+    kindBlocks[0]?.name ||
+    null
+  const active = kindBlocks.find((b) => b.name === activeKind) ?? null
+  const setActiveKind = setOpenKind
 
   return (
     <section className="skeleton-gate">
@@ -1968,7 +1985,61 @@ export function SkeletonGate({
         </div>
       )}
       {plain ? (
-        <div className="skeleton-kinds">{kindBlocks}</div>
+        <div className="skeleton-kinds">
+          {kindBlocks.length > 1 && (
+            /* 種類ごとに切り替える。カードを縦に積むと、種類が増えるほど「まだ
+               答えていない種類」が下へ押し出されて見えなくなる（利用者の指摘
+               2026-08-27）。⚠ はタブ自身が持つので、裏に隠れることはない。
+               見比べたい数（元の行数 ↔ 種類ごとの件数）はタブの上の帯が常に
+               出しているので、切り替えても比較は失われない。 */
+            <div className="skeleton-kind-tabs" role="tablist" aria-label={t(titleKey)}>
+              {kindBlocks.map((b, i) => (
+                <button
+                  key={b.name}
+                  type="button"
+                  role="tab"
+                  id={`kind-tab-${b.name}`}
+                  aria-selected={b.name === activeKind}
+                  aria-controls={`kind-panel-${b.name}`}
+                  tabIndex={b.name === activeKind ? 0 : -1}
+                  className={
+                    b.name === activeKind
+                      ? 'skeleton-kind-tab skeleton-kind-tab--on'
+                      : 'skeleton-kind-tab'
+                  }
+                  onKeyDown={(e) => {
+                    const d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0
+                    if (!d) return
+                    e.preventDefault()
+                    const next = kindBlocks[(i + d + kindBlocks.length) % kindBlocks.length]
+                    setActiveKind(next.name)
+                    document.getElementById(`kind-tab-${next.name}`)?.focus()
+                  }}
+                  onClick={() => setActiveKind(b.name)}
+                >
+                  <span
+                    className={
+                      b.attention
+                        ? 'skeleton-kind-tab-mark skeleton-kind-tab-mark--todo'
+                        : 'skeleton-kind-tab-mark'
+                    }
+                    aria-hidden="true"
+                  >
+                    {b.attention ? '⚠' : '✓'}
+                  </span>
+                  {b.label || t('skeletongate:kindUnnamed')}
+                </button>
+              ))}
+            </div>
+          )}
+          <div
+            role={kindBlocks.length > 1 ? 'tabpanel' : undefined}
+            id={active ? `kind-panel-${active.name}` : undefined}
+            aria-labelledby={active ? `kind-tab-${active.name}` : undefined}
+          >
+            {active?.node}
+          </div>
+        </div>
       ) : (
         <div className="skeleton-gate-table-wrap">
           <table className="skeleton-gate-table">
@@ -1983,7 +2054,7 @@ export function SkeletonGate({
                 <th>{t('workbench:skeleton.colClasses')}</th>
               </tr>
             </thead>
-            <tbody>{kindBlocks}</tbody>
+            <tbody>{kindBlocks.map((b) => b.node)}</tbody>
           </table>
         </div>
       )}

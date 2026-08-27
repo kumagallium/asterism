@@ -69,6 +69,7 @@ __all__ = [
     "assemble_mapping_ir",
     "default_property_table",
     "drop_duplicate_properties",
+    "twin_maps",
     "default_skeleton",
     "fill_mapping_spec_block",
     "generate_document",
@@ -1664,6 +1665,45 @@ def _unnamed_kinds(skeleton: Mapping[str, Any]) -> list[str]:
     return out
 
 
+def twin_maps(skeleton: Mapping[str, Any]) -> list[list[str]]:
+    """Maps that read the SAME source and count it the SAME way — one row type
+    described twice.
+
+    Observed live (XRD reference file, 2026-08-27): five maps for one file, of
+    which `Dataset` and `Sample` both keyed on ``{No}`` and both collapsed the
+    whole table to one record. The gate then showed two cards with the same
+    reading, the same count and the same example values — differing only in the
+    IRI segment. Nothing catches it: each map on its own is valid.
+
+    The signature is (source, iterator, the set of key columns, whether the
+    subject is a constant). Different key columns mean a genuinely different
+    grain — a parent and its rows share a source but not a key, so they never
+    collide here.
+
+    Reported, never merged: which of the two survives (and whether the answer is
+    actually "both, with different columns") is a design judgement, and K2 keeps
+    the counting with the human. The caller feeds this back to the model, whose
+    map names say what it thought each one was.
+    """
+    groups: dict[tuple, list[str]] = {}
+    for m in skeleton.get("maps") or []:
+        if not isinstance(m, Mapping):
+            continue
+        subject = m.get("subject") if isinstance(m.get("subject"), Mapping) else {}
+        template = subject.get("template")
+        key = (
+            frozenset(re.findall(r"\{([^{}]+)\}", str(template))) if template else frozenset()
+        )
+        sig = (
+            str(m.get("source") or ""),
+            str(m.get("iterator") or ""),
+            key,
+            template is None,
+        )
+        groups.setdefault(sig, []).append(str(m.get("name") or ""))
+    return [names for names in groups.values() if len(names) > 1]
+
+
 def name_unnamed_kinds(
     skeleton: Mapping[str, Any], *, ontology_prefix: str
 ) -> tuple[dict, list[str]]:
@@ -1753,13 +1793,22 @@ def _generate_skeleton_gated(
             # 「1 件が表すもの」が空のまま返ることがある（guided decoding が届かない
             # provider では schema の minItems が効かない）。人が答える前に、抜けを
             # 名指しでもう一度頼む — 名前を付けるのに一番良い位置に居るのはモデル。
+            problems: list[str] = []
             blank = _unnamed_kinds(skeleton)
-            if not blank or attempt >= _SKELETON_PARSE_ROUNDS:
+            if blank:
+                problems.append(
+                    "every map's subject needs a non-empty `classes` (what ONE record of"
+                    " that map is, e.g. `xo:Peak`); missing on: " + ", ".join(blank)
+                )
+            for twins in twin_maps(skeleton):
+                problems.append(
+                    "maps " + ", ".join(twins) + " read the same source with the SAME key"
+                    " columns, so they are one row type described twice — keep one, or"
+                    " give them different keys if they really are different grains"
+                )
+            if not problems or attempt >= _SKELETON_PARSE_ROUNDS:
                 return skeleton, False
-            issues = [
-                "every map's subject needs a non-empty `classes` (what ONE record of that"
-                " map is, e.g. `xo:Peak`); missing on: " + ", ".join(blank)
-            ]
+            issues = problems
             continue
         # Parsed, but says nothing — same dead end as a parse failure.
         issues = ["the JSON object had no `maps` entries; every source needs one map"]

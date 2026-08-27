@@ -1138,3 +1138,30 @@ def test_name_unnamed_kinds_uses_the_models_own_map_name() -> None:
     again, named2 = name_unnamed_kinds(out, ontology_prefix="xo")
     assert named2 == []
     assert again["maps"] == out["maps"]
+
+
+def test_twin_maps_finds_one_row_type_described_twice() -> None:
+    """同じソースを同じ鍵で数える 2 つの map は、1 つの種類を二度書いたもの。"""
+    from asterism_step0.staged_propose import twin_maps
+
+    skeleton = {
+        "maps": [
+            {"name": "dataset", "source": "xrd.txt", "subject": {"template": "xr:dataset/{No}"}},
+            {"name": "sample", "source": "xrd.txt", "subject": {"template": "xr:sample/{No}"}},
+            # 鍵が違えば別の粒度（親と行）— 一緒にしない
+            {"name": "peak", "source": "xrd.txt",
+             "subject": {"template": "xr:peak/{No}/{(hkl)}"}},
+            # ソースが違えば別
+            {"name": "other", "source": "b.txt", "subject": {"template": "xr:other/{No}"}},
+        ]
+    }
+    assert twin_maps(skeleton) == [["dataset", "sample"]]
+
+
+def test_twin_maps_is_quiet_on_a_healthy_skeleton() -> None:
+    from asterism_step0.staged_propose import twin_maps
+
+    assert twin_maps({"maps": [
+        {"name": "sample", "source": "a.csv", "subject": {"template": "r:sample/{id}"}},
+        {"name": "meas", "source": "a.csv", "subject": {"template": "r:meas/{id}/{t}"}},
+    ]}) == []

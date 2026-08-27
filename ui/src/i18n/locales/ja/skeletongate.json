@@ -73,5 +73,6 @@
     "source": "元ファイル",
     "rowUnit": "行",
     "kindUnit": "件"
-  }
+  },
+  "kindUnnamed": "名前なし"
 }
