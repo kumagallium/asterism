@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.22.3](https://github.com/kumagallium/asterism/compare/v0.22.2...v0.22.3) - 2026-08-27
+
+- fix(desktop): 同梱コマンドがビルド機のパスを指したまま配布されていた by @kumagallium in https://github.com/kumagallium/asterism/pull/442
+
 ## [v0.22.2](https://github.com/kumagallium/asterism/compare/v0.22.1...v0.22.2) - 2026-08-27
 
 - feat(ui): 右下のボタンを「AI に相談」にする — 誰に相談するのかを押す前に示す by @kumagallium in https://github.com/kumagallium/asterism/pull/427
