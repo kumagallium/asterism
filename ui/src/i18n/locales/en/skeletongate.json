@@ -27,9 +27,10 @@
     "noneBlocks": "{{count}} kind(s) still have no way to build an ID. Pick one of the candidates above to continue.",
     "join": " + ",
     "editSummary": "Write the ID recipe yourself",
-    "containedIn": "Counted within {{parents}} (its ID includes {{columns}})",
+    "containedIn": "The ID contains {{columns}}, so it is counted as one record inside {{parents}}. Adding the next file cannot produce a duplicate ID.",
     "containedInUnknown": "Not confirmed to belong to any kind (re-attach the files to check the link)",
-    "listSeparator": ", "
+    "listSeparator": ", ",
+    "catalogRule": "This ID exists to connect, so it is made of the value alone. Adding a file name or card number would make a separate record per file — and it would no longer join anything."
   },
   "ns": {
     "shape": "ID shape",
@@ -89,5 +90,8 @@
     "variesWith": "{{values}} … (varies per row)",
     "keyNote": "A column marked “this table’s ID” is already in use as that kind’s ID. To use a different column, open “Write the ID recipe yourself” in the tabs below."
   },
-  "removeZoneHost": "This kind holds the table-wide values. Deleting it also removes the “choose the values” list. If you only want a different ID column, use “Write the ID recipe yourself”."
+  "removeZoneHost": "This kind holds the table-wide values. Deleting it also removes the “choose the values” list. If you only want a different ID column, use “Write the ID recipe yourself”.",
+  "kindsHead": "Check that each ID points at one thing",
+  "kindsLead": "For each kind you chose in ①, check its name and how its ID is built. Only the kinds marked ⚠ need your attention.",
+  "kindNameNote": "This name goes inside the ID (and cannot change once published). What each column’s value MEANS is decided on the next screen."
 }

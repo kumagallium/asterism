@@ -464,18 +464,28 @@ function SkeletonEvidence({
       ) : ann.value_catalog ? (
         /* K33 値のカタログ: 同じ値の行がまとまるのは意図 — 事故の ⚠ でなく
            「N 種類の値 → N 件」という肯定文で言う。 */
-        <p className="skeleton-evidence-line skeleton-evidence-ok">
-          ✓ {t('workbench:skeleton.evidence.catalogMerges', {
-            rows: ann.total_rows,
-            count: ann.distinct_ids ?? 0,
-          })}
-        </p>
+        <>
+          <p className="skeleton-evidence-line skeleton-evidence-ok">
+            ✓ {t('workbench:skeleton.evidence.catalogMerges', {
+              rows: ann.total_rows,
+              count: ann.distinct_ids ?? 0,
+            })}
+          </p>
+        </>
       ) : (
         <p className="skeleton-evidence-line skeleton-evidence-bad">
           ⚠ {t('workbench:skeleton.evidence.collides', {
             total: ann.total_rows,
             colliding: ann.colliding_rows,
           })}
+        </p>
+      )}
+      {/* つなぐための ID と、記録のための ID は作り方が逆になる。一意かどうかとは
+          無関係に、カタログなら必ず言う（1 ファイルだと値が全部違って `is_unique`
+          側に落ち、この説明ごと隠れていた — 実機 2026-08-28）。 */}
+      {plain && ann.value_catalog && (
+        <p className="skeleton-evidence-line skeleton-evidence-muted">
+          {t('skeletongate:key.catalogRule')}
         </p>
       )}
     </>
@@ -1159,8 +1169,17 @@ export function SkeletonGate({
     const parent = skeleton.maps[idx]
     if (!parent || columns.length === 0 || !key) return
     const template = parent.subject.template ?? ''
-    const cut = template.indexOf(parent.name)
-    const head = cut >= 0 ? template.slice(0, cut) : template.slice(0, template.indexOf('{'))
+    /* 新しい種類の住所は、親の下ではなくデータセットの根に置く。元の実装は
+       `template.indexOf(parent.name)` で親の名前の区間を削っていたが、map の名前が
+       テンプレートの語と違う（AI が `xrd_pattern` と名付けて住所は `…/pattern/{No}`）
+       と -1 に落ち、`{` の手前すべて＝`xrr:pattern/` が head になっていた。結果、
+       つなぐための種類が `pattern/hkl/(0,0,2)` という「親の下」に見える住所を持つ
+       （実害はないが、橋渡しの受け口が特定の親に属して見える）。最後のリテラル
+       区間を 1 つ落として、接頭辞（`xrr:` / `…/resource/`）まで戻す。 */
+    const beforeSlot = template.includes('{') ? template.slice(0, template.indexOf('{')) : template
+    const trimmed = beforeSlot.replace(/\/$/, '')
+    const cutAt = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf(':'))
+    const head = cutAt >= 0 ? trimmed.slice(0, cutAt + 1) : ''
     const base = key.toLowerCase().replace(/[^0-9a-z]+/g, '_').replace(/^_+|_+$/g, '') || 'shared'
     let name = base
     for (let i = 2; skeleton.maps.some((m) => m.name === name); i += 1) name = `${base}${i}`
@@ -1910,6 +1929,14 @@ export function SkeletonGate({
             {t('skeletongate:addedHint')}
           </p>
         )}
+        {/* この欄が何のための名前かを言う。利用者「後半で各 ID の名前をつける
+            わけですが、これは項目の意味の定義とは別なのですか？」— 別で、しかも
+            こちらは ID の中に入る＝公開後は動かせない。非対称を欄の下で言う。 */}
+        {plain && (m.subject.classes ?? []).length > 0 && (
+          <p className="skeleton-evidence-line skeleton-evidence-muted">
+            {t('skeletongate:kindNameNote')}
+          </p>
+        )}
       </>
     )
     const evidenceBlock = ann ? (
@@ -2144,10 +2171,15 @@ export function SkeletonGate({
       )}
       {zone && (
         <div className="skeleton-header-zone">
-          <p className="skeleton-section-head">
-            {t('skeletongate:zone.head')}
-            {multiSource && ` — ${basename(zone.host.source)}`}
-          </p>
+          {/* この画面には仕事が 2 つある（値をえらぶ / ID を確かめる）。番号を
+              振らないと「なぜ 2 つに分かれているか」が読めない — S6 の ①②③ と
+              同じ流儀に揃える（利用者評価 2026-08-28）。 */}
+          <p className="kz-zone-label">① {t('skeletongate:zone.head')}</p>
+          {multiSource && (
+            <p className="skeleton-evidence-line skeleton-evidence-muted">
+              {basename(zone.host.source)}
+            </p>
+          )}
           <p className="kz-note kz-prose">{t('skeletongate:zone.lead')}</p>
           <table className="skeleton-entity-props">
             <tbody>
@@ -2257,6 +2289,11 @@ export function SkeletonGate({
       )}
       {plain ? (
         <div className="skeleton-kinds">
+          <p className="kz-zone-label">
+            {zone ? '② ' : ''}
+            {t('skeletongate:kindsHead')}
+          </p>
+          <p className="kz-note kz-prose">{t('skeletongate:kindsLead')}</p>
           {kindBlocks.length > 1 && (
             /* 種類ごとに切り替える。カードを縦に積むと、種類が増えるほど「まだ
                答えていない種類」が下へ押し出されて見えなくなる（利用者の指摘
