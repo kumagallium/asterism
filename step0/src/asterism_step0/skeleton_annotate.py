@@ -358,7 +358,15 @@ def _entity_preview(
         p["column"]: len({(row.get(p["column"]) or "").strip() for row in rows}) for p in rest
     }
     rest.sort(key=lambda p: file_wide[p["column"]] <= 1)
-    room = max(0, _CARD_VALUE_COLUMNS - len(key_props) - len(conflicts))
+    # 1 件しかないカードは、そのカードが**この表そのもの**なので省略しない
+    # （2026-08-27 利用者評価「『ほか 10 列』と省略するのはどうですかね？ — ユーザーが
+    # これも入れてほしいと言えるように」）。上限は G13 の所見＝**行**のカードが
+    # ファイル水準のメタデータで埋まる事故に対する防御で、singleton には当たらない。
+    room = (
+        len(rest)
+        if distinct_ids <= 1
+        else max(0, _CARD_VALUE_COLUMNS - len(key_props) - len(conflicts))
+    )
     return {
         "id": _render_template(template, rows[rep[0]], prefixes),
         "row_count": len(rep),
@@ -840,11 +848,19 @@ def _growth_preview(
                 and col not in elsewhere
                 and any((r.get(col) or "").strip() for r in rows)
             ]
+            # 列名だけでは「これは外のデータにも出てくる名前か」を判断できない
+            # （`Chemical Formula` ではなく `Al3 V` を見て人は決める）。この 1 件を
+            # 説明する値そのものを添える（2026-08-27）。
+            first = rows[0] if rows else {}
             preview: dict[str, Any] = {
                 "per_source_entities": 1,
                 "source_count": 1 + len(siblings),
                 "row_maps": row_maps,
                 "described_columns": described,
+                "described_values": [
+                    {"column": col, "value": (first.get(col) or "").strip()[:80]}
+                    for col in described
+                ],
             }
             shared: list[dict[str, Any]] = []
             if siblings:

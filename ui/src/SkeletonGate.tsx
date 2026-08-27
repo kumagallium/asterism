@@ -50,7 +50,7 @@ function Fold({
   }
   return (
     <div className={className}>
-      <p className="skeleton-section-head">{head}</p>
+      {head && <p className="skeleton-section-head">{head}</p>}
       {children}
     </div>
   )
@@ -453,9 +453,35 @@ function SkeletonEvidence({
   // 同じ 1 文を列ごとに繰り返すと、カードの高さの半分が同じ文になり、しかも
   // 「何が起きているか」は 1 回読めば足りる。1 回言って、列は値だけ並べる（G9）。
   const conflictCols = cardProps.filter((p) => p.conflict).map((p) => p.column)
+  // かんたん層では、候補の一覧をカードと別に並べない（2026-08-27）。同じ 17 行が
+  // 「値の一覧」と「チェックの一覧」に二度出て、しかも人が判断しているのは
+  // どちらでも同じ値 — カードそのものを選ぶ場所にする。詳細モードはカードに
+  // 上限があるので従来どおり別の一覧を持つ。
+  const splitable = new Set(growth?.described_columns ?? [])
+  const pickInCard = plain && !!onSplit && splitable.size > 0
+  const toggleSplit = (col: string, on: boolean) => {
+    const next = on ? [...splitCols, col] : splitCols.filter((c) => c !== col)
+    setSplitCols(next)
+    if (!next.includes(splitKey)) setSplitKey(next[0] ?? '')
+  }
+  const pickCell = (col: string) =>
+    pickInCard ? (
+      <td className="skeleton-entity-pick">
+        {splitable.has(col) && (
+          <input
+            type="checkbox"
+            aria-label={t('workbench:skeleton.evidence.splitPick', { column: col })}
+            checked={splitCols.includes(col)}
+            onChange={(e) => toggleSplit(col, e.target.checked)}
+          />
+        )}
+      </td>
+    ) : null
+  const cardSpan = pickInCard ? 3 : 2
   const renderProp = (p: (typeof cardProps)[number], rowClass?: string) =>
     p.conflict ? (
       <tr key={p.column} className="skeleton-entity-conflict">
+        {pickCell(p.column)}
         <th scope="row">⚠ {p.column}</th>
         <td>
           {(p.values ?? []).map((v) => (
@@ -472,6 +498,7 @@ function SkeletonEvidence({
       </tr>
     ) : (
       <tr key={p.column} className={rowClass}>
+        {pickCell(p.column)}
         <th scope="row">{p.column}</th>
         <td>{p.value}</td>
       </tr>
@@ -639,13 +666,18 @@ function SkeletonEvidence({
                 ⚠ {t('workbench:skeleton.evidence.cardConflict')}
               </p>
             )}
+            {pickInCard && (
+              <p className="skeleton-section-head">
+                {t('workbench:skeleton.evidence.growthHead')}
+              </p>
+            )}
             <table className="skeleton-entity-props">
               <tbody>
                 {ownProps.map((p) => renderProp(p))}
                 {borrowedGroups.map((g) => (
                   <Fragment key={`borrowed:${g.owner}`}>
                     <tr className="skeleton-entity-band">
-                      <td colSpan={2}>
+                      <td colSpan={cardSpan}>
                         ↓{' '}
                         {t('workbench:skeleton.evidence.cardBorrowedBand', {
                           map: mapName(g.owner),
@@ -660,7 +692,7 @@ function SkeletonEvidence({
                     since those are values the card DOES carry. */}
                 {card.omitted_columns > 0 && (
                   <tr>
-                    <td colSpan={2} className="skeleton-entity-muted">
+                    <td colSpan={cardSpan} className="skeleton-entity-muted">
                       {t('workbench:skeleton.evidence.cardOmitted', {
                         count: card.omitted_columns,
                       })}
@@ -673,7 +705,7 @@ function SkeletonEvidence({
                 {ghostGroups.map((g) => (
                   <Fragment key={`delegated:${g.owner ?? ''}`}>
                     <tr className="skeleton-entity-band">
-                      <td colSpan={2}>
+                      <td colSpan={cardSpan}>
                         ↓{' '}
                         {g.owner
                           ? t('workbench:skeleton.evidence.cardDelegatedBand', {
@@ -684,6 +716,7 @@ function SkeletonEvidence({
                     </tr>
                     {g.items.map((col) => (
                       <tr key={col} className="skeleton-entity-delegated">
+                        {pickInCard && <td className="skeleton-entity-pick" />}
                         <th scope="row">{col}</th>
                         <td className="skeleton-entity-ghost-value">
                           {t('workbench:skeleton.evidence.cardVaries')}
@@ -694,7 +727,7 @@ function SkeletonEvidence({
                 ))}
                 {ghostMore > 0 && (
                   <tr className="skeleton-entity-delegated">
-                    <td colSpan={2} className="skeleton-entity-muted">
+                    <td colSpan={cardSpan} className="skeleton-entity-muted">
                       {t('workbench:skeleton.evidence.cardOmitted', { count: ghostMore })}
                     </td>
                   </tr>
@@ -800,7 +833,7 @@ function SkeletonEvidence({
           className="skeleton-fold skeleton-growth"
           plain={plain}
           head={
-            (growth.shared_values?.length ?? 0) > 0 ? (
+            plain ? null : (growth.shared_values?.length ?? 0) > 0 ? (
               <span className="skeleton-evidence-warn">
                 {t('workbench:skeleton.evidence.growthSharedHead', {
                   count: growth.shared_values!.length,
@@ -842,25 +875,36 @@ function SkeletonEvidence({
               <p className="skeleton-evidence-line skeleton-evidence-muted">
                 {t('workbench:skeleton.evidence.splitLead')}
               </p>
+              {/* 列名だけでは決められない — 人が判断しているのは「Chemical Formula」
+                  という語ではなく「Al3 V」という値が外のデータにも出てくるか。
+                  値を並べる（利用者評価 2026-08-27）。 */}
+              {/* かんたん層はカードの行そのものがチェック欄なので、ここには出さない。
+                  詳細モードのカードには上限があるので、こちらが全量の一覧になる。 */}
+              {!plain && (
               <div className="skeleton-split-cols">
-                {growth.described_columns.map((col) => (
-                  <label key={col} className="skeleton-split-col">
-                    <input
-                      type="checkbox"
-                      checked={splitCols.includes(col)}
-                      onChange={(e) => {
-                        const next = e.target.checked
-                          ? [...splitCols, col]
-                          : splitCols.filter((c) => c !== col)
-                        setSplitCols(next)
-                        // The key must be one of the checked columns.
-                        if (!next.includes(splitKey)) setSplitKey(next[0] ?? '')
-                      }}
-                    />
-                    <span>{col}</span>
-                  </label>
-                ))}
+                {growth.described_columns.map((col) => {
+                  const sample = growth.described_values?.find((v) => v.column === col)?.value
+                  return (
+                    <label key={col} className="skeleton-split-col">
+                      <input
+                        type="checkbox"
+                        checked={splitCols.includes(col)}
+                        onChange={(e) => {
+                          const next = e.target.checked
+                            ? [...splitCols, col]
+                            : splitCols.filter((c) => c !== col)
+                          setSplitCols(next)
+                          // The key must be one of the checked columns.
+                          if (!next.includes(splitKey)) setSplitKey(next[0] ?? '')
+                        }}
+                      />
+                      <span className="skeleton-split-name">{col}</span>
+                      {sample && <span className="skeleton-split-value">{sample}</span>}
+                    </label>
+                  )
+                })}
               </div>
+              )}
               <div className="skeleton-split-row">
                 <label className="skeleton-split-keylabel">
                   {t('workbench:skeleton.evidence.splitKey')}

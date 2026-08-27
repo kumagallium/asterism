@@ -260,7 +260,8 @@
       "splitLead": "If some of these columns name one shared thing, split just those into their own kind. Then another file carrying the same values lands on the same one record.",
       "splitKey": "The column that identifies it",
       "splitAdd": "Split the {{count}} checked column(s) into their own kind",
-      "candidatesQuietHead": "Build the ID from a different set of columns? (click a column set to apply)"
+      "candidatesQuietHead": "Build the ID from a different set of columns? (click a column set to apply)",
+      "splitPick": "Make this column its own kind: {{column}}"
     },
     "ns": {
       "title": "Namespaces (where this design mints its IDs)",

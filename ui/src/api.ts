@@ -362,6 +362,9 @@ export interface SkeletonMapAnnotation {
     source_count: number
     row_maps: string[]
     described_columns: string[]
+    /** `described_columns` with this file's own value for each — the human
+     *  decides from `Al3 V`, not from the words "Chemical Formula". */
+    described_values?: { column: string; value: string }[]
     shared_values?: { column: string; value: string; files: number }[]
     /** Pre-fill for the one-click split: the columns the sibling files already
      *  agree on (measured), and the identity-like one among them as the key.

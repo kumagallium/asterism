@@ -6789,19 +6789,36 @@ button.ds-artifact:disabled {
   padding-top: 0.45rem;
   border-top: 1px dashed var(--border);
 }
+/* 候補は「名前の羅列」ではなく「値の一覧」。人が判断しているのは Chemical Formula
+   という語ではなく Al3 V という値なので、カードの表と同じ 2 段組で並べる
+   （利用者評価 2026-08-27）。折り返す chip 列だと値が入った瞬間に読めなくなる。 */
 .skeleton-split-cols {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem 0.9rem;
-  margin: 0.3rem 0 0.45rem 1rem;
+  display: grid;
+  gap: 0;
+  margin: 0.3rem 0 0.6rem 0;
 }
 .skeleton-split-col {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
+  display: grid;
+  grid-template-columns: auto minmax(6rem, 13rem) 1fr;
+  align-items: baseline;
+  gap: 0 0.9rem;
+  padding: 0.16rem 0.4rem;
+  border-radius: 6px;
   font-size: 0.875rem;
   color: var(--fg);
   cursor: pointer;
+}
+.skeleton-split-col:hover {
+  background: var(--surface-alt);
+}
+.skeleton-split-name {
+  color: var(--muted);
+  font-weight: 500;
+  word-break: break-word;
+}
+.skeleton-split-value {
+  color: var(--body);
+  word-break: break-word;
 }
 .skeleton-split-row {
   display: flex;
@@ -8627,4 +8644,17 @@ tr.kz-attn td {
 }
 .skeleton-gate-hint {
   color: var(--body);
+}
+
+/* カードの行そのものを「種類にする」選択欄にする（2026-08-27）。候補の一覧を
+   カードと別に並べると、同じ 17 行が値の一覧とチェックの一覧に二度出る。
+   判断材料は値なので、値のとなりにチェックを置く。 */
+.skeleton-entity-pick {
+  width: 1.6rem;
+  padding: 0.12rem 0.35rem 0.12rem 0;
+  vertical-align: top;
+}
+.skeleton-entity-pick input {
+  margin: 0.15rem 0 0;
+  cursor: pointer;
 }
