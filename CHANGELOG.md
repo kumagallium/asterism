@@ -1,5 +1,11 @@
 # Changelog
 
+## [v0.22.4](https://github.com/kumagallium/asterism/compare/v0.22.3...v0.22.4) - 2026-08-27
+
+- fix(kantan): 公開後の「データの数えかたに戻る」を、行数を読めない画面でも出す by @kumagallium in https://github.com/kumagallium/asterism/pull/441
+- fix(step0): 連続値の列を ID 候補から外す — 幅広い表で構造解析が LLM に渡らなくなっていた by @kumagallium in https://github.com/kumagallium/asterism/pull/446
+- feat(datasets/mp): starrydata の母相を MP API で解決し 2,402 材料の実データに — 空間群を持つ唯一のソース by @kumagallium in https://github.com/kumagallium/asterism/pull/444
+
 ## [v0.22.3](https://github.com/kumagallium/asterism/compare/v0.22.2...v0.22.3) - 2026-08-27
 
 - fix(desktop): 同梱コマンドがビルド機のパスを指したまま配布されていた by @kumagallium in https://github.com/kumagallium/asterism/pull/442
