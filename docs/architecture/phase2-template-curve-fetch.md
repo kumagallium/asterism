@@ -76,7 +76,7 @@ SELECT ?p ?o WHERE {
 
 | 用途 | コマンド | port |
 |---|---|---|
-| compose / Crucible / Dify | `asterism --transport http` (default) | 8002 (/mcp) |
+| compose / Crucible / Dify | `asterism --transport http` (default) | host 8002 → container 8000 (/mcp) |
 | Claude Desktop / Cline / Cursor | `asterism --transport stdio` | n/a |
 
 stdio は FastMCP の標準動作で、サブプロセスとして起動された場合に使う。

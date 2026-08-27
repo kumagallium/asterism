@@ -121,5 +121,5 @@ services:
       # Loopback-only by default (typed-tool MCP front). To register this front
       # with a platform on another host, publish it through an authenticating
       # proxy rather than binding 0.0.0.0 directly.
-      - "127.0.0.1:8002:8002"   # FastMCP HTTP transport (path /mcp) — localhost only
+      - "127.0.0.1:8002:8000"   # FastMCP HTTP transport (path /mcp) — localhost only
     restart: unless-stopped

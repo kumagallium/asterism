@@ -9,9 +9,11 @@ only:
 3. Registers each tool body as an MCP-exposed callable.
 4. Provides a CLI entry that picks HTTP or stdio transport.
 
-The HTTP transport is what compose / Crucible / Dify connect to (port 8002
-by default). The stdio transport is for Claude Desktop / Cline / Cursor
-local users who spawn the server as a subprocess.
+The HTTP transport is what compose / Crucible / Dify connect to. The CLI
+defaults to port 8002; the container image binds 8000 instead, because
+Crucible fixes the container-side port there (see infra/asterism/Dockerfile),
+and both composes map host 8002 onto it. The stdio transport is for Claude
+Desktop / Cline / Cursor local users who spawn the server as a subprocess.
 """
 
 from __future__ import annotations
