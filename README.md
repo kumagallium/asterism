@@ -120,6 +120,43 @@ Settings → provider `openai-compatible` with a local base URL.
 Prefer a native window? The same stack ships as a desktop app (Tauri) — see
 [`desktop/README.md`](desktop/README.md): `cd desktop && npm install && npm run dev`.
 
+### Alongside other knowledge-graph MCP servers
+
+Asterism's MCP front is meant to be mounted *next to* the public-data MCP servers
+an agent already uses (e.g. [dbcls/togomcp](https://github.com/dbcls/togomcp),
+which fronts UniProt / ChEBI / PubChem / … over rdfportal). The federation happens
+in the agent, not in either server: one reasoning turn can pull a public fact from
+one server and join it against your own unpublished measurements here.
+
+```json
+{ "mcpServers": {
+    "togomcp":  { "url": "http://127.0.0.1:8000/mcp" },
+    "asterism": { "url": "http://127.0.0.1:8002/mcp" } } }
+```
+
+(Ports are this repo's compose defaults; `/mcp` is FastMCP's HTTP transport path —
+check each server's own docs if you run them elsewhere.)
+
+`find_datasets` is the entry point on this side — the counterpart to togomcp's
+`find_databases`. It answers *which datasets does this server hold, and what may I
+call on each*, returning per dataset its id, name, description, the classes its
+design declares, its citable graph, and its typed tools under **the exact names
+the caller must send**. It reads the registry at call time, so a dataset promoted
+after the server started is listed without a restart, and it lists only citable
+(promoted) datasets unless asked otherwise.
+
+Two things it deliberately does not copy from togomcp: there are no *categories*
+(a dataset's declared classes carry that signal and are not a taxonomy someone has
+to maintain), and cross-server joins are not executed here — `SERVICE` federation
+stays rejected on the SPARQL escape (SSRF / exfiltration), so a cross-server join
+is the agent's to make.
+
+The typed tools that `find_datasets` reports come from the workbench registry, so
+the MCP front needs to see it (`CSV2RDF_REGISTRY_ROOT`); both composes wire this
+up. Going the other direction — publishing a promoted asterism dataset *into* the
+togomcp catalog so its own `find_databases` finds it — is
+[`docs/architecture/togomcp-auto-publish.md`](docs/architecture/togomcp-auto-publish.md).
+
 ## Security / deploying with sensitive data
 
 The quickstart above is for **local, single-user** use. Asterism is designed to be
