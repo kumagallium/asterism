@@ -8658,3 +8658,25 @@ tr.kz-attn td {
   margin: 0.15rem 0 0;
   cursor: pointer;
 }
+
+/* K32 種類の選別ゾーン: タブの前に、ヘッダ表の全列を値つきで 1 回だけ並べる。
+   チェック＝「この列をひとつの種類として数える」。AI の骨格は初期チェック。 */
+.skeleton-header-zone {
+  background: var(--surface-alt);
+  border-radius: 10px;
+  padding: var(--space-4) var(--space-5);
+  margin: var(--space-3) 0;
+}
+.skeleton-header-zone .skeleton-section-head {
+  margin-top: 0;
+}
+.skeleton-header-zone .skeleton-entity-props {
+  width: 100%;
+}
+.skeleton-zone-tag {
+  color: var(--muted);
+  font-size: 0.8rem;
+  padding-left: 0.6rem;
+  text-align: right;
+  white-space: nowrap;
+}

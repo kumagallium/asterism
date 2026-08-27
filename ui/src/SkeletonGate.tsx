@@ -26,36 +26,6 @@ import {
   skeletonMermaid,
 } from './skeletonDiagram'
 
-/** 畳むか、見出しを付けて開いたまま出すか。かんたん層は開いたまま — 探しに来た人に
- *  しか見つからない導線は、無いのとほとんど同じ（K27 と同じ理由）。詳細モードは
- *  設計者向けなので畳んで縦を稼ぐ。中身は 1 つで、器だけが変わる。 */
-function Fold({
-  className,
-  head,
-  plain,
-  children,
-}: {
-  className: string
-  head: React.ReactNode
-  plain: boolean
-  children: React.ReactNode
-}) {
-  if (!plain) {
-    return (
-      <details className={className}>
-        <summary>{head}</summary>
-        {children}
-      </details>
-    )
-  }
-  return (
-    <div className={className}>
-      {head && <p className="skeleton-section-head">{head}</p>}
-      {children}
-    </div>
-  )
-}
-
 /** 1 種類ぶんの組み立て済みの中身と、器（タブ / 表の行）が要る目印だけ。 */
 interface KindBlock {
   name: string
@@ -127,6 +97,7 @@ function SkeletonEvidence({
   canRevalidate = true,
   displayClass,
   plain = false,
+  cardInZone = false,
   reading,
   displayMap,
   shortId,
@@ -158,6 +129,9 @@ function SkeletonEvidence({
   plain?: boolean
   /** "1 row = one …" — the reading of this map in the human's words (K7). */
   reading?: string
+  /** K32: this singleton's card content (values + pick) lives in the gate-level
+   *  header zone above the tabs — render a pointer instead of the same table. */
+  cardInZone?: boolean
   /** Another map's INTERNAL name → what the human sees for it (K4/GATE-05). */
   displayMap?: (name: string) => string
   /** Full minted IRI → its readable tail (the dataset's resource base folds). */
@@ -453,35 +427,9 @@ function SkeletonEvidence({
   // 同じ 1 文を列ごとに繰り返すと、カードの高さの半分が同じ文になり、しかも
   // 「何が起きているか」は 1 回読めば足りる。1 回言って、列は値だけ並べる（G9）。
   const conflictCols = cardProps.filter((p) => p.conflict).map((p) => p.column)
-  // かんたん層では、候補の一覧をカードと別に並べない（2026-08-27）。同じ 17 行が
-  // 「値の一覧」と「チェックの一覧」に二度出て、しかも人が判断しているのは
-  // どちらでも同じ値 — カードそのものを選ぶ場所にする。詳細モードはカードに
-  // 上限があるので従来どおり別の一覧を持つ。
-  const splitable = new Set(growth?.described_columns ?? [])
-  const pickInCard = plain && !!onSplit && splitable.size > 0
-  const toggleSplit = (col: string, on: boolean) => {
-    const next = on ? [...splitCols, col] : splitCols.filter((c) => c !== col)
-    setSplitCols(next)
-    if (!next.includes(splitKey)) setSplitKey(next[0] ?? '')
-  }
-  const pickCell = (col: string) =>
-    pickInCard ? (
-      <td className="skeleton-entity-pick">
-        {splitable.has(col) && (
-          <input
-            type="checkbox"
-            aria-label={t('workbench:skeleton.evidence.splitPick', { column: col })}
-            checked={splitCols.includes(col)}
-            onChange={(e) => toggleSplit(col, e.target.checked)}
-          />
-        )}
-      </td>
-    ) : null
-  const cardSpan = pickInCard ? 3 : 2
   const renderProp = (p: (typeof cardProps)[number], rowClass?: string) =>
     p.conflict ? (
       <tr key={p.column} className="skeleton-entity-conflict">
-        {pickCell(p.column)}
         <th scope="row">⚠ {p.column}</th>
         <td>
           {(p.values ?? []).map((v) => (
@@ -498,7 +446,6 @@ function SkeletonEvidence({
       </tr>
     ) : (
       <tr key={p.column} className={rowClass}>
-        {pickCell(p.column)}
         <th scope="row">{p.column}</th>
         <td>{p.value}</td>
       </tr>
@@ -666,18 +613,20 @@ function SkeletonEvidence({
                 ⚠ {t('workbench:skeleton.evidence.cardConflict')}
               </p>
             )}
-            {pickInCard && (
-              <p className="skeleton-section-head">
-                {t('workbench:skeleton.evidence.growthHead')}
+            {cardInZone ? (
+              /* K32: この表の中身（値の全量＋チェック）はタブの上の
+                 「この表全体の情報」へ移した。ここで同じ表を繰り返さない。 */
+              <p className="skeleton-evidence-line skeleton-evidence-muted">
+                {t('skeletongate:zone.cardMoved')}
               </p>
-            )}
+            ) : (
             <table className="skeleton-entity-props">
               <tbody>
                 {ownProps.map((p) => renderProp(p))}
                 {borrowedGroups.map((g) => (
                   <Fragment key={`borrowed:${g.owner}`}>
                     <tr className="skeleton-entity-band">
-                      <td colSpan={cardSpan}>
+                      <td colSpan={2}>
                         ↓{' '}
                         {t('workbench:skeleton.evidence.cardBorrowedBand', {
                           map: mapName(g.owner),
@@ -692,7 +641,7 @@ function SkeletonEvidence({
                     since those are values the card DOES carry. */}
                 {card.omitted_columns > 0 && (
                   <tr>
-                    <td colSpan={cardSpan} className="skeleton-entity-muted">
+                    <td colSpan={2} className="skeleton-entity-muted">
                       {t('workbench:skeleton.evidence.cardOmitted', {
                         count: card.omitted_columns,
                       })}
@@ -705,7 +654,7 @@ function SkeletonEvidence({
                 {ghostGroups.map((g) => (
                   <Fragment key={`delegated:${g.owner ?? ''}`}>
                     <tr className="skeleton-entity-band">
-                      <td colSpan={cardSpan}>
+                      <td colSpan={2}>
                         ↓{' '}
                         {g.owner
                           ? t('workbench:skeleton.evidence.cardDelegatedBand', {
@@ -716,7 +665,6 @@ function SkeletonEvidence({
                     </tr>
                     {g.items.map((col) => (
                       <tr key={col} className="skeleton-entity-delegated">
-                        {pickInCard && <td className="skeleton-entity-pick" />}
                         <th scope="row">{col}</th>
                         <td className="skeleton-entity-ghost-value">
                           {t('workbench:skeleton.evidence.cardVaries')}
@@ -727,13 +675,14 @@ function SkeletonEvidence({
                 ))}
                 {ghostMore > 0 && (
                   <tr className="skeleton-entity-delegated">
-                    <td colSpan={cardSpan} className="skeleton-entity-muted">
+                    <td colSpan={2} className="skeleton-entity-muted">
                       {t('workbench:skeleton.evidence.cardOmitted', { count: ghostMore })}
                     </td>
                   </tr>
                 )}
               </tbody>
             </table>
+            )}
           </div>
           {singleton && (
             <p className="skeleton-evidence-line skeleton-evidence-muted">
@@ -824,16 +773,12 @@ function SkeletonEvidence({
       {/* One line on what the next file does; the reasoning folds away. Measured
           overlap (a sibling file already repeats a value) is the only part that
           earns the amber line — a forecast alone does not. */}
-      {growth && growth.described_columns.length > 0 && (
-        /* かんたん層では畳まない（利用者評価 2026-08-27）。ある列を「種類」に
-           昇格させる導線はここ 1 か所しかなく、AI が昇格し忘れたものを人が足せる
-           唯一の道でもある。畳んであると、探しに来た人にしか見つからない。
-           詳細モードは設計者向けなので従来どおり畳む。 */
-        <Fold
-          className="skeleton-fold skeleton-growth"
-          plain={plain}
-          head={
-            plain ? null : (growth.shared_values?.length ?? 0) > 0 ? (
+      {/* かんたん層では出さない（K32）: 種類の選別はタブの前の「この表全体の
+          情報」で行う。ここは設計者向け（詳細モード）の畳みとして残る。 */}
+      {growth && !plain && growth.described_columns.length > 0 && (
+        <details className="skeleton-fold skeleton-growth">
+          <summary>
+            {(growth.shared_values?.length ?? 0) > 0 ? (
               <span className="skeleton-evidence-warn">
                 {t('workbench:skeleton.evidence.growthSharedHead', {
                   count: growth.shared_values!.length,
@@ -841,9 +786,8 @@ function SkeletonEvidence({
               </span>
             ) : (
               t('workbench:skeleton.evidence.growthHead')
-            )
-          }
-        >
+            )}
+          </summary>
           <p className="skeleton-evidence-line skeleton-evidence-muted">
             {t('workbench:skeleton.evidence.growthPerFile', { count: growth.source_count })}
           </p>
@@ -878,9 +822,6 @@ function SkeletonEvidence({
               {/* 列名だけでは決められない — 人が判断しているのは「Chemical Formula」
                   という語ではなく「Al3 V」という値が外のデータにも出てくるか。
                   値を並べる（利用者評価 2026-08-27）。 */}
-              {/* かんたん層はカードの行そのものがチェック欄なので、ここには出さない。
-                  詳細モードのカードには上限があるので、こちらが全量の一覧になる。 */}
-              {!plain && (
               <div className="skeleton-split-cols">
                 {growth.described_columns.map((col) => {
                   const sample = growth.described_values?.find((v) => v.column === col)?.value
@@ -904,7 +845,6 @@ function SkeletonEvidence({
                   )
                 })}
               </div>
-              )}
               <div className="skeleton-split-row">
                 <label className="skeleton-split-keylabel">
                   {t('workbench:skeleton.evidence.splitKey')}
@@ -933,7 +873,7 @@ function SkeletonEvidence({
               </div>
             </div>
           )}
-        </Fold>
+        </details>
       )}
       {showCandidates && (
         <div className="skeleton-evidence-candidates">
@@ -1069,6 +1009,9 @@ export function SkeletonGate({
   const [rethinkNote, setRethinkNote] = useState('')
   // Two-step removal, and the just-added map (scroll target + brief highlight).
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null)
+  // K32: ゾーンのチェックを外して消した種類の控え。もう一度チェックしたとき、
+  // AI が付けた名前・クラスごと元通りに戻す（作り直しでは名前が変わってしまう）。
+  const [kindStash, setKindStash] = useState<Record<string, SkeletonMap>>({})
   const [addedMap, setAddedMap] = useState<string | null>(null)
   // A dataset name that cleans away to nothing (a Japanese one) used to do
   // NOTHING at all — the field kept the typed text and the ID kept the old
@@ -1631,6 +1574,63 @@ export function SkeletonGate({
   // ファイル名は、2 つ以上のファイルを読んでいるときだけ出す。1 ファイルなら
   // どのカードにも同じ名前が並ぶだけで、種類どうしの違いを何も言わない。
   const multiSource = new Set(skeleton.maps.map((m) => m.source)).size > 1
+
+  /* K32: 種類の選別はタブの前で人がする。ヘッダ表（1 ファイルに 1 件の情報）の
+     全列を値つきで一度だけ並べ、各行のチェックそのものが「この列を 1 つの種類
+     として数える」という宣言になる。AI の骨格は初期チェック（推薦）にすぎない。
+     タブはその下＝「えらんだ種類をたしかめる」に格下げされる。 */
+  const zone = (() => {
+    if (!plain) return null
+    const idx = skeleton.maps.findIndex((mm) => {
+      const a = annotations?.maps?.[mm.name]
+      return a?.collapse_kind === 'singleton' && !!a?.entity_preview
+    })
+    if (idx < 0) return null
+    const host = skeleton.maps[idx]
+    const a = annotations!.maps[host.name]
+    const values = new Map<string, string>()
+    for (const prop of a.entity_preview!.properties) {
+      if (!prop.conflict && prop.value !== undefined) values.set(prop.column, prop.value)
+    }
+    for (const dv of a.growth_preview?.described_values ?? []) {
+      if (!values.has(dv.column)) values.set(dv.column, dv.value)
+    }
+    if (values.size === 0) return null
+    const keyCols = new Set((a.key_columns ?? []).map(String))
+    // 同じソースで、1 列だけをキーに持つ他の種類 — その列は「もう種類」。
+    const kindOf = new Map<string, string>()
+    for (const mm of skeleton.maps) {
+      if (mm.name === host.name || mm.source !== host.source) continue
+      const vars = [...(mm.subject.template ?? '').matchAll(/\{([^{}]+)\}/g)].map((x) => x[1])
+      if (vars.length === 1) kindOf.set(vars[0], mm.name)
+    }
+    const rowMap = (a.growth_preview?.row_maps ?? [])[0]
+    return { idx, host, ann: a, values, keyCols, kindOf, rowMap }
+  })()
+
+  /** ゾーンのチェック ON: 控えがあれば元通りに戻し、無ければその列をキーに
+   *  1 つの種類を作る（G15 の split と同じ経路・owns はその列だけ）。 */
+  function promoteColumn(hostIdx: number, col: string) {
+    const stashed = kindStash[col]
+    if (stashed && !skeleton.maps.some((mm) => mm.name === stashed.name)) {
+      onChange({
+        ...skeleton,
+        maps: [...skeleton.maps.slice(0, hostIdx + 1), stashed, ...skeleton.maps.slice(hostIdx + 1)],
+      })
+      setAddedMap(stashed.name)
+      return
+    }
+    splitConcept(hostIdx, [col], col)
+  }
+
+  /** ゾーンのチェック OFF: その種類を外す（控えに取ってから）。チェックし直せば
+   *  そのまま戻るので、🗑 と違って確認は挟まない — 可逆な編集は問い詰めない。 */
+  function demoteColumn(col: string, kindName: string) {
+    const i = skeleton.maps.findIndex((mm) => mm.name === kindName)
+    if (i < 0) return
+    setKindStash((prev) => ({ ...prev, [col]: skeleton.maps[i] }))
+    onChange({ ...skeleton, maps: skeleton.maps.filter((_, j) => j !== i) })
+  }
   // この画面で人が確かめるのは「元の行数」と「種類ごとの件数」が意図と合っている
   // かの 1 点。ところがその数は各カードの証拠の奥（「この ID でできるもの: … 5 件」）
   // にしか無く、種類が増えるほど突き合わせが難しくなっていた。並べ方をどう変えても
@@ -1908,6 +1908,9 @@ export function SkeletonGate({
             if (cls) updateSubject(idx, { classes: [cls] })
           }}
           onFixColumn={(wrong, right) => fixColumnName(idx, wrong, right)}
+          cardInZone={
+            !!zone && ann.collapse_kind === 'singleton' && m.source === zone.host.source
+          }
           ownMapLabel={displayMapName(m.name)}
           containedInAfterFix={containedInAfterFixFor(idx)}
           onReattach={onReattach}
@@ -2108,6 +2111,74 @@ export function SkeletonGate({
               <span className="kz-stat-unit">{t('skeletongate:counts.kindUnit')}</span>
             </span>
           ))}
+        </div>
+      )}
+      {zone && (
+        <div className="skeleton-header-zone">
+          <p className="skeleton-section-head">
+            {t('skeletongate:zone.head')}
+            {multiSource && ` — ${basename(zone.host.source)}`}
+          </p>
+          <p className="kz-note kz-prose">{t('skeletongate:zone.lead')}</p>
+          <table className="skeleton-entity-props">
+            <tbody>
+              {[...zone.values.entries()].map(([col, value]) => {
+                const locked = zone.keyCols.has(col)
+                const kindName = locked ? undefined : zone.kindOf.get(col)
+                return (
+                  <tr key={col}>
+                    <td className="skeleton-entity-pick">
+                      <input
+                        type="checkbox"
+                        aria-label={t('workbench:skeleton.evidence.splitPick', { column: col })}
+                        checked={locked || !!kindName}
+                        disabled={locked || !canRevalidate}
+                        onChange={(e) =>
+                          e.target.checked
+                            ? promoteColumn(zone.idx, col)
+                            : demoteColumn(col, kindName!)
+                        }
+                      />
+                    </td>
+                    <th scope="row">{col}</th>
+                    <td>{value}</td>
+                    <td className="skeleton-zone-tag">
+                      {locked
+                        ? t('skeletongate:zone.isCardId', {
+                            name: displayMapName(zone.host.name),
+                          })
+                        : kindName
+                          ? t('skeletongate:zone.isKind', { name: displayMapName(kindName) })
+                          : null}
+                    </td>
+                  </tr>
+                )
+              })}
+              {(zone.ann.entity_preview!.varying_columns?.length ?? 0) > 0 && (
+                <>
+                  <tr className="skeleton-entity-band">
+                    <td colSpan={4}>
+                      ↓{' '}
+                      {zone.rowMap
+                        ? t('workbench:skeleton.evidence.cardDelegatedBand', {
+                            map: displayMapName(zone.rowMap),
+                          })
+                        : t('workbench:skeleton.evidence.cardDelegatedBandPlain')}
+                    </td>
+                  </tr>
+                  {zone.ann.entity_preview!.varying_columns.slice(0, 6).map((col) => (
+                    <tr key={col} className="skeleton-entity-delegated">
+                      <td className="skeleton-entity-pick" />
+                      <th scope="row">{col}</th>
+                      <td className="skeleton-entity-ghost-value" colSpan={2}>
+                        {t('workbench:skeleton.evidence.cardVaries')}
+                      </td>
+                    </tr>
+                  ))}
+                </>
+              )}
+            </tbody>
+          </table>
         </div>
       )}
       {plain ? (
