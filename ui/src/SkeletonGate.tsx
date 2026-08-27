@@ -410,14 +410,15 @@ function SkeletonEvidence({
   const ghostCols = (card?.varying_columns ?? []).slice(0, _GHOST_ROWS)
   const ghostMore = (card?.varying_columns.length ?? 0) - ghostCols.length
   const ghostGroups = groupByOwner(ghostCols, (col) => delegatedOwner.get(col))
+  // 食い違っている列は、たいてい 1 つではない（測定値の列がまとめて食い違う）。
+  // 同じ 1 文を列ごとに繰り返すと、カードの高さの半分が同じ文になり、しかも
+  // 「何が起きているか」は 1 回読めば足りる。1 回言って、列は値だけ並べる（G9）。
+  const conflictCols = cardProps.filter((p) => p.conflict).map((p) => p.column)
   const renderProp = (p: (typeof cardProps)[number], rowClass?: string) =>
     p.conflict ? (
       <tr key={p.column} className="skeleton-entity-conflict">
-        <th scope="row">{p.column}</th>
+        <th scope="row">⚠ {p.column}</th>
         <td>
-          <span className="skeleton-entity-conflict-note">
-            ⚠ {t('workbench:skeleton.evidence.cardConflict')}
-          </span>
           {(p.values ?? []).map((v) => (
             <div key={v.line} className="skeleton-entity-conflict-value">
               {t('workbench:skeleton.evidence.cardConflictLine', { value: v.value, line: v.line })}
@@ -594,6 +595,11 @@ function SkeletonEvidence({
                 greyed row used the same --faint as the omitted-columns line, so
                 "this value is the parent's" read as "skipped". The value itself
                 is real — what differs is where it belongs (ADR G12). */}
+            {conflictCols.length > 0 && (
+              <p className="skeleton-entity-conflict-head">
+                ⚠ {t('workbench:skeleton.evidence.cardConflict')}
+              </p>
+            )}
             <table className="skeleton-entity-props">
               <tbody>
                 {ownProps.map((p) => renderProp(p))}
@@ -1507,6 +1513,24 @@ export function SkeletonGate({
   // ファイル名は、2 つ以上のファイルを読んでいるときだけ出す。1 ファイルなら
   // どのカードにも同じ名前が並ぶだけで、種類どうしの違いを何も言わない。
   const multiSource = new Set(skeleton.maps.map((m) => m.source)).size > 1
+  // この画面で人が確かめるのは「元の行数」と「種類ごとの件数」が意図と合っている
+  // かの 1 点。ところがその数は各カードの証拠の奥（「この ID でできるもの: … 5 件」）
+  // にしか無く、種類が増えるほど突き合わせが難しくなっていた。並べ方をどう変えても
+  // 解けない — 見比べる材料が 1 か所に無いのが原因なので、S6 ①「数の確認」と同じ
+  // 帯をここにも出す。カードを畳もうがタブにしようが、この行は常に見えている。
+  const kindCounts = skeleton.maps
+    .map((m) => {
+      const a = annotations?.maps?.[m.name]
+      const label = compactClass(m.subject.classes?.[0] ?? '', nsDetected)
+      return label && a?.distinct_ids !== undefined ? { label, n: a.distinct_ids } : null
+    })
+    .filter((x): x is { label: string; n: number } => x !== null)
+  const sourceRows = multiSource
+    ? 0
+    : Math.max(
+        0,
+        ...skeleton.maps.map((m) => annotations?.maps?.[m.name]?.total_rows ?? 0),
+      )
   // 1 種類ぶんの中身を 1 度だけ組み立て、器だけを分ける。かんたん層はカード、
   // 詳細モードはこれまでどおりの表の行 — 中身は同じ式なので、片方を直すと
   // 両方に効く（同じものを 2 か所に書かない）。
@@ -1920,6 +1944,29 @@ export function SkeletonGate({
         </p>
       )}
       {!plain && nsCard}
+      {plain && kindCounts.length > 0 && (
+        <div className="kz-map-card">
+          {sourceRows > 0 && (
+            <>
+              <span className="kz-stat">
+                <span className="kz-stat-label">{t('skeletongate:counts.source')}</span>
+                <span className="kz-stat-num">{sourceRows.toLocaleString()}</span>
+                <span className="kz-stat-unit">{t('skeletongate:counts.rowUnit')}</span>
+              </span>
+              <span className="kz-map-arrow" aria-hidden="true">
+                →
+              </span>
+            </>
+          )}
+          {kindCounts.map((c) => (
+            <span key={c.label} className="kz-stat kz-stat--kind">
+              <span className="kz-stat-label">{c.label}</span>
+              <span className="kz-stat-num">{c.n.toLocaleString()}</span>
+              <span className="kz-stat-unit">{t('skeletongate:counts.kindUnit')}</span>
+            </span>
+          ))}
+        </div>
+      )}
       {plain ? (
         <div className="skeleton-kinds">{kindBlocks}</div>
       ) : (

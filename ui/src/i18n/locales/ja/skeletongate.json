@@ -68,5 +68,10 @@
   },
   "kindMissing": "この表の 1 行が何なのか、まだ決まっていません。下の例を見て、名前を入れてください（例: 試料 / 測定 / ピーク）。",
   "kindPlaceholder": "例: 試料",
-  "removeTitle": "この種類を設計から削除する"
+  "removeTitle": "この種類を設計から削除する",
+  "counts": {
+    "source": "元ファイル",
+    "rowUnit": "行",
+    "kindUnit": "件"
+  }
 }

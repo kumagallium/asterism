@@ -68,5 +68,10 @@
   },
   "kindMissing": "What one row of this table is has not been decided yet. Look at the example below and name it (e.g. sample, measurement, peak).",
   "kindPlaceholder": "e.g. sample",
-  "removeTitle": "Delete this kind from the design"
+  "removeTitle": "Delete this kind from the design",
+  "counts": {
+    "source": "Source file",
+    "rowUnit": "rows",
+    "kindUnit": "records"
+  }
 }

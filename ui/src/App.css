@@ -8551,3 +8551,11 @@ tr.kz-attn td {
 .skeleton-kind-card--settled > *:last-child {
   padding-bottom: var(--space-3);
 }
+
+/* 食い違いの見出し（1 回だけ）。列ごとの繰り返しをやめた分、ここが本文になる。 */
+.skeleton-entity-conflict-head {
+  margin: 0 0 0.3rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--warn-fg);
+}
