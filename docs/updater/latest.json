@@ -1,11 +1,11 @@
 {
-  "version": "0.22.2",
-  "notes": "<!-- Release notes generated using configuration in .github/release.yml at cdcc3df26b8a9bfeb9552469ef2965bc04cb5ff3 -->\n\n## What's Changed\n* feat(ui): 右下のボタンを「AI に相談」にする — 誰に相談するのかを押す前に示す by @kumagallium in https://github.com/kumagallium/asterism/pull/427\n* feat(desktop): バックエンドが止まったら気づかせて、その場で再起動できるようにする by @kumagallium in https://github.com/kumagallium/asterism/pull/430\n* fix(local): SIGTERM で Oxigraph / demo-agent が孤児として残るのを直す by @kumagallium in https://github.com/kumagallium/asterism/pull/431\n* fix(log): backend.log を読めるものにする — 死活確認のノイズ・世代・インスタンスの境目 by @kumagallium in https://github.com/kumagallium/asterism/pull/433\n* chore(ci): ui のユニットテストを CI で走らせる by @kumagallium in https://github.com/kumagallium/asterism/pull/432\n* feat(mcp): どのデータセットがあるかを機械が答える — find_datasets と、届いていなかった registry by @kumagallium in https://github.com/kumagallium/asterism/pull/438\n* feat: 公開したあとに「データの数えかた」を直せるようにする — 前の ID は引っ越し先を指す by @kumagallium in https://github.com/kumagallium/asterism/pull/437\n* feat(tier0): 単一 object のドットパス取得と Python リテラル repr の受理 — pandas の dict 列が展開できなかった by @kumagallium in https://github.com/kumagallium/asterism/pull/439\n* docs: ID の引っ越しを本番デプロイ済みに更新 — 既存データ無傷を確認 by @kumagallium in https://github.com/kumagallium/asterism/pull/440\n* fix(infra): Crucible から素直に deploy できるようにする — 内部ポートと subdir の mcp.json by @kumagallium in https://github.com/kumagallium/asterism/pull/434\n* fix(prod): ホームの「事実の数」が出ない — api の露出プロファイルを開ける by @kumagallium in https://github.com/kumagallium/asterism/pull/435\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.22.1...v0.22.2",
-  "pub_date": "2026-08-27T09:21:21Z",
+  "version": "0.22.3",
+  "notes": "<!-- Release notes generated using configuration in .github/release.yml at 1a1bf1a312111d1bdb328001d6e1d830960f46d1 -->\n\n## What's Changed\n* fix(desktop): 同梱コマンドがビルド機のパスを指したまま配布されていた by @kumagallium in https://github.com/kumagallium/asterism/pull/442\n\n\n**Full Changelog**: https://github.com/kumagallium/asterism/compare/v0.22.2...v0.22.3",
+  "pub_date": "2026-08-27T09:39:08Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcVNLUkVyYU9Td2YrdzBPdUJqa0p0eEE3V3lUSkRCWjNBU1BNTFRXTVprQjVNTGRjbnBRckRleWlZemNlSUZxaGwraXJaWGowSzAzSTRTWWlCc0ExTXdvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3ODIyNDgxCWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6CnVSY3hwZ1Q3eVVyUXd3M0JhZlpzRVhHNDMwWFllM0x5QVdYY01rQzZjNE5YdVM1QURudG4yaTQ3TUoxMzhlSnZhTzFnR0UrbmQ2ZGkyQ0tNeDIwNkRnPT0K",
-      "url": "https://github.com/kumagallium/asterism/releases/download/v0.22.2/Asterism_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYjh5VFNRQk5vcWVkekloRDc0SzF3NWdXT3kxUmd1Vm5La3ZGYndJeVNGQW5xQ2tLM0F3OElmNzl4QUo1TXlzQjF3RXh3djdNaTAxYVoxc3dIZ2E1QlhPZHpTR3l6QXdFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3ODIzNTQ4CWZpbGU6QXN0ZXJpc21fYWFyY2g2NC5hcHAudGFyLmd6Ci9pWUFaL0VKSmtrVzlUOXVOWGw4NVdsSEJ0YitDa2NtWS8wc3Q0MWRVcUZXY0lndVlSa2hhUGdTUW1sU0c5MGxkRTZDaFdjanM3MVFpY1p4ck5sM0FBPT0K",
+      "url": "https://github.com/kumagallium/asterism/releases/download/v0.22.3/Asterism_aarch64.app.tar.gz"
     }
   }
 }
