@@ -8438,23 +8438,47 @@ tr.kz-attn td {
   border-color: var(--primary);
   box-shadow: inset 3px 0 0 var(--primary);
 }
-/* 見出し行 = 「1 件が表すもの」の入力と、削除。名前がこのカードの題名なので、
-   入力は幅いっぱいに置く（表のセルだったころの 1 行分の幅ではない）。 */
+/* 見出し行 = 「1 件が表すもの」の入力（カードの題名）と、右上の削除。 */
 .skeleton-kind-head {
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
+  align-items: flex-start;
   gap: var(--space-2);
 }
-.skeleton-kind-head .skeleton-gate-input {
+.skeleton-kind-name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.skeleton-kind-name .skeleton-gate-input {
   width: 100%;
   font-size: 1rem;
   font-weight: 600;
 }
-/* 削除は破壊的なので、名前の下・右端に小さく置く（先頭に置くと最初に目が行く）。 */
-.skeleton-kind-head .skeleton-remove,
+/* 破壊的な操作はカードの右上に、アイコンで。文字で本文の流れの中に置くと、
+   読み終えるたびに目に入る。 */
+.skeleton-remove--icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--faint);
+  cursor: pointer;
+}
+.skeleton-remove--icon:hover:not(:disabled) {
+  color: var(--error-fg);
+  border-color: var(--error-border);
+  background: var(--error-bg);
+}
 .skeleton-kind-head .skeleton-remove-confirm {
-  align-self: flex-end;
+  flex: none;
 }
 /* 2 つ以上のファイルを読んでいるときだけ出る出所。 */
 .skeleton-kind-source {
@@ -8490,4 +8514,40 @@ tr.kz-attn td {
   .skeleton-entity-props tr:last-child td {
     padding-bottom: 0;
   }
+}
+
+/* 済んだ種類は畳む。種類が増えるほど、まだ答えていない種類が下へ押し出されて
+   見えなくなる — 一覧性が落ちるのは「開いている枚数」であって「並べ方」では
+   ないので、タブで隠すのではなく、答えの要らないものを 1 行に縮める。
+   K7 のとおり、畳んだ状態でも「1 行 = ◯◯」は必ず見えている。 */
+.skeleton-kind-card--settled {
+  padding: 0;
+}
+.skeleton-kind-card--settled > .skeleton-kind-summary {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  cursor: pointer;
+  list-style-position: inside;
+}
+.skeleton-kind-card--settled[open] > .skeleton-kind-summary {
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--space-2);
+}
+.skeleton-kind-summary-ok {
+  color: var(--entity);
+  font-weight: 700;
+}
+.skeleton-kind-summary-reading {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+.skeleton-kind-card--settled > *:not(.skeleton-kind-summary) {
+  padding-inline: var(--space-4);
+}
+.skeleton-kind-card--settled > *:last-child {
+  padding-bottom: var(--space-3);
 }

@@ -1651,6 +1651,67 @@ the deterministic default — the retries stay bounded so a model that cannot
 produce JSON does not burn a job's worth of tokens proving it."""
 
 
+def _unnamed_kinds(skeleton: Mapping[str, Any]) -> list[str]:
+    """Maps whose subject carries no class — the human gate's 「1 件が表すもの」."""
+    out: list[str] = []
+    for m in skeleton.get("maps") or []:
+        if not isinstance(m, Mapping):
+            continue
+        subject = m.get("subject")
+        classes = subject.get("classes") if isinstance(subject, Mapping) else None
+        if not (isinstance(classes, list) and any(str(c).strip() for c in classes)):
+            out.append(str(m.get("name") or ""))
+    return out
+
+
+def name_unnamed_kinds(
+    skeleton: Mapping[str, Any], *, ontology_prefix: str
+) -> tuple[dict, list[str]]:
+    """Give every kind a name, deterministically, when the model left it blank.
+
+    The gate asks 「1 件が表すもの」 and the answer decides what can ever be
+    counted or asked for by kind, so a blank is not a neutral default. The
+    JSON schema asks for one (``skeleton_json_schema``), and a retry asks again
+    with the omission named — but the schema only reaches providers that support
+    guided decoding (``AnthropicLLMClient`` has no ``response_schema`` at all),
+    so neither is a guarantee. This is.
+
+    The name comes from the MODEL's own map name (``peak`` → ``Peak``): a word
+    it chose while looking at the columns, not one invented here from nothing.
+    It is a proposal, not a verdict — the gate shows it in the editable field
+    with the same ⚠ it shows for anything the machine decided on the human's
+    behalf, and ``dropped``/``named`` is reported so the choice is never silent.
+    """
+    maps = skeleton.get("maps")
+    if not isinstance(maps, list):
+        return dict(skeleton), []
+    named: list[str] = []
+    out: list[Any] = []
+    for m in maps:
+        if not isinstance(m, Mapping):
+            out.append(m)
+            continue
+        subject = m.get("subject")
+        classes = subject.get("classes") if isinstance(subject, Mapping) else None
+        if isinstance(classes, list) and any(str(c).strip() for c in classes):
+            out.append(m)
+            continue
+        name = str(m.get("name") or "")
+        out.append(
+            {
+                **m,
+                "subject": {
+                    **(subject if isinstance(subject, Mapping) else {}),
+                    "classes": [f"{ontology_prefix}:{_class_name(name)}"],
+                },
+            }
+        )
+        named.append(name)
+    if not named:
+        return dict(skeleton), []
+    return {**skeleton, "maps": out}, named
+
+
 def _generate_skeleton_gated(
     inspection_md: str,
     domain_hint: str,
@@ -1689,7 +1750,17 @@ def _generate_skeleton_gated(
                 break
             continue
         if isinstance(skeleton.get("maps"), list) and skeleton["maps"]:
-            return skeleton, False
+            # 「1 件が表すもの」が空のまま返ることがある（guided decoding が届かない
+            # provider では schema の minItems が効かない）。人が答える前に、抜けを
+            # 名指しでもう一度頼む — 名前を付けるのに一番良い位置に居るのはモデル。
+            blank = _unnamed_kinds(skeleton)
+            if not blank or attempt >= _SKELETON_PARSE_ROUNDS:
+                return skeleton, False
+            issues = [
+                "every map's subject needs a non-empty `classes` (what ONE record of that"
+                " map is, e.g. `xo:Peak`); missing on: " + ", ".join(blank)
+            ]
+            continue
         # Parsed, but says nothing — same dead end as a parse failure.
         issues = ["the JSON object had no `maps` entries; every source needs one map"]
         if attempt >= _SKELETON_PARSE_ROUNDS:
@@ -1762,7 +1833,12 @@ def propose_skeleton(
         iri_base,
         fallback_slug=slugify_dataset_name(Path(csv_paths[0]).stem) if csv_paths else None,
     )
+    # 名前の無い種類が残っていたら、機械が置く（正規化のあと＝正しい prefix で）。
+    # ゲートは編集できる欄に ⚠ 付きで出すので、これは提案であって決定ではない。
+    skeleton, named = name_unnamed_kinds(skeleton, ontology_prefix=_ontology_prefix(skeleton))
     metadata: dict[str, Any] = {"llm_class": type(llm).__name__}
+    if named:
+        metadata["named_kinds"] = named
     if fallback:
         metadata["fallback"] = True
     return SkeletonProposal(

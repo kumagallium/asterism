@@ -17,6 +17,7 @@ import {
   slugifyDatasetName,
   STANDARD_VOCAB_IRIS,
 } from './datasetNamespace'
+import { TrashIcon } from './icons'
 import { Mermaid } from './Mermaid'
 import {
   basename,
@@ -1603,16 +1604,33 @@ export function SkeletonGate({
       ) : (
         <button
           type="button"
-          className="skeleton-remove"
+          className={plain ? 'skeleton-remove skeleton-remove--icon' : 'skeleton-remove'}
           disabled={busy}
           title={
             plain ? t('skeletongate:removeTitle') : t('workbench:skeleton.remove')
           }
+          aria-label={
+            plain ? t('skeletongate:removeTitle') : t('workbench:skeleton.remove')
+          }
           onClick={() => setConfirmRemove(m.name)}
         >
-          {plain ? t('skeletongate:remove') : t('workbench:skeleton.remove')}
+          {plain ? <TrashIcon size={15} /> : t('workbench:skeleton.remove')}
         </button>
       ))
+    // 「この種類はもう人の答えを待っていない」= 名前があり、検査が通り、⚠ が無い。
+    // ここで真になった種類だけを畳む。判定に迷うもの（検査できなかった等）は
+    // 開いたままにする — 見えないところで問題が眠るより、開いている方が安い。
+    const needsAttention =
+      (m.subject.classes ?? []).length === 0 ||
+      !ann ||
+      ann.reason === 'no-template' ||
+      ann.reason === 'missing-columns' ||
+      ann.reason === 'source-not-found' ||
+      !!ann.missing_row_kind ||
+      (ann.collapse_kind ? ann.collapse_kind === 'partial' : ann.is_unique === false) ||
+      ann.key_measurement_caution === true ||
+      (ann.undeclared_prefixes?.length ?? 0) > 0 ||
+      addedMap === m.name
     const keyCell = (
       <>
         {plain ? (
@@ -1689,11 +1707,6 @@ export function SkeletonGate({
             about by kind. Say it, in the cell where the answer
             goes. (The reading line above falls back to the map's
             own name, so the sentence alone cannot reveal this.) */}
-        {plain && (m.subject.classes ?? []).length === 0 && (
-          <p className="skeleton-evidence-line skeleton-evidence-warn">
-            ⚠ {t('skeletongate:kindMissing')}
-          </p>
-        )}
         <input
           type="text"
           className="skeleton-gate-input"
@@ -1712,10 +1725,14 @@ export function SkeletonGate({
             })
           }
         />
-        {/* A destructive control at the START of the row is the
-            first thing the eye lands on; at the end it reads as
-            what it is (after the row has been described). */}
-        {plain && removeControl}
+        {/* 欄の下に置く。上に出していたころは、入力する前から「⚠ まだ決まって
+            いません」が欄より先に目に入り、これから答える場所ではなく、すでに
+            間違えた場所に見えていた。 */}
+        {plain && (m.subject.classes ?? []).length === 0 && (
+          <p className="skeleton-evidence-line skeleton-evidence-warn">
+            ⚠ {t('skeletongate:kindMissing')}
+          </p>
+        )}
         {plain && addedMap === m.name && (
           <p className="skeleton-evidence-line skeleton-evidence-muted">
             {t('skeletongate:addedHint')}
@@ -1759,22 +1776,46 @@ export function SkeletonGate({
     if (plain) {
       // 採用デザイン（改善案A）の S4: 1 種類 = 1 枚。表の 3 列を横に読ませるのを
       // やめ、「これは何か」「ID はどう決まるか」「その証拠」を上から下へ 1 本で
-      // 読ませる。2 種類なら横に 2 枚、3 種類以上は折り返す（grid が決める）。
-      return (
-        <div
-          key={m.name}
-          data-map={m.name}
-          className={
-            addedMap === m.name
-              ? 'skeleton-kind-card skeleton-kind-card--added'
-              : 'skeleton-kind-card'
-          }
-        >
-          <div className="skeleton-kind-head">{kindCell}</div>
+      // 読ませる。
+      const body = (
+        <>
+          <div className="skeleton-kind-head">
+            <div className="skeleton-kind-name">{kindCell}</div>
+            {/* 破壊的な操作はカードの右上。本文の流れの中に置くと、読み終える
+                たびに目に入る。アイコン + aria-label（「削除」の 2 文字でも、
+                名前がまだ無いカードでは何を消すのか読めない）。 */}
+            {removeControl}
+          </div>
           {multiSource && <p className="skeleton-kind-source">{m.source}</p>}
           <div className="skeleton-kind-key">{keyCell}</div>
           {evidenceBlock}
-        </div>
+        </>
+      )
+      const cls = addedMap === m.name
+        ? 'skeleton-kind-card skeleton-kind-card--added'
+        : 'skeleton-kind-card'
+      if (needsAttention) {
+        return (
+          <div key={m.name} data-map={m.name} className={cls}>
+            {body}
+          </div>
+        )
+      }
+      // 済んだ種類は畳む。K7 は「畳んだ map にも『1 行=◯◯』の読み取り文を必ず
+      // 表示」と定めているので、要約がその 1 文を持つ。開いたままだと、種類が
+      // 増えるほど「まだ答えていない種類」が下へ押し出されて見えなくなる。
+      return (
+        <details key={m.name} data-map={m.name} className={`${cls} skeleton-kind-card--settled`}>
+          <summary className="skeleton-kind-summary">
+            {/* 名前は読み取り文が「」で持っているので、ここで二度言わない。
+                ✓ は「この種類はもう答えを待っていない」の印。 */}
+            <span className="skeleton-kind-summary-ok" aria-hidden="true">
+              ✓
+            </span>
+            <span className="skeleton-kind-summary-reading">{readingFor(m, ann)}</span>
+          </summary>
+          {body}
+        </details>
       )
     }
     return (

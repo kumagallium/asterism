@@ -1112,3 +1112,29 @@ def test_skeleton_schema_requires_a_kind_name() -> None:
     # 完成した IR 側は据え置き（あとから足した規則で、保存済みの設計を読めなくしない）
     full = mapping_ir_json_schema()["properties"]["maps"]["items"]["properties"]["subject"]
     assert "minItems" not in full["properties"]["classes"]
+
+
+def test_name_unnamed_kinds_uses_the_models_own_map_name() -> None:
+    """「1 件が表すもの」が空のまま返ったら、機械がモデル自身の map 名から置く。"""
+    from asterism_step0.staged_propose import name_unnamed_kinds
+
+    skeleton = {
+        "version": 1,
+        "prefixes": {"xo": "https://ns.invalid/o#", "xr": "https://ns.invalid/r/"},
+        "maps": [
+            {"name": "peak", "source": "a.csv",
+             "subject": {"template": "xr:peak/{No}", "classes": []}},
+            {"name": "xrd_dataset", "source": "a.csv", "subject": {"constant": "xr:d"}},
+            {"name": "sample", "source": "a.csv",
+             "subject": {"template": "xr:sample/{No}", "classes": ["xo:試料"]}},
+        ],
+    }
+    out, named = name_unnamed_kinds(skeleton, ontology_prefix="xo")
+    assert named == ["peak", "xrd_dataset"]
+    assert [m["subject"]["classes"] for m in out["maps"]] == [
+        ["xo:Peak"], ["xo:XrdDataset"], ["xo:試料"],
+    ]
+    # 名前が揃っていれば何も足さない（冪等）
+    again, named2 = name_unnamed_kinds(out, ontology_prefix="xo")
+    assert named2 == []
+    assert again["maps"] == out["maps"]
