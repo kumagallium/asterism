@@ -43,7 +43,11 @@ ENV ASTERISM_DATASETS_ROOT=/app/datasets
 # Phase 3 follow-up.
 WORKDIR /root
 
-EXPOSE 8002
+# Crucible publishes every deployed MCP server as ``-p <host-port>:8000`` — the
+# CONTAINER-side port is fixed at 8000 by the platform, and its health check
+# probes ``/mcp`` there. The CLI's own default (8002) is unchanged for local
+# runs; this image binds 8000 so a Crucible deploy comes up healthy without any
+# per-server configuration. ``compose.mcp-front.yaml`` maps host 8002 -> 8000.
+EXPOSE 8000
 
-# asterism's CLI defaults to HTTP transport on 0.0.0.0:8002.
-CMD ["asterism", "--host", "0.0.0.0", "--port", "8002"]
+CMD ["asterism", "--host", "0.0.0.0", "--port", "8000"]

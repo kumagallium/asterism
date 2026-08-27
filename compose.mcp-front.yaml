@@ -49,5 +49,7 @@ services:
     volumes:
       - ${ASTERISM_REGISTRY_HOST_DIR:-./data/sources/registry}:/data/registry:ro
     ports:
-      - "8002:8002"   # FastMCP HTTP transport (path /mcp) — register this front
+      # Host 8002 (unchanged) -> container 8000. The image binds 8000 because
+      # Crucible fixes the container-side port there — see infra/asterism/Dockerfile.
+      - "8002:8000"   # FastMCP HTTP transport (path /mcp) — register this front
     restart: unless-stopped
