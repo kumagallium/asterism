@@ -1202,3 +1202,25 @@ def test_skeleton_retry_never_loses_kinds(tmp_path: Path) -> None:
 
     out = propose_skeleton([csv], "", llm=_LLM())
     assert len(out.skeleton["maps"]) == 2, out.skeleton["maps"]
+
+
+def test_normalize_key_separators_puts_a_slash_between_key_columns() -> None:
+    """`{a}_{b}` は 1 つの区間に融合して住所を曖昧にする。`/` に揃える。"""
+    from asterism_step0.staged_propose import normalize_key_separators
+
+    out, changed = normalize_key_separators({
+        "maps": [
+            {"name": "peak", "subject": {"template": "xr:peak/{No}_{2theta}"}},
+            {"name": "fused", "subject": {"template": "xr:x/{a}{b}"}},
+            # 意図した経路は触らない
+            {"name": "path", "subject": {"template": "xr:sample/{id}/measurement/{t}"}},
+            {"name": "one", "subject": {"template": "xr:one/{id}"}},
+        ]
+    })
+    assert changed == ["peak", "fused"]
+    assert [m["subject"]["template"] for m in out["maps"]] == [
+        "xr:peak/{No}/{2theta}",
+        "xr:x/{a}/{b}",
+        "xr:sample/{id}/measurement/{t}",
+        "xr:one/{id}",
+    ]

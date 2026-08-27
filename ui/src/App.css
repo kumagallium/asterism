@@ -8591,3 +8591,40 @@ tr.kz-attn td {
   border-radius: var(--radius-sm);
   padding: var(--space-3);
 }
+
+/* 見出しに見出しの顔をさせる。畳みの summary と地の文が同じ 0.82rem / --muted
+   だったので、「見取り図」も「進め方」も本文に埋もれていた（利用者評価
+   2026-08-27「見出し感がなくて区別がつきづらい」「コントラストが低い」）。 */
+.skeleton-section-head {
+  margin: var(--space-2) 0 var(--space-1);
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--fg);
+}
+.skeleton-diagram-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+/* 畳みの見出しも本文と同じ濃さにする。--muted は「二次情報」の色だが、
+   summary は押す場所なので、押せると分かる濃さが要る。 */
+.kz-fold > summary,
+.skeleton-fold > summary,
+.kz-links summary,
+.kz-stop-detail summary {
+  color: var(--body);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.kz-fold > summary:hover,
+.skeleton-fold > summary:hover {
+  color: var(--fg);
+}
+/* 証拠の地の文。--muted のままだと、根拠として読ませたい行が
+   「読まなくていい行」の色になる。 */
+.skeleton-kind-card .skeleton-evidence-muted {
+  color: var(--body);
+}
+.skeleton-gate-hint {
+  color: var(--body);
+}

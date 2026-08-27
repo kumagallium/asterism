@@ -69,6 +69,7 @@ __all__ = [
     "assemble_mapping_ir",
     "default_property_table",
     "drop_duplicate_properties",
+    "normalize_key_separators",
     "twin_maps",
     "default_skeleton",
     "fill_mapping_spec_block",
@@ -138,6 +139,9 @@ Rules:
   facts, be counted, or be cited, and two files naming the same thing never fold
   into one record. A value that only means something inside THIS file (a
   free-text note, a local serial, a comment) stays a property.
+  WHEN IN DOUBT, PROMOTE. An extra map the reader does not want is one click to
+  delete at the gate; a map that is missing cannot be added later without
+  redoing the design, and by then IDs may already have been handed out.
 - `note` (optional, free text) records the key/class rationale for the human who
   reviews this skeleton. It is dropped from the final mapping — put no data in it.
 """
@@ -1714,6 +1718,44 @@ def twin_maps(skeleton: Mapping[str, Any]) -> list[list[str]]:
     return [names for names in groups.values() if len(names) > 1]
 
 
+def normalize_key_separators(skeleton: Mapping[str, Any]) -> tuple[dict, list[str]]:
+    """Put ``/`` between adjacent key columns in every subject template.
+
+    Observed live (2026-08-27): the model wrote ``peak/{No}_{2theta}``. Fusing
+    two key columns into ONE IRI segment makes the address ambiguous — a value
+    that itself contains the separator lets two different rows render the same
+    IRI (``a_b`` + ``c`` and ``a`` + ``b_c``), and nothing catches it: the
+    uniqueness check proves the COLUMN TUPLE unique, not the rendered string.
+    With ``/`` each column is its own path segment and the engine percent-encodes
+    any ``/`` inside a value, so the collision cannot happen.
+
+    Only the gap between two adjacent placeholders is touched, and only when it
+    carries no ``/`` of its own — a deliberate path like
+    ``sample/{id}/measurement/{t}`` is left exactly as written. Same convention
+    the machine's own rewrites use (:func:`skeleton_annotate._rewrite_key_template`).
+    """
+    maps = skeleton.get("maps")
+    if not isinstance(maps, list):
+        return dict(skeleton), []
+    changed: list[str] = []
+    out: list[Any] = []
+    for m in maps:
+        subject = m.get("subject") if isinstance(m, Mapping) else None
+        template = subject.get("template") if isinstance(subject, Mapping) else None
+        if not isinstance(template, str) or "}" not in template:
+            out.append(m)
+            continue
+        fixed = re.sub(r"\}([^/{}]*)\{", "}/{", template)
+        if fixed == template:
+            out.append(m)
+            continue
+        out.append({**m, "subject": {**subject, "template": fixed}})
+        changed.append(str(m.get("name") or ""))
+    if not changed:
+        return dict(skeleton), []
+    return {**skeleton, "maps": out}, changed
+
+
 def name_unnamed_kinds(
     skeleton: Mapping[str, Any], *, ontology_prefix: str
 ) -> tuple[dict, list[str]]:
@@ -1903,9 +1945,13 @@ def propose_skeleton(
     # 名前の無い種類が残っていたら、機械が置く（正規化のあと＝正しい prefix で）。
     # ゲートは編集できる欄に ⚠ 付きで出すので、これは提案であって決定ではない。
     skeleton, named = name_unnamed_kinds(skeleton, ontology_prefix=_ontology_prefix(skeleton))
+    # ID の区切りは機械の規約（`/`）に揃える。融合した区間は住所を曖昧にする。
+    skeleton, resep = normalize_key_separators(skeleton)
     metadata: dict[str, Any] = {"llm_class": type(llm).__name__}
     if named:
         metadata["named_kinds"] = named
+    if resep:
+        metadata["key_separators_fixed"] = resep
     if fallback:
         metadata["fallback"] = True
     return SkeletonProposal(

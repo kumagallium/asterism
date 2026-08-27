@@ -562,7 +562,11 @@ def test_propose_skeleton_streams_skeleton(
         ann = done["annotations"]["maps"]["sample"]
         assert ann["checkable"] is True
         assert ann["is_unique"] is True
-        assert ann["id_previews"][0] == "https://ns.invalid/r/sample/1-10"
+        # 複合キーの区切りは `/`（2026-08-27）。`{a}-{b}` のように 1 つの区間へ
+        # 融合すると、値そのものが区切り文字を含むとき（`03-065-2664` など）
+        # 別々の行が同じ IRI を作りうる — 一意性の検査は列の組を見ていて、
+        # 出来上がる文字列は見ていない。`normalize_key_separators` が揃える。
+        assert ann["id_previews"][0] == "https://ns.invalid/r/sample/1/10"
 
 
 def test_skeleton_validate_recomputes_evidence_for_edits(

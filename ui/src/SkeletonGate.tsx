@@ -1401,13 +1401,17 @@ export function SkeletonGate({
   const diagramBlock = !plain ? (
     diagram
   ) : skeleton.maps.length > 1 ? (
-    <details className="skeleton-fold">
-      <summary>
-        {t('skeletongate:diagram.summary', { count: skeleton.maps.length })}
+    /* 畳まない（利用者評価 2026-08-27）。「何種類あって、どうつながっているか」は
+       この画面で最初に掴む形そのもので、開く手間を挟むものではない。畳みの
+       ▶ が付いていたころは、カードの中の他のものより 1 段左から始まっていて
+       同じ面の一部に見えなかった。 */
+    <div className="skeleton-diagram-block">
+      <p className="skeleton-section-head">
+        {t('skeletongate:diagram.head', { count: skeleton.maps.length })}
         {diagramLinked && t('skeletongate:diagram.linked')}
-      </summary>
+      </p>
       {diagram}
-    </details>
+    </div>
   ) : null
 
   // The ID-shape card. Once the issuer is configured this is one settled line

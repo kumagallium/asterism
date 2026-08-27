@@ -13,6 +13,7 @@ import {
   type ApplySuggestionsResult,
 } from './consultApply'
 import { useConsultContext } from './consultContext'
+import { onConsultRequested } from './consultOpen'
 import { ConsultMarkdown } from './ConsultMarkdown'
 import {
   appendConsultMessage,
@@ -96,6 +97,15 @@ export function ConsultDrawer() {
   const thread = threads.find((th) => th.id === activeThreadId)
 
   const [draft, setDraft] = useState('')
+  // 「空欄があったら相談で直せます」— その場から開く。文面は入れるが送らない。
+  useEffect(
+    () =>
+      onConsultRequested((prefill) => {
+        setOpen(true)
+        setDraft(prefill)
+      }),
+    [],
+  )
   const [editingTurnId, setEditingTurnId] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const inflightRef = useRef<{ controller: AbortController; assistantTurnId: string } | null>(

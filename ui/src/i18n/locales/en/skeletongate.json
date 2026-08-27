@@ -15,7 +15,8 @@
   "noteSummary": "Show the AI's note",
   "diagram": {
     "summary": "See the sketch ({{count}} kinds)",
-    "linked": " · the IDs link to each other"
+    "linked": " · the IDs link to each other",
+    "head": "The picture ({{count}} kinds)"
   },
   "key": {
     "from1": "The ID is decided by {{columns}}",

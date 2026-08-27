@@ -83,6 +83,7 @@ import { termColumns, templateColumns, transcribedColumn } from '../ruleColumns'
 import { localName } from '../vocab'
 import { plainError } from './errorMessages'
 import { RecipeCard, type RecipeStep } from './RecipeCard'
+import { requestConsult } from '../consult/consultOpen'
 
 // The kantan (かんたん) tier wizard — ADR kantan-mode-two-tier-ux.md, S1-S9.
 // A linear, plain-language flow over the SAME backend calls the detail tier
@@ -1408,7 +1409,15 @@ export function KantanWizard({
       handedToDetail: false,
     }
     try {
-      sessionStorage.setItem(KZ_STORAGE, JSON.stringify(snapshot))
+      // 公開まで行き着いた運びは「その場の結果」であって、次に来たときの続きでは
+      // ない。保存すると、あとで「データを追加」を押した人が前の完了カードに着地
+      // する（利用者報告 2026-08-27）。この画面を見ている間は React の state が
+      // 持っているので、消えるのは次に来たときだけ。
+      if (published && step === 9) {
+        sessionStorage.removeItem(KZ_STORAGE)
+      } else {
+        sessionStorage.setItem(KZ_STORAGE, JSON.stringify(snapshot))
+      }
     } catch {
       /* sessionStorage may be unavailable — non-fatal */
     }
@@ -5514,7 +5523,23 @@ export function KantanWizard({
           )}
           {/* Standing text, not a tooltip: whoever sees a ⚠ must be told what
               it means and that they may continue (KZ-B-04). */}
-          {missingMeanings > 0 && <p className="kz-note">{t('kantan:s6.missingMeaning')}</p>}
+          {missingMeanings > 0 && (
+            <>
+              <p className="kz-note kz-prose">{t('kantan:s6.missingMeaning')}</p>
+              {/* AI チャット → 空欄（一括反映）は既にある。その逆 — 空欄を見つけた
+                  その場から相談を開ける導線。文面は入れるが送らない（相談は LLM を
+                  呼ぶので、押したつもりのない課金を作らない）。 */}
+              <div className="kz-actions">
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--sm"
+                  onClick={() => requestConsult(t('kantan:s6.askConsultPrefill'))}
+                >
+                  {t('kantan:s6.askConsult')}
+                </button>
+              </div>
+            </>
+          )}
           {/* Columns the generated mapping left unused are a HUMAN decision, not
               an invitation to run the same model again. Every physical
               source+column gets an explicit include/exclude choice. An include
@@ -5712,7 +5737,18 @@ export function KantanWizard({
                </p>
               )}
               {columnDecisionsIncomplete && (
-               <p className="kz-note">{t('kantan:s6.unmappedIncomplete')}</p>
+               <>
+                 <p className="kz-note kz-prose">{t('kantan:s6.unmappedIncomplete')}</p>
+                 <div className="kz-actions">
+                   <button
+                     type="button"
+                     className="btn btn--ghost btn--sm"
+                     onClick={() => requestConsult(t('kantan:s6.askConsultUnmappedPrefill'))}
+                   >
+                     {t('kantan:s6.askConsult')}
+                   </button>
+                 </div>
+               </>
               )}
               {columnDecisionSaving && (
                <p className="kz-note" role="status">

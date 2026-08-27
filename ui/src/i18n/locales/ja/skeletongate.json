@@ -15,7 +15,8 @@
   "noteSummary": "AI の説明を見る",
   "diagram": {
     "summary": "見取り図を見る（{{count}} 種類）",
-    "linked": "・ID どうしがつながっています"
+    "linked": "・ID どうしがつながっています",
+    "head": "見取り図（{{count}} 種類）"
   },
   "key": {
     "from1": "ID は {{columns}} で決まります",
