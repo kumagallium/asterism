@@ -29,6 +29,7 @@ import {
   getDatasetHistorySnapshot,
   getDatasetRules,
 } from './galleryApi'
+import { copyText } from './clipboard'
 import { labelFor, tailOf } from './termLabels'
 import { termColumns } from './ruleColumns'
 
@@ -178,28 +179,6 @@ function downloadText(name: string, content: string) {
   a.download = name
   a.click()
   URL.revokeObjectURL(url)
-}
-
-async function copyText(content: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(content)
-    return true
-  } catch {
-    // http:// origins have no async clipboard — fall back to a temp textarea.
-    try {
-      const ta = document.createElement('textarea')
-      ta.value = content
-      ta.style.position = 'fixed'
-      ta.style.opacity = '0'
-      document.body.appendChild(ta)
-      ta.select()
-      const ok = document.execCommand('copy')
-      ta.remove()
-      return ok
-    } catch {
-      return false
-    }
-  }
 }
 
 // ---------------------------------------------------------------------------

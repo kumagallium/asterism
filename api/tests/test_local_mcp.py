@@ -116,3 +116,22 @@ def test_api_routes_survive_the_mount(tmp_path: Path) -> None:
     with TestClient(_app(tmp_path)) as client:
         assert client.get("/health").status_code == 200
         assert client.get("/jobs").status_code == 200
+
+
+def test_info_reports_the_endpoint_to_register(tmp_path: Path) -> None:
+    """The settings screen builds its instructions from what the SERVER says.
+
+    8765 is only a preference — a fallback port must not turn the screen into
+    a confident, wrong string — so the UI never composes this URL itself.
+    """
+    from asterism_api.main import build_app
+
+    settings = _settings(tmp_path)
+    settings.single_user = True
+    settings.appdata_root = tmp_path / "appdata"
+    settings.mcp_url = "http://127.0.0.1:8801/mcp"
+    app = build_app(settings, oxigraph_client=_fake_oxigraph(), start_watcher=False)
+    with TestClient(app) as client:
+        assert client.get("/api/appdata/info").json()["mcp_url"] == (
+            "http://127.0.0.1:8801/mcp"
+        )

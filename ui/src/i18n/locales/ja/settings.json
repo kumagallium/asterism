@@ -9,7 +9,8 @@
     "server": "このサーバ",
     "usage": "AI の使用量",
     "storage": "保存先",
-    "about": "このアプリ"
+    "about": "このアプリ",
+    "connect": "ほかの AI から使う"
   },
   "provider": {
     "anthropic": "Anthropic (Claude)",
@@ -182,5 +183,50 @@
     "noticeMoved": "前回の起動時、保存先を {{to}} へ移動しました。",
     "noticeCopied": "前回の起動時、保存先を {{to}} へコピーしました。旧フォルダ（{{from}}）にもデータが残っています。不要であれば削除してかまいません。",
     "noticeFailed": "前回の起動時、保存先の移行に失敗しました。設定は取り消され、以前の場所で起動しています。詳細: {{detail}}"
+  },
+  "connect": {
+    "title": "ほかの AI から使う",
+    "intro": "このアプリに取り込んだデータを、ほかの AI から直接聞けるようにします。AI 側に下の接続先を教えるだけで、データのコピーは要りません。",
+    "urlLabel": "接続先",
+    "copy": "コピー",
+    "copied": "コピーしました",
+    "copyUrl": "接続先をコピー",
+    "copySnippet": "設定内容をコピー",
+    "clientLabel": "使っている AI",
+    "clients": {
+      "claude-code": "Claude Code",
+      "claude-desktop": "Claude Desktop",
+      "cursor": "Cursor",
+      "vscode": "VS Code",
+      "other": "その他"
+    },
+    "steps": {
+      "claude-code": [
+        "ターミナルを開きます。",
+        "下のコマンドを貼り付けて実行します。",
+        "「claude mcp list」に asterism が出れば完了です。"
+      ],
+      "claude-desktop": [
+        "Claude Desktop の 設定 →「コネクタ」を開きます。",
+        "「カスタムコネクタを追加」を選びます。",
+        "上の接続先を貼り付けて追加します。"
+      ],
+      "cursor": [
+        "ホームフォルダの .cursor/mcp.json を開きます（無ければ新しく作ります）。",
+        "下の内容を貼り付けて保存します。",
+        "Cursor の設定の MCP 一覧に asterism が出れば完了です。"
+      ],
+      "vscode": [
+        "作業フォルダの .vscode/mcp.json を開きます（無ければ新しく作ります）。",
+        "下の内容を貼り付けて保存します。",
+        "エージェントモードのツール一覧に asterism が出れば完了です。"
+      ],
+      "other": [
+        "接続方式に MCP（HTTP / streamable-http）を選びます。",
+        "上の接続先をそのまま指定します。"
+      ]
+    },
+    "caveat": "Asterism を起動している間だけ使えます。アプリを終了すると、AI からは繋がらなくなります。",
+    "unavailable": "この画面からは接続先を出せません。デスクトップアプリの画面から開いてください。"
   }
 }

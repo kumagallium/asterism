@@ -148,7 +148,9 @@ def ensure_write_token(home: Path) -> str:
     return token
 
 
-def local_env(home: Path, oxigraph_url: str, token: str) -> dict[str, str]:
+def local_env(
+    home: Path, oxigraph_url: str, token: str, *, mcp_url: str | None = None
+) -> dict[str, str]:
     """Env defaults for a local run, applied with ``setdefault`` (user wins).
 
     ``ASTERISM_EXPOSE_RAW_SPARQL=1``: the single-user loopback box is the
@@ -174,6 +176,11 @@ def local_env(home: Path, oxigraph_url: str, token: str) -> dict[str, str]:
         # the appdata routes there stay 404 and behaviour is unchanged.
         "ASTERISM_SINGLE_USER": "1",
         "ASTERISM_APPDATA_ROOT": str(home / "appdata"),
+        # The MCP endpoint to register in an external AI client (ADR
+        # mcp-endpoint-on-the-app.md). Built from the port that was actually
+        # bound, not from the 8765 preference: the settings screen shows this
+        # string verbatim, and a confident wrong URL is worse than none.
+        **({"ASTERISM_MCP_URL": mcp_url} if mcp_url else {}),
     }
 
 
@@ -713,7 +720,8 @@ def main(argv: list[str] | None = None) -> int:
             home / "oxigraph_store",
         )
 
-    for key, value in local_env(home, oxigraph_url, token).items():
+    mcp_url = None if args.no_mcp else f"http://127.0.0.1:{args.port}{MCP_PATH}"
+    for key, value in local_env(home, oxigraph_url, token, mcp_url=mcp_url).items():
         os.environ.setdefault(key, value)
 
     ui_dist = find_ui_dist(args.ui_dist)
@@ -770,11 +778,9 @@ def main(argv: list[str] | None = None) -> int:
         )
         url = f"http://127.0.0.1:{args.port}/"
         logger.info("Asterism local: %s (data: %s)", url, home)
-        if not args.no_mcp:
-            # Logged as the literal string a person pastes into their AI
-            # client, port included — this is the only place that knows the
-            # port actually bound.
-            logger.info("MCP endpoint: http://127.0.0.1:%d%s", args.port, MCP_PATH)
+        if mcp_url:
+            # The literal string a person registers in their AI client.
+            logger.info("MCP endpoint: %s", mcp_url)
         _serve(
             app,
             port=args.port,
