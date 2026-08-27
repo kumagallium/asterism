@@ -92,6 +92,6 @@
   },
   "removeZoneHost": "This kind holds the table-wide values. Deleting it also removes the “choose the values” list. If you only want a different ID column, use “Write the ID recipe yourself”.",
   "kindsHead": "Check that each ID points at one thing",
-  "kindsLead": "For each kind you chose in ①, check its name and how its ID is built. Only the kinds marked ⚠ need your attention.",
-  "kindNameNote": "This name goes inside the ID (and cannot change once published). What each column’s value MEANS is decided on the next screen."
+  "kindsLead": "For each kind you chose in ①, check its name and how its ID is built. Only the kinds marked ⚠ need your attention. Until you publish, you can change these as often as you like.",
+  "kindNameNote": "This name says WHAT each record is, and is what people search and cite by (the text inside the ID is set separately, under “Write the ID recipe yourself”). Until you publish, both the name and the ID can be changed as often as you like."
 }

@@ -720,12 +720,16 @@ function SkeletonEvidence({
             <details className="skeleton-fold">
               <summary>
                 {t('workbench:skeleton.evidence.cardBorrowedWhyHead', {
-                  map: mapName(borrowed[0].owner_map),
+                  map: [...new Set(borrowed.map((b) => mapName(b.owner_map)))].join(
+                    t('skeletongate:key.listSeparator'),
+                  ),
                 })}
               </summary>
               <p className="skeleton-evidence-line skeleton-evidence-muted">
                 {t('workbench:skeleton.evidence.cardBorrowedWhy', {
-                  map: mapName(borrowed[0].owner_map),
+                  map: [...new Set(borrowed.map((b) => mapName(b.owner_map)))].join(
+                    t('skeletongate:key.listSeparator'),
+                  ),
                 })}
               </p>
             </details>
@@ -1165,7 +1169,7 @@ export function SkeletonGate({
    *  the same source, keyed by the human's identity column, carrying `owns` =
    *  the columns they ticked. Named after the key so the row reads as what it
    *  is; a starter class in the parent's vocabulary (renamable, like the rest). */
-  function splitConcept(idx: number, columns: string[], key: string) {
+  function splitConcept(idx: number, columns: string[], key: string, jump = true) {
     const parent = skeleton.maps[idx]
     if (!parent || columns.length === 0 || !key) return
     const template = parent.subject.template ?? ''
@@ -1200,7 +1204,10 @@ export function SkeletonGate({
       ...skeleton,
       maps: [...skeleton.maps.slice(0, idx + 1), added, ...skeleton.maps.slice(idx + 1)],
     })
-    setAddedMap(added.name)
+    // ①で続けてチェックを付けたいのに、1 つ押すたび②へスクロールして戻される
+    // のは邪魔（利用者評価 2026-08-28）。①からの昇格は、その場（件数バンドと
+    // 右のタグ）が即時に変わるので、飛ばす必要がない。
+    if (jump) setAddedMap(added.name)
   }
 
   /** Remove a map. Being able to add but not remove made the gate a one-way
@@ -1655,10 +1662,9 @@ export function SkeletonGate({
         ...skeleton,
         maps: [...skeleton.maps.slice(0, hostIdx + 1), stashed, ...skeleton.maps.slice(hostIdx + 1)],
       })
-      setAddedMap(stashed.name)
       return
     }
-    splitConcept(hostIdx, [col], col)
+    splitConcept(hostIdx, [col], col, false)
   }
 
   /** ゾーンのチェック OFF: その種類を外す（控えに取ってから）。チェックし直せば
@@ -2146,29 +2152,6 @@ export function SkeletonGate({
           })}
         </p>
       )}
-      {plain && kindCounts.length > 0 && (
-        <div className="kz-map-card">
-          {sourceRows > 0 && (
-            <>
-              <span className="kz-stat">
-                <span className="kz-stat-label">{t('skeletongate:counts.source')}</span>
-                <span className="kz-stat-num">{sourceRows.toLocaleString()}</span>
-                <span className="kz-stat-unit">{t('skeletongate:counts.rowUnit')}</span>
-              </span>
-              <span className="kz-map-arrow" aria-hidden="true">
-                →
-              </span>
-            </>
-          )}
-          {kindCounts.map((c) => (
-            <span key={c.label} className="kz-stat kz-stat--kind">
-              <span className="kz-stat-label">{c.label}</span>
-              <span className="kz-stat-num">{c.n.toLocaleString()}</span>
-              <span className="kz-stat-unit">{t('skeletongate:counts.kindUnit')}</span>
-            </span>
-          ))}
-        </div>
-      )}
       {zone && (
         <div className="skeleton-header-zone">
           {/* この画面には仕事が 2 つある（値をえらぶ / ID を確かめる）。番号を
@@ -2294,6 +2277,34 @@ export function SkeletonGate({
             {t('skeletongate:kindsHead')}
           </p>
           <p className="kz-note kz-prose">{t('skeletongate:kindsLead')}</p>
+          {/* 件数は①の選択の**結果**（チェックを付けると件数が増える）。①の前に
+              置くと、番号の付いていない帯が説明と①の間に挟まって順序が読めない。
+              ②の開き＝「いまある種類とその件数」として置く（利用者評価
+              2026-08-28）。 */}
+      {plain && kindCounts.length > 0 && (
+            <div className="kz-map-card">
+              {sourceRows > 0 && (
+                <>
+                  <span className="kz-stat">
+                    <span className="kz-stat-label">{t('skeletongate:counts.source')}</span>
+                    <span className="kz-stat-num">{sourceRows.toLocaleString()}</span>
+                    <span className="kz-stat-unit">{t('skeletongate:counts.rowUnit')}</span>
+                  </span>
+                  <span className="kz-map-arrow" aria-hidden="true">
+                    →
+                  </span>
+                </>
+              )}
+              {kindCounts.map((c) => (
+                <span key={c.label} className="kz-stat kz-stat--kind">
+                  <span className="kz-stat-label">{c.label}</span>
+                  <span className="kz-stat-num">{c.n.toLocaleString()}</span>
+                  <span className="kz-stat-unit">{t('skeletongate:counts.kindUnit')}</span>
+                </span>
+              ))}
+            </div>
+          )}
+
           {kindBlocks.length > 1 && (
             /* 種類ごとに切り替える。カードを縦に積むと、種類が増えるほど「まだ
                答えていない種類」が下へ押し出されて見えなくなる（利用者の指摘
