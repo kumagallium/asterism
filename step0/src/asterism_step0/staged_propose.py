@@ -128,14 +128,16 @@ Rules:
 - ENTITY LINKING: design keys so entities can join later (a measurement carries
   the key of the thing it measures, a record carries its source key). Skeletons
   whose entities cannot reach each other cannot answer cross-entity questions.
-- PROMOTE THE THINGS THE OUTSIDE WORLD ALSO NAMES. When a column holds a chemical
-  formula, a substance/species name, a space group, a catalogue or accession
-  number, a DOI — give it its OWN map, even when this file mentions it once.
-  Those are the entities later files and later datasets will be ABOUT: as a plain
-  property the value can never carry its own facts, be counted, or be cited, and
-  two files naming the same thing never fold into one record. A value that only
-  means something inside THIS file (a free-text note, a local serial, a comment)
-  stays a property.
+- PROMOTE THE THINGS THE OUTSIDE WORLD ALSO NAMES. When a column holds a value
+  that other files or other datasets would ALSO carry — a catalogue/accession
+  number, a DOI or other registered identifier, the name of a thing that exists
+  outside this file (a material, a species, an instrument, a place, a person, an
+  organisation), a standard classification code — give it its OWN map, even when
+  this file mentions it once. Those are the entities later files and later
+  datasets will be ABOUT: as a plain property the value can never carry its own
+  facts, be counted, or be cited, and two files naming the same thing never fold
+  into one record. A value that only means something inside THIS file (a
+  free-text note, a local serial, a comment) stays a property.
 - `note` (optional, free text) records the key/class rationale for the human who
   reviews this skeleton. It is dropped from the final mapping — put no data in it.
 """
