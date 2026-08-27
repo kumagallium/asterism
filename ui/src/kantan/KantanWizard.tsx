@@ -5358,19 +5358,21 @@ export function KantanWizard({
           )}
           {/* A count far below the row count means several rows became one
               record. That is sometimes right (one sample, many measurements)
-              and sometimes a collapsed key — so name it, and offer the way
-              back to where that was decided (KZ-B-03 / DETAIL-GAP-08). */}
+              and sometimes a collapsed key — so name it (KZ-B-03). */}
           {stats && stats.classes.length > 0 && totalSourceRows > 0 && (
-            <>
-              <p className="kz-note">{t('kantan:s6.mapRowsNote')}</p>
-              {canBackToGate && (
-                <div className="kz-actions">
-                  <button type="button" className="btn btn--ghost btn--sm" onClick={() => void backToGate()}>
-                    {t('kantan:s6.backToGate')}
-                  </button>
-                </div>
-              )}
-            </>
+            <p className="kz-note">{t('kantan:s6.mapRowsNote')}</p>
+          )}
+          {/* The way back to where the counting was decided. NOT nested in the
+              note above: a catalog review has no draft yet, so it knows no row
+              count — and gating the door on a number this screen cannot read
+              hid it exactly where it is needed most, on published data
+              (DETAIL-GAP-08 / ADR id-move-after-publish.md §9). */}
+          {canBackToGate && (
+            <div className="kz-actions">
+              <button type="button" className="btn btn--ghost btn--sm" onClick={() => void backToGate()}>
+                {t('kantan:s6.backToGate')}
+              </button>
+            </div>
           )}
           {/* Did the sentence you sent actually change anything? Without this
               an ignored note and an applied one look identical, and the only
