@@ -27,6 +27,7 @@ they never replace validation.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -67,6 +68,7 @@ __all__ = [
     "apply_numeric_datatypes",
     "assemble_mapping_ir",
     "default_property_table",
+    "drop_duplicate_properties",
     "default_skeleton",
     "fill_mapping_spec_block",
     "generate_document",
@@ -722,6 +724,94 @@ def drop_borrowed_properties(
     return {**result, "properties": kept}, dropped
 
 
+def _same_column_signature(prop: Mapping[str, Any]) -> tuple | None:
+    """What makes two rows the SAME record of the same cell, or None if the row
+    is not a plain single-column transcription.
+
+    The signature deliberately includes the reshaping (``function``/``args``/
+    ``transform``) and the ``datatype``: the same column read twice with
+    DIFFERENT reshaping is a second, genuine view of that cell (a raw value and
+    a converted one), not a duplicate. Only rows that would record the same
+    value the same way collapse.
+    """
+    col = prop.get("column")
+    if not isinstance(col, str) or not col:
+        return None
+    if prop.get("columns") is not None or prop.get("object_template") is not None:
+        return None
+    if prop.get("constant") is not None:
+        return None
+    args = prop.get("args")
+    transform = prop.get("transform")
+    return (
+        col,
+        str(prop.get("function") or ""),
+        json.dumps(args, sort_keys=True, ensure_ascii=False) if isinstance(args, Mapping) else "",
+        json.dumps(transform, sort_keys=True, ensure_ascii=False)
+        if isinstance(transform, Mapping)
+        else "",
+        str(prop.get("datatype") or ""),
+    )
+
+
+def drop_duplicate_properties(result: Mapping[str, Any]) -> tuple[dict, list[str]]:
+    """Remove rows that record the SAME cell a second time inside ONE map.
+
+    Observed live (XRD reference file, 2026-08-27): the per-map stage returned
+    nine rows for five columns — ``2theta``, ``d``, ``I`` and ``(hkl)`` each
+    appeared twice, and the model labelled its own extras 「(重複)」. Two pairs
+    shared the predicate outright (identical triples); the other two invented a
+    second predicate for the same cell (``xrd:dSpacing`` AND ``xrd:d``), so the
+    value really was stored twice under two names. Nothing caught it: the
+    columns exist, the rows compile, T1-T9 pass, and the duplicate-column
+    advisory only looks BETWEEN maps.
+
+    The consequence is not cosmetic. 「d は？」 comes back with two answers per
+    peak, every count is doubled, and which of the two names Ask reaches for is
+    arbitrary — the two labels disagreed (「格子間隔 d」 vs 「d spacing (重複)」).
+
+    Same shape as :func:`drop_borrowed_properties`: the prompt already asks for
+    one row per cell; this is the guarantee. The FIRST row wins (it is the one
+    the model wrote while still following the column order), and ``unit`` /
+    ``label`` are carried over from a dropped twin only where the winner has
+    none — a later row must never overwrite an earlier answer. Returns the
+    cleaned result and the dropped column names so the caller reports them
+    (never a silent edit).
+    """
+    props = result.get("properties")
+    if not isinstance(props, list):
+        return dict(result), []
+    kept: list[Any] = []
+    seen: dict[tuple, int] = {}
+    dropped: list[str] = []
+    for prop in props:
+        if not isinstance(prop, Mapping):
+            kept.append(prop)
+            continue
+        sig = _same_column_signature(prop)
+        if sig is None:
+            kept.append(prop)
+            continue
+        first = seen.get(sig)
+        if first is None:
+            seen[sig] = len(kept)
+            kept.append(prop)
+            continue
+        winner = kept[first]
+        if isinstance(winner, Mapping):
+            carried = dict(winner)
+            for field_name in ("label", "unit"):
+                if not str(carried.get(field_name) or "").strip():
+                    value = str(prop.get(field_name) or "").strip()
+                    if value:
+                        carried[field_name] = value
+            kept[first] = carried
+        dropped.append(sig[0])
+    if not dropped:
+        return dict(result), []
+    return {**result, "properties": kept}, dropped
+
+
 def apply_numeric_datatypes(
     result: Mapping[str, Any], column_types: Mapping[str, str] | None
 ) -> tuple[dict, list[str]]:
@@ -775,17 +865,21 @@ def apply_data_facts(
     column_owners: Mapping[str, Mapping[str, str]] | None = None,
     column_types: Mapping[str, Mapping[str, str]] | None = None,
 ) -> tuple[dict, dict[str, list[str]]]:
-    """Re-assert on a WHOLE IR what the data proved: ownership and numeric types.
+    """Re-assert on a WHOLE IR what the machine can see without the model:
+    ownership, numeric types, and one row per cell.
 
     ``drop_borrowed_properties`` and ``apply_numeric_datatypes`` ran on each map's
     round-0 table — and then a self-correction round handed §9 back to the model,
     which rewrote it from memory: the borrowed columns came back and every
     ``datatype`` was gone (live: a rebuilt XRD dataset, 2 autocorrect rounds, 0
     datatypes in the saved mapping). A fact the machine derived from the rows
-    must not depend on which LLM round happened to be last, so the SAME two
-    normalisations run on the assembled IR after every round. Idempotent; a map
-    with no verdict is untouched; anything not a plain ``column:`` binding is
-    left alone (see the two helpers for the exact rules).
+    must not depend on which LLM round happened to be last, so the SAME
+    normalisations run on the assembled IR after every round.
+    ``drop_duplicate_properties`` joins them for the same reason (2026-08-27):
+    round-0 dedup does not survive a round that rewrites §9 wholesale, and a
+    design that records one cell twice answers every question about it twice.
+    Idempotent; a map with no verdict is untouched; anything not a plain
+    ``column:`` binding is left alone (see the helpers for the exact rules).
 
     Returns the new IR and ``{map: [changed columns]}`` for reporting.
     """
@@ -801,9 +895,10 @@ def apply_data_facts(
         name = str(m.get("name") or "")
         table: Mapping[str, Any] = {"properties": m["properties"]}
         table, dropped = drop_borrowed_properties(table, (column_owners or {}).get(name))
+        table, twins = drop_duplicate_properties(table)
         table, typed = apply_numeric_datatypes(table, (column_types or {}).get(name))
-        if dropped or typed:
-            changed[name] = [*dropped, *typed]
+        if dropped or twins or typed:
+            changed[name] = [*dropped, *twins, *typed]
         out_maps.append({**m, "properties": table["properties"]})
     if not changed:
         return dict(ir), {}
@@ -1805,6 +1900,14 @@ def _generate_map_properties_gated(
         _emit(
             f"map '{map_name}': 他のマップが持つ列を外しました - 重複記録の防止: "
             + ", ".join(sorted(set(dropped)))
+        )
+    # 同じ列を、同じ読み方で、この 1 つのマップの中に二度書いた行を外す。上の G6 が
+    # 「他のマップが持つ列」を見るのに対し、こちらは同じマップの中の二重記録。
+    result, twins = drop_duplicate_properties(result)
+    if twins:
+        _emit(
+            f"map '{map_name}': 同じ列を二度記録していた行を外しました: "
+            + ", ".join(sorted(set(twins)))
         )
     # Numeric columns get their datatype from the data, not from the model's
     # memory — an untyped number compares as a string in SPARQL.

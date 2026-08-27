@@ -293,8 +293,6 @@ button.lang-toggle-btn.active:hover:not(:disabled) {
   margin-top: 0;
   margin-bottom: 0.5rem;
   font-size: 0.95rem;
-  /* K23: 画面の 1 文にも読み幅を効かせる。ページ幅いっぱいに伸びていた。 */
-  max-width: 62ch;
 }
 
 .controls {
@@ -7000,10 +6998,13 @@ tr[data-map].skeleton-gate-row--added td {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-  /* K23: 読み幅。`.app-content` に max-width が無いため、この列だけが画面幅いっぱいに
-     伸びて 1 行 100 字超になっていた。散文は `.kz-prose` が 62ch で止めるが、
-     カードそのものも紙面の幅に閉じないと「読む面」に見えない。広い表は
-     `.kz-preview-tablewrap` が内側で横スクロールする（従来どおり）。 */
+  /* K23: 読み幅は**列**で決める。`.app-content` に max-width が無いため、この列だけが
+     画面幅いっぱいに伸びて 1 行 100 字超になっていた。
+     段落ごとに max-width を足す形は採らない: 表やカードは列の幅いっぱいに広がるので、
+     散文だけが細いと右側に説明のつかない空きができ、同じカードの中で左右の端が
+     揃わなくなる（ユーザー実評価 2026-08-27「謎の右側の余白」）。列を 1 つの幅に
+     閉じれば、その幅がそのまま行長になる。広い表は `.kz-preview-tablewrap` が
+     内側で横スクロールする（従来どおり）。 */
   max-width: 880px;
   margin-inline: auto;
   width: 100%;
@@ -7229,7 +7230,6 @@ tr[data-map].skeleton-gate-row--added td {
 }
 .kz-q-text {
   margin: 0;
-  max-width: 62ch;
   color: var(--body);
   font-weight: 600;
 }
@@ -7901,7 +7901,6 @@ tr.kz-attn td {
   font-size: 0.95rem;
   line-height: 1.75;
   color: var(--body);
-  max-width: 62ch;
 }
 
 /* 画面の中のゾーン見出し（「① 数の確認」など）。見出し(--fg)でも本文(--body)でも
@@ -7992,10 +7991,11 @@ tr.kz-attn td {
   align-items: stretch;
 }
 
-/* 散文の行長。日本語では 62ch ≒ 35 文字/行（`ch` は "0" の字幅＝およそ 0.55em）。
-   `.kz-note` に併記して使う。表・ボタン列・コードには付けない。 */
+/* 散文であることの目印。行長は `.kz-wizard` の列幅が決めるので、ここでは幅を
+   足さない（段落だけを細くすると、隣の表と左右の端が揃わない）。折り返しの
+   基準を持たない要素（flex の子など）が列より広がらないことだけを保証する。 */
 .kz-prose {
-  max-width: 62ch;
+  min-width: 0;
 }
 
 /* 二次情報の落とし先（G9「理由・列名の羅列は details に畳む」）の共通の見た目。

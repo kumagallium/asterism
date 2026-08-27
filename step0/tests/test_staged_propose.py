@@ -1005,3 +1005,98 @@ def test_merge_label_fill_rules() -> None:
         "ex:restate",
         "ex:localEcho",
     ]
+
+
+# ---- 同じマップの中の二重記録（2026-08-27 実データ: XRD reference file）--------
+
+
+def test_drop_duplicate_properties_removes_the_second_record_of_one_cell() -> None:
+    """同じ列・同じ読み方の 2 行目は落ちる。述語が違っても「二重に書いた」ことは同じ。"""
+    from asterism_step0.staged_propose import drop_duplicate_properties
+
+    table = {
+        "properties": [
+            {"predicate": "xrd:dSpacing", "column": "d", "unit": "Å", "datatype": "xsd:double",
+             "label": "格子間隔 d"},
+            {"predicate": "xrd:twoTheta", "column": "2theta", "unit": "°",
+             "datatype": "xsd:double", "label": "2θ角"},
+            # 述語まで同じ = そのまま同じトリプル
+            {"predicate": "xrd:twoTheta", "column": "2theta", "unit": "°",
+             "datatype": "xsd:double", "label": "2θ (重複)"},
+            # 述語だけ違う = 同じ値が 2 つの名前で保存される（本当の害）
+            {"predicate": "xrd:d", "column": "d", "unit": "Å", "datatype": "xsd:double",
+             "label": "d spacing (重複)"},
+        ]
+    }
+    out, dropped = drop_duplicate_properties(table)
+    assert sorted(dropped) == ["2theta", "d"]
+    assert [p["predicate"] for p in out["properties"]] == ["xrd:dSpacing", "xrd:twoTheta"]
+    # 先に書かれた行の答えが残る（後から来た行が上書きしない）
+    assert out["properties"][0]["label"] == "格子間隔 d"
+    assert out["properties"][1]["label"] == "2θ角"
+
+
+def test_drop_duplicate_properties_keeps_a_genuinely_different_view() -> None:
+    """読み方（function / datatype）が違えば、同じ列の 2 行目は別の事実。落とさない。"""
+    from asterism_step0.staged_propose import drop_duplicate_properties
+
+    table = {
+        "properties": [
+            {"predicate": "ex:raw", "column": "d"},
+            {"predicate": "ex:num", "column": "d", "function": "number_clean",
+             "datatype": "xsd:double"},
+            # リンクと計算値は転記ではないので、そもそも対象外
+            {"predicate": "prov:wasDerivedFrom", "object_template": "exr:sample/{No}"},
+            {"predicate": "ex:both", "columns": ["d", "I"], "function": "join_nonempty"},
+        ]
+    }
+    out, dropped = drop_duplicate_properties(table)
+    assert dropped == []
+    assert len(out["properties"]) == 4
+
+
+def test_drop_duplicate_properties_fills_a_blank_meaning_from_its_twin() -> None:
+    """勝った行に意味・単位が無いときだけ、落とす行から借りる。"""
+    from asterism_step0.staged_propose import drop_duplicate_properties
+
+    table = {
+        "properties": [
+            {"predicate": "xrd:intensity", "column": "I", "datatype": "xsd:double"},
+            {"predicate": "xrd:I", "column": "I", "datatype": "xsd:double",
+             "label": "強度", "unit": "cps"},
+        ]
+    }
+    out, dropped = drop_duplicate_properties(table)
+    assert dropped == ["I"]
+    assert out["properties"] == [
+        {"predicate": "xrd:intensity", "column": "I", "datatype": "xsd:double",
+         "label": "強度", "unit": "cps"}
+    ]
+
+
+def test_apply_data_facts_removes_duplicates_after_a_rewriting_round() -> None:
+    """§9 を丸ごと書き直すラウンドの後でも、二重記録は毎回落ちる（N6 と同じ理由）。"""
+    from asterism_step0.staged_propose import apply_data_facts
+
+    ir = {
+        "version": 1,
+        "prefixes": {},
+        "maps": [
+            {
+                "name": "peak",
+                "source": "xrd.txt",
+                "subject": {"template": "xr:peak/{No}", "classes": ["xo:Peak"]},
+                "properties": [
+                    {"predicate": "xo:dSpacing", "column": "d", "label": "格子間隔 d"},
+                    {"predicate": "xo:d", "column": "d", "label": "d spacing (重複)"},
+                ],
+            }
+        ],
+    }
+    out, changed = apply_data_facts(ir)
+    assert changed == {"peak": ["d"]}
+    assert [p["predicate"] for p in out["maps"][0]["properties"]] == ["xo:dSpacing"]
+    # 冪等: もう一度かけても変わらない
+    again, changed2 = apply_data_facts(out)
+    assert changed2 == {}
+    assert again["maps"][0]["properties"] == out["maps"][0]["properties"]

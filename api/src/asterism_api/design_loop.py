@@ -1936,14 +1936,15 @@ def _overlay_data_facts(
 
     Sibling of :func:`_overlay_detected_dialects`, same posture: the model may
     rearrange predicates and prose, it may not un-know what the rows proved —
-    a column belongs to one map (ADR column-ownership G6) and a number is
-    typed (ADR numeric-literal-typing N2). Round-0 applied both per map; a
-    later self-correction round rewrote §9 from memory and lost them (live).
+    a column belongs to one map (ADR column-ownership G6), a number is
+    typed (ADR numeric-literal-typing N2), and one cell is recorded once.
+    Round-0 applied all three per map; a later self-correction round rewrote §9
+    from memory and lost them (live).
     Idempotent; a schema with no §9 spec, or one that cannot be re-spliced, is
     left byte-untouched. No-op when there is nothing to assert.
     """
-    if not column_owners and not column_types:
-        return schema_md
+    # 所有権も型も無いときでも素通ししない: 二重記録の除去は入力を要らない
+    # （同じ列を同じ読み方で二度書いた、という設計だけで分かる事実）。
     ir_yaml, _ = _extract_design(schema_md)
     if not ir_yaml or not ir_yaml.strip():
         return schema_md
