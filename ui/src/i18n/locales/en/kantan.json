@@ -15,8 +15,8 @@
     "backToStartShort": "Start over",
     "step1": "Put it in",
     "step2": "The AI reads it",
-    "step3": "How IDs are given",
-    "step4": "What the items mean",
+    "step3": "What the items mean",
+    "step4": "How IDs are given",
     "step5": "Try it",
     "step6": "Publish"
   },
@@ -121,7 +121,10 @@
     "closeNote": "You can go look at other screens; this keeps running (just don’t close this tab).",
     "failed": "The AI could not read your data",
     "retry": "Ask the AI to read again",
-    "back": "Go back and retry"
+    "back": "Go back and retry",
+    "titleMeanings": "The AI is working out what each column means",
+    "jobLabelMeanings": "Reading",
+    "skipMeanings": "Continue with blanks"
   },
   "s4": {
     "gateTitle": "How IDs are given",
@@ -276,9 +279,9 @@
     }
   },
   "s6": {
-    "title": "What the items mean",
-    "titleReview": "Review — item meanings",
-    "lead": "Check what each item means. The words you settle here are what search and citation use.",
+    "title": "Check the counts",
+    "titleReview": "Review — check the counts",
+    "lead": "Check that the rows in your file and the records that came out of them line up.",
     "zoneCount": "1 · Check the counts",
     "statSource": "Source file",
     "statRowUnit": "rows",
@@ -370,7 +373,8 @@
     "askConsultUnmappedPrefill": "Please suggest meanings for the items not taken in yet",
     "askConsultMeaning": "Ask the AI to fill the blank meanings",
     "askConsultUnmapped": "Ask the AI about what to include",
-    "duplicateOwner": "The same column is written by two or more kinds ({{list}}). Which one should own it cannot be decided from this single file — the column holds one value, so every candidate key “determines” it. This is the AI’s guess: if it is wrong, fix it under “Also change how items are split and linked” below."
+    "duplicateOwner": "The same column is written by two or more kinds ({{list}}). Which one should own it cannot be decided from this single file — the column holds one value, so every candidate key “determines” it. This is the AI’s guess: if it is wrong, fix it under “Also change how items are split and linked” below.",
+    "editMeanings": "Fix what the items mean"
   },
   "s7": {
     "title": "Try it — we asked your data a few questions",
@@ -472,5 +476,34 @@
   "job": {
     "preparing": "Preparing…",
     "analyzing": "Analyzing…"
+  },
+  "meanings": {
+    "title": "What the items mean",
+    "lead": "Check what value each column holds. The words you settle here are what search and citation will show.",
+    "note": "The AI drafted these. Edit any cell directly (no AI runs here). To leave a column out, clear the checkbox on the right.",
+    "noDraft": "No draft arrived from the AI. Fill the blanks in yourself and you can carry straight on.",
+    "zone_preamble": "① Values for the whole file",
+    "zoneWhy_preamble": "{{count}} written once, at the top of the file",
+    "zone_table": "② Values per row",
+    "zoneWhy_table": "{{count}} laid out down the table",
+    "colColumn": "Column",
+    "colMeaning": "What the value means",
+    "colUnit": "Unit",
+    "colExamples": "Example values",
+    "colKeep": "Take in",
+    "meaningPlaceholder": "e.g. diffraction angle",
+    "unitPlaceholder": "e.g. deg",
+    "editAria": "Meaning of {{column}}",
+    "unitAria": "Unit of {{column}}",
+    "fromLine": "value on line {{line}}",
+    "onLine": "(line {{line}})",
+    "keepOn": "Take in",
+    "keepOff": "Leave out",
+    "continue": "Continue with these meanings",
+    "back": "Back to the read settings",
+    "save": "Save these meanings and go back",
+    "saving": "Saving…",
+    "saveFailed": "The meanings could not be saved",
+    "backToCounts": "Back to the counts"
   }
 }
