@@ -22,6 +22,9 @@ Scope: tabular sources (CSV/TSV and dialect-read instrument text). JSON and
 XML/document maps get an honest ``checkable: false`` note instead of a guess —
 never a silent pass.
 """
+# このファイルの散文は日本語。全角の括弧・記号は意図したもので、ASCII の
+# 見間違いではない（id_move.py / describe.py と同じ流儀）。
+# ruff: noqa: RUF003
 
 from __future__ import annotations
 
@@ -359,17 +362,17 @@ def _entity_preview(
     }
     rest.sort(key=lambda p: file_wide[p["column"]] <= 1)
     # 1 件しかないカードは、そのカードが**この表そのもの**なので省略しない
-    # (2026-08-27 利用者評価「『ほか 10 列』と省略するのはどうですかね? — ユーザーが
-    # これも入れてほしいと言えるように」)。上限は G13 の所見=**行**のカードが
+    # （2026-08-27 利用者評価「『ほか 10 列』と省略するのはどうですかね？ — ユーザーが
+    # これも入れてほしいと言えるように」）。上限は G13 の所見＝**行**のカードが
     # ファイル水準のメタデータで埋まる事故に対する防御で、singleton には当たらない。
     room = (
         len(rest)
         if distinct_ids <= 1
         else max(0, _CARD_VALUE_COLUMNS - len(key_props) - len(conflicts))
     )
-    # 行ごとに変わる列のうち、識別子型 (測定値でない)のものは「値の種類」に
+    # 行ごとに変わる列のうち、識別子型（測定値でない）のものは「値の種類」に
     # 昇格できる候補。判断材料は列名でなく値なので、実際の値を数個添える
-    # (2026-08-27 K33: 種類にできる/できないの境界は列の位置でなく値の性質)。
+    # （2026-08-27 K33: 種類にできる/できないの境界は列の位置でなく値の性質）。
     types = {c.name: c.inferred_type for c in inspection.columns}
     varying_identity = [c for c in varying if types.get(c) not in _MEASUREMENT_TYPES]
     varying_samples: list[dict[str, Any]] = []
@@ -454,7 +457,7 @@ def _parent_singleton(
     originals = [n for n in singletons if n not in human_owns]
     if len(originals) == 1:
         return originals[0]
-    # G7 の沈黙は「2 つ以上=どれが親か推測になる」から来ていた。ところが K26
+    # G7 の沈黙は「2 つ以上＝どれが親か推測になる」から来ていた。ところが K26
     # (骨格が「外の世界も名前を持つもの」を種類に昇格する) で、1 ファイルから
     # singleton が 3 つ出るのが普通になった。そこで黙ると、成長プレビューも
     # 「別の種類に分ける」(G15) も、行マップの scope risk (K14 C6) も丸ごと
@@ -666,7 +669,7 @@ def _missing_row_kind(
         if parent is None:
             continue
         # A row-level map already exists for this source: nothing is homeless.
-        # 値のカタログ (K33)は数えない: その map は自分の値 1 列しか持たず、
+        # 値のカタログ（K33）は数えない: その map は自分の値 1 列しか持たず、
         # 行の測定値の置き場にはならない。
         if any(
             annotations[n].get("collapse_kind") in ("unique", "partial")
@@ -868,8 +871,8 @@ def _growth_preview(
                 and any((r.get(col) or "").strip() for r in rows)
             ]
             # 列名だけでは「これは外のデータにも出てくる名前か」を判断できない
-            # (`Chemical Formula` ではなく `Al3 V` を見て人は決める)。この 1 件を
-            # 説明する値そのものを添える (2026-08-27)。
+            # （`Chemical Formula` ではなく `Al3 V` を見て人は決める）。この 1 件を
+            # 説明する値そのものを添える（2026-08-27）。
             first = rows[0] if rows else {}
             preview: dict[str, Any] = {
                 "per_source_entities": 1,
@@ -977,8 +980,8 @@ def _inject_scope_risks(
             ann = annotations[name]
             if not ann.get("checkable") or ann.get("collapse_kind") != "unique":
                 continue
-            # 値のカタログ (K33)は除外: その ID は値そのもので、ファイルを跨いで
-            # 同じ値=同じ 1 件になるのが目的。親キーを入れたら合流できなくなる。
+            # 値のカタログ（K33）は除外: その ID は値そのもので、ファイルを跨いで
+            # 同じ値＝同じ 1 件になるのが目的。親キーを入れたら合流できなくなる。
             if ann.get("value_catalog"):
                 continue
             key_cols = list(ann.get("key_columns") or [])
@@ -1029,7 +1032,7 @@ def _annotate_map(
     if not template:
         # 「ID の作り方が決まっていない」— 潰れでも衝突でもなく、まだ何も決まって
         # いない。ここまで候補は空で返していたので、画面は「決められませんでした」
-        # とだけ言って、行き止まりになっていた (K11「行き止まりを作らない」)。
+        # とだけ言って、行き止まりになっていた（K11「行き止まりを作らない」）。
         # 候補は inspection がすでに証明済みなので、同じ one-tap チップを出す。
         ann["reason"] = "no-template"
         if inspection is not None:
@@ -1189,11 +1192,11 @@ def annotate_skeleton(
     # Second pass — needs every map's collapse verdict: the singleton map's
     # key is the file's namespace, and row-level keys missing it are unique
     # only until the next file is appended (see _inject_scope_risks).
-    # 値のカタログ (K33): 人が「この列そのものを種類にする」と宣言した map は
-    # owns == キー列 ちょうどになる。その ID は値そのもの=**同じ値の行が 1 件に
+    # 値のカタログ（K33）: 人が「この列そのものを種類にする」と宣言した map は
+    # owns == キー列 ちょうどになる。その ID は値そのもの＝**同じ値の行が 1 件に
     # まとまるのは意図**なので、①ID 重複を事故として言わない ②親キーの入れ子
-    # (scope)を要求しない ③「行の置き場」としては数えない、の 3 点で扱いが変わる。
-    # 押印は scope 検査より先 (scope の除外がこの旗を見る)。
+    # （scope）を要求しない ③「行の置き場」としては数えない、の 3 点で扱いが変わる。
+    # 押印は scope 検査より先（scope の除外がこの旗を見る）。
     for name, ann in annotations.items():
         owns_cols = set(human_owns.get(name) or [])
         key_cols = set(ann.get("key_columns") or [])
@@ -1201,15 +1204,15 @@ def annotate_skeleton(
             ann["value_catalog"] = True
     # 1 ファイルにつき 1 件の種類が同じソースに 2 つ以上あるとき、**どの列がどれに
     # 属するか**はデータからは決まらない: ヘッダ部の列は値の種類数が 1 なので、
-    # どのキーからでも関数従属が成立する (実測 2026-08-28: Name / Chemical Formula /
+    # どのキーからでも関数従属が成立する（実測 2026-08-28: Name / Chemical Formula /
     # Subfile / Space Group / Crystal System は No・CSD・Reference・Radiation の
-    # どれからでも「決まる」)。ここを AI に決めさせていたのが、誤った帰属と
-    # 重複列 advisory (S5 で永久に解けないループ)の発生源だった。
+    # どれからでも「決まる」）。ここを AI に決めさせていたのが、誤った帰属と
+    # 重複列 advisory（S5 で永久に解けないループ）の発生源だった。
     #
     # モデルを 1 つに正す: **カードは 1 つ、ほかの 1 件の種類は「その値の種類」**。
-    # 昇格した種類は自分のキー列だけを持ち (`owns` = キー列)、残りの列は全部
+    # 昇格した種類は自分のキー列だけを持ち（`owns` = キー列）、残りの列は全部
     # カードに残る。`_adjudicate_ownership` の「宣言リストに無い列のタイからは
-    # 宣言者が退く」 (G15)で、タイは決定論的にカードへ落ちる。**推測が要る場面
+    # 宣言者が退く」（G15）で、タイは決定論的にカードへ落ちる。**推測が要る場面
     # そのものを無くす。**
     inferred_owns: dict[str, list[str]] = {}
     by_src_names: dict[str, list[str]] = defaultdict(list)

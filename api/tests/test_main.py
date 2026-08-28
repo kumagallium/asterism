@@ -4,6 +4,9 @@ We start the app with ``start_watcher=False`` and an injected mock
 OxigraphClient so the test stays inside a single process and doesn't touch
 the filesystem outside ``tmp_path``.
 """
+# このファイルの散文は日本語。全角の括弧・記号は意図したもので、ASCII の
+# 見間違いではない（id_move.py / describe.py と同じ流儀）。
+# ruff: noqa: RUF003
 from __future__ import annotations
 
 import json
@@ -562,8 +565,8 @@ def test_propose_skeleton_streams_skeleton(
         ann = done["annotations"]["maps"]["sample"]
         assert ann["checkable"] is True
         assert ann["is_unique"] is True
-        # 複合キーの区切りは `/` (2026-08-27)。`{a}-{b}` のように 1 つの区間へ
-        # 融合すると、値そのものが区切り文字を含むとき (`03-065-2664` など)
+        # 複合キーの区切りは `/`（2026-08-27）。`{a}-{b}` のように 1 つの区間へ
+        # 融合すると、値そのものが区切り文字を含むとき（`03-065-2664` など）
         # 別々の行が同じ IRI を作りうる — 一意性の検査は列の組を見ていて、
         # 出来上がる文字列は見ていない。`normalize_key_separators` が揃える。
         assert ann["id_previews"][0] == "https://ns.invalid/r/sample/1/10"

@@ -56,6 +56,9 @@ JSON/XML sources get no column-level feedback (tabular-only validator); un-iri_s
 from existing columns are caught by no static validator; a cornered weak model can erase
 mappings to reach zero issues (surfaced as ``coverage_dropped``, not blocked).
 """
+# このファイルの散文は日本語。全角の括弧・記号は意図したもので、ASCII の
+# 見間違いではない（id_move.py / describe.py と同じ流儀）。
+# ruff: noqa: RUF003
 from __future__ import annotations
 
 import contextlib
@@ -1944,7 +1947,7 @@ def _overlay_data_facts(
     left byte-untouched. No-op when there is nothing to assert.
     """
     # 所有権も型も無いときでも素通ししない: 二重記録の除去は入力を要らない
-    # (同じ列を同じ読み方で二度書いた、という設計だけで分かる事実)。
+    # （同じ列を同じ読み方で二度書いた、という設計だけで分かる事実）。
     ir_yaml, _ = _extract_design(schema_md)
     if not ir_yaml or not ir_yaml.strip():
         return schema_md

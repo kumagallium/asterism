@@ -6,6 +6,9 @@ orchestrators are driven by a scripted mock client. The headline test is
 EQUIVALENCE: a full IR split into a skeleton + per-map tables and reassembled
 must reproduce the exact same IR (ADR mapping-ir-phase2b-skeleton-wizard §10.1).
 """
+# このファイルの散文は日本語。全角の括弧・記号は意図したもので、ASCII の
+# 見間違いではない（id_move.py / describe.py と同じ流儀）。
+# ruff: noqa: RUF002, RUF003
 from __future__ import annotations
 
 import json
@@ -1009,7 +1012,7 @@ def test_merge_label_fill_rules() -> None:
     ]
 
 
-# ---- 同じマップの中の二重記録 (2026-08-27 実データ: XRD reference file)--------
+# ---- 同じマップの中の二重記録（2026-08-27 実データ: XRD reference file）--------
 
 
 def test_drop_duplicate_properties_removes_the_second_record_of_one_cell() -> None:
@@ -1025,7 +1028,7 @@ def test_drop_duplicate_properties_removes_the_second_record_of_one_cell() -> No
             # 述語まで同じ = そのまま同じトリプル
             {"predicate": "xrd:twoTheta", "column": "2theta", "unit": "°",
              "datatype": "xsd:double", "label": "2θ (重複)"},
-            # 述語だけ違う = 同じ値が 2 つの名前で保存される (本当の害)
+            # 述語だけ違う = 同じ値が 2 つの名前で保存される（本当の害）
             {"predicate": "xrd:d", "column": "d", "unit": "Å", "datatype": "xsd:double",
              "label": "d spacing (重複)"},
         ]
@@ -1033,13 +1036,13 @@ def test_drop_duplicate_properties_removes_the_second_record_of_one_cell() -> No
     out, dropped = drop_duplicate_properties(table)
     assert sorted(dropped) == ["2theta", "d"]
     assert [p["predicate"] for p in out["properties"]] == ["xrd:dSpacing", "xrd:twoTheta"]
-    # 先に書かれた行の答えが残る (後から来た行が上書きしない)
+    # 先に書かれた行の答えが残る（後から来た行が上書きしない）
     assert out["properties"][0]["label"] == "格子間隔 d"
     assert out["properties"][1]["label"] == "2θ角"
 
 
 def test_drop_duplicate_properties_keeps_a_genuinely_different_view() -> None:
-    """読み方 (function / datatype)が違えば、同じ列の 2 行目は別の事実。落とさない。"""
+    """読み方（function / datatype）が違えば、同じ列の 2 行目は別の事実。落とさない。"""
     from asterism_step0.staged_propose import drop_duplicate_properties
 
     table = {
@@ -1077,7 +1080,7 @@ def test_drop_duplicate_properties_fills_a_blank_meaning_from_its_twin() -> None
 
 
 def test_apply_data_facts_removes_duplicates_after_a_rewriting_round() -> None:
-    """§9 を丸ごと書き直すラウンドの後でも、二重記録は毎回落ちる (N6 と同じ理由)。"""
+    """§9 を丸ごと書き直すラウンドの後でも、二重記録は毎回落ちる（N6 と同じ理由）。"""
     from asterism_step0.staged_propose import apply_data_facts
 
     ir = {
@@ -1111,7 +1114,7 @@ def test_skeleton_schema_requires_a_kind_name() -> None:
 
     subject = skeleton_json_schema()["properties"]["maps"]["items"]["properties"]["subject"]
     assert subject["properties"]["classes"]["minItems"] == 1
-    # 完成した IR 側は据え置き (あとから足した規則で、保存済みの設計を読めなくしない)
+    # 完成した IR 側は据え置き（あとから足した規則で、保存済みの設計を読めなくしない）
     full = mapping_ir_json_schema()["properties"]["maps"]["items"]["properties"]["subject"]
     assert "minItems" not in full["properties"]["classes"]
 
@@ -1136,7 +1139,7 @@ def test_name_unnamed_kinds_uses_the_models_own_map_name() -> None:
     assert [m["subject"]["classes"] for m in out["maps"]] == [
         ["xo:Peak"], ["xo:XrdDataset"], ["xo:試料"],
     ]
-    # 名前が揃っていれば何も足さない (冪等)
+    # 名前が揃っていれば何も足さない（冪等）
     again, named2 = name_unnamed_kinds(out, ontology_prefix="xo")
     assert named2 == []
     assert again["maps"] == out["maps"]
@@ -1150,7 +1153,7 @@ def test_twin_maps_finds_one_row_type_described_twice() -> None:
         "maps": [
             {"name": "dataset", "source": "xrd.txt", "subject": {"template": "xr:dataset/{No}"}},
             {"name": "sample", "source": "xrd.txt", "subject": {"template": "xr:sample/{No}"}},
-            # 鍵が違えば別の粒度 (親と行)— 一緒にしない
+            # 鍵が違えば別の粒度（親と行）— 一緒にしない
             {"name": "peak", "source": "xrd.txt",
              "subject": {"template": "xr:peak/{No}/{(hkl)}"}},
             # ソースが違えば別
@@ -1228,7 +1231,7 @@ def test_normalize_key_separators_puts_a_slash_between_key_columns() -> None:
     ]
 
 
-# --- ensure_same_source_links: 1 ファイルの種類は 1 つにつながる (2026-08-27) ---
+# --- ensure_same_source_links: 1 ファイルの種類は 1 つにつながる（2026-08-27） ---
 
 def _xrd_islands() -> dict:
     """The XRD reference card as a weak model leaves it: a row kind, the card
