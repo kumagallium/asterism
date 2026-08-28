@@ -8,7 +8,7 @@ observed live (unknown fields like ``optional:``, type-cast pseudo-functions
 like ``function: str``, cardinality-marked predicates like ``schema:author*``)
 cannot even be emitted.
 
-Three builders, one source of truth (Phase 2b staged generation splits the full
+The builders, one source of truth (Phase 2b staged generation splits the full
 IR into a skeleton + per-map property tables — same shared sub-schemas):
 
 * :func:`mapping_ir_json_schema` — the whole IR (round-0 single call / §9 repair).
@@ -16,6 +16,9 @@ IR into a skeleton + per-map property tables — same shared sub-schemas):
   source becomes which class, keyed how. The early human-gate artifact.
 * :func:`permap_json_schema` — one map's property table (+ optional prefix
   additions the predicates/datatypes introduce).
+* :func:`column_meanings_json_schema` — what each source column MEANS, keyed by
+  ``(source, column)``. No design exists yet at that point (ADR
+  meaning-before-identity), so this one carries no IR shape at all.
 
 Deliberately grammar-friendly: no ``oneOf`` (uneven support across guided
 decoders); the object-form exclusivity rules stay with the strict parser
@@ -47,6 +50,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 __all__ = [
+    "column_meanings_json_schema",
     "mapping_ir_json_schema",
     "permap_json_schema",
     "skeleton_json_schema",
@@ -323,6 +327,44 @@ def labelfill_json_schema() -> dict:
                     "properties": {
                         "predicate": {"type": "string"},
                         "label": {"type": "string"},
+                    },
+                },
+            },
+        },
+    }
+
+
+def column_meanings_json_schema() -> dict:
+    """The COLUMN-MEANING ask: what each source column MEANS — before any design.
+
+    ADR ``meaning-before-identity.md``. The meaning and unit of a column are a
+    property of the COLUMN (the data decides them); the design is the human's
+    judgement built ON TOP of them. So this stage runs first and its answer
+    carries no predicate, no map and no class — the only identity a column has
+    before a skeleton exists is ``(source, column)``, and both are copied from
+    the question so the answer can be filed deterministically.
+
+    ``unit`` is optional: most columns do not carry a physical quantity, and a
+    required unit makes a weak model invent one. Same bounded strings as every
+    other stage (a repetition loop inside ``label``/``unit`` cannot eat the
+    completion).
+    """
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["columns"],
+        "properties": {
+            "columns": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["source", "column", "label"],
+                    "properties": {
+                        "source": _string(),
+                        "column": _string(),
+                        "label": _string(max_length=_LEN_LABEL),
+                        "unit": _string(max_length=_LEN_UNIT),
                     },
                 },
             },

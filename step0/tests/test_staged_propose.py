@@ -19,9 +19,15 @@ import pytest
 pytest.importorskip("yaml")
 jsonschema = pytest.importorskip("jsonschema")
 
+from asterism_step0.inspect import ColumnSummary, SourceInspection  # noqa: E402
 from asterism_step0.mapping_ir import parse_mapping_ir  # noqa: E402
-from asterism_step0.mapping_ir_schema import permap_json_schema, skeleton_json_schema  # noqa: E402
+from asterism_step0.mapping_ir_schema import (  # noqa: E402
+    column_meanings_json_schema,
+    permap_json_schema,
+    skeleton_json_schema,
+)
 from asterism_step0.staged_propose import (  # noqa: E402
+    COLUMN_MEANINGS_SYSTEM_PROMPT,
     DOCUMENT_SYSTEM_PROMPT,
     PERMAP_LABELFILL_SYSTEM_PROMPT,
     PERMAP_SYSTEM_PROMPT,
@@ -33,13 +39,16 @@ from asterism_step0.staged_propose import (  # noqa: E402
     drop_borrowed_properties,
     ensure_same_source_links,
     fill_mapping_spec_block,
+    generate_column_meanings,
     generate_map_properties,
     generate_skeleton,
     mapping_ir_to_yaml,
     merge_label_fill,
     missing_label_rows,
+    normalize_column_meanings,
     propose_from_skeleton,
     propose_skeleton,
+    render_columns_for_meanings,
     skeleton_from_full_ir,
 )
 
@@ -1413,3 +1422,135 @@ def test_owned_single_var_column_gets_its_link_deterministically() -> None:
         sp.generate_map_properties = original  # type: ignore[assignment]
     targets = [p.get("object_template") for p in again["properties"]]
     assert targets.count("xr:hkl/{(hkl)}") == 1
+
+
+
+# ---------------------------------------------------------------------------
+# Column meanings — the stage that runs BEFORE any design exists
+# (ADR meaning-before-identity.md §7-1).
+# ---------------------------------------------------------------------------
+
+
+def _column(name: str, inferred_type: str, samples: list[str]) -> ColumnSummary:
+    return ColumnSummary(
+        name=name,
+        inferred_type=inferred_type,
+        non_null_count=len(samples),
+        total_rows=len(samples),
+        unique_count=len(set(samples)),
+        sample_values=samples,
+    )
+
+
+def _xrd_inspection() -> SourceInspection:
+    return SourceInspection(
+        path="/tmp/xrd.txt",
+        name="xrd.txt",
+        total_rows=47,
+        columns=[
+            _column("Sample", "xsd:string", ["Al3V"]),
+            _column("2theta", "xsd:double", ["10.00", "10.02", "10.04"]),
+            _column("(hkl)", "xsd:string", ["(110)", "(200)"]),
+        ],
+        uniqueness_reports=[],
+    )
+
+
+def test_render_columns_for_meanings_shows_values_not_design_material() -> None:
+    """The meaning stage reads headers, types and samples — nothing that would
+    make it start designing (keys, foreign keys, ingest strategy)."""
+    md = render_columns_for_meanings([_xrd_inspection()])
+    assert "## xrd.txt (47 rows)" in md
+    assert "| `2theta` | xsd:double | `10.00`, `10.02`, `10.04` |" in md
+    assert "| `(hkl)` | xsd:string | `(110)`, `(200)` |" in md
+    # no uniqueness / FK / JSON-ingest material
+    assert "unique" not in md.lower()
+    assert "iterator" not in md.lower()
+
+
+def test_render_columns_for_meanings_separates_preamble_from_body() -> None:
+    """A column broadcast from the file's header block holds ONE value for the
+    whole file. Naming it well needs that fact, and it is deterministic."""
+    md = render_columns_for_meanings(
+        [_xrd_inspection()], preamble_columns={"xrd.txt": ["Sample"]}
+    )
+    head, _, body = md.partition("### Table columns (one value per row)")
+    assert "File-level metadata" in head
+    assert "`Sample`" in head and "`2theta`" not in head
+    assert "`2theta`" in body and "`(hkl)`" in body
+
+
+def test_render_columns_for_meanings_skips_sources_with_no_columns() -> None:
+    """XML/JATS has no tabular column to name — it is skipped, not rendered empty."""
+    xml = SourceInspection(
+        path="/tmp/a.xml", name="a.xml", total_rows=1, columns=[],
+        uniqueness_reports=[], source_kind="xml",
+    )
+    assert render_columns_for_meanings([xml]) == ""
+    md = render_columns_for_meanings([xml, _xrd_inspection()])
+    assert "a.xml" not in md and "xrd.txt" in md
+
+
+def test_generate_column_meanings_is_guided_and_needs_no_skeleton() -> None:
+    """One guided call with the meanings schema in force, restored afterwards.
+    The ask carries the columns and the domain — no skeleton, no Tier-0 menu."""
+    answer = {
+        "columns": [
+            {"source": "xrd.txt", "column": "2theta", "label": "回折角", "unit": "deg"},
+        ]
+    }
+    llm = GuidedMock(lambda s, u: json.dumps(answer))
+    out = generate_column_meanings(
+        render_columns_for_meanings([_xrd_inspection()]), "XRD card", llm=llm
+    )
+    assert out == answer
+    (system, user, schema_at_call) = llm.calls[0]
+    assert system == COLUMN_MEANINGS_SYSTEM_PROMPT
+    assert schema_at_call == column_meanings_json_schema()
+    assert llm.response_schema is None
+    assert "`2theta`" in user and "XRD card" in user
+    assert "subject" not in user and "menu" not in user.lower()
+
+
+def test_column_meanings_schema_accepts_a_unitless_row_and_rejects_extras() -> None:
+    schema = column_meanings_json_schema()
+    jsonschema.validate(
+        {"columns": [{"source": "a.csv", "column": "note", "label": "備考"}]}, schema
+    )
+    with pytest.raises(jsonschema.ValidationError):  # a predicate is not this stage's business
+        jsonschema.validate(
+            {"columns": [{"source": "a.csv", "column": "n", "label": "x", "predicate": "ex:n"}]},
+            schema,
+        )
+    with pytest.raises(jsonschema.ValidationError):  # source/column are how it is filed
+        jsonschema.validate({"columns": [{"column": "n", "label": "x"}]}, schema)
+
+
+def test_normalize_column_meanings_rules() -> None:
+    """Keeps what exists, rejects inventions and echoes, and lets a unit survive
+    a rejected label (the two halves of the answer are independent)."""
+    kept, rejected = normalize_column_meanings(
+        {
+            "columns": [
+                {"source": "xrd.txt", "column": "2theta", "label": "回折角", "unit": "deg"},
+                {"source": "xrd.txt", "column": "Sample", "label": " 試料名 "},
+                {"source": "xrd.txt", "column": "(hkl)", "label": "hkl", "unit": ""},
+                {"source": "xrd.txt", "column": "Temp", "label": "temp", "unit": "K"},
+                {"source": "xrd.txt", "column": "2theta", "label": "二度目"},
+                {"source": "xrd.txt", "column": "invented", "label": "無い列"},
+                {"source": "other.csv", "column": "2theta", "label": "別ファイル"},
+            ]
+        },
+        {"xrd.txt": ["Sample", "2theta", "(hkl)", "Temp"]},
+    )
+    assert kept == [
+        {"source": "xrd.txt", "column": "2theta", "label": "回折角", "unit": "deg"},
+        {"source": "xrd.txt", "column": "Sample", "label": "試料名"},
+        # 列名の言い直しは意味ではない。単位だけが残る (K22)
+        {"source": "xrd.txt", "column": "Temp", "unit": "K"},
+    ]
+    # `(hkl)` は言い直しのうえ単位も無い → 行ごと落ちる
+    assert "xrd.txt:(hkl) (label restates the column)" in rejected
+    assert "xrd.txt:2theta (duplicate)" in rejected
+    assert "xrd.txt:invented (unknown column)" in rejected
+    assert "other.csv:2theta (unknown source)" in rejected

@@ -55,6 +55,7 @@ from asterism_step0.llm import (
 )
 from asterism_step0.mapping_ir import structural_property_issues
 from asterism_step0.mapping_ir_schema import (
+    column_meanings_json_schema,
     labelfill_json_schema,
     permap_json_schema,
     skeleton_json_schema,
@@ -63,6 +64,7 @@ from asterism_step0.spec_yaml import dump_spec_yaml, load_spec_yaml
 
 __all__ = [
     "COLUMN_DECISION_ACTIONS",
+    "COLUMN_MEANINGS_SYSTEM_PROMPT",
     "SkeletonProposal",
     "apply_column_decisions",
     "apply_column_decisions_to_document",
@@ -71,19 +73,23 @@ __all__ = [
     "apply_display_meta_to_document",
     "apply_numeric_datatypes",
     "assemble_mapping_ir",
+    "build_column_meanings_user",
     "default_property_table",
     "default_skeleton",
     "drop_duplicate_properties",
     "fill_mapping_spec_block",
+    "generate_column_meanings",
     "generate_document",
     "generate_label_fill",
     "generate_map_properties",
     "generate_skeleton",
     "mapping_ir_to_yaml",
     "menu_columns",
+    "normalize_column_meanings",
     "normalize_key_separators",
     "propose_from_skeleton",
     "propose_skeleton",
+    "render_columns_for_meanings",
     "render_skeleton_context",
     "render_tier0_menu",
     "skeleton_from_full_ir",
@@ -96,6 +102,35 @@ __all__ = [
 # mirror propose.SYSTEM_PROMPT in compact form. The Tier-0 menu and the real
 # columns ride the user message so they stay registry/source-synced.
 # ---------------------------------------------------------------------------
+
+COLUMN_MEANINGS_SYSTEM_PROMPT = """\
+You state what each COLUMN of a data file MEANS. You are NOT designing anything:
+no classes, no identifiers, no predicates, and no decision about what to keep —
+those come later and they are the reader's to make. Return a SINGLE JSON object,
+no markdown fence, no prose:
+{ "columns": [ { "source": "<file>", "column": "<header>",
+                 "label": "<short human meaning>", "unit": "<notation>" } ] }
+
+Rules:
+- One entry per column you can name. `source` and `column` are copied
+  CHARACTER-FOR-CHARACTER from the question — they are how the answer is filed.
+- `label` is what the VALUE means: what a scientist reading this file would call
+  this quantity or attribute. Short, in the output language requested for prose.
+  NEVER a restatement of the header — for a column `Temp`, "Temp" and
+  "temperature" are echoes; "sample temperature" is an answer.
+- `unit` ONLY when the column carries a physical quantity, written as the short
+  notation a person would (`µV/K`, `deg`, `Ohm m`). Omit it for text, names,
+  codes, dates and counts. Never fold the unit into `label`, and never rewrite
+  a value.
+- READ THE SAMPLE VALUES: they carry more than the header does, and when the
+  two disagree the values decide.
+- A column listed as file-level metadata holds ONE value for the whole file.
+  Name what that value IS; do not describe it as a header line.
+- Skip a column whose meaning genuinely cannot be inferred. A blank is a
+  question the reader can answer; an invented meaning is a wrong fact that
+  would be carried into every citation of this data.
+- Never invent a column, never merge two columns into one entry.
+"""
 
 SKELETON_SYSTEM_PROMPT = """\
 You design the SKELETON of an RDF mapping: which source table becomes which
@@ -742,6 +777,92 @@ def default_skeleton(
 # ---------------------------------------------------------------------------
 
 
+_MEANING_SAMPLE_CHARS = 40
+
+
+def render_columns_for_meanings(
+    inspections: Sequence[SourceInspection],
+    *,
+    preamble_columns: Mapping[str, Sequence[str]] | None = None,
+) -> str:
+    """The column list the MEANING stage reads: header, type, sample values.
+
+    Deliberately NOT :func:`inspect.render_markdown`. Uniqueness statistics,
+    foreign keys and the JSON ingest strategy are material for the SKELETON
+    (which column keys which entity); a model handed them starts designing
+    instead of naming, and on a 100-column instrument log they are most of the
+    prompt. What a column MEANS is decided by its header and its values.
+
+    ``preamble_columns`` (``{source: [column, …]}``) names the columns that came
+    from the file's header block rather than the table body — one value for the
+    whole file. It is a real distinction for naming ("Sample" in a preamble is
+    the specimen this file is about, not a per-row attribute), and it is
+    deterministic (``dialect.read_preamble_origins``). Omitted, every column is
+    listed under one heading.
+
+    Sources with no tabular columns (XML/JATS) are skipped: there is no column
+    to name there.
+    """
+    lines: list[str] = []
+    for ins in inspections:
+        columns = list(getattr(ins, "columns", []) or [])
+        if not columns:
+            continue
+        from_preamble = {str(c) for c in (preamble_columns or {}).get(ins.name, ())}
+        lines.append(f"## {ins.name} ({ins.total_rows:,} rows)")
+        lines.append("")
+        groups: list[tuple[str, list[Any]]] = []
+        if from_preamble:
+            head = [c for c in columns if c.name in from_preamble]
+            body = [c for c in columns if c.name not in from_preamble]
+            if head:
+                groups.append(("File-level metadata (one value for the whole file)", head))
+            if body:
+                groups.append(("Table columns (one value per row)", body))
+        else:
+            groups.append(("Columns", columns))
+        for heading, group in groups:
+            lines.append(f"### {heading}")
+            lines.append("")
+            lines.append("| column | type | sample values |")
+            lines.append("|---|---|---|")
+            for col in group:
+                samples = (
+                    ", ".join(f"`{s[:_MEANING_SAMPLE_CHARS]}`" for s in col.sample_values)
+                    or "(no values)"
+                )
+                lines.append(f"| `{col.name}` | {col.inferred_type} | {samples} |")
+            lines.append("")
+    return "\n".join(lines).rstrip() + "\n" if lines else ""
+
+
+def build_column_meanings_user(
+    columns_md: str,
+    domain_hint: str,
+    *,
+    language: str | None = None,
+    issues: list[str] | None = None,
+) -> str:
+    parts = [
+        "# Columns to name (copy `source` and `column` exactly as written here)",
+        "",
+        columns_md.strip(),
+        "",
+        f"# Domain context\n\n{domain_hint.strip()}",
+    ]
+    if issues:
+        parts += [
+            "",
+            "# Your previous answer could not be read (fix ONLY this)",
+            *[f"- {i}" for i in issues],
+        ]
+    parts += ["", "Return the column meanings as a single JSON object."]
+    lang = language_instruction(language)
+    if lang:
+        parts += ["", lang]
+    return "\n".join(parts)
+
+
 def build_skeleton_user(
     inspection_md: str,
     domain_hint: str,
@@ -854,6 +975,88 @@ def _complete_guided(llm: Any, system: str, user: str, schema: dict | None) -> s
     finally:
         if had_attr:
             llm.response_schema = prior
+
+
+def generate_column_meanings(
+    columns_md: str,
+    domain_hint: str,
+    *,
+    llm: LLMClient,
+    language: str | None = None,
+    issues: list[str] | None = None,
+) -> dict:
+    """One guided call -> ``{"columns": [{source, column, label, unit?}]}``.
+
+    The FIRST stage of a staged design (ADR ``meaning-before-identity.md``): it
+    needs no skeleton, no menu and no ontology, because what a column means is
+    decided by the data, not by the design that will later be built on it. The
+    answer is filed under ``(source, column)`` — run :func:`normalize_column_meanings`
+    on it before anything downstream reads it.
+    """
+    user = build_column_meanings_user(
+        columns_md, domain_hint, language=language, issues=issues
+    )
+    return _load_json_object(
+        _complete_guided(
+            llm, COLUMN_MEANINGS_SYSTEM_PROMPT, user, column_meanings_json_schema()
+        )
+    )
+
+
+def normalize_column_meanings(
+    answer: Mapping[str, Any], known: Mapping[str, Sequence[str]]
+) -> tuple[list[dict], list[str]]:
+    """A meanings answer -> the rows worth keeping, plus what was rejected and why.
+
+    ``known`` is ``{source: [column, …]}`` — the columns that actually exist. The
+    LLM is asked to copy both identifiers, so anything outside that set is an
+    invention, and a meaning filed against a column that is not there would
+    surface later as a blank the person cannot fix.
+
+    A ``label`` that merely restates the header is dropped the same way
+    :func:`merge_label_fill` drops one: a machine-written echo HIDES the blank
+    instead of resolving it, and "use the column name as the meaning" is a
+    choice the human makes, never one made for them (K22). The row survives
+    when it still carries a unit — that half of the answer is independent.
+    """
+    kept: list[dict] = []
+    rejected: list[str] = []
+    seen: set[tuple[str, str]] = set()
+    columns_by_source = {
+        str(source): {str(c) for c in columns} for source, columns in (known or {}).items()
+    }
+    for entry in (answer or {}).get("columns") or []:
+        if not isinstance(entry, Mapping):
+            continue
+        source = str(entry.get("source") or "").strip()
+        column = str(entry.get("column") or "").strip()
+        if not source or not column:
+            continue
+        where = f"{source}:{column}"
+        if source not in columns_by_source:
+            rejected.append(f"{where} (unknown source)")
+            continue
+        if column not in columns_by_source[source]:
+            rejected.append(f"{where} (unknown column)")
+            continue
+        if (source, column) in seen:
+            rejected.append(f"{where} (duplicate)")
+            continue
+        seen.add((source, column))
+        label = " ".join(str(entry.get("label") or "").split())
+        unit = " ".join(str(entry.get("unit") or "").split())
+        if label and _norm_ident(label) == _norm_ident(column):
+            rejected.append(f"{where} (label restates the column)")
+            label = ""
+        if not label and not unit:
+            continue
+        row: dict = {"source": source, "column": column}
+        if label:
+            row["label"] = label
+        if unit:
+            row["unit"] = unit
+        kept.append(row)
+    return kept, rejected
 
 
 def generate_skeleton(
