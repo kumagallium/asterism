@@ -83,10 +83,10 @@
   "twinKinds": "{{names}} build the same record from the same columns — one row type written twice. Delete the one you do not need (which to keep, or whether to split them by different columns, is yours to decide).",
   "zone": {
     "head": "Which kind carries which item",
-    "lead": "The AI's recommendation is filled in. To change which kind carries an item, use the picker on the right.",
+    "lead": "The checkbox on the left gives that value its own ID — the place where the same value in another file or in outside data joins. The picker on the right changes which kind carries the item. The AI's recommendation is filled in.",
     "isCardId": "The ID for the whole table",
     "isKind": "ID of the kind “{{name}}”",
-    "cardMoved": "This table’s values — and the connect checkboxes — are listed once above, under “Choose the values that will connect later”.",
+    "cardMoved": "This table's contents, and the choice of which values get an ID, are listed together above under “Which kind carries which item”.",
     "variesWith": "{{values}} … (varies per row)",
     "keyNote": "A column marked “this table’s ID” is already in use as that kind’s ID. To use a different column, open “Write the ID recipe yourself” in the tabs below.",
     "droppedNote": "{{count}} column(s) you chose not to take in on the meanings screen are not listed here (go back to change that).",
@@ -104,7 +104,12 @@
     "diagramWhole": "Whole table",
     "diagramRows": "Per row",
     "diagramPending": "the machine adds this next",
-    "diagramNote": "Boxes are kinds. A solid line is one ID nested in another. A dotted line is one the machine adds next — kinds from one file always end up connected."
+    "diagramNote": "Boxes are kinds. A solid line is one ID nested in another. A dotted line is one the machine adds next — kinds from one file always end up connected.",
+    "colId": "Make an ID",
+    "colColumn": "Column",
+    "colValue": "Value",
+    "colCarrier": "Carried by",
+    "idAria": "Give {{column}} its own ID"
   },
   "removeZoneHost": "This kind holds the table-wide values. Deleting it also removes the “choose the values” list. If you only want a different ID column, use “Write the ID recipe yourself”.",
   "kindsHead": "Check that each ID points at one thing",

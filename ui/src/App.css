@@ -6776,6 +6776,25 @@ button.ds-artifact:disabled {
 .skeleton-fold > p {
   margin: 0.25rem 0 0 1rem;
 }
+/* 畳みをやめた区画（利用者評価 2026-08-28「toggle をすべてなくす」）。開閉の
+   三角が無くなったぶん、見出しと中身の関係は字面の強弱だけで示す。 */
+.skeleton-keyedit {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-top: 0.4rem;
+}
+.skeleton-keyedit > label {
+  cursor: default;
+}
+/* ID にする基準の 3 行。読まずに進む人の邪魔をしない大きさで、表の直前に置く。 */
+.skeleton-choose-hints {
+  margin: 0 0 var(--space-2);
+  color: var(--muted);
+  font-size: 0.8125rem;
+  line-height: 1.7;
+}
+
 .skeleton-growth {
   padding-top: 0.45rem;
   border-top: 1px dashed var(--border);
