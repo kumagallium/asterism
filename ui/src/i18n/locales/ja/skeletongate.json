@@ -102,7 +102,9 @@
     "wholeTable": "この表全体",
     "perValue": "{{column}} ごと",
     "diagramWhole": "表全体",
-    "diagramRows": "行ごと"
+    "diagramRows": "行ごと",
+    "diagramPending": "このあと機械が引きます",
+    "diagramNote": "箱＝データの種類。実線＝ID の入れ子。点線＝このあと機械が引く線（同じファイルから出た種類は必ずつながります）。"
   },
   "removeZoneHost": "この種類は表全体の値を持っています。消すと「あとでつなぐ値をえらぶ」の一覧も消えます。ID の列を変えたいだけなら「ID の作り方を自分で書く」へ。",
   "kindsHead": "ID がひとつずつを指しているか確かめる",

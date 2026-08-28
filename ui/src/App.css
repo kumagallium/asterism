@@ -206,6 +206,7 @@ button.side-nav-item.active:hover:not(:disabled) {
   position: sticky;
   top: 0;
   z-index: 5;
+  /* 下に貼り付く要素（④ の形の図）が潜り込まないよう、高さを変数で公開する。 */
   display: flex;
   align-items: baseline;
   gap: 1rem;
@@ -7505,7 +7506,12 @@ tr.kz-attn td {
 }
 .skeleton-zone-map {
   position: sticky;
-  top: var(--space-3);
+  /* 上端は画面ではなく **上部バーの下**。0 にすると、スクロールした図がバーの
+     下へ潜り込む（実機 2026-08-28）。バーは `position: sticky` で高さが決まって
+     いるので、その下に置く。 */
+  top: calc(var(--topbar-h, 6.5rem) + var(--space-3));
+  /* バーより手前に出ない。図がバーを隠すと、上のタイトルが読めなくなる。 */
+  z-index: 1;
 }
 .skeleton-zone-map .skeleton-diagram {
   margin: 0;

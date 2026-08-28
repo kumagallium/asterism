@@ -102,7 +102,9 @@
     "wholeTable": "The whole table",
     "perValue": "One per {{column}}",
     "diagramWhole": "Whole table",
-    "diagramRows": "Per row"
+    "diagramRows": "Per row",
+    "diagramPending": "the machine adds this next",
+    "diagramNote": "Boxes are kinds. A solid line is one ID nested in another. A dotted line is one the machine adds next — kinds from one file always end up connected."
   },
   "removeZoneHost": "This kind holds the table-wide values. Deleting it also removes the “choose the values” list. If you only want a different ID column, use “Write the ID recipe yourself”.",
   "kindsHead": "Check that each ID points at one thing",

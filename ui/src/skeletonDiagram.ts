@@ -51,6 +51,12 @@ export function skeletonMermaid(
     /** 箱の呼び方。省略すると map 名（＋クラス名）。かんたん層は AI が付けた名前を
      *  ①では見せないので、データ由来の呼び方を渡す。 */
     label?: (m: SkeletonMap) => string
+    /** 「このあと機械が引く」線（点線）。骨格の段で描ける実線は ID の入れ子だけ
+     *  で、種類どうしの本当のつながりは設計を組むときに決まる。①で作った種類は
+     *  「その値そのものが ID」なので必ず表全体から辺が引かれる — それを孤立した
+     *  箱として見せないための予告。`[from, to]` の map 名で渡す。 */
+    pendingEdges?: [string, string][]
+    pendingLabel?: string
   } = {},
 ): string {
   const ids = new Map<string, string>()
@@ -70,6 +76,7 @@ export function skeletonMermaid(
       opts.label?.(m) ?? (cls && cls !== m.name ? `${m.name}（${cls}）` : m.name)
     lines.push(`  ${id}["${label.replace(/"/g, "'")}"]`)
   }
+  const drawn = new Set<string>()
   for (const a of skeleton.maps) {
     const aVars = templateVars(a)
     for (const b of skeleton.maps) {
@@ -77,8 +84,18 @@ export function skeletonMermaid(
       const bVars = templateVars(b)
       if (embedsKey(aVars, bVars)) {
         lines.push(`  ${ids.get(a.name)!} -->|${edgeLabel}| ${ids.get(b.name)!}`)
+        drawn.add(`${a.name}\u0000${b.name}`)
+        drawn.add(`${b.name}\u0000${a.name}`)
       }
     }
+  }
+  for (const [from, to] of opts.pendingEdges ?? []) {
+    const a = ids.get(from)
+    const b = ids.get(to)
+    if (!a || !b || drawn.has(`${from}\u0000${to}`)) continue
+    lines.push(`  ${a} -.->|${opts.pendingLabel ?? ''}| ${b}`)
+    drawn.add(`${from}\u0000${to}`)
+    drawn.add(`${to}\u0000${from}`)
   }
   return lines.join('\n')
 }

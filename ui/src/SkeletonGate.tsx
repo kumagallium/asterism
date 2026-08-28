@@ -1661,16 +1661,32 @@ export function SkeletonGate({
     const vars = [...(m.subject.template ?? '').matchAll(/\{([^{}]+)\}/g)].map((x) => x[1])
     return vars.length === 1 ? vars[0] : t('skeletongate:zone.diagramRows')
   }
+  /** 「このあと機械が引く」線。①で作った種類は「その値そのものが ID」なので、
+   *  設計を組むときに表全体から必ず辺が引かれる（per-map の決定論リンク）。
+   *  骨格の図に描けるのは ID の入れ子だけなので、そのままだと作った種類が
+   *  孤立して見え、「つながらないのでは」と読める（利用者評価 2026-08-28）。 */
+  const pendingEdges: [string, string][] = zone
+    ? [...new Set(zone.kindOf.values())].map((n) => [zone.host.name, n])
+    : []
   const diagram = (
     <div className="skeleton-diagram">
       <Mermaid
         chart={skeletonMermaid(
           skeleton,
           t('workbench:skeleton.diagram.edge'),
-          plain ? { direction: 'TD', label: diagramLabel } : {},
+          plain
+            ? {
+                direction: 'TD',
+                label: diagramLabel,
+                pendingEdges,
+                pendingLabel: t('skeletongate:zone.diagramPending'),
+              }
+            : {},
         )}
       />
-      <p className="skeleton-diagram-note">{t('workbench:skeleton.diagram.note')}</p>
+      <p className="skeleton-diagram-note">
+        {t(plain ? 'skeletongate:zone.diagramNote' : 'workbench:skeleton.diagram.note')}
+      </p>
       {/* 線が 1 本も引けないとき、黙っていると「つながっていない設計だ」と読める。
           この段では骨格 = ID の形しか無く、種類どうしの本当のつながり
           (object_template) は次の段で決まる。「まだ分からない」と「無い」は
