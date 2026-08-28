@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.23.0](https://github.com/kumagallium/asterism/compare/v0.22.4...v0.23.0) - 2026-08-28
+
+- feat: アプリ本体が MCP を出す（/mcp）＋設定から各 AI へ配る by @kumagallium in https://github.com/kumagallium/asterism/pull/447
+
 ## [v0.22.4](https://github.com/kumagallium/asterism/compare/v0.22.3...v0.22.4) - 2026-08-27
 
 - fix(kantan): 公開後の「データの数えかたに戻る」を、行数を読めない画面でも出す by @kumagallium in https://github.com/kumagallium/asterism/pull/441
