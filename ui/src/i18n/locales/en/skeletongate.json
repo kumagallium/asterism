@@ -82,7 +82,7 @@
   "twinKinds": "{{names}} build the same record from the same columns — one row type written twice. Delete the one you do not need (which to keep, or whether to split them by different columns, is yours to decide).",
   "zone": {
     "head": "Choose the values that will connect later",
-    "lead": "A checked value becomes a record with its own ID. When the same value appears in another file or in outside data, this record is where they join. The pre-set checks are the AI’s recommendation. Measured numbers can’t be checked — they don’t identify anything.",
+    "lead": "A checked value becomes a record with its own ID. When the same value appears in another file or in outside data, this record is where they join. **The pre-checked ones are the AI’s recommendation** — unchecking one removes that kind. A row with no checkbox is either this table’s own ID, or a measured number (equal values there do not mean the same thing).",
     "isCardId": "this table’s ID ({{name}})",
     "isKind": "ID of the kind “{{name}}”",
     "cardMoved": "This table’s values — and the connect checkboxes — are listed once above, under “Choose the values that will connect later”.",

@@ -1072,3 +1072,39 @@ def test_row_data_card_names_its_promotable_columns(tmp_path: Path) -> None:
     assert "symbol" not in cols
     # 測定値は「つなぐ手がかり」にならない。
     assert "atomic_mass" not in cols
+
+
+def test_zone_values_are_not_truncated_by_the_card_cap(tmp_path: Path) -> None:
+    """ゾーン①が並べる列はカードの上限で切らない（K46）。
+
+    カードの上限（G13）はタブ②の読みやすさのためのもの。①は一覧そのものなので、
+    切れると**その先の列でできた種類をチェックで外せなくなる**（実データ:
+    Wikipage / BohrModelImage が 8 列の外にあり 🗑 でしか消せなかった）。
+    """
+    cols = [f"c{i}" for i in range(12)]
+    p = tmp_path / "wide.csv"
+    p.write_text(
+        ",".join(["key", *cols]) + "\n"
+        + "\n".join(",".join([f"k{r}", *[f"v{i}_{r}" for i in range(12)]]) for r in range(3))
+        + "\n",
+        encoding="utf-8",
+    )
+    skeleton = {
+        "version": 1,
+        "prefixes": dict(_PREFIXES),
+        "maps": [
+            {
+                "name": "row",
+                "source": "wide.csv",
+                "subject": {"template": "xr:row/{key}", "classes": ["xo:Row"]},
+            }
+        ],
+    }
+    card = annotate_skeleton(skeleton, [p])["maps"]["row"]["entity_preview"]
+    # 表示は上限で切る（②のカードは読ませるもの）。
+    assert len(card["properties"]) <= 8
+    # ①が並べる値は全部（キー + 12 列）。
+    assert len(card["all_values"]) == 13
+    assert {v["column"] for v in card["all_values"]} == {"key", *cols}
+    # 候補も切らない（キーだけ除く）。
+    assert set(card["identity_columns"]) == set(cols)

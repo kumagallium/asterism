@@ -398,11 +398,20 @@ def _entity_preview(
         # では、ゾーンはこちらを並べる。K32 のゾーンは「ヘッダ付きファイル」の
         # 形だけを見て書かれていて、普通の行データでは丸ごと消えていた
         # （利用者の実データ・2026-08-28）。
+        # 候補と、ゾーンが並べる値は**打ち切らない**。カードの上限（G13）は
+        # タブ②の読みやすさのためのもので、①「あとでつなぐ値をえらぶ」は
+        # 一覧そのものなので、切れると**その先の列でできた種類をチェックで
+        # 外せなくなる**（利用者の実データ・2026-08-28: Wikipage や
+        # BohrModelImage が 8 列の外にあり 🗑 でしか消せなかった）。
         "identity_columns": [
             p["column"]
-            for p in (key_props + conflicts + rest[:room])
+            for p in (key_props + conflicts + rest)
             if p["column"] not in key_set
             and types.get(p["column"]) not in _MEASUREMENT_TYPES
+        ],
+        "all_values": [
+            {"column": p["column"], "value": p.get("value", "")}
+            for p in (key_props + conflicts + rest)
         ],
         "omitted_columns": max(0, len(rest) - room),
     }

@@ -1663,8 +1663,13 @@ export function SkeletonGate({
     const host = skeleton.maps[idx]
     const a = annotations!.maps[host.name]
     const values = new Map<string, string>()
-    for (const prop of a.entity_preview!.properties) {
-      if (!prop.conflict && prop.value !== undefined) values.set(prop.column, prop.value)
+    // 打ち切られていない全列（`all_values`）を第一候補に。古いサーバや
+    // 取れなかったときだけカードの表示列に落ちる。
+    for (const v of a.entity_preview!.all_values ?? []) values.set(v.column, v.value)
+    if (values.size === 0) {
+      for (const prop of a.entity_preview!.properties) {
+        if (!prop.conflict && prop.value !== undefined) values.set(prop.column, prop.value)
+      }
     }
     for (const dv of a.growth_preview?.described_values ?? []) {
       if (!values.has(dv.column)) values.set(dv.column, dv.value)
@@ -2273,7 +2278,11 @@ export function SkeletonGate({
               {basename(zone.host.source)}
             </p>
           )}
-          <p className="kz-note kz-prose">{t('skeletongate:zone.lead')}</p>
+          <p className="kz-note kz-prose">
+            {t('skeletongate:zone.lead')
+              .split('**')
+              .map((part, i) => (i % 2 ? <strong key={i}>{part}</strong> : part))}
+          </p>
           <div className="skeleton-header-zone">
           <table className="skeleton-entity-props">
             <tbody>

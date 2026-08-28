@@ -352,6 +352,9 @@ export interface SkeletonMapAnnotation {
     /** このカード自身が持つ列のうち、識別子型（キーでない）＝種類に昇格できる
      *  候補。1 件のカードが無い行データのファイルでは、ゾーンはこれを並べる。 */
     identity_columns?: string[]
+    /** ゾーン①が並べる全列と代表行の値。カードの `properties` は読みやすさの
+     *  ために打ち切るが、①は一覧そのものなので打ち切らない。 */
+    all_values?: { column: string; value: string }[]
     omitted_columns: number
   } | null
   /** Columns this map would carry that another map OWNS (its key determines
