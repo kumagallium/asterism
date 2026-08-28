@@ -1635,10 +1635,30 @@ export function SkeletonGate({
      タブはその下＝「えらんだ種類をたしかめる」に格下げされる。 */
   const zone = (() => {
     if (!plain) return null
-    const idx = skeleton.maps.findIndex((mm) => {
+    /* 宿主は「1 ファイル＝1 件のカード」が第一候補。無ければ**いちばん件数の
+       多い行の種類**に載せる。ゾーンは K32 の時点でヘッダ付きファイルの形だけを
+       見て書かれていて、普通の行データ（1 件のカードが無い）では丸ごと消えて
+       いた — つまり「どの値を後でつなぐか」を人が決める場所が、いちばん列の
+       多いファイルで存在しなかった（利用者の実データ・2026-08-28）。 */
+    const hasCard = (mm: SkeletonMap) => {
       const a = annotations?.maps?.[mm.name]
-      return a?.collapse_kind === 'singleton' && !!a?.entity_preview
-    })
+      return !!a?.entity_preview
+    }
+    let idx = skeleton.maps.findIndex(
+      (mm) => annotations?.maps?.[mm.name]?.collapse_kind === 'singleton' && hasCard(mm),
+    )
+    if (idx < 0) {
+      let best = -1
+      skeleton.maps.forEach((mm, i) => {
+        const a = annotations?.maps?.[mm.name]
+        if (!hasCard(mm) || a?.value_catalog) return
+        const n = a?.distinct_ids ?? 0
+        if (n > best) {
+          best = n
+          idx = i
+        }
+      })
+    }
     if (idx < 0) return null
     const host = skeleton.maps[idx]
     const a = annotations!.maps[host.name]
@@ -1651,6 +1671,14 @@ export function SkeletonGate({
     }
     if (values.size === 0) return null
     const keyCols = new Set((a.key_columns ?? []).map(String))
+    /* チェックを出してよい列。1 件のカードなら「この 1 件が説明する列」
+       （growth）、行の種類ならカード自身の識別子型の列。どちらも「値そのものが
+       外の世界でも名前を持つか」を人に聞くための候補で、測定値は入らない。 */
+    const pickable = new Set<string>(
+      a.collapse_kind === 'singleton'
+        ? a.growth_preview?.described_columns ?? []
+        : a.entity_preview?.identity_columns ?? [],
+    )
     // 同じソースで、1 列だけをキーに持つ他の種類 — その列は「もう種類」。
     const kindOf = new Map<string, string>()
     for (const mm of skeleton.maps) {
@@ -1663,7 +1691,7 @@ export function SkeletonGate({
     const rowMap = (a.growth_preview?.row_maps ?? []).find(
       (n) => !annotations?.maps?.[n]?.value_catalog,
     )
-    return { idx, host, ann: a, values, keyCols, kindOf, rowMap }
+    return { idx, host, ann: a, values, keyCols, kindOf, rowMap, pickable }
   })()
 
   /** ゾーンのチェック ON: 控えがあれば元通りに戻し、無ければその列をキーに
@@ -2258,7 +2286,7 @@ export function SkeletonGate({
                         灰色のチェックは「選べない、なぜ？」だけを残す（利用者評価
                         2026-08-28）。印は右のタグ、外し方は表の下の一文が言う。 */}
                     <td className="skeleton-entity-pick">
-                      {!locked && (
+                      {!locked && (zone.pickable.has(col) || !!kindName) && (
                         <input
                           type="checkbox"
                           aria-label={t('workbench:skeleton.evidence.splitPick', { column: col })}

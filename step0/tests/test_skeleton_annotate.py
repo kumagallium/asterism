@@ -1034,3 +1034,41 @@ def test_key_safety_fix_leaves_a_key_the_person_wrote(tmp_path: Path) -> None:
     # keep に無い map は従来どおり差し替わる
     _, fixes_open = apply_key_safety_fix(skeleton, out, keep={"somethingelse"})
     assert fixes_open.keys() == {"point"}
+
+
+def test_row_data_card_names_its_promotable_columns(tmp_path: Path) -> None:
+    """1 件のカードが無い普通の行データでも、種類に昇格できる列は出る（K45）。
+
+    ゾーンは K32 の時点で「ヘッダ付きファイル」の形だけを見て書かれており、
+    singleton が無いファイルでは丸ごと消えていた。判定材料は行のカード自身が
+    持つ識別子型の列で、測定値（xsd:decimal 等）は入らない。
+    """
+    p = tmp_path / "elements.csv"
+    p.write_text(
+        "symbol,name,atomic_number,atomic_mass,discovered_by,category\n"
+        "H,Hydrogen,1,1.008,Henry Cavendish,Nonmetal\n"
+        "He,Helium,2,4.0026,Pierre Janssen,Noble gas\n"
+        "Li,Lithium,3,6.94,Johan August Arfwedson,Alkali metal\n",
+        encoding="utf-8",
+    )
+    skeleton = {
+        "version": 1,
+        "prefixes": dict(_PREFIXES),
+        "maps": [
+            {
+                "name": "element",
+                "source": "elements.csv",
+                "subject": {"template": "xr:element/{symbol}", "classes": ["xo:Element"]},
+            }
+        ],
+    }
+    out = annotate_skeleton(skeleton, [p])["maps"]["element"]
+    # 1 件のカードではない = ゾーンの旧条件では何も出なかった形。
+    assert out["collapse_kind"] == "unique"
+    cols = out["entity_preview"]["identity_columns"]
+    assert "discovered_by" in cols
+    assert "category" in cols
+    # キーは既にこのカードの ID なので候補ではない。
+    assert "symbol" not in cols
+    # 測定値は「つなぐ手がかり」にならない。
+    assert "atomic_mass" not in cols

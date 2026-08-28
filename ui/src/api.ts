@@ -349,6 +349,9 @@ export interface SkeletonMapAnnotation {
      *  できる候補（K33）。判断材料は値なので、実サンプルが並走する。 */
     varying_identity_columns?: string[]
     varying_samples?: { column: string; values: string[] }[]
+    /** このカード自身が持つ列のうち、識別子型（キーでない）＝種類に昇格できる
+     *  候補。1 件のカードが無い行データのファイルでは、ゾーンはこれを並べる。 */
+    identity_columns?: string[]
     omitted_columns: number
   } | null
   /** Columns this map would carry that another map OWNS (its key determines

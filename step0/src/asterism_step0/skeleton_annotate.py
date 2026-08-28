@@ -393,6 +393,17 @@ def _entity_preview(
         "varying_columns": varying,
         "varying_identity_columns": varying_identity,
         "varying_samples": varying_samples,
+        # このカード自身が持つ列のうち、識別子型（測定値でない・キーでない）＝
+        # 「値の種類」に昇格できる候補。行データのファイル（1 件のカードが無い）
+        # では、ゾーンはこちらを並べる。K32 のゾーンは「ヘッダ付きファイル」の
+        # 形だけを見て書かれていて、普通の行データでは丸ごと消えていた
+        # （利用者の実データ・2026-08-28）。
+        "identity_columns": [
+            p["column"]
+            for p in (key_props + conflicts + rest[:room])
+            if p["column"] not in key_set
+            and types.get(p["column"]) not in _MEASUREMENT_TYPES
+        ],
         "omitted_columns": max(0, len(rest) - room),
     }
 
