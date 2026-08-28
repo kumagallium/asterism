@@ -799,8 +799,8 @@ function SkeletonEvidence({
       {/* かんたん層では出さない（K32）: 種類の選別はタブの前の「この表全体の
           情報」で行う。ここは設計者向け（詳細モード）の畳みとして残る。 */}
       {growth && !plain && growth.described_columns.length > 0 && (
-        <details className="skeleton-fold skeleton-growth">
-          <summary>
+        <div className="skeleton-growth">
+          <p className="skeleton-evidence-label">
             {(growth.shared_values?.length ?? 0) > 0 ? (
               <span className="skeleton-evidence-warn">
                 {t('workbench:skeleton.evidence.growthSharedHead', {
@@ -810,7 +810,7 @@ function SkeletonEvidence({
             ) : (
               t('workbench:skeleton.evidence.growthHead')
             )}
-          </summary>
+          </p>
           <p className="skeleton-evidence-line skeleton-evidence-muted">
             {t('workbench:skeleton.evidence.growthPerFile', { count: growth.source_count })}
           </p>
@@ -896,7 +896,7 @@ function SkeletonEvidence({
               </div>
             </div>
           )}
-        </details>
+        </div>
       )}
       {showCandidates && (
         <div className="skeleton-evidence-candidates">
@@ -910,12 +910,12 @@ function SkeletonEvidence({
         /* On a singleton the merge is (usually) the point — but when it ISN'T,
            the fix must stay one click away. Folded behind the explicit
            question so the normal case stays green and quiet. */
-        <details className="skeleton-evidence-candidates skeleton-evidence-candidates--fold">
-          <summary className="skeleton-evidence-label">
+        <div className="skeleton-evidence-candidates">
+          <p className="skeleton-evidence-label">
             {t('workbench:skeleton.evidence.candidatesSingletonHead')}
-          </summary>
+          </p>
           {candidateChips}
-        </details>
+        </div>
       )}
       {!singleton && !showCandidates && candidateChips && (
         /* A key can be WRONG without being broken: `{2theta}` and `{(hkl)}` are
@@ -923,12 +923,12 @@ function SkeletonEvidence({
            hidden — leaving a person who wanted the other one to edit the ID
            template by hand. Same treatment as the singleton case: available,
            folded, so the green path stays quiet (2026-08-19 review). */
-        <details className="skeleton-evidence-candidates skeleton-evidence-candidates--fold">
-          <summary className="skeleton-evidence-label">
+        <div className="skeleton-evidence-candidates">
+          <p className="skeleton-evidence-label">
             {t('workbench:skeleton.evidence.candidatesQuietHead')}
-          </summary>
+          </p>
           {candidateChips}
-        </details>
+        </div>
       )}
       {prefixWarning}
     </>
@@ -968,6 +968,7 @@ export function SkeletonGate({
   onReattach,
   presentFileNames,
   onAdoptRename,
+  droppedColumns = [],
   titleKey = 'workbench:skeleton.gateTitle',
   hintKey = 'workbench:skeleton.gateHint',
   continueKey = 'workbench:skeleton.continue',
@@ -998,6 +999,13 @@ export function SkeletonGate({
    *  installs can open the setting themselves; on a shared server the note
    *  already says to ask the administrator. */
   onOpenSettings?: () => void
+  /** `source\u0000column` for the columns the reader decided NOT to take in, on
+   *  the meaning screen that now comes before this one. They are left out of the
+   *  "choose the values to link on" list: a column that is not taken in can
+   *  never carry an identity, so offering it is offering a choice that does not
+   *  exist (ADR meaning-before-identity §9). A one-line note says how many, so
+   *  the decision stays visible instead of silently shrinking the list. */
+  droppedColumns?: string[]
   /** When set, offered as the in-place way back wherever the gate says a
    *  source could not be checked — the caller returns to the file-drop step
    *  WITHOUT discarding the draft skeleton (unlike `onDiscard`, which starts
@@ -1465,32 +1473,6 @@ export function SkeletonGate({
     onContinue()
   }
 
-  // The skeleton at a glance: how many kinds, linked how. A one-box skeleton
-  // that should be two is visible here before any table reading — but with a
-  // single kind the picture says nothing, and on the kantan tier it pushed the
-  // thing the human must actually confirm below the fold.
-  const diagramLinked = skeletonMermaid(skeleton, '|').includes('-->')
-  const diagram = (
-    <div className="skeleton-diagram">
-      <Mermaid chart={skeletonMermaid(skeleton, t('workbench:skeleton.diagram.edge'))} />
-      <p className="skeleton-diagram-note">{t('workbench:skeleton.diagram.note')}</p>
-      {/* 線が 1 本も引けないとき、黙っていると「つながっていない設計だ」と読める。
-          この段では骨格 = ID の形しか無く、種類どうしの本当のつながり
-          (object_template) は次の段で決まる。「まだ分からない」と「無い」は
-          別のことなので、そう書く（利用者評価 2026-08-27）。 */}
-      {!diagramLinked && skeleton.maps.length > 1 && (
-        <p className="skeleton-diagram-note">{t('skeletongate:diagram.notLinkedYet')}</p>
-      )}
-    </div>
-  )
-  /* かんたん層には図を出さない（利用者評価 2026-08-27）。畳んでいたのを常時表示に
-     した結果、線の有無が「この設計で良いのか」という答えようのない問いになった
-     ——「つながっていない」ではなく「この段では分からない」なのに、絵は分からない
-     ことを描けない。入れ子は機械が確定させ（C7-C11 改訂）、リンクは機械が保証する
-     （ensure_same_source_links）ので、ここで人が判断することはもう無い。事実の側は
-     件数バンド（何行が何件になるか）と、各カードの `key.containedIn`（この ID は
-     〈親〉の中で数えます）が言葉で言う。設計者向けの詳細モードには図を残す。 */
-  const diagramBlock = !plain ? diagram : null
 
   // The ID-shape card. Once the issuer is configured this is one settled line
   // ("this is what your IDs look like"), not a form to fill in.
@@ -1698,6 +1680,124 @@ export function SkeletonGate({
     )
     return { idx, host, ann: a, values, keyCols, kindOf, rowMap, pickable }
   })()
+
+  // The skeleton at a glance: how many kinds, linked how. A one-box skeleton
+  // that should be two is visible here before any table reading — but with a
+  // single kind the picture says nothing, and on the kantan tier it pushed the
+  // thing the human must actually confirm below the fold.
+  const diagramLinked = skeletonMermaid(skeleton, '|').includes('-->')
+  /** かんたん層の図の箱の呼び方 — ①のセレクトと同じ語彙。AI が付けた名前は
+   *  ②まで出さない（利用者評価 2026-08-28）。細い列なので短く。 */
+  const diagramLabel = (m: SkeletonMap): string => {
+    if (!zone) return m.name
+    if (m.name === zone.host.name) return t('skeletongate:zone.diagramWhole')
+    const vars = [...(m.subject.template ?? '').matchAll(/\{([^{}]+)\}/g)].map((x) => x[1])
+    return vars.length === 1 ? vars[0] : t('skeletongate:zone.diagramRows')
+  }
+  /** 「このあと機械が引く」線。①で作った種類は「その値そのものが ID」なので、
+   *  設計を組むときに表全体から必ず辺が引かれる（per-map の決定論リンク）。
+   *  骨格の図に描けるのは ID の入れ子だけなので、そのままだと作った種類が
+   *  孤立して見え、「つながらないのでは」と読める（利用者評価 2026-08-28）。 */
+  const pendingEdges: [string, string][] = zone
+    ? [...new Set(zone.kindOf.values())].map((n) => [zone.host.name, n])
+    : []
+  const diagram = (
+    <div className="skeleton-diagram">
+      <Mermaid
+        chart={skeletonMermaid(
+          skeleton,
+          t('workbench:skeleton.diagram.edge'),
+          plain
+            ? {
+                direction: 'TD',
+                label: diagramLabel,
+                pendingEdges,
+                pendingLabel: t('skeletongate:zone.diagramPending'),
+              }
+            : {},
+        )}
+      />
+      <p className="skeleton-diagram-note">
+        {t(plain ? 'skeletongate:zone.diagramNote' : 'workbench:skeleton.diagram.note')}
+      </p>
+      {/* 線が 1 本も引けないとき、黙っていると「つながっていない設計だ」と読める。
+          この段では骨格 = ID の形しか無く、種類どうしの本当のつながり
+          (object_template) は次の段で決まる。「まだ分からない」と「無い」は
+          別のことなので、そう書く（利用者評価 2026-08-27）。 */}
+      {!diagramLinked && skeleton.maps.length > 1 && (
+        <p className="skeleton-diagram-note">{t('skeletongate:diagram.notLinkedYet')}</p>
+      )}
+    </div>
+  )
+  /* かんたん層のこの位置（カードの縦の流れ）には図を出さない（利用者評価
+     2026-08-27）。畳んでいたのを常時表示にした結果、線の有無が「この設計で良い
+     のか」という答えようのない問いになった ——「つながっていない」ではなく「この
+     段では分からない」なのに、絵は分からないことを描けない。
+     2026-08-28 追記: 図そのものは①の右に貼り付けた（`skeleton-zone-map`）。当時と
+     違うのは、この画面が「種類を作る画面」になったこと — 箱の増減はこの画面の
+     操作の結果で、答えようのない問いではない。線の話は図の下で今も断っている。 */
+  const diagramBlock = !plain ? diagram : null
+
+  /** ①で使う、その種類の呼び方。**AI が付けた名前（Crystal）はここに出さない** —
+   *  名前を確かめて直すのは②で、①の時点で読む人はその言葉に何も合意していない
+   *  （利用者評価 2026-08-28「①に出てくると『何？』となりそう」）。データその
+   *  ままの呼び方だけを使う: 表全体で 1 件のものは「この表全体」、ある値ごとに
+   *  1 件になるものは「その列名 ごと」。 */
+  const zoneChoiceLabel = (name: string): string => {
+    if (!zone || name === zone.host.name) return t('skeletongate:zone.wholeTable')
+    const m = skeleton.maps.find((x) => x.name === name)
+    const vars = [...(m?.subject.template ?? '').matchAll(/\{([^{}]+)\}/g)].map((x) => x[1])
+    return vars.length === 1
+      ? t('skeletongate:zone.perValue', { column: vars[0] })
+      : displayMapName(name)
+  }
+
+  /** 列 → その列を持つと**宣言された**種類（`owns`）。宣言が無ければカード。
+   *
+   *  ヘッダ部の列はどのキーからでも関数従属が成立するので、どの種類に載るかは
+   *  データからは決まらない（実測 2026-08-28: Name / Chemical Formula / …は
+   *  No・CSD・Reference・Radiation のどれからでも「決まる」）。だから機械は
+   *  推測せず全部カードに残し、動かしたい人が動かす（ADR meaning-before-identity
+   *  §3 改訂 / G15 の `owns` はもともとそのための宣言）。 */
+  const ownerOf = new Map<string, string>()
+  for (const mm of skeleton.maps) {
+    if (zone && mm.source !== zone.host.source) continue
+    for (const c of mm.owns ?? []) ownerOf.set(String(c), mm.name)
+  }
+  /** 同じファイルの、カード側の他の種類 — 載せ替えの行き先。 */
+  const siblingKinds = zone ? [...new Set(zone.kindOf.values())] : []
+
+  /** 列を種類 `target` に載せ替える。他の種類の宣言からは外す（1 つの列が属性と
+   *  して載るのは 1 箇所だけ・G6）。カードを選ぶと宣言そのものが消える＝既定へ。 */
+  function assignColumn(col: string, target: string) {
+    if (!zone) return
+    const maps = skeleton.maps.map((mm) => {
+      if (mm.source !== zone.host.source) return mm
+      const before = (mm.owns ?? []).map(String)
+      const kept = before.filter((c) => c !== col)
+      const next = mm.name === target ? [...kept, col] : kept
+      if (next.length === before.length && next.every((c, i) => c === before[i])) return mm
+      if (next.length > 0) return { ...mm, owns: next }
+      // 宣言そのものを消す＝既定（カード）に戻す。`owns: []` は「何も持たない
+      // 宣言」として読まれてしまうので、キーごと落とす。
+      const rest = { ...mm }
+      delete rest.owns
+      return rest
+    })
+    onChange({ ...skeleton, maps })
+  }
+
+  /** 3（項目の意味）で「取り込まない」と決めた列。ここは ID を決める画面なので、
+   *  取り込まない列を並べると、成立しない選択肢を読ませることになる。 */
+  const droppedSet = new Set(droppedColumns)
+  const isDropped = (col: string) =>
+    !!zone && droppedSet.has(`${zone.host.source}\u0000${col}`)
+  const droppedHere = zone
+    ? [
+        ...zone.values.keys(),
+        ...(zone.ann.entity_preview?.varying_columns ?? []),
+      ].filter(isDropped)
+    : []
 
   /** ゾーンのチェック ON: 控えがあれば元通りに戻し、無ければその列をキーに
    *  1 つの種類を作る（G15 の split と同じ経路・owns はその列だけ）。 */
@@ -1916,7 +2016,14 @@ export function SkeletonGate({
       <>
         {plain ? (
           <>
-            <p className="skeleton-evidence-line">{keySentence}</p>
+            {/* 畳まない（利用者評価 2026-08-28「toggle をすべてなくす」）。ID の
+                作り方は入力欄そのものが見えていれば分かるので、要約の一文
+                （「ID は No で決まります」）も落とす — 同じことを 2 回言っていた。
+                ただし「まだ ID の作り方が無い」だけは説明ではなく**注意**なので
+                残す（入力欄が空なのは、空欄なのか未決なのか見分けがつかない）。 */}
+            {keyColumns.length === 0 && !usesConstant && keyValue.trim() === '' && (
+              <p className="skeleton-evidence-line skeleton-evidence-warn">{keySentence}</p>
+            )}
             {containedInSentence && (
               <p className="skeleton-evidence-line skeleton-evidence-muted">
                 {containedInSentence}
@@ -1927,9 +2034,12 @@ export function SkeletonGate({
                 {containmentUnknownSentence}
               </p>
             )}
-            <details className="skeleton-fold">
-              <summary>{t('skeletongate:key.editSummary')}</summary>
+            <div className="skeleton-keyedit">
+              <label className="skeleton-evidence-label" htmlFor={`kz-key-${idx}`}>
+                {t('skeletongate:key.editSummary')}
+              </label>
               <textarea
+                id={`kz-key-${idx}`}
                 className="skeleton-gate-input skeleton-gate-key"
                 value={displayKey}
                 rows={Math.max(1, Math.ceil(displayKey.length / 48))}
@@ -1944,7 +2054,7 @@ export function SkeletonGate({
                   )
                 }}
               />
-            </details>
+            </div>
           </>
         ) : (
           /* A full IRI template rarely fits one line — wrap it
@@ -1967,17 +2077,10 @@ export function SkeletonGate({
         {/* The AI's own note is raw model output (English, jargon
             on a weak model) — information for whoever asks, not
             the kantan tier's default reading. */}
-        {m.note &&
-          (plain ? (
-            <details className="skeleton-fold">
-              <summary>{t('skeletongate:noteSummary')}</summary>
-              <p className="skeleton-evidence-line skeleton-evidence-muted">
-                {m.note}
-              </p>
-            </details>
-          ) : (
-            <div className="skeleton-gate-note">{m.note}</div>
-          ))}
+        {/* AI が骨格を書いたときの理由書きは、かんたん層では出さない（利用者評価
+            2026-08-28）。人が確かめるのは値と数であって、モデルの弁明ではない。
+            設計者向けの詳細モードには残す。 */}
+        {m.note && !plain && <div className="skeleton-gate-note">{m.note}</div>}
       </>
     )
     const kindCell = (
@@ -2182,12 +2285,7 @@ export function SkeletonGate({
       {/* 手順（⚠ の直し方・進み方）は、この画面で人が決めることではない。決める
           のは「何を種類にするか」なので、常時見せるのは上の 1 文だけにして、
           操作の細目は畳む（G9）。 */}
-      {plain && (
-        <details className="kz-fold">
-          <summary>{t('skeletongate:gateHowSummary')}</summary>
-          <p className="skeleton-gate-hint">{t('skeletongate:gateHow')}</p>
-        </details>
-      )}
+
       {/* What the deterministic vocabulary repair did — never silent. */}
       {vocabFix && vocabFix.declared.length > 0 && (
         <p className="skeleton-evidence-line skeleton-evidence-muted">
@@ -2283,22 +2381,59 @@ export function SkeletonGate({
               .split('**')
               .map((part, i) => (i % 2 ? <strong key={i}>{part}</strong> : part))}
           </p>
+          {droppedHere.length > 0 && (
+            <p className="kz-note kz-prose">
+              {t('skeletongate:zone.droppedNote', { count: droppedHere.length })}
+            </p>
+          )}
+          {/* 「どれを ID にするか」の判断基準は、これまで AI の骨格プロンプトに
+              しか書かれていなかった（PROMOTE THE THINGS THE OUTSIDE WORLD ALSO
+              NAMES / WHEN IN DOUBT, PROMOTE）。決めるのは人なので、人にも渡す。
+              畳まない（利用者評価 2026-08-28）— 代わりに 3 行に絞る。読ませたい
+              のは「どういうときに ID にするか」だけで、その理由づけではない。 */}
+          <ul className="kz-stop-plainlist skeleton-choose-hints">
+            <li>{t('skeletongate:zone.chooseYes1')}</li>
+            <li>{t('skeletongate:zone.chooseYes2')}</li>
+            <li>{t('skeletongate:zone.chooseYes3')}</li>
+          </ul>
+          {/* 図はここ（①の右）に貼り付ける。種類を足した瞬間に箱が増えるのが
+              見えるのは、この画面でいちばん強い手応え。表が長いのでスクロールに
+              追従させる（`position: sticky`）。
+              2026-08-27 に一度かんたん層から外している — そのときの理由は「線の
+              有無が『この設計で良いのか』という答えようのない問いになった」で、
+              いまも骨格の段では種類どうしのつながりは決まっていない。だから
+              図の下でそう言う（`notLinkedYet`）。当時と違うのは、この画面が
+              「種類を作る画面」になったこと: 箱の増減はこの画面の操作の結果で、
+              答えようのない問いではない。 */}
+          <div className="skeleton-zone-layout">
           <div className="skeleton-header-zone">
           <table className="skeleton-entity-props">
+            {/* 2 つの判断は 2 つの列に分ける。「この値自体を ID にする」と「この項目を
+                どの種類に載せる」は別のことで、1 つのセレクトに混ぜると、選択肢の
+                どれが「作る」でどれが「載せる」なのか読めなかった（利用者評価
+                2026-08-28）。 */}
+            <thead>
+              <tr>
+                <th scope="col">{t('skeletongate:zone.colId')}</th>
+                <th scope="col">{t('skeletongate:zone.colColumn')}</th>
+                <th scope="col">{t('skeletongate:zone.colValue')}</th>
+                <th scope="col">{t('skeletongate:zone.colCarrier')}</th>
+              </tr>
+            </thead>
             <tbody>
-              {[...zone.values.entries()].map(([col, value]) => {
+              {[...zone.values.entries()].filter(([col]) => !isDropped(col)).map(([col, value]) => {
                 const locked = zone.keyCols.has(col)
                 const kindName = locked ? undefined : zone.kindOf.get(col)
                 return (
                   <tr key={col}>
-                    {/* ID に使われている列は「無効なチェックボックス」を出さない。
-                        灰色のチェックは「選べない、なぜ？」だけを残す（利用者評価
-                        2026-08-28）。印は右のタグ、外し方は表の下の一文が言う。 */}
+                    {/* ID にするかどうか。ID に使われている列（表全体のキー）は
+                        外せない — 外すと ID の作り方そのものが変わるので、そこは
+                        「ID の作り方を自分で書く」の領分。 */}
                     <td className="skeleton-entity-pick">
                       {!locked && (zone.pickable.has(col) || !!kindName) && (
                         <input
                           type="checkbox"
-                          aria-label={t('workbench:skeleton.evidence.splitPick', { column: col })}
+                          aria-label={t('skeletongate:zone.idAria', { column: col })}
                           checked={!!kindName}
                           disabled={!canRevalidate}
                           onChange={(e) =>
@@ -2311,14 +2446,39 @@ export function SkeletonGate({
                     </td>
                     <th scope="row">{col}</th>
                     <td>{value}</td>
+                    {/* この列がどの種類に載るか。ID に使われている列は動かせない
+                        （動かすと ID の作り方が変わる — そこは「ID の作り方」欄）。
+                        それ以外は、同じファイルのカード側の種類から選ぶ。行ごとに
+                        変わる値の種類は選択肢に出さない: そこへ載せると同じ値が
+                        全行に写る（G6 の二重記録）。 */}
                     <td className="skeleton-zone-tag">
-                      {locked
-                        ? t('skeletongate:zone.isCardId', {
-                            name: displayMapName(zone.host.name),
-                          })
-                        : kindName
-                          ? t('skeletongate:zone.isKind', { name: displayMapName(kindName) })
-                          : null}
+                      {locked ? (
+                        t('skeletongate:zone.isCardId')
+                      ) : (
+                        // ID にした列の載せ先は、その種類自身のほかにない（自分の
+                        // ID なのだから）。選ばせず、そう見えるだけにする。
+                        <select
+                          className="skeleton-assign"
+                          value={kindName ?? ownerOf.get(col) ?? zone.host.name}
+                          disabled={!canRevalidate || !!kindName}
+                          aria-label={t('skeletongate:zone.assignAria', { column: col })}
+                          onChange={(e) => assignColumn(col, e.target.value)}
+                        >
+                          {kindName && (
+                            <option value={kindName}>{zoneChoiceLabel(kindName)}</option>
+                          )}
+                          <option value={zone.host.name}>
+                            {zoneChoiceLabel(zone.host.name)}
+                          </option>
+                          {siblingKinds
+                            .filter((n) => n !== kindName)
+                            .map((n) => (
+                              <option key={n} value={n}>
+                                {zoneChoiceLabel(n)}
+                              </option>
+                            ))}
+                        </select>
+                      )}
                     </td>
                   </tr>
                 )
@@ -2339,7 +2499,10 @@ export function SkeletonGate({
                       識別子型（(hkl) のような名前・コード）は「値の種類」に
                       昇格できる — 同じ値＝同じ 1 件として、ファイルを跨いで
                       まとまる。測定値の列（2theta 等）は K7 の罠なので不可。 */}
-                  {zone.ann.entity_preview!.varying_columns.slice(0, 6).map((col) => {
+                  {zone.ann.entity_preview!.varying_columns
+                    .filter((col) => !isDropped(col))
+                    .slice(0, 6)
+                    .map((col) => {
                     const identity =
                       zone.ann.entity_preview!.varying_identity_columns?.includes(col) ?? false
                     const kindName = zone.kindOf.get(col)
@@ -2388,6 +2551,8 @@ export function SkeletonGate({
           <p className="skeleton-evidence-line skeleton-evidence-muted skeleton-zone-note">
             {t('skeletongate:zone.keyNote')}
           </p>
+          </div>
+          <aside className="skeleton-zone-map">{diagram}</aside>
           </div>
         </>
       )}
@@ -2522,10 +2687,10 @@ export function SkeletonGate({
           今は plain にしか出ないが、将来渡されたときに詳細モードまで畳まれない
           よう、ガードを明示しておく。 */}
       {plain && onRethink && (
-        <details className="skeleton-rethink kz-fold">
-          <summary id="skeleton-rethink-label">
+        <div className="skeleton-rethink">
+          <p className="skeleton-evidence-label" id="skeleton-rethink-label">
             {t('workbench:skeleton.rethink.label')}
-          </summary>
+          </p>
           {/* いまの設計を渡して、注文の箇所だけ直させる。この画面でやった編集
               （種類の名前・ID の作り方・削除・切り出し）は残る。かつては骨格ごと
               作り直していたので ⚠ で「消えます」と断っていた（2026-08-27）。 */}
@@ -2552,7 +2717,7 @@ export function SkeletonGate({
               {t('workbench:skeleton.rethink.button')}
             </button>
           </div>
-        </details>
+        </div>
       )}
       {/* "Are you sure?" where the answer can be "no, fix it": every item names
           what continuing costs and carries the repair as its own button. The

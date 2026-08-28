@@ -64,7 +64,7 @@ from __future__ import annotations
 import contextlib
 import re
 import tempfile
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -105,7 +105,13 @@ from asterism_step0.spec_repair import (
     replace_mapping_spec_block,
 )
 from asterism_step0.spec_yaml import load_spec_yaml
-from asterism_step0.staged_propose import apply_data_facts, propose_from_skeleton
+from asterism_step0.staged_propose import (
+    apply_column_decisions,
+    apply_column_meanings,
+    apply_data_facts,
+    propose_from_skeleton,
+    take_in_columns,
+)
 from asterism_step0.validate import SchemaBundle, validate_schema
 
 # Column-checkable delimited files: classic CSV/TSV plus the legacy instrument
@@ -1592,6 +1598,8 @@ def run_design_loop(
     skeleton: Mapping[str, Any] | None = None,
     dialect_overrides: Mapping[str, Any] | None = None,
     iri_base: str | None = None,
+    column_meanings: Sequence[Mapping[str, Any]] | None = None,
+    column_decisions: Sequence[Mapping[str, Any]] | None = None,
 ) -> DesignLoopResult:
     """Run the propose→validate→refine self-correction loop.
 
@@ -1614,6 +1622,16 @@ def run_design_loop(
     §9 pin), so a ``skip_rows`` edit that moves the header row stays consistent across
     the whole design while the detected encoding it never mentioned stays put. An empty
     override leaves ``effective == detected`` — byte-identical to today.
+
+    ``column_meanings`` are the ``(source, column)`` meanings settled BEFORE the
+    design (ADR meaning-before-identity). They are projected onto §9 after
+    round-0 AND re-asserted after every later round, for the same reason the
+    data facts are: a meaning is not something a generation round may revise.
+
+    ``column_decisions`` are the human calls about whether a column is taken in
+    at all, made on the meaning screen BEFORE the design exists. Re-asserted
+    every round for the same reason: what the person will not have in their
+    dataset is not a generation round's to reinstate.
 
     ``iri_base`` (ADR instance-iri-base.md) pins where the single-shot round-0
     mints this dataset's new namespaces; the staged path gets it at skeleton
@@ -1686,6 +1704,8 @@ def run_design_loop(
             on_llm_call=on_llm_call,
             column_owners=column_owners,
             column_types=column_datatypes,
+            column_meanings=column_meanings,
+            excluded_columns=_excluded_by_source(column_decisions),
         )
         metadata: dict[str, Any] = {"llm_class": type(llm).__name__, "staged": True}
     else:
@@ -1707,6 +1727,11 @@ def run_design_loop(
         metadata = dict(proposal.metadata)
     schema_md = _overlay_detected_dialects(schema_md, effective, override_names)
     schema_md = _overlay_data_facts(schema_md, *data_facts)
+    schema_md = _overlay_column_meanings(schema_md, column_meanings)
+    schema_md = _overlay_column_decisions(schema_md, column_decisions)
+    schema_md = _overlay_taken_in_columns(
+        schema_md, skeleton, column_meanings, column_decisions, *data_facts
+    )
 
     def _result(
         best_schema: str,
@@ -1878,6 +1903,11 @@ def run_design_loop(
         # section; explicit values the round kept still win). Idempotent.
         schema_md = _overlay_detected_dialects(schema_md, effective, override_names)
         schema_md = _overlay_data_facts(schema_md, *data_facts)
+        schema_md = _overlay_column_meanings(schema_md, column_meanings)
+        schema_md = _overlay_column_decisions(schema_md, column_decisions)
+        schema_md = _overlay_taken_in_columns(
+            schema_md, skeleton, column_meanings, column_decisions, *data_facts
+        )
         try:
             schema_md, ir_yaml, issues = _evaluate(schema_md, base)
         except _LoopEnvError as exc:
@@ -1931,6 +1961,172 @@ def _overlay_data_facts(
     new_doc, changed = apply_data_facts(
         doc, column_owners=column_owners, column_types=column_types
     )
+    if not changed:
+        return schema_md
+    new_yaml = yaml.safe_dump(new_doc, sort_keys=False, allow_unicode=True)
+    try:
+        return replace_mapping_spec_block(schema_md, new_yaml)
+    except ValueError:
+        return schema_md
+
+
+def _overlay_column_meanings(
+    schema_md: str, column_meanings: Sequence[Mapping[str, Any]] | None
+) -> str:
+    """Re-assert the settled ``(source, column)`` meanings on §9 after ANY round.
+
+    Sibling of :func:`_overlay_data_facts`, same posture and the same reason: a
+    later round may rearrange the design, it may not rewrite what a column MEANS
+    (ADR meaning-before-identity §6 / data-facts-invariant N6). The meaning was
+    read off the data or typed by the person who took it, before this design
+    existed. Idempotent; a schema with no §9, or one that cannot be re-spliced,
+    is left byte-untouched.
+    """
+    if not column_meanings:
+        return schema_md
+    ir_yaml, _ = _extract_design(schema_md)
+    if not ir_yaml or not ir_yaml.strip():
+        return schema_md
+    import yaml
+
+    try:
+        doc = load_spec_yaml(ir_yaml)
+    except yaml.YAMLError:
+        return schema_md
+    if not isinstance(doc, dict):
+        return schema_md
+    new_doc, changed = apply_column_meanings(doc, column_meanings)
+    if not changed:
+        return schema_md
+    new_yaml = yaml.safe_dump(new_doc, sort_keys=False, allow_unicode=True)
+    try:
+        return replace_mapping_spec_block(schema_md, new_yaml)
+    except ValueError:
+        return schema_md
+
+
+def _excluded_by_source(
+    column_decisions: Sequence[Mapping[str, Any]] | None,
+) -> dict[str, list[str]]:
+    """``{source: [column, …]}`` for the columns the person excluded."""
+    out: dict[str, list[str]] = {}
+    for decision in column_decisions or ():
+        if str(decision.get("action") or "") != "exclude":
+            continue
+        source = str(decision.get("source") or "")
+        column = str(decision.get("column") or "")
+        if source and column:
+            out.setdefault(source, []).append(column)
+    return out
+
+
+def _column_homes(
+    skeleton: Mapping[str, Any] | None, column_owners: Mapping[str, Mapping[str, str]] | None
+) -> dict[str, dict[str, str]]:
+    """``{source: {column: the map that owns it}}`` — read off the gate's verdict.
+
+    "peak must not write these 18 columns, crystal owns them" is exactly the
+    statement "those columns live on crystal". A source with a single map needs
+    no verdict at all — :func:`take_in_columns` answers that case itself.
+    """
+    maps = [m for m in ((skeleton or {}).get("maps") or []) if isinstance(m, Mapping)]
+    source_of = {str(m.get("name") or ""): str(m.get("source") or "") for m in maps}
+    homes: dict[str, dict[str, str]] = {}
+    for map_name, borrowed in (column_owners or {}).items():
+        source = source_of.get(str(map_name), "")
+        if not source:
+            continue
+        for column, owner in (borrowed or {}).items():
+            homes.setdefault(source, {})[str(column)] = str(owner)
+    return homes
+
+
+def _overlay_taken_in_columns(
+    schema_md: str,
+    skeleton: Mapping[str, Any] | None,
+    column_meanings: Sequence[Mapping[str, Any]] | None,
+    column_decisions: Sequence[Mapping[str, Any]] | None,
+    column_owners: Mapping[str, Mapping[str, str]] | None,
+    column_types: Mapping[str, Mapping[str, str]] | None,
+) -> str:
+    """Take in the columns the reader kept, without asking a second time.
+
+    On the meaning screen every column is taken in unless its checkbox is
+    cleared (ADR meaning-before-identity §3/§9), so a kept column the generated
+    design reads nowhere is not a question — it is a gap between the answer and
+    the design, and the machine closes it. Sibling of the other overlays: run
+    after every round, idempotent, byte-untouched when there is nothing to add.
+    """
+    kept = [
+        m
+        for m in (column_meanings or ())
+        if isinstance(m, Mapping) and str(m.get("source") or "") and str(m.get("column") or "")
+    ]
+    if not kept or not skeleton:
+        return schema_md
+    excluded = {
+        (str(d.get("source") or ""), str(d.get("column") or ""))
+        for d in column_decisions or ()
+        if str(d.get("action") or "") == "exclude"
+    }
+    wanted = [m for m in kept if (str(m["source"]), str(m["column"])) not in excluded]
+    if not wanted:
+        return schema_md
+    ir_yaml, _ = _extract_design(schema_md)
+    if not ir_yaml or not ir_yaml.strip():
+        return schema_md
+    import yaml
+
+    try:
+        doc = load_spec_yaml(ir_yaml)
+    except yaml.YAMLError:
+        return schema_md
+    if not isinstance(doc, dict):
+        return schema_md
+    new_doc, added = take_in_columns(
+        doc,
+        wanted,
+        homes=_column_homes(skeleton, column_owners),
+        column_types=column_types,
+    )
+    if not added:
+        return schema_md
+    new_yaml = yaml.safe_dump(new_doc, sort_keys=False, allow_unicode=True)
+    try:
+        return replace_mapping_spec_block(schema_md, new_yaml)
+    except ValueError:
+        return schema_md
+
+
+def _overlay_column_decisions(
+    schema_md: str, column_decisions: Sequence[Mapping[str, Any]] | None
+) -> str:
+    """Re-assert the human include/exclude calls on §9 after ANY round.
+
+    Third sibling of :func:`_overlay_data_facts`. A column the person said they
+    do not want is not a column a later round may put back, and one they asked
+    for is not one a rewrite may drop. Idempotent; a schema with no §9, an
+    unreadable one, or a decision the design cannot place is left byte-untouched
+    (the decision endpoint reports those properly — a loop round must not fail
+    over one).
+    """
+    if not column_decisions:
+        return schema_md
+    ir_yaml, _ = _extract_design(schema_md)
+    if not ir_yaml or not ir_yaml.strip():
+        return schema_md
+    import yaml
+
+    try:
+        doc = load_spec_yaml(ir_yaml)
+    except yaml.YAMLError:
+        return schema_md
+    if not isinstance(doc, dict):
+        return schema_md
+    try:
+        new_doc, changed = apply_column_decisions(doc, column_decisions)
+    except ValueError:
+        return schema_md
     if not changed:
         return schema_md
     new_yaml = yaml.safe_dump(new_doc, sort_keys=False, allow_unicode=True)

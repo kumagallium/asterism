@@ -8,6 +8,9 @@ display metadata on the §9 spec, so the correction is deterministic: set the
 field, splice the block, re-project. These tests pin that it changes ONLY that,
 and that a later AI round cannot take it back (the re-assertion path).
 """
+# This module's prose is Japanese: full-width parentheses / slashes are
+# intentional, not ASCII look-alikes (same posture as describe.py).
+# ruff: noqa: RUF002
 from __future__ import annotations
 
 import pytest
@@ -16,6 +19,8 @@ import yaml
 from asterism_step0.spec_yaml import load_spec_yaml
 from asterism_step0.staged_propose import (
     apply_column_decisions,
+    apply_column_meanings,
+    apply_column_meanings_to_document,
     apply_display_meta,
     apply_display_meta_to_document,
     remove_stale_column_includes_from_document,
@@ -881,3 +886,127 @@ def test_own_refuses_to_empty_a_map() -> None:
 def test_an_unknown_action_is_refused() -> None:
     with pytest.raises(ValueError, match="action must be"):
         apply_column_decisions(_DUP_IR, [{**_OWN_VOLUME_ON_CARD, "action": "delete"}])
+
+
+# ---------------------------------------------------------------------------
+# (source, column) の意味を設計へ写す — ADR meaning-before-identity §6。
+# 意味は設計より前に決まるので、保管も (source, column) で行い、設計が組まれた
+# あとに述語へ投影する。ここは投影側のテスト。
+# ---------------------------------------------------------------------------
+
+_TWO_FILE_IR = {
+    "version": 1,
+    "prefixes": {"ex": "https://ns.invalid/ns#"},
+    "maps": [
+        {
+            "name": "measurement",
+            "source": "data.csv",
+            "subject": {"template": "ex:m/{id}", "classes": ["ex:Measurement"]},
+            "properties": [
+                {"predicate": "ex:hasSeebeck", "column": "S", "label": "AI が書いた意味"},
+                {"predicate": "ex:hasTemp", "column": "T"},
+                {"predicate": "ex:composed", "columns": ["S", "T"], "function": "concat"},
+                {"predicate": "ex:ofSample", "object_template": "ex:sample/{id}"},
+            ],
+        },
+        {
+            "name": "other",
+            "source": "other.csv",
+            "subject": {"template": "ex:o/{id}", "classes": ["ex:Other"]},
+            "properties": [{"predicate": "ex:hasS", "column": "S"}],
+        },
+    ],
+}
+
+
+def test_column_meanings_land_on_the_row_that_reads_that_column() -> None:
+    out, changed = apply_column_meanings(
+        _TWO_FILE_IR,
+        [
+            {"source": "data.csv", "column": "T", "label": "試料温度", "unit": "K"},
+        ],
+    )
+    row = out["maps"][0]["properties"][1]
+    assert row["label"] == "試料温度" and row["unit"] == "K"
+    assert changed == ["data.csv:T"]
+
+
+def test_column_meanings_win_over_what_the_model_wrote() -> None:
+    """意味は列の性質で、生成ラウンドが決め直す側ではない（N6 と同じ姿勢）。"""
+    out, _ = apply_column_meanings(
+        _TWO_FILE_IR, [{"source": "data.csv", "column": "S", "label": "ゼーベック係数"}]
+    )
+    assert out["maps"][0]["properties"][0]["label"] == "ゼーベック係数"
+
+
+def test_column_meanings_do_not_cross_files() -> None:
+    """同じ見出しの列が 2 つのファイルにあっても、意味は書いたファイルにだけ載る。"""
+    out, changed = apply_column_meanings(
+        _TWO_FILE_IR, [{"source": "data.csv", "column": "S", "label": "ゼーベック係数"}]
+    )
+    assert changed == ["data.csv:S"]
+    assert "label" not in out["maps"][1]["properties"][0]
+
+
+def test_column_meanings_skip_rows_that_do_not_read_one_column() -> None:
+    """意味は 1 列のもの。複数列の関数行やリンク行には載せない。"""
+    out, changed = apply_column_meanings(
+        _TWO_FILE_IR,
+        [
+            {"source": "data.csv", "column": "S", "label": "ゼーベック係数"},
+            {"source": "data.csv", "column": "id", "label": "試料 ID"},
+        ],
+    )
+    assert changed == ["data.csv:S"]
+    assert "label" not in out["maps"][0]["properties"][2]  # columns: [S, T]
+    assert "label" not in out["maps"][0]["properties"][3]  # object_template
+
+
+def test_column_meanings_document_splice_is_idempotent() -> None:
+    """再設計のたびに走る経路なので、2 度目は無変更でなければならない。"""
+    meanings = [{"source": "data.csv", "column": "S", "label": "ゼーベック係数", "unit": "µV/K"}]
+    once, changed = apply_column_meanings_to_document(_doc(_TWO_FILE_IR), meanings)
+    assert changed == ["data.csv:S"]
+    ir = yaml.safe_load(once.split("```yaml\n", 1)[1].split("```", 1)[0])
+    assert ir["maps"][0]["properties"][0]["unit"] == "µV/K"
+    twice, changed_again = apply_column_meanings_to_document(once, meanings)
+    assert changed_again == [] and twice == once
+
+
+def test_column_meanings_on_a_legacy_design_without_a_spec_says_so() -> None:
+    with pytest.raises(ValueError):
+        apply_column_meanings_to_document(
+            "# Title\n\nno section nine here\n",
+            [{"source": "data.csv", "column": "S", "label": "x"}],
+        )
+
+def test_column_meanings_absent_field_is_kept_and_an_empty_one_clears() -> None:
+    """display-meta と同じ約束。単位を直しただけで意味が消えてはいけない。"""
+    with_unit, _ = apply_column_meanings(
+        _TWO_FILE_IR,
+        [{"source": "data.csv", "column": "S", "label": "ゼーベック係数", "unit": "µV/K"}],
+    )
+    only_unit, changed = apply_column_meanings(
+        with_unit, [{"source": "data.csv", "column": "S", "unit": "V/K"}]
+    )
+    row = only_unit["maps"][0]["properties"][0]
+    assert row["label"] == "ゼーベック係数" and row["unit"] == "V/K"
+    assert changed == ["data.csv:S"]
+    cleared, _ = apply_column_meanings(
+        only_unit, [{"source": "data.csv", "column": "S", "unit": ""}]
+    )
+    row = cleared["maps"][0]["properties"][0]
+    assert row["label"] == "ゼーベック係数" and "unit" not in row
+
+
+def test_column_meanings_take_the_last_word_field_by_field() -> None:
+    """呼び出し側は「いまの状態」と「今回消したもの」を並べて渡す。あとが勝つ。"""
+    out, _ = apply_column_meanings(
+        _TWO_FILE_IR,
+        [
+            {"source": "data.csv", "column": "S", "label": "ゼーベック係数", "unit": "µV/K"},
+            {"source": "data.csv", "column": "S", "unit": ""},
+        ],
+    )
+    row = out["maps"][0]["properties"][0]
+    assert row["label"] == "ゼーベック係数" and "unit" not in row

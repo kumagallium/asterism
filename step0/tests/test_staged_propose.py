@@ -8,7 +8,7 @@ must reproduce the exact same IR (ADR mapping-ir-phase2b-skeleton-wizard §10.1)
 """
 # このファイルの散文は日本語。全角の括弧・記号は意図したもので、ASCII の
 # 見間違いではない（id_move.py / describe.py と同じ流儀）。
-# ruff: noqa: RUF003
+# ruff: noqa: RUF002, RUF003
 from __future__ import annotations
 
 import json
@@ -19,13 +19,20 @@ import pytest
 pytest.importorskip("yaml")
 jsonschema = pytest.importorskip("jsonschema")
 
+from asterism_step0.inspect import ColumnSummary, SourceInspection  # noqa: E402
 from asterism_step0.mapping_ir import parse_mapping_ir  # noqa: E402
-from asterism_step0.mapping_ir_schema import permap_json_schema, skeleton_json_schema  # noqa: E402
+from asterism_step0.mapping_ir_schema import (  # noqa: E402
+    column_meanings_json_schema,
+    permap_json_schema,
+    skeleton_json_schema,
+)
 from asterism_step0.staged_propose import (  # noqa: E402
+    COLUMN_MEANINGS_SYSTEM_PROMPT,
     DOCUMENT_SYSTEM_PROMPT,
     PERMAP_LABELFILL_SYSTEM_PROMPT,
     PERMAP_SYSTEM_PROMPT,
     SKELETON_SYSTEM_PROMPT,
+    apply_column_meanings,
     apply_data_facts,
     apply_numeric_datatypes,
     assemble_mapping_ir,
@@ -33,13 +40,16 @@ from asterism_step0.staged_propose import (  # noqa: E402
     drop_borrowed_properties,
     ensure_same_source_links,
     fill_mapping_spec_block,
+    generate_column_meanings,
     generate_map_properties,
     generate_skeleton,
     mapping_ir_to_yaml,
     merge_label_fill,
     missing_label_rows,
+    normalize_column_meanings,
     propose_from_skeleton,
     propose_skeleton,
+    render_columns_for_meanings,
     skeleton_from_full_ir,
 )
 
@@ -1405,6 +1415,253 @@ def test_owned_single_var_column_gets_its_link_deterministically() -> None:
         sp.generate_map_properties = original  # type: ignore[assignment]
     targets = [p.get("object_template") for p in again["properties"]]
     assert targets.count("xr:hkl/{(hkl)}") == 1
+
+
+
+# ---------------------------------------------------------------------------
+# Column meanings — the stage that runs BEFORE any design exists
+# (ADR meaning-before-identity.md §7-1).
+# ---------------------------------------------------------------------------
+
+
+def _column(name: str, inferred_type: str, samples: list[str]) -> ColumnSummary:
+    return ColumnSummary(
+        name=name,
+        inferred_type=inferred_type,
+        non_null_count=len(samples),
+        total_rows=len(samples),
+        unique_count=len(set(samples)),
+        sample_values=samples,
+    )
+
+
+def _xrd_inspection() -> SourceInspection:
+    return SourceInspection(
+        path="/tmp/xrd.txt",
+        name="xrd.txt",
+        total_rows=47,
+        columns=[
+            _column("Sample", "xsd:string", ["Al3V"]),
+            _column("2theta", "xsd:double", ["10.00", "10.02", "10.04"]),
+            _column("(hkl)", "xsd:string", ["(110)", "(200)"]),
+        ],
+        uniqueness_reports=[],
+    )
+
+
+def test_render_columns_for_meanings_shows_values_not_design_material() -> None:
+    """The meaning stage reads headers, types and samples — nothing that would
+    make it start designing (keys, foreign keys, ingest strategy)."""
+    md = render_columns_for_meanings([_xrd_inspection()])
+    assert "## xrd.txt (47 rows)" in md
+    assert "| `2theta` | xsd:double | `10.00`, `10.02`, `10.04` |" in md
+    assert "| `(hkl)` | xsd:string | `(110)`, `(200)` |" in md
+    # no uniqueness / FK / JSON-ingest material
+    assert "unique" not in md.lower()
+    assert "iterator" not in md.lower()
+
+
+def test_render_columns_for_meanings_separates_preamble_from_body() -> None:
+    """A column broadcast from the file's header block holds ONE value for the
+    whole file. Naming it well needs that fact, and it is deterministic."""
+    md = render_columns_for_meanings(
+        [_xrd_inspection()], preamble_columns={"xrd.txt": ["Sample"]}
+    )
+    head, _, body = md.partition("### Table columns (one value per row)")
+    assert "File-level metadata" in head
+    assert "`Sample`" in head and "`2theta`" not in head
+    assert "`2theta`" in body and "`(hkl)`" in body
+
+
+def test_render_columns_for_meanings_skips_sources_with_no_columns() -> None:
+    """XML/JATS has no tabular column to name — it is skipped, not rendered empty."""
+    xml = SourceInspection(
+        path="/tmp/a.xml", name="a.xml", total_rows=1, columns=[],
+        uniqueness_reports=[], source_kind="xml",
+    )
+    assert render_columns_for_meanings([xml]) == ""
+    md = render_columns_for_meanings([xml, _xrd_inspection()])
+    assert "a.xml" not in md and "xrd.txt" in md
+
+
+def test_generate_column_meanings_is_guided_and_needs_no_skeleton() -> None:
+    """One guided call with the meanings schema in force, restored afterwards.
+    The ask carries the columns and the domain — no skeleton, no Tier-0 menu."""
+    answer = {
+        "columns": [
+            {"source": "xrd.txt", "column": "2theta", "label": "回折角", "unit": "deg"},
+        ]
+    }
+    llm = GuidedMock(lambda s, u: json.dumps(answer))
+    out = generate_column_meanings(
+        render_columns_for_meanings([_xrd_inspection()]), "XRD card", llm=llm
+    )
+    assert out == answer
+    (system, user, schema_at_call) = llm.calls[0]
+    assert system == COLUMN_MEANINGS_SYSTEM_PROMPT
+    assert schema_at_call == column_meanings_json_schema()
+    assert llm.response_schema is None
+    assert "`2theta`" in user and "XRD card" in user
+    assert "subject" not in user and "menu" not in user.lower()
+
+
+def test_column_meanings_schema_accepts_a_unitless_row_and_rejects_extras() -> None:
+    schema = column_meanings_json_schema()
+    jsonschema.validate(
+        {"columns": [{"source": "a.csv", "column": "note", "label": "備考"}]}, schema
+    )
+    with pytest.raises(jsonschema.ValidationError):  # a predicate is not this stage's business
+        jsonschema.validate(
+            {"columns": [{"source": "a.csv", "column": "n", "label": "x", "predicate": "ex:n"}]},
+            schema,
+        )
+    with pytest.raises(jsonschema.ValidationError):  # source/column are how it is filed
+        jsonschema.validate({"columns": [{"column": "n", "label": "x"}]}, schema)
+
+
+def test_normalize_column_meanings_rules() -> None:
+    """Keeps what exists, rejects inventions and echoes, and lets a unit survive
+    a rejected label (the two halves of the answer are independent)."""
+    kept, rejected = normalize_column_meanings(
+        {
+            "columns": [
+                {"source": "xrd.txt", "column": "2theta", "label": "回折角", "unit": "deg"},
+                {"source": "xrd.txt", "column": "Sample", "label": " 試料名 "},
+                {"source": "xrd.txt", "column": "(hkl)", "label": "hkl", "unit": ""},
+                {"source": "xrd.txt", "column": "Temp", "label": "temp", "unit": "K"},
+                {"source": "xrd.txt", "column": "2theta", "label": "二度目"},
+                {"source": "xrd.txt", "column": "invented", "label": "無い列"},
+                {"source": "other.csv", "column": "2theta", "label": "別ファイル"},
+            ]
+        },
+        {"xrd.txt": ["Sample", "2theta", "(hkl)", "Temp"]},
+    )
+    assert kept == [
+        {"source": "xrd.txt", "column": "2theta", "label": "回折角", "unit": "deg"},
+        {"source": "xrd.txt", "column": "Sample", "label": "試料名"},
+        # 列名の言い直しは意味ではない。単位だけが残る (K22)
+        {"source": "xrd.txt", "column": "Temp", "unit": "K"},
+    ]
+    # `(hkl)` は言い直しのうえ単位も無い → 行ごと落ちる
+    assert "xrd.txt:(hkl) (label restates the column)" in rejected
+    assert "xrd.txt:2theta (duplicate)" in rejected
+    assert "xrd.txt:invented (unknown column)" in rejected
+    assert "other.csv:2theta (unknown source)" in rejected
+
+
+def test_settled_meanings_win_over_the_per_map_label() -> None:
+    """束ね終わった表に、先に決めた意味を決定論で写す。per-map が別の言葉を
+    書いていても、意味を決めるのは生成ラウンドではない（ADR §6 / N6）。"""
+    skeleton_obj, permaps = skeleton_from_full_ir(FULL_IR)
+    labeled = {
+        name: {
+            "properties": [{**prop, "label": "AI が書いた意味"} for prop in pm["properties"]]
+        }
+        for name, pm in permaps.items()
+    }
+    frames: list[dict] = []
+
+    def handler(system: str, user: str) -> str:
+        if system == SKELETON_SYSTEM_PROMPT:
+            return json.dumps(skeleton_obj)
+        if system == PERMAP_SYSTEM_PROMPT:
+            for name, pm in labeled.items():
+                if f"This map: '{name}'" in user:
+                    return json.dumps(pm)
+            raise AssertionError("per-map call for an unknown map")
+        if system == DOCUMENT_SYSTEM_PROMPT:
+            return "### 1. Class hierarchy\n\n(the design)\n"
+        raise AssertionError("unexpected system prompt")
+
+    md = propose_from_skeleton(
+        skeleton_obj, "# insp", "# dom", llm=GuidedMock(handler),
+        menu="menu", function_names=FN_NAMES,
+        on_progress=lambda **d: frames.append(d),
+        column_meanings=[
+            {"source": "data.csv", "column": "name", "label": "試料の名前", "unit": ""},
+            {"source": "data.csv", "column": "date", "label": "測定日"},
+        ],
+    )
+    thing = next(m for m in parse_mapping_ir(_extract_spec(md)).maps if m.name == "thing")
+    by_pred = {p.predicate: p for p in thing.properties}
+    assert by_pred["schema:name"].label == "試料の名前"
+    assert by_pred["schema:name"].column == "name"  # binding untouched
+    assert by_pred["ex:when"].label == "測定日"
+    # 別のマップ（同じ列名を持たない）は AI の label のまま
+    part = next(m for m in parse_mapping_ir(_extract_spec(md)).maps if m.name == "part")
+    assert part.properties[0].label == "AI が書いた意味"
+    assert any(f.get("phase") == "meaning" for f in frames)
+
+
+def test_no_settled_meanings_changes_nothing() -> None:
+    """意味をまだ誰も決めていないときは、今日と同じ結果でなければならない。"""
+    assert apply_column_meanings(FULL_IR, [])[0] == dict(FULL_IR)
+    assert apply_column_meanings(FULL_IR, [{"source": "data.csv", "column": "nope"}])[1] == []
+
+
+def test_settled_columns_are_not_asked_about_twice() -> None:
+    """意味が決まっている列は per-map プロンプトで「決定済み」と伝え、
+    意味を埋め直すラウンドの対象からも外す（ADR §7-3）。"""
+    skeleton_obj, permaps = skeleton_from_full_ir(FULL_IR)
+    permap_asks: list[str] = []
+    fill_calls: list[str] = []
+
+    def handler(system: str, user: str) -> str:
+        if system == SKELETON_SYSTEM_PROMPT:
+            return json.dumps(skeleton_obj)
+        if system == PERMAP_SYSTEM_PROMPT:
+            permap_asks.append(user)
+            for name, pm in permaps.items():
+                if f"This map: '{name}'" in user:
+                    return json.dumps(pm)
+            raise AssertionError("per-map call for an unknown map")
+        if system == PERMAP_LABELFILL_SYSTEM_PROMPT:
+            fill_calls.append(user)
+            return json.dumps({"labels": []})
+        if system == DOCUMENT_SYSTEM_PROMPT:
+            return "### 1. Class hierarchy\n\n(the design)\n"
+        raise AssertionError("unexpected system prompt")
+
+    # data.csv の 3 列すべての意味が決まっている（'thing' マップの全行）
+    meanings = [
+        {"source": "data.csv", "column": "name", "label": "試料の名前"},
+        {"source": "data.csv", "column": "date", "label": "測定日"},
+        {"source": "data.csv", "column": "id", "label": "試料 ID"},
+    ]
+    propose_from_skeleton(
+        skeleton_obj, "# insp", "# dom", llm=GuidedMock(handler),
+        menu="menu", function_names=FN_NAMES, column_meanings=meanings,
+    )
+    thing_ask = next(u for u in permap_asks if "This map: 'thing'" in u)
+    assert "ALREADY settled" in thing_ask
+    assert "- `name` → 試料の名前" in thing_ask
+    # 'thing' は全列が決まっているので聞き直しは走らない。'part' は別ファイルで
+    # 意味が渡っていないので今までどおり 1 回走る。
+    assert len(fill_calls) == 1
+    assert "# Map: 'part'" in fill_calls[0]
+
+
+def test_without_settled_meanings_the_permap_ask_is_unchanged() -> None:
+    """意味をまだ誰も決めていない設計は、今日と 1 バイトも変わらない。"""
+    skeleton_obj, _permaps = skeleton_from_full_ir(FULL_IR)
+    thing = skeleton_obj["maps"][0]
+    plain = build_permap_user("thing", thing, "ctx", "menu")
+    with_empty = build_permap_user("thing", thing, "ctx", "menu", settled_meanings=[])
+    assert plain == with_empty
+    assert "ALREADY settled" not in plain
+
+
+def test_missing_label_rows_skips_settled_columns() -> None:
+    rows = [
+        {"predicate": "ex:a", "column": "settled"},
+        {"predicate": "ex:b", "column": "open"},
+        {"predicate": "ex:c", "column": "has", "label": "既にある"},
+        {"predicate": "ex:link", "object_template": "ex:other/{k}"},
+    ]
+    assert [r["predicate"] for r in missing_label_rows(rows)] == ["ex:a", "ex:b", "ex:link"]
+    # 意味が決まっているなら、列を 1 つ読まない行（リンク・定数・複数列）も対象外。
+    # 実測 2026-08-28: 機械が足したリンク 1 本のためにラウンドが 1 回走っていた。
+    assert [r["predicate"] for r in missing_label_rows(rows, ["settled"])] == ["ex:b"]
 # ---------------------------------------------------------------------------
 # S4「AI にもう一度考えさせる」= 作り直しではなく修理 (2026-08-27)
 # ---------------------------------------------------------------------------

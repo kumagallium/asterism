@@ -32,7 +32,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -56,6 +56,7 @@ from asterism_step0.llm import (
 )
 from asterism_step0.mapping_ir import structural_property_issues
 from asterism_step0.mapping_ir_schema import (
+    column_meanings_json_schema,
     labelfill_json_schema,
     permap_json_schema,
     skeleton_json_schema,
@@ -64,18 +65,25 @@ from asterism_step0.spec_yaml import dump_spec_yaml, load_spec_yaml
 
 __all__ = [
     "COLUMN_DECISION_ACTIONS",
+    "COLUMN_MEANINGS_SYSTEM_PROMPT",
+    "ColumnMeaningsProposal",
     "SkeletonProposal",
     "apply_column_decisions",
     "apply_column_decisions_to_document",
+    "apply_column_meanings",
+    "apply_column_meanings_to_document",
     "apply_data_facts",
     "apply_display_meta",
     "apply_display_meta_to_document",
     "apply_numeric_datatypes",
     "assemble_mapping_ir",
+    "build_column_meanings_user",
+    "columns_in_use",
     "default_property_table",
     "default_skeleton",
     "drop_duplicate_properties",
     "fill_mapping_spec_block",
+    "generate_column_meanings",
     "generate_document",
     "generate_label_fill",
     "generate_map_properties",
@@ -83,15 +91,21 @@ __all__ = [
     "human_pinned_edits",
     "mapping_ir_to_yaml",
     "menu_columns",
+    "normalize_column_meanings",
     "normalize_key_separators",
     "pin_dataset_namespace",
+    "propose_column_meanings",
     "propose_from_skeleton",
     "propose_skeleton",
     "reassert_human_edits",
+    "render_columns_for_meanings",
+    "render_excluded_columns",
     "render_rethink_request",
+    "render_settled_meanings",
     "render_skeleton_context",
     "render_tier0_menu",
     "skeleton_from_full_ir",
+    "take_in_columns",
     "twin_maps",
 ]
 
@@ -101,6 +115,35 @@ __all__ = [
 # mirror propose.SYSTEM_PROMPT in compact form. The Tier-0 menu and the real
 # columns ride the user message so they stay registry/source-synced.
 # ---------------------------------------------------------------------------
+
+COLUMN_MEANINGS_SYSTEM_PROMPT = """\
+You state what each COLUMN of a data file MEANS. You are NOT designing anything:
+no classes, no identifiers, no predicates, and no decision about what to keep —
+those come later and they are the reader's to make. Return a SINGLE JSON object,
+no markdown fence, no prose:
+{ "columns": [ { "source": "<file>", "column": "<header>",
+                 "label": "<short human meaning>", "unit": "<notation>" } ] }
+
+Rules:
+- One entry per column you can name. `source` and `column` are copied
+  CHARACTER-FOR-CHARACTER from the question — they are how the answer is filed.
+- `label` is what the VALUE means: what a scientist reading this file would call
+  this quantity or attribute. Short, in the output language requested for prose.
+  NEVER a restatement of the header — for a column `Temp`, "Temp" and
+  "temperature" are echoes; "sample temperature" is an answer.
+- `unit` ONLY when the column carries a physical quantity, written as the short
+  notation a person would (`µV/K`, `deg`, `Ohm m`). Omit it for text, names,
+  codes, dates and counts. Never fold the unit into `label`, and never rewrite
+  a value.
+- READ THE SAMPLE VALUES: they carry more than the header does, and when the
+  two disagree the values decide.
+- A column listed as file-level metadata holds ONE value for the whole file.
+  Name what that value IS; do not describe it as a header line.
+- Skip a column whose meaning genuinely cannot be inferred. A blank is a
+  question the reader can answer; an invented meaning is a wrong fact that
+  would be carried into every citation of this data.
+- Never invent a column, never merge two columns into one entry.
+"""
 
 SKELETON_SYSTEM_PROMPT = """\
 You design the SKELETON of an RDF mapping: which source table becomes which
@@ -746,6 +789,92 @@ def default_skeleton(
 # ---------------------------------------------------------------------------
 
 
+_MEANING_SAMPLE_CHARS = 40
+
+
+def render_columns_for_meanings(
+    inspections: Sequence[SourceInspection],
+    *,
+    preamble_columns: Mapping[str, Sequence[str]] | None = None,
+) -> str:
+    """The column list the MEANING stage reads: header, type, sample values.
+
+    Deliberately NOT :func:`inspect.render_markdown`. Uniqueness statistics,
+    foreign keys and the JSON ingest strategy are material for the SKELETON
+    (which column keys which entity); a model handed them starts designing
+    instead of naming, and on a 100-column instrument log they are most of the
+    prompt. What a column MEANS is decided by its header and its values.
+
+    ``preamble_columns`` (``{source: [column, …]}``) names the columns that came
+    from the file's header block rather than the table body — one value for the
+    whole file. It is a real distinction for naming ("Sample" in a preamble is
+    the specimen this file is about, not a per-row attribute), and it is
+    deterministic (``dialect.read_preamble_origins``). Omitted, every column is
+    listed under one heading.
+
+    Sources with no tabular columns (XML/JATS) are skipped: there is no column
+    to name there.
+    """
+    lines: list[str] = []
+    for ins in inspections:
+        columns = list(getattr(ins, "columns", []) or [])
+        if not columns:
+            continue
+        from_preamble = {str(c) for c in (preamble_columns or {}).get(ins.name, ())}
+        lines.append(f"## {ins.name} ({ins.total_rows:,} rows)")
+        lines.append("")
+        groups: list[tuple[str, list[Any]]] = []
+        if from_preamble:
+            head = [c for c in columns if c.name in from_preamble]
+            body = [c for c in columns if c.name not in from_preamble]
+            if head:
+                groups.append(("File-level metadata (one value for the whole file)", head))
+            if body:
+                groups.append(("Table columns (one value per row)", body))
+        else:
+            groups.append(("Columns", columns))
+        for heading, group in groups:
+            lines.append(f"### {heading}")
+            lines.append("")
+            lines.append("| column | type | sample values |")
+            lines.append("|---|---|---|")
+            for col in group:
+                samples = (
+                    ", ".join(f"`{s[:_MEANING_SAMPLE_CHARS]}`" for s in col.sample_values)
+                    or "(no values)"
+                )
+                lines.append(f"| `{col.name}` | {col.inferred_type} | {samples} |")
+            lines.append("")
+    return "\n".join(lines).rstrip() + "\n" if lines else ""
+
+
+def build_column_meanings_user(
+    columns_md: str,
+    domain_hint: str,
+    *,
+    language: str | None = None,
+    issues: list[str] | None = None,
+) -> str:
+    parts = [
+        "# Columns to name (copy `source` and `column` exactly as written here)",
+        "",
+        columns_md.strip(),
+        "",
+        f"# Domain context\n\n{domain_hint.strip()}",
+    ]
+    if issues:
+        parts += [
+            "",
+            "# Your previous answer could not be read (fix ONLY this)",
+            *[f"- {i}" for i in issues],
+        ]
+    parts += ["", "Return the column meanings as a single JSON object."]
+    lang = language_instruction(language)
+    if lang:
+        parts += ["", lang]
+    return "\n".join(parts)
+
+
 def render_rethink_request(
     current_skeleton: Mapping[str, Any] | None,
     request: str | None,
@@ -864,6 +993,63 @@ def render_owned_elsewhere(owned_elsewhere: Mapping[str, str] | None) -> str:
     return "\n".join(lines)
 
 
+def render_settled_meanings(settled: Sequence[Mapping[str, Any]] | None) -> str:
+    """The columns whose meaning is ALREADY decided, named (ADR meaning-before-identity).
+
+    The meaning of a column is settled before this design exists and is written
+    onto the row deterministically after this stage
+    (:func:`apply_column_meanings`). Asking the model for it again spends output
+    tokens on something that will be overwritten — and, when the model disagrees
+    with the person, produces a label the review screen has to reconcile.
+
+    Named per column rather than stated as a rule: the same lesson as the
+    ownership verdict (a mechanical fact belongs in the message as concrete
+    names, not as a stronger request).
+    """
+    if not settled:
+        return ""
+    lines = [
+        "# Columns whose meaning is ALREADY settled (do NOT write `label:` for these)",
+        "The person has already said what these columns mean. Their meaning is"
+        " stored outside this design and written onto the row after you answer —"
+        " map the column as usual, just leave `label:` off.",
+    ]
+    for entry in settled:
+        column = str(entry.get("column") or "")
+        if not column:
+            continue
+        label = str(entry.get("label") or "").strip()
+        unit = str(entry.get("unit") or "").strip()
+        meaning = label or "(unit only)"
+        lines.append(f"- `{column}` → {meaning}" + (f" [{unit}]" if unit else ""))
+    return "\n".join(lines) if len(lines) > 2 else ""
+
+
+def render_excluded_columns(excluded: Sequence[str] | None) -> str:
+    """The columns the person decided NOT to take in, named.
+
+    Deciding what to keep is the reader's call, and they make it on the meaning
+    screen before any design exists (ADR meaning-before-identity §3). The
+    verdict is enforced deterministically after generation either way; naming
+    the columns here just stops the model spending output on rows that are
+    about to be removed.
+    """
+    if not excluded:
+        return ""
+    names = [str(c) for c in excluded if str(c or "").strip()]
+    if not names:
+        return ""
+    return "\n".join(
+        [
+            "# Columns the reader decided NOT to take in (do NOT map these at all)",
+            "Not a judgement about the data — they simply do not want these"
+            " values in the dataset. Skip them entirely: no property, no link,"
+            " no fallback row.",
+            *[f"- `{name}`" for name in names],
+        ]
+    )
+
+
 def build_permap_user(
     map_name: str,
     map_skeleton: Mapping[str, Any],
@@ -873,6 +1059,8 @@ def build_permap_user(
     issues: list[str] | None = None,
     language: str | None = None,
     owned_elsewhere: Mapping[str, str] | None = None,
+    settled_meanings: Sequence[Mapping[str, Any]] | None = None,
+    excluded_columns: Sequence[str] | None = None,
 ) -> str:
     subject = map_skeleton.get("subject") or {}
     key = subject.get("template") or subject.get("constant") or "?"
@@ -888,6 +1076,12 @@ def build_permap_user(
     owned = render_owned_elsewhere(owned_elsewhere)
     if owned:
         parts += ["", owned]
+    settled = render_settled_meanings(settled_meanings)
+    if settled:
+        parts += ["", settled]
+    excluded = render_excluded_columns(excluded_columns)
+    if excluded:
+        parts += ["", excluded]
     if issues:
         parts += ["", "# Issues to fix (fix ONLY these)", *[f"- {i}" for i in issues]]
     parts += ["", f"Return the property table for map '{map_name}' as a single JSON object."]
@@ -927,6 +1121,88 @@ def _complete_guided(llm: Any, system: str, user: str, schema: dict | None) -> s
     finally:
         if had_attr:
             llm.response_schema = prior
+
+
+def generate_column_meanings(
+    columns_md: str,
+    domain_hint: str,
+    *,
+    llm: LLMClient,
+    language: str | None = None,
+    issues: list[str] | None = None,
+) -> dict:
+    """One guided call -> ``{"columns": [{source, column, label, unit?}]}``.
+
+    The FIRST stage of a staged design (ADR ``meaning-before-identity.md``): it
+    needs no skeleton, no menu and no ontology, because what a column means is
+    decided by the data, not by the design that will later be built on it. The
+    answer is filed under ``(source, column)`` — run :func:`normalize_column_meanings`
+    on it before anything downstream reads it.
+    """
+    user = build_column_meanings_user(
+        columns_md, domain_hint, language=language, issues=issues
+    )
+    return _load_json_object(
+        _complete_guided(
+            llm, COLUMN_MEANINGS_SYSTEM_PROMPT, user, column_meanings_json_schema()
+        )
+    )
+
+
+def normalize_column_meanings(
+    answer: Mapping[str, Any], known: Mapping[str, Sequence[str]]
+) -> tuple[list[dict], list[str]]:
+    """A meanings answer -> the rows worth keeping, plus what was rejected and why.
+
+    ``known`` is ``{source: [column, …]}`` — the columns that actually exist. The
+    LLM is asked to copy both identifiers, so anything outside that set is an
+    invention, and a meaning filed against a column that is not there would
+    surface later as a blank the person cannot fix.
+
+    A ``label`` that merely restates the header is dropped the same way
+    :func:`merge_label_fill` drops one: a machine-written echo HIDES the blank
+    instead of resolving it, and "use the column name as the meaning" is a
+    choice the human makes, never one made for them (K22). The row survives
+    when it still carries a unit — that half of the answer is independent.
+    """
+    kept: list[dict] = []
+    rejected: list[str] = []
+    seen: set[tuple[str, str]] = set()
+    columns_by_source = {
+        str(source): {str(c) for c in columns} for source, columns in (known or {}).items()
+    }
+    for entry in (answer or {}).get("columns") or []:
+        if not isinstance(entry, Mapping):
+            continue
+        source = str(entry.get("source") or "").strip()
+        column = str(entry.get("column") or "").strip()
+        if not source or not column:
+            continue
+        where = f"{source}:{column}"
+        if source not in columns_by_source:
+            rejected.append(f"{where} (unknown source)")
+            continue
+        if column not in columns_by_source[source]:
+            rejected.append(f"{where} (unknown column)")
+            continue
+        if (source, column) in seen:
+            rejected.append(f"{where} (duplicate)")
+            continue
+        seen.add((source, column))
+        label = " ".join(str(entry.get("label") or "").split())
+        unit = " ".join(str(entry.get("unit") or "").split())
+        if label and _norm_ident(label) == _norm_ident(column):
+            rejected.append(f"{where} (label restates the column)")
+            label = ""
+        if not label and not unit:
+            continue
+        row: dict = {"source": source, "column": column}
+        if label:
+            row["label"] = label
+        if unit:
+            row["unit"] = unit
+        kept.append(row)
+    return kept, rejected
 
 
 def generate_skeleton(
@@ -1282,10 +1558,13 @@ def apply_display_meta(
     return {**ir, "maps": out_maps}, changed
 
 
-def apply_display_meta_to_document(
-    document_md: str, edits: Sequence[Mapping[str, Any]]
+def _edit_mapping_spec(
+    document_md: str,
+    edit: Callable[[dict], tuple[dict, list[str]]],
+    *,
+    where: str,
 ) -> tuple[str, list[str]]:
-    """:func:`apply_display_meta`, spliced back into a design document's §9.
+    """Run one IR-level edit on a design document's §9 and splice it back.
 
     Byte-preserving outside the mapping-spec block. Raises ``ValueError`` when the
     document has no §9 to edit (a legacy raw-RML design — there is no display
@@ -1296,7 +1575,7 @@ def apply_display_meta_to_document(
     from asterism_step0.materialize import materialize_schema
     from asterism_step0.spec_repair import replace_mapping_spec_block
 
-    ir_yaml = materialize_schema(document_md, ".", "display-meta", write=False).mapping_ir_yaml
+    ir_yaml = materialize_schema(document_md, ".", where, write=False).mapping_ir_yaml
     if ir_yaml is None:
         raise ValueError("this design has no mapping spec to edit")
     # A §9 a weak model left unparseable is a routine outcome, not a crash: the
@@ -1312,11 +1591,115 @@ def apply_display_meta_to_document(
         raise ValueError(f"the design's mapping spec is not readable: {exc}") from exc
     if not isinstance(doc, dict):
         raise ValueError("the design's mapping spec is not a mapping")
-    new_doc, changed = apply_display_meta(doc, edits)
+    new_doc, changed = edit(doc)
     if not changed:
         return document_md, []
     new_yaml = dump_spec_yaml(new_doc, sort_keys=False, allow_unicode=True)
     return replace_mapping_spec_block(document_md, new_yaml), changed
+
+
+def apply_display_meta_to_document(
+    document_md: str, edits: Sequence[Mapping[str, Any]]
+) -> tuple[str, list[str]]:
+    """:func:`apply_display_meta`, spliced back into a design document's §9."""
+    return _edit_mapping_spec(
+        document_md, lambda doc: apply_display_meta(doc, edits), where="display-meta"
+    )
+
+
+def apply_column_meanings(
+    ir: Mapping[str, Any], meanings: Sequence[Mapping[str, Any]]
+) -> tuple[dict, list[str]]:
+    """Project ``(source, column)`` meanings onto the §9 property rows.
+
+    ADR ``meaning-before-identity.md`` §6. What a column means is settled BEFORE
+    any design exists, so it is held against the only identity a column has at
+    that point — its file and its header. The design, once built, binds columns
+    to predicates, and this is the deterministic projection of the input layer
+    onto that shape. It runs on every assembly, which is also what keeps a later
+    AI round from quietly replacing a meaning the person confirmed (N6).
+
+    The input layer WINS over whatever the generating model wrote: the meaning
+    was either read off the data or typed by the person who took it, and the
+    per-map stage only ever restates it. Display metadata only (K8) — no triple,
+    no value, no datatype changes.
+
+    A row that reads several columns (``columns:``) or none is left alone: a
+    meaning belongs to exactly one column. An absent field leaves that field as
+    it was, an empty string CLEARS it — the same convention
+    :func:`apply_display_meta` uses, so "I only corrected the unit" never erases
+    the meaning.
+    """
+    maps = ir.get("maps")
+    if not isinstance(maps, list) or not meanings:
+        return dict(ir), []
+    wanted: dict[tuple[str, str], dict[str, Any]] = {}
+    for entry in meanings:
+        if not isinstance(entry, Mapping):
+            continue
+        source = str(entry.get("source") or "")
+        column = str(entry.get("column") or "")
+        if not source or not column:
+            continue
+        # 同じ列に二度言及があれば、あとの言葉が勝つ（フィールドごと）。呼び出し側は
+        # 「いまの状態」と「今回明示的に空にしたもの」を並べて渡してくる。
+        merged = dict(wanted.get((source, column)) or {})
+        merged.update({k: v for k, v in entry.items() if k in ("label", "unit")})
+        wanted[(source, column)] = merged
+    if not wanted:
+        return dict(ir), []
+    changed: list[str] = []
+    out_maps: list[Any] = []
+    for m in maps:
+        if not isinstance(m, Mapping) or not isinstance(m.get("properties"), list):
+            out_maps.append(m)
+            continue
+        source = str(m.get("source") or "")
+        props: list[Any] = []
+        for prop in m["properties"]:
+            if not isinstance(prop, Mapping):
+                props.append(prop)
+                continue
+            column = str(prop.get("column") or "")
+            entry = wanted.get((source, column)) if column else None
+            if entry is None:
+                props.append(prop)
+                continue
+            row = dict(prop)
+            touched = False
+            for field_name in ("label", "unit"):
+                # 同じ約束を display-meta と共有する: キーが無い＝そのままにする、
+                # 空文字＝「間違いだったし、代わりも無い」。列について何も言って
+                # いない側を「消せ」と読むと、単位を直しただけで意味が消える。
+                if field_name not in entry:
+                    continue
+                value = entry.get(field_name)
+                if value is None:
+                    continue
+                text = str(value).strip()
+                if text == row.get(field_name) or (not text and field_name not in row):
+                    continue
+                if text:
+                    row[field_name] = text
+                else:
+                    row.pop(field_name, None)
+                touched = True
+            if touched:
+                changed.append(f"{source}:{column}")
+            props.append(row if touched else prop)
+        out_maps.append({**m, "properties": props})
+    if not changed:
+        return dict(ir), []
+    return {**ir, "maps": out_maps}, changed
+
+
+def apply_column_meanings_to_document(
+    document_md: str, meanings: Sequence[Mapping[str, Any]]
+) -> tuple[str, list[str]]:
+    """:func:`apply_column_meanings`, spliced back into a design document's §9."""
+    return _edit_mapping_spec(
+        document_md, lambda doc: apply_column_meanings(doc, meanings), where="column-meanings"
+    )
 
 
 _SAFE_COLUMN_DATATYPES = frozenset(
@@ -1478,6 +1861,135 @@ def _property_uses_column(prop: Mapping[str, Any], column: str) -> bool:
         or column in (prop.get("columns") or [])
         or _template_uses_column(prop.get("object_template"), column)
     )
+
+
+def columns_in_use(ir: Mapping[str, Any]) -> dict[str, set[str]]:
+    """Which source columns the spec actually READS, per source.
+
+    Everything counts: a plain property, a multi-input function, an IRI template
+    (the subject's or an object's), a ``transform`` key. A column that appears
+    nowhere here contributes nothing to the graph — which is exactly what the
+    question "did this column get taken in?" is asking.
+    """
+    out: dict[str, set[str]] = {}
+    for m in ir.get("maps") or []:
+        if not isinstance(m, Mapping):
+            continue
+        source = str(m.get("source") or "")
+        if not source:
+            continue
+        used = out.setdefault(source, set())
+        subject = m.get("subject")
+        if isinstance(subject, Mapping):
+            used |= _template_placeholders(subject.get("template"))
+            transform = subject.get("transform")
+            if isinstance(transform, Mapping):
+                used |= {str(k) for k in transform}
+        for prop in m.get("properties") or []:
+            if not isinstance(prop, Mapping):
+                continue
+            column = str(prop.get("column") or "")
+            if column:
+                used.add(column)
+            for col in prop.get("columns") or []:
+                if str(col):
+                    used.add(str(col))
+            used |= _template_placeholders(prop.get("object_template"))
+            transform = prop.get("transform")
+            if isinstance(transform, Mapping):
+                used |= {str(k) for k in transform}
+    return out
+
+
+def take_in_columns(
+    ir: Mapping[str, Any],
+    wanted: Sequence[Mapping[str, Any]],
+    *,
+    homes: Mapping[str, Mapping[str, str]],
+    column_types: Mapping[str, Mapping[str, str]] | None = None,
+) -> tuple[dict, list[str]]:
+    """Put the columns the reader kept, but the design does not read, on the map
+    that owns them.
+
+    ADR ``meaning-before-identity.md`` §3: on the meaning screen every column is
+    taken in unless the reader clears its checkbox, so a column that survived
+    that screen and is nowhere in the spec is not a question to ask again — the
+    answer was already given. The row is the same plain, sourced, typed
+    passthrough :func:`default_property_table` writes; a meaning, when the
+    person gave one, rides along.
+
+    ``homes`` is ``{source: {column: map name}}`` — the ownership verdict, so
+    the value lands on the entity it actually describes rather than on whichever
+    map happens to read the file first. A source with exactly one map needs no
+    verdict; where several maps read one file and the verdict says nothing, the
+    column is left out — a fact on the wrong entity is worse than a missing one,
+    and the advisory still reports it.
+
+    Idempotent: a column already read anywhere in the spec is never added.
+    """
+    maps = ir.get("maps")
+    if not isinstance(maps, list) or not wanted:
+        return dict(ir), []
+    in_use = columns_in_use(ir)
+    types = {str(k): dict(v) for k, v in (column_types or {}).items()}
+    by_name: dict[str, int] = {}
+    for i, m in enumerate(maps):
+        if isinstance(m, Mapping):
+            by_name[str(m.get("name") or "")] = i
+    out_maps: list[Any] = [dict(m) if isinstance(m, Mapping) else m for m in maps]
+    added: list[str] = []
+    for entry in wanted:
+        if not isinstance(entry, Mapping):
+            continue
+        source = str(entry.get("source") or "")
+        column = str(entry.get("column") or "")
+        if not source or not column or column in in_use.get(source, set()):
+            continue
+        home = str((homes.get(source) or {}).get(column) or "")
+        if not home:
+            # 1 つのファイルに 1 つの種類しか無いなら、答えは 1 つしかない。
+            only = [
+                str(m.get("name") or "")
+                for m in out_maps
+                if isinstance(m, Mapping) and str(m.get("source") or "") == source
+            ]
+            home = only[0] if len(only) == 1 else ""
+        index = by_name.get(home, -1)
+        target = out_maps[index] if index >= 0 else None
+        if not isinstance(target, Mapping) or str(target.get("source") or "") != source:
+            continue
+        prefix = _ontology_prefix({"maps": [target], "prefixes": ir.get("prefixes") or {}})
+        if not prefix:
+            continue
+        existing = {
+            str(prop.get("predicate") or "")
+            for prop in target.get("properties") or []
+            if isinstance(prop, Mapping)
+        }
+        stem = f"{prefix}:{_identifier(column)}"
+        predicate, n = stem, 1
+        while predicate in existing:
+            n += 1
+            predicate = f"{stem}{n}"
+        row: dict[str, Any] = {"predicate": predicate, "column": column}
+        datatype = types.get(home, {}).get(column)
+        if datatype:
+            row["datatype"] = datatype
+        label = str(entry.get("label") or "").strip()
+        if label:
+            row["label"] = label
+        unit = str(entry.get("unit") or "").strip()
+        if unit:
+            row["unit"] = unit
+        out_maps[index] = {
+            **target,
+            "properties": [*(target.get("properties") or []), row],
+        }
+        in_use.setdefault(source, set()).add(column)
+        added.append(f"{source}:{column}")
+    if not added:
+        return dict(ir), []
+    return {**ir, "maps": out_maps}, added
 
 
 def _property_transcribes_column(prop: Mapping[str, Any], column: str) -> bool:
@@ -1856,6 +2368,8 @@ def generate_map_properties(
     issues: list[str] | None = None,
     language: str | None = None,
     owned_elsewhere: Mapping[str, str] | None = None,
+    settled_meanings: Sequence[Mapping[str, Any]] | None = None,
+    excluded_columns: Sequence[str] | None = None,
 ) -> dict:
     """One guided call -> one map's ``{properties: [...], prefixes?: {...}}``."""
     user = build_permap_user(
@@ -1866,6 +2380,8 @@ def generate_map_properties(
         issues=issues,
         language=language,
         owned_elsewhere=owned_elsewhere,
+        settled_meanings=settled_meanings,
+        excluded_columns=excluded_columns,
     )
     schema = permap_json_schema(function_names)
     return _load_json_object(_complete_guided(llm, PERMAP_SYSTEM_PROMPT, user, schema))
@@ -1884,8 +2400,25 @@ def _binding_of(prop: Mapping[str, Any]) -> str:
     return "(no binding)"
 
 
-def missing_label_rows(properties: Any) -> list[dict]:
-    """The rows a label-fill round asks about: a real binding, no usable label."""
+def missing_label_rows(
+    properties: Any, settled_columns: Collection[str] = ()
+) -> list[dict]:
+    """The rows a label-fill round asks about: a real binding, no usable label.
+
+    A column whose meaning is already settled is not missing one: the projection
+    writes it after this stage (ADR meaning-before-identity), so asking a model
+    would spend a call to produce something immediately overwritten.
+
+    Once meanings ARE settled, a row that does not read exactly one column is
+    out of scope too: a meaning is a property of a COLUMN, and a link, a
+    constant or a multi-column function has none to be about. Their labels are
+    written deterministically (the link the ownership pass adds carries the
+    kind's name). Without this the fill round survived on a single machine-added
+    link — one paid call for a label the machine had already written (live
+    2026-08-28). With no settled meanings the old behaviour is unchanged: every
+    label-less row is asked about.
+    """
+    settled = {str(c) for c in settled_columns}
     rows: list[dict] = []
     for prop in properties or []:
         if not isinstance(prop, Mapping):
@@ -1893,6 +2426,9 @@ def missing_label_rows(properties: Any) -> list[dict]:
         if str(prop.get("label") or "").strip():
             continue
         if not str(prop.get("predicate") or "").strip():
+            continue
+        column = str(prop.get("column") or "")
+        if settled and (not column or column in settled):
             continue
         rows.append(dict(prop))
     return rows
@@ -2461,6 +2997,66 @@ def _resolve_function_names(function_names: Sequence[str] | None) -> list[str] |
         return None
 
 
+@dataclass
+class ColumnMeaningsProposal:
+    """Result of :func:`propose_column_meanings` — the stage that runs first.
+
+    ``rejected`` names what the answer said about columns that do not exist, or
+    where it echoed the header back; it is diagnostics, not something to show a
+    person (they never asked the question that produced it).
+    """
+
+    meanings: list[dict] = field(default_factory=list)
+    rejected: list[str] = field(default_factory=list)
+    columns_md: str = ""
+
+
+def propose_column_meanings(
+    csv_paths: list[Path | str],
+    domain_hint: str,
+    *,
+    llm: LLMClient,
+    language: str | None = None,
+    record_path: str | None = None,
+    dialects: Mapping[str, Any] | None = None,
+    preamble_columns: Mapping[str, Sequence[str]] | None = None,
+) -> ColumnMeaningsProposal:
+    """Stage 0: read the source(s) and say what each COLUMN means.
+
+    ADR ``meaning-before-identity.md``. This runs BEFORE the skeleton, because
+    what a column means is a property of the column — the data decides it, and
+    it is the same whatever design gets built on top. The design (which values
+    get an identity, which entity records what) is the judgement that comes
+    after, and it is easier to make when the meanings are already on screen.
+
+    One LLM call for every source at once; the answer is filed under
+    ``(source, column)`` and gated deterministically
+    (:func:`normalize_column_meanings`) before it leaves. Sources with no
+    tabular columns are skipped, and a run with nothing to name spends no call.
+
+    ``dialects`` (ADR source-dialect.md) is the effective per-source read dialect
+    so the columns named here are the ones the pinned §9 will produce.
+    """
+    inspections, _fks = inspect_source_set(
+        csv_paths, record_path=record_path, dialects=dialects
+    )
+    columns_md = render_columns_for_meanings(
+        inspections, preamble_columns=preamble_columns
+    )
+    if not columns_md.strip():
+        return ColumnMeaningsProposal(columns_md="")
+    answer = generate_column_meanings(
+        columns_md, domain_hint, llm=llm, language=language
+    )
+    known = {
+        ins.name: [c.name for c in getattr(ins, "columns", []) or []] for ins in inspections
+    }
+    meanings, rejected = normalize_column_meanings(answer, known)
+    return ColumnMeaningsProposal(
+        meanings=meanings, rejected=rejected, columns_md=columns_md
+    )
+
+
 def propose_skeleton(
     csv_paths: list[Path | str],
     domain_hint: str,
@@ -2579,6 +3175,8 @@ def _generate_map_properties_gated(
     source_columns: Sequence[str] | None = None,
     ontology_prefix: str | None = None,
     on_fallback: Callable[[str], None] | None = None,
+    settled_meanings: Sequence[Mapping[str, Any]] | None = None,
+    excluded_columns: Sequence[str] | None = None,
 ) -> dict:
     """Generate ONE map's property table, then run a BOUNDED structural repair.
 
@@ -2609,8 +3207,9 @@ def _generate_map_properties_gated(
         emit(phase=f"map:{map_name}", index=index, total=total, message=message)
 
     def _fallback(reason: str) -> dict:
+        dropped = {str(c) for c in excluded_columns or ()}
         table = default_property_table(
-            source_columns or [],
+            [c for c in (source_columns or []) if str(c) not in dropped],
             ontology_prefix=ontology_prefix or "",
             owned_elsewhere=owned_elsewhere,
             column_types=column_types,
@@ -2631,7 +3230,8 @@ def _generate_map_properties_gated(
         result = generate_map_properties(
             map_name, map_skeleton, skeleton_context, menu_text,
             llm=llm, function_names=function_names, language=language,
-            owned_elsewhere=owned_elsewhere,
+            owned_elsewhere=owned_elsewhere, settled_meanings=settled_meanings,
+            excluded_columns=excluded_columns,
         )
     except LLMCancelledError:
         raise  # a person pressed stop — that must never become a design
@@ -2654,7 +3254,8 @@ def _generate_map_properties_gated(
             retry = generate_map_properties(
                 map_name, map_skeleton, skeleton_context, menu_text,
                 llm=llm, function_names=function_names, issues=issues, language=language,
-                owned_elsewhere=owned_elsewhere,
+                owned_elsewhere=owned_elsewhere, settled_meanings=settled_meanings,
+                excluded_columns=excluded_columns,
             )
         except LLMCancelledError:
             raise
@@ -2734,7 +3335,10 @@ def _generate_map_properties_gated(
     # rows are never re-emitted, so this round cannot break a binding. A
     # failed fill degrades to exactly the old behaviour: S6 shows the blank
     # and the human fills it (the safety net stays the gate, K22).
-    missing = missing_label_rows(result.get("properties"))
+    missing = missing_label_rows(
+        result.get("properties"),
+        [str(m.get("column") or "") for m in settled_meanings or ()],
+    )
     if missing:
         _emit(f"map '{map_name}': 意味が空の {len(missing)} 項目を書き足しています")
         try:
@@ -2812,6 +3416,8 @@ def propose_from_skeleton(
     map_columns: Mapping[str, Sequence[str]] | None = None,
     dataset_name: str | None = None,
     on_fallback: Callable[[str], None] | None = None,
+    column_meanings: Sequence[Mapping[str, Any]] | None = None,
+    excluded_columns: Mapping[str, Sequence[str]] | None = None,
 ) -> str:
     """Job 2: from a confirmed skeleton, generate each map's property table, assemble
     the full IR, generate the §1-8 document, and splice §9 in deterministically.
@@ -2839,10 +3445,29 @@ def propose_from_skeleton(
     fails. Omitted, the columns are recovered from ``menu`` (the api's oracle
     already lists them per file), so the default works on every path.
     ``on_fallback(map_name)`` fires for each map that ended up on that default —
-    the caller can record which kinds got column-name meanings."""
+    the caller can record which kinds got column-name meanings.
+
+    ``column_meanings`` are the ``(source, column)`` meanings settled BEFORE this
+    design existed (ADR meaning-before-identity). They are projected onto the
+    assembled IR deterministically and they WIN over what the per-map stage
+    wrote: the meaning of a column is knowledge the data and the person hold,
+    not something a generation round gets to revise.
+
+    ``excluded_columns`` (``{source: [column, …]}``) are the columns the person
+    decided not to take in. Named per map so the stage does not write rows that
+    the deterministic pass would remove."""
     names = _resolve_function_names(function_names)
     menu_text = menu if menu is not None else render_tier0_menu(names)
     context = render_skeleton_context(skeleton)
+    # 意味は列のもの、per-map はファイル単位で走る。決まっている意味をその
+    # ファイルのぶんだけ渡し、同じことを二度書かせない。
+    settled_by_source: dict[str, list[dict]] = {}
+    for entry in column_meanings or ():
+        if not isinstance(entry, Mapping):
+            continue
+        source = str(entry.get("source") or "")
+        if source and str(entry.get("column") or ""):
+            settled_by_source.setdefault(source, []).append(dict(entry))
     by_source = dict(menu_columns(menu_text)) if map_columns is None else {}
     ontology_prefix = _ontology_prefix(skeleton)
 
@@ -2892,9 +3517,20 @@ def propose_from_skeleton(
             ),
             ontology_prefix=ontology_prefix,
             on_fallback=on_fallback,
+            settled_meanings=settled_by_source.get(str(map_obj.get("source") or "")),
+            excluded_columns=(excluded_columns or {}).get(str(map_obj.get("source") or "")),
         )
 
     assembled = assemble_mapping_ir(skeleton, permaps)
+    # 意味は列の性質で、設計より前に決まっている（ADR meaning-before-identity）。
+    # 確定済みの意味を、束ね終わった表に決定論で写す。per-map が書いた label より
+    # こちらが勝つ — 生成ラウンドは意味を決める側ではない。
+    assembled, meant = apply_column_meanings(assembled, column_meanings or ())
+    if meant:
+        emit(
+            phase="meaning",
+            message=f"先に決めた意味を {len(meant)} 項目に写しました",
+        )
     # 同じファイルから出た種類が 1 つにつながっていること。per-map 段への「つなげ」は
     # お願いで、これが保証。キーの入れ子は線であってリンクではない（RDF の辺は
     # プロパティが書かれて初めて生まれる）ので、ここで足りない辺だけを決定論で足す。

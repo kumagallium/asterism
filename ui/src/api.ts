@@ -461,6 +461,72 @@ export interface SkeletonHandlers {
   onCancelled?: () => void
 }
 
+/** What ONE source column means — the input layer, keyed by the only identity a
+ *  column has before a design exists (ADR meaning-before-identity). */
+export interface ColumnMeaning {
+  source: string
+  column: string
+  label?: string
+  unit?: string
+}
+
+/** Result payload carried by the SSE `done` event for a column-meanings job. */
+export interface ColumnMeaningsResult {
+  meanings: ColumnMeaning[]
+  /** Diagnostics: what the answer said about columns that do not exist. */
+  rejected: string[]
+  source_files: string[]
+}
+
+export interface ColumnMeaningsHandlers {
+  onStart?: (jobId: string) => void
+  onStatus?: (message: string) => void
+  onDone: (result: ColumnMeaningsResult) => void
+  onError: (message: string) => void
+  onPulse?: () => void
+  onCancelled?: () => void
+}
+
+/** A column the reader decided not to take in. Before a design exists `exclude`
+ *  is the only thing sayable — there is no map yet to include a column ONTO. */
+export interface PreDesignColumnDecision {
+  source: string
+  column: string
+  action: 'exclude'
+}
+
+/**
+ * Stage 0 of a staged design: what does each COLUMN mean (ADR
+ * meaning-before-identity). Runs BEFORE the skeleton and needs none of it — the
+ * meaning and unit of a column are decided by the data, so they are the same
+ * whatever design is later built on them. Same SSE machinery as propose.
+ */
+export async function generateColumnMeanings(
+  files: File[],
+  domain: string,
+  creds: LlmCredentials | null,
+  handlers: ColumnMeaningsHandlers,
+  language?: string,
+  dialects?: Record<string, SourceDialect>,
+  stagingId?: string | null,
+): Promise<JobHandle> {
+  const form = new FormData()
+  appendSources(form, files, stagingId)
+  form.append('domain', domain)
+  if (language) form.append('language', language)
+  appendDialects(form, dialects)
+
+  const res = await fetch('/api/design/column-meanings', {
+    method: 'POST',
+    body: form,
+    headers: llmHeaders(creds),
+  })
+  if (!res.ok) await throwApiError(res, 'meanings')
+  const { job_id } = (await res.json()) as { job_id: string }
+  handlers.onStart?.(job_id)
+  return subscribeJob(job_id, handlers)
+}
+
 /**
  * S4 「AI にもう一度考えさせる」: repair the design already on screen instead of
  * writing a new one. `skeleton` is what the person is looking at (their edits
@@ -529,10 +595,17 @@ export async function proposeContinue(
   autocorrect?: number,
   dialects?: Record<string, SourceDialect>,
   stagingId?: string | null,
+  columnMeanings?: ColumnMeaning[],
+  columnDecisions?: PreDesignColumnDecision[],
 ): Promise<JobHandle> {
   const form = new FormData()
   appendSources(form, files, stagingId)
   form.append('skeleton', JSON.stringify(skeleton))
+  // The meanings and the keep/drop calls settled on the meaning screen. Sent
+  // even when empty is pointless, so only a non-empty list rides along —
+  // a design with neither is byte-identical to one made before this existed.
+  if (columnMeanings?.length) form.append('column_meanings', JSON.stringify(columnMeanings))
+  if (columnDecisions?.length) form.append('column_decisions', JSON.stringify(columnDecisions))
   form.append('domain', domain)
   if (language) form.append('language', language)
   appendDialects(form, dialects)
@@ -1207,6 +1280,32 @@ export async function saveDisplayMeta(
     body: JSON.stringify({ edits }),
   })
   if (!res.ok) await throwApiError(res, 'display meta')
+  return ((await res.json()) as { changed?: string[] }).changed ?? []
+}
+
+/** Read what the columns of THIS dataset were settled to mean. */
+export async function fetchColumnMeanings(datasetId: string): Promise<ColumnMeaning[]> {
+  const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/column-meanings`, {
+    headers: authHeaders(),
+  })
+  if (!res.ok) await throwApiError(res, 'column meanings')
+  return ((await res.json()) as { meanings?: ColumnMeaning[] }).meanings ?? []
+}
+
+/** Save what the columns MEAN, keyed by `(source, column)` — deterministic, no
+ *  AI, no re-ingest (ADR meaning-before-identity). The store holds the meaning
+ *  whether or not the current design maps that column; the projection onto §9
+ *  happens server-side. Returns the rows the server actually changed. */
+export async function saveColumnMeanings(
+  datasetId: string,
+  meanings: ColumnMeaning[],
+): Promise<string[]> {
+  const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/column-meanings`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ meanings }),
+  })
+  if (!res.ok) await throwApiError(res, 'column meanings')
   return ((await res.json()) as { changed?: string[] }).changed ?? []
 }
 

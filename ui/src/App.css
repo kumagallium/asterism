@@ -234,6 +234,7 @@ button.side-nav-item.active:hover:not(:disabled) {
   position: sticky;
   top: 0;
   z-index: 5;
+  /* 下に貼り付く要素（④ の形の図）が潜り込まないよう、高さを変数で公開する。 */
   display: flex;
   align-items: baseline;
   gap: 1rem;
@@ -6793,6 +6794,25 @@ button.ds-artifact:disabled {
 .skeleton-fold > p {
   margin: 0.25rem 0 0 1rem;
 }
+/* 畳みをやめた区画（利用者評価 2026-08-28「toggle をすべてなくす」）。開閉の
+   三角が無くなったぶん、見出しと中身の関係は字面の強弱だけで示す。 */
+.skeleton-keyedit {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-top: 0.4rem;
+}
+.skeleton-keyedit > label {
+  cursor: default;
+}
+/* ID にする基準の 3 行。読まずに進む人の邪魔をしない大きさで、表の直前に置く。 */
+.skeleton-choose-hints {
+  margin: 0 0 var(--space-2);
+  color: var(--muted);
+  font-size: 0.8125rem;
+  line-height: 1.7;
+}
+
 .skeleton-growth {
   padding-top: 0.45rem;
   border-top: 1px dashed var(--border);
@@ -7043,6 +7063,11 @@ tr[data-map].skeleton-gate-row--added td {
   max-width: 880px;
   margin-inline: auto;
   width: 100%;
+}
+/* ④（ID のつけかた）だけは、①の右に形の図を貼るぶん列を広く取る。散文もこの幅に
+   なるが、この画面のリード文は 1 文に絞ってあるので行長は伸びない。 */
+.kz-wizard--wide {
+  max-width: 1180px;
 }
 .kz-title {
   margin: 0;
@@ -7461,6 +7486,117 @@ tr[data-map].skeleton-gate-row--added td {
 }
 tr.kz-attn td {
   background: var(--warn-bg);
+}
+
+/* 項目の意味（ADR meaning-before-identity）。長い実データが 1 つあるだけで表が
+   横に伸び、右端の「取り込む」が可視領域の外へ出ていた（実機 2026-08-28）。
+   判断の列を見せるほうが、値を最後まで見せるより大事なので、例のほうを丸める。 */
+.kz-cols-examples {
+  color: var(--muted);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+/* 意味の表だけ列幅を決め打つ。自動幅だと 1 つの長い実データが列を 338px まで
+   広げ、右端の「取り込む」を横スクロールの外へ押し出していた（実機 2026-08-28）。
+   判断の列は常に見えていなければならない。 */
+.kz-meaning-table {
+  table-layout: fixed;
+  width: 100%;
+}
+.kz-meaning-table th:nth-child(1),
+.kz-meaning-table td:nth-child(1) {
+  width: 20%;
+}
+.kz-meaning-table th:nth-child(2),
+.kz-meaning-table td:nth-child(2) {
+  width: 23%;
+}
+.kz-meaning-table th:nth-child(3),
+.kz-meaning-table td:nth-child(3) {
+  width: 17%;
+}
+.kz-meaning-table th:nth-child(4),
+.kz-meaning-table td:nth-child(4) {
+  width: 23%;
+}
+.kz-meaning-table th:nth-child(5),
+.kz-meaning-table td:nth-child(5) {
+  width: 17%;
+}
+.kz-meaning-table .kz-cols-input {
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+/* ①（項目の持ち主）と、いまの形の図。図は右に貼り付けてスクロールに追従する
+   — 種類を足した瞬間に箱が増えるのが見えるのが、この画面の手応えなので。
+   幅が足りない画面では 1 列に折り返し、図は表の上へ（狭い画面で右に 16rem 取ると
+   セレクトの並ぶ表がつぶれる）。 */
+.skeleton-zone-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 15rem;
+  gap: var(--space-3);
+  align-items: start;
+}
+.skeleton-zone-layout .skeleton-entity-props {
+  width: 100%;
+}
+.skeleton-zone-map {
+  position: sticky;
+  /* 上端は画面ではなく **上部バーの下**。0 にすると、スクロールした図がバーの
+     下へ潜り込む（実機 2026-08-28）。バーは `position: sticky` で高さが決まって
+     いるので、その下に置く。 */
+  top: calc(var(--topbar-h, 6.5rem) + var(--space-3));
+  /* バーより手前に出ない。図がバーを隠すと、上のタイトルが読めなくなる。 */
+  z-index: 1;
+}
+.skeleton-zone-map .skeleton-diagram {
+  margin: 0;
+}
+@media (max-width: 62rem) {
+  .skeleton-zone-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .skeleton-zone-map {
+    position: static;
+    order: -1;
+  }
+}
+
+/* ④ ①「どの種類に載せるか」。AI の薦めが初期値で、変えるとその場で検査が走る
+   （ADR meaning-before-identity §3 改訂: 帰属は機械が薦め、人が決める）。 */
+.skeleton-assign {
+  font: inherit;
+  font-size: 0.8125rem;
+  padding: 0.2rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--body);
+  max-width: 14rem;
+}
+.skeleton-assign:disabled {
+  opacity: 0.65;
+}
+
+.kz-meaning-table .kz-cols-name,
+.kz-meaning-table .kz-cols-examples {
+  /* .kz-preview-table td の nowrap を、この表だけ解く。列幅が決まっている以上、
+     はみ出した文字は隣の判断列の上に乗ってしまう。 */
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.kz-cols-keep {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  white-space: nowrap;
+  font-size: 0.875rem;
+}
+/* 取り込まないと決めた行は、消さずに沈める — 決めたことが見えたままでないと、
+   「まだ決めていない」と区別がつかない。 */
+tr.kz-cols-dropped td {
+  opacity: 0.55;
 }
 
 /* Meaning decisions that only the data owner can make stay visually separate

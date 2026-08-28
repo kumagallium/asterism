@@ -15,8 +15,8 @@
     "backToStartShort": "Start over",
     "step1": "Put it in",
     "step2": "The AI reads it",
-    "step3": "How IDs are given",
-    "step4": "What the items mean",
+    "step3": "What the items mean",
+    "step4": "How IDs are given",
     "step5": "Try it",
     "step6": "Publish"
   },
@@ -122,7 +122,10 @@
     "failed": "The AI could not read your data",
     "retry": "Ask the AI to read again",
     "back": "Go back and retry",
-    "backToGate": "Back to how the data is counted"
+    "backToGate": "Back to how the data is counted",
+    "titleMeanings": "The AI is working out what each column means",
+    "jobLabelMeanings": "Reading",
+    "skipMeanings": "Continue with blanks"
   },
   "s4": {
     "gateTitle": "How IDs are given",
@@ -278,9 +281,9 @@
     }
   },
   "s6": {
-    "title": "What the items mean",
-    "titleReview": "Review — item meanings",
-    "lead": "Check what each item means. The words you settle here are what search and citation use.",
+    "title": "Check the counts",
+    "titleReview": "Review — check the counts",
+    "lead": "Check that the rows in your file and the records that came out of them line up.",
     "zoneCount": "1 · Check the counts",
     "statSource": "Source file",
     "statRowUnit": "rows",
@@ -308,7 +311,7 @@
     "mapRowsSummary": "Why are there fewer records than rows?",
     "zoneMeaning": "2 · Meaning and unit",
     "zoneMeaningWhy": "You can type straight into the table (no AI involved)",
-    "zoneDecide": "3 · Take it in, or leave it out",
+    "zoneDecide": "2 · Take it in, or leave it out",
     "backToGate": "Back to how IDs are given",
     "backToGateConfirm": "This goes back to the ID check. The current draft will be rebuilt (your files stay as they are). Continue?",
     "backToGateConfirmPublished": "This goes back to the ID check. Changing how IDs are made from here changes IDs that are already published. Anyone opening an earlier ID will be forwarded to the new content, and you will be shown how many IDs move just before you publish. The current draft will be rebuilt (your files stay as they are). Continue?",
@@ -373,7 +376,8 @@
     "askConsultUnmappedPrefill": "Please suggest meanings for the items not taken in yet",
     "askConsultMeaning": "Ask the AI to fill the blank meanings",
     "askConsultUnmapped": "Ask the AI about what to include",
-    "duplicateOwner": "The same column is written by two or more kinds ({{list}}). Which one should own it cannot be decided from this single file — the column holds one value, so every candidate key “determines” it. This is the AI’s guess: if it is wrong, fix it under “Also change how items are split and linked” below."
+    "duplicateOwner": "The same column is written by two or more kinds ({{list}}). Which one should own it cannot be decided from this single file — the column holds one value, so every candidate key “determines” it. This is the AI’s guess: if it is wrong, fix it under “Also change how items are split and linked” below.",
+    "editMeanings": "Fix what the items mean"
   },
   "s7": {
     "title": "Try it — we asked your data a few questions",
@@ -404,7 +408,8 @@
     "traceNote": "Every number can be traced back to the row it came from. Once published, this ID opens as a web address.",
     "techSummary": "Details (technical)",
     "ok": "Looks right — on to publish",
-    "back": "Something is off — back to item meanings"
+    "back": "Something is off — back to item meanings",
+    "notTakenIn": "{{count}} column(s) are not in the dataset yet ({{list}} …). Give them a meaning on the meanings screen and the next pass takes them in."
   },
   "s8": {
     "title": "Publish",
@@ -481,5 +486,37 @@
   "job": {
     "preparing": "Preparing…",
     "analyzing": "Analyzing…"
+  },
+  "meanings": {
+    "title": "What the items mean",
+    "lead": "Check what value each column holds. The words you settle here are what search and citation will show.",
+    "note": "The AI drafted these. Edit any cell directly (no AI runs here). To leave a column out, clear the checkbox on the right.",
+    "noDraft": "No draft arrived from the AI. Fill the blanks in yourself and you can carry straight on.",
+    "zone_preamble": "① Values for the whole file",
+    "zoneWhy_preamble": "{{count}} written once, at the top of the file",
+    "zone_table": "② Values per row",
+    "zoneWhy_table": "{{count}} laid out down the table",
+    "colColumn": "Column",
+    "colMeaning": "What the value means",
+    "colUnit": "Unit (if any)",
+    "colExamples": "Example values",
+    "colKeep": "Take in",
+    "meaningPlaceholder": "e.g. diffraction angle",
+    "unitPlaceholder": "",
+    "editAria": "Meaning of {{column}}",
+    "unitAria": "Unit of {{column}}",
+    "fromLine": "value on line {{line}}",
+    "onLine": "(line {{line}})",
+    "keepOn": "Take in",
+    "keepOff": "Leave out",
+    "continue": "Continue with these meanings",
+    "back": "Back to the read settings",
+    "save": "Save these meanings and go back",
+    "saving": "Saving…",
+    "saveFailed": "The meanings could not be saved",
+    "backToCounts": "Back to the counts",
+    "someBlank": "{{count}} still have no meaning — the AI could not read them. You can carry on (those columns stay searchable under their original header), but filling them in makes search and citation easier to read.",
+    "askConsult": "Ask the AI to fill the blanks",
+    "askConsultPrefill": "Please fill in the meanings that are still blank"
   }
 }
