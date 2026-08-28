@@ -1,5 +1,15 @@
 # Changelog
 
+## [v0.24.0](https://github.com/kumagallium/asterism/compare/v0.23.0...v0.24.0) - 2026-08-28
+
+- feat(kantan): 重複列を「どちらに残しますか」でその場で決める — AI に投げても解けない判断を人に渡す by @kumagallium in https://github.com/kumagallium/asterism/pull/449
+- feat(kantan): 「AI にもう一度考えさせる」で S4 の編集を捨てない — 作り直しではなく修理にする by @kumagallium in https://github.com/kumagallium/asterism/pull/436
+- feat(ui): かんたん層の文に強弱をつける — 判断・操作・補足・警告を同じ声で並べない by @kumagallium in https://github.com/kumagallium/asterism/pull/429
+- refactor: 生成 ingester を撤去する — 実行しないコードは、書かせない by @kumagallium in https://github.com/kumagallium/asterism/pull/452
+- feat(kantan): 意味を先に、ID を後に — かんたんモードの順序を入れ替える by @kumagallium in https://github.com/kumagallium/asterism/pull/453
+- docs(manual): つながったデータの入門 2 章を足し、マニュアルを GitHub Pages で公開する by @kumagallium in https://github.com/kumagallium/asterism/pull/454
+- docs(manual): #453 のステップ入れ替えに追随する — 公開した順序が実装と逆だった by @kumagallium in https://github.com/kumagallium/asterism/pull/455
+
 ## [v0.23.0](https://github.com/kumagallium/asterism/compare/v0.22.4...v0.23.0) - 2026-08-28
 
 - feat: アプリ本体が MCP を出す（/mcp）＋設定から各 AI へ配る by @kumagallium in https://github.com/kumagallium/asterism/pull/447
