@@ -67,7 +67,7 @@
   "review": {
     "hint": "Review the proposal; comment on what you want changed and the AI regenerates it (optional).",
     "commentLabel": "Review comment",
-    "commentPlaceholder": "e.g. Make the Sample IRI a composite key of (SID, sample_id). Update the ingester and design rationale to match.",
+    "commentPlaceholder": "e.g. Make the Sample IRI a composite key of (SID, sample_id). Update the design rationale to match.",
     "regenerate": "Apply comment & regenerate",
     "regenerating": "Regenerating…",
     "jobLabel": "AI is regenerating the schema…"
@@ -138,7 +138,7 @@
   },
   "trap": {
     "T1": "IRI uniqueness (is the composite key globally unique?)",
-    "T2": "BOM (does the ingester open with utf-8-sig?)",
+    "T2": "BOM (is the source read as utf-8-sig?)",
     "T3": "No blank nodes (bnode-free)",
     "T4": "MIE keywords / categories (5 or more)",
     "T5": "Mermaid colon avoidance (no : in diagram labels)",

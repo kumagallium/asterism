@@ -162,7 +162,6 @@ def test_ingest_records_findings_from_the_graph_it_just_built(
             "diagram.md": "classDiagram\n  class Sample",
             "model.yaml": "- Sample:",
             "mie.yaml": "schema_info:\n  title: x",
-            "ingester.py": "def go(): ...",
             "mapping.rml.ttl": _RML_WITH_LINK,
         },
         complete=True,

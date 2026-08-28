@@ -14,8 +14,6 @@ splits the blocks into files on disk:
   ``{out}/{name}-mie.yaml`` (``schema_info`` + ``sample_rdf_entries`` +
   ``sparql_query_examples`` + ``anti_patterns`` + ``architectural_notes`` —
   the shape_expressions are filled in afterward by running rdf-config)
-* The ``python`` block under the "Ingester" section →
-  ``{out}/{name}.py``
 * (optional) The ``yaml`` **mapping spec** block under the "Declarative
   mapping spec" section → ``{out}/{name}-mapping.yaml`` (the reviewed/refined
   IR artifact) **plus** its deterministic compilation →
@@ -130,7 +128,6 @@ def _header_matches(header: str, keywords: tuple[str, ...]) -> bool:
 _MERMAID_HEADERS = ("class hierarchy", "mermaid", "diagram")
 _MODEL_HEADERS = ("rdf-config", "model.yaml")
 _MIE_HEADERS = ("mie",)
-_INGESTER_HEADERS = ("ingester", "ingest")
 _RML_HEADERS = ("rml", "declarative mapping", "宣言マッピング")
 # The Mapping IR block shares the §9 headers (a yaml block under the mapping
 # section); "mapping spec" is the canonical §9 heading of the IR contract.
@@ -144,7 +141,6 @@ class MaterializeResult:
     mermaid: str | None = None
     rdf_config_model: str | None = None
     mie_yaml: str | None = None
-    ingester_py: str | None = None
     rml_ttl: str | None = None  # compiled from the mapping spec, or legacy raw RML
     mapping_ir_yaml: str | None = None  # the extracted Mapping IR block (additive)
     mapping_ir_source: str | None = None
@@ -186,15 +182,14 @@ class MaterializeResult:
 
     @property
     def complete(self) -> bool:
-        """True iff all 4 *core* artifacts were extracted.
+        """True iff all 3 *core* artifacts were extracted.
 
         The optional RML mapping (:attr:`rml_ttl`) is deliberately excluded:
         it is additive and absent from older proposals, so it must not gate
         completeness.
         """
         return all(
-            x is not None
-            for x in (self.mermaid, self.rdf_config_model, self.mie_yaml, self.ingester_py)
+            x is not None for x in (self.mermaid, self.rdf_config_model, self.mie_yaml)
         )
 
 
@@ -371,10 +366,6 @@ def _complete_sections(result: MaterializeResult, ir: object, dataset_name: str)
         result.notes.append(
             "Section 6 (rdf-config model.yaml) was generated from the mapping spec."
         )
-    if result.ingester_py is None:
-        result.ingester_py = doc_synth.synthesize_ingester_py(ir, dataset_name=dataset_name)
-        result.notes.append("Section 8 (ingester sketch) was generated from the mapping spec.")
-
     document = _mie_document(result.mie_yaml)
     if document is None:
         # Absent, or one stray quote away from parseable — either way three
@@ -553,10 +544,6 @@ def materialize_schema(
         mie_candidates, header_keywords=_MIE_HEADERS, language_prefs=("yaml", "yml")
     )
 
-    result.ingester_py = _pick_block(
-        blocks, header_keywords=_INGESTER_HEADERS, language_prefs=("python", "py")
-    )
-
     # §9 precedence: with a mapping spec present, the spec IS the design — the
     # legacy turtle extraction is not even attempted. Any stray ```turtle fence
     # (an MIE sample-RDF snippet, a leftover legacy block after a redesign) is
@@ -612,8 +599,6 @@ def materialize_schema(
         result.warnings.append("No rdf-config model.yaml block found.")
     if result.mie_yaml is None:
         result.warnings.append("No MIE YAML block found.")
-    if result.ingester_py is None:
-        result.warnings.append("No ingester Python block found.")
 
     # ----- the diagram document -----
     # Assembled OUTSIDE the write branch: the api materializes to a temp dir but
@@ -645,10 +630,6 @@ def materialize_schema(
             p = out / f"{dataset_name}-mie.yaml"
             p.write_text(result.mie_yaml + "\n", encoding="utf-8")
             result.written_paths["mie_yaml"] = str(p)
-        if result.ingester_py is not None:
-            p = out / f"{dataset_name}.py"
-            p.write_text(result.ingester_py + "\n", encoding="utf-8")
-            result.written_paths["ingester_py"] = str(p)
         if result.mapping_ir_yaml is not None:
             p = out / f"{dataset_name}-mapping.yaml"
             p.write_text(result.mapping_ir_yaml + "\n", encoding="utf-8")
@@ -717,7 +698,6 @@ def _main(argv: list[str] | None = None) -> int:
             ("mermaid", result.mermaid is not None),
             ("rdf_config_model", result.rdf_config_model is not None),
             ("mie_yaml", result.mie_yaml is not None),
-            ("ingester_py", result.ingester_py is not None),
             ("mapping_ir (optional)", result.mapping_ir_yaml is not None),
             ("rml_ttl (optional)", result.rml_ttl is not None),
         ):

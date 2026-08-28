@@ -67,8 +67,8 @@ packages = ["src/asterism_step0"]
 [tool.ruff]
 target-version = "py311"
 line-length = 100
-# Test fixtures are deliberately minimal sample bundles (e.g. a stub ingester
-# the validator parses); they are data, not shipped code, so skip linting them.
+# Test fixtures are deliberately minimal sample bundles (a tiny schema bundle
+# the validator reads); they are data, not shipped code, so skip linting them.
 extend-exclude = ["tests/fixtures"]
 
 [tool.ruff.lint]

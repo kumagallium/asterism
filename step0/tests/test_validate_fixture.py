@@ -3,8 +3,8 @@
 This is the regression net for `asterism-validate`: the fixture under
 ``tests/fixtures/starrydata_min/`` is a tiny, correct, starrydata-shaped bundle
 that must pass T1-T7 (T8/T9 are opt-in). Running it in CI means any change that breaks a trap
-checker - or the T1 ingester key recovery - fails the build, without needing the
-full starrydata export or an API key.
+checker - or the T1 key recovery from the §9 mapping spec - fails the build,
+without needing the full starrydata export or an API key.
 """
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ def _bundle(**overrides: object) -> SchemaBundle:
         "tbox_ttl": FIXTURE / "tbox.ttl",
         "diagram_md": FIXTURE / "diagram.md",
         "mie_yaml": FIXTURE / "mie.yaml",
-        "ingester_py": FIXTURE / "ingester.py",
+        "mapping_ir_yaml": FIXTURE / "mapping.yaml",
         "source_csvs": [
             FIXTURE / "papers.csv",
             FIXTURE / "samples.csv",
@@ -32,7 +32,7 @@ def _bundle(**overrides: object) -> SchemaBundle:
 
 
 def test_fixture_files_exist() -> None:
-    for name in ("tbox.ttl", "diagram.md", "mie.yaml", "ingester.py",
+    for name in ("tbox.ttl", "diagram.md", "mie.yaml", "mapping.yaml",
                  "papers.csv", "samples.csv", "curves.csv"):
         assert (FIXTURE / name).is_file(), f"missing fixture file: {name}"
 
@@ -51,32 +51,32 @@ def test_fixture_bundle_passes_all_traps() -> None:
     assert report.exit_code() == 0
 
 
-def test_fixture_t1_recovers_keys_from_both_mie_and_ingester() -> None:
+def test_fixture_t1_recovers_keys_from_both_mie_and_spec() -> None:
     """The composite keys should be attributed to *both* the MIE template and
-    the ingester builder - proving the Round-3 safety net is wired in CI."""
+    the §9 subject template - proving the Round-3 safety net is wired in CI."""
     report = validate_schema(_bundle())
     t1 = next(r for r in report.results if r.trap_id == "T1")
     evidence = "\n".join(t1.evidence)
     assert "MIE template" in evidence
-    assert "ingester" in evidence
+    assert "§9 subject template" in evidence
     # All three entities routed to their matching CSV.
     assert "papers.csv: sdr:paper" in evidence
     assert "samples.csv: sdr:sample" in evidence
     assert "curves.csv: sdr:curve" in evidence
 
 
-def test_fixture_t1_catches_single_key_ingester(tmp_path: Path) -> None:
-    """If the ingester is broken to mint a single-key sample IRI, T1 must FAIL
+def test_fixture_t1_catches_single_key_subject_template(tmp_path: Path) -> None:
+    """If the §9 spec is broken to mint a single-key sample IRI, T1 must FAIL
     on the full fixture CSVs even though the MIE still documents the composite
     key. This is the safety net the CI fixture exists to guard."""
-    broken = (FIXTURE / "ingester.py").read_text(encoding="utf-8").replace(
-        'return SDR[f"sample/{sid}-{sample_id}"]',
-        'return SDR[f"sample/{sample_id}"]',
+    broken = (FIXTURE / "mapping.yaml").read_text(encoding="utf-8").replace(
+        'template: "sdr:sample/{SID}-{sample_id}"',
+        'template: "sdr:sample/{sample_id}"',
     )
-    bad_ingester = tmp_path / "ingester.py"
-    bad_ingester.write_text(broken, encoding="utf-8")
+    bad_spec = tmp_path / "mapping.yaml"
+    bad_spec.write_text(broken, encoding="utf-8")
 
-    report = validate_schema(_bundle(ingester_py=bad_ingester))
+    report = validate_schema(_bundle(mapping_ir_yaml=bad_spec))
     t1 = next(r for r in report.results if r.trap_id == "T1")
     assert t1.status == "fail", t1.detail
     # The failing key is the single-column (sample_id) one against samples.csv.

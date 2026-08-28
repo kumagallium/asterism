@@ -86,14 +86,14 @@ export ANTHROPIC_API_KEY=sk-...       # required only by propose/refine
 
 # 1. inspect structure (types / JSON / uniqueness, incl. composite keys)
 asterism-inspect mydata.csv --fk id
-# 2. let the LLM draft the design artifacts (TBox / Mermaid / MIE / ingester)
+# 2. let the LLM draft the design artifacts (TBox / Mermaid / MIE / mapping spec)
 asterism-propose mydata.csv --domain "measurement curves; PROV-O; no blank nodes" > proposal.md
 # 3. (optional) feed back review comments
 asterism-refine proposal.md --comment "use a composite (paper_id, sample_id) key" > refined.md
 # 4. split the Markdown into individual files
 asterism-materialize refined.md --name mydata --output-dir out/
 # 5. validate the bundle against the *full* CSV (8-trap check; exit 0/1, CI-friendly)
-asterism-validate --mie out/mydata-mie.yaml --ingester out/mydata.py --csv mydata.csv
+asterism-validate --mie out/mydata-mie.yaml --mapping-ir out/mydata-mapping.yaml --csv mydata.csv
 ```
 
 ### Local mode (no Docker)
