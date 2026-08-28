@@ -194,23 +194,28 @@ def test_t1_still_fails_on_real_single_key_declaration(tmp_path: Path) -> None:
 
 
 # ----------------------------------------------------------------------------
-# T1: ingester-builder safety net (dogfood Round 3 follow-up)
+# T1: §9 subject-template safety net (dogfood Round 3 follow-up)
 # ----------------------------------------------------------------------------
 
 
-_COMPOSITE_INGESTER = """
-SDR = None
-def sample_iri(sid, sample_id):
-    return SDR[f"sample/{sid}-{sample_id}"]
-def emit(row, g):
-    return sample_iri(row["SID"], row["sample_id"])
+_COMPOSITE_SPEC = """
+version: 1
+prefixes:
+  sdr: "https://example.com/r/"
+maps:
+  - name: sample
+    source: samples.csv
+    subject:
+      template: "sdr:sample/{SID}-{sample_id}"
+      classes: [ex:Sample]
+    properties: []
 """
 
 
-def test_t1_ingester_promotes_warn_to_pass(tmp_path: Path) -> None:
+def test_t1_spec_promotes_warn_to_pass(tmp_path: Path) -> None:
     """★ Round 3 scenario: MIE carries no composite ``{}`` template (so the old
-    T1 only warned), but the ingester correctly mints the composite key. The
-    enhanced T1 reads the ingester and verifies (SID, sample_id) → pass."""
+    T1 only warned), but the §9 spec correctly mints the composite key. T1 reads
+    the spec and verifies (SID, sample_id) → pass."""
     csv = _write(
         tmp_path / "samples.csv",
         """
@@ -223,18 +228,18 @@ def test_t1_ingester_promotes_warn_to_pass(tmp_path: Path) -> None:
         tmp_path / "mie.yaml",
         "schema_info:\n  title: T\nsample_rdf_entries: []\n",
     )
-    ing = _write(tmp_path / "ingest.py", _COMPOSITE_INGESTER)
+    spec = _write(tmp_path / "mapping.yaml", _COMPOSITE_SPEC)
     res = _check_t1_uniqueness(
-        SchemaBundle(mie_yaml=mie, ingester_py=ing, source_csvs=[csv])
+        SchemaBundle(mie_yaml=mie, mapping_ir_yaml=spec, source_csvs=[csv])
     )
     assert res.status == "pass", res.detail
-    assert any("ingester" in e for e in res.evidence)
+    assert any("§9" in e for e in res.evidence)
 
 
-def test_t1_ingester_catches_wrong_single_key_when_mie_looks_clean(tmp_path: Path) -> None:
-    """★ The safety net: the MIE shows a correct composite key, but the ingester
-    actually mints a single-key IRI. Full-CSV validate must FAIL on the ingester
-    key even though the MIE key passes."""
+def test_t1_spec_catches_wrong_single_key_when_mie_looks_clean(tmp_path: Path) -> None:
+    """★ The safety net: the MIE documents a correct composite key, but the §9
+    spec — the thing that actually runs — mints a single-key IRI. Full-CSV
+    validate must FAIL on the spec's key even though the MIE key passes."""
     csv = _write(
         tmp_path / "samples.csv",
         """
@@ -247,25 +252,31 @@ def test_t1_ingester_catches_wrong_single_key_when_mie_looks_clean(tmp_path: Pat
         tmp_path / "mie.yaml",
         "shape_expressions: |\n  sdr:sample/{SID}-{sample_id}\n",
     )
-    ing = _write(  # but the ingester is wrong (single key)
-        tmp_path / "ingest.py",
+    spec = _write(  # but the mapping is wrong (single key)
+        tmp_path / "mapping.yaml",
         """
-        SDR = None
-        def emit(row, g):
-            sample_id = row.get("sample_id", "").strip()
-            return SDR[f"sample/{sample_id}"]
+        version: 1
+        prefixes:
+          sdr: "https://example.com/r/"
+        maps:
+          - name: sample
+            source: samples.csv
+            subject:
+              template: "sdr:sample/{sample_id}"
+              classes: [ex:Sample]
+            properties: []
         """,
     )
     res = _check_t1_uniqueness(
-        SchemaBundle(mie_yaml=mie, ingester_py=ing, source_csvs=[csv])
+        SchemaBundle(mie_yaml=mie, mapping_ir_yaml=spec, source_csvs=[csv])
     )
     assert res.status == "fail", res.detail
-    # The failing line is the single-key ingester one; the composite MIE one passes.
+    # The failing line is the single-key spec one; the composite MIE one passes.
     assert any("collisions" in e and "sample_id)" in e for e in res.evidence)
 
 
-def test_t1_ingester_only_bundle(tmp_path: Path) -> None:
-    """No MIE at all — T1 still verifies the ingester's composite key."""
+def test_t1_spec_only_bundle(tmp_path: Path) -> None:
+    """No MIE at all — T1 still verifies the §9 spec's composite key."""
     csv = _write(
         tmp_path / "samples.csv",
         """
@@ -274,14 +285,14 @@ def test_t1_ingester_only_bundle(tmp_path: Path) -> None:
         2,10
         """,
     )
-    ing = _write(tmp_path / "ingest.py", _COMPOSITE_INGESTER)
-    res = _check_t1_uniqueness(SchemaBundle(ingester_py=ing, source_csvs=[csv]))
+    spec = _write(tmp_path / "mapping.yaml", _COMPOSITE_SPEC)
+    res = _check_t1_uniqueness(SchemaBundle(mapping_ir_yaml=spec, source_csvs=[csv]))
     assert res.status == "pass", res.detail
 
 
-def test_t1_loop_index_resource_does_not_false_fail(tmp_path: Path) -> None:
-    """A descriptor keyed by a loop index is only partially resolvable; it must
-    be reported in evidence but never cause a failure."""
+def test_t1_constant_subject_does_not_false_fail(tmp_path: Path) -> None:
+    """A map with a ``constant:`` subject mints exactly one IRI — nothing to
+    check for uniqueness, and it must never drag the trap down."""
     csv = _write(
         tmp_path / "samples.csv",
         """
@@ -290,28 +301,36 @@ def test_t1_loop_index_resource_does_not_false_fail(tmp_path: Path) -> None:
         2,10
         """,
     )
-    ing = _write(
-        tmp_path / "ingest.py",
+    spec = _write(
+        tmp_path / "mapping.yaml",
         """
-        SDR = None
-        def emit(row, g):
-            sample_id = row.get("sample_id", "").strip()
-            paper_sid = row.get("SID", "").strip()
-            sample_key = f"{paper_sid}-{sample_id}"
-            sample = SDR[f"sample/{sample_key}"]
-            for i, d in enumerate(items):
-                descriptor = SDR[f"descriptor/{sample_key}/{i}"]
+        version: 1
+        prefixes:
+          sdr: "https://example.com/r/"
+        maps:
+          - name: sample
+            source: samples.csv
+            subject:
+              template: "sdr:sample/{SID}-{sample_id}"
+              classes: [ex:Sample]
+            properties: []
+          - name: dataset
+            source: samples.csv
+            subject:
+              constant: "sdr:dataset/this"
+              classes: [ex:Dataset]
+            properties: []
         """,
     )
-    res = _check_t1_uniqueness(SchemaBundle(ingester_py=ing, source_csvs=[csv]))
+    res = _check_t1_uniqueness(SchemaBundle(mapping_ir_yaml=spec, source_csvs=[csv]))
     assert res.status == "pass", res.detail
-    assert any("descriptor" in e and "skipped" in e for e in res.evidence)
 
 
-def test_t1_entity_routes_key_to_matching_csv(tmp_path: Path) -> None:
+def test_t1_declared_source_routes_key_to_its_own_csv(tmp_path: Path) -> None:
     """Regression: a single-column paper key (SID) is unique in papers.csv but
-    repeats by design in samples.csv. The entity must route it to papers.csv so
-    it PASSES — checking it against samples.csv would be a false positive."""
+    repeats by design in samples.csv. The §9 map names its own ``source:``, so
+    the key is checked against papers.csv and PASSES — checking it against
+    samples.csv would be a false positive."""
     papers = _write(
         tmp_path / "papers.csv",
         """
@@ -330,21 +349,29 @@ def test_t1_entity_routes_key_to_matching_csv(tmp_path: Path) -> None:
         3,11
         """,
     )
-    ing = _write(
-        tmp_path / "ingest.py",
+    spec = _write(
+        tmp_path / "mapping.yaml",
         """
-        SDR = None
-        def emit_paper(row):
-            sid = row.get("SID", "").strip()
-            return SDR[f"paper/{sid}"]
-        def emit_sample(row):
-            sid = row.get("SID", "").strip()
-            sample_id = row.get("sample_id", "").strip()
-            return SDR[f"sample/{sid}-{sample_id}"]
+        version: 1
+        prefixes:
+          sdr: "https://example.com/r/"
+        maps:
+          - name: paper
+            source: papers.csv
+            subject:
+              template: "sdr:paper/{SID}"
+              classes: [ex:Paper]
+            properties: []
+          - name: sample
+            source: samples.csv
+            subject:
+              template: "sdr:sample/{SID}-{sample_id}"
+              classes: [ex:Sample]
+            properties: []
         """,
     )
     res = _check_t1_uniqueness(
-        SchemaBundle(ingester_py=ing, source_csvs=[samples, papers])
+        SchemaBundle(mapping_ir_yaml=spec, source_csvs=[samples, papers])
     )
     assert res.status == "pass", res.detail
     assert any("papers.csv" in e and "sdr:paper" in e for e in res.evidence)
@@ -361,31 +388,62 @@ def test_t1_skipped_with_csv_but_no_schema(tmp_path: Path) -> None:
 # ----------------------------------------------------------------------------
 
 
-def test_t2_passes_when_ingester_uses_utf8_sig(tmp_path: Path) -> None:
-    ing = _write(
-        tmp_path / "ingest.py",
-        'with open(p, encoding="utf-8-sig") as f: ...\n',
+def _bom_spec(encoding: str | None) -> str:
+    """A §9 spec over ``bom.csv``, optionally pinning a ``dialects:`` encoding.
+
+    Omitting it exercises the IR parser's own default (utf-8-sig) — "the spec
+    says nothing" means "the ingest reads BOM-safely", not "unknown".
+    """
+    dialects = f'dialects:\n  bom.csv:\n    encoding: {encoding}\n' if encoding else ""
+    return (
+        "version: 1\n"
+        'prefixes:\n  sdr: "https://example.com/r/"\n'
+        + dialects
+        + "maps:\n"
+        "  - name: row\n"
+        "    source: bom.csv\n"
+        "    subject:\n"
+        '      template: "sdr:row/{SID}"\n'
+        "      classes: [ex:Row]\n"
+        "    properties: []\n"
     )
-    res = _check_t2_bom(SchemaBundle(ingester_py=ing))
-    assert res.status == "pass"
 
 
-def test_t2_fails_when_ingester_uses_plain_utf8(tmp_path: Path) -> None:
-    ing = _write(
-        tmp_path / "ingest.py",
-        'with open(p, encoding="utf-8") as f: ...\n',
-    )
-    res = _check_t2_bom(SchemaBundle(ingester_py=ing))
-    assert res.status == "fail"
-
-
-def test_t2_flags_csv_with_bom(tmp_path: Path) -> None:
+def test_t2_passes_when_spec_reads_utf8_sig(tmp_path: Path) -> None:
     csv = _write_bytes(tmp_path / "bom.csv", b"\xef\xbb\xbfSID,a\n1,x\n")
-    ing = _write(tmp_path / "ingest.py", 'open(p, encoding="utf-8-sig")\n')
-    res = _check_t2_bom(SchemaBundle(ingester_py=ing, source_csvs=[csv]))
-    # Should still pass (ingester strips BOM) but evidence notes it
-    assert res.status == "pass"
+    spec = _write(tmp_path / "mapping.yaml", _bom_spec("utf-8-sig"))
+    res = _check_t2_bom(SchemaBundle(mapping_ir_yaml=spec, source_csvs=[csv]))
+    assert res.status == "pass", res.detail
     assert any("BOM" in e for e in res.evidence)
+
+
+def test_t2_passes_when_spec_declares_no_encoding(tmp_path: Path) -> None:
+    """No ``dialects:`` entry — the IR default (utf-8-sig) is what runs."""
+    csv = _write_bytes(tmp_path / "bom.csv", b"\xef\xbb\xbfSID,a\n1,x\n")
+    spec = _write(tmp_path / "mapping.yaml", _bom_spec(None))
+    res = _check_t2_bom(SchemaBundle(mapping_ir_yaml=spec, source_csvs=[csv]))
+    assert res.status == "pass", res.detail
+
+
+def test_t2_fails_when_spec_reads_a_bom_file_with_plain_utf8(tmp_path: Path) -> None:
+    csv = _write_bytes(tmp_path / "bom.csv", b"\xef\xbb\xbfSID,a\n1,x\n")
+    spec = _write(tmp_path / "mapping.yaml", _bom_spec("utf-8"))
+    res = _check_t2_bom(SchemaBundle(mapping_ir_yaml=spec, source_csvs=[csv]))
+    assert res.status == "fail", res.detail
+
+
+def test_t2_plain_utf8_on_a_bom_free_file_is_not_a_failure(tmp_path: Path) -> None:
+    """T2 is about a BOM leaking into a column name. No BOM, no trap."""
+    csv = _write(tmp_path / "bom.csv", "SID,a\n1,x\n")
+    spec = _write(tmp_path / "mapping.yaml", _bom_spec("utf-8"))
+    res = _check_t2_bom(SchemaBundle(mapping_ir_yaml=spec, source_csvs=[csv]))
+    assert res.status == "pass", res.detail
+
+
+def test_t2_skips_without_a_spec(tmp_path: Path) -> None:
+    csv = _write(tmp_path / "bom.csv", "SID,a\n1,x\n")
+    res = _check_t2_bom(SchemaBundle(source_csvs=[csv]))
+    assert res.status == "skip"
 
 
 # ----------------------------------------------------------------------------
@@ -422,13 +480,11 @@ def test_t3_fails_with_bnodes_in_tbox(tmp_path: Path) -> None:
     assert res.status == "fail"
 
 
-def test_t3_fails_when_ingester_uses_bnode(tmp_path: Path) -> None:
-    ing = _write(
-        tmp_path / "ingest.py",
-        "from rdflib import BNode\nx = BNode()\n",
-    )
-    res = _check_t3_bnode_free(SchemaBundle(ingester_py=ing))
-    assert res.status == "fail"
+def test_t3_skips_without_a_tbox() -> None:
+    """The TBox is the only artifact that can still express a blank node: every
+    ABox subject comes from a §9 template, so there is nothing else to read."""
+    res = _check_t3_bnode_free(SchemaBundle())
+    assert res.status == "skip"
 
 
 # ----------------------------------------------------------------------------
@@ -687,8 +743,9 @@ def test_validate_schema_returns_10_results(tmp_path: Path) -> None:
 
 
 def test_validate_schema_exits_1_on_failure(tmp_path: Path) -> None:
-    ing = _write(tmp_path / "ingest.py", 'open(p, encoding="utf-8")\n')  # T2 fails
-    report = validate_schema(SchemaBundle(ingester_py=ing))
+    csv = _write_bytes(tmp_path / "bom.csv", b"\xef\xbb\xbfSID,a\n1,x\n")
+    spec = _write(tmp_path / "mapping.yaml", _bom_spec("utf-8"))  # T2 fails
+    report = validate_schema(SchemaBundle(mapping_ir_yaml=spec, source_csvs=[csv]))
     assert report.exit_code() == 1
     assert any(r.trap_id == "T2" and r.status == "fail" for r in report.results)
 
@@ -974,11 +1031,12 @@ def test_t1_fail_fix_names_entity_key_and_template_path(tmp_path: Path) -> None:
 
 
 def test_t2_fail_fix_prescribes_utf8_sig(tmp_path: Path) -> None:
-    ing = _write(tmp_path / "ingest.py", 'open(p, encoding="utf-8")\n')
-    res = _check_t2_bom(SchemaBundle(ingester_py=ing))
+    csv = _write_bytes(tmp_path / "bom.csv", b"\xef\xbb\xbfSID,a\n1,x\n")
+    spec = _write(tmp_path / "mapping.yaml", _bom_spec("utf-8"))
+    res = _check_t2_bom(SchemaBundle(mapping_ir_yaml=spec, source_csvs=[csv]))
     assert res.status == "fail"
     assert "utf-8-sig" in res.fix
-    assert "§8" in res.fix
+    assert "§9" in res.fix
 
 
 def test_t3_fail_fix_prescribes_iri_templates(tmp_path: Path) -> None:

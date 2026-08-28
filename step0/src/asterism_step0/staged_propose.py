@@ -233,7 +233,7 @@ Rules:
 """
 
 DOCUMENT_SYSTEM_PROMPT = """\
-You write the human-readable design document (sections 1-8) for an RDF dataset
+You write the human-readable design document (sections 1-7) for an RDF dataset
 whose §9 mapping spec is ALREADY decided and given to you below. Describe the
 ACTUAL design encoded in that spec — the classes, keys and properties it
 contains — and invent nothing that is not in it.
@@ -249,7 +249,6 @@ requested language):
 ### 7. MIE YAML extras (schema_info with ≥5 `keywords` AND ≥1 `categories` entry
      — BOTH are required for T4; sample_rdf_entries from REAL inspection rows,
      sparql_query_examples, anti_patterns)
-### 8. Ingester sketch (utf-8-sig, composite IRI helpers, PROV — signatures only)
 
 End with `### 9. Declarative mapping spec` containing the given spec verbatim in a
 single ```yaml fence (it will be normalized deterministically — reproduce it as

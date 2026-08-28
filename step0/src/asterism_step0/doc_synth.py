@@ -42,7 +42,6 @@ __all__ = [
     "keyword_candidates",
     "query_probe",
     "synthesize_document",
-    "synthesize_ingester_py",
     "synthesize_mie_yaml",
     "synthesize_model_yaml",
 ]
@@ -52,7 +51,6 @@ __all__ = [
 # heading materialize will find again, or a re-materialize would drop them.
 _H_MODEL = "### 6. rdf-config model.yaml"
 _H_MIE = "### 7. MIE YAML extras"
-_H_INGESTER = "### 8. Ingester sketch"
 
 _MAX_QUERY_EXAMPLES = 5
 _MAX_KEYWORDS = 8
@@ -302,55 +300,6 @@ def synthesize_mie_yaml(
     return yaml.safe_dump(ordered, sort_keys=False, allow_unicode=True).rstrip()
 
 
-def synthesize_ingester_py(ir: object, *, dataset_name: str) -> str:
-    """§8 ingester sketch — signatures only, ``utf-8-sig``, no blank nodes.
-
-    The sketch is never executed (ingest runs the compiled RML), so this is
-    documentation: one reader function per source, opened the BOM-safe way, with
-    the map's subject template quoted as the IRI recipe. Because it is
-    synthesized rather than written by a model it can never be the thing that
-    fails T2 (missing ``utf-8-sig``) or T3 (a stray ``BNode(``).
-    """
-    prefixes = dict(getattr(ir, "prefixes", {}) or {})
-    lines = [
-        '"""Ingester sketch (auto-generated from the mapping spec).',
-        "",
-        "Reference only: the real ingest compiles §9 to RML and runs it. Every",
-        "source is read with utf-8-sig so a BOM never leaks into a column name,",
-        "and every record gets a template-minted IRI (never a blank node).",
-        '"""',
-        "",
-        "import csv",
-        "",
-    ]
-    seen_sources: set[str] = set()
-    for m in getattr(ir, "maps", ()) or ():
-        source = str(getattr(m, "source", "") or "")
-        name = _py_ident(str(getattr(m, "name", "") or source or "records"))
-        subject = getattr(m, "subject", None)
-        template = getattr(subject, "template", None) or getattr(subject, "constant", None) or ""
-        func = f"read_{name}"
-        if func in seen_sources:
-            continue
-        seen_sources.add(func)
-        lines += [
-            f"def {func}(path):",
-            f'    """Rows of {source or "the source"}; IRI recipe: '
-            f'{_expand(str(template), prefixes)}"""',
-            '    with open(path, encoding="utf-8-sig", newline="") as fh:',
-            "        yield from csv.DictReader(fh)",
-            "",
-            "",
-        ]
-    lines += [
-        f"def ingest_{_py_ident(dataset_name)}(source_dir):",
-        '    """Entry point — see the compiled RML for the authoritative mapping."""',
-        "    raise NotImplementedError",
-        "",
-    ]
-    return "\n".join(lines)
-
-
 def _iri_scheme_md(ir: object) -> list[str]:
     prefixes = dict(getattr(ir, "prefixes", {}) or {})
     lines = ["### 2. IRI scheme", ""]
@@ -412,12 +361,6 @@ def synthesize_document(ir: object, ir_yaml: str, *, dataset_name: str) -> str:
         "",
         "```yaml",
         synthesize_mie_yaml(ir, dataset_name=dataset_name),
-        "```",
-        "",
-        _H_INGESTER,
-        "",
-        "```python",
-        synthesize_ingester_py(ir, dataset_name=dataset_name).rstrip("\n"),
         "```",
         "",
         "### 9. Declarative mapping spec",

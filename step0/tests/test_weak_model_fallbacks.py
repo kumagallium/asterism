@@ -1,9 +1,9 @@
 """What happens when the model cannot finish — the deterministic floor.
 
 Every case here is a real weak-model failure mode from the kantan audit: a
-skeleton that is not JSON, a per-map answer that truncates, a §1-8 write-up the
-model runs out of tokens on, a §7 with one bad quote, a §8 sketch missing a
-keyword. Before these fixes each one ended the run (or silently emptied an
+skeleton that is not JSON, a per-map answer that truncates, a §1-7 write-up the
+model runs out of tokens on, a §7 with one bad quote. Before these fixes each
+one ended the run (or silently emptied an
 entity) and handed the person a stop card whose only exit was asking the same
 model again. The assertions below are that the machine finishes the job instead,
 using only facts it already holds.
@@ -102,22 +102,20 @@ class _Mock:
 
 
 # ---------------------------------------------------------------------------
-# materialize: §6/§7/§8 synthesized from §9 (WEAK-MODEL-05/06/11)
+# materialize: §6/§7 synthesized from §9 (WEAK-MODEL-05/06/11)
 # ---------------------------------------------------------------------------
 
 
 def test_truncated_proposal_completes_from_the_mapping_spec(tmp_path: Path) -> None:
-    """§9 present, §6/§7/§8 missing: complete, no blocking warning, notes explain."""
+    """§9 present, §6/§7 missing: complete, no blocking warning, notes explain."""
     pytest.importorskip("asterism.functions")
     from asterism_step0.materialize import materialize_schema
 
     result = materialize_schema(_proposal(sections=""), tmp_path, "demo", write=False)
     assert result.complete is True
     assert result.warnings == []
-    assert len(result.notes) == 3
+    assert len(result.notes) == 2
     assert result.rdf_config_model and "ex:Thing" in result.rdf_config_model
-    assert result.ingester_py and "utf-8-sig" in result.ingester_py
-    assert "BNode(" not in result.ingester_py
     mie = yaml.safe_load(result.mie_yaml or "")
     assert len(mie["schema_info"]["keywords"]) >= 5
     assert mie["schema_info"]["categories"] == ["dataset"]
@@ -194,7 +192,6 @@ def test_synthesized_bundle_clears_the_traps_that_stop_the_wizard(tmp_path: Path
         SchemaBundle(
             diagram_md=paths.get("mermaid"),
             mie_yaml=paths.get("mie_yaml"),
-            ingester_py=paths.get("ingester_py"),
             rml_ttl=paths.get("rml_ttl"),
             mapping_ir_yaml=paths.get("mapping_ir"),
         )
@@ -203,32 +200,8 @@ def test_synthesized_bundle_clears_the_traps_that_stop_the_wizard(tmp_path: Path
 
 
 # ---------------------------------------------------------------------------
-# validate: the §8 sketch is documentation on the declarative path (T2/T3)
+# validate: the §9 dialect is the only encoding T2 can judge
 # ---------------------------------------------------------------------------
-
-
-def _bundle(tmp_path: Path, *, ingester: str, declarative: bool):
-    from asterism_step0.validate import SchemaBundle
-
-    py = tmp_path / "demo.py"
-    py.write_text(ingester, encoding="utf-8")
-    csv = tmp_path / "data.csv"
-    csv.write_text("id,name\n1,a\n", encoding="utf-8")
-    spec = None
-    if declarative:
-        spec = tmp_path / "demo-mapping.yaml"
-        spec.write_text(IR_BLOCK, encoding="utf-8")
-    return SchemaBundle(ingester_py=py, source_csvs=[csv], mapping_ir_yaml=spec)
-
-
-def test_t2_missing_utf8_sig_in_sketch_is_a_warning_on_the_rml_path(tmp_path: Path) -> None:
-    from asterism_step0.validate import _check_t2_bom
-
-    sketch = "def read(path):\n    open(path, encoding='utf-8')\n"
-    assert _check_t2_bom(_bundle(tmp_path, ingester=sketch, declarative=True)).status == "warn"
-    legacy = tmp_path / "legacy"
-    legacy.mkdir()
-    assert _check_t2_bom(_bundle(legacy, ingester=sketch, declarative=False)).status == "fail"
 
 
 def test_t2_fails_when_the_spec_itself_reads_a_bom_file_unsafely(tmp_path: Path) -> None:
@@ -238,24 +211,21 @@ def test_t2_fails_when_the_spec_itself_reads_a_bom_file_unsafely(tmp_path: Path)
     csv.write_bytes(b"\xef\xbb\xbfid,name\n1,a\n")
     spec = tmp_path / "demo-mapping.yaml"
     spec.write_text(IR_BLOCK + 'dialects:\n  data.csv:\n    encoding: "cp932"\n', encoding="utf-8")
-    py = tmp_path / "demo.py"
-    py.write_text('open(path, encoding="utf-8-sig")\n', encoding="utf-8")
-    result = _check_t2_bom(SchemaBundle(ingester_py=py, source_csvs=[csv], mapping_ir_yaml=spec))
+    result = _check_t2_bom(SchemaBundle(source_csvs=[csv], mapping_ir_yaml=spec))
     assert result.status == "fail"
     assert "cp932" in " ".join(result.evidence)
 
 
-def test_t3_bnode_in_the_sketch_is_a_warning_on_the_rml_path(tmp_path: Path) -> None:
-    from asterism_step0.validate import _check_t3_bnode_free
+def test_t2_passes_on_the_spec_default_encoding(tmp_path: Path) -> None:
+    """No ``dialects:`` entry — the IR default (utf-8-sig) is what runs, so a
+    weak model that simply omitted the block cannot fail the trap."""
+    from asterism_step0.validate import SchemaBundle, _check_t2_bom
 
-    sketch = "from rdflib import BNode\n\ndef f():\n    return BNode()\n"
-    rml = _check_t3_bnode_free(_bundle(tmp_path, ingester=sketch, declarative=True))
-    assert rml.status == "warn"
-    legacy = tmp_path / "legacy"
-    legacy.mkdir()
-    assert (
-        _check_t3_bnode_free(_bundle(legacy, ingester=sketch, declarative=False)).status == "fail"
-    )
+    csv = tmp_path / "data.csv"
+    csv.write_bytes(b"\xef\xbb\xbfid,name\n1,a\n")
+    spec = tmp_path / "demo-mapping.yaml"
+    spec.write_text(IR_BLOCK, encoding="utf-8")
+    assert _check_t2_bom(SchemaBundle(source_csvs=[csv], mapping_ir_yaml=spec)).status == "pass"
 
 
 # ---------------------------------------------------------------------------
@@ -470,9 +440,10 @@ def test_document_truncation_is_written_from_the_spec() -> None:
         on_fallback=fallbacks.append,
     )
     assert fallbacks == ["document"]
-    for heading in ("### 1.", "### 6.", "### 7.", "### 8.", "### 9."):
+    for heading in ("### 1.", "### 6.", "### 7.", "### 9."):
         assert heading in md
-    # …and the synthesized document materializes into all four core artifacts.
+    assert "### 8." not in md
+    # …and the synthesized document materializes into all three core artifacts.
     from asterism_step0.materialize import materialize_schema
 
     result = materialize_schema(md, ".", "demo", write=False)
