@@ -903,15 +903,19 @@ def test_several_singletons_do_not_silence_the_growth_offer(tmp_path: Path) -> N
     `Chemical Formula` had no way to become a kind at all."""
     p = _write_reference_card(tmp_path)
     out = annotate_skeleton(_three_singleton_skeleton(), [p])["maps"]
-    # The offer is on EVERY file-scoped card, so whichever tab the reader has
-    # open, the column in front of them can be promoted (2026-08-27: hanging it
-    # on one map put it on a different tab from the card showing the column).
-    assert "Name" in out["sample"]["growth_preview"]["described_columns"]
-    # `code` is keyed BY Name, so Name is its identity, not something to split
-    # off — but it still gets an offer, over the columns it describes.
-    assert out["code"]["growth_preview"]["described_columns"] == ["No"]
+    # K44: 1 ファイルに 1 件の種類が複数あるとき、カードは 1 つ（`_parent_singleton`
+    # の選択）で、ほかは「その値の種類」として自分のキー列だけを持つ。だから
+    # 昇格の申し出（＝カードから切り出す提案）はカードにだけ出る。
+    assert "growth_preview" in out["sample"]
+    assert out["code"].get("value_catalog") is True
+    assert out["code"].get("owns_inferred") is True
+    assert "growth_preview" not in out["code"]
     # A row-level map is not one-per-file and never claims to be.
     assert "growth_preview" not in out["peak"]
+    # このフィクスチャのカードは No + Name しか持たず、Name は `code` が取ったので
+    # 切り出せる列は残らない。昇格の申し出は「出るが空」— 列が残る本物のカードは
+    # test_growth_preview_forecasts_the_next_file（singleton 1 つ）が押さえている。
+    assert out["sample"]["growth_preview"]["described_columns"] == []
 
 
 def test_several_singletons_still_scope_a_row_key(tmp_path: Path) -> None:
@@ -985,3 +989,30 @@ def test_card_names_identity_varying_columns_with_samples(tmp_path: Path) -> Non
     assert "2theta" not in card["varying_identity_columns"]
     samples = {x["column"]: x["values"] for x in card["varying_samples"]}
     assert samples["(hkl)"][0] == "(0,0,2)"
+
+
+def test_secondary_singletons_own_only_their_key(tmp_path: Path) -> None:
+    """K44: どの列がどの「1 件の種類」に属するかは、1 ファイルからは決まらない
+    （ヘッダ列は値が 1 種類なので、どのキーからでも関数従属が成立する）。だから
+    推測させない: カードは 1 つ、ほかの 1 件の種類は自分のキー列だけを持つ。"""
+    p = _write_reference_card(tmp_path)
+    out = annotate_skeleton(_three_singleton_skeleton(), [p])["maps"]
+    # `code`（Name をキーにした 1 件の種類）は Name しか持たない。
+    code_own = [
+        prop["column"]
+        for prop in out["code"]["entity_preview"]["properties"]
+        if not prop.get("owner_map")
+    ]
+    assert "Name" in code_own
+    # カード側からは Name が去っている（二重記録が構造的に起きない）。
+    card_own = [
+        prop["column"]
+        for prop in out["sample"]["entity_preview"]["properties"]
+        if not prop.get("owner_map")
+    ]
+    assert "Name" not in card_own
+    # 人が宣言した owns は機械が上書きしない。
+    skeleton = _three_singleton_skeleton()
+    skeleton["maps"][2]["owns"] = ["Name", "No"]
+    declared = annotate_skeleton(skeleton, [p])["maps"]
+    assert declared["code"].get("owns_inferred") is None

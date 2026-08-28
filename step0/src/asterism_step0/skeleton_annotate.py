@@ -1199,6 +1199,38 @@ def annotate_skeleton(
         key_cols = set(ann.get("key_columns") or [])
         if owns_cols and owns_cols == key_cols:
             ann["value_catalog"] = True
+    # 1 ファイルにつき 1 件の種類が同じソースに 2 つ以上あるとき、**どの列がどれに
+    # 属するか**はデータからは決まらない: ヘッダ部の列は値の種類数が 1 なので、
+    # どのキーからでも関数従属が成立する（実測 2026-08-28: Name / Chemical Formula /
+    # Subfile / Space Group / Crystal System は No・CSD・Reference・Radiation の
+    # どれからでも「決まる」）。ここを AI に決めさせていたのが、誤った帰属と
+    # 重複列 advisory（S5 で永久に解けないループ）の発生源だった。
+    #
+    # モデルを 1 つに正す: **カードは 1 つ、ほかの 1 件の種類は「その値の種類」**。
+    # 昇格した種類は自分のキー列だけを持ち（`owns` = キー列）、残りの列は全部
+    # カードに残る。`_adjudicate_ownership` の「宣言リストに無い列のタイからは
+    # 宣言者が退く」（G15）で、タイは決定論的にカードへ落ちる。**推測が要る場面
+    # そのものを無くす。**
+    inferred_owns: dict[str, list[str]] = {}
+    by_src_names: dict[str, list[str]] = defaultdict(list)
+    for name, src in map_sources.items():
+        by_src_names[src].append(name)
+    for _src, names in by_src_names.items():
+        card = _parent_singleton(names, annotations, human_owns)
+        if card is None:
+            continue
+        for name in names:
+            ann = annotations[name]
+            if name == card or ann.get("collapse_kind") != "singleton":
+                continue
+            if name in human_owns:
+                continue  # 人が宣言済み — 機械は上書きしない
+            key_cols = [str(c) for c in (ann.get("key_columns") or [])]
+            if key_cols:
+                inferred_owns[name] = key_cols
+                ann["value_catalog"] = True
+                ann["owns_inferred"] = True
+    human_owns = {**human_owns, **inferred_owns}
     _inject_scope_risks(annotations, map_sources, by_name, human_owns)
     # Third pass (ADR column-ownership-and-growth): who owns each column, and
     # what the next file does to this design. Both need every map's key and
