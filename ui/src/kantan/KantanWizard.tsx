@@ -2508,7 +2508,7 @@ export function KantanWizard({
             source,
             column: dialect.preamble_names?.[pc.name] || pc.name,
             origin: 'preamble',
-            examples: [pc.text],
+            examples: [preambleValue(pc)],
             line: pc.line,
             named: pc.named,
           })
@@ -2519,6 +2519,19 @@ export function KantanWizard({
       }
     }
     return rows
+  }
+
+  /** A preamble line as the VALUE it carries. The read check (S2) shows the raw
+   *  line, because that is what the person has to recognise in their file; the
+   *  meaning screen asks "what is this value", so the label the file wrote in
+   *  front of it is noise there (`No: 03-065-2664` → `03-065-2664`). A line the
+   *  file gave no name to has no label to strip. */
+  function preambleValue(pc: PreambleColumn): string {
+    if (!pc.named) return pc.text
+    const at = pc.text.indexOf(pc.name)
+    if (at < 0) return pc.text
+    const rest = pc.text.slice(at + pc.name.length).replace(/^\s*[:=]\s*/, '').trim()
+    return rest || pc.text
   }
 
   function meaningKey(source: string, column: string): string {
@@ -2550,25 +2563,35 @@ export function KantanWizard({
     )
   }
 
-  // The keep/drop calls made BEFORE the design have to reach the dataset's own
-  // decision store too, or the review screen would ask about the same columns
-  // again as if nothing had been said (they arrive there as `exclude`, the same
-  // vocabulary a decision made on that screen uses). Sent once per distinct
-  // set — the endpoint is idempotent, but a call per render is not free.
-  const excludedSyncedRef = useRef('')
+  // What was settled BEFORE the design has to reach the dataset's own stores as
+  // soon as there IS a dataset: the meanings so a later visit (or another
+  // browser) reads the same words, the keep/drop calls so the review screen
+  // does not ask about the same columns again as if nothing had been said.
+  // Sent once per distinct set — both endpoints are idempotent, but a call per
+  // render is not free.
+  const settledSyncedRef = useRef('')
   useEffect(() => {
     if (step !== 6 || !kzDatasetId) return
     const drops = excludedDecisions()
-    if (drops.length === 0) return
-    const key = `${kzDatasetId}\u0000${[...excludedColumns].sort().join('\u001f')}`
-    if (excludedSyncedRef.current === key) return
-    excludedSyncedRef.current = key
-    void saveColumnDecisions(kzDatasetId, drops).catch(() => {
-      excludedSyncedRef.current = '' // a failed sync is retried on the next visit
-    })
+    if (drops.length === 0 && settledMeanings.length === 0) return
+    const key = [
+      kzDatasetId,
+      [...excludedColumns].sort().join('\u001f'),
+      JSON.stringify(settledMeanings),
+    ].join('\u0000')
+    if (settledSyncedRef.current === key) return
+    settledSyncedRef.current = key
+    void (async () => {
+      try {
+        if (settledMeanings.length > 0) await saveColumnMeanings(kzDatasetId, settledMeanings)
+        if (drops.length > 0) await saveColumnDecisions(kzDatasetId, drops)
+      } catch {
+        settledSyncedRef.current = '' // a failed sync is retried on the next visit
+      }
+    })()
     // excludedDecisions() is a plain function over the state already listed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, kzDatasetId, excludedColumns])
+  }, [step, kzDatasetId, excludedColumns, settledMeanings])
 
   // Opening the meaning screen over a dataset that already exists: the store is
   // the truth source for what its columns mean (a meaning edited on another
@@ -3220,19 +3243,25 @@ export function KantanWizard({
       }
       setSourceSamples(serverSamples.sources)
       setColumnOrigins(serverSamples.origins)
-      setColumnDecisionDrafts(
-        Object.fromEntries(
-          savedDecisions.map((decision) => [
-            columnDecisionKey(decision.source, decision.column),
-            {
-              action: decision.action,
-              map: decision.map ?? '',
-              label: decision.label ?? '',
-              unit: decision.unit ?? '',
-            },
-          ]),
-        ),
+      const drafts: Record<string, ColumnDecisionDraft> = Object.fromEntries(
+        savedDecisions.map((decision) => [
+          columnDecisionKey(decision.source, decision.column),
+          {
+            action: decision.action,
+            map: decision.map ?? '',
+            label: decision.label ?? '',
+            unit: decision.unit ?? '',
+          },
+        ]),
       )
+      // 3（項目の意味）で外した列は、この画面ではもう決まっている。サーバへの
+      // 記録は別の effect が行うが、その往復を待って「まだ決めていない」と
+      // 見せると、同じ列を二度断ることになる（実機 2026-08-28）。
+      for (const drop of excludedDecisions()) {
+        const key = columnDecisionKey(drop.source, drop.column)
+        if (!drafts[key]) drafts[key] = { action: 'exclude', map: '', label: '', unit: '' }
+      }
+      setColumnDecisionDrafts(drafts)
       // Coming back from "AI に反映して作り直す": say which columns actually
       // moved. A weak model that ignored the note used to return a table that
       // looks exactly the same, and the only way to find out was to type the
@@ -6474,7 +6503,7 @@ export function KantanWizard({
                   </span>
                 </p>
                 <div className="kz-preview-tablewrap">
-                  <table className="kz-preview-table kz-cols-table">
+                  <table className="kz-preview-table kz-cols-table kz-meaning-table">
                     <thead>
                       <tr>
                         <th>{t('kantan:meanings.colColumn')}</th>
@@ -6558,7 +6587,13 @@ export function KantanWizard({
                               <UnitBadge info={unitInfo[(current?.unit ?? '').trim()]} />
                             </td>
                             <td className="kz-cols-examples">
-                              {row.examples.slice(0, 3).join(' / ') || '—'}
+                              {/* 実データは「見分けがつく」ところまでで十分。1 つの長い
+                                  値（この XRD カードなら注記の行）で表が横に伸び、右端の
+                                  「取り込む」が画面の外へ出た（実機 2026-08-28）。 */}
+                              {row.examples
+                                .slice(0, 3)
+                                .map((v) => (v.length > 44 ? `${v.slice(0, 44)}…` : v))
+                                .join(' / ') || '—'}
                             </td>
                             <td>
                               {/* 既定は「取り込む」。外すのは必ず人の操作なので、
@@ -6768,6 +6803,8 @@ export function KantanWizard({
                 // 充て直せる実体（このタブの File）が 1 件あるときだけ出す — 名前一覧しか
                 // 無い縮退でボタンを出すと、押しても何も起きない死にボタンになる。
                 onAdoptRename={files.length === 1 ? onAdoptRename : undefined}
+                // 3 で「取り込まない」と決めた列は、ID の候補一覧から外す。
+                droppedColumns={excludedColumns}
                 onDiscard={() => {
                 setSkeleton(null)
                 setAnnotations(null)

@@ -88,7 +88,8 @@
     "isKind": "ID of the kind “{{name}}”",
     "cardMoved": "This table’s values — and the connect checkboxes — are listed once above, under “Choose the values that will connect later”.",
     "variesWith": "{{values}} … (varies per row)",
-    "keyNote": "A column marked “this table’s ID” is already in use as that kind’s ID. To use a different column, open “Write the ID recipe yourself” in the tabs below."
+    "keyNote": "A column marked “this table’s ID” is already in use as that kind’s ID. To use a different column, open “Write the ID recipe yourself” in the tabs below.",
+    "droppedNote": "{{count}} column(s) you chose not to take in on the meanings screen are not listed here (go back to change that)."
   },
   "removeZoneHost": "This kind holds the table-wide values. Deleting it also removes the “choose the values” list. If you only want a different ID column, use “Write the ID recipe yourself”.",
   "kindsHead": "Check that each ID points at one thing",

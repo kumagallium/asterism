@@ -2188,8 +2188,16 @@ def missing_label_rows(
 
     A column whose meaning is already settled is not missing one: the projection
     writes it after this stage (ADR meaning-before-identity), so asking a model
-    would spend a call to produce something immediately overwritten. With every
-    column settled the fill round disappears entirely.
+    would spend a call to produce something immediately overwritten.
+
+    Once meanings ARE settled, a row that does not read exactly one column is
+    out of scope too: a meaning is a property of a COLUMN, and a link, a
+    constant or a multi-column function has none to be about. Their labels are
+    written deterministically (the link the ownership pass adds carries the
+    kind's name). Without this the fill round survived on a single machine-added
+    link — one paid call for a label the machine had already written (live
+    2026-08-28). With no settled meanings the old behaviour is unchanged: every
+    label-less row is asked about.
     """
     settled = {str(c) for c in settled_columns}
     rows: list[dict] = []
@@ -2200,7 +2208,8 @@ def missing_label_rows(
             continue
         if not str(prop.get("predicate") or "").strip():
             continue
-        if str(prop.get("column") or "") in settled:
+        column = str(prop.get("column") or "")
+        if settled and (not column or column in settled):
             continue
         rows.append(dict(prop))
     return rows

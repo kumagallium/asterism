@@ -7445,6 +7445,66 @@ tr.kz-attn td {
   background: var(--warn-bg);
 }
 
+/* 項目の意味（ADR meaning-before-identity）。長い実データが 1 つあるだけで表が
+   横に伸び、右端の「取り込む」が可視領域の外へ出ていた（実機 2026-08-28）。
+   判断の列を見せるほうが、値を最後まで見せるより大事なので、例のほうを丸める。 */
+.kz-cols-examples {
+  color: var(--muted);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+/* 意味の表だけ列幅を決め打つ。自動幅だと 1 つの長い実データが列を 338px まで
+   広げ、右端の「取り込む」を横スクロールの外へ押し出していた（実機 2026-08-28）。
+   判断の列は常に見えていなければならない。 */
+.kz-meaning-table {
+  table-layout: fixed;
+  width: 100%;
+}
+.kz-meaning-table th:nth-child(1),
+.kz-meaning-table td:nth-child(1) {
+  width: 20%;
+}
+.kz-meaning-table th:nth-child(2),
+.kz-meaning-table td:nth-child(2) {
+  width: 23%;
+}
+.kz-meaning-table th:nth-child(3),
+.kz-meaning-table td:nth-child(3) {
+  width: 17%;
+}
+.kz-meaning-table th:nth-child(4),
+.kz-meaning-table td:nth-child(4) {
+  width: 23%;
+}
+.kz-meaning-table th:nth-child(5),
+.kz-meaning-table td:nth-child(5) {
+  width: 17%;
+}
+.kz-meaning-table .kz-cols-input {
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+.kz-meaning-table .kz-cols-name,
+.kz-meaning-table .kz-cols-examples {
+  /* .kz-preview-table td の nowrap を、この表だけ解く。列幅が決まっている以上、
+     はみ出した文字は隣の判断列の上に乗ってしまう。 */
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.kz-cols-keep {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  white-space: nowrap;
+  font-size: 0.875rem;
+}
+/* 取り込まないと決めた行は、消さずに沈める — 決めたことが見えたままでないと、
+   「まだ決めていない」と区別がつかない。 */
+tr.kz-cols-dropped td {
+  opacity: 0.55;
+}
+
 /* Meaning decisions that only the data owner can make stay visually separate
    from the optional AI-assisted structural edit below them. */
 .kz-unmapped {

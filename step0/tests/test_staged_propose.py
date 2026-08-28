@@ -1664,6 +1664,9 @@ def test_missing_label_rows_skips_settled_columns() -> None:
         {"predicate": "ex:a", "column": "settled"},
         {"predicate": "ex:b", "column": "open"},
         {"predicate": "ex:c", "column": "has", "label": "既にある"},
+        {"predicate": "ex:link", "object_template": "ex:other/{k}"},
     ]
-    assert [r["predicate"] for r in missing_label_rows(rows)] == ["ex:a", "ex:b"]
+    assert [r["predicate"] for r in missing_label_rows(rows)] == ["ex:a", "ex:b", "ex:link"]
+    # 意味が決まっているなら、列を 1 つ読まない行（リンク・定数・複数列）も対象外。
+    # 実測 2026-08-28: 機械が足したリンク 1 本のためにラウンドが 1 回走っていた。
     assert [r["predicate"] for r in missing_label_rows(rows, ["settled"])] == ["ex:b"]

@@ -968,6 +968,7 @@ export function SkeletonGate({
   onReattach,
   presentFileNames,
   onAdoptRename,
+  droppedColumns = [],
   titleKey = 'workbench:skeleton.gateTitle',
   hintKey = 'workbench:skeleton.gateHint',
   continueKey = 'workbench:skeleton.continue',
@@ -998,6 +999,13 @@ export function SkeletonGate({
    *  installs can open the setting themselves; on a shared server the note
    *  already says to ask the administrator. */
   onOpenSettings?: () => void
+  /** `source\u0000column` for the columns the reader decided NOT to take in, on
+   *  the meaning screen that now comes before this one. They are left out of the
+   *  "choose the values to link on" list: a column that is not taken in can
+   *  never carry an identity, so offering it is offering a choice that does not
+   *  exist (ADR meaning-before-identity §9). A one-line note says how many, so
+   *  the decision stays visible instead of silently shrinking the list. */
+  droppedColumns?: string[]
   /** When set, offered as the in-place way back wherever the gate says a
    *  source could not be checked — the caller returns to the file-drop step
    *  WITHOUT discarding the draft skeleton (unlike `onDiscard`, which starts
@@ -1666,6 +1674,18 @@ export function SkeletonGate({
     return { idx, host, ann: a, values, keyCols, kindOf, rowMap }
   })()
 
+  /** 3（項目の意味）で「取り込まない」と決めた列。ここは ID を決める画面なので、
+   *  取り込まない列を並べると、成立しない選択肢を読ませることになる。 */
+  const droppedSet = new Set(droppedColumns)
+  const isDropped = (col: string) =>
+    !!zone && droppedSet.has(`${zone.host.source}\u0000${col}`)
+  const droppedHere = zone
+    ? [
+        ...zone.values.keys(),
+        ...(zone.ann.entity_preview?.varying_columns ?? []),
+      ].filter(isDropped)
+    : []
+
   /** ゾーンのチェック ON: 控えがあれば元通りに戻し、無ければその列をキーに
    *  1 つの種類を作る（G15 の split と同じ経路・owns はその列だけ）。 */
   function promoteColumn(hostIdx: number, col: string) {
@@ -2246,10 +2266,15 @@ export function SkeletonGate({
             </p>
           )}
           <p className="kz-note kz-prose">{t('skeletongate:zone.lead')}</p>
+          {droppedHere.length > 0 && (
+            <p className="kz-note kz-prose">
+              {t('skeletongate:zone.droppedNote', { count: droppedHere.length })}
+            </p>
+          )}
           <div className="skeleton-header-zone">
           <table className="skeleton-entity-props">
             <tbody>
-              {[...zone.values.entries()].map(([col, value]) => {
+              {[...zone.values.entries()].filter(([col]) => !isDropped(col)).map(([col, value]) => {
                 const locked = zone.keyCols.has(col)
                 const kindName = locked ? undefined : zone.kindOf.get(col)
                 return (
@@ -2302,7 +2327,10 @@ export function SkeletonGate({
                       識別子型（(hkl) のような名前・コード）は「値の種類」に
                       昇格できる — 同じ値＝同じ 1 件として、ファイルを跨いで
                       まとまる。測定値の列（2theta 等）は K7 の罠なので不可。 */}
-                  {zone.ann.entity_preview!.varying_columns.slice(0, 6).map((col) => {
+                  {zone.ann.entity_preview!.varying_columns
+                    .filter((col) => !isDropped(col))
+                    .slice(0, 6)
+                    .map((col) => {
                     const identity =
                       zone.ann.entity_preview!.varying_identity_columns?.includes(col) ?? false
                     const kindName = zone.kindOf.get(col)
