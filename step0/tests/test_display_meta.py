@@ -703,3 +703,181 @@ def test_human_decision_rejects_an_ambiguous_renamed_map() -> None:
             ],
             source_columns={"data.csv": {"S": "xsd:double"}},
         )
+
+
+# ---------------------------------------------------------------------------
+# "own": which of two maps keeps a column both of them record (ADR G1 / K2)
+# ---------------------------------------------------------------------------
+
+# The live XRD shape (2026-08-28): a file-scoped card AND the per-row peaks,
+# both transcribing the preamble's broadcast columns. Eight AI rounds could not
+# clear it, because "which entity is this column ABOUT" is not derivable — it is
+# the human's call, and this is the deterministic way to record it.
+_DUP_IR = {
+    "version": 1,
+    "prefixes": {"xr": "https://ns.invalid/xrd#", "xrr": "https://ns.invalid/xrd/r/"},
+    "maps": [
+        {
+            "name": "card",
+            "source": "xrd.txt",
+            "subject": {"template": "xrr:card/{No}", "classes": ["xr:Card"]},
+            "properties": [
+                {"predicate": "xr:volume", "column": "Volume", "datatype": "xsd:double"},
+                {
+                    "predicate": "xr:hasPeak",
+                    "object_template": "xrr:peak/{No}/{(hkl)}",
+                    "object_type": "iri",
+                },
+            ],
+        },
+        {
+            "name": "peak",
+            "source": "xrd.txt",
+            "subject": {"template": "xrr:peak/{No}/{(hkl)}", "classes": ["xr:Peak"]},
+            "properties": [
+                {"predicate": "xr:twoTheta", "column": "2theta", "datatype": "xsd:double"},
+                {"predicate": "xr:volume", "column": "Volume", "datatype": "xsd:double"},
+            ],
+        },
+    ],
+}
+
+_OWN_VOLUME_ON_CARD = {
+    "source": "xrd.txt",
+    "column": "Volume",
+    "action": "own",
+    "map": "card",
+    "map_class": "xr:Card",
+}
+
+
+def _columns(ir: dict, map_name: str) -> list[str]:
+    m = next(m for m in ir["maps"] if m["name"] == map_name)
+    return [str(p.get("column") or "") for p in m["properties"] if p.get("column")]
+
+
+def test_own_keeps_the_column_on_the_chosen_map_and_drops_the_twin() -> None:
+    out, changed = apply_column_decisions(_DUP_IR, [_OWN_VOLUME_ON_CARD])
+    assert changed == ["Volume"]
+    assert _columns(out, "card") == ["Volume"]
+    assert _columns(out, "peak") == ["2theta"]
+
+
+def test_own_is_idempotent() -> None:
+    once, _ = apply_column_decisions(_DUP_IR, [_OWN_VOLUME_ON_CARD])
+    twice, changed = apply_column_decisions(once, [_OWN_VOLUME_ON_CARD])
+    assert changed == []  # nothing left to drop — the verdict already holds
+    assert twice["maps"] == once["maps"]
+
+
+def test_own_survives_a_map_rename() -> None:
+    # A later AI round renamed the card map; the persisted verdict recovers by
+    # source + class, exactly like a persisted include does.
+    renamed = {
+        **_DUP_IR,
+        "maps": [{**_DUP_IR["maps"][0], "name": "card_v2"}, _DUP_IR["maps"][1]],
+    }
+    out, changed = apply_column_decisions(renamed, [_OWN_VOLUME_ON_CARD])
+    assert changed == ["Volume"]
+    assert _columns(out, "peak") == ["2theta"]
+
+
+def test_own_never_deletes_the_last_copy_of_a_column() -> None:
+    """Fail-safe: a rewrite that moved the column OFF the owner must not turn
+    "keep it here" into "delete it everywhere"."""
+    moved = {
+        **_DUP_IR,
+        "maps": [
+            {**_DUP_IR["maps"][0], "properties": _DUP_IR["maps"][0]["properties"][1:]},
+            _DUP_IR["maps"][1],
+        ],
+    }
+    out, changed = apply_column_decisions(moved, [_OWN_VOLUME_ON_CARD])
+    assert changed == []
+    assert _columns(out, "peak") == ["2theta", "Volume"]
+
+
+def test_own_leaves_the_link_to_the_other_entity_alone() -> None:
+    """The join is declared with an object_template naming the same column;
+    deleting it because it mentions the column would disconnect the design."""
+    ir = {
+        **_DUP_IR,
+        "maps": [
+            {
+                **_DUP_IR["maps"][0],
+                "properties": [
+                    {"predicate": "xr:cardNo", "column": "No"},
+                    *_DUP_IR["maps"][0]["properties"],
+                ],
+            },
+            {
+                **_DUP_IR["maps"][1],
+                "properties": [
+                    *_DUP_IR["maps"][1]["properties"],
+                    {"predicate": "xr:peakCardNo", "column": "No"},
+                    {
+                        "predicate": "xr:ofCard",
+                        "object_template": "xrr:card/{No}",
+                        "object_type": "iri",
+                    },
+                ],
+            },
+        ],
+    }
+    out, changed = apply_column_decisions(
+        ir, [{**_OWN_VOLUME_ON_CARD, "column": "No"}]
+    )
+    assert changed == ["No"]
+    peak = next(m for m in out["maps"] if m["name"] == "peak")
+    # the literal copy is gone, the link stays
+    assert [p["predicate"] for p in peak["properties"]] == ["xr:twoTheta", "xr:volume", "xr:ofCard"]
+
+
+def test_own_reaches_a_reshaped_transcription_but_not_a_derived_value() -> None:
+    """The advisory counts a single-input function as that column's value, so
+    the fix must reach it — and must NOT touch a value computed from several."""
+    ir = {
+        **_DUP_IR,
+        "maps": [
+            _DUP_IR["maps"][0],
+            {
+                **_DUP_IR["maps"][1],
+                "properties": [
+                    {
+                        "predicate": "xr:volumeClean",
+                        "column": "Volume",
+                        "function": "number_clean",
+                    },
+                    {
+                        "predicate": "xr:density",
+                        "columns": ["Volume", "Mass"],
+                        "function": "ratio",
+                    },
+                ],
+            },
+        ],
+    }
+    out, changed = apply_column_decisions(ir, [_OWN_VOLUME_ON_CARD])
+    assert changed == ["Volume"]
+    peak = next(m for m in out["maps"] if m["name"] == "peak")
+    assert [p["predicate"] for p in peak["properties"]] == ["xr:density"]
+
+
+def test_own_refuses_to_empty_a_map() -> None:
+    ir = {
+        **_DUP_IR,
+        "maps": [
+            _DUP_IR["maps"][0],
+            {
+                **_DUP_IR["maps"][1],
+                "properties": [_DUP_IR["maps"][1]["properties"][1]],
+            },
+        ],
+    }
+    with pytest.raises(ValueError, match="only property"):
+        apply_column_decisions(ir, [_OWN_VOLUME_ON_CARD])
+
+
+def test_an_unknown_action_is_refused() -> None:
+    with pytest.raises(ValueError, match="action must be"):
+        apply_column_decisions(_DUP_IR, [{**_OWN_VOLUME_ON_CARD, "action": "delete"}])

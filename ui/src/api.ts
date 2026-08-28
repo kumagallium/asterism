@@ -746,6 +746,23 @@ export interface DatasetMeta {
   advisories?: string[]
 }
 
+/** One source column that several maps record as a plain value, with what a
+ *  person needs to settle it: the candidate kinds, how many entities each of
+ *  them mints (the evidence that makes "which is this about" answerable), and
+ *  the owner the rows recommend — `null` when they tie and the call is entirely
+ *  the human's. `actionable: false` = one candidate is an anonymous map with no
+ *  handle to send back, so only the sentence can be shown. */
+export interface DuplicateColumnFinding {
+  source: string
+  column: string
+  maps: { map: string; label: string; entities: number | null }[]
+  owner: string | null
+  owner_label?: string
+  actionable: boolean
+  /** The English advisory this record stands for (same pass, same verdict). */
+  text: string
+}
+
 export interface MaterializeResult {
   artifacts: Record<string, string | null> // filename -> contents
   complete: boolean
@@ -762,6 +779,16 @@ export interface MaterializeResult {
    * is attached after materialize). The hard ingest gate still re-checks.
    */
   validation_issues?: string[]
+  /**
+   * The one weakness whose resolution is a CHOICE, not another AI round: a
+   * column two or more kinds both record as a plain value. Which of them the
+   * column is ABOUT is a design judgement the rows often cannot settle (ADR
+   * column-ownership-and-growth G1 leaves a tie unclaimed), so the person is
+   * handed the candidates instead of the English paragraph. The same finding's
+   * sentence is in `advisories` — these two never disagree; the api derives
+   * them from one pass.
+   */
+  duplicate_columns?: DuplicateColumnFinding[]
   /**
    * Design WEAKNESSES — the design is valid but weak: entities that never link
    * to each other, columns left unmapped. Separate from `validation_issues`
@@ -1157,9 +1184,12 @@ export async function saveDisplayMeta(
   return ((await res.json()) as { changed?: string[] }).changed ?? []
 }
 
-export type ColumnDecisionAction = 'include' | 'exclude'
+export type ColumnDecisionAction = 'include' | 'exclude' | 'own'
 
-/** A human decision about a source column the generated mapping left unused. */
+/** A human decision about one source column: whether it is mapped at all
+ *  (`include` / `exclude`), or — when several kinds record it — which one KEEPS
+ *  it (`own`, ADR column-ownership-and-growth G1). `map` names the owner for
+ *  both `include` and `own`. */
 export interface ColumnDecision {
   source: string
   column: string
@@ -1183,16 +1213,20 @@ export async function fetchColumnDecisions(datasetId: string): Promise<ColumnDec
   return ((await res.json()) as { decisions?: ColumnDecision[] }).decisions ?? []
 }
 
-/** Save all unresolved-column choices. Includes change the mapping deterministically;
- * exclusions only record the human's decision. No LLM is called. */
+/** Save all unresolved-column choices. Includes and owner verdicts change the
+ * mapping deterministically; exclusions only record the human's decision. No LLM
+ * is called. `stagingId` is the design-time source for a dataset whose own
+ * source is not attached yet — the wizard settles a duplicated column at S5,
+ * one step before the chain persists the files. */
 export async function saveColumnDecisions(
   datasetId: string,
   decisions: ColumnDecision[],
+  stagingId?: string | null,
 ): Promise<ColumnDecisionResult> {
   const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/column-decisions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ decisions }),
+    body: JSON.stringify(stagingId ? { decisions, staging_id: stagingId } : { decisions }),
   })
   if (!res.ok) await throwApiError(res, 'column decisions')
   return (await res.json()) as ColumnDecisionResult

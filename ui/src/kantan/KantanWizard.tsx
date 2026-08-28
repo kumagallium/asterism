@@ -19,6 +19,7 @@ import {
   startIngestJob,
   validateSkeleton,
   type DraftStats,
+  type DuplicateColumnFinding,
   type IngestJobHandle,
   type IngestProgress,
   type InspectResult,
@@ -33,7 +34,7 @@ import {
   type TrialDetail,
   type TrialQueries,
 } from '../api'
-import { isMeaningReviewAdvisory, plainAdvisories, plainIssues } from '../advisoryPlain'
+import { advisoryLabel, isMeaningReviewAdvisory, plainAdvisories, plainIssues } from '../advisoryPlain'
 import { registerSuggestionApplier } from '../consult/consultApply'
 import { setConsultContext } from '../consult/consultContext'
 import { TABULAR_ACCEPT } from '../datasetsApi'
@@ -169,6 +170,29 @@ interface StopCard {
    *  (ADR §5.1) — canonical one-liners for known trap ids, free-form issues
    *  folded into one count line. Display only; the AI fix gets fixLines. */
   plainLines?: string[]
+  /** 'weakness': the duplicated columns, in the shape a chooser needs (K44).
+   *  One of the advisories above is about these; unlike the others its fix is a
+   *  DECISION — which kind keeps the column — so the card offers it directly
+   *  instead of sending the reader to the detail tier. */
+  duplicateColumns?: DuplicateColumnFinding[]
+}
+
+/** The identity of one duplicated column: the physical source cell. Neither a
+ *  map name nor a term survives a structural rewrite; the file and the header
+ *  do. */
+function duplicateKey(d: DuplicateColumnFinding): string {
+  return `${d.source}\u0000${d.column}`
+}
+
+/** The machine's own verdicts, as the chooser's starting answer (K44). Only
+ *  where the rows DECIDED: a tie stays blank, because pre-selecting a coin flip
+ *  would put the machine's guess in the person's mouth (K32). */
+function seedOwnerPicks(card: StopCard | null): Record<string, string> {
+  return Object.fromEntries(
+    (card?.duplicateColumns ?? [])
+      .filter((d) => d.owner)
+      .map((d) => [duplicateKey(d), d.owner as string]),
+  )
 }
 
 /** One S7 question card / S9 chip: plain question, plain answer, and (when the
@@ -1816,6 +1840,10 @@ export function KantanWizard({
       return
     }
     if (step !== 5) return
+    // A card restored from the snapshot never passed through the weakness
+    // branch, so the kinds in the chooser would keep the mapping's English
+    // identifiers on a reload (K4). Enrichment only — a failure leaves them.
+    if ((stop?.duplicateColumns?.length ?? 0) > 0) ensureRules(kzDatasetId)
     const saved = loadIngestJob()
     if (!saved || saved.kind !== 'ingest' || saved.datasetId !== kzDatasetId) return
     const handle = resumeIngestJob(saved.jobId, kzDatasetId, setIngestProgress, () =>
@@ -1835,6 +1863,21 @@ export function KantanWizard({
   const prevStopSig = useRef<string | null>(null)
   const prevFixCount = useRef<number | null>(null)
   const [fixStuck, setFixStuck] = useState(false)
+  // K44: which kind the human picked for each duplicated column, keyed by
+  // `source\0column` (the physical cell, the one identity a redesign cannot
+  // rename). Seeded from the machine's own verdict where it HAS one, so the
+  // common case is a single confirming click; a tie starts empty, because
+  // pre-selecting a coin flip would put the machine's guess in the person's
+  // mouth (K32: the machine proposes, the person decides).
+  // Seeded HERE as well as in setDesignStop: a reload restores the card from
+  // the snapshot without ever passing through the raiser, and the restored
+  // screen then showed 「データからのおすすめ」 over three empty radios with the
+  // button dead (live 2026-08-28).
+  const [ownerPicks, setOwnerPicks] = useState<Record<string, string>>(() =>
+    seedOwnerPicks(snap.stop ?? null),
+  )
+  const [ownerBusy, setOwnerBusy] = useState(false)
+  const [ownerErr, setOwnerErr] = useState('')
 
   /** Raise a findings card (design / weakness) and note whether the AI fix is
    *  still getting anywhere. */
@@ -1852,6 +1895,8 @@ export function KantanWizard({
     setFixStuck(aiFixCount > 0 && (sameFindings || noFewer))
     prevStopSig.current = sig
     prevFixCount.current = count
+    setOwnerErr('')
+    setOwnerPicks(seedOwnerPicks(card))
     setStop(card)
   }
 
@@ -2771,7 +2816,14 @@ export function KantanWizard({
                 false,
               ),
             ],
+            // An anonymous map has no handle to send back, so it gets the
+            // sentence and no chooser (the fail-closed half of K44).
+            duplicateColumns: (result.duplicate_columns ?? []).filter((d) => d.actionable),
           })
+          // The chooser names the kinds the way the rest of the wizard names
+          // them (K4), and this is the first screen that needs those names —
+          // S6 has not run yet on a first pass.
+          if (datasetId) ensureRules(datasetId)
           return
         }
       }
@@ -3568,6 +3620,49 @@ export function KantanWizard({
     if (autoFixLeft.current <= 0) autoFixLeft.current = 1
     setStop(null)
     void startRefineChain([comment], 'fix', card)
+  }
+
+  /** The duplicated columns this card can still offer a choice for, and whether
+   *  every one of them has an answer — the submit button's whole gate. */
+  const ownerFindings = stop?.duplicateColumns ?? []
+  const ownerAllPicked =
+    ownerFindings.length > 0 && ownerFindings.every((d) => ownerPicks[duplicateKey(d)])
+
+  /** Record the human's ownership verdicts and re-run the save (K44).
+   *
+   *  No LLM: the decisions go to the same durable column-decision store an
+   *  include/exclude goes to, the server deletes the duplicate rows from §9
+   *  deterministically, and the normal S5 chain re-checks. Durable is the point
+   *  — a later AI round rewriting §9 cannot take the verdict back, which is the
+   *  failure mode that made the same advisory come back eight times. */
+  async function applyColumnOwners() {
+    const datasetId = kzDatasetIdRef.current
+    if (!datasetId || ownerBusy || pipeBusy || !ownerAllPicked) return
+    setOwnerBusy(true)
+    setOwnerErr('')
+    try {
+      const result = await saveColumnDecisions(
+        datasetId,
+        ownerFindings.map((d) => ({
+          source: d.source,
+          column: d.column,
+          action: 'own' as const,
+          map: ownerPicks[duplicateKey(d)],
+        })),
+        stagingId,
+      )
+      setProposal(result.proposal_md)
+      // The findings are settled, so the "the AI handed the same thing back"
+      // memory is stale — the next card is about whatever is left, not this.
+      prevStopSig.current = null
+      prevFixCount.current = null
+      setStop(null)
+      await runPipeline('materialize', result.proposal_md)
+    } catch (e) {
+      setOwnerErr(errText(e))
+    } finally {
+      setOwnerBusy(false)
+    }
   }
 
   /** The truncated-refine card's two exits: ask again with the same request, or
@@ -4510,6 +4605,74 @@ export function KantanWizard({
                 ))}
               </ul>
             )}
+          {/* K44: the one finding on this card whose fix is a DECISION. The
+              machine found the candidates and — where the rows allow — says
+              which it would keep; the person answers with one click per column.
+              Same shape as the S4 zone (K32): machine proposes, human decides,
+              no model is asked. */}
+          {ownerFindings.length > 0 && (
+            <div className="kz-owner-zone">
+              <p className="kz-zone-label">{t('kantan:s5.owner.head')}</p>
+              <p className="kz-note kz-prose">{t('kantan:s5.owner.lead')}</p>
+              <table className="kz-owner-table">
+                <tbody>
+                  {ownerFindings.map((d) => {
+                    const key = duplicateKey(d)
+                    return (
+                      <tr key={key}>
+                        <th scope="row">{d.column}</th>
+                        <td className="kz-owner-choices">
+                          {d.maps.map((m) => (
+                            <label key={m.map} className="kz-owner-pick">
+                              <input
+                                type="radio"
+                                name={`kz-owner-${key}`}
+                                checked={ownerPicks[key] === m.map}
+                                disabled={ownerBusy || pipeBusy}
+                                onChange={() =>
+                                  setOwnerPicks((prev) => ({ ...prev, [key]: m.map }))
+                                }
+                              />
+                              <span>
+                                {advisoryLabel(m.label, rules?.labels)}
+                                {/* How many of that kind the file makes — the
+                                    evidence that makes "which is this column
+                                    about" answerable (G16: decide from values,
+                                    not from words). */}
+                                {m.entities !== null && (
+                                  <span className="kz-owner-count">
+                                    {t('kantan:s5.owner.entities', {
+                                      n: m.entities.toLocaleString(),
+                                    })}
+                                  </span>
+                                )}
+                              </span>
+                            </label>
+                          ))}
+                        </td>
+                        <td className="kz-owner-tag">
+                          {d.owner
+                            ? t('kantan:s5.owner.suggested')
+                            : t('kantan:s5.owner.undecided')}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+              <div className="kz-actions">
+                <button
+                  type="button"
+                  onClick={() => void applyColumnOwners()}
+                  disabled={!ownerAllPicked || ownerBusy || pipeBusy}
+                >
+                  {ownerBusy ? t('kantan:s5.owner.applying') : t('kantan:s5.owner.apply')}
+                </button>
+              </div>
+              {!ownerAllPicked && <p className="kz-note">{t('kantan:s5.owner.pickAll')}</p>}
+              {ownerErr && <p className="kz-note kz-pick-error">{plainBody(ownerErr)}</p>}
+            </div>
+          )}
           {stop.kind === 'interrupted' && (
             <p className="kz-note">{t('kantan:s5.stop.interruptedBody')}</p>
           )}
@@ -4557,7 +4720,11 @@ export function KantanWizard({
           {/* The same findings came back after an AI fix: saying so — and
               stepping the button down — is what stops the endless retry
               (WEAK-MODEL-24). */}
-          {aiFixable && fixStuck && <p className="kz-note">{t('kantan:s5.fix.stuck')}</p>}
+          {aiFixable && fixStuck && (
+            <p className="kz-note">
+              {t(ownerFindings.length > 0 ? 'kantan:s5.fix.stuckOwner' : 'kantan:s5.fix.stuck')}
+            </p>
+          )}
           <div className="kz-actions">
             {/* Primary action, one per card. design → AI fix; access code →
                 open settings; nothing ingested → item meanings; 404 → start
@@ -4569,7 +4736,11 @@ export function KantanWizard({
                 // Demoted once the AI has handed the same problem back: the
                 // remaining exits (weakness continue / detail mode / start
                 // over) are the ones that can still move (WEAK-MODEL-24).
-                className={fixStuck ? 'btn btn--ghost' : undefined}
+                // Demoted too while the card carries a decision only a person
+                // can make — the chooser above IS the primary action then, and
+                // this button is the one the machine already said cannot settle
+                // it (K44).
+                className={fixStuck || ownerFindings.length > 0 ? 'btn btn--ghost' : undefined}
                 onClick={runAiFix}
                 disabled={!isReady || !proposal}
               >

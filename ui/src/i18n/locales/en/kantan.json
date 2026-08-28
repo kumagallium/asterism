@@ -237,7 +237,18 @@
       "failed": "The AI fix didn't go through.",
       "stuck": "The same findings came back — asking the AI again will most likely return them again. Which kind keeps the column is a human call: use “Check in detail mode” or go back and decide it yourself.",
       "autoProgress": "Fixing the design automatically (attempt {{n}} of {{max}})",
-      "autoStuck": "Fixed automatically {{n}} time(s); from here the same problem keeps coming back."
+      "autoStuck": "Fixed automatically {{n}} time(s); from here the same problem keeps coming back.",
+      "stuckOwner": "The same findings did not go down. Asking the AI again will most likely return the same thing. Which kind keeps the column is yours to decide — choose below under “Which one keeps it?”."
+    },
+    "owner": {
+      "head": "Which one keeps it?",
+      "lead": "Two or more kinds record the same column. Which of them the column is about is a design judgement, so it is yours. Pick one and it is removed from the other.",
+      "entities": "{{n}} of them",
+      "suggested": "the data's suggestion",
+      "undecided": "the data cannot decide",
+      "apply": "Fix it this way",
+      "applying": "Fixing…",
+      "pickAll": "Pick one for every column to enable this."
     },
     "trap": {
       "T1": "Row IDs would overlap (overlapping rows collapse into one record)",

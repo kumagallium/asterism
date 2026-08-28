@@ -184,6 +184,14 @@ function labelFor(name: string, index: LabelIndex): string {
   return changed ? mapped.join('') : name
 }
 
+/** The human label for ONE identifier an advisory quotes — the same lookup the
+ *  plain sentences use, for callers that render a finding's parts themselves.
+ *  The wizard's owner chooser names the very kinds the sentence beside it names,
+ *  and one concept under two names is what K4 forbids. Unknown ids pass through. */
+export function advisoryLabel(name: string, labels?: TermLabels): string {
+  return labelFor(name, labelIndex(labels))
+}
+
 /** Whether the locale actually carries a sentence for this key. A finding whose
  *  sentence is not (yet) translated folds into the counted "other" line — the
  *  same fail-closed rule ADR §5.1 sets for unknown trap ids, so a missing key can

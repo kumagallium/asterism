@@ -97,6 +97,7 @@ from asterism_step0.propose import LLMClient
 from asterism_step0.refine import refine_schema
 from asterism_step0.skeleton_annotate import annotate_skeleton, apply_key_safety_fix
 from asterism_step0.staged_propose import (
+    COLUMN_DECISION_ACTIONS,
     apply_column_decisions_to_document,
     apply_display_meta_to_document,
     propose_skeleton,
@@ -232,11 +233,19 @@ class DisplayMetaBody(BaseModel):
 
 
 class ColumnDecision(BaseModel):
-    """A human decision about one source column left out of the AI proposal."""
+    """A human decision about one source column.
+
+    ``include`` / ``exclude`` answer "is this column mapped at all" (a column the
+    AI proposal left out). ``own`` answers a different question — "several kinds
+    record this column; which one KEEPS it" — the ownership tie the rows could
+    not break (ADR column-ownership-and-growth G1). Both live in one durable
+    store because both are statements about the same physical source column, and
+    the latest one wins.
+    """
 
     source: str
     column: str
-    action: Literal["include", "exclude"]
+    action: Literal["include", "exclude", "own"]
     map: str | None = None
     map_class: str | None = None
     label: str | None = None
@@ -248,6 +257,10 @@ class ColumnDecisionsBody(BaseModel):
     """Body for POST /api/datasets/{id}/column-decisions."""
 
     decisions: list[ColumnDecision] = []
+    # The wizard settles a duplicated column at S5 — BEFORE the attach step has
+    # persisted the source. The staged copy is the design-time source there
+    # (ADR source-staging.md), exactly as it is for /api/materialize.
+    staging_id: str | None = None
 
 
 class RenameRequest(BaseModel):
@@ -3325,7 +3338,7 @@ def _column_decisions_path(registry_root: Path, dataset_id: str) -> Path | None:
 
 
 def _load_column_decisions(registry_root: Path, dataset_id: str | None) -> list[dict]:
-    """The durable human include/exclude decisions for a dataset."""
+    """The durable human include/exclude/own decisions for a dataset."""
     if not dataset_id:
         return []
     path = _column_decisions_path(registry_root, dataset_id)
@@ -3343,7 +3356,7 @@ def _load_column_decisions(registry_root: Path, dataset_id: str | None) -> list[
         if isinstance(d, dict)
         and d.get("source")
         and d.get("column")
-        and d.get("action") in {"include", "exclude"}
+        and d.get("action") in COLUMN_DECISION_ACTIONS
     ]
 
 
@@ -3490,11 +3503,12 @@ def _design_checks_at_materialize(
     *,
     source_dir: Path | None = None,
     column_decisions: list[dict] | None = None,
-) -> tuple[list[str], list[str]]:
+) -> tuple[list[str], list[str], list[dict]]:
     """Design checks for the materialize response (NEVER raises).
 
-    Returns ``(issues, advisories)`` — two lists with DIFFERENT strengths, kept
-    apart because the caller must treat them differently:
+    Returns ``(issues, advisories, duplicate_columns)`` — the first two are lists
+    with DIFFERENT strengths, kept apart because the caller must treat them
+    differently:
 
     ``issues`` — the design is wrong and will not do what it says: a column the
     source does not have, a Tier-0 function called with the wrong parameters.
@@ -3516,15 +3530,23 @@ def _design_checks_at_materialize(
     connectivity advisory additionally names the join-key candidates, turning a
     diagnosis into a work order.
 
+    ``duplicate_columns`` — the machine-readable half of ONE of those advisories.
+    "Which of these two kinds should keep this column" is a design judgement the
+    rows could not settle, so it is a person's to make (ADR
+    column-ownership-and-growth G1, ADR kantan K2) — and a person needs the
+    candidates, not an English paragraph. Same pass as the sentence
+    (:func:`asterism.rml_validate.duplicate_column_findings`), so the choice on
+    screen can never disagree with the advisory beside it.
+
     ``source_dir`` is the design-time source when the dataset has none attached
     yet (the wizard's staged copy, ADR source-staging.md); the dataset's own
     persisted source wins when it exists.
 
-    Both lists are best-effort: any unexpected error degrades to "no advice",
+    Every list is best-effort: any unexpected error degrades to "no advice",
     never a 500.
     """
     if not (rml_ttl or "").strip():
-        return [], []
+        return [], [], []
     prepared = substrate.substitute_run_id(rml_ttl)
     source_paths: list[Path] = []
     if dataset_id:
@@ -3534,6 +3556,7 @@ def _design_checks_at_materialize(
             source_paths = []
     if source_paths:
         source_dir = source_paths[0].parent
+    duplicate_columns: list[dict] = []
     try:
         # Review notes (unmapped columns) are human-judgement items: shown so the
         # person can weigh them / include them in a fix request, but NOT fed to
@@ -3541,6 +3564,7 @@ def _design_checks_at_materialize(
         advisories = substrate.design_advisories(
             prepared, source_dir
         ) + substrate.design_review_notes(prepared, source_dir)
+        duplicate_columns = substrate.duplicate_column_findings(prepared, source_dir)
     except Exception:  # advisory only
         logger.exception("design advisories at materialize failed (continuing)")
         advisories = []
@@ -3551,17 +3575,17 @@ def _design_checks_at_materialize(
     )
     advisories = _without_confirmed_exclusion_advisories(advisories, decisions)
     if source_dir is None:
-        return [], advisories
+        return [], advisories, duplicate_columns
     try:
         # Validate the run-id-substituted form so the runtime-only {__run_id__}
         # placeholder is never flagged (matches the ingest gate exactly).
         substrate.validate_rml_design(prepared, source_dir)
-        return [], advisories
+        return [], advisories, duplicate_columns
     except substrate.RmlValidationError as exc:
-        return list(exc.issues), advisories
+        return list(exc.issues), advisories, duplicate_columns
     except Exception:  # a check failure must never break materialize
         logger.exception("advisory design validation at materialize failed (continuing)")
-        return [], advisories
+        return [], advisories, duplicate_columns
 
 
 async def _record_shape_findings(
@@ -5217,7 +5241,11 @@ def build_app(
                 # holds the source from the prior round. With no readable source the
                 # field is simply absent (no false issues); the ingest gate still
                 # catches it once a source is attached.
-                validation_issues, design_advisories = _design_checks_at_materialize(
+                (
+                    validation_issues,
+                    design_advisories,
+                    duplicate_columns,
+                ) = _design_checks_at_materialize(
                     cfg.registry_root,
                     body.dataset_id,
                     artifacts.get("mapping.rml.ttl"),
@@ -5243,6 +5271,12 @@ def build_app(
                     # "continue anyway"). Needs no source, so it is populated even
                     # on a brand-new design.
                     "advisories": design_advisories,
+                    # The one weakness whose resolution is a CHOICE, handed over
+                    # in the shape a chooser needs: the column, both candidate
+                    # kinds with how many entities each mints, and the owner the
+                    # rows recommend. The English sentence for the same finding
+                    # is in `advisories` (ADR kantan K42).
+                    "duplicate_columns": duplicate_columns,
                 }
                 if proposal_md != body.proposal_md:
                     # The deterministic repair edited the design (datatypes
@@ -5357,7 +5391,9 @@ def build_app(
         if data is None:
             raise HTTPException(404, f"dataset {dataset_id!r} not found")
         rml_ttl = (data.get("artifacts") or {}).get("mapping.rml.ttl")
-        issues, advisories = await asyncio.to_thread(
+        # The chooser's structured half is materialize's channel (that is where
+        # the wizard builds its card); this endpoint keeps its two lists.
+        issues, advisories, _dups = await asyncio.to_thread(
             _design_checks_at_materialize, cfg.registry_root, dataset_id, rml_ttl
         )
         # The data shape findings recorded at ingest (ADR data-shape-checks.md)
@@ -5662,7 +5698,10 @@ def build_app(
         An include adds one raw-passthrough direct property to §9, compiles it
         through the normal materialize gate, and saves the reprojected artifacts
         in place. An exclude leaves an already-unused column alone, and removes a
-        later rewrite's attempt to map it.
+        later rewrite's attempt to map it. An ``own`` keeps a column two kinds
+        both record on the ONE the human picked, and deletes it from the others —
+        the ownership tie the rows could not break, which is why eight AI rounds
+        never cleared it (ADR kantan K42).
         """
         data = registry.load_dataset(cfg.registry_root, dataset_id)
         if data is None:
@@ -5675,7 +5714,7 @@ def build_app(
                 raise HTTPException(422, "a column decision requires a source")
             if not str(decision.get("column") or "").strip():
                 raise HTTPException(422, "a column decision requires a column")
-            if decision["action"] == "include" and not str(
+            if decision["action"] in {"include", "own"} and not str(
                 decision.get("map") or ""
             ).strip():
                 raise HTTPException(422, "a column decision requires a map")
@@ -5685,6 +5724,17 @@ def build_app(
         if not proposal_md.strip():
             raise HTTPException(409, f"dataset {dataset_id!r} has no stored design to edit")
         source_dir = registry.source_dir(cfg.registry_root, dataset_id)
+        staged_paths: list[Path] = []
+        if source_dir is None or not source_dir.is_dir():
+            # The wizard settles a duplicated column at S5, one step BEFORE the
+            # chain persists the source — the staged copy is the design-time
+            # source there (ADR source-staging.md), same as for /api/materialize.
+            source_dir = None
+            if body.staging_id:
+                with contextlib.suppress(staging.StagingNotFound, ValueError):
+                    source_dir, staged_paths = staging.load(
+                        cfg.registry_root, body.staging_id
+                    )
         if source_dir is None or not source_dir.is_dir():
             raise HTTPException(409, f"dataset {dataset_id!r} has no persisted source to inspect")
         mapping_ir_yaml = str((data.get("artifacts") or {}).get("mapping.yaml") or "")
@@ -5721,6 +5771,34 @@ def build_app(
                 # later structural rewrite renames every map.
                 decision.pop("map", None)
                 decision.pop("map_class", None)
+                decision.pop("datatype", None)
+                continue
+            if decision["action"] == "own":
+                # No label to restore and no fallback row to re-point: an owner
+                # verdict is only "this map keeps it", so the plain canonical
+                # lookup is the whole resolution. The class is stamped for the
+                # same reason an include stamps it — a later AI round may rename
+                # the map, and the verdict has to survive that.
+                requested_map = str(decision["map"])
+                canonical_map = canonical_maps.get(requested_map)
+                if canonical_map is None:
+                    raise HTTPException(
+                        422, f"column decision names unknown map {requested_map!r}"
+                    )
+                selected_map = mappings_by_name[canonical_map]
+                if selected_map.source != str(decision["source"]):
+                    raise HTTPException(
+                        422,
+                        f"column decision source {decision['source']!r} does not match "
+                        f"map {canonical_map!r}",
+                    )
+                decision["map"] = canonical_map
+                if selected_map.subject.classes:
+                    decision["map_class"] = expanded_class(selected_map.subject.classes[0])
+                else:
+                    decision.pop("map_class", None)
+                decision.pop("label", None)
+                decision.pop("unit", None)
                 decision.pop("datatype", None)
                 continue
             requested_map = str(decision["map"])
@@ -5774,10 +5852,8 @@ def build_app(
 
         def run() -> dict[str, object]:
             merged_decisions = _merge_column_decisions(existing_decisions, incoming)
-            source_paths = {
-                path.name: path
-                for path in registry.list_source_files(cfg.registry_root, dataset_id)
-            }
+            persisted = registry.list_source_files(cfg.registry_root, dataset_id)
+            source_paths = {path.name: path for path in (persisted or staged_paths)}
             incoming_sources = {str(d["source"]) for d in incoming}
             missing_sources = sorted(incoming_sources - set(source_paths))
             if missing_sources:
@@ -5865,7 +5941,7 @@ def build_app(
                     "mapping.rml.ttl": mat.rml_ttl or "",
                     "mapping.yaml": mat.mapping_ir_yaml or "",
                 }
-                _issues, advisories = _design_checks_at_materialize(
+                _issues, advisories, _dups = _design_checks_at_materialize(
                     cfg.registry_root,
                     dataset_id,
                     artifacts["mapping.rml.ttl"],
@@ -5898,7 +5974,7 @@ def build_app(
                     key: str(value or "")
                     for key, value in (data.get("artifacts") or {}).items()
                 }
-                _issues, advisories = _design_checks_at_materialize(
+                _issues, advisories, _dups = _design_checks_at_materialize(
                     cfg.registry_root,
                     dataset_id,
                     artifacts.get("mapping.rml.ttl", ""),
@@ -6695,7 +6771,7 @@ def build_app(
                     cfg.registry_root, dataset_id, kept_decisions
                 )
         try:
-            issues, advisories = await asyncio.to_thread(
+            issues, advisories, _dups = await asyncio.to_thread(
                 _design_checks_at_materialize, cfg.registry_root, dataset_id, rml_ttl
             )
         except Exception:  # advice must never fail an otherwise-successful attach

@@ -59,6 +59,7 @@ from asterism_step0.mapping_ir_schema import (
 from asterism_step0.spec_yaml import dump_spec_yaml, load_spec_yaml
 
 __all__ = [
+    "COLUMN_DECISION_ACTIONS",
     "SkeletonProposal",
     "apply_column_decisions",
     "apply_column_decisions_to_document",
@@ -1233,6 +1234,14 @@ _SAFE_COLUMN_DATATYPES = frozenset(
 )
 
 
+# What a human may say about one source column. ``include`` / ``exclude`` decide
+# WHETHER it is mapped; ``own`` decides WHICH entity records it when several do
+# (ADR column-ownership-and-growth G1 — the tie the rows could not break). The
+# api validates against this set, so the vocabulary is defined once.
+COLUMN_DECISION_ACTIONS = ("include", "exclude", "own")
+_COLUMN_DECISION_ACTIONS = frozenset(COLUMN_DECISION_ACTIONS)
+
+
 def _expanded_mapping_term(term: str, prefixes: Mapping[str, Any]) -> str:
     """Expand a CURIE for identity checks; absolute/unknown terms pass through."""
     head, separator, tail = term.partition(":")
@@ -1381,17 +1390,110 @@ def _property_uses_column(prop: Mapping[str, Any], column: str) -> bool:
     )
 
 
+def _property_transcribes_column(prop: Mapping[str, Any], column: str) -> bool:
+    """Is this row a plain RECORD of one source cell — the exact shape the
+    duplicate-column advisory counts (``asterism.rml_validate``)?
+
+    Same three exclusions as the advisory, so what a human settles here is what
+    the machine was complaining about: an ``object_template`` / ``object_type:
+    iri`` row is a LINK to another entity (that is how the join is declared, and
+    deleting it disconnects the design), and a ``columns:`` row reading SEVERAL
+    columns computes a value that belongs to none of its inputs alone. A single
+    ``columns: [X]`` and a reshaped ``column: X`` (``function`` / ``transform``)
+    are still X's value, just written differently — the advisory counts them, so
+    the fix must reach them.
+    """
+    if prop.get("object_template") is not None:
+        return False
+    if str(prop.get("object_type") or "") == "iri":
+        return False
+    if str(prop.get("column") or "") == column:
+        return True
+    cols = prop.get("columns")
+    return isinstance(cols, list) and [str(c) for c in cols] == [column]
+
+
+def _apply_column_owner(
+    out_maps: list[Any], ir: Mapping[str, Any], decision: Mapping[str, Any]
+) -> str | None:
+    """Keep a duplicated column on ONE map and delete it from the others.
+
+    The human half of ADR column-ownership G1: when the rows cannot adjudicate
+    which entity a column describes (a tie, or nothing determines it), the
+    advisory states the defect and makes no claim — and "which of these two
+    things is this column ABOUT" is world knowledge, not something another LLM
+    round can derive (ADR kantan K2 puts it on the person's side). This applies
+    that verdict deterministically: no model is asked, the owner's row is
+    untouched, and every OTHER map on the same source loses its transcription
+    of the column.
+
+    Fail-safe and idempotent, because it is re-asserted after every later round:
+    when the owner no longer carries the column at all — a structural rewrite
+    moved it — NOTHING is deleted. "Keep it here" must never decay into "delete
+    it everywhere"; the advisory simply comes back and the person is asked again.
+
+    Returns the column name when the IR changed, else None.
+    """
+    _map_obj, map_name, source, column = _decision_map(ir, decision)
+    owner = next(
+        (
+            m
+            for m in out_maps
+            if isinstance(m, Mapping) and str(m.get("name") or "") == map_name
+        ),
+        None,
+    )
+    if owner is None:
+        return None
+    owner_props = owner.get("properties")
+    if not isinstance(owner_props, list) or not any(
+        isinstance(prop, Mapping) and _property_transcribes_column(prop, column)
+        for prop in owner_props
+    ):
+        return None
+    changed = False
+    for other_i, current in enumerate(out_maps):
+        if (
+            not isinstance(current, Mapping)
+            or str(current.get("source") or "") != source
+            or str(current.get("name") or "") == map_name
+        ):
+            continue
+        properties = current.get("properties")
+        if not isinstance(properties, list):
+            continue
+        kept = [
+            prop
+            for prop in properties
+            if not (
+                isinstance(prop, Mapping) and _property_transcribes_column(prop, column)
+            )
+        ]
+        if len(kept) == len(properties):
+            continue
+        if not kept:
+            raise ValueError(
+                f"column {column!r} is the only property of map "
+                f"{str(current.get('name') or '')!r} and cannot be removed safely"
+            )
+        out_maps[other_i] = {**current, "properties": kept}
+        changed = True
+    return column if changed else None
+
+
 def apply_column_decisions(
     ir: Mapping[str, Any],
     decisions: Sequence[Mapping[str, Any]],
     *,
     source_columns: Mapping[str, Mapping[str, str] | Sequence[str]] | None = None,
 ) -> tuple[dict, list[str]]:
-    """Apply human include/exclude decisions to a Mapping IR.
+    """Apply human include/exclude/own decisions to a Mapping IR.
 
     Includes add a deliberately plain, raw-passthrough direct property. Excludes
     leave an already-unmapped IR untouched, but remove a later AI rewrite's use of
-    that column. The helper is idempotent so it can reassert both decisions.
+    that column. ``own`` settles a column two maps both record onto ONE of them
+    (:func:`_apply_column_owner`). The helper is idempotent so it can reassert
+    every decision.
     ``source_columns`` is an optional closed-set oracle (source -> columns, or
     source -> inferred datatype) used by the API before anything is persisted.
     """
@@ -1404,8 +1506,11 @@ def apply_column_decisions(
     changed: list[str] = []
     for decision in decisions:
         action = str(decision.get("action") or "").strip()
-        if action not in {"include", "exclude"}:
-            raise ValueError("column decision action must be 'include' or 'exclude'")
+        if action not in _COLUMN_DECISION_ACTIONS:
+            raise ValueError(
+                "column decision action must be one of: "
+                + ", ".join(f"{a!r}" for a in sorted(_COLUMN_DECISION_ACTIONS))
+            )
         source = str(decision.get("source") or "").strip()
         column = str(decision.get("column") or "").strip()
         if not source or not column:
@@ -1414,6 +1519,11 @@ def apply_column_decisions(
             known = source_columns.get(source)
             if known is None or column not in known:
                 raise ValueError(f"source {source!r} has no column {column!r}")
+        if action == "own":
+            owned = _apply_column_owner(out_maps, {**ir, "maps": out_maps}, decision)
+            if owned is not None and owned not in changed:
+                changed.append(owned)
+            continue
         if action == "exclude":
             for target_i, current in enumerate(out_maps):
                 if not isinstance(current, Mapping) or str(current.get("source") or "") != source:
