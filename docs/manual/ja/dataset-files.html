@@ -15,18 +15,20 @@
 <p>データセットを 1 つ作ると、いくつかのファイルが一緒に保存されます。この章では、それぞれが何のためにあり、いつ使われるのかを説明します。用語（RDF・IRI・クラス・属性・SPARQL）は <a href="./rdf-basics.html">rdf-basics.md</a> で説明しています。</p>
 <h2 id="どこで見られるか">どこで見られるか</h2>
 <p>データセットの詳細画面を開き、「元のファイルとの対応（技術情報）」タブの下のほうにある「詳しい内容（技術情報）: 変換ルール（RML）と関連ファイル」を開くと、ファイルが並びます。どれも開いて中身を読めます。</p>
+<figure><a href="../screenshots/dataset-artifacts.png" title="原寸で開く"><img src="../screenshots/dataset-artifacts.png" alt="データセットに保存された成果物ファイルの一覧"></a></figure>
 <h2 id="早見表">早見表</h2>
 <div class="tablewrap"><table><thead><tr><th>表示名</th><th>ファイル</th><th>役割</th><th>取り込みで実行される？</th></tr></thead><tbody><tr><td>変換ルール</td><td><code>mapping.rml.ttl</code></td><td>表を事実に変える規則の<strong>実行される正本</strong></td><td><strong>される</strong></td></tr><tr><td>仕様</td><td><code>mapping.yaml</code></td><td>変換ルールを人が読める形で書いた<strong>元の仕様</strong></td><td>されない（RML の材料）</td></tr><tr><td>検索タグ</td><td><code>mie.yaml</code></td><td>このデータを<strong>探すときの言葉</strong>と、質問の例</td><td>されない</td></tr><tr><td>設計書</td><td><code>proposal.md</code></td><td>AI 提案と人のレビューを経た<strong>設計の全文</strong></td><td>されない</td></tr></tbody></table></div>
 <p>画面には出ませんが、同じ場所に次のものも保存されています。</p>
 <div class="tablewrap"><table><thead><tr><th>ファイル</th><th>役割</th></tr></thead><tbody><tr><td><code>model.yaml</code></td><td>クラスと属性の一覧。「共通の言葉」の表示名のもと</td></tr><tr><td><code>diagram.md</code></td><td>「中身」タブに出る構造図（クラス図）のもと</td></tr><tr><td><code>meta.json</code></td><td>状態・件数・検査結果・気になる点</td></tr><tr><td><code>source/</code></td><td>取り込んだ元のファイルそのもの（あとから作り直せるように）</td></tr></tbody></table></div>
 <h2 id="どういう順番で生まれるか">どういう順番で生まれるか</h2>
 <p>すべては 1 つの設計書（<code>proposal.md</code>）から切り出されます。</p>
-<figure><img src="../figures/file-lineage.svg" alt="元ファイルから設計書が作られ、その各節から 4 つのファイルが切り出される図"></figure>
+<figure><a href="../figures/file-lineage.svg" title="原寸で開く"><img src="../figures/file-lineage.svg" alt="元ファイルから設計書が作られ、その各節から 4 つのファイルが切り出される図"></a></figure>
 <p>図中の §1〜§9 は、設計書 <code>proposal.md</code> の中の節番号です（画面のステップとは別のものです）。ここまでが<strong>設計</strong>で、まだデータは 1 件も作られていません。</p>
 <h2 id="取り込みと公開で何が動くか">取り込みと公開で何が動くか</h2>
 <p>「取り込み・公開」タブで「データを取り込む」ボタンを押したとき、実際に走るのは変換ルール（<code>mapping.rml.ttl</code>）だけです。</p>
-<figure><img src="../figures/ingest-run.svg" alt="変換ルールと元ファイルが安全確認を経て変換され、下書きから公開に進む流れの図"></figure>
+<figure><a href="../figures/ingest-run.svg" title="原寸で開く"><img src="../figures/ingest-run.svg" alt="変換ルールと元ファイルが安全確認を経て変換され、下書きから公開に進む流れの図"></a></figure>
 <ul><li>取り込んだ直後は<strong>下書き</strong>です。この段階では誰にも見えず、質問の答えにも引用されません。</li><li>「公開する」ボタンを押してはじめて、質問の答えが引用するようになります。</li><li>公開前と公開後で、どのファイルも書き換わりません。同じ変換ルールが作ったデータが、置き場所を移るだけです。</li></ul>
+<figure><a href="../screenshots/dataset-ingest.png" title="原寸で開く"><img src="../screenshots/dataset-ingest.png" alt="「取り込み・公開」タブ。ファイル一覧と取り込み・公開の操作"></a></figure>
 <p><strong>AI が書いたプログラムは、どこでも実行されません。</strong> AI が書くのは「規則」だけで、それを解釈して動くのは決まったエンジンです。エンジンが呼べる関数もあらかじめ人が確かめた一覧に限られ、読めるファイルもこのデータセットのものだけに制限されています。</p>
 <h2 id="一つずつ">一つずつ</h2>
 <h3 id="変換ルール-mapping-rml-ttl">変換ルール（<code>mapping.rml.ttl</code>）</h3>

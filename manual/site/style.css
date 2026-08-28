@@ -84,7 +84,10 @@ figure{
   margin:24px 0; background:var(--surface); border:1px solid var(--line);
   border-radius:12px; padding:20px 16px; box-shadow:var(--shadow); overflow-x:auto;
 }
+figure a{display:block; line-height:0}
 figure img{display:block; width:100%; height:auto; border-radius:4px}
+figure a:hover img{outline:2px solid var(--entity); outline-offset:2px}
+figure a:focus-visible img{outline:2px solid var(--entity); outline-offset:2px}
 
 /* --- tables --- */
 .tablewrap{
