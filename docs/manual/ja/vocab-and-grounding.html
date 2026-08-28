@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>共通の言葉 — ことばを揃える・標準に合わせる — Asterism マニュアル</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<div class="wrap">
+<div class="cols">
+<nav class="toc" aria-label="目次"><a class="toc-home" href="index.html">Asterism マニュアル</a><h2>はじめに</h2><ol><li><a href="getting-started.html">はじめる</a></li></ol><h2>データを育てる</h2><ol><li><a href="add-data.html">データの追加</a></li><li><a href="datasets.html">データセットの管理</a></li><li><a href="crosswalk.html">つながり</a></li></ol><h2>つかう</h2><ol><li><a href="ask.html">質問する</a></li><li><a class="here" href="vocab-and-grounding.html">共通の言葉</a></li></ol><h2>しくみを知る</h2><ol><li><a href="rdf-basics.html">つながったデータの基礎</a></li><li><a href="dataset-files.html">データセットの中のファイル</a></li></ol><h2>そばに置く</h2><ol><li><a href="consult.html">相談チャット</a></li><li><a href="settings.html">設定</a></li><li><a href="desktop.html">デスクトップ版と自動更新</a></li></ol><h2>困ったときは</h2><ol><li><a href="screens.html">画面別の導線リファレンス</a></li></ol></nav>
+<main>
+<h1 id="共通の言葉-ことばを揃える-標準に合わせる">共通の言葉 — ことばを揃える・標準に合わせる</h1>
+<h2 id="共通の言葉とは">共通の言葉とは</h2>
+<p>取り込んだデータが使っている「データの種類」と「項目」の一覧を、共通の言葉と呼びます。複数のデータセットで名前が揃っているほど、データをまたいだ質問や比較ができるようになります。</p>
+<h2 id="入口">入口</h2>
+<p>メニューの「共通の言葉」から、いま使われていることばの一覧を見られます。</p>
+<figure><img src="../screenshots/vocab-list.png" alt="メニューの「共通の言葉」を開いた一覧画面"></figure>
+<h2 id="一覧の見方">一覧の見方</h2>
+<p>一覧に並ぶのは、いま使われていることばです。データの種類は件数（その種類のものが何件あるか）、項目は使用回数で表示されます。数えるのは公開済みのデータだけです。公開前の下書きは含まれず、公開すると集計に入ります。</p>
+<p>それぞれのことばには、そのことばを使っているデータセットの一覧も付きます。</p>
+<h2 id="ことばの名前を直す">ことばの名前を直す</h2>
+<p>ことばの名前を直したいときは、そのデータセットを開いて「設計を見直す」ボタンから変更できます。複数のデータセットが共通で使うことばは、名前を変えるとそれを使うすべてのデータの検索・回答に影響するので注意してください。</p>
+<h2 id="標準のことばに合わせる-任意">標準のことばに合わせる（任意）</h2>
+<p>自分のデータ専用のことばを、よく使われる標準のことば（QUDT・schema.orgなど）に結びつけることができます。合わせておくと、他のデータと自動でつながり、外部のツールや AI もそのまま理解できます。合わせるかどうかは任意で、合わせなくても検索・引用はそのまま使えます。</p>
+<h2 id="合わせ方">合わせ方</h2>
+<p>データセットの「中身」タブを開き、候補から選びます。候補は標準のことばの一覧から機械的に探すもので、AI は使いません。英語のふつうの言い方（例: temperature, crystal structure）でも検索できます。合わせたい候補が見つかったら「この標準に合わせる」ボタンで確定します。あとから解除することもできます。</p>
+<h2 id="この列は何を測っているか">この列は何を測っているか</h2>
+<p>項目名を標準に合わせるのとは別に、「この列は何を測っているか」という問いにも合わせられます。単位が手がかりになるので、項目名が略記でも見つかることがあります。合わせておくと、「熱伝導率を測った人」のようにデータをまたいで横断的に探せるようになります。</p>
+<h2 id="すでに使われている標準">すでに使われている標準</h2>
+<p>データの中ですでに使われていた、よく知られた標準のことばは、自動で検出されて一覧に表示されます。あらためて合わせる操作をしなくても、最初から標準に沿っている場合はそのまま表示されます。</p>
+<h2 id="関連">関連</h2>
+<ul><li>データどうしをつなぐ話は <a href="./crosswalk.html">crosswalk.md</a> を参照してください。</li><li>公開の流れは <a href="./getting-started.html">getting-started.md</a> を参照してください。</li></ul>
+<footer>この文書は <a href="https://github.com/kumagallium/asterism">kumagallium/asterism</a>
+の <code>manual/ja/vocab-and-grounding.md</code> から生成されています。</footer>
+</main>
+</div>
+</div>
+</body>
+</html>

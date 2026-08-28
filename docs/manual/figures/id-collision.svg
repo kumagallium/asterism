@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 330" role="img" aria-label="材料IDとhklを組み合わせるとファイルごとに別のIDになるが、hklだけで作ると2つの材料が1つのIDに潰れることを示す図">
+<style>
+  :root{
+    --ink:#16241a; --body:#33453a; --muted:#54695b; --faint:#84987f;
+    --surface:#ffffff; --surface-alt:#f5f9f3; --sink:#e5ede3;
+    --line:#d5e0d2; --line-strong:#bccdb9;
+    --entity:#2f6b41; --entity-soft:#dcebe0;
+    --link:#2d5c86; --link-soft:#dae7f3;
+    --accent:#a3661f; --accent-soft:#f4e6d4;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --ink:#e9f1e8; --body:#c3d3c5; --muted:#98ab9a; --faint:#748a76;
+      --surface:#18211a; --surface-alt:#1d2820; --sink:#131c15;
+      --line:#2b382c; --line-strong:#3f4f40;
+      --entity:#7cc491; --entity-soft:#1d3626;
+      --link:#88b6e0; --link-soft:#16293b;
+      --accent:#e0a862; --accent-soft:#33261a;
+    }
+  }
+  text{font-family:"Hiragino Kaku Gothic ProN","Noto Sans JP",system-ui,sans-serif; font-size:13px; fill:var(--ink)}
+  .m{font-family:"SF Mono",Menlo,Consolas,"IBM Plex Mono",monospace}
+  .sm{font-size:11.5px}
+  .xs{font-size:10.5px; letter-spacing:.06em}
+  .t-mut{fill:var(--muted)}
+  .t-fnt{fill:var(--faint)}
+  .t-ent{fill:var(--entity)}
+  .t-lnk{fill:var(--link)}
+  .t-acc{fill:var(--accent)}
+  .b{font-weight:700}
+  .box{fill:var(--surface); stroke:var(--line-strong); stroke-width:1.25}
+  .box-alt{fill:var(--surface-alt); stroke:var(--line-strong); stroke-width:1.25}
+  .box-sink{fill:var(--sink); stroke:var(--line-strong); stroke-width:1.25}
+  .box-ent{fill:var(--entity-soft); stroke:var(--entity); stroke-width:1.5}
+  .box-lnk{fill:var(--link-soft); stroke:var(--link); stroke-width:1.5}
+  .box-acc{fill:var(--accent-soft); stroke:var(--accent); stroke-width:1.5}
+  .ln{stroke:var(--line-strong); stroke-width:1.5; fill:none}
+  .ln-lnk{stroke:var(--link); stroke-width:1.5; fill:none}
+  .ln-ent{stroke:var(--entity); stroke-width:1.5; fill:none}
+  .ln-dash{stroke:var(--line-strong); stroke-width:1.5; fill:none; stroke-dasharray:5 4}
+  .ln-thin{stroke:var(--line); stroke-width:1; fill:none}
+  .head{fill:var(--line-strong)}
+  .head-lnk{fill:var(--link)}
+  .head-ent{fill:var(--entity)}
+</style>
+
+  <text x="16" y="18" class="xs t-fnt">材料 A のファイル</text>
+  <rect class="box" x="16" y="26" width="300" height="76" rx="8"/>
+  <rect class="box-acc" x="30" y="38" width="180" height="24" rx="4"/>
+  <text x="40" y="55" class="m xs t-acc">No: 03-065-2664</text>
+  <text x="220" y="55" class="xs t-fnt">表の外</text>
+  <rect class="box-alt" x="30" y="68" width="180" height="24" rx="4"/>
+  <text x="40" y="85" class="m xs">(hkl) = (0,0,2)</text>
+  <text x="220" y="85" class="xs t-fnt">表の中</text>
+  <path class="ln-ent" d="M316 64 H364" marker-end="url(#b1)"/>
+  <rect class="box-ent" x="374" y="42" width="316" height="44" rx="8"/>
+  <text x="532" y="70" class="m sm b t-ent" text-anchor="middle">peak/03-065-2664/(0,0,2)</text>
+
+  <text x="16" y="138" class="xs t-fnt">材料 B のファイル</text>
+  <rect class="box" x="16" y="146" width="300" height="76" rx="8"/>
+  <rect class="box-acc" x="30" y="158" width="180" height="24" rx="4"/>
+  <text x="40" y="175" class="m xs t-acc">No: 03-065-5860</text>
+  <text x="220" y="175" class="xs t-fnt">表の外</text>
+  <rect class="box-alt" x="30" y="188" width="180" height="24" rx="4"/>
+  <text x="40" y="205" class="m xs">(hkl) = (0,0,2)</text>
+  <text x="220" y="205" class="xs t-fnt">表の中</text>
+  <path class="ln-ent" d="M316 184 H364" marker-end="url(#b1)"/>
+  <rect class="box-ent" x="374" y="162" width="316" height="44" rx="8"/>
+  <text x="532" y="190" class="m sm b t-ent" text-anchor="middle">peak/03-065-5860/(0,0,2)</text>
+
+  <text x="710" y="100" class="sm b t-ent">別の名前になる</text>
+  <text x="710" y="122" class="xs t-mut">同じ (0,0,2) でも、</text>
+  <text x="710" y="140" class="xs t-mut">材料 ID が違うので</text>
+  <text x="710" y="158" class="xs t-mut">混ざらない。</text>
+  <path class="ln-ent" d="M700 64 H730 V88" marker-end="url(#b1)"/>
+  <path class="ln-ent" d="M700 184 H730 V172" marker-end="url(#b1)"/>
+
+  <line class="ln-thin" x1="16" y1="248" x2="924" y2="248"/>
+  <rect class="box-alt" x="16" y="264" width="674" height="52" rx="8" stroke-dasharray="5 4"/>
+  <text x="32" y="286" class="sm t-acc b">もし (hkl) だけで名前を作っていたら</text>
+  <text x="32" y="306" class="xs t-mut">どちらの材料の (0,0,2) も同じ名前になる →</text>
+  <text x="300" y="306" class="m xs t-acc">peak/(0,0,2)</text>
+  <text x="710" y="286" class="xs t-mut">2 つの材料が 1 件に潰れ、</text>
+  <text x="710" y="304" class="xs t-mut">あとの強度が前を上書きする。</text>
+
+  <defs>
+    <marker id="b1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path class="head-ent" d="M0 0 L10 5 L0 10 z"/>
+    </marker>
+  </defs>
+</svg>

@@ -1,6 +1,7 @@
 # Asterism
 
 [![Live demo](https://img.shields.io/badge/live%20demo-asterism%2Fdemo-3f6f49?logo=html5&logoColor=white)](https://kumagallium.github.io/asterism/demo/)
+[![Manual](https://img.shields.io/badge/manual-%E6%97%A5%E6%9C%AC%E8%AA%9E-3f6f49)](https://kumagallium.github.io/asterism/manual/)
 [![CI](https://github.com/kumagallium/asterism/actions/workflows/ci.yml/badge.svg)](https://github.com/kumagallium/asterism/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
@@ -18,6 +19,8 @@ Two properties make the graph trustworthy:
 
 - **Provenance is first-class (PROV-O).** Every entity is a `prov:Entity`; every ingest / digitization / link is a `prov:Activity`. A cited number can always be traced back to the figure, paper, and run it came from.
 - **No generated code is executed.** Ingestion is declarative (RML / Morph-KGC) and may only call a closed, vetted function library — so onboarding new data is a *reviewable mapping*, not arbitrary code. See [`docs/architecture/ingestion-execution-safety.md`](docs/architecture/ingestion-execution-safety.md) and [`docs/architecture/phase5-declarative-substrate.md`](docs/architecture/phase5-declarative-substrate.md).
+
+**📖 User manual (Japanese): <https://kumagallium.github.io/asterism/manual/>.** How to onboard a dataset step by step, plus a from-scratch introduction to the ideas underneath — RDF, IRIs, classes, properties, ontologies and SPARQL — and what each file in a dataset actually does. Source: [`manual/ja/`](manual/ja/) (the same text the in-app design-consult chat is given).
 
 ## Status
 

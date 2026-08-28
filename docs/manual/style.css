@@ -1,0 +1,109 @@
+/* Asterism ユーザーマニュアル（GitHub Pages 版）のスタイル。
+   トークンは ui/src/index.css の forest テーマに合わせている（docs/design/ui-guidelines.md §3）。
+   scripts/build_manual_site.py が docs/manual/style.css へコピーする。 */
+
+:root{
+  --ground:#eef3ec; --surface:#ffffff; --surface-alt:#f5f9f3; --sink:#e5ede3;
+  --ink:#16241a; --body:#33453a; --muted:#54695b; --faint:#84987f;
+  --line:#d5e0d2; --line-strong:#bccdb9;
+  --entity:#2f6b41; --link:#2d5c86; --accent:#a3661f; --accent-soft:#f4e6d4;
+  --shadow:0 1px 2px rgba(22,36,26,.05), 0 8px 24px -16px rgba(22,36,26,.35);
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --ground:#0f1610; --surface:#18211a; --surface-alt:#1d2820; --sink:#131c15;
+    --ink:#e9f1e8; --body:#c3d3c5; --muted:#98ab9a; --faint:#748a76;
+    --line:#2b382c; --line-strong:#3f4f40;
+    --entity:#7cc491; --link:#88b6e0; --accent:#e0a862; --accent-soft:#33261a;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.8);
+  }
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--ground); color:var(--body);
+  font-family:"Hiragino Kaku Gothic ProN","Noto Sans JP",system-ui,sans-serif;
+  font-size:15px; line-height:1.9; -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1140px; margin:0 auto; padding:40px 24px 96px}
+.cols{display:grid; grid-template-columns:minmax(0,1fr); gap:40px}
+@media (min-width:1000px){ .cols{grid-template-columns:220px minmax(0,1fr); gap:56px} }
+
+/* --- sidebar --- */
+nav.toc{align-self:start; font-size:.82rem; line-height:1.7}
+@media (min-width:1000px){ nav.toc{position:sticky; top:32px; max-height:calc(100vh - 64px); overflow-y:auto} }
+.toc-home{
+  display:block; font-weight:700; color:var(--ink); text-decoration:none;
+  font-size:.92rem; margin-bottom:20px; padding-bottom:12px; border-bottom:1px solid var(--line);
+}
+.toc-home:hover{color:var(--entity)}
+nav.toc h2{
+  font-size:.68rem; letter-spacing:.12em; color:var(--faint);
+  margin:18px 0 6px; font-weight:500; border:none; padding:0;
+}
+nav.toc ol{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:2px}
+nav.toc a{
+  display:block; color:var(--muted); text-decoration:none;
+  padding:3px 0 3px 12px; border-left:2px solid var(--line);
+}
+nav.toc a:hover{color:var(--ink); border-left-color:var(--entity)}
+nav.toc a.here{color:var(--ink); font-weight:700; border-left-color:var(--entity)}
+nav.toc a:focus-visible{outline:2px solid var(--entity); outline-offset:2px; border-radius:2px}
+
+/* --- text --- */
+main{min-width:0}
+h1{
+  font-size:clamp(1.7rem,4vw,2.2rem); line-height:1.35; color:var(--ink);
+  margin:0 0 28px; text-wrap:balance; font-weight:700;
+}
+h2{
+  font-size:1.22rem; color:var(--ink); margin:44px 0 4px; font-weight:700;
+  padding-top:20px; border-top:1px solid var(--line); text-wrap:balance;
+}
+h3{font-size:1rem; color:var(--ink); margin:30px 0 2px; font-weight:700}
+p{margin:14px 0}
+p.caption{color:var(--muted); font-size:.82rem; margin:-8px 0 22px}
+strong{color:var(--ink); font-weight:700}
+a{color:var(--link)}
+ul,ol{padding-left:1.3em; margin:14px 0}
+li{margin:6px 0}
+li::marker{color:var(--faint)}
+code{
+  font-family:"SF Mono",Menlo,Consolas,monospace; font-size:.86em;
+  background:var(--surface-alt); border:1px solid var(--line);
+  border-radius:4px; padding:.1em .35em; color:var(--ink);
+}
+pre{
+  background:var(--surface-alt); border:1px solid var(--line); border-radius:10px;
+  padding:16px 18px; overflow-x:auto; margin:20px 0; font-size:.82rem; line-height:1.75;
+}
+pre code{background:none; border:none; padding:0; font-size:1em}
+
+/* --- figures & screenshots --- */
+figure{
+  margin:24px 0; background:var(--surface); border:1px solid var(--line);
+  border-radius:12px; padding:20px 16px; box-shadow:var(--shadow); overflow-x:auto;
+}
+figure img{display:block; width:100%; height:auto; border-radius:4px}
+
+/* --- tables --- */
+.tablewrap{
+  overflow-x:auto; margin:22px 0; border:1px solid var(--line);
+  border-radius:12px; background:var(--surface);
+}
+table{border-collapse:collapse; width:100%; font-size:.86rem; min-width:520px}
+th,td{
+  padding:10px 14px; text-align:left; vertical-align:top;
+  border-bottom:1px solid var(--line); line-height:1.65;
+}
+thead th{
+  background:var(--sink); color:var(--ink); font-weight:700;
+  font-size:.76rem; letter-spacing:.03em; white-space:nowrap;
+}
+tbody tr:last-child td{border-bottom:none}
+td code{background:none; border:none; padding:0}
+
+footer{
+  margin-top:64px; padding-top:24px; border-top:1px solid var(--line);
+  font-size:.78rem; color:var(--faint);
+}

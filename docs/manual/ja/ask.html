@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>質問する — 公開したデータに、出どころつきで聞く — Asterism マニュアル</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<div class="wrap">
+<div class="cols">
+<nav class="toc" aria-label="目次"><a class="toc-home" href="index.html">Asterism マニュアル</a><h2>はじめに</h2><ol><li><a href="getting-started.html">はじめる</a></li></ol><h2>データを育てる</h2><ol><li><a href="add-data.html">データの追加</a></li><li><a href="datasets.html">データセットの管理</a></li><li><a href="crosswalk.html">つながり</a></li></ol><h2>つかう</h2><ol><li><a class="here" href="ask.html">質問する</a></li><li><a href="vocab-and-grounding.html">共通の言葉</a></li></ol><h2>しくみを知る</h2><ol><li><a href="rdf-basics.html">つながったデータの基礎</a></li><li><a href="dataset-files.html">データセットの中のファイル</a></li></ol><h2>そばに置く</h2><ol><li><a href="consult.html">相談チャット</a></li><li><a href="settings.html">設定</a></li><li><a href="desktop.html">デスクトップ版と自動更新</a></li></ol><h2>困ったときは</h2><ol><li><a href="screens.html">画面別の導線リファレンス</a></li></ol></nav>
+<main>
+<h1 id="質問する-公開したデータに-出どころつきで聞く">質問する — 公開したデータに、出どころつきで聞く</h1>
+<h2 id="何ができるか">何ができるか</h2>
+<p>公開したデータについて、ふつうの言葉で質問できます。答えには、その数字がどのデータのどこから来たか（出どころ）が付きます。続けて聞くと、前の答えをふまえて答えます。</p>
+<h2 id="前提">前提</h2>
+<p>公開済みのデータがあることと、AI の設定が済んでいることが必要です。まだ公開したデータが無いときは「まだ公開したデータがありません」と案内が出るので、メニューの「データを追加」からデータを入れて公開します。AI の設定がまだのときは「AI の設定がまだのようです」と案内が出るので、「設定を開く」ボタンから設定できます（サーバ側ですでに AI が設定済みなら、この画面はそのまま使えます）。</p>
+<h2 id="入口">入口</h2>
+<p>メニューの「質問する」から開きます。入力欄に質問を書いて Enter で送信、Shift+Enter で改行できます。</p>
+<figure><img src="../screenshots/ask-empty.png" alt="質問する画面の入力前の状態"></figure>
+<h2 id="答えの見方">答えの見方</h2>
+<p>答えには、調べ方の確からしさを示すバッジが付きます。</p>
+<ul><li>「確かめられる答え」— 人が確認ずみの決まった調べ方で、同じ質問ならいつも同じ結果になります。</li><li>「根拠つきの回答」— 公開したデータに基づく回答です。</li><li>「AI が組み立てた調べ方（未検証）」— AI がその場でクエリを組み立てて調べています。人の確認前なので、数字を使う前に出どころで確かめてください。</li><li>「出どころのない答え」— AI の説明のみで、出どころが付いていません。数字として使わないでください。</li></ul>
+<h2 id="出どころをたどる">出どころをたどる</h2>
+<p>答えに付く引用カードをクリックすると、出どころのパネルが開きます。その値がどのデータ・どのファイル・どの取り込みから来たかをたどって確認できます。ID の部分はクリックでコピーでき、「このデータセットを開く」ボタンから元のデータセットの画面にも進めます。</p>
+<h2 id="チャットの履歴">チャットの履歴</h2>
+<p>画面の履歴一覧から、これまでのチャットを開き直せます。「新しいチャット」ボタンで新しく始められ、各チャットは「名前を変更」ボタンで名前を付け直せ、不要になったものは削除できます。保存先は、ブラウザ版ではこのブラウザ内、デスクトップ版ではこの PC です。</p>
+<h2 id="数値の比べ方の注意">数値の比べ方の注意</h2>
+<p>答えが、数字ではなく文字として保存されている列の大小を比べていることがあります。この場合、最大・最小・順位が正しくないことがあるという注意が表示されます。データセットの画面にある「設計を見直す」ボタンに進み、その列が数値であることを AI に伝えて作り直すと、正しく比べられるようになります。</p>
+<h2 id="開発者向け">開発者向け</h2>
+<p>メニューの「開発者向け」は、クエリを直接書く画面です。SPARQL に馴染みがなければ使う必要はありません。ふつうの質問はメニューの「質問する」からどうぞ。</p>
+<h2 id="関連">関連</h2>
+<p>データを公開するまでの流れは <a href="./getting-started.html">getting-started.md</a>、複数のデータセットをまたいで聞きたいときは <a href="./crosswalk.html">crosswalk.md</a>を参照してください。</p>
+<footer>この文書は <a href="https://github.com/kumagallium/asterism">kumagallium/asterism</a>
+の <code>manual/ja/ask.md</code> から生成されています。</footer>
+</main>
+</div>
+</div>
+</body>
+</html>
