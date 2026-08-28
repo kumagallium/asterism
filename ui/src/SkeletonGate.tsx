@@ -2306,6 +2306,22 @@ export function SkeletonGate({
               {t('skeletongate:zone.droppedNote', { count: droppedHere.length })}
             </p>
           )}
+          {/* 「どれを種類にするか」の判断基準は、これまで AI の骨格プロンプトに
+              しか書かれていなかった（PROMOTE THE THINGS THE OUTSIDE WORLD ALSO
+              NAMES / WHEN IN DOUBT, PROMOTE）。決めるのは人なので、人にも渡す。
+              畳んであるのは、薦めのまま進む人には読まずに済ませてほしいから。 */}
+          <details className="kz-fold">
+            <summary>{t('skeletongate:zone.chooseSummary')}</summary>
+            <p className="kz-note kz-prose">{t('skeletongate:zone.chooseYes')}</p>
+            <ul className="kz-stop-plainlist">
+              <li>{t('skeletongate:zone.chooseYes1')}</li>
+              <li>{t('skeletongate:zone.chooseYes2')}</li>
+              <li>{t('skeletongate:zone.chooseYes3')}</li>
+            </ul>
+            <p className="kz-note kz-prose">{t('skeletongate:zone.chooseNo')}</p>
+            {/* 非対称なので既定が決まる: 余分は消せる、足りないのは戻せない。 */}
+            <p className="kz-note kz-prose">{t('skeletongate:zone.chooseDoubt')}</p>
+          </details>
           <div className="skeleton-header-zone">
           <table className="skeleton-entity-props">
             <tbody>

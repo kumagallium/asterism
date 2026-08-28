@@ -91,7 +91,14 @@
     "keyNote": "A column marked “this table’s ID” is already in use as that kind’s ID. To use a different column, open “Write the ID recipe yourself” in the tabs below.",
     "droppedNote": "{{count}} column(s) you chose not to take in on the meanings screen are not listed here (go back to change that).",
     "newKind": "+ Make this value a kind",
-    "assignAria": "Which kind carries {{column}}"
+    "assignAria": "Which kind carries {{column}}",
+    "chooseSummary": "Which ones should be kinds?",
+    "chooseYes": "If any of these fit, making it a kind will save you later:",
+    "chooseYes1": "The outside world calls it by the same name — a material, a composition, a space group, a radiation source, a DOI, a catalogue number, an instrument, a person, an organisation, a standard classification code",
+    "chooseYes2": "You will want to say something about the value itself — as a plain item it can never carry facts of its own",
+    "chooseYes3": "Two or more kinds need to refer to it — as a plain item only one of them can have it (writing it on both puts the same fact in two places)",
+    "chooseNo": "Values that only mean something inside this file (a free-text note, a local serial) and measured numbers themselves are fine as plain items.",
+    "chooseDoubt": "When in doubt, make it a kind. A spare kind can be removed on this screen; a missing one cannot be added without redoing the design — and once you publish and hand out IDs, it cannot be moved at all."
   },
   "removeZoneHost": "This kind holds the table-wide values. Deleting it also removes the “choose the values” list. If you only want a different ID column, use “Write the ID recipe yourself”.",
   "kindsHead": "Check that each ID points at one thing",
