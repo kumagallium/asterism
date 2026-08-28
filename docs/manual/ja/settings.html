@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>設定 — AI・利用許可コード・保存先 — Asterism マニュアル</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<div class="wrap">
+<div class="cols">
+<nav class="toc" aria-label="目次"><a class="toc-home" href="index.html">Asterism マニュアル</a><h2>はじめに</h2><ol><li><a href="getting-started.html">はじめる</a></li></ol><h2>データを育てる</h2><ol><li><a href="add-data.html">データの追加</a></li><li><a href="datasets.html">データセットの管理</a></li><li><a href="crosswalk.html">つながり</a></li></ol><h2>つかう</h2><ol><li><a href="ask.html">質問する</a></li><li><a href="vocab-and-grounding.html">共通の言葉</a></li></ol><h2>しくみを知る</h2><ol><li><a href="rdf-basics.html">つながったデータの基礎</a></li><li><a href="dataset-files.html">データセットの中のファイル</a></li></ol><h2>そばに置く</h2><ol><li><a href="consult.html">相談チャット</a></li><li><a class="here" href="settings.html">設定</a></li><li><a href="desktop.html">デスクトップ版と自動更新</a></li></ol><h2>困ったときは</h2><ol><li><a href="screens.html">画面別の導線リファレンス</a></li></ol></nav>
+<main>
+<h1 id="設定-AI-利用許可コード-保存先">設定 — AI・利用許可コード・保存先</h1>
+<h2 id="設定の開き方">設定の開き方</h2>
+<p>左下の「設定」を開くと、タブに分かれた設定画面になります。</p>
+<figure><img src="../screenshots/settings-overview.png" alt="設定画面全体（タブ一覧）"></figure>
+<h2 id="AI-タブ">「AI」タブ</h2>
+<p>使う AI をここに登録します。プロバイダは Anthropic (Claude) / OpenAI /OpenAI 互換（さくらの AI Engine / Groq / Ollama など）から選べます。登録した中から選んだ 1 つが、「データを追加」「質問する」など全機能で使われます。</p>
+<p>「モデル一覧を取得」ボタンで、接続先から使えるモデルの一覧を取り寄せられます。サーバに既定のキーが設定済みのプロバイダは、キーを入力しなくてもそのまま使えます。「このブラウザに記憶する」をオンにするとキーはlocalStorage に保存されて再読み込み後も残り、オフだとタブを閉じるまでのsessionStorage のみになります。「このサーバのみんなで使う」を選ぶと、キーはサーバに保存され、使う人が自分でキーを用意しなくても AI が使えるようになります（キーの中身は誰の画面にも表示されません）。トークン単価を設定すると、使った分のコストを概算できるようになります。</p>
+<h2 id="このサーバ-タブ">「このサーバ」タブ</h2>
+<p>データの取り込み・公開などの書き込み操作には、このサーバの利用許可コードが必要です。欄に貼り付けると、このタブを閉じるまで有効になります。貼り付けたコードが正しいかは「もう一度確かめる」ボタンで検証できます。</p>
+<p>同じタブの「ID の発行元」では、新しいデータセットの ID が作られるアドレスを確認できます。お試しに使うだけなら仮のアドレスのままで十分ですが、公開したあともずっと引用できる ID にするには、サーバ側でこのアドレスを設定します。</p>
+<h2 id="AI-の使用量-タブ">「AI の使用量」タブ</h2>
+<p>各 AI 呼び出しで使ったトークン数の集計と、概算コストを確認できます。日・月・年の粒度で切り替えられ、機能（質問する・設計の提案など）× モデルの内訳も見られます。トークン単価を設定していないモデルの使用分は、概算コストには含まれません。</p>
+<figure><img src="../screenshots/settings-usage.png" alt="AI の使用量タブ"></figure>
+<h2 id="保存先-タブ">「保存先」タブ</h2>
+<p>データセット・グラフ・チャット・設定を保存するフォルダを確認・変更できます（変更はデスクトップアプリのみ）。「変更…」ボタンから別の場所を選べます。選んだ場所が同期フォルダ（Dropbox など）だと、複数端末から同時に開いたときに壊れることがあるため推奨されません。既存のデータは自動では移動されないので、引き継ぎたいときはアプリを終了してから旧フォルダの中身を新しいフォルダへ手動でコピーします。</p>
+<h2 id="ほかの-AI-から使う-タブ">「ほかの AI から使う」タブ</h2>
+<p>Asterism に取り込んだデータを、Claude Code・Claude Desktop・Cursor・VS Codeなどの AI から直接聞けるようにするタブです。データをコピーして渡すのではなく、AI に<strong>接続先</strong>（<code>http://127.0.0.1:8765/mcp</code> のようなアドレス）を教えるだけで、その AI が Asterism に問い合わせて答えます。</p>
+<p>使っている AI を選ぶと、その AI に必要な手順と、貼り付ける内容が出ます。「コピー」ボタンで写して、AI 側に貼り付けてください。接続先は起動のたびにこの画面で確認します（別のプログラムが同じ番号を使っていると、Asterism は別の番号で起動するため）。</p>
+<p>Asterism を起動している間だけ使えます。アプリを終了すると、AI からは繋がらなくなります。</p>
+<h2 id="このアプリ-タブ">「このアプリ」タブ</h2>
+<p>インストールされているバージョンの確認と、更新の確認ができます。詳しくは<a href="./desktop.html">desktop.md</a> を参照してください。</p>
+<h2 id="関連">関連</h2>
+<p>設計について AI に相談したいときは <a href="./consult.html">consult.md</a>、公開したデータへの質問は <a href="./ask.html">ask.md</a> を参照してください。</p>
+<footer>この文書は <a href="https://github.com/kumagallium/asterism">kumagallium/asterism</a>
+の <code>manual/ja/settings.md</code> から生成されています。</footer>
+</main>
+</div>
+</div>
+</body>
+</html>

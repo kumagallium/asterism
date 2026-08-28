@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>データの追加 — 対応ファイルと読み取りの確認 — Asterism マニュアル</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<div class="wrap">
+<div class="cols">
+<nav class="toc" aria-label="目次"><a class="toc-home" href="index.html">Asterism マニュアル</a><h2>はじめに</h2><ol><li><a href="getting-started.html">はじめる</a></li></ol><h2>データを育てる</h2><ol><li><a class="here" href="add-data.html">データの追加</a></li><li><a href="datasets.html">データセットの管理</a></li><li><a href="crosswalk.html">つながり</a></li></ol><h2>つかう</h2><ol><li><a href="ask.html">質問する</a></li><li><a href="vocab-and-grounding.html">共通の言葉</a></li></ol><h2>しくみを知る</h2><ol><li><a href="rdf-basics.html">つながったデータの基礎</a></li><li><a href="dataset-files.html">データセットの中のファイル</a></li></ol><h2>そばに置く</h2><ol><li><a href="consult.html">相談チャット</a></li><li><a href="settings.html">設定</a></li><li><a href="desktop.html">デスクトップ版と自動更新</a></li></ol><h2>困ったときは</h2><ol><li><a href="screens.html">画面別の導線リファレンス</a></li></ol></nav>
+<main>
+<h1 id="データの追加-対応ファイルと読み取りの確認">データの追加 — 対応ファイルと読み取りの確認</h1>
+<p>「入れる」ステップで置けるファイルの種類と、そのあとの「読み取りの確認」画面でできることをまとめます。手順そのものは<a href="./getting-started.html">getting-started.md</a> を参照してください。</p>
+<h2 id="対応しているファイル形式">対応しているファイル形式</h2>
+<ul><li>Excel・CSV・装置が出力したファイル（.txt / .dat）</li><li>Word / PDF</li><li>JSON</li></ul>
+<figure><img src="../screenshots/add-data-drop.png" alt="ファイルを置く入り口の画面"></figure>
+<p>種類のちがうファイルが混ざっているときは、表（Excel / CSV / 装置ファイル）・JSON・文書（Word / PDF）を分けて置いてください。置いたら読み取りが始まりますが、公開するまで内容は誰にも見えません。</p>
+<h2 id="サンプルデータで試す">サンプルデータで試す</h2>
+<p>手元にファイルが無いときは「まずサンプルデータで試す」ボタンで最後まで試せます。測定データの例（5 列 20 行）が用意され、あとでデータセットのページから消せます。</p>
+<h2 id="読み取りの確認でできること">読み取りの確認でできること</h2>
+<p>ファイルを置くと、先頭 5 行のプレビューが表示され、正しく読み取れているか確かめられます。表がずれているときは「表が正しく読めていない？」を開くと、次の内容をその場で変えられ、プレビューが即座に描き直されます。</p>
+<ul><li>列の分けかた（カンマ／タブ／セミコロン／スペース）</li><li>表が始まる前の行数</li><li>文字化けの直しかた（Excel（日本語）／UTF-8）</li></ul>
+<figure><img src="../screenshots/add-data-preview.png" alt="読み取りの確認画面のプレビューと直し欄"></figure>
+<h2 id="AI-からの質問に答える">AI からの質問に答える</h2>
+<p>読み取った内容を AI が確認し、あなたしか知らないことだけを聞いてきます。たとえば次のような質問です。</p>
+<ul><li>表の前にあった条件らしい行を、表の各行と一緒に記録するかどうか</li><li>ある列の通し番号が、このファイルの中だけのものか、他のファイルにも出てくるものか</li><li>複数のファイルをつなぐ共通の列はどれか</li></ul>
+<p>表の前にあった値に項目名が付いていないときは、名前を付ける欄が出ることもあります。分からなければ空欄のまま進め、あとから直せます。</p>
+<h2 id="Excel-の複数シート">Excel の複数シート</h2>
+<p>Excel ファイルに表が複数あるときは、使うものを選びます。グラフ用・メモ用のシートは外しておくと、このあとの確認が楽になります。</p>
+<h2 id="Word-PDF-などの文書">Word / PDF などの文書</h2>
+<p>Word・PDF は AI を使わずそのまま取り込めます。文書名を付けて取り込み、読み取りが終わったら公開すると、文ごとに検索・引用できるようになります。PDF はレイアウトも読むため、数分かかることがあります。文字が画像になっているスキャン画像の PDF は読み取れません。</p>
+<h2 id="前回の続き">前回の続き</h2>
+<p>前に置いたファイルがブラウザに残っているときは、「このファイルの続きから使う」か「新しいファイルを置く」かを選べます。同じファイルをもう一度置くと、前回の確認の続きから再開できます。</p>
+<h2 id="書き込みに利用許可コードが必要な環境">書き込みに利用許可コードが必要な環境</h2>
+<p>このサーバへの書き込みに利用許可コードが必要な環境では、設定に入力すると先に進めます。詳しい手順は <a href="./settings.html">settings.md</a> を参照してください。</p>
+<h2 id="関連">関連</h2>
+<ul><li>「入れる」からあとの手順全体は <a href="./getting-started.html">getting-started.md</a></li><li>取り込んだあとの管理・公開は <a href="./datasets.html">datasets.md</a></li></ul>
+<footer>この文書は <a href="https://github.com/kumagallium/asterism">kumagallium/asterism</a>
+の <code>manual/ja/add-data.md</code> から生成されています。</footer>
+</main>
+</div>
+</div>
+</body>
+</html>

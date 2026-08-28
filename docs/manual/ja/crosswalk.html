@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>つながり — 別々のデータを共通の値でつなぐ — Asterism マニュアル</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<div class="wrap">
+<div class="cols">
+<nav class="toc" aria-label="目次"><a class="toc-home" href="index.html">Asterism マニュアル</a><h2>はじめに</h2><ol><li><a href="getting-started.html">はじめる</a></li></ol><h2>データを育てる</h2><ol><li><a href="add-data.html">データの追加</a></li><li><a href="datasets.html">データセットの管理</a></li><li><a class="here" href="crosswalk.html">つながり</a></li></ol><h2>つかう</h2><ol><li><a href="ask.html">質問する</a></li><li><a href="vocab-and-grounding.html">共通の言葉</a></li></ol><h2>しくみを知る</h2><ol><li><a href="rdf-basics.html">つながったデータの基礎</a></li><li><a href="dataset-files.html">データセットの中のファイル</a></li></ol><h2>そばに置く</h2><ol><li><a href="consult.html">相談チャット</a></li><li><a href="settings.html">設定</a></li><li><a href="desktop.html">デスクトップ版と自動更新</a></li></ol><h2>困ったときは</h2><ol><li><a href="screens.html">画面別の導線リファレンス</a></li></ol></nav>
+<main>
+<h1 id="つながり-別々のデータを共通の値でつなぐ">つながり — 別々のデータを共通の値でつなぐ</h1>
+<h2 id="つながりとは">つながりとは</h2>
+<p>別々のデータに同じ値（試料名・組成など）があると、それを手がかりに両方をまたいで質問できるようになります。これが「つながり」です。作るときに AI は使いません。実際の値どうしを機械的に突き合わせて、共通の値を見つけます。</p>
+<p>つなぎ方は 1 つに限りません。同じデータどうしでも、別の手がかり（組成でつなぐ、著者でつなぐ、など）で新しいつながりを増やせます。</p>
+<h2 id="前提">前提</h2>
+<p>つながりを作るには、公開済みのデータが 2 つ以上必要です。まだ 1 つしか公開していない場合は、先にもう 1 つ公開してください。</p>
+<h2 id="入口">入口</h2>
+<p>メニューの「つながり」から、いまあるつながりの一覧を見たり、新しく作ったりできます。データセットの詳細画面の「つながり」タブからも、そのデータセットに関わるつながりを確認できます。</p>
+<figure><img src="../screenshots/crosswalk-list.png" alt="メニューの「つながり」を開いた一覧画面"></figure>
+<h2 id="つなげそうな組み合わせをさがす">つなげそうな組み合わせをさがす</h2>
+<p>「つなげそうな組み合わせをさがす」ボタンを押すと、いまあるデータの中身を自動で見比べ、共通の値が多い順に候補を提示します。</p>
+<p>候補カードには次の情報が付きます。</p>
+<ul><li>一致した値の実例（実際のデータの値）</li><li>つながるデータセットと、その項目</li><li>注意（一致した値が 1 種類だけでたまたまかもしれない、データの大きさが大きく違う、など）</li></ul>
+<p>作りたい候補が見つかったら「これでつなぐ」ボタンで確認画面に進み、つながりに名前を付けて作ります。</p>
+<figure><img src="../screenshots/crosswalk-discover.png" alt="つなげそうな組み合わせの候補カード"></figure>
+<h2 id="自分で組み合わせを決める">自分で組み合わせを決める</h2>
+<p>候補まかせにせず、自分でつなぎ方を決めることもできます。「自分で組み合わせを決める」ボタンから、次の順で指定します。</p>
+<ol><li>つなぐデータセットを 2 つ以上選ぶ</li><li>つなぐ概念（英数字のキー。例: composition, crystal_system）を決める</li><li>各データセットで、その概念を表す項目を指定する（「AI に提案させる」ボタンで候補を出させることもできます）</li><li>同じ値とみなす基準（次節）を選ぶ</li><li>この視点（つなぎ方）の名前を付ける</li></ol>
+<h2 id="同じ値とみなす基準-正規化">同じ値とみなす基準（正規化）</h2>
+<p>表記のゆれをどこまで同じ値として扱うかを選べます。</p>
+<div class="tablewrap"><table><thead><tr><th>基準</th><th>内容</th></tr></thead><tbody><tr><td>そのまま一致</td><td>表記が完全に同じものだけをつなぐ</td></tr><tr><td>大文字・小文字を無視</td><td>FeO と feo を同じとみなす</td></tr><tr><td>空白の違いを無視</td><td>前後・連続する空白の違いを無視する</td></tr><tr><td>全角・半角を揃える</td><td>全角・半角や互換文字の違いを無視する</td></tr><tr><td>ゆるく一致</td><td>大文字小文字・空白・全角半角をまとめて無視する</td></tr><tr><td>組成式として揃える</td><td>添字や空白の違いを吸収する（元素の並び順は区別）</td></tr><tr><td>組成式＋元素順も揃える</td><td>元素の並び順が違っても同じ組成として扱う</td></tr><tr><td>カスタム</td><td>手順（プリミティブ）を自分で組み合わせて基準を作る</td></tr></tbody></table></div>
+<p>組成には大文字・小文字を無視する基準は使えません（Co と CO は別の元素なので、同じ値とみなすと間違った一致になります）。</p>
+<h2 id="追加の一致条件">追加の一致条件</h2>
+<p>つなぐ概念だけでなく、複数の条件がすべて一致したときだけつなぐ、という指定もできます。たとえば「組成」かつ「結晶系」が両方一致したときだけつなぐ、といった使い方です。</p>
+<h2 id="できたつながりの画面">できたつながりの画面</h2>
+<p>作ったつながりの画面では、次のことが確認できます。</p>
+<ul><li>両方に出てくる値の一致数と、つながっているデータの件数</li><li>またいで使える道具（この値は何データセットが報告しているか、をその場で調べられます。ここでも AI は使いません）</li><li>「最新のデータで作り直す」ボタン（つないだあとにデータを追記したときに押します。公開されていないデータは、作り直しても入りません）</li></ul>
+<figure><img src="../screenshots/crosswalk-detail.png" alt="できたつながりの詳細画面（一致数・道具・作り直すボタン）"></figure>
+<h2 id="つながりどうしを対応づける">つながりどうしを対応づける</h2>
+<p>別々に作ったつながりが使っていることばが、実は同じものを指しているとき、その対応を残せます。あとから取り消すこともできます。</p>
+<h2 id="全体像">全体像</h2>
+<p>サイドバーのメニューには専用の項目はありませんが、「全体像を見る」ボタンから、どんなデータがあって、どうつながっているかを 1 枚の図で俯瞰できます。外部の標準（よく使われる標準のことば）も、表示に含めて見ることができます。</p>
+<figure><img src="../screenshots/crosswalk-map.png" alt="全体像を見るボタンから開いた俯瞰図"></figure>
+<h2 id="関連">関連</h2>
+<ul><li>データに質問する流れは <a href="./ask.html">ask.md</a> を参照してください。</li><li>項目名やことばを揃える話は <a href="./vocab-and-grounding.html">vocab-and-grounding.md</a>を参照してください。</li></ul>
+<footer>この文書は <a href="https://github.com/kumagallium/asterism">kumagallium/asterism</a>
+の <code>manual/ja/crosswalk.md</code> から生成されています。</footer>
+</main>
+</div>
+</div>
+</body>
+</html>

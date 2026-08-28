@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>データセットの中のファイル — どれが何をしているか — Asterism マニュアル</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<div class="wrap">
+<div class="cols">
+<nav class="toc" aria-label="目次"><a class="toc-home" href="index.html">Asterism マニュアル</a><h2>はじめに</h2><ol><li><a href="getting-started.html">はじめる</a></li></ol><h2>データを育てる</h2><ol><li><a href="add-data.html">データの追加</a></li><li><a href="datasets.html">データセットの管理</a></li><li><a href="crosswalk.html">つながり</a></li></ol><h2>つかう</h2><ol><li><a href="ask.html">質問する</a></li><li><a href="vocab-and-grounding.html">共通の言葉</a></li></ol><h2>しくみを知る</h2><ol><li><a href="rdf-basics.html">つながったデータの基礎</a></li><li><a class="here" href="dataset-files.html">データセットの中のファイル</a></li></ol><h2>そばに置く</h2><ol><li><a href="consult.html">相談チャット</a></li><li><a href="settings.html">設定</a></li><li><a href="desktop.html">デスクトップ版と自動更新</a></li></ol><h2>困ったときは</h2><ol><li><a href="screens.html">画面別の導線リファレンス</a></li></ol></nav>
+<main>
+<h1 id="データセットの中のファイル-どれが何をしているか">データセットの中のファイル — どれが何をしているか</h1>
+<p>データセットを 1 つ作ると、いくつかのファイルが一緒に保存されます。この章では、それぞれが何のためにあり、いつ使われるのかを説明します。用語（RDF・IRI・クラス・属性・SPARQL）は <a href="./rdf-basics.html">rdf-basics.md</a> で説明しています。</p>
+<h2 id="どこで見られるか">どこで見られるか</h2>
+<p>データセットの詳細画面を開き、「元のファイルとの対応（技術情報）」タブの下のほうにある「詳しい内容（技術情報）: 変換ルール（RML）と関連ファイル」を開くと、ファイルが並びます。どれも開いて中身を読めます。</p>
+<h2 id="早見表">早見表</h2>
+<div class="tablewrap"><table><thead><tr><th>表示名</th><th>ファイル</th><th>役割</th><th>取り込みで実行される？</th></tr></thead><tbody><tr><td>変換ルール</td><td><code>mapping.rml.ttl</code></td><td>表を事実に変える規則の<strong>実行される正本</strong></td><td><strong>される</strong></td></tr><tr><td>仕様</td><td><code>mapping.yaml</code></td><td>変換ルールを人が読める形で書いた<strong>元の仕様</strong></td><td>されない（RML の材料）</td></tr><tr><td>検索タグ</td><td><code>mie.yaml</code></td><td>このデータを<strong>探すときの言葉</strong>と、質問の例</td><td>されない</td></tr><tr><td>設計書</td><td><code>proposal.md</code></td><td>AI 提案と人のレビューを経た<strong>設計の全文</strong></td><td>されない</td></tr></tbody></table></div>
+<p>画面には出ませんが、同じ場所に次のものも保存されています。</p>
+<div class="tablewrap"><table><thead><tr><th>ファイル</th><th>役割</th></tr></thead><tbody><tr><td><code>model.yaml</code></td><td>クラスと属性の一覧。「共通の言葉」の表示名のもと</td></tr><tr><td><code>diagram.md</code></td><td>「中身」タブに出る構造図（クラス図）のもと</td></tr><tr><td><code>meta.json</code></td><td>状態・件数・検査結果・気になる点</td></tr><tr><td><code>source/</code></td><td>取り込んだ元のファイルそのもの（あとから作り直せるように）</td></tr></tbody></table></div>
+<h2 id="どういう順番で生まれるか">どういう順番で生まれるか</h2>
+<p>すべては 1 つの設計書（<code>proposal.md</code>）から切り出されます。</p>
+<figure><img src="../figures/file-lineage.svg" alt="元ファイルから設計書が作られ、その各節から 4 つのファイルが切り出される図"></figure>
+<p>図中の §1〜§9 は、設計書 <code>proposal.md</code> の中の節番号です（画面のステップとは別のものです）。ここまでが<strong>設計</strong>で、まだデータは 1 件も作られていません。</p>
+<h2 id="取り込みと公開で何が動くか">取り込みと公開で何が動くか</h2>
+<p>「取り込み・公開」タブで「データを取り込む」ボタンを押したとき、実際に走るのは変換ルール（<code>mapping.rml.ttl</code>）だけです。</p>
+<figure><img src="../figures/ingest-run.svg" alt="変換ルールと元ファイルが安全確認を経て変換され、下書きから公開に進む流れの図"></figure>
+<ul><li>取り込んだ直後は<strong>下書き</strong>です。この段階では誰にも見えず、質問の答えにも引用されません。</li><li>「公開する」ボタンを押してはじめて、質問の答えが引用するようになります。</li><li>公開前と公開後で、どのファイルも書き換わりません。同じ変換ルールが作ったデータが、置き場所を移るだけです。</li></ul>
+<p><strong>AI が書いたプログラムは、どこでも実行されません。</strong> AI が書くのは「規則」だけで、それを解釈して動くのは決まったエンジンです。エンジンが呼べる関数もあらかじめ人が確かめた一覧に限られ、読めるファイルもこのデータセットのものだけに制限されています。</p>
+<h2 id="一つずつ">一つずつ</h2>
+<h3 id="変換ルール-mapping-rml-ttl">変換ルール（<code>mapping.rml.ttl</code>）</h3>
+<p><strong>表のどの列を、どの種類の、どの項目として記録するか</strong>を書いた規則です。RML という標準の書き方に従っています。1 行はおおよそこう読みます。</p>
+<pre><code>元ファイル xrd-17961dd6.txt を読む
+  1 行につき 1 件、名前は .../peak/{No}/{(hkl)} の形で作る
+  列 2theta の値を、項目 twoTheta として、数値で記録する</code></pre>
+<p>このファイルだけが実際に実行されます。ただし実行前に安全確認があり、許可された操作しか含まれていないことを毎回確かめてから動きます。<strong>手で書き換えないでください</strong>。次に説明する仕様から機械が作り直すため、直接の修正は上書きされます（ファイルの先頭にも同じ注意が書かれています）。</p>
+<h3 id="仕様-mapping-yaml">仕様（<code>mapping.yaml</code>）</h3>
+<p>変換ルールと同じ内容を、人が読める形で書いたものです。実際に人がレビューするのはこちらで、変換ルールはここから機械的に作られます。AI は関与しません。</p>
+<pre><code class="lang-yaml">maps:
+- name: peak
+  source: xrd-17961dd6.txt
+  subject:
+    template: xrdr:peak/{No}/{(hkl)}   # ID のつけかた
+  properties:
+  - label: 2θ（角度）                   # 画面に出る名前
+    predicate: xrd:twoTheta            # 項目の IRI
+    column: 2theta                     # 元の列名
+    unit: °
+    datatype: xsd:double               # 数値として記録する</code></pre>
+<p><strong>設計を直すときに実質的に変わるのはこのファイルです。</strong> 仕様を直せば変換ルールが作り直されるので、書き方の誤りで取り込みが失敗する、ということが起きません。直す操作そのものは「設計を見直す」ボタンから行います。</p>
+<p><code>template:</code> に書かれた <code>{No}</code> に注目してください。これは<strong>表の列ではなく、ファイルの先頭に書かれていた <code>No: 03-065-2664</code> という行</strong>です。末尾の<code>dialects:</code> に <code>preamble: keyvalue</code> と書かれていると、先頭の条件が表の全行に配られ、こうして ID の材料に使えるようになります。</p>
+<pre><code class="lang-yaml">dialects:
+  xrd-17961dd6.txt:
+    encoding: utf-8-sig      # 文字コード
+    delimiter: whitespace    # 区切りは空白の連続
+    skip_rows: 23            # 先頭 23 行は表ではない
+    preamble: keyvalue       # その 23 行は捨てず、全行に配る</code></pre>
+<p><code>preamble</code> を <code>drop</code>（捨てる）にすると <code>{No}</code> は使えなくなり、ID は<code>(hkl)</code> だけになって材料をまたいで衝突します。装置ファイルでこの指定が効いているかは、ID を確かめる画面で必ず見てください。</p>
+<h3 id="検索タグ-mie-yaml">検索タグ（<code>mie.yaml</code>）</h3>
+<p><strong>このデータセットを探すときの言葉</strong>と、使い方の見本をまとめたものです。中身は次の 4 つです。</p>
+<div class="tablewrap"><table><thead><tr><th>項目</th><th>内容</th></tr></thead><tbody><tr><td>題名・説明・キーワード・分野</td><td>探すときの手がかり</td></tr><tr><td>データの見本</td><td>実際に作られる事実の例（数件）</td></tr><tr><td>質問の例</td><td>このデータに対する SPARQL の例</td></tr><tr><td>避けるべき書き方・設計の理由</td><td>将来の見直しのための記録</td></tr></tbody></table></div>
+<p>このファイルは変換には使われません。使われるのは次の場面です。</p>
+<ul><li>公開したとき、外部のカタログに載せる（他の人や AI が見つけられるように）</li><li>検査のとき、キーワードが十分か、見本が実データと合っているかを確かめる</li><li>語彙の名前空間を読み取る</li></ul>
+<h3 id="設計書-proposal-md">設計書（<code>proposal.md</code>）</h3>
+<p>AI の提案と、それに対する人の指摘・修正のやりとりを含んだ設計の全文です。上の図のとおり、他のファイルはここから切り出されています。</p>
+<p>「なぜこの ID のつけかたにしたのか」「なぜこの列を使わなかったのか」を後日確かめたいときは、このファイルの「設計の理由」の節を読みます。</p>
+<h3 id="そのほか">そのほか</h3>
+<ul><li><code>model.yaml</code> — 種類と項目の一覧です。メニューの「共通の言葉」に出る表示名は、ここと仕様から作られます。</li><li><code>diagram.md</code> — 「中身」タブに出る構造図のもとです。仕様から機械的に作られます。</li><li><code>meta.json</code> — 公開済みか下書きか、事実が何件あるか、検査で何が引っかかったかが入っています。画面に出ている状態表示はここから来ています。</li><li><code>source/</code> — 取り込んだ元のファイルそのものです。これがあるおかげで、設計を見直したあと、元ファイルを置き直さなくても作り直せます。</li></ul>
+<h2 id="直したいときにどれを触るか">直したいときにどれを触るか</h2>
+<div class="tablewrap"><table><thead><tr><th>やりたいこと</th><th>触るもの</th><th>操作</th></tr></thead><tbody><tr><td>項目の名前・単位・数値かどうかを直す</td><td>仕様</td><td>「設計を見直す」ボタン</td></tr><tr><td>ID のつけかたを変える</td><td>仕様</td><td>「設計を見直す」ボタン</td></tr><tr><td>使っていない列を足す</td><td>仕様</td><td>「設計を見直す」ボタン</td></tr><tr><td>探すときの言葉を足す</td><td>検索タグ</td><td>「設計を見直す」ボタン</td></tr><tr><td>変換ルールを直接直す</td><td>—</td><td>しません（仕様から作り直されます）</td></tr></tbody></table></div>
+<p>いずれの場合も、直したあとに取り込みからやり直します。公開済みのデータは、新しい下書きができるまで置き換わらないので、その間も質問には答えられます。</p>
+<h2 id="過去の版">過去の版</h2>
+<p>設計を見直すたび、その時点のファイル一式が履歴として残ります。「いつ・何が変わったのか」は、詳細画面の技術情報から差分として確認できます。</p>
+<h2 id="関連">関連</h2>
+<ul><li>用語の説明は <a href="./rdf-basics.html">rdf-basics.md</a> を参照してください。</li><li>取り込み・公開・見直しの操作は <a href="./datasets.html">datasets.md</a> を参照してください。</li><li>元のファイルの読み取り（文字コード・見出し行）は<a href="./add-data.html">add-data.md</a> を参照してください。</li></ul>
+<footer>この文書は <a href="https://github.com/kumagallium/asterism">kumagallium/asterism</a>
+の <code>manual/ja/dataset-files.md</code> から生成されています。</footer>
+</main>
+</div>
+</div>
+</body>
+</html>

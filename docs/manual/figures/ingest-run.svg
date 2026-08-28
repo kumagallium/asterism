@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 320" role="img" aria-label="変換ルールと元ファイルが安全確認を経て変換エンジンに渡り、下書きに入り、公開されてはじめて質問に引用される流れの図">
+<style>
+  :root{
+    --ink:#16241a; --body:#33453a; --muted:#54695b; --faint:#84987f;
+    --surface:#ffffff; --surface-alt:#f5f9f3; --sink:#e5ede3;
+    --line:#d5e0d2; --line-strong:#bccdb9;
+    --entity:#2f6b41; --entity-soft:#dcebe0;
+    --link:#2d5c86; --link-soft:#dae7f3;
+    --accent:#a3661f; --accent-soft:#f4e6d4;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --ink:#e9f1e8; --body:#c3d3c5; --muted:#98ab9a; --faint:#748a76;
+      --surface:#18211a; --surface-alt:#1d2820; --sink:#131c15;
+      --line:#2b382c; --line-strong:#3f4f40;
+      --entity:#7cc491; --entity-soft:#1d3626;
+      --link:#88b6e0; --link-soft:#16293b;
+      --accent:#e0a862; --accent-soft:#33261a;
+    }
+  }
+  text{font-family:"Hiragino Kaku Gothic ProN","Noto Sans JP",system-ui,sans-serif; font-size:13px; fill:var(--ink)}
+  .m{font-family:"SF Mono",Menlo,Consolas,"IBM Plex Mono",monospace}
+  .sm{font-size:11.5px}
+  .xs{font-size:10.5px; letter-spacing:.06em}
+  .t-mut{fill:var(--muted)}
+  .t-fnt{fill:var(--faint)}
+  .t-ent{fill:var(--entity)}
+  .t-lnk{fill:var(--link)}
+  .t-acc{fill:var(--accent)}
+  .b{font-weight:700}
+  .box{fill:var(--surface); stroke:var(--line-strong); stroke-width:1.25}
+  .box-alt{fill:var(--surface-alt); stroke:var(--line-strong); stroke-width:1.25}
+  .box-sink{fill:var(--sink); stroke:var(--line-strong); stroke-width:1.25}
+  .box-ent{fill:var(--entity-soft); stroke:var(--entity); stroke-width:1.5}
+  .box-lnk{fill:var(--link-soft); stroke:var(--link); stroke-width:1.5}
+  .box-acc{fill:var(--accent-soft); stroke:var(--accent); stroke-width:1.5}
+  .ln{stroke:var(--line-strong); stroke-width:1.5; fill:none}
+  .ln-lnk{stroke:var(--link); stroke-width:1.5; fill:none}
+  .ln-ent{stroke:var(--entity); stroke-width:1.5; fill:none}
+  .ln-dash{stroke:var(--line-strong); stroke-width:1.5; fill:none; stroke-dasharray:5 4}
+  .ln-thin{stroke:var(--line); stroke-width:1; fill:none}
+  .head{fill:var(--line-strong)}
+  .head-lnk{fill:var(--link)}
+  .head-ent{fill:var(--entity)}
+</style>
+
+  <rect class="box-ent" x="16" y="34" width="164" height="48" rx="8"/>
+  <text x="98" y="55" class="xs b m t-ent" text-anchor="middle">mapping.rml.ttl</text>
+  <text x="98" y="72" class="xs t-mut" text-anchor="middle">変換ルール</text>
+
+  <rect class="box" x="16" y="112" width="164" height="48" rx="8"/>
+  <text x="98" y="133" class="xs b m" text-anchor="middle">source/</text>
+  <text x="98" y="150" class="xs t-mut" text-anchor="middle">元のファイル</text>
+
+  <path class="ln" d="M180 58 H210 V97" marker-end="url(#a7)"/>
+  <path class="ln" d="M180 136 H210 V101" marker-end="url(#a7)"/>
+
+  <rect class="box-acc" x="222" y="72" width="140" height="56" rx="8"/>
+  <text x="292" y="95" class="xs b t-acc" text-anchor="middle">安全確認</text>
+  <text x="292" y="112" class="xs t-mut" text-anchor="middle">許可された操作だけか</text>
+
+  <path class="ln" d="M362 100 H408" marker-end="url(#a7)"/>
+  <rect class="box" x="420" y="72" width="140" height="56" rx="8"/>
+  <text x="490" y="95" class="xs b" text-anchor="middle">変換エンジン</text>
+  <text x="490" y="112" class="xs t-mut" text-anchor="middle">規則を読んで動く</text>
+
+  <path class="ln" d="M560 100 H606" marker-end="url(#a7)"/>
+  <rect class="box-alt" x="618" y="72" width="140" height="56" rx="8"/>
+  <text x="688" y="95" class="xs b" text-anchor="middle">下書き</text>
+  <text x="688" y="112" class="xs t-mut" text-anchor="middle">まだ誰にも見えない</text>
+
+  <path class="ln-ent" d="M758 100 H804" marker-end="url(#a8)"/>
+  <text x="781" y="88" class="xs t-ent" text-anchor="middle">公開する</text>
+  <rect class="box-ent" x="816" y="72" width="112" height="56" rx="8"/>
+  <text x="872" y="95" class="xs b t-ent" text-anchor="middle">公開済み</text>
+  <text x="872" y="112" class="xs t-mut" text-anchor="middle">引用できる事実</text>
+
+  <path class="ln-dash" d="M292 128 V178" marker-end="url(#a7)"/>
+  <rect class="box-alt" x="222" y="182" width="140" height="34" rx="8" stroke-dasharray="5 4"/>
+  <text x="292" y="204" class="xs t-acc" text-anchor="middle">取り込み中止</text>
+  <text x="374" y="160" class="xs t-mut">不合格なら</text>
+
+  <path class="ln-lnk" d="M872 128 V186" marker-end="url(#a9)"/>
+  <rect class="box-lnk" x="768" y="190" width="160" height="48" rx="8"/>
+  <text x="848" y="211" class="xs b t-lnk" text-anchor="middle">質問する・SPARQL</text>
+  <text x="848" y="228" class="xs t-mut" text-anchor="middle">出どころつきで答える</text>
+
+  <line class="ln-thin" x1="16" y1="262" x2="924" y2="262"/>
+  <text x="16" y="284" class="sm">走るのは<tspan class="b">規則</tspan>と、規則を読む<tspan class="b">決まったエンジン</tspan>だけです。AI が書いたプログラムは実行されません。</text>
+  <text x="16" y="306" class="xs t-fnt">エンジンが呼べる関数もあらかじめ決められた一覧に限られ、読めるファイルもこのデータセットのものだけに制限されています。</text>
+
+  <defs>
+    <marker id="a7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path class="head" d="M0 0 L10 5 L0 10 z"/>
+    </marker>
+    <marker id="a8" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path class="head-ent" d="M0 0 L10 5 L0 10 z"/>
+    </marker>
+    <marker id="a9" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path class="head-lnk" d="M0 0 L10 5 L0 10 z"/>
+    </marker>
+  </defs>
+</svg>
