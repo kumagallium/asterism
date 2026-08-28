@@ -3884,6 +3884,27 @@ export function KantanWizard({
       .filter((r): r is { prop: RuleProperty; column: string } => r.column !== null),
   }))
   const valueProps = new Set(valueRows.flatMap((g) => g.rows.map((r) => r.prop)))
+  /* 同じファイルの同じ列を、2 つ以上の種類が**値として**書いている（リンクは
+     `linkRows` に分けてあるので、ここに残るのは素の転記だけ）。1 ファイルきりの
+     ヘッダ列は値の種類数が 1 なので、どのキーからでも「決まる」ことになり、
+     G1 の関数従属の裁定は原理的に判別できない（実測 2026-08-28: Name /
+     Chemical Formula / Subfile / Space Group / Crystal System はいずれも
+     No・CSD・Reference・Radiation のどれからでも決まる）。つまり振り分けは
+     AI の推測で、外れると誤った事実を publish する。S5 の停止カードまで
+     気づけなかったものを、表を触る前のこの場所で言う。 */
+  const duplicateOwners = (() => {
+    const owners = new Map<string, { column: string; kinds: string[] }>()
+    for (const { map: m, rows } of valueRows) {
+      for (const { column } of rows) {
+        const key = `${sourceTail(m.source ?? '')}\u0000${column}`
+        const seen = owners.get(key) ?? { column, kinds: [] }
+        const label = mapCaption(m)
+        if (!seen.kinds.includes(label)) seen.kinds.push(label)
+        owners.set(key, seen)
+      }
+    }
+    return [...owners.values()].filter((v) => v.kinds.length > 1)
+  })()
   const linkRows = s6Maps.flatMap((m) =>
     m.properties.filter((p) => !valueProps.has(p)).map((p) => ({ map: m, prop: p })),
   )
@@ -5360,6 +5381,18 @@ export function KantanWizard({
               AI チャット → 空欄（一括反映）は既にある。その逆 — 空欄を見つけた
               その場から相談を開ける導線。文面は入れるが送らない（相談は LLM を
               呼ぶので、押したつもりのない課金を作らない）。 */}
+          {duplicateOwners.length > 0 && (
+            <p className="kz-note kz-prose kz-note--warn">
+              ⚠{' '}
+              {t('kantan:s6.duplicateOwner', {
+                list: duplicateOwners
+                  .slice(0, 4)
+                  .map((d) => `${d.column}（${d.kinds.join('・')}）`)
+                  .join('、'),
+                count: duplicateOwners.length,
+              })}
+            </p>
+          )}
           {missingMeanings > 0 && (
             <>
               <p className="kz-note kz-prose">{t('kantan:s6.missingMeaning')}</p>

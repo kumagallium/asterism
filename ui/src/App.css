@@ -8699,3 +8699,8 @@ tr.kz-attn td {
   margin-left: 0.5rem;
   vertical-align: baseline;
 }
+
+/* S6 の構造的な指摘（K43）。表を触る前に読ませる 1 行。 */
+.kz-note--warn {
+  color: var(--warn-fg);
+}

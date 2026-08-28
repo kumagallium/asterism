@@ -15,6 +15,7 @@ import pytest
 from asterism.dialect import SourceDialect
 from asterism.rml_validate import (
     RmlValidationError,
+    duplicate_column_findings,
     read_csv_header,
     validate_rml_design,
 )
@@ -658,6 +659,64 @@ def test_duplicate_column_without_rows_states_defect_only() -> None:
     for msg in advisories:
         assert "duplicated fact" in msg
         assert "Adjudicated" not in msg
+
+
+def test_duplicate_column_findings_carry_the_choice_a_human_must_make(tmp_path) -> None:
+    # The advisory says WHAT is wrong in English, for a model. The finding says
+    # WHO the candidates are, in a shape a person's tier can render: the column,
+    # both maps under their handles, how many entities each mints, and the
+    # verdict the rows recommend (ADR column-ownership G1 / kantan K2).
+    (tmp_path / "run.csv").write_text(
+        "temp,resistivity,diameter\n300,1.0,5.0\n310,1.1,5.0\n320,1.2,5.0\n",
+        encoding="utf-8",
+    )
+    findings = duplicate_column_findings(_DUP_COLUMNS, tmp_path)
+    assert [f["column"] for f in findings] == ["diameter", "resistivity"]
+    dia, res = findings
+    assert dia["source"] == "run.csv"
+    assert dia["actionable"] is True
+    assert [(m["map"], m["label"], m["entities"]) for m in dia["maps"]] == [
+        ("Readings", "Reading", 3),
+        ("Sample", "Sample", 1),
+    ]
+    # constant across the run -> the single Sample owns it; per row -> Reading
+    assert dia["owner"] == "Sample"
+    assert res["owner"] == "Readings"
+    # one implementation: the finding carries the very sentence the model reads
+    assert dia["text"] in design_advisories(_DUP_COLUMNS, tmp_path)
+
+
+def test_duplicate_column_findings_without_rows_offer_no_owner() -> None:
+    # No csv_dir -> the candidates are still named (the choice is a human's
+    # anyway), but the machine makes no recommendation.
+    findings = duplicate_column_findings(_DUP_COLUMNS)
+    assert len(findings) == 2
+    for f in findings:
+        assert f["owner"] is None
+        assert [m["entities"] for m in f["maps"]] == [None, None]
+
+
+def test_duplicate_column_findings_on_an_anonymous_map_are_not_actionable(tmp_path) -> None:
+    # A blank-node TriplesMap (legacy hand-written RML) has no handle to send
+    # back, so the choice must not be offered under a name nothing can act on.
+    rml = _ADV_PREFIXES + """
+[] rml:logicalSource [ rml:source "run.csv" ] ;
+  rr:subjectMap [ rr:template "https://ex/reading/{temp}" ; rr:class ex:Reading ] ;
+  rr:predicateObjectMap [ rr:predicate ex:ofSample ;
+    rr:objectMap [ rr:parentTriplesMap <#Sample> ] ] ;
+  rr:predicateObjectMap [ rr:predicate ex:diameter ;
+    rr:objectMap [ rml:reference "diameter" ] ] .
+<#Sample> rml:logicalSource [ rml:source "run.csv" ] ;
+  rr:subjectMap [ rr:constant <https://ex/sample/s1> ; rr:class ex:Sample ] ;
+  rr:predicateObjectMap [ rr:predicate ex:diameterDup ;
+    rr:objectMap [ rml:reference "diameter" ] ] .
+"""
+    (tmp_path / "run.csv").write_text(
+        "temp,diameter\n300,5.0\n310,5.0\n", encoding="utf-8"
+    )
+    findings = duplicate_column_findings(rml, tmp_path)
+    assert len(findings) == 1
+    assert findings[0]["actionable"] is False
 
 
 def test_key_carry_columns_exempt(tmp_path) -> None:

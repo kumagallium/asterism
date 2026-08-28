@@ -358,7 +358,8 @@
     "askConsultPrefill": "Please fill in the meanings that are still blank",
     "askConsultUnmappedPrefill": "Please suggest meanings for the items not taken in yet",
     "askConsultMeaning": "Ask the AI to fill the blank meanings",
-    "askConsultUnmapped": "Ask the AI about what to include"
+    "askConsultUnmapped": "Ask the AI about what to include",
+    "duplicateOwner": "The same column is written by two or more kinds ({{list}}). Which one should own it cannot be decided from this single file — the column holds one value, so every candidate key “determines” it. This is the AI’s guess: if it is wrong, fix it under “Also change how items are split and linked” below."
   },
   "s7": {
     "title": "Try it — we asked your data a few questions",

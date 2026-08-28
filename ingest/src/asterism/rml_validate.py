@@ -679,6 +679,24 @@ def _tm_label(graph, tm) -> str:
     return _local_name(str(tm))
 
 
+def _tm_node_name(graph, tm) -> str:
+    """This TriplesMap's own node name (``<#PeakMap>`` -> ``PeakMap``), or ``""``
+    for an anonymous (blank-node) map.
+
+    The HANDLE, as opposed to :func:`_tm_label`'s reading name: the api accepts
+    it for a human column-ownership decision, and unlike a class local name it
+    is unique inside one mapping. Legacy hand-written RML may carry blank-node
+    TriplesMaps; those have no handle at all, so a finding that names one is
+    reported without an actionable owner choice rather than with a name that
+    points at nothing.
+    """
+    import rdflib
+
+    if isinstance(tm, rdflib.BNode):
+        return ""
+    return _local_name(str(tm))
+
+
 def _input_source_column(graph, node) -> str | None:
     """The source column feeding an input-value map node: a direct
     ``rml:reference``, or — through a nested transform ``functionExecution`` —
@@ -1101,9 +1119,9 @@ def _untyped_numeric_advisories(graph, csv_dir: Path | str | None) -> list[str]:
     return sorted(set(issues))
 
 
-def _duplicate_column_advisories(graph, csv_dir: Path | str | None) -> list[str]:
-    """Flag a source column transcribed onto MULTIPLE entities as a plain
-    datatype property.
+def _duplicate_column_findings(graph, csv_dir: Path | str | None) -> list[dict]:
+    """A source column transcribed onto MULTIPLE entities as a plain datatype
+    property — one record per duplicated column, MACHINE-READABLE.
 
     Observed live (ZEM instrument export, weak model, 2026-07-23): the per-map
     stage filled BOTH the per-row measurement map and the constant-subject
@@ -1113,20 +1131,29 @@ def _duplicate_column_advisories(graph, csv_dir: Path | str | None) -> list[str]
     compile, T1-T9 pass. The defect is a DESIGN one: a source cell should
     become a fact on exactly one entity.
 
-    One advisory per duplicated column (so the corrective loop sees partial
-    fixes as progress, and ``classify``'s ``column '…'`` shape keys each issue
-    by column). When the real rows are readable, the owner is ADJUDICATED
+    One record per duplicated column (so the corrective loop sees partial fixes
+    as progress, and ``classify``'s ``column '…'`` shape keys each issue by
+    column). When the real rows are readable, the owner is ADJUDICATED
     deterministically by functional dependency on each map's subject key: among
     the maps whose subjects determine the column's value, the one minting the
     FEWEST subjects owns it (normalization — a constant-per-material dimension
     belongs to the material, not to every measurement). No dependent map, or a
-    tie → the advisory states the defect without a verdict (no claim is better
+    tie → the record states the defect without a verdict (no claim is better
     than a wrong one).
 
     Subject-KEY columns are exempt: a map carrying another entity's key column
     is how joins are declared — the connectivity advisory owns that concern.
+
+    Each record carries its own ``text`` — the English advisory a model acts on
+    — so the sentence and the structure can never drift apart. The rest is what
+    a HUMAN needs to settle it (ADR column-ownership-and-growth G1 leaves the
+    tie to a person, and ADR kantan K2 puts that decision in the person's tier):
+    which column, which candidate maps, how many entities each mints, and which
+    one the rows recommend. ``map`` is the TriplesMap handle the api's column
+    decisions accept; ``""`` for an anonymous map, which is why ``actionable``
+    exists.
     """
-    per_source: dict[str, list[tuple[str, frozenset[str], set[str]]]] = {}
+    per_source: dict[str, list[tuple[str, str, frozenset[str], set[str]]]] = {}
     dialects = _mapping_dialects(graph)
     for tm in _triples_map_subjects(graph):
         src = _tm_source_name(graph, tm)
@@ -1136,17 +1163,22 @@ def _duplicate_column_advisories(graph, csv_dir: Path | str | None) -> list[str]
         if keys is None:
             continue
         per_source.setdefault(src, []).append(
-            (_tm_label(graph, tm), keys, _tm_transcribed_columns(graph, tm))
+            (
+                _tm_label(graph, tm),
+                _tm_node_name(graph, tm),
+                keys,
+                _tm_transcribed_columns(graph, tm),
+            )
         )
 
-    issues: list[str] = []
+    findings: list[dict] = []
     for src in sorted(per_source):
         entries = per_source[src]
         if len(entries) < 2:
             continue
-        key_cols: set[str] = set().union(*(keys for _, keys, _ in entries))
+        key_cols: set[str] = set().union(*(keys for _, _, keys, _ in entries))
         col_maps: dict[str, list[int]] = {}
-        for i, (_, _, refs) in enumerate(entries):
+        for i, (_, _, _, refs) in enumerate(entries):
             for c in refs:
                 if c in key_cols:
                     continue  # join carry — the connectivity advisory's concern
@@ -1167,7 +1199,7 @@ def _duplicate_column_advisories(graph, csv_dir: Path | str | None) -> list[str]
         # Subjects each map mints over the real rows (1 for a constant subject);
         # None when the rows/columns are unavailable — that map cannot win.
         entity_counts: list[int | None] = []
-        for _, keys, _ in entries:
+        for _, _, keys, _ in entries:
             if not rows:
                 entity_counts.append(None)
             elif not keys:
@@ -1182,7 +1214,8 @@ def _duplicate_column_advisories(graph, csv_dir: Path | str | None) -> list[str]
 
         for c in sorted(dup_cols):
             idxs = dup_cols[c]
-            labels = sorted(entries[i][0] for i in idxs)
+            ordered = sorted(idxs, key=lambda i: entries[i][0])
+            labels = [entries[i][0] for i in ordered]
             base = (
                 f"column '{c}' is bound as a plain datatype property by "
                 f"{len(idxs)} maps ({' + '.join(labels)}) — the same source cell "
@@ -1191,6 +1224,22 @@ def _duplicate_column_advisories(graph, csv_dir: Path | str | None) -> list[str]
                 "subject its value describes and DELETE the duplicate property "
                 "row(s) from the other map(s)."
             )
+            finding: dict = {
+                "source": src,
+                "column": c,
+                "maps": [
+                    {
+                        "map": entries[i][1],
+                        "label": entries[i][0],
+                        "entities": entity_counts[i],
+                    }
+                    for i in ordered
+                ],
+                "owner": None,
+                # A blank-node map has no handle to send back, so the choice
+                # cannot be offered — the sentence still is.
+                "actionable": all(entries[i][1] for i in ordered),
+            }
             verdict = ""
             ci = col_index.get(c)
             if rows and ci is not None:
@@ -1198,7 +1247,7 @@ def _duplicate_column_advisories(graph, csv_dir: Path | str | None) -> list[str]
                 for i in idxs:
                     if entity_counts[i] is None:
                         continue
-                    keys = entries[i][1]
+                    keys = entries[i][2]
                     kidx = [col_index[k] for k in sorted(keys)] if keys else []
                     groups: dict[tuple, str] = {}
                     determined = True
@@ -1225,6 +1274,8 @@ def _duplicate_column_advisories(graph, csv_dir: Path | str | None) -> list[str]
                         n_distinct = len(
                             {cell(r, ci).strip() for r in rows if cell(r, ci).strip()}
                         )
+                        finding["owner"] = entries[best][1]
+                        finding["owner_label"] = owner
                         verdict = (
                             f" Adjudicated from the real rows: over {len(rows)} data "
                             f"rows it holds {n_distinct} distinct non-empty value(s), "
@@ -1232,8 +1283,33 @@ def _duplicate_column_advisories(graph, csv_dir: Path | str | None) -> list[str]
                             f"({entity_counts[best]} subject(s)) — keep it ONLY on "
                             f"'{owner}' and DELETE it from: {', '.join(others)}."
                         )
-            issues.append(base + verdict)
-    return issues
+            finding["text"] = base + verdict
+            findings.append(finding)
+    return findings
+
+
+def _duplicate_column_advisories(graph, csv_dir: Path | str | None) -> list[str]:
+    """The English advisory sentences of :func:`_duplicate_column_findings`."""
+    return [f["text"] for f in _duplicate_column_findings(graph, csv_dir)]
+
+
+def duplicate_column_findings(
+    rml_ttl: str, csv_dir: Path | str | None = None
+) -> list[dict]:
+    """:func:`_duplicate_column_findings` from RML Turtle (``[]`` if unparseable).
+
+    The public face of the one duplicate-column implementation: the advisory the
+    model reads and the choice a human is offered come from the SAME pass, so a
+    verdict the UI shows can never disagree with the sentence beside it.
+    """
+    import rdflib
+
+    graph = rdflib.Graph()
+    try:
+        graph.parse(data=rml_ttl, format="turtle")
+    except Exception:
+        return []
+    return _duplicate_column_findings(graph, csv_dir)
 
 
 def _tm_object_maps(graph, tm):
