@@ -95,5 +95,6 @@
   "kindsLead": "For each kind you chose in ①, check its name and how its ID is built. Only the kinds marked ⚠ need your attention. Until you publish, you can change these as often as you like.",
   "kindNameNote": "This name says WHAT each record is, and is what people search and cite by (the text inside the ID is set separately, under “Write the ID recipe yourself”). Write it in letters and digits, starting with a letter (e.g. ChemicalFormula). Until you publish, both the name and the ID can be changed as often as you like.",
   "kindNameRule": "This name cannot be used. Spaces and symbols are not allowed, and non-Latin names become unreadable in the diagram. Use letters and digits, starting with a letter.",
-  "kindNameFix": "Use “{{name}}”"
+  "kindNameFix": "Use “{{name}}”",
+  "removeRowKind": "This kind is where the per-row values ({{columns}}) live. Deleting it leaves them with nowhere to go. You can restore it afterwards with “Add the row-level kind”, but you will have to name it again."
 }

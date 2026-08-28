@@ -1781,6 +1781,26 @@ export function SkeletonGate({
       !containedInSentence && degraded && skeleton.maps.length > 1
         ? t('skeletongate:key.containedInUnknown')
         : undefined
+    /* この種類を消したら、行ごとの値はどこにも行かなくなるか？ 同じソースで
+       「行の種類」（1 件に潰れず、値のカタログでもない）がこれ 1 つなら、消した
+       瞬間に測定値の置き場が消える。機械は気づいて 1 クリックの修理を出す（G8）が、
+       AI が付けた名前は戻らない（実測: `peak` → `crystal_detail`）。**止めるのでは
+       なく、帰結を言う** — AI の行の種類そのものが間違っていること（測定値をキーに
+       した等）もあり、消せなくすると片道のドアになる（G10）。 */
+    const homelessOnRemove = (() => {
+      if (!plain || !ann) return undefined
+      const rowLike = (a: SkeletonMapAnnotation | undefined) =>
+        !!a && !a.value_catalog && (a.collapse_kind === 'unique' || a.collapse_kind === 'partial')
+      if (!rowLike(ann)) return undefined
+      const siblings = skeleton.maps.filter((o) => o.source === m.source)
+      const rowKinds = siblings.filter((o) => rowLike(annotations?.maps?.[o.name]))
+      if (rowKinds.length !== 1) return undefined
+      const host = siblings.find(
+        (o) => annotations?.maps?.[o.name]?.collapse_kind === 'singleton',
+      )
+      const cols = host ? annotations?.maps?.[host.name]?.entity_preview?.varying_columns : undefined
+      return cols && cols.length > 0 ? cols : undefined
+    })()
     const removeControl = skeleton.maps.length > 1 &&
       (confirmRemove === m.name ? (
         <span className="skeleton-remove-confirm">
@@ -1789,6 +1809,15 @@ export function SkeletonGate({
               押す前に、帰結と本当にやりたいことへの道を言う。 */}
           {zone && zone.host.name === m.name && (
             <span className="skeleton-remove-warn">{t('skeletongate:removeZoneHost')}</span>
+          )}
+          {homelessOnRemove && (
+            <span className="skeleton-remove-warn">
+              {t('skeletongate:removeRowKind', {
+                columns: homelessOnRemove
+                  .slice(0, 4)
+                  .join(t('skeletongate:key.listSeparator')),
+              })}
+            </span>
           )}
           <button
             type="button"
