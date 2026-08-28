@@ -94,6 +94,7 @@ __all__ = [
     "propose_from_skeleton",
     "propose_skeleton",
     "render_columns_for_meanings",
+    "render_excluded_columns",
     "render_settled_meanings",
     "render_skeleton_context",
     "render_tier0_menu",
@@ -949,6 +950,31 @@ def render_settled_meanings(settled: Sequence[Mapping[str, Any]] | None) -> str:
     return "\n".join(lines) if len(lines) > 2 else ""
 
 
+def render_excluded_columns(excluded: Sequence[str] | None) -> str:
+    """The columns the person decided NOT to take in, named.
+
+    Deciding what to keep is the reader's call, and they make it on the meaning
+    screen before any design exists (ADR meaning-before-identity §3). The
+    verdict is enforced deterministically after generation either way; naming
+    the columns here just stops the model spending output on rows that are
+    about to be removed.
+    """
+    if not excluded:
+        return ""
+    names = [str(c) for c in excluded if str(c or "").strip()]
+    if not names:
+        return ""
+    return "\n".join(
+        [
+            "# Columns the reader decided NOT to take in (do NOT map these at all)",
+            "Not a judgement about the data — they simply do not want these"
+            " values in the dataset. Skip them entirely: no property, no link,"
+            " no fallback row.",
+            *[f"- `{name}`" for name in names],
+        ]
+    )
+
+
 def build_permap_user(
     map_name: str,
     map_skeleton: Mapping[str, Any],
@@ -959,6 +985,7 @@ def build_permap_user(
     language: str | None = None,
     owned_elsewhere: Mapping[str, str] | None = None,
     settled_meanings: Sequence[Mapping[str, Any]] | None = None,
+    excluded_columns: Sequence[str] | None = None,
 ) -> str:
     subject = map_skeleton.get("subject") or {}
     key = subject.get("template") or subject.get("constant") or "?"
@@ -977,6 +1004,9 @@ def build_permap_user(
     settled = render_settled_meanings(settled_meanings)
     if settled:
         parts += ["", settled]
+    excluded = render_excluded_columns(excluded_columns)
+    if excluded:
+        parts += ["", excluded]
     if issues:
         parts += ["", "# Issues to fix (fix ONLY these)", *[f"- {i}" for i in issues]]
     parts += ["", f"Return the property table for map '{map_name}' as a single JSON object."]
@@ -2120,6 +2150,7 @@ def generate_map_properties(
     language: str | None = None,
     owned_elsewhere: Mapping[str, str] | None = None,
     settled_meanings: Sequence[Mapping[str, Any]] | None = None,
+    excluded_columns: Sequence[str] | None = None,
 ) -> dict:
     """One guided call -> one map's ``{properties: [...], prefixes?: {...}}``."""
     user = build_permap_user(
@@ -2131,6 +2162,7 @@ def generate_map_properties(
         language=language,
         owned_elsewhere=owned_elsewhere,
         settled_meanings=settled_meanings,
+        excluded_columns=excluded_columns,
     )
     schema = permap_json_schema(function_names)
     return _load_json_object(_complete_guided(llm, PERMAP_SYSTEM_PROMPT, user, schema))
@@ -2691,6 +2723,7 @@ def _generate_map_properties_gated(
     ontology_prefix: str | None = None,
     on_fallback: Callable[[str], None] | None = None,
     settled_meanings: Sequence[Mapping[str, Any]] | None = None,
+    excluded_columns: Sequence[str] | None = None,
 ) -> dict:
     """Generate ONE map's property table, then run a BOUNDED structural repair.
 
@@ -2721,8 +2754,9 @@ def _generate_map_properties_gated(
         emit(phase=f"map:{map_name}", index=index, total=total, message=message)
 
     def _fallback(reason: str) -> dict:
+        dropped = {str(c) for c in excluded_columns or ()}
         table = default_property_table(
-            source_columns or [],
+            [c for c in (source_columns or []) if str(c) not in dropped],
             ontology_prefix=ontology_prefix or "",
             owned_elsewhere=owned_elsewhere,
             column_types=column_types,
@@ -2744,6 +2778,7 @@ def _generate_map_properties_gated(
             map_name, map_skeleton, skeleton_context, menu_text,
             llm=llm, function_names=function_names, language=language,
             owned_elsewhere=owned_elsewhere, settled_meanings=settled_meanings,
+            excluded_columns=excluded_columns,
         )
     except LLMCancelledError:
         raise  # a person pressed stop — that must never become a design
@@ -2767,6 +2802,7 @@ def _generate_map_properties_gated(
                 map_name, map_skeleton, skeleton_context, menu_text,
                 llm=llm, function_names=function_names, issues=issues, language=language,
                 owned_elsewhere=owned_elsewhere, settled_meanings=settled_meanings,
+                excluded_columns=excluded_columns,
             )
         except LLMCancelledError:
             raise
@@ -2928,6 +2964,7 @@ def propose_from_skeleton(
     dataset_name: str | None = None,
     on_fallback: Callable[[str], None] | None = None,
     column_meanings: Sequence[Mapping[str, Any]] | None = None,
+    excluded_columns: Mapping[str, Sequence[str]] | None = None,
 ) -> str:
     """Job 2: from a confirmed skeleton, generate each map's property table, assemble
     the full IR, generate the §1-8 document, and splice §9 in deterministically.
@@ -2961,7 +2998,11 @@ def propose_from_skeleton(
     design existed (ADR meaning-before-identity). They are projected onto the
     assembled IR deterministically and they WIN over what the per-map stage
     wrote: the meaning of a column is knowledge the data and the person hold,
-    not something a generation round gets to revise."""
+    not something a generation round gets to revise.
+
+    ``excluded_columns`` (``{source: [column, …]}``) are the columns the person
+    decided not to take in. Named per map so the stage does not write rows that
+    the deterministic pass would remove."""
     names = _resolve_function_names(function_names)
     menu_text = menu if menu is not None else render_tier0_menu(names)
     context = render_skeleton_context(skeleton)
@@ -3024,6 +3065,7 @@ def propose_from_skeleton(
             ontology_prefix=ontology_prefix,
             on_fallback=on_fallback,
             settled_meanings=settled_by_source.get(str(map_obj.get("source") or "")),
+            excluded_columns=(excluded_columns or {}).get(str(map_obj.get("source") or "")),
         )
 
     assembled = assemble_mapping_ir(skeleton, permaps)

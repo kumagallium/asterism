@@ -106,6 +106,7 @@ from asterism_step0.spec_repair import (
 )
 from asterism_step0.spec_yaml import load_spec_yaml
 from asterism_step0.staged_propose import (
+    apply_column_decisions,
     apply_column_meanings,
     apply_data_facts,
     propose_from_skeleton,
@@ -1630,6 +1631,7 @@ def run_design_loop(
     dialect_overrides: Mapping[str, Any] | None = None,
     iri_base: str | None = None,
     column_meanings: Sequence[Mapping[str, Any]] | None = None,
+    column_decisions: Sequence[Mapping[str, Any]] | None = None,
 ) -> DesignLoopResult:
     """Run the propose→validate→refine self-correction loop.
 
@@ -1657,6 +1659,11 @@ def run_design_loop(
     design (ADR meaning-before-identity). They are projected onto §9 after
     round-0 AND re-asserted after every later round, for the same reason the
     data facts are: a meaning is not something a generation round may revise.
+
+    ``column_decisions`` are the human calls about whether a column is taken in
+    at all, made on the meaning screen BEFORE the design exists. Re-asserted
+    every round for the same reason: what the person will not have in their
+    dataset is not a generation round's to reinstate.
 
     ``iri_base`` (ADR instance-iri-base.md) pins where the single-shot round-0
     mints this dataset's new namespaces; the staged path gets it at skeleton
@@ -1730,6 +1737,7 @@ def run_design_loop(
             column_owners=column_owners,
             column_types=column_datatypes,
             column_meanings=column_meanings,
+            excluded_columns=_excluded_by_source(column_decisions),
         )
         metadata: dict[str, Any] = {"llm_class": type(llm).__name__, "staged": True}
     else:
@@ -1752,6 +1760,7 @@ def run_design_loop(
     schema_md = _overlay_detected_dialects(schema_md, effective, override_names)
     schema_md = _overlay_data_facts(schema_md, *data_facts)
     schema_md = _overlay_column_meanings(schema_md, column_meanings)
+    schema_md = _overlay_column_decisions(schema_md, column_decisions)
 
     def _result(
         best_schema: str,
@@ -1922,6 +1931,7 @@ def run_design_loop(
         schema_md = _overlay_detected_dialects(schema_md, effective, override_names)
         schema_md = _overlay_data_facts(schema_md, *data_facts)
         schema_md = _overlay_column_meanings(schema_md, column_meanings)
+        schema_md = _overlay_column_decisions(schema_md, column_decisions)
         try:
             schema_md, ir_yaml, issues = _evaluate(schema_md, base)
         except _LoopEnvError as exc:
@@ -2010,6 +2020,59 @@ def _overlay_column_meanings(
     if not isinstance(doc, dict):
         return schema_md
     new_doc, changed = apply_column_meanings(doc, column_meanings)
+    if not changed:
+        return schema_md
+    new_yaml = yaml.safe_dump(new_doc, sort_keys=False, allow_unicode=True)
+    try:
+        return replace_mapping_spec_block(schema_md, new_yaml)
+    except ValueError:
+        return schema_md
+
+
+def _excluded_by_source(
+    column_decisions: Sequence[Mapping[str, Any]] | None,
+) -> dict[str, list[str]]:
+    """``{source: [column, …]}`` for the columns the person excluded."""
+    out: dict[str, list[str]] = {}
+    for decision in column_decisions or ():
+        if str(decision.get("action") or "") != "exclude":
+            continue
+        source = str(decision.get("source") or "")
+        column = str(decision.get("column") or "")
+        if source and column:
+            out.setdefault(source, []).append(column)
+    return out
+
+
+def _overlay_column_decisions(
+    schema_md: str, column_decisions: Sequence[Mapping[str, Any]] | None
+) -> str:
+    """Re-assert the human include/exclude calls on §9 after ANY round.
+
+    Third sibling of :func:`_overlay_data_facts`. A column the person said they
+    do not want is not a column a later round may put back, and one they asked
+    for is not one a rewrite may drop. Idempotent; a schema with no §9, an
+    unreadable one, or a decision the design cannot place is left byte-untouched
+    (the decision endpoint reports those properly — a loop round must not fail
+    over one).
+    """
+    if not column_decisions:
+        return schema_md
+    ir_yaml, _ = _extract_design(schema_md)
+    if not ir_yaml or not ir_yaml.strip():
+        return schema_md
+    import yaml
+
+    try:
+        doc = load_spec_yaml(ir_yaml)
+    except yaml.YAMLError:
+        return schema_md
+    if not isinstance(doc, dict):
+        return schema_md
+    try:
+        new_doc, changed = apply_column_decisions(doc, column_decisions)
+    except ValueError:
+        return schema_md
     if not changed:
         return schema_md
     new_yaml = yaml.safe_dump(new_doc, sort_keys=False, allow_unicode=True)

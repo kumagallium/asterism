@@ -2590,6 +2590,42 @@ def _parse_column_meanings(raw: str) -> list[dict[str, str]]:
     return out
 
 
+def _parse_design_column_decisions(raw: str) -> list[dict[str, str]]:
+    """Parse the wizard's pre-design column decisions (a JSON form field).
+
+    ``[{source, column, action}]``. Only ``exclude`` is accepted here: before a
+    design exists there is no map to attach an ``include`` or an ``own`` to, and
+    the default is that every column is taken in — so the only thing a person
+    can say at that point is which columns they do NOT want. The post-design
+    vocabulary (all three actions) stays on
+    ``POST /api/datasets/{id}/column-decisions``.
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(422, f"column_decisions is not valid JSON: {exc}") from exc
+    if not isinstance(parsed, list):
+        raise HTTPException(422, "column_decisions must be a JSON array")
+    out: list[dict[str, str]] = []
+    for entry in parsed:
+        if not isinstance(entry, dict):
+            raise HTTPException(422, "each column decision must be a JSON object")
+        source = str(entry.get("source") or "").strip()
+        column = str(entry.get("column") or "").strip()
+        action = str(entry.get("action") or "").strip()
+        if not source or not column:
+            raise HTTPException(422, "each column decision needs a source and a column")
+        if action != "exclude":
+            raise HTTPException(
+                422, "before a design exists the only column decision is 'exclude'"
+            )
+        out.append({"source": source, "column": column, "action": action})
+    return out
+
+
 def _parse_dialect_overrides(raw: str) -> dict[str, dict[str, Any]]:
     """Parse + boundary-check the wizard's dialect overrides (a JSON form field).
 
@@ -5034,6 +5070,13 @@ def build_app(
                 "Projected onto §9 deterministically after every round."
             ),
         ),
+        column_decisions: str = Form(
+            default="",
+            description=(
+                "Columns the reader decided not to take in, as JSON "
+                "[{source, column, action: 'exclude'}]. Re-asserted every round."
+            ),
+        ),
         fk: list[str] = Query(default=[], description="FK hint column (repeatable)"),
         autocorrect: int | None = Query(
             default=None,
@@ -5058,6 +5101,7 @@ def build_app(
         max_tokens = _llm_max_tokens(x_llm_max_tokens)
         dialect_overrides = _parse_dialect_overrides(dialects)
         settled_meanings = _parse_column_meanings(column_meanings)
+        settled_decisions = _parse_design_column_decisions(column_decisions)
 
         work, paths, owned = await _design_sources(
             cfg.registry_root, files, staging_id or None, prefix="asterism-continue-"
@@ -5111,6 +5155,7 @@ def build_app(
                     dialect_overrides=dialect_overrides,
                     iri_base=cfg.iri_base,
                     column_meanings=settled_meanings,
+                    column_decisions=settled_decisions,
                 )
             finally:
                 if owned:

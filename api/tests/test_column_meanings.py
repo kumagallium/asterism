@@ -319,3 +319,67 @@ def test_column_meanings_refuse_an_unknown_dataset_or_an_empty_body(
             ).status_code
             == 422
         )
+
+
+def test_excluded_columns_never_reach_the_design(tmp_path: Path, healthy_client) -> None:
+    """取り込まないと決めた列は設計に載らない。per-map に名指しで伝えたうえで、
+    出来上がった §9 からも決定論で外す（お願いと保証の二段）。"""
+    mock_seen: list[str] = []
+
+    def factory(key):
+        m = _MeaningsMock(key)
+        original = m.complete
+
+        def complete(system: str, user: str) -> str:
+            from asterism_step0.staged_propose import PERMAP_SYSTEM_PROMPT
+
+            if system == PERMAP_SYSTEM_PROMPT:
+                mock_seen.append(user)
+            return original(system, user)
+
+        m.complete = complete  # type: ignore[method-assign]
+        return m
+
+    app = build_app(
+        _settings(tmp_path),
+        oxigraph_client=healthy_client,
+        start_watcher=False,
+        llm_factory=factory,
+    )
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/propose/continue",
+            data={
+                "skeleton": json.dumps(_STAGED_SKELETON),
+                "column_decisions": json.dumps(
+                    [{"source": "readings.csv", "column": "channel", "action": "exclude"}]
+                ),
+            },
+            files={"files": ("readings.csv", _READINGS, "text/csv")},
+        )
+        assert r.status_code == 202, r.text
+        job_id = r.json()["job_id"]
+        events = _parse_sse(client.get(f"/api/jobs/{job_id}/stream").text)
+        done = next(d for n, d in events if n == "done")["result"]
+        spec = yaml.safe_load(done["proposal_md"].split("```yaml\n")[-1].split("```")[0])
+        columns = [p.get("column") for p in spec["maps"][0]["properties"]]
+        # モックは channel を書いて返す。決定論の段で外れていること。
+        assert "channel" not in columns
+        assert "amplitude" in columns
+        assert any("decided NOT to take in" in u and "`channel`" in u for u in mock_seen)
+
+
+def test_only_exclude_is_a_pre_design_decision(tmp_path: Path, healthy_client) -> None:
+    """設計より前には include も own も置き場が無い（付ける map がまだ無い）。"""
+    with TestClient(_app(tmp_path, healthy_client), headers=_AUTH) as client:
+        r = client.post(
+            "/api/propose/continue",
+            data={
+                "skeleton": json.dumps(_STAGED_SKELETON),
+                "column_decisions": json.dumps(
+                    [{"source": "readings.csv", "column": "channel", "action": "include"}]
+                ),
+            },
+            files={"files": ("readings.csv", _READINGS, "text/csv")},
+        )
+        assert r.status_code == 422, r.text
