@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import pytest
 
-from asterism.grounding import ground_terms, load_catalog, vocabularies
+from asterism.grounding import catalog_terms, ground_terms, load_catalog, vocabularies
 from asterism.grounding.catalog import _all_terms
 
 
@@ -108,3 +108,27 @@ def test_bad_kind_raises() -> None:
 
 def test_catalog_is_cached_singleton() -> None:
     assert load_catalog() is load_catalog()
+
+
+# ── catalog_terms: the closed set itself, listed unranked ────────────────────
+
+
+def test_catalog_terms_is_the_whole_closed_set() -> None:
+    """フィルタ無しなら `_all_terms` と同じ集合 — 検索を経由しない素の一覧。"""
+    assert catalog_terms() == list(_all_terms())
+
+
+def test_catalog_terms_filters_by_kind_and_domain() -> None:
+    classes = catalog_terms(kind="class")
+    assert classes, "curated catalog has classes"
+    assert {t.kind for t in classes} == {"class"}
+    # 綴りを渡す用途で load-bearing な代表例。
+    assert "CrystalStructure" in {t.name for t in classes}
+    materials = catalog_terms(kind="class", domain="materials")
+    assert materials and {t.domain for t in materials} == {"materials"}
+    assert len(materials) < len(classes)
+
+
+def test_catalog_terms_rejects_an_unknown_kind() -> None:
+    with pytest.raises(ValueError):
+        catalog_terms(kind="klass")

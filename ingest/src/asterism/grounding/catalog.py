@@ -277,6 +277,25 @@ def ground_terms(
     ]
 
 
+def catalog_terms(*, kind: str | None = None, domain: str | None = None) -> list[VocabTerm]:
+    """Every curated term, optionally filtered — the closed set itself, unranked.
+
+    :func:`ground_terms` answers "what matches THIS query"; this answers "what
+    spellings exist at all". The design stage needs the latter: a proposer that
+    has never seen the catalog can only guess the standard's spelling from
+    memory, and a near-miss (``Crystal`` for ``CrystalStructure``) costs the
+    reviewer an identity judgement later that an exact spelling would have made
+    a one-click confirmation (external-standard-alignment.md §8).
+    """
+    if kind is not None and kind not in _KINDS:
+        raise ValueError(f"kind must be one of {sorted(_KINDS)} or None, got {kind!r}")
+    return [
+        t
+        for t in _all_terms()
+        if (kind is None or t.kind == kind) and (domain is None or t.domain == domain)
+    ]
+
+
 def vocabularies() -> list[Vocabulary]:
     """The curated vocabularies (for listing the recognized standards)."""
     return list(load_catalog())

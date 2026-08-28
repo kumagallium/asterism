@@ -37,6 +37,7 @@ from asterism_step0.staged_propose import (  # noqa: E402
     apply_numeric_datatypes,
     assemble_mapping_ir,
     build_permap_user,
+    build_skeleton_user,
     drop_borrowed_properties,
     ensure_same_source_links,
     fill_mapping_spec_block,
@@ -50,7 +51,9 @@ from asterism_step0.staged_propose import (  # noqa: E402
     propose_from_skeleton,
     propose_skeleton,
     render_columns_for_meanings,
+    render_standard_class_names,
     skeleton_from_full_ir,
+    standard_class_names,
 )
 
 FN_NAMES = ["date_iso", "iri_safe", "slug", "split"]
@@ -1855,3 +1858,39 @@ def test_rethink_keeps_the_dataset_namespace(tmp_path: Path) -> None:
     # CURIE も正規形の prefix を指している(かんたん層は縮約して表示する)
     onto = next(k for k, v in out.skeleton["prefixes"].items() if v.endswith("ontology#"))
     assert out.skeleton["maps"][0]["subject"]["classes"][0].startswith(f"{onto}:")
+
+
+# ── 共通語彙の綴りを骨格プロンプトに渡す（利用者評価 2026-08-28） ──────────────
+
+
+def test_standard_class_names_are_names_only() -> None:
+    """CURIE も IRI も渡さない — 綴りの薦めであって、同一性の主張ではない。
+
+    IRI を渡すと、モデルはそれを設計にそのまま書ける。書かれた時点で「この
+    クラスは cmso:CrystalStructure と同じものだ」という、誰も検めていない主張が
+    設計に入る。それを人が確かめるのが接地の段（S9）なので、ここで渡してよいのは
+    言葉だけ。
+    """
+    names = dict(standard_class_names())
+    assert names, "curated catalog is not empty"
+    assert "CrystalStructure" in names
+    block = render_standard_class_names()
+    assert "`CrystalStructure`" in block
+    assert ":" not in block.split("\n", 2)[0]  # 見出しに CURIE を混ぜない
+    assert "http" not in block
+    assert "cmso:" not in block
+
+
+def test_standard_class_names_deduplicates_a_shared_spelling() -> None:
+    """schema:Person と foaf:Person は綴りが同じなのだから 1 行。"""
+    lines = [ln for ln in render_standard_class_names().split("\n") if ln.startswith("- ")]
+    assert len(lines) == len(set(lines))
+    assert lines.count("- `Person`") == 1
+
+
+def test_build_skeleton_user_carries_the_spellings() -> None:
+    msg = build_skeleton_user("## CSV: peaks.csv", "XRD peaks")
+    assert "# Standard class names" in msg
+    assert "`CrystalStructure`" in msg
+    # 検査の本文より後ろに出さない（材料が先、薦めがあと）。
+    assert msg.index("# Source inspection") < msg.index("# Standard class names")
