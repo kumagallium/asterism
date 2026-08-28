@@ -67,7 +67,6 @@ _META_KEEP = {
     "traps",
     "classes",
     "class_count",
-    "has_ingester",
     "has_mie",
     "has_rml",
     "has_mapping_ir",

@@ -349,6 +349,12 @@ export interface SkeletonMapAnnotation {
      *  できる候補（K33）。判断材料は値なので、実サンプルが並走する。 */
     varying_identity_columns?: string[]
     varying_samples?: { column: string; values: string[] }[]
+    /** このカード自身が持つ列のうち、識別子型（キーでない）＝種類に昇格できる
+     *  候補。1 件のカードが無い行データのファイルでは、ゾーンはこれを並べる。 */
+    identity_columns?: string[]
+    /** ゾーン①が並べる全列と代表行の値。カードの `properties` は読みやすさの
+     *  ために打ち切るが、①は一覧そのものなので打ち切らない。 */
+    all_values?: { column: string; value: string }[]
     omitted_columns: number
   } | null
   /** Columns this map would carry that another map OWNS (its key determines
@@ -522,6 +528,20 @@ export async function generateColumnMeanings(
 }
 
 /**
+ * S4 「AI にもう一度考えさせる」: repair the design already on screen instead of
+ * writing a new one. `skeleton` is what the person is looking at (their edits
+ * included — deletions and splits are already in it), `baseline` is what the AI
+ * last returned, and the difference between the two is what a person typed, so
+ * the server can pin it through the round. `note` is their request in their own
+ * words. Without this argument the call behaves exactly as before.
+ */
+export type RethinkRequest = {
+  skeleton: MappingSkeleton
+  baseline?: MappingSkeleton | null
+  note?: string
+}
+
+/**
  * Phase 2b job 1: generate the mapping SKELETON (which source → which class,
  * keyed how) for human review — no properties or prose yet. Same SSE machinery
  * as propose; the done payload carries the editable skeleton + inspection.
@@ -535,12 +555,18 @@ export async function proposeSkeleton(
   language?: string,
   dialects?: Record<string, SourceDialect>,
   stagingId?: string | null,
+  rethink?: RethinkRequest,
 ): Promise<JobHandle> {
   const form = new FormData()
   appendSources(form, files, stagingId)
   form.append('domain', domain)
   if (language) form.append('language', language)
   appendDialects(form, dialects)
+  if (rethink) {
+    form.append('skeleton', JSON.stringify(rethink.skeleton))
+    if (rethink.baseline) form.append('baseline_skeleton', JSON.stringify(rethink.baseline))
+    if (rethink.note) form.append('rethink', rethink.note)
+  }
   const params = new URLSearchParams()
   for (const fk of fks) params.append('fk', fk)
   const query = params.toString()
@@ -1386,6 +1412,78 @@ export async function fetchTrialQueries(datasetId: string): Promise<TrialQueries
   })
   if (!res.ok) await throwApiError(res, 'trial queries')
   return (await res.json()) as TrialQueries
+}
+
+/** Everything needed to re-open「データの数えかた」on an already-saved design. */
+export interface RecountMaterials {
+  dataset_id: string
+  skeleton: MappingSkeleton
+  /** Server-side copy of the persisted source (ADR source-staging.md), so the
+   *  gate can re-check its evidence without the browser holding the files. */
+  staging_id: string
+  sources: { name: string; size: number }[]
+  expires_at: string
+}
+
+/** Re-open the counting gate on a dataset whose design is already saved.
+ *
+ *  A catalog review starts at S6 and drops the browser's copy of the source, so
+ *  the wizard has neither the skeleton nor a readable source when someone asks
+ *  to go back to the counting. The server holds both; this fetches them. */
+export async function recountDataset(datasetId: string): Promise<RecountMaterials> {
+  const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/recount`, {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  if (!res.ok) await throwApiError(res, 'recount')
+  return (await res.json()) as RecountMaterials
+}
+
+/** One map whose subject template changed — an address that moves. */
+export interface IdMoveEntry {
+  name: string
+  old_name: string
+  source: string
+  old_template: string
+  new_template: string
+}
+
+/** One map whose OLD ids cannot be forwarded, and why. */
+export interface IdMoveBlocked {
+  name: string
+  source: string
+  /** `no_matching_map` (the kind is gone) | `missing_columns` (the old key's
+   *  columns are not in the current file). */
+  reason: string
+  missing_columns: string[]
+}
+
+/** What the pending re-ingest does to a dataset's PUBLISHED ids
+ *  (ADR id-move-after-publish.md).
+ *
+ *  `changes_ids: false` covers everything that leaves addresses alone: a first
+ *  publication, a meanings-only edit, a dataset that was never published. */
+export interface IdMove {
+  dataset_id: string
+  changes_ids: boolean
+  fully_movable?: boolean
+  /** Forwarding rows actually written (old id → new id), measured, not planned. */
+  forwarded?: number
+  moved?: IdMoveEntry[]
+  unchanged?: string[]
+  blocked?: IdMoveBlocked[]
+  /** The ledger could not be built at all — the old ids will stop resolving. */
+  ledger_error?: boolean
+}
+
+/** Read before publishing an update: which already-cited ids move, and whether
+ *  every one of them can be forwarded (K10 — the consequence is shown first). */
+export async function fetchIdMove(datasetId: string): Promise<IdMove> {
+  const res = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/id-move`, {
+    headers: authHeaders(),
+  })
+  if (!res.ok) await throwApiError(res, 'id move')
+  return (await res.json()) as IdMove
 }
 
 /** A dataset's stored design (propose/refine Markdown) for the redesign flow. */

@@ -2,6 +2,7 @@
 
 決定: 2026-06-01 / 設計セッション（UI 担当の調査を受けて core が判断）
 status: **合意済み（暫定 = option 1 / 北極星 = option 2 は Phase 5）**
+> 続き（2026-08-28）: option 2 が実現し ingester が一度も実行されなくなったため、**生成そのものをやめた**。[`retire-generated-ingester.md`](retire-generated-ingester.md) 参照。
 
 本書は「step0 が生成する ingester をどう安全に実行するか」を確定する。背景は、Phase 4 UI で「設計 → 取り込み → Ask」のループを UI から回す案を検討した際に判明した、**AI 生成コードの実行（RCE 級）リスク**である。
 

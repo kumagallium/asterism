@@ -122,6 +122,7 @@
     "failed": "The AI could not read your data",
     "retry": "Ask the AI to read again",
     "back": "Go back and retry",
+    "backToGate": "Back to how the data is counted",
     "titleMeanings": "The AI is working out what each column means",
     "jobLabelMeanings": "Reading",
     "skipMeanings": "Continue with blanks"
@@ -140,7 +141,8 @@
     "discard": "Go back and redo",
     "discardConfirm": "This goes back to the reading check. The current reading is discarded, but your files stay usable.",
     "discardConfirmNoFiles": "This goes back to the first screen. The current reading is discarded, so you will need to drop your files again.",
-    "rethinkWrap": "While checking how IDs are given, the user pointed this out. Apply it to how the table splits into kinds and how each row's ID is built: {{note}}"
+    "rethinkWrap": "While checking how IDs are given, the user pointed this out. Apply it to how the table splits into kinds and how each row's ID is built: {{note}}",
+    "keptEdits": "{{count}} value(s) you typed yourself ({{list}}) were kept as they were."
   },
   "s5": {
     "title": "Reading the item meanings and loading your draft",
@@ -312,6 +314,7 @@
     "zoneDecide": "2 · Take it in, or leave it out",
     "backToGate": "Back to how IDs are given",
     "backToGateConfirm": "This goes back to the ID check. The current draft will be rebuilt (your files stay as they are). Continue?",
+    "backToGateConfirmPublished": "This goes back to the ID check. Changing how IDs are made from here changes IDs that are already published. Anyone opening an earlier ID will be forwarded to the new content, and you will be shown how many IDs move just before you publish. The current draft will be rebuilt (your files stay as they are). Continue?",
     "noteUnappliedConfirm": "Your structural change request has not been applied yet. Continue without it? (Cancel to go back — \"Have the AI change the structure\" applies it.)",
     "othersSummary": "Automatic IDs, fixed values and computed values ({{n}})",
     "otherKind": {
@@ -421,6 +424,12 @@
     "wordsList": "See the list",
     "wordsReuse": "Standard words (used as is)",
     "wordsNew": "New words for this data only",
+    "idMoveTitle": "IDs are moving",
+    "idMoveForwarded": "This update changes {{n}} IDs. Anyone who opens an earlier ID still reaches the new content.",
+    "idMoveBroken": "These cannot be reached from their earlier IDs any more:",
+    "idMoveBrokenColumns": "{{source}}: the columns the earlier ID was built from ({{columns}}) are not in the current file.",
+    "idMoveBrokenKind": "{{source}}: the kind it used to create is not in the new design.",
+    "idMoveBrokenExit": "You can publish anyway. To keep the earlier IDs, use \"Back to Try it\" → \"Back to how the data is counted\" and put the way IDs are made back as it was.",
     "promise": "If you spot a mistake, you can withdraw it from citation at any time (from \"Withdraw\" on the dataset page). The data and IDs remain, so links to already-cited numbers never break.",
     "laterLabel": "Later",
     "publish": "Publish",

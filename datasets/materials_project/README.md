@@ -81,8 +81,10 @@ in canonical scope.
 | `seed/build_seed.py` | content tool: CSV → `mp.ttl` (deterministic, stdlib) |
 | `seed/mp.ttl` | generated ABox (committed) |
 | `seed/load.py` | load `mp.ttl` into the `canonical/materials_project` named graph |
-| `json/build_json_snapshot.py` | content tool: CSV → **nested** `mp.json` (#19 JSON-source dogfood) |
-| `json/mp.json` | nested JSON snapshot (committed) — the persisted, citable non-CSV source |
+| `json/fetch_mp_snapshot.py` | content tool: **MP API → `mp.json`** — resolves Starrydata's host compositions (ADR `mp-api-snapshot.md`) |
+| `json/mp.json` | the live snapshot (committed) — **2,402 materials**, 51 fields each, the persisted citable source |
+| `json/build_json_snapshot.py` | content tool: seed CSV → `mp.seed.json` (#19 JSON-source dogfood; kept for the CSV↔JSON equivalence check) |
+| `json/mp.seed.json` | the original eleven hand-written facts as nested JSON |
 | `json/mp.rml.ttl` | declarative CSV RML (JSON tabularized at ingest) — produces the *same* facts as `mp.ttl` |
 
 ## JSON source path (#19 — non-CSV ingestion dogfood)
@@ -90,7 +92,13 @@ in canonical scope.
 Materials Project is the dogfood for Asterism's **non-CSV source** support. MP is
 natively an HTTP API; the reproducible, declarative path is *API → JSON snapshot →
 JSON ingest* — the snapshot is the persisted, citable source (a live-API connector
-with auth/paging is a later, heavier step). `json/mp.json` is that snapshot, with
+with auth/paging is a later, heavier step). `json/mp.json` is that snapshot —
+**2,402 materials resolved from Starrydata's host compositions via the MP API**
+(`fetch_mp_snapshot.py`, ADR `architecture/mp-api-snapshot.md`), carrying 51 fields
+each: symmetry, band gap, elastic and dielectric moduli, stability, magnetism, ICSD
+identifiers. Only the symmetry block is projected to RDF today — `mp.rml.ttl` is
+unchanged from the eleven-material era, and widening it needs new predicates (and
+a decision about units), which is deliberately a separate step. It is shaped with
 crystal-structure fields **nested** under a `structure` object on purpose: it
 exercises the JSON path end to end, where a nested object flattens to dot-path
 leaf fields (`structure.space_group_symbol`). Ingest **tabularizes the JSON to CSV**

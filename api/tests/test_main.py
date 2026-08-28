@@ -4,8 +4,8 @@ We start the app with ``start_watcher=False`` and an injected mock
 OxigraphClient so the test stays inside a single process and doesn't touch
 the filesystem outside ``tmp_path``.
 """
-# This module's prose is Japanese: full-width parentheses / slashes are
-# intentional, not ASCII look-alikes (same posture as describe.py).
+# このファイルの散文は日本語。全角の括弧・記号は意図したもので、ASCII の
+# 見間違いではない（id_move.py / describe.py と同じ流儀）。
 # ruff: noqa: RUF003
 from __future__ import annotations
 
@@ -572,6 +572,83 @@ def test_propose_skeleton_streams_skeleton(
         assert ann["id_previews"][0] == "https://ns.invalid/r/sample/1/10"
 
 
+def test_propose_skeleton_rethink_repairs_the_design_on_screen(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    """S4「AI にもう一度考えさせる」は作り直しではなく修理 (2026-08-27)。
+
+    画面にある骨格が prompt に乗り、人が打った値 (ここでは種類名) はモデルが
+    書き戻しても機械が戻す。人が切り出した種類も落ちない。
+    """
+    seen: list[str] = []
+
+    class _Rethink(_StagedMock):
+        def complete(self, system_prompt: str, user_message: str) -> str:
+            seen.append(user_message)
+            return super().complete(system_prompt, user_message)
+
+    app = build_app(
+        _settings(tmp_path),
+        oxigraph_client=healthy_client,
+        start_watcher=False,
+        llm_factory=lambda key: _Rethink(key),
+    )
+    # 人が種類名を打ち直し、列を切り出して 2 つ目の種類を作った状態
+    on_screen = json.loads(json.dumps(_STAGED_SKELETON))
+    on_screen["maps"][0]["subject"]["classes"] = ["ex:Specimen"]
+    on_screen["maps"].append({
+        "name": "batch",
+        "source": "samples.csv",
+        "subject": {"template": "exr:batch/{SID}", "classes": ["ex:Batch"]},
+    })
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/propose/skeleton",
+            data={
+                "domain": "thermoelectric samples",
+                "skeleton": json.dumps(on_screen),
+                "baseline_skeleton": json.dumps(_STAGED_SKELETON),
+                "rethink": "測定値も別の種類にしてください",
+            },
+            files={"files": ("samples.csv", _STAGED_CSV, "text/csv")},
+        )
+        assert r.status_code == 202
+        job_id = r.json()["job_id"]
+        events = _parse_sse(client.get(f"/api/jobs/{job_id}/stream").text)
+        done = next(d for n, d in events if n == "done")["result"]
+
+    # 画面の設計と注文がモデルに届いている
+    assert any("exr:batch/{SID}" in m for m in seen), seen[:1]
+    assert any("測定値も別の種類にしてください" in m for m in seen)
+    maps = {m["name"]: m for m in done["skeleton"]["maps"]}
+    # モデルは 1 map だけ返したが、人が作った種類は落ちない
+    assert "batch" in maps, list(maps)
+    # モデルは ex:Sample に戻したが、人が打った名前が勝つ
+    assert maps["sample"]["subject"]["classes"][0].endswith(":Specimen")
+    assert done["metadata"]["rethink"] is True
+    assert done["metadata"]["kept_human_edits"]
+
+
+def test_propose_skeleton_rejects_a_malformed_rethink_skeleton(
+    tmp_path: Path, healthy_client: OxigraphClient
+) -> None:
+    """壊れた JSON は読める 400。500 でも、黙って作り直しでもない。"""
+    app = build_app(
+        _settings(tmp_path),
+        oxigraph_client=healthy_client,
+        start_watcher=False,
+        llm_factory=lambda key: _StagedMock(key),
+    )
+    with TestClient(app, headers=_AUTH) as client:
+        r = client.post(
+            "/api/propose/skeleton",
+            data={"skeleton": "{not json"},
+            files={"files": ("samples.csv", _STAGED_CSV, "text/csv")},
+        )
+        assert r.status_code == 400
+        assert "skeleton" in r.json()["detail"]
+
+
 def test_skeleton_validate_recomputes_evidence_for_edits(
     tmp_path: Path, healthy_client: OxigraphClient
 ) -> None:
@@ -1092,14 +1169,15 @@ def test_materialize_extracts_artifacts_and_validates(
         )
         assert r.status_code == 200
         body = r.json()
-        # diagram / mie / ingester extracted (no rdf-config model block here)
+        # diagram / mie extracted (no rdf-config model block here)
         assert body["artifacts"]["diagram.md"]
         assert body["artifacts"]["mie.yaml"]
-        assert body["artifacts"]["ingester.py"]
+        assert "ingester.py" not in body["artifacts"]
         trap = {t["id"]: t["status"] for t in body["traps"]}
-        assert trap["T2"] == "pass"  # utf-8-sig in ingester
         assert trap["T4"] == "pass"  # >=5 keywords
-        assert trap["T1"] == "skip"  # no source CSV attached
+        # Both read the sources, which this endpoint does not attach.
+        assert trap["T1"] == "skip"
+        assert trap["T2"] == "skip"
         assert "exit_code" in body
 
 
@@ -1189,9 +1267,10 @@ def test_materialize_traps_carry_fix_recipes(
         assert "reading" in mie  # the author's single keyword survives verbatim
         # §9-only terms in the stamped block = the mapping spec reached it.
         assert "channel" in mie and "amplitude" in mie
-        # Passing traps carry no recipe.
+        # A trap that never ran carries no recipe either. T2 reads the source
+        # bytes against the §9 dialect, and /api/materialize attaches no sources.
         t2 = next(t for t in traps if t["id"] == "T2")
-        assert t2["status"] == "pass" and t2["fix"] == ""
+        assert t2["status"] == "skip" and t2["fix"] == ""
 
 
 def test_materialize_persists_the_whole_diagram_document(

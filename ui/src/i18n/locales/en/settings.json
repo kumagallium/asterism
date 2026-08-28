@@ -9,7 +9,8 @@
     "server": "This server",
     "usage": "AI usage",
     "storage": "Storage",
-    "about": "About"
+    "about": "About",
+    "connect": "Use from other AI"
   },
   "provider": {
     "anthropic": "Anthropic (Claude)",
@@ -158,6 +159,12 @@
     "downloading": "Downloading… {{pct}}%",
     "installFailed": "Update failed"
   },
+  "backendDown": {
+    "message": "The backend has stopped. What you see on screen is from before it stopped. Restarting will fix it.",
+    "restart": "Restart Backend",
+    "restarting": "Restarting…",
+    "restartFailed": "Could not restart. Open Help → \"Open the Log (for reporting problems)\" for details."
+  },
   "storage": {
     "title": "Local storage location",
     "intro": "The folder where datasets, graphs, chats, and settings are stored.",
@@ -177,5 +184,50 @@
     "noticeMoved": "On the last launch, the storage location was moved to {{to}}.",
     "noticeCopied": "On the last launch, the storage location was copied to {{to}}. The old folder ({{from}}) still has data in it — delete it if you don't need it.",
     "noticeFailed": "On the last launch, moving the storage location failed. The change was reverted and the app is running from the previous location. Detail: {{detail}}"
+  },
+  "connect": {
+    "title": "Use from other AI",
+    "intro": "Let another AI ask this app about the data you loaded here. You only hand it the address below — nothing is copied out.",
+    "urlLabel": "Address",
+    "copy": "Copy",
+    "copied": "Copied",
+    "copyUrl": "Copy the address",
+    "copySnippet": "Copy the settings",
+    "clientLabel": "Which AI you use",
+    "clients": {
+      "claude-code": "Claude Code",
+      "claude-desktop": "Claude Desktop",
+      "cursor": "Cursor",
+      "vscode": "VS Code",
+      "other": "Other"
+    },
+    "steps": {
+      "claude-code": [
+        "Open a terminal.",
+        "Paste and run the command below.",
+        "Done once asterism shows up in `claude mcp list`."
+      ],
+      "claude-desktop": [
+        "Open Claude Desktop → Settings → Connectors.",
+        "Choose “Add custom connector”.",
+        "Paste the address above and add it."
+      ],
+      "cursor": [
+        "Open .cursor/mcp.json in your home folder (create it if missing).",
+        "Paste the contents below and save.",
+        "Done once asterism shows up under MCP in Cursor's settings."
+      ],
+      "vscode": [
+        "Open .vscode/mcp.json in your working folder (create it if missing).",
+        "Paste the contents below and save.",
+        "Done once asterism shows up in the agent-mode tool list."
+      ],
+      "other": [
+        "Pick MCP (HTTP / streamable-http) as the transport.",
+        "Give it the address above as-is."
+      ]
+    },
+    "caveat": "This works only while Asterism is running. Quit the app and the AI can no longer reach it.",
+    "unavailable": "This screen cannot show the address. Open it from the desktop app."
   }
 }

@@ -17,9 +17,11 @@ import type { AskThread } from './askThreads'
 export interface AppDataInfo {
   singleUser: boolean
   home: string | null
+  /** MCP エンドポイントの URL。この機で MCP を出していないときは null。 */
+  mcpUrl: string | null
 }
 
-const FALLBACK: AppDataInfo = { singleUser: false, home: null }
+const FALLBACK: AppDataInfo = { singleUser: false, home: null, mcpUrl: null }
 
 let info: AppDataInfo | null = null
 let inFlight: Promise<AppDataInfo> | null = null
@@ -44,10 +46,15 @@ async function fetchInfo(): Promise<AppDataInfo> {
   try {
     const res = await fetch('/api/appdata/info')
     if (!res.ok) return FALLBACK
-    const data = (await res.json()) as { single_user?: unknown; home?: unknown }
+    const data = (await res.json()) as {
+      single_user?: unknown
+      home?: unknown
+      mcp_url?: unknown
+    }
     return {
       singleUser: data.single_user === true,
       home: typeof data.home === 'string' ? data.home : null,
+      mcpUrl: typeof data.mcp_url === 'string' ? data.mcp_url : null,
     }
   } catch {
     return FALLBACK

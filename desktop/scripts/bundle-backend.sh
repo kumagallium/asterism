@@ -49,6 +49,43 @@ if ls "$SITE"/_editable_impl_*.pth "$SITE"/__editable__* >/dev/null 2>&1; then
   exit 1
 fi
 
+# --- console script shebangs: make them relocatable ------------------------
+# pip/uv bake the BUILD machine's interpreter path into every console script's
+# shebang (`#!/Users/runner/work/.../bin/python3` in CI). A shebang must be an
+# absolute path — the kernel does not resolve relative ones — so a relocated
+# bundle has every `asterism*` command dead on arrival:
+#   bad interpreter: /Users/runner/work/... : no such file or directory
+# The app itself never noticed: the Tauri shell starts the backend with
+# `python -m`, bypassing the scripts. But anything *outside* the app that wants
+# them is stuck — notably registering the MCP server with an AI client
+# (`asterism --transport stdio`), which is the whole point of shipping it.
+#
+# Fix: replace the shebang with an sh/python polyglot that resolves the bundled
+# interpreter relative to the script's own location. sh runs the exec line;
+# python sees it as a triple-quoted string literal and ignores it.
+BINDIR="$(dirname "$PYBIN")"
+rewritten=0
+for f in "$BINDIR"/*; do
+  [ -f "$f" ] || continue
+  head -1 "$f" 2>/dev/null | grep -qE '^#!.*/python[0-9.]*$' || continue
+  tmp="$f.shebang.tmp"
+  cat > "$tmp" <<'LAUNCHER'
+#!/bin/sh
+''''exec "$(dirname "$0")/python3" "$0" "$@" # '''
+LAUNCHER
+  tail -n +2 "$f" >> "$tmp"
+  mv "$tmp" "$f"
+  chmod +x "$f"
+  rewritten=$((rewritten + 1))
+done
+echo "rewrote $rewritten console script shebang(s) to the relocatable launcher"
+# Guard: no build-machine path may survive into the bundle.
+if grep -rlE '^#!/.*(runner|/home/|/Users/)' "$BINDIR" 2>/dev/null | grep -q .; then
+  echo "console scripts still carry a build-machine shebang" >&2
+  grep -rlE '^#!/.*(runner|/home/|/Users/)' "$BINDIR" >&2
+  exit 1
+fi
+
 # --- oxigraph single binary ------------------------------------------------
 if [ ! -x "$DEST/oxigraph" ]; then
   case "$(uname -sm)" in

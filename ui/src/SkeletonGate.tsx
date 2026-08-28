@@ -1617,22 +1617,55 @@ export function SkeletonGate({
      タブはその下＝「えらんだ種類をたしかめる」に格下げされる。 */
   const zone = (() => {
     if (!plain) return null
-    const idx = skeleton.maps.findIndex((mm) => {
+    /* 宿主は「1 ファイル＝1 件のカード」が第一候補。無ければ**いちばん件数の
+       多い行の種類**に載せる。ゾーンは K32 の時点でヘッダ付きファイルの形だけを
+       見て書かれていて、普通の行データ（1 件のカードが無い）では丸ごと消えて
+       いた — つまり「どの値を後でつなぐか」を人が決める場所が、いちばん列の
+       多いファイルで存在しなかった（利用者の実データ・2026-08-28）。 */
+    const hasCard = (mm: SkeletonMap) => {
       const a = annotations?.maps?.[mm.name]
-      return a?.collapse_kind === 'singleton' && !!a?.entity_preview
-    })
+      return !!a?.entity_preview
+    }
+    let idx = skeleton.maps.findIndex(
+      (mm) => annotations?.maps?.[mm.name]?.collapse_kind === 'singleton' && hasCard(mm),
+    )
+    if (idx < 0) {
+      let best = -1
+      skeleton.maps.forEach((mm, i) => {
+        const a = annotations?.maps?.[mm.name]
+        if (!hasCard(mm) || a?.value_catalog) return
+        const n = a?.distinct_ids ?? 0
+        if (n > best) {
+          best = n
+          idx = i
+        }
+      })
+    }
     if (idx < 0) return null
     const host = skeleton.maps[idx]
     const a = annotations!.maps[host.name]
     const values = new Map<string, string>()
-    for (const prop of a.entity_preview!.properties) {
-      if (!prop.conflict && prop.value !== undefined) values.set(prop.column, prop.value)
+    // 打ち切られていない全列（`all_values`）を第一候補に。古いサーバや
+    // 取れなかったときだけカードの表示列に落ちる。
+    for (const v of a.entity_preview!.all_values ?? []) values.set(v.column, v.value)
+    if (values.size === 0) {
+      for (const prop of a.entity_preview!.properties) {
+        if (!prop.conflict && prop.value !== undefined) values.set(prop.column, prop.value)
+      }
     }
     for (const dv of a.growth_preview?.described_values ?? []) {
       if (!values.has(dv.column)) values.set(dv.column, dv.value)
     }
     if (values.size === 0) return null
     const keyCols = new Set((a.key_columns ?? []).map(String))
+    /* チェックを出してよい列。1 件のカードなら「この 1 件が説明する列」
+       （growth）、行の種類ならカード自身の識別子型の列。どちらも「値そのものが
+       外の世界でも名前を持つか」を人に聞くための候補で、測定値は入らない。 */
+    const pickable = new Set<string>(
+      a.collapse_kind === 'singleton'
+        ? a.growth_preview?.described_columns ?? []
+        : a.entity_preview?.identity_columns ?? [],
+    )
     // 同じソースで、1 列だけをキーに持つ他の種類 — その列は「もう種類」。
     const kindOf = new Map<string, string>()
     for (const mm of skeleton.maps) {
@@ -1645,7 +1678,7 @@ export function SkeletonGate({
     const rowMap = (a.growth_preview?.row_maps ?? []).find(
       (n) => !annotations?.maps?.[n]?.value_catalog,
     )
-    return { idx, host, ann: a, values, keyCols, kindOf, rowMap }
+    return { idx, host, ann: a, values, keyCols, kindOf, rowMap, pickable }
   })()
 
   // The skeleton at a glance: how many kinds, linked how. A one-box skeleton
@@ -2343,7 +2376,11 @@ export function SkeletonGate({
               {basename(zone.host.source)}
             </p>
           )}
-          <p className="kz-note kz-prose">{t('skeletongate:zone.lead')}</p>
+          <p className="kz-note kz-prose">
+            {t('skeletongate:zone.lead')
+              .split('**')
+              .map((part, i) => (i % 2 ? <strong key={i}>{part}</strong> : part))}
+          </p>
           {droppedHere.length > 0 && (
             <p className="kz-note kz-prose">
               {t('skeletongate:zone.droppedNote', { count: droppedHere.length })}
@@ -2393,7 +2430,7 @@ export function SkeletonGate({
                         外せない — 外すと ID の作り方そのものが変わるので、そこは
                         「ID の作り方を自分で書く」の領分。 */}
                     <td className="skeleton-entity-pick">
-                      {!locked && (
+                      {!locked && (zone.pickable.has(col) || !!kindName) && (
                         <input
                           type="checkbox"
                           aria-label={t('skeletongate:zone.idAria', { column: col })}
@@ -2654,12 +2691,11 @@ export function SkeletonGate({
           <p className="skeleton-evidence-label" id="skeleton-rethink-label">
             {t('workbench:skeleton.rethink.label')}
           </p>
-          {/* 作り直しは骨格を丸ごと作り直す。この画面でやった編集（種類の名前・
-              ID の作り方・削除・切り出し）は残らない。押す前に言う。 */}
+          {/* いまの設計を渡して、注文の箇所だけ直させる。この画面でやった編集
+              （種類の名前・ID の作り方・削除・切り出し）は残る。かつては骨格ごと
+              作り直していたので ⚠ で「消えます」と断っていた（2026-08-27）。 */}
           {plain && (
-            <p className="skeleton-evidence-line skeleton-evidence-warn">
-              ⚠ {t('skeletongate:rethinkResets')}
-            </p>
+            <p className="skeleton-evidence-line">{t('skeletongate:rethinkKeeps')}</p>
           )}
           <textarea
             id="skeleton-rethink-note"

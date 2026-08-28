@@ -106,8 +106,7 @@ maps:
 _ARTIFACTS = {
     "diagram.md": "```mermaid\nclassDiagram\n  class Sample\n```\n",
     "model.yaml": _MODEL,
-    "mie.yaml": _MIE,
-    "ingester.py": "",
+    "mie.yaml": "",
     "mapping.rml.ttl": _RML,
     "mapping.yaml": _MAPPING_IR,
 }
@@ -168,8 +167,8 @@ def test_redesign_snapshots_previous_artifacts(tmp_path: Path) -> None:
     # The snapshot holds the PREVIOUS (v1) content, not the new one.
     assert '"name"' in snap["artifacts"]["mapping.rml.ttl"]
     assert snap["artifacts"]["proposal.md"] == "# design v1\n"
-    # Empty artifacts (ingester.py) are not stored as empty files.
-    assert "ingester.py" not in snap["artifacts"]
+    # An artifact with no content is not stored as an empty file.
+    assert "mie.yaml" not in snap["artifacts"]
 
 
 def test_history_ids_are_validated(tmp_path: Path) -> None:
@@ -306,6 +305,34 @@ def test_history_endpoints_list_and_diff(tmp_path: Path, healthy_client) -> None
 
         assert client.get(f"/api/datasets/{meta['id']}/history/does-not-exist").status_code == 404
         assert client.get("/api/datasets/nope/history").status_code == 404
+
+
+def test_a_retired_artifact_is_not_diffed_as_a_deletion(
+    tmp_path: Path, healthy_client
+) -> None:
+    """Snapshots taken before ingester.py was removed still hold the file. It is
+    no longer a design artifact, so the history view must ignore it — diffing it
+    against nothing would show a whole-file deletion the person never made."""
+    meta = _save(tmp_path)
+    root = tmp_path / "registry"
+    changed = dict(_ARTIFACTS, **{"mapping.rml.ttl": _RML.replace('"name"', '"label"')})
+    registry.update_dataset_artifacts(
+        root, meta["id"], changed,
+        complete=True, warnings=[], traps=[], exit_code=0, proposal_md="# design v2\n",
+    )
+    snap_id = registry.list_dataset_history(root, meta["id"])[0]["id"]
+    # A pre-removal snapshot: the retired script is on disk inside the snapshot.
+    (root / meta["id"] / "history" / snap_id / "ingester.py").write_text(
+        "def go(): ...\n", encoding="utf-8"
+    )
+
+    app = build_app(_settings(tmp_path), oxigraph_client=healthy_client, start_watcher=False)
+    with TestClient(app, headers=_AUTH) as client:
+        d = client.get(f"/api/datasets/{meta['id']}/history/{snap_id}").json()
+    # Still readable as history…
+    assert "ingester.py" in d["snapshot"]["artifacts"]
+    # …but never presented as a change.
+    assert "ingester.py" not in d["diffs"]
 
 
 def test_a_unit_that_is_just_the_column_name_again_is_not_shown_as_a_unit() -> None:

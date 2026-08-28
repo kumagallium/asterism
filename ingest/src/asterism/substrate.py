@@ -32,7 +32,7 @@ import subprocess
 import sys
 import tempfile
 from collections.abc import Callable, Iterable
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
@@ -133,6 +133,15 @@ LIFECYCLE_GRAPH_BASE: str = "https://kumagallium.github.io/asterism/graph/"
 CANONICAL_GRAPH_BASE: str = LIFECYCLE_GRAPH_BASE + "canonical/"
 ONTOLOGY_GRAPH_BASE: str = LIFECYCLE_GRAPH_BASE + "ontology/"
 CONTROL_GRAPH_IRI: str = LIFECYCLE_GRAPH_BASE + "control"
+# The forwarding ledger (ADR id-move-after-publish.md): when a re-design changes
+# HOW ids are made, this holds one ``<old> dcterms:isReplacedBy <new>`` per row,
+# so an already-handed-out citation still lands. It is append-only and lives
+# OUTSIDE the version graphs on purpose — a version graph is dropped the moment
+# the next promote supersedes it, and taking the forwarding record down with it
+# is exactly the failure this ledger exists to prevent (a v1→v2→v3 chain must
+# still resolve a v1 id). Never in the Ask/FROM-merge scope: forwarding is how
+# the data was re-shaped, not a fact anyone asked about.
+MOVED_GRAPH_BASE: str = LIFECYCLE_GRAPH_BASE + "moved/"
 
 # Control vocabulary (asterism: namespace) for the lifecycle status of a dataset.
 ASTERISM_NS: str = "https://kumagallium.github.io/asterism/vocab#"
@@ -187,6 +196,17 @@ def ontology_graph_iri(dataset_id: str) -> str:
     if not _DATASET_ID.match(dataset_id):
         raise ValueError(f"unsafe dataset_id for graph IRI: {dataset_id!r}")
     return f"{ONTOLOGY_GRAPH_BASE}{dataset_id}"
+
+
+def moved_graph_iri(dataset_id: str) -> str:
+    """Per-dataset forwarding-ledger named graph IRI (ADR id-move-after-publish.md).
+
+    One per dataset, never versioned: ids move forward across re-designs, and the
+    chain has to outlive every individual version graph.
+    """
+    if not _DATASET_ID.match(dataset_id):
+        raise ValueError(f"unsafe dataset_id for graph IRI: {dataset_id!r}")
+    return f"{MOVED_GRAPH_BASE}{dataset_id}"
 
 
 def absolutize_rml_sources(rml_ttl: str, csv_dir: Path | str) -> str:
@@ -1447,6 +1467,155 @@ async def ontology_graphs(client: SupportsSparql) -> list[str]:
         if v.get("type") == "uri":
             out.append(v["value"])
     return out
+
+
+async def moved_graphs(client: SupportsSparql) -> list[str]:
+    """List the per-dataset forwarding ledgers, sorted (ADR id-move-after-publish.md).
+
+    Enumerated by graph name (not a triple scan), same as :func:`ontology_graphs`.
+    Read ONLY by the dereference responder: these graphs answer "where did this id
+    go", never "what is true", so they stay out of the FROM-merge that Ask reads.
+    """
+    q = (
+        "SELECT DISTINCT ?g WHERE { "
+        "GRAPH ?g {} "
+        f'FILTER(STRSTARTS(STR(?g), "{MOVED_GRAPH_BASE}")) '
+        "} ORDER BY ?g"
+    )
+    data = await client.sparql_select(q)
+    results = data.get("results", {}) if isinstance(data, dict) else {}
+    out: list[str] = []
+    for b in results.get("bindings", []):
+        v = b.get("g", {})
+        if v.get("type") == "uri":
+            out.append(v["value"])
+    return out
+
+
+# The one predicate the ledger speaks (ADR id-move-after-publish.md §3). NOT
+# owl:sameAs: re-counting rows splits one old id into many new ones, and sameAs
+# would then publish "these different samples are the same thing" as a fact.
+ID_MOVED_PREDICATE: str = "http://purl.org/dc/terms/isReplacedBy"
+# A v1→v2→v3… chain is followed transitively; the cap makes a cyclic or absurdly
+# long ledger a bounded read rather than a hang.
+MAX_MOVE_HOPS: int = 8
+# One old id can split into hundreds of new ones ("1 row = 1 sample" fixes a
+# collapsed key). The page shows a bounded list and says how many there were.
+MAX_MOVE_TARGETS: int = 50
+
+
+@dataclass(frozen=True)
+class IdMoveResolution:
+    """Where an old id leads today.
+
+    * ``targets`` — ids that are BOTH named by the ledger and actually present in
+      the published scope, in ledger order. Empty with ``forwarded=True`` means
+      the ledger knows the id but every destination has since gone (re-designed
+      again and not re-published / retracted) — an honest "it moved, and the
+      place it moved to is not published here", not a plain 404.
+    * ``truncated`` — more destinations existed than the cap allows.
+    """
+
+    targets: tuple[str, ...] = ()
+    forwarded: bool = False
+    truncated: bool = False
+
+
+def _uri_values(iris: Iterable[str]) -> str:
+    return " ".join(f"<{i}>" for i in iris)
+
+
+async def _ledger_targets(
+    client: SupportsSparql, iris: list[str], ledger_graphs: list[str], *, limit: int
+) -> list[str]:
+    """One hop: every id the ledger forwards ``iris`` to (deduped, stable order)."""
+    q = (
+        "SELECT DISTINCT ?new WHERE { "
+        f"VALUES ?g {{ {_uri_values(ledger_graphs)} }} "
+        f"VALUES ?s {{ {_uri_values(iris)} }} "
+        f"GRAPH ?g {{ ?s <{ID_MOVED_PREDICATE}> ?new }} "
+        f"}} ORDER BY ?new LIMIT {int(limit)}"
+    )
+    data = await client.sparql_select(q)
+    results = data.get("results", {}) if isinstance(data, dict) else {}
+    out: list[str] = []
+    for b in results.get("bindings", []):
+        v = b.get("new", {})
+        if v.get("type") == "uri":
+            out.append(v["value"])
+    return out
+
+
+async def _present_in_scope(
+    client: SupportsSparql, iris: list[str], graphs: list[str]
+) -> set[str]:
+    """Which of ``iris`` the published scope actually describes (one query)."""
+    if not graphs or not iris:
+        return set()
+    q = (
+        "SELECT DISTINCT ?s\n"
+        + canonical_from_clauses(graphs)
+        + f"WHERE {{ VALUES ?s {{ {_uri_values(iris)} }} ?s ?p ?o }}"
+    )
+    data = await client.sparql_select(q)
+    results = data.get("results", {}) if isinstance(data, dict) else {}
+    return {
+        b["s"]["value"]
+        for b in results.get("bindings", [])
+        if b.get("s", {}).get("type") == "uri"
+    }
+
+
+async def follow_id_move(
+    client: SupportsSparql,
+    iri: str,
+    *,
+    ledger_graphs: list[str],
+    scope_graphs: list[str],
+    max_hops: int = MAX_MOVE_HOPS,
+    max_targets: int = MAX_MOVE_TARGETS,
+) -> IdMoveResolution:
+    """Chase an old id through the forwarding ledger to what is published today.
+
+    Transitive by necessity: each re-design writes only ``this round's`` old→new
+    pairs, so a v1 id reaches v3 through the v2 id — which no longer exists in any
+    graph. A destination is *returned* only when the published scope really
+    describes it; one that does not is followed one hop further instead. Visited
+    ids are tracked, so a cyclic ledger terminates.
+    """
+    if not ledger_graphs:
+        return IdMoveResolution()
+    seen = {iri}
+    frontier = [iri]
+    resolved: list[str] = []
+    forwarded = False
+    truncated = False
+    for _ in range(max(1, max_hops)):
+        if not frontier or len(resolved) >= max_targets:
+            break
+        # +1 so "there were more than the cap" is detectable, not silent.
+        hop = await _ledger_targets(
+            client, frontier, ledger_graphs, limit=max_targets + 1
+        )
+        fresh = [t for t in hop if t not in seen]
+        if not fresh:
+            break
+        forwarded = True
+        seen.update(fresh)
+        present = await _present_in_scope(client, fresh, scope_graphs)
+        next_frontier: list[str] = []
+        for t in fresh:
+            if t in present:
+                if len(resolved) < max_targets:
+                    resolved.append(t)
+                else:
+                    truncated = True
+            else:
+                next_frontier.append(t)
+        frontier = next_frontier
+    return IdMoveResolution(
+        targets=tuple(resolved), forwarded=forwarded, truncated=truncated
+    )
 
 
 def canonical_from_clauses(graphs: list[str], *, named: bool = False) -> str:

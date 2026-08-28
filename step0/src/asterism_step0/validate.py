@@ -1,6 +1,6 @@
 """Schema validator for asterism Phase 3 (trap checks T1-T10).
 
-Validates a schema bundle (TBox TTL + Mermaid + MIE YAML + ingester Python +
+Validates a schema bundle (TBox TTL + Mermaid + MIE YAML + §9 mapping spec +
 the source CSVs) against the 8 traps from
 ``docs/architecture/ai-assisted-step0-workflow.md`` §6, plus **T9** (Phase 5):
 the declarative RML mapping references only vetted Tier 0 functions — see
@@ -10,17 +10,20 @@ example queries must actually run.
 The traps and how this module checks each:
 
 * **T1 ID uniqueness** — collect candidate IRI keys from *two* sources: the
-  composite IRI patterns in the MIE (e.g. ``sdr:sample/{SID}-{sample_id}``) **and**
-  the actual key columns recovered from the ingester's IRI builders
-  (:mod:`asterism_step0.t1_ingester`). For each, re-run
+  ``subject.template`` of every map in the §9 mapping spec (the IRIs the ingest
+  actually mints) **and** the composite IRI patterns documented in the MIE
+  (e.g. ``sdr:sample/{SID}-{sample_id}``). For each, re-run
   :mod:`asterism_step0.inspect` on the source CSVs and confirm the key combination
-  is globally unique. Reading the ingester is the safety net: if ``propose`` picks
-  the wrong key on a subset, a full-CSV validate catches it even when the MIE
-  looks clean (dogfood Round 3).
-* **T2 BOM** — grep the ingester for ``utf-8-sig``; check the source CSVs'
-  first column name does not start with the BOM byte.
+  is globally unique. The spec is the safety net: if the MIE documents a key the
+  mapping does not actually mint, a full-CSV validate still catches the real one —
+  and because each map names its own ``source:``, the key is tested against the
+  right file instead of a filename guess (dogfood Round 3).
+* **T2 BOM** — read the per-source ``encoding`` from the §9 ``dialects:`` block
+  (the encoding the ingest really opens with) and check that no source file's
+  BOM can leak into its first column name.
 * **T3 bnode-free** — parse the TBox TTL with rdflib and assert
-  ``len(g.bnodes())`` is zero. Also grep the ingester for ``BNode(``.
+  ``len(g.bnodes())`` is zero. On the declarative path every subject is minted
+  from a §9 template, so blank nodes cannot arise at ingest by construction.
 * **T4 MIE keywords / categories** — YAML parse the MIE; require
   ``schema_info.keywords`` and ``schema_info.categories`` lists with ≥ 5
   entries each, and a configurable Japanese/synonym subset. On failure the
@@ -69,7 +72,6 @@ from pathlib import Path
 from typing import Any
 
 from asterism_step0.inspect import _check_uniqueness, _stream_rows
-from asterism_step0.t1_ingester import extract_ingester_keys
 
 # ----------------------------------------------------------------------------
 # Report dataclasses
@@ -137,7 +139,6 @@ class SchemaBundle:
     tbox_ttl: Path | None = None  # docs/ontology/{name}.ttl
     diagram_md: Path | None = None  # docs/ontology/diagram.md
     mie_yaml: Path | None = None  # data/togomcp/mie/{name}.yaml
-    ingester_py: Path | None = None  # ingest/src/asterism/{name}.py
     rml_ttl: Path | None = None  # {name}-mapping.rml.ttl (declarative substrate, T9)
     mapping_ir_yaml: Path | None = None  # {name}-mapping.yaml (§9 spec; feeds T4's fix)
     draft_ttl: Path | None = None  # materialized draft Turtle (T10 executes §7 queries)
@@ -225,19 +226,77 @@ def _source_columns(csvs: list[Path]) -> list[str]:
     return cols
 
 
+# A §9 ``subject.template`` is a CURIE-shaped IRI recipe — ``sdr:sample/{SID}-{sample_id}``.
+# We only need its entity segment and its placeholders, so the prefix (whatever
+# it is named) is skipped and the rest is read the same way as an MIE template.
+_SUBJECT_TEMPLATE = re.compile(r"^[A-Za-z][\w.-]*:([A-Za-z_][A-Za-z0-9_]*)/(.+)$")
+
+
+def _ir_subject_keys(path: Path) -> tuple[list[tuple[str, tuple[str, ...], str]], list[str]]:
+    """Read every map's ``subject.template`` from the §9 mapping spec.
+
+    Returns ``(keys, notes)`` where each key is
+    ``(entity, placeholder-columns, declared source filename)``. The declared
+    source is what makes this reading strictly better than any text scan: the
+    spec states which file a map iterates, so its key is tested against THAT
+    file instead of being matched to one by filename resemblance.
+
+    Templates the regex cannot read (a ``constant:`` subject, a template with no
+    placeholders, an unusual shape) are reported in ``notes`` and left out of the
+    uniqueness check rather than guessed at.
+    """
+    import yaml  # lazy
+
+    keys: list[tuple[str, tuple[str, ...], str]] = []
+    notes: list[str] = []
+    try:
+        doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except Exception as exc:  # pragma: no cover - defensive
+        return [], [f"§9 mapping spec parse failed: {exc}"]
+    if not isinstance(doc, Mapping) or not isinstance(doc.get("maps"), list):
+        return [], notes
+    for m in doc["maps"]:
+        if not isinstance(m, Mapping):
+            continue
+        name = str(m.get("name") or "?")
+        source = str(m.get("source") or "")
+        subject = m.get("subject")
+        template = subject.get("template") if isinstance(subject, Mapping) else None
+        if not isinstance(template, str):
+            # A `constant:` subject mints exactly one IRI — uniqueness is trivial.
+            continue
+        match = _SUBJECT_TEMPLATE.match(template.strip())
+        placeholders = tuple(_PLACEHOLDER.findall(match.group(2))) if match else ()
+        if not placeholders:
+            notes.append(
+                f"§9 map {name}: subject template {template!r} has no column "
+                "placeholder — skipped"
+            )
+            continue
+        keys.append((match.group(1), placeholders, source))
+    return keys, notes
+
+
 def _collect_t1_candidates(
     bundle: SchemaBundle,
-) -> tuple[dict[tuple[str, tuple[str, ...]], list[str]], list[str]]:
-    """Gather candidate IRI keys from the MIE templates *and* the ingester.
+) -> tuple[
+    dict[tuple[str, tuple[str, ...]], list[str]],
+    list[str],
+    dict[tuple[str, tuple[str, ...]], str],
+]:
+    """Gather candidate IRI keys from the §9 mapping spec *and* the MIE templates.
 
-    Returns ``(candidates, notes)`` where ``candidates`` maps an
-    ``(entity, column-tuple)`` pair to the human-readable sources that produced
-    it, and ``notes`` records ingester keys that were only partially resolvable
-    (left out of the uniqueness check). The entity drives which source CSV the
-    key is checked against — a ``paper`` key belongs in ``papers.csv``, not in
-    ``samples.csv`` where its column happens to repeat by design.
+    Returns ``(candidates, notes, declared_sources)`` where ``candidates`` maps
+    an ``(entity, column-tuple)`` pair to the human-readable sources that
+    produced it, ``notes`` records templates that were not resolvable to columns
+    (left out of the uniqueness check), and ``declared_sources`` carries the
+    source filename the §9 map named for that key. The entity drives which
+    source CSV the key is checked against — a ``paper`` key belongs in
+    ``papers.csv``, not in ``samples.csv`` where its column happens to repeat by
+    design — and a declared source overrides that guess outright.
     """
     candidates: dict[tuple[str, tuple[str, ...]], list[str]] = {}
+    declared: dict[tuple[str, tuple[str, ...]], str] = {}
     notes: list[str] = []
 
     def add(entity: str, cols: tuple[str, ...], label: str) -> None:
@@ -254,27 +313,15 @@ def _collect_t1_candidates(
         for entity, key in _extract_composite_keys_with_entity(mie_text):
             add(entity, key, "MIE template")
 
-    if bundle.ingester_py:
-        columns = _source_columns(bundle.source_csvs)
-        try:
-            ikeys = extract_ingester_keys(
-                bundle.ingester_py.read_text(encoding="utf-8"), columns
-            )
-        except Exception as exc:  # pragma: no cover - defensive
-            notes.append(f"ingester parse failed: {exc}")
-            ikeys = []
-        for k in ikeys:
-            if k.fully_resolved:
-                add(k.entity, k.columns, f"ingester {k.func or '<module>'}() → sdr:{k.entity}")
-            elif k.columns or k.unresolved:
-                # Secondary resources (descriptor/{key}/{i}, ingestion/{run_id})
-                # carry an unresolvable placeholder; don't guess — just report.
-                notes.append(
-                    f"ingester sdr:{k.entity} ({k.func}): "
-                    f"resolved {list(k.columns)}, unresolved {list(k.unresolved)} — skipped"
-                )
+    if bundle.mapping_ir_yaml and bundle.mapping_ir_yaml.exists():
+        ir_keys, ir_notes = _ir_subject_keys(bundle.mapping_ir_yaml)
+        notes += ir_notes
+        for entity, key, source in ir_keys:
+            add(entity, key, f"§9 subject template → {entity}")
+            if source:
+                declared.setdefault((entity, key), source)
 
-    return candidates, notes
+    return candidates, notes, declared
 
 
 def _pick_csv_for_key(
@@ -282,13 +329,17 @@ def _pick_csv_for_key(
     key: tuple[str, ...],
     csvs: list[Path],
     rows_of: Any,
+    declared_source: str | None = None,
 ) -> Path | None:
     """Choose which source CSV to test ``key`` against.
 
-    Among CSVs that contain *all* of the key's columns, prefer one whose
-    filename matches ``entity`` (``paper`` → ``papers.csv``). This stops a
-    single-column key like ``(SID,)`` from being judged against the wrong file
-    where the column repeats legitimately. Falls back to the first match.
+    When the §9 map that mints this IRI declared its own ``source:``, that file
+    IS the answer — the spec states which rows the template iterates, so there
+    is nothing to infer. Otherwise, among CSVs that contain *all* of the key's
+    columns, prefer one whose filename matches ``entity`` (``paper`` →
+    ``papers.csv``). This stops a single-column key like ``(SID,)`` from being
+    judged against the wrong file where the column repeats legitimately. Falls
+    back to the first match.
     """
     matching = [
         p
@@ -297,6 +348,10 @@ def _pick_csv_for_key(
     ]
     if not matching:
         return None
+    if declared_source:
+        for p in matching:
+            if p.name == declared_source:
+                return p
     ent = entity.lower().rstrip("s")
     if ent:
         for p in matching:
@@ -348,19 +403,19 @@ def _check_t1_uniqueness(bundle: SchemaBundle) -> TrapResult:
             "skip",
             "Need source_csvs to run.",
         )
-    if not bundle.mie_yaml and not bundle.ingester_py:
+    if not bundle.mie_yaml and not bundle.mapping_ir_yaml:
         return TrapResult(
             "T1",
             "ID uniqueness",
             "skip",
-            "Need mie_yaml or ingester_py to derive IRI keys.",
+            "Need mie_yaml or mapping_ir_yaml to derive IRI keys.",
         )
 
-    candidates, notes = _collect_t1_candidates(bundle)
+    candidates, notes, declared = _collect_t1_candidates(bundle)
     if not candidates:
         detail = "No composite IRI templates found in MIE"
-        if bundle.ingester_py:
-            detail += " and no resolvable composite key in ingester"
+        if bundle.mapping_ir_yaml:
+            detail += " and no resolvable subject template in the §9 mapping spec"
         return TrapResult(
             "T1",
             "ID uniqueness",
@@ -383,7 +438,9 @@ def _check_t1_uniqueness(bundle: SchemaBundle) -> TrapResult:
     passes: list[str] = []
     for (entity, key), sources in candidates.items():
         src = "; ".join(sources)
-        csv_path = _pick_csv_for_key(entity, key, bundle.source_csvs, rows_of)
+        csv_path = _pick_csv_for_key(
+            entity, key, bundle.source_csvs, rows_of, declared.get((entity, key))
+        )
         if csv_path is None:
             notes.append(
                 f"sdr:{entity} ({', '.join(key)}) [{src}] → no source CSV has all these columns"
@@ -438,12 +495,9 @@ _BOM_BYTE = b"\xef\xbb\xbf"
 # Encodings that strip / cannot carry a leading BOM into the first column name.
 _BOM_SAFE_ENCODINGS = {"utf-8-sig", "utf_8_sig", "utf8-sig", "utf-16", "utf_16"}
 
-# Fix recipe (T2): where (§8 ingester) + the exact call shape to paste.
-_T2_FIX = (
-    "In §8 (ingester), open every source file with `encoding=\"utf-8-sig\"` — e.g. "
-    '`open(path, encoding="utf-8-sig", newline="")` — replacing any plain `utf-8` open. '
-    "utf-8-sig strips a leading BOM so it can never leak into the first column name."
-)
+# Fix recipe (T2): where (§9 dialects) + the exact key to set. There is only one
+# reader on the ingest path — the RML substrate, opening each source with the
+# encoding §9 pins — so there is only one place to fix.
 _T2_FIX_DIALECT = (
     "In §9 (mapping spec) `dialects:`, set `encoding: utf-8-sig` for the source(s) listed "
     "in evidence — that is the encoding the ingest actually reads with, and utf-8-sig "
@@ -452,13 +506,7 @@ _T2_FIX_DIALECT = (
 
 
 def _declarative_mapping(bundle: SchemaBundle) -> bool:
-    """True when this design ingests through the compiled §9 mapping spec.
-
-    On that path the §8 ingester is an unexecuted sketch: the reader is the RML
-    substrate with the dialect §9 pins, so a §8 text check may inform but must
-    never block (a weak model forgetting a keyword in a sketch is not a defect
-    in the data). Legacy raw-RML designs keep the original severities.
-    """
+    """True when this design ingests through the compiled §9 mapping spec."""
     return bundle.mapping_ir_yaml is not None and bundle.mapping_ir_yaml.exists()
 
 
@@ -493,84 +541,61 @@ def _spec_encodings(bundle: SchemaBundle) -> dict[str, str]:
 
 
 def _check_t2_bom(bundle: SchemaBundle) -> TrapResult:
-    issues: list[str] = []
+    """Does a BOM leak into a column name?
+
+    The ENCODING THAT RUNS is the §9 dialect's, so that is what decides T2. A
+    source pinned to a non-BOM-safe encoding whose file really starts with a BOM
+    is the genuine failure; anything else is evidence for the reader.
+    """
+    if not _declarative_mapping(bundle):
+        return TrapResult("T2", "BOM", "skip", "Need the §9 mapping spec to know the encoding.")
+    if not bundle.source_csvs:
+        return TrapResult("T2", "BOM", "skip", "Need source files to check.")
+
     evidence: list[str] = []
-    declarative = _declarative_mapping(bundle)
-
-    if bundle.ingester_py:
-        text = bundle.ingester_py.read_text(encoding="utf-8")
-        if "utf-8-sig" in text or "utf_8_sig" in text:
-            evidence.append(f"{bundle.ingester_py.name}: uses utf-8-sig ✓")
-        else:
-            issues.append(f"{bundle.ingester_py.name}: no utf-8-sig found in source")
-
-    # On the declarative path the ENCODING THAT RUNS is the §9 dialect's, so
-    # that is what decides T2. A source pinned to a non-BOM-safe encoding whose
-    # file really starts with a BOM is the only genuine failure here.
     spec_issues: list[str] = []
-    if declarative:
-        encodings = _spec_encodings(bundle)
-        for csv_path in bundle.source_csvs:
-            encoding = encodings.get(csv_path.name)
-            if encoding is None:
-                continue
-            if encoding.lower().replace("_", "-") in _BOM_SAFE_ENCODINGS:
-                evidence.append(f"{csv_path.name}: §9 reads it as {encoding} ✓")
-            else:
-                with contextlib.suppress(OSError), csv_path.open("rb") as fh:
-                    if fh.read(3) == _BOM_BYTE:
-                        spec_issues.append(
-                            f"{csv_path.name}: §9 dialect encoding {encoding!r} keeps the "
-                            "file's BOM in the first column name"
-                        )
-
+    encodings = _spec_encodings(bundle)
+    checked = 0
     for csv_path in bundle.source_csvs:
-        with csv_path.open("rb") as fh:
-            head = fh.read(3)
-        # A BOM in the file is fine if the ingester strips it (which we just
-        # verified). What we want to catch is a parser that opens with plain
-        # utf-8 leaving the BOM in the first column name. We can't fully
-        # simulate that here; we just record whether the file has a BOM so
-        # the human reviewer knows.
-        if head == _BOM_BYTE:
-            evidence.append(f"{csv_path.name}: has BOM (utf-8-sig will strip it)")
+        encoding = encodings.get(csv_path.name)
+        if encoding is None:
+            continue
+        checked += 1
+        has_bom = False
+        with contextlib.suppress(OSError), csv_path.open("rb") as fh:
+            has_bom = fh.read(3) == _BOM_BYTE
+        if encoding.lower().replace("_", "-") in _BOM_SAFE_ENCODINGS:
+            note = " (file has a BOM; the encoding strips it)" if has_bom else ""
+            evidence.append(f"{csv_path.name}: §9 reads it as {encoding} ✓{note}")
+        elif has_bom:
+            spec_issues.append(
+                f"{csv_path.name}: §9 dialect encoding {encoding!r} keeps the "
+                "file's BOM in the first column name"
+            )
+        else:
+            evidence.append(f"{csv_path.name}: §9 reads it as {encoding}; file has no BOM ✓")
 
     if spec_issues:
         return TrapResult(
             "T2",
-            "BOM (utf-8-sig in ingester)",
+            "BOM (§9 dialect encoding)",
             "fail",
             "A source is read with an encoding that leaves its BOM in the column names.",
-            evidence=spec_issues + issues + evidence,
+            evidence=spec_issues + evidence,
             fix=_T2_FIX_DIALECT,
         )
-    if issues:
-        if declarative:
-            # §8 is documentation on this path — report it, never stop on it.
-            return TrapResult(
-                "T2",
-                "BOM (utf-8-sig in ingester)",
-                "warn",
-                "The §8 ingester sketch does not mention utf-8-sig; the ingest itself reads "
-                "through the §9 mapping spec, whose dialect is BOM-safe.",
-                evidence=issues + evidence,
-                fix=_T2_FIX,
-            )
+    if not checked:
         return TrapResult(
             "T2",
-            "BOM (utf-8-sig in ingester)",
-            "fail",
-            "Ingester missing utf-8-sig — BOM may leak into column names.",
-            evidence=issues + evidence,
-            fix=_T2_FIX,
+            "BOM",
+            "skip",
+            "No source in the bundle is named by the §9 mapping spec.",
         )
-    if not bundle.ingester_py:
-        return TrapResult("T2", "BOM", "skip", "No ingester to check.")
     return TrapResult(
         "T2",
-        "BOM",
+        "BOM (§9 dialect encoding)",
         "pass",
-        "Ingester opens CSV with utf-8-sig.",
+        "Every source is read with a BOM-safe encoding.",
         evidence=evidence,
     )
 
@@ -584,21 +609,26 @@ def _check_t2_bom(bundle: SchemaBundle) -> TrapResult:
 _T3_FIX = (
     "Give every entity a stable IRI instead of a blank node: in §9 (mapping spec) every "
     "map's `subject` needs a `template:` (or `constant:`); declare the per-class IRI "
-    "template in §2 (IRI scheme); remove every `BNode()` call from §8 (ingester); and "
-    "avoid TBox constructs that create anonymous nodes (e.g. owl:Restriction cardinality "
-    "blocks — state cardinality in §6 model.yaml instead). Blank nodes break re-ingest "
-    "idempotency."
+    "template in §2 (IRI scheme); and avoid TBox constructs that create anonymous nodes "
+    "(e.g. owl:Restriction cardinality blocks — state cardinality in §6 model.yaml "
+    "instead). Blank nodes break re-ingest idempotency."
 )
 
 
 def _check_t3_bnode_free(bundle: SchemaBundle) -> TrapResult:
-    if not bundle.tbox_ttl and not bundle.ingester_py:
-        return TrapResult("T3", "bnode-free", "skip", "Need TBox TTL or ingester to check.")
+    """Can this design emit a blank node?
+
+    Only the TBox can: on the declarative path every ABox subject is minted from
+    a §9 ``subject.template`` (or ``constant:``), which is an IRI by
+    construction — there is no code path that could produce an anonymous node.
+    Absent a subject term the compiler rejects the spec outright (T9), so T3
+    checks the one artifact where a bnode is still expressible.
+    """
+    if not bundle.tbox_ttl:
+        return TrapResult("T3", "bnode-free", "skip", "Need TBox TTL to check.")
 
     issues: list[str] = []
     evidence: list[str] = []
-
-    sketch_issues: list[str] = []
 
     if bundle.tbox_ttl:
         import rdflib  # lazy; optional dep used only by validator
@@ -615,44 +645,20 @@ def _check_t3_bnode_free(bundle: SchemaBundle) -> TrapResult:
         else:
             evidence.append(f"{bundle.tbox_ttl.name}: 0 bnodes in TBox ✓")
 
-    if bundle.ingester_py:
-        text = bundle.ingester_py.read_text(encoding="utf-8")
-        # Match rdflib.BNode( or `from rdflib import ... BNode` followed by a call.
-        if re.search(r"\bBNode\s*\(", text):
-            # On the declarative path this sketch is never executed — every
-            # subject comes from a §9 template — so the mention is a
-            # documentation defect, not a shape defect in the data.
-            target = sketch_issues if _declarative_mapping(bundle) else issues
-            target.append(
-                f"{bundle.ingester_py.name}: ingester source calls BNode() — emits bnodes at ingest"
-            )
-        else:
-            evidence.append(f"{bundle.ingester_py.name}: no BNode() calls in ingester ✓")
-
     if issues:
         return TrapResult(
             "T3",
             "bnode-free",
             "fail",
             "Blank nodes break re-ingest idempotency (Phase 1 design-rationale §2).",
-            evidence=issues + sketch_issues + evidence,
-            fix=_T3_FIX,
-        )
-    if sketch_issues:
-        return TrapResult(
-            "T3",
-            "bnode-free",
-            "warn",
-            "The §8 ingester sketch mentions BNode(); the ingest itself runs the §9 mapping "
-            "spec, where every subject is minted from a template.",
-            evidence=sketch_issues + evidence,
+            evidence=issues + evidence,
             fix=_T3_FIX,
         )
     return TrapResult(
         "T3",
         "bnode-free",
         "pass",
-        "No blank nodes in TBox or ingester.",
+        "No blank nodes in the TBox.",
         evidence=evidence,
     )
 
@@ -1776,7 +1782,6 @@ def validate_schema(
         "tbox_ttl": str(bundle.tbox_ttl) if bundle.tbox_ttl else "",
         "diagram_md": str(bundle.diagram_md) if bundle.diagram_md else "",
         "mie_yaml": str(bundle.mie_yaml) if bundle.mie_yaml else "",
-        "ingester_py": str(bundle.ingester_py) if bundle.ingester_py else "",
         "rml_ttl": str(bundle.rml_ttl) if bundle.rml_ttl else "",
         "mapping_ir_yaml": str(bundle.mapping_ir_yaml) if bundle.mapping_ir_yaml else "",
         "draft_ttl": str(bundle.draft_ttl) if bundle.draft_ttl else "",
@@ -1842,14 +1847,13 @@ def _build_arg_parser():  # type: ignore[no-untyped-def]
         prog="asterism-validate",
         description=(
             "Run the trap validator (T1-T10) on a schema bundle "
-            "(TBox / diagram / MIE / ingester / RML / draft TTL / CSVs). "
+            "(TBox / diagram / MIE / mapping spec / RML / draft TTL / CSVs). "
             "Returns exit 0 if all required traps pass, else 1. Suitable for CI."
         ),
     )
     p.add_argument("--tbox", type=Path, default=None, help="TBox TTL path")
     p.add_argument("--diagram", type=Path, default=None, help="Mermaid diagram .md path")
     p.add_argument("--mie", type=Path, default=None, help="MIE YAML path")
-    p.add_argument("--ingester", type=Path, default=None, help="Ingester .py path")
     p.add_argument(
         "--rml",
         type=Path,
@@ -1890,7 +1894,6 @@ def _main(argv: list[str] | None = None) -> int:
         tbox_ttl=args.tbox,
         diagram_md=args.diagram,
         mie_yaml=args.mie,
-        ingester_py=args.ingester,
         rml_ttl=args.rml,
         mapping_ir_yaml=args.mapping_ir,
         draft_ttl=args.draft_ttl,

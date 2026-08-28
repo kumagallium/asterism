@@ -1,6 +1,6 @@
 """Tests for skeleton_annotate — deterministic evidence for the skeleton gate."""
-# This module's prose is Japanese: full-width parentheses / slashes are
-# intentional, not ASCII look-alikes (same posture as describe.py).
+# このファイルの散文は日本語。全角の括弧・記号は意図したもので、ASCII の
+# 見間違いではない（id_move.py / describe.py と同じ流儀）。
 # ruff: noqa: RUF002, RUF003
 
 from __future__ import annotations
@@ -862,7 +862,7 @@ def test_no_template_still_offers_the_proven_candidates(tmp_path: Path) -> None:
     assert ann["reason"] == "no-template"
     assert ann["checkable"] is False
     # 実データで一意と証明された組み合わせが、そのままワンタップの候補になる。
-    # 小さい鍵が先（1 列 → 複数列）で、件数も添う。
+    # 小さい鍵が先(1 列 → 複数列)で、件数も添う。
     columns = [c["columns"] for c in ann["key_candidates"]]
     assert ["sample_id"] in columns
     assert all(len(c) == 1 for c in columns[:2])
@@ -870,7 +870,7 @@ def test_no_template_still_offers_the_proven_candidates(tmp_path: Path) -> None:
 
 
 def test_no_template_without_the_file_is_still_answered(tmp_path: Path) -> None:
-    """ファイルが手元に無ければ候補は出せない — キーごと出さない（空配列でもない）。"""
+    """ファイルが手元に無ければ候補は出せない — キーごと出さない(空配列でもない)。"""
     skeleton = _skeleton("xr:sample/{sample_id}", source="gone.csv")
     skeleton["maps"][0]["subject"].pop("template")
     ann = annotate_skeleton(skeleton, [])["maps"]["point"]
@@ -1019,3 +1019,92 @@ def test_secondary_singletons_own_only_their_key(tmp_path: Path) -> None:
     skeleton["maps"][2]["owns"] = ["Name", "No"]
     declared = annotate_skeleton(skeleton, [p])["maps"]
     assert declared["code"].get("owns_inferred") is None
+def test_key_safety_fix_leaves_a_key_the_person_wrote(tmp_path: Path) -> None:
+    """人が自分で書いた ID は機械が差し替えない (S4「AI にもう一度考えさせる」)。
+    「判断は残っていない」という前提は、誰も判断していない間だけ成り立つ。
+    一度人が打ったあとは、機械の証拠のほうが弱い主張になる (N6)。
+    """
+    p = _write_xrd_unique(tmp_path)
+    skeleton = _skeleton("xr:point/{2θ (deg)}")
+    out = annotate_skeleton(skeleton, [p])
+    assert out["maps"]["point"]["key_measurement_caution"] is True
+    fixed, fixes = apply_key_safety_fix(skeleton, out, keep={"point"})
+    assert fixes == {}
+    assert fixed["maps"][0]["subject"]["template"] == "xr:point/{2θ (deg)}"
+    # keep に無い map は従来どおり差し替わる
+    _, fixes_open = apply_key_safety_fix(skeleton, out, keep={"somethingelse"})
+    assert fixes_open.keys() == {"point"}
+
+
+def test_row_data_card_names_its_promotable_columns(tmp_path: Path) -> None:
+    """1 件のカードが無い普通の行データでも、種類に昇格できる列は出る（K45）。
+
+    ゾーンは K32 の時点で「ヘッダ付きファイル」の形だけを見て書かれており、
+    singleton が無いファイルでは丸ごと消えていた。判定材料は行のカード自身が
+    持つ識別子型の列で、測定値（xsd:decimal 等）は入らない。
+    """
+    p = tmp_path / "elements.csv"
+    p.write_text(
+        "symbol,name,atomic_number,atomic_mass,discovered_by,category\n"
+        "H,Hydrogen,1,1.008,Henry Cavendish,Nonmetal\n"
+        "He,Helium,2,4.0026,Pierre Janssen,Noble gas\n"
+        "Li,Lithium,3,6.94,Johan August Arfwedson,Alkali metal\n",
+        encoding="utf-8",
+    )
+    skeleton = {
+        "version": 1,
+        "prefixes": dict(_PREFIXES),
+        "maps": [
+            {
+                "name": "element",
+                "source": "elements.csv",
+                "subject": {"template": "xr:element/{symbol}", "classes": ["xo:Element"]},
+            }
+        ],
+    }
+    out = annotate_skeleton(skeleton, [p])["maps"]["element"]
+    # 1 件のカードではない = ゾーンの旧条件では何も出なかった形。
+    assert out["collapse_kind"] == "unique"
+    cols = out["entity_preview"]["identity_columns"]
+    assert "discovered_by" in cols
+    assert "category" in cols
+    # キーは既にこのカードの ID なので候補ではない。
+    assert "symbol" not in cols
+    # 測定値は「つなぐ手がかり」にならない。
+    assert "atomic_mass" not in cols
+
+
+def test_zone_values_are_not_truncated_by_the_card_cap(tmp_path: Path) -> None:
+    """ゾーン①が並べる列はカードの上限で切らない（K46）。
+
+    カードの上限（G13）はタブ②の読みやすさのためのもの。①は一覧そのものなので、
+    切れると**その先の列でできた種類をチェックで外せなくなる**（実データ:
+    Wikipage / BohrModelImage が 8 列の外にあり 🗑 でしか消せなかった）。
+    """
+    cols = [f"c{i}" for i in range(12)]
+    p = tmp_path / "wide.csv"
+    p.write_text(
+        ",".join(["key", *cols]) + "\n"
+        + "\n".join(",".join([f"k{r}", *[f"v{i}_{r}" for i in range(12)]]) for r in range(3))
+        + "\n",
+        encoding="utf-8",
+    )
+    skeleton = {
+        "version": 1,
+        "prefixes": dict(_PREFIXES),
+        "maps": [
+            {
+                "name": "row",
+                "source": "wide.csv",
+                "subject": {"template": "xr:row/{key}", "classes": ["xo:Row"]},
+            }
+        ],
+    }
+    card = annotate_skeleton(skeleton, [p])["maps"]["row"]["entity_preview"]
+    # 表示は上限で切る（②のカードは読ませるもの）。
+    assert len(card["properties"]) <= 8
+    # ①が並べる値は全部（キー + 12 列）。
+    assert len(card["all_values"]) == 13
+    assert {v["column"] for v in card["all_values"]} == {"key", *cols}
+    # 候補も切らない（キーだけ除く）。
+    assert set(card["identity_columns"]) == set(cols)

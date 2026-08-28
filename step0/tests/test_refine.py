@@ -42,13 +42,6 @@ schema_info:
   name: test
 ```
 
-## Ingester sketch
-
-```python
-def ingest() -> None:
-    pass
-```
-
 ## RML declarative mapping
 
 ```turtle
@@ -80,12 +73,6 @@ Specimen:
   - id: xsd:string
 ```
 
-## MIE extras
-
-```yaml
-schema_info:
-  name: test
-```
 """
 
 # ----------------------------------------------------------------------------
@@ -189,12 +176,12 @@ def test_refine_complete_output_passes_guard() -> None:
 
 
 def test_refine_truncated_output_is_flagged_and_keeps_previous() -> None:
-    """A truncated refine (lost ingester + RML) keeps the previous complete schema."""
+    """A truncated refine (lost MIE + RML) keeps the previous complete schema."""
     mock = _RecordingLLM(canned=_TRUNCATED_OUTPUT)
     result = refine_schema(_COMPLETE_SCHEMA, ["rename Sample"], llm=mock)
     assert result.complete is False
     # Both dropped artifacts are reported by their human-readable names.
-    assert "ingester Python" in result.missing_artifacts
+    assert "MIE YAML" in result.missing_artifacts
     assert "declarative mapping (§9)" in result.missing_artifacts
     assert len(result.warnings) == 1 and "incomplete" in result.warnings[0]
     # The raw (truncated) output is preserved for inspection...

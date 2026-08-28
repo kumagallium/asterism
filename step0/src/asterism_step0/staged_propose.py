@@ -24,9 +24,9 @@ The IR this module assembles goes through the SAME parse -> validate -> compile
 -> RML gates as any other round — guided decoding and staging narrow generation,
 they never replace validation.
 """
-# This module's prose is Japanese: full-width parentheses / slashes are
-# intentional, not ASCII look-alikes (same posture as describe.py).
-# ruff: noqa: RUF002, RUF003
+# このファイルの散文は日本語。全角の括弧・記号は意図したもので、ASCII の
+# 見間違いではない（id_move.py / describe.py と同じ流儀）。
+# ruff: noqa: RUF003
 from __future__ import annotations
 
 import hashlib
@@ -40,6 +40,7 @@ from typing import Any
 from asterism_step0.inspect import SourceInspection, inspect_source_set, render_markdown
 from asterism_step0.instance_iri import (
     dataset_namespace_block,
+    dataset_namespace_info,
     derive_prefix_pair,
     normalize_dataset_namespace,
     normalize_iri_base,
@@ -87,15 +88,19 @@ __all__ = [
     "generate_label_fill",
     "generate_map_properties",
     "generate_skeleton",
+    "human_pinned_edits",
     "mapping_ir_to_yaml",
     "menu_columns",
     "normalize_column_meanings",
     "normalize_key_separators",
+    "pin_dataset_namespace",
     "propose_column_meanings",
     "propose_from_skeleton",
     "propose_skeleton",
+    "reassert_human_edits",
     "render_columns_for_meanings",
     "render_excluded_columns",
+    "render_rethink_request",
     "render_settled_meanings",
     "render_skeleton_context",
     "render_tier0_menu",
@@ -271,7 +276,7 @@ Rules:
 """
 
 DOCUMENT_SYSTEM_PROMPT = """\
-You write the human-readable design document (sections 1-8) for an RDF dataset
+You write the human-readable design document (sections 1-7) for an RDF dataset
 whose §9 mapping spec is ALREADY decided and given to you below. Describe the
 ACTUAL design encoded in that spec — the classes, keys and properties it
 contains — and invent nothing that is not in it.
@@ -287,7 +292,6 @@ requested language):
 ### 7. MIE YAML extras (schema_info with ≥5 `keywords` AND ≥1 `categories` entry
      — BOTH are required for T4; sample_rdf_entries from REAL inspection rows,
      sparql_query_examples, anti_patterns)
-### 8. Ingester sketch (utf-8-sig, composite IRI helpers, PROV — signatures only)
 
 End with `### 9. Declarative mapping spec` containing the given spec verbatim in a
 single ```yaml fence (it will be normalized deterministically — reproduce it as
@@ -871,6 +875,69 @@ def build_column_meanings_user(
     return "\n".join(parts)
 
 
+def render_rethink_request(
+    current_skeleton: Mapping[str, Any] | None,
+    request: str | None,
+    pinned: Mapping[str, Mapping[str, Any]] | None = None,
+) -> str:
+    """The design already on the human's screen, plus the change they asked for.
+
+    S4 の「AI にもう一度考えさせる」は、これまで骨格を捨てて S3 から作り直して
+    いた。そこでやった編集 — 種類の名前・ID の作り方・種類の削除・列の切り出し —
+    は保存先が無いので全部消えていた(実測: XRD reference file・2026-08-27。S6 の
+    判断はデータセットに保存されているので残る)。注文は「この 1 か所を直して」
+    なのに、代金は毎回「全部」だった。
+
+    渡すのは**いま画面にある骨格**(人が編集したあとのもの)。だから種類の削除も
+    列の切り出しも、渡した時点で既に反映されている。文面は ADR「差し戻しは足すため。
+    削るために使わない」に従い、**残せ**としか言わない — 減らす指示は上限を持たず、
+    実測で map が 5 → 1 に潰れている。減らす判断は人が 🗑 で下したあとで渡る。
+
+    ``pinned`` は人が自分で打った値(:func:`human_pinned_edits`)。モデルの記憶より
+    人の手が勝つ、を先に言う — 守るのは決定論側(:func:`reassert_human_edits`)
+    だが、頼まずに黙って上書きを直すと、モデルは毎回同じ上書きを返してくる。
+    """
+    if not current_skeleton or not isinstance(current_skeleton.get("maps"), list):
+        return ""
+    parts = [
+        "# The design to START FROM (already reviewed by a person — do not rebuild it)",
+        "",
+        "```json",
+        json.dumps(current_skeleton, ensure_ascii=False, indent=2, sort_keys=False),
+        "```",
+        "",
+        "Keep EVERY map above. Keep its `name`, its `source` and its `prefixes`"
+        " exactly as written. Change ONLY what the request below asks for; a map"
+        " the request does not mention comes back byte-for-byte. Removing or"
+        " merging kinds is the person's decision, not yours — they have a delete"
+        " button and did not press it.",
+    ]
+    named = [
+        f"- map '{name}': " + ", ".join(
+            filter(
+                None,
+                [
+                    "kind name " + ", ".join(f"`{c}`" for c in edit["classes"])
+                    if edit.get("classes")
+                    else "",
+                    f"ID recipe `{edit['subject_id'][1]}`" if edit.get("subject_id") else "",
+                ],
+            )
+        )
+        for name, edit in sorted((pinned or {}).items())
+    ]
+    if named:
+        parts += [
+            "",
+            "# Typed by the person on that screen (keep these words unless the"
+            " request below changes them)",
+            *named,
+        ]
+    if request and request.strip():
+        parts += ["", "# What the person asked you to change", "", request.strip()]
+    return "\n".join(parts)
+
+
 def build_skeleton_user(
     inspection_md: str,
     domain_hint: str,
@@ -878,12 +945,18 @@ def build_skeleton_user(
     language: str | None = None,
     iri_base: str | None = None,
     issues: list[str] | None = None,
+    current_skeleton: Mapping[str, Any] | None = None,
+    request: str | None = None,
+    pinned: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> str:
     msg = (
         f"# Source inspection\n\n{inspection_md}\n\n"
         f"# Domain context\n\n{domain_hint.strip()}\n\n"
         f"{dataset_namespace_block(iri_base)}\n"
     )
+    rethink = render_rethink_request(current_skeleton, request, pinned)
+    if rethink:
+        msg += f"{rethink}\n\n"
     if issues:
         msg += (
             "# Your previous answer could not be read (fix ONLY this)\n\n"
@@ -1141,11 +1214,26 @@ def generate_skeleton(
     language: str | None = None,
     iri_base: str | None = None,
     issues: list[str] | None = None,
+    current_skeleton: Mapping[str, Any] | None = None,
+    request: str | None = None,
+    pinned: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> dict:
     """One guided call -> the skeleton dict (subject-only maps). Parsed here;
-    structural/environment validation is the caller's gate."""
+    structural/environment validation is the caller's gate.
+
+    ``current_skeleton`` turns this from "design one" into "repair this one":
+    the design already on the gate screen goes in the message and the model is
+    asked to change only what ``request`` names (S4 「AI にもう一度考えさせる」).
+    """
     user = build_skeleton_user(
-        inspection_md, domain_hint, language=language, iri_base=iri_base, issues=issues
+        inspection_md,
+        domain_hint,
+        language=language,
+        iri_base=iri_base,
+        issues=issues,
+        current_skeleton=current_skeleton,
+        request=request,
+        pinned=pinned,
     )
     schema = skeleton_json_schema(function_names)
     return _load_json_object(_complete_guided(llm, SKELETON_SYSTEM_PROMPT, user, schema))
@@ -1225,7 +1313,7 @@ def drop_duplicate_properties(result: Mapping[str, Any]) -> tuple[dict, list[str
     columns exist, the rows compile, T1-T9 pass, and the duplicate-column
     advisory only looks BETWEEN maps.
 
-    The consequence is not cosmetic. 「d は？」 comes back with two answers per
+    The consequence is not cosmetic. 「d は?」 comes back with two answers per
     peak, every count is doubled, and which of the two names Ask reaches for is
     arbitrary — the two labels disagreed (「格子間隔 d」 vs 「d spacing (重複)」).
 
@@ -2617,6 +2705,182 @@ def name_unnamed_kinds(
     return {**skeleton, "maps": out}, named
 
 
+def pin_dataset_namespace(
+    answer: Mapping[str, Any], current: Mapping[str, Any], iri_base: str | None
+) -> dict:
+    """Keep a rethink inside the dataset namespace the person already has.
+
+    The mint prefix is machine-derived from the dataset name (K13) and nobody
+    picks it — so a rethink has no reason to land in a different one. It matters
+    because the slug is IN every IRI: change it and every ID the person just
+    checked on the gate becomes a different ID.
+
+    Rewrites the IRI the answer's own mint prefix points at, rather than adding
+    the current skeleton's prefixes alongside it. Merging the two was the first
+    attempt and it was wrong: both spellings then look canonical to
+    :func:`normalize_dataset_namespace`, it repairs the first and leaves the
+    second, and the gate ends up showing raw `xr:Sample` next to `Sample` (live,
+    2026-08-27). Prefix NAMES and the CURIEs that reference them are that
+    function's job; this only decides which namespace they end up in.
+    """
+    cur = dataset_namespace_info(current.get("prefixes") or {}, iri_base)
+    ans = dataset_namespace_info(answer.get("prefixes") or {}, iri_base)
+    if cur is None or ans is None or ans["slug"] == cur["slug"]:
+        return dict(answer)
+    prefixes = {str(k): str(v) for k, v in (answer.get("prefixes") or {}).items()}
+    stem = f"{cur['base']}/datasets/{cur['slug']}"
+    if ans["ontology_prefix"]:
+        prefixes[ans["ontology_prefix"]] = f"{stem}/ontology#"
+    if ans["resource_prefix"]:
+        prefixes[ans["resource_prefix"]] = f"{stem}/resource/"
+    return {**answer, "prefixes": prefixes}
+
+
+def _subject_id_form(subject: Any) -> tuple[str, str] | None:
+    """``(kind, value)`` for whichever ID form a subject uses, or None.
+
+    ``template`` and ``constant`` are alternatives, not variants of one field:
+    a map that switches from one to the other changed its ID recipe, so the
+    kind is part of the value being compared.
+    """
+    if not isinstance(subject, Mapping):
+        return None
+    for kind in ("template", "constant"):
+        value = subject.get(kind)
+        if isinstance(value, str) and value.strip():
+            return kind, value
+    return None
+
+
+def _subject_classes(subject: Any) -> list[str]:
+    if not isinstance(subject, Mapping):
+        return []
+    classes = subject.get("classes")
+    if not isinstance(classes, list):
+        return []
+    return [str(c) for c in classes if str(c).strip()]
+
+
+def human_pinned_edits(
+    baseline: Mapping[str, Any] | None, current: Mapping[str, Any] | None
+) -> dict[str, dict[str, Any]]:
+    """What the HUMAN typed on the gate screen, map by map.
+
+    Compares the skeleton the AI produced (``baseline``) against the one on the
+    screen now (``current``): the gate is the only thing between them, so a
+    field that differs was typed by a person. This is the 控え of ADR
+    data-facts-invariant N6 — a value a person asserted is not the model's to
+    forget on the next round, and 「AI にもう一度考えさせる」 IS a next round.
+
+    Only the two fields the gate lets a person edit are tracked: the kind name
+    (``subject.classes``) and the ID recipe (``subject.template`` /
+    ``subject.constant``). Deletions and splits need no record — they are
+    already IN ``current``, which is what the model is handed.
+
+    With no baseline (an older session, or a design restored from disk) the
+    answer is empty: nothing is claimed as human-typed that cannot be proven.
+    Being wrong in that direction costs one re-edit; the other direction pins a
+    machine guess as if a person had chosen it.
+    """
+    if not isinstance(baseline, Mapping) or not isinstance(current, Mapping):
+        return {}
+    before: dict[str, Mapping[str, Any]] = {
+        str(m.get("name") or ""): m
+        for m in (baseline.get("maps") or [])
+        if isinstance(m, Mapping)
+    }
+    pinned: dict[str, dict[str, Any]] = {}
+    for m in current.get("maps") or []:
+        if not isinstance(m, Mapping):
+            continue
+        name = str(m.get("name") or "")
+        was = before.get(name)
+        edit: dict[str, Any] = {}
+        classes = _subject_classes(m.get("subject"))
+        if classes and (was is None or classes != _subject_classes(was.get("subject"))):
+            edit["classes"] = classes
+        subject_id = _subject_id_form(m.get("subject"))
+        if subject_id and (was is None or subject_id != _subject_id_form(was.get("subject"))):
+            edit["subject_id"] = subject_id
+        if edit:
+            pinned[name] = edit
+    return pinned
+
+
+def _restored_record(name: str, subject: Any) -> dict[str, str]:
+    """One restore, named the way the screen names it: by KIND, not by map id."""
+    classes = _subject_classes(subject)
+    return {"map": name, "kind": classes[0]} if classes else {"map": name}
+
+
+def reassert_human_edits(
+    answer: Mapping[str, Any],
+    current: Mapping[str, Any] | None,
+    pinned: Mapping[str, Mapping[str, Any]] | None,
+) -> tuple[dict, list[str]]:
+    """Put the person's own words back wherever the model wrote over them.
+
+    The request said "split samples from measurements", not "and while you are
+    there, rename the kind I named and rewrite the ID I wrote". A model handed a
+    whole design rewrites all of it — that is what asking a model to return JSON
+    does — so the prompt asking it to keep those two fields (:func:`render_rethink_request`)
+    is the request and this is the guarantee, the same pairing as
+    ``owned_elsewhere`` + :func:`drop_borrowed_properties`.
+
+    Also brings back a pinned map that vanished entirely: a kind the person had
+    already touched is one they know about, and dropping it is exactly the
+    over-reach ADR「差し戻しは足すため」 records (a rethink that came back with
+    5 maps folded into 1). Maps the person never touched are left to the model —
+    that is the restructuring they asked for.
+
+    Returns the repaired skeleton and one ``{map, kind}`` record per restore, so
+    the caller can say what it did. Structured rather than pre-formatted: the
+    kantan tier does not show raw identifiers (K4), and only the browser knows
+    the minted prefix to strip from the CURIE.  Never a silent edit.
+    """
+    if not pinned or not isinstance(answer.get("maps"), list):
+        return dict(answer), []
+    restored: list[dict[str, str]] = []
+    out: list[Any] = []
+    seen: set[str] = set()
+    for m in answer["maps"]:
+        if not isinstance(m, Mapping):
+            out.append(m)
+            continue
+        name = str(m.get("name") or "")
+        seen.add(name)
+        edit = pinned.get(name)
+        if not edit:
+            out.append(m)
+            continue
+        subject = dict(m.get("subject") or {}) if isinstance(m.get("subject"), Mapping) else {}
+        touched = False
+        classes = edit.get("classes")
+        if classes and _subject_classes(subject) != classes:
+            subject["classes"] = list(classes)
+            touched = True
+        subject_id = edit.get("subject_id")
+        if subject_id and _subject_id_form(subject) != tuple(subject_id):
+            form, value = subject_id
+            subject.pop("template", None)
+            subject.pop("constant", None)
+            subject[form] = value
+            touched = True
+        if touched:
+            restored.append(_restored_record(name, subject))
+        out.append({**m, "subject": subject})
+    for m in (current or {}).get("maps") or []:
+        if not isinstance(m, Mapping):
+            continue
+        name = str(m.get("name") or "")
+        if name in pinned and name not in seen:
+            out.append(dict(m))
+            restored.append(_restored_record(name, m.get("subject")))
+    if not restored:
+        return dict(answer), []
+    return {**answer, "maps": out}, restored
+
+
 def _generate_skeleton_gated(
     inspection_md: str,
     domain_hint: str,
@@ -2627,16 +2891,29 @@ def _generate_skeleton_gated(
     iri_base: str | None,
     inspections: Sequence[SourceInspection],
     dataset_name: str | None,
-) -> tuple[dict, bool]:
+    current_skeleton: Mapping[str, Any] | None = None,
+    request: str | None = None,
+    pinned: Mapping[str, Mapping[str, Any]] | None = None,
+) -> tuple[dict, bool, list[str]]:
     """The skeleton, with a bounded retry and a deterministic floor.
 
-    Returns ``(skeleton, used_fallback)``. Only an unusable ANSWER
+    Returns ``(skeleton, used_fallback, restored)``. Only an unusable ANSWER
     (:data:`_UNUSABLE_ANSWER`) reaches the floor: cancellation, a bad key and an
     unreachable provider propagate untouched, because a person who pressed stop
     — or whose AI never ran — must not be handed a design instead.
+
+    On a rethink (``current_skeleton``) the floor is that design, not the
+    deterministic default: a person who asked for one change and got an
+    unreadable answer must not also lose the design they had. For the same
+    reason the no-shrink guard starts at their map count rather than at zero.
     """
     issues: list[str] | None = None
-    previous: dict | None = None
+    previous: dict | None = (
+        dict(current_skeleton)
+        if isinstance(current_skeleton, Mapping) and current_skeleton.get("maps")
+        else None
+    )
+    restored: list[str] = []
     for attempt in range(_SKELETON_PARSE_ROUNDS + 1):
         try:
             skeleton = generate_skeleton(
@@ -2647,6 +2924,9 @@ def _generate_skeleton_gated(
                 language=language,
                 iri_base=iri_base,
                 issues=issues,
+                current_skeleton=current_skeleton,
+                request=request,
+                pinned=pinned,
             )
         except LLMCancelledError:
             raise
@@ -2655,27 +2935,34 @@ def _generate_skeleton_gated(
             if attempt >= _SKELETON_PARSE_ROUNDS:
                 break
             continue
+        # 人が自分で打った値は、モデルの記憶より強い(N6)。注文は「ここを直して」
+        # であって「ついでに私が付けた名前と書いた ID も書き換えて」ではない。
+        if pinned:
+            skeleton, back = reassert_human_edits(skeleton, current_skeleton, pinned)
+            restored = back
         # 差し戻しは「抜けを足して」と頼むもの。返ってきた答えが前より種類を
         # 減らしていたら、頼んだこと以上をやっている — 前の答えを採る。
+        # rethink では floor が「いま画面にある骨格」=人の編集そのもの。
         if (
             previous is not None
             and isinstance(skeleton.get("maps"), list)
             and len(skeleton["maps"]) < len(previous.get("maps") or [])
         ):
             skeleton = previous
+            restored = []
         if isinstance(skeleton.get("maps"), list) and skeleton["maps"]:
-            # 「1 件が表すもの」が空のまま返ることがある（guided decoding が届かない
-            # provider では schema の minItems が効かない）。人が答える前に、抜けを
+            # 「1 件が表すもの」が空のまま返ることがある(guided decoding が届かない
+            # provider では schema の minItems が効かない)。人が答える前に、抜けを
             # 名指しでもう一度頼む — 名前を付けるのに一番良い位置に居るのはモデル。
             # 名前の抜けだけを差し戻す。**同じ鍵の重複は差し戻さない** — 実測
-            # （2026-08-27）で「keep one」と伝えたら、モデルは重複した 3 つの
+            # (2026-08-27)で「keep one」と伝えたら、モデルは重複した 3 つの
             # まとまりを全部落として map を 1 つにし、前置きの 14 列が 47 行
-            # すべてに写った。どちらを残すか（そもそも「両方、ただし列を分けて」
-            # が正解か）は設計の判断で、K2 は数えかたを人の側に置いている。
+            # すべてに写った。どちらを残すか(そもそも「両方、ただし列を分けて」
+            # が正解か)は設計の判断で、K2 は数えかたを人の側に置いている。
             # 重複は画面に出して、人が消す。
             blank = _unnamed_kinds(skeleton)
             if not blank or attempt >= _SKELETON_PARSE_ROUNDS:
-                return skeleton, False
+                return skeleton, False, restored
             issues = [
                 "every map's subject needs a non-empty `classes` (what ONE record of"
                 " that map is, e.g. `xo:Peak`); missing on: " + ", ".join(blank)
@@ -2687,9 +2974,15 @@ def _generate_skeleton_gated(
         issues = ["the JSON object had no `maps` entries; every source needs one map"]
         if attempt >= _SKELETON_PARSE_ROUNDS:
             break
+    # 作り直しの答えが読めなかった。持ち帰る先は、決定論の初期骨格ではなく
+    # 人がさっきまで見ていた骨格 — 注文が通らなかったことと、編集が消えることは
+    # 別の損失で、後者は起こしてよい理由が無い。
+    if isinstance(current_skeleton, Mapping) and current_skeleton.get("maps"):
+        return dict(current_skeleton), False, []
     return (
         default_skeleton(inspections, iri_base=iri_base, dataset_name=dataset_name),
         True,
+        [],
     )
 
 
@@ -2775,10 +3068,19 @@ def propose_skeleton(
     function_names: Sequence[str] | None = None,
     dialects: Mapping[str, Any] | None = None,
     iri_base: str | None = None,
+    current_skeleton: Mapping[str, Any] | None = None,
+    baseline_skeleton: Mapping[str, Any] | None = None,
+    request: str | None = None,
 ) -> SkeletonProposal:
     """Job 1: inspect the source(s) and generate the skeleton for human review.
     Does NOT generate properties or prose — that is :func:`propose_from_skeleton`,
     run after the human confirms/edits the skeleton.
+
+    ``current_skeleton`` + ``request`` make this a REPAIR instead of a rebuild
+    (S4 「AI にもう一度考えさせる」): the design on the gate screen goes to the
+    model and only what ``request`` names may change. ``baseline_skeleton`` is
+    what the AI last returned, so the difference between the two is exactly what
+    a person typed — pinned through the round (ADR data-facts-invariant N6).
 
     ``dialects`` (ADR source-dialect.md) is the effective per-source read dialect
     (detected ⊕ human override); forwarded to ``inspect_source_set`` so the
@@ -2796,7 +3098,8 @@ def propose_skeleton(
     )
     inspection_md = render_markdown(inspections, fks)
     names = _resolve_function_names(function_names)
-    skeleton, fallback = _generate_skeleton_gated(
+    pinned = human_pinned_edits(baseline_skeleton, current_skeleton)
+    skeleton, fallback, restored = _generate_skeleton_gated(
         inspection_md,
         domain_hint,
         llm=llm,
@@ -2805,7 +3108,12 @@ def propose_skeleton(
         iri_base=iri_base,
         inspections=inspections,
         dataset_name=Path(csv_paths[0]).stem if csv_paths else None,
+        current_skeleton=current_skeleton,
+        request=request,
+        pinned=pinned,
     )
+    if current_skeleton:
+        skeleton = pin_dataset_namespace(skeleton, current_skeleton, iri_base)
     # Canonical namespace shape is a machine requirement, not a model skill
     # (kantan ADR K13): repair base/shape drift and derive the prefix pair
     # deterministically from the minted slug, so the gate never asks a human
@@ -2815,7 +3123,7 @@ def propose_skeleton(
         iri_base,
         fallback_slug=slugify_dataset_name(Path(csv_paths[0]).stem) if csv_paths else None,
     )
-    # 名前の無い種類が残っていたら、機械が置く（正規化のあと＝正しい prefix で）。
+    # 名前の無い種類が残っていたら、機械が置く(正規化のあと=正しい prefix で)。
     # ゲートは編集できる欄に ⚠ 付きで出すので、これは提案であって決定ではない。
     skeleton, named = name_unnamed_kinds(skeleton, ontology_prefix=_ontology_prefix(skeleton))
     # ID の区切りは機械の規約（`/`）に揃える。融合した区間は住所を曖昧にする。
@@ -2825,6 +3133,11 @@ def propose_skeleton(
         metadata["named_kinds"] = named
     if resep:
         metadata["key_separators_fixed"] = resep
+    if current_skeleton:
+        metadata["rethink"] = True
+    # 機械が人の値を書き戻したことは、画面に出す(黙って直さない)。
+    if restored:
+        metadata["kept_human_edits"] = restored
     if fallback:
         metadata["fallback"] = True
     return SkeletonProposal(

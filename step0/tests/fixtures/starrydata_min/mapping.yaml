@@ -1,0 +1,44 @@
+# §9 mapping spec for the starrydata-min fixture — the artifact T1/T2 read.
+# Mirrors the composite IRIs the MIE documents; each map names the source file
+# its subject template iterates, so T1 checks every key against the right CSV.
+version: 1
+prefixes:
+  sd: "https://example.com/starrydata/ontology#"
+  sdr: "https://example.com/starrydata/resource/"
+  schema: "https://schema.org/"
+  dcterms: "http://purl.org/dc/terms/"
+maps:
+  - name: paper
+    source: papers.csv
+    subject:
+      template: "sdr:paper/{SID}"
+      classes: [sd:Paper]
+    properties:
+      - predicate: dcterms:identifier
+        column: DOI
+      - predicate: schema:name
+        column: title
+  - name: sample
+    source: samples.csv
+    subject:
+      template: "sdr:sample/{SID}-{sample_id}"
+      classes: [sd:Sample]
+    properties:
+      - predicate: sd:compositionString
+        column: composition
+      - predicate: sd:fromPaper
+        object_template: "sdr:paper/{SID}"
+  - name: curve
+    source: curves.csv
+    subject:
+      template: "sdr:curve/{SID}-{figure_id}-{sample_id}"
+      classes: [sd:Curve]
+    properties:
+      - predicate: sd:xValuesRaw
+        column: x_json
+        fallback: true
+      - predicate: sd:yValuesRaw
+        column: y_json
+        fallback: true
+      - predicate: sd:ofSample
+        object_template: "sdr:sample/{SID}-{sample_id}"

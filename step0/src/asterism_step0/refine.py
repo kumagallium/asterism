@@ -1,12 +1,13 @@
 """Schema refinement (Step 5) for asterism Phase 3.
 
 Given (a) the current schema proposal and (b) human review comments, this
-module asks the LLM to **synchronously update all 4 artifacts** (TBox /
-Mermaid / MIE / ingester) and return:
+module asks the LLM to **synchronously update all 3 artifacts** (TBox /
+Mermaid / MIE) and return:
 
   1. **Comment resolution log** — per-comment record of how the LLM
      interpreted it, what it changed, and any side effects (e.g. renaming
-     ``Sample`` → ``Specimen`` propagates to the ingester's emitter name).
+     ``Sample`` → ``Specimen`` propagates to the §9 mapping's subject
+     template).
   2. **Updated schema** — the full Markdown document in the same shape
      :mod:`asterism_step0.propose` emits (so the output can be re-fed to
      refine again, validate, or materialize).
@@ -37,7 +38,7 @@ from asterism_step0.materialize import materialize_schema
 #
 # Large schemas can push the LLM past its output budget, so a refine round may
 # stop mid-document (e.g. after §2.5) and drop whole artifact blocks — the
-# model.yaml / MIE / ingester / RML fences never appear. Feeding that truncated
+# model.yaml / MIE / RML fences never appear. Feeding that truncated
 # Markdown forward as the new "current schema" then silently loses artifacts at
 # materialize time. The guard below detects the loss by comparing which artifacts
 # materialize can extract from the input vs. from the refined output; when the
@@ -49,7 +50,6 @@ _ARTIFACT_LABELS: dict[str, str] = {
     "mermaid": "Mermaid diagram",
     "rdf_config_model": "rdf-config model.yaml",
     "mie_yaml": "MIE YAML",
-    "ingester_py": "ingester Python",
     "rml_ttl": "declarative mapping (§9)",
 }
 
@@ -88,7 +88,7 @@ SYSTEM_PROMPT = """\
 You are the same RDF / OWL / SPARQL ontology engineer who produced the
 initial schema proposal in the conversation. The user is sending review
 comments. Your job is to process them and return an updated schema with the
-**4 artifacts kept in sync** (TBox / Mermaid / MIE / ingester).
+**3 artifacts kept in sync** (TBox / Mermaid / MIE).
 
 ## What you receive (user message)
 
@@ -113,11 +113,11 @@ For each numbered review comment, write:
 - **Comment**: quote the original
 - **Interpretation**: how you understood it (state your reading explicitly,
   especially when ambiguous)
-- **Affected artifacts**: which of {TBox, Mermaid, MIE, ingester} you
+- **Affected artifacts**: which of {TBox, Mermaid, MIE, mapping spec} you
   changed
 - **Action**: the diff in plain English (e.g. "renamed class Sample →
-  Specimen across all 4 artifacts, updated `_emit_sample` helper to
-  `_emit_specimen`, kept dcterms:identifier composite key")
+  Specimen across all 3 artifacts, updated the §9 map's subject template,
+  kept dcterms:identifier composite key")
 - **Side effects**: any non-obvious knock-on changes (e.g. "Phase 1
   anti_patterns mentioning Sample now reference Specimen for consistency")
 - **Open questions** (only if applicable): any judgment calls you made that
@@ -131,7 +131,7 @@ needs external input), still log it with **Status: deferred** and explain why.
 Return the **full updated proposal** — same Markdown structure as the Step
 3 output (Class hierarchy → IRI scheme → Property design → JSON column
 strategy → Design rationale → rdf-config model.yaml → MIE extras →
-Ingester sketch → Declarative mapping spec). Do NOT emit a diff or "only
+Declarative mapping spec). Do NOT emit a diff or "only
 the changed sections" — the output must be reusable as the input to another
 refine call or to materialize. When the schema carries a §9 mapping block,
 keep its form as-is (a yaml mapping spec stays a yaml mapping spec under the
@@ -148,8 +148,9 @@ After applying the comments, re-verify all 8 traps from the initial
 proposal:
 
 - T1 IRI composite keys still use the inspection's uniqueness statistics
-- T2 ingester still uses utf-8-sig
-- T3 zero blank nodes (no rdflib.BNode() calls)
+- T2 §9 `dialects:` still reads every source with a BOM-safe encoding
+  (utf-8-sig)
+- T3 zero blank nodes (every §9 map's `subject` keeps a `template:`/`constant:`)
 - T4 MIE keywords / categories still ≥ 5 / ≥ 1
 - T5 Mermaid labels still free of colons
 - T6 sample_rdf_entries still reference real CSV row IDs (do not invent
@@ -158,13 +159,13 @@ proposal:
 - T7 Design rationale: every comment-driven change adds a new Why / Alt /
   Trade-offs entry; existing entries that the comment invalidates are
   marked superseded, not deleted
-- T8 ingester / shape_expressions remain mutually consistent
+- T8 §9 mapping / shape_expressions remain mutually consistent
 
 ## Renaming rules
 
 If a comment renames an entity, property, or IRI segment:
 
-1. Apply the rename uniformly across all 4 artifacts in one pass
+1. Apply the rename uniformly across all 3 artifacts in one pass
 2. Update Phase 1-style anti_patterns / architectural_notes that reference
    the old name
 3. If a renamed property is reused from an external ontology (e.g.

@@ -6,8 +6,8 @@ orchestrators are driven by a scripted mock client. The headline test is
 EQUIVALENCE: a full IR split into a skeleton + per-map tables and reassembled
 must reproduce the exact same IR (ADR mapping-ir-phase2b-skeleton-wizard §10.1).
 """
-# This module's prose is Japanese: full-width parentheses / slashes are
-# intentional, not ASCII look-alikes (same posture as describe.py).
+# このファイルの散文は日本語。全角の括弧・記号は意図したもので、ASCII の
+# 見間違いではない（id_move.py / describe.py と同じ流儀）。
 # ruff: noqa: RUF002, RUF003
 from __future__ import annotations
 
@@ -1022,7 +1022,7 @@ def test_merge_label_fill_rules() -> None:
     ]
 
 
-# ---- 同じマップの中の二重記録（2026-08-27 実データ: XRD reference file）--------
+# ---- 同じマップの中の二重記録(2026-08-27 実データ: XRD reference file)--------
 
 
 def test_drop_duplicate_properties_removes_the_second_record_of_one_cell() -> None:
@@ -1038,7 +1038,7 @@ def test_drop_duplicate_properties_removes_the_second_record_of_one_cell() -> No
             # 述語まで同じ = そのまま同じトリプル
             {"predicate": "xrd:twoTheta", "column": "2theta", "unit": "°",
              "datatype": "xsd:double", "label": "2θ (重複)"},
-            # 述語だけ違う = 同じ値が 2 つの名前で保存される（本当の害）
+            # 述語だけ違う = 同じ値が 2 つの名前で保存される(本当の害)
             {"predicate": "xrd:d", "column": "d", "unit": "Å", "datatype": "xsd:double",
              "label": "d spacing (重複)"},
         ]
@@ -1046,13 +1046,13 @@ def test_drop_duplicate_properties_removes_the_second_record_of_one_cell() -> No
     out, dropped = drop_duplicate_properties(table)
     assert sorted(dropped) == ["2theta", "d"]
     assert [p["predicate"] for p in out["properties"]] == ["xrd:dSpacing", "xrd:twoTheta"]
-    # 先に書かれた行の答えが残る（後から来た行が上書きしない）
+    # 先に書かれた行の答えが残る(後から来た行が上書きしない)
     assert out["properties"][0]["label"] == "格子間隔 d"
     assert out["properties"][1]["label"] == "2θ角"
 
 
 def test_drop_duplicate_properties_keeps_a_genuinely_different_view() -> None:
-    """読み方（function / datatype）が違えば、同じ列の 2 行目は別の事実。落とさない。"""
+    """読み方(function / datatype)が違えば、同じ列の 2 行目は別の事実。落とさない。"""
     from asterism_step0.staged_propose import drop_duplicate_properties
 
     table = {
@@ -1090,7 +1090,7 @@ def test_drop_duplicate_properties_fills_a_blank_meaning_from_its_twin() -> None
 
 
 def test_apply_data_facts_removes_duplicates_after_a_rewriting_round() -> None:
-    """§9 を丸ごと書き直すラウンドの後でも、二重記録は毎回落ちる（N6 と同じ理由）。"""
+    """§9 を丸ごと書き直すラウンドの後でも、二重記録は毎回落ちる(N6 と同じ理由)。"""
     from asterism_step0.staged_propose import apply_data_facts
 
     ir = {
@@ -1124,7 +1124,7 @@ def test_skeleton_schema_requires_a_kind_name() -> None:
 
     subject = skeleton_json_schema()["properties"]["maps"]["items"]["properties"]["subject"]
     assert subject["properties"]["classes"]["minItems"] == 1
-    # 完成した IR 側は据え置き（あとから足した規則で、保存済みの設計を読めなくしない）
+    # 完成した IR 側は据え置き(あとから足した規則で、保存済みの設計を読めなくしない)
     full = mapping_ir_json_schema()["properties"]["maps"]["items"]["properties"]["subject"]
     assert "minItems" not in full["properties"]["classes"]
 
@@ -1149,7 +1149,7 @@ def test_name_unnamed_kinds_uses_the_models_own_map_name() -> None:
     assert [m["subject"]["classes"] for m in out["maps"]] == [
         ["xo:Peak"], ["xo:XrdDataset"], ["xo:試料"],
     ]
-    # 名前が揃っていれば何も足さない（冪等）
+    # 名前が揃っていれば何も足さない(冪等)
     again, named2 = name_unnamed_kinds(out, ontology_prefix="xo")
     assert named2 == []
     assert again["maps"] == out["maps"]
@@ -1163,7 +1163,7 @@ def test_twin_maps_finds_one_row_type_described_twice() -> None:
         "maps": [
             {"name": "dataset", "source": "xrd.txt", "subject": {"template": "xr:dataset/{No}"}},
             {"name": "sample", "source": "xrd.txt", "subject": {"template": "xr:sample/{No}"}},
-            # 鍵が違えば別の粒度（親と行）— 一緒にしない
+            # 鍵が違えば別の粒度(親と行)— 一緒にしない
             {"name": "peak", "source": "xrd.txt",
              "subject": {"template": "xr:peak/{No}/{(hkl)}"}},
             # ソースが違えば別
@@ -1323,18 +1323,10 @@ def test_links_never_cross_sources() -> None:
         "version": 1,
         "prefixes": {"o": "https://ex.invalid/o#"},
         "maps": [
-            {
-                "name": "a",
-                "source": "one.csv",
-                "subject": {"template": "r:a/{k}"},
-                "properties": [],
-            },
-            {
-                "name": "b",
-                "source": "two.csv",
-                "subject": {"template": "r:b/{k}/{j}"},
-                "properties": [],
-            },
+            {"name": "a", "source": "one.csv",
+             "subject": {"template": "r:a/{k}"}, "properties": []},
+            {"name": "b", "source": "two.csv",
+             "subject": {"template": "r:b/{k}/{j}"}, "properties": []},
         ],
     }
     _out, added = ensure_same_source_links(ir, ontology_prefix="o")
@@ -1670,3 +1662,196 @@ def test_missing_label_rows_skips_settled_columns() -> None:
     # 意味が決まっているなら、列を 1 つ読まない行（リンク・定数・複数列）も対象外。
     # 実測 2026-08-28: 機械が足したリンク 1 本のためにラウンドが 1 回走っていた。
     assert [r["predicate"] for r in missing_label_rows(rows, ["settled"])] == ["ex:b"]
+# ---------------------------------------------------------------------------
+# S4「AI にもう一度考えさせる」= 作り直しではなく修理 (2026-08-27)
+# ---------------------------------------------------------------------------
+def _rethink_llm(answer: dict) -> object:
+    """答えを 1 つ返すだけの LLM。渡された user message を ``seen`` に貯める。"""
+    seen: list[str] = []
+    class _LLM:
+        model = "mock"
+        response_schema = None
+        def __init__(self) -> None:
+            self.seen = seen
+        def complete(self, system: str, user: str) -> str:
+            seen.append(user)
+            return json.dumps(answer)
+    return _LLM()
+def test_human_pinned_edits_is_the_difference_between_ai_and_screen() -> None:
+    """AI が返したものと、画面にあるものの差 = 人が打った値。"""
+    from asterism_step0.staged_propose import human_pinned_edits
+    ai = {"maps": [
+        {"name": "peak", "subject": {"template": "r:peak/{No}", "classes": ["o:Peak"]}},
+        {"name": "sample", "subject": {"template": "r:sample/{No}", "classes": ["o:Sample"]}},
+    ]}
+    screen = {"maps": [
+        # 人が種類名も ID も打ち直した
+        {"name": "peak", "subject": {"template": "r:peak/{No}/{(hkl)}", "classes": ["o:XrdPeak"]}},
+        # 触っていない
+        {"name": "sample", "subject": {"template": "r:sample/{No}", "classes": ["o:Sample"]}},
+        # 人が S4 で切り出した (baseline に無い) = まるごと人の値
+        {"name": "phase", "subject": {"template": "r:phase/{Phase}", "classes": ["o:Phase"]}},
+    ]}
+    pinned = human_pinned_edits(ai, screen)
+    assert set(pinned) == {"peak", "phase"}
+    assert pinned["peak"]["classes"] == ["o:XrdPeak"]
+    assert pinned["peak"]["subject_id"] == ("template", "r:peak/{No}/{(hkl)}")
+def test_human_pinned_edits_claims_nothing_without_a_baseline() -> None:
+    """控えが無いなら、人が打った値だと主張しない(証明できないほうに倒す)。"""
+    from asterism_step0.staged_propose import human_pinned_edits
+    screen = {"maps": [{"name": "peak", "subject": {"template": "r:p/{a}", "classes": ["o:P"]}}]}
+    assert human_pinned_edits(None, screen) == {}
+def test_reassert_puts_the_persons_own_words_back() -> None:
+    """注文は「ここを直して」であって「私が付けた名前も書き換えて」ではない。"""
+    from asterism_step0.staged_propose import human_pinned_edits, reassert_human_edits
+    ai = {"maps": [{"name": "peak", "subject": {"template": "r:peak/{No}", "classes": ["o:Peak"]}}]}
+    screen = {"maps": [
+        {"name": "peak", "subject": {"template": "r:peak/{No}/{(hkl)}", "classes": ["o:XrdPeak"]}},
+    ]}
+    pinned = human_pinned_edits(ai, screen)
+    # モデルは注文どおり map を足したが、ついでに人の名前と ID を書き戻した
+    answer = {"maps": [
+        {"name": "peak", "subject": {"template": "r:peak/{No}", "classes": ["o:Peak"]}},
+        {"name": "phase", "subject": {"template": "r:phase/{P}", "classes": ["o:Phase"]}},
+    ]}
+    out, restored = reassert_human_edits(answer, screen, pinned)
+    peak = next(m for m in out["maps"] if m["name"] == "peak")
+    assert peak["subject"]["classes"] == ["o:XrdPeak"]
+    assert peak["subject"]["template"] == "r:peak/{No}/{(hkl)}"
+    # 注文で増えた種類はそのまま残る
+    assert {m["name"] for m in out["maps"]} == {"peak", "phase"}
+    # 黙って直さない。報せは種類の名前で言う (map id は生の識別子・K4)
+    assert restored == [{"map": "peak", "kind": "o:XrdPeak"}]
+def test_reassert_brings_back_a_pinned_kind_the_model_dropped() -> None:
+    """人が触った種類が答えから消えていたら戻す(差し戻しは足すためだけに使う)。"""
+    from asterism_step0.staged_propose import reassert_human_edits
+    screen = {"maps": [
+        {"name": "peak", "subject": {"template": "r:peak/{No}", "classes": ["o:Peak"]}},
+        {"name": "phase", "subject": {"template": "r:phase/{P}", "classes": ["o:Phase"]}},
+    ]}
+    pinned = {"phase": {"classes": ["o:Phase"]}}
+    answer = {"maps": [{"name": "peak", "subject": {"template": "r:peak/{No}",
+                                                    "classes": ["o:Peak"]}}]}
+    out, restored = reassert_human_edits(answer, screen, pinned)
+    assert {m["name"] for m in out["maps"]} == {"peak", "phase"}
+    assert restored == [{"map": "phase", "kind": "o:Phase"}]
+def test_reassert_leaves_untouched_maps_to_the_model() -> None:
+    """人が触っていない種類は、モデルの作り直しに任せる(それが注文の中身)。"""
+    from asterism_step0.staged_propose import reassert_human_edits
+    screen = {"maps": [{"name": "row", "subject": {"template": "r:row/{id}",
+                                                   "classes": ["o:Row"]}}]}
+    answer = {"maps": [
+        {"name": "sample", "subject": {"template": "r:sample/{id}", "classes": ["o:Sample"]}},
+        {"name": "meas", "subject": {"template": "r:meas/{id}/{t}", "classes": ["o:Meas"]}},
+    ]}
+    out, restored = reassert_human_edits(answer, screen, {})
+    assert {m["name"] for m in out["maps"]} == {"sample", "meas"}
+    assert restored == []
+def test_rethink_request_hands_over_the_design_and_says_keep_it() -> None:
+    """渡すのは画面にある骨格。文面は「残せ」としか言わない(減らす指示は上限が無い)。"""
+    from asterism_step0.staged_propose import render_rethink_request
+    text = render_rethink_request(
+        {"maps": [{"name": "peak", "subject": {"template": "r:peak/{No}"}}]},
+        "試料と測定値を別の種類に分けて",
+        {"peak": {"classes": ["o:XrdPeak"], "subject_id": ("template", "r:peak/{No}")}},
+    )
+    assert "r:peak/{No}" in text  # 設計そのものが渡る
+    assert "Keep EVERY map above" in text
+    assert "試料と測定値を別の種類に分けて" in text
+    assert "o:XrdPeak" in text  # 人が打った値は名指しで守らせる
+    assert render_rethink_request(None, "何か", None) == ""
+def test_rethink_keeps_the_edits_a_person_made(tmp_path: Path) -> None:
+    """S4 の編集(種類名・ID・削除・切り出し)は、もう一度考えさせても残る。
+    2026-08-27 まで onRethink は setSkeleton(null) で S3 から作り直しており、
+    S4 の編集は保存先が無いので全部消えていた。
+    """
+    from asterism_step0.staged_propose import propose_skeleton
+    csv = tmp_path / "a.csv"
+    csv.write_text("id,name\n1,x\n2,y\n", encoding="utf-8")
+    ns = {"ao": "https://ns.invalid/datasets/a/ontology#",
+          "ar": "https://ns.invalid/datasets/a/resource/"}
+    ai = {"version": 1, "prefixes": ns, "maps": [
+        {"name": "row", "source": "a.csv",
+         "subject": {"template": "ar:row/{id}", "classes": ["ao:Row"]}},
+    ]}
+    screen = {"version": 1, "prefixes": ns, "maps": [
+        # 人が種類名を打ち直した
+        {"name": "row", "source": "a.csv",
+         "subject": {"template": "ar:row/{id}", "classes": ["ao:Specimen"]}},
+        # 人が列を切り出して作った種類
+        {"name": "thing", "source": "a.csv",
+         "subject": {"template": "ar:thing/{name}", "classes": ["ao:Thing"]}},
+    ]}
+    # モデルは「人の名前を元に戻し、切り出した種類を落とす」答えを返す
+    answer = {"version": 1, "prefixes": ns, "maps": [
+        {"name": "row", "source": "a.csv",
+         "subject": {"template": "ar:row/{id}", "classes": ["ao:Row"]}},
+        {"name": "extra", "source": "a.csv",
+         "subject": {"template": "ar:extra/{id}", "classes": ["ao:Extra"]}},
+    ]}
+    llm = _rethink_llm(answer)
+    out = propose_skeleton(
+        [csv], "", llm=llm,
+        current_skeleton=screen, baseline_skeleton=ai,
+        request="名前ごとに 1 件の種類も作って",
+    )
+    names = {m["name"] for m in out.skeleton["maps"]}
+    assert "thing" in names, names  # 人が切り出した種類は消えない
+    row = next(m for m in out.skeleton["maps"] if m["name"] == "row")
+    # 人が打った名前が勝つ (prefix は K13 で slug から機械導出されるので local name で見る)
+    assert row["subject"]["classes"][0].endswith(":Specimen"), row["subject"]
+    assert out.metadata.get("kept_human_edits")  # 直したことは報せる
+    assert out.metadata.get("rethink") is True
+    # 画面にあった設計そのものがモデルへ渡っている
+    assert "ar:thing/{name}" in llm.seen[0]
+def test_rethink_falls_back_to_the_design_on_screen(tmp_path: Path) -> None:
+    """答えが読めなかったとき、持ち帰る先は決定論の初期骨格ではなく人の設計。"""
+    from asterism_step0.staged_propose import propose_skeleton
+    csv = tmp_path / "a.csv"
+    csv.write_text("id,name\n1,x\n", encoding="utf-8")
+    ns = {"ao": "https://ns.invalid/datasets/a/ontology#",
+          "ar": "https://ns.invalid/datasets/a/resource/"}
+    screen = {"version": 1, "prefixes": ns, "maps": [
+        {"name": "row", "source": "a.csv",
+         "subject": {"template": "ar:row/{id}", "classes": ["ao:Specimen"]}},
+    ]}
+    class _Broken:
+        model = "mock"
+        response_schema = None
+        def complete(self, system: str, user: str) -> str:
+            return "not json at all"
+    out = propose_skeleton([csv], "", llm=_Broken(), current_skeleton=screen, request="直して")
+    assert out.skeleton["maps"][0]["subject"]["classes"][0].endswith(":Specimen")
+    assert out.metadata.get("fallback") is None  # 決定論の初期骨格には落ちていない
+def test_rethink_keeps_the_dataset_namespace(tmp_path: Path) -> None:
+    """名前空間は rethink で変わらない — slug が変われば全 ID が別物になる。"""
+    from asterism_step0.staged_propose import propose_skeleton
+    csv = tmp_path / "a.csv"
+    csv.write_text("id\n1\n", encoding="utf-8")
+    ns = {"xr": "https://ns.invalid/datasets/xrd-reference/ontology#",
+          "xrr": "https://ns.invalid/datasets/xrd-reference/resource/"}
+    screen = {"version": 1, "prefixes": ns, "maps": [
+        {"name": "row", "source": "a.csv",
+         "subject": {"template": "xrr:row/{id}", "classes": ["xr:Row"]}},
+    ]}
+    # モデルが名前空間を勝手に打ち直して返す
+    answer = {"version": 1, "prefixes": {
+        "zz": "https://ns.invalid/datasets/something-else/ontology#",
+        "zzr": "https://ns.invalid/datasets/something-else/resource/",
+    }, "maps": [
+        {"name": "row", "source": "a.csv",
+         "subject": {"template": "zzr:row/{id}", "classes": ["zz:Row"]}},
+    ]}
+    out = propose_skeleton(
+        [csv], "", llm=_rethink_llm(answer), current_skeleton=screen, request="直して"
+    )
+    values = list(out.skeleton["prefixes"].values())
+    assert all("something-else" not in v for v in values), out.skeleton["prefixes"]
+    assert any("xrd-reference" in v for v in values), out.skeleton["prefixes"]
+    # 名前空間が二重にならない - 実測 2026-08-27: 画面の prefixes を足す形にしたら
+    # 両方が canonical に見えて片方だけ直り、ゲートに生の `xr:Sample` が出た。
+    minted = [v for v in values if "/datasets/xrd-reference/" in v]
+    assert len(minted) == 2, out.skeleton["prefixes"]
+    # CURIE も正規形の prefix を指している(かんたん層は縮約して表示する)
+    onto = next(k for k, v in out.skeleton["prefixes"].items() if v.endswith("ontology#"))
+    assert out.skeleton["maps"][0]["subject"]["classes"][0].startswith(f"{onto}:")

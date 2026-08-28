@@ -40,6 +40,16 @@ services:
       CSV2RDF_OXIGRAPH_URL: ${CSV2RDF_OXIGRAPH_URL:?set the external store URL in .env}
       # Controlled exposure: typed tools only, no arbitrary SPARQL escape.
       ASTERISM_EXPOSE_RAW_SPARQL: "false"
+      # …which makes the registry mount below MANDATORY here, not optional: with
+      # the escape off, the declared query_tools.yaml bundles are the ONLY way to
+      # ask anything about a workbench-onboarded dataset. This topology runs away
+      # from the api that writes the registry, so point ASTERISM_REGISTRY_HOST_DIR
+      # at an export/replica of it in .env.
+      CSV2RDF_REGISTRY_ROOT: /data/registry
+    volumes:
+      - ${ASTERISM_REGISTRY_HOST_DIR:-./data/sources/registry}:/data/registry:ro
     ports:
-      - "8002:8002"   # FastMCP HTTP transport (path /mcp) — register this front
+      # Host 8002 (unchanged) -> container 8000. The image binds 8000 because
+      # Crucible fixes the container-side port there — see infra/asterism/Dockerfile.
+      - "8002:8000"   # FastMCP HTTP transport (path /mcp) — register this front
     restart: unless-stopped

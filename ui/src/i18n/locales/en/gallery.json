@@ -150,8 +150,6 @@
     "warningsHead": "Items this view could not show (technical)",
     "artifactsHead": "Source files (RML etc., technical)",
     "open": "Open",
-    "legacyChip": "Old method",
-    "legacyNote": "An old-method file; not used by the current ingest.",
     "loadError": "Could not load what each column means. Wait a moment, then open this tab again.",
     "viewer": {
       "copy": "Copy",
@@ -315,7 +313,6 @@
       "ingested": "Transformation rules (RML) — applied to the unpublished draft · {{n}} facts",
       "design": "Transformation rules (RML) — nothing loaded yet (you can load it from this screen)"
     },
-    "ingesterSummary": "Legacy-style script (never run)",
     "mieSummary": "Search tags (words used to find this data)",
     "mappingDescription": {
       "promoted": "In the published data (what answers cite) · {{n}} facts. Also queryable via Advanced search (SPARQL).",

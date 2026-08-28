@@ -22,8 +22,8 @@ Scope: tabular sources (CSV/TSV and dialect-read instrument text). JSON and
 XML/document maps get an honest ``checkable: false`` note instead of a guess —
 never a silent pass.
 """
-# This module's prose is Japanese: full-width parentheses / slashes are
-# intentional, not ASCII look-alikes (same posture as describe.py).
+# このファイルの散文は日本語。全角の括弧・記号は意図したもので、ASCII の
+# 見間違いではない（id_move.py / describe.py と同じ流儀）。
 # ruff: noqa: RUF003
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ from __future__ import annotations
 import difflib
 import re
 from collections import defaultdict
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -393,6 +393,26 @@ def _entity_preview(
         "varying_columns": varying,
         "varying_identity_columns": varying_identity,
         "varying_samples": varying_samples,
+        # このカード自身が持つ列のうち、識別子型（測定値でない・キーでない）＝
+        # 「値の種類」に昇格できる候補。行データのファイル（1 件のカードが無い）
+        # では、ゾーンはこちらを並べる。K32 のゾーンは「ヘッダ付きファイル」の
+        # 形だけを見て書かれていて、普通の行データでは丸ごと消えていた
+        # （利用者の実データ・2026-08-28）。
+        # 候補と、ゾーンが並べる値は**打ち切らない**。カードの上限（G13）は
+        # タブ②の読みやすさのためのもので、①「あとでつなぐ値をえらぶ」は
+        # 一覧そのものなので、切れると**その先の列でできた種類をチェックで
+        # 外せなくなる**（利用者の実データ・2026-08-28: Wikipage や
+        # BohrModelImage が 8 列の外にあり 🗑 でしか消せなかった）。
+        "identity_columns": [
+            p["column"]
+            for p in (key_props + conflicts + rest)
+            if p["column"] not in key_set
+            and types.get(p["column"]) not in _MEASUREMENT_TYPES
+        ],
+        "all_values": [
+            {"column": p["column"], "value": p.get("value", "")}
+            for p in (key_props + conflicts + rest)
+        ],
         "omitted_columns": max(0, len(rest) - room),
     }
 
@@ -1032,7 +1052,7 @@ def _annotate_map(
     if not template:
         # 「ID の作り方が決まっていない」— 潰れでも衝突でもなく、まだ何も決まって
         # いない。ここまで候補は空で返していたので、画面は「決められませんでした」
-        # とだけ言って、行き止まりになっていた（K11「行き止まりを作らない」）。
+        # とだけ言って、行き止まりになっていた(K11「行き止まりを作らない」)。
         # 候補は inspection がすでに証明済みなので、同じ one-tap チップを出す。
         ann["reason"] = "no-template"
         if inspection is not None:
@@ -1278,7 +1298,10 @@ def _rewrite_key_template(template: str, columns: Sequence[str]) -> str:
 
 
 def apply_key_safety_fix(
-    skeleton: Mapping[str, Any], annotations: Mapping[str, Any]
+    skeleton: Mapping[str, Any],
+    annotations: Mapping[str, Any],
+    *,
+    keep: Collection[str] | None = None,
 ) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
     """Swap an AI-chosen measurement-only key for the machine's own safe pick.
 
@@ -1329,6 +1352,13 @@ def apply_key_safety_fix(
     longer measurement-only (the candidate was proven non-measurement-only),
     so a second pass finds nothing to fix — proven by re-annotating and
     re-applying in the tests, not assumed.
+
+    ``keep`` names maps whose ID a PERSON wrote (S4 「AI にもう一度考えさせる」
+    hands the edited design back to the model, so this can run on a design that
+    has already been through a human). The reasoning above — "there is no
+    judgment left to make" — holds only while nobody has made one. Once somebody
+    has, the machine's own evidence is the weaker claim, and swapping their key
+    without asking is the silent overwrite ADR data-facts-invariant N6 forbids.
     """
     maps_ann = annotations.get("maps") if isinstance(annotations, Mapping) else None
     new_skeleton = dict(skeleton)
@@ -1342,6 +1372,9 @@ def apply_key_safety_fix(
             new_maps.append(map_entry)
             continue
         name = str(map_entry.get("name") or "")
+        if keep and name in keep:
+            new_maps.append(map_entry)
+            continue
         ann = maps_ann.get(name)
         subject = map_entry.get("subject")
         fixed_entry = None

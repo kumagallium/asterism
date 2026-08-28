@@ -1,4 +1,13 @@
-"""Generate a **nested JSON** snapshot of the Materials Project facts (#19).
+"""Generate a **nested JSON** snapshot of the eleven hand-written seed facts (#19).
+
+.. note::
+   This writes ``mp.seed.json``, **not** the dataset's live snapshot. Since
+   2026-08-27 the committed ``mp.json`` comes from ``fetch_mp_snapshot.py``,
+   which resolves Starrydata's host compositions against the Materials Project
+   API (2,402 materials, ADR ``mp-api-snapshot.md``). This script stays because
+   it is what proved the CSV and JSON paths equivalent — same 143 triples from
+   ``seed/csv/materials_project.csv`` either way — and that check is worth being
+   able to re-run.
 
 This is the JSON twin of ``seed/build_seed.py``: it reads the same real, citable
 facts from ``seed/csv/materials_project.csv`` and emits ``mp.json`` — an array of
@@ -21,7 +30,7 @@ Provenance: Materials Project (CC-BY 4.0; A. Jain et al., APL Materials 1,
 011002, 2013), resolved for the host phases of Starrydata's thermoelectric
 samples (experiments/mp-linking-poc, link_mp.py --mode live).
 
-Usage: python build_json_snapshot.py   # writes mp.json next to this script
+Usage: python build_json_snapshot.py   # writes mp.seed.json next to this script
 """
 from __future__ import annotations
 
@@ -33,7 +42,7 @@ MP_PAGE = "https://next-gen.materialsproject.org/materials/"
 
 HERE = Path(__file__).resolve().parent
 CSV_PATH = HERE.parent / "seed" / "csv" / "materials_project.csv"
-JSON_PATH = HERE / "mp.json"
+JSON_PATH = HERE / "mp.seed.json"
 
 
 def _record(row: dict[str, str]) -> dict[str, object]:

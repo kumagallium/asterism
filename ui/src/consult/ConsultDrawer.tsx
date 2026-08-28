@@ -1,4 +1,4 @@
-import { Send, Square } from 'lucide-react'
+import { Send, Sparkles, Square } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import './ConsultDrawer.css'
@@ -225,14 +225,18 @@ export function ConsultDrawer() {
         aria-label={t('open')}
         title={t('open')}
       >
-        {t('open')}
+        <Sparkles size={16} className="consult-fab-icon" aria-hidden="true" />
+        <span>{t('open')}</span>
       </button>
       {open && (
         <>
           <div className="consult-backdrop" onClick={() => setOpen(false)} />
           <aside className="consult-drawer" role="dialog" aria-label={t('open')}>
             <div className="consult-head">
-              <span className="consult-head-title">{t('open')}</span>
+              <span className="consult-head-title">
+                <Sparkles size={15} className="consult-fab-icon" aria-hidden="true" />
+                {t('open')}
+              </span>
               <div className="consult-head-actions">
                 <button
                   type="button"

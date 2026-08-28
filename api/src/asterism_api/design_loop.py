@@ -56,8 +56,8 @@ JSON/XML sources get no column-level feedback (tabular-only validator); un-iri_s
 from existing columns are caught by no static validator; a cornered weak model can erase
 mappings to reach zero issues (surfaced as ``coverage_dropped``, not blocked).
 """
-# This module's prose is Japanese: full-width parentheses / slashes are
-# intentional, not ASCII look-alikes (same posture as describe.py).
+# このファイルの散文は日本語。全角の括弧・記号は意図したもので、ASCII の
+# 見間違いではない（id_move.py / describe.py と同じ流儀）。
 # ruff: noqa: RUF003
 from __future__ import annotations
 
@@ -665,7 +665,6 @@ def trap_issues(mat: Any) -> list[Issue]:
             SchemaBundle(
                 diagram_md=paths.get("mermaid") or paths.get("diagram"),
                 mie_yaml=paths.get("mie_yaml") or paths.get("mie"),
-                ingester_py=paths.get("ingester_py") or paths.get("ingester"),
                 rml_ttl=paths.get("rml_ttl"),
                 mapping_ir_yaml=paths.get("mapping_ir"),
             )
@@ -691,8 +690,8 @@ def trap_issues(mat: Any) -> list[Issue]:
 
 #: Traps whose fix recipe edits the §9 mapping spec ONLY — exactly the block a
 #: surgical repair round regenerates and splices. Everything else fires in
-#: another artifact (T2 §8 ingester, T4/T6/T7/T10 §7 MIE, T5 diagram doc) or
-#: spans several (T3), so it still needs the whole-document path. Keep this set
+#: another artifact (T4/T6/T7/T10 §7 MIE, T5 diagram doc) or the TBox (T3), so
+#: it still needs the whole-document path. Keep this set
 #: conservative: a trap listed here wrongly costs a wasted round, not a wrong
 #: design — the round checks re-run either way.
 _SPEC_REPAIRABLE_TRAPS = frozenset({"T1", "T9"})
@@ -972,37 +971,6 @@ def _stamp_numeric_datatypes(schema_md: str, base: Path, issues: list[Issue]) ->
         return replace_mapping_spec_block(schema_md, repaired)
     except ValueError:
         return None
-
-
-# Plain ``utf-8`` opens in the §8 ingester — the exact thing T2 fails on. The
-# BOM-stripping variant differs by four characters and the intent is identical,
-# so this is a mechanical edit, not a design decision.
-_RE_PLAIN_UTF8 = re.compile(r"""(encoding\s*=\s*)(["'])utf[-_]?8\2""")
-
-
-def _stamp_utf8_sig(schema_md: str, issues: list[Issue]) -> str | None:
-    """Deterministically switch the §8 ingester's ``encoding="utf-8"`` opens to
-    ``utf-8-sig`` when T2 failed. Returns the repaired document, or None.
-
-    Why not the LLM's job: T2's own fix recipe already spells out the whole
-    edit ("replace any plain `utf-8` open with `utf-8-sig`"). Sending a weak
-    model to perform a four-character substitution costs a round and — live —
-    often comes back with the rest of §8 subtly rewritten.
-    """
-    if not any(iss.category == "trap" and iss.subject == "T2" for iss in issues):
-        return None
-    with tempfile.TemporaryDirectory(prefix="asterism-loop-t2-") as tmp:
-        ingester = materialize_schema(schema_md, tmp, "design", write=False).ingester_py
-    if not ingester or "utf-8-sig" in ingester or "utf_8_sig" in ingester:
-        return None
-    repaired, n = _RE_PLAIN_UTF8.subn(r"\1\g<2>utf-8-sig\2", ingester)
-    if not n:
-        # No explicit encoding= to fix: the recipe needs a real edit by the model.
-        return None
-    doc = schema_md if ingester in schema_md else schema_md.replace("\r\n", "\n")
-    if ingester not in doc:
-        return None
-    return doc.replace(ingester, repaired, 1)
 
 
 # The transform message the identity repair keys on (mapping_ir._check_transform).
@@ -1447,7 +1415,6 @@ _REPAIRS: tuple[Callable[[str, Path, list[Issue]], str | None], ...] = (
     _move_xsd_unit_to_datatype,  # a misfiled datatype, before typing is judged
     _place_row_values_on_their_own_map,  # before typing: it relocates the rows
     _stamp_numeric_datatypes,
-    lambda md, base, issues: _stamp_utf8_sig(md, issues),  # T2 lives in §8, not §9
 )
 
 
@@ -1846,10 +1813,12 @@ def run_design_loop(
         #
         # Which traps force the whole-document path: surgical repair regenerates
         # ONLY the §9 spec, so a trap that fires in ANOTHER artifact (T4/T7/T10
-        # in the §7 MIE, T5 in the diagram doc, T2 in the §8 ingester) cannot be
+        # in the §7 MIE, T5 in the diagram doc, T3 in the TBox) cannot be
         # cleared by splicing §9 — a surgical round would burn a call and change
         # nothing, and the no-progress detector would stop the loop one round
-        # later with the trap still open.
+        # later with the trap still open. T2 reads §9 `dialects:`, but that
+        # block is machine-owned (_overlay_detected_dialects re-pins it
+        # authoritatively every round), so no LLM round can clear it either.
         #
         # But the converse used to be true too: ONE such trap sent the round down
         # the whole-document path even when every OTHER issue was a §9 issue —
@@ -1977,7 +1946,7 @@ def _overlay_data_facts(
     left byte-untouched. No-op when there is nothing to assert.
     """
     # 所有権も型も無いときでも素通ししない: 二重記録の除去は入力を要らない
-    # （同じ列を同じ読み方で二度書いた、という設計だけで分かる事実）。
+    # (同じ列を同じ読み方で二度書いた、という設計だけで分かる事実)。
     ir_yaml, _ = _extract_design(schema_md)
     if not ir_yaml or not ir_yaml.strip():
         return schema_md

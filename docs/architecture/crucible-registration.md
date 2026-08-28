@@ -1,159 +1,268 @@
-# Crucible 登録レシピ
+# Crucible 登録レシピ — typed MCP フロントを外部 AI クライアントへ出す
 
-Crucible ([`kumagallium/Crucible`](https://github.com/kumagallium/Crucible)) は GitHub URL を貼ると **build + deploy + SSE 公開**まで自動でやってくれる self-hosted AI ツール管理プラットフォーム。asterism を Crucible に登録すると Graphium や Claude Code から discoverable な MCP サーバとして使えるようになる。
+[Crucible](https://github.com/kumagallium/Crucible) は GitHub URL を貼ると **clone → build →
+deploy → SSE/HTTP 公開**まで自動でやる self-hosted なツール管理基盤。Asterism を Crucible に
+登録すると、Claude Code / Cursor / Graphium などから discoverable な MCP サーバーとして
+使えるようになる。
 
-本プロジェクトの基本前提では「Crucible は registry (proxy ではない)」だが、Crucible 実装は **build と deploy も担当する**ため、本ドキュメントでは Crucible に登録される **togomcp 本体**と、外側で別途立ち上げる **Oxigraph** に役割を分けて運用する。
+登録するのは **`infra/asterism` の typed MCP フロント 1 つだけ**。store（Oxigraph）は
+Crucible に載せない — 稼働中の Asterism 本番スタックのものを内部ネットワーク越しに読む。
 
-## アーキテクチャ (Crucible 登録時)
+> 旧版（〜2026-08）はこのレシピを `infra/togomcp`（Phase 1/2 の togomcp wrapper）で書いていた。
+> 現在の製品は typed MCP フロントを持つので、そちらは対象外。
+
+---
+
+## 全体像
 
 ```
-┌─ closed server ─────────────────────────────────────────────────────┐
-│                                                                     │
-│  ┌────────────────────────────────────────────────────────────┐    │
-│  │  Crucible (registry + deployer)                            │    │
-│  │   ├─ UI       (http://127.0.0.1:8081)                      │    │
-│  │   └─ Deploy → docker run --network mcp-net <name>:latest   │    │
-│  └─────────────────────┬──────────────────────────────────────┘    │
-│                         │ docker network: mcp-net                   │
-│         ┌───────────────┴────────────────────────┐                  │
-│         ▼                                        ▼                  │
-│  ┌──────────────┐                       ┌─────────────────────┐    │
-│  │  oxigraph    │  ← user が手動で       │ asterism         │    │
-│  │  (SPARQL)    │    mcp-net に起動       │ (togomcp deployed   │    │
-│  │  :7878        │                       │   by Crucible)      │    │
-│  │              │ ◀── SPARQL HTTP ────── │ EXPOSE 8000 → SSE   │    │
-│  └──────────────┘                       └─────────────────────┘    │
-│                                                                     │
-│  ┌─────────────────────────────────────────────────────────┐       │
-│  │  AI client (Claude Code / Cursor / Graphium)             │       │
-│  │  claude mcp add --transport sse asterism ...          │       │
-│  └─────────────────────────────────────────────────────────┘       │
-└─────────────────────────────────────────────────────────────────────┘
+┌─ asterism-prod（1 箱バンドル・ADR production-deployment.md）─────────────┐
+│                                                                          │
+│  ┌── compose #1: Asterism 本番スタック ──────────────────────────┐      │
+│  │  caddy(443) → api / demo-agent / authgate                     │      │
+│  │  ┌─ network: asterism-prod_data（外部公開なし）──────────┐   │      │
+│  │  │   oxigraph:7878   ← store。ここが唯一の真実            │   │      │
+│  │  └────────────────────────────────────────────────────────┘   │      │
+│  └───────────────────────────────────────────────────────────────┘      │
+│                              ▲                                           │
+│                              │ SPARQL（内部ネットのみ）                  │
+│  ┌── compose #2: Crucible ───┼───────────────────────────────────┐      │
+│  │  registry-ui(8081) / registry-api(8080) / socket-proxy        │      │
+│  │            │ deploy                                            │      │
+│  │            ▼                                                   │      │
+│  │  ┌─ network: mcp-net ──────────────────────────────────┐      │      │
+│  │  │  asterism（typed MCP front・container:8000）         │──────┼──────┘
+│  │  │  ASTERISM_EXPOSE_RAW_SPARQL=false                    │      │
+│  │  └──────────────────────────────────────────────────────┘      │
+│  └────────────────────────────────────────────────────────────────┘      │
+│                              │ 127.0.0.1:<割当ポート>/mcp                │
+└──────────────────────────────┼───────────────────────────────────────────┘
+                               │ SSH ポートフォワード
+                               ▼
+                      AI クライアント（Claude Code / Graphium ほか）
 ```
 
-- Crucible は **togomcp wrapper のみ**を build & deploy する (Dockerfile: [`infra/togomcp/Dockerfile`](../../infra/togomcp/Dockerfile))
-- **Oxigraph は user が事前に**`mcp-net` 上に手動で立ち上げる (Crucible で deploy せず別管理)
-- togomcp は `OXIGRAPH_HOST` env var で Oxigraph を発見
+**compose は 2 枚**（Asterism 本番と Crucible は別プロダクト・混ぜない）。同一ホストに
+隣接させ、deploy されたフロントだけを両方のネットワークに載せる。
+
+---
 
 ## 前提
 
-- Crucible が同じホストで起動中 (`docker compose up -d` 済み、UI が `127.0.0.1:8081` で見える)
-- `mcp-net` Docker network が存在する (Crucible が初回起動時に作成)
-- starrydata の Turtle が手元にある (もしくは Phase 1 ingester で生成済み)
+- Asterism 本番スタックが `compose.prod.yaml` で稼働している（`docs/architecture/production-deployment.md`）
+- Docker / Docker Compose が入っている
+- ホストの **8080 / 8081 が空いている**（Asterism 本番は 80/443 のみ host 公開。api の 8080 は
+  コンテナ内部ポートなので衝突しない）
 
-## 手順
+> ⚠️ **稼働中のホストで Crucible の `setup-server.sh` を実行しないこと。** クリーンな Ubuntu を
+> 前提に SSH ポート変更・ファイアウォール・Docker iptables まで書き換えるので、既存の caddy や
+> SSH セッションを壊す。隣接起動では compose だけを手で立てる（下記手順 1）。
 
-### 1. Oxigraph を `mcp-net` 上に手動で起動
+---
 
-Crucible の deployer は **1 image しか deploy しない**ので、SPARQL endpoint である Oxigraph は別に立てる必要がある。Crucible の network (`mcp-net`) に接続することで、Crucible-deployed な togomcp から DNS 名 `asterism-oxigraph` で参照できる。
+## 1. Crucible を隣接起動する
 
-```bash
-docker run -d \
-  --name asterism-oxigraph \
-  --network mcp-net \
-  -p 7878:7878 \
-  -v asterism-oxigraph-data:/data \
-  --restart unless-stopped \
-  ghcr.io/oxigraph/oxigraph:latest \
-  serve --location /data --bind 0.0.0.0:7878
-```
-
-ホスト側からも `http://localhost:7878/query` で叩けるようにポート公開しているが、togomcp ↔ Oxigraph は `mcp-net` 経由で接続する。
-
-### 2. starrydata の Turtle を Oxigraph にロード
+Crucible は private リポジトリなので、手元のクローンから `registry/` だけを転送する。
 
 ```bash
-# host で ingester を実行 (Phase 1 README 参照)
-asterism-starrydata-papers  /path/to/starrydata_papers.csv  /tmp/papers.ttl
-asterism-starrydata-samples /path/to/starrydata_samples.csv /tmp/samples.ttl
-asterism-starrydata-curves  /path/to/starrydata_curves.csv  /tmp/curves.ttl
-
-# Turtle を Oxigraph に投入 (host から)
-for f in papers samples curves; do
-  curl -X POST --data-binary @/tmp/$f.ttl \
-    -H 'Content-Type: text/turtle' \
-    'http://localhost:7878/store?default'
-done
+# 手元（開発機）から
+rsync -az \
+  --exclude 'api/.venv' --exclude 'ui/node_modules' --exclude 'ui/.next' \
+  --exclude '__pycache__' --exclude '.pytest_cache' --exclude '.env' \
+  ~/Crucible/registry/ asterism-prod:~/crucible-registry/
 ```
 
-### 3. Crucible UI から asterism を登録
+サーバー側で `.env` を作る（**キーはサーバー上で生成する**）。
 
-Crucible UI (`http://127.0.0.1:8081`) の "Register Server" ダイアログで:
+```bash
+cd ~/crucible-registry
+API_KEY=$(openssl rand -hex 32)
+ENC_KEY=$(openssl rand -hex 32)
+cat > .env <<EOF
+CRUCIBLE_HOST=127.0.0.1
+CRUCIBLE_API_PORT=8080
+CRUCIBLE_UI_PORT=8081
+CRUCIBLE_BASE_URL=http://127.0.0.1
+REGISTRY_API_KEY=${API_KEY}
+TOKEN_ENCRYPTION_KEY=${ENC_KEY}
+AUTO_UPDATE_INTERVAL=3600
+MCP_NETWORK=mcp-net
+EOF
+chmod 600 .env
+
+docker network create mcp-net          # deploy 先ネットワーク
+docker compose up -d --build           # ui / api / socket-proxy の 3 つ
+```
+
+- `CRUCIBLE_HOST=127.0.0.1` なので UI/API もデプロイ先も**ループバックのみ**。外から見るには
+  SSH ポートフォワードを使う: `ssh -L 8081:127.0.0.1:8081 asterism-prod`
+- **Dify は使わない。** `DIFY_EMAIL` / `DIFY_PASSWORD` を未設定にしておけば deployer は
+  「Dify 登録をスキップします」とログを出して素通りする。`docker-compose.dify.yml` も使わない。
+
+---
+
+## 2. Asterism を登録する
+
+Crucible UI（`http://127.0.0.1:8081`）の登録フォーム、または API から。
 
 | Field | Value |
 |---|---|
-| **github_url** | `https://github.com/kumagallium/asterism` |
-| **branch** | `main` (Phase 1 merge 後) または `feat/phase1-samples-curves` |
-| **subdir** | `infra/togomcp` |
-| **tool_type** | `mcp_server` (auto-detect されるので空でも OK) |
-| **transport** | `auto` (Dockerfile に EXPOSE 8000 があるので `sse` 扱いになる) |
-| **env_vars** | `OXIGRAPH_HOST=asterism-oxigraph` (mcp-net 上のホスト名) |
+| `github_url` | `https://github.com/kumagallium/asterism`（public なのでトークン不要） |
+| `branch` | `main` |
+| `subdir` | `infra/asterism` |
+| `transport` | `auto`（Dockerfile に `EXPOSE` があるので HTTP 扱い） |
+| `dify_auto_register` | `false` |
+| `env_vars` | 下表 |
 
-API 経由なら:
+| env | 値 | 意味 |
+|---|---|---|
+| `CSV2RDF_OXIGRAPH_URL` | `http://asterism_prod_oxigraph:7878` | store の在り処。既定は `http://oxigraph:7878`（本番 compose のサービス名と同じ）なので省略しても当たるが、明示する |
+| `ASTERISM_EXPOSE_RAW_SPARQL` | `false` | **任意 SPARQL の escape を出さない**。typed tool だけを公開する |
+| `ASTERISM_BUNDLED_TOOLS` | `1` | 同梱データセット（starrydata ほか）の宣言クエリツールを公開する。省略時は出ない（下記「宣言クエリツール」参照） |
 
 ```bash
-curl -X POST 'http://127.0.0.1:8080/api/servers' \
-  -H 'Content-Type: application/json' \
+KEY=$(grep '^REGISTRY_API_KEY=' ~/crucible-registry/.env | cut -d= -f2)
+curl -X POST http://127.0.0.1:8080/api/servers \
+  -H "X-API-Key: ${KEY}" -H 'Content-Type: application/json' \
   -d '{
     "github_url": "https://github.com/kumagallium/asterism",
     "branch": "main",
-    "subdir": "infra/togomcp",
-    "env_vars": {"OXIGRAPH_HOST": "asterism-oxigraph"}
+    "subdir": "infra/asterism",
+    "transport": "auto",
+    "dify_auto_register": false,
+    "auto_update": false,
+    "env_vars": {
+      "CSV2RDF_OXIGRAPH_URL": "http://asterism_prod_oxigraph:7878",
+      "ASTERISM_EXPOSE_RAW_SPARQL": "false",
+      "ASTERISM_BUNDLED_TOOLS": "1"
+    }
   }'
 ```
 
-Crucible が `mcp.json` を読み取って `name=asterism` / `display_name=asterism (Materials Knowledge Graph)` / `description` を自動補完する。`subdir=infra/togomcp` 指定により、build context は repo root のままで Dockerfile だけが subdir 内のものを使う (Dockerfile 側は `COPY data/togomcp ...` で repo root を期待した記述になっている)。
+202 と `job_id` が返る。進捗は `GET /api/jobs/{job_id}`（同じ `X-API-Key` が要る）。
 
-### 4. AI client から接続
+### この 2 点は Crucible 側の固定仕様
+
+`infra/asterism/` はこれに合わせてある。**他の Dockerfile を足すときも同じ制約がかかる。**
+
+1. **コンテナ側ポートは 8000 固定** — deployer は `-p <host-port>:8000` で公開し、`/mcp` を
+   そこに向けてヘルスチェックする。`infra/asterism/Dockerfile` は `EXPOSE 8000` /
+   `CMD --port 8000`。CLI 既定の 8002 のままだと build は通るのにヘルスチェックで
+   タイムアウトする（コンテナは動いているのに registry 上は error 表示になる）。
+2. **`mcp.json` は subdir の中を見る** — repo root の `mcp.json` は `subdir` 指定時には
+   読まれない。`infra/asterism/mcp.json` を置いてある。無い場合は登録リクエストで `name` を
+   明示すれば deployer が生成して進む。
+
+---
+
+## 3. store に繋ぐ
+
+deploy されたコンテナは `mcp-net` にだけ載る。store は別ネットワーク（`asterism-prod_data`）に
+あるので、**1 回だけ明示的に接続する**。
 
 ```bash
+docker network connect asterism-prod_data asterism
+```
+
+これを「運用側が明示的に許可する 1 手」として残してある。`MCP_NETWORK` を
+`asterism-prod_data` にすれば自動化できるが、**Crucible が deploy する全コンテナが store と
+同じネットワークに載る**ことになるので採らない（blast radius を広げない）。
+
+再 deploy（`auto_update` や手動 update）のたびにコンテナは作り直されるため、**接続もやり直す**。
+
+---
+
+## 4. AI クライアントから使う
+
+```bash
+# 手元から SSH ポートフォワード（<port> は Crucible UI が表示する割当ポート）
+ssh -L 8100:127.0.0.1:8100 asterism-prod
+
 # Claude Code
-claude mcp add --transport sse asterism http://127.0.0.1:<port>/sse
-# Crucible UI に表示される port を使う
-
-# Cursor / Windsurf
-# UI から SSE URL をコピペ
-
-# Claude Desktop は SSE をネイティブサポートしないので mcp-remote 経由:
-#   https://www.npmjs.com/package/mcp-remote
+claude mcp add --transport http asterism http://127.0.0.1:8100/mcp
 ```
 
-### 5. 動作確認
+FastMCP の HTTP transport はパス `/mcp`。SSE ではなく Streamable HTTP。
 
-AI に「starrydata の Bi2Te3 サンプルを 3 件見つけて」と聞く → AI が `run_sparql` ツールで SPARQL を発行 → togomcp が Oxigraph (`asterism-oxigraph:7878`) に投げる → 結果が返る。
+---
 
-## 削除 / 更新
+## 5. 動作確認
 
 ```bash
-# Crucible UI から Stop / Remove
-
-# auto_update が有効なら main ブランチ更新時に自動再デプロイ。
-# 手動で再ビルドしたい場合: Stop → Re-register
+docker exec asterism python -c "import urllib.request;print(urllib.request.urlopen('http://asterism_prod_oxigraph:7878/query?query=ASK%20%7B%3Fs%20%3Fp%20%3Fo%7D',timeout=8).status)"
+# → 200 なら store に届いている
 ```
+
+MCP 側は `tools/list` を叩いて**出ているツールの顔ぶれ**を見るのが早い。`sparql_query` が
+無ければ露出プロファイルが効いている。`schema_summary`（引数なしで呼べる）を実行すると、
+store に実際に入っているクラスと件数が返る。
+
+---
+
+## 露出プロファイル
+
+`ASTERISM_EXPOSE_RAW_SPARQL=false` のとき、公開されるのは以下だけ:
+
+| ツール | 引数 | 用途 |
+|---|---|---|
+| `schema_summary` | （なし） | store の語彙・件数を introspect。**starrydata を仮定しない** |
+| `template_curve_fetch` | `curve_iri` **必須** | 曲線の x[]/y[] と単位・サンプル IRI |
+| `provenance_of` | `iri` **必須** | PROV チェーン（curve → sample → paper → digitization → ingestion） |
+
+`sparql_query`（任意 read-only SPARQL の escape）は**登録されない**。ADR
+`store-mcp-split.md` の「controlled exposure」— 機微な store は raw SPARQL の面を出さず、
+vet 済みの typed tool だけを渡す、という姿勢の実体がこれ。
+
+### 宣言クエリツール（検索の入口）
+
+`template_curve_fetch` / `provenance_of` は **IRI を必須引数に取る**。IRI を探す手段が無いと
+自然文の問いから始められないので、検索系は宣言クエリツール（`query_tools.yaml`）で足す。
+供給源は 2 つ:
+
+| 供給源 | 有効化 | 中身 |
+|---|---|---|
+| repo 同梱 `datasets/<name>/query_tools.yaml` | `ASTERISM_BUNDLED_TOOLS=1` | starrydata の `property_ranking` / `sample_search` など。デモ・開発用 |
+| ワークベンチ registry `<root>/<id>/query_tools.yaml` | `CSV2RDF_REGISTRY_ROOT=<path>` | ユーザーがカタログで設計・昇格したデータセットのツール |
+
+**後者は Crucible 経由の deploy では現状使えない**（下記「既知の制約」1）。ユーザー設計
+データセットは `schema_summary` には現れる（store に入っているので）が、専用の検索ツールは
+出ない。
+
+---
 
 ## 既知の制約
 
-1. **Crucible は volume mount を支援しない** ので、MIE / endpoints.csv の編集には image 再ビルド (= Crucible 再 deploy) が必要。`auto_update: true` を mcp.json で有効化すれば main 更新時に自動。
-2. **Oxigraph の運用は Crucible 外**。データ永続化 (`asterism-oxigraph-data` volume) と起動順序 (Oxigraph を先に上げる) はユーザ管理。
-3. **togomcp の dbcls 公式 image** が公開されたら、本 wrapper を介さず Crucible に直接 togomcp を登録 → env で MIE_DIR を渡す形に簡略化できる (Phase 3 候補)。
+1. **Crucible は volume mount を支援しない。** そのため `CSV2RDF_REGISTRY_ROOT` にワークベンチの
+   registry ディレクトリを渡せず、**ユーザー設計データセットの宣言クエリツールは公開できない**。
+   同梱ツール（`ASTERISM_BUNDLED_TOOLS=1`）はイメージに焼かれているので使える。恒久策は
+   Crucible 側に volume mount 対応を足すか、registry を read-only API 越しに読む形にすること。
+2. **store の接続は手作業 1 手**（手順 3）。再 deploy のたびに必要。
+3. **ADR の `/api/sparql` 経由は未実装。** `production-deployment.md` は「Crucible が deploy する
+   フロントは raw oxigraph でなく `/api/sparql`（認証・read-only・scope 済）を叩く」と書いているが、
+   MCP フロントの `OxigraphClient` は素の `/query` を叩く。`/api/sparql` は書き込み認証トークンで
+   ゲートされているため、寄せるにはクライアント改修とトークン配布が要る。**第三者ツールが
+   相乗りする【限定公開】Crucible を立てる段では、この境界を実装すること。**
+4. **Asterism 側からの publish UI は未実装**（ROADMAP「Asterism→Crucible publish UI」）。現状は
+   Crucible の画面／API を直接触る。
 
-## なぜ Oxigraph を Crucible に登録しないか
-
-Crucible の `mcp_server` 種別は SSE/stdio MCP プロトコルを想定しており、Oxigraph (純 SPARQL HTTP endpoint) は素直に乗らない。`cli_library` はメタデータのみで service として動かない。
-
-将来 Crucible に **"service-only registration"** 種別 (Docker image を deploy するが MCP プロトコルは要求しない) が入れば Oxigraph も Crucible 経由で deploy できる。それまでは `mcp-net` 上に手動で起動する運用が現実解。
+---
 
 ## トラブルシューティング
 
 | 症状 | 原因 | 対処 |
 |---|---|---|
-| `cp: cannot create directory '/var/togomcp-overlay'` | entrypoint が root 権限なしで /var に書こうとした | 古い image。再 build (`compose build` or Crucible re-deploy) |
-| `Connection refused to asterism-oxigraph:7878` | Oxigraph が `mcp-net` に居ない | `docker network connect mcp-net asterism-oxigraph` |
-| `404 from togomcp /` または `500` | TOGOMCP_DIR の overlay が壊れている | entrypoint ログを確認、image 再 build |
-| AI から `run_sparql` 呼び出し時に 401 | sparql-proxy を経由する経路では起こり得るが Oxigraph では起こらないはず | endpoints.csv の URL を確認 |
+| `mcp.json が見つかりません` | `subdir` の中に `mcp.json` が無い | `infra/asterism/mcp.json` を置く／登録時に `name` を明示する |
+| ビルドは通るのに `ヘルスチェックがタイムアウトしました` | コンテナが 8000 以外で listen している | `docker logs <name>` で listen ポートを確認。Dockerfile を `--port 8000` に |
+| `Connection refused` / store が空に見える | `asterism-prod_data` に繋いでいない | `docker network connect asterism-prod_data <name>` |
+| ツールが 3 つしか出ない | 検索系は宣言ツール。既定では出ない | `ASTERISM_BUNDLED_TOOLS=1` を env に足して再 deploy |
+| `sparql_query` が出てしまう | 露出プロファイルが緩い | `ASTERISM_EXPOSE_RAW_SPARQL=false` を確認（既定は開いている） |
+| Registry API が 401 | `X-API-Key` 未指定 | `.env` の `REGISTRY_API_KEY` を送る |
+
+---
 
 ## 関連ドキュメント
 
-- [`option-b-architecture.md`](option-b-architecture.md) — 全体アーキ + 自前 vs 待ち判断
-- [`phase05-decisions.md`](phase05-decisions.md) — backend / ingester 採用判断
-- [Crucible 本体 README](https://github.com/kumagallium/Crucible/blob/main/README.md)
+- [`store-mcp-split.md`](store-mcp-split.md) — store と MCP フロントの分離・露出スイッチの設計
+- [`production-deployment.md`](production-deployment.md) — 1 箱バンドルと Private Crucible の位置づけ
+- [`option-b.md`](option-b.md) — 全体アーキ
+- [`phase05-decisions.md`](phase05-decisions.md) — backend / ingester の採用判断

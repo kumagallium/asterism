@@ -9,7 +9,7 @@
  *     RML ("this column → this property, via this function"), rendered from
  *     GET /api/datasets/{id}/rules.
  *  2. 生成物ファイル — every persisted artifact (RML / Mapping IR / MIE /
- *     model / diagram / legacy ingester / proposal) opens in a raw viewer with
+ *     model / diagram / proposal) opens in a raw viewer with
  *     copy + download. The contents were always served by the detail endpoint;
  *     the UI just never showed them.
  *  3. 変更履歴 — redesign snapshots with server-side unified diffs, so "what
@@ -29,6 +29,7 @@ import {
   getDatasetHistorySnapshot,
   getDatasetRules,
 } from './galleryApi'
+import { copyText } from './clipboard'
 import { labelFor, tailOf } from './termLabels'
 import { termColumns } from './ruleColumns'
 
@@ -178,28 +179,6 @@ function downloadText(name: string, content: string) {
   a.download = name
   a.click()
   URL.revokeObjectURL(url)
-}
-
-async function copyText(content: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(content)
-    return true
-  } catch {
-    // http:// origins have no async clipboard — fall back to a temp textarea.
-    try {
-      const ta = document.createElement('textarea')
-      ta.value = content
-      ta.style.position = 'fixed'
-      ta.style.opacity = '0'
-      document.body.appendChild(ta)
-      ta.select()
-      const ok = document.execCommand('copy')
-      ta.remove()
-      return ok
-    } catch {
-      return false
-    }
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -595,11 +574,6 @@ export function RulesSection({ dataset }: { dataset: CatalogDataset }) {
                     : a.kind}
                 </span>
                 <code className="ds-artifact-name">{a.name}</code>
-                {a.name === 'ingester.py' && (
-                  <span className="rules-legacy-chip" title={t('gallery:rules.legacyNote')}>
-                    {t('gallery:rules.legacyChip')}
-                  </span>
-                )}
                 <span className="ds-artifact-detail">{t(a.detailKey, a.detailParams)}</span>
                 {datasetId && <span className="rules-open-hint">{t('gallery:rules.open')}</span>}
               </button>

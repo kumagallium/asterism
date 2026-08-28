@@ -41,13 +41,6 @@ _PROPOSAL = dedent(
       keywords: [a, b, c, d, e]
     ```
 
-    ### 8. Ingester sketch
-
-    ```python
-    def ingest_papers(path):
-        with open(path, encoding="utf-8-sig") as f:
-            ...
-    ```
     """
 ).lstrip("\n")
 
@@ -59,16 +52,15 @@ _PROPOSAL = dedent(
 
 def test_extract_code_blocks_counts_all() -> None:
     blocks = extract_code_blocks(_PROPOSAL)
-    assert len(blocks) == 4
+    assert len(blocks) == 3
     langs = [b.language for b in blocks]
-    assert langs == ["mermaid", "yaml", "yaml", "python"]
+    assert langs == ["mermaid", "yaml", "yaml"]
 
 
 def test_extract_code_blocks_tracks_header_context() -> None:
     blocks = extract_code_blocks(_PROPOSAL)
     by_lang = {b.language: b for b in blocks}
     assert "Class hierarchy" in by_lang["mermaid"].header
-    assert "Ingester" in by_lang["python"].header
     # Two yaml blocks — distinguish by header
     yaml_blocks = [b for b in blocks if b.language == "yaml"]
     headers = [b.header for b in yaml_blocks]
@@ -93,13 +85,12 @@ def test_extract_code_blocks_preserves_body_lines() -> None:
 # ----------------------------------------------------------------------------
 
 
-def test_materialize_extracts_all_four(tmp_path: Path) -> None:
+def test_materialize_extracts_all_three(tmp_path: Path) -> None:
     result = materialize_schema(_PROPOSAL, tmp_path, "example")
     assert result.complete
     assert "classDiagram" in result.mermaid  # type: ignore[operator]
     assert "a: sd:Paper" in result.rdf_config_model  # type: ignore[operator]
     assert "schema_info" in result.mie_yaml  # type: ignore[operator]
-    assert "utf-8-sig" in result.ingester_py  # type: ignore[operator]
     assert not result.warnings
 
 
@@ -118,7 +109,8 @@ def test_materialize_writes_files(tmp_path: Path) -> None:
     assert (tmp_path / "diagram.md").exists()
     assert (tmp_path / "mydata-model.yaml").exists()
     assert (tmp_path / "mydata-mie.yaml").exists()
-    assert (tmp_path / "mydata.py").exists()
+    # The ingester sketch is gone — no stray Python artifact is written.
+    assert not (tmp_path / "mydata.py").exists()
     # diagram.md should wrap the mermaid in a fence again
     diagram = (tmp_path / "diagram.md").read_text(encoding="utf-8")
     assert "```mermaid" in diagram
@@ -146,10 +138,9 @@ def test_materialize_warns_on_missing_block(tmp_path: Path) -> None:
     result = materialize_schema(partial, tmp_path, "partial")
     assert result.mermaid is not None
     assert result.rdf_config_model is None
-    assert result.ingester_py is None
     assert not result.complete
     assert any("rdf-config" in w for w in result.warnings)
-    assert any("ingester" in w.lower() for w in result.warnings)
+    assert not any("ingester" in w.lower() for w in result.warnings)
     # The mermaid file should still be written
     assert (tmp_path / "diagram.md").exists()
 
@@ -174,19 +165,42 @@ def test_materialize_handles_single_yaml_via_header(tmp_path: Path) -> None:
 
 
 def test_materialize_tolerates_varied_header_wording(tmp_path: Path) -> None:
-    """Header keyword matching is fuzzy — 'Ingester skeleton' still matches."""
+    """Header keyword matching is fuzzy — 'MIE extras' still matches §7."""
     doc = dedent(
         """
-        ## Ingester skeleton (Python)
+        ## MIE extras (YAML)
 
-        ```python
-        def go(): ...
+        ```yaml
+        schema_info:
+          title: Fuzzy
         ```
         """
     ).lstrip("\n")
     result = materialize_schema(doc, tmp_path, "x", write=False)
-    assert result.ingester_py is not None
-    assert "def go()" in result.ingester_py
+    assert result.mie_yaml is not None
+    assert "title: Fuzzy" in result.mie_yaml
+
+
+def test_materialize_ignores_a_stray_python_block(tmp_path: Path) -> None:
+    """A legacy design still carrying §8 must not resurrect the artifact: the
+    ingester sketch is no longer extracted, written, or warned about."""
+    legacy = _PROPOSAL + dedent(
+        """
+
+        ### 8. Ingester sketch
+
+        ```python
+        def ingest_papers(path):
+            with open(path, encoding="utf-8-sig") as f:
+                ...
+        ```
+        """
+    )
+    result = materialize_schema(legacy, tmp_path, "legacy")
+    assert result.complete
+    assert not hasattr(result, "ingester_py")
+    assert not (tmp_path / "legacy.py").exists()
+    assert not any("ingester" in w.lower() for w in result.warnings)
 
 
 # ----------------------------------------------------------------------------
@@ -237,7 +251,7 @@ def test_rml_absent_is_not_a_warning_and_not_required(tmp_path: Path) -> None:
 def test_rml_extract_counts_turtle_block() -> None:
     blocks = extract_code_blocks(_PROPOSAL_WITH_RML)
     langs = [b.language for b in blocks]
-    assert langs == ["mermaid", "yaml", "yaml", "python", "turtle"]
+    assert langs == ["mermaid", "yaml", "yaml", "turtle"]
     turtle = next(b for b in blocks if b.language == "turtle")
     assert "RML" in turtle.header
 
@@ -253,4 +267,3 @@ def test_materialize_is_deterministic(tmp_path: Path) -> None:
     assert a.mermaid == b.mermaid
     assert a.rdf_config_model == b.rdf_config_model
     assert a.mie_yaml == b.mie_yaml
-    assert a.ingester_py == b.ingester_py

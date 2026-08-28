@@ -4,7 +4,7 @@
 //
 //   - Ontology layer (shared vocabulary = TBox): slow-changing, SHARED, high
 //     blast radius — editing it ripples to every downstream consumer.
-//   - Mapping layer (dataset → vocabulary binding = ingester + MIE): fast-
+//   - Mapping layer (dataset → vocabulary binding = §9 mapping spec + MIE): fast-
 //     changing, per-dataset/per-purpose, LOCAL and disposable.
 //
 // Making that edit-risk difference legible — and surfacing each mapping's
@@ -104,7 +104,7 @@ export interface OntologyEntry {
 
 // ---- mapping layer --------------------------------------------------------
 
-export type MappingArtifactKind = 'ingester' | 'mie' | 'shex' | 'mapping' | 'spec' | 'design'
+export type MappingArtifactKind = 'mie' | 'shex' | 'mapping' | 'spec' | 'design'
 
 export interface MappingArtifact {
   kind: MappingArtifactKind
@@ -161,7 +161,6 @@ interface DatasetMeta {
   class_count?: number
   complete?: boolean
   exit_code?: number
-  has_ingester?: boolean
   has_mie?: boolean
   // Phase 5: declarative RML presence + draft-graph ingest status.
   has_rml?: boolean
@@ -586,9 +585,6 @@ function toMapping(meta: DatasetMeta): MappingEntry {
   if (meta.has_mie) {
     artifacts.push({ kind: 'mie', name: 'mie.yaml', summaryKey: 'gallery:api.mieSummary' })
   }
-  if (meta.has_ingester) {
-    artifacts.push({ kind: 'ingester', name: 'ingester.py', summaryKey: 'gallery:api.ingesterSummary' })
-  }
   if (meta.has_proposal) {
     artifacts.push({ kind: 'design', name: 'proposal.md', summaryKey: 'gallery:api.proposalSummary' })
   }
@@ -711,7 +707,6 @@ export interface CatalogDataset {
 }
 
 const ARTIFACT_KIND_LABEL: Record<MappingArtifactKind, string> = {
-  ingester: 'CODE',
   mie: 'MIE',
   shex: 'ShEx',
   mapping: 'RML',
