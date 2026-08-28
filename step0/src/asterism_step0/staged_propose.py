@@ -65,6 +65,7 @@ from asterism_step0.spec_yaml import dump_spec_yaml, load_spec_yaml
 __all__ = [
     "COLUMN_DECISION_ACTIONS",
     "COLUMN_MEANINGS_SYSTEM_PROMPT",
+    "ColumnMeaningsProposal",
     "SkeletonProposal",
     "apply_column_decisions",
     "apply_column_decisions_to_document",
@@ -89,6 +90,7 @@ __all__ = [
     "menu_columns",
     "normalize_column_meanings",
     "normalize_key_separators",
+    "propose_column_meanings",
     "propose_from_skeleton",
     "propose_skeleton",
     "render_columns_for_meanings",
@@ -1466,19 +1468,27 @@ def apply_column_meanings(
     no value, no datatype changes.
 
     A row that reads several columns (``columns:``) or none is left alone: a
-    meaning belongs to exactly one column.
+    meaning belongs to exactly one column. An absent field leaves that field as
+    it was, an empty string CLEARS it — the same convention
+    :func:`apply_display_meta` uses, so "I only corrected the unit" never erases
+    the meaning.
     """
     maps = ir.get("maps")
     if not isinstance(maps, list) or not meanings:
         return dict(ir), []
-    wanted: dict[tuple[str, str], Mapping[str, Any]] = {}
+    wanted: dict[tuple[str, str], dict[str, Any]] = {}
     for entry in meanings:
         if not isinstance(entry, Mapping):
             continue
         source = str(entry.get("source") or "")
         column = str(entry.get("column") or "")
-        if source and column:
-            wanted.setdefault((source, column), entry)
+        if not source or not column:
+            continue
+        # 同じ列に二度言及があれば、あとの言葉が勝つ（フィールドごと）。呼び出し側は
+        # 「いまの状態」と「今回明示的に空にしたもの」を並べて渡してくる。
+        merged = dict(wanted.get((source, column)) or {})
+        merged.update({k: v for k, v in entry.items() if k in ("label", "unit")})
+        wanted[(source, column)] = merged
     if not wanted:
         return dict(ir), []
     changed: list[str] = []
@@ -1501,10 +1511,21 @@ def apply_column_meanings(
             row = dict(prop)
             touched = False
             for field_name in ("label", "unit"):
-                text = str(entry.get(field_name) or "").strip()
-                if not text or row.get(field_name) == text:
+                # 同じ約束を display-meta と共有する: キーが無い＝そのままにする、
+                # 空文字＝「間違いだったし、代わりも無い」。列について何も言って
+                # いない側を「消せ」と読むと、単位を直しただけで意味が消える。
+                if field_name not in entry:
                     continue
-                row[field_name] = text
+                value = entry.get(field_name)
+                if value is None:
+                    continue
+                text = str(value).strip()
+                if text == row.get(field_name) or (not text and field_name not in row):
+                    continue
+                if text:
+                    row[field_name] = text
+                else:
+                    row.pop(field_name, None)
                 touched = True
             if touched:
                 changed.append(f"{source}:{column}")
@@ -2459,6 +2480,66 @@ def _resolve_function_names(function_names: Sequence[str] | None) -> list[str] |
         return catalog_from_registry().names()
     except ImportError:
         return None
+
+
+@dataclass
+class ColumnMeaningsProposal:
+    """Result of :func:`propose_column_meanings` — the stage that runs first.
+
+    ``rejected`` names what the answer said about columns that do not exist, or
+    where it echoed the header back; it is diagnostics, not something to show a
+    person (they never asked the question that produced it).
+    """
+
+    meanings: list[dict] = field(default_factory=list)
+    rejected: list[str] = field(default_factory=list)
+    columns_md: str = ""
+
+
+def propose_column_meanings(
+    csv_paths: list[Path | str],
+    domain_hint: str,
+    *,
+    llm: LLMClient,
+    language: str | None = None,
+    record_path: str | None = None,
+    dialects: Mapping[str, Any] | None = None,
+    preamble_columns: Mapping[str, Sequence[str]] | None = None,
+) -> ColumnMeaningsProposal:
+    """Stage 0: read the source(s) and say what each COLUMN means.
+
+    ADR ``meaning-before-identity.md``. This runs BEFORE the skeleton, because
+    what a column means is a property of the column — the data decides it, and
+    it is the same whatever design gets built on top. The design (which values
+    get an identity, which entity records what) is the judgement that comes
+    after, and it is easier to make when the meanings are already on screen.
+
+    One LLM call for every source at once; the answer is filed under
+    ``(source, column)`` and gated deterministically
+    (:func:`normalize_column_meanings`) before it leaves. Sources with no
+    tabular columns are skipped, and a run with nothing to name spends no call.
+
+    ``dialects`` (ADR source-dialect.md) is the effective per-source read dialect
+    so the columns named here are the ones the pinned §9 will produce.
+    """
+    inspections, _fks = inspect_source_set(
+        csv_paths, record_path=record_path, dialects=dialects
+    )
+    columns_md = render_columns_for_meanings(
+        inspections, preamble_columns=preamble_columns
+    )
+    if not columns_md.strip():
+        return ColumnMeaningsProposal(columns_md="")
+    answer = generate_column_meanings(
+        columns_md, domain_hint, llm=llm, language=language
+    )
+    known = {
+        ins.name: [c.name for c in getattr(ins, "columns", []) or []] for ins in inspections
+    }
+    meanings, rejected = normalize_column_meanings(answer, known)
+    return ColumnMeaningsProposal(
+        meanings=meanings, rejected=rejected, columns_md=columns_md
+    )
 
 
 def propose_skeleton(

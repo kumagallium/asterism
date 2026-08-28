@@ -99,7 +99,9 @@ from asterism_step0.skeleton_annotate import annotate_skeleton, apply_key_safety
 from asterism_step0.staged_propose import (
     COLUMN_DECISION_ACTIONS,
     apply_column_decisions_to_document,
+    apply_column_meanings_to_document,
     apply_display_meta_to_document,
+    propose_column_meanings,
     propose_skeleton,
     remove_stale_column_includes_from_document,
 )
@@ -251,6 +253,29 @@ class ColumnDecision(BaseModel):
     label: str | None = None
     unit: str | None = None
     datatype: str | None = None
+
+
+class ColumnMeaning(BaseModel):
+    """What ONE source column MEANS — the input layer of a dataset's display metadata.
+
+    ADR ``meaning-before-identity.md`` §6. Keyed by ``(source, column)``: that is
+    the only identity a column has before a design exists, and the meaning of a
+    column is decided by the data, not by the design later built on it. The
+    predicate-keyed ``display-meta.json`` store stays as the PROJECTION of this
+    onto a design that has been built (so the detail tier and post-redesign
+    reconciliation keep working unchanged).
+    """
+
+    source: str
+    column: str
+    label: str | None = None
+    unit: str | None = None
+
+
+class ColumnMeaningsBody(BaseModel):
+    """Body for POST /api/datasets/{id}/column-meanings."""
+
+    meanings: list[ColumnMeaning] = []
 
 
 class ColumnDecisionsBody(BaseModel):
@@ -2529,6 +2554,42 @@ def _write_staging_meta(sdir: Path, meta: dict) -> None:
     )
 
 
+def _parse_column_meanings(raw: str) -> list[dict[str, str]]:
+    """Parse the wizard's settled column meanings (a JSON form field on a design job).
+
+    ``[{source, column, label?, unit?}]`` — the input layer of ADR
+    meaning-before-identity: what each column MEANS, decided before this design
+    existed and therefore keyed by the file and the header rather than by a
+    predicate. Empty / blank → ``[]`` (byte-identical to a job that carries none).
+    An entry with no source or no column cannot be filed against anything, so it
+    is a readable 422 rather than a meaning that silently lands nowhere.
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(422, f"column_meanings is not valid JSON: {exc}") from exc
+    if not isinstance(parsed, list):
+        raise HTTPException(422, "column_meanings must be a JSON array")
+    out: list[dict[str, str]] = []
+    for entry in parsed:
+        if not isinstance(entry, dict):
+            raise HTTPException(422, "each column meaning must be a JSON object")
+        source = str(entry.get("source") or "").strip()
+        column = str(entry.get("column") or "").strip()
+        if not source or not column:
+            raise HTTPException(422, "each column meaning needs a source and a column")
+        row = {"source": source, "column": column}
+        for field_name in ("label", "unit"):
+            text = str(entry.get(field_name) or "").strip()
+            if text:
+                row[field_name] = text
+        out.append(row)
+    return out
+
+
 def _parse_dialect_overrides(raw: str) -> dict[str, dict[str, Any]]:
     """Parse + boundary-check the wizard's dialect overrides (a JSON form field).
 
@@ -3242,6 +3303,7 @@ def _design_source_files(registry_root: Path, dataset_id: str | None) -> list[Pa
 # forget).
 _DISPLAY_META_FILE = "display-meta.json"
 _COLUMN_DECISIONS_FILE = "column-decisions.json"
+_COLUMN_MEANINGS_FILE = "column-meanings.json"
 
 
 def _display_meta_path(registry_root: Path, dataset_id: str) -> Path | None:
@@ -3383,6 +3445,77 @@ def _remember_column_decisions(
         raise ValueError(f"dataset {dataset_id!r} not found")
     path.write_text(
         json.dumps({"decisions": decisions}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def _column_meanings_path(registry_root: Path, dataset_id: str) -> Path | None:
+    """``<root>/<id>/column-meanings.json``, or None for an unknown dataset."""
+    sdir = registry.source_dir(registry_root, dataset_id)
+    return None if sdir is None else sdir.parent / _COLUMN_MEANINGS_FILE
+
+
+def _load_column_meanings(registry_root: Path, dataset_id: str | None) -> list[dict]:
+    """The settled ``(source, column)`` meanings for a dataset (``[]``, never raises)."""
+    if not dataset_id:
+        return []
+    path = _column_meanings_path(registry_root, dataset_id)
+    if path is None or not path.is_file():
+        return []
+    try:
+        data = json.loads(path.read_text("utf-8"))
+    except (OSError, ValueError):
+        logger.warning("column meanings for %s are unreadable (ignoring)", dataset_id)
+        return []
+    meanings = data.get("meanings") if isinstance(data, dict) else None
+    return [
+        m
+        for m in meanings or []
+        if isinstance(m, dict) and m.get("source") and m.get("column")
+    ]
+
+
+def _column_meaning_key(meaning: Mapping[str, object]) -> tuple[str, str]:
+    return str(meaning.get("source") or ""), str(meaning.get("column") or "")
+
+
+def _merge_column_meanings(existing: list[dict], incoming: list[dict]) -> list[dict]:
+    """Upsert by physical source column; the latest statement about a field wins.
+
+    A field the caller did not send is left as it was (a screen that only edits
+    the unit must not erase the meaning); an EMPTY string clears it — the person
+    saying "this was wrong and I have nothing better", the same convention
+    ``apply_display_meta`` uses.
+    """
+    merged = {_column_meaning_key(m): dict(m) for m in existing}
+    for meaning in incoming:
+        key = _column_meaning_key(meaning)
+        row = dict(merged.get(key) or {})
+        row.update({"source": key[0], "column": key[1]})
+        for field_name in ("label", "unit"):
+            if field_name not in meaning:
+                continue
+            value = meaning.get(field_name)
+            if value is None:
+                continue
+            text = str(value).strip()
+            if text:
+                row[field_name] = text
+            else:
+                row.pop(field_name, None)
+        merged[key] = row
+    return [m for m in merged.values() if m.get("label") or m.get("unit")]
+
+
+def _remember_column_meanings(
+    registry_root: Path, dataset_id: str, meanings: list[dict]
+) -> None:
+    """Persist the complete upserted meaning set after a successful edit."""
+    path = _column_meanings_path(registry_root, dataset_id)
+    if path is None:
+        raise ValueError(f"dataset {dataset_id!r} not found")
+    path.write_text(
+        json.dumps({"meanings": meanings}, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
 
@@ -4595,6 +4728,99 @@ def build_app(
         job_id = jobs.start_coro(propose_job)
         return JSONResponse({"job_id": job_id}, status_code=202)
 
+    @app.post("/api/design/column-meanings")
+    async def design_column_meanings(
+        files: list[UploadFile] = File(
+            default=[], description="Source file(s) to read (CSV or JSON)"
+        ),
+        staging_id: str = Form(
+            default="",
+            description="A staged source (POST /api/staging) to read INSTEAD of files.",
+        ),
+        domain: str = Form(default="", description="Domain hint (Markdown). Optional."),
+        language: str = Form(
+            default="", description="Output language for the meanings (e.g. 'ja')."
+        ),
+        dialects: str = Form(
+            default="",
+            description="Per-source read-dialect overrides as JSON (ADR source-dialect.md).",
+        ),
+        x_api_key: str | None = Header(default=None),
+        x_llm_provider: str | None = Header(default=None),
+        x_llm_model: str | None = Header(default=None),
+        x_llm_api_base: str | None = Header(default=None),
+        x_llm_max_tokens: str | None = Header(default=None),
+    ) -> JSONResponse:
+        """Stage 0 of a staged design: what does each COLUMN mean?
+
+        ADR meaning-before-identity. Runs BEFORE the skeleton and needs none of
+        it: the meaning and the unit of a column are decided by the data, and
+        they are the same whatever design is later built on them. Returns a
+        job_id immediately; the SSE done payload carries
+        ``{meanings: [{source, column, label?, unit?}]}``. The person corrects
+        those, and they ride /api/propose/continue as ``column_meanings`` (and
+        are stored per dataset once one exists).
+
+        No dataset is read or written, so no write-auth gate — the same posture
+        as /api/propose and /api/design/consult. The API key is used only for
+        this run and never persisted (D7).
+        """
+        max_tokens = _llm_max_tokens(x_llm_max_tokens)
+        dialect_overrides = _parse_dialect_overrides(dialects)
+
+        work, paths, owned = await _design_sources(
+            cfg.registry_root, files, staging_id or None, prefix="asterism-meanings-"
+        )
+        tmpdir = str(work)
+
+        provider, model, api_base, key = _llm_coords(
+            x_api_key, x_llm_provider, x_llm_model, x_llm_api_base, cfg.registry_root
+        )
+        llm = _resolve_llm(provider, model, api_base, key, max_tokens=max_tokens)
+
+        async def meanings_job(
+            emit: Callable[..., None], should_cancel: Callable[[], bool]
+        ) -> dict[str, object]:
+            loop = asyncio.get_running_loop()
+
+            def on_generation(current: int, total: int) -> None:
+                loop.call_soon_threadsafe(
+                    lambda: emit(phase="llm", message=f"モデル生成中 (パート {current}/{total})")
+                )
+
+            def on_note(note: str) -> None:
+                loop.call_soon_threadsafe(lambda: emit(phase="llm", message=note))
+
+            _arm_llm_callbacks(
+                llm, should_cancel=should_cancel, on_generation=on_generation, on_note=on_note
+            )
+            effective = await asyncio.to_thread(
+                _effective_dialects, list(paths), dialect_overrides
+            )
+            emit(phase="meanings", message="項目の意味を読み取り中")
+            try:
+                result = await asyncio.to_thread(
+                    propose_column_meanings,
+                    list(paths),
+                    domain,
+                    llm=llm,
+                    language=language or None,
+                    dialects=effective,
+                )
+                _record_llm_usage(cfg.registry_root, "propose.meanings", provider, llm, model)
+            finally:
+                if owned:
+                    shutil.rmtree(tmpdir, ignore_errors=True)
+            return {
+                "meanings": result.meanings,
+                "rejected": result.rejected,
+                "source_files": [p.name for p in paths],
+            }
+
+        jobs: JobManager = app.state.jobs
+        job_id = jobs.start_coro(meanings_job)
+        return JSONResponse({"job_id": job_id}, status_code=202)
+
     @app.post("/api/propose/skeleton")
     async def propose_skeleton_endpoint(
         files: list[UploadFile] = File(
@@ -4800,6 +5026,14 @@ def build_app(
             default="",
             description="Per-source read-dialect overrides as JSON (ADR source-dialect.md).",
         ),
+        column_meanings: str = Form(
+            default="",
+            description=(
+                "Settled (source, column) meanings as JSON "
+                "[{source, column, label?, unit?}] (ADR meaning-before-identity). "
+                "Projected onto §9 deterministically after every round."
+            ),
+        ),
         fk: list[str] = Query(default=[], description="FK hint column (repeatable)"),
         autocorrect: int | None = Query(
             default=None,
@@ -4823,6 +5057,7 @@ def build_app(
             raise HTTPException(400, "skeleton must be a JSON object")
         max_tokens = _llm_max_tokens(x_llm_max_tokens)
         dialect_overrides = _parse_dialect_overrides(dialects)
+        settled_meanings = _parse_column_meanings(column_meanings)
 
         work, paths, owned = await _design_sources(
             cfg.registry_root, files, staging_id or None, prefix="asterism-continue-"
@@ -4875,6 +5110,7 @@ def build_app(
                     skeleton=skeleton_obj,
                     dialect_overrides=dialect_overrides,
                     iri_base=cfg.iri_base,
+                    column_meanings=settled_meanings,
                 )
             finally:
                 if owned:
@@ -4998,6 +5234,15 @@ def build_app(
                 with contextlib.suppress(ValueError):
                     effective_md, _restored = apply_display_meta_to_document(
                         effective_md, human_meta
+                    )
+            # …and the input layer LAST: `(source, column)` is the truth source
+            # for what a column means (ADR meaning-before-identity §6), so it
+            # wins over the predicate-keyed projection of the same statement.
+            settled_meanings = _load_column_meanings(cfg.registry_root, body.dataset_id)
+            if settled_meanings:
+                with contextlib.suppress(ValueError):
+                    effective_md, _restored = apply_column_meanings_to_document(
+                        effective_md, settled_meanings
                     )
             # Surface the truncation guard: `refined_md` stays the raw output for
             # transparency; `effective_schema_md` is what's safe to materialize
@@ -5164,6 +5409,11 @@ def build_app(
                 if human_meta:
                     proposal_md, _restored = apply_display_meta_to_document(
                         proposal_md, human_meta
+                    )
+                settled_meanings = _load_column_meanings(cfg.registry_root, body.dataset_id)
+                if settled_meanings:
+                    proposal_md, _restored = apply_column_meanings_to_document(
+                        proposal_md, settled_meanings
                     )
                 mat = materialize_schema(
                     proposal_md,
@@ -5916,6 +6166,11 @@ def build_app(
                 human_meta = _load_display_meta(cfg.registry_root, dataset_id)
                 if human_meta:
                     new_md, _restored = apply_display_meta_to_document(new_md, human_meta)
+                settled_meanings = _load_column_meanings(cfg.registry_root, dataset_id)
+                if settled_meanings:
+                    new_md, _restored = apply_column_meanings_to_document(
+                        new_md, settled_meanings
+                    )
             except ValueError as exc:
                 raise HTTPException(422, str(exc)) from exc
             requires_reingest = False
@@ -6001,6 +6256,112 @@ def build_app(
                 "proposal_md": new_md,
                 "requires_reingest": requires_reingest,
             }
+
+        return await asyncio.to_thread(run)
+
+    @app.get("/api/datasets/{dataset_id}/column-meanings")
+    async def get_dataset_column_meanings(dataset_id: str) -> dict[str, object]:
+        """Return the settled ``(source, column)`` meanings for this dataset."""
+        if registry.load_dataset(cfg.registry_root, dataset_id) is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        return {
+            "dataset_id": dataset_id,
+            "meanings": _load_column_meanings(cfg.registry_root, dataset_id),
+        }
+
+    @app.post("/api/datasets/{dataset_id}/column-meanings", dependencies=_write_auth)
+    async def set_dataset_column_meanings(
+        dataset_id: str, body: ColumnMeaningsBody
+    ) -> dict[str, object]:
+        """Record what source columns MEAN, and project that onto the design.
+
+        ADR ``meaning-before-identity.md``. The store is keyed by
+        ``(source, column)`` because that is what a meaning is ABOUT — it holds
+        whether or not a design maps the column today, and it survives a redesign
+        that re-mints every predicate. The projection onto §9 is the same
+        deterministic splice the predicate-keyed display-meta edit does: display
+        metadata only (K8), no triple and no value changes.
+
+        A meaning for a column the current design does not map is stored and
+        reported as unmapped rather than refused: the person answered a question
+        about their data, and the answer is not wrong just because the design has
+        not caught up.
+        """
+        data = registry.load_dataset(cfg.registry_root, dataset_id)
+        if data is None:
+            raise HTTPException(404, f"dataset {dataset_id!r} not found")
+        # exclude_unset: a field the client did not send is "leave it alone",
+        # while an empty string is "clear it" (_merge_column_meanings).
+        incoming = [
+            {
+                **meaning.model_dump(exclude_unset=True),
+                "source": meaning.source,
+                "column": meaning.column,
+            }
+            for meaning in body.meanings
+        ]
+        for meaning in incoming:
+            if not str(meaning.get("source") or "").strip():
+                raise HTTPException(422, "a column meaning requires a source")
+            if not str(meaning.get("column") or "").strip():
+                raise HTTPException(422, "a column meaning requires a column")
+        if not incoming:
+            raise HTTPException(422, "at least one column meaning is required")
+        proposal_md = registry.load_proposal(cfg.registry_root, dataset_id) or ""
+        if not proposal_md.strip():
+            raise HTTPException(
+                409, f"dataset {dataset_id!r} has no stored design to edit"
+            )
+        source_dir = registry.source_dir(cfg.registry_root, dataset_id)
+
+        def run() -> dict[str, object]:
+            meanings = _merge_column_meanings(
+                _load_column_meanings(cfg.registry_root, dataset_id), incoming
+            )
+            # The store holds the merged STATE, where a cleared field is simply
+            # gone. Downstream an absent field means "leave it alone", so a
+            # deliberate clear rides along as the empty string it was sent as.
+            cleared = [
+                meaning
+                for meaning in incoming
+                if any(
+                    field in meaning and not str(meaning[field] or "").strip()
+                    for field in ("label", "unit")
+                )
+            ]
+            try:
+                new_md, changed = apply_column_meanings_to_document(
+                    proposal_md, [*meanings, *cleared]
+                )
+            except ValueError as exc:
+                raise HTTPException(422, str(exc)) from exc
+            if changed:
+                projected, warnings = _artifacts_from_document(new_md, dataset_id, source_dir)
+                artifacts = {k: v or "" for k, v in projected.items()}
+                # A meaning is display metadata: the compiled mapping must come
+                # back unchanged. If it did not, something else is wrong with the
+                # document, and overwriting a working mapping over a label edit
+                # would be the worst possible trade.
+                stored_rml = str((data.get("artifacts") or {}).get("mapping.rml.ttl") or "")
+                if stored_rml.strip() and not artifacts["mapping.rml.ttl"].strip():
+                    raise HTTPException(
+                        409,
+                        "the stored design no longer compiles, so the meaning could not "
+                        "be saved without losing the mapping",
+                    )
+                registry.update_dataset_artifacts(
+                    cfg.registry_root,
+                    dataset_id,
+                    artifacts,
+                    complete=bool(data["meta"].get("complete")),
+                    warnings=warnings,
+                    traps=list(data["meta"].get("traps") or []),
+                    exit_code=int(data["meta"].get("exit_code") or 0),
+                    proposal_md=new_md,
+                    advisories=list(data["meta"].get("advisories") or []),
+                )
+            _remember_column_meanings(cfg.registry_root, dataset_id, meanings)
+            return {"dataset_id": dataset_id, "changed": changed, "stored": True}
 
         return await asyncio.to_thread(run)
 

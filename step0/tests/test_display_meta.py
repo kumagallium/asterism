@@ -979,3 +979,34 @@ def test_column_meanings_on_a_legacy_design_without_a_spec_says_so() -> None:
             "# Title\n\nno section nine here\n",
             [{"source": "data.csv", "column": "S", "label": "x"}],
         )
+
+def test_column_meanings_absent_field_is_kept_and_an_empty_one_clears() -> None:
+    """display-meta と同じ約束。単位を直しただけで意味が消えてはいけない。"""
+    with_unit, _ = apply_column_meanings(
+        _TWO_FILE_IR,
+        [{"source": "data.csv", "column": "S", "label": "ゼーベック係数", "unit": "µV/K"}],
+    )
+    only_unit, changed = apply_column_meanings(
+        with_unit, [{"source": "data.csv", "column": "S", "unit": "V/K"}]
+    )
+    row = only_unit["maps"][0]["properties"][0]
+    assert row["label"] == "ゼーベック係数" and row["unit"] == "V/K"
+    assert changed == ["data.csv:S"]
+    cleared, _ = apply_column_meanings(
+        only_unit, [{"source": "data.csv", "column": "S", "unit": ""}]
+    )
+    row = cleared["maps"][0]["properties"][0]
+    assert row["label"] == "ゼーベック係数" and "unit" not in row
+
+
+def test_column_meanings_take_the_last_word_field_by_field() -> None:
+    """呼び出し側は「いまの状態」と「今回消したもの」を並べて渡す。あとが勝つ。"""
+    out, _ = apply_column_meanings(
+        _TWO_FILE_IR,
+        [
+            {"source": "data.csv", "column": "S", "label": "ゼーベック係数", "unit": "µV/K"},
+            {"source": "data.csv", "column": "S", "unit": ""},
+        ],
+    )
+    row = out["maps"][0]["properties"][0]
+    assert row["label"] == "ゼーベック係数" and "unit" not in row

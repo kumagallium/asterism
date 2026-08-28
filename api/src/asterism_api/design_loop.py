@@ -64,7 +64,7 @@ from __future__ import annotations
 import contextlib
 import re
 import tempfile
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -105,7 +105,11 @@ from asterism_step0.spec_repair import (
     replace_mapping_spec_block,
 )
 from asterism_step0.spec_yaml import load_spec_yaml
-from asterism_step0.staged_propose import apply_data_facts, propose_from_skeleton
+from asterism_step0.staged_propose import (
+    apply_column_meanings,
+    apply_data_facts,
+    propose_from_skeleton,
+)
 from asterism_step0.validate import SchemaBundle, validate_schema
 
 # Column-checkable delimited files: classic CSV/TSV plus the legacy instrument
@@ -1625,6 +1629,7 @@ def run_design_loop(
     skeleton: Mapping[str, Any] | None = None,
     dialect_overrides: Mapping[str, Any] | None = None,
     iri_base: str | None = None,
+    column_meanings: Sequence[Mapping[str, Any]] | None = None,
 ) -> DesignLoopResult:
     """Run the propose→validate→refine self-correction loop.
 
@@ -1647,6 +1652,11 @@ def run_design_loop(
     §9 pin), so a ``skip_rows`` edit that moves the header row stays consistent across
     the whole design while the detected encoding it never mentioned stays put. An empty
     override leaves ``effective == detected`` — byte-identical to today.
+
+    ``column_meanings`` are the ``(source, column)`` meanings settled BEFORE the
+    design (ADR meaning-before-identity). They are projected onto §9 after
+    round-0 AND re-asserted after every later round, for the same reason the
+    data facts are: a meaning is not something a generation round may revise.
 
     ``iri_base`` (ADR instance-iri-base.md) pins where the single-shot round-0
     mints this dataset's new namespaces; the staged path gets it at skeleton
@@ -1719,6 +1729,7 @@ def run_design_loop(
             on_llm_call=on_llm_call,
             column_owners=column_owners,
             column_types=column_datatypes,
+            column_meanings=column_meanings,
         )
         metadata: dict[str, Any] = {"llm_class": type(llm).__name__, "staged": True}
     else:
@@ -1740,6 +1751,7 @@ def run_design_loop(
         metadata = dict(proposal.metadata)
     schema_md = _overlay_detected_dialects(schema_md, effective, override_names)
     schema_md = _overlay_data_facts(schema_md, *data_facts)
+    schema_md = _overlay_column_meanings(schema_md, column_meanings)
 
     def _result(
         best_schema: str,
@@ -1909,6 +1921,7 @@ def run_design_loop(
         # section; explicit values the round kept still win). Idempotent.
         schema_md = _overlay_detected_dialects(schema_md, effective, override_names)
         schema_md = _overlay_data_facts(schema_md, *data_facts)
+        schema_md = _overlay_column_meanings(schema_md, column_meanings)
         try:
             schema_md, ir_yaml, issues = _evaluate(schema_md, base)
         except _LoopEnvError as exc:
@@ -1962,6 +1975,41 @@ def _overlay_data_facts(
     new_doc, changed = apply_data_facts(
         doc, column_owners=column_owners, column_types=column_types
     )
+    if not changed:
+        return schema_md
+    new_yaml = yaml.safe_dump(new_doc, sort_keys=False, allow_unicode=True)
+    try:
+        return replace_mapping_spec_block(schema_md, new_yaml)
+    except ValueError:
+        return schema_md
+
+
+def _overlay_column_meanings(
+    schema_md: str, column_meanings: Sequence[Mapping[str, Any]] | None
+) -> str:
+    """Re-assert the settled ``(source, column)`` meanings on §9 after ANY round.
+
+    Sibling of :func:`_overlay_data_facts`, same posture and the same reason: a
+    later round may rearrange the design, it may not rewrite what a column MEANS
+    (ADR meaning-before-identity §6 / data-facts-invariant N6). The meaning was
+    read off the data or typed by the person who took it, before this design
+    existed. Idempotent; a schema with no §9, or one that cannot be re-spliced,
+    is left byte-untouched.
+    """
+    if not column_meanings:
+        return schema_md
+    ir_yaml, _ = _extract_design(schema_md)
+    if not ir_yaml or not ir_yaml.strip():
+        return schema_md
+    import yaml
+
+    try:
+        doc = load_spec_yaml(ir_yaml)
+    except yaml.YAMLError:
+        return schema_md
+    if not isinstance(doc, dict):
+        return schema_md
+    new_doc, changed = apply_column_meanings(doc, column_meanings)
     if not changed:
         return schema_md
     new_yaml = yaml.safe_dump(new_doc, sort_keys=False, allow_unicode=True)
