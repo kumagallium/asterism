@@ -2612,6 +2612,18 @@ export function KantanWizard({
     }
   }, [step, kzDatasetId])
 
+  /** Columns still without a meaning — the ⚠ rows of the meaning screen. A
+   *  column nobody is taking in is not one of them: it will not be asked about
+   *  again, so it cannot be "missing" anything. */
+  const blankMeanings =
+    step === 10
+      ? meaningRows().filter(
+          (row) =>
+            !excludedColumns.includes(meaningKey(row.source, row.column)) &&
+            !(meaningFor(row.source, row.column)?.label ?? '').trim(),
+        ).length
+      : 0
+
   /** The reader is done naming columns → generate the skeleton from them. */
   function onMeaningsSettled() {
     setStep(3)
@@ -4372,6 +4384,25 @@ export function KantanWizard({
   // state (rules/sourceSamples/columnSamples) を deps にして、実際にデータが変わ
   // ったときだけ setConsultContext するようにしている。
   useEffect(() => {
+    // 意味の画面（3）でも、ドロワーは「この画面に何があるか」を知っている必要が
+    // ある。知らないまま「どの列ですか」と聞き返すのが、この機構が塞いだ欠落。
+    if (step === 10) {
+      setConsultContext({
+        pendingColumns: null,
+        columns: meaningRows()
+          .filter((row) => !excludedColumns.includes(meaningKey(row.source, row.column)))
+          .map((row) => {
+            const current = meaningFor(row.source, row.column)
+            return {
+              name: row.column,
+              meaning: current?.label || undefined,
+              unit: current?.unit || undefined,
+              samples: row.examples.slice(0, 3),
+            }
+          }),
+      })
+      return
+    }
     if (step !== 6) {
       setConsultContext({ pendingColumns: null, columns: null })
       return
@@ -4397,7 +4428,7 @@ export function KantanWizard({
       ),
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, rules, sourceSamples, columnSamples])
+  }, [step, rules, sourceSamples, columnSamples, settledMeanings, excludedColumns, inspection])
 
   // 提案の反映は「いまの画面の値」を読む必要があるが、この 2 つは毎レンダー
   // 組み直される。deps に並べると applier が毎レンダー登録し直しになるので、
@@ -6490,6 +6521,27 @@ export function KantanWizard({
             // 下書きが来なかった（AI が落ちた／止めた）ときも行き止まりにしない。
             // 空欄を人が埋めれば同じところに着く — 安全網は昔から人の側 (K22)。
             <p className="kz-note kz-prose">{t('kantan:meanings.noDraft')}</p>
+          )}
+          {/* 空欄の説明と「AI に相談して埋める」は表の**前**に置く。後ろに置いて
+              いたころは、全部手で埋め終えてから気づく形になっていた（利用者評価
+              2026-08-28「頑張って入力したあとに気づいたら辛い」）。手を動かす前に、
+              手を動かさずに済む道を見せる。文面は入れるが送らない — 相談は LLM を
+              呼ぶので、押したつもりのない課金を作らない。 */}
+          {blankMeanings > 0 && (
+            <>
+              <p className="kz-note kz-prose">
+                {t('kantan:meanings.someBlank', { count: blankMeanings })}
+              </p>
+              <div className="kz-actions">
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--sm"
+                  onClick={() => requestConsult(t('kantan:meanings.askConsultPrefill'))}
+                >
+                  {t('kantan:meanings.askConsult')}
+                </button>
+              </div>
+            </>
           )}
           {(['preamble', 'table'] as const).map((origin) => {
             const rows = meaningRows().filter((r) => r.origin === origin)

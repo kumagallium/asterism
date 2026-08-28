@@ -504,6 +504,9 @@
     "save": "Save these meanings and go back",
     "saving": "Saving…",
     "saveFailed": "The meanings could not be saved",
-    "backToCounts": "Back to the counts"
+    "backToCounts": "Back to the counts",
+    "someBlank": "{{count}} still have no meaning — the AI could not read them. You can carry on (those columns stay searchable under their original header), but filling them in makes search and citation easier to read.",
+    "askConsult": "Ask the AI to fill the blanks",
+    "askConsultPrefill": "Please fill in the meanings that are still blank"
   }
 }
