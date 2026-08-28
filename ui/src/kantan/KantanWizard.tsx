@@ -4500,7 +4500,8 @@ export function KantanWizard({
   }
 
   return (
-    <div className="kz-wizard">
+    // ④ だけは右に形の図を貼るぶん、列を広く取る（`skeleton-zone-map`）。
+    <div className={step === 4 ? 'kz-wizard kz-wizard--wide' : 'kz-wizard'}>
       <RecipeCard current={recipePos} currentDone={step === 9} onStepClick={onRecipeStep} />
 
       {/* Coming back must be said out loud: without this the wizard silently

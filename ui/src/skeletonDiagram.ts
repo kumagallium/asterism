@@ -41,7 +41,18 @@ function embedsKey(aVars: Set<string>, bVars: Set<string>): boolean {
  *  (dogfood 2026-07-23). The renderer pre-validates, so a pathological name
  *  degrades to the raw source, never a broken graphic. Own file because a
  *  component file may only export components (react-refresh). */
-export function skeletonMermaid(skeleton: MappingSkeleton, edgeLabel: string): string {
+export function skeletonMermaid(
+  skeleton: MappingSkeleton,
+  edgeLabel: string,
+  opts: {
+    /** `LR` は横並び（幅のある詳細モード）。`TD` は縦並び — かんたん層の図は表の
+     *  右に貼り付いた細い列にいるので、横に伸ばすと箱の中の字が潰れる。 */
+    direction?: 'LR' | 'TD'
+    /** 箱の呼び方。省略すると map 名（＋クラス名）。かんたん層は AI が付けた名前を
+     *  ①では見せないので、データ由来の呼び方を渡す。 */
+    label?: (m: SkeletonMap) => string
+  } = {},
+): string {
   const ids = new Map<string, string>()
   skeleton.maps.forEach((m, i) => {
     let id = m.name.replace(/[^A-Za-z0-9_]/g, '_') || 'map'
@@ -51,11 +62,12 @@ export function skeletonMermaid(skeleton: MappingSkeleton, edgeLabel: string): s
   // flowchart, not classDiagram: its label boxes auto-size correctly under the
   // mono theme font (classDiagram clipped the last characters of titles), and
   // quoted labels take CURIEs / Japanese freely.
-  const lines = ['flowchart LR']
+  const lines = [`flowchart ${opts.direction ?? 'LR'}`]
   for (const m of skeleton.maps) {
     const id = ids.get(m.name)!
     const cls = (m.subject.classes ?? [])[0]?.split(':').pop()
-    const label = cls && cls !== m.name ? `${m.name}（${cls}）` : m.name
+    const label =
+      opts.label?.(m) ?? (cls && cls !== m.name ? `${m.name}（${cls}）` : m.name)
     lines.push(`  ${id}["${label.replace(/"/g, "'")}"]`)
   }
   for (const a of skeleton.maps) {

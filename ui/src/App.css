@@ -7026,6 +7026,11 @@ tr[data-map].skeleton-gate-row--added td {
   margin-inline: auto;
   width: 100%;
 }
+/* ④（ID のつけかた）だけは、①の右に形の図を貼るぶん列を広く取る。散文もこの幅に
+   なるが、この画面のリード文は 1 文に絞ってあるので行長は伸びない。 */
+.kz-wizard--wide {
+  max-width: 1180px;
+}
 .kz-title {
   margin: 0;
   /* K23: 見出し＝判断。0.875rem の注記が縦に並ぶ紙面では 1.05rem は「少し太い注記」
@@ -7485,6 +7490,36 @@ tr.kz-attn td {
   width: 100%;
   box-sizing: border-box;
 }
+/* ①（項目の持ち主）と、いまの形の図。図は右に貼り付けてスクロールに追従する
+   — 種類を足した瞬間に箱が増えるのが見えるのが、この画面の手応えなので。
+   幅が足りない画面では 1 列に折り返し、図は表の上へ（狭い画面で右に 16rem 取ると
+   セレクトの並ぶ表がつぶれる）。 */
+.skeleton-zone-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 15rem;
+  gap: var(--space-3);
+  align-items: start;
+}
+.skeleton-zone-layout .skeleton-entity-props {
+  width: 100%;
+}
+.skeleton-zone-map {
+  position: sticky;
+  top: var(--space-3);
+}
+.skeleton-zone-map .skeleton-diagram {
+  margin: 0;
+}
+@media (max-width: 62rem) {
+  .skeleton-zone-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .skeleton-zone-map {
+    position: static;
+    order: -1;
+  }
+}
+
 /* ④ ①「どの種類に載せるか」。AI の薦めが初期値で、変えるとその場で検査が走る
    （ADR meaning-before-identity §3 改訂: 帰属は機械が薦め、人が決める）。 */
 .skeleton-assign {

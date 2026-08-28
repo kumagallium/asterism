@@ -1473,32 +1473,6 @@ export function SkeletonGate({
     onContinue()
   }
 
-  // The skeleton at a glance: how many kinds, linked how. A one-box skeleton
-  // that should be two is visible here before any table reading — but with a
-  // single kind the picture says nothing, and on the kantan tier it pushed the
-  // thing the human must actually confirm below the fold.
-  const diagramLinked = skeletonMermaid(skeleton, '|').includes('-->')
-  const diagram = (
-    <div className="skeleton-diagram">
-      <Mermaid chart={skeletonMermaid(skeleton, t('workbench:skeleton.diagram.edge'))} />
-      <p className="skeleton-diagram-note">{t('workbench:skeleton.diagram.note')}</p>
-      {/* 線が 1 本も引けないとき、黙っていると「つながっていない設計だ」と読める。
-          この段では骨格 = ID の形しか無く、種類どうしの本当のつながり
-          (object_template) は次の段で決まる。「まだ分からない」と「無い」は
-          別のことなので、そう書く（利用者評価 2026-08-27）。 */}
-      {!diagramLinked && skeleton.maps.length > 1 && (
-        <p className="skeleton-diagram-note">{t('skeletongate:diagram.notLinkedYet')}</p>
-      )}
-    </div>
-  )
-  /* かんたん層には図を出さない（利用者評価 2026-08-27）。畳んでいたのを常時表示に
-     した結果、線の有無が「この設計で良いのか」という答えようのない問いになった
-     ——「つながっていない」ではなく「この段では分からない」なのに、絵は分からない
-     ことを描けない。入れ子は機械が確定させ（C7-C11 改訂）、リンクは機械が保証する
-     （ensure_same_source_links）ので、ここで人が判断することはもう無い。事実の側は
-     件数バンド（何行が何件になるか）と、各カードの `key.containedIn`（この ID は
-     〈親〉の中で数えます）が言葉で言う。設計者向けの詳細モードには図を残す。 */
-  const diagramBlock = !plain ? diagram : null
 
   // The ID-shape card. Once the issuer is configured this is one settled line
   // ("this is what your IDs look like"), not a form to fill in.
@@ -1673,6 +1647,61 @@ export function SkeletonGate({
     )
     return { idx, host, ann: a, values, keyCols, kindOf, rowMap }
   })()
+
+  // The skeleton at a glance: how many kinds, linked how. A one-box skeleton
+  // that should be two is visible here before any table reading — but with a
+  // single kind the picture says nothing, and on the kantan tier it pushed the
+  // thing the human must actually confirm below the fold.
+  const diagramLinked = skeletonMermaid(skeleton, '|').includes('-->')
+  /** かんたん層の図の箱の呼び方 — ①のセレクトと同じ語彙。AI が付けた名前は
+   *  ②まで出さない（利用者評価 2026-08-28）。細い列なので短く。 */
+  const diagramLabel = (m: SkeletonMap): string => {
+    if (!zone) return m.name
+    if (m.name === zone.host.name) return t('skeletongate:zone.diagramWhole')
+    const vars = [...(m.subject.template ?? '').matchAll(/\{([^{}]+)\}/g)].map((x) => x[1])
+    return vars.length === 1 ? vars[0] : t('skeletongate:zone.diagramRows')
+  }
+  const diagram = (
+    <div className="skeleton-diagram">
+      <Mermaid
+        chart={skeletonMermaid(
+          skeleton,
+          t('workbench:skeleton.diagram.edge'),
+          plain ? { direction: 'TD', label: diagramLabel } : {},
+        )}
+      />
+      <p className="skeleton-diagram-note">{t('workbench:skeleton.diagram.note')}</p>
+      {/* 線が 1 本も引けないとき、黙っていると「つながっていない設計だ」と読める。
+          この段では骨格 = ID の形しか無く、種類どうしの本当のつながり
+          (object_template) は次の段で決まる。「まだ分からない」と「無い」は
+          別のことなので、そう書く（利用者評価 2026-08-27）。 */}
+      {!diagramLinked && skeleton.maps.length > 1 && (
+        <p className="skeleton-diagram-note">{t('skeletongate:diagram.notLinkedYet')}</p>
+      )}
+    </div>
+  )
+  /* かんたん層のこの位置（カードの縦の流れ）には図を出さない（利用者評価
+     2026-08-27）。畳んでいたのを常時表示にした結果、線の有無が「この設計で良い
+     のか」という答えようのない問いになった ——「つながっていない」ではなく「この
+     段では分からない」なのに、絵は分からないことを描けない。
+     2026-08-28 追記: 図そのものは①の右に貼り付けた（`skeleton-zone-map`）。当時と
+     違うのは、この画面が「種類を作る画面」になったこと — 箱の増減はこの画面の
+     操作の結果で、答えようのない問いではない。線の話は図の下で今も断っている。 */
+  const diagramBlock = !plain ? diagram : null
+
+  /** ①で使う、その種類の呼び方。**AI が付けた名前（Crystal）はここに出さない** —
+   *  名前を確かめて直すのは②で、①の時点で読む人はその言葉に何も合意していない
+   *  （利用者評価 2026-08-28「①に出てくると『何？』となりそう」）。データその
+   *  ままの呼び方だけを使う: 表全体で 1 件のものは「この表全体」、ある値ごとに
+   *  1 件になるものは「その列名 ごと」。 */
+  const zoneChoiceLabel = (name: string): string => {
+    if (!zone || name === zone.host.name) return t('skeletongate:zone.wholeTable')
+    const m = skeleton.maps.find((x) => x.name === name)
+    const vars = [...(m?.subject.template ?? '').matchAll(/\{([^{}]+)\}/g)].map((x) => x[1])
+    return vars.length === 1
+      ? t('skeletongate:zone.perValue', { column: vars[0] })
+      : displayMapName(name)
+  }
 
   /** 列 → その列を持つと**宣言された**種類（`owns`）。宣言が無ければカード。
    *
@@ -2204,12 +2233,7 @@ export function SkeletonGate({
       {/* 手順（⚠ の直し方・進み方）は、この画面で人が決めることではない。決める
           のは「何を種類にするか」なので、常時見せるのは上の 1 文だけにして、
           操作の細目は畳む（G9）。 */}
-      {plain && (
-        <details className="kz-fold">
-          <summary>{t('skeletongate:gateHowSummary')}</summary>
-          <p className="skeleton-gate-hint">{t('skeletongate:gateHow')}</p>
-        </details>
-      )}
+
       {/* What the deterministic vocabulary repair did — never silent. */}
       {vocabFix && vocabFix.declared.length > 0 && (
         <p className="skeleton-evidence-line skeleton-evidence-muted">
@@ -2310,6 +2334,10 @@ export function SkeletonGate({
               しか書かれていなかった（PROMOTE THE THINGS THE OUTSIDE WORLD ALSO
               NAMES / WHEN IN DOUBT, PROMOTE）。決めるのは人なので、人にも渡す。
               畳んであるのは、薦めのまま進む人には読まずに済ませてほしいから。 */}
+          {/* この画面の「読まなくても進める背景」は、この畳み 1 つに集約する。
+              判断の材料（どれを種類にするか）と、⚠ が出たときの進み方 — 別々の
+              畳みで並べていたころは、開くまでどちらに何が書いてあるか分からな
+              かった（利用者評価 2026-08-28「toggle が多くてごちゃごちゃ」）。 */}
           <details className="kz-fold">
             <summary>{t('skeletongate:zone.chooseSummary')}</summary>
             <p className="kz-note kz-prose">{t('skeletongate:zone.chooseYes')}</p>
@@ -2321,7 +2349,18 @@ export function SkeletonGate({
             <p className="kz-note kz-prose">{t('skeletongate:zone.chooseNo')}</p>
             {/* 非対称なので既定が決まる: 余分は消せる、足りないのは戻せない。 */}
             <p className="kz-note kz-prose">{t('skeletongate:zone.chooseDoubt')}</p>
+            {plain && <p className="kz-note kz-prose">{t('skeletongate:gateHow')}</p>}
           </details>
+          {/* 図はここ（①の右）に貼り付ける。種類を足した瞬間に箱が増えるのが
+              見えるのは、この画面でいちばん強い手応え。表が長いのでスクロールに
+              追従させる（`position: sticky`）。
+              2026-08-27 に一度かんたん層から外している — そのときの理由は「線の
+              有無が『この設計で良いのか』という答えようのない問いになった」で、
+              いまも骨格の段では種類どうしのつながりは決まっていない。だから
+              図の下でそう言う（`notLinkedYet`）。当時と違うのは、この画面が
+              「種類を作る画面」になったこと: 箱の増減はこの画面の操作の結果で、
+              答えようのない問いではない。 */}
+          <div className="skeleton-zone-layout">
           <div className="skeleton-header-zone">
           <table className="skeleton-entity-props">
             <tbody>
@@ -2340,9 +2379,7 @@ export function SkeletonGate({
                         全行に写る（G6 の二重記録）。 */}
                     <td className="skeleton-zone-tag">
                       {locked ? (
-                        t('skeletongate:zone.isCardId', {
-                          name: displayMapName(zone.host.name),
-                        })
+                        t('skeletongate:zone.isCardId')
                       ) : (
                         <select
                           className="skeleton-assign"
@@ -2365,11 +2402,11 @@ export function SkeletonGate({
                           }}
                         >
                           <option value={zone.host.name}>
-                            {displayMapName(zone.host.name)}
+                            {zoneChoiceLabel(zone.host.name)}
                           </option>
                           {siblingKinds.map((n) => (
                             <option key={n} value={n}>
-                              {displayMapName(n)}
+                              {zoneChoiceLabel(n)}
                             </option>
                           ))}
                           <option value="__new__">{t('skeletongate:zone.newKind')}</option>
@@ -2447,6 +2484,8 @@ export function SkeletonGate({
           <p className="skeleton-evidence-line skeleton-evidence-muted skeleton-zone-note">
             {t('skeletongate:zone.keyNote')}
           </p>
+          </div>
+          <aside className="skeleton-zone-map">{diagram}</aside>
           </div>
         </>
       )}
