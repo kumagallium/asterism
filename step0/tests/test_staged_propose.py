@@ -1605,3 +1605,65 @@ def test_no_settled_meanings_changes_nothing() -> None:
     """意味をまだ誰も決めていないときは、今日と同じ結果でなければならない。"""
     assert apply_column_meanings(FULL_IR, [])[0] == dict(FULL_IR)
     assert apply_column_meanings(FULL_IR, [{"source": "data.csv", "column": "nope"}])[1] == []
+
+
+def test_settled_columns_are_not_asked_about_twice() -> None:
+    """意味が決まっている列は per-map プロンプトで「決定済み」と伝え、
+    意味を埋め直すラウンドの対象からも外す（ADR §7-3）。"""
+    skeleton_obj, permaps = skeleton_from_full_ir(FULL_IR)
+    permap_asks: list[str] = []
+    fill_calls: list[str] = []
+
+    def handler(system: str, user: str) -> str:
+        if system == SKELETON_SYSTEM_PROMPT:
+            return json.dumps(skeleton_obj)
+        if system == PERMAP_SYSTEM_PROMPT:
+            permap_asks.append(user)
+            for name, pm in permaps.items():
+                if f"This map: '{name}'" in user:
+                    return json.dumps(pm)
+            raise AssertionError("per-map call for an unknown map")
+        if system == PERMAP_LABELFILL_SYSTEM_PROMPT:
+            fill_calls.append(user)
+            return json.dumps({"labels": []})
+        if system == DOCUMENT_SYSTEM_PROMPT:
+            return "### 1. Class hierarchy\n\n(the design)\n"
+        raise AssertionError("unexpected system prompt")
+
+    # data.csv の 3 列すべての意味が決まっている（'thing' マップの全行）
+    meanings = [
+        {"source": "data.csv", "column": "name", "label": "試料の名前"},
+        {"source": "data.csv", "column": "date", "label": "測定日"},
+        {"source": "data.csv", "column": "id", "label": "試料 ID"},
+    ]
+    propose_from_skeleton(
+        skeleton_obj, "# insp", "# dom", llm=GuidedMock(handler),
+        menu="menu", function_names=FN_NAMES, column_meanings=meanings,
+    )
+    thing_ask = next(u for u in permap_asks if "This map: 'thing'" in u)
+    assert "ALREADY settled" in thing_ask
+    assert "- `name` → 試料の名前" in thing_ask
+    # 'thing' は全列が決まっているので聞き直しは走らない。'part' は別ファイルで
+    # 意味が渡っていないので今までどおり 1 回走る。
+    assert len(fill_calls) == 1
+    assert "# Map: 'part'" in fill_calls[0]
+
+
+def test_without_settled_meanings_the_permap_ask_is_unchanged() -> None:
+    """意味をまだ誰も決めていない設計は、今日と 1 バイトも変わらない。"""
+    skeleton_obj, _permaps = skeleton_from_full_ir(FULL_IR)
+    thing = skeleton_obj["maps"][0]
+    plain = build_permap_user("thing", thing, "ctx", "menu")
+    with_empty = build_permap_user("thing", thing, "ctx", "menu", settled_meanings=[])
+    assert plain == with_empty
+    assert "ALREADY settled" not in plain
+
+
+def test_missing_label_rows_skips_settled_columns() -> None:
+    rows = [
+        {"predicate": "ex:a", "column": "settled"},
+        {"predicate": "ex:b", "column": "open"},
+        {"predicate": "ex:c", "column": "has", "label": "既にある"},
+    ]
+    assert [r["predicate"] for r in missing_label_rows(rows)] == ["ex:a", "ex:b"]
+    assert [r["predicate"] for r in missing_label_rows(rows, ["settled"])] == ["ex:b"]

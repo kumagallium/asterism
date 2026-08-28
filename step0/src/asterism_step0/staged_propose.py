@@ -32,7 +32,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -94,6 +94,7 @@ __all__ = [
     "propose_from_skeleton",
     "propose_skeleton",
     "render_columns_for_meanings",
+    "render_settled_meanings",
     "render_skeleton_context",
     "render_tier0_menu",
     "skeleton_from_full_ir",
@@ -916,6 +917,38 @@ def render_owned_elsewhere(owned_elsewhere: Mapping[str, str] | None) -> str:
     return "\n".join(lines)
 
 
+def render_settled_meanings(settled: Sequence[Mapping[str, Any]] | None) -> str:
+    """The columns whose meaning is ALREADY decided, named (ADR meaning-before-identity).
+
+    The meaning of a column is settled before this design exists and is written
+    onto the row deterministically after this stage
+    (:func:`apply_column_meanings`). Asking the model for it again spends output
+    tokens on something that will be overwritten — and, when the model disagrees
+    with the person, produces a label the review screen has to reconcile.
+
+    Named per column rather than stated as a rule: the same lesson as the
+    ownership verdict (a mechanical fact belongs in the message as concrete
+    names, not as a stronger request).
+    """
+    if not settled:
+        return ""
+    lines = [
+        "# Columns whose meaning is ALREADY settled (do NOT write `label:` for these)",
+        "The person has already said what these columns mean. Their meaning is"
+        " stored outside this design and written onto the row after you answer —"
+        " map the column as usual, just leave `label:` off.",
+    ]
+    for entry in settled:
+        column = str(entry.get("column") or "")
+        if not column:
+            continue
+        label = str(entry.get("label") or "").strip()
+        unit = str(entry.get("unit") or "").strip()
+        meaning = label or "(unit only)"
+        lines.append(f"- `{column}` → {meaning}" + (f" [{unit}]" if unit else ""))
+    return "\n".join(lines) if len(lines) > 2 else ""
+
+
 def build_permap_user(
     map_name: str,
     map_skeleton: Mapping[str, Any],
@@ -925,6 +958,7 @@ def build_permap_user(
     issues: list[str] | None = None,
     language: str | None = None,
     owned_elsewhere: Mapping[str, str] | None = None,
+    settled_meanings: Sequence[Mapping[str, Any]] | None = None,
 ) -> str:
     subject = map_skeleton.get("subject") or {}
     key = subject.get("template") or subject.get("constant") or "?"
@@ -940,6 +974,9 @@ def build_permap_user(
     owned = render_owned_elsewhere(owned_elsewhere)
     if owned:
         parts += ["", owned]
+    settled = render_settled_meanings(settled_meanings)
+    if settled:
+        parts += ["", settled]
     if issues:
         parts += ["", "# Issues to fix (fix ONLY these)", *[f"- {i}" for i in issues]]
     parts += ["", f"Return the property table for map '{map_name}' as a single JSON object."]
@@ -2082,6 +2119,7 @@ def generate_map_properties(
     issues: list[str] | None = None,
     language: str | None = None,
     owned_elsewhere: Mapping[str, str] | None = None,
+    settled_meanings: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict:
     """One guided call -> one map's ``{properties: [...], prefixes?: {...}}``."""
     user = build_permap_user(
@@ -2092,6 +2130,7 @@ def generate_map_properties(
         issues=issues,
         language=language,
         owned_elsewhere=owned_elsewhere,
+        settled_meanings=settled_meanings,
     )
     schema = permap_json_schema(function_names)
     return _load_json_object(_complete_guided(llm, PERMAP_SYSTEM_PROMPT, user, schema))
@@ -2110,8 +2149,17 @@ def _binding_of(prop: Mapping[str, Any]) -> str:
     return "(no binding)"
 
 
-def missing_label_rows(properties: Any) -> list[dict]:
-    """The rows a label-fill round asks about: a real binding, no usable label."""
+def missing_label_rows(
+    properties: Any, settled_columns: Collection[str] = ()
+) -> list[dict]:
+    """The rows a label-fill round asks about: a real binding, no usable label.
+
+    A column whose meaning is already settled is not missing one: the projection
+    writes it after this stage (ADR meaning-before-identity), so asking a model
+    would spend a call to produce something immediately overwritten. With every
+    column settled the fill round disappears entirely.
+    """
+    settled = {str(c) for c in settled_columns}
     rows: list[dict] = []
     for prop in properties or []:
         if not isinstance(prop, Mapping):
@@ -2119,6 +2167,8 @@ def missing_label_rows(properties: Any) -> list[dict]:
         if str(prop.get("label") or "").strip():
             continue
         if not str(prop.get("predicate") or "").strip():
+            continue
+        if str(prop.get("column") or "") in settled:
             continue
         rows.append(dict(prop))
     return rows
@@ -2640,6 +2690,7 @@ def _generate_map_properties_gated(
     source_columns: Sequence[str] | None = None,
     ontology_prefix: str | None = None,
     on_fallback: Callable[[str], None] | None = None,
+    settled_meanings: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict:
     """Generate ONE map's property table, then run a BOUNDED structural repair.
 
@@ -2692,7 +2743,7 @@ def _generate_map_properties_gated(
         result = generate_map_properties(
             map_name, map_skeleton, skeleton_context, menu_text,
             llm=llm, function_names=function_names, language=language,
-            owned_elsewhere=owned_elsewhere,
+            owned_elsewhere=owned_elsewhere, settled_meanings=settled_meanings,
         )
     except LLMCancelledError:
         raise  # a person pressed stop — that must never become a design
@@ -2715,7 +2766,7 @@ def _generate_map_properties_gated(
             retry = generate_map_properties(
                 map_name, map_skeleton, skeleton_context, menu_text,
                 llm=llm, function_names=function_names, issues=issues, language=language,
-                owned_elsewhere=owned_elsewhere,
+                owned_elsewhere=owned_elsewhere, settled_meanings=settled_meanings,
             )
         except LLMCancelledError:
             raise
@@ -2795,7 +2846,10 @@ def _generate_map_properties_gated(
     # rows are never re-emitted, so this round cannot break a binding. A
     # failed fill degrades to exactly the old behaviour: S6 shows the blank
     # and the human fills it (the safety net stays the gate, K22).
-    missing = missing_label_rows(result.get("properties"))
+    missing = missing_label_rows(
+        result.get("properties"),
+        [str(m.get("column") or "") for m in settled_meanings or ()],
+    )
     if missing:
         _emit(f"map '{map_name}': 意味が空の {len(missing)} 項目を書き足しています")
         try:
@@ -2911,6 +2965,15 @@ def propose_from_skeleton(
     names = _resolve_function_names(function_names)
     menu_text = menu if menu is not None else render_tier0_menu(names)
     context = render_skeleton_context(skeleton)
+    # 意味は列のもの、per-map はファイル単位で走る。決まっている意味をその
+    # ファイルのぶんだけ渡し、同じことを二度書かせない。
+    settled_by_source: dict[str, list[dict]] = {}
+    for entry in column_meanings or ():
+        if not isinstance(entry, Mapping):
+            continue
+        source = str(entry.get("source") or "")
+        if source and str(entry.get("column") or ""):
+            settled_by_source.setdefault(source, []).append(dict(entry))
     by_source = dict(menu_columns(menu_text)) if map_columns is None else {}
     ontology_prefix = _ontology_prefix(skeleton)
 
@@ -2960,6 +3023,7 @@ def propose_from_skeleton(
             ),
             ontology_prefix=ontology_prefix,
             on_fallback=on_fallback,
+            settled_meanings=settled_by_source.get(str(map_obj.get("source") or "")),
         )
 
     assembled = assemble_mapping_ir(skeleton, permaps)
