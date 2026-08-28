@@ -5353,6 +5353,27 @@ export function KantanWizard({
               <span className="kz-zone-why">{t('kantan:s6.zoneMeaningWhy')}</span>
             </p>
           )}
+          {/* ⚠ の説明と「AI に相談して埋める」は**表の前**に置く。表の後ろに置いて
+              いたころは、全部手で埋め終えてから気づく形になっていた（利用者評価
+              2026-08-28「頑張って入力したあとに気づいたら辛い」）。手を動かす前に、
+              手を動かさずに済む道を見せる。
+              AI チャット → 空欄（一括反映）は既にある。その逆 — 空欄を見つけた
+              その場から相談を開ける導線。文面は入れるが送らない（相談は LLM を
+              呼ぶので、押したつもりのない課金を作らない）。 */}
+          {missingMeanings > 0 && (
+            <>
+              <p className="kz-note kz-prose">{t('kantan:s6.missingMeaning')}</p>
+              <div className="kz-actions">
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--sm"
+                  onClick={() => requestConsult(t('kantan:s6.askConsultPrefill'))}
+                >
+                  {t('kantan:s6.askConsultMeaning')}
+                </button>
+              </div>
+            </>
+          )}
           {valueRows.map(({ map: m, rows }) => {
             if (rows.length === 0) return null
             return (
@@ -5530,25 +5551,6 @@ export function KantanWizard({
             <>
               <p className="kz-note">{t('kantan:s6.editFailed')}</p>
               <p className="kz-note">{plainBody(metaErr)}</p>
-            </>
-          )}
-          {/* Standing text, not a tooltip: whoever sees a ⚠ must be told what
-              it means and that they may continue (KZ-B-04). */}
-          {missingMeanings > 0 && (
-            <>
-              <p className="kz-note kz-prose">{t('kantan:s6.missingMeaning')}</p>
-              {/* AI チャット → 空欄（一括反映）は既にある。その逆 — 空欄を見つけた
-                  その場から相談を開ける導線。文面は入れるが送らない（相談は LLM を
-                  呼ぶので、押したつもりのない課金を作らない）。 */}
-              <div className="kz-actions">
-                <button
-                  type="button"
-                  className="btn btn--ghost btn--sm"
-                  onClick={() => requestConsult(t('kantan:s6.askConsultPrefill'))}
-                >
-                  {t('kantan:s6.askConsultMeaning')}
-                </button>
-              </div>
             </>
           )}
           {/* Columns the generated mapping left unused are a HUMAN decision, not
