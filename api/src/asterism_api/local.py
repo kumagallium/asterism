@@ -50,6 +50,8 @@ from starlette.responses import JSONResponse, Response
 from starlette.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from asterism_api.mcp_mount import MCP_PATH, attach_mcp
+
 if TYPE_CHECKING:
     from asterism.oxigraph_client import OxigraphClient
     from fastapi import FastAPI
@@ -146,7 +148,9 @@ def ensure_write_token(home: Path) -> str:
     return token
 
 
-def local_env(home: Path, oxigraph_url: str, token: str) -> dict[str, str]:
+def local_env(
+    home: Path, oxigraph_url: str, token: str, *, mcp_url: str | None = None
+) -> dict[str, str]:
     """Env defaults for a local run, applied with ``setdefault`` (user wins).
 
     ``ASTERISM_EXPOSE_RAW_SPARQL=1``: the single-user loopback box is the
@@ -172,6 +176,11 @@ def local_env(home: Path, oxigraph_url: str, token: str) -> dict[str, str]:
         # the appdata routes there stay 404 and behaviour is unchanged.
         "ASTERISM_SINGLE_USER": "1",
         "ASTERISM_APPDATA_ROOT": str(home / "appdata"),
+        # The MCP endpoint to register in an external AI client (ADR
+        # mcp-endpoint-on-the-app.md). Built from the port that was actually
+        # bound, not from the 8765 preference: the settings screen shows this
+        # string verbatim, and a confident wrong URL is worse than none.
+        **({"ASTERISM_MCP_URL": mcp_url} if mcp_url else {}),
     }
 
 
@@ -494,13 +503,17 @@ def build_local_app(
     start_watcher: bool = True,
     demo_agent_url: str | None = None,
     demo_relay_client: httpx.AsyncClient | None = None,
+    mcp: bool = True,
 ) -> FastAPI:
-    """``build_app`` + optional /demo relay + SPA mount + token injection.
+    """``build_app`` + optional /demo relay + /mcp + SPA mount + token injection.
 
     Route order matters: ``build_app`` registers the api routes first, the
-    ``/demo/*`` relay is included next, and the static catch-all mount goes
-    last — so ``/api/*``, ``/jobs``, ``/health``, ``/describe``,
-    ``/upload/{kind}`` and ``/demo/*`` all win over the SPA fallback.
+    ``/demo/*`` relay is included next, the MCP endpoint after that, and the
+    static catch-all mount goes last — so ``/api/*``, ``/jobs``, ``/health``,
+    ``/describe``, ``/upload/{kind}``, ``/demo/*`` and ``/mcp`` all win over
+    the SPA fallback. (Before ``/mcp`` had a route of its own, that fallback
+    answered it with the SPA's index.html — a 200 full of HTML, which is why
+    the endpoint looked present and was not.)
     """
     from asterism_api.main import build_app
 
@@ -509,6 +522,8 @@ def build_local_app(
     )
     if demo_agent_url is not None:
         app.include_router(create_demo_relay(demo_agent_url, demo_relay_client))
+    if mcp:
+        attach_mcp(app)
     if ui_dist is not None:
         app.mount("/", SpaStaticFiles(directory=str(ui_dist), html=True), name="spa")
     app.add_middleware(LoopbackTokenInjector, token=token)
@@ -652,6 +667,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="do not spawn the demo-agent child (Ask view degrades)",
     )
+    parser.add_argument(
+        "--no-mcp",
+        action="store_true",
+        help="do not serve the MCP endpoint at /mcp",
+    )
     parser.add_argument("--no-browser", action="store_true")
     parser.add_argument("--log-level", default="info")
     args = parser.parse_args(argv)
@@ -700,7 +720,8 @@ def main(argv: list[str] | None = None) -> int:
             home / "oxigraph_store",
         )
 
-    for key, value in local_env(home, oxigraph_url, token).items():
+    mcp_url = None if args.no_mcp else f"http://127.0.0.1:{args.port}{MCP_PATH}"
+    for key, value in local_env(home, oxigraph_url, token, mcp_url=mcp_url).items():
         os.environ.setdefault(key, value)
 
     ui_dist = find_ui_dist(args.ui_dist)
@@ -753,9 +774,13 @@ def main(argv: list[str] | None = None) -> int:
             ui_dist=ui_dist,
             settings=Settings(),
             demo_agent_url=demo_url,
+            mcp=not args.no_mcp,
         )
         url = f"http://127.0.0.1:{args.port}/"
         logger.info("Asterism local: %s (data: %s)", url, home)
+        if mcp_url:
+            # The literal string a person registers in their AI client.
+            logger.info("MCP endpoint: %s", mcp_url)
         _serve(
             app,
             port=args.port,

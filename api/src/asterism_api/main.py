@@ -1966,6 +1966,12 @@ class Settings:
         )
         appdata_raw = (e.get("ASTERISM_APPDATA_ROOT") or "").strip()
         self.appdata_root = Path(appdata_raw) if appdata_raw else None
+        # The MCP endpoint this process actually serves, as the literal URL a
+        # person registers in their AI client (ADR mcp-endpoint-on-the-app.md).
+        # Only ``asterism-local`` sets it, because only it knows the port that
+        # got bound — 8765 is a *preference*, and a fallback port must not turn
+        # the settings screen into a wrong string that looks authoritative.
+        self.mcp_url = (e.get("ASTERISM_MCP_URL") or "").strip() or None
 
 
 # ----------------------------------------------------------------------------
@@ -4383,10 +4389,16 @@ def build_app(
     async def appdata_info() -> dict[str, object]:
         """Always 200 — the UI's only signal for "do I have a disk home?".
         ``home`` is the appdata root's parent (the data home), not the
-        appdata dir itself, to match what a human recognizes from the app."""
+        appdata dir itself, to match what a human recognizes from the app.
+        ``mcp_url`` is the endpoint to register in an external AI client, or
+        null when this process serves none (``--no-mcp``, or a shared api)."""
         if not cfg.single_user or cfg.appdata_root is None:
-            return {"single_user": False, "home": None}
-        return {"single_user": True, "home": str(cfg.appdata_root.parent)}
+            return {"single_user": False, "home": None, "mcp_url": None}
+        return {
+            "single_user": True,
+            "home": str(cfg.appdata_root.parent),
+            "mcp_url": cfg.mcp_url,
+        }
 
     def _appdata_root_or_404() -> Path:
         if not cfg.single_user or cfg.appdata_root is None:

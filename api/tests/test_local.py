@@ -629,3 +629,12 @@ def test_sigterm_does_not_orphan_children(tmp_path: Path) -> None:
             proc.wait(timeout=5.0)
         if proc.stdout:
             proc.stdout.close()
+
+
+def test_local_env_carries_the_mcp_endpoint(tmp_path: Path) -> None:
+    """The settings screen reads this back through /api/appdata/info."""
+    home = tmp_path / "home"
+    url = "http://127.0.0.1:8801/mcp"
+    assert local_env(home, "http://x", "tok", mcp_url=url)["ASTERISM_MCP_URL"] == url
+    # --no-mcp: absent, not empty — Settings must see "no endpoint here".
+    assert "ASTERISM_MCP_URL" not in local_env(home, "http://x", "tok")

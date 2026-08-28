@@ -41,7 +41,7 @@ def test_shared_api_only_exposes_info_and_it_says_no(tmp_path: Path, healthy_cli
     with _client(tmp_path, healthy_client, single_user=False) as client:
         r = client.get("/api/appdata/info")
         assert r.status_code == 200
-        assert r.json() == {"single_user": False, "home": None}
+        assert r.json() == {"single_user": False, "home": None, "mcp_url": None}
 
         assert client.get("/api/appdata/ask/threads").status_code == 404
         assert client.get("/api/appdata/settings").status_code == 404
@@ -55,7 +55,9 @@ def test_single_user_info_reports_the_home(tmp_path: Path, healthy_client) -> No
     with _client(tmp_path, healthy_client) as client:
         r = client.get("/api/appdata/info")
         assert r.status_code == 200
-        assert r.json() == {"single_user": True, "home": str(tmp_path)}
+        # mcp_url is null unless asterism-local set ASTERISM_MCP_URL: build_app
+        # alone does not know which port (if any) serves MCP.
+        assert r.json() == {"single_user": True, "home": str(tmp_path), "mcp_url": None}
 
 
 def test_thread_round_trips_then_deletes(tmp_path: Path, healthy_client) -> None:

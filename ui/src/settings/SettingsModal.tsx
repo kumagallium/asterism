@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import './SettingsModal.css'
 import { getAppDataInfo } from '../appdata'
 import { AboutTab } from './AboutTab'
+import { ConnectTab } from './ConnectTab'
 import { InstanceSection } from './InstanceSection'
 import { StorageTab } from './StorageTab'
 import { WriteTokenSection } from './WriteTokenSection'
@@ -34,7 +35,7 @@ import {
 // Most of those used to live under "Models", so guidance like "enter it in
 // settings" landed on a page whose tab names said nothing about the field being
 // described. 'storage' only exists on a single-user server (see below).
-type Tab = 'ai' | 'server' | 'usage' | 'storage' | 'about'
+type Tab = 'ai' | 'server' | 'usage' | 'storage' | 'connect' | 'about'
 
 /** DOM id of the block a section name scrolls to. */
 const SECTION_ANCHOR: Record<SettingsSection, string> = {
@@ -66,6 +67,7 @@ export function SettingsModal({
 
   // 共有ブラウザ版（複数ユーザーが同じ api を見ている）ではストレージタブ自体を出さない。
   const showStorageTab = getAppDataInfo()?.singleUser === true
+  const showConnectTab = getAppDataInfo()?.mcpUrl != null
 
   // Land on the section the user was sent to. Chosen during render (rather than
   // after paint) so the modal never flashes the wrong tab, and remembered so a
@@ -156,6 +158,8 @@ export function SettingsModal({
               'usage',
               // 共有ブラウザ版では保存先を出さない（サーバの申告で決める）。
               ...(showStorageTab ? (['storage'] as const) : []),
+              // 接続先はこの機が MCP を出しているときだけ（--no-mcp・共有 api では出ない）。
+              ...(showConnectTab ? (['connect'] as const) : []),
               'about',
             ] as Tab[]
           ).map((id) => (
@@ -178,6 +182,7 @@ export function SettingsModal({
             </div>
           )}
           {tab === 'storage' && showStorageTab && <StorageTab />}
+          {tab === 'connect' && showConnectTab && <ConnectTab />}
           {tab === 'about' && <AboutTab />}
         </div>
       </div>
