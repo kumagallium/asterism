@@ -205,7 +205,11 @@ def test_unfixable_trap_stops_bounded_instead_of_looping(tmp_path: Path) -> None
     assert features == ["propose", "propose.autocorrect"]  # did NOT spin to max
 
 
-def _ingester(encoding: str) -> str:
+_CLEAN_MIE = _mie("xrd, diffraction, aluminum, vanadium, tetragonal", "materials")
+
+
+def _legacy_ingester_section(encoding: str) -> str:
+    """A §8 block as older designs carried it — no longer read by anything."""
     return (
         "\n### 8. Ingester\n\n```python\n"
         "import csv\n\n\n"
@@ -216,38 +220,15 @@ def _ingester(encoding: str) -> str:
     )
 
 
-_CLEAN_MIE = _mie("xrd, diffraction, aluminum, vanadium, tetragonal", "materials")
-
-
-def test_t2_is_repaired_deterministically_without_an_llm_round(tmp_path: Path) -> None:
-    """T2's own fix recipe is a four-character substitution the machine can make
-    itself. Spending a round (and, for a weak model, risking the rest of §8
-    being rewritten) on it is the failure this closes."""
-    llm = _ScriptedLLM([_RML + _CLEAN_MIE + _ingester("utf-8")])
+def test_a_legacy_section_8_no_longer_costs_a_round(tmp_path: Path) -> None:
+    """T2 reads the §9 dialect, never a Python sketch. A legacy design still
+    carrying a plain-``utf-8`` §8 must converge on the first round: there is
+    nothing left to repair, and nothing left to send the model chasing."""
+    llm = _ScriptedLLM([_RML + _CLEAN_MIE + _legacy_ingester_section("utf-8")])
     result, features = _run(tmp_path, llm)
     assert result.converged is True
     assert features == ["propose"]  # no autocorrect round was spent
-    assert 'encoding="utf-8-sig"' in result.proposal_md
-    assert 'encoding="utf-8"' not in result.proposal_md
-
-
-def test_t2_without_an_explicit_encoding_still_reaches_the_model(tmp_path: Path) -> None:
-    """The deterministic repair only performs the edit it can prove; an ingester
-    with no ``encoding=`` at all is a real edit, so it must not be silently
-    swallowed as 'repaired'."""
-    ingester = (
-        "\n### 8. Ingester\n\n```python\n"
-        "import csv\n\n\n"
-        "def read(path):\n"
-        "    with open(path) as fh:\n"
-        "        return list(csv.DictReader(fh))\n"
-        "```\n"
-    )
-    fixed = _RML + _CLEAN_MIE + _ingester("utf-8-sig")
-    llm = _ScriptedLLM([_RML + _CLEAN_MIE + ingester, fixed])
-    result, features = _run(tmp_path, llm)
-    assert features == ["propose", "propose.autocorrect"]
-    assert result.converged is True
+    assert not any("T2" in m for m in result.remaining_issues)
 
 
 def test_spec_repairable_trap_keeps_the_surgical_path(tmp_path: Path) -> None:

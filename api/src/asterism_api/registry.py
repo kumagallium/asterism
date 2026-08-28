@@ -8,9 +8,9 @@ materialized bundle is saved under ``registry_root/<dataset_id>/`` so the
 Gallery can list what has actually been built.
 
 A registered dataset is a *design* (TBox + mapping artifacts), not yet ingested
-data. Loading triples is the separate, human-gated step (Phase 5 #15): rather
-than run the generated *ingester.py* (executing AI-authored code = RCE risk), the
-safe path runs the persisted declarative *mapping.rml.ttl* through the Morph-KGC
+data. Loading triples is the separate, human-gated step (Phase 5 #15): no code is
+ever generated to be run (executing AI-authored code = RCE risk) — the only
+path runs the persisted declarative *mapping.rml.ttl* through the Morph-KGC
 substrate into an isolated draft graph (see
 ``docs/architecture/phase5-workbench-materialize-gate.md``). ``mark_ingested``
 records that outcome on the dataset's meta.
@@ -32,7 +32,6 @@ _ARTIFACT_FILES = {
     "diagram.md": "diagram.md",
     "model.yaml": "model.yaml",
     "mie.yaml": "mie.yaml",
-    "ingester.py": "ingester.py",
     # The declarative RML mapping (Phase 5). Persisted so the human-gated
     # substrate ingest (POST /api/datasets/{id}/ingest) can run it later.
     "mapping.rml.ttl": "mapping.rml.ttl",
@@ -42,6 +41,17 @@ _ARTIFACT_FILES = {
     # reviewer actually vetted (absent on legacy raw-Turtle designs).
     "mapping.yaml": "mapping.yaml",
 }
+def artifact_names() -> frozenset[str]:
+    """The artifact filenames a dataset carries TODAY.
+
+    Callers that compare a stored bundle against the current one (the history
+    diff) use this to ignore files a past design carried but the product has
+    since retired — those bytes stay on disk, they are just no longer part of
+    what a dataset *is*.
+    """
+    return frozenset(_ARTIFACT_FILES.values())
+
+
 _META_FILE = "meta.json"
 # Design-time source files are persisted here so the dataset carries the exact
 # data it was built from (reproducibility — the citable-facts product direction).
@@ -142,8 +152,8 @@ def save_dataset(
 ) -> dict:
     """Persist a materialized bundle under ``root/<id>/``; return its meta dict.
 
-    ``artifacts`` maps the 4 logical names (diagram.md / model.yaml / mie.yaml /
-    ingester.py) to their text contents. A ``meta.json`` summary (name, time,
+    ``artifacts`` maps the 3 logical names (diagram.md / model.yaml / mie.yaml)
+    to their text contents. A ``meta.json`` summary (name, time,
     validation outcome, extracted class list) is written alongside so the
     listing endpoint stays cheap (no re-parsing of artifacts). ``proposal_md``
     (the design source) is persisted so the dataset can later be re-opened in the
@@ -168,7 +178,6 @@ def save_dataset(
         "traps": traps,
         "classes": classes,
         "class_count": len(classes),
-        "has_ingester": bool((artifacts.get("ingester.py") or "").strip()),
         "has_mie": bool((artifacts.get("mie.yaml") or "").strip()),
         # Phase 5: whether a declarative RML mapping is present (ingestable), and
         # whether it has been ingested into a draft graph yet.
@@ -256,7 +265,6 @@ def update_dataset_artifacts(
             "traps": traps,
             "classes": classes,
             "class_count": len(classes),
-            "has_ingester": bool((artifacts.get("ingester.py") or "").strip()),
             "has_mie": bool((artifacts.get("mie.yaml") or "").strip()),
             "has_rml": bool((artifacts.get("mapping.rml.ttl") or "").strip()),
             "has_mapping_ir": bool((artifacts.get("mapping.yaml") or "").strip()),

@@ -6284,16 +6284,6 @@ button.ds-artifact:disabled {
   color: var(--primary);
   margin-left: 0.15rem;
 }
-.rules-legacy-chip {
-  font-size: 0.8rem;
-  font-weight: 700;
-  color: var(--warn-fg);
-  background: var(--warn-bg);
-  border: 1px solid var(--warn-border);
-  border-radius: 4px;
-  padding: 0.05rem 0.35rem;
-}
-
 .rules-projection {
   margin-top: 0.9rem;
   display: flex;

@@ -55,7 +55,6 @@ _ARTIFACTS = {
     "diagram.md": "```mermaid\nclassDiagram\n  class Sample\n```\n",
     "model.yaml": "",
     "mie.yaml": "",
-    "ingester.py": "",
     "mapping.rml.ttl": _RML,
 }
 

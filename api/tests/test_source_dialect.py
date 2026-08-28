@@ -467,7 +467,6 @@ def _save_dataset(tmp: Path, rml: str = "") -> str:
             "diagram.md": "classDiagram\n  class Curve",
             "model.yaml": "- Curve:",
             "mie.yaml": "schema_info:\n  title: x",
-            "ingester.py": "def go(): ...",
             "mapping.rml.ttl": rml,
         },
         complete=True,

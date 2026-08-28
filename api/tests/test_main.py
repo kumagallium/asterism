@@ -1169,14 +1169,15 @@ def test_materialize_extracts_artifacts_and_validates(
         )
         assert r.status_code == 200
         body = r.json()
-        # diagram / mie / ingester extracted (no rdf-config model block here)
+        # diagram / mie extracted (no rdf-config model block here)
         assert body["artifacts"]["diagram.md"]
         assert body["artifacts"]["mie.yaml"]
-        assert body["artifacts"]["ingester.py"]
+        assert "ingester.py" not in body["artifacts"]
         trap = {t["id"]: t["status"] for t in body["traps"]}
-        assert trap["T2"] == "pass"  # utf-8-sig in ingester
         assert trap["T4"] == "pass"  # >=5 keywords
-        assert trap["T1"] == "skip"  # no source CSV attached
+        # Both read the sources, which this endpoint does not attach.
+        assert trap["T1"] == "skip"
+        assert trap["T2"] == "skip"
         assert "exit_code" in body
 
 
@@ -1266,9 +1267,10 @@ def test_materialize_traps_carry_fix_recipes(
         assert "reading" in mie  # the author's single keyword survives verbatim
         # §9-only terms in the stamped block = the mapping spec reached it.
         assert "channel" in mie and "amplitude" in mie
-        # Passing traps carry no recipe.
+        # A trap that never ran carries no recipe either. T2 reads the source
+        # bytes against the §9 dialect, and /api/materialize attaches no sources.
         t2 = next(t for t in traps if t["id"] == "T2")
-        assert t2["status"] == "pass" and t2["fix"] == ""
+        assert t2["status"] == "skip" and t2["fix"] == ""
 
 
 def test_materialize_persists_the_whole_diagram_document(

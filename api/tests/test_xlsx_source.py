@@ -92,7 +92,6 @@ def _save_dataset_with_rml(tmp: Path) -> str:
             "diagram.md": "classDiagram\n  class Paper",
             "model.yaml": "- Paper:",
             "mie.yaml": "schema_info:\n  title: x",
-            "ingester.py": "def go(): ...",
             "mapping.rml.ttl": _RML,
         },
         complete=True,

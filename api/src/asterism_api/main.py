@@ -3706,7 +3706,6 @@ def _artifacts_from_document(
         "diagram.md": mat.diagram_md,
         "model.yaml": mat.rdf_config_model,
         "mie.yaml": mat.mie_yaml,
-        "ingester.py": mat.ingester_py,
         "mapping.rml.ttl": mat.rml_ttl,
         "mapping.yaml": mat.mapping_ir_yaml,
     }
@@ -5411,10 +5410,10 @@ def build_app(
 
     @app.post("/api/materialize", dependencies=_write_auth)
     async def materialize(body: MaterializeRequest) -> JSONResponse:
-        """Phase 4 (M1d): split a proposal into the 4 artifacts and validate.
+        """Phase 4 (M1d): split a proposal into the 3 artifacts and validate.
 
-        Synchronous (no LLM): extracts diagram / rdf-config model / MIE /
-        ingester from the Markdown, then runs the 8-trap validator on the
+        Synchronous (no LLM): extracts diagram / rdf-config model / MIE
+        from the Markdown, then runs the 8-trap validator on the
         extracted bundle. Source CSVs are not attached here, so CSV-dependent
         traps (T1 / T6) report ``skip``; the structural traps (T2-T5 / T7)
         run. Returns the artifact contents (for client-side download) plus the
@@ -5483,7 +5482,6 @@ def build_app(
                     SchemaBundle(
                         diagram_md=paths.get("mermaid") or paths.get("diagram"),
                         mie_yaml=paths.get("mie_yaml") or paths.get("mie"),
-                        ingester_py=paths.get("ingester_py") or paths.get("ingester"),
                         # Pass the RML so trap T9 (closed-set) actually runs and
                         # surfaces a non-Tier-0 function to the reviewer at design
                         # time. The hard gate is at ingest (substrate.assert_rml_safe);
@@ -5507,7 +5505,6 @@ def build_app(
                     "diagram.md": mat.diagram_md,
                     "model.yaml": mat.rdf_config_model,
                     "mie.yaml": mat.mie_yaml,
-                    "ingester.py": mat.ingester_py,
                     # Phase 5: the declarative RML mapping — compiled from the §9
                     # mapping spec on new proposals, or the raw legacy block on
                     # older ones (may be None — persisted so the human-gated
@@ -6250,7 +6247,6 @@ def build_app(
                     "diagram.md": mat.diagram_md or "",
                     "model.yaml": mat.rdf_config_model or "",
                     "mie.yaml": mat.mie_yaml or "",
-                    "ingester.py": mat.ingester_py or "",
                     "mapping.rml.ttl": mat.rml_ttl or "",
                     "mapping.yaml": mat.mapping_ir_yaml or "",
                 }
@@ -6801,7 +6797,12 @@ def build_app(
         change?" — without shipping a diff engine to the browser. Direction is
         snapshot → current (the snapshot is the ``---`` side). Unchanged files are
         omitted from ``diffs``; files that exist on only one side diff against
-        empty.
+        empty — EXCEPT a file that is no longer a design artifact at all. An
+        older snapshot still carries the retired ``ingester.py``, and diffing it
+        against nothing would put a whole-file deletion at the top of every
+        historical redesign — a change the person never made, about a file the
+        product no longer has. Restricting the comparison to today's artifact
+        set drops it from the view instead (the bytes stay on disk untouched).
         """
         data = registry.load_dataset(cfg.registry_root, dataset_id)
         if data is None:
@@ -6817,10 +6818,12 @@ def build_app(
         if proposal_md is not None:
             current["proposal.md"] = proposal_md
 
+        comparable = set(registry.artifact_names()) | {"proposal.md"}
+
         def run() -> dict[str, str]:
             diffs: dict[str, str] = {}
             old_files: dict[str, str] = snapshot["artifacts"]
-            for name in sorted(set(old_files) | set(current)):
+            for name in sorted((set(old_files) | set(current)) & comparable):
                 old = old_files.get(name, "")
                 new = current.get(name, "")
                 if old == new:

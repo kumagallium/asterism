@@ -67,7 +67,7 @@
   "review": {
     "hint": "提案を確認し、直したい点をコメントすると AI が再生成します（任意）。",
     "commentLabel": "レビューコメント",
-    "commentPlaceholder": "例: Sample IRI を (SID, sample_id) の複合キーにして。ingester と設計根拠も同期更新して。",
+    "commentPlaceholder": "例: Sample IRI を (SID, sample_id) の複合キーにして。設計根拠も同期更新して。",
     "regenerate": "コメントを反映して再生成",
     "regenerating": "再生成中…",
     "jobLabel": "AI が設計図を再生成中…"
@@ -138,7 +138,7 @@
   },
   "trap": {
     "T1": "IRI の一意性（複合キーが全体で一意か）",
-    "T2": "BOM（ingester が utf-8-sig で開くか）",
+    "T2": "BOM（読み取り文字コードが utf-8-sig か）",
     "T3": "空白ノードなし（bnode-free）",
     "T4": "MIE のキーワード／カテゴリ（5 個以上）",
     "T5": "Mermaid のコロン回避（図ラベルに : を含まない）",
