@@ -32,6 +32,7 @@ from asterism_step0.staged_propose import (  # noqa: E402
     PERMAP_LABELFILL_SYSTEM_PROMPT,
     PERMAP_SYSTEM_PROMPT,
     SKELETON_SYSTEM_PROMPT,
+    apply_column_meanings,
     apply_data_facts,
     apply_numeric_datatypes,
     assemble_mapping_ir,
@@ -1554,3 +1555,53 @@ def test_normalize_column_meanings_rules() -> None:
     assert "xrd.txt:2theta (duplicate)" in rejected
     assert "xrd.txt:invented (unknown column)" in rejected
     assert "other.csv:2theta (unknown source)" in rejected
+
+
+def test_settled_meanings_win_over_the_per_map_label() -> None:
+    """束ね終わった表に、先に決めた意味を決定論で写す。per-map が別の言葉を
+    書いていても、意味を決めるのは生成ラウンドではない（ADR §6 / N6）。"""
+    skeleton_obj, permaps = skeleton_from_full_ir(FULL_IR)
+    labeled = {
+        name: {
+            "properties": [{**prop, "label": "AI が書いた意味"} for prop in pm["properties"]]
+        }
+        for name, pm in permaps.items()
+    }
+    frames: list[dict] = []
+
+    def handler(system: str, user: str) -> str:
+        if system == SKELETON_SYSTEM_PROMPT:
+            return json.dumps(skeleton_obj)
+        if system == PERMAP_SYSTEM_PROMPT:
+            for name, pm in labeled.items():
+                if f"This map: '{name}'" in user:
+                    return json.dumps(pm)
+            raise AssertionError("per-map call for an unknown map")
+        if system == DOCUMENT_SYSTEM_PROMPT:
+            return "### 1. Class hierarchy\n\n(the design)\n"
+        raise AssertionError("unexpected system prompt")
+
+    md = propose_from_skeleton(
+        skeleton_obj, "# insp", "# dom", llm=GuidedMock(handler),
+        menu="menu", function_names=FN_NAMES,
+        on_progress=lambda **d: frames.append(d),
+        column_meanings=[
+            {"source": "data.csv", "column": "name", "label": "試料の名前", "unit": ""},
+            {"source": "data.csv", "column": "date", "label": "測定日"},
+        ],
+    )
+    thing = next(m for m in parse_mapping_ir(_extract_spec(md)).maps if m.name == "thing")
+    by_pred = {p.predicate: p for p in thing.properties}
+    assert by_pred["schema:name"].label == "試料の名前"
+    assert by_pred["schema:name"].column == "name"  # binding untouched
+    assert by_pred["ex:when"].label == "測定日"
+    # 別のマップ（同じ列名を持たない）は AI の label のまま
+    part = next(m for m in parse_mapping_ir(_extract_spec(md)).maps if m.name == "part")
+    assert part.properties[0].label == "AI が書いた意味"
+    assert any(f.get("phase") == "meaning" for f in frames)
+
+
+def test_no_settled_meanings_changes_nothing() -> None:
+    """意味をまだ誰も決めていないときは、今日と同じ結果でなければならない。"""
+    assert apply_column_meanings(FULL_IR, [])[0] == dict(FULL_IR)
+    assert apply_column_meanings(FULL_IR, [{"source": "data.csv", "column": "nope"}])[1] == []

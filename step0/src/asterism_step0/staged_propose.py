@@ -68,6 +68,8 @@ __all__ = [
     "SkeletonProposal",
     "apply_column_decisions",
     "apply_column_decisions_to_document",
+    "apply_column_meanings",
+    "apply_column_meanings_to_document",
     "apply_data_facts",
     "apply_display_meta",
     "apply_display_meta_to_document",
@@ -1397,10 +1399,13 @@ def apply_display_meta(
     return {**ir, "maps": out_maps}, changed
 
 
-def apply_display_meta_to_document(
-    document_md: str, edits: Sequence[Mapping[str, Any]]
+def _edit_mapping_spec(
+    document_md: str,
+    edit: Callable[[dict], tuple[dict, list[str]]],
+    *,
+    where: str,
 ) -> tuple[str, list[str]]:
-    """:func:`apply_display_meta`, spliced back into a design document's §9.
+    """Run one IR-level edit on a design document's §9 and splice it back.
 
     Byte-preserving outside the mapping-spec block. Raises ``ValueError`` when the
     document has no §9 to edit (a legacy raw-RML design — there is no display
@@ -1411,7 +1416,7 @@ def apply_display_meta_to_document(
     from asterism_step0.materialize import materialize_schema
     from asterism_step0.spec_repair import replace_mapping_spec_block
 
-    ir_yaml = materialize_schema(document_md, ".", "display-meta", write=False).mapping_ir_yaml
+    ir_yaml = materialize_schema(document_md, ".", where, write=False).mapping_ir_yaml
     if ir_yaml is None:
         raise ValueError("this design has no mapping spec to edit")
     # A §9 a weak model left unparseable is a routine outcome, not a crash: the
@@ -1427,11 +1432,96 @@ def apply_display_meta_to_document(
         raise ValueError(f"the design's mapping spec is not readable: {exc}") from exc
     if not isinstance(doc, dict):
         raise ValueError("the design's mapping spec is not a mapping")
-    new_doc, changed = apply_display_meta(doc, edits)
+    new_doc, changed = edit(doc)
     if not changed:
         return document_md, []
     new_yaml = dump_spec_yaml(new_doc, sort_keys=False, allow_unicode=True)
     return replace_mapping_spec_block(document_md, new_yaml), changed
+
+
+def apply_display_meta_to_document(
+    document_md: str, edits: Sequence[Mapping[str, Any]]
+) -> tuple[str, list[str]]:
+    """:func:`apply_display_meta`, spliced back into a design document's §9."""
+    return _edit_mapping_spec(
+        document_md, lambda doc: apply_display_meta(doc, edits), where="display-meta"
+    )
+
+
+def apply_column_meanings(
+    ir: Mapping[str, Any], meanings: Sequence[Mapping[str, Any]]
+) -> tuple[dict, list[str]]:
+    """Project ``(source, column)`` meanings onto the §9 property rows.
+
+    ADR ``meaning-before-identity.md`` §6. What a column means is settled BEFORE
+    any design exists, so it is held against the only identity a column has at
+    that point — its file and its header. The design, once built, binds columns
+    to predicates, and this is the deterministic projection of the input layer
+    onto that shape. It runs on every assembly, which is also what keeps a later
+    AI round from quietly replacing a meaning the person confirmed (N6).
+
+    The input layer WINS over whatever the generating model wrote: the meaning
+    was either read off the data or typed by the person who took it, and the
+    per-map stage only ever restates it. Display metadata only (K8) — no triple,
+    no value, no datatype changes.
+
+    A row that reads several columns (``columns:``) or none is left alone: a
+    meaning belongs to exactly one column.
+    """
+    maps = ir.get("maps")
+    if not isinstance(maps, list) or not meanings:
+        return dict(ir), []
+    wanted: dict[tuple[str, str], Mapping[str, Any]] = {}
+    for entry in meanings:
+        if not isinstance(entry, Mapping):
+            continue
+        source = str(entry.get("source") or "")
+        column = str(entry.get("column") or "")
+        if source and column:
+            wanted.setdefault((source, column), entry)
+    if not wanted:
+        return dict(ir), []
+    changed: list[str] = []
+    out_maps: list[Any] = []
+    for m in maps:
+        if not isinstance(m, Mapping) or not isinstance(m.get("properties"), list):
+            out_maps.append(m)
+            continue
+        source = str(m.get("source") or "")
+        props: list[Any] = []
+        for prop in m["properties"]:
+            if not isinstance(prop, Mapping):
+                props.append(prop)
+                continue
+            column = str(prop.get("column") or "")
+            entry = wanted.get((source, column)) if column else None
+            if entry is None:
+                props.append(prop)
+                continue
+            row = dict(prop)
+            touched = False
+            for field_name in ("label", "unit"):
+                text = str(entry.get(field_name) or "").strip()
+                if not text or row.get(field_name) == text:
+                    continue
+                row[field_name] = text
+                touched = True
+            if touched:
+                changed.append(f"{source}:{column}")
+            props.append(row if touched else prop)
+        out_maps.append({**m, "properties": props})
+    if not changed:
+        return dict(ir), []
+    return {**ir, "maps": out_maps}, changed
+
+
+def apply_column_meanings_to_document(
+    document_md: str, meanings: Sequence[Mapping[str, Any]]
+) -> tuple[str, list[str]]:
+    """:func:`apply_column_meanings`, spliced back into a design document's §9."""
+    return _edit_mapping_spec(
+        document_md, lambda doc: apply_column_meanings(doc, meanings), where="column-meanings"
+    )
 
 
 _SAFE_COLUMN_DATATYPES = frozenset(
@@ -2702,6 +2792,7 @@ def propose_from_skeleton(
     map_columns: Mapping[str, Sequence[str]] | None = None,
     dataset_name: str | None = None,
     on_fallback: Callable[[str], None] | None = None,
+    column_meanings: Sequence[Mapping[str, Any]] | None = None,
 ) -> str:
     """Job 2: from a confirmed skeleton, generate each map's property table, assemble
     the full IR, generate the §1-8 document, and splice §9 in deterministically.
@@ -2729,7 +2820,13 @@ def propose_from_skeleton(
     fails. Omitted, the columns are recovered from ``menu`` (the api's oracle
     already lists them per file), so the default works on every path.
     ``on_fallback(map_name)`` fires for each map that ended up on that default —
-    the caller can record which kinds got column-name meanings."""
+    the caller can record which kinds got column-name meanings.
+
+    ``column_meanings`` are the ``(source, column)`` meanings settled BEFORE this
+    design existed (ADR meaning-before-identity). They are projected onto the
+    assembled IR deterministically and they WIN over what the per-map stage
+    wrote: the meaning of a column is knowledge the data and the person hold,
+    not something a generation round gets to revise."""
     names = _resolve_function_names(function_names)
     menu_text = menu if menu is not None else render_tier0_menu(names)
     context = render_skeleton_context(skeleton)
@@ -2785,6 +2882,15 @@ def propose_from_skeleton(
         )
 
     assembled = assemble_mapping_ir(skeleton, permaps)
+    # 意味は列の性質で、設計より前に決まっている（ADR meaning-before-identity）。
+    # 確定済みの意味を、束ね終わった表に決定論で写す。per-map が書いた label より
+    # こちらが勝つ — 生成ラウンドは意味を決める側ではない。
+    assembled, meant = apply_column_meanings(assembled, column_meanings or ())
+    if meant:
+        emit(
+            phase="meaning",
+            message=f"先に決めた意味を {len(meant)} 項目に写しました",
+        )
     # 同じファイルから出た種類が 1 つにつながっていること。per-map 段への「つなげ」は
     # お願いで、これが保証。キーの入れ子は線であってリンクではない（RDF の辺は
     # プロパティが書かれて初めて生まれる）ので、ここで足りない辺だけを決定論で足す。
